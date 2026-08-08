@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -124,6 +124,12 @@ pub fn to_ai_friendly_error(error: &str) -> String {
 pub struct PageInfo {
     pub target_id: String,
     pub session_id: String,
+    /// Stable positive integer id reported to protocol clients as `tabId`.
+    /// Derived from the CDP targetId (see `BrowserManager::tab_id_for_target`)
+    /// so it survives reordering and re-attachment, unlike the positional
+    /// index. Always assigned by `BrowserManager`; caller-provided values are
+    /// overwritten by `add_page`.
+    pub tab_id: u64,
     pub url: String,
     pub title: String,
     pub target_type: String, // "page" or "webview"
@@ -174,6 +180,11 @@ pub struct BrowserManager {
     pages: Vec<PageInfo>,
     active_page_index: usize,
     default_timeout_ms: u64,
+    /// Maps CDP targetIds to the stable positive integer tab ids exposed as
+    /// `tabId`. Never pruned for the life of the manager so a target keeps the
+    /// same id across detach/re-attach cycles and list calls.
+    target_tab_ids: HashMap<String, u64>,
+    next_tab_id: u64,
 }
 
 const LIGHTPANDA_CDP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -242,6 +253,8 @@ impl BrowserManager {
                 pages: Vec::new(),
                 active_page_index: 0,
                 default_timeout_ms: 25_000,
+                target_tab_ids: HashMap::new(),
+                next_tab_id: 1,
             };
             manager.discover_and_attach_targets().await?;
             manager
@@ -306,6 +319,8 @@ impl BrowserManager {
             pages: Vec::new(),
             active_page_index: 0,
             default_timeout_ms: 10_000,
+            target_tab_ids: HashMap::new(),
+            next_tab_id: 1,
         };
 
         manager.discover_and_attach_targets().await?;
@@ -363,9 +378,11 @@ impl BrowserManager {
                     )
                     .await?;
 
+                let tab_id = self.tab_id_for_target(&target.target_id);
                 self.pages.push(PageInfo {
                     target_id: target.target_id.clone(),
                     session_id: attach_result.session_id.clone(),
+                    tab_id,
                     url: target.url.clone(),
                     title: target.title.clone(),
                     target_type: target.target_type.clone(),
@@ -639,9 +656,11 @@ impl BrowserManager {
             )
             .await?;
 
+        let tab_id = self.tab_id_for_target(&result.target_id);
         self.pages.push(PageInfo {
             target_id: result.target_id,
             session_id: attach_result.session_id.clone(),
+            tab_id,
             url: "about:blank".to_string(),
             title: String::new(),
             target_type: "page".to_string(),
@@ -668,12 +687,54 @@ impl BrowserManager {
         }
     }
 
+    /// Returns the stable positive integer tab id for a CDP target, assigning
+    /// the next id when the target is seen for the first time. The mapping is
+    /// keyed by targetId and never pruned, so the same underlying target keeps
+    /// the same `tabId` across list calls, reordering, and re-attachment.
+    fn tab_id_for_target(&mut self, target_id: &str) -> u64 {
+        if let Some(id) = self.target_tab_ids.get(target_id) {
+            return *id;
+        }
+        let id = self.next_tab_id;
+        self.next_tab_id += 1;
+        self.target_tab_ids.insert(target_id.to_string(), id);
+        id
+    }
+
+    /// Stable `tabId` of the currently active page, if any.
+    pub fn active_tab_id(&self) -> Option<u64> {
+        self.pages.get(self.active_page_index).map(|p| p.tab_id)
+    }
+
+    /// Resolves a stable `tabId` back to the current positional index.
+    pub fn tab_index_by_id(&self, tab_id: u64) -> Option<usize> {
+        self.pages.iter().position(|p| p.tab_id == tab_id)
+    }
+
+    /// Makes the tab with the given stable id the active page. Returns
+    /// `Ok(true)` when a switch happened and `Ok(false)` when the tab was
+    /// already active.
+    pub async fn select_tab_by_id(&mut self, tab_id: u64) -> Result<bool, String> {
+        let index = self.tab_index_by_id(tab_id).ok_or_else(|| {
+            format!(
+                "Unknown tabId {}. The tab may have been closed; run tab_list to see current tabs.",
+                tab_id
+            )
+        })?;
+        if index == self.active_page_index {
+            return Ok(false);
+        }
+        self.tab_switch(index).await?;
+        Ok(true)
+    }
+
     pub fn tab_list(&self) -> Vec<Value> {
         self.pages
             .iter()
             .enumerate()
             .map(|(i, p)| {
                 json!({
+                    "tabId": p.tab_id,
                     "index": i,
                     "title": p.title,
                     "url": p.url,
@@ -713,16 +774,18 @@ impl BrowserManager {
         self.enable_domains(&attach.session_id).await?;
 
         let index = self.pages.len();
+        let tab_id = self.tab_id_for_target(&result.target_id);
         self.pages.push(PageInfo {
             target_id: result.target_id,
             session_id: attach.session_id,
+            tab_id,
             url: target_url.to_string(),
             title: String::new(),
             target_type: "page".to_string(),
         });
         self.active_page_index = index;
 
-        Ok(json!({ "index": index, "url": target_url }))
+        Ok(json!({ "tabId": tab_id, "index": index, "url": target_url }))
     }
 
     pub async fn tab_switch(&mut self, index: usize) -> Result<Value, String> {
@@ -752,7 +815,8 @@ impl BrowserManager {
             page.title = title.clone();
         }
 
-        Ok(json!({ "index": index, "url": url, "title": title }))
+        let tab_id = self.pages.get(index).map(|p| p.tab_id);
+        Ok(json!({ "tabId": tab_id, "index": index, "url": url, "title": title }))
     }
 
     pub async fn tab_close(&mut self, index: Option<usize>) -> Result<Value, String> {
@@ -785,7 +849,12 @@ impl BrowserManager {
         let session_id = self.pages[self.active_page_index].session_id.clone();
         self.enable_domains(&session_id).await?;
 
-        Ok(json!({ "closed": target_index, "activeIndex": self.active_page_index }))
+        Ok(json!({
+            "closed": target_index,
+            "closedTabId": page.tab_id,
+            "activeIndex": self.active_page_index,
+            "activeTabId": self.active_tab_id(),
+        }))
     }
 
     // -----------------------------------------------------------------------
@@ -1021,7 +1090,11 @@ impl BrowserManager {
             .to_string())
     }
 
-    pub fn add_page(&mut self, page: PageInfo) {
+    /// Registers a page and makes it active. The stable `tab_id` is always
+    /// (re)assigned here from the page's targetId; any value the caller put in
+    /// `page.tab_id` is ignored.
+    pub fn add_page(&mut self, mut page: PageInfo) {
+        page.tab_id = self.tab_id_for_target(&page.target_id);
         let index = self.pages.len();
         self.pages.push(page);
         self.active_page_index = index;
@@ -1192,6 +1265,8 @@ async fn initialize_lightpanda_manager(
             pages: Vec::new(),
             active_page_index: 0,
             default_timeout_ms: 25_000,
+            target_tab_ids: HashMap::new(),
+            next_tab_id: 1,
         };
 
         match discover_and_attach_lightpanda_targets(&mut manager, deadline).await {

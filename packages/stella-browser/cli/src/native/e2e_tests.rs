@@ -729,21 +729,37 @@ async fn e2e_tabs() {
     .await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["index"], 1);
+    let new_tab_id = get_data(&resp)["tabId"].as_u64().unwrap();
+    assert!(new_tab_id > 0);
 
-    // Tab list should show 2 tabs
+    // Tab list should show 2 tabs with stable positive tabIds
     let resp = execute_command(&json!({ "id": "5", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap();
     assert_eq!(tabs.len(), 2);
     assert_eq!(tabs[1]["active"], true);
+    let first_tab_id = tabs[0]["tabId"].as_u64().unwrap();
+    let second_tab_id = tabs[1]["tabId"].as_u64().unwrap();
+    assert!(first_tab_id > 0);
+    assert_eq!(second_tab_id, new_tab_id);
+    assert_ne!(first_tab_id, second_tab_id);
+    assert_eq!(get_data(&resp)["activeTabId"].as_u64(), Some(second_tab_id));
 
-    // Switch to first tab
+    // Ids stay stable across list calls
+    let resp = execute_command(&json!({ "id": "5b", "action": "tab_list" }), &mut state).await;
+    assert_success(&resp);
+    let tabs = get_data(&resp)["tabs"].as_array().unwrap();
+    assert_eq!(tabs[0]["tabId"].as_u64(), Some(first_tab_id));
+    assert_eq!(tabs[1]["tabId"].as_u64(), Some(second_tab_id));
+
+    // Switch to first tab by stable tabId
     let resp = execute_command(
-        &json!({ "id": "6", "action": "tab_switch", "index": 0 }),
+        &json!({ "id": "6", "action": "tab_switch", "tabId": first_tab_id }),
         &mut state,
     )
     .await;
     assert_success(&resp);
+    assert_eq!(get_data(&resp)["tabId"].as_u64(), Some(first_tab_id));
 
     let resp = execute_command(
         &json!({ "id": "7", "action": "evaluate", "script": "document.querySelector('h1').textContent" }),
@@ -753,13 +769,14 @@ async fn e2e_tabs() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Tab 1");
 
-    // Close second tab
+    // Close second tab by stable tabId
     let resp = execute_command(
-        &json!({ "id": "8", "action": "tab_close", "index": 1 }),
+        &json!({ "id": "8", "action": "tab_close", "tabId": second_tab_id }),
         &mut state,
     )
     .await;
     assert_success(&resp);
+    assert_eq!(get_data(&resp)["closedTabId"].as_u64(), Some(second_tab_id));
 
     // Should have 1 tab left
     let resp = execute_command(&json!({ "id": "9", "action": "tab_list" }), &mut state).await;
@@ -2206,6 +2223,438 @@ async fn e2e_snapshot_cursor_many_elements() {
         "snapshot -C with 100 cursor elements took {:?}, expected < 10s (Issue #841)",
         elapsed,
     );
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+// ---------------------------------------------------------------------------
+// Unified selector resolver (aria= semantic selectors) + actionability layer
+// ---------------------------------------------------------------------------
+
+/// Encode a semantic selector the way worker-api.ts / the extension do.
+fn aria_selector(payload: Value) -> String {
+    let semantic = match payload.get("kind").and_then(|v| v.as_str()) {
+        Some("role") => super::selector::SemanticSelector::by_role(
+            payload["role"].as_str().unwrap(),
+            payload.get("name").and_then(|v| v.as_str()),
+            payload.get("exact").and_then(|v| v.as_bool()).unwrap_or(false),
+        )
+        .unwrap(),
+        Some(kind) => super::selector::SemanticSelector::by_value(
+            super::selector::SemanticKind::from_str(kind).unwrap(),
+            payload["value"].as_str().unwrap(),
+            payload.get("exact").and_then(|v| v.as_bool()).unwrap_or(false),
+        )
+        .unwrap(),
+        _ => panic!("bad payload"),
+    };
+    super::selector::encode_semantic_selector(&semantic)
+}
+
+async fn launch_with_content(state: &mut DaemonState, html: &str) {
+    let resp = execute_command(
+        &json!({ "id": "l", "action": "launch", "headless": true }),
+        state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "c", "action": "setcontent", "html": html }),
+        state,
+    )
+    .await;
+    assert_success(&resp);
+}
+
+fn error_text(resp: &Value) -> String {
+    resp.get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[tokio::test]
+#[ignore]
+async fn e2e_semantic_selector_click_and_fill() {
+    let mut state = DaemonState::new();
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <button id="save" aria-label="Save changes" onclick="window.__clicked = true">Save</button>
+            <label for="email">Email address</label>
+            <input id="email" type="email" placeholder="you@example.com">
+            <div data-testid="status">idle</div>
+        </body></html>"#,
+    )
+    .await;
+
+    // getByRole("button", { name: "Save changes" }).click() equivalent:
+    // worker-api sends an aria= selector string on an ordinary click command.
+    let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Save changes" }));
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "click", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "2", "action": "evaluate", "script": "window.__clicked === true" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["result"], true);
+
+    // getByPlaceholder(...).fill(...)
+    let selector = aria_selector(json!({ "kind": "placeholder", "value": "you@example.com" }));
+    let resp = execute_command(
+        &json!({ "id": "3", "action": "fill", "selector": selector, "value": "a@b.co" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+
+    // getByLabel(...).inputvalue()
+    let selector = aria_selector(json!({ "kind": "label", "value": "Email address" }));
+    let resp = execute_command(
+        &json!({ "id": "4", "action": "inputvalue", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["value"], "a@b.co");
+
+    // getByTestId(...).textContent() + count on a semantic selector
+    let selector = aria_selector(json!({ "kind": "testid", "value": "status" }));
+    let resp = execute_command(
+        &json!({ "id": "5", "action": "gettext", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["text"], "idle");
+
+    let resp = execute_command(
+        &json!({ "id": "6", "action": "count", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["count"], 1);
+
+    // No match => precise semantic error, not a CSS fallback error.
+    let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Nope" }));
+    let resp = execute_command(
+        &json!({ "id": "7", "action": "gettext", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false);
+    assert!(
+        error_text(&resp).contains("No element found with role=\"button\" name=\"Nope\""),
+        "unexpected error: {}",
+        error_text(&resp)
+    );
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+#[tokio::test]
+#[ignore]
+async fn e2e_semantic_nth_and_exact() {
+    let mut state = DaemonState::new();
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <button onclick="window.__which='first'">Repeat</button>
+            <button onclick="window.__which='second'">Repeat</button>
+            <button onclick="window.__which='exactish'">Repeat exactly</button>
+        </body></html>"#,
+    )
+    .await;
+
+    // nth targets the second match
+    let mut semantic =
+        super::selector::SemanticSelector::by_role("button", Some("Repeat"), true).unwrap();
+    semantic.nth = Some(1);
+    let selector = super::selector::encode_semantic_selector(&semantic);
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "click", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "2", "action": "evaluate", "script": "window.__which" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["result"], "second");
+
+    // exact: false substring-matches all three; exact: true only two
+    let loose = aria_selector(json!({ "kind": "role", "role": "button", "name": "Repeat", "exact": false }));
+    let resp = execute_command(
+        &json!({ "id": "3", "action": "count", "selector": loose }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["count"], 3);
+    let strict = aria_selector(json!({ "kind": "role", "role": "button", "name": "Repeat", "exact": true }));
+    let resp = execute_command(
+        &json!({ "id": "4", "action": "count", "selector": strict }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["count"], 2);
+
+    // nth out of range => precise error
+    let mut semantic =
+        super::selector::SemanticSelector::by_role("button", Some("Repeat"), true).unwrap();
+    semantic.nth = Some(9);
+    let selector = super::selector::encode_semantic_selector(&semantic);
+    let resp = execute_command(
+        &json!({ "id": "5", "action": "click", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false);
+    assert!(
+        error_text(&resp).contains("out of range"),
+        "unexpected error: {}",
+        error_text(&resp)
+    );
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+#[tokio::test]
+#[ignore]
+async fn e2e_getby_commands_use_unified_resolver() {
+    let mut state = DaemonState::new();
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <button aria-label="Submit form" onclick="window.__ok = true">Go</button>
+            <label>Nickname <input id="nick"></label>
+            <img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Logo mark" title="Company logo">
+        </body></html>"#,
+    )
+    .await;
+
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "getbyrole", "role": "button", "name": "Submit form", "subaction": "click" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "2", "action": "evaluate", "script": "window.__ok === true" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["result"], true);
+
+    let resp = execute_command(
+        &json!({ "id": "3", "action": "getbylabel", "label": "Nickname", "subaction": "fill", "value": "zed" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "4", "action": "evaluate", "script": "document.getElementById('nick').value" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["result"], "zed");
+
+    // getbyalttext / getbytitle keep working through the shared resolver
+    let resp = execute_command(
+        &json!({ "id": "5", "action": "getbyalttext", "text": "Logo mark", "subaction": "text" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "6", "action": "getbytitle", "text": "Company logo", "subaction": "text" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+
+    // No marker attributes may linger after getby* commands.
+    let resp = execute_command(
+        &json!({ "id": "7", "action": "evaluate", "script": "document.querySelectorAll('[data-stella-browser-located]').length" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["result"], 0);
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+#[tokio::test]
+#[ignore]
+async fn e2e_actionability_scrolls_below_fold_click() {
+    let mut state = DaemonState::new();
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <div style="height: 4000px">spacer</div>
+            <button id="deep" onclick="window.__deep = true">Deep button</button>
+        </body></html>"#,
+    )
+    .await;
+
+    // Below-the-fold clicks used to dispatch at an off-viewport point and
+    // silently miss; the actionability layer must scroll first.
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "click", "selector": "#deep" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "2", "action": "evaluate", "script": "window.__deep === true" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["result"], true);
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+#[tokio::test]
+#[ignore]
+async fn e2e_actionability_precise_failures() {
+    let mut state = DaemonState::new();
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <button id="covered" onclick="window.__covered = true">Covered</button>
+            <div id="overlay" class="modal-backdrop" style="position: fixed; inset: 0; background: rgba(0,0,0,0.4)"></div>
+            <button id="invisible" style="display: none">Hidden</button>
+            <div id="flat" style="width: 0; height: 0"></div>
+        </body></html>"#,
+    )
+    .await;
+
+    // Covered element: precise occlusion error naming the covering element.
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "click", "selector": "#covered" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false);
+    let err = error_text(&resp);
+    assert!(
+        err.contains("covered by <div#overlay.modal-backdrop>"),
+        "unexpected error: {}",
+        err
+    );
+    // And the click must NOT have fired.
+    let resp = execute_command(
+        &json!({ "id": "2", "action": "evaluate", "script": "window.__covered === true" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["result"], false);
+
+    // display:none element
+    let resp = execute_command(
+        &json!({ "id": "3", "action": "click", "selector": "#invisible" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false);
+    assert!(
+        error_text(&resp).contains("not visible (display: none or visibility: hidden)"),
+        "unexpected error: {}",
+        error_text(&resp)
+    );
+
+    // zero-size element
+    let resp = execute_command(
+        &json!({ "id": "4", "action": "click", "selector": "#flat" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false);
+    assert!(
+        error_text(&resp).contains("zero size"),
+        "unexpected error: {}",
+        error_text(&resp)
+    );
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+#[tokio::test]
+#[ignore]
+async fn e2e_actionability_custom_checkbox_fallback() {
+    let mut state = DaemonState::new();
+    // Common custom-checkbox pattern: the native input is visually hidden and
+    // a styled sibling renders the box. check() must still work via the DOM
+    // click fallback.
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <label>
+                <input id="opt" type="checkbox" style="position: absolute; opacity: 0; width: 0; height: 0">
+                <span style="display: inline-block; width: 16px; height: 16px; border: 1px solid #333"></span>
+                Enable option
+            </label>
+        </body></html>"#,
+    )
+    .await;
+
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "check", "selector": "#opt" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "2", "action": "ischecked", "selector": "#opt" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(get_data(&resp)["checked"], true);
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+#[tokio::test]
+#[ignore]
+async fn e2e_wait_supports_semantic_selectors() {
+    let mut state = DaemonState::new();
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <script>
+                setTimeout(() => {
+                    const b = document.createElement('button');
+                    b.textContent = 'Late button';
+                    document.body.appendChild(b);
+                }, 300);
+            </script>
+        </body></html>"#,
+    )
+    .await;
+
+    let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Late button" }));
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "wait", "selector": selector, "timeout": 5000 }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
 
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);

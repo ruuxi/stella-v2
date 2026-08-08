@@ -203,8 +203,84 @@ pub async fn resolve_element_center(
         return Ok(box_model_center(&result.model));
     }
 
-    // CSS selector
-    resolve_by_selector(client, session_id, selector_or_ref).await
+    // Semantic (aria=) or CSS selector: resolve via the unified resolver,
+    // then compute the center of the bounding rect.
+    let object_id = resolve_selector_object_id(client, session_id, selector_or_ref).await?;
+    let result: EvaluateResult = client
+        .send_command_typed(
+            "Runtime.callFunctionOn",
+            &CallFunctionOnParams {
+                function_declaration: r#"function() {
+                    const rect = this.getBoundingClientRect();
+                    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+                }"#
+                .to_string(),
+                object_id: Some(object_id),
+                arguments: None,
+                return_by_value: Some(true),
+                await_promise: Some(false),
+            },
+            Some(session_id),
+        )
+        .await?;
+
+    let val = result.result.value.unwrap_or(Value::Null);
+    match (
+        val.get("x").and_then(|v| v.as_f64()),
+        val.get("y").and_then(|v| v.as_f64()),
+    ) {
+        (Some(x), Some(y)) => Ok((x, y)),
+        _ => Err(format!("Element not found: {}", selector_or_ref)),
+    }
+}
+
+/// Resolve any non-ref selector string (semantic `aria=` payloads or plain
+/// CSS) to a Runtime objectId via a single injected resolver script.
+///
+/// The injected expression evaluates to the matched ELEMENT on success or to
+/// a plain STRING error message on failure; the RemoteObject type
+/// distinguishes the two.
+pub async fn resolve_selector_object_id(
+    client: &CdpClient,
+    session_id: &str,
+    selector: &str,
+) -> Result<String, String> {
+    let expression = super::selector::resolve_one_expression_for(selector)?;
+
+    let result: EvaluateResult = client
+        .send_command_typed(
+            "Runtime.evaluate",
+            &EvaluateParams {
+                expression,
+                return_by_value: Some(false),
+                await_promise: Some(false),
+            },
+            Some(session_id),
+        )
+        .await?;
+
+    if let Some(details) = result.exception_details {
+        let message = details
+            .exception
+            .as_ref()
+            .and_then(|e| e.description.clone())
+            .unwrap_or(details.text);
+        return Err(format!("Selector resolution failed: {}", message));
+    }
+
+    let object = result.result;
+    if object.object_type == "string" {
+        return Err(object
+            .value
+            .as_ref()
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("Element not found: {}", selector)));
+    }
+
+    object
+        .object_id
+        .ok_or_else(|| format!("Element not found: {}", selector))
 }
 
 pub async fn resolve_element_object_id(
@@ -259,27 +335,8 @@ pub async fn resolve_element_object_id(
             .ok_or_else(|| format!("No objectId for ref {}", ref_id));
     }
 
-    // CSS selector fallback
-    let js = format!(
-        "document.querySelector({})",
-        serde_json::to_string(selector_or_ref).unwrap_or_default()
-    );
-    let result: EvaluateResult = client
-        .send_command_typed(
-            "Runtime.evaluate",
-            &EvaluateParams {
-                expression: js,
-                return_by_value: Some(false),
-                await_promise: Some(false),
-            },
-            Some(session_id),
-        )
-        .await?;
-
-    result
-        .result
-        .object_id
-        .ok_or_else(|| format!("Element not found: {}", selector_or_ref))
+    // Semantic (aria=) or CSS selector fallback via the unified resolver.
+    resolve_selector_object_id(client, session_id, selector_or_ref).await
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -536,43 +593,6 @@ fn select_best_candidate<'a>(
     }
 
     best
-}
-
-async fn resolve_by_selector(
-    client: &CdpClient,
-    session_id: &str,
-    selector: &str,
-) -> Result<(f64, f64), String> {
-    let js = format!(
-        r#"(() => {{
-            const el = document.querySelector({sel});
-            if (!el) return null;
-            const rect = el.getBoundingClientRect();
-            return {{ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }};
-        }})()"#,
-        sel = serde_json::to_string(selector).unwrap_or_default(),
-    );
-
-    let result: EvaluateResult = client
-        .send_command_typed(
-            "Runtime.evaluate",
-            &EvaluateParams {
-                expression: js,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(session_id),
-        )
-        .await?;
-
-    let val = result.result.value.unwrap_or(Value::Null);
-    let x = val.get("x").and_then(|v| v.as_f64());
-    let y = val.get("y").and_then(|v| v.as_f64());
-
-    match (x, y) {
-        (Some(x), Some(y)) => Ok((x, y)),
-        _ => Err(format!("Element not found: {}", selector)),
-    }
 }
 
 fn box_model_center(model: &BoxModel) -> (f64, f64) {
@@ -930,10 +950,15 @@ pub async fn get_element_count(
     session_id: &str,
     selector: &str,
 ) -> Result<i64, String> {
-    let js = format!(
-        "document.querySelectorAll({}).length",
-        serde_json::to_string(selector).unwrap_or_default()
-    );
+    // Semantic selectors (aria=) count matches through the unified resolver;
+    // plain CSS keeps querySelectorAll semantics.
+    let js = match super::selector::parse_semantic_selector(selector)? {
+        Some(semantic) => super::selector::count_expression(&semantic),
+        None => format!(
+            "document.querySelectorAll({}).length",
+            serde_json::to_string(selector).unwrap_or_default()
+        ),
+    };
 
     let result: EvaluateResult = client
         .send_command_typed(

@@ -944,6 +944,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
                 mgr.add_page(super::browser::PageInfo {
                     target_id: te.target_info.target_id.clone(),
                     session_id: attach.session_id,
+                    tab_id: 0, // assigned by add_page
                     url: te.target_info.url.clone(),
                     title: te.target_info.title.clone(),
                     target_type: te.target_info.target_type.clone(),
@@ -1104,8 +1105,33 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             _ => {
                 return error_response(
                     &id,
-                    "In-app browser is not ready. Connect the Stella browser extension and try again.",
+                    "In-app browser is not ready. Browser control runs on the Stella in-app browser; the extension transport only seeds credentials. Open the Stella in-app browser and try again.",
                 );
+            }
+        }
+    }
+
+    // Callers built against the tab-addressed protocol (the browser worker
+    // API) pass the stable `tabId` from tab_list/tab_new on every per-tab
+    // action. The CDP handlers operate on the active page, so make the
+    // addressed tab active first. tab_switch/tab_close resolve their own
+    // target, and tab_list/tab_new take none.
+    if !matches!(action, "tab_list" | "tab_new" | "tab_switch" | "tab_close") {
+        if let Some(tab_id_value) = cmd.get("tabId") {
+            match tab_id_value.as_u64().filter(|tab_id| *tab_id > 0) {
+                None => return error_response(&id, "'tabId' must be a positive integer"),
+                Some(tab_id) => {
+                    if let Some(ref mut mgr) = state.browser {
+                        match mgr.select_tab_by_id(tab_id).await {
+                            Ok(switched) => {
+                                if switched {
+                                    state.ref_map.clear();
+                                }
+                            }
+                            Err(e) => return error_response(&id, &e),
+                        }
+                    }
+                }
             }
         }
     }
@@ -1264,13 +1290,16 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "mousemove" => handle_mousemove(cmd, state).await,
         "mousedown" => handle_mousedown(cmd, state).await,
         "mouseup" => handle_mouseup(cmd, state).await,
-        "chain" => Err("Chain is only supported by the extension backend".to_string()),
-        "finalize_tabs"
-        | "close_owner"
-        | "release_owner_lease"
-        | "cookies_export_all"
-        | "cookies_export_for_urls" => Err(format!(
-            "Action '{}' requires the extension backend",
+        "chain" => Err(
+            "The 'chain' action is not implemented on this browser backend; send the steps as individual commands"
+                .to_string(),
+        ),
+        "finalize_tabs" | "close_owner" | "release_owner_lease" => Err(format!(
+            "Action '{}' is not implemented on this browser backend",
+            action
+        )),
+        "cookies_export_all" | "cookies_export_for_urls" => Err(format!(
+            "Action '{}' requires the extension backend (it exports cookies from the user's real browser)",
             action
         )),
         _ => Err(format!("Not yet implemented: {}", action)),
@@ -2273,10 +2302,17 @@ async fn handle_screenshot(cmd: &Value, state: &mut DaemonState) -> Result<Value
         .await?;
     }
 
+    let format = options.format.clone();
     let result =
         screenshot::take_screenshot(&mgr.client, &session_id, &state.ref_map, &options).await?;
 
-    let mut response = json!({ "path": result.path });
+    // `base64` and `format` mirror the extension backend's screenshot payload;
+    // runtime consumers (e.g. the node_repl browser receipt) read `base64`.
+    let mut response = json!({
+        "path": result.path,
+        "base64": result.base64,
+        "format": format,
+    });
     if !result.annotations.is_empty() {
         response["annotations"] = serde_json::to_value(&result.annotations)
             .map_err(|e| format!("Failed to serialize annotations: {}", e))?;
@@ -2425,6 +2461,20 @@ async fn handle_press(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
         .get("key")
         .and_then(|v| v.as_str())
         .ok_or("Missing 'key' parameter")?;
+
+    // When a selector is provided, resolve and focus the target first
+    // (visible + attached actionability, same as fill/focus) so the key
+    // lands on that element instead of whatever happens to be focused.
+    // Without a selector this is a page-level press.
+    if let Some(selector) = cmd
+        .get("selector")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        interaction::focus(&mgr.client, &session_id, &state.ref_map, selector).await?;
+        interaction::press_key(&mgr.client, &session_id, key).await?;
+        return Ok(json!({ "pressed": key, "selector": selector }));
+    }
 
     interaction::press_key(&mgr.client, &session_id, key).await?;
     Ok(json!({ "pressed": key }))
@@ -2727,6 +2777,18 @@ async fn wait_for_selector(
     state: &str,
     timeout_ms: u64,
 ) -> Result<(), String> {
+    // Semantic (aria=) selectors go through the unified resolver. Matching is
+    // visibility-filtered (extension parity), so "attached"/"visible" both map
+    // to at-least-one-match and "detached"/"hidden" to zero matches.
+    if let Some(semantic) = super::selector::parse_semantic_selector(selector)? {
+        let count = super::selector::count_expression(&semantic);
+        let check_fn = match state {
+            "detached" | "hidden" => format!("({}) === 0", count),
+            _ => format!("({}) > 0", count),
+        };
+        return poll_until_true(client, session_id, &check_fn, timeout_ms).await;
+    }
+
     let check_fn = match state {
         "attached" => format!(
             "!!document.querySelector({})",
@@ -3244,7 +3306,7 @@ async fn handle_keyboard(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
 async fn handle_tab_list(state: &DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
     let tabs = mgr.tab_list();
-    Ok(json!({ "tabs": tabs }))
+    Ok(json!({ "tabs": tabs, "activeTabId": mgr.active_tab_id() }))
 }
 
 async fn handle_tab_new(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -3254,22 +3316,37 @@ async fn handle_tab_new(cmd: &Value, state: &mut DaemonState) -> Result<Value, S
     mgr.tab_new(url).await
 }
 
+/// Resolves which tab a `tab_switch`/`tab_close` command addresses. Prefers
+/// the stable `tabId` that `tab_list`/`tab_new` report; falls back to the
+/// legacy positional `index` for older callers.
+fn resolve_tab_index(cmd: &Value, mgr: &BrowserManager) -> Result<Option<usize>, String> {
+    if let Some(tab_id_value) = cmd.get("tabId") {
+        let tab_id = tab_id_value
+            .as_u64()
+            .filter(|id| *id > 0)
+            .ok_or("'tabId' must be a positive integer")?;
+        let index = mgr.tab_index_by_id(tab_id).ok_or_else(|| {
+            format!(
+                "Unknown tabId {}. The tab may have been closed; run tab_list to see current tabs.",
+                tab_id
+            )
+        })?;
+        return Ok(Some(index));
+    }
+    Ok(cmd.get("index").and_then(|v| v.as_u64()).map(|i| i as usize))
+}
+
 async fn handle_tab_switch(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
-    let index = cmd
-        .get("index")
-        .and_then(|v| v.as_u64())
-        .ok_or("Missing 'index' parameter")? as usize;
+    let index =
+        resolve_tab_index(cmd, mgr)?.ok_or("Missing 'tabId' (or legacy 'index') parameter")?;
     state.ref_map.clear();
     mgr.tab_switch(index).await
 }
 
 async fn handle_tab_close(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
-    let index = cmd
-        .get("index")
-        .and_then(|v| v.as_u64())
-        .map(|i| i as usize);
+    let index = resolve_tab_index(cmd, mgr)?;
     state.ref_map.clear();
     mgr.tab_close(index).await
 }
@@ -3450,6 +3527,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
         mgr.add_page(super::browser::PageInfo {
             target_id: create_result.target_id,
             session_id: new_session_id.clone(),
+            tab_id: 0, // assigned by add_page
             url: nav_url.clone(),
             title: String::new(),
             target_type: "page".to_string(),
@@ -4325,88 +4403,8 @@ async fn execute_subaction(
     }
 }
 
-fn build_role_selector(role: &str, name: Option<&str>, exact: bool) -> String {
-    match name {
-        Some(n) => {
-            let exact_str = if exact { ", exact: true" } else { "" };
-            format!("getByRole('{}', {{ name: '{}'{} }})", role, n, exact_str)
-        }
-        None => format!("getByRole('{}')", role),
-    }
-}
-
-async fn resolve_semantic_locator(
-    client: &super::cdp::client::CdpClient,
-    session_id: &str,
-    strategy: &str,
-    value: &str,
-    exact: bool,
-) -> Result<String, String> {
-    let js = match strategy {
-        "role" => {
-            format!(
-                r#"(() => {{
-                    const els = document.querySelectorAll('[role="{}"]');
-                    if (els.length === 0) return null;
-                    return 'found';
-                }})()"#,
-                value
-            )
-        }
-        "text" => {
-            let match_fn = if exact {
-                format!(
-                    "el.textContent.trim() === {}",
-                    serde_json::to_string(value).unwrap_or_default()
-                )
-            } else {
-                format!(
-                    "el.textContent.includes({})",
-                    serde_json::to_string(value).unwrap_or_default()
-                )
-            };
-            format!(
-                r#"(() => {{
-                    const all = document.querySelectorAll('*');
-                    for (const el of all) {{
-                        if (el.children.length === 0 && {}) return 'found';
-                    }}
-                    return null;
-                }})()"#,
-                match_fn
-            )
-        }
-        _ => return Err(format!("Unknown semantic strategy: {}", strategy)),
-    };
-
-    let result: super::cdp::types::EvaluateResult = client
-        .send_command_typed(
-            "Runtime.evaluate",
-            &super::cdp::types::EvaluateParams {
-                expression: js,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(session_id),
-        )
-        .await?;
-
-    if result
-        .result
-        .value
-        .as_ref()
-        .map(|v| v.is_null())
-        .unwrap_or(true)
-    {
-        return Err(format!("No element found for {} '{}'", strategy, value));
-    }
-
-    Ok(value.to_string())
-}
-
 async fn handle_getbyrole(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    let session_id = mgr.active_session_id()?.to_string();
+    state.browser.as_ref().ok_or("Browser not launched")?;
     let role = cmd
         .get("role")
         .and_then(|v| v.as_str())
@@ -4414,229 +4412,62 @@ async fn handle_getbyrole(cmd: &Value, state: &mut DaemonState) -> Result<Value,
     let name = cmd.get("name").and_then(|v| v.as_str());
     let exact = cmd.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    let name_match = name
-        .map(|n| {
-            if exact {
-                format!(
-                    "el.getAttribute('aria-label') === {} || el.textContent.trim() === {}",
-                    serde_json::to_string(n).unwrap_or_default(),
-                    serde_json::to_string(n).unwrap_or_default()
-                )
-            } else {
-                format!(
-                    "(el.getAttribute('aria-label') || '').includes({n}) || el.textContent.includes({n})",
-                    n = serde_json::to_string(n).unwrap_or_default()
-                )
-            }
-        })
-        .unwrap_or_else(|| "true".to_string());
-
-    let js = format!(
-        r#"(() => {{
-            const els = document.querySelectorAll('[role="{role}"], {role}');
-            for (const el of els) {{
-                if ({name_match}) {{
-                    el.setAttribute('data-stella-browser-located', 'true');
-                    return true;
-                }}
-            }}
-            return false;
-        }})()"#,
-        role = role,
-        name_match = name_match,
-    );
-
-    let result: super::cdp::types::EvaluateResult = mgr
-        .client
-        .send_command_typed(
-            "Runtime.evaluate",
-            &super::cdp::types::EvaluateParams {
-                expression: js,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(&session_id),
-        )
-        .await?;
-
-    if !result
-        .result
-        .value
-        .as_ref()
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        let desc = build_role_selector(role, name, exact);
-        return Err(format!("No element found: {}", desc));
-    }
-
-    let selector = "[data-stella-browser-located='true']";
-    let result = execute_subaction(cmd, state, selector).await;
-
-    // Clean up the marker attribute
-    if let Some(ref browser) = state.browser {
-        if let Ok(sid) = browser.active_session_id() {
-            let _ = browser
-                .evaluate(
-                    "document.querySelector('[data-stella-browser-located]')?.removeAttribute('data-stella-browser-located')",
-                    None,
-                )
-                .await;
-            let _ = sid;
-        }
-    }
-
-    result
+    // Route through the unified selector resolver: encode as a semantic
+    // (aria=) selector and let the subaction resolve it like any other
+    // selector string.
+    let semantic = super::selector::SemanticSelector::by_role(role, name, exact)?;
+    let selector = super::selector::encode_semantic_selector(&semantic);
+    execute_subaction(cmd, state, &selector).await
 }
 
 async fn handle_semantic_locator(
     cmd: &Value,
     state: &mut DaemonState,
-    strategy: &str,
+    kind: super::selector::SemanticKind,
     param_name: &str,
 ) -> Result<Value, String> {
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    let session_id = mgr.active_session_id()?.to_string();
+    state.browser.as_ref().ok_or("Browser not launched")?;
     let value = cmd
         .get(param_name)
         .and_then(|v| v.as_str())
         .ok_or(format!("Missing '{}' parameter", param_name))?;
     let exact = cmd.get("exact").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    let match_fn = if exact {
-        format!(
-            "el.textContent.trim() === {}",
-            serde_json::to_string(value).unwrap_or_default()
-        )
-    } else {
-        format!(
-            "el.textContent.includes({})",
-            serde_json::to_string(value).unwrap_or_default()
-        )
-    };
-
-    let query = match strategy {
-        "label" => format!(
-            r#"(() => {{
-                const label = Array.from(document.querySelectorAll('label')).find(el => {match_fn});
-                if (!label) return false;
-                const forId = label.getAttribute('for');
-                const target = forId ? document.getElementById(forId) : label.querySelector('input,select,textarea');
-                if (target) {{ target.setAttribute('data-stella-browser-located', 'true'); return true; }}
-                return false;
-            }})()"#,
-            match_fn = match_fn,
-        ),
-        "placeholder" => format!(
-            r#"(() => {{
-                const el = document.querySelector('input[placeholder={val}], textarea[placeholder={val}]');
-                if (el) {{ el.setAttribute('data-stella-browser-located', 'true'); return true; }}
-                return false;
-            }})()"#,
-            val = serde_json::to_string(value).unwrap_or_default(),
-        ),
-        "alttext" => format!(
-            r#"(() => {{
-                const el = document.querySelector('img[alt={val}], [alt={val}]');
-                if (el) {{ el.setAttribute('data-stella-browser-located', 'true'); return true; }}
-                return false;
-            }})()"#,
-            val = serde_json::to_string(value).unwrap_or_default(),
-        ),
-        "title" => format!(
-            r#"(() => {{
-                const el = document.querySelector('[title={val}]');
-                if (el) {{ el.setAttribute('data-stella-browser-located', 'true'); return true; }}
-                return false;
-            }})()"#,
-            val = serde_json::to_string(value).unwrap_or_default(),
-        ),
-        "testid" => format!(
-            r#"(() => {{
-                const el = document.querySelector('[data-testid={val}]');
-                if (el) {{ el.setAttribute('data-stella-browser-located', 'true'); return true; }}
-                return false;
-            }})()"#,
-            val = serde_json::to_string(value).unwrap_or_default(),
-        ),
-        _ => {
-            // "text" strategy
-            format!(
-                r#"(() => {{
-                    const all = document.querySelectorAll('*');
-                    for (const el of all) {{
-                        if (el.children.length === 0 && {match_fn}) {{
-                            el.setAttribute('data-stella-browser-located', 'true');
-                            return true;
-                        }}
-                    }}
-                    return false;
-                }})()"#,
-                match_fn = match_fn,
-            )
-        }
-    };
-
-    let result: super::cdp::types::EvaluateResult = mgr
-        .client
-        .send_command_typed(
-            "Runtime.evaluate",
-            &super::cdp::types::EvaluateParams {
-                expression: query,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(&session_id),
-        )
-        .await?;
-
-    if !result
-        .result
-        .value
-        .as_ref()
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        return Err(format!("No element found by {} '{}'", strategy, value));
-    }
-
-    let selector = "[data-stella-browser-located='true']";
-    let action_result = execute_subaction(cmd, state, selector).await;
-
-    if let Some(ref browser) = state.browser {
-        let _ = browser
-            .evaluate(
-                "document.querySelector('[data-stella-browser-located]')?.removeAttribute('data-stella-browser-located')",
-                None,
-            )
-            .await;
-    }
-
-    action_result
+    // Route through the unified selector resolver instead of bespoke per-kind
+    // page scripts (previously half-duplicated the extension's selector.js).
+    let semantic = super::selector::SemanticSelector::by_value(kind, value, exact)?;
+    let selector = super::selector::encode_semantic_selector(&semantic);
+    execute_subaction(cmd, state, &selector).await
 }
 
 async fn handle_getbytext(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    handle_semantic_locator(cmd, state, "text", "text").await
+    handle_semantic_locator(cmd, state, super::selector::SemanticKind::Text, "text").await
 }
 
 async fn handle_getbylabel(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    handle_semantic_locator(cmd, state, "label", "label").await
+    handle_semantic_locator(cmd, state, super::selector::SemanticKind::Label, "label").await
 }
 
 async fn handle_getbyplaceholder(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    handle_semantic_locator(cmd, state, "placeholder", "placeholder").await
+    handle_semantic_locator(
+        cmd,
+        state,
+        super::selector::SemanticKind::Placeholder,
+        "placeholder",
+    )
+    .await
 }
 
 async fn handle_getbyalttext(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    handle_semantic_locator(cmd, state, "alttext", "text").await
+    handle_semantic_locator(cmd, state, super::selector::SemanticKind::AltText, "text").await
 }
 
 async fn handle_getbytitle(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    handle_semantic_locator(cmd, state, "title", "text").await
+    handle_semantic_locator(cmd, state, super::selector::SemanticKind::Title, "text").await
 }
 
 async fn handle_getbytestid(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
-    handle_semantic_locator(cmd, state, "testid", "testId").await
+    handle_semantic_locator(cmd, state, super::selector::SemanticKind::TestId, "testId").await
 }
 
 async fn handle_nth(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -4770,12 +4601,28 @@ async fn handle_drag(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
         .and_then(|v| v.as_str())
         .ok_or("Missing 'target' parameter")?;
 
-    let (sx, sy) =
-        super::element::resolve_element_center(&mgr.client, &session_id, &state.ref_map, source)
-            .await?;
-    let (tx, ty) =
-        super::element::resolve_element_center(&mgr.client, &session_id, &state.ref_map, target)
-            .await?;
+    // Shared actionability layer for both drag endpoints. The source must
+    // win the hit-test (the pointer actually grabs it); the target only needs
+    // to be visible with a stable point (drop zones are often overlaid by
+    // placeholder/preview elements).
+    let source_point = interaction::wait_for_actionable(
+        &mgr.client,
+        &session_id,
+        &state.ref_map,
+        source,
+        true,
+    )
+    .await?;
+    let target_point = interaction::wait_for_actionable(
+        &mgr.client,
+        &session_id,
+        &state.ref_map,
+        target,
+        false,
+    )
+    .await?;
+    let (sx, sy) = (source_point.x, source_point.y);
+    let (tx, ty) = (target_point.x, target_point.y);
 
     // Mouse down at source
     mgr.client
@@ -5035,6 +4882,7 @@ async fn handle_window_new(cmd: &Value, state: &mut DaemonState) -> Result<Value
     mgr.add_page(super::browser::PageInfo {
         target_id: create_result.target_id,
         session_id: attach.session_id,
+        tab_id: 0, // assigned by add_page
         url: "about:blank".to_string(),
         title: String::new(),
         target_type: "page".to_string(),
@@ -5053,9 +4901,10 @@ async fn handle_window_new(cmd: &Value, state: &mut DaemonState) -> Result<Value
     }
 
     let total = mgr.page_count();
+    let tab_id = mgr.active_tab_id();
     state.ref_map.clear();
 
-    Ok(json!({ "index": total - 1, "total": total }))
+    Ok(json!({ "tabId": tab_id, "index": total - 1, "total": total }))
 }
 
 async fn handle_diff_screenshot(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -6375,13 +6224,9 @@ async fn handle_keydown(cmd: &Value, state: &DaemonState) -> Result<Value, Strin
         .and_then(|v| v.as_str())
         .ok_or("Missing 'key' parameter")?;
 
-    mgr.client
-        .send_command(
-            "Input.dispatchKeyEvent",
-            Some(json!({ "type": "keyDown", "key": key })),
-            Some(&session_id),
-        )
-        .await?;
+    // Enriched dispatch (key/code/windowsVirtualKeyCode/text) so pages that
+    // rely on keyCode or keypress semantics observe a real key event.
+    interaction::key_down(&mgr.client, &session_id, key).await?;
     Ok(json!({ "keydown": key }))
 }
 
@@ -6393,13 +6238,8 @@ async fn handle_keyup(cmd: &Value, state: &DaemonState) -> Result<Value, String>
         .and_then(|v| v.as_str())
         .ok_or("Missing 'key' parameter")?;
 
-    mgr.client
-        .send_command(
-            "Input.dispatchKeyEvent",
-            Some(json!({ "type": "keyUp", "key": key })),
-            Some(&session_id),
-        )
-        .await?;
+    // Same key-info machinery as keydown/press so the pair matches.
+    interaction::key_up(&mgr.client, &session_id, key).await?;
     Ok(json!({ "keyup": key }))
 }
 

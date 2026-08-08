@@ -96,9 +96,16 @@ export interface BrowserWorkerPlaywright {
   ): Promise<BrowserWorkerTab>;
 }
 
+export interface BrowserWorkerKeyboard {
+  press(key: string): Promise<unknown>;
+  type(text: string): Promise<unknown>;
+}
+
 export interface BrowserWorkerTab {
   readonly id: number;
   readonly playwright: BrowserWorkerPlaywright;
+  readonly keyboard: BrowserWorkerKeyboard;
+  press(key: string): Promise<unknown>;
   goto(url: string, options?: Record<string, unknown>): Promise<unknown>;
   back(options?: Record<string, unknown>): Promise<unknown>;
   forward(options?: Record<string, unknown>): Promise<unknown>;
@@ -174,6 +181,8 @@ Run multiple awaited browser actions in one REPL cell. Keep the Tab and Locator 
 Use the cheapest state check that answers the question: url(), title(), count(), isVisible(), isEnabled(), or isChecked(). Use snapshot/domSnapshot only when page structure is needed, and screenshots only when pixels matter.
 
 Use waitFor(), waitForURL(), or expectNewTab() for browser-driven changes. Do not add sleeps between deterministic actions. Observe after an action only when the next action genuinely branches on what changed.
+
+Keyboard: tab.press(key) sends a page-level key press to whatever holds focus — use it for Enter, Escape, Tab, and shortcuts like "Control+a" or "Meta+Shift+P". locator.press(key) focuses its element first, then presses. tab.keyboard.type(text) inserts raw text at the current focus without per-character key events.
 
 Example:
 const tab = await browser.tabs.new("https://example.com");
@@ -540,6 +549,7 @@ const title = await tab.title();`;
     title: string;
     active: boolean;
     playwright?: BrowserWorkerPlaywright;
+    keyboard?: BrowserWorkerKeyboard;
   };
 
   const tabState = new WeakMap<object, TabState>();
@@ -1164,9 +1174,21 @@ const title = await tab.title();`;
     activeTabId?: number;
   };
 
+  // The worker only sees payloads, so backend problems surface here as shape
+  // mismatches. Two distinct failure modes get distinct messages: a payload
+  // that identifies tabs only by position comes from a backend that predates
+  // stable tab ids (fix: update the Stella Browser daemon/extension), while
+  // any other malformed payload is a protocol drift between backend and
+  // runtime (fix: update Stella so both sides match). Neither is fixed by
+  // "update the extension" alone — the in-app CDP daemon speaks the same
+  // protocol.
   const browserProtocolMismatch = (detail: string): Error =>
     new Error(
-      `Stella Browser protocol mismatch: ${detail}. Update the Stella Browser extension to 1.2.6 or newer.`,
+      `Stella Browser protocol mismatch: ${detail}. The connected browser backend (in-app browser daemon or extension) returned a payload shape this runtime cannot drive. Update Stella so the browser backend and runtime versions match.`,
+    );
+  const browserLegacyIndexOnlyTabs = (detail: string): Error =>
+    new Error(
+      `Stella Browser protocol mismatch: ${detail}. The backend identified tabs only by position ('index'), which is not stable across tab changes; this browser backend predates stable tab ids. Update the Stella Browser backend to a version that reports 'tabId'.`,
     );
 
   const normalizeTabId = (value: unknown, name: string): number => {
@@ -1227,9 +1249,11 @@ const title = await tab.title();`;
         tabs.push(tab);
         if (active) activeTabId = id;
       } catch (error) {
-        throw browserProtocolMismatch(
-          `tab_list tabs[${index}] has no stable positive tabId (${error instanceof Error ? error.message : String(error)})`,
-        );
+        const detail = `tab_list tabs[${index}] has no stable positive tabId (${error instanceof Error ? error.message : String(error)})`;
+        if (rawId === undefined && typeof item.index === "number") {
+          throw browserLegacyIndexOnlyTabs(detail);
+        }
+        throw browserProtocolMismatch(detail);
       }
     }
     return Object.freeze({
@@ -1338,6 +1362,32 @@ const title = await tab.title();`;
         expectNewTab,
       });
       return state.playwright;
+    }
+
+    get keyboard(): BrowserWorkerKeyboard {
+      const state = this.state();
+      if (state.keyboard) return state.keyboard;
+      state.keyboard = Object.freeze({
+        // Page-level key press (no selector): the key goes to whatever holds
+        // focus, or the document. Supports combos like "Control+a".
+        press: async (key: string) =>
+          await command("press", {
+            tabId: state.id,
+            key: requireString(key, "key", { maxLength: 64 }),
+          }),
+        // Raw text insertion at the current focus (Input.insertText): no
+        // per-character key events, works for emoji/CJK.
+        type: async (text: string) =>
+          await command("inserttext", {
+            tabId: state.id,
+            text: requireString(text, "text", { allowEmpty: true }),
+          }),
+      });
+      return state.keyboard;
+    }
+
+    async press(key: string): Promise<unknown> {
+      return await this.keyboard.press(key);
     }
 
     async goto(
@@ -1629,7 +1679,11 @@ const title = await tab.title();`;
         field(data, "id") ??
         field(field(data, "tab"), "id");
       if (rawId === undefined || rawId === null) {
-        throw browserProtocolMismatch("tab_new returned no stable tabId");
+        const detail = "tab_new returned no stable tabId";
+        if (typeof field(data, "index") === "number") {
+          throw browserLegacyIndexOnlyTabs(detail);
+        }
+        throw browserProtocolMismatch(detail);
       }
       return getTab(rawId, {
         url: typeof url === "string" ? url : "about:blank",

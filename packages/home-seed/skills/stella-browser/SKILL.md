@@ -50,6 +50,22 @@ await tab.title();
 
 Locators resolve against current page state when called; do not replace a locator merely because the DOM changed. Rebuild it only when the selector or intended element changes.
 
+Selectors (semantic and CSS) search the top document plus same-origin iframes and open shadow roots, so embedded editors (e.g. a Google Docs canvas iframe) resolve without frame plumbing. Cross-origin frames cannot be searched; not-found errors state how many frames were skipped.
+
+## Keyboard
+
+There is no `page.keyboard`. Page-level keys go through the tab handle:
+
+- `tab.press(key)` sends a key to whatever holds focus: `"Enter"`, `"Escape"`, `"Tab"`, combos like `"Control+a"` or `"Meta+Shift+P"`.
+- `tab.keyboard.type(text)` inserts raw text at the current focus without per-character key events (works for emoji/CJK, and for canvas-style editors after clicking into them).
+- `locator.press(key)` focuses its element first, then presses.
+
+```js
+await tab.playwright.getByRole("textbox", { name: "Document content" }).click();
+await tab.keyboard.type("Hello world");
+await tab.press("Control+a");
+```
+
 ## Observe Cheaply
 
 Use the least expensive observation that answers the question:
@@ -106,7 +122,7 @@ Entries may be a `Tab`, tab ID, or `{ tab, status }`/`{ tabId, status }`. Status
 
 ## Frozen Browser API
 
-The public object graph is frozen. Do not mutate it or attach properties. Call `browser.documentation()` for the short runtime reminder.
+The public object graph is frozen. Do not mutate it or attach properties. It is introspectable: `Object.keys(tab)` or `Object.keys(locator)` lists the available methods. Call `browser.documentation()` for the full runtime reference.
 
 ### Browser and Tabs
 
@@ -131,9 +147,12 @@ For a new task, call `tabs.new()` once and then navigate that handle with `tab.g
 | `url()`, `title()`                                                    | Cheapest page identity reads.            |
 | `snapshot(options?)`                                                  | Structural observation.                  |
 | `screenshot(options?)`                                                | Pixel observation.                       |
+| `press(key)`                                                          | Page-level key press to current focus.   |
+| `keyboard.type(text)`, `keyboard.press(key)`                          | Raw text insertion / key press.          |
+| `scroll(options?)`                                                    | Scroll page or element.                  |
 | `expectNewTab(action, { timeoutMs? })`                                | Capture exactly one new owned tab.       |
 
-Snapshot options are `interactive`, `cursor`, `maxDepth` (or `depth`), `compact`, and `selector`. Screenshot options are `fullPage`, `selector`, `format` (`"png"` or `"jpeg"`), `quality` (0-100), and `annotate`.
+Snapshot options are `interactive`, `cursor`, `maxDepth` (or `depth`), `compact`, and `selector`. Screenshot options are `fullPage`, `selector`, `format` (`"png"` or `"jpeg"`), `quality` (0-100), and `annotate`. Scroll options are pixel deltas `x`/`y` (negative scrolls up/left) or `selector` + `direction` + `amount`; prefer `locator.scrollIntoViewIfNeeded()` before acting on an element.
 
 ### Page Facade
 
@@ -165,11 +184,14 @@ filter({ hasText?, hasNotText?, has?, hasNot? })
 nth(index), first(), last(), count()
 click(), dblclick(), fill(value), type(text), press(key)
 hover(), focus(), check(), uncheck(), setChecked(boolean)
-selectOption(valueOrValues), scrollIntoViewIfNeeded()
+selectOption(valueOrValues), setInputFiles(absolutePaths)
+scrollIntoViewIfNeeded()
 innerText(), textContent(), inputValue(), getAttribute(name)
 isVisible(), isEnabled(), isChecked(), boundingBox()
 evaluate(pageFunction, arg?), waitFor(options?), allTextContents()
 ```
+
+`setInputFiles` requires absolute file paths and targets `<input type=file>`.
 
 `locator()` chaining is supported only from an unfiltered CSS locator. `filter({ has, hasNot })` requires same-tab CSS locators. `nth()` is zero-based. Semantic locators use the frozen API's small role mapping and string matching; they do not provide every Playwright accessibility behavior.
 
@@ -177,6 +199,4 @@ Timeouts are non-negative milliseconds and are capped at 120 seconds unless a sm
 
 ## Transport Failures
 
-Do not fall back to shell commands when the frozen browser API reports a bridge or transport failure. Report the exact error and use an appropriate visible-browser computer-control fallback only when the task calls for it.
-
-Do not promise automatic extension installation, automatic retry after installation, service-worker self-healing, shared-window behavior, or stale-tab cleanup; none is part of the frozen worker API contract.
+Do not fall back to shell commands when the frozen browser API reports a bridge or transport failure. Report the exact error and use an appropriate visible-browser computer-control fallback only when the task calls for it. Do not promise automatic backend recovery, retries, or stale-tab cleanup; none is part of the frozen worker API contract.

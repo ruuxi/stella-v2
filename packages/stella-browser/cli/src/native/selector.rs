@@ -361,12 +361,65 @@ fn normalize_semantic_selector(value: &Value) -> Result<SemanticSelector, String
 // Page-side resolution scripts
 // ---------------------------------------------------------------------------
 
+/// JS statements that collect every document root reachable from the top
+/// document — the document itself, same-origin iframe/frame documents
+/// (recursively), and open shadow roots — plus a count of frames whose
+/// documents are NOT reachable from injected JS (cross-origin or sandboxed).
+/// Also defines `queryAll(sel)`, a querySelectorAll that runs against every
+/// collected root (top-document matches first, then frames/shadow roots in
+/// encounter order).
+///
+/// Kept as a plain constant (spliced by string replacement, not `format!`) so
+/// the JS braces stay readable.
+const COLLECT_ROOTS_JS: &str = r#"const roots = [];
+      let blockedFrames = 0;
+      const visitRoot = (root, depth) => {
+        if (!root || depth > 8) return;
+        roots.push(root);
+        let all;
+        try { all = root.querySelectorAll('*'); } catch (e) { return; }
+        for (const node of all) {
+          if (node.shadowRoot) visitRoot(node.shadowRoot, depth + 1);
+          const tag = node.tagName;
+          if (tag === 'IFRAME' || tag === 'FRAME') {
+            let doc = null;
+            try { doc = node.contentDocument; } catch (e) { doc = null; }
+            if (doc) visitRoot(doc, depth + 1);
+            else blockedFrames += 1;
+          }
+        }
+      };
+      visitRoot(document, 0);
+      const queryAll = sel => {
+        const out = [];
+        for (const root of roots) {
+          try { out.push(...root.querySelectorAll(sel)); } catch (e) {}
+        }
+        return out;
+      };"#;
+
 /// Build a page-context IIFE that evaluates to an ARRAY of all elements
 /// matching a semantic selector. Semantics mirror
-/// `extension/lib/selector.js#buildRoleMatcherAllScript`.
+/// `extension/lib/selector.js#buildRoleMatcherAllScript`, extended to search
+/// same-origin iframes and open shadow roots (the extension resolver only
+/// searches the top document).
 pub fn match_all_expression(selector: &SemanticSelector) -> String {
+    semantic_match_expression(selector, "return matches;")
+}
+
+/// Same matching as `match_all_expression`, but evaluates to
+/// `{ matches: Element[], blockedFrames: number }` so callers can explain
+/// unreachable cross-origin frames in not-found errors.
+fn match_result_expression(selector: &SemanticSelector) -> String {
+    semantic_match_expression(
+        selector,
+        "return { matches: matches, blockedFrames: blockedFrames };",
+    )
+}
+
+fn semantic_match_expression(selector: &SemanticSelector, return_statement: &str) -> String {
     let matcher = serde_json::to_string(&selector.matcher_json()).unwrap_or_default();
-    format!(
+    let template = format!(
         r#"(() => {{
       const ROLE_TAG_MAP = {{
         button: ['button', 'input[type="button"]', 'input[type="submit"]', 'input[type="reset"]', '[role="button"]'],
@@ -397,6 +450,7 @@ pub fn match_all_expression(selector: &SemanticSelector) -> String {
       }};
 
       const matcher = {matcher};
+      {collect_roots}
       const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
       const stringMatches = (actual, expected) => {{
         const actualValue = normalize(actual);
@@ -412,9 +466,11 @@ pub fn match_all_expression(selector: &SemanticSelector) -> String {
       const labelledText = el => {{
         const labelledBy = el.getAttribute('aria-labelledby');
         if (!labelledBy) return '';
+        const scope = el.getRootNode();
+        const byId = id => (scope.getElementById ? scope.getElementById(id) : null);
         return labelledBy
           .split(/\s+/)
-          .map(id => document.getElementById(id)?.textContent || '')
+          .map(id => byId(id)?.textContent || '')
           .join(' ');
       }};
       const accessibleName = el => {{
@@ -423,7 +479,8 @@ pub fn match_all_expression(selector: &SemanticSelector) -> String {
         const labelled = labelledText(el);
         if (labelled) return labelled;
         if (el.id) {{
-          const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+          let label = null;
+          try {{ label = el.getRootNode().querySelector('label[for="' + CSS.escape(el.id) + '"]'); }} catch (e) {{}}
           if (label) return label.textContent || '';
         }}
         return el.alt || el.value || el.title || el.placeholder || el.textContent || '';
@@ -432,14 +489,17 @@ pub fn match_all_expression(selector: &SemanticSelector) -> String {
       let matches = [];
       if (matcher.kind === 'role') {{
         const selectors = ROLE_TAG_MAP[matcher.role] || ['[role="' + matcher.role + '"]'];
-        const candidates = uniqueVisible(
-          selectors.flatMap(sel => [...document.querySelectorAll(sel)]),
-        );
+        const candidates = uniqueVisible(selectors.flatMap(sel => queryAll(sel)));
         matches = matcher.name === undefined
           ? candidates
           : candidates.filter(el => stringMatches(accessibleName(el), matcher.name));
       }} else if (matcher.kind === 'text') {{
-        const candidates = uniqueVisible(document.querySelectorAll('body *'));
+        const content = [];
+        for (const root of roots) {{
+          const scope = root.body || root;
+          try {{ content.push(...scope.querySelectorAll('*')); }} catch (e) {{}}
+        }}
+        const candidates = uniqueVisible(content);
         matches = candidates.filter(el => {{
           if (!stringMatches(el.textContent, matcher.value)) return false;
           return ![...el.children].some(
@@ -448,33 +508,36 @@ pub fn match_all_expression(selector: &SemanticSelector) -> String {
         }});
       }} else if (matcher.kind === 'label') {{
         const controls = [];
-        for (const label of document.querySelectorAll('label')) {{
+        for (const label of queryAll('label')) {{
           if (!stringMatches(label.textContent, matcher.value)) continue;
           const control = label.control || label.querySelector('input, textarea, select, button');
           if (control) controls.push(control);
         }}
-        for (const el of document.querySelectorAll('[aria-label], [aria-labelledby]')) {{
+        for (const el of queryAll('[aria-label], [aria-labelledby]')) {{
           if (stringMatches(accessibleName(el), matcher.value)) controls.push(el);
         }}
         matches = uniqueVisible(controls);
       }} else if (matcher.kind === 'placeholder') {{
-        matches = uniqueVisible(document.querySelectorAll('[placeholder]'))
+        matches = uniqueVisible(queryAll('[placeholder]'))
           .filter(el => stringMatches(el.getAttribute('placeholder'), matcher.value));
       }} else if (matcher.kind === 'testid') {{
-        matches = uniqueVisible(document.querySelectorAll('[data-testid]'))
+        matches = uniqueVisible(queryAll('[data-testid]'))
           .filter(el => stringMatches(el.getAttribute('data-testid'), matcher.value));
       }} else if (matcher.kind === 'alttext') {{
-        matches = uniqueVisible(document.querySelectorAll('[alt]'))
+        matches = uniqueVisible(queryAll('[alt]'))
           .filter(el => stringMatches(el.getAttribute('alt'), matcher.value));
       }} else if (matcher.kind === 'title') {{
-        matches = uniqueVisible(document.querySelectorAll('[title]'))
+        matches = uniqueVisible(queryAll('[title]'))
           .filter(el => stringMatches(el.getAttribute('title'), matcher.value));
       }}
 
-      return matches;
+      {return_statement}
     }})()"#,
         matcher = matcher,
-    )
+        collect_roots = COLLECT_ROOTS_JS,
+        return_statement = return_statement,
+    );
+    template
 }
 
 /// Expression evaluating to the number of semantic matches.
@@ -482,40 +545,79 @@ pub fn count_expression(selector: &SemanticSelector) -> String {
     format!("{}.length", match_all_expression(selector))
 }
 
+/// Suffix appended to not-found errors when reachable documents matched
+/// nothing but one or more frames could not be searched from injected JS.
+const BLOCKED_FRAMES_NOTE_JS: &str =
+    r#" + (resolved.blockedFrames > 0 ? ' (' + resolved.blockedFrames + " cross-origin frame(s) could not be searched)" : '')"#;
+
 /// Expression that evaluates to the matched ELEMENT on success or to a plain
 /// STRING error message on failure. The caller inspects the RemoteObject type
 /// to distinguish the two (elements come back as objects with subtype "node",
-/// failures come back as type "string").
+/// failures come back as type "string"). When nothing matched but
+/// cross-origin frames were present, the error notes how many frames could
+/// not be searched.
 pub fn resolve_one_expression(selector: &SemanticSelector) -> String {
     let not_found = json_quote(&format!("No element found with {}", selector.describe()));
     format!(
         r#"(() => {{
-      const matches = {all};
-      if (matches.length === 0) return {not_found};
+      const resolved = {result};
+      const matches = resolved.matches;
+      if (matches.length === 0) return {not_found}{blocked_note};
       const index = {nth};
       if (index >= matches.length) {{
         return 'Element index ' + index + ' out of range, found ' + matches.length + ' matches';
       }}
       return matches[index];
     }})()"#,
-        all = match_all_expression(selector),
+        result = match_result_expression(selector),
         not_found = not_found,
+        blocked_note = BLOCKED_FRAMES_NOTE_JS,
         nth = selector.nth.unwrap_or(0),
     )
 }
 
-/// Same success-or-string protocol for plain CSS selectors.
+/// IIFE evaluating to an ARRAY of every element matching a plain CSS
+/// selector across all reachable documents (top document, same-origin
+/// iframes, open shadow roots). CSS combinators do not cross root
+/// boundaries; the selector is evaluated independently against each root.
+pub fn css_match_all_expression(css_selector: &str) -> String {
+    css_match_expression(css_selector, "return matches;")
+}
+
+fn css_match_result_expression(css_selector: &str) -> String {
+    css_match_expression(
+        css_selector,
+        "return { matches: matches, blockedFrames: blockedFrames };",
+    )
+}
+
+fn css_match_expression(css_selector: &str, return_statement: &str) -> String {
+    format!(
+        r#"(() => {{
+      {collect_roots}
+      const matches = queryAll({sel});
+      {return_statement}
+    }})()"#,
+        collect_roots = COLLECT_ROOTS_JS,
+        sel = json_quote(css_selector),
+        return_statement = return_statement,
+    )
+}
+
+/// Same success-or-string protocol for plain CSS selectors, searching all
+/// reachable documents like the semantic resolver.
 pub fn resolve_one_css_expression(css_selector: &str) -> String {
-    let sel = json_quote(css_selector);
     let not_found = json_quote(&format!("Element not found: {}", css_selector));
     format!(
         r#"(() => {{
-      const el = document.querySelector({sel});
-      if (!el) return {not_found};
+      const resolved = {result};
+      const el = resolved.matches[0];
+      if (!el) return {not_found}{blocked_note};
       return el;
     }})()"#,
-        sel = sel,
+        result = css_match_result_expression(css_selector),
         not_found = not_found,
+        blocked_note = BLOCKED_FRAMES_NOTE_JS,
     )
 }
 
@@ -796,8 +898,9 @@ mod tests {
     #[test]
     fn test_resolve_one_css_expression_structure() {
         let js = resolve_one_css_expression("#login > .btn");
-        assert!(js.contains(r##"document.querySelector("#login > .btn")"##));
+        assert!(js.contains(r##"queryAll("#login > .btn")"##));
         assert!(js.contains("Element not found: #login > .btn"));
+        assert!(js.contains("resolved.matches[0]"));
     }
 
     #[test]
@@ -808,12 +911,69 @@ mod tests {
         );
         let js = resolve_one_expression_for(&aria).unwrap();
         assert!(js.contains("ROLE_TAG_MAP"));
-        // CSS routes to querySelector
+        // CSS routes to the multi-root queryAll walk
         let js = resolve_one_expression_for(".card button").unwrap();
-        assert!(js.contains("document.querySelector"));
+        assert!(js.contains(r#"queryAll(".card button")"#));
         assert!(!js.contains("ROLE_TAG_MAP"));
         // malformed aria= is an error, not silently CSS
         assert!(resolve_one_expression_for("aria=%ZZ").is_err());
+    }
+
+    // -- JS generation: frame and shadow-root descent -------------------------
+
+    /// Both resolver flavors must walk same-origin iframes and open shadow
+    /// roots, and must count frames whose documents are unreachable.
+    #[test]
+    fn test_resolvers_walk_frames_and_shadow_roots() {
+        let semantic = SemanticSelector::by_role("textbox", Some("Document content"), false)
+            .map(|sel| match_all_expression(&sel))
+            .unwrap();
+        let css = css_match_all_expression("#editor");
+        for (label, js) in [("semantic", &semantic), ("css", &css)] {
+            assert!(js.contains("contentDocument"), "{}: missing iframe walk", label);
+            assert!(js.contains("shadowRoot"), "{}: missing shadow-root walk", label);
+            assert!(js.contains("blockedFrames"), "{}: missing blocked-frame count", label);
+            assert!(js.contains("'IFRAME'"), "{}: missing IFRAME tag check", label);
+            assert!(js.contains("'FRAME'"), "{}: missing FRAME tag check", label);
+            assert!(js.starts_with("(() => {"), "{}: not an IIFE", label);
+            assert!(js.ends_with("})()"), "{}: not an IIFE", label);
+        }
+        // match_all still evaluates to a plain array (count_expression appends
+        // `.length`).
+        assert!(semantic.contains("return matches;"));
+        assert!(css.contains("return matches;"));
+    }
+
+    /// Not-found errors must explain unreachable cross-origin frames so
+    /// agents understand why a visible element could not be matched.
+    #[test]
+    fn test_resolve_one_errors_note_cross_origin_frames() {
+        let semantic = SemanticSelector::by_role("textbox", None, false)
+            .map(|sel| resolve_one_expression(&sel))
+            .unwrap();
+        let css = resolve_one_css_expression("#editor");
+        for (label, js) in [("semantic", &semantic), ("css", &css)] {
+            assert!(
+                js.contains("cross-origin frame(s) could not be searched"),
+                "{}: missing cross-origin note",
+                label
+            );
+            assert!(
+                js.contains("resolved.blockedFrames > 0"),
+                "{}: note must be conditional on blocked frames",
+                label
+            );
+        }
+    }
+
+    /// aria-labelledby and label[for] lookups must resolve ids inside the
+    /// element's own document/shadow root, not the top document.
+    #[test]
+    fn test_accessible_name_is_root_scoped() {
+        let sel = SemanticSelector::by_role("textbox", Some("Email"), false).unwrap();
+        let js = match_all_expression(&sel);
+        assert!(js.contains("el.getRootNode()"));
+        assert!(!js.contains("document.getElementById"));
     }
 
     #[test]

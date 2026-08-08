@@ -951,12 +951,13 @@ pub async fn get_element_count(
     selector: &str,
 ) -> Result<i64, String> {
     // Semantic selectors (aria=) count matches through the unified resolver;
-    // plain CSS keeps querySelectorAll semantics.
+    // plain CSS counts across every reachable document (top document,
+    // same-origin iframes, open shadow roots) via the same root walk.
     let js = match super::selector::parse_semantic_selector(selector)? {
         Some(semantic) => super::selector::count_expression(&semantic),
         None => format!(
-            "document.querySelectorAll({}).length",
-            serde_json::to_string(selector).unwrap_or_default()
+            "{}.length",
+            super::selector::css_match_all_expression(selector)
         ),
     };
 

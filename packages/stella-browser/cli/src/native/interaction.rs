@@ -25,29 +25,45 @@ const ACTIONABILITY_POLL_MS: u64 = 150;
 /// Page-side actionability probe. Runs against the resolved element
 /// (`this`) and returns a JSON status object:
 ///   { status: 'ok', x, y }          — actionable; (x, y) is the click point
+///     in TOP-viewport coordinates (iframe offsets accumulated), ready for
+///     Input.dispatchMouseEvent
 ///   { status: 'detached' }          — element no longer in the DOM
 ///   { status: 'hidden' }            — display:none / visibility:hidden
 ///   { status: 'transparent' }       — opacity: 0
 ///   { status: 'zero-size' }         — zero-width/height bounding rect
 ///   { status: 'offscreen' }         — could not be scrolled into the viewport
 ///   { status: 'covered', by: 'tag#id.class' } — another element wins the
-///     hit-test at the click point
+///     hit-test at the click point (checked in the element's own document and
+///     in every ancestor document along the frame chain)
+///   { status: 'cross-origin-frame' }— an ancestor frame boundary is
+///     cross-origin, so coordinates cannot be translated to the top viewport
+///
+/// All geometry is measured in the element's own document/window, then
+/// translated to the top viewport by accumulating each ancestor iframe's
+/// bounding rect (plus its border via clientLeft/clientTop). Same-origin
+/// frames only: elements resolved through the injected resolver always live
+/// in a same-origin frame chain, so 'cross-origin-frame' is defensive.
 ///
 /// It scrolls the element into view when needed (block: nearest first, then
-/// center as a fallback) before measuring.
+/// center as a fallback) before measuring; scrollIntoView also scrolls
+/// same-origin ancestor frames.
 const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     const el = this;
     if (!el.isConnected) return { status: 'detached' };
-    const style = window.getComputedStyle(el);
+    const doc = el.ownerDocument;
+    const win = doc && doc.defaultView;
+    if (!win) return { status: 'detached' };
+    const style = win.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
         return { status: 'hidden' };
     }
     if (parseFloat(style.opacity) === 0) return { status: 'transparent' };
     let rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return { status: 'zero-size' };
-    const vw = window.innerWidth || document.documentElement.clientWidth;
-    const vh = window.innerHeight || document.documentElement.clientHeight;
-    // Minimal scroll if any part is outside the viewport (no-op when fully visible).
+    const vw = win.innerWidth || doc.documentElement.clientWidth;
+    const vh = win.innerHeight || doc.documentElement.clientHeight;
+    // Minimal scroll if any part is outside the frame viewport (no-op when
+    // fully visible).
     if (rect.top < 0 || rect.left < 0 || rect.bottom > vh || rect.right > vw) {
         el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         rect = el.getBoundingClientRect();
@@ -56,21 +72,70 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     let cy = rect.top + rect.height / 2;
     if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) {
         el.scrollIntoView({ block: 'center', inline: 'center' });
-        rect = el.getBoundingClientRect();
     }
-    // Click point: center of the visible (viewport-clipped) part of the element.
-    const left = Math.max(rect.left, 0);
-    const top = Math.max(rect.top, 0);
-    const right = Math.min(rect.right, vw);
-    const bottom = Math.min(rect.bottom, vh);
-    if (right - left <= 0 || bottom - top <= 0) return { status: 'offscreen' };
-    const x = (left + right) / 2;
-    const y = (top + bottom) / 2;
-    if (!requireHit) return { status: 'ok', x: x, y: y };
-    let hit = document.elementFromPoint(x, y);
+    // Click point: center of the visible (frame-viewport-clipped) part.
+    const localPoint = () => {
+        const r = el.getBoundingClientRect();
+        const left = Math.max(r.left, 0);
+        const top = Math.max(r.top, 0);
+        const right = Math.min(r.right, vw);
+        const bottom = Math.min(r.bottom, vh);
+        if (right - left <= 0 || bottom - top <= 0) return null;
+        return { x: (left + right) / 2, y: (top + bottom) / 2 };
+    };
+    // Translate a point in the element's frame viewport to top-viewport
+    // coordinates by accumulating ancestor iframe offsets. Returns null at a
+    // cross-origin boundary (frameElement inaccessible).
+    const toTop = (x, y) => {
+        let w = win;
+        for (let depth = 0; depth < 16 && w && w !== w.parent; depth += 1) {
+            let frame = null;
+            try { frame = w.frameElement; } catch (e) { frame = null; }
+            if (!frame) return null;
+            const fr = frame.getBoundingClientRect();
+            x += fr.left + frame.clientLeft;
+            y += fr.top + frame.clientTop;
+            w = frame.ownerDocument && frame.ownerDocument.defaultView;
+        }
+        return w ? { x: x, y: y, win: w } : null;
+    };
+    let lp = localPoint();
+    if (!lp) {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        lp = localPoint();
+    }
+    if (!lp) return { status: 'offscreen' };
+    let point = toTop(lp.x, lp.y);
+    if (!point) return { status: 'cross-origin-frame' };
+    const inTopViewport = p => {
+        const tw = p.win.innerWidth || p.win.document.documentElement.clientWidth;
+        const th = p.win.innerHeight || p.win.document.documentElement.clientHeight;
+        return p.x >= 0 && p.y >= 0 && p.x < tw && p.y < th;
+    };
+    // The element can be visible inside its frame while the frame itself is
+    // scrolled out of the top viewport: center once and re-measure.
+    if (win !== point.win && !inTopViewport(point)) {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        lp = localPoint();
+        if (!lp) return { status: 'offscreen' };
+        point = toTop(lp.x, lp.y);
+        if (!point) return { status: 'cross-origin-frame' };
+        if (!inTopViewport(point)) return { status: 'offscreen' };
+    }
+    if (!requireHit) return { status: 'ok', x: point.x, y: point.y };
+    const describeHit = hit => {
+        const parts = [hit.tagName ? hit.tagName.toLowerCase() : 'unknown'];
+        if (hit.id) parts.push('#' + hit.id);
+        const cls = typeof hit.className === 'string'
+            ? hit.className.trim().split(/\s+/).filter(Boolean).slice(0, 3)
+            : [];
+        if (cls.length) parts.push('.' + cls.join('.'));
+        return parts.join('');
+    };
+    let hit = doc.elementFromPoint(lp.x, lp.y);
     // Descend through open shadow roots to the deepest hit target.
     while (hit && hit.shadowRoot) {
-        const inner = hit.shadowRoot.elementFromPoint(x, y);
+        const inner = hit.shadowRoot.elementFromPoint(lp.x, lp.y);
         if (!inner || inner === hit) break;
         hit = inner;
     }
@@ -91,14 +156,35 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
         const ownLabel = el.closest ? el.closest('label') : null;
         if (ownLabel && (ownLabel === hit || ownLabel.contains(hit))) related = true;
     }
-    if (related) return { status: 'ok', x: x, y: y };
-    const parts = [hit.tagName ? hit.tagName.toLowerCase() : 'unknown'];
-    if (hit.id) parts.push('#' + hit.id);
-    const cls = typeof hit.className === 'string'
-        ? hit.className.trim().split(/\s+/).filter(Boolean).slice(0, 3)
-        : [];
-    if (cls.length) parts.push('.' + cls.join('.'));
-    return { status: 'covered', by: parts.join(''), x: x, y: y };
+    if (!related) return { status: 'covered', by: describeHit(hit), x: point.x, y: point.y };
+    // Ancestor-frame occlusion: at each frame boundary the translated point
+    // must hit the frame element itself (or a wrapper), not an overlay drawn
+    // in the parent document.
+    let w = win;
+    let px = lp.x;
+    let py = lp.y;
+    for (let depth = 0; depth < 16 && w && w !== w.parent; depth += 1) {
+        let frame = null;
+        try { frame = w.frameElement; } catch (e) { frame = null; }
+        if (!frame) return { status: 'cross-origin-frame' };
+        const fr = frame.getBoundingClientRect();
+        px += fr.left + frame.clientLeft;
+        py += fr.top + frame.clientTop;
+        const parentDoc = frame.ownerDocument;
+        if (!parentDoc) return { status: 'cross-origin-frame' };
+        let parentHit = parentDoc.elementFromPoint(px, py);
+        while (parentHit && parentHit.shadowRoot) {
+            const inner = parentHit.shadowRoot.elementFromPoint(px, py);
+            if (!inner || inner === parentHit) break;
+            parentHit = inner;
+        }
+        if (!parentHit) return { status: 'offscreen' };
+        if (parentHit !== frame && !parentHit.contains(frame) && !frame.contains(parentHit)) {
+            return { status: 'covered', by: describeHit(parentHit), x: point.x, y: point.y };
+        }
+        w = parentDoc.defaultView;
+    }
+    return { status: 'ok', x: point.x, y: point.y };
 }"#;
 
 fn actionability_failure_message(status: &str, by: Option<&str>, selector: &str) -> String {
@@ -117,6 +203,10 @@ fn actionability_failure_message(status: &str, by: Option<&str>, selector: &str)
         "covered" => format!(
             "Element found but covered by <{}> at its click point: {}",
             by.unwrap_or("unknown element"),
+            selector
+        ),
+        "cross-origin-frame" => format!(
+            "Element is inside a cross-origin iframe; its coordinates cannot be translated to the top viewport: {}",
             selector
         ),
         other => format!("Element is not actionable ({}): {}", other, selector),
@@ -1468,6 +1558,10 @@ mod tests {
             "Element found but could not be scrolled into the viewport: #a"
         );
         assert_eq!(
+            actionability_failure_message("cross-origin-frame", None, "#a"),
+            "Element is inside a cross-origin iframe; its coordinates cannot be translated to the top viewport: #a"
+        );
+        assert_eq!(
             actionability_failure_message("weird", None, "#a"),
             "Element is not actionable (weird): #a"
         );
@@ -1490,6 +1584,7 @@ mod tests {
             "'zero-size'",
             "'offscreen'",
             "'covered'",
+            "'cross-origin-frame'",
             "'ok'",
         ] {
             assert!(
@@ -1498,6 +1593,27 @@ mod tests {
                 status
             );
         }
+    }
+
+    /// The probe must be frame-aware: geometry measured in the element's own
+    /// document, coordinates translated across ancestor iframes (rect +
+    /// clientLeft/clientTop border offset), and occlusion checked in every
+    /// ancestor document, so Input.dispatchMouseEvent receives top-viewport
+    /// coordinates for elements inside same-origin iframes.
+    #[test]
+    fn test_actionability_check_js_is_frame_aware() {
+        assert!(ACTIONABILITY_CHECK_JS.contains("el.ownerDocument"));
+        assert!(ACTIONABILITY_CHECK_JS.contains("frameElement"));
+        assert!(ACTIONABILITY_CHECK_JS.contains("clientLeft"));
+        assert!(ACTIONABILITY_CHECK_JS.contains("clientTop"));
+        // Local measurements must use the element's window, never the top
+        // window implicitly.
+        assert!(ACTIONABILITY_CHECK_JS.contains("win.getComputedStyle(el)"));
+        assert!(ACTIONABILITY_CHECK_JS.contains("doc.elementFromPoint"));
+        assert!(!ACTIONABILITY_CHECK_JS.contains("window.getComputedStyle"));
+        assert!(!ACTIONABILITY_CHECK_JS.contains("document.elementFromPoint"));
+        // Parent documents are hit-tested at the translated point.
+        assert!(ACTIONABILITY_CHECK_JS.contains("parentDoc.elementFromPoint"));
     }
 
     #[test]

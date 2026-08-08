@@ -255,7 +255,7 @@ describe("conversation top-bar contracts", () => {
       "utf8",
     );
     const root = fs.readFileSync(
-      path.join(SOURCE_ROOT, "routes/__root.jsx"),
+      path.join(SOURCE_ROOT, "routes/__root.tsx"),
       "utf8",
     );
     const store = fs.readFileSync(

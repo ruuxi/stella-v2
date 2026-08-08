@@ -1,0 +1,259 @@
+import {
+  useState,
+  useMemo,
+  cloneElement,
+  isValidElement,
+  type CSSProperties,
+  type ReactElement,
+} from "react";
+import { useTheme, useThemeControl } from "@/context/theme-context";
+import { isHiddenOverlay } from "@/shared/theme/themes";
+import { Popover, PopoverContent, PopoverTrigger, PopoverBody } from "@/ui/popover";
+import { Button } from "@/ui/button";
+import { Check } from "@/ui/icons";
+import "./ThemePicker.css";
+
+type ColorScheme = "light" | "dark" | "system";
+
+type ThemePickerTriggerProps = {
+  style?: CSSProperties;
+  tabIndex?: number;
+  "aria-hidden"?: boolean;
+  "data-slot"?: string;
+};
+
+const COLOR_SCHEMES: { id: ColorScheme; label: string }[] = [
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+  { id: "system", label: "System" },
+];
+
+interface ThemePickerProps {
+  /** Render the picker as a full-width in-panel settings surface. */
+  inline?: boolean;
+  hideTrigger?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onThemeSelect?: () => void;
+  /** Custom trigger (e.g. icon button). Defaults to a text Button. */
+  trigger?: ReactElement;
+  /** Used only when `trigger` is omitted. */
+  triggerLabel?: string;
+  /** Which side of the trigger the popover opens on. Defaults to `top`
+   * (legacy: footer-anchored dropup). The title-bar variant uses `bottom`. */
+  side?: "top" | "bottom";
+  /** Alignment of the popover relative to the trigger. Defaults to `end`. */
+  align?: "start" | "center" | "end";
+}
+
+export function ThemePicker({
+  inline = false,
+  hideTrigger = false,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  onThemeSelect,
+  trigger,
+  triggerLabel = "Theme",
+  side = "top",
+  align = "end",
+}: ThemePickerProps) {
+  const { selectedThemeId, themes, colorMode, gradientMode, gradientColor, flat } = useTheme();
+  const {
+    setTheme,
+    setColorMode,
+    setGradientMode,
+    setGradientColor,
+    previewTheme,
+    cancelThemePreview,
+    cancelPreview,
+  } = useThemeControl();
+
+  const [internalOpen, setInternalOpen] = useState(false);
+
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const setOpen = controlledOnOpenChange || setInternalOpen;
+
+  // Empty overlay themes (an unpopulated Custom) stay out of the list until
+  // they actually carry changes.
+  const sortedThemes = useMemo(
+    () =>
+      [...themes]
+        .filter((t) => !isHiddenOverlay(t))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [themes]
+  );
+
+
+  const triggerElement =
+    trigger && isValidElement<ThemePickerTriggerProps>(trigger) ? trigger : null;
+
+  const popoverTrigger =
+    triggerElement
+      ? cloneElement(triggerElement, {
+          "data-slot": "theme-picker-trigger",
+          ...(hideTrigger
+            ? {
+                style: {
+                  ...(typeof triggerElement.props.style === "object" &&
+                  triggerElement.props.style !== null &&
+                  !Array.isArray(triggerElement.props.style)
+                    ? triggerElement.props.style
+                    : {}),
+                  opacity: 0,
+                  pointerEvents: "none",
+                  position: "absolute",
+                },
+                tabIndex: -1,
+                "aria-hidden": true,
+              }
+            : {}),
+        })
+      : null;
+
+  const themeContent = (
+    <div data-slot="theme-picker-sections" onMouseLeave={() => cancelPreview()}>
+      <div data-slot="theme-picker-section" data-bordered>
+        <div data-slot="theme-picker-label">Appearance</div>
+        <div data-slot="theme-picker-button-row">
+          {COLOR_SCHEMES.map((scheme) => (
+            <Button
+              key={scheme.id}
+              size="small"
+              variant={colorMode === scheme.id ? "secondary" : "ghost"}
+              data-slot="theme-picker-option-button"
+              onClick={() => setColorMode(scheme.id)}
+            >
+              {scheme.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* Flat themes (the stock Default, plus any forcedMode-pinned
+          theme) render a solid surface. Keep the controls visible so
+          the panel layout and the user's saved gradient choices remain
+          stable, but make their inactive state explicit. */}
+      <div
+        data-slot="theme-picker-section"
+        data-bordered
+        data-disabled={flat || undefined}
+        role="group"
+        aria-label="Gradient controls"
+        aria-disabled={flat || undefined}
+      >
+        <div data-slot="theme-picker-label">Gradient Style</div>
+        <div data-slot="theme-picker-button-row">
+          {(["soft", "flat"] as const).map((value) => (
+            <Button
+              key={value}
+              size="small"
+              variant={gradientMode === value ? "secondary" : "ghost"}
+              data-slot="theme-picker-option-button"
+              onClick={() => setGradientMode(value)}
+              disabled={flat}
+              aria-disabled={flat || undefined}
+            >
+              {value === "soft" ? "Soft" : "Flat"}
+            </Button>
+          ))}
+        </div>
+
+        <div data-slot="theme-picker-label">Gradient Color</div>
+        <div data-slot="theme-picker-button-row">
+          {(["relative", "strong"] as const).map((value) => (
+            <Button
+              key={value}
+              size="small"
+              variant={gradientColor === value ? "secondary" : "ghost"}
+              data-slot="theme-picker-option-button"
+              onClick={() => setGradientColor(value)}
+              disabled={flat}
+              aria-disabled={flat || undefined}
+            >
+              {value === "relative" ? "Relative" : "Strong"}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        data-slot="theme-picker-theme-list"
+        onMouseLeave={() => cancelThemePreview()}
+      >
+        {sortedThemes.map((t) => {
+          const isSelected = t.id === selectedThemeId;
+          return (
+            <Button
+              key={t.id}
+              size="normal"
+              variant={isSelected ? "secondary" : "ghost"}
+              data-slot="theme-picker-theme-button"
+              onClick={() => {
+                setTheme(t.id);
+                cancelPreview();
+                if (!inline) setOpen(false);
+                onThemeSelect?.();
+              }}
+              onMouseEnter={() => {
+                if (open || inline) previewTheme(t.id);
+              }}
+              onFocus={() => {
+                if (open || inline) previewTheme(t.id);
+              }}
+            >
+              <span data-slot="theme-picker-theme-name">{t.name}</span>
+              {isSelected && (
+                <Check size={12} data-slot="theme-picker-check" />
+              )}
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  if (inline) {
+    return (
+      <div data-theme-picker="true" data-theme-picker-inline="true">
+        <PopoverBody>{themeContent}</PopoverBody>
+      </div>
+    );
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) cancelPreview();
+      }}
+    >
+      <PopoverTrigger asChild>
+        {popoverTrigger ?? (
+          <Button
+            variant="ghost"
+            size="normal"
+            data-slot="theme-picker-trigger"
+            style={
+              hideTrigger
+                ? { opacity: 0, pointerEvents: "none", position: "absolute" }
+                : undefined
+            }
+            tabIndex={hideTrigger ? -1 : undefined}
+            aria-hidden={hideTrigger}
+          >
+            {triggerLabel}
+          </Button>
+        )}
+      </PopoverTrigger>
+      <PopoverContent
+        side={side}
+        align={align}
+        collisionPadding={8}
+        data-theme-picker="true"
+      >
+        <PopoverBody>{themeContent}</PopoverBody>
+      </PopoverContent>
+    </Popover>
+  );
+}

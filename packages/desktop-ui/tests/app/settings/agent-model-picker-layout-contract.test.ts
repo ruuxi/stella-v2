@@ -13,7 +13,7 @@ const readSource = (relativePath: string) =>
 
 describe("full-area agent model picker layout", () => {
   it("renders one collapsible provider list with engine sections and inline reasoning under the selection", () => {
-    const picker = readSource("global/settings/AgentModelPicker.jsx");
+    const picker = readSource("global/settings/AgentModelPicker.tsx");
     const styles = readSource("global/settings/AgentModelPicker.css");
 
     expect(picker).toContain('tabButton(ASSISTANT_TARGET, "Assistant"');
@@ -45,7 +45,7 @@ describe("full-area agent model picker layout", () => {
   });
 
   it("keeps search and auth actions without the provider status rail", () => {
-    const panel = readSource("global/settings/ProviderModelPanel.jsx");
+    const panel = readSource("global/settings/ProviderModelPanel.tsx");
     const styles = readSource("global/settings/ProviderModelPicker.css");
 
     expect(panel).toContain('className="model-picker-search-row"');

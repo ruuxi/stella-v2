@@ -327,21 +327,21 @@ export default defineConfig({
     warmup: {
       clientFiles: [
         // First-paint spine.
-        "./src/main.jsx",
-        "./src/App.jsx",
+        "./src/main.tsx",
+        "./src/App.tsx",
         "./src/context/AppProviders.tsx",
-        "./src/shell/FullShell.jsx",
+        "./src/shell/FullShell.tsx",
         // The chat surface is the primary (eager, non-lazy) first interaction;
         // pre-transform its long static chain in parallel instead of
         // serializing it against the renderer's first requests.
         "./src/router.tsx",
-        "./src/routes/__root.jsx",
+        "./src/routes/__root.tsx",
         "./src/app/home/HomeContent.jsx",
-        "./src/app/chat/ChatColumn.jsx",
-        "./src/app/chat/ChatTimeline.jsx",
-        "./src/app/chat/ConversationEvents.jsx",
-        "./src/app/chat/Composer.jsx",
-        "./src/app/chat/MessageRow.jsx",
+        "./src/app/chat/ChatColumn.tsx",
+        "./src/app/chat/ChatTimeline.tsx",
+        "./src/app/chat/ConversationEvents.tsx",
+        "./src/app/chat/Composer.tsx",
+        "./src/app/chat/MessageRow.tsx",
         // Secondary windows are opened deferred (after first paint); warming
         // their entries during the post-paint idle window means they open
         // instantly instead of cold-transforming on creation.

@@ -23,12 +23,7 @@ describe("ChatHistoryPaginationGate", () => {
     const gate = new ChatHistoryPaginationGate();
 
     expect(
-      gate.consider(
-        1,
-        "up",
-        { ...nearTop, scrollTop: 1_300 },
-        guards,
-      ),
+      gate.consider(1, "up", { ...nearTop, scrollTop: 1_300 }, guards),
     ).toMatchObject({
       request: false,
       reason: "outside-threshold",
@@ -254,7 +249,7 @@ describe("chat timeline pagination wiring", () => {
     expect(timeline).not.toMatch(/\bonStartReached=/);
     expect(timeline).not.toContain("onScroll={");
     expect(hook).toMatch(
-      /addEventListener\('scroll', handlePaginationScroll, \{\s*passive: true,?\s*\}\)/,
+      /addEventListener\(["']scroll["'], handlePaginationScroll, \{\s*passive: true,?\s*\}\)/,
     );
   });
 
@@ -269,7 +264,7 @@ describe("chat timeline pagination wiring", () => {
     );
 
     expect(hook).toMatch(
-      /const handleWheel = \(event: WheelEvent\) => \{\s*noteManualScroll\(\)[\s\S]*?attemptHistoryLoad\(wheelActionId, direction, 'wheel'\)/,
+      /const handleWheel = \(event: WheelEvent\) => \{\s*noteManualScroll\(\)[\s\S]*?attemptHistoryLoad\(wheelActionId, direction, ["']wheel["']\)/,
     );
     expect(hook).toContain("cancelPendingAnchorForUserScroll()");
   });

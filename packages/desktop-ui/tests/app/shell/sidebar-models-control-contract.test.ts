@@ -13,8 +13,8 @@ const readSource = (relativePath: string) =>
 
 describe("sidebar Models control placement", () => {
   it("keeps Models inside Work and swaps that section instead of using a popover", () => {
-    const panel = readSource("shell/RightSidebar.jsx");
-    const home = readSource("shell/WorkspaceHomeSurface.jsx");
+    const panel = readSource("shell/RightSidebar.tsx");
+    const home = readSource("shell/WorkspaceHomeSurface.tsx");
     const work = readSource("shell/sidebar-sections/FilesSection.jsx");
     const control = readSource(
       "shell/sidebar-sections/SidebarModelsControl.jsx",
@@ -24,7 +24,7 @@ describe("sidebar Models control placement", () => {
     expect(panel).not.toContain("SidebarModelsControl");
     expect(panel).not.toContain("right-sidebar-models-footer");
     expect(home).toContain("<HomeSection />");
-    expect(home).toContain("<SidebarModelsControl openSidebar/>");
+    expect(home).toMatch(/<SidebarModelsControl\s+openSidebar\s*\/>/);
     expect(home).not.toContain("AgentModelPicker");
 
     expect(work).toContain('className="work-section__footer"');

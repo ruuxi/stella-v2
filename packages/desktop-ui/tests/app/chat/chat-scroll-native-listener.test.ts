@@ -23,14 +23,11 @@ describe("chat scroll performance contract", () => {
   it("tracks scroll state from a passive native listener instead", () => {
     const hook = readSource("src/shell/use-chat-scroll-management.ts");
 
-    expect(hook).toContain(
-      "node.addEventListener('scroll', scheduleScrollStateUpdate, {",
+    expect(hook).toMatch(
+      /addEventListener\(["']scroll["'], scheduleScrollStateUpdate, \{\s*passive: true,/,
     );
     expect(hook).toMatch(
-      /addEventListener\('scroll', scheduleScrollStateUpdate, \{\s*passive: true,/,
-    );
-    expect(hook).toContain(
-      "attached.removeEventListener('scroll', scheduleScrollStateUpdate)",
+      /attached\.removeEventListener\(["']scroll["'], scheduleScrollStateUpdate\)/,
     );
   });
 

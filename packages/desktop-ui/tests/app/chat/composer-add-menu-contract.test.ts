@@ -13,7 +13,7 @@ const readSource = (relativePath: string) =>
 
 describe("composer add-menu contract", () => {
   it("keeps composer context and capture actions without a New chat action", () => {
-    const source = readSource("app/chat/ComposerAddMenu.jsx");
+    const source = readSource("app/chat/ComposerAddMenu.tsx");
 
     expect(source).toContain("<DropdownMenuLabel>Context</DropdownMenuLabel>");
     expect(source).toContain("Capture");
@@ -36,10 +36,10 @@ describe("composer add-menu contract", () => {
 
   it("removes composer-only New chat wiring from both render variants", () => {
     for (const relativePath of [
-      "app/chat/Composer.jsx",
-      "app/chat/ChatColumn.jsx",
-      "shell/ChatSidebar.jsx",
-      "shell/display/default-tabs.jsx",
+      "app/chat/Composer.tsx",
+      "app/chat/ChatColumn.tsx",
+      "shell/ChatSidebar.tsx",
+      "shell/display/default-tabs.tsx",
       "shell/use-full-shell-chat.js",
     ]) {
       const source = readSource(relativePath);
@@ -47,8 +47,8 @@ describe("composer add-menu contract", () => {
       expect(source, relativePath).not.toContain("startNewChat");
     }
 
-    const fullComposer = readSource("app/chat/Composer.jsx");
-    const sidebarComposer = readSource("shell/ChatSidebar.jsx");
+    const fullComposer = readSource("app/chat/Composer.tsx");
+    const sidebarComposer = readSource("shell/ChatSidebar.tsx");
     expect(fullComposer.match(/<ComposerAddMenu/g)).toHaveLength(2);
     expect(sidebarComposer.match(/<ComposerAddMenu/g)).toHaveLength(2);
   });

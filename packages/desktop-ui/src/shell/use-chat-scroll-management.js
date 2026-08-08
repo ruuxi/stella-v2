@@ -29,7 +29,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clearAssistantScrollFollow, getAssistantScrollFollowKey, subscribeAssistantScrollFollow, subscribeChatContentGrowth, } from '@/shell/chat-scroll-follow';
-import { POST_SEND_USER_MESSAGE_BREATHING_PX, resolveIdleTailTarget, resolveStreamFollowTarget, } from '@/shell/chat-follow-target';
+import { CHAT_VIEWPORT_BOTTOM_FADE_PX, POST_SEND_USER_MESSAGE_BREATHING_PX, resolveIdleTailTarget, resolvePostSendTarget, resolveResponseSpacerHeight, resolveStreamFollowTarget, shouldPlaceLatestTurn, } from '@/shell/chat-follow-target';
 import { registerChatAtRestProbe } from '@/features/chat/hooks/use-conversation-messages';
 import { captureChatPrependAnchor, ChatHistoryPaginationGate, emitChatHistoryPaginationDebug, restoreChatPrependAnchor, } from '@/shell/chat-history-pagination';
 const SCROLL_BUTTON_THRESHOLD = 180;
@@ -132,8 +132,12 @@ const followKeyTurnId = (followKey) => followKey.replace(/^assistant-/, '').repl
 export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder = false, onLoadOlder, surface = 'full', } = {}) {
     const trailingRegionMinPx = TRAILING_REGION_MIN_PX[surface];
     const followRearmThreshold = followRearmThresholdPx(trailingRegionMinPx);
+    const responseSpacerBottomInsetPx = surface === 'full'
+        ? CHAT_VIEWPORT_BOTTOM_FADE_PX
+        : 0;
     const listRef = useRef(null);
     const attachedScrollNodeRef = useRef(null);
+    const responseSpacerHeightRef = useRef(trailingRegionMinPx);
     const paginationGateRef = useRef(new ChatHistoryPaginationGate());
     const paginationActionIdRef = useRef(0);
     const prependAnchorRef = useRef(null);
@@ -305,6 +309,23 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
      * off-screen) and when the next user message lands.
      */
     const getIsFollowing = useCallback(() => followRef.current, []);
+    /**
+     * Snapshot whether a new turn should be placed in the Codex-style reading
+     * position. The physical end includes the synthetic response spacer, so
+     * subtract it before applying the 300px scrollback gate.
+     */
+    const getShouldPlaceLatestTurn = useCallback(() => {
+        const node = attachedScrollNodeRef.current ??
+            listRef.current?.getScrollableNode();
+        if (!node)
+            return followRef.current;
+        const distanceFromBottomPx = Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop);
+        return shouldPlaceLatestTurn({
+            distanceFromBottomPx,
+            responseSpacerHeightPx: responseSpacerHeightRef.current,
+            isFollowingLatest: followRef.current,
+        });
+    }, []);
     // Report this surface's at-bottom state to the message-window decay
     // gate: the grown loadOlder window only shrinks back to one page while
     // every mounted chat scroll surface sits at the bottom, so history a
@@ -418,8 +439,8 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
         followApi.current?.cancel();
     }, [setFollow]);
     /**
-     * Smooth one-shot scroll bump used by send handlers when the user
-     * fires a message from near-the-bottom. Routes through the same
+     * Smooth one-shot latest-turn placement used by send handlers when the
+     * user fires a message from near the bottom. Routes through the same
      * lerp loop as the streaming auto-follow so the two motions blend
      * (nudge → stream-follow as the assistant reply arrives) rather
      * than fighting via separate concurrent rAF tweens writing
@@ -496,6 +517,22 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
             cleanup();
             attached = node;
             attachedScrollNodeRef.current = node;
+            const syncResponseSpacerHeight = () => {
+                if (!attached)
+                    return;
+                const height = resolveResponseSpacerHeight({
+                    viewportHeight: attached.clientHeight,
+                    bottomInsetPx: responseSpacerBottomInsetPx,
+                    minimumHeightPx: trailingRegionMinPx,
+                });
+                responseSpacerHeightRef.current = height;
+                attached.style.setProperty('--chat-response-spacer-height', `${height}px`);
+            };
+            syncResponseSpacerHeight();
+            const responseSpacerResizeObserver = typeof ResizeObserver === 'undefined'
+                ? null
+                : new ResizeObserver(syncResponseSpacerHeight);
+            responseSpacerResizeObserver?.observe(node);
             emitChatHistoryPaginationDebug({
                 type: 'scroll-node-attached',
                 surface,
@@ -796,12 +833,12 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
                     node = node.offsetParent;
                 }
                 const rowBottom = rowTop + userRow.offsetHeight;
-                const readingSpaceBelow = trailingRegionMinPx + POST_SEND_USER_MESSAGE_BREATHING_PX;
-                const availableForRow = Math.max(0, attached.clientHeight - readingSpaceBelow);
-                const rowHeight = Math.max(0, rowBottom - rowTop);
-                const target = rowHeight <= availableForRow
-                    ? rowBottom - attached.clientHeight + readingSpaceBelow
-                    : rowTop;
+                const target = resolvePostSendTarget({
+                    rowTop,
+                    rowBottom,
+                    viewportHeight: attached.clientHeight,
+                    responseSpacerHeightPx: responseSpacerHeightRef.current,
+                });
                 setTarget(target, { allowBackward: true, gentle: true });
             };
             const scrollQueuedMessagesIntoView = () => {
@@ -1148,6 +1185,8 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
             cleanup = () => {
                 if (!attached)
                     return;
+                responseSpacerResizeObserver?.disconnect();
+                attached.style.removeProperty('--chat-response-spacer-height');
                 unsubscribeFollow();
                 unsubscribeGrowth();
                 if (idleGrowthRaf) {
@@ -1222,6 +1261,7 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
         nudgeQueuedMessagesIntoView,
         nudgeBy,
         getIsFollowing,
+        getShouldPlaceLatestTurn,
         thumbRef: setThumbRef,
     };
 }

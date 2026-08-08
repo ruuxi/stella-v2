@@ -51,11 +51,60 @@ export const FOLLOW_BREATHING_PX = 72;
 export const FOLLOW_TOP_PEEK_PX = 56;
 /** Breathing room between the user bubble's bottom edge and the footer. */
 export const POST_SEND_USER_MESSAGE_BREATHING_PX = 48;
+/** Portion of the readable viewport reserved below a freshly-sent turn. */
+export const RESPONSE_SPACER_VIEWPORT_RATIO = 2 / 3;
+/** Keep this much readable room for the latest turn above the spacer. */
+export const RESPONSE_SPACER_CONTENT_FLOOR_PX = 240;
+/** Do not pull a submit out of scrollback when the user is reading history. */
+export const LATEST_TURN_PLACEMENT_THRESHOLD_PX = 300;
 /**
  * Distance from the raw viewport bottom at which content is both fully opaque
  * and carrying the intended gutter beneath it.
  */
 export const followBottomInsetPx = () => CHAT_VIEWPORT_BOTTOM_FADE_PX + FOLLOW_BREATHING_PX;
+/**
+ * Codex-style empty response area beneath a freshly-sent turn.
+ *
+ * The full chat's bottom mask is not readable, so it is included in the
+ * physical footer height while the two-thirds ratio is calculated over the
+ * readable viewport. Compact surfaces pass a zero bottom inset.
+ */
+export const resolveResponseSpacerHeight = ({
+    viewportHeight,
+    bottomInsetPx = CHAT_VIEWPORT_BOTTOM_FADE_PX,
+    minimumHeightPx = 0,
+}) => {
+    const readableHeight = Math.max(0, viewportHeight - bottomInsetPx);
+    const blankResponseArea = Math.max(0, Math.min(readableHeight * RESPONSE_SPACER_VIEWPORT_RATIO, readableHeight - RESPONSE_SPACER_CONTENT_FLOOR_PX));
+    return Math.max(minimumHeightPx, bottomInsetPx + blankResponseArea);
+};
+/**
+ * Match Codex's submit gate using the distance above the synthetic response
+ * spacer rather than the literal end of the scroll content.
+ */
+export const shouldPlaceLatestTurn = ({
+    distanceFromBottomPx,
+    responseSpacerHeightPx,
+    isFollowingLatest,
+}) => isFollowingLatest &&
+    distanceFromBottomPx - responseSpacerHeightPx <=
+        LATEST_TURN_PLACEMENT_THRESHOLD_PX;
+/**
+ * Frame a short user row above the response spacer. A user message taller
+ * than the remaining reading area is aligned by its top instead.
+ */
+export const resolvePostSendTarget = ({
+    rowTop,
+    rowBottom,
+    viewportHeight,
+    responseSpacerHeightPx,
+}) => {
+    const rowHeight = Math.max(0, rowBottom - rowTop);
+    const availableForRow = Math.max(0, viewportHeight - responseSpacerHeightPx);
+    return rowHeight <= availableForRow
+        ? rowBottom - viewportHeight + responseSpacerHeightPx
+        : rowTop;
+};
 export const resolveLiveTailBottom = (geometry) => {
     if (geometry.tailBottom === null)
         return geometry.rowBottom;

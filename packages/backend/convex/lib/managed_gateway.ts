@@ -6,6 +6,7 @@ export const MANAGED_GATEWAY_PROVIDERS = [
   "anthropic",
   "google",
   "meta",
+  "wafer",
 ] as const;
 
 export type ManagedGatewayProvider = (typeof MANAGED_GATEWAY_PROVIDERS)[number];
@@ -26,7 +27,10 @@ export type ManagedGatewayConfig = {
   apiKeyEnvVarFallbacks?: readonly string[];
 };
 
-const MANAGED_GATEWAY_CONFIGS: Record<ManagedGatewayProvider, ManagedGatewayConfig> = {
+const MANAGED_GATEWAY_CONFIGS: Record<
+  ManagedGatewayProvider,
+  ManagedGatewayConfig
+> = {
   openrouter: {
     provider: "openrouter",
     baseURL: "https://openrouter.ai/api/v1",
@@ -66,6 +70,11 @@ const MANAGED_GATEWAY_CONFIGS: Record<ManagedGatewayProvider, ManagedGatewayConf
     // Meta's own docs export the key as MODEL_API_KEY; accept either name.
     apiKeyEnvVarFallbacks: ["MODEL_API_KEY"],
   },
+  wafer: {
+    provider: "wafer",
+    baseURL: "https://pass.wafer.ai/v1",
+    apiKeyEnvVar: "WAFER_API_KEY",
+  },
 };
 
 const FIREWORKS_MODEL_PREFIXES = [
@@ -80,6 +89,7 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["anthropic/", "anthropic"],
   ["google/", "google"],
   ["meta/", "meta"],
+  ["wafer/", "wafer"],
 ] as const;
 
 export function getManagedGatewayConfig(
@@ -95,7 +105,10 @@ export function getManagedGatewayConfig(
 export function resolveManagedGatewayApiKey(
   config: ManagedGatewayConfig,
 ): string | undefined {
-  const candidates = [config.apiKeyEnvVar, ...(config.apiKeyEnvVarFallbacks ?? [])];
+  const candidates = [
+    config.apiKeyEnvVar,
+    ...(config.apiKeyEnvVarFallbacks ?? []),
+  ];
   for (const envVar of candidates) {
     const value = process.env[envVar]?.trim();
     if (value) return value;
@@ -107,7 +120,7 @@ export function inferManagedGatewayProviderFromModel(
   model: string,
 ): ManagedGatewayProvider | undefined {
   const directProvider = DIRECT_MODEL_PROVIDER_PREFIXES.find(([prefix]) =>
-    model.startsWith(prefix)
+    model.startsWith(prefix),
   )?.[1];
   if (directProvider) {
     return directProvider;
@@ -121,9 +134,11 @@ export function resolveManagedGatewayProvider(args: {
   model: string;
   configuredProvider?: ManagedGatewayProvider;
 }): ManagedGatewayProvider {
-  return args.configuredProvider
-    ?? inferManagedGatewayProviderFromModel(args.model)
-    ?? "openrouter";
+  return (
+    args.configuredProvider ??
+    inferManagedGatewayProviderFromModel(args.model) ??
+    "openrouter"
+  );
 }
 
 export function resolveManagedGatewayConfig(args: {

@@ -47,16 +47,12 @@ type ResolvedModelsDevModel = {
 };
 
 const MODELS_DEV_ALIASES: Record<string, string[]> = {
-  "google/gemini-3.6-flash": [
-    "vercel/google/gemini-3.6-flash",
-  ],
+  "google/gemini-3.6-flash": ["vercel/google/gemini-3.6-flash"],
   "anthropic/claude-sonnet-4.6": [
     "vercel/anthropic/claude-sonnet-4.6",
     "anthropic/claude-sonnet-4-6",
   ],
-  "anthropic/claude-opus-5": [
-    "vercel/anthropic/claude-opus-5",
-  ],
+  "anthropic/claude-opus-5": ["vercel/anthropic/claude-opus-5"],
   "anthropic/claude-opus-4.6": [
     "vercel/anthropic/claude-opus-4.6",
     "anthropic/claude-opus-4-6",
@@ -67,10 +63,7 @@ const MODELS_DEV_ALIASES: Record<string, string[]> = {
   ],
   // Stella routes xAI as `x-ai`, while models.dev's first-party provider
   // namespace is `xai` (and Vercel nests the same id under its provider).
-  "x-ai/grok-4.5": [
-    "xai/grok-4.5",
-    "vercel/xai/grok-4.5",
-  ],
+  "x-ai/grok-4.5": ["xai/grok-4.5", "vercel/xai/grok-4.5"],
 };
 
 const stripSnapshotSuffix = (model: string): string | null => {
@@ -210,6 +203,16 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesOutput?: string[];
   }
 > = {
+  "wafer/DeepSeek-V4-Flash-0731-Fast": {
+    sourceProvider: "wafer",
+    sourceModelId: "DeepSeek-V4-Flash-0731-Fast",
+    inputPerMillionUsd: 0.28,
+    outputPerMillionUsd: 0.56,
+    cacheReadPerMillionUsd: 0.07,
+    reasoningPerMillionUsd: 0.56,
+    modalitiesInput: ["text"],
+    modalitiesOutput: ["text"],
+  },
   "meta/muse-spark-1.2": {
     sourceProvider: "meta",
     sourceModelId: "muse-spark-1.2",

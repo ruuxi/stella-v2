@@ -38,13 +38,14 @@ export const isRestrictedModelOverrideAudience = (
  * `RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS`.
  *
  * Restricted audiences cannot freely override Stella-managed models. The raw
- * DeepSeek V4 Flash 0731 id is the sole public choice; the Light alias remains
- * valid for older saved preferences. Keep in sync with
+ * Both DeepSeek V4 Flash 0731 variants are public choices; the Light alias
+ * remains valid for older saved preferences. Keep in sync with
  * `isStellaModelAllowedForAudience` in `backend/convex/agent/model.ts`.
  */
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS = new Set<string>([
   "stella/light",
   "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+  "stella/wafer/DeepSeek-V4-Flash-0731-Fast",
 ]);
 
 export const isRestrictedAudienceAllowedStellaModelId = (

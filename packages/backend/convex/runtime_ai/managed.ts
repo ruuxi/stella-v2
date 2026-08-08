@@ -194,6 +194,9 @@ function providerFromBaseUrl(baseUrl: string): string {
   if (baseUrl.includes("api.meta.ai")) {
     return "meta";
   }
+  if (baseUrl.includes("pass.wafer.ai")) {
+    return "wafer";
+  }
   return "managed";
 }
 
@@ -206,6 +209,9 @@ function modelIdForGateway(model: string, provider: string): string {
   }
   if (provider === "meta" && model.startsWith("meta/")) {
     return model.slice("meta/".length);
+  }
+  if (provider === "wafer" && model.startsWith("wafer/")) {
+    return model.slice("wafer/".length);
   }
   return model;
 }
@@ -249,6 +255,12 @@ function inferCompat(
     maxTokensField: "max_completion_tokens",
     supportsStrictMode: true,
   };
+
+  if (provider === "wafer") {
+    compat.supportsStore = false;
+    compat.maxTokensField = "max_tokens";
+    compat.reasoningEffortMap = { xhigh: "max" };
+  }
 
   if (provider === "vercel-ai-gateway" && gatewayRouting) {
     compat.vercelGatewayRouting = {
@@ -521,7 +533,10 @@ export function buildManagedModel<TApi extends Api>(
   const provider = providerFromBaseUrl(managedGateway.baseURL);
   const modelId = modelIdForGateway(config.model, provider);
   const defaultHeaders: Record<string, string> = { ...headers };
-  if (provider === "openrouter" || managedGateway.baseURL.includes("openrouter.ai")) {
+  if (
+    provider === "openrouter" ||
+    managedGateway.baseURL.includes("openrouter.ai")
+  ) {
     defaultHeaders["HTTP-Referer"] ??= "https://stella.sh";
     defaultHeaders["X-OpenRouter-Title"] ??= "Stella";
   }
@@ -681,9 +696,7 @@ function buildSimpleOptions(args: {
   const reasoning =
     args.request?.reasoning ??
     normalizeReasoning(args.config.providerOptions?.openai?.reasoningEffort) ??
-    (args.config.providerOptions?.openai?.forceReasoning
-      ? "high"
-      : undefined);
+    (args.config.providerOptions?.openai?.forceReasoning ? "high" : undefined);
 
   const managedGateway = resolveManagedGatewayConfig({
     model: args.config.model,
@@ -692,6 +705,12 @@ function buildSimpleOptions(args: {
   const extraBody: Record<string, unknown> = {
     ...(args.request?.extraBody ?? {}),
   };
+  if (
+    managedGateway.provider === "wafer" &&
+    extraBody.preserve_thinking === undefined
+  ) {
+    extraBody.preserve_thinking = true;
+  }
   const gatewayRouting = args.config.providerOptions?.gateway;
 
   if (

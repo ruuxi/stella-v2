@@ -83,6 +83,7 @@ import { hasAiConsent, requestAiConsent } from "../lib/ai-consent";
 import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol";
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { useChatSearch } from "../lib/chat-search";
+import { resolveComposerExpanded } from "../lib/composer-model-layout";
 import {
   consumeResponseSpacerHeight,
   resolvePostSendTarget,
@@ -322,9 +323,9 @@ function useChatScroll(
   const isDraggingRef = useRef(false);
   /** Holds through drag momentum so the spacer keeps consuming after release. */
   const manualScrollActiveRef = useRef(false);
-  const manualScrollSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const manualScrollSettleTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   /** Spring velocity (px/ms) — persists across frames and chunk boundaries. */
   const followVelRef = useRef(0);
   /** Offset we last committed; the spring integrates from here, not laggy native. */
@@ -467,10 +468,7 @@ function useChatScroll(
     scheduleManualScrollSettle();
     const { offsetY, contentHeight, layoutHeight } = metricsRef.current;
     const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
-    if (
-      distFromBottom <= atBottomLimit &&
-      !followRearmBlockedRef.current
-    ) {
+    if (distFromBottom <= atBottomLimit && !followRearmBlockedRef.current) {
       followArmedRef.current = true;
     }
   }, [atBottomLimit, scheduleManualScrollSettle]);
@@ -2078,6 +2076,11 @@ export type ChatPaneProps = {
   onChangeDraft: (next: string) => void;
   /** Whether the composer accepts text (typing + sending). */
   composerEnabled?: boolean;
+  /**
+   * Optional paired-computer model control. When pinned, it keeps the composer
+   * expanded and renders a compact model picker in the toolbar.
+   */
+  composerModelPicker?: ComposerModelPickerConfig;
   /** Visible placeholder when not transcribing. */
   placeholder: string;
 
@@ -2155,6 +2158,27 @@ export type ChatPaneProps = {
   catchingUp?: boolean;
 };
 
+export type ComposerModelPickerConfig = {
+  pinned: boolean;
+  label: string;
+  loading?: boolean;
+  saving?: boolean;
+  effortLabel: string;
+  effortOptions: readonly {
+    id: string;
+    label: string;
+    selected: boolean;
+  }[];
+  recentModels: readonly {
+    id: string;
+    label: string;
+    selected: boolean;
+  }[];
+  onOpen: () => void;
+  onSelectEffort: (id: string) => void;
+  onSelectModel: (id: string) => void;
+};
+
 export function ChatPane({
   messages,
   streaming,
@@ -2165,6 +2189,7 @@ export function ChatPane({
   draft,
   onChangeDraft,
   composerEnabled = true,
+  composerModelPicker,
   placeholder,
   canSubmit,
   onSubmit,
@@ -2233,10 +2258,7 @@ export function ChatPane({
     responseSpacerTargetHeightPx - listBottomInsetPx,
   );
   const listTrailingSlackPx = listBottomInsetPx + chatTailHeightPx;
-  const responseSpacerHeightPx = Math.max(
-    0,
-    chatTailHeightPx - CHAT_TAIL_GAP,
-  );
+  const responseSpacerHeightPx = Math.max(0, chatTailHeightPx - CHAT_TAIL_GAP);
   const activateResponseSpacer = useCallback(() => {
     setChatTailHeightPx(chatTailTargetHeightPx);
   }, [chatTailTargetHeightPx]);
@@ -2664,7 +2686,11 @@ export function ChatPane({
   // Root the in-tree menu overlays measure against (see PlusMenuPopover).
   const rootRef = useRef<View>(null);
   const plusAnchorRef = useRef<View>(null);
+  const modelPickerAnchorRef = useRef<View>(null);
   const [plusMenuAnchor, setPlusMenuAnchor] = useState<AnchorRect | null>(null);
+  const [modelPickerAnchor, setModelPickerAnchor] = useState<AnchorRect | null>(
+    null,
+  );
 
   const plusMenuOptions = useMemo<PlusMenuOption[]>(() => {
     const out: PlusMenuOption[] = [];
@@ -2821,6 +2847,63 @@ export function ChatPane({
   }, [pickImage, plusMenuOptions]);
 
   const dismissPlusMenu = useCallback(() => setPlusMenuAnchor(null), []);
+
+  const modelPickerOptions = useMemo<PlusMenuOption[]>(() => {
+    if (!composerModelPicker?.pinned) return [];
+    const disabled = Boolean(
+      composerModelPicker.loading || composerModelPicker.saving,
+    );
+    const options: PlusMenuOption[] = [
+      {
+        id: "model-thinking",
+        label: "Thinking",
+        icon: "sparkles",
+        trailingLabel: composerModelPicker.effortLabel,
+        disabled: composerModelPicker.loading,
+        submenuTitle: "Thinking",
+        submenu: composerModelPicker.effortOptions.map((effort) => ({
+          id: `model-effort-${effort.id}`,
+          label: effort.label,
+          icon: "sparkles",
+          selected: effort.selected,
+          disabled,
+          onSelect: () => composerModelPicker.onSelectEffort(effort.id),
+        })),
+        onSelect: () => undefined,
+      },
+      ...composerModelPicker.recentModels.map((model) => ({
+        id: `model-recent-${model.id}`,
+        label: model.label,
+        icon: "cpu" as const,
+        selected: model.selected,
+        disabled: disabled || model.selected,
+        onSelect: () => composerModelPicker.onSelectModel(model.id),
+      })),
+    ];
+    return options;
+  }, [composerModelPicker]);
+
+  const onPressModelPicker = useCallback(() => {
+    if (!composerModelPicker?.pinned || !modelPickerAnchorRef.current) return;
+    tapLight();
+    composerModelPicker.onOpen();
+    const measureAnchor = () => {
+      modelPickerAnchorRef.current?.measureInWindow((x, y, width, height) => {
+        setModelPickerAnchor({ x, y, width, height });
+      });
+    };
+    if (Keyboard.isVisible()) {
+      const sub = Keyboard.addListener("keyboardDidHide", () => {
+        sub.remove();
+        measureAnchor();
+      });
+      Keyboard.dismiss();
+    } else {
+      measureAnchor();
+    }
+  }, [composerModelPicker]);
+
+  const dismissModelPicker = useCallback(() => setModelPickerAnchor(null), []);
 
   // Long-press message actions — a popover anchored at the touch point so it
   // matches the app's menu language instead of a native sheet takeover.
@@ -3006,7 +3089,19 @@ export function ChatPane({
   const composerHasContent = draft.length > 0 || (attachments?.length ?? 0) > 0;
   const dictationInline = isListening && !hasText;
   const dictationBelow = isListening && hasText;
-  const isExpandedComposed = expanded || dictationBelow;
+
+  useEffect(() => {
+    if (!composerModelPicker?.pinned || dictationInline) {
+      setModelPickerAnchor(null);
+    }
+  }, [composerModelPicker?.pinned, dictationInline]);
+
+  const isExpandedComposed = resolveComposerExpanded({
+    expanded,
+    dictationBelow,
+    dictationInline,
+    modelPickerPinned: Boolean(composerModelPicker?.pinned),
+  });
 
   const hasPlusMenu = composerEnabled;
 
@@ -3505,6 +3600,34 @@ export function ChatPane({
                   <View style={styles.toolbar}>
                     <View style={styles.toolbarLeft}>{plusButton}</View>
                     <View style={styles.toolbarRight}>
+                      {composerModelPicker?.pinned ? (
+                        <View ref={modelPickerAnchorRef} collapsable={false}>
+                          <Pressable
+                            onPress={onPressModelPicker}
+                            disabled={composerModelPicker.loading}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Model: ${composerModelPicker.label}`}
+                            style={({ pressed }) => [
+                              styles.miniModelPickerTrigger,
+                              pressed && styles.miniModelPickerTriggerPressed,
+                            ]}
+                          >
+                            <Text
+                              style={styles.miniModelPickerLabel}
+                              numberOfLines={1}
+                            >
+                              {composerModelPicker.loading
+                                ? "Loading…"
+                                : composerModelPicker.label}
+                            </Text>
+                            <Icon
+                              name="chevron-down"
+                              size={13}
+                              color={colors.textMuted}
+                            />
+                          </Pressable>
+                        </View>
+                      ) : null}
                       {micButton}
                       {realtimeVoiceButton}
                       {streaming && onStop && !hasText ? (
@@ -3558,6 +3681,14 @@ export function ChatPane({
         anchor={messageMenu?.anchor ?? null}
         options={messageMenuOptions}
         onDismiss={dismissMessageMenu}
+        colors={colors}
+        containerRef={rootRef}
+      />
+      <PlusMenuPopover
+        visible={Boolean(modelPickerAnchor) && modelPickerOptions.length > 0}
+        anchor={modelPickerAnchor}
+        options={modelPickerOptions}
+        onDismiss={dismissModelPicker}
         colors={colors}
         containerRef={rootRef}
       />
@@ -4007,6 +4138,26 @@ const makeStyles = (colors: Colors) =>
     },
     toolbarLeft: { flexDirection: "row", alignItems: "center", gap: 4 },
     toolbarRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+    miniModelPickerTrigger: {
+      alignItems: "center",
+      backgroundColor: fadeHex(colors.text, 0.06),
+      borderRadius: 15,
+      flexDirection: "row",
+      gap: 4,
+      height: 30,
+      maxWidth: 154,
+      paddingHorizontal: 10,
+    },
+    miniModelPickerTriggerPressed: {
+      backgroundColor: fadeHex(colors.text, 0.1),
+    },
+    miniModelPickerLabel: {
+      color: colors.textMuted,
+      flexShrink: 1,
+      fontFamily: fonts.sans.medium,
+      fontSize: 13,
+      letterSpacing: -0.15,
+    },
     pillTrailingCluster: {
       flexDirection: "row",
       alignItems: "center",

@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { Icon } from "./Icon";
+import { GlassToggle } from "./glass";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
@@ -54,6 +55,8 @@ type Props = {
   catalog: StellaCatalog;
   /** Called whenever the desktop snapshot changes, so the quick menu label can stay in sync. */
   onApplied?: (snapshot: DesktopModelSnapshot) => void;
+  composerModelPinned: boolean;
+  onComposerModelPinnedChange: (next: boolean) => void;
 };
 
 const isRuntimeEngine = (engine: AgentRuntimeEngine): engine is RuntimeEngine =>
@@ -78,6 +81,8 @@ export function ComputerSettingsSheet({
   access,
   catalog,
   onApplied,
+  composerModelPinned,
+  onComposerModelPinnedChange,
 }: Props) {
   const colors = useColors();
   const styles = makeStyles(colors);
@@ -235,7 +240,9 @@ export function ComputerSettingsSheet({
         void apply(buildRuntimeSetEffortPatch(engine, effort));
         return;
       }
-      void apply(buildStellaSetEffortPatch(snapshot, catalog.agentKeys, effort));
+      void apply(
+        buildStellaSetEffortPatch(snapshot, catalog.agentKeys, effort),
+      );
     },
     [apply, catalog.agentKeys, engine, saving, snapshot],
   );
@@ -341,6 +348,19 @@ export function ComputerSettingsSheet({
           >
             <Text style={styles.sheetCloseText}>Done</Text>
           </Pressable>
+        </View>
+        <View style={styles.pinRow}>
+          <View style={styles.pinCopy}>
+            <Text style={styles.pinLabel}>Show in composer</Text>
+            <Text style={styles.pinDescription}>
+              Keep a compact model picker beside the composer controls.
+            </Text>
+          </View>
+          <GlassToggle
+            value={composerModelPinned}
+            onValueChange={onComposerModelPinnedChange}
+            accessibilityLabel="Show model picker in composer"
+          />
         </View>
         <ScrollView
           contentContainerStyle={styles.sheetContent}
@@ -519,6 +539,29 @@ const makeStyles = (colors: Colors) =>
       color: colors.accent,
       fontFamily: fonts.sans.semiBold,
       fontSize: 16,
+    },
+    pinRow: {
+      alignItems: "center",
+      borderBottomColor: fadeHex(colors.border, 0.55),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      gap: 16,
+      marginHorizontal: 20,
+      paddingBottom: 14,
+      paddingTop: 14,
+    },
+    pinCopy: { flex: 1, gap: 3 },
+    pinLabel: {
+      color: colors.text,
+      fontFamily: fonts.sans.semiBold,
+      fontSize: 15,
+      letterSpacing: -0.2,
+    },
+    pinDescription: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 13,
+      lineHeight: 18,
     },
     sheetContent: {
       gap: 10,

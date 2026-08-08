@@ -15,7 +15,7 @@ import { ConnectHeroAnimation } from "./ConnectHeroAnimation";
 import { ComputerSettingsSheet } from "./ComputerSettingsSheet";
 import { PairPhoneSheet } from "./PairPhoneSheet";
 import { type StoredPhoneAccess } from "../lib/phone-access";
-import { useComputerModelSettings } from "../lib/use-computer-model-settings";
+import type { ComputerModelSettings } from "../lib/use-computer-model-settings";
 import { tapLight } from "../lib/haptics";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -39,6 +39,9 @@ type ComputerDeviceSheetProps = {
   syncing: boolean;
   /** Bubble a freshly-paired computer up so the chat re-targets it. */
   onRepaired: (access: StoredPhoneAccess) => void;
+  modelSettings: ComputerModelSettings;
+  composerModelPinned: boolean;
+  onComposerModelPinnedChange: (next: boolean) => void;
 };
 
 /**
@@ -61,13 +64,14 @@ export function ComputerDeviceSheet({
   onForceSync,
   syncing,
   onRepaired,
+  modelSettings,
+  composerModelPinned,
+  onComposerModelPinnedChange,
 }: ComputerDeviceSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const modelSettings = useComputerModelSettings();
-
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
 
@@ -209,6 +213,8 @@ export function ComputerDeviceSheet({
         access={access}
         catalog={modelSettings.catalog}
         onApplied={modelSettings.syncFromSnapshot}
+        composerModelPinned={composerModelPinned}
+        onComposerModelPinnedChange={onComposerModelPinnedChange}
       />
       <PairPhoneSheet
         visible={pairSheetOpen}

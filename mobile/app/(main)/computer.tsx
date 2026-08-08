@@ -15,6 +15,15 @@ import { useChatThread } from "../../src/lib/use-chat-thread";
 import { shouldRunDesktopForegroundTimer } from "../../src/lib/desktop-sync-policy";
 import { useIsOffline } from "../../src/lib/use-network-status";
 import {
+  setComposerModelPinned,
+  useComposerModelPinned,
+} from "../../src/lib/composer-model-pin";
+import { useComputerModelSettings } from "../../src/lib/use-computer-model-settings";
+import {
+  REASONING_OPTIONS,
+  type ReasoningEffort,
+} from "../../src/lib/desktop-model-prefs";
+import {
   useTopBarStatus,
   type DesktopConnection,
 } from "../../src/lib/top-bar-status";
@@ -158,6 +167,8 @@ function ComputerChatSurface({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const offline = useIsOffline();
   const { setConnection: setTopBarConnection } = useTopBarStatus();
+  const composerModelPinned = useComposerModelPinned();
+  const modelSettings = useComputerModelSettings(access);
 
   const transport = useMemo(
     () => ({ kind: "desktop" as const, access }),
@@ -495,6 +506,31 @@ function ComputerChatSurface({
     !offline &&
     thread.storageLoaded;
 
+  const composerModelPicker = useMemo(
+    () => ({
+      pinned: composerModelPinned,
+      label: modelSettings.selectedModelLabel,
+      loading: modelSettings.loading && !modelSettings.snapshot,
+      saving: modelSettings.saving,
+      effortLabel:
+        REASONING_OPTIONS.find(
+          (option) => option.id === modelSettings.selectedEffort,
+        )?.label ?? "Auto",
+      effortOptions: REASONING_OPTIONS.map((option) => ({
+        ...option,
+        selected: option.id === modelSettings.selectedEffort,
+      })),
+      recentModels: modelSettings.recentModels,
+      onOpen: () => {
+        void modelSettings.refresh().catch(() => undefined);
+      },
+      onSelectEffort: (id: string) =>
+        modelSettings.selectEffort(id as ReasoningEffort),
+      onSelectModel: modelSettings.selectRecentModel,
+    }),
+    [composerModelPinned, modelSettings],
+  );
+
   return (
     <View style={styles.screen}>
       <ChatPane
@@ -507,6 +543,7 @@ function ComputerChatSurface({
         historyLoading={!thread.storageLoaded}
         draft={thread.draft}
         onChangeDraft={thread.setDraft}
+        composerModelPicker={composerModelPicker}
         canSubmit={canSubmit}
         onSubmit={thread.send}
         onStop={thread.stop}
@@ -547,6 +584,9 @@ function ComputerChatSurface({
         onForceSync={forceSync}
         syncing={syncing}
         onRepaired={onAccessChange}
+        modelSettings={modelSettings}
+        composerModelPinned={composerModelPinned}
+        onComposerModelPinnedChange={setComposerModelPinned}
       />
       <ArtifactViewer
         visible={Boolean(selectedArtifact)}

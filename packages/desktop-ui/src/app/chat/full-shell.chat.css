@@ -17,15 +17,10 @@
   --chat-text-line-height: 1.5;
   --chat-text-color: var(--text-strong);
 
-  /* Initial response-spacer geometry before the scroll hook attaches. The
-     hook writes the same value in pixels and keeps it synced by ResizeObserver.
-     Full chat has a 56px unreadable bottom fade, so its physical spacer is:
-       fade + min(2/3 * readable height, readable height - 240px)
-     which simplifies to the expression below. */
-  --chat-response-spacer-height: max(
-    160px,
-    min(calc(66.6667cqh + 18.6667px), calc(100cqh - 240px))
-  );
+  /* Resting footer floor. The scroll hook expands this to the viewport-derived
+     response area only for an accepted latest-turn placement, then consumes
+     that synthetic space as the user scrolls away. */
+  --chat-response-spacer-height: 160px;
 
   /* ------------------------------------------------------------
    * Vertical rhythm contract (see also the ROW_GAP family of
@@ -49,12 +44,7 @@
 
 .chat-viewport-region--sidebar,
 .chat-viewport-region--orb {
-  /* Compact chat has no bottom fade, but preserves the same two-thirds
-     response area and 240px latest-turn floor. */
-  --chat-response-spacer-height: max(
-    120px,
-    min(66.6667cqh, calc(100cqh - 240px))
-  );
+  --chat-response-spacer-height: 120px;
 }
 
 /* Fallback wrapper used only by the empty / loading-history states in
@@ -97,10 +87,10 @@
 /*
  * Trailing region: renders as the LegendList footer underneath every
  * virtualized row. Hosts any surface-specific `extraTail` node and a
- * viewport-derived response spacer so a freshly-sent user bubble settles
- * near the top with room for the assistant to stream beneath it. The scroll
- * hook writes `--chat-response-spacer-height` from the live viewport using
- * the same two-thirds / 240px-floor geometry as Codex. Pre-virtualization
+ * turn-scoped response spacer so a freshly-sent user bubble settles near the
+ * top with room for the assistant to stream beneath it. The scroll hook grows
+ * `--chat-response-spacer-height` from this real footer floor on accepted send,
+ * then consumes the extra space as the user scrolls upward. Pre-virtualization
  * this lived on a synthetic "tail"
  * list item that wrapped the latest user + assistant rows; that caused
  * the rows to migrate between virtualized contexts on send, losing

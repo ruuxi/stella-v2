@@ -29,7 +29,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clearAssistantScrollFollow, getAssistantScrollFollowKey, subscribeAssistantScrollFollow, subscribeChatContentGrowth, } from '@/shell/chat-scroll-follow';
-import { CHAT_VIEWPORT_BOTTOM_FADE_PX, POST_SEND_USER_MESSAGE_BREATHING_PX, resolveIdleTailTarget, resolvePostSendTarget, resolveResponseSpacerHeight, resolveStreamFollowTarget, shouldPlaceLatestTurn, } from '@/shell/chat-follow-target';
+import { CHAT_VIEWPORT_BOTTOM_FADE_PX, POST_SEND_USER_MESSAGE_BREATHING_PX, consumeResponseSpacerHeight, resolveIdleTailTarget, resolvePostSendTarget, resolveResponseSpacerHeight, resolveStreamFollowTarget, shouldPlaceLatestTurn, } from '@/shell/chat-follow-target';
 import { registerChatAtRestProbe } from '@/features/chat/hooks/use-conversation-messages';
 import { captureChatPrependAnchor, ChatHistoryPaginationGate, emitChatHistoryPaginationDebug, restoreChatPrependAnchor, } from '@/shell/chat-history-pagination';
 const SCROLL_BUTTON_THRESHOLD = 180;
@@ -138,6 +138,8 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
     const listRef = useRef(null);
     const attachedScrollNodeRef = useRef(null);
     const responseSpacerHeightRef = useRef(trailingRegionMinPx);
+    const responseSpacerTargetHeightRef = useRef(trailingRegionMinPx);
+    const responseSpacerExpandedRef = useRef(false);
     const paginationGateRef = useRef(new ChatHistoryPaginationGate());
     const paginationActionIdRef = useRef(0);
     const prependAnchorRef = useRef(null);
@@ -202,7 +204,13 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
      */
     const followRef = useRef(true);
     const isFollowingLatestRef = useRef(true);
+    // An upward gesture keeps follow released even if consuming the synthetic
+    // spacer leaves the DOM at its literal end. Only a toward-bottom gesture or
+    // an explicit latest-turn action may re-arm it.
+    const followRearmBlockedRef = useRef(false);
     const setFollow = useCallback((following) => {
+        if (following)
+            followRearmBlockedRef.current = false;
         if (followRef.current === following &&
             isFollowingLatestRef.current === following) {
             return;
@@ -288,16 +296,19 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
             updateThumb(scroll, scrollLength, contentLength);
             // Re-arm follow when back in the normal reading position above the
             // off-screen trailing footer (not only at the literal scroll end).
-            if (isAtEnd || distFromEnd <= followRearmThreshold) {
+            if (!followRearmBlockedRef.current &&
+                (isAtEnd || distFromEnd <= followRearmThreshold)) {
                 setFollow(true);
             }
         });
     }, [followRearmThreshold, setFollow, updateThumb]);
     const scrollToBottom = useCallback((behavior = 'smooth') => {
+        responseSpacerExpandedRef.current = false;
         setFollow(true);
         // Legend's own scrollToEnd owns this motion; cancel any lerp
         // so we don't write scrollTop on the same frame Legend does.
         followApi.current?.cancel();
+        followApi.current?.clearResponseSpacer();
         void listRef.current?.scrollToEnd({ animated: behavior !== 'instant' });
     }, [setFollow]);
     /**
@@ -322,10 +333,10 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
         const distanceFromBottomPx = Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop);
         return shouldPlaceLatestTurn({
             distanceFromBottomPx,
-            responseSpacerHeightPx: responseSpacerHeightRef.current,
+            responseSpacerHeightPx: Math.max(0, responseSpacerHeightRef.current - trailingRegionMinPx),
             isFollowingLatest: followRef.current,
         });
-    }, []);
+    }, [trailingRegionMinPx]);
     // Report this surface's at-bottom state to the message-window decay
     // gate: the grown loadOlder window only shrinks back to one page while
     // every mounted chat scroll surface sits at the bottom, so history a
@@ -434,9 +445,12 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
      * follow.
      */
     const releaseFollow = useCallback(() => {
+        responseSpacerExpandedRef.current = false;
+        followRearmBlockedRef.current = true;
         setFollow(false);
         clearAssistantScrollFollow();
         followApi.current?.cancel();
+        followApi.current?.clearResponseSpacer();
     }, [setFollow]);
     /**
      * Smooth one-shot latest-turn placement used by send handlers when the
@@ -465,8 +479,10 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
      * clipped at the top while empty space exists off-screen below.
      */
     const nudgeAfterSend = useCallback(() => {
+        responseSpacerExpandedRef.current = true;
         setFollow(true);
         clearAssistantScrollFollow();
+        followApi.current?.activateResponseSpacer();
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 followApi.current?.scrollLatestUserMessageIntoView();
@@ -480,7 +496,9 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
      * previous turn and can scroll backward.
      */
     const nudgeQueuedMessagesIntoView = useCallback(() => {
+        responseSpacerExpandedRef.current = true;
         setFollow(true);
+        followApi.current?.activateResponseSpacer();
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 followApi.current?.scrollQueuedMessagesIntoView();
@@ -517,21 +535,54 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
             cleanup();
             attached = node;
             attachedScrollNodeRef.current = node;
-            const syncResponseSpacerHeight = () => {
+            const writeResponseSpacerHeight = (height) => {
                 if (!attached)
                     return;
-                const height = resolveResponseSpacerHeight({
+                const clamped = Math.max(trailingRegionMinPx, height);
+                responseSpacerHeightRef.current = clamped;
+                attached.style.setProperty('--chat-response-spacer-height', `${clamped}px`);
+            };
+            const syncResponseSpacerTargetHeight = () => {
+                if (!attached)
+                    return;
+                const target = resolveResponseSpacerHeight({
                     viewportHeight: attached.clientHeight,
                     bottomInsetPx: responseSpacerBottomInsetPx,
                     minimumHeightPx: trailingRegionMinPx,
                 });
-                responseSpacerHeightRef.current = height;
-                attached.style.setProperty('--chat-response-spacer-height', `${height}px`);
+                responseSpacerTargetHeightRef.current = target;
+                if (responseSpacerExpandedRef.current &&
+                    responseSpacerHeightRef.current <= trailingRegionMinPx) {
+                    writeResponseSpacerHeight(target);
+                    return;
+                }
+                // Match Codex resize behavior: cap an existing spacer when the
+                // viewport shrinks, but do not regrow consumed space on resize.
+                writeResponseSpacerHeight(Math.min(responseSpacerHeightRef.current, target));
             };
-            syncResponseSpacerHeight();
+            const activateResponseSpacer = () => {
+                responseSpacerExpandedRef.current = true;
+                writeResponseSpacerHeight(responseSpacerTargetHeightRef.current);
+            };
+            const clearResponseSpacer = () => {
+                responseSpacerExpandedRef.current = false;
+                writeResponseSpacerHeight(trailingRegionMinPx);
+            };
+            const consumeResponseSpacer = (distanceDeltaPx) => {
+                const next = consumeResponseSpacerHeight({
+                    currentHeightPx: responseSpacerHeightRef.current,
+                    minimumHeightPx: trailingRegionMinPx,
+                    distanceDeltaPx,
+                });
+                writeResponseSpacerHeight(next);
+                if (next <= trailingRegionMinPx) {
+                    responseSpacerExpandedRef.current = false;
+                }
+            };
+            syncResponseSpacerTargetHeight();
             const responseSpacerResizeObserver = typeof ResizeObserver === 'undefined'
                 ? null
-                : new ResizeObserver(syncResponseSpacerHeight);
+                : new ResizeObserver(syncResponseSpacerTargetHeight);
             responseSpacerResizeObserver?.observe(node);
             emitChatHistoryPaginationDebug({
                 type: 'scroll-node-attached',
@@ -865,6 +916,8 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
                 nudgeBy,
                 scrollLatestUserMessageIntoView,
                 scrollQueuedMessagesIntoView,
+                activateResponseSpacer,
+                clearResponseSpacer,
                 cancel: stopLoop,
             };
             /**
@@ -1036,6 +1089,7 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
             };
             // ---- user-input release handlers -----------------------------
             const releaseLocalFollow = () => {
+                followRearmBlockedRef.current = true;
                 setFollow(false);
                 stopLoop();
             };
@@ -1057,12 +1111,17 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
                     attemptHistoryLoad(wheelActionId, direction, 'wheel');
                 }
                 else {
+                    if (direction === 'down')
+                        followRearmBlockedRef.current = false;
                     stopLoop();
                 }
             };
             const handleTouchStart = (event) => {
                 noteManualScroll();
-                releaseLocalFollow();
+                // Pause follow for the gesture, but do not permanently block
+                // re-arming until the finger actually moves toward history.
+                setFollow(false);
+                stopLoop();
                 cancelPendingAnchorForUserScroll();
                 touchActionId = nextActionId();
                 touchStartY = event.touches[0]?.clientY ?? null;
@@ -1079,6 +1138,9 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
                 if (direction === 'up') {
                     attemptHistoryLoad(touchActionId, direction, 'touch');
                 }
+                else {
+                    followRearmBlockedRef.current = false;
+                }
             };
             const handleKeyDown = (event) => {
                 if (event.key === 'ArrowUp' ||
@@ -1092,7 +1154,8 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
                 }
                 if (event.key === 'ArrowUp' ||
                     event.key === 'PageUp' ||
-                    event.key === 'Home') {
+                    event.key === 'Home' ||
+                    (event.key === ' ' && event.shiftKey)) {
                     releaseLocalFollow();
                     cancelPendingAnchorForUserScroll();
                     if (!event.repeat || keyActionId === null)
@@ -1101,6 +1164,12 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
                     attemptHistoryLoad(keyActionId, 'up', `key:${event.key}`);
                 }
                 else {
+                    if (event.key === 'ArrowDown' ||
+                        event.key === 'PageDown' ||
+                        event.key === 'End' ||
+                        (event.key === ' ' && !event.shiftKey)) {
+                        followRearmBlockedRef.current = false;
+                    }
                     stopLoop();
                 }
             };
@@ -1130,12 +1199,17 @@ export function useChatScrollManagement({ hasOlderEvents = false, isLoadingOlder
                 lastObservedScrollTop = metrics.scrollTop;
                 const now = performance.now();
                 let intent = activeIntent && activeIntent.expiresAt >= now ? activeIntent : null;
-                if (direction === 'up' && pointerActionId !== null) {
-                    markActiveIntent(pointerActionId, 'up');
+                if (direction !== 'none' && pointerActionId !== null) {
+                    markActiveIntent(pointerActionId, direction);
                     intent = activeIntent;
                 }
                 if (direction === 'up' && intent?.direction === 'up') {
+                    releaseLocalFollow();
+                    consumeResponseSpacer(-delta);
                     attemptHistoryLoad(intent.id, direction, 'native-scroll');
+                }
+                else if (direction === 'down' && intent?.direction === 'down') {
+                    followRearmBlockedRef.current = false;
                 }
             };
             node.addEventListener('wheel', handleWheel, { passive: true });

@@ -24,7 +24,6 @@
 //   $ meeting_capture shutdown --root <stellaDataDir>   # finalize + exit
 //
 // State layout (all under <stellaDataDir>/meetings/):
-//   meeting_capture.sock          AF_UNIX command socket
 //   meeting_capture.pid           Daemon pid (cleaned up on graceful exit)
 //   meeting_capture.state.json    { running, recording, paused, sessionId, startedAtMs, segmentSeconds }
 //   <sessionId>/                  One folder per recording
@@ -32,6 +31,15 @@
 //     segments.jsonl              One line per finalized WAV segment
 //     system/seg-<idx>-<startMs>.wav
 //     mic/seg-<idx>-<startMs>.wav
+//
+// The AF_UNIX command socket does NOT live under <stellaDataDir>: macOS caps
+// `sun_path` at 104 bytes (103 usable), and the Electron host points --root at
+// userData (`~/Library/Application Support/Stella Development`), which
+// overflows for long usernames. The socket is anchored at a short
+// home-relative path instead, namespaced per install by a hash of the root
+// (same pattern as runtime/kernel/computer-use/automation-socket-paths.ts):
+//   ~/.stella/meeting-capture/<sha1(resolvedRoot + "\n" + "meeting_capture")[0..<16]>.sock
+// Everything else (pid, state, recordings) stays under <stellaDataDir>/meetings/.
 //
 // Permissions: system audio needs Screen Recording (CGPreflightScreenCaptureAccess);
 // the mic needs Microphone access. The Electron host prompts for both via TCC
@@ -48,6 +56,7 @@ import AVFoundation
 import AppKit
 import CoreAudio
 import CoreMedia
+import CryptoKit
 import Foundation
 import ScreenCaptureKit
 
@@ -134,9 +143,23 @@ func sanitizeSessionId(_ id: String) -> String {
 struct MeetingPaths {
     let root: String
     var stateDir: String { root + "/meetings" }
-    var sockPath: String { stateDir + "/meeting_capture.sock" }
+    // Short home-anchored socket location (see header comment): the root-derived
+    // location overflows the 104-byte macOS `sun_path` cap for long usernames.
+    // The filename hashes the resolved root so multiple Stella installs (dev
+    // tree + packaged app) sharing this directory never collide on one socket.
+    var sockDir: String { NSHomeDirectory() + "/.stella/meeting-capture" }
+    var sockPath: String { sockDir + "/" + rootHash + ".sock" }
+    // Pre-relocation socket location, swept once at daemon startup so sockets
+    // left behind by older builds don't linger under the data dir.
+    var legacySockPath: String { stateDir + "/meeting_capture.sock" }
     var pidPath: String { stateDir + "/meeting_capture.pid" }
     var statePath: String { stateDir + "/meeting_capture.state.json" }
+
+    var rootHash: String {
+        let resolved = URL(fileURLWithPath: root).standardizedFileURL.path
+        let digest = Insecure.SHA1.hash(data: Data("\(resolved)\nmeeting_capture".utf8))
+        return digest.map { String(format: "%02x", $0) }.joined().prefix(16).lowercased()
+    }
 
     func sessionDir(_ id: String) -> String { stateDir + "/" + id }
 
@@ -144,6 +167,14 @@ struct MeetingPaths {
         try FileManager.default.createDirectory(
             atPath: stateDir,
             withIntermediateDirectories: true
+        )
+    }
+
+    func ensureSockDir() throws {
+        try FileManager.default.createDirectory(
+            atPath: sockDir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
     }
 }
@@ -807,17 +838,28 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
 // MARK: - AF_UNIX command server
 
 func makeUnixSocket(path: String, listen: Bool) -> Int32 {
+    // macOS `sun_path` holds 104 bytes including the trailing NUL. Refuse
+    // over-long paths outright instead of silently truncating: a truncated
+    // path would bind/connect somewhere the other side never looks, producing
+    // baffling "daemon not reachable" failures.
+    let pathBytes = Array(path.utf8)
+    if pathBytes.count > 103 {
+        eprint(
+            "meeting_capture: socket path \"\(path)\" is \(pathBytes.count) bytes, "
+                + "exceeding the 103-byte macOS sun_path limit; "
+                + "refusing to \(listen ? "bind" : "connect") a truncated path")
+        return -1
+    }
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     if fd < 0 { return -1 }
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
-    let pathBytes = Array(path.utf8)
     withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
         ptr.withMemoryRebound(to: CChar.self, capacity: 104) { dst in
-            for (idx, byte) in pathBytes.enumerated() where idx < 103 {
-                dst[idx] = CChar(byte)
+            for (idx, byte) in pathBytes.enumerated() {
+                dst[idx] = CChar(bitPattern: byte)
             }
-            dst[min(pathBytes.count, 103)] = 0
+            dst[pathBytes.count] = 0
         }
     }
     let len = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -861,10 +903,16 @@ func sendString(_ fd: Int32, _ s: String) {
 func runDaemon(paths: MeetingPaths, defaultSegmentSeconds: Int) {
     do {
         try paths.ensureStateDir()
+        try paths.ensureSockDir()
     } catch {
         eprint("meeting_capture.daemon.dir-error: \(error)")
         exit(1)
     }
+
+    // One-time sweep of the pre-relocation socket path under the data dir so
+    // older builds' sockets don't linger (the current path is unlinked before
+    // bind and on graceful shutdown).
+    try? FileManager.default.removeItem(atPath: paths.legacySockPath)
 
     try? "\(getpid())".write(toFile: paths.pidPath, atomically: true, encoding: .utf8)
 

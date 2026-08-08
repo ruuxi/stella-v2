@@ -84,6 +84,7 @@ import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { useChatSearch } from "../lib/chat-search";
 import {
+  consumeResponseSpacerHeight,
   resolvePostSendTarget,
   resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
@@ -151,6 +152,8 @@ const SCROLL_NEAR_BOTTOM_BASE_PX = 96;
 const SCROLL_AWAY_FROM_BOTTOM_BASE_PX = 96;
 /** Re-arm stream auto-follow once the user scrolls back to the true bottom. */
 const SCROLL_AT_BOTTOM_THRESHOLD = 8;
+/** Quiet window after the last gesture frame before momentum is considered done. */
+const MANUAL_SCROLL_SETTLE_MS = 140;
 /**
  * Quiet window after the footer stops shrinking before we commit the smaller
  * height to the list inset. A collapse animation emits a burst of intermediate
@@ -285,11 +288,16 @@ function useKeyboardInset() {
 
 function useChatScroll(
   listTrailingSlackPx: number,
+  responseSpacerHeightPx: number,
   trailingMessageId: string | null,
+  onConsumeResponseSpacer: (distanceDeltaPx: number) => void,
+  onClearResponseSpacer: () => void,
 ) {
   const listRef = useRef<LegendListRef>(null);
   const listTrailingSlackRef = useRef(listTrailingSlackPx);
   listTrailingSlackRef.current = listTrailingSlackPx;
+  const responseSpacerHeightRef = useRef(responseSpacerHeightPx);
+  responseSpacerHeightRef.current = responseSpacerHeightPx;
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const nearBottomLimit = SCROLL_NEAR_BOTTOM_BASE_PX + listTrailingSlackPx;
   const atBottomLimit = SCROLL_AT_BOTTOM_THRESHOLD + listTrailingSlackPx;
@@ -298,6 +306,7 @@ function useChatScroll(
   const metricsRef = useRef({ offsetY: 0, contentHeight: 0, layoutHeight: 0 });
   const contentHeightRef = useRef(0);
   const followArmedRef = useRef(true);
+  const followRearmBlockedRef = useRef(false);
   const followTargetOffsetRef = useRef<number | null>(null);
   const followRafRef = useRef(0);
   const followAnimatingUntilMsRef = useRef(0);
@@ -311,6 +320,11 @@ function useChatScroll(
   const assistantLayoutBaselineRef = useRef<number | null>(null);
   /** True while the user's finger is actively dragging the list. */
   const isDraggingRef = useRef(false);
+  /** Holds through drag momentum so the spacer keeps consuming after release. */
+  const manualScrollActiveRef = useRef(false);
+  const manualScrollSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   /** Spring velocity (px/ms) — persists across frames and chunk boundaries. */
   const followVelRef = useRef(0);
   /** Offset we last committed; the spring integrates from here, not laggy native. */
@@ -335,17 +349,49 @@ function useChatScroll(
     followGentleRef.current = false;
   }, []);
 
-  useEffect(() => () => stopFollowLoop(), [stopFollowLoop]);
+  useEffect(
+    () => () => {
+      stopFollowLoop();
+      if (manualScrollSettleTimerRef.current) {
+        clearTimeout(manualScrollSettleTimerRef.current);
+      }
+    },
+    [stopFollowLoop],
+  );
+
+  const scheduleManualScrollSettle = useCallback(() => {
+    if (manualScrollSettleTimerRef.current) {
+      clearTimeout(manualScrollSettleTimerRef.current);
+    }
+    manualScrollSettleTimerRef.current = setTimeout(() => {
+      manualScrollSettleTimerRef.current = null;
+      if (!isDraggingRef.current) {
+        manualScrollActiveRef.current = false;
+      }
+    }, MANUAL_SCROLL_SETTLE_MS);
+  }, []);
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const previousOffsetY = metricsRef.current.offsetY;
+      const offsetDelta = contentOffset.y - previousOffsetY;
       metricsRef.current = {
         offsetY: contentOffset.y,
         contentHeight: contentSize.height,
         layoutHeight: layoutMeasurement.height,
       };
       contentHeightRef.current = contentSize.height;
+
+      if (manualScrollActiveRef.current) {
+        scheduleManualScrollSettle();
+        if (offsetDelta < -0.5) {
+          followRearmBlockedRef.current = true;
+          onConsumeResponseSpacer(-offsetDelta);
+        } else if (offsetDelta > 0.5) {
+          followRearmBlockedRef.current = false;
+        }
+      }
 
       const hasOverflow = contentSize.height > layoutMeasurement.height + 2;
       const distFromBottom = Math.max(
@@ -360,7 +406,9 @@ function useChatScroll(
       // (still inside the at-bottom band) re-engage follow and the next
       // streaming layout yanks the user straight back down.
       if (distFromBottom <= atBottomLimit) {
-        if (!isDraggingRef.current) followArmedRef.current = true;
+        if (!isDraggingRef.current && !followRearmBlockedRef.current) {
+          followArmedRef.current = true;
+        }
       } else if (
         distFromBottom > nearBottomLimit &&
         followTargetOffsetRef.current === null &&
@@ -373,10 +421,18 @@ function useChatScroll(
 
       setAwayFromBottom(hasOverflow && distFromBottom > awayFromBottomLimit);
     },
-    [atBottomLimit, awayFromBottomLimit, nearBottomLimit, stopFollowLoop],
+    [
+      atBottomLimit,
+      awayFromBottomLimit,
+      nearBottomLimit,
+      onConsumeResponseSpacer,
+      scheduleManualScrollSettle,
+      stopFollowLoop,
+    ],
   );
 
   const resetAssistantAutoScroll = useCallback(() => {
+    followRearmBlockedRef.current = false;
     followArmedRef.current = true;
     assistantLayoutBaselineRef.current = null;
     streamingAssistantHeightRef.current = 0;
@@ -384,6 +440,7 @@ function useChatScroll(
   }, [stopFollowLoop]);
 
   const releaseFollow = useCallback(() => {
+    followRearmBlockedRef.current = true;
     followArmedRef.current = false;
     stopFollowLoop();
   }, [stopFollowLoop]);
@@ -392,17 +449,31 @@ function useChatScroll(
   // is live so `onScroll` won't re-arm until the gesture settles.
   const onScrollBeginDrag = useCallback(() => {
     isDraggingRef.current = true;
-    releaseFollow();
-  }, [releaseFollow]);
+    manualScrollActiveRef.current = true;
+    if (manualScrollSettleTimerRef.current) {
+      clearTimeout(manualScrollSettleTimerRef.current);
+      manualScrollSettleTimerRef.current = null;
+    }
+    // Pause follow immediately, but only an actual upward delta should block
+    // it from re-arming when a tap/drag gesture ends at the live tail.
+    followArmedRef.current = false;
+    stopFollowLoop();
+  }, [stopFollowLoop]);
 
   // Gesture settled (lift, or end of momentum). Clear the drag flag and re-arm
   // only if the user came to rest at the true tail.
   const onScrollSettle = useCallback(() => {
     isDraggingRef.current = false;
+    scheduleManualScrollSettle();
     const { offsetY, contentHeight, layoutHeight } = metricsRef.current;
     const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
-    if (distFromBottom <= atBottomLimit) followArmedRef.current = true;
-  }, [atBottomLimit]);
+    if (
+      distFromBottom <= atBottomLimit &&
+      !followRearmBlockedRef.current
+    ) {
+      followArmedRef.current = true;
+    }
+  }, [atBottomLimit, scheduleManualScrollSettle]);
 
   /** Call when assistant text grows, before layout measures the new height. */
   const prepareAssistantLayoutFollow = useCallback(() => {
@@ -629,11 +700,13 @@ function useChatScroll(
   );
 
   const scrollToBottom = useCallback(() => {
+    followRearmBlockedRef.current = false;
+    onClearResponseSpacer();
     resetAssistantAutoScroll();
     requestAnimationFrame(() =>
       listRef.current?.scrollToEnd({ animated: true }),
     );
-  }, [resetAssistantAutoScroll]);
+  }, [onClearResponseSpacer, resetAssistantAutoScroll]);
 
   const getShouldPlaceLatestTurn = useCallback(() => {
     const { offsetY, layoutHeight } = metricsRef.current;
@@ -643,7 +716,7 @@ function useChatScroll(
     );
     return shouldPlaceLatestTurn({
       distanceFromBottomPx,
-      responseSpacerHeightPx: listTrailingSlackRef.current,
+      responseSpacerHeightPx: responseSpacerHeightRef.current,
       isFollowingLatest: followArmedRef.current,
     });
   }, []);
@@ -653,44 +726,49 @@ function useChatScroll(
    * spacer. The same gentle loop owns this motion and streaming follow, so the
    * two movements blend if reply text arrives before placement settles.
    */
-  const nudgeAfterSend = useCallback((userMessageId: string) => {
-    latestUserLayoutRef.current = null;
-    followArmedRef.current = true;
-    stopFollowLoop();
+  const nudgeAfterSend = useCallback(
+    (userMessageId: string, responseSpacerHeightPx: number) => {
+      latestUserLayoutRef.current = null;
+      listTrailingSlackRef.current = responseSpacerHeightPx;
+      followRearmBlockedRef.current = false;
+      followArmedRef.current = true;
+      stopFollowLoop();
 
-    const placeLatestTurn = () => {
-      const metrics = metricsRef.current;
-      const height = contentHeightRef.current;
-      const maxOffset = Math.max(0, height - metrics.layoutHeight);
-      const measurement = latestUserLayoutRef.current;
+      const placeLatestTurn = () => {
+        const metrics = metricsRef.current;
+        const height = contentHeightRef.current;
+        const maxOffset = Math.max(0, height - metrics.layoutHeight);
+        const measurement = latestUserLayoutRef.current;
 
-      // If the optimistic row is no longer the list tail (for example, an
-      // assistant placeholder landed immediately after it), settling forward
-      // is safer than using another row's height and framing the wrong turn.
-      let target = maxOffset;
-      if (
-        trailingMessageIdRef.current === userMessageId &&
-        measurement?.id === userMessageId
-      ) {
-        const responseSpacerHeightPx = listTrailingSlackRef.current;
-        const rowBottom = Math.max(0, height - responseSpacerHeightPx);
-        const rowTop = Math.max(0, rowBottom - measurement.height);
-        target = resolvePostSendTarget({
-          rowTop,
-          rowBottom,
-          viewportHeight: metrics.layoutHeight,
-          responseSpacerHeightPx,
-        });
-      }
+        // If the optimistic row is no longer the list tail (for example, an
+        // assistant placeholder landed immediately after it), settling forward
+        // is safer than using another row's height and framing the wrong turn.
+        let target = maxOffset;
+        if (
+          trailingMessageIdRef.current === userMessageId &&
+          measurement?.id === userMessageId
+        ) {
+          const responseSpacerHeightPx = listTrailingSlackRef.current;
+          const rowBottom = Math.max(0, height - responseSpacerHeightPx);
+          const rowTop = Math.max(0, rowBottom - measurement.height);
+          target = resolvePostSendTarget({
+            rowTop,
+            rowBottom,
+            viewportHeight: metrics.layoutHeight,
+            responseSpacerHeightPx,
+          });
+        }
 
-      // Gentle one-shot ease-out on the shared spring loop. If the reply starts
-      // streaming mid-nudge, its (non-gentle) target update takes over the same
-      // loop — the two motions blend instead of fighting separate animations.
-      setFollowTarget(target, true);
-    };
+        // Gentle one-shot ease-out on the shared spring loop. If the reply starts
+        // streaming mid-nudge, its (non-gentle) target update takes over the same
+        // loop — the two motions blend instead of fighting separate animations.
+        setFollowTarget(target, true);
+      };
 
-    requestAnimationFrame(() => requestAnimationFrame(placeLatestTurn));
-  }, [setFollowTarget, stopFollowLoop]);
+      requestAnimationFrame(() => requestAnimationFrame(placeLatestTurn));
+    },
+    [setFollowTarget, stopFollowLoop],
+  );
 
   return {
     listRef,
@@ -2140,19 +2218,47 @@ export function ChatPane({
   // measured height stays constant across keyboard show/hide.
   const [footerHeight, setFooterHeight] = useState(0);
   const [listViewportHeight, setListViewportHeight] = useState(0);
+  const [chatTailHeightPx, setChatTailHeightPx] = useState(CHAT_TAIL_GAP);
   const listBottomInsetPx = EDGE_FADE + footerHeight + keyboardExtra;
-  // Keep a Codex-style response area below the latest turn. The composer,
-  // keyboard reserve, and edge fade are already physical list padding; the
-  // footer supplies the remainder of the viewport-derived spacer.
-  const listTrailingSlackPx = resolveResponseSpacerHeight({
+  // The target is viewport-derived, but the current tail starts at its real
+  // working-indicator floor. An accepted send expands it; upward user scroll
+  // consumes it one-for-one until only that floor remains.
+  const responseSpacerTargetHeightPx = resolveResponseSpacerHeight({
     viewportHeight: listViewportHeight,
     bottomInsetPx: listBottomInsetPx,
     minimumHeightPx: listBottomInsetPx + CHAT_TAIL_GAP,
   });
-  const chatTailHeightPx = Math.max(
+  const chatTailTargetHeightPx = Math.max(
     CHAT_TAIL_GAP,
-    listTrailingSlackPx - listBottomInsetPx,
+    responseSpacerTargetHeightPx - listBottomInsetPx,
   );
+  const listTrailingSlackPx = listBottomInsetPx + chatTailHeightPx;
+  const responseSpacerHeightPx = Math.max(
+    0,
+    chatTailHeightPx - CHAT_TAIL_GAP,
+  );
+  const activateResponseSpacer = useCallback(() => {
+    setChatTailHeightPx(chatTailTargetHeightPx);
+  }, [chatTailTargetHeightPx]);
+  const clearResponseSpacer = useCallback(() => {
+    setChatTailHeightPx(CHAT_TAIL_GAP);
+  }, []);
+  const consumeResponseSpacer = useCallback((distanceDeltaPx: number) => {
+    setChatTailHeightPx((currentHeightPx) =>
+      consumeResponseSpacerHeight({
+        currentHeightPx,
+        minimumHeightPx: CHAT_TAIL_GAP,
+        distanceDeltaPx,
+      }),
+    );
+  }, []);
+  // A viewport/keyboard shrink may cap the current spacer, but growing the
+  // viewport never recreates space the user already consumed.
+  useEffect(() => {
+    setChatTailHeightPx((current) =>
+      Math.max(CHAT_TAIL_GAP, Math.min(current, chatTailTargetHeightPx)),
+    );
+  }, [chatTailTargetHeightPx]);
   const onViewportLayout = useCallback((event: LayoutChangeEvent) => {
     setListViewportHeight(Math.round(event.nativeEvent.layout.height));
   }, []);
@@ -2202,7 +2308,10 @@ export function ChatPane({
   const lastMessage = visibleMessages[visibleMessages.length - 1];
   const scroll = useChatScroll(
     listTrailingSlackPx,
+    responseSpacerHeightPx,
     lastMessage?.id ?? null,
+    consumeResponseSpacer,
+    clearResponseSpacer,
   );
 
   const [unread, setUnread] = useState(false);
@@ -2359,13 +2468,21 @@ export function ChatPane({
     const shouldPlaceLatestTurn = scroll.getShouldPlaceLatestTurn();
     const submitted = onSubmit();
     if (submitted && shouldPlaceLatestTurn) {
-      scroll.nudgeAfterSend(submitted.userMessageId);
+      activateResponseSpacer();
+      scroll.nudgeAfterSend(
+        submitted.userMessageId,
+        responseSpacerTargetHeightPx,
+      );
     } else if (submitted) {
+      clearResponseSpacer();
       scroll.releaseFollow();
     }
     Keyboard.dismiss();
   }, [
     onSubmit,
+    activateResponseSpacer,
+    clearResponseSpacer,
+    responseSpacerTargetHeightPx,
     scroll.getShouldPlaceLatestTurn,
     scroll.nudgeAfterSend,
     scroll.releaseFollow,

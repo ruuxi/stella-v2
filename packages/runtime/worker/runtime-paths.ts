@@ -58,10 +58,11 @@ export type RuntimePaths = {
   lockFile: string;
   socketPath: string;
   /**
-   * Companion local-IPC endpoint the worker listens on for sidecar CLI tools (e.g.
-   * `stella-connect`) that need to call back into the host — currently
-   * just to pop a credential dialog when an MCP call returns 401/403.
-   * CLIs discover the path via the `STELLA_CLI_BRIDGE_SOCK` env var
+   * Companion local-IPC endpoint the worker listens on for sidecar
+   * processes (e.g. the `stella-computer` daemon spawn path) and the
+   * in-process node_repl `connect` client — credential dialogs, brokered
+   * connector actions, permission prompts.
+   * Sidecars discover the path via the `STELLA_CLI_BRIDGE_SOCK` env var
    * injected by `runtime/kernel/tools/shell.ts`. Kept under the same
    * per-root namespace so multi-install machines don't collide. POSIX
    * socket paths are len(homedir)-dependent and capped at 104 bytes on

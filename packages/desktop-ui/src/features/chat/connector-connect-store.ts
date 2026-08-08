@@ -1,7 +1,8 @@
 /**
  * Store for agent-initiated in-chat connect offers
  * (`connector-connect:request` from the main process, originating from
- * `stella-connect request-connection`). Chat surfaces render the head
+ * the orchestrator's `connector_status` connection request). Chat
+ * surfaces render the head
  * of the queue as an inline connect card; accept/decline/cancel flow
  * back over the privileged `connector-connect:respond` IPC, and phase
  * updates stream in via `connector-connect:update`.

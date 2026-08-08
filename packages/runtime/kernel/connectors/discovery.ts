@@ -3,8 +3,8 @@
  *
  * Agents deliberately do not get the integration catalog in context —
  * only enabled connectors surface (as skills). When a user request
- * implies an external service ("check my Gmail…"), the agent runs
- * `stella-connect discover <keywords>` and gets back a handful of
+ * implies an external service ("check my Gmail…"), the agent calls
+ * `connect.discover("<keywords>")` in node_repl and gets back a handful of
  * compact matches spanning the WHOLE catalog (native Store integrations
  * — Google Workspace, backend Composio toolkits, recovered OAuth
  * providers — plus imported MCP/API connectors), each annotated with

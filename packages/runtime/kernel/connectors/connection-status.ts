@@ -1,8 +1,8 @@
 /**
  * Shared connection-state lookup for native Store integrations.
  *
- * One place answers "is this integration usable right now?" for the CLI
- * (`stella-connect installed/apps/discover`), the connector keyword
+ * One place answers "is this integration usable right now?" for the
+ * node_repl connect client (discover/connectors), the connector keyword
  * reminder, and the orchestrator's `connector_status` tool.
  */
 
@@ -51,7 +51,7 @@ export const nativeConnectorAuthStatus = async (
 export type NativeConnectorConnectionState = {
   enabled: boolean;
   authStatus: NativeConnectorAuthStatus;
-  /** Enabled AND credentialed — safe to call through stella-connect. */
+  /** Enabled AND credentialed — safe to call through connect.call. */
   connected: boolean;
   /** True only when this process actually verified a provider credential. */
   accountVerified: boolean;

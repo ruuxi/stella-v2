@@ -10,8 +10,8 @@
  *    incoming user message — must be pure local lookup), and
  *  - the `connector_status` tool / CLI as an offline fallback.
  *
- * Whoever fetches the live catalog (CLI `stella-connect`, the
- * `connector_status` tool) writes through here, so the keyword index
+ * Whoever fetches the live catalog (the `connector_status` tool)
+ * writes through here, so the keyword index
  * stays in sync with the catalog without ever fetching on its own.
  */
 

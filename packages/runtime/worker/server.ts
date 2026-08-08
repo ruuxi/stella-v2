@@ -266,8 +266,9 @@ type WorkerState = {
    */
   runEventLog: RunEventLog | null;
   /**
-   * UDS bridge the worker exposes for sidecar CLIs (`stella-connect`)
-   * that need to call back into the host without speaking the full
+   * UDS bridge the worker exposes for sidecar processes (the
+   * `stella-computer` daemon spawn path) and the in-process node_repl
+   * `connect` client that need to call back into the host without the full
    * runtime JSON-RPC protocol. Started on first init, restarted if
    * the worker re-inits with a new stellaAppDir, stopped on shutdown.
    * See `cli-bridge-server.ts`.
@@ -555,8 +556,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     typeof import("../kernel/agent-runtime/one-shot-completion.js")
   > | null = null;
   const loadOneShotCompletion = () =>
-    (oneShotCompletionModule ??=
-      import("../kernel/agent-runtime/one-shot-completion.js"));
+    (oneShotCompletionModule ??= import(
+      "../kernel/agent-runtime/one-shot-completion.js"
+    ));
   let chatPromptContextModule: Promise<
     typeof import("../kernel/chat-prompt-context.js")
   > | null = null;
@@ -600,11 +602,11 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     const requestPinned = (peer.activeRequestHandlerCount?.() ?? 0) > 0;
     return Boolean(
       state.runner?.getActiveOrchestratorRun() ||
-      (state.runner?.getActiveAgentCount() ?? 0) > 0 ||
-      requestPinned ||
-      socialPinned ||
-      voicePinned ||
-      userAppPinned,
+        (state.runner?.getActiveAgentCount() ?? 0) > 0 ||
+        requestPinned ||
+        socialPinned ||
+        voicePinned ||
+        userAppPinned,
     );
   };
 
@@ -704,9 +706,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
 
   const ensureRunner = () => {
     if (!state.runner) {
-      throw new Error(
-        state.runnerReadyError ?? "Runtime worker is not ready.",
-      );
+      throw new Error(state.runnerReadyError ?? "Runtime worker is not ready.");
     }
     return state.runner;
   };
@@ -953,7 +953,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         },
         handlers: {
           runBackendConnectorAction,
-          requestConnectorTokenStore: requestHostConnectorTokenStore,
           requestConnectorCredential: async (params) => {
             try {
               return await peer.request<
@@ -963,29 +962,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                     reason: "cancelled" | "timeout" | "unsupported" | string;
                   }
               >(METHOD_NAMES.HOST_CONNECTOR_CREDENTIAL_REQUEST, params, {
-                retryOnDisconnect: true,
-              });
-            } catch (error) {
-              return {
-                ok: false,
-                reason: (error as Error).message || "host_unreachable",
-              };
-            }
-          },
-          requestConnectorConnection: async (params) => {
-            try {
-              return await peer.request<
-                | { ok: true; status: "connected" | "already_connected" }
-                | {
-                    ok: false;
-                    reason:
-                      | "declined"
-                      | "cancelled"
-                      | "timeout"
-                      | "unsupported"
-                      | string;
-                  }
-              >(METHOD_NAMES.HOST_CONNECTOR_CONNECT_REQUEST, params, {
                 retryOnDisconnect: true,
               });
             } catch (error) {
@@ -1164,7 +1140,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         "stella-office.js",
       ),
       stellaComputerCliPath: resolveRuntimeCliPath("stella-computer.js"),
-      stellaConnectCliPath: resolveRuntimeCliPath("stella-connect.js"),
       stellaMediaCliPath: resolveRuntimeCliPath("stella-media.js"),
       stellaXApiCliPath: resolveRuntimeCliPath("stella-x-api.js"),
       // The bridge listens in post-ready startup. Advertise the stable socket

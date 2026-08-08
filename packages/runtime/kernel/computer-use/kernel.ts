@@ -36,16 +36,19 @@ import {
   MAX_NODE_REPL_CODE_BYTES,
   MAX_NODE_REPL_OUTPUT_BYTES,
   MAX_NODE_REPL_PENDING_BROWSER_CALLS,
+  MAX_NODE_REPL_PENDING_CONNECT_CALLS,
   MAX_NODE_REPL_PENDING_SKY_CALLS,
   MAX_NODE_REPL_PENDING_TOOL_CALLS,
   MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES,
   NODE_REPL_TOOL_SEARCH_NAME,
+  type ConnectMethod,
   type NodeReplWorkerData,
   type ParentToNodeReplWorkerMessage,
   type SerializedError,
   type SkyMethod,
   type WorkerToNodeReplParentMessage,
 } from "./protocol.js";
+import type { ReplConnectClient } from "../connectors/connect-service.js";
 
 const DEFAULT_EVAL_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
@@ -104,6 +107,13 @@ export type NodeReplKernelManagerOptions = {
     onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
   /**
+   * Host-side implementation of the in-REPL frozen `connect` client
+   * (third-party app integrations: discover/connectors/actions/schema/
+   * call). Dispatched by the kernel from worker `connect-call` messages;
+   * thrown Errors are serialized back so REPL code sees them as rejects.
+   */
+  connectClient?: ReplConnectClient;
+  /**
    * Host-side handler for the in-REPL `tools.$search({ query })` intrinsic.
    * Runs over the live tool catalog scoped to the calling context and
    * returns full callable signatures. Intercepted by the kernel before the
@@ -146,6 +156,14 @@ const NODE_REPL_UNCAUGHT_ERROR_NAME = "NodeReplUncaughtError";
 
 const BLOCKED_NODE_MODULE_RE =
   /(?:from\s*|import\s*\(\s*|require\s*\(\s*)["'](?:node:)?(?:child_process|process|worker_threads)["']|process\s*\.\s*(?:binding|getBuiltinModule|dlopen)/;
+
+const CONNECT_METHODS = new Set<ConnectMethod>([
+  "discover",
+  "connectors",
+  "actions",
+  "schema",
+  "call",
+]);
 
 const SKY_METHODS = new Set<SkyMethod>([
   "list_apps",
@@ -365,12 +383,14 @@ class NodeReplKernel {
   private readonly requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
   private readonly executeTool?: NodeReplKernelManagerOptions["executeTool"];
   private readonly searchTools?: NodeReplKernelManagerOptions["searchTools"];
+  private readonly connectClient?: ReplConnectClient;
   private readonly onTerminated: (kernel: NodeReplKernel) => void;
   private tail: Promise<void> = Promise.resolve();
   private idleTimer: NodeJS.Timeout | null = null;
   private pending = 0;
   private skyTail: Promise<void> = Promise.resolve();
   private browserTail: Promise<void> = Promise.resolve();
+  private connectTail: Promise<void> = Promise.resolve();
   private nextEvaluationId = 1;
   private active: ActiveEvaluation | null = null;
   private closed = false;
@@ -398,6 +418,7 @@ class NodeReplKernel {
       requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
       executeTool?: NodeReplKernelManagerOptions["executeTool"];
       searchTools?: NodeReplKernelManagerOptions["searchTools"];
+      connectClient?: ReplConnectClient;
       toolNames: string[];
       ownerLeaseId: string;
       ownerLeaseIssuedAt: number;
@@ -409,6 +430,7 @@ class NodeReplKernel {
       options.requestBrowserExtensionConnect;
     this.executeTool = options.executeTool;
     this.searchTools = options.searchTools;
+    this.connectClient = options.connectClient;
     const getSignal = () => this.active?.controller.signal;
     const session = options.sessionFactory({
       sessionId: id,
@@ -439,6 +461,7 @@ class NodeReplKernel {
       maxPendingSkyCalls: MAX_NODE_REPL_PENDING_SKY_CALLS,
       maxPendingBrowserCalls: MAX_NODE_REPL_PENDING_BROWSER_CALLS,
       maxPendingToolCalls: MAX_NODE_REPL_PENDING_TOOL_CALLS,
+      maxPendingConnectCalls: MAX_NODE_REPL_PENDING_CONNECT_CALLS,
       maxToolDrainWaitMs: options.toolDrainTimeoutMs,
       toolNames: options.toolNames,
     };
@@ -652,6 +675,15 @@ class NodeReplKernel {
       );
       return;
     }
+    if (typed.type === "connect-call") {
+      const run = () => this.handleConnectCall(typed);
+      const task = this.connectTail.then(run, run);
+      this.connectTail = task.then(
+        () => undefined,
+        () => undefined,
+      );
+      return;
+    }
     if (typed.type === "tool-call") {
       void this.handleToolCall(typed);
       return;
@@ -726,6 +758,120 @@ class NodeReplKernel {
       if (!this.closed && this.active === active) {
         this.postSkyError(message.callId, error);
       }
+    }
+  }
+
+  private async handleConnectCall(
+    message: Extract<WorkerToNodeReplParentMessage, { type: "connect-call" }>,
+  ) {
+    const active = this.active;
+    if (
+      !active ||
+      message.evaluationId !== active.id ||
+      !CONNECT_METHODS.has(message.method) ||
+      !Array.isArray(message.args) ||
+      serializedSize(message.args) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES
+    ) {
+      this.postConnectError(
+        message.callId,
+        new Error("Invalid connect protocol request."),
+      );
+      return;
+    }
+
+    try {
+      const client = this.connectClient;
+      if (!client) {
+        throw new Error("connect is not available in this session.");
+      }
+      const value = await this.dispatchConnectCall(
+        client,
+        message.method,
+        message.args,
+      );
+      if (serializedSize(value) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
+        throw new Error("connect result exceeds the protocol limit.");
+      }
+      if (!this.closed && this.active === active) {
+        this.post({
+          type: "connect-result",
+          callId: message.callId,
+          ok: true,
+          value,
+        });
+      }
+    } catch (error) {
+      if (!this.closed && this.active === active) {
+        this.postConnectError(message.callId, error);
+      }
+    }
+  }
+
+  /**
+   * Per-method argument shape check before touching the client. The worker
+   * installer already validates for cooperative callers; this is the
+   * protocol-boundary defense against handcrafted messages.
+   */
+  private dispatchConnectCall(
+    client: ReplConnectClient,
+    method: ConnectMethod,
+    args: readonly unknown[],
+  ): Promise<unknown> {
+    const isNonEmptyString = (value: unknown): value is string =>
+      typeof value === "string" && value.trim().length > 0;
+    const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+      value !== null && typeof value === "object" && !Array.isArray(value);
+    const invalid = () =>
+      Promise.reject(new Error("Invalid connect protocol request."));
+    switch (method) {
+      case "discover":
+        return isNonEmptyString(args[0]) ? client.discover(args[0]) : invalid();
+      case "connectors":
+        return client.connectors();
+      case "actions": {
+        if (!isNonEmptyString(args[0])) return invalid();
+        if (args[1] !== undefined && !isPlainRecord(args[1])) return invalid();
+        const options = isPlainRecord(args[1]) ? args[1] : {};
+        return client.actions(args[0], {
+          ...(typeof options.query === "string"
+            ? { query: options.query }
+            : {}),
+          ...(typeof options.limit === "number"
+            ? { limit: options.limit }
+            : {}),
+        });
+      }
+      case "schema":
+        return isNonEmptyString(args[0]) && isNonEmptyString(args[1])
+          ? client.schema(args[0], args[1])
+          : invalid();
+      case "call": {
+        if (!isNonEmptyString(args[0]) || !isNonEmptyString(args[1])) {
+          return invalid();
+        }
+        if (args[2] !== undefined && !isPlainRecord(args[2])) return invalid();
+        return client.call(
+          args[0],
+          args[1],
+          isPlainRecord(args[2]) ? args[2] : {},
+        );
+      }
+    }
+  }
+
+  private postConnectError(callId: number, error: unknown) {
+    if (this.closed) return;
+    try {
+      this.post({
+        type: "connect-result",
+        callId,
+        ok: false,
+        error: serializeError(error),
+      });
+    } catch (postError) {
+      this.handleWorkerFailure(
+        postError instanceof Error ? postError : new Error(String(postError)),
+      );
     }
   }
 
@@ -1391,6 +1537,7 @@ export class NodeReplKernelRegistry {
           this.options.requestBrowserExtensionConnect,
         executeTool: this.options.executeTool,
         searchTools: this.options.searchTools,
+        connectClient: this.options.connectClient,
         toolNames: replToolNamesForContext(context),
         ownerLeaseId: randomUUID(),
         ownerLeaseIssuedAt,

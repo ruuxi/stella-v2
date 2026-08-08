@@ -1,11 +1,12 @@
-// Brokers agent-initiated `connector.requestConnection` prompts from the
-// runtime CLI bridge (`stella-connect request-connection <id>`) into an
-// inline connect card in the chat surfaces. Accepting the card runs the
+// Brokers agent-initiated connect prompts (the orchestrator's
+// `connector_status` tool with a connection request) into an inline
+// connect card in the chat surfaces. Accepting the card runs the
 // exact same enable + OAuth flow as the Store (`ensureNativeCredential`
 // + `enableNativeConnector`), with the OAuth dialogs suppressed — the
 // card click IS the launch gesture, so the browser opens directly. The
-// CLI blocks on the outcome, which is what lets the agent continue the
-// user's original task the moment the connection lands.
+// requesting tool call blocks on the outcome, which is what lets the
+// agent continue the user's original task the moment the connection
+// lands.
 import { randomUUID } from "crypto";
 import { BrowserWindow, shell } from "electron";
 import { enableNativeConnector, getNativeConnectorTools, } from "@stella/runtime/kernel/connectors/native-integrations";

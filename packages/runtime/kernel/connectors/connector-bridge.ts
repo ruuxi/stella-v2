@@ -15,7 +15,7 @@ import type {
 } from "./types.js";
 
 /** Thrown when a connector request comes back with an HTTP auth status
- *  (401/403/407). Lets callers (e.g. `stella-connect import-mcp`) branch
+ *  (401/403/407). Lets callers branch
  *  on auth failure vs. real probe errors without parsing message strings. */
 export class ConnectorAuthError extends Error {
   readonly kind = "auth_required" as const;

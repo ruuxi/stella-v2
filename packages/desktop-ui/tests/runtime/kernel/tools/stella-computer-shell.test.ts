@@ -126,11 +126,11 @@ describe("stella-computer shell bootstrap", () => {
     expect(shim).toContain('"%STELLA_NODE_BIN%" "%STELLA_COMPUTER_CLI%" %*');
   });
 
-  it("runs stella-connect through Electron's Node mode", async () => {
+  it("runs stella-media through Electron's Node mode", async () => {
     const tempDir = createTempDir();
-    const fakeConnectCliPath = path.join(tempDir, "fake-stella-connect.js");
+    const fakeMediaCliPath = path.join(tempDir, "fake-stella-media.js");
     writeFileSync(
-      fakeConnectCliPath,
+      fakeMediaCliPath,
       `console.log(JSON.stringify({
   electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null,
   args: process.argv.slice(2),
@@ -139,18 +139,18 @@ describe("stella-computer shell bootstrap", () => {
     );
 
     const state = createShellState(tempDir, {
-      stellaConnectCliPath: fakeConnectCliPath,
+      stellaMediaCliPath: fakeMediaCliPath,
     });
     const output = await runShell(
       state,
-      "stella-connect tools outlook",
+      "stella-media describe cover.png",
       tempDir,
       10_000,
     );
 
     expect(JSON.parse(output)).toEqual({
       electronRunAsNode: "1",
-      args: ["tools", "outlook"],
+      args: ["describe", "cover.png"],
     });
   });
 

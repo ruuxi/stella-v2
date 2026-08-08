@@ -160,6 +160,69 @@ describe("backend connector action broker", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("dispatches toolkit-prefixed actions when the catalog entry has no actions list", async () => {
+    // The live backend catalog endpoint returns entries without an
+    // `actions` array; the broker must fall back to the toolkit-prefix
+    // check instead of rejecting everything against an empty allowlist.
+    const { actions: _actions, ...rest } = composioEntry;
+    const entryWithoutActions: NativeConnectorCatalogEntry = { ...rest };
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const result = await makeBroker({
+      entry: entryWithoutActions,
+      fetchImpl: fetchImpl as typeof fetch,
+    })({
+      connectorId: "outlook",
+      action: "OUTLOOK_QUERY_EMAILS",
+      input: {},
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("still rejects cross-toolkit actions when the catalog entry has no actions list", async () => {
+    const { actions: _actions, ...rest } = composioEntry;
+    const entryWithoutActions: NativeConnectorCatalogEntry = { ...rest };
+    const fetchImpl = vi.fn();
+    const result = await makeBroker({
+      entry: entryWithoutActions,
+      fetchImpl: fetchImpl as typeof fetch,
+    })({
+      connectorId: "outlook",
+      action: "GMAIL_SEND_EMAIL",
+      input: {},
+    });
+    expect(result).toMatchObject({ ok: false, reason: "action_not_allowed" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps the strict allowlist when the catalog entry carries actions", async () => {
+    const fetchImpl = vi.fn();
+    // Toolkit prefix matches but the action is not in the populated list.
+    const result = await makeBroker({ fetchImpl: fetchImpl as typeof fetch })({
+      connectorId: "outlook",
+      action: "OUTLOOK_NOT_IN_CATALOG",
+      input: {},
+    });
+    expect(result).toMatchObject({ ok: false, reason: "action_not_allowed" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    // Input schema still enforced for allowlisted actions.
+    const schemaResult = await makeBroker({
+      fetchImpl: fetchImpl as typeof fetch,
+    })({
+      connectorId: "outlook",
+      action: "OUTLOOK_SEND_EMAIL",
+      input: { to: "example@example.com" },
+    });
+    expect(schemaResult).toMatchObject({
+      ok: false,
+      reason: "action_not_allowed",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects unfinished local entries and redacts tokens from backend errors", async () => {
     const localEntry: NativeConnectorCatalogEntry = {
       ...composioEntry,

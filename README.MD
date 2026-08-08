@@ -69,10 +69,15 @@ Channel pairings are skipped because Stella channels are zero-setup. Re-enable t
 
 macOS and Windows. Windows support is currently untested and experimental.
 
+## Repository layout
+
+- `packages/backend` — Convex backend
+- `packages/mobile` — iOS / Android app
+- `packages/desktop` and `packages/desktop-ui` — desktop application
+- `packages/runtime` and `packages/contracts` — shared runtime and contracts
+
 ## Related repos
 
-- [stella-backend](https://github.com/ruuxi/stella-backend) — Convex backend
-- [stella-mobile](https://github.com/ruuxi/stella-mobile) — iOS / Android app
 - [stella-website](https://github.com/ruuxi/stella-website) — marketing site
 
 ## Thanks

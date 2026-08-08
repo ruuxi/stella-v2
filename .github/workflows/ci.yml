@@ -42,3 +42,48 @@ jobs:
 
       - name: Typecheck Electron and preload
         run: bun run electron:typecheck
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        env:
+          STELLA_SKIP_BROWSER_HYDRATE: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck Convex backend
+        run: bun run backend:typecheck
+
+      - name: Test backend
+        run: bun run backend:test
+
+  mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        env:
+          STELLA_SKIP_BROWSER_HYDRATE: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck mobile
+        run: bun run mobile:typecheck
+
+      - name: Lint mobile
+        run: bun run mobile:lint
+
+      - name: Test mobile
+        run: bun run mobile:test

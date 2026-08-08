@@ -9,7 +9,7 @@ On build 91 the head unit *renders* (the native placeholder installed by
 `StellaCarSceneDelegate`) but tapping "Talk to Stella" does nothing:
 
 1. **The visible row was inert by design.** The native placeholder
-   `CPListItem` in `mobile/plugins/withStellaCarPlay.js`
+   `CPListItem` in `packages/mobile/plugins/withStellaCarPlay.js`
    (`StellaCarPlayInstallPlaceholder`) was created with **no `handler`** — so
    whenever the JS root-template takeover doesn't land, the driver is looking
    at a dead row.
@@ -44,7 +44,7 @@ On build 91 the head unit *renders* (the native placeholder installed by
   `checkForConnection`, and `setRootTemplate` (template found/missing +
   completion done/error) now log to the shared `StellaCarPlayDiagnostics`
   user-defaults store and Console with the `[carplay]` prefix.
-- JS session (`mobile/src/carplay/carplay-session.ts`): `carPlayLog()` writes
+- JS session (`packages/mobile/src/carplay/carplay-session.ts`): `carPlayLog()` writes
   JS breadcrumbs into the same user-defaults store via RN `Settings`;
   `setRootTemplate` re-asserted at +1s/+3s; `checkForConnection` polled every
   2s (max 15) until connected; templates built once per app lifetime so
@@ -73,7 +73,7 @@ exists), **Converse mode: On/Off**, and a **Recent replies** section (newest
 2, relative timestamps, "New · <time>" marker until heard, tap reads that
 message).
 
-Code: `mobile/src/carplay/carplay-home.ts` (pure row builders, bun-tested),
+Code: `packages/mobile/src/carplay/carplay-home.ts` (pure row builders, bun-tested),
 `carplay-session.ts` (imperative template controller + takeover hardening +
 `carPlayLog`), `CarPlayBridge.tsx` (drives useDictation / useChatThread
 "carplay" transcript / speakReply). Flat tap indexes (RNCarPlay reports item
@@ -161,7 +161,7 @@ What that tells us for free:
    *Signature (93):* native lines only, **no `[js] CarPlayBridge mounted`**.
 
 5. **Patch not applied in the EAS build** (bun `patchedDependencies` skipped).
-   Verified locally: `mobile/bun.lock` carries the
+   Verified locally: `packages/bun.lock` carries the
    `react-native-carplay@2.3.0 → patches/...` entry and EAS uses bun (bun.lock
    present), so this is low-probability.
    *Signature:* scene-delegate `[carplay]` lines present but **no
@@ -289,7 +289,7 @@ native patch removes the crash class entirely. Residual risk: cosmetic only
 ---
 
 **Ship path: OTA.** The fix touches only
-`mobile/src/carplay/{carplay-home,carplay-session}.ts` — no native code and
+`packages/mobile/src/carplay/{carplay-home,carplay-session}.ts` — no native code and
 deliberately NOT the bun patch, because the expo-updates fingerprint hashes
 the `patches/` dir; touching `patches/react-native-carplay@2.3.0.patch`
 would change the fingerprint away from `6dd9124f…` and orphan builds 95/96.
@@ -304,8 +304,8 @@ to ship this fix was published from a DIRTY working tree: the bundle labeled
 `<ActivityTray/>` with its import already deleted) that existed in NO commit —
 release-mode `ReferenceError` on first render, instant crash on every launch
 of builds 95/96, and expo-updates never fell back to the embedded bundle.
-Never run `eas update` by hand again: use `mobile/scripts/publish-ota.sh
+Never run `eas update` by hand again: use `packages/mobile/scripts/publish-ota.sh
 <channel>`, which refuses dirty trees, checks env, exports locally, and proves
 via the Hermes sourcemap's `sourcesContent`
-(`mobile/scripts/verify-ota-export.ts`) that every bundled first-party file
+(`packages/mobile/scripts/verify-ota-export.ts`) that every bundled first-party file
 matches git HEAD byte-for-byte before publishing.

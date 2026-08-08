@@ -45,7 +45,18 @@
     "verify:source-identifiers": "node packages/desktop/scripts/verify-packaged-identifiers.mjs --source",
     "verify:local-named-imports": "node packages/desktop/scripts/verify-local-named-imports.mjs",
     "verify:ipc-handlers": "cd packages/desktop-ui && vitest run --config vitest.electron.config.ts tests/electron/preload-handler-manifest.test.ts",
-    "verify:packaged-identifiers": "node packages/desktop/scripts/verify-packaged-identifiers.mjs"
+    "verify:packaged-identifiers": "node packages/desktop/scripts/verify-packaged-identifiers.mjs",
+    "backend:dev": "cd packages/backend && bun run dev",
+    "backend:deploy": "cd packages/backend && bun run deploy",
+    "backend:typecheck": "cd packages/backend && bun run typecheck",
+    "backend:test": "cd packages/backend && bun run test",
+    "backend:test:convex": "cd packages/backend && bun run test:convex",
+    "mobile:start": "cd packages/mobile && bun run start",
+    "mobile:ios": "cd packages/mobile && bun run ios",
+    "mobile:android": "cd packages/mobile && bun run android",
+    "mobile:typecheck": "cd packages/mobile && bun run typecheck",
+    "mobile:lint": "cd packages/mobile && bun run lint",
+    "mobile:test": "cd packages/mobile && bun run test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.99.0",

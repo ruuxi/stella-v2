@@ -11,7 +11,7 @@ This is Stella's built-in Pi-style runtime extension.
 
 Stella's runtime was already partially derived from Pi, but core agent setup had drifted back into hardcoded runtime code. This extension keeps the agent layer shaped like Pi while leaving prompt ownership with the backend:
 
-- prompt bodies live in `stella-backend/prompts/stella-runtime/`
+- prompt bodies live in `packages/backend/prompts/stella-runtime/`
 - synchronized, user-editable copies live in `~/.stella/agents/` and `~/.stella/prompts/`
 - the extension entry point registers them
 - the runtime loader discovers the extension from `runtime/extensions`

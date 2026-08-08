@@ -87,10 +87,10 @@ with `requestId === <canonical user message id>` (see
 - `553355f` fixes 2–4: reconcile hardening (stand-in exclusion, twin
   eviction), precise canonical linking via the bridge-reported user-message
   id, requestId-aware merge + twin collapse
-- `2296bc5` chat-merge dedupe/ordering unit tests (`cd mobile && bun test`,
+- `2296bc5` chat-merge dedupe/ordering unit tests (`cd packages/mobile && bun test`,
   12 pass)
 
 ## Ship path
 
-Both bugs are mobile-side (`mobile/src/lib`). Reaching Rahul's phone requires a
+Both bugs are mobile-side (`packages/mobile/src/lib`). Reaching Rahul's phone requires a
 **mobile build/OTA update**; no desktop release needed.

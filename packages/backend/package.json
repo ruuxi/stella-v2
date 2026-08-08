@@ -9,10 +9,11 @@
     "auth:jwks": "convex run auth:getLatestJwks | convex env set JWKS",
     "discord:gateway": "bun scripts/discord-gateway-worker.ts",
     "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
-    "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../stella/runtime/contracts/convex-api.ts",
+    "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../contracts/convex-api.ts",
     "integrations:publish-composio": "node scripts/publish-composio-native-integrations.mjs",
     "prompts:sync-defaults": "bun scripts/sync-stella-prompt-defaults.ts",
     "prompts:publish": "bun scripts/sync-stella-prompt-defaults.ts && bun scripts/publish-stella-prompts.ts",
+    "typecheck": "tsc --noEmit -p convex/tsconfig.json",
     "test": "bun test tests/",
     "test:convex": "vitest run --config vitest.config.ts"
   },
@@ -24,6 +25,7 @@
     "@convex-dev/resend": "^0.2.4",
     "@google/genai": "^2.6.0",
     "ajv": "^8.20.0",
+    "better-call": "1.3.5",
     "better-auth": "1.6.11",
     "convex": "1.41.0",
     "jose": "^6.2.3",
@@ -31,7 +33,7 @@
     "partial-json": "^0.1.7",
     "pdf-parse": "^2.4.5",
     "pngjs": "^7.0.0",
-    "stripe": "^22.2.0",
+    "stripe": "22.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

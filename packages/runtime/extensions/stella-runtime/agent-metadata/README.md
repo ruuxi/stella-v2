@@ -10,7 +10,7 @@ parent. The Orchestrator declares `1`: it works directly and may create
 one level of General agents. A top-level General still declares `2` for the
 standalone General -> subagent mode.
 
-Canonical prompt bodies normally live in the sibling `stella-backend`
-repository and synchronize into `~/.stella/`. An entry with
+Canonical prompt bodies normally live in `packages/backend` and synchronize
+into `~/.stella/`. An entry with
 `promptSource: bundled` intentionally owns its prompt in this packaged line;
 remote reconciliation keeps the bundled body while preserving local edits.

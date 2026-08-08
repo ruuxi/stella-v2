@@ -34,6 +34,22 @@ export function resolveResponseSpacerHeight({
   return Math.max(minimumHeightPx, bottomInsetPx + blankResponseArea);
 }
 
+/** Consume synthetic response space one-for-one with scroll-away motion. */
+export function consumeResponseSpacerHeight({
+  currentHeightPx,
+  minimumHeightPx,
+  distanceDeltaPx,
+}: {
+  currentHeightPx: number;
+  minimumHeightPx: number;
+  distanceDeltaPx: number;
+}) {
+  return Math.max(
+    minimumHeightPx,
+    currentHeightPx - Math.max(0, distanceDeltaPx),
+  );
+}
+
 /**
  * Apply latest-turn placement only while following the live tail. The literal
  * list end includes the synthetic response spacer, so exclude it before

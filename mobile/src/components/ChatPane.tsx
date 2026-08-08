@@ -83,6 +83,11 @@ import { hasAiConsent, requestAiConsent } from "../lib/ai-consent";
 import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol";
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { useChatSearch } from "../lib/chat-search";
+import {
+  resolvePostSendTarget,
+  resolveResponseSpacerHeight,
+  shouldPlaceLatestTurn,
+} from "../lib/chat-response-spacer";
 import { notifySuccess, tapMedium, tapLight } from "../lib/haptics";
 import {
   pauseReadAloud,
@@ -146,8 +151,6 @@ const SCROLL_NEAR_BOTTOM_BASE_PX = 96;
 const SCROLL_AWAY_FROM_BOTTOM_BASE_PX = 96;
 /** Re-arm stream auto-follow once the user scrolls back to the true bottom. */
 const SCROLL_AT_BOTTOM_THRESHOLD = 8;
-/** Small upward nudge after send so the user bubble clears room for the reply. */
-const POST_SEND_NUDGE_PX = 128;
 /**
  * Quiet window after the footer stops shrinking before we commit the smaller
  * height to the list inset. A collapse animation emits a burst of intermediate
@@ -280,8 +283,13 @@ function useKeyboardInset() {
 // near the bottom.
 // ---------------------------------------------------------------------------
 
-function useChatScroll(listTrailingSlackPx: number) {
+function useChatScroll(
+  listTrailingSlackPx: number,
+  trailingMessageId: string | null,
+) {
   const listRef = useRef<LegendListRef>(null);
+  const listTrailingSlackRef = useRef(listTrailingSlackPx);
+  listTrailingSlackRef.current = listTrailingSlackPx;
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const nearBottomLimit = SCROLL_NEAR_BOTTOM_BASE_PX + listTrailingSlackPx;
   const atBottomLimit = SCROLL_AT_BOTTOM_THRESHOLD + listTrailingSlackPx;
@@ -294,6 +302,11 @@ function useChatScroll(listTrailingSlackPx: number) {
   const followRafRef = useRef(0);
   const followAnimatingUntilMsRef = useRef(0);
   const streamingAssistantHeightRef = useRef(0);
+  const latestUserLayoutRef = useRef<{ id: string; height: number } | null>(
+    null,
+  );
+  const trailingMessageIdRef = useRef(trailingMessageId);
+  trailingMessageIdRef.current = trailingMessageId;
   /** Content height before the next assistant-driven layout pass. */
   const assistantLayoutBaselineRef = useRef<number | null>(null);
   /** True while the user's finger is actively dragging the list. */
@@ -395,6 +408,16 @@ function useChatScroll(listTrailingSlackPx: number) {
   const prepareAssistantLayoutFollow = useCallback(() => {
     assistantLayoutBaselineRef.current = contentHeightRef.current;
   }, []);
+
+  const onLatestUserLayout = useCallback(
+    (messageId: string, event: LayoutChangeEvent) => {
+      latestUserLayoutRef.current = {
+        id: messageId,
+        height: event.nativeEvent.layout.height,
+      };
+    },
+    [],
+  );
 
   // Drive the list to `offset` directly (no native animation) — the spring owns
   // the motion, so each frame just commits the integrated position. We treat the
@@ -612,38 +635,62 @@ function useChatScroll(listTrailingSlackPx: number) {
     );
   }, [resetAssistantAutoScroll]);
 
-  /**
-   * After send, bump the viewport slightly when the user is already near the
-   * bottom — mirrors desktop `nudgeAfterSend` / `POST_SEND_USER_MESSAGE_BREATHING_PX`.
-   */
-  const nudgeAfterSend = useCallback(() => {
+  const getShouldPlaceLatestTurn = useCallback(() => {
     const { offsetY, layoutHeight } = metricsRef.current;
-    const contentHeight = contentHeightRef.current;
-    const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
-    if (distFromBottom > nearBottomLimit) return;
+    const distanceFromBottomPx = Math.max(
+      0,
+      contentHeightRef.current - offsetY - layoutHeight,
+    );
+    return shouldPlaceLatestTurn({
+      distanceFromBottomPx,
+      responseSpacerHeightPx: listTrailingSlackRef.current,
+      isFollowingLatest: followArmedRef.current,
+    });
+  }, []);
 
+  /**
+   * After send, place the newest user row above the viewport-derived response
+   * spacer. The same gentle loop owns this motion and streaming follow, so the
+   * two movements blend if reply text arrives before placement settles.
+   */
+  const nudgeAfterSend = useCallback((userMessageId: string) => {
+    latestUserLayoutRef.current = null;
     followArmedRef.current = true;
     stopFollowLoop();
 
-    const applyNudge = () => {
+    const placeLatestTurn = () => {
       const metrics = metricsRef.current;
       const height = contentHeightRef.current;
-      const dist = Math.max(0, height - metrics.offsetY - metrics.layoutHeight);
-      if (dist > nearBottomLimit) return;
-
       const maxOffset = Math.max(0, height - metrics.layoutHeight);
-      const newOffset = Math.min(
-        metrics.offsetY + POST_SEND_NUDGE_PX,
-        maxOffset,
-      );
+      const measurement = latestUserLayoutRef.current;
+
+      // If the optimistic row is no longer the list tail (for example, an
+      // assistant placeholder landed immediately after it), settling forward
+      // is safer than using another row's height and framing the wrong turn.
+      let target = maxOffset;
+      if (
+        trailingMessageIdRef.current === userMessageId &&
+        measurement?.id === userMessageId
+      ) {
+        const responseSpacerHeightPx = listTrailingSlackRef.current;
+        const rowBottom = Math.max(0, height - responseSpacerHeightPx);
+        const rowTop = Math.max(0, rowBottom - measurement.height);
+        target = resolvePostSendTarget({
+          rowTop,
+          rowBottom,
+          viewportHeight: metrics.layoutHeight,
+          responseSpacerHeightPx,
+        });
+      }
+
       // Gentle one-shot ease-out on the shared spring loop. If the reply starts
       // streaming mid-nudge, its (non-gentle) target update takes over the same
       // loop — the two motions blend instead of fighting separate animations.
-      setFollowTarget(newOffset, true);
+      setFollowTarget(target, true);
     };
 
-    requestAnimationFrame(() => requestAnimationFrame(applyNudge));
-  }, [nearBottomLimit, setFollowTarget, stopFollowLoop]);
+    requestAnimationFrame(() => requestAnimationFrame(placeLatestTurn));
+  }, [setFollowTarget, stopFollowLoop]);
 
   return {
     listRef,
@@ -654,8 +701,11 @@ function useChatScroll(listTrailingSlackPx: number) {
     scrollToBottom,
     resetAssistantAutoScroll,
     prepareAssistantLayoutFollow,
+    onLatestUserLayout,
     onScrollBeginDrag,
     onScrollSettle,
+    getShouldPlaceLatestTurn,
+    releaseFollow,
     nudgeAfterSend,
     awayFromBottom,
   };
@@ -1956,7 +2006,7 @@ export type ChatPaneProps = {
   /** Computed once per parent re-render; controls submit button enabled. */
   canSubmit: boolean;
   /** Triggered by the send button or `return` key. */
-  onSubmit: () => void;
+  onSubmit: () => { userMessageId: string } | null;
   /**
    * Optional stop handler. When provided AND `streaming` is true, the send
    * button is replaced by a stop button that calls this. Used to cancel the
@@ -2089,12 +2139,23 @@ export function ChatPane({
   // clipped by it. The composer's keyboard lift is a transform, so this
   // measured height stays constant across keyboard show/hide.
   const [footerHeight, setFooterHeight] = useState(0);
-  // The reserved tail region is real list content below the last row, so the
-  // scroll-follow math must count it as trailing slack alongside the edge fade,
-  // composer inset, and the keyboard reserve — otherwise the stream-follow
-  // target lands a tail-gap too low and over-scrolls past the assistant row.
-  const listTrailingSlackPx =
-    EDGE_FADE + footerHeight + keyboardExtra + CHAT_TAIL_GAP;
+  const [listViewportHeight, setListViewportHeight] = useState(0);
+  const listBottomInsetPx = EDGE_FADE + footerHeight + keyboardExtra;
+  // Keep a Codex-style response area below the latest turn. The composer,
+  // keyboard reserve, and edge fade are already physical list padding; the
+  // footer supplies the remainder of the viewport-derived spacer.
+  const listTrailingSlackPx = resolveResponseSpacerHeight({
+    viewportHeight: listViewportHeight,
+    bottomInsetPx: listBottomInsetPx,
+    minimumHeightPx: listBottomInsetPx + CHAT_TAIL_GAP,
+  });
+  const chatTailHeightPx = Math.max(
+    CHAT_TAIL_GAP,
+    listTrailingSlackPx - listBottomInsetPx,
+  );
+  const onViewportLayout = useCallback((event: LayoutChangeEvent) => {
+    setListViewportHeight(Math.round(event.nativeEvent.layout.height));
+  }, []);
 
   // The footer (working indicator + composer) re-measures on every frame of any
   // layout animation it runs. Each measurement re-renders the list padding and
@@ -2134,7 +2195,15 @@ export function ChatPane({
 
   const assistantTextLenRef = useRef(0);
   const assistantIdRef = useRef<string | null>(null);
-  const scroll = useChatScroll(listTrailingSlackPx);
+  const visibleMessages = useMemo(
+    () => visibleChatMessages(messages),
+    [messages],
+  );
+  const lastMessage = visibleMessages[visibleMessages.length - 1];
+  const scroll = useChatScroll(
+    listTrailingSlackPx,
+    lastMessage?.id ?? null,
+  );
 
   const [unread, setUnread] = useState(false);
   const prevLenRef = useRef(0);
@@ -2142,11 +2211,6 @@ export function ChatPane({
   const spokenAssistantIdsRef = useRef<Set<string>>(new Set());
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
 
-  const visibleMessages = useMemo(
-    () => visibleChatMessages(messages),
-    [messages],
-  );
-  const lastMessage = visibleMessages[visibleMessages.length - 1];
   if (lastMessage?.role === "assistant") {
     const isNewAssistant = lastMessage.id !== assistantIdRef.current;
     const grewText = lastMessage.text.length > assistantTextLenRef.current;
@@ -2292,10 +2356,20 @@ export function ChatPane({
 
   const submit = useCallback(() => {
     tapMedium();
-    onSubmit();
-    scroll.nudgeAfterSend();
+    const shouldPlaceLatestTurn = scroll.getShouldPlaceLatestTurn();
+    const submitted = onSubmit();
+    if (submitted && shouldPlaceLatestTurn) {
+      scroll.nudgeAfterSend(submitted.userMessageId);
+    } else if (submitted) {
+      scroll.releaseFollow();
+    }
     Keyboard.dismiss();
-  }, [onSubmit, scroll.nudgeAfterSend]);
+  }, [
+    onSubmit,
+    scroll.getShouldPlaceLatestTurn,
+    scroll.nudgeAfterSend,
+    scroll.releaseFollow,
+  ]);
 
   const dictationHeadersMemo = useMemo(
     () => dictationHeaders,
@@ -2667,6 +2741,8 @@ export function ChatPane({
   // through the brief render where `streaming` flips false at end-of-turn.
   const streamingAssistantId =
     streaming && lastMessage?.role === "assistant" ? lastMessage.id : null;
+  const latestUserMessageId =
+    lastMessage?.role === "user" ? lastMessage.id : null;
   useEffect(() => {
     if (!streamingAssistantId) {
       scroll.clearStreamingAssistantLayout();
@@ -2692,6 +2768,7 @@ export function ChatPane({
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
       const isStreamingAssistant = item.id === streamingAssistantId;
+      const isLatestUser = item.id === latestUserMessageId;
       const animate = shouldAnimateMessageEntry(
         seenMessageIdsRef.current,
         item.id,
@@ -2701,7 +2778,11 @@ export function ChatPane({
           key={item.id}
           animate={animate}
           onLayout={
-            isStreamingAssistant ? scroll.onStreamingAssistantLayout : undefined
+            isStreamingAssistant
+              ? scroll.onStreamingAssistantLayout
+              : isLatestUser
+                ? (event) => scroll.onLatestUserLayout(item.id, event)
+                : undefined
           }
         >
           <ChatMessageRow
@@ -2721,6 +2802,8 @@ export function ChatPane({
       colors,
       onOpenArtifact,
       askStella,
+      latestUserMessageId,
+      scroll.onLatestUserLayout,
       scroll.onStreamingAssistantLayout,
       streamingAssistantId,
     ],
@@ -2732,13 +2815,12 @@ export function ChatPane({
   const getItemType = useCallback((item: ChatMessage) => item.role, []);
 
   // The working indicator rides at the tail of the chat (desktop-style) instead
-  // of floating above the composer. It's wrapped in a fixed-height tail region
-  // so the indicator collapsing to nothing when idle — or growing back in when
-  // a reply starts — never changes the footer's height, and the chat tail never
-  // jumps. The constant gap doubles as a reading-area floor below the last row.
+  // of floating above the composer. Its viewport-derived tail reserves the
+  // response area below the latest turn; the indicator itself keeps a stable
+  // slot, so fading it in or out never changes the footer's height.
   const listFooter = useMemo(
     () => (
-      <View style={styles.chatTail}>
+      <View style={[styles.chatTail, { minHeight: chatTailHeightPx }]}>
         <WorkingIndicator
           active={workingIndicator?.active ?? streaming}
           exitImmediately={workingIndicator?.exitImmediately}
@@ -2749,7 +2831,7 @@ export function ChatPane({
         />
       </View>
     ),
-    [streaming, workingIndicator, styles.chatTail],
+    [chatTailHeightPx, streaming, workingIndicator, styles.chatTail],
   );
 
   // Search shows a separate results menu that overlays the chat (the chat
@@ -2882,15 +2964,12 @@ export function ChatPane({
     enableAttachments && (attachments?.length ?? 0) > 0;
 
   const listContentContainerStyle = useMemo(
-    () => [
-      styles.list,
-      { paddingBottom: EDGE_FADE + footerHeight + keyboardExtra },
-    ],
-    [styles.list, footerHeight, keyboardExtra],
+    () => [styles.list, { paddingBottom: listBottomInsetPx }],
+    [styles.list, listBottomInsetPx],
   );
   return (
     <View ref={rootRef} collapsable={false} style={styles.screen}>
-      <View style={styles.viewport}>
+      <View style={styles.viewport} onLayout={onViewportLayout}>
         {historyLoading ? (
           // Hold a stable blank surface while history hydrates so the empty
           // state never flashes during a tab transition.

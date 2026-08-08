@@ -114,10 +114,26 @@ const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig = {
   },
 };
 
+const GEMINI_3_6_FLASH_SYNTHESIS_CONFIG: ModelConfig = {
+  model: "google/gemini-3.6-flash",
+  fallback: DEEPSEEK_V4_FLASH_MODEL_CONFIG.model,
+  managedGatewayProvider: "google",
+  fallbackManagedGatewayProvider:
+    DEEPSEEK_V4_FLASH_MODEL_CONFIG.managedGatewayProvider,
+  maxOutputTokens: 32768,
+  providerOptions: gatewayOptions("google"),
+  fallbackProviderOptions: DEEPSEEK_V4_FLASH_MODEL_CONFIG.providerOptions,
+};
+
 export const WAFER_DEEPSEEK_V4_FLASH_FAST_MODEL =
   "wafer/DeepSeek-V4-Flash-0731-Fast";
 
-type TaskModelSelection = ModelMode;
+const INTERNAL_MODEL_CONFIGS = {
+  synthesis: GEMINI_3_6_FLASH_SYNTHESIS_CONFIG,
+} as const satisfies Record<string, ModelConfig>;
+
+type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
+type TaskModelSelection = ModelMode | InternalModelConfigKey;
 
 // Legacy mode names remain parseable so old clients fail over cleanly, but
 // every mode resolves to the only supported Stella model.
@@ -263,7 +279,7 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   [AGENT_IDS.FASHION]: "light",
 
   schedule: "light",
-  synthesis: "light",
+  synthesis: "synthesis",
   welcome: "light",
   store_asset_metadata: "light",
   dream: "light",
@@ -344,7 +360,9 @@ const buildAudienceAgentCatalog = (
     TASK_MODEL_SELECTIONS,
   )) {
     const selection = audienceModeOverrides[agentType] ?? defaultSelection;
-    taskCatalog[agentType] = clone(modeCatalog[selection]);
+    taskCatalog[agentType] = isModelMode(selection)
+      ? clone(modeCatalog[selection])
+      : clone(INTERNAL_MODEL_CONFIGS[selection]);
   }
 
   return taskCatalog;

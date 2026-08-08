@@ -18,9 +18,10 @@ const FLASH_MODEL = "accounts/fireworks/models/deepseek-v4-flash-0731";
 const FLASH_SELECTION = `stella/${FLASH_MODEL}`;
 const FAST_MODEL = "wafer/DeepSeek-V4-Flash-0731-Fast";
 const FAST_SELECTION = `stella/${FAST_MODEL}`;
+const SYNTHESIS_MODEL = "google/gemini-3.6-flash";
 
 describe("managed model config", () => {
-  it("routes every Stella mode and agent task to DeepSeek V4 Flash", () => {
+  it("routes every Stella mode to DeepSeek and keeps synthesis on Gemini", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       for (const mode of MODEL_MODES) {
         expect(getModeConfig(mode, audience)).toMatchObject({
@@ -35,14 +36,25 @@ describe("managed model config", () => {
       }
 
       for (const entry of listStellaDefaultSelections(audience)) {
+        const expectedModel =
+          entry.agentType === "synthesis" ? SYNTHESIS_MODEL : FLASH_MODEL;
         expect(getModelConfig(entry.agentType, audience).model).toBe(
-          FLASH_MODEL,
+          expectedModel,
         );
         expect(entry).toMatchObject({
           model: "stella/default",
-          resolvedModel: FLASH_MODEL,
+          resolvedModel: expectedModel,
         });
       }
+
+      expect(getModelConfig("synthesis", audience)).toMatchObject({
+        model: SYNTHESIS_MODEL,
+        fallback: FLASH_MODEL,
+        managedGatewayProvider: "google",
+        fallbackManagedGatewayProvider: "fireworks",
+        maxOutputTokens: 32768,
+        providerOptions: { gateway: { order: ["google"] } },
+      });
     }
   });
 
@@ -105,7 +117,11 @@ describe("managed model config", () => {
     );
   });
 
-  it("price-syncs both DeepSeek V4 Flash variants", () => {
-    expect(listManagedModelIds()).toEqual([FLASH_MODEL, FAST_MODEL]);
+  it("price-syncs the two public variants and internal synthesis model", () => {
+    expect(listManagedModelIds()).toEqual([
+      FLASH_MODEL,
+      SYNTHESIS_MODEL,
+      FAST_MODEL,
+    ]);
   });
 });

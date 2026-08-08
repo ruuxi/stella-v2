@@ -45,7 +45,6 @@ import { createScriptDraftTool } from "./script-draft.js";
 import { strReplaceTool } from "./str-replace.js";
 import { createAgentTools } from "./task.js";
 import { createConnectorStatusTool } from "./connector-status.js";
-import { toolSearchTool } from "./tool-search.js";
 import { createWebTool } from "./web.js";
 import { writeTool } from "./write.js";
 import { createWriteStdinTool } from "./write-stdin.js";
@@ -135,7 +134,6 @@ export const buildBuiltinTools = (
     }),
   );
   tools.push(createWebTool({ webSearch: options.webSearch }));
-  tools.push(toolSearchTool);
 
   // Orchestrator coordination surface
   tools.push(createHtmlTool({ stellaDataDir: options.stellaDataDir }));
@@ -165,12 +163,13 @@ export const buildBuiltinTools = (
   // Fashion subagent surface
   tools.push(...createFashionControlTools({ fashionApi: options.fashionApi }));
 
-  // Deferred connector affordances. These stay hidden from initial model
-  // catalogs and are exposed by `tool_search` only in matching contexts.
+  // Demoted connector affordances. These stay out of the model's direct
+  // tool list when node_repl is available and are called inside the REPL
+  // (`tools.<name>`), gated to matching connector contexts.
   tools.push(
     ...createLinqImessageTools({ actionConvex: options.actionConvex }),
   );
-  // Deferred orchestrator connector check + inline connect card. Surfaced
+  // Demoted orchestrator connector check + inline connect card. Surfaced
   // situationally by the connector-availability system reminder.
   tools.push(
     createConnectorStatusTool({

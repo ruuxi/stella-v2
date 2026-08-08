@@ -112,7 +112,6 @@ export class SubagentSession extends PiSessionCore {
             connectorDeliveryTarget: opts.connectorDeliveryTarget,
             toolsAllowlist: opts.agentContext.toolsAllowlist,
             toolCatalog: opts.toolCatalog,
-            historyMessages: this.historyForToolActivation(opts.agentContext),
             store: opts.store,
             toolExecutor: opts.toolExecutor,
             hookEmitter: opts.hookEmitter,

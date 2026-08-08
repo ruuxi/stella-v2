@@ -81,9 +81,6 @@ export class PiSessionCore {
         this.currentResolvedLlm = resolvedLlm;
         setProviderContextWindow(this.threadKey, resolvedLlm.model.contextWindow);
     }
-    historyForToolActivation(agentContext) {
-        return this.agent?.state.messages ?? buildHistorySource(agentContext);
-    }
     refreshHistoryIfNeeded(agentContext, logContext) {
         if (!this.pendingHistoryRefresh || !this.agent)
             return;

@@ -13,7 +13,6 @@ import { registerSessionResourceCleanup } from "../session-resources.js";
 import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic, formatThrownValue, } from "../utils/diagnostics.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
-import { splitDeferredTools } from "../utils/deferred-tools.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
 import { buildBaseOptions } from "./simple-options.js";
 // ============================================================================
@@ -230,12 +229,13 @@ export const streamSimpleOpenAICodexResponses = (model, context, options) => {
 // Request Building
 // ============================================================================
 function buildRequestBody(model, context, options) {
-    const supportsToolSearch = model.compat?.supportsToolSearch ?? /^gpt-(?:[6-9]|\d{2,})|^gpt-5\.[4-9]/.test(model.id);
-    const toolPlacement = splitDeferredTools(context, supportsToolSearch);
     const messages = convertResponsesMessages(model, context, CODEX_TOOL_CALL_PROVIDERS, {
         includeSystemPrompt: false,
-        deferredTools: toolPlacement.deferred,
     });
+    // Dedupe by name — last definition wins, matching historical behavior.
+    const uniqueTools = [
+        ...new Map((context.tools ?? []).map((tool) => [tool.name, tool])).values(),
+    ];
     const body = {
         model: model.id,
         store: false,
@@ -254,8 +254,8 @@ function buildRequestBody(model, context, options) {
     if (options?.serviceTier !== undefined) {
         body.service_tier = options.serviceTier;
     }
-    if (toolPlacement.immediate.length > 0) {
-        body.tools = convertResponsesTools(toolPlacement.immediate, {
+    if (uniqueTools.length > 0) {
+        body.tools = convertResponsesTools(uniqueTools, {
             strict: null,
         });
     }

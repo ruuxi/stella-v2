@@ -828,7 +828,6 @@ async function emitToolCallOutcome(
 		content: result.content,
 		details: result.details,
 		...(typeof result.modelOutputTokens === "number" ? { modelOutputTokens: result.modelOutputTokens } : {}),
-		...(result.addedToolNames?.length ? { addedToolNames: result.addedToolNames } : {}),
 		isError,
 		timestamp: Date.now(),
 	};

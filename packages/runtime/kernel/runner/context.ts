@@ -1163,8 +1163,9 @@ export const buildAgentContext = async (
     );
     // Connector discovery + connect offers are orchestrator-driven now:
     // a deterministic keyword reminder (connector-availability hook) plus
-    // the deferred `connector_status` tool own the offer flow. Agents just
-    // use already-connected integrations via their skills; no standing
+    // the demoted `connector_status` tool (direct, or via node_repl's
+    // tools.connector_status) own the offer flow. Agents just use
+    // already-connected integrations via their skills; no standing
     // integration guidance is injected here.
   }
   // Read the live prompt from `~/.stella/agents/` so edits take effect on the

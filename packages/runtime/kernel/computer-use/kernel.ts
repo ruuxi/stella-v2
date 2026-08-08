@@ -39,6 +39,7 @@ import {
   MAX_NODE_REPL_PENDING_SKY_CALLS,
   MAX_NODE_REPL_PENDING_TOOL_CALLS,
   MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES,
+  NODE_REPL_TOOL_SEARCH_NAME,
   type NodeReplWorkerData,
   type ParentToNodeReplWorkerMessage,
   type SerializedError,
@@ -70,6 +71,12 @@ export type NodeReplMetadata = Readonly<{
   emitImage: (filePath: string) => string;
 }>;
 
+export type NodeReplToolSearchResult = {
+  name: string;
+  signature: string;
+  description?: string;
+};
+
 export type NodeReplKernelManagerOptions = {
   browserBinPath?: string;
   sessionFactory?: ComputerUseSessionFactory;
@@ -96,6 +103,18 @@ export type NodeReplKernelManagerOptions = {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
+  /**
+   * Host-side handler for the in-REPL `tools.$search({ query })` intrinsic.
+   * Runs over the live tool catalog scoped to the calling context and
+   * returns full callable signatures. Intercepted by the kernel before the
+   * per-context allowlist gate, so it never needs to appear in
+   * `allowedToolNames`.
+   */
+  searchTools?: (
+    query: string,
+    context: ToolContext,
+    limit?: number,
+  ) => Promise<NodeReplToolSearchResult[]> | NodeReplToolSearchResult[];
 };
 
 export type ComputerUseSessionFactoryOptions = Readonly<{
@@ -249,10 +268,22 @@ const NON_VISUAL_BROWSER_MUTATIONS = new Set([
   "close_owner",
 ]);
 const MAX_BROWSER_SCREENSHOT_FILES_PER_KERNEL = 100;
-const NODE_REPL_EXCLUDED_TOOL_NAMES = new Set([
+/**
+ * Tools never exposed inside the REPL's `tools` object. `$`-prefixed names
+ * need no entry here: the host rejects them at registration, and the worker
+ * filters them from every refresh, so nothing can shadow the built-in
+ * `tools.$search`.
+ */
+export const NODE_REPL_EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "node_repl",
   "multi_tool_use_parallel",
 ]);
+
+/** Current REPL-visible tool names for a context (exclusions applied). */
+const replToolNamesForContext = (context: ToolContext): string[] =>
+  [...new Set(context.allowedToolNames ?? [])].filter(
+    (name) => !NODE_REPL_EXCLUDED_TOOL_NAMES.has(name) && !name.startsWith("$"),
+  );
 
 type NodeReplTransport = {
   on(event: "message", listener: (message: unknown) => void): unknown;
@@ -333,6 +364,7 @@ class NodeReplKernel {
   private readonly browser: BrowserSessionClient;
   private readonly requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
   private readonly executeTool?: NodeReplKernelManagerOptions["executeTool"];
+  private readonly searchTools?: NodeReplKernelManagerOptions["searchTools"];
   private readonly onTerminated: (kernel: NodeReplKernel) => void;
   private tail: Promise<void> = Promise.resolve();
   private idleTimer: NodeJS.Timeout | null = null;
@@ -365,6 +397,7 @@ class NodeReplKernel {
       ) => BrowserSessionClient;
       requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
       executeTool?: NodeReplKernelManagerOptions["executeTool"];
+      searchTools?: NodeReplKernelManagerOptions["searchTools"];
       toolNames: string[];
       ownerLeaseId: string;
       ownerLeaseIssuedAt: number;
@@ -375,6 +408,7 @@ class NodeReplKernel {
     this.requestBrowserExtensionConnect =
       options.requestBrowserExtensionConnect;
     this.executeTool = options.executeTool;
+    this.searchTools = options.searchTools;
     const getSignal = () => this.active?.controller.signal;
     const session = options.sessionFactory({
       sessionId: id,
@@ -573,7 +607,15 @@ class NodeReplKernel {
         }
       }
       try {
-        this.post({ type: "evaluate", evaluationId: id, code });
+        // Ship the current allowed tool names with every evaluate so the
+        // worker's `tools` object tracks tools added or removed mid-session
+        // (the frozen construction-time list went stale otherwise).
+        this.post({
+          type: "evaluate",
+          evaluationId: id,
+          code,
+          toolNames: replToolNamesForContext(context),
+        });
       } catch (error) {
         this.terminateActive(
           new KernelTerminatedError(
@@ -962,17 +1004,69 @@ class NodeReplKernel {
     message: Extract<WorkerToNodeReplParentMessage, { type: "tool-call" }>,
   ) {
     const active = this.active;
-    const allowedToolNames = new Set(active?.context.allowedToolNames ?? []);
     if (
       !active ||
       message.evaluationId !== active.id ||
-      !this.executeTool ||
-      NODE_REPL_EXCLUDED_TOOL_NAMES.has(message.toolName) ||
-      !allowedToolNames.has(message.toolName) ||
       !message.args ||
       typeof message.args !== "object" ||
       Array.isArray(message.args) ||
       serializedSize(message.args) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES
+    ) {
+      this.postToolError(
+        message.callId,
+        new Error("Invalid or unauthorized tool protocol request."),
+      );
+      return;
+    }
+
+    // `tools.$search` is a kernel intrinsic, resolved host-side over the
+    // live tool catalog BEFORE the per-context allowlist gate: demoted
+    // tools are deliberately absent from the model's direct list, and the
+    // search surface is how the REPL discovers them.
+    if (message.toolName === NODE_REPL_TOOL_SEARCH_NAME) {
+      try {
+        if (!this.searchTools) {
+          throw new Error("tools.$search is not available in this session.");
+        }
+        const query =
+          typeof message.args.query === "string" ? message.args.query : "";
+        if (!query.trim()) {
+          throw new Error(
+            'tools.$search requires a non-empty { query: "<intent + key nouns>" }.',
+          );
+        }
+        const rawLimit = message.args.limit;
+        const limit =
+          typeof rawLimit === "number" && Number.isFinite(rawLimit)
+            ? rawLimit
+            : undefined;
+        const results = await this.searchTools(query, active.context, limit);
+        if (serializedSize(results) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
+          throw new Error(
+            "Tool search result exceeds the Node REPL protocol limit.",
+          );
+        }
+        if (!this.closed && this.active === active) {
+          this.post({
+            type: "tool-result",
+            callId: message.callId,
+            ok: true,
+            value: results,
+          });
+        }
+      } catch (error) {
+        if (!this.closed && this.active === active) {
+          this.postToolError(message.callId, error);
+        }
+      }
+      return;
+    }
+
+    const allowedToolNames = new Set(active.context.allowedToolNames ?? []);
+    if (
+      !this.executeTool ||
+      NODE_REPL_EXCLUDED_TOOL_NAMES.has(message.toolName) ||
+      !allowedToolNames.has(message.toolName)
     ) {
       this.postToolError(
         message.callId,
@@ -1296,9 +1390,8 @@ export class NodeReplKernelRegistry {
         requestBrowserExtensionConnect:
           this.options.requestBrowserExtensionConnect,
         executeTool: this.options.executeTool,
-        toolNames: [...new Set(context.allowedToolNames ?? [])].filter(
-          (name) => !NODE_REPL_EXCLUDED_TOOL_NAMES.has(name),
-        ),
+        searchTools: this.options.searchTools,
+        toolNames: replToolNamesForContext(context),
         ownerLeaseId: randomUUID(),
         ownerLeaseIssuedAt,
         evalTimeoutMs: this.evalTimeoutMs,

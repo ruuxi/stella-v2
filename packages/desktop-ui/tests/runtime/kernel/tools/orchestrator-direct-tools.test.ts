@@ -14,7 +14,10 @@ import type {
   ToolContext,
   ToolHostOptions,
 } from "@stella/runtime/kernel/tools/types";
-import { getRuntimeToolMetadata } from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
+import {
+  createPiTools,
+  getRuntimeToolMetadata,
+} from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -255,6 +258,122 @@ describe("working orchestrator surface", () => {
     expect(childGeneral.has("spawn_agent")).toBe(false);
     expect(childGeneral.has("send_input")).toBe(false);
     expect(childGeneral.has("pause_agent")).toBe(false);
+  });
+
+  it("keeps demoted connector tools out of the working orchestrator's direct list but direct for the coordinator", async () => {
+    const { host } = await createTestHost();
+    const agents = loadParsedAgentsFromDir(metadataDir);
+    const directToolNames = (
+      agentId: string,
+      connectorProvider?: string,
+    ): Set<string> => {
+      const agent = agents.find((candidate) => candidate.id === agentId);
+      const tools = createPiTools({
+        runId: "run-1",
+        conversationId: "conv-1",
+        agentType: AGENT_IDS.ORCHESTRATOR,
+        deviceId: "device-1",
+        ...(connectorProvider
+          ? {
+              connectorDeliveryTarget: {
+                requestId: "remote-1",
+                conversationId: "backend-conv-1",
+                provider: connectorProvider,
+              },
+            }
+          : {}),
+        toolsAllowlist: agent?.toolsAllowlist,
+        toolCatalog: host.getToolCatalog(AGENT_IDS.ORCHESTRATOR),
+        store: {} as never,
+        toolExecutor: async () => ({ result: "unused" }),
+      }) as Array<{ name: string; description: string }>;
+      return new Set(tools.map((tool) => tool.name));
+    };
+
+    // Working orchestrator has node_repl → demoted tools leave the direct
+    // list and are advertised inside node_repl's description instead.
+    const working = directToolNames(AGENT_IDS.ORCHESTRATOR);
+    expect(working.has("node_repl")).toBe(true);
+    expect(working.has("connector_status")).toBe(false);
+    expect(working.has("linq_send_message")).toBe(false);
+
+    // Coordinator variant has no node_repl → never-strand fallback puts
+    // demoted tools straight into its direct list.
+    const orchestrated = directToolNames(ORCHESTRATED_ORCHESTRATOR_ID);
+    expect(orchestrated.has("node_repl")).toBe(false);
+    expect(orchestrated.has("connector_status")).toBe(true);
+    // Linq tools stay connector-gated even in the fallback.
+    expect(orchestrated.has("linq_send_message")).toBe(false);
+    const orchestratedLinq = directToolNames(
+      ORCHESTRATED_ORCHESTRATOR_ID,
+      "linq",
+    );
+    expect(orchestratedLinq.has("linq_send_message")).toBe(true);
+  });
+
+  it("never demotes core built-ins and keeps voice-style catalogs demoted-free", async () => {
+    const { host } = await createTestHost();
+    const catalog = host.getToolCatalog(AGENT_IDS.ORCHESTRATOR);
+    for (const toolName of [
+      "exec_command",
+      "write_stdin",
+      "node_repl",
+      "apply_patch",
+      "web",
+      "Read",
+      "Recall",
+      "Remember",
+      "Schedule",
+      "spawn_agent",
+    ]) {
+      const entry = catalog.find((tool) => tool.name === toolName);
+      expect(entry, toolName).toBeDefined();
+      expect(entry?.demoted, toolName).toBeUndefined();
+    }
+    // The demoted surface today is exactly the connector affordances.
+    expect(
+      catalog
+        .filter((tool) => tool.demoted)
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual([
+      "connector_status",
+      "linq_react_to_message",
+      "linq_send_message",
+      "linq_send_voice_memo",
+      "linq_share_contact_card",
+    ]);
+    // Voice paths filter demoted entries out of the realtime function list.
+    const voiceCatalog = catalog.filter((tool) => !tool.demoted);
+    expect(voiceCatalog.some((tool) => tool.name === "connector_status")).toBe(
+      false,
+    );
+    expect(voiceCatalog.some((tool) => tool.name === "web")).toBe(true);
+  });
+
+  it("rejects reserved $-prefixed extension tool names and carries demoted metadata", async () => {
+    const { host } = await createTestHost();
+    host.registerExtensionTools([
+      {
+        name: "$evil",
+        description: "Tries to shadow the REPL $search intrinsic.",
+        parameters: { type: "object" },
+        execute: async () => ({ result: "never" }),
+      },
+      {
+        name: "ext_demoted_tool",
+        description: "A demoted extension tool.",
+        parameters: { type: "object" },
+        demoted: { searchTerms: ["ext"] },
+        execute: async () => ({ result: "ok" }),
+      },
+    ]);
+    const catalog = host.getToolCatalog(AGENT_IDS.ORCHESTRATOR);
+    expect(catalog.some((tool) => tool.name === "$evil")).toBe(false);
+    const demotedExt = catalog.find(
+      (tool) => tool.name === "ext_demoted_tool",
+    );
+    expect(demotedExt?.demoted).toEqual({ searchTerms: ["ext"] });
   });
 
   it("captures the configured General model instead of inheriting the Orchestrator model", async () => {

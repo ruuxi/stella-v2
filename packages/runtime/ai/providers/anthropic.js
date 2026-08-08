@@ -1,7 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { calculateCost } from "../models.js";
-import { splitDeferredTools } from "../utils/deferred-tools.js";
 import { sanitizeInlineImagePayload } from "../utils/image-payload.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
@@ -135,21 +134,8 @@ function getAnthropicCompat(model) {
     return {
         supportsEagerToolInputStreaming: model.compat?.supportsEagerToolInputStreaming ?? true,
         supportsLongCacheRetention: model.compat?.supportsLongCacheRetention ?? true,
-        supportsToolReferences: model.compat?.supportsToolReferences ?? defaultSupportsToolReferences(model),
     };
 }
-const defaultSupportsToolReferences = (model) => {
-    if (model.provider !== "anthropic" || model.id.toLowerCase().includes("haiku")) {
-        return false;
-    }
-    const id = model.id.split("/").at(-1)?.replace(/\./g, "-") ?? model.id;
-    const version = id.match(/^claude-(?:opus|sonnet|fable)-(\d+)(?:-(\d+))?(?:-|$)/);
-    if (!version)
-        return false;
-    const major = Number(version[1]);
-    const minor = version[2] && version[2].length < 8 ? Number(version[2]) : 0;
-    return major > 4 || (major === 4 && minor >= 5);
-};
 function mergeHeaders(...headerSources) {
     const merged = {};
     for (const headers of headerSources) {
@@ -863,17 +849,16 @@ function buildParams(model, context, isOAuthToken, options) {
     const { cacheControl } = getCacheControl(model, options?.cacheRetention);
     const compat = getAnthropicCompat(model);
     const normalizeToolName = isOAuthToken ? toClaudeCodeName : (name) => name;
-    const toolPlacement = splitDeferredTools(context, compat.supportsToolReferences, normalizeToolName);
-    let immediateTools = toolPlacement.immediate;
-    let deferredTools = [...toolPlacement.deferred.values()];
-    if (immediateTools.length === 0 && deferredTools.length > 0) {
-        immediateTools = deferredTools;
-        deferredTools = [];
+    // Dedupe by normalized name (OAuth tokens rewrite names, which can
+    // collapse two catalog entries onto one wire name — last one wins).
+    const uniqueTools = new Map();
+    for (const tool of context.tools ?? []) {
+        uniqueTools.set(normalizeToolName(tool.name), tool);
     }
-    const deferredToolNames = new Set(deferredTools.map((tool) => normalizeToolName(tool.name)));
+    const immediateTools = [...uniqueTools.values()];
     const params = {
         model: model.id,
-        messages: convertMessages(context.messages, model, isOAuthToken, cacheControl, deferredToolNames, normalizeToolName),
+        messages: convertMessages(context.messages, model, isOAuthToken, cacheControl),
         max_tokens: options?.maxTokens || (model.maxTokens / 3) | 0,
         stream: true,
     };
@@ -908,11 +893,8 @@ function buildParams(model, context, isOAuthToken, options) {
     if (options?.temperature !== undefined && !options?.thinkingEnabled) {
         params.temperature = options.temperature;
     }
-    if (immediateTools.length > 0 || deferredTools.length > 0) {
-        params.tools = [
-            ...convertTools(immediateTools, isOAuthToken, compat.supportsEagerToolInputStreaming, cacheControl),
-            ...convertTools(deferredTools, isOAuthToken, compat.supportsEagerToolInputStreaming, undefined, true),
-        ];
+    if (immediateTools.length > 0) {
+        params.tools = convertTools(immediateTools, isOAuthToken, compat.supportsEagerToolInputStreaming, cacheControl);
     }
     // Configure thinking mode: adaptive (Opus 4.6+ and Sonnet 4.6),
     // budget-based (older models), or explicitly disabled.
@@ -1194,9 +1176,8 @@ export function stripDanglingThinkingFromLatestAssistant(messages) {
 }
 // Exported for tests: asserts the outgoing Anthropic request shape, including
 // validation/repair of tool-produced image blocks.
-export function convertMessages(messages, model, isOAuthToken, cacheControl, deferredToolNames = new Set(), normalizeToolName = (name) => name) {
+export function convertMessages(messages, model, isOAuthToken, cacheControl) {
     const params = [];
-    const loadedToolNames = new Set();
     // Transform messages for cross-provider compatibility
     const transformedMessages = stripDanglingThinkingFromLatestAssistant(transformMessages(messages, model, normalizeToolCallId));
     for (let i = 0; i < transformedMessages.length; i++) {
@@ -1311,19 +1292,11 @@ export function convertMessages(messages, model, isOAuthToken, cacheControl, def
         }
         else if (msg.role === "toolResult") {
             // Collect all consecutive toolResult messages, needed for z.ai Anthropic endpoint
-            const toolResults = [];
-            const siblingContent = [];
-            // Add the current tool result
-            const converted = convertToolResult(msg, isOAuthToken, deferredToolNames, loadedToolNames, normalizeToolName);
-            toolResults.push(converted.toolResult);
-            siblingContent.push(...converted.siblingContent);
+            const toolResults = [convertToolResult(msg)];
             // Look ahead for consecutive toolResult messages
             let j = i + 1;
             while (j < transformedMessages.length && transformedMessages[j].role === "toolResult") {
-                const nextMsg = transformedMessages[j]; // We know it's a toolResult
-                const nextConverted = convertToolResult(nextMsg, isOAuthToken, deferredToolNames, loadedToolNames, normalizeToolName);
-                toolResults.push(nextConverted.toolResult);
-                siblingContent.push(...nextConverted.siblingContent);
+                toolResults.push(convertToolResult(transformedMessages[j]));
                 j++;
             }
             // Skip the messages we've already processed
@@ -1331,7 +1304,7 @@ export function convertMessages(messages, model, isOAuthToken, cacheControl, def
             // Add a single user message with all tool results
             params.push({
                 role: "user",
-                content: [...toolResults, ...siblingContent],
+                content: toolResults,
             });
         }
     }
@@ -1359,38 +1332,16 @@ export function convertMessages(messages, model, isOAuthToken, cacheControl, def
     }
     return params;
 }
-const convertToolResult = (msg, isOAuthToken, deferredToolNames, loadedToolNames, normalizeToolName) => {
-    const references = [];
-    for (const name of msg.addedToolNames ?? []) {
-        const normalizedName = normalizeToolName(name);
-        if (!deferredToolNames.has(normalizedName) || loadedToolNames.has(normalizedName)) {
-            continue;
-        }
-        loadedToolNames.add(normalizedName);
-        references.push({
-            type: "tool_reference",
-            tool_name: isOAuthToken ? toClaudeCodeName(name) : name,
-        });
-    }
-    const convertedContent = convertContentBlocks(msg.content);
-    return {
-        toolResult: {
-            type: "tool_result",
-            tool_use_id: msg.toolCallId,
-            content: references.length > 0 ? references : convertedContent,
-            is_error: msg.isError,
-        },
-        siblingContent: references.length === 0
-            ? []
-            : typeof convertedContent === "string"
-                ? [{ type: "text", text: convertedContent }]
-                : convertedContent,
-    };
-};
+const convertToolResult = (msg) => ({
+    type: "tool_result",
+    tool_use_id: msg.toolCallId,
+    content: convertContentBlocks(msg.content),
+    is_error: msg.isError,
+});
 function shouldUseFineGrainedToolStreamingBeta(model, context) {
     return !!context.tools?.length && !getAnthropicCompat(model).supportsEagerToolInputStreaming;
 }
-export function convertTools(tools, isOAuthToken, supportsEagerToolInputStreaming, cacheControl, deferLoading = false) {
+export function convertTools(tools, isOAuthToken, supportsEagerToolInputStreaming, cacheControl) {
     if (!tools)
         return [];
     return tools.map((tool, index) => {
@@ -1411,7 +1362,6 @@ export function convertTools(tools, isOAuthToken, supportsEagerToolInputStreamin
                 properties: schema.properties ?? {},
                 required: schema.required ?? [],
             },
-            ...(deferLoading ? { defer_loading: true } : {}),
             ...(cacheControl && index === tools.length - 1 ? { cache_control: cacheControl } : {}),
         };
     });

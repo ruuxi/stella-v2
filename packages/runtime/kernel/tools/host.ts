@@ -54,7 +54,11 @@ import { buildBuiltinTools } from "./defs/index.js";
 import { AGENT_ORCHESTRATION_TOOL_NAMES } from "./defs/task.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
-import { NodeReplKernelRegistry } from "../computer-use/kernel.js";
+import { searchToolCatalog } from "./code-catalog.js";
+import {
+  NODE_REPL_EXCLUDED_TOOL_NAMES,
+  NodeReplKernelRegistry,
+} from "../computer-use/kernel.js";
 import {
   createMacComputerUseSession,
   shutdownMacStellaComputerSession,
@@ -67,6 +71,78 @@ import type { ToolDefinition } from "../extensions/types.js";
 export type { ToolContext, ToolHandlerExtras, ToolResult };
 
 export type ToolHost = ReturnType<typeof createToolHost>;
+
+/**
+ * `$`-prefixed tool names are reserved for Node REPL intrinsics
+ * (`tools.$search`). Built-ins violating this fail loudly at startup;
+ * extension tools are skipped with an error log so a bad extension cannot
+ * shadow the intrinsic surface.
+ */
+const isReservedToolName = (name: string): boolean => name.startsWith("$");
+
+/**
+ * Defense-in-depth gate consulted both at catalog filter time and at
+ * executeTool time. A tool with no `agentTypes` is unrestricted; a tool
+ * with `agentTypes` must list the requesting agent or it's denied.
+ */
+const isAgentAllowedForTool = (
+  tool: { agentTypes?: readonly string[] },
+  agentType: string | undefined,
+): boolean => {
+  if (!tool.agentTypes || tool.agentTypes.length === 0) return true;
+  if (!agentType) return false;
+  return tool.agentTypes.includes(agentType);
+};
+
+/**
+ * Second, ownership-based gate. A parent-owned agent (one spawned BY another
+ * agent) runs with a top-level agent's toolset minus the orchestration
+ * tools, so it cannot open a third level or steer a sibling thread. Applied
+ * at catalog build time so the tools are simply absent from what the model
+ * sees, and mirrored at executeTool time as defense in depth.
+ */
+const isOrchestrationToolWithheld = (
+  toolName: string,
+  parentOwned: boolean | undefined,
+): boolean =>
+  parentOwned === true && AGENT_ORCHESTRATION_TOOL_NAMES.includes(toolName);
+
+/**
+ * Tools that `tools.$search` may return for one calling context.
+ *
+ * Searchable MUST equal callable: every result must be invocable as
+ * `tools.<name>` in the same REPL, so membership in the context's
+ * `allowedToolNames` is required for demoted and normal tools alike —
+ * wherever a demoted tool is legitimately reachable, the runtime adapter
+ * (or the external-engine widening) has already added its name to the
+ * union. A context that never widened (e.g. a surface without demoted
+ * support) therefore gets no hit for it. The agent-type / ownership /
+ * connector gates stay as defense in depth.
+ *
+ * Exported for tests.
+ */
+export const collectReplSearchableTools = (
+  tools: Iterable<ToolMetadata>,
+  context: ToolContext,
+): ToolMetadata[] => {
+  const allowedNames = new Set(context.allowedToolNames ?? []);
+  const connectorProvider = context.connectorDeliveryTarget?.provider;
+  const reachable: ToolMetadata[] = [];
+  for (const tool of tools) {
+    if (NODE_REPL_EXCLUDED_TOOL_NAMES.has(tool.name)) continue;
+    if (!allowedNames.has(tool.name)) continue;
+    if (!isAgentAllowedForTool(tool, context.agentType)) continue;
+    if (isOrchestrationToolWithheld(tool.name, Boolean(context.parentAgentId))) {
+      continue;
+    }
+    const requiredProvider = tool.demoted?.requiredConnectorProvider;
+    if (requiredProvider && requiredProvider !== connectorProvider) {
+      continue;
+    }
+    reachable.push(tool);
+  }
+  return reachable;
+};
 
 export const createToolHost = ({
   stellaAppDir,
@@ -168,6 +244,16 @@ export const createToolHost = ({
     },
     executeTool: (toolName, args, context, signal, onUpdate) =>
       executeTool(toolName, args, context, signal, onUpdate),
+    // In-REPL `tools.$search` — runs host-side over the LIVE catalog so
+    // connector/extension changes are visible immediately. Scope: exactly
+    // the tools the calling context can invoke as `tools.<name>` in the
+    // same REPL (see collectReplSearchableTools).
+    searchTools: (query, context, limit) =>
+      searchToolCatalog(
+        collectReplSearchableTools(toolCatalog.values(), context),
+        query,
+        limit,
+      ),
   });
 
   void recoverStaleSecretFiles(stateRoot)
@@ -229,13 +315,18 @@ export const createToolHost = ({
   // handler until the worker restarts.
   const builtinToolNames = new Set<string>();
   for (const tool of builtinTools) {
+    if (isReservedToolName(tool.name)) {
+      throw new Error(
+        `Built-in tool "${tool.name}" uses a reserved "$"-prefixed name; "$" names belong to Node REPL intrinsics like tools.$search.`,
+      );
+    }
     toolCatalog.set(tool.name, {
       name: tool.name,
       ...(tool.label ? { label: tool.label } : {}),
       ...(tool.workingText ? { workingText: tool.workingText } : {}),
       description: tool.description,
       parameters: tool.parameters,
-      ...(tool.deferred ? { deferred: tool.deferred } : {}),
+      ...(tool.demoted ? { demoted: tool.demoted } : {}),
       ...(tool.agentTypes ? { agentTypes: tool.agentTypes } : {}),
     });
     handlers[tool.name] = (args, context, extras) =>
@@ -244,10 +335,17 @@ export const createToolHost = ({
   }
 
   // Filter out any startup-time `extensionTools` that collide with
-  // built-ins before letting them touch the catalog or handler map.
-  // Same policy as the runtime `registerExtensionTools` below.
+  // built-ins (or use a reserved "$" name) before letting them touch the
+  // catalog or handler map. Same policy as the runtime
+  // `registerExtensionTools` below.
   const acceptedStartupExtensionTools = (extensionTools ?? []).filter(
     (tool) => {
+      if (isReservedToolName(tool.name)) {
+        logError(
+          `Extension tool "${tool.name}" uses a reserved "$"-prefixed name; skipping registration. "$" names belong to Node REPL intrinsics like tools.$search.`,
+        );
+        return false;
+      }
       if (builtinToolNames.has(tool.name)) {
         logError(
           `Extension tool "${tool.name}" collides with a built-in tool name; skipping registration. Rename the extension tool to avoid the collision.`,
@@ -265,37 +363,10 @@ export const createToolHost = ({
       ...(tool.workingText ? { workingText: tool.workingText } : {}),
       description: tool.description,
       parameters: tool.parameters,
-      ...(tool.deferred ? { deferred: tool.deferred } : {}),
+      ...(tool.demoted ? { demoted: tool.demoted } : {}),
       ...(tool.agentTypes ? { agentTypes: tool.agentTypes } : {}),
     });
   }
-
-  /**
-   * Defense-in-depth gate consulted both at catalog filter time and at
-   * executeTool time. A tool with no `agentTypes` is unrestricted; a tool
-   * with `agentTypes` must list the requesting agent or it's denied.
-   */
-  const isAgentAllowedForTool = (
-    tool: { agentTypes?: readonly string[] },
-    agentType: string | undefined,
-  ): boolean => {
-    if (!tool.agentTypes || tool.agentTypes.length === 0) return true;
-    if (!agentType) return false;
-    return tool.agentTypes.includes(agentType);
-  };
-
-  /**
-   * Second, ownership-based gate. A parent-owned agent (one spawned BY another
-   * agent) runs with a top-level agent's toolset minus the orchestration
-   * tools, so it cannot open a third level or steer a sibling thread. Applied
-   * at catalog build time so the tools are simply absent from what the model
-   * sees, and mirrored at executeTool time as defense in depth.
-   */
-  const isOrchestrationToolWithheld = (
-    toolName: string,
-    parentOwned: boolean | undefined,
-  ): boolean =>
-    parentOwned === true && AGENT_ORCHESTRATION_TOOL_NAMES.includes(toolName);
 
   executeTool = async (
     toolName: string,
@@ -461,7 +532,6 @@ export const createToolHost = ({
     options?: {
       model?: Pick<Model<Api>, "api" | "provider" | "id" | "name">;
       agentEngine?: FileEditAgentEngine;
-      includeDeferred?: boolean;
       /** This thread was spawned by another agent; withhold orchestration tools. */
       parentOwned?: boolean;
     },
@@ -480,7 +550,10 @@ export const createToolHost = ({
       if (isOrchestrationToolWithheld(tool.name, options?.parentOwned)) {
         return false;
       }
-      if (tool.deferred && options?.includeDeferred !== true) return false;
+      // Demoted tools stay in the catalog: the runtime adapter
+      // (`createPiTools`) decides per turn whether they surface directly or
+      // only through node_repl's catalog. Voice and other realtime surfaces
+      // filter them out explicitly.
       // Swap the file-edit tool family to the agent's engine: Claude Code
       // wants Write/Edit, Stella wants apply_patch.
       if (
@@ -555,6 +628,12 @@ export const createToolHost = ({
       // rename the extension tool.
       const accepted: ToolDefinition[] = [];
       for (const tool of tools) {
+        if (isReservedToolName(tool.name)) {
+          logError(
+            `Extension tool "${tool.name}" uses a reserved "$"-prefixed name; skipping registration. "$" names belong to Node REPL intrinsics like tools.$search.`,
+          );
+          continue;
+        }
         if (builtinToolNames.has(tool.name)) {
           logError(
             `Extension tool "${tool.name}" collides with a built-in tool name; skipping registration. Rename the extension tool to avoid the collision.`,
@@ -571,7 +650,7 @@ export const createToolHost = ({
           ...(tool.workingText ? { workingText: tool.workingText } : {}),
           description: tool.description,
           parameters: tool.parameters,
-          ...(tool.deferred ? { deferred: tool.deferred } : {}),
+          ...(tool.demoted ? { demoted: tool.demoted } : {}),
           ...(tool.agentTypes ? { agentTypes: tool.agentTypes } : {}),
         });
         extensionToolNames.add(tool.name);

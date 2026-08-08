@@ -96,7 +96,15 @@ export type ToolMetadata = {
   workingText?: string;
   description: string;
   parameters: Record<string, unknown>;
-  deferred?: {
+  /**
+   * Demoted tools leave the model's direct tool list whenever `node_repl`
+   * is available for the agent and become callable only as
+   * `tools.<name>(args)` inside the REPL, advertised through the
+   * token-budgeted signature catalog in node_repl's description and
+   * discoverable via `tools.$search`. Agents without node_repl get the tool
+   * in their direct list as usual (never stranded).
+   */
+  demoted?: {
     searchTerms?: readonly string[];
     requiredConnectorProvider?: string;
   };
@@ -510,11 +518,24 @@ export type ToolDefinition = {
    */
   promptSnippet?: string;
   /**
-   * Hidden-by-default tools are not exposed in the initial model catalog.
-   * The runtime `tool_search` surface can discover and add them to the live
-   * tool list when the current context supports them.
+   * Demoted tools are dropped from the model's direct tool list whenever
+   * `node_repl` is available for the agent; they remain callable inside the
+   * REPL as `tools.<name>(args)` and are advertised through the signature
+   * catalog appended to node_repl's description (plus `tools.$search`).
+   * `requiredConnectorProvider` gates context-specific tools (e.g. linq) to
+   * matching connector-delivery turns; `searchTerms` feed `$search` scoring.
+   * Agents without node_repl get demoted tools in their direct list as
+   * normal tools, so nothing is ever stranded.
+   *
+   * Reachability rule: demoted tools are gated by `agentTypes`/catalog
+   * scoping and connector context, NOT by per-agent frontmatter allowlists;
+   * flagging a tool demoted exposes it to every agent type its definition
+   * allows (matching the old deferred mechanism, which was gated by
+   * tool_search presence rather than frontmatter). The only exception is
+   * the empty-allowlist STELLA_LOCAL_TOOLS fallback surface, which never
+   * receives demoted tools.
    */
-  deferred?: {
+  demoted?: {
     searchTerms?: readonly string[];
     requiredConnectorProvider?: string;
   };

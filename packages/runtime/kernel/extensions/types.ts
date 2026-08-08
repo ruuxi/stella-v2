@@ -17,8 +17,13 @@ export interface ToolDefinition {
   agentTypes?: string[];
   /** JSON Schema for tool parameters. */
   parameters: Record<string, unknown>;
-  /** Hidden until discovered by runtime tool search. */
-  deferred?: {
+  /**
+   * Demoted: dropped from the model's direct tool list when node_repl is
+   * available; callable inside the REPL as `tools.<name>(args)` and
+   * discoverable via `tools.$search`. Direct-listed as a normal tool for
+   * agents without node_repl.
+   */
+  demoted?: {
     searchTerms?: readonly string[];
     requiredConnectorProvider?: string;
   };

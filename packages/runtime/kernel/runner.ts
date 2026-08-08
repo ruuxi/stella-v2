@@ -335,11 +335,17 @@ export const createStellaHostRunner = (
         agentContext,
         callbacks: noopRuntimeCallbacks,
         toolExecutor: async () => ({ error: "Voice config has no executor." }),
-        toolCatalog: context.toolHost.getToolCatalog(agentType, {
-          model:
-            resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
-          agentEngine: agentContext.agentEngine,
-        }),
+        // Voice has no node_repl surface: demoted tools would be
+        // unreachable dead weight in the realtime function list, so they
+        // are filtered out of both the prompt build and the tool list.
+        toolCatalog: context.toolHost
+          .getToolCatalog(agentType, {
+            model:
+              resolved.resolvedLlm.toolPolicyModel ??
+              resolved.resolvedLlm.model,
+            agentEngine: agentContext.agentEngine,
+          })
+          .filter((tool) => !tool.demoted),
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         resolvedLlm: resolved.resolvedLlm,
@@ -348,11 +354,13 @@ export const createStellaHostRunner = (
         stellaAppDir: context.stellaAppDir,
         hookEmitter: context.hookEmitter,
       });
-      const toolCatalog = context.toolHost.getToolCatalog(agentType, {
-        model:
-          resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
-        agentEngine: agentContext.agentEngine,
-      });
+      const toolCatalog = context.toolHost
+        .getToolCatalog(agentType, {
+          model:
+            resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
+          agentEngine: agentContext.agentEngine,
+        })
+        .filter((tool) => !tool.demoted);
       const history = buildVoiceHistoryItems(agentContext.threadHistory);
       return {
         instructions,

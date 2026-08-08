@@ -86,7 +86,10 @@ describe("connector-availability reminder hook", () => {
     expect(message?.uiVisibility).toBe("hidden");
     expect(message?.text).toContain("not connected");
     expect(message?.text).toContain("connector_status");
-    expect(message?.text).toContain("tool_search");
+    // Clean cut: the reminder must not reference the removed tool_search
+    // mechanism; the node_repl fallback covers demoted placement instead.
+    expect(message?.text).not.toContain("tool_search");
+    expect(message?.text).toContain("tools.connector_status");
   });
 
   it("injects the connected variant when the integration is usable", async () => {

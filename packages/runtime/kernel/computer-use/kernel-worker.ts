@@ -382,13 +382,73 @@ const nodeReplWorkerMain = async (
       },
     });
   };
-  const toolEntries = workerData.toolNames.map((toolName) => [
-    toolName,
-    Object.freeze((args: Record<string, unknown> = {}) =>
-      callTool(toolName, args),
-    ),
-  ]);
-  const tools = Object.freeze(Object.fromEntries(toolEntries));
+  // Live tool surface. The kernel sends the current allowed tool names with
+  // every evaluate message, so tools added or removed mid-session appear
+  // without restarting the worker. `$search` is always installed: it runs
+  // host-side over the live catalog (kernel intercepts it before the
+  // allowlist gate). The literal "$search" must stay inline — this function
+  // is serialized with `toString()` into the worker source.
+  const toolFunctions = new Map<
+    string,
+    (args?: Record<string, unknown>) => Promise<unknown>
+  >();
+  const refreshToolNames = (toolNames: readonly unknown[]) => {
+    const next = new Set<string>();
+    for (const toolName of toolNames) {
+      if (
+        typeof toolName === "string" &&
+        toolName.length > 0 &&
+        !toolName.startsWith("$")
+      ) {
+        next.add(toolName);
+      }
+    }
+    for (const existing of [...toolFunctions.keys()]) {
+      if (!next.has(existing)) toolFunctions.delete(existing);
+    }
+    for (const toolName of next) {
+      if (!toolFunctions.has(toolName)) {
+        toolFunctions.set(
+          toolName,
+          Object.freeze((args: Record<string, unknown> = {}) =>
+            callTool(toolName, args),
+          ),
+        );
+      }
+    }
+  };
+  refreshToolNames(workerData.toolNames);
+  const searchTool = Object.freeze((args: Record<string, unknown> = {}) =>
+    callTool("$search", args),
+  );
+  const lookupTool = (property: PropertyKey) =>
+    property === "$search"
+      ? searchTool
+      : typeof property === "string"
+        ? toolFunctions.get(property)
+        : undefined;
+  // The Proxy target stays EXTENSIBLE on purpose: JS Proxy invariants forbid
+  // a non-extensible target from reporting own keys it does not have, which
+  // would break dynamic key refresh. Immutability from REPL code is enforced
+  // by the refusing set/defineProperty/deleteProperty/preventExtensions
+  // traps instead (sloppy-mode assignments fail silently; strict-mode ones
+  // throw). Descriptors report configurable: true — required by the
+  // invariants for keys the target does not own.
+  const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
+    get: (_target, property) => lookupTool(property),
+    has: (_target, property) => lookupTool(property) !== undefined,
+    ownKeys: () => ["$search", ...toolFunctions.keys()],
+    getOwnPropertyDescriptor: (_target, property) => {
+      const value = lookupTool(property);
+      if (value === undefined) return undefined;
+      return { value, enumerable: true, writable: false, configurable: true };
+    },
+    set: () => false,
+    defineProperty: () => false,
+    deleteProperty: () => false,
+    setPrototypeOf: () => false,
+    preventExtensions: () => false,
+  });
 
   const write = (...values: unknown[]) => {
     if (!writes) {
@@ -678,6 +738,9 @@ const nodeReplWorkerMain = async (
           ),
         });
         return;
+      }
+      if (Array.isArray(message.toolNames)) {
+        refreshToolNames(message.toolNames);
       }
       void evaluate(message.evaluationId, message.code);
       return;

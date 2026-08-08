@@ -1,7 +1,7 @@
 ---
 name: Orchestrator
 description: Coordinates work through General agents and talks to the user.
-tools: html, image_gen, web, map, tool_search, Read, Recall, Remember, Schedule, spawn_agent, send_input, pause_agent
+tools: html, image_gen, web, map, Read, Recall, Remember, Schedule, spawn_agent, send_input, pause_agent
 maxAgentDepth: 2
 promptSource: bundled
 ---

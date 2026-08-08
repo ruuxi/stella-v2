@@ -9,11 +9,12 @@ import { readImageFileSettled } from "../shared/read-image-file.js";
 import { formatDimensionNote, resizeImage } from "../shared/image-resize.js";
 import { detectImageMediaType, isCompleteImage, MAX_IMAGE_BASE64_BYTES, } from "../../ai/utils/image-payload.js";
 import { resolveImageCaps, } from "../../ai/utils/image-caps.js";
+import { buildCatalogSection } from "../tools/code-catalog.js";
 export const STELLA_LOCAL_TOOLS = [
     ...DEVICE_TOOL_NAMES,
     TOOL_IDS.NO_RESPONSE,
 ];
-const TOOL_SEARCH_TOOL_NAME = "tool_search";
+const NODE_REPL_TOOL_NAME = "node_repl";
 const formatToolLabel = (toolName) => toolName
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
@@ -197,32 +198,43 @@ const base64Length = (binaryBytes) => Math.ceil(binaryBytes / 3) * 4;
 const omittedAttachImageNote = (imgPath, binaryBytes) => `[Image omitted: ${imgPath} is ${(binaryBytes / (1024 * 1024)).toFixed(1)}MB and could not be resized below the inline image size limit.]`;
 const unreadableAttachImageNote = (imgPath) => `[Image omitted: ${imgPath} could not be decoded as a valid image (it may be corrupt or truncated) and was skipped.]`;
 const normalizeAttachImagePath = (filePath) => /^[A-Za-z]:\\\\/.test(filePath) ? filePath.replace(/\\\\/g, "\\") : filePath;
-const tokenizeToolSearch = (value) => value
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2);
-const clampToolSearchLimit = (value) => {
-    if (typeof value !== "number" || !Number.isFinite(value))
-        return 6;
-    return Math.max(1, Math.min(12, Math.floor(value)));
-};
-const scoreDeferredTool = (tool, queryTokens) => {
-    const haystack = [
-        tool.name,
-        tool.description,
-        ...(tool.deferred?.searchTerms ?? []),
-    ]
-        .join(" ")
-        .toLowerCase();
-    let score = 0;
-    for (const token of queryTokens) {
-        if (tool.name.toLowerCase().includes(token))
-            score += 5;
-        if (haystack.includes(token))
-            score += 2;
-    }
-    return score;
+/**
+ * Context-visible demoted tools for an (already agent-scoped) catalog:
+ * a demoted tool whose `requiredConnectorProvider` doesn't match the turn's
+ * connector-delivery provider is invisible everywhere — catalog section,
+ * REPL-allowed union, and the direct-list fallback alike.
+ */
+export const collectVisibleDemotedTools = (toolCatalog, connectorProvider) => (toolCatalog ?? []).filter((tool) => {
+    if (!tool.demoted)
+        return false;
+    const requiredProvider = tool.demoted.requiredConnectorProvider;
+    return !requiredProvider || requiredProvider === connectorProvider;
+});
+/**
+ * Names to widen `allowedToolNames` with so node_repl's nested dispatcher
+ * (and multi_tool_use_parallel) can reach demoted tools. Only meaningful
+ * for contexts that actually have node_repl.
+ */
+export const collectDemotedToolNames = (toolCatalog, connectorProvider) => collectVisibleDemotedTools(toolCatalog, connectorProvider).map((tool) => tool.name);
+const DEMOTED_WORKFLOW_TEXT = 'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The catalog below lists their exact signatures. When it is marked COMPLETE, call listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) — it returns full callable signatures, so search once and call in the same or next cell. Do not guess tool names.';
+/** Workflow paragraph + budgeted signature catalog; "" for an empty set. */
+const buildDemotedNodeReplSuffix = (demotedTools) => demotedTools.length > 0
+    ? `\n\n${DEMOTED_WORKFLOW_TEXT}\n\n${buildCatalogSection(demotedTools)}`
+    : "";
+/**
+ * External-engine parity for the node_repl catalog: engines that build their
+ * tool list through `getRuntimeToolMetadata` (never `createPiTools`) still
+ * get the workflow text + signature catalog appended to node_repl's
+ * description, so demoted tools are discoverable there the same way. No-op
+ * when node_repl is absent from the metadata or nothing is demoted.
+ */
+export const appendDemotedCatalogToNodeRepl = (toolMetadata, toolCatalog, connectorProvider) => {
+    const suffix = buildDemotedNodeReplSuffix(collectVisibleDemotedTools(toolCatalog ?? [], connectorProvider));
+    if (!suffix)
+        return toolMetadata;
+    return toolMetadata.map((tool) => tool.name === NODE_REPL_TOOL_NAME
+        ? { ...tool, description: `${tool.description}${suffix}` }
+        : tool);
 };
 // Exported for tests. See `desktop/tests/runtime/kernel/agent-runtime/stella-attach-image.test.ts`.
 export const extractAttachImageBlocks = async (text, target = {}) => {
@@ -457,9 +469,33 @@ export const executeRuntimeToolCall = async (args) => {
 export const createPiTools = (opts) => {
     const requested = getRequestedRuntimeToolNames(opts.toolsAllowlist);
     const catalog = new Map((opts.toolCatalog ?? []).map((tool) => [tool.name, tool]));
-    const deferredTools = [...catalog.values()].filter((tool) => tool.deferred);
+    const connectorProvider = opts.connectorDeliveryTarget?.provider;
+    // Never-strand rule: demoted tools leave the direct list ONLY when
+    // node_repl is actually part of this turn's resolved active set.
+    // Agents without node_repl (e.g. the orchestrated coordinator variant)
+    // keep demoted tools as plain direct tools with full schemas.
+    const nodeReplAvailable = requested.includes(NODE_REPL_TOOL_NAME) &&
+        catalog.has(NODE_REPL_TOOL_NAME);
+    // Demoted reachability requires an explicit per-agent allowlist. The
+    // empty-allowlist STELLA_LOCAL_TOOLS fallback is a minimal device-tool
+    // surface that could never reach deferred tools before the clean cut,
+    // and it must not start direct-listing demoted tools now.
+    const hasExplicitAllowlist = Array.isArray(opts.toolsAllowlist) && opts.toolsAllowlist.length > 0;
+    const visibleDemotedTools = hasExplicitAllowlist
+        ? collectVisibleDemotedTools([...catalog.values()], connectorProvider)
+        : [];
+    const demotedToolNames = new Set(visibleDemotedTools.map((tool) => tool.name));
+    // Catalog section is generated fresh each turn from the live catalog
+    // snapshot; with no demoted tools in scope the node_repl description
+    // stays byte-identical and the whole feature is inert.
+    const nodeReplDescriptionSuffix = nodeReplAvailable
+        ? buildDemotedNodeReplSuffix(visibleDemotedTools)
+        : "";
     const activeTools = [];
     const activeToolNames = new Set();
+    const contextAllowedToolNames = () => nodeReplAvailable
+        ? [...new Set([...activeToolNames, ...demotedToolNames])]
+        : [...activeToolNames];
     const registerTool = (toolName) => {
         const entry = catalog.get(toolName);
         const metadata = entry ?? {
@@ -472,84 +508,12 @@ export const createPiTools = (opts) => {
             name: toolName,
             label: metadata.label ?? formatToolLabel(toolName),
             workingText: formatToolWorkingText(metadata),
-            description: metadata.description,
+            description: toolName === NODE_REPL_TOOL_NAME && nodeReplDescriptionSuffix
+                ? `${metadata.description}${nodeReplDescriptionSuffix}`
+                : metadata.description,
             parameters: metadata.parameters,
             execute: async (toolCallId, params, signal, onUpdate) => {
                 const args = params ?? {};
-                if (toolName === TOOL_SEARCH_TOOL_NAME) {
-                    const query = typeof args.query === "string" ? args.query.trim() : "";
-                    if (!query) {
-                        return {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: "Error: tool_search requires a non-empty query.",
-                                },
-                            ],
-                            details: { error: "missing_query" },
-                        };
-                    }
-                    const queryTokens = tokenizeToolSearch(query);
-                    const connectorProvider = opts.connectorDeliveryTarget?.provider;
-                    const matches = deferredTools
-                        .filter((tool) => {
-                        const requiredProvider = tool.deferred?.requiredConnectorProvider;
-                        return (!requiredProvider || requiredProvider === connectorProvider);
-                    })
-                        .map((tool) => ({
-                        tool,
-                        score: scoreDeferredTool(tool, queryTokens),
-                    }))
-                        .filter((entry) => entry.score > 0)
-                        .sort((left, right) => {
-                        if (right.score !== left.score)
-                            return right.score - left.score;
-                        return left.tool.name.localeCompare(right.tool.name);
-                    })
-                        .slice(0, clampToolSearchLimit(args.limit));
-                    const addedToolNames = [];
-                    for (const { tool } of matches) {
-                        if (activeToolNames.has(tool.name))
-                            continue;
-                        activeToolNames.add(tool.name);
-                        activeTools.push(registerTool(tool.name));
-                        addedToolNames.push(tool.name);
-                    }
-                    const toolNames = matches.map(({ tool }) => tool.name);
-                    onUpdate?.({
-                        content: [
-                            {
-                                type: "text",
-                                text: toolNames.length > 0
-                                    ? `Found ${toolNames.length} matching tool${toolNames.length === 1 ? "" : "s"}.`
-                                    : "No matching tools found.",
-                            },
-                        ],
-                        details: {
-                            statusText: toolNames.length > 0
-                                ? `Found ${toolNames.length} matching tool${toolNames.length === 1 ? "" : "s"}`
-                                : "No matching tools found",
-                        },
-                    });
-                    const unavailableHint = connectorProvider === "linq"
-                        ? ""
-                        : " Linq/iMessage tools are only available while replying to a Linq connector conversation.";
-                    return {
-                        content: [
-                            {
-                                type: "text",
-                                text: toolNames.length > 0
-                                    ? `Exposed deferred tools for the next call: ${toolNames.join(", ")}.`
-                                    : `No deferred tools matched "${query}".${unavailableHint}`,
-                            },
-                        ],
-                        details: {
-                            query,
-                            exposedTools: toolNames,
-                        },
-                        ...(addedToolNames.length > 0 ? { addedToolNames } : {}),
-                    };
-                }
                 const toolResult = await executeRuntimeToolCall({
                     toolCallId,
                     toolName,
@@ -568,7 +532,12 @@ export const createPiTools = (opts) => {
                     maxAgentDepth: opts.maxAgentDepth,
                     modelConfigSnapshot: opts.modelConfigSnapshot,
                     connectorDeliveryTarget: opts.connectorDeliveryTarget,
-                    allowedToolNames: [...activeToolNames],
+                    // REPL-reachable union: nested node_repl dispatch (and
+                    // multi_tool_use_parallel) must pass the host allowlist
+                    // gate for demoted tools that are absent from the direct
+                    // list. Without node_repl the union collapses to the
+                    // active set — demoted tools were registered directly.
+                    allowedToolNames: contextAllowedToolNames(),
                     store: opts.store,
                     toolExecutor: opts.toolExecutor,
                     hookEmitter: opts.hookEmitter,
@@ -621,34 +590,27 @@ export const createPiTools = (opts) => {
     for (const toolName of requested) {
         if (activeToolNames.has(toolName))
             continue;
+        const demotedMeta = catalog.get(toolName)?.demoted;
+        if (demotedMeta) {
+            // Connector-gated demoted tools that fail the gate are invisible
+            // everywhere, including the direct-list fallback.
+            if (!demotedToolNames.has(toolName))
+                continue;
+            // REPL-only this turn; reachable via tools.<name> inside node_repl.
+            if (nodeReplAvailable)
+                continue;
+        }
         activeToolNames.add(toolName);
         activeTools.push(registerTool(toolName));
     }
-    const connectorProvider = opts.connectorDeliveryTarget?.provider;
-    const restoreDeferredTool = (toolName) => {
-        if (activeToolNames.has(toolName))
-            return;
-        const metadata = catalog.get(toolName);
-        if (!metadata?.deferred)
-            return;
-        const requiredProvider = metadata.deferred.requiredConnectorProvider;
-        if (requiredProvider && requiredProvider !== connectorProvider)
-            return;
-        activeToolNames.add(toolName);
-        activeTools.push(registerTool(toolName));
-    };
-    for (const message of opts.historyMessages ?? []) {
-        if (message.role === "assistant") {
-            for (const block of message.content) {
-                if (block.type === "toolCall")
-                    restoreDeferredTool(block.name);
-            }
-            continue;
-        }
-        if (message.role === "toolResult") {
-            for (const toolName of message.addedToolNames ?? []) {
-                restoreDeferredTool(toolName);
-            }
+    // Demoted tools outside the frontmatter allowlist surface directly when
+    // node_repl is unavailable, so nothing reachable becomes stranded.
+    if (!nodeReplAvailable) {
+        for (const tool of visibleDemotedTools) {
+            if (activeToolNames.has(tool.name))
+                continue;
+            activeToolNames.add(tool.name);
+            activeTools.push(registerTool(tool.name));
         }
     }
     return activeTools;

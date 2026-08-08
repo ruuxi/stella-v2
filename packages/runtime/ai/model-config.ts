@@ -161,6 +161,8 @@ const compatSchema = Type.Object({
   sendSessionIdHeader: Type.Optional(Type.Boolean()),
   supportsLongCacheRetention: Type.Optional(Type.Boolean()),
   supportsEagerToolInputStreaming: Type.Optional(Type.Boolean()),
+  // dormant: nothing reads these since tool_search removal; kept only so
+  // generated model catalogs (contracts/models.generated.ts) still validate.
   supportsToolReferences: Type.Optional(Type.Boolean()),
   supportsToolSearch: Type.Optional(Type.Boolean()),
   deferredToolsMode: Type.Optional(Type.Literal("kimi")),

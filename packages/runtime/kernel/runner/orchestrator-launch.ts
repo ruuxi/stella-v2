@@ -197,7 +197,6 @@ export const launchPreparedOrchestratorRun = (args: {
     toolCatalog: context.toolHost.getToolCatalog(prepared.agentType, {
       model: prepared.resolvedLlm.toolPolicyModel ?? prepared.resolvedLlm.model,
       agentEngine: prepared.agentContext.agentEngine,
-      includeDeferred: true,
     }),
     toolExecutor: async (toolName, toolArgs, toolContext, signal, onUpdate) =>
       await context.toolHost.executeTool(

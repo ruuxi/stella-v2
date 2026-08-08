@@ -477,6 +477,10 @@ const KNOWN_ASSISTANT_KEYS: ReadonlySet<string> = new Set(
   KNOWN_ASSISTANT_KEYS_LIST,
 );
 
+// `addedToolNames` (tool_search era) is intentionally NOT listed: with the
+// producer removed it is no longer part of ToolResultMessage, and leaving it
+// unknown lets `collectUnknownExtras` round-trip the key on old persisted
+// threads untouched.
 const KNOWN_TOOL_RESULT_KEYS_LIST = [
   "role",
   "toolCallId",
@@ -484,7 +488,6 @@ const KNOWN_TOOL_RESULT_KEYS_LIST = [
   "isError",
   "content",
   "modelOutputTokens",
-  "addedToolNames",
   "timestamp",
 ] as const satisfies readonly (keyof Omit<ToolResultMessage, "details">)[];
 const KNOWN_TOOL_RESULT_KEYS: ReadonlySet<string> = new Set(
@@ -579,11 +582,6 @@ export const parseRuntimeThreadPayload = (
         (typeof record.modelOutputTokens === "number" &&
           Number.isFinite(record.modelOutputTokens) &&
           record.modelOutputTokens > 0)) &&
-      (record.addedToolNames === undefined ||
-        (Array.isArray(record.addedToolNames) &&
-          record.addedToolNames.every(
-            (name) => typeof name === "string" && name.trim().length > 0,
-          ))) &&
       isFiniteTimestamp(record.timestamp)
     ) {
       return {
@@ -595,10 +593,6 @@ export const parseRuntimeThreadPayload = (
         content: record.content,
         ...(typeof record.modelOutputTokens === "number"
           ? { modelOutputTokens: record.modelOutputTokens }
-          : {}),
-        ...(Array.isArray(record.addedToolNames) &&
-          record.addedToolNames.length > 0
-          ? { addedToolNames: record.addedToolNames as string[] }
           : {}),
         timestamp: record.timestamp,
       } as unknown as PersistedRuntimeThreadPayload;

@@ -25,9 +25,11 @@ import {
  *
  *  - connected  → notes it's connected via stella-connect; nothing else
  *    to do, the orchestrator proceeds/delegates with that knowledge.
- *  - not connected → tells the orchestrator it can expose the deferred
- *    `connector_status` tool (via `tool_search`) and call it for this
- *    connector if relevant — that call shows the inline connect card.
+ *  - not connected → tells the orchestrator it can call the
+ *    `connector_status` tool for this connector if relevant (directly, or
+ *    as `tools.connector_status({...})` inside node_repl when the tool is
+ *    demoted out of the direct list) — that call shows the inline connect
+ *    card.
  *
  * Each variant is deduped through the generic once-per-active-context-
  * window gate: while a copy of the same reminder sits in the current
@@ -55,7 +57,7 @@ export const buildOfferReminderText = (
 ): string =>
   [
     `This request may involve ${entry.name}. Stella has a ${entry.name} connector, but it is not connected yet.`,
-    `If using ${entry.name} would genuinely help, run tool_search with query "connector status" to expose the \`connector_status\` tool, then call it with connector "${entry.id}". That shows the user an inline connect card (the card is the consent — don't ask first) and returns the outcome: connected → delegate the task using it; declined → tell the user once they can connect it from the Store later, then proceed by other means (agents fall back to the browser).`,
+    `If using ${entry.name} would genuinely help, call the \`connector_status\` tool with connector "${entry.id}" (if it is not in your direct tool list, call it inside node_repl as tools.connector_status({ connector: "${entry.id}" })). That shows the user an inline connect card (the card is the consent — don't ask first) and returns the outcome: connected → delegate the task using it; declined → tell the user once they can connect it from the Store later, then proceed by other means (agents fall back to the browser).`,
     `If ${entry.name} isn't actually relevant, ignore this note.`,
   ].join(" ");
 

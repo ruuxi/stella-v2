@@ -218,6 +218,7 @@ const TOOL_STATUS_BY_NAME = {
         "Responding",
         "Sending it over",
     ],
+    // legacy — tool removed; keep for old-transcript rendering.
     tool_search: [
         "Finding the right tool",
         "Looking for tools",

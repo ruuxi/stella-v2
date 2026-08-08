@@ -905,4 +905,150 @@ describe("persistent Node REPL kernels", () => {
       registry.dispose();
     }
   });
+
+  it("round-trips tools.$search through the host searchTools handler", async () => {
+    const queries: Array<{ query: string; limit?: number }> = [];
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      searchTools: (query, _context, limit) => {
+        queries.push({ query, ...(limit !== undefined ? { limit } : {}) });
+        return [
+          {
+            name: "linq_send_message",
+            signature:
+              "tools.linq_send_message(input: { parts: Array<unknown> }): Promise<unknown>",
+            description: "Send a Linq/iMessage message.",
+          },
+        ];
+      },
+    });
+    try {
+      const output = await registry.evaluate(
+        "await tools.$search({ query: 'send an imessage', limit: 3 })",
+        context("agent-search"),
+      );
+      expect(output).toContain("linq_send_message");
+      expect(output).toContain("tools.linq_send_message(input:");
+      expect(queries).toEqual([{ query: "send an imessage", limit: 3 }]);
+
+      // Empty queries fail loudly instead of returning an ambiguous [].
+      await expect(
+        registry.evaluate(
+          "await tools.$search({ query: '   ' })",
+          context("agent-search"),
+        ),
+      ).rejects.toThrow("non-empty");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("fails tools.$search clearly when no searchTools handler is configured", async () => {
+    const registry = createRegistry();
+    try {
+      await expect(
+        registry.evaluate(
+          "await tools.$search({ query: 'anything' })",
+          context("agent-search-none"),
+        ),
+      ).rejects.toThrow("tools.$search is not available in this session.");
+    } finally {
+      registry.dispose();
+    }
+  });
+
+  it("refreshes the worker tools object from allowedToolNames on every evaluate", async () => {
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      executeTool: async (name) => ({ result: `ran ${name}` }),
+    });
+    const contextWithTools = (allowedToolNames: string[]): ToolContext => ({
+      ...context("agent-refresh"),
+      allowedToolNames,
+    });
+    try {
+      const first = await registry.evaluate(
+        "Object.keys(tools).sort()",
+        contextWithTools(["node_repl", "alpha_tool"]),
+      );
+      expect(first).toContain("alpha_tool");
+      expect(first).not.toContain("beta_tool");
+
+      // Same kernel, next turn: a tool added mid-session appears and a
+      // removed one disappears — the construction-time list is not frozen.
+      const second = await registry.evaluate(
+        "Object.keys(tools).sort()",
+        contextWithTools(["node_repl", "beta_tool"]),
+      );
+      expect(second).toContain("beta_tool");
+      expect(second).not.toContain("alpha_tool");
+      expect(second).toContain("$search");
+      await expect(
+        registry.evaluate(
+          "await tools.beta_tool({})",
+          contextWithTools(["node_repl", "beta_tool"]),
+        ),
+      ).resolves.toBe("'ran beta_tool'");
+
+      // Object.keys accuracy and identity stability across refreshes.
+      const third = await registry.evaluate(
+        [
+          "const before = tools.beta_tool;",
+          "({ same: before === tools.beta_tool, hasIn: 'beta_tool' in tools })",
+        ].join("\n"),
+        contextWithTools(["node_repl", "beta_tool"]),
+      );
+      expect(third).toContain("same: true");
+      expect(third).toContain("hasIn: true");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("keeps the tools Proxy immutable and never exposes $-shadowing entries", async () => {
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      executeTool: async (name) => ({ result: name }),
+      searchTools: () => [],
+    });
+    try {
+      const output = await registry.evaluate(
+        [
+          "tools.$search2 = 1",
+          "Object.defineProperty(tools, 'evil', { value: 1 })",
+        ].join("\n"),
+        {
+          ...context("agent-proxy"),
+          // A hostile "$evil" entry in allowedToolNames must be filtered.
+          allowedToolNames: ["node_repl", "$evil", "real_tool"],
+        },
+      ).catch((error: Error) => error.message);
+      // defineProperty on a refusing trap throws TypeError in the REPL.
+      expect(String(output)).toContain("evil");
+
+      const keys = await registry.evaluate(
+        "({ keys: Object.keys(tools), shadow: typeof tools.$evil, freezeFails: (() => { try { Object.freeze(tools); return false; } catch { return true; } })() })",
+        {
+          ...context("agent-proxy"),
+          allowedToolNames: ["node_repl", "$evil", "real_tool"],
+        },
+      );
+      expect(keys).toContain("real_tool");
+      expect(keys).toContain("'$search'");
+      expect(keys).not.toContain("$evil");
+      expect(keys).toContain("shadow: 'undefined'");
+      // Object.freeze(tools) THROWS by design: the Proxy target must stay
+      // extensible for the per-evaluate key refresh (JS invariants forbid a
+      // non-extensible target from reporting keys it doesn't own), so the
+      // preventExtensions trap refuses and freeze fails loudly rather than
+      // letting user code lock the target and break the refresh. The
+      // node_repl description warns the model never to freeze `tools`.
+      expect(keys).toContain("freezeFails: true");
+    } finally {
+      await registry.dispose();
+    }
+  });
 });

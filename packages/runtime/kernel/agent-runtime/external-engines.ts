@@ -31,6 +31,8 @@ import {
   createRuntimePromptAgentMessage,
 } from "./run-preparation.js";
 import {
+  appendDemotedCatalogToNodeRepl,
+  collectDemotedToolNames,
   executeRuntimeToolCall,
   extractAttachImageBlocks,
   getRuntimeToolMetadata,
@@ -69,6 +71,33 @@ import type {
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
+
+/**
+ * External engines run node_repl through the same host dispatcher, so the
+ * tool contexts they build must include context-visible demoted tool names:
+ * demoted tools are deliberately absent from the direct/MCP tool list and
+ * are reachable only as `tools.<name>` inside node_repl, which is gated on
+ * `context.allowedToolNames`. Mirrors createPiTools' two-sided gate:
+ * node_repl must be in the allowlist AND in the resolved catalog. Note
+ * external engines have NO never-strand fallback — without node_repl in
+ * scope, demoted tools are simply unreachable on this surface.
+ */
+const widenAllowlistWithDemotedTools = (
+  toolsAllowlist: string[] | undefined,
+  toolCatalog: readonly { name: string }[] | undefined,
+  connectorProvider: string | undefined,
+): string[] | undefined => {
+  if (!toolsAllowlist?.includes("node_repl")) return toolsAllowlist;
+  if (!toolCatalog?.some((tool) => tool.name === "node_repl")) {
+    return toolsAllowlist;
+  }
+  const demoted: string[] = collectDemotedToolNames(
+    toolCatalog,
+    connectorProvider,
+  );
+  if (demoted.length === 0) return toolsAllowlist;
+  return [...new Set([...toolsAllowlist, ...demoted])];
+};
 
 const EMPTY_USAGE: Usage = {
   input: 0,
@@ -535,12 +564,20 @@ const runClaudeHostedTurn = async (args: {
     threadKey,
     engine: sessionEngine,
   });
+  // Parity with createPiTools: node_repl's description carries the demoted
+  // workflow text + signature catalog here too, so demoted tools stay
+  // discoverable under external engines (appendDemotedCatalogToNodeRepl is
+  // a no-op when node_repl is absent or nothing is demoted).
   const toolMetadata = vanilla
     ? []
-    : getRuntimeToolMetadata({
-        toolsAllowlist: args.opts.agentContext.toolsAllowlist,
-        toolCatalog: args.opts.toolCatalog,
-      });
+    : appendDemotedCatalogToNodeRepl(
+        getRuntimeToolMetadata({
+          toolsAllowlist: args.opts.agentContext.toolsAllowlist,
+          toolCatalog: args.opts.toolCatalog,
+        }),
+        args.opts.toolCatalog,
+        args.opts.connectorDeliveryTarget?.provider,
+      );
   const claudeCodeModelId = getClaudeCodeAgentModelId(
     args.opts.stellaAppDir,
     args.opts.agentContext.model,
@@ -651,7 +688,11 @@ const runClaudeHostedTurn = async (args: {
       parentAgentId: args.opts.agentContext.parentAgentId,
       modelConfigSnapshot: args.opts.agentContext.modelConfigSnapshot,
       connectorDeliveryTarget: args.opts.connectorDeliveryTarget,
-      allowedToolNames: args.opts.agentContext.toolsAllowlist,
+      allowedToolNames: widenAllowlistWithDemotedTools(
+        args.opts.agentContext.toolsAllowlist,
+        args.opts.toolCatalog,
+        args.opts.connectorDeliveryTarget?.provider,
+      ),
       deferImageDeliveryAck: toolName === "image_gen",
       store: args.opts.store,
       toolExecutor: args.opts.toolExecutor,
@@ -991,7 +1032,11 @@ const runCodexHostedTurn = async (args: {
       parentAgentId: args.opts.agentContext.parentAgentId,
       modelConfigSnapshot: args.opts.agentContext.modelConfigSnapshot,
       connectorDeliveryTarget: args.opts.connectorDeliveryTarget,
-      allowedToolNames: args.opts.agentContext.toolsAllowlist,
+      allowedToolNames: widenAllowlistWithDemotedTools(
+        args.opts.agentContext.toolsAllowlist,
+        args.opts.toolCatalog,
+        args.opts.connectorDeliveryTarget?.provider,
+      ),
       deferImageDeliveryAck: toolName === "image_gen",
       store: args.opts.store,
       toolExecutor: args.opts.toolExecutor,

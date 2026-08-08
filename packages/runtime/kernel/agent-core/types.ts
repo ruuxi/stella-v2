@@ -302,8 +302,6 @@ export interface AgentToolResult<T> {
 	details: T;
 	// Optional model-facing text budget; durable content remains raw.
 	modelOutputTokens?: number;
-	// Tools activated by this result, anchored at this transcript position.
-	addedToolNames?: string[];
 }
 
 // Callback for streaming tool execution updates

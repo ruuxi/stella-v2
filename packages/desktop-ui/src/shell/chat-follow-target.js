@@ -79,6 +79,16 @@ export const resolveResponseSpacerHeight = ({
     return Math.max(minimumHeightPx, bottomInsetPx + blankResponseArea);
 };
 /**
+ * Consume the synthetic response area as the user deliberately scrolls away
+ * from the live tail. Codex removes the spacer one-for-one with that motion;
+ * Stella retains only the surface's real footer floor.
+ */
+export const consumeResponseSpacerHeight = ({
+    currentHeightPx,
+    minimumHeightPx,
+    distanceDeltaPx,
+}) => Math.max(minimumHeightPx, currentHeightPx - Math.max(0, distanceDeltaPx));
+/**
  * Match Codex's submit gate using the distance above the synthetic response
  * spacer rather than the literal end of the scroll content.
  */

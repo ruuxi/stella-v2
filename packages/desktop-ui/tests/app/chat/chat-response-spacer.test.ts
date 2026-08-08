@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  consumeResponseSpacerHeight,
   resolvePostSendTarget,
   resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
@@ -42,6 +43,30 @@ describe("chat response spacer geometry", () => {
         minimumHeightPx: 160,
       }),
     ).toBe(160);
+  });
+
+  it("consumes the spacer one-for-one while retaining the footer floor", () => {
+    expect(
+      consumeResponseSpacerHeight({
+        currentHeightPx: 600,
+        minimumHeightPx: 160,
+        distanceDeltaPx: 125,
+      }),
+    ).toBe(475);
+    expect(
+      consumeResponseSpacerHeight({
+        currentHeightPx: 475,
+        minimumHeightPx: 160,
+        distanceDeltaPx: 500,
+      }),
+    ).toBe(160);
+    expect(
+      consumeResponseSpacerHeight({
+        currentHeightPx: 475,
+        minimumHeightPx: 160,
+        distanceDeltaPx: -40,
+      }),
+    ).toBe(475);
   });
 
   it("frames a short user row above the response spacer", () => {

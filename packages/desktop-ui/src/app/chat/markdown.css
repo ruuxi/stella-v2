@@ -202,6 +202,106 @@
 }
 
 /*
+ * Streamdown code blocks — one frame, no reserved toolbar band.
+ *
+ * Streamdown nests three chrome layers for a fenced block:
+ *   container  `rounded-xl border border-border bg-sidebar p-2`
+ *     header   the language label, `h-8`
+ *     actions  copy / download in a `bg-sidebar/80` chip, pulled up onto
+ *              the header row by `sticky top-2 -mt-10`
+ *     body     `overflow-x-auto rounded-md border border-border bg-background p-4`
+ *       pre    which our own `.markdown pre` rule frames a third time.
+ *
+ * Two things get fixed here:
+ *
+ *   1. Framing — the container is the single card; body and `pre` go
+ *      transparent and unpadded so there's one border, not three.
+ *
+ *   2. The empty band — a fence with no language still renders the `h-8`
+ *      header (an empty `<span>`), and the actions chip lives on that
+ *      reserved row in its own tinted pill. On a two-line snippet that's
+ *      32px of blank space plus a box that reads as separate chrome. So:
+ *      the header collapses when there's no language to show, and the
+ *      actions are lifted out of flow into the container's top-right
+ *      corner, revealed on hover / focus. They overlay the code instead
+ *      of reserving space above it, which means `-mt-10` and `sticky`
+ *      have to be neutralized — they positioned it for the old flow.
+ */
+.markdown [data-streamdown="code-block"] {
+  position: relative;
+  padding: 10px 12px;
+  gap: 0;
+  border-radius: var(--radius-md);
+  border-color: var(--border-weak, var(--border));
+  background: var(--surface-inset);
+  --code-actions-opacity: 0;
+}
+
+.markdown [data-streamdown="code-block"]:hover,
+.markdown [data-streamdown="code-block"]:focus-within {
+  --code-actions-opacity: 1;
+}
+
+.markdown [data-streamdown="code-block-header"] {
+  height: auto;
+  margin-bottom: 4px;
+  /* Keep a long language label clear of the hover buttons. */
+  padding-right: 60px;
+  color: var(--text-weak, var(--muted-foreground));
+}
+
+/* No language on the fence → Streamdown still emits the header with an
+   empty `<span>`. Nothing to show, so don't hold the row open. */
+.markdown [data-streamdown="code-block-header"]:has(> span:empty) {
+  display: none;
+}
+
+/* The wrapper Streamdown puts around the actions chip — it carries the
+   `-mt-10 sticky` flow positioning, so it's what has to become the
+   absolutely-positioned overlay. */
+.markdown :has(> [data-streamdown="code-block-actions"]) {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  height: auto;
+  margin: 0;
+  z-index: 2;
+  opacity: var(--code-actions-opacity, 1);
+  transition: opacity 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown :has(> [data-streamdown="code-block-actions"]) {
+    transition: none;
+  }
+}
+
+/* Sit on the code surface rather than introducing a second tint — the
+   chip exists to keep the glyphs underneath from muddying the icons, not
+   to read as its own panel. */
+.markdown [data-streamdown="code-block-actions"] {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--surface-inset) 88%, transparent);
+}
+
+.markdown [data-streamdown="code-block-body"] {
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+  font-size: var(--font-size-sm);
+  scrollbar-width: thin;
+}
+
+.markdown [data-streamdown="code-block-body"] pre {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  /* The body div owns the horizontal scroll. */
+  overflow-x: visible;
+}
+
+/*
  * Disable Streamdown's per-code-block `content-visibility: auto` /
  * `contain-intrinsic-size: auto 200px` inline-style optimization
  * inside virtualized chat rows.

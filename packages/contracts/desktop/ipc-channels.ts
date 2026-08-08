@@ -79,7 +79,6 @@ export const IPC_REGION_CANCEL = "region:cancel" as const;
 export const IPC_CAPTURE_PAGE_DATA_URL = "capture:pageDataUrl" as const;
 export const IPC_CAPTURE_REGION_FAILED = "capture:regionCaptureFailed" as const;
 
-
 // ── Overlay ─────────────────────────────────────────────────────────────────
 
 export const IPC_OVERLAY_SET_INTERACTIVE = "overlay:setInteractive" as const;
@@ -300,7 +299,6 @@ export const IPC_ONBOARDING_SYNTHESIZE =
 
 // ── Migration ───────────────────────────────────────────────────────────────
 
-
 // ── Discovery ───────────────────────────────────────────────────────────────
 
 export const IPC_DISCOVERY_CORE_MEMORY_EXISTS =
@@ -395,6 +393,8 @@ export const IPC_LOCAL_CHAT_LIST_THREAD_ACTIVITY =
   "localChat:listThreadActivity" as const;
 export const IPC_LOCAL_CHAT_LIST_AGENT_THREAD_MESSAGES =
   "localChat:listAgentThreadMessages" as const;
+export const IPC_LOCAL_CHAT_LIST_MODEL_USAGE =
+  "localChat:listModelUsage" as const;
 export const IPC_LOCAL_CHAT_LIST_FILES = "localChat:listFiles" as const;
 export const IPC_LOCAL_CHAT_GET_EVENT_COUNT =
   "localChat:getEventCount" as const;

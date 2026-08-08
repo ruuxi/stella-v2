@@ -12,6 +12,7 @@ import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
+  LocalModelUsagePage,
   EventRecord,
   LocalChatUpdatedPayload,
   ThreadActivityRecord,
@@ -1384,6 +1385,13 @@ export type ElectronLocalChatApi = {
       source?: string;
     }>
   >;
+  listModelUsage: (payload: {
+    fromMs?: number;
+    toMs?: number;
+    conversationId?: string;
+    threadId?: string;
+    limit?: number;
+  }) => Promise<LocalModelUsagePage>;
   listFiles: (payload: {
     conversationId: string;
     limit?: number;

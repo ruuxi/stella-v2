@@ -39,6 +39,43 @@ export type ConversationSummaryPage = {
   hasMore: boolean;
 };
 
+/** One locally persisted provider call, attributed to its runtime thread. */
+export type LocalModelUsageRecord = {
+  id: string;
+  timestamp: number;
+  conversationId: string;
+  conversationTitle: string;
+  threadId: string;
+  threadName: string;
+  agentType: string;
+  agentDescription?: string;
+  agentDepth?: number;
+  parentAgentId?: string;
+  rootRunId?: string;
+  provider: string;
+  api: string;
+  model: string;
+  responseModel?: string;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  inputCostUsd: number;
+  cacheReadCostUsd: number;
+  cacheWriteCostUsd: number;
+  outputCostUsd: number;
+  totalCostUsd: number;
+  stopReason: string;
+  errorMessage?: string;
+};
+
+export type LocalModelUsagePage = {
+  records: LocalModelUsageRecord[];
+  truncated: boolean;
+};
+
 /**
  * One background-agent thread's authoritative activity state — a direct
  * projection of the runtime's `runtime_agents` row. This is the single source of truth the Activity

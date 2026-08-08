@@ -9,7 +9,8 @@ type PreloadKey =
   | "social-communities-dialog"
   | "social-friends-dialog"
   | "social-new-chat-dialog"
-  | "store";
+  | "store"
+  | "usage";
 
 const preloaded = new Set<PreloadKey>();
 
@@ -65,6 +66,9 @@ export const preloadSocialNewChatDialog = () =>
 export const preloadStoreApp = () =>
   runOnce("store", () => import("@/app/store/App"));
 
+export const preloadUsageApp = () =>
+  runOnce("usage", () => import("@/app/usage/App"));
+
 export const preloadNavSurfaceRoute = (appId: string) => {
   if (appId === "store") {
     preloadStoreApp();
@@ -72,5 +76,7 @@ export const preloadNavSurfaceRoute = (appId: string) => {
     preloadSocialApp();
   } else if (appId === "settings") {
     preloadSettingsScreen();
+  } else if (appId === "usage") {
+    preloadUsageApp();
   }
 };

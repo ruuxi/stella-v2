@@ -1323,6 +1323,121 @@ export class SessionStore {
             .all(conversationId, normalizedLimit);
         return rows.map((row) => this.deserializeEventRow(row));
     }
+    /**
+     * Provider-call ledger projected from the durable assistant messages in
+     * runtime_thread_entries. This intentionally reads the canonical thread
+     * history instead of maintaining a second write path that could drift or
+     * double-count retries. Historical native calls become visible as soon as
+     * this reader ships; synthetic `model: history` replay rows are excluded.
+     */
+    listModelUsage(args = {}) {
+        const fromMs = asFiniteNumber(args.fromMs);
+        const toMs = asFiniteNumber(args.toMs);
+        const conversationId = asTrimmedString(args.conversationId);
+        const threadId =
+            typeof args.threadId === "string" && args.threadId.trim() ? normalizeRuntimeThreadId(args.threadId) : undefined;
+        const normalizedLimit = Math.min(10000, Math.max(1, Math.floor(asFiniteNumber(args.limit) ?? 5000)));
+        const clauses = [
+            "entry.entry_type = 'message'",
+            "json_extract(entry.data_json, '$.message.role') = 'assistant'",
+            "json_type(entry.data_json, '$.message.usage') = 'object'",
+            "COALESCE(json_extract(entry.data_json, '$.message.model'), '') != 'history'",
+        ];
+        const params = [];
+        if (fromMs !== null) {
+            clauses.push("entry.created_at >= ?");
+            params.push(Math.floor(fromMs));
+        }
+        if (toMs !== null) {
+            clauses.push("entry.created_at <= ?");
+            params.push(Math.floor(toMs));
+        }
+        if (conversationId) {
+            clauses.push("thread.conversation_id = ?");
+            params.push(conversationId);
+        }
+        if (threadId) {
+            clauses.push("thread.thread_key = ?");
+            params.push(threadId);
+        }
+        params.push(normalizedLimit + 1);
+        const rows = this.db
+            .prepare(
+                `
+      SELECT
+        entry.entry_id AS id,
+        entry.created_at AS timestamp,
+        thread.conversation_id AS conversationId,
+        COALESCE(NULLIF(session.title, ''), thread.conversation_id) AS conversationTitle,
+        thread.thread_key AS threadId,
+        thread.name AS threadName,
+        thread.agent_type AS agentType,
+        agent.description AS agentDescription,
+        agent.agent_depth AS agentDepth,
+        agent.parent_agent_id AS parentAgentId,
+        agent.root_run_id AS rootRunId,
+        json_extract(entry.data_json, '$.message.provider') AS provider,
+        json_extract(entry.data_json, '$.message.api') AS api,
+        json_extract(entry.data_json, '$.message.model') AS model,
+        json_extract(entry.data_json, '$.message.responseModel') AS responseModel,
+        json_extract(entry.data_json, '$.message.usage.input') AS inputTokens,
+        json_extract(entry.data_json, '$.message.usage.cacheRead') AS cacheReadTokens,
+        json_extract(entry.data_json, '$.message.usage.cacheWrite') AS cacheWriteTokens,
+        json_extract(entry.data_json, '$.message.usage.output') AS outputTokens,
+        json_extract(entry.data_json, '$.message.usage.reasoning') AS reasoningTokens,
+        json_extract(entry.data_json, '$.message.usage.totalTokens') AS totalTokens,
+        json_extract(entry.data_json, '$.message.usage.cost.input') AS inputCostUsd,
+        json_extract(entry.data_json, '$.message.usage.cost.cacheRead') AS cacheReadCostUsd,
+        json_extract(entry.data_json, '$.message.usage.cost.cacheWrite') AS cacheWriteCostUsd,
+        json_extract(entry.data_json, '$.message.usage.cost.output') AS outputCostUsd,
+        json_extract(entry.data_json, '$.message.usage.cost.total') AS totalCostUsd,
+        json_extract(entry.data_json, '$.message.stopReason') AS stopReason,
+        json_extract(entry.data_json, '$.message.errorMessage') AS errorMessage
+      FROM runtime_thread_entries entry
+      JOIN runtime_threads thread ON thread.thread_key = entry.thread_key
+      LEFT JOIN runtime_agents agent ON agent.thread_id = thread.thread_key
+      LEFT JOIN session ON session.id = thread.conversation_id
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY entry.created_at DESC, entry.entry_id DESC
+      LIMIT ?
+    `,
+            )
+            .all(...params);
+        const truncated = rows.length > normalizedLimit;
+        return {
+            records: rows.slice(0, normalizedLimit).map((row) => ({
+                id: asTrimmedString(row.id),
+                timestamp: asFiniteNumber(row.timestamp) ?? 0,
+                conversationId: asTrimmedString(row.conversationId),
+                conversationTitle: asTrimmedString(row.conversationTitle) || asTrimmedString(row.conversationId),
+                threadId: asTrimmedString(row.threadId),
+                threadName: asTrimmedString(row.threadName) || asTrimmedString(row.agentType),
+                agentType: asTrimmedString(row.agentType) || "unknown",
+                ...(asTrimmedString(row.agentDescription) ? { agentDescription: asTrimmedString(row.agentDescription) } : {}),
+                ...(asFiniteNumber(row.agentDepth) !== null ? { agentDepth: asFiniteNumber(row.agentDepth) } : {}),
+                ...(asTrimmedString(row.parentAgentId) ? { parentAgentId: asTrimmedString(row.parentAgentId) } : {}),
+                ...(asTrimmedString(row.rootRunId) ? { rootRunId: asTrimmedString(row.rootRunId) } : {}),
+                provider: asTrimmedString(row.provider) || "unknown",
+                api: asTrimmedString(row.api) || "unknown",
+                model: asTrimmedString(row.model) || "unknown",
+                ...(asTrimmedString(row.responseModel) ? { responseModel: asTrimmedString(row.responseModel) } : {}),
+                inputTokens: asFiniteNumber(row.inputTokens) ?? 0,
+                cacheReadTokens: asFiniteNumber(row.cacheReadTokens) ?? 0,
+                cacheWriteTokens: asFiniteNumber(row.cacheWriteTokens) ?? 0,
+                outputTokens: asFiniteNumber(row.outputTokens) ?? 0,
+                reasoningTokens: asFiniteNumber(row.reasoningTokens) ?? 0,
+                totalTokens: asFiniteNumber(row.totalTokens) ?? 0,
+                inputCostUsd: asFiniteNumber(row.inputCostUsd) ?? 0,
+                cacheReadCostUsd: asFiniteNumber(row.cacheReadCostUsd) ?? 0,
+                cacheWriteCostUsd: asFiniteNumber(row.cacheWriteCostUsd) ?? 0,
+                outputCostUsd: asFiniteNumber(row.outputCostUsd) ?? 0,
+                totalCostUsd: asFiniteNumber(row.totalCostUsd) ?? 0,
+                stopReason: asTrimmedString(row.stopReason) || "unknown",
+                ...(asTrimmedString(row.errorMessage) ? { errorMessage: asTrimmedString(row.errorMessage) } : {}),
+            })),
+            truncated,
+        };
+    }
     listLifecycleEventsByIds(eventIdsInput) {
         const eventIds = [
             ...new Set(eventIdsInput.map(asTrimmedString).filter(Boolean)),

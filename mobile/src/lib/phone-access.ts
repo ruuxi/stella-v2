@@ -7,6 +7,7 @@ import {
 } from "./bridge-crypto";
 import { getJson, postJson } from "./http";
 import type { DesktopBridgeStatus } from "../types";
+import { readDesktopBridgeRegistrationDescriptor } from "./desktop-bridge-discovery";
 
 const MOBILE_DEVICE_ID_KEY = "stella-mobile_phone-access.mobile-device-id";
 const PREFERRED_DESKTOP_DEVICE_ID_KEY =
@@ -153,6 +154,9 @@ function readDesktopBridgeStatus(value: unknown): DesktopBridgeStatus {
     baseUrls: value.baseUrls,
     platform: value.platform ?? null,
     updatedAt: value.updatedAt ?? null,
+    lastKnownRegistration: readDesktopBridgeRegistrationDescriptor(
+      value.lastKnownRegistration,
+    ),
   };
 }
 

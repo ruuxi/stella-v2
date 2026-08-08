@@ -38,24 +38,26 @@ import { notifySuccess } from "../../src/lib/haptics";
 import { type Colors } from "../../src/theme/colors";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
+import { probeDesktopBridgeStatus } from "../../src/lib/desktop-bridge-discovery";
 
 type MobileBridgeBootstrap = {
   localStorage: Record<string, string>;
   mobileBridgeCapabilities?: {
     version: number;
-    capabilities: Array<{
+    capabilities: {
       mode: string;
       path: string;
       channel?: string;
       transport?: string;
       reason?: string;
-    }>;
+    }[];
   };
 };
 
 const EMPTY_BRIDGE_BOOTSTRAP: MobileBridgeBootstrap = { localStorage: {} };
 const DESKTOP_WAKE_ATTEMPTS = 8;
 const DESKTOP_WAKE_RETRY_MS = 1_000;
+const BRIDGE_HEALTH_TIMEOUT_MS = 3_000;
 
 type BridgeState = {
   bridgeUrl: string;
@@ -80,6 +82,22 @@ const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
+
+const canReachBridgeHealth = async (baseUrl: string) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BRIDGE_HEALTH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/bridge/health`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 function getBridgeOrigin(bridgeUrl: string): string {
   return new URL(bridgeUrl).origin;
@@ -184,7 +202,6 @@ function AuthenticatedStellaScreen() {
   const router = useRouter();
   const webViewRef = useRef<WebView>(null);
   const preferredAccessRef = useRef<StoredPhoneAccess | null>(null);
-  const screenStateRef = useRef<ScreenState["type"]>("loading");
   const attemptedRouteCodeRef = useRef<string | null>(null);
   const routeParams = useLocalSearchParams<{ code?: string | string[] }>();
   const routeCode = normalizePairingCode(
@@ -199,14 +216,10 @@ function AuthenticatedStellaScreen() {
   // "View computer" navigation triggers the connection flow.
   const isPairingOnly = routeCode.length > 0;
 
-  const [screenState, setScreenStateRaw] = useState<ScreenState>({
+  const [screenState, setScreenState] = useState<ScreenState>({
     type: "loading",
     message: "Connecting to desktop",
   });
-  const setScreenState = useCallback((next: ScreenState) => {
-    screenStateRef.current = next.type;
-    setScreenStateRaw(next);
-  }, []);
   const [canGoBack, setCanGoBack] = useState(false);
   const [bridgeConnected, setBridgeConnected] = useState(true);
   // Desktop capabilities the mirrored UI asked for and could not have here.
@@ -258,28 +271,40 @@ function AuthenticatedStellaScreen() {
       try {
         await requestDesktopConnection(access);
         let status = await getDesktopBridgeStatus(access.desktopDeviceId);
+        let baseUrl = "";
         for (
-          let attempt = 1;
-          attempt < DESKTOP_WAKE_ATTEMPTS && !status.available;
+          let attempt = 0;
+          attempt < DESKTOP_WAKE_ATTEMPTS && !baseUrl;
           attempt += 1
         ) {
-          await sleep(DESKTOP_WAKE_RETRY_MS);
-          status = await getDesktopBridgeStatus(access.desktopDeviceId);
+          const probe = await probeDesktopBridgeStatus(
+            status,
+            access.desktopDeviceId,
+            canReachBridgeHealth,
+          );
+          // A durable descriptor is accepted only when health-confirmed. A
+          // currently leased URL retains the old unverified fallback so this
+          // mobile build still works with desktops that predate /bridge/health.
+          baseUrl = probe.reachableUrl ?? probe.liveFallbackUrl ?? "";
+          if (!baseUrl && attempt < DESKTOP_WAKE_ATTEMPTS - 1) {
+            await sleep(DESKTOP_WAKE_RETRY_MS);
+            status = await getDesktopBridgeStatus(access.desktopDeviceId);
+          }
         }
 
-        if (!status.available) {
+        if (!baseUrl) {
+          const platform =
+            status.platform ?? status.lastKnownRegistration?.platform;
           setScreenState(
             readUnavailableState(
-              status.platform
-                ? `Your ${status.platform} isn't reachable`
+              platform
+                ? `Your ${platform} isn't reachable`
                 : "Can't reach your desktop",
             ),
           );
           return;
         }
 
-        const baseUrl = status.baseUrls[0];
-        assert(baseUrl, "Desktop bridge URL is required.");
         const bridgeSession = await createDesktopBridgeSession(access, baseUrl);
 
         let bootstrap = EMPTY_BRIDGE_BOOTSTRAP;
@@ -373,22 +398,9 @@ function AuthenticatedStellaScreen() {
       return;
     }
     void refreshBridge();
-    const interval = setInterval(() => {
-      const access = preferredAccessRef.current;
-      if (!access || screenStateRef.current !== "ready") {
-        return;
-      }
-      void getDesktopBridgeStatus(access.desktopDeviceId)
-        .then((status) => {
-          if (!status.available) {
-            void refreshBridge(access);
-          }
-        })
-        .catch(() => {});
-    }, 45_000);
-    return () => {
-      clearInterval(interval);
-    };
+    // Once loaded, the WebView bridge's connectionState messages are the
+    // liveness source of truth. Backend availability is only discovery
+    // metadata and may be false after its lease expires.
   }, [isPairingOnly, refreshBridge, setScreenState]);
 
   useEffect(() => {

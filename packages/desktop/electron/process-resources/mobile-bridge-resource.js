@@ -2,17 +2,6 @@ import { isMobileBridgeEventChannel } from "../services/mobile-bridge/index.js";
 import { MobileBridgeService } from "../services/mobile-bridge/service.js";
 import { createCloudflareTunnelResource, } from "./cloudflare-tunnel-resource.js";
 const AUTH_SYNC_INTERVAL_MS = 30_000;
-/**
- * How long the bridge server + Cloudflare tunnel stay up with no phone
- * activity. This used to be 10 minutes, which meant nearly every app-open on
- * the phone paid the full cold path (cloudflared spawn, edge registration,
- * readiness probing, registration lease — 8-30s). Idle cost of keeping it up
- * is small (cloudflared ~20-40 MB RSS, a keepalive connection, no CPU), the
- * hostname is already public/stable, and sessions still expire on their own
- * TTL — so we keep the transport warm for half a day and let truly dormant
- * desktops wind down.
- */
-const MOBILE_SESSION_IDLE_TIMEOUT_MS = 12 * 60 * 60_000;
 const WINDOW_RETRY_DELAY_MS = 1_000;
 const PORT_RETRY_DELAY_MS = 500;
 export const createMobileBridgeResource = (options) => {
@@ -21,7 +10,6 @@ export const createMobileBridgeResource = (options) => {
     let stopped = true;
     let sessionId = 0;
     let stopAuthSync = null;
-    let stopSessionTimer = null;
     let mirroredWindow = null;
     let restoreWindowSend = null;
     const createTunnel = () => {
@@ -30,8 +18,8 @@ export const createMobileBridgeResource = (options) => {
             getAuthToken: options.getAuthToken,
             getConvexSiteUrl: options.getConvexSiteUrl,
             getDeviceId: options.getDeviceId,
-            onTunnelUrl: (url) => {
-                bridge?.setTunnelUrl(url);
+            onTunnelUrl: (url, readiness) => {
+                bridge?.setTunnelUrl(url, readiness);
             },
         });
     };
@@ -39,12 +27,6 @@ export const createMobileBridgeResource = (options) => {
         restoreWindowSend?.();
         restoreWindowSend = null;
         mirroredWindow = null;
-    };
-    const rearmSessionTimer = () => {
-        stopSessionTimer?.();
-        stopSessionTimer = options.processRuntime.setManagedTimeout(() => {
-            void resource.stop();
-        }, MOBILE_SESSION_IDLE_TIMEOUT_MS);
     };
     const isInactiveSession = (candidateSessionId) => {
         return (stopped ||
@@ -132,7 +114,6 @@ export const createMobileBridgeResource = (options) => {
             electronDir: options.electronDir,
             isDev: options.isDev,
             getDevServerUrl: options.getDevServerUrl,
-            onClientActivity: rearmSessionTimer,
         });
         bridge.setBootstrapPayloadGetter(options.getBootstrapPayload);
         bridge.start();
@@ -149,7 +130,6 @@ export const createMobileBridgeResource = (options) => {
         },
         start: () => {
             stopped = false;
-            rearmSessionTimer();
             if (bridge || options.processRuntime.isShuttingDown()) {
                 return;
             }
@@ -162,8 +142,6 @@ export const createMobileBridgeResource = (options) => {
             sessionId += 1;
             stopAuthSync?.();
             stopAuthSync = null;
-            stopSessionTimer?.();
-            stopSessionTimer = null;
             clearWindowMirror();
             await tunnel?.stop();
             tunnel = null;

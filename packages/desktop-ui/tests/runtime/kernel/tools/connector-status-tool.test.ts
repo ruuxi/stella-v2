@@ -18,7 +18,9 @@ import {
   resetConnectorStatusCatalogMemo,
   type ConnectorConnectionRequester,
 } from "@stella/runtime/kernel/tools/defs/connector-status";
+import { createToolHost } from "@stella/runtime/kernel/tools/host";
 import type { ToolContext } from "@stella/runtime/kernel/tools/types";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 
 const context: ToolContext = {
   conversationId: "c1",
@@ -111,6 +113,7 @@ describe("connector_status tool", () => {
     );
     expect(resultText(result)).toContain("now connected");
     expect(resultText(result)).toContain("Continue the original task");
+    expect(result.details).toMatchObject({ id: "notion", status: "connected" });
   });
 
   it("persists a decline and instructs the Store-later fallback", async () => {
@@ -125,12 +128,18 @@ describe("connector_status tool", () => {
     expect(resultText(first)).toContain("declined");
     expect(resultText(first)).toContain("Store");
     expect(resultText(first)).toContain("Do not offer");
+    expect(first.details).toMatchObject({ id: "notion", status: "declined" });
     expect(await getConnectorDecline(root, "notion")).not.toBeNull();
 
     // Second call: no new card, previously-declined guidance instead.
     const second = await tool.execute({ connector: "notion" }, context);
     expect(requester).toHaveBeenCalledTimes(1);
     expect(resultText(second)).toContain("previously declined");
+    expect(second.details).toMatchObject({
+      id: "notion",
+      status: "declined",
+      reason: "declined_previously",
+    });
   });
 
   it("does not re-offer a connector the user declined earlier", async () => {
@@ -166,7 +175,95 @@ describe("connector_status tool", () => {
     const result = await tool.execute({ connector: "notion" }, context);
     expect(resultText(result)).toContain("not answered in time");
     expect(resultText(result)).toContain("for now");
+    expect(result.details).toMatchObject({
+      id: "notion",
+      status: "not_connected",
+      reason: "timeout",
+    });
     expect(await getConnectorDecline(root, "notion")).toBeNull();
+  });
+
+  it("reports a dismissed card as not_connected without persisting a decline", async () => {
+    const root = makeRoot();
+    await writeCachedServerCatalog(root, [notionEntry]);
+    const requester = vi.fn(async () => ({
+      ok: false as const,
+      reason: "cancelled" as const,
+    }));
+    const tool = makeTool(root, requester);
+    // No abort signal: a `cancelled` outcome without a turn abort means the
+    // user dismissed the card without answering.
+    const result = await tool.execute({ connector: "notion" }, context);
+    expect(resultText(result)).toContain("dismissed");
+    expect(result.details).toMatchObject({
+      id: "notion",
+      status: "not_connected",
+      reason: "dismissed",
+    });
+    expect(await getConnectorDecline(root, "notion")).toBeNull();
+  });
+
+  it("reports a missing connect flow as not_connected", async () => {
+    const root = makeRoot();
+    await writeCachedServerCatalog(root, [notionEntry]);
+    // No requester wired (e.g. headless host): the card can't be shown.
+    const tool = makeTool(root);
+    const result = await tool.execute({ connector: "notion" }, context);
+    expect(resultText(result)).toContain("cannot be connected from here");
+    expect(result.details).toMatchObject({
+      id: "notion",
+      status: "not_connected",
+      reason: "flow_unavailable",
+    });
+  });
+
+  it("reports a failed connect flow as not_connected", async () => {
+    const root = makeRoot();
+    await writeCachedServerCatalog(root, [notionEntry]);
+    const requester = vi.fn(async () => ({
+      ok: false as const,
+      reason: "host_unreachable",
+    }));
+    const tool = makeTool(root, requester);
+    const result = await tool.execute({ connector: "notion" }, context);
+    expect(result.error).toContain("host_unreachable");
+    expect(result.error).toContain("not connected");
+    expect(result.details).toMatchObject({
+      id: "notion",
+      status: "not_connected",
+      reason: "host_unreachable",
+    });
+  });
+
+  it("receives the connect-card requester through the tool host", async () => {
+    // Regression: createToolHost used to drop `requestConnectorConnection`
+    // on the floor, so the tool always hit the "cannot be connected from
+    // here" guard and the connect card never appeared.
+    const root = makeRoot();
+    await writeCachedServerCatalog(root, [notionEntry]);
+    const requester = vi.fn(async () => ({
+      ok: true as const,
+      status: "connected" as const,
+    }));
+    const host = createToolHost({
+      stellaAppDir: root,
+      stellaDataDir: root,
+      requestConnectorConnection: requester,
+    });
+    try {
+      const result = await host.executeTool(
+        "connector_status",
+        { connector: "notion" },
+        { ...context, agentType: AGENT_IDS.ORCHESTRATOR },
+      );
+      expect(requester).toHaveBeenCalledTimes(1);
+      expect(result.details).toMatchObject({
+        id: "notion",
+        status: "connected",
+      });
+    } finally {
+      await host.shutdown();
+    }
   });
 
   it("cancels the pending card when the turn is aborted", async () => {
@@ -191,6 +288,11 @@ describe("connector_status tool", () => {
     controller.abort();
     const result = await pending;
     expect(resultText(result)).toContain("cancelled");
+    expect(result.details).toMatchObject({
+      id: "notion",
+      status: "not_connected",
+      reason: "turn_cancelled",
+    });
     // A turn abort is not a user decline.
     expect(await getConnectorDecline(root, "notion")).toBeNull();
   });

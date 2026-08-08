@@ -43,11 +43,11 @@
 }
 
 .connector-connect-card--connected .connector-connect-card__icon {
-  color: var(--success, #3ba55d);
+  color: var(--success);
 }
 
 .connector-connect-card--error .connector-connect-card__icon {
-  color: var(--danger, #d4574e);
+  color: var(--danger);
 }
 
 .connector-connect-card__body {
@@ -57,9 +57,9 @@
 
 .connector-connect-card__title {
   margin: 0;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-strong);
 }
 
 .connector-connect-card__sub {

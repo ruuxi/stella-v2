@@ -215,10 +215,21 @@ export const createBackendConnectorActionBroker =
         requestId,
       };
     }
-    const canonicalAction = entry.actions?.find(
+    // The live backend catalog endpoint returns connector entries without
+    // an `actions` array (action schemas live server-side and are enforced
+    // by the backend on /run). When the catalog does carry actions, validate
+    // against that allowlist and each action's input schema; when it does
+    // not, fall back to the toolkit-prefix check so the broker still refuses
+    // cross-connector and arbitrary action names instead of rejecting every
+    // action against an empty allowlist.
+    const catalogActions = entry.actions ?? [];
+    const canonicalAction = catalogActions.find(
       (candidate) => candidate.name === action,
     );
-    if (!canonicalAction || !action.startsWith(`${toolkit}_`)) {
+    const actionAllowed =
+      action.startsWith(`${toolkit}_`) &&
+      (catalogActions.length === 0 || canonicalAction !== undefined);
+    if (!actionAllowed) {
       return {
         ok: false,
         reason: "action_not_allowed",
@@ -226,17 +237,19 @@ export const createBackendConnectorActionBroker =
         requestId,
       };
     }
-    const schemaError = validateActionInput(
-      canonicalAction.inputSchema,
-      params.input,
-    );
-    if (schemaError) {
-      return {
-        ok: false,
-        reason: "action_not_allowed",
-        message: redactSensitiveText(schemaError),
-        requestId,
-      };
+    if (canonicalAction) {
+      const schemaError = validateActionInput(
+        canonicalAction.inputSchema,
+        params.input,
+      );
+      if (schemaError) {
+        return {
+          ok: false,
+          reason: "action_not_allowed",
+          message: redactSensitiveText(schemaError),
+          requestId,
+        };
+      }
     }
 
     let response: Response;

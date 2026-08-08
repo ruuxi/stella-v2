@@ -343,6 +343,72 @@ export const requestBackendConnectorActionFromBridge = async ({
   };
 };
 
+export type AutomationDaemonSpawnParams = {
+  /** Unix socket path the daemon should listen on. */
+  daemonSocketPath: string;
+  /** File the daemon writes its pid into once ready. */
+  pidPath: string;
+  /** File the host appends the daemon's stdout/stderr to. */
+  logPath: string;
+  sessionId: string;
+  stateDir: string;
+  /** Extra STELLA_COMPUTER_* env vars to forward to the daemon. */
+  env?: Record<string, string>;
+};
+
+export type AutomationDaemonSpawnResult =
+  | { ok: true; pid: number; hostPid: number }
+  | { ok: false; reason: string };
+
+/**
+ * Ask the Electron host (via the worker's CLI bridge) to spawn the
+ * desktop_automation daemon so macOS attributes its Accessibility (TCC)
+ * checks to the live Stella.app process instead of the detached worker's
+ * (possibly dead) responsibility chain.
+ */
+export const requestAutomationDaemonSpawnFromBridge = async ({
+  socketPath,
+  params,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: {
+  socketPath: string;
+  params: AutomationDaemonSpawnParams;
+  timeoutMs?: number;
+}): Promise<AutomationDaemonSpawnResult> => {
+  let result: unknown;
+  try {
+    result = await sendRequest(
+      socketPath,
+      "computerUse.spawnAutomationDaemon",
+      params,
+      timeoutMs,
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      reason: (error as Error).message || "bridge_unavailable",
+    };
+  }
+  if (!result || typeof result !== "object") {
+    return { ok: false, reason: "invalid_response" };
+  }
+  const record = result as Record<string, unknown>;
+  if (
+    record.ok === true &&
+    typeof record.pid === "number" &&
+    typeof record.hostPid === "number"
+  ) {
+    return { ok: true, pid: record.pid, hostPid: record.hostPid };
+  }
+  return {
+    ok: false,
+    reason:
+      typeof record.reason === "string" && record.reason
+        ? record.reason
+        : "unsupported",
+  };
+};
+
 export const requestDesktopPermissionFromBridge = async ({
   socketPath,
   kind,

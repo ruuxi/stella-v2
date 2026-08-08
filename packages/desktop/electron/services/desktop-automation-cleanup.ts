@@ -9,13 +9,17 @@ import {
 import path from "node:path";
 
 import { resolveStatePath } from "@stella/runtime/kernel/cli/shared";
+import { resolveAutomationSocketPath } from "@stella/runtime/kernel/computer-use/automation-socket-paths";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 
 const stellaComputerStateRoot = () =>
   path.join(resolveStatePath(), "stella-computer");
 
 const sessionsDir = (root: string) => path.join(root, "sessions");
-const socketsDir = (root: string) => path.join(root, "daemon-sockets");
+// Pre-socket-relocation layout; swept so sockets left behind by older builds
+// don't linger. Current sockets live under ~/.stella/computer-sockets (see
+// runtime/kernel/computer-use/automation-socket-paths.ts).
+const legacySocketsDir = (root: string) => path.join(root, "daemon-sockets");
 
 const readPidFile = (filePath: string): number | null => {
   try {
@@ -103,8 +107,9 @@ const findOrphanedDesktopAutomationPids = (): number[] => {
 
 // Stops every long-lived stella-computer daemon. macOS stores
 // `desktop_automation` pids under
-// `~/.stella/stella-computer/sessions/<id>/automation.pid` plus sockets under
-// `~/.stella/stella-computer/daemon-sockets/<sha>.sock`; Windows stores
+// `<stateDir>/stella-computer/sessions/<id>/automation.pid` plus sockets under
+// `~/.stella/computer-sockets/<sha>.sock` (home-anchored so the path stays
+// inside the 104-byte macOS Unix-socket cap); Windows stores
 // `stella-computer-helper.exe` pids under
 // `~/.stella/stella-computer/sessions/<id>/windows-daemon/helper.pid`.
 // We SIGTERM the pids, give them a moment to exit cleanly, then SIGKILL
@@ -122,6 +127,7 @@ export const stopAllDesktopAutomationDaemons = async (): Promise<void> => {
 
   const targetedPids = new Set<number>(findOrphanedDesktopAutomationPids());
   const pidFiles: string[] = [];
+  const sessionNames: string[] = [];
 
   if (existsSync(sessions)) {
     let entries: string[];
@@ -140,6 +146,7 @@ export const stopAllDesktopAutomationDaemons = async (): Promise<void> => {
         continue;
       }
       if (!isDir) continue;
+      sessionNames.push(name);
 
       const sessionPidFiles = [
         path.join(sessionPath, "automation.pid"),
@@ -177,17 +184,24 @@ export const stopAllDesktopAutomationDaemons = async (): Promise<void> => {
       rmSync(path.dirname(pidFile), { recursive: true, force: true });
     }
   }
-  const sockets = socketsDir(root);
-  if (existsSync(sockets)) {
+  // The shared ~/.stella/computer-sockets dir also holds other installs'
+  // sockets, so only remove the ones this install's sessions map to (the
+  // filename hash covers state dir + session id). Orphans are aged out by
+  // the runtime's own pruning.
+  for (const name of sessionNames) {
+    rmSync(resolveAutomationSocketPath(root, name), { force: true });
+  }
+  const legacySockets = legacySocketsDir(root);
+  if (existsSync(legacySockets)) {
     let socketEntries: string[];
     try {
-      socketEntries = readdirSync(sockets);
+      socketEntries = readdirSync(legacySockets);
     } catch {
       return;
     }
     for (const entry of socketEntries) {
       if (!entry.endsWith(".sock")) continue;
-      rmSync(path.join(sockets, entry), { force: true });
+      rmSync(path.join(legacySockets, entry), { force: true });
     }
   }
 };

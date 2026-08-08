@@ -63,8 +63,12 @@ export type RuntimePaths = {
    * just to pop a credential dialog when an MCP call returns 401/403.
    * CLIs discover the path via the `STELLA_CLI_BRIDGE_SOCK` env var
    * injected by `runtime/kernel/tools/shell.ts`. Kept under the same
-   * per-root namespace so multi-install machines don't collide; POSIX
-   * socket files stay well under the 104-char BSD UDS path cap.
+   * per-root namespace so multi-install machines don't collide. POSIX
+   * socket paths are len(homedir)-dependent and capped at 104 bytes on
+   * macOS (BSD `sun_path`, 103 usable), so the per-session endpoint from
+   * `createSecureCliBridgeEndpoint` keeps its components short
+   * (`<rootDir>/<22-char nonce>/b.sock` = homedir + 63 bytes) and
+   * `startCliBridgeServer` enforces a defensive ceiling before binding.
    */
   cliBridgeSocketPath: string;
   /** Directory holding `runtime.log` and the diagnostic log channels. */
@@ -107,9 +111,12 @@ export const createSecureCliBridgeEndpoint = (
 ): string => {
   const platform = options?.platform ?? process.platform;
   const nonce = (
-    options?.nonce ?? crypto.randomBytes(16).toString("hex")
+    options?.nonce ?? crypto.randomBytes(16).toString("base64url")
   ).replace(/[^A-Za-z0-9_-]/gu, "");
-  if (nonce.length < 32) {
+  // 22 base64url chars carry the full 128 bits of randomBytes(16); legacy
+  // hex nonces (32+ chars) clear the same floor. Both alphabets survive the
+  // sanitize regex above unchanged (base64url uses `-`/`_`, never `+/=`).
+  if (nonce.length < 22) {
     throw new Error(
       "CLI bridge nonce must contain at least 128 bits of entropy.",
     );
@@ -117,7 +124,13 @@ export const createSecureCliBridgeEndpoint = (
   if (platform === "win32") {
     return `\\\\.\\pipe\\stella-cli-bridge-${paths.rootHash}-${nonce}`;
   }
-  return path.join(paths.rootDir, `cli-${nonce}`, "bridge.sock");
+  // The nonce MUST stay its own directory component: startCliBridgeServer
+  // chmods the socket's parent directory to 0700 (that per-session dir is
+  // the unpredictability barrier) and removes it on stop. Components are
+  // deliberately terse — `<rootDir>/<nonce>/b.sock` is homedir + 63 bytes,
+  // keeping well under the 104-byte BSD `sun_path` cap even for long
+  // usernames.
+  return path.join(paths.rootDir, nonce, "b.sock");
 };
 
 export const isWindowsNamedPipePath = (socketPath: string): boolean =>

@@ -1910,6 +1910,12 @@ export class StellaRuntimeHost {
             }
             return await this.options.hostHandlers.requestDesktopPermission(kind);
         });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_COMPUTER_USE_SPAWN_AUTOMATION_DAEMON, async (params) => {
+            if (!this.options.hostHandlers.spawnAutomationDaemon) {
+                return { ok: false, reason: "unsupported" };
+            }
+            return await this.options.hostHandlers.spawnAutomationDaemon(params && typeof params === "object" ? params : {});
+        });
         peer.registerRequestHandler(METHOD_NAMES.HOST_SYSTEM_OPEN_EXTERNAL, async (params) => {
             await this.options.hostHandlers.openExternal?.(String(params ?? ""));
             return { ok: true };

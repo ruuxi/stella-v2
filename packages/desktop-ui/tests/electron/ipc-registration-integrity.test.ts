@@ -208,4 +208,39 @@ describe("Electron IPC registration integrity", () => {
       "services.connectorCredentialService.cancelCredential(payload)",
     );
   });
+
+  it("constructs the connector credential service and threads it into the connect-card flow", () => {
+    // Regression: the local-first port dropped the ConnectorCredentialService
+    // instantiation from bootstrap-services.js while ipc.js, host-runner.js,
+    // resets.js, and ConnectorConnectService.runConnectFlow all kept consuming
+    // `services.connectorCredentialService`. Clicking Connect on an inline
+    // connect card then failed with "Cannot read properties of undefined
+    // (reading 'requestExternalOAuthApproval')".
+    const services = readFileSync(
+      path.join(
+        repoRoot,
+        "packages/desktop/electron/bootstrap/bootstrap-services.js",
+      ),
+      "utf8",
+    );
+    expect(services).toContain("new ConnectorCredentialService({");
+    const connectOptionsStart = services.indexOf(
+      "new ConnectorConnectService({",
+    );
+    expect(connectOptionsStart).toBeGreaterThan(-1);
+    const connectOptions = services.slice(
+      connectOptionsStart,
+      services.indexOf("});", connectOptionsStart),
+    );
+    expect(connectOptions).toContain("connectorCredentialService");
+    // The external OAuth flow completes via the `stella://oauth/callback/...`
+    // deep link, which must be routed to the credential service before the
+    // generic auth handler swallows it.
+    expect(services).toContain(
+      "connectorCredentialService?.handleExternalOAuthCallback(url)",
+    );
+    // The services object must expose it for ipc.js / host-runner.js /
+    // resets.js consumers.
+    expect(services).toMatch(/return \{[\s\S]*connectorCredentialService,/);
+  });
 });

@@ -136,6 +136,7 @@ export const createToolHost = ({
           sessionId,
           getSignal,
           commandTimeoutMs: timeoutMs,
+          ...(cliBridgeSocketPath ? { cliBridgeSocketPath } : {}),
         });
       }
       throw new Error(

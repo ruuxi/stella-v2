@@ -1,10 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { spawn, type StdioOptions } from "node:child_process";
 import net from "node:net";
 import { resolveStatePath } from "../cli/shared.js";
+import {
+  automationSocketsRootDir,
+  maxAutomationSocketPathBytes,
+  resolveAutomationSocketPath,
+} from "./automation-socket-paths.js";
 import {
   resolveNativeHelperPath,
   runNativeHelper,
@@ -13,6 +17,7 @@ import { screenshotPixelToScreenPoint } from "../cli/screenshot-coordinates.js";
 import { runWindowsStellaComputer } from "../cli/stella-computer-windows.js";
 import { sanitizeStellaComputerSessionId } from "../tools/stella-computer-session.js";
 import {
+  requestAutomationDaemonSpawnFromBridge,
   requestDesktopPermissionFromBridge,
   type DesktopPermissionRequestResult,
 } from "../connectors/cli-broker-client.js";
@@ -720,20 +725,83 @@ const pruneStellaComputerSessions = (activeSessionId: string) => {
 
 const delayMs = abortableComputerDelay;
 
-const automationSocketsDir = () => path.join(stateDir(), "daemon-sockets");
+// Sockets live under a short home-anchored directory (not the state dir) so
+// the path stays inside the 104-byte macOS sockaddr_un cap; see
+// automation-socket-paths.ts for the layout and collision rationale.
+const automationSocketsDir = () => automationSocketsRootDir();
 
 const automationSocketPath = (sessionPaths: SessionPaths) =>
-  path.join(
-    automationSocketsDir(),
-    `${createHash("sha1").update(sessionPaths.sessionId).digest("hex").slice(0, 16)}.sock`,
-  );
+  resolveAutomationSocketPath(stateDir(), sessionPaths.sessionId);
 
 const automationPidPath = (sessionPaths: SessionPaths) =>
   path.join(sessionPaths.sessionDir, "automation.pid");
 
+/** Daemon stdout/stderr sink; read back to surface startup failures. */
+const automationLogPath = (sessionPaths: SessionPaths) =>
+  path.join(sessionPaths.sessionDir, "automation-daemon.log");
+
+/**
+ * Pid of the Electron host that spawned the current daemon. macOS TCC
+ * attribution follows the responsible process recorded at spawn time, so a
+ * daemon spawned by a host that has since exited loses its "Stella"
+ * Accessibility attribution — it must be restarted by the current live host.
+ */
+const automationHostPidPath = (sessionPaths: SessionPaths) =>
+  path.join(sessionPaths.sessionDir, "automation.host-pid");
+
 const resetAutomationDaemonFiles = (sessionPaths: SessionPaths) => {
   fs.rmSync(automationPidPath(sessionPaths), { force: true });
   fs.rmSync(automationSocketPath(sessionPaths), { force: true });
+  fs.rmSync(automationHostPidPath(sessionPaths), { force: true });
+};
+
+const writeAutomationHostPid = (sessionPaths: SessionPaths, pid: number) => {
+  try {
+    fs.writeFileSync(automationHostPidPath(sessionPaths), String(pid), "utf8");
+  } catch {
+    // Best-effort bookkeeping; worst case the staleness check is skipped.
+  }
+};
+
+const automationDaemonSpawnedByDeadHost = (sessionPaths: SessionPaths) => {
+  const hostPid = readPidFile(automationHostPidPath(sessionPaths));
+  return hostPid !== null && !pidIsRunning(hostPid);
+};
+
+const automationLogTail = (sessionPaths: SessionPaths, maxChars = 700) => {
+  try {
+    const raw = fs.readFileSync(automationLogPath(sessionPaths), "utf8").trim();
+    if (!raw) return "";
+    return raw.length > maxChars ? `…${raw.slice(-maxChars)}` : raw;
+  } catch {
+    return "";
+  }
+};
+
+const truncateAutomationLog = (sessionPaths: SessionPaths) => {
+  try {
+    fs.mkdirSync(sessionPaths.sessionDir, { recursive: true });
+    fs.writeFileSync(automationLogPath(sessionPaths), "", "utf8");
+  } catch {
+    // Best-effort; an unwritable log only degrades error detail.
+  }
+};
+
+const accessibilityGuidance =
+  'Open System Settings → Privacy & Security → Accessibility and enable "Stella" (toggle it off and on if it is already listed), then retry.';
+
+const describeDaemonStartupFailure = (
+  sessionPaths: SessionPaths,
+  fallback: string,
+) => {
+  const tail = automationLogTail(sessionPaths);
+  if (!tail) {
+    return fallback;
+  }
+  if (/accessibility permission/i.test(tail)) {
+    return `desktop_automation daemon exited: macOS Accessibility is not granted for the process that runs Stella's automation. ${accessibilityGuidance} (daemon output: ${tail})`;
+  }
+  return `desktop_automation daemon failed to start: ${tail}`;
 };
 
 const helperNewerThanDaemon = (helperPath: string, pidPath: string) => {
@@ -754,12 +822,26 @@ const filteredAutomationDaemonEnv = () =>
     ),
   ) as Record<string, string>;
 
+type AutomationAccessibilityState =
+  | {
+      ok: true;
+      /**
+       * True when the helper's own AXIsProcessTrusted() check (run from this
+       * process tree) passed. False when only the Electron host vouched for
+       * the grant — valid for a host-spawned daemon (the host's TCC identity
+       * is what matters there) but not for a locally spawned one.
+       */
+      helperTrusted: boolean;
+      hostGranted: boolean;
+    }
+  | { ok: false; error: string };
+
 const promptForAutomationAccessibility = async (
   sessionPaths: SessionPaths,
-): Promise<AutomationDaemonReadyResult> => {
+): Promise<AutomationAccessibilityState> => {
   const accessibilityWaitMs = automationAccessibilityWaitMs();
   if (process.platform !== "darwin" || accessibilityWaitMs <= 0) {
-    return { ok: true };
+    return { ok: true, helperTrusted: true, hostGranted: false };
   }
 
   const checkAccessibility = async (
@@ -831,12 +913,19 @@ const promptForAutomationAccessibility = async (
 
   let lastResult = await checkAccessibility(false);
   if (lastResult.ok) {
-    return lastResult;
+    return { ok: true, helperTrusted: true, hostGranted: false };
   }
 
   const hostRequest = await requestViaHost();
   if (hostRequest.ok && hostRequest.granted) {
-    return { ok: true };
+    // Re-verify with the helper's own check instead of trusting the host
+    // blindly: the host answers for the Stella.app TCC identity, while a
+    // helper spawned from this (worker) process tree can carry a different —
+    // possibly orphaned — attribution. A disagreement here is expected when
+    // the worker outlived a previous Stella.app instance; the daemon must
+    // then be spawned by the live host (see ensureAutomationDaemon).
+    lastResult = await checkAccessibility(false);
+    return { ok: true, helperTrusted: lastResult.ok, hostGranted: true };
   }
 
   const shouldOpenSettingsFallback =
@@ -845,7 +934,7 @@ const promptForAutomationAccessibility = async (
     lastResult = await checkAccessibility(true);
   }
   if (lastResult.ok) {
-    return lastResult;
+    return { ok: true, helperTrusted: true, hostGranted: false };
   }
 
   const deadline = Date.now() + accessibilityWaitMs;
@@ -853,11 +942,115 @@ const promptForAutomationAccessibility = async (
     await delayMs(automationAccessibilityPollIntervalMs);
     lastResult = await checkAccessibility(false);
     if (lastResult.ok) {
-      return lastResult;
+      return { ok: true, helperTrusted: true, hostGranted: false };
     }
   }
 
-  return lastResult;
+  return {
+    ok: false,
+    error: `${
+      lastResult.ok
+        ? "Accessibility permission is required for the desktop_automation daemon."
+        : lastResult.error
+    } ${accessibilityGuidance}`,
+  };
+};
+
+/**
+ * Spawn the daemon via the Electron host (single "Stella" TCC identity) when
+ * a CLI bridge is available. Returns null when host spawning is unavailable
+ * so the caller can fall back to a local spawn.
+ */
+const spawnAutomationDaemonViaHost = async (
+  sessionPaths: SessionPaths,
+  socketPath: string,
+  pidPath: string,
+): Promise<{ ok: true } | { ok: false; reason: string } | null> => {
+  if (process.platform !== "darwin") {
+    return null;
+  }
+  const bridgeSocketPath = getComputerExecutionEnv().STELLA_CLI_BRIDGE_SOCK;
+  if (!bridgeSocketPath) {
+    return null;
+  }
+  const result = await requestAutomationDaemonSpawnFromBridge({
+    socketPath: bridgeSocketPath,
+    params: {
+      daemonSocketPath: socketPath,
+      pidPath,
+      logPath: automationLogPath(sessionPaths),
+      sessionId: sessionPaths.sessionId,
+      stateDir: stateDir(),
+      env: filteredAutomationDaemonEnv(),
+    },
+    timeoutMs: 15_000,
+  });
+  if (result.ok) {
+    writeAutomationHostPid(sessionPaths, result.hostPid);
+    return { ok: true };
+  }
+  // "unsupported" means the running host predates this RPC; let the caller
+  // fall back to the legacy local spawn rather than hard-failing.
+  if (result.reason === "unsupported") {
+    return null;
+  }
+  return { ok: false, reason: result.reason };
+};
+
+const spawnAutomationDaemonLocally = (
+  sessionPaths: SessionPaths,
+  helperPath: string,
+  socketPath: string,
+  pidPath: string,
+): { onSpawnError: () => Error | null; hasExited: () => boolean } => {
+  // Pipe daemon output to a per-session log instead of discarding it; the
+  // startup poll reads it back so a daemon that exits with "Accessibility
+  // permission is required…" surfaces that message instead of an opaque
+  // "failed to start after 7500ms".
+  let stdio: StdioOptions = "ignore";
+  let logFd: number | null = null;
+  try {
+    logFd = fs.openSync(automationLogPath(sessionPaths), "a");
+    stdio = ["ignore", logFd, logFd];
+  } catch {
+    // Unwritable log only degrades error detail.
+  }
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(
+      helperPath,
+      ["daemon", "--socket-path", socketPath, "--pid-file", pidPath],
+      {
+        detached: process.platform !== "win32",
+        stdio,
+        windowsHide: true,
+        env: {
+          ...getComputerExecutionEnv(),
+          STELLA_COMPUTER_SESSION: sessionPaths.sessionId,
+          STELLA_COMPUTER_STATE_DIR: stateDir(),
+        },
+      },
+    );
+  } finally {
+    if (logFd !== null) {
+      fs.closeSync(logFd);
+    }
+  }
+  const startup: { error: Error | null; exited: boolean } = {
+    error: null,
+    exited: false,
+  };
+  child.once("error", (error) => {
+    startup.error = error;
+  });
+  child.once("exit", () => {
+    startup.exited = true;
+  });
+  child.unref();
+  return {
+    onSpawnError: () => startup.error,
+    hasExited: () => startup.exited,
+  };
 };
 
 const ensureAutomationDaemon = async (
@@ -865,6 +1058,16 @@ const ensureAutomationDaemon = async (
 ): Promise<AutomationDaemonReadyResult> => {
   const pidPath = automationPidPath(sessionPaths);
   const socketPath = automationSocketPath(sessionPaths);
+  const socketPathBytes = Buffer.byteLength(socketPath, "utf8");
+  if (socketPathBytes > maxAutomationSocketPathBytes) {
+    // The daemon enforces the 104-byte BSD sockaddr_un cap with an opaque
+    // "Daemon socket path is too long"; fail here with the actual path so
+    // the problem (an unusually long home directory) is diagnosable.
+    return {
+      ok: false,
+      error: `desktop_automation daemon socket path "${socketPath}" is ${socketPathBytes} bytes, above the ${maxAutomationSocketPathBytes}-byte limit imposed by the macOS 104-byte Unix socket path cap. Your home directory path is too long for desktop automation.`,
+    };
+  }
   const helperPath = resolveNativeHelperPath("desktop_automation");
   if (!helperPath) {
     return {
@@ -875,9 +1078,15 @@ const ensureAutomationDaemon = async (
   }
   const existingPid = readPidFile(pidPath);
   if (existingPid && pidIsRunning(existingPid) && fs.existsSync(socketPath)) {
-    if (!helperNewerThanDaemon(helperPath, pidPath)) {
+    const staleHost =
+      process.platform === "darwin" &&
+      automationDaemonSpawnedByDeadHost(sessionPaths);
+    if (!helperNewerThanDaemon(helperPath, pidPath) && !staleHost) {
       return { ok: true };
     }
+    // Either the helper binary changed under the daemon, or the Electron host
+    // that spawned it exited (which orphans the daemon's TCC attribution).
+    // Restart it under the current host.
     killDetachedProcess(existingPid);
     resetAutomationDaemonFiles(sessionPaths);
   }
@@ -892,25 +1101,45 @@ const ensureAutomationDaemon = async (
     return permission;
   }
 
-  const child = spawn(
-    helperPath,
-    ["daemon", "--socket-path", socketPath, "--pid-file", pidPath],
-    {
-      detached: process.platform !== "win32",
-      stdio: "ignore",
-      windowsHide: true,
-      env: {
-        ...getComputerExecutionEnv(),
-        STELLA_COMPUTER_SESSION: sessionPaths.sessionId,
-        STELLA_COMPUTER_STATE_DIR: stateDir(),
-      },
-    },
+  truncateAutomationLog(sessionPaths);
+  let onSpawnError: (() => Error | null) | null = null;
+  let hasExited: (() => boolean) | null = null;
+  const hostSpawn = await spawnAutomationDaemonViaHost(
+    sessionPaths,
+    socketPath,
+    pidPath,
   );
-  const startup: { error: Error | null } = { error: null };
-  child.once("error", (error) => {
-    startup.error = error;
-  });
-  child.unref();
+  if (hostSpawn && !hostSpawn.ok) {
+    return {
+      ok: false,
+      error: `desktop_automation daemon could not be spawned by the Stella app process: ${hostSpawn.reason}`,
+    };
+  }
+  if (!hostSpawn) {
+    if (
+      process.platform === "darwin" &&
+      permission.hostGranted &&
+      !permission.helperTrusted
+    ) {
+      // The Stella app has Accessibility, but this detached worker's process
+      // tree no longer inherits that grant (its spawning app instance is
+      // gone) and no live host is reachable to spawn the daemon under the
+      // app's identity. A locally spawned daemon would just exit; fail with
+      // an actionable message instead.
+      return {
+        ok: false,
+        error: `Stella has macOS Accessibility, but the automation daemon cannot inherit it because the Stella app that granted it is no longer running. Fully quit and reopen Stella, then retry. ${accessibilityGuidance}`,
+      };
+    }
+    const local = spawnAutomationDaemonLocally(
+      sessionPaths,
+      helperPath,
+      socketPath,
+      pidPath,
+    );
+    onSpawnError = local.onSpawnError;
+    hasExited = local.hasExited;
+  }
 
   for (
     let attempt = 0;
@@ -918,21 +1147,31 @@ const ensureAutomationDaemon = async (
     attempt += 1
   ) {
     await delayMs(25);
-    if (startup.error) {
+    const spawnError = onSpawnError?.();
+    if (spawnError) {
       resetAutomationDaemonFiles(sessionPaths);
       return {
         ok: false,
-        error: `desktop_automation daemon failed to start: ${startup.error.message}`,
+        error: `desktop_automation daemon failed to start: ${spawnError.message}`,
       };
     }
     const pid = readPidFile(pidPath);
     if (pid && pidIsRunning(pid) && fs.existsSync(socketPath)) {
       return { ok: true };
     }
+    if (hasExited?.() && (!pid || !pidIsRunning(pid))) {
+      // The locally spawned daemon already died (e.g. its Accessibility
+      // check failed); no point polling out the rest of the budget.
+      break;
+    }
   }
+  resetAutomationDaemonFiles(sessionPaths);
   return {
     ok: false,
-    error: `desktop_automation daemon failed to start after ${automationDaemonStartupBudgetMs}ms`,
+    error: describeDaemonStartupFailure(
+      sessionPaths,
+      `desktop_automation daemon failed to start after ${automationDaemonStartupBudgetMs}ms`,
+    ),
   };
 };
 
@@ -3494,6 +3733,12 @@ export const createMacComputerUseSession = (options: {
   sessionId: string;
   commandTimeoutMs?: number;
   getSignal?: () => AbortSignal | undefined;
+  /**
+   * Worker CLI-bridge socket. When present, the automation daemon is spawned
+   * by the Electron host through this bridge so it stays under the single
+   * "Stella" macOS TCC identity (see ensureAutomationDaemon).
+   */
+  cliBridgeSocketPath?: string;
 }): ComputerUseSession => ({
   request: async (request, requestOptions) => {
     try {
@@ -3509,6 +3754,14 @@ export const createMacComputerUseSession = (options: {
           signal,
           timeoutMs:
             options.commandTimeoutMs ?? automationDaemonRequestTimeoutMs,
+          ...(options.cliBridgeSocketPath
+            ? {
+                env: {
+                  ...process.env,
+                  STELLA_CLI_BRIDGE_SOCK: options.cliBridgeSocketPath,
+                },
+              }
+            : {}),
         },
         async () => await executeMacComputerUseRequest(request),
       );

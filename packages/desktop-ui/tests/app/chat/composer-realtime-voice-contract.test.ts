@@ -13,7 +13,7 @@ const readSource = (relativePath: string) =>
 
 describe("composer realtime voice control", () => {
   it("mirrors the mobile empty-composer waveform action", () => {
-    const composer = readSource("app/chat/Composer.jsx");
+    const composer = readSource("app/chat/Composer.tsx");
     const primitives = readSource("features/chat/ComposerPrimitives.jsx");
     const styles = readSource("app/chat/full-shell.composer.css");
 
@@ -24,11 +24,11 @@ describe("composer realtime voice control", () => {
     expect(composer.indexOf("<ComposerMicButton")).toBeLessThan(
       composer.indexOf("<ComposerRealtimeVoiceButton"),
     );
-    expect(composer).toContain(
-      "showRealtimeVoice ? null : (<ComposerSubmitButton",
+    expect(composer).toMatch(
+      /showRealtimeVoice\s*\?\s*null\s*:\s*\(\s*<ComposerSubmitButton/,
     );
     expect(primitives).toContain("<AudioLines");
-    expect(primitives).toContain('aria-pressed={active}');
+    expect(primitives).toContain("aria-pressed={active}");
     expect(styles).toContain(".composer-realtime-voice {");
   });
 });

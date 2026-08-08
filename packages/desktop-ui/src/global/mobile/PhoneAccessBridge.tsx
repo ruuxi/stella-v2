@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/api";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
@@ -13,6 +13,12 @@ type AcknowledgeIntentArgs = Parameters<
   >
 >[0];
 
+type PhoneAccessState = {
+  pairedDevices: Array<{ mobileDeviceId: string }>;
+};
+
+type BridgeRuntimeState = "unknown" | "started" | "stopped";
+
 export function PhoneAccessBridge() {
   const { hasConnectedAccount } = useAuthSessionState();
   const acknowledgeIntent = useMutation(
@@ -20,6 +26,62 @@ export function PhoneAccessBridge() {
   );
   const [desktopDeviceId, setDesktopDeviceId] = useState<string | null>(null);
   const lastHandledIntentKeyRef = useRef<string | null>(null);
+  const desiredBridgeStateRef = useRef<boolean | null>(null);
+  const bridgeRuntimeStateRef = useRef<BridgeRuntimeState>("unknown");
+  const bridgeReconcilePromiseRef = useRef<Promise<void> | null>(null);
+
+  const reconcileBridgeState = useCallback(() => {
+    if (bridgeReconcilePromiseRef.current) {
+      return bridgeReconcilePromiseRef.current;
+    }
+
+    const reconcilePromise = Promise.resolve().then(async () => {
+      while (desiredBridgeStateRef.current !== null) {
+        const shouldRun = desiredBridgeStateRef.current;
+        const currentState = bridgeRuntimeStateRef.current;
+        if (
+          (shouldRun && currentState === "started") ||
+          (!shouldRun && currentState === "stopped")
+        ) {
+          return;
+        }
+
+        const systemApi = window.electronAPI?.system;
+        if (shouldRun) {
+          if (!systemApi?.startPhoneAccessSession) {
+            return;
+          }
+          await systemApi.startPhoneAccessSession();
+          bridgeRuntimeStateRef.current = "started";
+        } else {
+          if (!systemApi?.stopPhoneAccessSession) {
+            return;
+          }
+          await systemApi.stopPhoneAccessSession();
+          bridgeRuntimeStateRef.current = "stopped";
+        }
+      }
+    });
+
+    bridgeReconcilePromiseRef.current = reconcilePromise;
+    const clearReconcilePromise = () => {
+      if (bridgeReconcilePromiseRef.current === reconcilePromise) {
+        bridgeReconcilePromiseRef.current = null;
+      }
+    };
+    void reconcilePromise.then(clearReconcilePromise, clearReconcilePromise);
+    return reconcilePromise;
+  }, []);
+
+  const requestBridgeState = useCallback(
+    async (shouldRun: boolean) => {
+      desiredBridgeStateRef.current = shouldRun;
+      await reconcileBridgeState();
+      return bridgeRuntimeStateRef.current ===
+        (shouldRun ? "started" : "stopped");
+    },
+    [reconcileBridgeState],
+  );
 
   useEffect(() => {
     if (!hasConnectedAccount) {
@@ -71,6 +133,26 @@ export function PhoneAccessBridge() {
     };
   }, [hasConnectedAccount]);
 
+  const phoneAccessState = useQuery(
+    api.mobile_access.getPhoneAccessState,
+    hasConnectedAccount && desktopDeviceId ? { desktopDeviceId } : "skip",
+  ) as PhoneAccessState | undefined;
+
+  const pairedDeviceCount = phoneAccessState?.pairedDevices.length;
+  useEffect(() => {
+    if (hasConnectedAccount && pairedDeviceCount === undefined) {
+      // Do not tear down a retained bridge while the authoritative pairing
+      // subscription is still loading.
+      return;
+    }
+
+    void requestBridgeState(
+      hasConnectedAccount && (pairedDeviceCount ?? 0) > 0,
+    ).catch((error) => {
+      console.warn("[phone-access] Failed to reconcile bridge state:", error);
+    });
+  }, [hasConnectedAccount, pairedDeviceCount, requestBridgeState]);
+
   // Omit `nowMs` so this subscription stays reactively cacheable on the
   // backend (a per-tick client clock would bust Convex's cache every poll).
   // The query returns `expiresAt`; expiry is checked client-side below.
@@ -86,10 +168,15 @@ export function PhoneAccessBridge() {
       }
     | null
     | undefined;
+  const intentDeviceIsPaired =
+    phoneAccessState?.pairedDevices.some(
+      (device) => device.mobileDeviceId === intent?.mobileDeviceId,
+    ) ?? false;
 
   useEffect(() => {
     if (
       !intent?.intentId ||
+      !intentDeviceIsPaired ||
       !window.electronAPI?.system.startPhoneAccessSession
     ) {
       return;
@@ -110,7 +197,10 @@ export function PhoneAccessBridge() {
     let cancelled = false;
     const run = async () => {
       try {
-        await window.electronAPI!.system.startPhoneAccessSession();
+        const started = await requestBridgeState(true);
+        if (!started) {
+          return;
+        }
         await acknowledgeIntent({ intentId: intent.intentId });
         if (!cancelled) {
           lastHandledIntentKeyRef.current = intentKey;
@@ -124,7 +214,7 @@ export function PhoneAccessBridge() {
     return () => {
       cancelled = true;
     };
-  }, [acknowledgeIntent, intent]);
+  }, [acknowledgeIntent, intent, intentDeviceIsPaired, requestBridgeState]);
 
   return null;
 }

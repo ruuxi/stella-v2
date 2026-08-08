@@ -15,6 +15,8 @@ const PUBLIC_READINESS_TIMEOUT_MS = 15_000;
 const PUBLIC_READINESS_PROBE_TIMEOUT_MS = 2_000;
 const PUBLIC_READINESS_RETRY_MS = 3_000;
 
+export type TunnelPublicReadiness = "verified" | "fallback-unverified";
+
 export class CloudflareTunnelService {
   private process: ChildProcess | null = null;
   private tunnelUrl: string | null = null;
@@ -27,7 +29,10 @@ export class CloudflareTunnelService {
       getAuthToken: () => Promise<string | null>;
       getConvexSiteUrl: () => string | null;
       getDeviceId: () => string | null;
-      onTunnelUrl: (url: string | null) => void;
+      onTunnelUrl: (
+        url: string | null,
+        readiness?: TunnelPublicReadiness,
+      ) => void;
       onUnexpectedExit?: (error: string) => void;
     },
   ) {}
@@ -148,7 +153,10 @@ export class CloudflareTunnelService {
       );
     }
     this.tunnelUrl = url;
-    this.options.onTunnelUrl(url);
+    this.options.onTunnelUrl(
+      url,
+      reachable ? "verified" : "fallback-unverified",
+    );
   }
 
   private async waitForPublicReadiness(url: string): Promise<boolean> {

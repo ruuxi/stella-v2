@@ -88,6 +88,65 @@ describe("MobileBridgeService health-gated registration", () => {
     anyService.clearRegistrationLeaseTimer();
   });
 
+  it("reuses the tunnel layer's verified result instead of probing twice", async () => {
+    const service = createService();
+    const anyService = configureReadyService(service);
+    const counts = mockBridgeCalls(anyService);
+    const health = mockHealth();
+    vi.spyOn(anyService, "scheduleRegistrationSync").mockImplementation(
+      () => undefined,
+    );
+
+    anyService.tunnelUrl = null;
+    service.setTunnelUrl(TUNNEL_URL, "verified");
+    await anyService.syncRegistration();
+
+    expect(health.probe).not.toHaveBeenCalled();
+    expect(counts.register).toBe(1);
+    expect(anyService.registrationState).toBe("healthy");
+
+    anyService.clearRegistrationLeaseTimer();
+  });
+
+  it("registers and refreshes an unverified fallback until it becomes healthy", async () => {
+    const service = createService();
+    const anyService = configureReadyService(service);
+    const counts = mockBridgeCalls(anyService);
+    const health = mockHealth();
+    health.healthy = false;
+    vi.spyOn(anyService, "scheduleRegistrationSync").mockImplementation(
+      () => undefined,
+    );
+
+    anyService.tunnelUrl = null;
+    service.setTunnelUrl(TUNNEL_URL, "fallback-unverified");
+    await anyService.syncRegistration();
+
+    expect(health.probe).not.toHaveBeenCalled();
+    expect(counts.register).toBe(1);
+    expect(counts.clear).toBe(0);
+    expect(anyService.registrationState).toBe("degraded");
+    expect(anyService.isBridgeAccessEnabled()).toBe(true);
+
+    // Periodic failed probes must refresh the degraded lease. With 60s refreshes
+    // and a 150s lease, waiting for the third failure would create an availability
+    // gap before the next registration attempt.
+    await anyService.syncRegistration();
+    await anyService.syncRegistration();
+    expect(health.probe).toHaveBeenCalledTimes(2);
+    expect(counts.register).toBe(3);
+    expect(anyService.registrationState).toBe("degraded");
+    expect(anyService.isBridgeAccessEnabled()).toBe(true);
+
+    health.healthy = true;
+    await anyService.syncRegistration();
+    expect(health.probe).toHaveBeenCalledTimes(3);
+    expect(counts.register).toBe(4);
+    expect(anyService.registrationState).toBe("healthy");
+
+    anyService.clearRegistrationLeaseTimer();
+  });
+
   it("keeps the lease on a single transient probe miss (no down-register)", async () => {
     const service = createService();
     const anyService = configureReadyService(service);

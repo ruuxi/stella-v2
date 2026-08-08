@@ -1,5 +1,8 @@
 import { ProcessRuntime } from "../process-runtime.js";
-import { CloudflareTunnelService } from "../services/mobile-bridge/tunnel-service.js";
+import {
+  CloudflareTunnelService,
+  type TunnelPublicReadiness,
+} from "../services/mobile-bridge/tunnel-service.js";
 import { createManagedResource } from "../managed-resource.js";
 
 export type CloudflareTunnelResource = {
@@ -13,7 +16,10 @@ export const createCloudflareTunnelResource = (options: {
   getAuthToken: () => Promise<string | null>;
   getConvexSiteUrl: () => string | null;
   getDeviceId: () => string | null;
-  onTunnelUrl: (url: string | null) => void;
+  onTunnelUrl: (
+    url: string | null,
+    readiness?: TunnelPublicReadiness,
+  ) => void;
 }): CloudflareTunnelResource => {
   let bridgePort: number | null = null;
 

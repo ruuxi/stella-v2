@@ -15,6 +15,8 @@
  * repo; keep them in sync.
  */
 
+import { z } from "zod";
+
 export type MapTravelMode = "driving" | "walking" | "cycling" | "transit";
 
 export type MapArtifactMarker = {
@@ -71,40 +73,29 @@ export const MAPS_SITE_URL_ENV = "STELLA_MAPS_SITE_URL";
 export const MAPS_RESOLVE_PATH = "/api/maps/resolve";
 export const MAPS_EMBED_PATH = "/maps/embed";
 
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
+const markerSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  lat: z.number(),
+  lng: z.number(),
+});
 
-const isMarker = (value: unknown): value is MapArtifactMarker => {
-  if (!value || typeof value !== "object") return false;
-  const marker = value as Record<string, unknown>;
-  return (
-    typeof marker.id === "string" &&
-    typeof marker.name === "string" &&
-    isFiniteNumber(marker.lat) &&
-    isFiniteNumber(marker.lng)
-  );
-};
+const routeSchema = z.object({
+  polyline: z.string().min(1),
+  distanceMeters: z.number(),
+  durationSeconds: z.number(),
+});
+
+const mapRouteArtifactSchema = z.object({
+  kind: z.literal("map-route"),
+  markers: z.array(markerSchema).min(1),
+  route: routeSchema.optional(),
+});
 
 export const isMapRouteArtifact = (
   value: unknown,
-): value is MapRouteArtifact => {
-  if (!value || typeof value !== "object") return false;
-  const artifact = value as Record<string, unknown>;
-  if (artifact.kind !== "map-route") return false;
-  if (!Array.isArray(artifact.markers) || artifact.markers.length === 0) {
-    return false;
-  }
-  if (!artifact.markers.every(isMarker)) return false;
-  const route = artifact.route;
-  if (route !== undefined) {
-    if (!route || typeof route !== "object") return false;
-    const r = route as Record<string, unknown>;
-    if (typeof r.polyline !== "string" || r.polyline.length === 0) return false;
-    if (!isFiniteNumber(r.distanceMeters) || !isFiniteNumber(r.durationSeconds))
-      return false;
-  }
-  return true;
-};
+): value is MapRouteArtifact =>
+  mapRouteArtifactSchema.safeParse(value).success;
 
 /** base64url without padding; works in both Node and browser contexts. */
 const toBase64Url = (json: string): string => {

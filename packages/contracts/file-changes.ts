@@ -17,6 +17,8 @@
  * automatically.
  */
 
+import { z } from "zod";
+
 export type FileChangeKind =
   | { type: "add" }
   | { type: "delete" }
@@ -41,24 +43,22 @@ export type FileChangeRecord = {
  */
 export type ProducedFileRecord = FileChangeRecord;
 
-const isFileChangeKind = (value: unknown): value is FileChangeKind => {
-  if (!value || typeof value !== "object") return false;
-  const kind = value as { type?: unknown; move_path?: unknown };
-  if (kind.type === "add" || kind.type === "delete") return true;
-  if (kind.type !== "update") return false;
-  if (kind.move_path === undefined) return true;
-  return typeof kind.move_path === "string" && kind.move_path.trim().length > 0;
-};
+const fileChangeKindSchema = z.union([
+  z.object({ type: z.literal("add") }),
+  z.object({ type: z.literal("delete") }),
+  z.object({
+    type: z.literal("update"),
+    move_path: z.string().trim().min(1).optional(),
+  }),
+]);
 
-export const isFileChangeRecord = (value: unknown): value is FileChangeRecord => {
-  if (!value || typeof value !== "object") return false;
-  const record = value as { path?: unknown; kind?: unknown };
-  return (
-    typeof record.path === "string" &&
-    record.path.trim().length > 0 &&
-    isFileChangeKind(record.kind)
-  );
-};
+const fileChangeRecordSchema = z.object({
+  path: z.string().trim().min(1),
+  kind: fileChangeKindSchema,
+});
+
+export const isFileChangeRecord = (value: unknown): value is FileChangeRecord =>
+  fileChangeRecordSchema.safeParse(value).success;
 
 export const isFileChangeRecordArray = (
   value: unknown,

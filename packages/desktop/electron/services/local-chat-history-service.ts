@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileChange } from "@stella/contracts/file-changes";
@@ -20,6 +21,7 @@ import type {
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
+  LocalModelUsagePage,
   LocalChatUpdatedPayload,
   TaskDecorationUpdatedPayload,
   ThreadActivityRecord,
@@ -61,14 +63,20 @@ const normalizeReportSlug = (value: unknown): string => {
   return REPORT_SLUG_RE.test(slug) ? slug : "welcome";
 };
 
+const firstReportInputSchema = z.looseObject({
+  slug: z.unknown().optional(),
+  title: z.string(),
+  html: z.string(),
+});
+
 const normalizeFirstReport = (value: unknown): FirstReportPayload | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  const title = typeof record.title === "string" ? record.title.trim() : "";
-  const html = typeof record.html === "string" ? record.html : "";
+  const parsed = firstReportInputSchema.safeParse(value);
+  if (!parsed.success) return null;
+  const title = parsed.data.title.trim();
+  const html = parsed.data.html;
   if (!title || !html.trim()) return null;
   return {
-    slug: normalizeReportSlug(record.slug),
+    slug: normalizeReportSlug(parsed.data.slug),
     title,
     html,
   };
@@ -175,7 +183,9 @@ export class LocalChatHistoryService {
   }
 
   private open(): void {
-    const db = openNodeSqliteDatabase(getDesktopDatabasePath(this.stellaAppDir));
+    const db = openNodeSqliteDatabase(
+      getDesktopDatabasePath(this.stellaAppDir),
+    );
     initializeDesktopDatabase(db);
     this.db = db;
     this.store = new SessionStore(db);
@@ -243,6 +253,16 @@ export class LocalChatHistoryService {
     return this.getStore().listEvents(args.conversationId, args.maxItems);
   }
 
+  listModelUsage(args: {
+    fromMs?: number;
+    toMs?: number;
+    conversationId?: string;
+    threadId?: string;
+    limit?: number;
+  }): LocalModelUsagePage {
+    return this.getStore().listModelUsage(args) as LocalModelUsagePage;
+  }
+
   listMessages(args: {
     conversationId: string;
     maxVisibleMessages?: number;
@@ -277,12 +297,14 @@ export class LocalChatHistoryService {
     afterId: string;
     maxVisibleMessages?: number;
   }): LocalChatMessageWindow {
-    const { messages, visibleMessageCount } =
-      this.getStore().listMessagesAfter(args.conversationId, {
+    const { messages, visibleMessageCount } = this.getStore().listMessagesAfter(
+      args.conversationId,
+      {
         afterTimestampMs: args.afterTimestampMs,
         afterId: args.afterId,
         maxVisibleMessages: args.maxVisibleMessages,
-      });
+      },
+    );
     return { messages, visibleMessageCount };
   }
 
@@ -299,9 +321,7 @@ export class LocalChatHistoryService {
     });
   }
 
-  listThreadActivity(args: {
-    conversationId: string;
-  }): ThreadActivityRecord[] {
+  listThreadActivity(args: { conversationId: string }): ThreadActivityRecord[] {
     return this.getStore().listThreadActivity(args.conversationId);
   }
 
@@ -340,7 +360,11 @@ export class LocalChatHistoryService {
     eventId: string;
     type?: string;
   }): boolean {
-    return this.getStore().hasEvent(args.conversationId, args.eventId, args.type);
+    return this.getStore().hasEvent(
+      args.conversationId,
+      args.eventId,
+      args.type,
+    );
   }
 
   hasEventId(args: { eventId: string; type?: string }): boolean {
@@ -440,7 +464,10 @@ export class LocalChatHistoryService {
    */
   setReasoningSummaries(args: {
     summariesByAgentId: Record<string, readonly string[]>;
-    entriesByAgentId?: Record<string, readonly { text: string; atMs: number }[]>;
+    entriesByAgentId?: Record<
+      string,
+      readonly { text: string; atMs: number }[]
+    >;
   }): { ok: true } {
     const next = new Map<string, string[]>();
     for (const [rawAgentId, rawList] of Object.entries(
@@ -457,7 +484,10 @@ export class LocalChatHistoryService {
       if (cleaned.length > 0) next.set(agentId, cleaned);
     }
     this.reasoningSummariesByAgent = next;
-    if (args.entriesByAgentId && Object.keys(args.entriesByAgentId).length > 0) {
+    if (
+      args.entriesByAgentId &&
+      Object.keys(args.entriesByAgentId).length > 0
+    ) {
       try {
         this.getStore().replaceAgentProgressSummaries(
           args.entriesByAgentId as Record<
@@ -482,9 +512,9 @@ export class LocalChatHistoryService {
    * Progress ticks are no longer persisted as message rows, so this mirror is
    * the only bridge-side source of a running task's current statusText.
    */
-  setTaskDecoration(args: {
-    statusTextByAgentId: Record<string, string>;
-  }): { ok: true } {
+  setTaskDecoration(args: { statusTextByAgentId: Record<string, string> }): {
+    ok: true;
+  } {
     const next = new Map<string, string>();
     for (const [rawAgentId, rawText] of Object.entries(
       args.statusTextByAgentId ?? {},

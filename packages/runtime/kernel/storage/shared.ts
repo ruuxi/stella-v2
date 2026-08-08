@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { z } from "zod";
 import type {
   AssistantMessage,
   ImageContent,
@@ -343,87 +344,83 @@ export const parseJsonRecord = (
   }
 };
 
-const isTextContent = (value: unknown): value is TextContent =>
-  Boolean(
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    (value as { type?: unknown }).type === "text" &&
-    typeof (value as { text?: unknown }).text === "string",
-  );
+const textContentSchema = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+});
 
-const isImageContent = (value: unknown): value is ImageContent =>
-  Boolean(
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    (value as { type?: unknown }).type === "image" &&
-    typeof (value as { data?: unknown }).data === "string" &&
-    typeof (value as { mimeType?: unknown }).mimeType === "string",
-  );
+const imageContentSchema = z.object({
+  type: z.literal("image"),
+  data: z.string(),
+  mimeType: z.string(),
+});
 
-const isThinkingContent = (value: unknown): value is ThinkingContent =>
-  Boolean(
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    (value as { type?: unknown }).type === "thinking" &&
-    typeof (value as { thinking?: unknown }).thinking === "string",
-  );
+const thinkingContentSchema = z.object({
+  type: z.literal("thinking"),
+  thinking: z.string(),
+});
 
-const isToolCall = (value: unknown): value is ToolCall =>
-  Boolean(
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    (value as { type?: unknown }).type === "toolCall" &&
-    typeof (value as { id?: unknown }).id === "string" &&
-    typeof (value as { name?: unknown }).name === "string" &&
-    typeof (value as { arguments?: unknown }).arguments === "object" &&
-    (value as { arguments?: unknown }).arguments !== null &&
-    !Array.isArray((value as { arguments?: unknown }).arguments),
-  );
+const toolCallSchema = z.object({
+  type: z.literal("toolCall"),
+  id: z.string(),
+  name: z.string(),
+  arguments: z.record(z.string(), z.unknown()),
+});
+
+const userContentSchema = z.union([
+  z.string(),
+  z.array(z.union([textContentSchema, imageContentSchema])),
+]);
+
+const assistantContentSchema = z.array(
+  z.union([textContentSchema, thinkingContentSchema, toolCallSchema]),
+);
+
+const toolResultContentSchema = z.array(
+  z.union([textContentSchema, imageContentSchema]),
+);
+
+const usageSchema = z.object({
+  input: z.number(),
+  output: z.number(),
+  reasoning: z.number().optional(),
+  cacheRead: z.number(),
+  cacheWrite: z.number(),
+  totalTokens: z.number(),
+  cost: z.object({
+    input: z.number(),
+    output: z.number(),
+    cacheRead: z.number(),
+    cacheWrite: z.number(),
+    total: z.number(),
+  }),
+});
+
+const stopReasonSchema = z.enum([
+  "stop",
+  "length",
+  "toolUse",
+  "error",
+  "aborted",
+]);
 
 export const isUserContent = (
   value: unknown,
 ): value is string | (TextContent | ImageContent)[] =>
-  typeof value === "string" ||
-  (Array.isArray(value) &&
-    value.every((entry) => isTextContent(entry) || isImageContent(entry)));
+  userContentSchema.safeParse(value).success;
 
 const isAssistantContent = (
   value: unknown,
 ): value is (TextContent | ThinkingContent | ToolCall)[] =>
-  Array.isArray(value) &&
-  value.every(
-    (entry) =>
-      isTextContent(entry) || isThinkingContent(entry) || isToolCall(entry),
-  );
+  assistantContentSchema.safeParse(value).success;
 
 const isToolResultContent = (
   value: unknown,
 ): value is (TextContent | ImageContent)[] =>
-  Array.isArray(value) &&
-  value.every((entry) => isTextContent(entry) || isImageContent(entry));
+  toolResultContentSchema.safeParse(value).success;
 
-const isUsage = (value: unknown): value is Usage => {
-  const record = asObject(value);
-  const cost = asObject(record?.cost);
-  return Boolean(
-    record &&
-    typeof record.input === "number" &&
-    typeof record.output === "number" &&
-    typeof record.cacheRead === "number" &&
-    typeof record.cacheWrite === "number" &&
-    typeof record.totalTokens === "number" &&
-    cost &&
-    typeof cost.input === "number" &&
-    typeof cost.output === "number" &&
-    typeof cost.cacheRead === "number" &&
-    typeof cost.cacheWrite === "number" &&
-    typeof cost.total === "number",
-  );
-};
+const isUsage = (value: unknown): value is Usage =>
+  usageSchema.safeParse(value).success;
 
 const isFiniteTimestamp = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
@@ -431,11 +428,7 @@ const isFiniteTimestamp = (value: unknown): value is number =>
 const isStopReason = (
   value: unknown,
 ): value is AssistantMessage["stopReason"] =>
-  value === "stop" ||
-  value === "length" ||
-  value === "toolUse" ||
-  value === "error" ||
-  value === "aborted";
+  stopReasonSchema.safeParse(value).success;
 
 // Reconstructor strategy: validate the shape of fields the runtime currently
 // reads (role, content, timestamps, usage, etc.) so callers can rely on those

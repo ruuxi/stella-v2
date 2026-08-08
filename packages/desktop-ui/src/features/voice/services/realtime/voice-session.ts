@@ -28,6 +28,7 @@
  * from here on.
  */
 
+import { z } from "zod";
 import { postServiceJson } from "@/platform/http/service-request";
 import { getVoiceSessionPromptConfig } from "@/prompts";
 import {
@@ -42,6 +43,11 @@ import type { EventRecord } from "@stella/contracts/local-chat";
 import { createRealtimeTransport } from "./providers/provider-registry";
 import type { RealtimeProviderKey, VoiceSessionToken } from "./providers/types";
 import type { RealtimeTransport } from "./transports/types";
+
+const eventRecordSchema = z.record(z.string(), z.unknown());
+
+const isEventRecord = (value: unknown): value is Record<string, unknown> =>
+  eventRecordSchema.safeParse(value).success;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -710,7 +716,7 @@ export class RealtimeVoiceSession {
   }
 
   private async reportUsage(response: Record<string, unknown>) {
-    const usage = response.usage as Record<string, unknown> | undefined;
+    const usage = isEventRecord(response.usage) ? response.usage : undefined;
     const responseId =
       typeof response.id === "string" && response.id.trim().length > 0
         ? response.id.trim()
@@ -825,8 +831,8 @@ export class RealtimeVoiceSession {
         break;
 
       case "response.output_item.done": {
-        const item = event.item as Record<string, unknown> | undefined;
-        if (item?.type === "function_call") {
+        const item = event.item;
+        if (isEventRecord(item) && item.type === "function_call") {
           void this.handleFunctionCall(item);
         }
         break;
@@ -932,10 +938,8 @@ export class RealtimeVoiceSession {
         break;
 
       case "response.done": {
-        const output = (event as Record<string, unknown>).response as
-          | Record<string, unknown>
-          | undefined;
-        if (output) void this.reportUsage(output);
+        const output = event.response;
+        if (isEventRecord(output)) void this.reportUsage(output);
         break;
       }
 

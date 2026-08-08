@@ -4,6 +4,7 @@ import { watch, type Dirent, type FSWatcher } from "node:fs";
 import { promises as fs } from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { z } from "zod";
 import type {
   UserAppProjectDescriptor,
   UserAppProjectListResult,
@@ -70,6 +71,33 @@ const readRegularFile = async (filePath: string): Promise<string> => {
   return await fs.readFile(filePath, "utf8");
 };
 
+const buildManifestSchema = (expectedSlug: string) =>
+  z.object(
+    {
+      schemaVersion: z.literal(1, {
+        error: `${MANIFEST_FILE} schemaVersion must be 1.`,
+      }),
+      slug: z.custom<string>((value) => value === expectedSlug, {
+        message: `${MANIFEST_FILE} slug must match its directory.`,
+      }),
+      name: z
+        .string({ error: `${MANIFEST_FILE} name must be 1-120 characters.` })
+        .trim()
+        .min(1, `${MANIFEST_FILE} name must be 1-120 characters.`)
+        .max(120, `${MANIFEST_FILE} name must be 1-120 characters.`),
+      createdAt: z
+        .string({
+          error: `${MANIFEST_FILE} createdAt must be an ISO date string.`,
+        })
+        .trim()
+        .refine(
+          (value) => Number.isFinite(Date.parse(value)),
+          `${MANIFEST_FILE} createdAt must be an ISO date string.`,
+        ),
+    },
+    { error: `${MANIFEST_FILE} schemaVersion must be 1.` },
+  );
+
 const parseManifest = (raw: string, expectedSlug: string): ProjectManifest => {
   let value: unknown;
   try {
@@ -80,27 +108,17 @@ const parseManifest = (raw: string, expectedSlug: string): ProjectManifest => {
   if (!value || typeof value !== "object") {
     throw new Error(`${MANIFEST_FILE} must contain an object.`);
   }
-  const manifest = value as Record<string, unknown>;
-  const name = typeof manifest.name === "string" ? manifest.name.trim() : "";
-  const createdAt =
-    typeof manifest.createdAt === "string" ? manifest.createdAt.trim() : "";
-  if (manifest.schemaVersion !== 1) {
-    throw new Error(`${MANIFEST_FILE} schemaVersion must be 1.`);
-  }
-  if (manifest.slug !== expectedSlug) {
-    throw new Error(`${MANIFEST_FILE} slug must match its directory.`);
-  }
-  if (!name || name.length > 120) {
-    throw new Error(`${MANIFEST_FILE} name must be 1-120 characters.`);
-  }
-  if (!createdAt || !Number.isFinite(Date.parse(createdAt))) {
-    throw new Error(`${MANIFEST_FILE} createdAt must be an ISO date string.`);
+  const parsed = buildManifestSchema(expectedSlug).safeParse(value);
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ?? `${MANIFEST_FILE} is invalid.`,
+    );
   }
   return {
     schemaVersion: 1,
     slug: expectedSlug,
-    name,
-    createdAt,
+    name: parsed.data.name,
+    createdAt: parsed.data.createdAt,
   };
 };
 

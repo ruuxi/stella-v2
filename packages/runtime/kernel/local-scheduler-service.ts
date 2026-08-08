@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { Cron } from 'croner'
+import { z } from 'zod'
 import {
   ensurePrivateDirSync,
   writePrivateFileSync,
@@ -441,22 +442,26 @@ const sortByUpdatedDesc = <T extends { updatedAt: number; createdAt: number }>(
     return b.createdAt - a.createdAt
   })
 
+const scheduledConversationEventSchema = z.object({
+  _id: z.string(),
+  conversationId: z.string(),
+  timestamp: z.number(),
+  type: z.literal('assistant_message'),
+  payload: z.record(z.string(), z.unknown()),
+})
+
 const isScheduledConversationEvent = (
   value: unknown,
-): value is ScheduledConversationEvent => {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-  const record = value as Record<string, unknown>
-  return (
-    typeof record._id === 'string' &&
-    typeof record.conversationId === 'string' &&
-    typeof record.timestamp === 'number' &&
-    record.type === 'assistant_message' &&
-    record.payload !== null &&
-    typeof record.payload === 'object'
-  )
-}
+): value is ScheduledConversationEvent =>
+  scheduledConversationEventSchema.safeParse(value).success
+
+const cronJobRecordShapeSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean(),
+  nextRunAtMs: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
 
 const buildCronJobRecordValidator = (scriptsDir: string) =>
   (value: unknown): value is LocalCronJobRecord => {
@@ -469,36 +474,26 @@ const buildCronJobRecordValidator = (scriptsDir: string) =>
       assertValidPayload(record.payload, scriptsDir)
       ensureConversationId(record.conversationId)
       ensureName(record.name)
-      return (
-        typeof record.id === 'string' &&
-        typeof record.enabled === 'boolean' &&
-        typeof record.nextRunAtMs === 'number' &&
-        typeof record.createdAt === 'number' &&
-        typeof record.updatedAt === 'number'
-      )
+      return cronJobRecordShapeSchema.safeParse(value).success
     } catch {
       return false
     }
   }
 
+const heartbeatRecordSchema = z.object({
+  id: z.string(),
+  conversationId: z.string().refine((entry) => entry.trim().length > 0),
+  enabled: z.boolean(),
+  intervalMs: z.number(),
+  nextRunAtMs: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+})
+
 const isHeartbeatRecord = (
   value: unknown,
-): value is LocalHeartbeatConfigRecord => {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-  const record = value as Record<string, unknown>
-  const conversationId = asTrimmedString(record.conversationId)
-  return (
-    typeof record.id === 'string' &&
-    Boolean(conversationId) &&
-    typeof record.enabled === 'boolean' &&
-    typeof record.intervalMs === 'number' &&
-    typeof record.nextRunAtMs === 'number' &&
-    typeof record.createdAt === 'number' &&
-    typeof record.updatedAt === 'number'
-  )
-}
+): value is LocalHeartbeatConfigRecord =>
+  heartbeatRecordSchema.safeParse(value).success
 
 const sanitizeState = (
   value: unknown,

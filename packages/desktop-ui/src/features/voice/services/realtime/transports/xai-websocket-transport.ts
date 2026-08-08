@@ -21,6 +21,7 @@
  * to it.
  */
 
+import { z } from "zod";
 import {
   acquireSharedMicrophone,
   type SharedMicrophoneLease,
@@ -50,18 +51,30 @@ const estimateBase64Pcm16Seconds = (
   return byteLength / PCM16_BYTES_PER_SAMPLE / sampleRate;
 };
 
-const isBillableTextInputItem = (item: unknown): boolean => {
-  if (!item || typeof item !== "object") return true;
-  const record = item as Record<string, unknown>;
-  if (record.type === "function_call_output") return false;
+const eventRecordSchema = z.record(z.string(), z.unknown());
 
-  const content = record.content;
-  if (!Array.isArray(content)) return true;
-  return !content.some((part) => {
-    if (!part || typeof part !== "object") return false;
-    const type = (part as Record<string, unknown>).type;
-    return type === "input_audio" || type === "audio";
-  });
+const isEventRecord = (value: unknown): value is Record<string, unknown> =>
+  eventRecordSchema.safeParse(value).success;
+
+const functionCallOutputItemSchema = z.looseObject({
+  type: z.literal("function_call_output"),
+});
+
+const audioContentPartSchema = z.looseObject({
+  type: z.enum(["input_audio", "audio"]),
+});
+
+const audioContentItemSchema = z.looseObject({
+  content: z
+    .array(z.unknown())
+    .refine((parts) =>
+      parts.some((part) => audioContentPartSchema.safeParse(part).success),
+    ),
+});
+
+const isBillableTextInputItem = (item: unknown): boolean => {
+  if (functionCallOutputItemSchema.safeParse(item).success) return false;
+  return !audioContentItemSchema.safeParse(item).success;
 };
 
 export interface XaiWebSocketTransportOptions {
@@ -323,23 +336,17 @@ export class XaiWebSocketTransport implements RealtimeTransport {
     this.outputAudioSecondsSinceLastResponse = 0;
     this.textInputMessagesSinceLastResponse = 0;
 
-    if (!response || typeof response !== "object") return event;
-    const responseRecord = response as Record<string, unknown>;
-    const usage =
-      responseRecord.usage && typeof responseRecord.usage === "object"
-        ? (responseRecord.usage as Record<string, unknown>)
-        : {};
+    if (!isEventRecord(response)) return event;
+    const usage = isEventRecord(response.usage) ? response.usage : {};
     const audioSeconds = inputAudioSeconds + outputAudioSeconds;
     return {
       ...event,
       response: {
-        ...responseRecord,
+        ...response,
         usage: {
           ...usage,
           xai: {
-            ...(usage.xai && typeof usage.xai === "object"
-              ? (usage.xai as Record<string, unknown>)
-              : {}),
+            ...(isEventRecord(usage.xai) ? usage.xai : {}),
             audio_seconds: audioSeconds,
             audio_input_seconds: inputAudioSeconds,
             audio_output_seconds: outputAudioSeconds,

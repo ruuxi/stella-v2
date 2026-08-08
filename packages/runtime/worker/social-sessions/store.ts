@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { SqliteDatabase } from "../../kernel/storage/shared.js";
 
 export type SocialSessionRole = "host" | "follower";
@@ -21,11 +22,24 @@ export type SocialSessionFileRecord = {
   updatedAt: number;
 };
 
-const asString = (value: unknown): string =>
-  typeof value === "string" ? value : "";
+const sessionRowSchema = z.object({
+  sessionId: z.string().catch(""),
+  localFolderPath: z.string().catch(""),
+  localFolderName: z.string().catch(""),
+  role: z.literal("host").catch("follower"),
+  lastAppliedFileOpOrdinal: z.number().catch(0),
+  lastObservedTurnOrdinal: z.number().catch(0),
+  updatedAt: z.number().catch(0),
+});
 
-const asNumber = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value) ? value : 0;
+const fileRowSchema = z.object({
+  sessionId: z.string().catch(""),
+  relativePath: z.string().catch(""),
+  contentHash: z.string().catch(""),
+  sizeBytes: z.number().catch(0),
+  mtimeMs: z.number().catch(0),
+  updatedAt: z.number().catch(0),
+});
 
 export class SocialSessionStore {
   constructor(private readonly db: SqliteDatabase) {}
@@ -44,16 +58,8 @@ export class SocialSessionStore {
       FROM social_session_sync_state
       ORDER BY updated_at DESC
     `)
-      .all() as Array<Record<string, unknown>>;
-    return rows.map((row) => ({
-      sessionId: asString(row.sessionId),
-      localFolderPath: asString(row.localFolderPath),
-      localFolderName: asString(row.localFolderName),
-      role: asString(row.role) === "host" ? "host" : "follower",
-      lastAppliedFileOpOrdinal: asNumber(row.lastAppliedFileOpOrdinal),
-      lastObservedTurnOrdinal: asNumber(row.lastObservedTurnOrdinal),
-      updatedAt: asNumber(row.updatedAt),
-    }));
+      .all();
+    return rows.map((row) => sessionRowSchema.parse(row));
   }
 
   getSession(sessionId: string): SocialSessionSyncRecord | null {
@@ -70,19 +76,11 @@ export class SocialSessionStore {
       FROM social_session_sync_state
       WHERE session_id = ?
     `)
-      .get(sessionId) as Record<string, unknown> | undefined;
+      .get(sessionId);
     if (!row) {
       return null;
     }
-    return {
-      sessionId: asString(row.sessionId),
-      localFolderPath: asString(row.localFolderPath),
-      localFolderName: asString(row.localFolderName),
-      role: asString(row.role) === "host" ? "host" : "follower",
-      lastAppliedFileOpOrdinal: asNumber(row.lastAppliedFileOpOrdinal),
-      lastObservedTurnOrdinal: asNumber(row.lastObservedTurnOrdinal),
-      updatedAt: asNumber(row.updatedAt),
-    };
+    return sessionRowSchema.parse(row);
   }
 
   upsertSession(
@@ -172,15 +170,8 @@ export class SocialSessionStore {
       WHERE session_id = ?
       ORDER BY relative_path ASC
     `)
-      .all(sessionId) as Array<Record<string, unknown>>;
-    return rows.map((row) => ({
-      sessionId: asString(row.sessionId),
-      relativePath: asString(row.relativePath),
-      contentHash: asString(row.contentHash),
-      sizeBytes: asNumber(row.sizeBytes),
-      mtimeMs: asNumber(row.mtimeMs),
-      updatedAt: asNumber(row.updatedAt),
-    }));
+      .all(sessionId);
+    return rows.map((row) => fileRowSchema.parse(row));
   }
 
   upsertFile(

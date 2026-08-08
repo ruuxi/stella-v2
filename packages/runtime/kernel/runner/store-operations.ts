@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import type {
   StorePackageRecord,
   StorePackageReleaseRecord,
@@ -8,6 +9,55 @@ import type {
 } from "@stella/contracts";
 import type { RunnerContext, StoreOperations } from "./types.js";
 
+const storePackageCoreSchema = z.looseObject({
+  packageId: z.string(),
+  displayName: z.string(),
+  latestReleaseNumber: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+const isStorePackageCore = (
+  value: unknown,
+): value is z.infer<typeof storePackageCoreSchema> =>
+  storePackageCoreSchema.safeParse(value).success;
+
+const storeReleaseCoreSchema = z.looseObject({
+  packageId: z.string(),
+  releaseNumber: z.number(),
+  createdAt: z.number(),
+  blueprintMarkdown: z.string(),
+});
+
+const isStoreReleaseCore = (
+  value: unknown,
+): value is z.infer<typeof storeReleaseCoreSchema> =>
+  storeReleaseCoreSchema.safeParse(value).success;
+
+const gitArtifactSchema = z.looseObject({
+  kind: z.literal("git-object-artifact"),
+  schemaVersion: z.literal(1),
+});
+
+const isGitArtifact = (value: unknown): value is StoreReleaseGitArtifact =>
+  gitArtifactSchema.safeParse(value).success;
+
+const diffRefSchema = z.looseObject({
+  kind: z.literal("r2"),
+  r2Key: z.string(),
+  sha256: z.string(),
+  sizeBytes: z.number(),
+});
+
+const isDiffRef = (value: unknown): value is StoreReleaseDiffRef =>
+  diffRefSchema.safeParse(value).success;
+
+const releaseCommitSchema = z.object({
+  hash: z.string(),
+  subject: z.string(),
+  diff: z.string(),
+});
+
 export const createStoreOperations = (
   context: RunnerContext,
   deps: {
@@ -15,19 +65,10 @@ export const createStoreOperations = (
   },
 ): StoreOperations => {
   const toSharedStorePackage = (value: unknown): StorePackageRecord | null => {
-    if (!value || typeof value !== "object") {
+    if (!isStorePackageCore(value)) {
       return null;
     }
-    const record = value as Record<string, unknown>;
-    if (
-      typeof record.packageId !== "string" ||
-      typeof record.displayName !== "string" ||
-      typeof record.latestReleaseNumber !== "number" ||
-      typeof record.createdAt !== "number" ||
-      typeof record.updatedAt !== "number"
-    ) {
-      return null;
-    }
+    const record = value;
     const validCategories = new Set([
       "apps-games",
       "productivity",
@@ -74,53 +115,24 @@ export const createStoreOperations = (
     release: unknown;
     packageRecord: StorePackageRecord;
   }): StorePackageReleaseRecord | null => {
-    if (!args.release || typeof args.release !== "object") {
+    if (!isStoreReleaseCore(args.release)) {
       return null;
     }
-    const record = args.release as Record<string, unknown>;
+    const record = args.release;
     const manifest =
       record.manifest && typeof record.manifest === "object"
         ? (record.manifest as Record<string, unknown>)
         : null;
-    if (
-      !manifest ||
-      typeof record.packageId !== "string" ||
-      typeof record.releaseNumber !== "number" ||
-      typeof record.createdAt !== "number" ||
-      typeof record.blueprintMarkdown !== "string"
-    ) {
+    if (!manifest) {
       return null;
     }
-    const gitArtifact =
-      record.gitArtifact &&
-      typeof record.gitArtifact === "object" &&
-      (record.gitArtifact as Record<string, unknown>).kind ===
-        "git-object-artifact" &&
-      (record.gitArtifact as Record<string, unknown>).schemaVersion === 1
-        ? (record.gitArtifact as StoreReleaseGitArtifact)
-        : undefined;
-    const diffRefRecord =
-      record.diffRef && typeof record.diffRef === "object"
-        ? (record.diffRef as Record<string, unknown>)
-        : null;
-    const diffRef =
-      diffRefRecord?.kind === "r2" &&
-      typeof diffRefRecord.r2Key === "string" &&
-      typeof diffRefRecord.sha256 === "string" &&
-      typeof diffRefRecord.sizeBytes === "number"
-        ? (diffRefRecord as StoreReleaseDiffRef)
-        : undefined;
-    const commitsDiffRefRecord =
-      record.commitsDiffRef && typeof record.commitsDiffRef === "object"
-        ? (record.commitsDiffRef as Record<string, unknown>)
-        : null;
-    const commitsDiffRef =
-      commitsDiffRefRecord?.kind === "r2" &&
-      typeof commitsDiffRefRecord.r2Key === "string" &&
-      typeof commitsDiffRefRecord.sha256 === "string" &&
-      typeof commitsDiffRefRecord.sizeBytes === "number"
-        ? (commitsDiffRefRecord as StoreReleaseDiffRef)
-        : undefined;
+    const gitArtifact = isGitArtifact(record.gitArtifact)
+      ? record.gitArtifact
+      : undefined;
+    const diffRef = isDiffRef(record.diffRef) ? record.diffRef : undefined;
+    const commitsDiffRef = isDiffRef(record.commitsDiffRef)
+      ? record.commitsDiffRef
+      : undefined;
     const validManifestCategories = new Set([
       "apps-games",
       "productivity",
@@ -216,20 +228,8 @@ export const createStoreOperations = (
     const commits = Array.isArray(raw)
       ? raw
           .map((entry): StoreReleaseCommit | null => {
-            if (!entry || typeof entry !== "object") return null;
-            const commitRecord = entry as Record<string, unknown>;
-            if (
-              typeof commitRecord.hash !== "string" ||
-              typeof commitRecord.subject !== "string" ||
-              typeof commitRecord.diff !== "string"
-            ) {
-              return null;
-            }
-            return {
-              hash: commitRecord.hash,
-              subject: commitRecord.subject,
-              diff: commitRecord.diff,
-            };
+            const parsed = releaseCommitSchema.safeParse(entry);
+            return parsed.success ? parsed.data : null;
           })
           .filter((entry): entry is StoreReleaseCommit => entry !== null)
       : [];

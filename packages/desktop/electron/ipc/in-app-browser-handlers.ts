@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { z } from "zod";
 import type {
   BrowserViewLayout,
   InAppBrowserService,
@@ -31,11 +32,16 @@ type RegisterInAppBrowserHandlersOptions = {
   ) => boolean;
 };
 
+const recordSchema = z.record(z.string(), z.unknown());
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  recordSchema.safeParse(value).success;
+
 const requireObject = (value: unknown, label: string) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error(`${label} is required.`);
   }
-  return value as Record<string, unknown>;
+  return value;
 };
 
 const requireString = (
@@ -52,21 +58,39 @@ const requireString = (
   return value;
 };
 
+const optionalStringField = z.string().optional().catch(undefined);
+
+const connectPayloadSchema = z
+  .object({
+    browserType: optionalStringField,
+    profileId: optionalStringField,
+  })
+  .catch({});
+
+const createTabPayloadSchema = z
+  .object({ url: optionalStringField })
+  .catch({});
+
+const boundsSchema = z.looseObject({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite(),
+  height: z.number().finite(),
+});
+
 const parseLayout = (value: unknown): BrowserViewLayout => {
   const payload = requireObject(value, "Browser layout");
   const parseBounds = (candidate: unknown, label: string) => {
-    const bounds = requireObject(candidate, label);
-    for (const key of ["x", "y", "width", "height"] as const) {
-      if (typeof bounds[key] !== "number" || !Number.isFinite(bounds[key])) {
-        throw new Error(`${label}.${key} must be a finite number.`);
+    const parsed = boundsSchema.safeParse(candidate);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      if (!issue || issue.path.length === 0) {
+        throw new Error(`${label} is required.`);
       }
+      throw new Error(`${label}.${String(issue.path[0])} must be a finite number.`);
     }
-    return {
-      x: bounds.x as number,
-      y: bounds.y as number,
-      width: bounds.width as number,
-      height: bounds.height as number,
-    };
+    const { x, y, width, height } = parsed.data;
+    return { x, y, width, height };
   };
   return {
     pageBounds: parseBounds(payload.pageBounds, "pageBounds"),
@@ -91,15 +115,12 @@ export const registerInAppBrowserHandlers = (
 
   register(IN_APP_BROWSER_CHANNELS.getState, () => options.service.getState());
   register(IN_APP_BROWSER_CHANNELS.connect, async (payload) => {
-    const record =
-      payload && typeof payload === "object"
-        ? (payload as Record<string, unknown>)
-        : {};
+    const record = connectPayloadSchema.parse(payload);
     const state = await options.service.connect({
-      ...(typeof record.browserType === "string"
+      ...(record.browserType !== undefined
         ? { browserType: record.browserType }
         : {}),
-      ...(typeof record.profileId === "string"
+      ...(record.profileId !== undefined
         ? { profileId: record.profileId }
         : {}),
     });
@@ -117,12 +138,9 @@ export const registerInAppBrowserHandlers = (
   );
   register(IN_APP_BROWSER_CHANNELS.hide, () => options.service.hide());
   register(IN_APP_BROWSER_CHANNELS.createTab, (payload) => {
-    const record =
-      payload && typeof payload === "object"
-        ? (payload as Record<string, unknown>)
-        : {};
+    const record = createTabPayloadSchema.parse(payload);
     return options.service.createTab({
-      ...(typeof record.url === "string" ? { url: record.url } : {}),
+      ...(record.url !== undefined ? { url: record.url } : {}),
     });
   });
   register(IN_APP_BROWSER_CHANNELS.selectTab, (payload) => {

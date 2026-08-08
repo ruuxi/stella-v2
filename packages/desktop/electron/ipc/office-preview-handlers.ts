@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { arch, platform } from "node:os";
@@ -141,27 +142,26 @@ export const filterOfficePreviewSnapshotsForMobile = (
     isMobileOfficePreviewPathAllowed(policy, snapshot.sourcePath),
   );
 
+const officePreviewRefArtifactSchema = z.looseObject({
+  kind: z.literal("office"),
+  previewRef: z.looseObject({ sourcePath: z.string() }),
+});
+
+const officeFileArtifactSchema = z.looseObject({
+  kind: z.literal("file-artifact"),
+  filePath: z.string(),
+  artifactKind: z.enum([
+    "office-document",
+    "office-spreadsheet",
+    "office-slides",
+  ]),
+});
+
 const officePreviewArtifactPath = (payload: unknown): string | null => {
-  if (!payload || typeof payload !== "object") return null;
-  const record = payload as Record<string, unknown>;
-  if (
-    record.kind === "office" &&
-    record.previewRef &&
-    typeof record.previewRef === "object" &&
-    typeof (record.previewRef as { sourcePath?: unknown }).sourcePath ===
-      "string"
-  ) {
-    return (record.previewRef as { sourcePath: string }).sourcePath;
-  }
-  if (
-    record.kind === "file-artifact" &&
-    typeof record.filePath === "string" &&
-    (record.artifactKind === "office-document" ||
-      record.artifactKind === "office-spreadsheet" ||
-      record.artifactKind === "office-slides")
-  ) {
-    return record.filePath;
-  }
+  const previewRef = officePreviewRefArtifactSchema.safeParse(payload);
+  if (previewRef.success) return previewRef.data.previewRef.sourcePath;
+  const fileArtifact = officeFileArtifactSchema.safeParse(payload);
+  if (fileArtifact.success) return fileArtifact.data.filePath;
   return null;
 };
 

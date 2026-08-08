@@ -2659,3 +2659,214 @@ async fn e2e_wait_supports_semantic_selectors() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
+
+// ---------------------------------------------------------------------------
+// Chain: sequential steps through the shared dispatch (Milestone 3)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore]
+async fn e2e_chain_runs_steps_and_marker_chain_flow() {
+    let mut state = DaemonState::new();
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <div id="results">
+                <div class="row">alpha</div>
+                <div class="row">beta</div>
+                <div class="row">gamma</div>
+            </div>
+            <input id="out">
+        </body></html>"#,
+    )
+    .await;
+
+    // Marker-chain round trip exactly like worker-api.ts makeMarkerChain:
+    // step 0 tags the target element with the marker attribute, step 1 acts
+    // on the marker CSS selector. Options mirror makeMarkerChain too.
+    let marker_script = r##"(() => {
+        const elements = [...document.querySelectorAll("#results > .row")];
+        const element = elements[1];
+        if (!element) throw new Error("Locator did not match an element");
+        for (const previous of document.querySelectorAll('[data-stella-worker-locator="m1"]')) {
+            previous.removeAttribute("data-stella-worker-locator");
+        }
+        element.setAttribute("data-stella-worker-locator", "m1");
+        return true;
+    })()"##;
+    let resp = execute_command(
+        &json!({
+            "id": "chain-marker",
+            "action": "chain",
+            "abortOnError": false,
+            "waitForSelector": false,
+            "steps": [
+                { "action": "evaluate", "script": marker_script },
+                { "action": "innertext", "selector": "[data-stella-worker-locator=\"m1\"]" }
+            ]
+        }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let data = get_data(&resp);
+    assert_eq!(data["completed"], 2);
+    assert_eq!(data["total"], 2);
+    let results = data["results"].as_array().unwrap();
+    assert_eq!(results[0]["step"], 0);
+    assert_eq!(results[0]["success"], true);
+    assert_eq!(results[0]["data"]["result"], true);
+    assert_eq!(results[1]["step"], 1);
+    assert_eq!(results[1]["success"], true);
+    assert_eq!(results[1]["data"]["text"], "beta");
+
+    // The cleanup evaluate makeMarkerChain issues afterwards.
+    let resp = execute_command(
+        &json!({
+            "id": "chain-cleanup",
+            "action": "evaluate",
+            "script": r#"(() => {
+                for (const element of document.querySelectorAll('[data-stella-worker-locator="m1"]')) {
+                    element.removeAttribute("data-stella-worker-locator");
+                }
+                return document.querySelectorAll("[data-stella-worker-locator]").length;
+            })()"#
+        }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["result"], 0);
+
+    // Element-targeted steps with implicit waits plus a trailing snapshot.
+    let resp = execute_command(
+        &json!({
+            "id": "chain-fill",
+            "action": "chain",
+            "returnSnapshot": true,
+            "steps": [
+                { "action": "fill", "selector": "#out", "value": "done" },
+                { "action": "inputvalue", "selector": "#out" }
+            ]
+        }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let data = get_data(&resp);
+    assert_eq!(data["completed"], 2);
+    assert_eq!(data["results"][1]["data"]["value"], "done");
+    assert!(
+        data["snapshot"].is_string(),
+        "returnSnapshot must attach the snapshot tree: {}",
+        data
+    );
+
+    // Stop-on-first-error with the failing step index in the chain error.
+    let resp = execute_command(
+        &json!({
+            "id": "chain-fail",
+            "action": "chain",
+            "waitTimeout": 500,
+            "steps": [
+                { "action": "click", "selector": "#does-not-exist" },
+                { "action": "title" }
+            ]
+        }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false);
+    let error = error_text(&resp);
+    assert!(
+        error.contains("Chain step 0 (click) failed"),
+        "unexpected chain error: {}",
+        error
+    );
+    let data = get_data(&resp);
+    assert_eq!(data["completed"], 0);
+    assert_eq!(data["total"], 2);
+    assert_eq!(data["results"].as_array().unwrap().len(), 1);
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+// ---------------------------------------------------------------------------
+// Owner tab lifecycle: finalize_tabs / close_owner / release_owner_lease
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore]
+async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
+    let mut state = DaemonState::new();
+
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "launch", "headless": true }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+
+    // Two owner-tracked tabs plus the launch tab (unowned).
+    let resp = execute_command(
+        &json!({ "id": "2", "action": "tab_new", "ownerId": "owner-e2e" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let first_tab = get_data(&resp)["tabId"].as_u64().unwrap();
+    let resp = execute_command(
+        &json!({ "id": "3", "action": "tab_new", "ownerId": "owner-e2e" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let second_tab = get_data(&resp)["tabId"].as_u64().unwrap();
+
+    // Keep the first tab as a handoff; the second must be closed.
+    let resp = execute_command(
+        &json!({
+            "id": "4",
+            "action": "finalize_tabs",
+            "ownerId": "owner-e2e",
+            "keep": [ { "tabId": first_tab, "status": "handoff" } ],
+        }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let data = get_data(&resp);
+    assert_eq!(data["closedTabIds"], json!([second_tab]));
+    assert_eq!(data["releasedTabIds"], json!([first_tab]));
+    assert_eq!(data["kept"][0]["tabId"], first_tab);
+
+    // The kept tab survives; the closed tab is gone from tab_list.
+    let resp = execute_command(&json!({ "id": "5", "action": "tab_list" }), &mut state).await;
+    assert_success(&resp);
+    let tabs = get_data(&resp)["tabs"].as_array().unwrap().clone();
+    assert!(tabs.iter().any(|tab| tab["tabId"] == first_tab));
+    assert!(tabs.iter().all(|tab| tab["tabId"] != second_tab));
+
+    // Finalizing again is success with nothing left to close (the kept tab
+    // was released from ownership).
+    let resp = execute_command(
+        &json!({ "id": "6", "action": "close_owner", "ownerId": "owner-e2e" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["closedTabIds"], json!([]));
+
+    // Lease release is a graceful no-op on the CDP backend.
+    let resp = execute_command(
+        &json!({ "id": "7", "action": "release_owner_lease", "ownerId": "owner-e2e" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["released"], true);
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}

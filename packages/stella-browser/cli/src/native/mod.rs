@@ -48,6 +48,8 @@ pub mod tracing;
 pub mod webdriver;
 
 #[cfg(test)]
+mod contract_tests;
+#[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
 mod parity_tests;

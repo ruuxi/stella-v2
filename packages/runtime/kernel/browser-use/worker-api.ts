@@ -39,6 +39,7 @@ export interface BrowserWorkerLocator {
   uncheck(): Promise<unknown>;
   setChecked(checked: boolean): Promise<unknown>;
   selectOption(value: string | readonly string[]): Promise<unknown>;
+  setInputFiles(files: string | readonly string[]): Promise<unknown>;
   scrollIntoViewIfNeeded(): Promise<unknown>;
   innerText(): Promise<string>;
   textContent(): Promise<string | null>;
@@ -115,6 +116,7 @@ export interface BrowserWorkerTab {
   title(): Promise<string>;
   snapshot(options?: Record<string, unknown>): Promise<unknown>;
   screenshot(options?: Record<string, unknown>): Promise<unknown>;
+  scroll(options?: Record<string, unknown>): Promise<unknown>;
   expectNewTab(
     action: () => unknown | Promise<unknown>,
     options?: Readonly<{ timeoutMs?: number }>,
@@ -178,18 +180,29 @@ export function installBrowserWorkerApi(
 
 Run multiple awaited browser actions in one REPL cell. Keep the Tab and Locator objects you create and reuse them instead of looking them up again.
 
+Tabs: browser.tabs.list()/new(url)/selected()/get(id). On a tab: goto, back, forward, reload, url(), title(), close(), snapshot(), screenshot(). tab.expectNewTab(() => action) awaits a click that opens a new tab and returns it.
+
+Locators: tab.playwright.locator(css) and getByRole/getByText/getByLabel/getByPlaceholder/getByTestId, refined with .filter/.nth/.first/.last. Actions: click, dblclick, fill, type, press, hover, focus, check, uncheck, setChecked, selectOption, setInputFiles (absolute file paths for <input type=file>), scrollIntoViewIfNeeded. Reads: innerText, textContent, inputValue, getAttribute, count, isVisible, isEnabled, isChecked, boundingBox, allTextContents, evaluate.
+
 Use the cheapest state check that answers the question: url(), title(), count(), isVisible(), isEnabled(), or isChecked(). Use snapshot/domSnapshot only when page structure is needed, and screenshots only when pixels matter.
 
 Use waitFor(), waitForURL(), or expectNewTab() for browser-driven changes. Do not add sleeps between deterministic actions. Observe after an action only when the next action genuinely branches on what changed.
 
-Keyboard: tab.press(key) sends a page-level key press to whatever holds focus — use it for Enter, Escape, Tab, and shortcuts like "Control+a" or "Meta+Shift+P". locator.press(key) focuses its element first, then presses. tab.keyboard.type(text) inserts raw text at the current focus without per-character key events.
+Keyboard: tab.press(key) sends a page-level key press to whatever holds focus — use it for Enter, Escape, Tab, and shortcuts like "Control+a" or "Meta+Shift+P". locator.press(key) focuses its element first, then presses. tab.keyboard.type(text) inserts raw text at the current focus without per-character key events (works for emoji/CJK).
+
+Scrolling: tab.scroll({ y: 600 }) scrolls the page by pixel deltas (negative scrolls up/left); tab.scroll({ selector: ".list", direction: "down", amount: 300 }) scrolls an element. Prefer scrollIntoViewIfNeeded() before acting on an element.
+
+Batching: browser.chain([{ action, params }, ...], options) runs allowlisted steps in one round-trip with implicit selector waits — useful for long fixed sequences. Every params needs tabId except tab_list/tab_new.
+
+Cleanup: when a task ends, await browser.tabs.finalize([{ tab, status: "handoff" | "deliverable" }]) to keep the listed tabs and close every other tab this session opened; finalize() with no arguments closes them all.
 
 Example:
 const tab = await browser.tabs.new("https://example.com");
 const submit = tab.playwright.getByRole("button", { name: "Submit", exact: true });
 await submit.click();
 await tab.playwright.waitForURL("**/complete");
-const title = await tab.title();`;
+const title = await tab.title();
+await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
 
   const isPlainObject = (value: unknown): value is Record<string, unknown> => {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -995,6 +1008,23 @@ const title = await tab.title();`;
       return await this.action("select", { values });
     }
 
+    async setInputFiles(files: string | readonly string[]): Promise<unknown> {
+      const list = (Array.isArray(files) ? files : [files]).map(
+        (entry, index) => {
+          const file = requireString(entry, `files[${index}]`, {
+            maxLength: 4_096,
+          });
+          // The daemon hands these to CDP DOM.setFileInputFiles, which
+          // resolves them in the browser process: absolute paths only.
+          if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(file)) {
+            throw new TypeError(`files[${index}] must be an absolute path.`);
+          }
+          return file;
+        },
+      );
+      return await this.action("upload", { files: list });
+    }
+
     async scrollIntoViewIfNeeded(): Promise<unknown> {
       return await this.action("scrollintoview");
     }
@@ -1476,6 +1506,40 @@ const title = await tab.title();`;
       return await command("screenshot", screenshotParams(this.id, rawOptions));
     }
 
+    async scroll(rawOptions: Record<string, unknown> = {}): Promise<unknown> {
+      const value = requireOptions(rawOptions, "scroll options");
+      assertKnownKeys(
+        value,
+        ["x", "y", "direction", "amount", "selector"],
+        "scroll options",
+      );
+      const params: Record<string, unknown> = { tabId: this.id };
+      // x/y are pixel deltas (negative scrolls up/left); direction+amount is
+      // the ergonomic alternative the daemon converts to deltas.
+      for (const key of ["x", "y"] as const) {
+        if (value[key] !== undefined) {
+          if (typeof value[key] !== "number" || !Number.isFinite(value[key])) {
+            throw new TypeError(`${key} must be a finite number.`);
+          }
+          params[key] = value[key];
+        }
+      }
+      if (value.direction !== undefined) {
+        const direction = requireString(value.direction, "direction");
+        if (!["up", "down", "left", "right"].includes(direction)) {
+          throw new TypeError("direction must be up, down, left, or right.");
+        }
+        params.direction = direction;
+      }
+      if (value.amount !== undefined) {
+        params.amount = requireFiniteNonNegative(value.amount, "amount");
+      }
+      if (value.selector !== undefined) {
+        params.selector = requireSelectorText(value.selector, "selector");
+      }
+      return await command("scroll", params);
+    }
+
     async expectNewTab(
       action: () => unknown | Promise<unknown>,
       rawOptions?: Readonly<{ timeoutMs?: number }>,
@@ -1484,6 +1548,13 @@ const title = await tab.title();`;
     }
   }
 
+  // Chain-step vocabulary offered to agents. Contract-checked against
+  // packages/stella-browser/protocol/actions.json by
+  // tests/runtime/kernel/browser-use/action-contract.test.ts: every action
+  // here must be a manifest action with "chain": true, and every key must be
+  // a manifest param (or the global tabId). finalize_tabs is deliberately
+  // absent: it is top-level-only on the daemon and exposed as
+  // browser.tabs.finalize() instead.
   const SAFE_ACTION_KEYS: Record<string, readonly string[]> = Object.freeze({
     navigate: ["tabId", "url", "waitUntil", "timeout"],
     back: ["tabId", "timeout"],
@@ -1493,7 +1564,6 @@ const title = await tab.title();`;
     tab_new: ["url"],
     tab_switch: ["tabId"],
     tab_close: ["tabId"],
-    finalize_tabs: ["keep"],
     url: ["tabId"],
     title: ["tabId"],
     snapshot: [
@@ -1523,7 +1593,8 @@ const title = await tab.title();`;
     check: ["tabId", "selector"],
     uncheck: ["tabId", "selector"],
     select: ["tabId", "selector", "values"],
-    scroll: ["tabId", "selector", "x", "y"],
+    upload: ["tabId", "selector", "files"],
+    scroll: ["tabId", "selector", "x", "y", "direction", "amount"],
     scrollintoview: ["tabId", "selector"],
     wait: ["tabId", "selector", "timeout"],
     waitforurl: ["tabId", "url", "timeout"],
@@ -1548,9 +1619,7 @@ const title = await tab.title();`;
     har_start: ["tabId"],
     har_stop: ["tabId", "path"],
   });
-  const NON_TAB_ACTIONS = Object.freeze(
-    new Set(["tab_list", "tab_new", "finalize_tabs"]),
-  );
+  const NON_TAB_ACTIONS = Object.freeze(new Set(["tab_list", "tab_new"]));
 
   const safeJsonValue = (value: unknown, path: string, depth = 0): unknown => {
     if (depth > 12) throw new TypeError(`${path} is too deeply nested.`);

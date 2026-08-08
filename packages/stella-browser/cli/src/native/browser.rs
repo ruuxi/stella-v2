@@ -185,6 +185,74 @@ pub struct BrowserManager {
     /// same id across detach/re-attach cycles and list calls.
     target_tab_ids: HashMap<String, u64>,
     next_tab_id: u64,
+    /// Which stable tab ids each command owner created. Lives and dies with
+    /// the manager, matching the lifetime of the tabs themselves, so a
+    /// relaunch can never resurrect stale ownership over freshly numbered
+    /// tabs.
+    owner_tabs: OwnerTabRegistry,
+}
+
+/// Tracks which stable tab ids each command owner created so
+/// `finalize_tabs`/`close_owner` can reap exactly that owner's tabs. This is
+/// the CDP replacement for the extension's owner-tab bookkeeping
+/// (extension/commands/tabs.js); the extension-era owner *lease* protocol is
+/// deliberately absent — the in-app browser is agent-driven, so `ownerId`
+/// alone identifies the tab set.
+#[derive(Default)]
+pub struct OwnerTabRegistry {
+    tabs_by_owner: HashMap<String, Vec<u64>>,
+}
+
+impl OwnerTabRegistry {
+    /// Records a tab for an owner. Empty/blank owner ids and duplicate tab
+    /// ids are ignored.
+    pub fn record(&mut self, owner_id: &str, tab_id: u64) {
+        let owner_id = owner_id.trim();
+        if owner_id.is_empty() || tab_id == 0 {
+            return;
+        }
+        let tabs = self.tabs_by_owner.entry(owner_id.to_string()).or_default();
+        if !tabs.contains(&tab_id) {
+            tabs.push(tab_id);
+        }
+    }
+
+    /// Tab ids recorded for an owner, in creation order.
+    pub fn tab_ids(&self, owner_id: &str) -> Vec<u64> {
+        self.tabs_by_owner
+            .get(owner_id.trim())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Which owner (if any) a tab is recorded under.
+    pub fn owner_of(&self, tab_id: u64) -> Option<&str> {
+        self.tabs_by_owner
+            .iter()
+            .find(|(_, tabs)| tabs.contains(&tab_id))
+            .map(|(owner_id, _)| owner_id.as_str())
+    }
+
+    /// Releases one tab from one owner without touching other owners
+    /// (finalize `keep` entries hand the tab off without closing it).
+    pub fn release(&mut self, owner_id: &str, tab_id: u64) {
+        let owner_id = owner_id.trim();
+        if let Some(tabs) = self.tabs_by_owner.get_mut(owner_id) {
+            tabs.retain(|candidate| *candidate != tab_id);
+            if tabs.is_empty() {
+                self.tabs_by_owner.remove(owner_id);
+            }
+        }
+    }
+
+    /// Drops a tab from every owner's set once the tab no longer exists.
+    /// Idempotent: forgetting an unknown tab is a no-op.
+    pub fn forget_tab(&mut self, tab_id: u64) {
+        self.tabs_by_owner.retain(|_, tabs| {
+            tabs.retain(|candidate| *candidate != tab_id);
+            !tabs.is_empty()
+        });
+    }
 }
 
 const LIGHTPANDA_CDP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -255,6 +323,7 @@ impl BrowserManager {
                 default_timeout_ms: 25_000,
                 target_tab_ids: HashMap::new(),
                 next_tab_id: 1,
+                owner_tabs: OwnerTabRegistry::default(),
             };
             manager.discover_and_attach_targets().await?;
             manager
@@ -321,6 +390,7 @@ impl BrowserManager {
             default_timeout_ms: 10_000,
             target_tab_ids: HashMap::new(),
             next_tab_id: 1,
+            owner_tabs: OwnerTabRegistry::default(),
         };
 
         manager.discover_and_attach_targets().await?;
@@ -627,10 +697,13 @@ impl BrowserManager {
     }
 
     /// Ensures the browser has at least one page. If `pages` is empty, creates a new
-    /// about:blank page and attaches to it.
-    pub async fn ensure_page(&mut self) -> Result<(), String> {
+    /// about:blank page and attaches to it. Returns the stable tab id of the
+    /// page it created, or `None` when a page already existed, so the caller
+    /// can attribute the implicit tab to the command owner that forced it
+    /// into existence.
+    pub async fn ensure_page(&mut self) -> Result<Option<u64>, String> {
         if !self.pages.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
         let result: CreateTargetResult = self
@@ -668,7 +741,7 @@ impl BrowserManager {
         self.active_page_index = 0;
         self.enable_domains(&attach_result.session_id).await?;
 
-        Ok(())
+        Ok(Some(tab_id))
     }
 
     // -----------------------------------------------------------------------
@@ -725,6 +798,66 @@ impl BrowserManager {
             return Ok(false);
         }
         self.tab_switch(index).await?;
+        Ok(true)
+    }
+
+    /// Stable tab id already assigned to a CDP target, without allocating a
+    /// new one for unknown targets.
+    pub fn known_tab_id_for_target(&self, target_id: &str) -> Option<u64> {
+        self.target_tab_ids.get(target_id).copied()
+    }
+
+    /// Records that a command owner created (or forced into existence) the
+    /// given tab, so `finalize_tabs`/`close_owner` can reap it later.
+    pub fn record_owner_tab(&mut self, owner_id: &str, tab_id: u64) {
+        self.owner_tabs.record(owner_id, tab_id);
+    }
+
+    /// Tab ids currently recorded for an owner, in creation order.
+    pub fn owner_tab_ids(&self, owner_id: &str) -> Vec<u64> {
+        self.owner_tabs.tab_ids(owner_id)
+    }
+
+    /// The owner a tab is recorded under, if any.
+    pub fn owner_of_tab(&self, tab_id: u64) -> Option<String> {
+        self.owner_tabs.owner_of(tab_id).map(str::to_string)
+    }
+
+    /// Releases a tab from an owner's set without closing it (finalize
+    /// `keep` entries).
+    pub fn release_owner_tab(&mut self, owner_id: &str, tab_id: u64) {
+        self.owner_tabs.release(owner_id, tab_id);
+    }
+
+    /// Closes the tab with the given stable id. Unlike `tab_close`, this may
+    /// close the last remaining tab: owner finalization must be able to reap
+    /// every helper tab, and `ensure_page` recreates a blank page for the
+    /// next command that needs one. Returns `Ok(false)` when the tab is
+    /// already gone — the goal state (tab closed) already holds.
+    pub async fn close_tab_by_id(&mut self, tab_id: u64) -> Result<bool, String> {
+        let Some(index) = self.tab_index_by_id(tab_id) else {
+            self.owner_tabs.forget_tab(tab_id);
+            return Ok(false);
+        };
+
+        let page = self.pages.remove(index);
+        self.owner_tabs.forget_tab(page.tab_id);
+        let _ = self
+            .client
+            .send_command_typed::<_, Value>(
+                "Target.closeTarget",
+                &CloseTargetParams {
+                    target_id: page.target_id,
+                },
+                None,
+            )
+            .await;
+
+        self.update_active_page_if_needed();
+        if !self.pages.is_empty() {
+            let session_id = self.pages[self.active_page_index].session_id.clone();
+            let _ = self.enable_domains(&session_id).await;
+        }
         Ok(true)
     }
 
@@ -831,6 +964,7 @@ impl BrowserManager {
         }
 
         let page = self.pages.remove(target_index);
+        self.owner_tabs.forget_tab(page.tab_id);
         let _ = self
             .client
             .send_command_typed::<_, Value>(
@@ -1093,16 +1227,19 @@ impl BrowserManager {
     /// Registers a page and makes it active. The stable `tab_id` is always
     /// (re)assigned here from the page's targetId; any value the caller put in
     /// `page.tab_id` is ignored.
-    pub fn add_page(&mut self, mut page: PageInfo) {
+    pub fn add_page(&mut self, mut page: PageInfo) -> u64 {
         page.tab_id = self.tab_id_for_target(&page.target_id);
+        let tab_id = page.tab_id;
         let index = self.pages.len();
         self.pages.push(page);
         self.active_page_index = index;
+        tab_id
     }
 
     pub fn remove_page_by_target_id(&mut self, target_id: &str) {
         if let Some(pos) = self.pages.iter().position(|p| p.target_id == target_id) {
-            self.pages.remove(pos);
+            let page = self.pages.remove(pos);
+            self.owner_tabs.forget_tab(page.tab_id);
             self.update_active_page_if_needed();
         }
     }
@@ -1267,6 +1404,7 @@ async fn initialize_lightpanda_manager(
             default_timeout_ms: 25_000,
             target_tab_ids: HashMap::new(),
             next_tab_id: 1,
+            owner_tabs: OwnerTabRegistry::default(),
         };
 
         match discover_and_attach_lightpanda_targets(&mut manager, deadline).await {
@@ -1357,6 +1495,63 @@ async fn resolve_cdp_url(input: &str) -> Result<String, String> {
 mod tests {
     use super::*;
     use tokio::time::sleep;
+
+    #[test]
+    fn test_owner_tab_registry_records_in_order_and_dedupes() {
+        let mut registry = OwnerTabRegistry::default();
+        registry.record("worker-1", 3);
+        registry.record("worker-1", 1);
+        registry.record("worker-1", 3);
+        registry.record("worker-2", 7);
+
+        assert_eq!(registry.tab_ids("worker-1"), vec![3, 1]);
+        assert_eq!(registry.tab_ids("worker-2"), vec![7]);
+        assert_eq!(registry.tab_ids("unknown"), Vec::<u64>::new());
+        assert_eq!(registry.owner_of(1), Some("worker-1"));
+        assert_eq!(registry.owner_of(7), Some("worker-2"));
+        assert_eq!(registry.owner_of(99), None);
+
+        // Owner ids are trimmed so transport whitespace cannot fork the set.
+        registry.record(" worker-1 ", 5);
+        assert_eq!(registry.tab_ids("worker-1"), vec![3, 1, 5]);
+    }
+
+    #[test]
+    fn test_owner_tab_registry_ignores_blank_owner_and_zero_tab() {
+        let mut registry = OwnerTabRegistry::default();
+        registry.record("", 1);
+        registry.record("   ", 2);
+        registry.record("worker-1", 0);
+        assert_eq!(registry.tab_ids(""), Vec::<u64>::new());
+        assert_eq!(registry.tab_ids("worker-1"), Vec::<u64>::new());
+    }
+
+    #[test]
+    fn test_owner_tab_registry_release_and_forget_are_idempotent() {
+        let mut registry = OwnerTabRegistry::default();
+        registry.record("worker-1", 1);
+        registry.record("worker-1", 2);
+        registry.record("worker-2", 2);
+
+        // Release touches exactly one owner.
+        registry.release("worker-1", 2);
+        assert_eq!(registry.tab_ids("worker-1"), vec![1]);
+        assert_eq!(registry.tab_ids("worker-2"), vec![2]);
+        registry.release("worker-1", 2);
+        registry.release("unknown", 2);
+        assert_eq!(registry.tab_ids("worker-2"), vec![2]);
+
+        // Forget removes the tab from every owner; repeating is a no-op.
+        registry.forget_tab(2);
+        registry.forget_tab(2);
+        assert_eq!(registry.tab_ids("worker-2"), Vec::<u64>::new());
+        assert_eq!(registry.owner_of(2), None);
+
+        // Draining an owner's last tab drops the owner entry entirely.
+        registry.release("worker-1", 1);
+        assert_eq!(registry.owner_of(1), None);
+        assert_eq!(registry.tab_ids("worker-1"), Vec::<u64>::new());
+    }
 
     #[test]
     fn test_validate_launch_options_extensions_and_cdp() {

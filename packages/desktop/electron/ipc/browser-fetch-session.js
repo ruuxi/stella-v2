@@ -59,7 +59,8 @@ const dropSharedSession = (session) => {
 
 /**
  * Close the shared owner's helper tab(s) and transport. Best-effort: a
- * wedged bridge must never propagate out of the reaper.
+ * wedged bridge must never propagate out of the reaper, but failures are
+ * logged — a silent failure here is how helper tabs leak forever.
  */
 export const reapBrowserFetchTabs = async () => {
   if (reapTimer) {
@@ -70,12 +71,22 @@ export const reapBrowserFetchTabs = async () => {
   if (!session) return;
   sharedSession = null;
   try {
+    // The CDP backend closes every tab recorded for this owner and returns
+    // { closedTabIds, releasedTabIds, kept }. Already-closed tabs are
+    // success, so an idle reap after the browser went away stays quiet.
     await session.command("finalize_tabs", { keep: [] });
-  } catch {
-    // Tab cleanup is best-effort; the extension's stale-tab reaper is the
-    // 24h backstop.
+  } catch (error) {
+    console.warn(
+      "[browser-fetch] failed to reap privileged-fetch helper tabs:",
+      error?.message ?? error,
+    );
   }
-  await session.dispose().catch(() => {});
+  await session.dispose().catch((error) => {
+    console.warn(
+      "[browser-fetch] failed to dispose privileged-fetch session:",
+      error?.message ?? error,
+    );
+  });
 };
 
 const scheduleReap = () => {

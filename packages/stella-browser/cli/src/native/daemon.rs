@@ -883,11 +883,10 @@ mod tests {
         let mut response_line = String::new();
         reader.read_line(&mut response_line).await.unwrap();
         let response: Value = serde_json::from_str(&response_line).unwrap();
-        assert_eq!(response["success"], false);
-        assert!(response["error"]
-            .as_str()
-            .unwrap()
-            .contains("not implemented on this browser backend"));
+        // close_owner is a real finalization on the CDP backend: with no
+        // browser connected there is nothing to reap, which is success.
+        assert_eq!(response["success"], true);
+        assert_eq!(response["data"]["closedTabIds"], json!([]));
 
         handle.await.unwrap();
         assert!(shutdown_rx.try_recv().is_err());

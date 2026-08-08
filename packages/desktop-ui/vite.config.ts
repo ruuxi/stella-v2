@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
-import { uiStateSharedStore } from "./vite/ui-state-plugin";
+import { uiStateSharedStore } from "./vite/ui-state-plugin.ts";
 
 const __dirname = import.meta.dirname;
 

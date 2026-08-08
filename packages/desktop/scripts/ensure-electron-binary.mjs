@@ -167,7 +167,13 @@ export async function ensureElectronBinary() {
   log("Electron binary is missing or incomplete; repairing...");
 
   const require = createRequire(import.meta.url);
-  const { downloadArtifact } = require("@electron/get");
+  // Bun may keep Electron's dependencies beside the package in its virtual
+  // store instead of hoisting them to the workspace root. Resolve from the
+  // real Electron package location so @electron/get remains reachable there.
+  const electronRequire = createRequire(
+    require.resolve("electron/package.json"),
+  );
+  const { downloadArtifact } = electronRequire("@electron/get");
 
   const version = readElectronVersion();
   const platform =

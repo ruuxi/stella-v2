@@ -634,6 +634,18 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_parent
     ON runtime_thread_entries(thread_key, parent_entry_id, created_at, entry_id);
   `);
+  // The usage ledger reads only assistant messages that carry a usage
+  // object; this partial index keeps that projection a recency scan
+  // instead of json_extract-ing every thread entry. Its WHERE terms must
+  // stay textually in sync with the static clauses in listModelUsage so
+  // SQLite's partial-index prover keeps matching them.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_usage
+    ON runtime_thread_entries(created_at, entry_id)
+    WHERE entry_type = 'message'
+      AND json_extract(data_json, '$.message.role') = 'assistant'
+      AND json_type(data_json, '$.message.usage') = 'object';
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS runtime_agents (

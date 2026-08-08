@@ -2870,3 +2870,147 @@ async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
+
+// ---------------------------------------------------------------------------
+// Same-origin iframe resolution + input, cross-origin frame error notes
+// ---------------------------------------------------------------------------
+
+/// Selectors (CSS and aria=) must find elements inside same-origin iframes,
+/// focus-based and coordinate-based input must work on them (coordinates
+/// translated to the top viewport), and not-found errors must report frames
+/// that could not be searched.
+#[tokio::test]
+#[ignore]
+async fn e2e_same_origin_iframe_resolution_and_input() {
+    let mut state = DaemonState::new();
+    launch_with_content(
+        &mut state,
+        r#"<html><body>
+            <h1>Top document</h1>
+            <div style="height: 40px"></div>
+        </body></html>"#,
+    )
+    .await;
+
+    // Build the frames from page JS to avoid data-URL/srcdoc quoting: an
+    // about:blank iframe inherits the parent origin (reachable), while a
+    // data: URL iframe is opaque-origin (cross-origin, unreachable).
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "evaluate", "script": r#"
+            (() => {
+                const same = document.createElement('iframe');
+                same.id = 'child';
+                same.style.cssText = 'width:400px;height:200px;border:4px solid black;display:block;margin-top:30px';
+                document.body.appendChild(same);
+                same.contentDocument.body.innerHTML =
+                    '<label for="msg">Message</label>' +
+                    '<input id="msg" placeholder="frame-input">' +
+                    '<button id="fbtn" onclick="document.getElementById(\'msg\').value = \'clicked\'">Frame button</button>';
+                const foreign = document.createElement('iframe');
+                foreign.id = 'foreign';
+                foreign.src = 'data:text/html,<p>opaque</p>';
+                document.body.appendChild(foreign);
+                return true;
+            })()
+        "# }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    // Let the data: iframe finish loading so its document turns opaque.
+    tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+
+    // CSS count pierces the same-origin frame.
+    let resp = execute_command(
+        &json!({ "id": "2", "action": "count", "selector": "#msg" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["count"], 1);
+
+    // Focus-based input (fill) on an in-frame element via plain CSS.
+    let resp = execute_command(
+        &json!({ "id": "3", "action": "fill", "selector": "#msg", "value": "hello frame" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "4", "action": "evaluate", "script":
+            "document.getElementById('child').contentDocument.getElementById('msg').value" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["result"], "hello frame");
+
+    // Semantic selectors resolve into the frame too.
+    let selector = aria_selector(json!({ "kind": "placeholder", "value": "frame-input" }));
+    let resp = execute_command(
+        &json!({ "id": "5", "action": "inputvalue", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["value"], "hello frame");
+
+    let selector = aria_selector(json!({ "kind": "label", "value": "Message" }));
+    let resp = execute_command(
+        &json!({ "id": "6", "action": "count", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["count"], 1);
+
+    // Coordinate-based click: the click point must be translated across the
+    // iframe boundary (border offset included) so the button actually fires.
+    let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Frame button" }));
+    let resp = execute_command(
+        &json!({ "id": "7", "action": "click", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let resp = execute_command(
+        &json!({ "id": "8", "action": "evaluate", "script":
+            "document.getElementById('child').contentDocument.getElementById('msg').value" }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert_eq!(get_data(&resp)["result"], "clicked");
+
+    // Not-found errors report the unreachable cross-origin frame for both
+    // selector flavors.
+    let resp = execute_command(
+        &json!({ "id": "9", "action": "gettext", "selector": "#does-not-exist" }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false);
+    assert!(
+        error_text(&resp).contains("cross-origin frame(s) could not be searched"),
+        "CSS not-found error should mention the unreachable frame: {}",
+        error_text(&resp)
+    );
+
+    let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Nope" }));
+    let resp = execute_command(
+        &json!({ "id": "10", "action": "gettext", "selector": selector }),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false);
+    let error = error_text(&resp);
+    assert!(
+        error.contains("No element found with role=\"button\" name=\"Nope\"")
+            && error.contains("cross-origin frame(s) could not be searched"),
+        "semantic not-found error should mention the unreachable frame: {}",
+        error
+    );
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}

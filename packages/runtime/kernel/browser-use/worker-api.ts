@@ -178,11 +178,11 @@ export function installBrowserWorkerApi(
 
   const DOCUMENTATION = `BrowserSession worker API
 
-Run multiple awaited browser actions in one REPL cell. Keep the Tab and Locator objects you create and reuse them instead of looking them up again.
+Run multiple awaited browser actions in one REPL cell. Keep the Tab and Locator objects you create and reuse them instead of looking them up again. The objects are frozen but introspectable: Object.keys(tab), Object.keys(locator), etc. list their methods.
 
 Tabs: browser.tabs.list()/new(url)/selected()/get(id). On a tab: goto, back, forward, reload, url(), title(), close(), snapshot(), screenshot(). tab.expectNewTab(() => action) awaits a click that opens a new tab and returns it.
 
-Locators: tab.playwright.locator(css) and getByRole/getByText/getByLabel/getByPlaceholder/getByTestId, refined with .filter/.nth/.first/.last. Actions: click, dblclick, fill, type, press, hover, focus, check, uncheck, setChecked, selectOption, setInputFiles (absolute file paths for <input type=file>), scrollIntoViewIfNeeded. Reads: innerText, textContent, inputValue, getAttribute, count, isVisible, isEnabled, isChecked, boundingBox, allTextContents, evaluate.
+Locators: tab.playwright.locator(css) and getByRole/getByText/getByLabel/getByPlaceholder/getByTestId, refined with .filter/.nth/.first/.last. Selectors search the top document plus same-origin iframes and open shadow roots; cross-origin frames cannot be searched and not-found errors say how many were skipped. Actions: click, dblclick, fill, type, press, hover, focus, check, uncheck, setChecked, selectOption, setInputFiles (absolute file paths for <input type=file>), scrollIntoViewIfNeeded. Reads: innerText, textContent, inputValue, getAttribute, count, isVisible, isEnabled, isChecked, boundingBox, allTextContents, evaluate.
 
 Use the cheapest state check that answers the question: url(), title(), count(), isVisible(), isEnabled(), or isChecked(). Use snapshot/domSnapshot only when page structure is needed, and screenshots only when pixels matter.
 
@@ -610,11 +610,41 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       const semantic = descriptor.selector.startsWith("aria=")
         ? JSON.parse(decodeURIComponent(descriptor.selector.slice(5)))
         : null;
+      // Search the top document plus same-origin iframes and open shadow
+      // roots, mirroring the daemon-side resolver in
+      // packages/stella-browser/cli/src/native/selector.rs.
+      const roots = [];
+      const visitRoot = (root, depth) => {
+        if (!root || depth > 8) return;
+        roots.push(root);
+        let all;
+        try { all = root.querySelectorAll("*"); } catch (e) { return; }
+        for (const node of all) {
+          if (node.shadowRoot) visitRoot(node.shadowRoot, depth + 1);
+          const tag = node.tagName;
+          if (tag === "IFRAME" || tag === "FRAME") {
+            let doc = null;
+            try { doc = node.contentDocument; } catch (e) { doc = null; }
+            if (doc) visitRoot(doc, depth + 1);
+          }
+        }
+      };
+      visitRoot(document, 0);
+      const queryAll = selector => {
+        const out = [];
+        for (const root of roots) {
+          try { out.push(...root.querySelectorAll(selector)); } catch (e) {}
+        }
+        return out;
+      };
       const visible = element => element.tagName === "BODY" || element.getClientRects().length > 0;
       const uniqueVisible = elements => [...new Set(elements)].filter(visible);
       const labelledText = element => {
         const ids = element.getAttribute("aria-labelledby");
-        return ids ? ids.split(/\\s+/).map(id => document.getElementById(id)?.textContent || "").join(" ") : "";
+        if (!ids) return "";
+        const scope = element.getRootNode();
+        const byId = id => (scope.getElementById ? scope.getElementById(id) : null);
+        return ids.split(/\\s+/).map(id => byId(id)?.textContent || "").join(" ");
       };
       const accessibleName = element => {
         const aria = element.getAttribute("aria-label");
@@ -622,7 +652,8 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         const labelled = labelledText(element);
         if (labelled) return labelled;
         if (element.id) {
-          const label = document.querySelector('label[for="' + CSS.escape(element.id) + '"]');
+          let label = null;
+          try { label = element.getRootNode().querySelector('label[for="' + CSS.escape(element.id) + '"]'); } catch (e) {}
           if (label) return label.textContent || "";
         }
         return element.alt || element.value || element.title || element.placeholder || element.textContent || "";
@@ -634,7 +665,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       };
       let elements;
       if (!semantic) {
-        elements = [...document.querySelectorAll(descriptor.selector)];
+        elements = queryAll(descriptor.selector);
       } else if (semantic.kind === "role") {
         const roleMap = {
           button: ['button', 'input[type="button"]', 'input[type="submit"]', 'input[type="reset"]', '[role="button"]'],
@@ -653,30 +684,35 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
           main: ['main', '[role="main"]'],
         };
         const selectors = roleMap[semantic.role] || ['[role="' + CSS.escape(semantic.role) + '"]'];
-        elements = uniqueVisible(selectors.flatMap(selector => [...document.querySelectorAll(selector)]));
+        elements = uniqueVisible(selectors.flatMap(selector => queryAll(selector)));
         if (semantic.name !== undefined) {
           elements = elements.filter(element => stringMatches(accessibleName(element), semantic.name, semantic.exact));
         }
       } else if (semantic.kind === "text") {
-        elements = uniqueVisible(document.querySelectorAll("body *")).filter(element => {
+        const content = [];
+        for (const root of roots) {
+          const scope = root.body || root;
+          try { content.push(...scope.querySelectorAll("*")); } catch (e) {}
+        }
+        elements = uniqueVisible(content).filter(element => {
           if (!stringMatches(element.textContent, semantic.value, semantic.exact)) return false;
           return ![...element.children].some(child => visible(child) && stringMatches(child.textContent, semantic.value, semantic.exact));
         });
       } else if (semantic.kind === "label") {
         const controls = [];
-        for (const label of document.querySelectorAll("label")) {
+        for (const label of queryAll("label")) {
           if (!stringMatches(label.textContent, semantic.value, semantic.exact)) continue;
           const control = label.control || label.querySelector("input, textarea, select, button");
           if (control) controls.push(control);
         }
-        for (const element of document.querySelectorAll("[aria-label], [aria-labelledby]")) {
+        for (const element of queryAll("[aria-label], [aria-labelledby]")) {
           if (stringMatches(accessibleName(element), semantic.value, semantic.exact)) controls.push(element);
         }
         elements = uniqueVisible(controls);
       } else if (semantic.kind === "placeholder") {
-        elements = uniqueVisible(document.querySelectorAll("[placeholder]")).filter(element => stringMatches(element.getAttribute("placeholder"), semantic.value, semantic.exact));
+        elements = uniqueVisible(queryAll("[placeholder]")).filter(element => stringMatches(element.getAttribute("placeholder"), semantic.value, semantic.exact));
       } else if (semantic.kind === "testid") {
-        elements = uniqueVisible(document.querySelectorAll("[data-testid]")).filter(element => stringMatches(element.getAttribute("data-testid"), semantic.value, semantic.exact));
+        elements = uniqueVisible(queryAll("[data-testid]")).filter(element => stringMatches(element.getAttribute("data-testid"), semantic.value, semantic.exact));
       } else {
         elements = [];
       }
@@ -713,18 +749,40 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   ): Promise<unknown> => {
     const markerAttribute = "data-stella-worker-locator";
     const markerSelector = `[${markerAttribute}="${state.marker}"]`;
+    // Markers can land on elements inside same-origin iframes/shadow roots,
+    // so marker discovery must walk the same roots the resolver searches.
+    const markedElementsJs = `(() => {
+      const marked = [];
+      const visitRoot = (root, depth) => {
+        if (!root || depth > 8) return;
+        try { marked.push(...root.querySelectorAll(${JSON.stringify(markerSelector)})); } catch (e) {}
+        let all;
+        try { all = root.querySelectorAll("*"); } catch (e) { return; }
+        for (const node of all) {
+          if (node.shadowRoot) visitRoot(node.shadowRoot, depth + 1);
+          const tag = node.tagName;
+          if (tag === "IFRAME" || tag === "FRAME") {
+            let doc = null;
+            try { doc = node.contentDocument; } catch (e) { doc = null; }
+            if (doc) visitRoot(doc, depth + 1);
+          }
+        }
+      };
+      visitRoot(document, 0);
+      return marked;
+    })()`;
     const script = `(() => {
       const elements = ${queryExpression(state)};
       const element = elements[0];
       if (!element) throw new Error("Locator did not match an element");
-      for (const previous of document.querySelectorAll(${JSON.stringify(markerSelector)})) {
+      for (const previous of ${markedElementsJs}) {
         previous.removeAttribute(${JSON.stringify(markerAttribute)});
       }
       element.setAttribute(${JSON.stringify(markerAttribute)}, ${JSON.stringify(state.marker)});
       return true;
     })()`;
     const cleanupScript = `(() => {
-      for (const element of document.querySelectorAll(${JSON.stringify(markerSelector)})) {
+      for (const element of ${markedElementsJs}) {
         element.removeAttribute(${JSON.stringify(markerAttribute)});
       }
       return true;
@@ -765,6 +823,77 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     }
   };
 
+  // Tab and Locator keep their methods on a frozen prototype, which
+  // Object.keys()/console.log cannot see; agents probing the API then
+  // conclude the objects have no methods and never find the keyboard or
+  // press(). Mirror the public surface onto every instance as enumerable own
+  // properties (same functions/getters, so behavior and identity are
+  // unchanged) before the instance is frozen.
+  const TAB_PUBLIC_API = Object.freeze([
+    "id",
+    "playwright",
+    "keyboard",
+    "press",
+    "goto",
+    "back",
+    "forward",
+    "reload",
+    "close",
+    "url",
+    "title",
+    "snapshot",
+    "screenshot",
+    "scroll",
+    "expectNewTab",
+  ] as const);
+  const LOCATOR_PUBLIC_API = Object.freeze([
+    "locator",
+    "filter",
+    "nth",
+    "first",
+    "last",
+    "count",
+    "click",
+    "dblclick",
+    "fill",
+    "type",
+    "press",
+    "hover",
+    "focus",
+    "check",
+    "uncheck",
+    "setChecked",
+    "selectOption",
+    "setInputFiles",
+    "scrollIntoViewIfNeeded",
+    "innerText",
+    "textContent",
+    "inputValue",
+    "getAttribute",
+    "isVisible",
+    "isEnabled",
+    "isChecked",
+    "boundingBox",
+    "evaluate",
+    "waitFor",
+    "allTextContents",
+  ] as const);
+  const exposePublicApi = (
+    instance: object,
+    names: readonly string[],
+  ): void => {
+    const prototype = Object.getPrototypeOf(instance) as object | null;
+    if (!prototype) return;
+    for (const name of names) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+      if (!descriptor) continue;
+      Object.defineProperty(instance, name, {
+        ...descriptor,
+        enumerable: true,
+      });
+    }
+  };
+
   const updateTabMetadata = (
     tab: BrowserWorkerTab,
     metadata: Record<string, unknown>,
@@ -779,6 +908,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   class Locator implements BrowserWorkerLocator {
     constructor(state: LocatorState) {
       locatorState.set(this, state);
+      exposePublicApi(this, LOCATOR_PUBLIC_API);
       Object.freeze(this);
     }
 
@@ -1329,6 +1459,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   class Tab implements BrowserWorkerTab {
     constructor(state: TabState) {
       tabState.set(this, state);
+      exposePublicApi(this, TAB_PUBLIC_API);
       Object.freeze(this);
     }
 

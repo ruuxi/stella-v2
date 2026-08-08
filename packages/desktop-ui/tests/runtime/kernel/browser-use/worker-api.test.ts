@@ -207,6 +207,84 @@ describe("browser worker API", () => {
     ]);
   });
 
+  it("exposes enumerable method names so agents can introspect the frozen API", async () => {
+    // Run against the data-URL-restored function: introspection must survive
+    // stringification exactly like the rest of the worker API.
+    const restored = (0, eval)(
+      `(${installBrowserWorkerApi.toString()})`,
+    ) as typeof installBrowserWorkerApi;
+    const browser = restored(async () => ({ success: true, data: {} }));
+    const tab = browser.tabs.get(9);
+    const locator = tab.playwright.getByRole("button", { name: "Save" });
+
+    expect(Object.keys(browser)).toEqual(
+      expect.arrayContaining(["documentation", "chain", "tabs"]),
+    );
+    expect(Object.keys(browser.tabs)).toEqual(
+      expect.arrayContaining(["list", "new", "selected", "get", "finalize"]),
+    );
+    for (const name of [
+      "id",
+      "playwright",
+      "keyboard",
+      "press",
+      "goto",
+      "back",
+      "forward",
+      "reload",
+      "close",
+      "url",
+      "title",
+      "snapshot",
+      "screenshot",
+      "scroll",
+      "expectNewTab",
+    ]) {
+      expect(Object.keys(tab), `tab is missing '${name}'`).toContain(name);
+    }
+    expect(Object.keys(tab.keyboard)).toEqual(
+      expect.arrayContaining(["press", "type"]),
+    );
+    for (const name of [
+      "click",
+      "dblclick",
+      "fill",
+      "type",
+      "press",
+      "hover",
+      "focus",
+      "count",
+      "nth",
+      "first",
+      "last",
+      "filter",
+      "selectOption",
+      "setInputFiles",
+      "scrollIntoViewIfNeeded",
+      "waitFor",
+      "evaluate",
+      "innerText",
+      "inputValue",
+      "isVisible",
+      "boundingBox",
+    ]) {
+      expect(Object.keys(locator), `locator is missing '${name}'`).toContain(
+        name,
+      );
+    }
+    // TS-private internals stay hidden.
+    expect(Object.keys(locator)).not.toContain("state");
+    expect(Object.keys(locator)).not.toContain("action");
+    expect(Object.keys(tab)).not.toContain("state");
+
+    // Introspection must not weaken freezing, identity, or behavior.
+    expect(Object.isFrozen(tab)).toBe(true);
+    expect(Object.isFrozen(locator)).toBe(true);
+    expect(tab.press).toBe(Object.getPrototypeOf(tab).press);
+    await expect(tab.press("Enter")).resolves.toBeDefined();
+    expect(browser.documentation()).toContain("Object.keys");
+  });
+
   it("exposes page-level press and keyboard on the tab handle", async () => {
     const calls: RecordedCall[] = [];
     const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {

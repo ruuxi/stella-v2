@@ -1102,5 +1102,6 @@
       ]
     }
   },
-  "paramsPolicy": "params lists the keys each handler reads or deliberately tolerates; the daemon ignores unknown keys. \"chain\": true means the action may also run as a chain step (is_chain_allowed_action / BROWSER_CHAIN_ACTIONS); every action is accepted top-level unless its note says the backend rejects it."
+  "paramsPolicy": "params lists the keys each handler reads or deliberately tolerates; the daemon ignores unknown keys. \"chain\": true means the action may also run as a chain step (is_chain_allowed_action / BROWSER_CHAIN_ACTIONS); every action is accepted top-level unless its note says the backend rejects it.",
+  "selectorPolicy": "selector params accept snapshot refs (@eN), aria= semantic selectors, and plain CSS. Semantic and CSS selectors resolve against the top document plus every same-origin iframe document and open shadow root (top-document matches first). Cross-origin and sandboxed frames cannot be searched from injected JS; when nothing matches, the error appends 'N cross-origin frame(s) could not be searched'. Elements inside same-origin iframes support the full action set: coordinate actions (click/dblclick/hover/tap) translate the click point across frame boundaries to top-viewport coordinates before Input.dispatchMouseEvent, and focus-based actions (fill/type/press/focus/select/reads) act on the element directly."
 }

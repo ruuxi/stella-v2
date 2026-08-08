@@ -3363,33 +3363,33 @@ async fn wait_for_selector(
         return poll_until_true(client, session_id, &check_fn, timeout_ms).await;
     }
 
+    // Plain CSS: match across every reachable document (top document,
+    // same-origin iframes, open shadow roots) so waits agree with the
+    // unified resolver used by the input commands.
+    let all = super::selector::css_match_all_expression(selector);
     let check_fn = match state {
-        "attached" => format!(
-            "!!document.querySelector({})",
-            serde_json::to_string(selector).unwrap_or_default()
-        ),
-        "detached" => format!(
-            "!document.querySelector({})",
-            serde_json::to_string(selector).unwrap_or_default()
-        ),
+        "attached" => format!("({}).length > 0", all),
+        "detached" => format!("({}).length === 0", all),
         "hidden" => format!(
             r#"(() => {{
-                const el = document.querySelector({sel});
+                const el = ({all})[0];
                 if (!el) return true;
-                const s = window.getComputedStyle(el);
+                const w = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+                const s = w.getComputedStyle(el);
                 return s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) === 0;
             }})()"#,
-            sel = serde_json::to_string(selector).unwrap_or_default()
+            all = all
         ),
         _ => format!(
             r#"(() => {{
-                const el = document.querySelector({sel});
+                const el = ({all})[0];
                 if (!el) return false;
                 const r = el.getBoundingClientRect();
-                const s = window.getComputedStyle(el);
+                const w = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+                const s = w.getComputedStyle(el);
                 return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
             }})()"#,
-            sel = serde_json::to_string(selector).unwrap_or_default()
+            all = all
         ),
     };
 

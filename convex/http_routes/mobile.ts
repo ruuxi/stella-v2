@@ -1037,6 +1037,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
               baseUrls: [],
               platform: null,
               updatedAt: null,
+              lastKnownRegistration: null,
             },
             200,
             origin,
@@ -1049,6 +1050,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             baseUrls: registration.available ? registration.baseUrls : [],
             platform: registration.platform ?? null,
             updatedAt: registration.updatedAt,
+            lastKnownRegistration: {
+              desktopDeviceId: registration.deviceId,
+              baseUrls: registration.baseUrls,
+              platform: registration.platform ?? null,
+              desktopPublicKey: registration.desktopPublicKey ?? null,
+              updatedAt: registration.updatedAt,
+            },
           },
           200,
           origin,
@@ -1313,20 +1321,24 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }
 
         const updatedAt = Date.now();
-        await ctx.runMutation(internal.mobile_bridge.upsertRegistration, {
-          ownerId: owner.ownerId,
-          deviceId,
-          baseUrls,
-          updatedAt,
-          ...(platform ? { platform } : {}),
-          ...(desktopPublicKey ? { desktopPublicKey } : {}),
-        });
+        const result = await ctx.runMutation(
+          internal.mobile_bridge.upsertRegistration,
+          {
+            ownerId: owner.ownerId,
+            deviceId,
+            baseUrls,
+            updatedAt,
+            ...(platform ? { platform } : {}),
+            ...(desktopPublicKey ? { desktopPublicKey } : {}),
+          },
+        );
 
         return jsonResponse(
           {
             ok: true,
+            written: result.written,
             leaseDurationMs: MOBILE_BRIDGE_LEASE_MS,
-            leaseExpiresAt: updatedAt + MOBILE_BRIDGE_LEASE_MS,
+            leaseExpiresAt: result.updatedAt + MOBILE_BRIDGE_LEASE_MS,
           },
           200,
           origin,
@@ -1554,7 +1566,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             nowMs: Date.now(),
           },
         );
-        if (!registration?.available) {
+        // A current mobile client may have reached this desktop through the
+        // additive last-known descriptor after its Convex availability lease
+        // expired. Direct bridge health/challenge validation establishes live
+        // reachability; the durable registration remains the authority for the
+        // desktop public key. Older mobile clients still receive no expired
+        // top-level baseUrls and therefore never enter this path.
+        if (!registration) {
           return errorResponse(403, "Desktop bridge is unavailable", origin);
         }
         if (!registration.desktopPublicKey) {

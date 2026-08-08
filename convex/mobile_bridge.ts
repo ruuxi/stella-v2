@@ -2,13 +2,15 @@ import { ConvexError, v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
+  mutation,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { isAnonymousIdentity, requireSensitiveUserIdentity } from "./auth";
 import { constantTimeEqual, hashSha256Hex } from "./lib/crypto_utils";
 import { requireBoundedString } from "./shared_validators";
 
-export const MOBILE_BRIDGE_LEASE_MS = 150_000;
+export const MOBILE_BRIDGE_LEASE_MS = 15 * 60_000;
 /**
  * The desktop re-registers on a short interval (and often fires two requests
  * back-to-back as its LAN and tunnel URLs become ready). Each register is a
@@ -21,6 +23,8 @@ export const MOBILE_BRIDGE_LEASE_MS = 150_000;
  * comfortably fresh (a third of the lease window).
  */
 const MOBILE_BRIDGE_REGISTRATION_MIN_REFRESH_MS = MOBILE_BRIDGE_LEASE_MS / 3;
+const MOBILE_BRIDGE_REGISTRATION_RATE_LIMIT = 60;
+const MOBILE_BRIDGE_REGISTRATION_RATE_WINDOW_MS = 60_000;
 /**
  * Bridge sessions live for an hour (was 15 minutes) so a phone that persisted
  * its session across an app restart can reconnect without a fresh
@@ -37,6 +41,9 @@ export const MOBILE_BRIDGE_SESSION_TTL_MS = 60 * 60_000;
  */
 const MAX_BASE_URLS_PER_REGISTRATION = 8;
 const MAX_BASE_URL_LENGTH = 2048;
+const MAX_DEVICE_ID_LENGTH = 256;
+const MAX_PLATFORM_LENGTH = 64;
+const MAX_BRIDGE_PUBLIC_KEY_LENGTH = 128;
 const BRIDGE_SESSION_ID_BYTES = 18;
 const BRIDGE_SESSION_SECRET_BYTES = 32;
 const SESSION_CLEANUP_SCAN_LIMIT = 20;
@@ -54,9 +61,17 @@ const sanitizeBaseUrls = (raw: readonly string[]): string[] => {
     const trimmed = value.trim();
     if (!trimmed) continue;
     requireBoundedString(trimmed, "baseUrl", MAX_BASE_URL_LENGTH);
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
+    let normalized: string;
+    try {
+      const url = new URL(trimmed);
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      normalized = url.toString().replace(/\/+$/, "");
+    } catch {
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
     if (out.length >= MAX_BASE_URLS_PER_REGISTRATION) break;
   }
   if (out.length === 0) {
@@ -66,6 +81,44 @@ const sanitizeBaseUrls = (raw: readonly string[]): string[] => {
     });
   }
   return out;
+};
+
+const sanitizeRequiredDeviceId = (value: string): string => {
+  const trimmed = value.trim();
+  requireBoundedString(trimmed, "deviceId", MAX_DEVICE_ID_LENGTH);
+  if (!trimmed) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "deviceId is required",
+    });
+  }
+  return trimmed;
+};
+
+const sanitizeOptionalPlatform = (value: string | undefined) => {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  requireBoundedString(trimmed, "platform", MAX_PLATFORM_LENGTH);
+  return trimmed;
+};
+
+const sanitizeOptionalDesktopPublicKey = (value: string | undefined) => {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  requireBoundedString(
+    trimmed,
+    "desktopPublicKey",
+    MAX_BRIDGE_PUBLIC_KEY_LENGTH,
+  );
+  if (!/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "desktopPublicKey must be base64url encoded",
+    });
+  }
+  return trimmed;
 };
 
 const bridgeRegistrationValidator = v.object({
@@ -83,6 +136,18 @@ const bridgeSessionValidator = v.object({
   sessionSecret: v.string(),
   expiresAt: v.number(),
   desktopPublicKey: v.string(),
+});
+
+const registrationUpsertResultValidator = v.object({
+  written: v.boolean(),
+  updatedAt: v.number(),
+});
+
+const desktopBridgeRegistrationResultValidator = v.object({
+  ok: v.literal(true),
+  written: v.boolean(),
+  leaseDurationMs: v.number(),
+  leaseExpiresAt: v.number(),
 });
 
 const consumedBridgeSessionValidator = v.union(
@@ -140,6 +205,164 @@ const resolveRegistrationPlatform = async (
   return device?.platform ?? undefined;
 };
 
+const consumeRegistrationRateLimit = async (
+  ctx: MutationCtx,
+  ownerId: string,
+  nowMs: number,
+) => {
+  const limit = await ctx.db
+    .query("mobile_bridge_registration_limits")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+
+  if (!limit) {
+    await ctx.db.insert("mobile_bridge_registration_limits", {
+      ownerId,
+      windowStartedAt: nowMs,
+      count: 1,
+    });
+    return;
+  }
+
+  const elapsedMs = nowMs - limit.windowStartedAt;
+  if (elapsedMs < 0 || elapsedMs >= MOBILE_BRIDGE_REGISTRATION_RATE_WINDOW_MS) {
+    await ctx.db.patch(limit._id, {
+      windowStartedAt: nowMs,
+      count: 1,
+    });
+    return;
+  }
+
+  if (limit.count >= MOBILE_BRIDGE_REGISTRATION_RATE_LIMIT) {
+    throw new ConvexError({
+      code: "RATE_LIMITED",
+      message: "Too many desktop bridge registrations. Please wait a moment.",
+      retryAfterMs: Math.max(
+        1,
+        MOBILE_BRIDGE_REGISTRATION_RATE_WINDOW_MS - elapsedMs,
+      ),
+    });
+  }
+
+  await ctx.db.patch(limit._id, { count: limit.count + 1 });
+};
+
+type RegistrationUpsertArgs = {
+  ownerId: string;
+  deviceId: string;
+  baseUrls: string[];
+  updatedAt: number;
+  platform?: string;
+  desktopPublicKey?: string;
+};
+
+const upsertRegistrationRecord = async (
+  ctx: MutationCtx,
+  args: RegistrationUpsertArgs,
+) => {
+  const deviceId = sanitizeRequiredDeviceId(args.deviceId);
+  const sanitizedBaseUrls = sanitizeBaseUrls(args.baseUrls);
+  const platform = sanitizeOptionalPlatform(args.platform);
+  const desktopPublicKey = sanitizeOptionalDesktopPublicKey(
+    args.desktopPublicKey,
+  );
+  const existing = await ctx.db
+    .query("mobile_bridge_registrations")
+    .withIndex("by_ownerId_and_deviceId", (q) =>
+      q.eq("ownerId", args.ownerId).eq("deviceId", deviceId),
+    )
+    .unique();
+
+  if (existing) {
+    // Skip redundant writes: when the caller-supplied content matches what is
+    // already stored and the lease is still comfortably fresh, avoid the
+    // patch entirely. This leaves the registration itself at one indexed read
+    // (in addition to the private limiter row) and avoids subscriber churn.
+    const baseUrlsUnchanged =
+      existing.baseUrls.length === sanitizedBaseUrls.length &&
+      existing.baseUrls.every((url, i) => url === sanitizedBaseUrls[i]);
+    const platformUnchanged =
+      platform === undefined || platform === existing.platform;
+    const desktopPublicKeyUnchanged =
+      desktopPublicKey === undefined ||
+      desktopPublicKey === existing.desktopPublicKey;
+    const leaseStillFresh =
+      args.updatedAt - existing.updatedAt <
+      MOBILE_BRIDGE_REGISTRATION_MIN_REFRESH_MS;
+    if (
+      baseUrlsUnchanged &&
+      platformUnchanged &&
+      desktopPublicKeyUnchanged &&
+      leaseStillFresh
+    ) {
+      return { written: false, updatedAt: existing.updatedAt };
+    }
+
+    await ctx.db.patch(existing._id, {
+      baseUrls: sanitizedBaseUrls,
+      updatedAt: args.updatedAt,
+      ...(platform !== undefined ? { platform } : {}),
+      ...(desktopPublicKey !== undefined ? { desktopPublicKey } : {}),
+    });
+    return { written: true, updatedAt: args.updatedAt };
+  }
+
+  await ctx.db.insert("mobile_bridge_registrations", {
+    ownerId: args.ownerId,
+    deviceId,
+    baseUrls: sanitizedBaseUrls,
+    updatedAt: args.updatedAt,
+    ...(platform !== undefined ? { platform } : {}),
+    ...(desktopPublicKey !== undefined ? { desktopPublicKey } : {}),
+  });
+  return { written: true, updatedAt: args.updatedAt };
+};
+
+/**
+ * Cost-efficient registration path for current desktops. Authentication,
+ * revoked-session policy enforcement, validation, and the indexed upsert all
+ * run in this single mutation invocation. The legacy HTTP route remains for
+ * older desktop builds.
+ */
+export const registerDesktopBridge = mutation({
+  args: {
+    deviceId: v.string(),
+    baseUrls: v.array(v.string()),
+    platform: v.optional(v.string()),
+    desktopPublicKey: v.optional(v.string()),
+  },
+  returns: desktopBridgeRegistrationResultValidator,
+  handler: async (ctx: MutationCtx, args) => {
+    const identity = await requireSensitiveUserIdentity(ctx);
+    if (isAnonymousIdentity(identity)) {
+      throw new ConvexError({
+        code: "UNAUTHORIZED",
+        message: "Sign in with an account to register a desktop bridge.",
+      });
+    }
+
+    const nowMs = Date.now();
+    await consumeRegistrationRateLimit(ctx, identity.tokenIdentifier, nowMs);
+    const result = await upsertRegistrationRecord(ctx, {
+      ownerId: identity.tokenIdentifier,
+      deviceId: args.deviceId,
+      baseUrls: args.baseUrls,
+      updatedAt: nowMs,
+      ...(args.platform !== undefined ? { platform: args.platform } : {}),
+      ...(args.desktopPublicKey !== undefined
+        ? { desktopPublicKey: args.desktopPublicKey }
+        : {}),
+    });
+
+    return {
+      ok: true as const,
+      written: result.written,
+      leaseDurationMs: MOBILE_BRIDGE_LEASE_MS,
+      leaseExpiresAt: getLeaseExpiresAt(result.updatedAt),
+    };
+  },
+});
+
 export const upsertRegistration = internalMutation({
   args: {
     ownerId: v.string(),
@@ -149,66 +372,9 @@ export const upsertRegistration = internalMutation({
     platform: v.optional(v.string()),
     desktopPublicKey: v.optional(v.string()),
   },
-  returns: v.null(),
+  returns: registrationUpsertResultValidator,
   handler: async (ctx: MutationCtx, args) => {
-    const sanitizedBaseUrls = sanitizeBaseUrls(args.baseUrls);
-    const existing = await ctx.db
-      .query("mobile_bridge_registrations")
-      .withIndex("by_ownerId_and_deviceId", (q) =>
-        q.eq("ownerId", args.ownerId).eq("deviceId", args.deviceId),
-      )
-      .unique();
-
-    if (existing) {
-      // Skip redundant writes: when the caller-supplied content matches what is
-      // already stored and the lease is still comfortably fresh, avoid the
-      // patch entirely. This absorbs the desktop's back-to-back duplicate
-      // registrations (and any no-op refreshes) without churning the row or
-      // invalidating the subscriptions that read it. A content change or a
-      // stale-enough lease always falls through to the patch below so the
-      // registration stays authoritative and `updatedAt` keeps the lease live.
-      const baseUrlsUnchanged =
-        existing.baseUrls.length === sanitizedBaseUrls.length &&
-        existing.baseUrls.every((url, i) => url === sanitizedBaseUrls[i]);
-      const platformUnchanged =
-        args.platform === undefined || args.platform === existing.platform;
-      const desktopPublicKeyUnchanged =
-        args.desktopPublicKey === undefined ||
-        args.desktopPublicKey === existing.desktopPublicKey;
-      const leaseStillFresh =
-        args.updatedAt - existing.updatedAt <
-        MOBILE_BRIDGE_REGISTRATION_MIN_REFRESH_MS;
-      if (
-        baseUrlsUnchanged &&
-        platformUnchanged &&
-        desktopPublicKeyUnchanged &&
-        leaseStillFresh
-      ) {
-        return null;
-      }
-
-      await ctx.db.patch(existing._id, {
-        baseUrls: sanitizedBaseUrls,
-        updatedAt: args.updatedAt,
-        ...(args.platform !== undefined ? { platform: args.platform } : {}),
-        ...(args.desktopPublicKey !== undefined
-          ? { desktopPublicKey: args.desktopPublicKey }
-          : {}),
-      });
-      return null;
-    }
-
-    await ctx.db.insert("mobile_bridge_registrations", {
-      ownerId: args.ownerId,
-      deviceId: args.deviceId,
-      baseUrls: sanitizedBaseUrls,
-      updatedAt: args.updatedAt,
-      ...(args.platform !== undefined ? { platform: args.platform } : {}),
-      ...(args.desktopPublicKey !== undefined
-        ? { desktopPublicKey: args.desktopPublicKey }
-        : {}),
-    });
-    return null;
+    return await upsertRegistrationRecord(ctx, args);
   },
 });
 

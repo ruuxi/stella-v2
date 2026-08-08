@@ -305,7 +305,8 @@ export const composioSessionIdFromPayload = (payload: Record<string, unknown>) =
  * Whether a tool-router `GET /session/{id}/toolkits` payload shows the
  * given toolkit with a connected account. Tolerant of the shape
  * variants the tool-router API returns (items/data arrays, nested
- * toolkit slugs, connection objects or bare booleans).
+ * toolkit slugs, item-level connected_account objects, connection
+ * objects or bare booleans).
  */
 export const composioToolkitConnectedFromPayload = (
   payload: Record<string, unknown>,
@@ -334,6 +335,14 @@ export const composioToolkitConnectedFromPayload = (
     ).toLowerCase();
     if (slug !== wanted) continue;
     if (item.is_connected === true || item.isConnected === true) return true;
+    const itemAccount =
+      item.connected_account && typeof item.connected_account === "object"
+        ? (item.connected_account as Record<string, unknown>)
+        : item.connectedAccount && typeof item.connectedAccount === "object"
+          ? (item.connectedAccount as Record<string, unknown>)
+          : null;
+    const itemAccountStatus = readString(itemAccount?.status)?.toUpperCase();
+    if (itemAccountStatus) return itemAccountStatus === "ACTIVE";
     const connection =
       item.connection && typeof item.connection === "object"
         ? (item.connection as Record<string, unknown>)

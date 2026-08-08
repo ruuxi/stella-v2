@@ -176,11 +176,11 @@ describe("Stella relay route shape", () => {
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
-  it("Stella alias (designer) resolves to Anthropic relay", () => {
+  it("retired Stella aliases resolve to the Flash relay", () => {
     const route = makeRoute("stella/designer");
     const model = route!.model;
-    expect(model.api).toBe("anthropic-messages");
-    expect(model.provider).toBe("anthropic");
+    expect(model.api).toBe("openai-responses");
+    expect(model.provider).toBe("fireworks");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
@@ -196,18 +196,20 @@ describe("Stella relay route shape", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
     expect(model.provider).toBe("fireworks");
-    expect((model as typeof model & { upstreamModelId?: string }).upstreamModelId)
-      .toBe("accounts/fireworks/models/deepseek-v4-flash-0731");
+    expect(
+      (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
+    ).toBe("accounts/fireworks/models/deepseek-v4-flash-0731");
     expect(model.thinkingLevelMap?.xhigh).toBe("high");
   });
 
-  it("Stella standard mode resolves to the Muse chat-completions relay", () => {
+  it("Stella standard compatibility alias resolves to V4 Flash", () => {
     const route = makeRoute("stella/standard");
     const model = route!.model;
-    expect(model.api).toBe("openai-completions");
-    expect(model.provider).toBe("openrouter");
-    expect((model as typeof model & { upstreamModelId?: string }).upstreamModelId)
-      .toBe("meta/muse-spark-1.1");
+    expect(model.api).toBe("openai-responses");
+    expect(model.provider).toBe("fireworks");
+    expect(
+      (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
+    ).toBe("accounts/fireworks/models/deepseek-v4-flash-0731");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 });

@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
-import { isRestrictedModelOverrideAudience } from "@/global/billing/audience";
-
-const ASSISTANT_MODEL_KEYS = ["orchestrator", "general"] as const;
 
 type LocalModelPreferences = {
   modelOverrides?: Record<string, string>;
@@ -13,38 +10,27 @@ const isStellaOverride = (modelId: string | undefined): modelId is string =>
   typeof modelId === "string" && modelId.startsWith("stella/");
 
 /**
- * When a user signs out or drops to a restricted Stella audience, premium
- * Stella overrides become invalid. Clear just those assistant overrides so
- * the runtime and UI fall back to the backend-provided free/default model.
+ * Clear retired Stella overrides for every audience so stale preferences
+ * cannot keep routing through a model removed from the managed catalog.
  */
 export function useRestrictedStellaModelReset() {
-  const { models, audience, loading } = useModelCatalog();
+  const { models, loading } = useModelCatalog();
   const resetKeyRef = useRef<string | null>(null);
 
-  const disallowedStellaModelIds = useMemo(() => {
+  const availableStellaModelIds = useMemo(() => {
     const ids = new Set<string>();
     for (const model of models) {
-      if (
-        model.provider === "stella" &&
-        model.allowedForAudience === false
-      ) {
+      if (model.provider === "stella") {
         ids.add(model.id);
-        if (model.upstreamModel) ids.add(model.upstreamModel);
       }
     }
     return ids;
   }, [models]);
 
   useEffect(() => {
-    if (!isRestrictedModelOverrideAudience(audience)) {
-      resetKeyRef.current = null;
-      return;
-    }
     if (loading) return;
 
-    const resetKey = `${audience}:${Array.from(disallowedStellaModelIds)
-      .sort()
-      .join("|")}`;
+    const resetKey = Array.from(availableStellaModelIds).sort().join("|");
     if (resetKeyRef.current === resetKey) return;
 
     let cancelled = false;
@@ -64,11 +50,10 @@ export function useRestrictedStellaModelReset() {
       const nextOverrides = { ...currentOverrides };
       let changed = false;
 
-      for (const key of ASSISTANT_MODEL_KEYS) {
-        const override = currentOverrides[key];
+      for (const [key, override] of Object.entries(currentOverrides)) {
         if (
           isStellaOverride(override) &&
-          disallowedStellaModelIds.has(override)
+          !availableStellaModelIds.has(override)
         ) {
           delete nextOverrides[key];
           changed = true;
@@ -98,5 +83,5 @@ export function useRestrictedStellaModelReset() {
     return () => {
       cancelled = true;
     };
-  }, [audience, disallowedStellaModelIds, loading]);
+  }, [availableStellaModelIds, loading]);
 }

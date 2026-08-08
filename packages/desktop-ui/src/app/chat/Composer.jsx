@@ -6,7 +6,9 @@ import { ComposerContextRow, useComposerContextSuggestions, } from "./ComposerCo
 import { ComposerLeadRow } from "./ComposerLeadRow";
 import { ComposerAddMenu } from "./ComposerAddMenu";
 import { ComposerMicButton, ComposerRealtimeVoiceButton, ComposerStopButton, ComposerSubmitButton, } from "@/features/chat/ComposerPrimitives";
+import { useComposerModelPinned } from "@/features/chat/composer-model-pin-store";
 import { deriveComposerState, hasAttachedComposerChips, } from "@/features/chat/composer-context";
+import { MiniModelPicker } from "./MiniModelPicker";
 import { handleComposerPaste } from "@/features/chat/lib/paste-context";
 import { useScreenshotPreview, ScreenshotPreviewOverlay, } from "./ScreenshotPreview";
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
@@ -75,7 +77,13 @@ function ComposerImpl({ message, setMessage, chatContext, setChatContext, select
     const hasText = message.trim().length > 0;
     const dictationBelow = dictation.isRecordingVisible && hasText;
     const dictationInline = dictation.isRecordingVisible && !hasText;
-    const isExpanded = composerExpanded || dictationBelow;
+    // A pinned model picker keeps the toolbar row visible even while the
+    // textarea is empty (`updateComposerTextareaExpansion` only clears
+    // `composerExpanded`, so the pin wins). Inline dictation replaces the
+    // whole toolbar row, so the pin defers to it rather than expanding an
+    // empty shell around the recording bar.
+    const modelPinned = useComposerModelPinned();
+    const isExpanded = composerExpanded || dictationBelow || (modelPinned && !dictationInline);
     useAnimatedComposerShell({
         shellRef,
         contentRef: shellContentRef,
@@ -175,6 +183,7 @@ function ComposerImpl({ message, setMessage, chatContext, setChatContext, select
                   </div>
 
                   <div className="composer-toolbar-right">
+                    {modelPinned && <MiniModelPicker />}
                     <div className="composer-voice-controls">
                       <ComposerMicButton className="composer-mic" isTranscribing={dictation.isTranscribing} disabled={dictation.isTranscribing} onClick={dictation.toggle} title={dictation.error
                 ? `Dictation: ${dictation.error}`

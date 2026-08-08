@@ -101,6 +101,50 @@ export function getModelDisplayLabel(
   return modelNamesById.get(modelId) ?? modelId;
 }
 
+/** Friendly names for Claude Code CLI model aliases. */
+const CLAUDE_CODE_ALIAS_LABELS: Record<string, string> = {
+  default: "Default",
+  best: "Best",
+  fable: "Fable",
+  opus: "Opus",
+  sonnet: "Sonnet",
+  haiku: "Haiku",
+  opusplan: "Opus Plan",
+  "sonnet[1m]": "Sonnet · 1M",
+  "opus[1m]": "Opus · 1M",
+};
+
+/**
+ * Display label for a saved override id, engine routes and local models
+ * included. Shared by the sidebar picker and the composer's pinned mini
+ * picker so both render the same names.
+ */
+export function getModelPickerDisplayLabel(
+  modelId: string,
+  modelNamesById: ReadonlyMap<string, string>,
+): string {
+  if (modelId.startsWith("claude-code/")) {
+    const engineModel = modelId.slice("claude-code/".length);
+    return `Claude Code · ${CLAUDE_CODE_ALIAS_LABELS[engineModel] ?? engineModel}`;
+  }
+  if (modelId.startsWith("codex-cli/")) {
+    return `ChatGPT · ${modelId.slice("codex-cli/".length)}`;
+  }
+  if (modelId.startsWith("local/")) {
+    const localId = modelId.slice("local/".length);
+    const slash = localId.indexOf("/");
+    if (slash > 0) {
+      const maybeBaseUrl = decodeURIComponent(localId.slice(0, slash));
+      const customModel = localId.slice(slash + 1).trim();
+      if (/^https?:\/\//i.test(maybeBaseUrl) && customModel) {
+        return `Local ${customModel}`;
+      }
+    }
+    return `Local ${localId}`;
+  }
+  return getModelDisplayLabel(modelId, modelNamesById);
+}
+
 export function getDefaultModelOptionLabel(
   agentType: string,
   defaultModels: Record<string, string>,

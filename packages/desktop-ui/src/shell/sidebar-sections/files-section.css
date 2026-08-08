@@ -15,7 +15,13 @@
   display: flex;
   flex: 0 0 auto;
   justify-content: flex-end;
+  gap: 8px;
   padding: 10px 12px 12px;
+}
+
+.pill-btn.work-models-pin-button[data-active] {
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-strong);
 }
 
 .pill-btn.work-models-button {

@@ -91,6 +91,17 @@ const toBounds = (rect: DOMRect): BrowserBounds => ({
   height: Math.max(0, Math.round(rect.height)),
 });
 
+const boundsKey = (layout: BrowserLayout) =>
+  `${layout.pageBounds.x},${layout.pageBounds.y},${layout.pageBounds.width},${layout.pageBounds.height}|` +
+  `${layout.surfaceBounds.x},${layout.surfaceBounds.y},${layout.surfaceBounds.width},${layout.surfaceBounds.height}`;
+
+/* How long to keep re-reading the rects after something disturbs the
+   layout, and how many identical frames end the watch. Sized for the
+   panel's 460ms open/close ease (`.right-sidebar` in right-sidebar.css)
+   with headroom for a slow frame. */
+const LAYOUT_SETTLE_MS = 900;
+const LAYOUT_SETTLE_FRAMES = 3;
+
 const normalizeAddress = (raw: string): string | null => {
   const value = raw.trim();
   if (!value) return null;
@@ -310,43 +321,98 @@ export function BrowserSection() {
       return;
     }
 
+    /*
+     * The page rect has to be watched for MOVEment, not just resize.
+     *
+     * The panel opens by easing `.right-sidebar`'s width 0 → N with
+     * `overflow: hidden`, while the inner frame keeps a fixed width — a
+     * clip-reveal (see right-sidebar-panel.css). Because the aside is
+     * `margin-left: auto` in a flex row, the inner frame's *size never
+     * changes* during that 460ms; only its x slides leftward into place.
+     *
+     * ResizeObserver reports size, not position, so it stays silent for
+     * the whole animation. Syncing once on the opening frame therefore
+     * pinned the WebContentsView to the frame's mid-animation x — far to
+     * the right of where the panel finally lands — and nothing ever
+     * corrected it. That's the "content pushed to the right" you only see
+     * after a close/reopen (selecting the tab while the panel is already
+     * open never animates).
+     *
+     * So: after anything disturbs the layout, keep re-reading the rects
+     * each frame until they hold still, and push only real changes.
+     */
     let frame = 0;
+    let settleDeadline = 0;
+    let stableFrames = 0;
+    let lastKey = "";
+
     const syncLayout = () => {
       frame = 0;
       const layout = {
         pageBounds: toBounds(page.getBoundingClientRect()),
         surfaceBounds: toBounds(surface.getBoundingClientRect()),
       };
-      if (
+      const collapsed =
         layout.pageBounds.width <= 0 ||
         layout.pageBounds.height <= 0 ||
         layout.surfaceBounds.width <= 0 ||
-        layout.surfaceBounds.height <= 0
+        layout.surfaceBounds.height <= 0;
+
+      if (!collapsed) {
+        const key = boundsKey(layout);
+        if (key === lastKey) {
+          stableFrames += 1;
+        } else {
+          lastKey = key;
+          stableFrames = 0;
+          if (shownRef.current) void api.setLayout(layout);
+          else {
+            shownRef.current = true;
+            void api.show(layout);
+          }
+        }
+      }
+
+      // A collapsed rect means the panel hasn't opened far enough to
+      // measure yet — keep watching rather than counting it as settled.
+      if (
+        (collapsed || stableFrames < LAYOUT_SETTLE_FRAMES) &&
+        performance.now() < settleDeadline
       ) {
-        return;
-      }
-      if (shownRef.current) void api.setLayout(layout);
-      else {
-        shownRef.current = true;
-        void api.show(layout);
+        scheduleFrame();
       }
     };
-    const scheduleLayout = () => {
-      if (frame) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(syncLayout);
+
+    const scheduleFrame = () => {
+      if (!frame) frame = requestAnimationFrame(syncLayout);
     };
+    const watchLayout = () => {
+      settleDeadline = performance.now() + LAYOUT_SETTLE_MS;
+      stableFrames = 0;
+      scheduleFrame();
+    };
+
     const observer =
       typeof ResizeObserver === "undefined"
         ? null
-        : new ResizeObserver(scheduleLayout);
+        : new ResizeObserver(watchLayout);
     observer?.observe(surface);
     observer?.observe(page);
-    window.addEventListener("resize", scheduleLayout);
-    scheduleLayout();
+    window.addEventListener("resize", watchLayout);
+    /* The width ease is the common case and the settle window above
+       already covers it, but a transition that starts later (expand
+       toggle, breakpoint swap) moves the frame after we've stopped
+       watching. Bind on the animating ancestor itself — `transitionend`
+       bubbles up from descendants, never down from an ancestor, so a
+       listener on `surface` would never hear the panel's own ease. */
+    const panel = surface.closest(".right-sidebar");
+    panel?.addEventListener("transitionend", watchLayout);
+    watchLayout();
     return () => {
       if (frame) cancelAnimationFrame(frame);
       observer?.disconnect();
-      window.removeEventListener("resize", scheduleLayout);
+      window.removeEventListener("resize", watchLayout);
+      panel?.removeEventListener("transitionend", watchLayout);
       if (shownRef.current) void api.hide();
       shownRef.current = false;
     };

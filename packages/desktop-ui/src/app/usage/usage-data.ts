@@ -62,30 +62,27 @@ export const filterUsageRecords = (
 export const summarizeUsage = (
   records: readonly LocalModelUsageRecord[],
 ): UsageSummary => {
-  const summary = records.reduce<UsageSummary>(
-    (total, record) => ({
-      calls: total.calls + 1,
-      inputTokens: total.inputTokens + record.inputTokens,
-      cacheReadTokens: total.cacheReadTokens + record.cacheReadTokens,
-      cacheWriteTokens: total.cacheWriteTokens + record.cacheWriteTokens,
-      outputTokens: total.outputTokens + record.outputTokens,
-      reasoningTokens: total.reasoningTokens + record.reasoningTokens,
-      totalTokens: total.totalTokens + record.totalTokens,
-      totalCostUsd: total.totalCostUsd + record.totalCostUsd,
-      cacheReadRate: 0,
-    }),
-    {
-      calls: 0,
-      inputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      outputTokens: 0,
-      reasoningTokens: 0,
-      totalTokens: 0,
-      totalCostUsd: 0,
-      cacheReadRate: 0,
-    },
-  );
+  const summary: UsageSummary = {
+    calls: 0,
+    inputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+    totalCostUsd: 0,
+    cacheReadRate: 0,
+  };
+  for (const record of records) {
+    summary.calls += 1;
+    summary.inputTokens += record.inputTokens;
+    summary.cacheReadTokens += record.cacheReadTokens;
+    summary.cacheWriteTokens += record.cacheWriteTokens;
+    summary.outputTokens += record.outputTokens;
+    summary.reasoningTokens += record.reasoningTokens;
+    summary.totalTokens += record.totalTokens;
+    summary.totalCostUsd += record.totalCostUsd;
+  }
   const promptTokens =
     summary.inputTokens + summary.cacheReadTokens + summary.cacheWriteTokens;
   summary.cacheReadRate =
@@ -104,9 +101,16 @@ export const groupUsageByThread = (
   }
   return [...buckets.values()]
     .map((bucket) => {
-      const latest = bucket.reduce((best, record) =>
-        record.timestamp > best.timestamp ? record : best,
-      );
+      let latest = bucket[0];
+      let firstAt = latest.timestamp;
+      let lastAt = latest.timestamp;
+      const models = new Set<string>();
+      for (const record of bucket) {
+        if (record.timestamp > latest.timestamp) latest = record;
+        if (record.timestamp < firstAt) firstAt = record.timestamp;
+        if (record.timestamp > lastAt) lastAt = record.timestamp;
+        models.add(record.model);
+      }
       return {
         ...summarizeUsage(bucket),
         threadId: latest.threadId,
@@ -123,9 +127,9 @@ export const groupUsageByThread = (
         ...(latest.parentAgentId
           ? { parentAgentId: latest.parentAgentId }
           : {}),
-        firstAt: Math.min(...bucket.map((record) => record.timestamp)),
-        lastAt: Math.max(...bucket.map((record) => record.timestamp)),
-        models: [...new Set(bucket.map((record) => record.model))],
+        firstAt,
+        lastAt,
+        models: [...models],
       };
     })
     .sort(
@@ -135,6 +139,19 @@ export const groupUsageByThread = (
         b.lastAt - a.lastAt,
     );
 };
+
+const hourLabelFormat = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
+const dayLabelFormat = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+});
+const monthLabelFormat = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  year: "2-digit",
+});
 
 const bucketStart = (
   timestamp: number,
@@ -157,8 +174,12 @@ export const buildUsageTimeline = (
   range: UsageRange,
 ): UsageTimelinePoint[] => {
   if (records.length === 0) return [];
-  const first = Math.min(...records.map((record) => record.timestamp));
-  const last = Math.max(...records.map((record) => record.timestamp));
+  let first = records[0].timestamp;
+  let last = records[0].timestamp;
+  for (const record of records) {
+    if (record.timestamp < first) first = record.timestamp;
+    if (record.timestamp > last) last = record.timestamp;
+  }
   const spanDays = (last - first) / (24 * 60 * 60 * 1000);
   const granularity =
     range === "24h"
@@ -180,19 +201,10 @@ export const buildUsageTimeline = (
       timestamp,
       label:
         granularity === "hour"
-          ? new Date(timestamp).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            })
+          ? hourLabelFormat.format(timestamp)
           : granularity === "month"
-            ? new Date(timestamp).toLocaleDateString([], {
-                month: "short",
-                year: "2-digit",
-              })
-            : new Date(timestamp).toLocaleDateString([], {
-                month: "short",
-                day: "numeric",
-              }),
+            ? monthLabelFormat.format(timestamp)
+            : dayLabelFormat.format(timestamp),
     }));
 };
 

@@ -377,12 +377,18 @@ export const AssistantMessageRow = memo(function AssistantMessageRow({ row, conv
           {row.sourceDiffPayloads && row.sourceDiffPayloads.length > 0 ? (<SourceDiffEndResource batchId={row.id} payloads={row.sourceDiffPayloads}/>) : row.resourcePayload ? (<EndResourceCard payload={row.resourcePayload}/>) : null}
           {hasScheduleReceipt && row.scheduleReceipt && (<ScheduleReceiptChip affected={row.scheduleReceipt.affected} summary={row.scheduleReceipt.summary}/>)}
           {row.customSlot ? row.customSlot : null}
-          {hasText && (
-        // Mounted while streaming too (held invisible + inert via the
-        // `streaming` flag). The strip reserves its full height from the
-        // start (see message-actions.css), so finalizing the message
-        // causes no layout jump. It only becomes hover/focus-revealable
-        // once settled.
+          {hasText && !row.isIntraTurn && (
+        // Only a turn's FINAL assistant message carries the action strip.
+        // Mid-turn segments (preambles that ended in a tool call — flagged
+        // `isIntraTurn` by the row projection off the persisted runtime
+        // metadata) render no strip at all, so they don't reserve its 24px
+        // height + flex gap between each intra-turn message.
+        //
+        // For the (potential) final message the strip is mounted while
+        // streaming too (held invisible + inert via the `streaming` flag).
+        // It reserves its full height from the start (see
+        // message-actions.css), so finalizing the message causes no layout
+        // jump. It only becomes hover/focus-revealable once settled.
         <MessageActions text={text} messageKey={row.id} showReadAloud align="start" streaming={Boolean(row.isStreaming)}/>)}
         </div>
       </div>);

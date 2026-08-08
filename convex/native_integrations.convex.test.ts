@@ -329,6 +329,114 @@ describe("Composio integration catalog and execution", () => {
     );
   });
 
+  it("treats an item-level ACTIVE connected_account as connected (real tool-router shape)", async () => {
+    const t = createTest();
+    await publishOutlook(t);
+    await storeSession(t);
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                name: "Outlook",
+                slug: "outlook",
+                enabled: true,
+                connected_account: {
+                  id: "ca_12345",
+                  user_id: "stella_abcdef",
+                  status: "ACTIVE",
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { messages: [] } }), {
+          status: 200,
+        }),
+      );
+
+    const response = await asOwner(t).fetch(
+      "/api/native-integrations/run",
+      runRequest("OUTLOOK_QUERY_EMAILS", {
+        payload: { tags: ["ok"], status: "draft" },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ data: { messages: [] } });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      "/session/session_existing/execute",
+    );
+  });
+
+  it("treats an item-level INITIATED connected_account as not connected (real tool-router shape)", async () => {
+    const t = createTest();
+    await publishOutlook(t);
+    await storeSession(t);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              name: "Outlook",
+              slug: "outlook",
+              enabled: true,
+              connected_account: {
+                id: "ca_12345",
+                user_id: "stella_abcdef",
+                status: "INITIATED",
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const response = await asOwner(t).fetch(
+      "/api/native-integrations/run",
+      runRequest("OUTLOOK_QUERY_EMAILS", {
+        payload: { tags: ["ok"], status: "draft" },
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/execute")),
+    ).toBe(false);
+  });
+
+  it("treats a toolkit item without a connected_account as not connected (real tool-router shape)", async () => {
+    const t = createTest();
+    await publishOutlook(t);
+    await storeSession(t);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [{ name: "Outlook", slug: "outlook", enabled: true }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const response = await asOwner(t).fetch(
+      "/api/native-integrations/run",
+      runRequest("OUTLOOK_QUERY_EMAILS", {
+        payload: { tags: ["ok"], status: "draft" },
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/execute")),
+    ).toBe(false);
+  });
+
   it("redacts Composio error bodies before any execute retry", async () => {
     const t = createTest();
     await publishOutlook(t);

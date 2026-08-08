@@ -67,6 +67,17 @@ const waitFor = async (predicate: () => boolean) => {
   throw new Error("condition not reached");
 };
 
+// `waitFor` for fake-timer tests: `setImmediate` stays real when only
+// `setTimeout`/`clearTimeout` are faked, so real async I/O (fs, catalog
+// reads) still progresses without advancing the faked clock.
+const flushUntil = async (predicate: () => boolean) => {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error("condition not reached");
+};
+
 afterEach(async () => {
   setConnectorTokenStoreBroker(null);
   vi.unstubAllGlobals();
@@ -254,5 +265,145 @@ describe("ConnectorConnectService canonical guards", () => {
       accountVerified: true,
       executable: true,
     });
+  });
+
+  it("resolves a backend Composio card via the completion status poll", async () => {
+    // The Composio-hosted OAuth page never redirects back into the app —
+    // the only completion signal is the backend's connected-account
+    // status endpoint. The accepted card must stay in "connecting" until
+    // that poll confirms, then settle connected and leave the connector
+    // locally enabled/executable for subsequent connector_status checks.
+    const root = mkdtempSync(path.join(os.tmpdir(), "stella-connect-service-"));
+    roots.push(root);
+    await writeCachedServerCatalog(root, [
+      backendEntry("googledocs", "Google Docs"),
+    ]);
+    const statusCalls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const value = String(url);
+        if (value.endsWith("/api/native-oauth/providers")) {
+          return new Response(JSON.stringify({ providers: [] }), {
+            status: 200,
+          });
+        }
+        if (value.endsWith("/api/native-integrations/connect-link")) {
+          return new Response(
+            JSON.stringify({ url: "https://dashboard.composio.dev/link/lk_test" }),
+            { status: 200 },
+          );
+        }
+        if (value.includes("/api/native-integrations/status")) {
+          statusCalls.push(value);
+          return new Response(JSON.stringify({ connected: true }), {
+            status: 200,
+          });
+        }
+        return new Response("offline", { status: 503 });
+      }),
+    );
+    const { service, credentialService } = makeService(root, true);
+    credentialService.requestExternalOAuthApproval.mockResolvedValue({
+      ok: true,
+    });
+
+    const outcome = service.requestConnection({
+      id: "googledocs",
+      name: "Google Docs",
+    });
+    await waitFor(() => send.mock.calls.length === 1);
+    const card = send.mock.calls[0]![1] as { requestId: string };
+    service.respond({ requestId: card.requestId, action: "accept" });
+
+    await expect(outcome).resolves.toEqual({ ok: true, status: "connected" });
+    expect(credentialService.requestExternalOAuthApproval).toHaveBeenCalledOnce();
+    expect(
+      credentialService.requestExternalOAuthApproval.mock.calls[0]![0],
+    ).toMatchObject({
+      resourceUrl: "https://dashboard.composio.dev/link/lk_test",
+      presentation: "headless",
+    });
+    expect(statusCalls.length).toBeGreaterThan(0);
+    expect(statusCalls[0]).toContain("id=googledocs");
+    const phases = send.mock.calls
+      .filter(([channel]) => channel === "connector-connect:update")
+      .map(([, payload]) => (payload as { phase: string }).phase);
+    expect(phases).toEqual(["connecting", "connected"]);
+    await expect(
+      getNativeConnectorReadiness(root, backendEntry("googledocs", "Google Docs")),
+    ).resolves.toMatchObject({
+      enabled: true,
+      connected: true,
+      executable: true,
+    });
+  });
+
+  it("backstops a wedged connecting flow at the card timeout", async () => {
+    // Regression: the card timeout used to fire only for unanswered
+    // ("pending") cards, on the assumption that an accepted flow is
+    // always settled by a downstream owner. A wedged await inside the
+    // connect flow (e.g. a hung completion probe) therefore stranded the
+    // card on "Waiting for …" forever — and with it the blocked
+    // CLI/tool call. The timeout must settle "connecting" flows too.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const root = mkdtempSync(
+        path.join(os.tmpdir(), "stella-connect-service-"),
+      );
+      roots.push(root);
+      await writeCachedServerCatalog(root, [
+        backendEntry("googledocs", "Google Docs"),
+      ]);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string | URL | Request) => {
+          const value = String(url);
+          if (value.endsWith("/api/native-oauth/providers")) {
+            return new Response(JSON.stringify({ providers: [] }), {
+              status: 200,
+            });
+          }
+          if (value.endsWith("/api/native-integrations/connect-link")) {
+            return new Response(
+              JSON.stringify({
+                url: "https://dashboard.composio.dev/link/lk_test",
+              }),
+              { status: 200 },
+            );
+          }
+          return new Response("offline", { status: 503 });
+        }),
+      );
+      const { service, credentialService } = makeService(root, true);
+      let approvalRequested = false;
+      credentialService.requestExternalOAuthApproval.mockImplementation(() => {
+        approvalRequested = true;
+        // Never settles — models a wedged network await downstream of
+        // the accepted card.
+        return new Promise(() => undefined);
+      });
+
+      const outcome = service.requestConnection({
+        id: "googledocs",
+        name: "Google Docs",
+      });
+      await flushUntil(() => send.mock.calls.length === 1);
+      const card = send.mock.calls[0]![1] as { requestId: string };
+      service.respond({ requestId: card.requestId, action: "accept" });
+      await flushUntil(() => approvalRequested);
+
+      await vi.advanceTimersByTimeAsync(9.5 * 60 * 1000);
+      await expect(outcome).resolves.toEqual({
+        ok: false,
+        reason: "timeout",
+      });
+      const phases = send.mock.calls
+        .filter(([channel]) => channel === "connector-connect:update")
+        .map(([, payload]) => (payload as { phase: string }).phase);
+      expect(phases).toEqual(["connecting", "timeout"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

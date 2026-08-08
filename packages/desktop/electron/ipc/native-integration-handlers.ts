@@ -152,6 +152,10 @@ export const loadConfiguredOAuthProviders = async (
       accept: "application/json",
       authorization: `Bearer ${authToken}`,
     },
+    // Bounded: this runs inside connect flows whose card must never be
+    // stranded by a hung request; a slow backend degrades to "no
+    // configured providers" instead of blocking.
+    signal: AbortSignal.timeout(10_000),
   }).catch(() => null);
   if (!response?.ok) return emptyConfiguredOAuthProviders();
   const payload = (await response
@@ -179,8 +183,10 @@ const createBackendIntegrationConnectLink = async (
   // link creation and polling can't silently skip the confirmation.
   auth: { siteUrl: string; authToken: string },
   id: string,
+  signal?: AbortSignal,
 ) => {
   const { siteUrl, authToken } = auth;
+  const timeout = AbortSignal.timeout(30_000);
   const response = await fetch(
     `${siteUrl}/api/native-integrations/connect-link`,
     {
@@ -191,8 +197,13 @@ const createBackendIntegrationConnectLink = async (
         authorization: `Bearer ${authToken}`,
       },
       body: JSON.stringify({ id }),
+      signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
     },
-  );
+  ).catch(() => {
+    // Distinguishes a hung/failed request from an HTTP error below; the
+    // connect flow surfaces this on the card instead of hanging.
+    throw new Error("Stella's backend did not respond while creating the connection link.");
+  });
   const payload = (await response.json().catch(() => null)) as {
     url?: unknown;
     error?: unknown;
@@ -308,6 +319,7 @@ export const ensureNativeCredential = async (
     const url = await createBackendIntegrationConnectLink(
       { siteUrl, authToken },
       id,
+      options.abortSignal,
     );
     // "ok" here only means the browser was opened with the user's
     // consent — Composio OAuth finishes on a hosted page with no

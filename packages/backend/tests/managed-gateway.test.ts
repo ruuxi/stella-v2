@@ -21,13 +21,27 @@ describe("managed gateway", () => {
     expect(config.apiKeyEnvVar).toBe("XAI_API_KEY");
   });
 
-  it("infers meta from the meta/ model prefix", () => {
+  it("infers direct providers from their model prefixes", () => {
     expect(inferManagedGatewayProviderFromModel("meta/muse-spark-1.1")).toBe(
       "meta",
     );
     expect(
+      inferManagedGatewayProviderFromModel("wafer/DeepSeek-V4-Flash-0731-Fast"),
+    ).toBe("wafer");
+    expect(
       resolveManagedGatewayProvider({ model: "meta/muse-spark-1.1" }),
     ).toBe("meta");
+    expect(
+      resolveManagedGatewayProvider({
+        model: "wafer/DeepSeek-V4-Flash-0731-Fast",
+      }),
+    ).toBe("wafer");
+  });
+
+  it("points Wafer at chat completions using WAFER_API_KEY", () => {
+    const config = getManagedGatewayConfig("wafer");
+    expect(config.baseURL).toBe("https://pass.wafer.ai/v1");
+    expect(config.apiKeyEnvVar).toBe("WAFER_API_KEY");
   });
 
   it("points Meta gateway at api.meta.ai with Stella env first", () => {

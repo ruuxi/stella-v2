@@ -16,6 +16,8 @@ import {
 
 const FLASH_MODEL = "accounts/fireworks/models/deepseek-v4-flash-0731";
 const FLASH_SELECTION = `stella/${FLASH_MODEL}`;
+const FAST_MODEL = "wafer/DeepSeek-V4-Flash-0731-Fast";
+const FAST_SELECTION = `stella/${FAST_MODEL}`;
 
 describe("managed model config", () => {
   it("routes every Stella mode and agent task to DeepSeek V4 Flash", () => {
@@ -44,18 +46,29 @@ describe("managed model config", () => {
     }
   });
 
-  it("publishes exactly one selectable Stella model for every audience", () => {
+  it("publishes the standard and fast DeepSeek variants for every audience", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
-      expect(listStellaCatalogModels(audience)).toEqual([
-        {
-          id: FLASH_SELECTION,
-          name: "DeepSeek V4 Flash 0731",
-          provider: "stella",
-          upstreamModel: FLASH_MODEL,
-          type: "language",
-          allowedForAudience: true,
-        },
-      ]);
+      expect(listStellaCatalogModels(audience)).toEqual(
+        expect.arrayContaining([
+          {
+            id: FLASH_SELECTION,
+            name: "DeepSeek V4 Flash 0731",
+            provider: "stella",
+            upstreamModel: FLASH_MODEL,
+            type: "language",
+            allowedForAudience: true,
+          },
+          {
+            id: FAST_SELECTION,
+            name: "DeepSeek V4 Flash 0731 Fast",
+            provider: "stella",
+            upstreamModel: FAST_MODEL,
+            type: "language",
+            allowedForAudience: true,
+          },
+        ]),
+      );
+      expect(listStellaCatalogModels(audience)).toHaveLength(2);
     }
   });
 
@@ -70,6 +83,7 @@ describe("managed model config", () => {
     expect(resolveStellaModelSelection(FLASH_SELECTION, "pro")).toBe(
       FLASH_MODEL,
     );
+    expect(resolveStellaModelSelection(FAST_SELECTION, "pro")).toBe(FAST_MODEL);
 
     for (const retiredSelection of [
       "stella/standard",
@@ -91,7 +105,7 @@ describe("managed model config", () => {
     );
   });
 
-  it("price-syncs only DeepSeek V4 Flash", () => {
-    expect(listManagedModelIds()).toEqual([FLASH_MODEL]);
+  it("price-syncs both DeepSeek V4 Flash variants", () => {
+    expect(listManagedModelIds()).toEqual([FLASH_MODEL, FAST_MODEL]);
   });
 });

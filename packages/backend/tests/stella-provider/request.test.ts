@@ -24,6 +24,9 @@ describe("toProviderNativeModel", () => {
       "muse-spark-1.1",
     );
     expect(toProviderNativeModel("x-ai/grok-4.5", "xai")).toBe("grok-4.5");
+    expect(
+      toProviderNativeModel("wafer/DeepSeek-V4-Flash-0731-Fast", "wafer"),
+    ).toBe("DeepSeek-V4-Flash-0731-Fast");
   });
 
   it("passes through ids that do not match the relay provider", () => {
@@ -376,7 +379,7 @@ describe("resolveRequestedStellaModel", () => {
     );
   });
 
-  it("allows Go and lower audiences to pick only V4 Flash", () => {
+  it("allows Go and lower audiences to pick both V4 Flash variants", () => {
     for (const audience of [
       "anonymous",
       "free",
@@ -396,6 +399,20 @@ describe("resolveRequestedStellaModel", () => {
       expect(flash.resolvedModel).toBe(
         "accounts/fireworks/models/deepseek-v4-flash-0731",
       );
+
+      const fast = resolveRequestedStellaModel(
+        "orchestrator",
+        { model: "stella/wafer/DeepSeek-V4-Flash-0731-Fast" },
+        audience,
+      );
+      expect(fast.requestedModel).toBe(
+        "stella/wafer/DeepSeek-V4-Flash-0731-Fast",
+      );
+      expect(fast.resolvedModel).toBe("wafer/DeepSeek-V4-Flash-0731-Fast");
+      expect(fast.config.managedGatewayProvider).toBe("wafer");
+      expect(fast.config.providerOptions).toEqual({
+        openai: { reasoningEffort: "max" },
+      });
 
       for (const blockedModel of [
         "stella/standard",

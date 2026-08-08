@@ -4,6 +4,28 @@ import { bodyForUpstream, upstreamUrl } from "../../convex/stella_provider";
 import type { AuthorizedStellaRequest } from "../../convex/stella_provider/shared";
 import type { ManagedGatewayProvider } from "../../convex/lib/managed_gateway";
 
+const RESOLVED_MODELS: Record<ManagedGatewayProvider, string> = {
+  anthropic: "anthropic/claude-opus-5",
+  fireworks: "accounts/fireworks/models/kimi-k2p6",
+  google: "google/gemini-3.6-flash",
+  meta: "meta/muse-spark-1.1",
+  openai: "openai/gpt-5.5",
+  openrouter: "x-ai/grok-4.5",
+  wafer: "wafer/DeepSeek-V4-Flash-0731-Fast",
+  xai: "x-ai/grok-4.5",
+};
+
+const UPSTREAM_MODELS: Record<ManagedGatewayProvider, string> = {
+  anthropic: "claude-opus-5",
+  fireworks: "accounts/fireworks/models/kimi-k2p6",
+  google: "gemini-3.6-flash",
+  meta: "muse-spark-1.1",
+  openai: "gpt-5.5",
+  openrouter: "x-ai/grok-4.5",
+  wafer: "DeepSeek-V4-Flash-0731-Fast",
+  xai: "grok-4.5",
+};
+
 const makeAuthorized = (
   provider: ManagedGatewayProvider,
   requestJson: AuthorizedStellaRequest["requestJson"] = {
@@ -16,30 +38,8 @@ const makeAuthorized = (
   relayProvider: provider,
   requestJson,
   requestedModel: "stella/google/gemini-3.6-flash",
-  resolvedModel:
-    provider === "fireworks"
-      ? "accounts/fireworks/models/kimi-k2p6"
-      : provider === "xai"
-        ? "x-ai/grok-4.5"
-        : provider === "openai"
-          ? "openai/gpt-5.5"
-          : provider === "openrouter"
-            ? "x-ai/grok-4.5"
-            : provider === "meta"
-              ? "meta/muse-spark-1.1"
-              : "google/gemini-3.6-flash",
-  upstreamModel:
-    provider === "fireworks"
-      ? "accounts/fireworks/models/kimi-k2p6"
-      : provider === "xai"
-        ? "grok-4.5"
-        : provider === "openai"
-          ? "gpt-5.5"
-          : provider === "openrouter"
-            ? "x-ai/grok-4.5"
-            : provider === "meta"
-              ? "muse-spark-1.1"
-              : "gemini-3.6-flash",
+  resolvedModel: RESOLVED_MODELS[provider],
+  upstreamModel: UPSTREAM_MODELS[provider],
   serviceTier: "priority",
   apiKey: "test-key",
   tokenEstimate: { inputTokens: 1, outputTokens: 1 },
@@ -49,6 +49,39 @@ const requestFor = (path: string): Request =>
   new Request(`https://stella.test${path}`, { method: "POST" });
 
 describe("bodyForUpstream", () => {
+  it("uses Wafer chat completions with max reasoning and preserved thinking", () => {
+    expect(
+      upstreamUrl(
+        "wafer",
+        requestFor("/api/stella/relay/chat/completions"),
+        "DeepSeek-V4-Flash-0731-Fast",
+      ),
+    ).toBe("https://pass.wafer.ai/v1/chat/completions");
+
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("wafer", {
+          model: "stella/wafer/DeepSeek-V4-Flash-0731-Fast",
+          messages: [{ role: "user", content: "Hello!" }],
+          max_tokens: 256,
+          reasoning_effort: "max",
+          stream: true,
+        }),
+        "wafer",
+        requestFor("/api/stella/relay/chat/completions"),
+      ),
+    );
+
+    expect(body).toMatchObject({
+      model: "DeepSeek-V4-Flash-0731-Fast",
+      messages: [{ role: "user", content: "Hello!" }],
+      max_tokens: 256,
+      reasoning_effort: "max",
+      preserve_thinking: true,
+      stream_options: { include_usage: true },
+    });
+  });
+
   it("forwards service_tier only to Fireworks", () => {
     const body = JSON.parse(
       bodyForUpstream(

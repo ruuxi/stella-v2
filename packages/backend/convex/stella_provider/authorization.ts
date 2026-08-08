@@ -41,6 +41,7 @@ const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
   google: "google/",
   openai: "openai/",
   meta: "meta/",
+  wafer: "wafer/",
 };
 
 const STELLA_RELAY_PROBE_SECRET_ENV = "STELLA_RELAY_PROBE_SECRET";
@@ -57,7 +58,8 @@ export function toProviderNativeModel(
   provider: ManagedGatewayProvider,
 ): string {
   const prefix = providerModelPrefix[provider];
-  const stripped = prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
+  const stripped =
+    prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
   if (provider === "anthropic") return stripped.replace(/\./g, "-");
   return stripped;
 }
@@ -313,14 +315,12 @@ export async function authorizeStellaRelayRequest(args: {
       },
     );
     if (!limit.allowed) {
-      const response = stellaProviderErrorResponse(
-        429,
-        limit.message,
-        request,
-      );
+      const response = stellaProviderErrorResponse(429, limit.message, request);
       response.headers.set(
         "Retry-After",
-        String(Math.ceil((limit.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS) / 1000)),
+        String(
+          Math.ceil((limit.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS) / 1000),
+        ),
       );
       return response;
     }

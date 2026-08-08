@@ -17,9 +17,10 @@ import {
 } from "../../../src/global/settings/lib/model-defaults";
 
 describe("settings model catalog", () => {
-  it("scaffolds only DeepSeek V4 Flash while the backend catalog loads", () => {
+  it("scaffolds both DeepSeek V4 Flash variants while the backend catalog loads", () => {
     expect(STELLA_PRESET_FALLBACK_MODELS.map((model) => model.id)).toEqual([
       "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+      "stella/wafer/DeepSeek-V4-Flash-0731-Fast",
     ]);
   });
 

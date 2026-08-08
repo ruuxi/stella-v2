@@ -18,14 +18,14 @@ export const STELLA_PROVIDER = "stella";
 // Opaque "let the backend pick" sentinel. The concrete model is chosen per
 // agent type + audience on the backend; this stays the per-agent *default*.
 export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
-// Legacy branded aliases remain parseable for old clients, but the public
-// catalog exposes only the single supported raw DeepSeek model.
+// Legacy branded aliases remain parseable for old clients, while the public
+// catalog exposes the supported standard and fast DeepSeek variants.
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 8, 0, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 8, 22, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -51,6 +51,7 @@ export type StellaDefaultEntry = {
 
 const DISPLAY_NAMES: Record<string, string> = {
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
+  "wafer/DeepSeek-V4-Flash-0731-Fast": "DeepSeek V4 Flash 0731 Fast",
 };
 
 const titleCase = (value: string): string =>
@@ -199,6 +200,19 @@ export const resolveStellaModelConfigForSelection = (
     return { config: getModeConfig(parsed.mode, audience), applied: true };
   }
   if (allowed && parsed?.kind === "upstream") {
+    if (parsed.model === "wafer/DeepSeek-V4-Flash-0731-Fast") {
+      return {
+        config: {
+          model: parsed.model,
+          managedGatewayProvider: "wafer",
+          temperature: 1,
+          providerOptions: {
+            openai: { reasoningEffort: "max" },
+          },
+        },
+        applied: true,
+      };
+    }
     return {
       config: {
         ...getModelConfig(agentType, audience),
@@ -216,8 +230,7 @@ export const resolveStellaModelConfigForSelection = (
 export const listStellaCatalogModels = (
   audience: ManagedModelAudience = "free",
 ): StellaCatalogModel[] => [
-  // Compatibility aliases stay resolvable but are intentionally absent here:
-  // the picker publishes exactly one selectable Stella model.
+  // Compatibility aliases stay resolvable but are intentionally absent here.
   ...listUpstreamManagedModels().map<StellaCatalogModel>((upstreamModel) => ({
     id: toStellaModelId(upstreamModel),
     name: deriveDisplayName(upstreamModel),

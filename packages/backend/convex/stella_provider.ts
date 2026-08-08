@@ -1,6 +1,9 @@
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { type ManagedModelAudience } from "./agent/model";
+import {
+  type ManagedModelAudience,
+  WAFER_DEEPSEEK_V4_FLASH_FAST_MODEL,
+} from "./agent/model";
 import {
   corsPreflightHandler,
   errorResponse,
@@ -214,6 +217,8 @@ export const upstreamUrl = (
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
+    case "wafer":
+      return `${base}/chat/completions`;
     default: {
       const _exhaustive: never = provider;
       return _exhaustive;
@@ -539,6 +544,12 @@ export const bodyForUpstream = (
   }
   if (provider === "fireworks" && authorized.serviceTier !== undefined) {
     body.service_tier = authorized.serviceTier;
+  }
+  if (
+    provider === "wafer" &&
+    authorized.resolvedModel === WAFER_DEEPSEEK_V4_FLASH_FAST_MODEL
+  ) {
+    body.preserve_thinking = true;
   }
 
   if (isResponsesRequest(provider, request)) {

@@ -261,14 +261,22 @@ export const createConnectorStatusTool = (
     if (priorDecline) {
       return {
         result: `The user previously declined connecting ${entry.name}, so no connect card was shown. If it comes up, mention once — concisely — that they can connect ${entry.name} from the Store whenever they like, then proceed by other means (agents fall back to the browser). Do not offer again.`,
-        details: { id: entry.id, status: "declined_previously" },
+        details: {
+          id: entry.id,
+          status: "declined",
+          reason: "declined_previously",
+        },
       };
     }
 
     if (!entry.connectable || !options.requestConnectorConnection) {
       return {
         result: `${entry.name} ${state.enabled ? "is locally enabled but does not have a verified provider credential" : "exists in the catalog"} and cannot be connected from here${entry.connectable ? "" : " (its connect flow isn't available in this build)"}. It is not ready to use; proceed via the browser/computer fallback or the Store.`,
-        details: { ...diagnostics, status: "not_connectable" },
+        details: {
+          ...diagnostics,
+          status: "not_connected",
+          reason: "flow_unavailable",
+        },
       };
     }
 
@@ -307,7 +315,11 @@ export const createConnectorStatusTool = (
       // cancelled too. Nothing to tell the user.
       return {
         result: `The turn was cancelled before the user answered the ${entry.name} connect card.`,
-        details: { id: entry.id, status: "cancelled" },
+        details: {
+          id: entry.id,
+          status: "not_connected",
+          reason: "turn_cancelled",
+        },
       };
     }
     if (outcome.reason === "cancelled" || outcome.reason === "timeout") {
@@ -316,12 +328,21 @@ export const createConnectorStatusTool = (
       // gate), so the honest phrasing is "for now", not "ever" or even
       // "this conversation".
       return {
-        result: `The connect card for ${entry.name} was ${outcome.reason === "timeout" ? "not answered in time" : "dismissed"}. Don't re-offer it for now; mention once that ${entry.name} is available in the Store, and proceed via other means (browser fallback).`,
-        details: { id: entry.id, status: outcome.reason },
+        result: `The connect card for ${entry.name} was ${outcome.reason === "timeout" ? "not answered in time" : "dismissed"} — the user neither connected nor declined. Don't re-offer it for now; mention once that ${entry.name} is available in the Store, and proceed via other means (browser fallback).`,
+        details: {
+          id: entry.id,
+          status: "not_connected",
+          reason: outcome.reason === "timeout" ? "timeout" : "dismissed",
+        },
       };
     }
     return {
-      error: `Could not run the ${entry.name} connect flow: ${outcome.reason}. Proceed via the browser/computer fallback.`,
+      error: `Could not run the ${entry.name} connect flow: ${outcome.reason}. It is not connected. Proceed via the browser/computer fallback.`,
+      details: {
+        id: entry.id,
+        status: "not_connected",
+        reason: outcome.reason,
+      },
     };
   },
 });

@@ -108,12 +108,18 @@ export class ConnectorConnectService {
                 const meta = this.meta.get(requestId);
                 if (!this.pending.has(requestId))
                     return;
-                // A card the user never answered times out; a flow that is
-                // mid-OAuth stays owned by the credential service's own
-                // timeout, which settles the connect flow promise below.
-                if (meta?.state === "pending") {
-                    this.settle(requestId, { ok: false, reason: "timeout" }, "timeout");
+                // A card the user never answered times out. An accepted flow
+                // normally settles itself well before this fires (the
+                // credential service's modal timeout, or the backend Composio
+                // completion wait's own deadline) — but none of those owners
+                // can cover a wedged await (e.g. a hung status probe), so
+                // this is the unconditional last-resort backstop: nothing may
+                // strand the card (and the CLI/tool call blocked on it) in
+                // "connecting" forever.
+                if (meta?.state === "connecting") {
+                    meta.oauthAbort.abort(new Error("Connection timed out."));
                 }
+                this.settle(requestId, { ok: false, reason: "timeout" }, "timeout");
             }, CARD_TIMEOUT_MS);
             this.pending.set(requestId, {
                 resolve,
@@ -177,9 +183,13 @@ export class ConnectorConnectService {
                 const meta = this.meta.get(requestId);
                 if (!this.pending.has(requestId))
                     return;
-                if (meta?.state === "pending") {
-                    this.settle(requestId, { ok: false, reason: "timeout" }, "timeout");
+                // Same last-resort backstop as the integration card above:
+                // the install poll is self-bounded, but nothing else may
+                // strand an accepted card in "connecting" forever.
+                if (meta?.state === "connecting") {
+                    meta.oauthAbort.abort(new Error("Connection timed out."));
                 }
+                this.settle(requestId, { ok: false, reason: "timeout" }, "timeout");
             }, CARD_TIMEOUT_MS);
             this.pending.set(requestId, {
                 resolve,

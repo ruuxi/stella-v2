@@ -41,10 +41,27 @@ const readConnected = (payload: unknown): boolean =>
       (payload as { connected?: unknown }).connected === true,
   );
 
+/**
+ * Per-attempt bound on a single status request. Without it a hung
+ * request (half-open socket, stalled response body) blocks the wait
+ * loop indefinitely — the loop's deadline is only checked *between*
+ * probes — which wedged the connect card in "connecting" forever.
+ */
+const DEFAULT_PROBE_TIMEOUT_MS = 10_000;
+
+const probeSignal = (probeTimeoutMs: number, signal?: AbortSignal) => {
+  const timeout = AbortSignal.timeout(probeTimeoutMs);
+  return signal ? AbortSignal.any([timeout, signal]) : timeout;
+};
+
 export const probeBackendIntegrationConnection = async (options: {
   siteUrl: string;
   authToken: string;
   id: string;
+  /** Bounds a single request (default 10s); a slow probe is an "error". */
+  probeTimeoutMs?: number;
+  /** Cancels an in-flight request, not just the wait loop around it. */
+  signal?: AbortSignal;
   fetchImpl?: typeof fetch;
 }): Promise<BackendIntegrationProbeResult> => {
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -56,6 +73,10 @@ export const probeBackendIntegrationConnection = async (options: {
         accept: "application/json",
         authorization: `Bearer ${options.authToken}`,
       },
+      signal: probeSignal(
+        options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
+        options.signal,
+      ),
     },
   ).catch(() => null);
   if (!response) return "error";
@@ -90,6 +111,8 @@ export const waitForBackendIntegrationConnection = async (options: {
   id: string;
   timeoutMs?: number;
   intervalMs?: number;
+  /** Per-attempt request bound passed through to each probe. */
+  probeTimeoutMs?: number;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   /** Injectable clock for tests. */

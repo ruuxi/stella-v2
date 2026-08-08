@@ -3,7 +3,6 @@ import {
   getModeConfig,
   getModelConfig,
   isModelMode,
-  isPaidManagedAudience,
   isStellaModelAllowedForAudience,
   listManagedModelIds,
   LOCKED_AGENT_TYPES,
@@ -19,15 +18,14 @@ export const STELLA_PROVIDER = "stella";
 // Opaque "let the backend pick" sentinel. The concrete model is chosen per
 // agent type + audience on the backend; this stays the per-agent *default*.
 export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
-// Branded tier aliases ("modes"): user-selectable overrides whose concrete
-// upstream model is resolved per audience from `BASE_MODE_CONFIGS`. The default
-// routing above is unchanged — modes are opt-in picks, not the default.
+// Legacy branded aliases remain parseable for old clients, but the public
+// catalog exposes only the single supported raw DeepSeek model.
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 6, 1, 52);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 8, 0, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -53,19 +51,6 @@ export type StellaDefaultEntry = {
 
 const DISPLAY_NAMES: Record<string, string> = {
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
-  "accounts/fireworks/models/deepseek-v4-pro": "DeepSeek V4 Pro",
-  "accounts/fireworks/models/kimi-k2p6": "Kimi K2.6",
-  "accounts/fireworks/models/kimi-k2p7-code": "Kimi K2.7 Code",
-  "anthropic/claude-opus-4.5": "Claude Opus 4.5",
-  "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
-  "inception/mercury-2": "Mercury 2",
-  "moonshotai/kimi-k2.5": "Kimi K2.5",
-  "openai/gpt-5.4": "GPT-5.4",
-  "openai/gpt-5.5": "GPT-5.5",
-  "openai/gpt-5.6-luna": "GPT-5.6 Luna",
-  "x-ai/grok-4.5": "Grok 4.5",
-  "meta/muse-spark-1.2": "Muse Spark 1.2",
-  "zai/glm-4.7": "GLM 4.7",
 };
 
 const titleCase = (value: string): string =>
@@ -96,21 +81,10 @@ const catalogRoutingModel = (config: ModelConfig): string =>
     ? `openrouter/${config.model}`
     : config.model;
 
-// These models remain managed because branded Stella modes route through
-// them, but exposing the raw upstream rows duplicates those mode choices in
-// the picker. Keep the routes and billing sync; hide only the direct picks.
-const HIDDEN_DIRECT_CATALOG_MODEL_IDS: ReadonlySet<string> = new Set([
-  "accounts/fireworks/models/kimi-k3",
-  "openai/gpt-5.6-sol",
-  "google/gemini-3.6-flash",
-  "anthropic/claude-fable-5",
-  "anthropic/claude-opus-5",
-]);
-
 const listUpstreamManagedModels = (): string[] => {
-  return listManagedModelIds()
-    .filter((model) => !HIDDEN_DIRECT_CATALOG_MODEL_IDS.has(model))
-    .sort((a, b) => deriveDisplayName(a).localeCompare(deriveDisplayName(b)));
+  return listManagedModelIds().sort((a, b) =>
+    deriveDisplayName(a).localeCompare(deriveDisplayName(b)),
+  );
 };
 
 export const toStellaModelId = (upstreamModel: string): string =>
@@ -118,66 +92,6 @@ export const toStellaModelId = (upstreamModel: string): string =>
 
 export const toStellaModeModelId = (mode: ModelMode): string =>
   `${STELLA_PROVIDER}/${mode}`;
-
-type StellaAliasMode = {
-  id: string;
-  name: string;
-  mode: ModelMode;
-  type: "language" | "multimodal";
-  /**
-   * Minimum audience that may see this branded mode in the picker:
-   * - `pro`: pro-and-higher tiers only.
-   * - `paid`: any paid plan (includes go, which otherwise can't pin models).
-   * Undefined means every audience sees it.
-   */
-  minAudience?: "pro" | "paid";
-};
-
-const STELLA_ALIAS_MODES: ReadonlyArray<StellaAliasMode> = [
-  {
-    id: STELLA_LIGHT_MODEL,
-    name: "Stella Light",
-    mode: "light",
-    type: "language" as const,
-  },
-  {
-    id: STELLA_STANDARD_MODEL,
-    name: "Stella Standard",
-    mode: "standard",
-    type: "multimodal" as const,
-  },
-  {
-    id: STELLA_PRIORITY_MODEL,
-    name: "Stella Priority",
-    mode: "priority",
-    type: "language" as const,
-    minAudience: "pro",
-  },
-];
-
-const isProOrHigherAudience = (audience: ManagedModelAudience): boolean =>
-  audience === "pro" ||
-  audience === "pro_fallback";
-
-const isAliasVisibleForAudience = (
-  alias: StellaAliasMode,
-  audience: ManagedModelAudience,
-): boolean => {
-  if (alias.minAudience === "pro") return isProOrHigherAudience(audience);
-  if (alias.minAudience === "paid") return isPaidManagedAudience(audience);
-  return true;
-};
-
-const getStaticStellaAliases = (audience: ManagedModelAudience = "free") =>
-  STELLA_ALIAS_MODES.filter((alias) =>
-    isAliasVisibleForAudience(alias, audience),
-  ).map((alias) => {
-    const config = getModeConfig(alias.mode, audience);
-    return {
-      ...alias,
-      upstreamModel: catalogRoutingModel(config),
-    };
-  });
 
 export const isStellaModel = (model: string | null | undefined): boolean => {
   const trimmed = model?.trim();
@@ -231,6 +145,13 @@ export const resolveStellaModelSelection = (
   selection?: string | null,
   audience: ManagedModelAudience = "free",
 ): string => {
+  const trimmed = selection?.trim();
+  if (
+    trimmed?.startsWith(`${STELLA_PROVIDER}/`) &&
+    !isStellaModelAllowedForAudience(trimmed, audience)
+  ) {
+    throw new Error(`Unsupported Stella model selection: ${trimmed}`);
+  }
   const parsed = parseStellaModelSelection(selection);
   if (parsed?.kind === "upstream") {
     return parsed.model;
@@ -238,7 +159,6 @@ export const resolveStellaModelSelection = (
   if (parsed?.kind === "mode") {
     return getModeConfig(parsed.mode, audience).model;
   }
-  const trimmed = selection?.trim();
   if (trimmed && !trimmed.startsWith(`${STELLA_PROVIDER}/`)) {
     return trimmed;
   }
@@ -296,31 +216,14 @@ export const resolveStellaModelConfigForSelection = (
 export const listStellaCatalogModels = (
   audience: ManagedModelAudience = "free",
 ): StellaCatalogModel[] => [
-  // Branded tier modes first (the curated picker presets), then every
-  // pinnable managed model.
-  ...getStaticStellaAliases(audience).map<StellaCatalogModel>((alias) => ({
-    id: alias.id,
-    name: alias.name,
-    provider: STELLA_PROVIDER,
-    upstreamModel: alias.upstreamModel,
-    type: alias.type,
-    allowedForAudience: isStellaModelAllowedForAudience(alias.id, audience),
-  })),
+  // Compatibility aliases stay resolvable but are intentionally absent here:
+  // the picker publishes exactly one selectable Stella model.
   ...listUpstreamManagedModels().map<StellaCatalogModel>((upstreamModel) => ({
     id: toStellaModelId(upstreamModel),
     name: deriveDisplayName(upstreamModel),
     provider: STELLA_PROVIDER,
     upstreamModel,
-    // Muse Spark and Grok 4.5 are natively multimodal; everything
-    // else remains language-only in the static catalog until models.dev rows
-    // or an explicit override say otherwise.
-    type:
-      upstreamModel.startsWith("meta/muse-spark") ||
-      upstreamModel === "x-ai/grok-4.5"
-        ? "multimodal"
-        : "language",
-    // Pro+ may pin every managed model. Restricted audiences only receive the
-    // explicit raw-model exceptions declared by the shared policy helper.
+    type: "language",
     allowedForAudience: isStellaModelAllowedForAudience(
       toStellaModelId(upstreamModel),
       audience,

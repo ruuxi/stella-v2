@@ -11,15 +11,15 @@ import { getModeConfig, getModelConfig } from "../../convex/agent/model";
 describe("toProviderNativeModel", () => {
   it("strips provider prefix for matching upstream", () => {
     // Anthropic ids use dashes, not dots — converted at the wire boundary.
-    expect(
-      toProviderNativeModel("anthropic/claude-opus-5", "anthropic"),
-    ).toBe("claude-opus-5");
+    expect(toProviderNativeModel("anthropic/claude-opus-5", "anthropic")).toBe(
+      "claude-opus-5",
+    );
     expect(toProviderNativeModel("openai/gpt-5.6-luna", "openai")).toBe(
       "gpt-5.6-luna",
     );
-    expect(
-      toProviderNativeModel("google/gemini-3.6-flash", "google"),
-    ).toBe("gemini-3.6-flash");
+    expect(toProviderNativeModel("google/gemini-3.6-flash", "google")).toBe(
+      "gemini-3.6-flash",
+    );
     expect(toProviderNativeModel("meta/muse-spark-1.1", "meta")).toBe(
       "muse-spark-1.1",
     );
@@ -287,40 +287,35 @@ describe("resolveRequestedStellaModel", () => {
     );
   });
 
-  it("resolves an explicit upstream pick to its native model id and clears fallback", () => {
+  it("rejects a retired explicit upstream pick for Pro", () => {
     const resolved = resolveRequestedStellaModel(
       "orchestrator",
       { model: "stella/anthropic/claude-opus-5" },
       "pro",
     );
-    expect(resolved.requestedModel).toBe("stella/anthropic/claude-opus-5");
-    expect(resolved.resolvedModel).toBe("anthropic/claude-opus-5");
-    expect(resolved.config.managedGatewayProvider).toBe("anthropic");
+    expect(resolved.requestedModel).toBe("stella/default");
+    expect(resolved.resolvedModel).toBe(
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    );
+    expect(resolved.config.managedGatewayProvider).toBe("fireworks");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
-  it("infers the gateway from the model prefix for an upstream pick", () => {
-    expect(
-      resolveRequestedStellaModel(
-        "orchestrator",
-        { model: "stella/openai/gpt-5.5" },
-        "pro",
-      ).config.managedGatewayProvider,
-    ).toBe("openai");
-    expect(
-      resolveRequestedStellaModel(
-        "orchestrator",
-        { model: "stella/google/gemini-3.6-flash" },
-        "pro",
-      ).config.managedGatewayProvider,
-    ).toBe("google");
-    expect(
-      resolveRequestedStellaModel(
-        "orchestrator",
-        { model: "stella/meta/muse-spark-1.1" },
-        "pro",
-      ).config.managedGatewayProvider,
-    ).toBe("meta");
+  it("accepts the raw DeepSeek V4 Flash pick for Pro", () => {
+    const resolved = resolveRequestedStellaModel(
+      "orchestrator",
+      {
+        model: "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+      },
+      "pro",
+    );
+    expect(resolved.requestedModel).toBe(
+      "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+    );
+    expect(resolved.resolvedModel).toBe(
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+    );
+    expect(resolved.config.managedGatewayProvider).toBe("fireworks");
   });
 
   it("coerces an override to the backend default for restricted audiences", () => {
@@ -347,14 +342,16 @@ describe("resolveRequestedStellaModel", () => {
     );
   });
 
-  it("resolves a branded mode override to its per-audience model", () => {
+  it("rejects a retired branded mode override for Pro", () => {
     const resolved = resolveRequestedStellaModel(
       "orchestrator",
       { model: "stella/designer" },
       "pro",
     );
-    expect(resolved.requestedModel).toBe("stella/designer");
-    expect(resolved.resolvedModel).toBe(getModeConfig("designer", "pro").model);
+    expect(resolved.requestedModel).toBe("stella/default");
+    expect(resolved.resolvedModel).toBe(
+      getModelConfig("orchestrator", "pro").model,
+    );
     expect(resolved.config.fallback).toBeUndefined();
   });
 
@@ -379,7 +376,7 @@ describe("resolveRequestedStellaModel", () => {
     );
   });
 
-  it("allows Go and lower audiences to pick only V4 Flash and Luna", () => {
+  it("allows Go and lower audiences to pick only V4 Flash", () => {
     for (const audience of [
       "anonymous",
       "free",
@@ -389,8 +386,7 @@ describe("resolveRequestedStellaModel", () => {
       const flash = resolveRequestedStellaModel(
         "orchestrator",
         {
-          model:
-            "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+          model: "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
         },
         audience,
       );
@@ -401,17 +397,9 @@ describe("resolveRequestedStellaModel", () => {
         "accounts/fireworks/models/deepseek-v4-flash-0731",
       );
 
-      const luna = resolveRequestedStellaModel(
-        "orchestrator",
-        { model: "stella/openai/gpt-5.6-luna" },
-        audience,
-      );
-      expect(luna.requestedModel).toBe("stella/openai/gpt-5.6-luna");
-      expect(luna.resolvedModel).toBe("openai/gpt-5.6-luna");
-      expect(luna.config.managedGatewayProvider).toBe("openai");
-
       for (const blockedModel of [
         "stella/standard",
+        "stella/openai/gpt-5.6-luna",
         "stella/accounts/fireworks/models/deepseek-v4-pro",
         "stella/x-ai/grok-4.5",
       ]) {

@@ -110,24 +110,16 @@ const managedUpstreamForBareStellaModel = (
 };
 
 export const resolveOfflineStellaModelId = (modelId: string): string | null => {
-  // Offline fallback for the per-mode upstream model when the server catalog
-  // metadata is unavailable. Keep in sync with the backend `BASE_MODE_CONFIGS`
-  // (convex/agent/model.ts) — the catalog is the source of truth at runtime.
+  // Offline fallback for legacy aliases when the server catalog metadata is
+  // unavailable. All aliases now resolve to Stella's single supported model.
   switch (modelId) {
     case "stella/light":
-      return STELLA_DEFAULT_UPSTREAM_MODEL;
     case "stella/priority":
-      return "accounts/fireworks/models/kimi-k2p7-code";
     case "stella/builder":
-      return "openai/gpt-5.5";
     case "stella/designer":
-      return "anthropic/claude-opus-4.8";
     case "stella/vision":
-      return "google/gemini-3-flash-preview";
     case "stella/max":
-      return "anthropic/claude-fable-5";
     case STELLA_STANDARD_MODEL:
-      return "openrouter/x-ai/grok-4.5";
     case STELLA_DEFAULT_MODEL:
       return STELLA_DEFAULT_UPSTREAM_MODEL;
     default: {

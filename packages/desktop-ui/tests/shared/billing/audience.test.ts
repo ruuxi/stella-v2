@@ -15,7 +15,7 @@ describe("billing audience model restrictions", () => {
     expect(isRestrictedModelOverrideAudience("pro_fallback")).toBe(false);
   });
 
-  it("lets restricted audiences pick only V4 Flash and Luna", () => {
+  it("lets restricted audiences pick only V4 Flash", () => {
     expect(isRestrictedAudienceAllowedStellaModelId("stella/light")).toBe(true);
     expect(
       isRestrictedAudienceAllowedStellaModelId(
@@ -23,10 +23,8 @@ describe("billing audience model restrictions", () => {
       ),
     ).toBe(true);
     expect(
-      isRestrictedAudienceAllowedStellaModelId(
-        "stella/openai/gpt-5.6-luna",
-      ),
-    ).toBe(true);
+      isRestrictedAudienceAllowedStellaModelId("stella/openai/gpt-5.6-luna"),
+    ).toBe(false);
     expect(isRestrictedAudienceAllowedStellaModelId("stella/standard")).toBe(
       false,
     );

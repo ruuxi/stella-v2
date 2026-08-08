@@ -6,7 +6,7 @@ import type {
 import "./EmbeddedWebsiteView.css";
 
 /**
- * In-DOM `<webview>` host for the embedded stella.sh Store/Billing pages.
+ * In-DOM `<webview>` host for the embedded stella.sh Store page.
  *
  * This replaces the old main-process `WebContentsView` embed 1:1:
  * - session/partition: same `persist:…:website` partition (via
@@ -59,19 +59,18 @@ const getEmbedConfig = (): Promise<StoreWebEmbedConfig | null> => {
 const buildEmbedUrl = (
   baseUrl: string,
   params: {
-    route: "store" | "billing";
     tab?: string;
     packageId?: string;
     theme?: EmbeddedWebsiteTheme;
   },
 ): string => {
   const url = new URL(baseUrl);
-  url.pathname = params.route === "billing" ? "/billing" : "/store";
+  url.pathname = "/store";
   url.search = "";
-  if (params.route !== "billing" && params.tab) {
+  if (params.tab) {
     url.searchParams.set("tab", params.tab);
   }
-  if (params.route !== "billing" && params.packageId) {
+  if (params.packageId) {
     url.searchParams.set("package", params.packageId);
   }
   url.searchParams.set("embedded", "1");
@@ -95,14 +94,12 @@ const buildEmbedUrl = (
 };
 
 type EmbeddedWebsiteViewProps = {
-  route: "store" | "billing";
   tab?: string;
   packageId?: string;
   theme: EmbeddedWebsiteTheme;
 };
 
 export function EmbeddedWebsiteView({
-  route,
   tab,
   packageId,
   theme,
@@ -129,13 +126,12 @@ export function EmbeddedWebsiteView({
     () =>
       config
         ? buildEmbedUrl(config.baseUrl, {
-            route,
             tab,
             packageId,
             theme: initialThemeRef.current,
           })
         : null,
-    [config, route, tab, packageId],
+    [config, tab, packageId],
   );
 
   // Replay the latest theme on every successful navigation: before first

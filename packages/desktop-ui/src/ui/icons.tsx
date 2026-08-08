@@ -188,6 +188,10 @@ export const Archive = createIcon("archive", <>
     <path d="M5 9.25v8.25a2.75 2.75 0 0 0 2.75 2.75h8.5A2.75 2.75 0 0 0 19 17.5V9.25M10 13h4"/>
   </>);
 export const Code = createIcon("code", <path d="m15.5 7.25 5 4.75-5 4.75M8.5 7.25 3.5 12l5 4.75"/>);
+export const ChartColumn = createIcon("chart-column", <>
+    <path d="M4.5 4.5v12.25a2.75 2.75 0 0 0 2.75 2.75H19.5"/>
+    <path d="M8.75 15.5v-3.75M12.75 15.5V7.75M16.75 15.5v-5.75"/>
+  </>);
 export const Presentation = createIcon("presentation", <>
     <path d="M3.5 4.25h17"/>
     <path d="M5.25 4.25h13.5V13.5a3 3 0 0 1-3 3h-7.5a3 3 0 0 1-3-3Z"/>

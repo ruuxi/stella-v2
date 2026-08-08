@@ -94,7 +94,7 @@ describe("settings menu button", () => {
     expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
     expect(
       document.body.querySelectorAll('[role="menuitemradio"]'),
-    ).toHaveLength(5);
+    ).toHaveLength(6);
   });
 
   it("selects a destination, closes the menu, and opens that sidebar detail", async () => {

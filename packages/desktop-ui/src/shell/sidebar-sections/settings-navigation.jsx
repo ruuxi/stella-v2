@@ -1,4 +1,10 @@
-import { CreditCard, MessageSquare, Palette, Settings } from "@/ui/icons";
+import {
+  ChartColumn,
+  CreditCard,
+  MessageSquare,
+  Palette,
+  Settings,
+} from "@/ui/icons";
 import { CustomDevice as Device } from "@/ui/nav-icons";
 
 export const SETTINGS_LOCATIONS = [
@@ -6,6 +12,7 @@ export const SETTINGS_LOCATIONS = [
   "theme",
   "connect",
   "billing",
+  "usage",
   "feedback",
 ];
 
@@ -37,6 +44,12 @@ export const SETTINGS_DESTINATIONS = [
     description: "Upgrade or manage your Stella plan",
     Icon: CreditCard,
     signedInOnly: true,
+  },
+  {
+    id: "usage",
+    label: "Usage",
+    description: "Local model usage and cost estimates",
+    Icon: ChartColumn,
   },
   {
     id: "feedback",

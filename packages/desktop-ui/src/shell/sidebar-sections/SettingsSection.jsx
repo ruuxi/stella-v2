@@ -20,6 +20,9 @@ const FeedbackPanel = lazy(() => import("@/shell/sidebar/FeedbackDialog").then((
 const BillingPanel = lazy(() => import("@/global/billing/BillingScreen").then((module) => ({
     default: module.BillingPanel,
 })));
+const UsagePanel = lazy(() => import("@/app/usage/App").then((module) => ({
+    default: module.UsagePanel,
+})));
 export function SettingsSection() {
     const active = useActiveSidebarSection() === "settings";
     const location = useSidebarSections().locations.settings;
@@ -90,7 +93,7 @@ export function SettingsSection() {
           </header>
           <div className="settings-section-detail__body">
             <Suspense fallback={null}>
-              {resolvedLocation === "settings" ? (<SettingsScreen embedded onSignOut={handleSignOut}/>) : resolvedLocation === "theme" ? (<ThemePicker inline/>) : resolvedLocation === "connect" ? (<ConnectPanel />) : resolvedLocation === "billing" ? (<BillingPanel />) : (<FeedbackPanel onDone={handleBack} onSubmitted={acknowledgeFeedbackPrompt}/>)}
+              {resolvedLocation === "settings" ? (<SettingsScreen embedded onSignOut={handleSignOut}/>) : resolvedLocation === "theme" ? (<ThemePicker inline/>) : resolvedLocation === "connect" ? (<ConnectPanel />) : resolvedLocation === "billing" ? (<BillingPanel />) : resolvedLocation === "usage" ? (<UsagePanel />) : (<FeedbackPanel onDone={handleBack} onSubmitted={acknowledgeFeedbackPrompt}/>)}
             </Suspense>
           </div>
         </>)}

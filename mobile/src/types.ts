@@ -267,4 +267,18 @@ export type DesktopBridgeStatus = {
   baseUrls: string[];
   platform: string | null;
   updatedAt: number | null;
+  /**
+   * Durable discovery metadata for the paired desktop. Unlike `baseUrls`, this
+   * may be present after the backend availability lease expires. Callers must
+   * prove the route is live directly before using it.
+   */
+  lastKnownRegistration: DesktopBridgeRegistrationDescriptor | null;
+};
+
+export type DesktopBridgeRegistrationDescriptor = {
+  desktopDeviceId: string;
+  baseUrls: string[];
+  platform: string | null;
+  desktopPublicKey: string | null;
+  updatedAt: number;
 };

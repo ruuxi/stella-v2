@@ -54,6 +54,7 @@ import {
 } from "./bridge-recovery";
 import { canReuseDesktopSendBatch } from "./desktop-send-batch-policy";
 import { parseThreadActivityTasks } from "./desktop-thread-activity";
+import { probeDesktopBridgeStatus } from "./desktop-bridge-discovery";
 
 const DESKTOP_WAKE_ATTEMPTS = 5;
 const DESKTOP_WAKE_RETRY_MS = 3_000;
@@ -236,8 +237,6 @@ export class DesktopOfflineError extends Error {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object"
@@ -590,7 +589,7 @@ async function handshakeDesktopBridge(
   // directly *in parallel with* the wake intent. When the desktop is already
   // up this removes the Convex status round-trips (and their 3s poll
   // granularity) from the connect path entirely; the wake intent still lands
-  // either way and re-arms the desktop's idle timer.
+  // either way for compatibility and recovery on older or restarted desktops.
   const cachedBaseUrl = await loadCachedBridgeBaseUrl(access.desktopDeviceId);
   const wakePromise = requestDesktopConnection(access).then(
     () => null,
@@ -615,14 +614,17 @@ async function handshakeDesktopBridge(
     attempt += 1
   ) {
     const status = await getDesktopBridgeStatus(access.desktopDeviceId);
-    const firstUrl = status.baseUrls.find((url) => url.trim().length > 0);
-    if (status.available && firstUrl) {
-      const candidateUrl = trimTrailingSlash(firstUrl);
-      lastCandidateUrl = candidateUrl;
-      if (await canReachBridgeHealth(candidateUrl)) {
-        baseUrl = candidateUrl;
-        break;
-      }
+    const probe = await probeDesktopBridgeStatus(
+      status,
+      access.desktopDeviceId,
+      canReachBridgeHealth,
+    );
+    if (probe.liveFallbackUrl) {
+      lastCandidateUrl = probe.liveFallbackUrl;
+    }
+    if (probe.reachableUrl) {
+      baseUrl = probe.reachableUrl;
+      break;
     }
     if (attempt < DESKTOP_WAKE_ATTEMPTS - 1) {
       // First probe missed — the desktop is likely asleep and being woken by

@@ -102,24 +102,8 @@ const gatewayOptions = (
   },
 });
 
-const GPT_5_6_LUNA_MODEL_CONFIG: ModeConfig = {
-  model: "openai/gpt-5.6-luna",
-  fallbackMode: "light",
-  managedGatewayProvider: "openai",
-  temperature: 1.0,
-  providerOptions: {
-    openai: {
-      reasoningEffort: "low",
-    },
-  },
-};
-
-// Kimi K2.6 on Fireworks. Kept as an internal config for compatibility with
-// existing tests/fixtures and any explicit backend use, but no longer used as
-// the orchestrator default.
-const KIMI_K2P6_MODEL_CONFIG: ModeConfig = {
-  model: "accounts/fireworks/models/kimi-k2p6",
-  fallbackMode: "standard",
+const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig = {
+  model: "accounts/fireworks/models/deepseek-v4-flash-0731",
   managedGatewayProvider: "fireworks",
   temperature: 1.0,
   providerOptions: {
@@ -130,139 +114,18 @@ const KIMI_K2P6_MODEL_CONFIG: ModeConfig = {
   },
 };
 
-// Gemini 3.6 Flash via OpenRouter. Powers the general agent's
-// post-completion "finishing up" HTML pass (agent type `html_finish`): a
-// fast, cheap render of a finished report into a self-contained HTML
-// canvas. Routed through OpenRouter (not the Google gateway) per product
-// intent, so the model id stays `google/…` while the relay forwards it to
-// OpenRouter. This is the single source of truth for the model — the
-// desktop never hardcodes it; it requests the opaque default for the
-// `html_finish` agent type and the backend resolves it here.
-const HTML_MODEL_CONFIG: ModeConfig = {
-  model: "google/gemini-3.6-flash",
-  fallbackMode: "light",
-  managedGatewayProvider: "openrouter",
-  providerOptions: {
-    ...gatewayOptions("openrouter"),
-  },
-};
+type TaskModelSelection = ModelMode;
 
-const INTERNAL_MODEL_CONFIGS = {
-  gpt_5_6_luna: GPT_5_6_LUNA_MODEL_CONFIG,
-  kimi_k2p6: KIMI_K2P6_MODEL_CONFIG,
-  html: HTML_MODEL_CONFIG,
-} as const satisfies Record<string, ModeConfig>;
-
-type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
-type TaskModelSelection = ModelMode | InternalModelConfigKey;
-
-const isInternalModelConfigKey = (
-  value: string,
-): value is InternalModelConfigKey =>
-  Object.prototype.hasOwnProperty.call(INTERNAL_MODEL_CONFIGS, value);
-
-// Note: `maxOutputTokens` is intentionally omitted from every mode
-// except `designer` (Anthropic). Hard caps truncate mid-sentence or
-// mid-tool-call when hit, and on reasoning models the cap can be
-// exhausted by thinking with zero budget left for the visible
-// answer. Trust the model to self-terminate; the desktop runtime's
-// degenerate-response retry handles pathological terminations.
-// Anthropic's Messages API requires `max_tokens`, so `designer`
-// keeps its value as a protocol requirement, not a policy choice.
+// Legacy mode names remain parseable so old clients fail over cleanly, but
+// every mode resolves to the only supported Stella model.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
-  // Stella Standard: Grok 4.5 directly via xAI. Default for orchestrator +
-  // general across every audience. Missing or disabled reasoning is normalized
-  // to low at the relay boundary.
-  standard: {
-    model: "x-ai/grok-4.5",
-    fallbackMode: "light",
-    managedGatewayProvider: "xai",
-    temperature: 1.0,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "low",
-      },
-    },
-  },
-
-  priority: {
-    model: "accounts/fireworks/models/kimi-k2p7-code",
-    fallbackMode: "standard",
-    managedGatewayProvider: "fireworks",
-    temperature: 1.0,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "high",
-      },
-      ...gatewayOptions("fireworks"),
-    },
-  },
-
-  light: {
-    model: "accounts/fireworks/models/deepseek-v4-flash-0731",
-    managedGatewayProvider: "fireworks",
-    temperature: 1.0,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "medium",
-      },
-      ...gatewayOptions("fireworks"),
-    },
-  },
-
-  // Stella Builder: OpenAI GPT-5.6 Sol (preview API id `gpt-5.6-sol`).
-  builder: {
-    model: "openai/gpt-5.6-sol",
-    fallbackMode: "light",
-    managedGatewayProvider: "openai",
-    temperature: 1.0,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "low",
-      },
-    },
-  },
-
-  designer: {
-    model: "anthropic/claude-opus-5",
-    fallbackMode: "light",
-    managedGatewayProvider: "anthropic",
-    temperature: 1.0,
-    // Required by Anthropic's Messages API.
-    maxOutputTokens: 16192,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "medium",
-      },
-    },
-  },
-
-  vision: {
-    model: "google/gemini-3.6-flash",
-    fallbackMode: "designer",
-    managedGatewayProvider: "google",
-    providerOptions: {
-      ...gatewayOptions("google"),
-    },
-  },
-
-  // Stella Max: the premium branded mode powered by Anthropic's Claude
-  // Fable 5. Selectable by any paid-plan user and the backend default for
-  // the Stella Max mode. Falls back to the Designer mode (Opus) if the
-  // upstream Fable 5 model is unavailable.
-  max: {
-    model: "anthropic/claude-fable-5",
-    fallbackMode: "designer",
-    managedGatewayProvider: "anthropic",
-    temperature: 1.0,
-    // Required by Anthropic's Messages API.
-    maxOutputTokens: 64000,
-    providerOptions: {
-      openai: {
-        reasoningEffort: "high",
-      },
-    },
-  },
+  standard: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
+  priority: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
+  light: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
+  builder: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
+  designer: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
+  vision: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
+  max: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
 };
 
 const AUDIENCE_MODE_OVERRIDES: Record<
@@ -279,16 +142,12 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 
 // Per-audience swaps of an agent's task→model mapping. Lets us point
 // orchestrator/general at alternate models per plan without disturbing other
-// agents that share the underlying modes. Values are a mode or an internal
-// model config key.
+// agents that share the underlying modes.
 //
 // The primary Stella agent now works directly for the user, with optional
 // General agents for delegated background work. Both default to Light
-// (DeepSeek V4 Flash 0731) for every audience; Standard remains an explicit
-// selectable mode rather than the implicit default.
-const DEFAULT_AGENT_OVERRIDES: Partial<
-  Record<string, TaskModelSelection>
-> = {
+// (DeepSeek V4 Flash 0731) for every audience.
+const DEFAULT_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "light",
   [AGENT_IDS.GENERAL]: "light",
 };
@@ -331,18 +190,17 @@ export const isPaidManagedAudience = (
   audience: ManagedModelAudience,
 ): boolean => !UNPAID_MODEL_AUDIENCES.has(audience);
 
-// Paid-only branded modes remain unavailable to restricted audiences. Pro
-// audiences that may freely override managed models can still select them.
+// Paid-only branded modes remain unavailable to restricted audiences. The
+// legacy set is retained for compatibility even though those modes are no
+// longer supported by the public Stella catalog.
 const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
   "stella/max",
 ]);
 
 /**
- * Stella catalog model ids that restricted-tier audiences (anonymous /
- * free / go / go_fallback) may still pick even though
- * `canOverrideStellaModel` is false. These ids intentionally resolve to only
- * two underlying models: DeepSeek V4 Flash 0731 and GPT-5.6 Luna. The Light
- * alias remains allowed because it is the branded route to V4 Flash.
+ * Stella model ids accepted from clients. The raw DeepSeek id is the only
+ * public catalog row; `stella/light` remains as a compatibility alias for
+ * existing preferences and older clients.
  *
  * Single source of truth for both the request-time coercion in
  * `stella_provider/request.ts` and the `allowedForAudience` flag the
@@ -352,13 +210,18 @@ const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
   new Set<string>([
     "stella/light",
     "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
-    "stella/openai/gpt-5.6-luna",
   ]);
 
 export const isStellaModelAllowedForAudience = (
   modelId: string,
   audience: ManagedModelAudience,
 ): boolean => {
+  // This is a product-wide allowlist, not merely a plan restriction. Pro and
+  // fallback audiences must not be able to revive retired managed models by
+  // submitting a stale or hand-written Stella id.
+  if (!RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId)) {
+    return false;
+  }
   if (!canOverrideStellaModel(audience)) {
     return RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS.has(modelId);
   }
@@ -388,37 +251,21 @@ export const LOCKED_AGENT_TYPES: ReadonlySet<string> = new Set<string>([
 ]);
 
 export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
-  [AGENT_IDS.OFFLINE_RESPONDER]: "standard",
-  // Per-tier orchestrator/general defaults live in
-  // `AUDIENCE_AGENT_MODE_OVERRIDES` below; this `standard` entry is the
-  // unauthenticated/internal-call fallback when no audience is supplied.
-  [AGENT_IDS.ORCHESTRATOR]: "standard",
-  [AGENT_IDS.GENERAL]: "standard",
-  [AGENT_IDS.INSTALL_UPDATE]: "standard",
-  [AGENT_IDS.STORE]: "standard",
-  [AGENT_IDS.FASHION]: "standard",
+  [AGENT_IDS.OFFLINE_RESPONDER]: "light",
+  [AGENT_IDS.ORCHESTRATOR]: "light",
+  [AGENT_IDS.GENERAL]: "light",
+  [AGENT_IDS.INSTALL_UPDATE]: "light",
+  [AGENT_IDS.STORE]: "light",
+  [AGENT_IDS.FASHION]: "light",
 
-  schedule: "standard",
-  synthesis: "gpt_5_6_luna",
-  welcome: "standard",
-  store_asset_metadata: "vision",
-
-  // Memory pipeline: Chronicle stays cheap (minute ticks). Dream consolidates
-  // thread summaries + extensions on the same tier as other standard agent
-  // work; stage-1 extraction remains the General rollout summary.
-  dream: "standard",
+  schedule: "light",
+  synthesis: "light",
+  welcome: "light",
+  store_asset_metadata: "light",
+  dream: "light",
   chronicle: "light",
-
-  // Per-active-agent progress narration. Ticks ~every 30s to produce a 3-7
-  // word summary of what a running sub-agent is doing, so it stays on the
-  // cheap Light tier (deepseek-v4-flash) and is locked from client override.
   progress_summary: "light",
-
-  // General agent's post-completion HTML "finishing up" pass — a fast, cheap
-  // Gemini Flash render routed through OpenRouter. The desktop requests the
-  // opaque default for this agent type; the `html` internal config above is
-  // the model source of truth.
-  html_finish: "html",
+  html_finish: "light",
 };
 
 const buildResolvedModeConfig = (
@@ -485,7 +332,6 @@ const buildAudienceModeCatalog = (
 const buildAudienceAgentCatalog = (
   audience: ManagedModelAudience,
   modeCatalog: Record<ModelMode, ModelConfig>,
-  rawModeCatalog: Record<ModelMode, ModeConfig>,
 ): Record<string, ModelConfig> => {
   const taskCatalog: Record<string, ModelConfig> = {};
   const audienceModeOverrides = AUDIENCE_AGENT_MODE_OVERRIDES[audience] ?? {};
@@ -494,9 +340,7 @@ const buildAudienceAgentCatalog = (
     TASK_MODEL_SELECTIONS,
   )) {
     const selection = audienceModeOverrides[agentType] ?? defaultSelection;
-    taskCatalog[agentType] = isInternalModelConfigKey(selection)
-      ? buildResolvedConfig(INTERNAL_MODEL_CONFIGS[selection], rawModeCatalog)
-      : clone(modeCatalog[selection]);
+    taskCatalog[agentType] = clone(modeCatalog[selection]);
   }
 
   return taskCatalog;
@@ -521,32 +365,17 @@ export const AUDIENCE_AGENT_MODELS: Record<
   anonymous: buildAudienceAgentCatalog(
     "anonymous",
     AUDIENCE_MODE_CONFIGS.anonymous,
-    buildAudienceRawModeCatalog("anonymous"),
   ),
-  free: buildAudienceAgentCatalog(
-    "free",
-    AUDIENCE_MODE_CONFIGS.free,
-    buildAudienceRawModeCatalog("free"),
-  ),
-  go: buildAudienceAgentCatalog(
-    "go",
-    AUDIENCE_MODE_CONFIGS.go,
-    buildAudienceRawModeCatalog("go"),
-  ),
-  pro: buildAudienceAgentCatalog(
-    "pro",
-    AUDIENCE_MODE_CONFIGS.pro,
-    buildAudienceRawModeCatalog("pro"),
-  ),
+  free: buildAudienceAgentCatalog("free", AUDIENCE_MODE_CONFIGS.free),
+  go: buildAudienceAgentCatalog("go", AUDIENCE_MODE_CONFIGS.go),
+  pro: buildAudienceAgentCatalog("pro", AUDIENCE_MODE_CONFIGS.pro),
   go_fallback: buildAudienceAgentCatalog(
     "go_fallback",
     AUDIENCE_MODE_CONFIGS.go_fallback,
-    buildAudienceRawModeCatalog("go_fallback"),
   ),
   pro_fallback: buildAudienceAgentCatalog(
     "pro_fallback",
     AUDIENCE_MODE_CONFIGS.pro_fallback,
-    buildAudienceRawModeCatalog("pro_fallback"),
   ),
 };
 
@@ -601,10 +430,7 @@ export function isModelMode(value: string): value is ModelMode {
 // currently the default for any mode or agent task. Prefer putting models
 // behind a mode/task selection when they are catalog defaults; use this list
 // only for extras that have no mode of their own.
-export const ADDITIONAL_MANAGED_MODEL_IDS = [
-  "accounts/fireworks/models/deepseek-v4-pro",
-  "meta/muse-spark-1.2",
-] as const;
+export const ADDITIONAL_MANAGED_MODEL_IDS = [] as const;
 
 export function listManagedModelIds(): string[] {
   const modelIds = new Set<string>();

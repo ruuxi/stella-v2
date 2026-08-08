@@ -1,0 +1,46 @@
+{
+  "cli": {
+    "version": ">= 18.4.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1"
+      }
+    },
+    "preview": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://benevolent-minnow-586.convex.cloud",
+        "EXPO_PUBLIC_CONVEX_SITE_URL": "https://cloud.stella.sh"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1",
+        "EXPO_PUBLIC_CONVEX_URL": "https://benevolent-minnow-586.convex.cloud",
+        "EXPO_PUBLIC_CONVEX_SITE_URL": "https://cloud.stella.sh"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6761148311"
+      }
+    },
+    "preview": {
+      "ios": {
+        "ascAppId": "6761148311"
+      }
+    }
+  }
+}

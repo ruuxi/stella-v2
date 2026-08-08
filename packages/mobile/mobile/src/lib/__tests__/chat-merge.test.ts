@@ -1,0 +1,1082 @@
+import { describe, expect, test } from "bun:test";
+import type { ChatMessage } from "../../types";
+import {
+  collapseLinkedDuplicates,
+  linkOptimisticTurnToCanonical,
+  mergeMessagesById,
+  reconcileSentDesktopTurn,
+} from "../chat-merge";
+
+const user = (
+  id: string,
+  text: string,
+  extra?: Partial<ChatMessage>,
+): ChatMessage => ({
+  id,
+  role: "user",
+  text,
+  ...extra,
+});
+
+const assistant = (
+  id: string,
+  text: string,
+  extra?: Partial<ChatMessage>,
+): ChatMessage => ({
+  id,
+  role: "assistant",
+  text,
+  ...extra,
+});
+
+const ids = (messages: ChatMessage[]) => messages.map((m) => m.id);
+
+const agentCard = (
+  id: string,
+  state: "running" | "done",
+  createdAt = 100,
+  agentIds?: string[],
+): NonNullable<ChatMessage["artifacts"]>[number] => ({
+  id,
+  conversationId: "conv-1",
+  payload: {
+    kind: "agent-work",
+    state,
+    ...(agentIds ? { agentIds } : {}),
+    total: 1,
+    completed: state === "done" ? 1 : 0,
+    title: "Research the issue",
+    subtitle: state === "done" ? "Finished" : "Working in background",
+    createdAt,
+  },
+});
+
+describe("mergeMessagesById", () => {
+  test("matches by canonicalId and keeps the local id and timestamp", () => {
+    const current = [
+      user("local-1", "hi", { canonicalId: "desk-1", createdAt: 100 }),
+    ];
+    const incoming = [user("desk-1", "hi", { createdAt: 90 })];
+    const merged = mergeMessagesById(current, incoming);
+    expect(ids(merged)).toEqual(["local-1"]);
+    expect(merged[0]?.createdAt).toBe(100);
+    expect(merged[0]?.canonicalId).toBe("desk-1");
+  });
+
+  test("does not duplicate when the canonical row is re-delivered (task anchors)", () => {
+    const current = [
+      user("local-1", "run the task", {
+        canonicalId: "desk-1",
+        createdAt: 100,
+      }),
+      assistant("local-2", "on it", { canonicalId: "desk-2", createdAt: 101 }),
+    ];
+    const incoming = [
+      user("desk-1", "run the task", { createdAt: 95 }),
+      assistant("desk-2", "on it", { createdAt: 96 }),
+    ];
+    expect(ids(mergeMessagesById(current, incoming))).toEqual([
+      "local-1",
+      "local-2",
+    ]);
+  });
+
+  test("collapses an unlinked canonical twin into the linked local row", () => {
+    // A mid-turn sync merged desk-1 as its own row before the reconcile linked
+    // the optimistic bubble; the next delivery of desk-1 heals the duplicate.
+    const current = [
+      user("local-1", "hello", { canonicalId: "desk-1", createdAt: 100 }),
+      user("desk-1", "hello", { createdAt: 95 }),
+    ];
+    const incoming = [user("desk-1", "hello", { createdAt: 95 })];
+    const merged = mergeMessagesById(current, incoming);
+    expect(ids(merged)).toEqual(["local-1"]);
+    expect(merged[0]?.createdAt).toBe(100);
+  });
+
+  test("links a late-arriving canonical reply by requestId instead of duplicating", () => {
+    const current = [
+      user("local-u", "question", { canonicalId: "desk-u", createdAt: 100 }),
+      assistant("local-a", "answer", { requestId: "desk-u", createdAt: 101 }),
+    ];
+    const incoming = [
+      assistant("desk-a", "answer", { requestId: "desk-u", createdAt: 96 }),
+    ];
+    const merged = mergeMessagesById(current, incoming);
+    expect(ids(merged)).toEqual(["local-u", "local-a"]);
+    expect(merged[1]?.canonicalId).toBe("desk-a");
+    expect(merged[1]?.createdAt).toBe(101);
+  });
+
+  test("never links stand-in artifact rows by requestId", () => {
+    const current = [
+      assistant("local-a", "answer", { requestId: "desk-u", createdAt: 101 }),
+    ];
+    const incoming = [
+      assistant("desk-u:agent", "", {
+        requestId: "desk-u",
+        createdAt: 90,
+        artifacts: [],
+      }),
+    ];
+    const merged = mergeMessagesById(current, incoming);
+    expect(ids(merged)).toContain("local-a");
+    expect(ids(merged)).toContain("desk-u:agent");
+    expect(merged.find((m) => m.id === "local-a")?.text).toBe("answer");
+  });
+
+  test("does not link user rows by text (repeat messages stay distinct)", () => {
+    const current = [user("local-1", "ok", { createdAt: 100 })];
+    const incoming = [user("desk-9", "ok", { createdAt: 50 })];
+    expect(mergeMessagesById(current, incoming)).toHaveLength(2);
+  });
+
+  test("slots a synced row between its canonical neighbours", () => {
+    // History previously merged off the bridge — rows carry canonical stamps.
+    const current = mergeMessagesById(
+      [],
+      [
+        user("a", "first", { createdAt: 100 }),
+        assistant("b", "second", { createdAt: 200 }),
+      ],
+    );
+    const incoming = [assistant("c", "between", { createdAt: 150 })];
+    expect(ids(mergeMessagesById(current, incoming))).toEqual(["a", "c", "b"]);
+  });
+});
+
+describe("canonical ordering across clock skew (older desktop row filed below newer exchange)", () => {
+  // Regression: the desktop clock ran ahead of the phone's. A deferred pull
+  // delivered an OLDER desktop reply ("that's the full cycle done, 5 reviews,
+  // 7 fix agents…") after the user's next phone-sent exchange ("review loop"
+  // → "round 2 dispatched…") had already streamed and reconciled with
+  // phone-clock anchors. Comparing the desktop stamp against those anchors
+  // filed the older reply at the tail — below the newer exchange. Ordering
+  // now runs on `canonicalCreatedAt` (the desktop's own clock, which its
+  // cursor orders by), so the transcript converges to the desktop's sequence.
+  test("a deferred pull's older desktop reply slots above the newer phone-sent exchange", () => {
+    // Already-synced canonical history (desktop clock ~90s ahead).
+    let transcript = mergeMessagesById(
+      [],
+      [
+        user("desk-u1", "kick off the review loop", { createdAt: 1_000_000 }),
+        assistant("desk-a1", "starting the loop", { createdAt: 1_001_000 }),
+      ],
+    );
+    // Phone sends the next turn; optimistic rows anchor to the phone clock —
+    // numerically BEHIND every desktop stamp above.
+    transcript = [
+      ...transcript,
+      user("local-u", "start round 2 of the review loop", {
+        createdAt: 911_000,
+      }),
+      assistant("local-a", "round 2 dispatched", { createdAt: 911_500 }),
+    ];
+    // Turn ends; the reconcile links the optimistic rows to canonical ids.
+    transcript = reconcileSentDesktopTurn({
+      current: transcript,
+      userMessageId: "local-u",
+      replyId: "local-a",
+      sentText: "start round 2 of the review loop",
+      canonicalMessages: [
+        user("desk-u2", "start round 2 of the review loop", {
+          createdAt: 1_003_000,
+        }),
+        assistant("desk-a2", "round 2 dispatched", {
+          requestId: "desk-u2",
+          createdAt: 1_004_000,
+        }),
+      ],
+      canonicalUserMessageId: "desk-u2",
+    });
+    expect(ids(transcript)).toEqual([
+      "desk-u1",
+      "desk-a1",
+      "local-u",
+      "local-a",
+    ]);
+    // A later (e.g. mid-send-deferred) pull finally delivers the OLDER
+    // desktop reply the phone had never seen. Canonically it precedes the
+    // new exchange; its desktop stamp is numerically LARGER than the
+    // phone-clock anchors, which used to file it at the tail.
+    const merged = mergeMessagesById(transcript, [
+      assistant(
+        "desk-a1b",
+        "that's the full cycle done, 5 reviews, 7 fix agents",
+        { createdAt: 1_002_000 },
+      ),
+    ]);
+    expect(ids(merged)).toEqual([
+      "desk-u1",
+      "desk-a1",
+      "desk-a1b",
+      "local-u",
+      "local-a",
+    ]);
+    // Display anchors survive; only the ordering key is canonical.
+    const localU = merged.find((m) => m.id === "local-u");
+    expect(localU?.createdAt).toBe(911_000);
+    expect(localU?.canonicalCreatedAt).toBe(1_003_000);
+  });
+
+  test("rows without canonical identity stay glued to their neighbours", () => {
+    // A local-only turn (e.g. an offline error exchange that will never gain
+    // canonical ids) must never be split or re-filed by cross-clock
+    // comparison when canonical rows merge around it: it stays attached
+    // behind its predecessor, in its own relative order, regardless of how
+    // its phone-clock anchors compare to the desktop stamps.
+    const transcript = mergeMessagesById(
+      [
+        ...mergeMessagesById(
+          [],
+          [user("desk-u1", "old history", { createdAt: 1_000_000 })],
+        ),
+        user("local-u", "wake my computer", { createdAt: 911_000 }),
+        assistant("local-a", "Your computer is offline.", {
+          createdAt: 911_100,
+        }),
+      ],
+      [assistant("desk-a9", "a genuinely new reply", { createdAt: 1_005_000 })],
+    );
+    expect(ids(transcript)).toEqual([
+      "desk-u1",
+      "local-u",
+      "local-a",
+      "desk-a9",
+    ]);
+  });
+
+  test("a linked-by-requestId reply cannot invert above its unstamped user row", () => {
+    // Phone clock AHEAD of the desktop's this time: the user bubble's local
+    // anchor (100) is numerically larger than the canonical reply stamp (96).
+    const merged = mergeMessagesById(
+      [
+        user("local-u", "question", { canonicalId: "desk-u", createdAt: 100 }),
+        assistant("local-a", "answer", { requestId: "desk-u", createdAt: 101 }),
+      ],
+      [assistant("desk-a", "answer", { requestId: "desk-u", createdAt: 96 })],
+    );
+    expect(ids(merged)).toEqual(["local-u", "local-a"]);
+  });
+
+  test("same-stamp canonical rows delivered in reverse converge to id order", () => {
+    // Two desktop rows share a millisecond stamp; the later delta happens to
+    // deliver the id-lower one second. The desktop cursor orders by
+    // (timestamp, id), so the transcript must converge to id order —
+    // delivery order alone would diverge from the desktop.
+    const current = mergeMessagesById(
+      [],
+      [assistant("desk-b", "second by id", { createdAt: 1_000_000 })],
+    );
+    const merged = mergeMessagesById(current, [
+      assistant("desk-a", "first by id", { createdAt: 1_000_000 }),
+    ]);
+    expect(ids(merged)).toEqual(["desk-a", "desk-b"]);
+  });
+
+  test("a linked row ties by its canonical id, not its local id", () => {
+    // The linked bubble's LOCAL id ("zzz-local") would sort after "desk-m";
+    // its canonical identity ("desk-a") sorts before. The canonical id must
+    // drive the tie so linked and direct rows converge identically.
+    const merged = mergeMessagesById(
+      [
+        {
+          ...user("zzz-local", "question", {
+            canonicalId: "desk-a",
+            createdAt: 911_000,
+          }),
+          canonicalCreatedAt: 1_000_000,
+        },
+      ],
+      [assistant("desk-m", "same-stamp row", { createdAt: 1_000_000 })],
+    );
+    expect(ids(merged)).toEqual(["zzz-local", "desk-m"]);
+  });
+
+  test("the healed twin donates its canonical stamp to the linked survivor", () => {
+    // The linked bubble was stamped only locally (stream-end link); the twin
+    // IS the canonical row — its desktop stamp must survive the collapse so
+    // later merges order the turn canonically.
+    const healed = collapseLinkedDuplicates([
+      user("local-u", "hello", { canonicalId: "desk-u", createdAt: 100 }),
+      user("desk-u", "hello", { createdAt: 1_002_000 }),
+    ]);
+    expect(ids(healed)).toEqual(["local-u"]);
+    expect(healed[0]?.canonicalCreatedAt).toBe(1_002_000);
+    expect(healed[0]?.createdAt).toBe(100);
+  });
+});
+
+describe("visible agent-card order is immutable", () => {
+  test("a running card first appears by updating its existing message row", () => {
+    const current = mergeMessagesById(
+      [],
+      [
+        user("desk-u1", "start the work", { createdAt: 100 }),
+        assistant("desk-a1", "On it", {
+          requestId: "desk-u1",
+          createdAt: 101,
+        }),
+        user("desk-u2", "anything else?", { createdAt: 200 }),
+        assistant("desk-a2", "No", { requestId: "desk-u2", createdAt: 201 }),
+      ],
+    );
+    const untouchedNextUser = current[2];
+    const merged = mergeMessagesById(current, [
+      assistant("desk-a1", "On it", {
+        requestId: "desk-u1",
+        createdAt: 101,
+        artifacts: [agentCard("agent-work:t1", "running")],
+      }),
+    ]);
+
+    expect(ids(merged)).toEqual(["desk-u1", "desk-a1", "desk-u2", "desk-a2"]);
+    expect(merged[1]?.artifacts?.[0]?.id).toBe("agent-work:t1");
+    expect(merged[2]).toBe(untouchedNextUser);
+  });
+
+  test("card completion updates in place after the next turn without moving it", () => {
+    const current = mergeMessagesById(
+      [],
+      [
+        user("desk-u1", "start the work", { createdAt: 100 }),
+        assistant("desk-a1", "On it", {
+          requestId: "desk-u1",
+          createdAt: 101,
+          artifacts: [agentCard("agent-work:t1", "running")],
+        }),
+        user("desk-u2", "next question", { createdAt: 200 }),
+        assistant("desk-a2", "next answer", {
+          requestId: "desk-u2",
+          createdAt: 201,
+        }),
+      ],
+    );
+    const originalCardId = current[1]?.artifacts?.[0]?.id;
+    const originalNextTurn = current.slice(2);
+
+    // A task projection can be replayed with a normalized/older row timestamp.
+    // That timestamp is metadata for a row already visible, never permission to
+    // move it above its user message or the preceding history.
+    const completed = mergeMessagesById(current, [
+      assistant("desk-a1", "On it", {
+        requestId: "desk-u1",
+        createdAt: 50,
+        artifacts: [agentCard("agent-work:t1", "done")],
+      }),
+    ]);
+
+    expect(ids(completed)).toEqual(ids(current));
+    expect(completed[1]?.id).toBe("desk-a1");
+    expect(completed[1]?.artifacts?.[0]?.id).toBe(originalCardId);
+    expect(completed[1]?.artifacts?.[0]?.payload).toMatchObject({
+      state: "done",
+    });
+    expect(completed[1]?.canonicalCreatedAt).toBe(101);
+    expect(completed.slice(2)).toEqual(originalNextTurn);
+    expect(completed[2]).toBe(originalNextTurn[0]);
+    expect(completed[3]).toBe(originalNextTurn[1]);
+  });
+
+  test("card -> next optimistic message -> next reply keeps the shown sequence", () => {
+    const runningCard = agentCard("agent-work:t1", "running");
+    const current: ChatMessage[] = [
+      ...mergeMessagesById(
+        [],
+        [assistant("desk-history", "Earlier", { createdAt: 100 })],
+      ),
+      user("local-u1", "start research", { createdAt: 1_000 }),
+      assistant("local-a1", "Working", {
+        createdAt: 1_001,
+        requestId: "desk-u1",
+        artifacts: [runningCard],
+      }),
+      user("local-u2", "use the newest data", { createdAt: 1_002 }),
+      assistant("local-a2", "Updated answer", {
+        createdAt: 1_003,
+        requestId: "desk-u2",
+      }),
+    ];
+
+    // Reconcile the card turn after the follow-up is already visible. The
+    // canonical projection intentionally omits the live card and carries an
+    // earlier stamp: neither may remove/reinsert/move what the user saw.
+    const firstReconcile = reconcileSentDesktopTurn({
+      current,
+      userMessageId: "local-u1",
+      replyId: "local-a1",
+      sentText: "start research",
+      canonicalUserMessageId: "desk-u1",
+      canonicalMessages: [
+        user("desk-u1", "start research", { createdAt: 50 }),
+        assistant("desk-a1", "Working", {
+          requestId: "desk-u1",
+          createdAt: 51,
+        }),
+      ],
+    });
+    expect(ids(firstReconcile)).toEqual([
+      "desk-history",
+      "local-u1",
+      "local-a1",
+      "local-u2",
+      "local-a2",
+    ]);
+    expect(firstReconcile[2]?.artifacts?.[0]).toBe(runningCard);
+
+    // The next assistant response reconciles on the same desktop millisecond.
+    // Canonical ids could sort in either lexical direction, but those already
+    // visible rows retain their insertion order and stable local list keys.
+    const secondReconcile = reconcileSentDesktopTurn({
+      current: firstReconcile,
+      userMessageId: "local-u2",
+      replyId: "local-a2",
+      sentText: "use the newest data",
+      canonicalUserMessageId: "desk-u2",
+      canonicalMessages: [
+        user("desk-u2", "use the newest data", { createdAt: 60 }),
+        assistant("desk-a2", "Updated answer", {
+          requestId: "desk-u2",
+          createdAt: 60,
+        }),
+      ],
+    });
+    expect(ids(secondReconcile)).toEqual(ids(firstReconcile));
+    expect(secondReconcile[2]?.artifacts?.[0]?.id).toBe("agent-work:t1");
+  });
+
+  test("full reconnect replay is an identity-stable no-op", () => {
+    const canonical = [
+      user("desk-u1", "start the work", { createdAt: 100 }),
+      assistant("desk-a1", "Done", {
+        requestId: "desk-u1",
+        createdAt: 101,
+        artifacts: [agentCard("agent-work:t1", "done")],
+      }),
+      user("desk-u2", "next", { createdAt: 101 }),
+      assistant("desk-a2", "answer", {
+        requestId: "desk-u2",
+        createdAt: 102,
+      }),
+    ];
+    const current = mergeMessagesById([], canonical);
+    const replay = canonical.map(
+      (message) => JSON.parse(JSON.stringify(message)) as ChatMessage,
+    );
+    const caughtUp = mergeMessagesById(current, replay);
+
+    expect(caughtUp).toBe(current);
+    expect(ids(caughtUp)).toEqual(ids(current));
+    expect(caughtUp[1]?.artifacts).toBe(current[1]?.artifacts);
+  });
+
+  test("same-timestamp rows are deterministic when new, then frozen once shown", () => {
+    const hydrated = mergeMessagesById(
+      [],
+      [
+        assistant("desk-b", "B", { createdAt: 100 }),
+        assistant("desk-a", "A", { createdAt: 100 }),
+      ],
+    );
+    expect(ids(hydrated)).toEqual(["desk-a", "desk-b"]);
+
+    const replayed = mergeMessagesById(hydrated, [
+      assistant("desk-b", "B updated", { createdAt: 99 }),
+      assistant("desk-a", "A updated", { createdAt: 101 }),
+    ]);
+    expect(ids(replayed)).toEqual(["desk-a", "desk-b"]);
+  });
+
+  test("an expanding multi-agent aggregate keeps the first visible card key", () => {
+    const current = mergeMessagesById(
+      [],
+      [
+        assistant("desk-a", "Working", {
+          createdAt: 100,
+          artifacts: [
+            agentCard("agent-work:t1", "running", 100, ["t1"]),
+            agentCard("agent-work:t2", "running", 101, ["t2"]),
+          ],
+        }),
+      ],
+    );
+    const expanded = mergeMessagesById(current, [
+      assistant("desk-a", "Working", {
+        createdAt: 100,
+        artifacts: [agentCard("agent-work:t1", "done", 100, ["t1", "t2"])],
+      }),
+    ]);
+
+    expect(expanded).toHaveLength(1);
+    expect(expanded[0]?.artifacts).toHaveLength(1);
+    expect(expanded[0]?.artifacts?.[0]).toMatchObject({
+      id: "agent-work:t1",
+      payload: { state: "done", agentIds: ["t1", "t2"] },
+    });
+  });
+
+  test("new desktop identity migrates a legacy grouped card without remounting", () => {
+    const current = mergeMessagesById(
+      [],
+      [
+        assistant("desk-a", "Working", {
+          createdAt: 100,
+          artifacts: [
+            agentCard("agent-work:t1,t2", "running", 100, ["t1", "t2"]),
+          ],
+        }),
+      ],
+    );
+    const migrated = mergeMessagesById(current, [
+      assistant("desk-a", "Working", {
+        createdAt: 100,
+        artifacts: [agentCard("agent-work:t1", "done", 100, ["t1", "t2"])],
+      }),
+    ]);
+
+    expect(migrated[0]?.artifacts).toHaveLength(1);
+    expect(migrated[0]?.artifacts?.[0]?.id).toBe("agent-work:t1,t2");
+    expect(migrated[0]?.artifacts?.[0]?.payload).toMatchObject({
+      state: "done",
+    });
+  });
+});
+
+describe("mid-send foreground sync duplicate (user row rendered twice)", () => {
+  // Regression: a foreground/refocus/Force-Sync pull that fired MID-SEND
+  // merged the turn's canonical user row before the optimistic bubble was
+  // linked. The twin sorted onto the (skewed-ahead) desktop clock, below the
+  // streaming reply, and — because that pull advanced the cursor past the
+  // turn — the post-turn reconcile's delta never re-delivered it, so nothing
+  // healed the duplicate and it persisted to storage.
+  test("merge heals the twin even when the canonical row is never re-delivered", () => {
+    // Optimistic turn, anchored to the phone clock.
+    let transcript: ChatMessage[] = [
+      user("local-u", "By the way, for the redesign…", { createdAt: 100 }),
+      assistant("local-a", "", { createdAt: 101 }),
+    ];
+    // Mid-send pull: canonical user row, desktop clock slightly ahead. No
+    // link exists yet (text matching is deliberately excluded), so it lands
+    // as its own row BELOW the reply — the bug's visible symptom.
+    transcript = mergeMessagesById(transcript, [
+      user("desk-u", "By the way, for the redesign…", { createdAt: 105 }),
+    ]);
+    expect(ids(transcript)).toEqual(["local-u", "local-a", "desk-u"]);
+    // Stream end: the bridge result links the optimistic rows directly.
+    transcript = transcript.map((m) =>
+      m.id === "local-u"
+        ? { ...m, canonicalId: "desk-u" }
+        : m.id === "local-a"
+          ? { ...m, text: "Sounds good.", requestId: "desk-u" }
+          : m,
+    );
+    // Post-turn reconcile delta: only the canonical reply — desk-u was
+    // already consumed by the mid-send pull. The merge must still collapse
+    // the twin into the linked bubble.
+    const healed = mergeMessagesById(transcript, [
+      assistant("desk-a", "Sounds good.", {
+        requestId: "desk-u",
+        createdAt: 106,
+      }),
+    ]);
+    expect(ids(healed)).toEqual(["local-u", "local-a"]);
+    expect(healed[0]?.canonicalId).toBe("desk-u");
+    expect(healed[1]?.canonicalId).toBe("desk-a");
+  });
+
+  test("an empty delta still heals a persisted twin", () => {
+    const current = [
+      user("local-u", "hello", { canonicalId: "desk-u", createdAt: 100 }),
+      assistant("local-a", "hi", { createdAt: 101 }),
+      user("desk-u", "hello", { createdAt: 105 }),
+    ];
+    expect(ids(mergeMessagesById(current, []))).toEqual(["local-u", "local-a"]);
+  });
+});
+
+describe("queued send followed by full catch-up", () => {
+  test("collapses a request-linked twin of the prior assistant", () => {
+    // An interleaved sync inserted the prior turn's canonical assistant before
+    // the stream-end state update stamped the optimistic bubble's requestId.
+    // The queued follow-up is visible by the time a full catch-up replays both
+    // turns. Before the fix, direct-id matching kept updating desk-a1 and never
+    // applied the requestId fallback to local-a1, so both identical rows stayed.
+    let current: ChatMessage[] = [
+      user("local-u1", "Run the review", {
+        canonicalId: "desk-u1",
+        createdAt: 100,
+      }),
+      assistant("local-a1", "Review dispatched", {
+        createdAt: 101,
+        artifacts: [agentCard("agent-work:t1", "running", 101, ["t1"])],
+      }),
+      user("local-u2", "Now summarize it", {
+        queued: true,
+        createdAt: 102,
+      }),
+    ];
+    current = mergeMessagesById(current, [
+      assistant("desk-a1", "Review dispatched", {
+        requestId: "desk-u1",
+        createdAt: 91,
+        artifacts: [agentCard("agent-work:t1", "done", 91, ["t1"])],
+      }),
+    ]);
+    expect(
+      current.filter((message) => message.text === "Review dispatched"),
+    ).toHaveLength(2);
+    // Stream completion now supplies the request link, but the direct canonical
+    // twin is already in the array and used to mask that fallback forever.
+    current = current.map((message) =>
+      message.id === "local-a1"
+        ? { ...message, requestId: "desk-u1" }
+        : message,
+    );
+
+    const caughtUp = mergeMessagesById(current, [
+      user("desk-u1", "Run the review", { createdAt: 90 }),
+      assistant("desk-a1", "Review dispatched", {
+        requestId: "desk-u1",
+        createdAt: 91,
+        artifacts: [agentCard("agent-work:t1", "done", 91, ["t1"])],
+      }),
+      // Durable queued sends use their local outbox id as the canonical user
+      // row id, so the catch-up must update this row rather than append it.
+      user("local-u2", "Now summarize it", { createdAt: 93 }),
+    ]);
+
+    expect(
+      caughtUp.filter(
+        (message) =>
+          message.role === "assistant" && message.text === "Review dispatched",
+      ),
+    ).toHaveLength(1);
+    expect(ids(caughtUp)).toEqual(["local-u1", "local-a1", "local-u2"]);
+    expect(caughtUp.find((message) => message.id === "local-a1")).toMatchObject(
+      {
+        canonicalId: "desk-a1",
+        artifacts: [{ payload: { kind: "agent-work", state: "done" } }],
+      },
+    );
+    expect(
+      caughtUp.filter((message) => message.id === "local-u2"),
+    ).toHaveLength(1);
+  });
+});
+
+describe("collapseLinkedDuplicates", () => {
+  test("drops the unlinked twin and keeps the linked row's anchor", () => {
+    const healed = collapseLinkedDuplicates([
+      user("local-u", "hello", { canonicalId: "desk-u", createdAt: 100 }),
+      assistant("local-a", "hi", { createdAt: 101 }),
+      user("desk-u", "hello", { createdAt: 105 }),
+    ]);
+    expect(ids(healed)).toEqual(["local-u", "local-a"]);
+    expect(healed[0]?.createdAt).toBe(100);
+  });
+
+  test("adopts the twin's artifacts when the linked row has none", () => {
+    const artifacts = [
+      { id: "art-1", conversationId: "conv-1", payload: {} },
+    ] as unknown as ChatMessage["artifacts"];
+    const healed = collapseLinkedDuplicates([
+      assistant("local-a", "done", { canonicalId: "desk-a", createdAt: 100 }),
+      assistant("desk-a", "done", { createdAt: 105, artifacts }),
+    ]);
+    expect(ids(healed)).toEqual(["local-a"]);
+    expect(healed[0]?.artifacts).toEqual(artifacts);
+  });
+
+  test("leaves unrelated repeats and unlinked rows alone (same reference)", () => {
+    const current = [
+      user("a", "ok", { createdAt: 1 }),
+      user("b", "ok", { createdAt: 2 }),
+      user("c", "later", { canonicalId: "desk-c", createdAt: 3 }),
+    ];
+    expect(collapseLinkedDuplicates(current)).toBe(current);
+  });
+});
+
+describe("interrupted streaming snapshots (orphaned partial assistant rows)", () => {
+  const FULL_TEXT =
+    "Here's the plan. Acknowledges their Jul 8 answer (the pricing one) and builds on your existing thread with a concrete follow-up.";
+  // Each interruption strands a snapshot cut off mid-word by the stream
+  // smoother — a strict prefix of the full reply.
+  const PARTIAL_1 = "Here's the plan. Acknowledges their Jul 8 answer (";
+  const PARTIAL_2 =
+    "Here's the plan. Acknowledges their Jul 8 answer (the pricing one) and builds on your existing th";
+
+  test("double interruption: canonical reply arrives, exactly one assistant row remains with the full text", () => {
+    const current = [
+      user("local-u", "draft the reply", {
+        canonicalId: "desk-u",
+        createdAt: 100,
+      }),
+      // Interruption #1 and #2: replayed dispatches streamed into fresh rows;
+      // both partials carry the turn linkage stamped at desktop acceptance.
+      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-2", PARTIAL_2, { requestId: "desk-u", createdAt: 102 }),
+    ];
+    const merged = mergeMessagesById(current, [
+      assistant("desk-a", FULL_TEXT, {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+    ]);
+    const assistants = merged.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toBe(FULL_TEXT);
+    expect(ids(merged)).toEqual(["local-u", "partial-1"]);
+    expect(assistants[0]?.canonicalId).toBe("desk-a");
+  });
+
+  test("persisted damage heals on hydration: partials + already-merged canonical row collapse to one", () => {
+    // The exact on-disk shape of the screenshot: two stale partials above the
+    // full canonical reply, all rendered as separate assistant messages.
+    const healed = collapseLinkedDuplicates([
+      user("local-u", "draft the reply", {
+        canonicalId: "desk-u",
+        createdAt: 100,
+      }),
+      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-2", PARTIAL_2, { requestId: "desk-u", createdAt: 102 }),
+      assistant("desk-a", FULL_TEXT, {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+    ]);
+    const assistants = healed.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toBe(FULL_TEXT);
+  });
+
+  test("resumed dispatch completes: turn reconcile sweeps the earlier partial", () => {
+    // Interruption stranded partial-1; the replayed dispatch streamed the full
+    // reply into a fresh row which the post-turn reconcile links canonically.
+    const reconciled = reconcileSentDesktopTurn({
+      current: [
+        user("local-u", "draft the reply", { createdAt: 100 }),
+        assistant("partial-1", PARTIAL_1, {
+          requestId: "desk-u",
+          createdAt: 101,
+        }),
+        assistant("local-a2", FULL_TEXT, {
+          requestId: "desk-u",
+          createdAt: 102,
+        }),
+      ],
+      userMessageId: "local-u",
+      replyId: "local-a2",
+      sentText: "draft the reply",
+      canonicalMessages: [
+        user("desk-u", "draft the reply", { createdAt: 105 }),
+        assistant("desk-a", FULL_TEXT, {
+          requestId: "desk-u",
+          createdAt: 110,
+          canonicalCreatedAt: 110,
+        }),
+      ],
+      canonicalUserMessageId: "desk-u",
+    });
+    const assistants = reconciled.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.id).toBe("local-a2");
+    expect(assistants[0]?.text).toBe(FULL_TEXT);
+  });
+
+  test("whitespace normalization differences do not block the sweep", () => {
+    // The canonical text carries a blank line the raw streamed chunks did not.
+    const healed = collapseLinkedDuplicates([
+      assistant("partial-1", "First li", { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-2", "First line\nsecond li", {
+        requestId: "desk-u",
+        createdAt: 102,
+      }),
+      assistant("desk-a", "First line\n\nsecond line done.", {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+    ]);
+    const assistants = healed.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toBe("First line\n\nsecond line done.");
+  });
+
+  test("adopts a swept snapshot's artifacts when the surviving row has none", () => {
+    const card = agentCard("agent-work:agent-1", "running", 100, ["agent-1"]);
+    const healed = collapseLinkedDuplicates([
+      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-2", PARTIAL_2, {
+        requestId: "desk-u",
+        createdAt: 102,
+        artifacts: [card],
+      }),
+      assistant("desk-a", FULL_TEXT, {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+    ]);
+    const assistants = healed.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toBe(FULL_TEXT);
+    expect(assistants[0]?.artifacts).toEqual([card]);
+  });
+
+  test("never deletes genuinely distinct messages", () => {
+    const current = [
+      // Multi-message turn: preamble + post-tool answer, same requestId, both
+      // canonical-backed and not prefixes of each other — both stay.
+      assistant("desk-a1", "Let me check that first.", {
+        requestId: "desk-u",
+        createdAt: 100,
+        canonicalCreatedAt: 100,
+      }),
+      assistant("desk-a2", FULL_TEXT, {
+        requestId: "desk-u",
+        createdAt: 110,
+        canonicalCreatedAt: 110,
+      }),
+      // Prefix text but a DIFFERENT turn — stays.
+      assistant("other-turn", PARTIAL_1, {
+        requestId: "desk-u2",
+        createdAt: 111,
+      }),
+      // Same turn but not a prefix of any backed row — stays.
+      assistant("not-prefix", "Something else entirely.", {
+        requestId: "desk-u",
+        createdAt: 112,
+      }),
+      // No turn linkage at all — never considered, even with prefix text.
+      assistant("unlinked", PARTIAL_2, { createdAt: 113 }),
+    ];
+    expect(collapseLinkedDuplicates(current)).toBe(current);
+  });
+});
+
+describe("reconcileSentDesktopTurn", () => {
+  const baseTurn = () => ({
+    userMessageId: "local-u",
+    replyId: "local-a",
+    sentText: "do the thing",
+    current: [
+      user("local-u", "do the thing", { createdAt: 100 }),
+      assistant("local-a", "done!", { createdAt: 101 }),
+    ],
+  });
+
+  test("links optimistic rows to canonical ids and keeps local anchors", () => {
+    const result = reconcileSentDesktopTurn({
+      ...baseTurn(),
+      canonicalMessages: [
+        user("desk-u", "do the thing", { createdAt: 90 }),
+        assistant("desk-a", "done!", { requestId: "desk-u", createdAt: 91 }),
+      ],
+      canonicalUserMessageId: "desk-u",
+    });
+    expect(ids(result)).toEqual(["local-u", "local-a"]);
+    expect(result[0]?.canonicalId).toBe("desk-u");
+    expect(result[1]?.canonicalId).toBe("desk-a");
+    expect(result[0]?.createdAt).toBe(100);
+    expect(result[1]?.createdAt).toBe(101);
+  });
+
+  test("evicts canonical twins a mid-turn sync already merged", () => {
+    const turn = baseTurn();
+    const result = reconcileSentDesktopTurn({
+      ...turn,
+      current: [
+        ...turn.current,
+        // Duplicates merged mid-turn by the task poll.
+        user("desk-u", "do the thing", { createdAt: 90 }),
+        assistant("desk-a", "done!", { createdAt: 91 }),
+      ],
+      canonicalMessages: [
+        user("desk-u", "do the thing", { createdAt: 90 }),
+        assistant("desk-a", "done!", { requestId: "desk-u", createdAt: 91 }),
+      ],
+      canonicalUserMessageId: "desk-u",
+    });
+    expect(ids(result)).toEqual(["local-u", "local-a"]);
+  });
+
+  test("never adopts a stand-in artifact row as the canonical reply", () => {
+    const result = reconcileSentDesktopTurn({
+      ...baseTurn(),
+      canonicalMessages: [
+        user("desk-u", "do the thing", { createdAt: 90 }),
+        assistant("desk-a", "done!", { requestId: "desk-u", createdAt: 91 }),
+        assistant("desk-u:agent", "", {
+          requestId: "desk-u",
+          createdAt: 92,
+          artifacts: [],
+        }),
+      ],
+      canonicalUserMessageId: "desk-u",
+    });
+    const reply = result.find((m) => m.id === "local-a");
+    expect(reply?.canonicalId).toBe("desk-a");
+    expect(reply?.text).toBe("done!");
+  });
+
+  test("picks the reply by requestId when the delta spans other turns", () => {
+    const result = reconcileSentDesktopTurn({
+      ...baseTurn(),
+      canonicalMessages: [
+        user("desk-u", "do the thing", { createdAt: 90 }),
+        assistant("desk-a", "done!", { requestId: "desk-u", createdAt: 91 }),
+        // A desktop-side turn that finished after ours.
+        user("desk-u2", "unrelated", { createdAt: 92 }),
+        assistant("desk-a2", "other reply", {
+          requestId: "desk-u2",
+          createdAt: 93,
+        }),
+      ],
+      canonicalUserMessageId: "desk-u",
+    });
+    const reply = result.find((m) => m.id === "local-a");
+    expect(reply?.canonicalId).toBe("desk-a");
+    expect(reply?.text).toBe("done!");
+    // The desktop-side turn still merges as its own rows.
+    expect(ids(result)).toContain("desk-u2");
+    expect(ids(result)).toContain("desk-a2");
+  });
+
+  test("keeps a live agent card on its canonical spawn row before a later reply", () => {
+    const result = reconcileSentDesktopTurn({
+      current: [
+        user("local-u", "start the research", { createdAt: 100 }),
+        assistant("local-a", "I asked a research agent.", {
+          createdAt: 101,
+          requestId: "desk-u",
+          artifacts: [agentCard("agent-work:t1", "running", 101, ["t1"])],
+        }),
+      ],
+      userMessageId: "local-u",
+      replyId: "local-a",
+      sentText: "start the research",
+      canonicalUserMessageId: "desk-u",
+      canonicalMessages: [
+        user("desk-u", "start the research", { createdAt: 90 }),
+        assistant("desk-a1", "I asked a research agent.", {
+          requestId: "desk-u",
+          createdAt: 91,
+          artifacts: [agentCard("agent-work:t1", "done", 91, ["t1"])],
+        }),
+        assistant("desk-a2", "Meanwhile, here is the rest of the answer.", {
+          requestId: "desk-u",
+          createdAt: 92,
+        }),
+      ],
+    });
+
+    expect(ids(result)).toEqual(["local-u", "local-a", "desk-a2"]);
+    expect(result[1]).toMatchObject({
+      id: "local-a",
+      canonicalId: "desk-a1",
+      text: "I asked a research agent.",
+      artifacts: [
+        {
+          id: "agent-work:t1",
+          payload: { kind: "agent-work", state: "done" },
+        },
+      ],
+    });
+    expect(result[2]?.text).toBe("Meanwhile, here is the rest of the answer.");
+    expect(result[2]?.artifacts).toBe(undefined);
+    expect(result.flatMap((message) => message.artifacts ?? [])).toHaveLength(
+      1,
+    );
+  });
+
+  test("falls back to text/last-assistant matching without a canonical id", () => {
+    const result = reconcileSentDesktopTurn({
+      ...baseTurn(),
+      canonicalMessages: [
+        user("desk-u", "do the thing", { createdAt: 90 }),
+        assistant("desk-a", "done!", { createdAt: 91 }),
+      ],
+    });
+    expect(result.find((m) => m.id === "local-u")?.canonicalId).toBe("desk-u");
+    expect(result.find((m) => m.id === "local-a")?.canonicalId).toBe("desk-a");
+  });
+});
+
+describe("linkOptimisticTurnToCanonical (interrupted/stopped turn)", () => {
+  test("links the optimistic user bubble and reply to the canonical ids", () => {
+    const current = [
+      user("local-u", "message A", { createdAt: 100 }),
+      assistant("local-a", "", { createdAt: 101, stopped: true }),
+    ];
+    const linked = linkOptimisticTurnToCanonical(current, {
+      userMessageId: "local-u",
+      replyId: "local-a",
+      canonicalUserMessageId: "desk-u",
+    });
+    expect(linked.find((m) => m.id === "local-u")?.canonicalId).toBe("desk-u");
+    expect(linked.find((m) => m.id === "local-a")?.requestId).toBe("desk-u");
+  });
+
+  test("never clobbers link fields a completed turn already set", () => {
+    const current = [
+      user("local-u", "message A", { canonicalId: "desk-existing" }),
+      assistant("local-a", "answer", { requestId: "desk-existing" }),
+    ];
+    const linked = linkOptimisticTurnToCanonical(current, {
+      userMessageId: "local-u",
+      replyId: "local-a",
+      canonicalUserMessageId: "desk-u",
+    });
+    expect(linked).toBe(current);
+    expect(linked.find((m) => m.id === "local-u")?.canonicalId).toBe(
+      "desk-existing",
+    );
+  });
+
+  test("is a no-op without a canonical id (bridge never reported one)", () => {
+    const current = [user("local-u", "message A", { createdAt: 100 })];
+    expect(
+      linkOptimisticTurnToCanonical(current, {
+        userMessageId: "local-u",
+        replyId: "local-a",
+        canonicalUserMessageId: "  ",
+      }),
+    ).toBe(current);
+  });
+
+  test("send → stop → send: the first user message stays single after reconcile", () => {
+    // Message A was sent; the user stopped the turn mid-stream. Without the
+    // stop-path link, the optimistic bubble keeps only its local id, so the
+    // next send's wake→sync pulls the canonical user row and mergeMessagesById
+    // (id/canonicalId only) appends it as a duplicate of message A.
+    const afterStopUnlinked = [
+      user("local-u", "message A", { createdAt: 100 }),
+      assistant("local-a", "", { createdAt: 101, stopped: true }),
+    ];
+    const canonicalPull = [user("desk-u", "message A", { createdAt: 100 })];
+    // The bug: unlinked bubble + canonical pull duplicates message A.
+    expect(
+      mergeMessagesById(afterStopUnlinked, canonicalPull).filter(
+        (m) => m.role === "user",
+      ),
+    ).toHaveLength(2);
+
+    // The fix: the stop path links the bubble to its canonical id first, so
+    // the same pull folds into the existing bubble — message A stays single.
+    const afterStopLinked = linkOptimisticTurnToCanonical(afterStopUnlinked, {
+      userMessageId: "local-u",
+      replyId: "local-a",
+      canonicalUserMessageId: "desk-u",
+    });
+    const reconciled = mergeMessagesById(afterStopLinked, canonicalPull);
+    const usersA = reconciled.filter(
+      (m) => m.role === "user" && m.text === "message A",
+    );
+    expect(usersA).toHaveLength(1);
+    expect(usersA[0]?.id).toBe("local-u");
+    expect(usersA[0]?.canonicalId).toBe("desk-u");
+  });
+});

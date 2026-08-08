@@ -1,0 +1,126 @@
+diff --git a/ios/RNCarPlay.m b/ios/RNCarPlay.m
+index 672a032a2ab8214249c65229d5eccf9583e86c8c..8d256e32e547f06b3afcd8f9f14e6dfc7706a0c9 100644
+--- a/ios/RNCarPlay.m
++++ b/ios/RNCarPlay.m
+@@ -2,6 +2,28 @@
+ #import <React/RCTConvert.h>
+ #import <React/RCTRootView.h>
+ 
++// Stella diagnostics: mirror key CarPlay bridge steps into the same
++// user-defaults breadcrumb store the scene delegate writes
++// (StellaCarPlayDiagnostics), so on-unit failures of the JS root-template
++// takeover are visible in Console.app / the diagnostics dump.
++static void RNCPStellaLog(NSString *format, ...) {
++    va_list args;
++    va_start(args, format);
++    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
++    va_end(args);
++
++    NSLog(@"[carplay] %@", message);
++
++    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
++    NSArray<NSString *> *existing = [defaults stringArrayForKey:@"StellaCarPlayDiagnostics"] ?: @[];
++    NSMutableArray<NSString *> *next = [existing mutableCopy];
++    [next addObject:[NSString stringWithFormat:@"%@ %@", [NSDate date], message]];
++    while (next.count > 80) {
++        [next removeObjectAtIndex:0];
++    }
++    [defaults setObject:next forKey:@"StellaCarPlayDiagnostics"];
++}
++
+ @implementation RNCarPlay
+ 
+ @synthesize interfaceController;
+@@ -25,8 +47,21 @@ + (void) connectWithInterfaceController:(CPInterfaceController*)interfaceControl
+     [store setConnected:true];
+ 
+     RNCarPlay *cp = [RNCarPlay allocWithZone:nil];
+-    if (cp.bridge) {
++    // Under the New Architecture (bridgeless) `cp.bridge` is nil, but the
++    // RCTEventEmitter still delivers events through its callableJSModules
++    // (RCTDeviceEventEmitter). Emit when either transport is wired up so
++    // `didConnect` fires on both the legacy bridge and bridgeless; otherwise
++    // the CarPlay root template is never set and the head unit shows a blank
++    // screen. When neither is ready yet, RNCPStore stays `connected`, so JS's
++    // checkForConnection() recovers the event once the module is set up.
++    RNCPStellaLog(@"RNCarPlay.connect bridge=%@ callableJSModules=%@",
++                  cp.bridge ? @"YES" : @"NO",
++                  cp.callableJSModules ? @"YES" : @"NO");
++    if (cp.bridge || cp.callableJSModules) {
+         [cp sendEventWithName:@"didConnect" body:[self getConnectedWindowInformation:window]];
++        RNCPStellaLog(@"RNCarPlay.connect emitted didConnect to JS");
++    } else {
++        RNCPStellaLog(@"RNCarPlay.connect could NOT emit didConnect (no JS transport yet)");
+     }
+ }
+ 
+@@ -36,11 +71,35 @@ + (void) disconnect {
+     [store setConnected:false];
+     [[store.window subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
+ 
+-    if (cp.bridge) {
++    // Bridgeless-compatible emit (see connectWithInterfaceController above).
++    if (cp.bridge || cp.callableJSModules) {
+         [cp sendEventWithName:@"didDisconnect" body:@{}];
+     }
+ }
+ 
++// Stella: bypass RCTEventEmitter's listener-count guard. The base
++// sendEventWithName SILENTLY DROPS events while `_listenerCount == 0`
++// (RCTLogWarn only). Under the New Architecture this legacy module is reached
++// through the interop layer, and its `addListener`/`removeListeners`
++// bookkeeping cannot be trusted to have run before CarPlay connects — a
++// dropped `didConnect`/`didSelectListItem` is a permanently dead head unit.
++// RCTDeviceEventEmitter delivery itself works whenever callableJSModules is
++// set, and emitting to it with no JS listeners is a harmless no-op, so emit
++// directly and fall back to the stock path only when callableJSModules is
++// missing (legacy bridge).
++- (void)sendEventWithName:(NSString *)eventName body:(id)body
++{
++    if (self.callableJSModules) {
++        [self.callableJSModules invokeModule:@"RCTDeviceEventEmitter"
++                                      method:@"emit"
++                                    withArgs:body ? @[ eventName, body ] : @[ eventName ]];
++        RNCPStellaLog(@"direct-emit %@ via callableJSModules", eventName);
++    } else {
++        RNCPStellaLog(@"emit %@ via stock sendEventWithName (no callableJSModules)", eventName);
++        [super sendEventWithName:eventName body:body];
++    }
++}
++
+ RCT_EXPORT_MODULE();
+ 
+ + (id)allocWithZone:(NSZone *)zone {
+@@ -152,8 +211,10 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
+ 
+ RCT_EXPORT_METHOD(checkForConnection) {
+     RNCPStore *store = [RNCPStore sharedManager];
++    RNCPStellaLog(@"checkForConnection called from JS; storeConnected=%@", [store isConnected] ? @"YES" : @"NO");
+     if ([store isConnected]) {
+         [self sendEventWithName:@"didConnect" body:[RNCarPlay getConnectedWindowInformation: store.window]];
++        RNCPStellaLog(@"checkForConnection re-emitted didConnect");
+     }
+ }
+ 
+@@ -458,13 +519,18 @@ - (UIImage *)imageWithSize:(UIImage *)image convertToSize:(CGSize)size {
+ 
+     store.interfaceController.delegate = self;
+ 
++    RNCPStellaLog(@"setRootTemplate(%@) template=%@ interfaceController=%@",
++                  templateId,
++                  template ? @"FOUND" : @"MISSING",
++                  store.interfaceController ? @"YES" : @"NO");
++
+     if (template) {
+         [store.interfaceController setRootTemplate:template animated:animated completion:^(BOOL done, NSError * _Nullable err) {
+-            NSLog(@"error %@", err);
+-            // noop
++            RNCPStellaLog(@"setRootTemplate(%@) completion done=%@ error=%@",
++                          templateId, done ? @"YES" : @"NO", err.localizedDescription ?: @"none");
+         }];
+     } else {
+-        NSLog(@"Failed to find template %@", template);
++        RNCPStellaLog(@"setRootTemplate(%@) FAILED: template not found in RNCPStore", templateId);
+     }
+ }
+ 

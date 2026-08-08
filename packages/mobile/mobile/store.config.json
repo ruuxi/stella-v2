@@ -1,0 +1,72 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "copyright": "2026 FromYou, LLC",
+    "release": {
+      "automaticRelease": false
+    },
+    "info": {
+      "en-US": {
+        "description": "Stella is a personal AI assistant for your phone and computer. Ask a question, talk through an idea, or send work to your paired computer while you're away.\n\nUse Stella to:\n• Chat with an AI assistant from your phone\n• Speak instead of typing with voice input\n• Pair with the Stella desktop app and ask your computer to browse, manage files, or run tasks\n• Choose Stella models, your own provider keys, Codex, or Claude Code on a paired computer\n• Keep chat history and local context on your devices rather than in a cloud message archive\n\nStella is local-first and open source. Depending on how you use it, message content may pass through Stella's service or the AI provider you select to produce a response, but it isn't stored as cloud chat history. See the privacy policy for details.\n\nComputer control requires the Stella desktop app and a paired computer. What Stella can do depends on your computer, selected model or engine, connected services, and permissions.",
+        "keywords": [
+          "assistant",
+          "productivity",
+          "computer",
+          "remote",
+          "automation",
+          "open source",
+          "local",
+          "privacy",
+          "agent",
+          "LLM",
+          "BYOK"
+        ],
+        "marketingUrl": "https://stella.sh",
+        "supportUrl": "https://stella.sh",
+        "title": "Stella: Personal AI",
+        "subtitle": "Chat, voice & desktop control",
+        "privacyPolicyUrl": "https://stella.sh/privacy"
+      }
+    },
+    "categories": [
+      "PRODUCTIVITY"
+    ],
+    "advisory": {
+      "ageRatingOverride": "SEVENTEEN_PLUS",
+      "alcoholTobaccoOrDrugUseOrReferences": "INFREQUENT_OR_MILD",
+      "contests": "NONE",
+      "gambling": false,
+      "gamblingSimulated": "NONE",
+      "horrorOrFearThemes": "INFREQUENT_OR_MILD",
+      "kidsAgeBand": null,
+      "koreaAgeRatingOverride": "NONE",
+      "lootBox": false,
+      "matureOrSuggestiveThemes": "INFREQUENT_OR_MILD",
+      "medicalOrTreatmentInformation": "INFREQUENT_OR_MILD",
+      "profanityOrCrudeHumor": "INFREQUENT_OR_MILD",
+      "sexualContentGraphicAndNudity": "NONE",
+      "sexualContentOrNudity": "NONE",
+      "unrestrictedWebAccess": false,
+      "violenceCartoonOrFantasy": "INFREQUENT_OR_MILD",
+      "violenceRealistic": "INFREQUENT_OR_MILD",
+      "violenceRealisticProlongedGraphicOrSadistic": "NONE",
+      "advertising": false,
+      "ageAssurance": false,
+      "ageRatingOverrideV2": "SIXTEEN_PLUS",
+      "developerAgeRatingInfoUrl": null,
+      "gunsOrOtherWeapons": "INFREQUENT_OR_MILD",
+      "healthOrWellnessTopics": true,
+      "messagingAndChat": true,
+      "parentalControls": false,
+      "userGeneratedContent": true
+    },
+    "review": {
+      "firstName": "Rahul",
+      "lastName": "Nanda",
+      "email": "contact@fromyou.ai",
+      "phone": "+1 571 278 2333",
+      "demoRequired": false,
+      "notes": "Sign-in is optional. To review without an account, tap 'Continue without signing in,' then complete or skip onboarding and open Chat.\n\nThe Computer tab connects to the separately installed Stella desktop app. Pairing uses a one-time code or QR code shown by the desktop app, so computer control is unavailable until a computer is paired.\n\nChat messages are exchanged with an AI assistant, not with other users. The app has no public feed or public user profiles."
+    }
+  }
+}

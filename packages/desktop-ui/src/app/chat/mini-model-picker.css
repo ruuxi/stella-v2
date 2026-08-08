@@ -1,0 +1,156 @@
+/* Pinned model control in the composer's expanded toolbar. The trigger is a
+   pill showing the active model; the popover mirrors the sidebar picker's
+   reasoning + recent-models language in a compact footprint. */
+
+.pill-btn.mini-model-picker-trigger {
+  max-width: 140px;
+  border: 1px solid transparent;
+}
+
+.pill-btn.mini-model-picker-trigger[data-active] {
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-strong);
+}
+
+.mini-model-picker-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mini-model-picker-popover {
+  width: 260px;
+  padding: 8px;
+}
+
+/* Reasoning row — same pills as the sidebar picker's selected-model extra. */
+.mini-model-picker-reasoning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.mini-model-picker-reasoning-icon {
+  flex: none;
+  color: var(--text-weak);
+}
+
+.mini-model-picker-reasoning-options {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-full);
+  background: transparent;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mini-model-picker-reasoning-options::-webkit-scrollbar {
+  display: none;
+}
+
+.mini-model-picker-reasoning-options button {
+  appearance: none;
+  flex: 1 0 auto;
+  min-height: 26px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-weak);
+  font: inherit;
+  cursor: default;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.mini-model-picker-reasoning-options button:hover:not(:disabled),
+.mini-model-picker-reasoning-options button:focus-visible {
+  outline: none;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-strong);
+}
+
+.mini-model-picker-reasoning-options button[data-active] {
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
+  color: var(--text-strong);
+}
+
+.mini-model-picker-reasoning-options button:disabled {
+  opacity: 0.5;
+}
+
+.mini-model-picker-label {
+  padding: 8px 6px 2px;
+  color: var(--text-weaker);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mini-model-picker-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mini-model-picker-rows button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  cursor: default;
+}
+
+.mini-model-picker-rows button:hover:not(:disabled),
+.mini-model-picker-rows button[data-selected] {
+  background: var(--surface-hover);
+}
+
+.mini-model-picker-rows button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.mini-model-picker-rows button:disabled {
+  opacity: 0.6;
+}
+
+.mini-model-picker-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mini-model-picker-row-note {
+  flex: 0 0 auto;
+  color: var(--text-weaker);
+  font-size: var(--font-size-2xs);
+}
+
+.mini-model-picker-row-check {
+  flex: 0 0 auto;
+  color: var(--text-weak);
+}

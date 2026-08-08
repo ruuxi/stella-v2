@@ -120,6 +120,104 @@ export function buildEngineRoutingPatch(preferences, engine, modelId) {
         assistantPropagatedAgents: nextPropagated,
     };
 }
+const isStellaModelId = (modelId) => modelId === "" || modelId.startsWith("stella/");
+/**
+ * Full preference patch for picking a catalog model (extracted from the
+ * sidebar picker so the composer's pinned mini picker applies selections
+ * identically). Picking any model outside the engine panels routes back
+ * through Stella's own runtime, so a committed ChatGPT/Claude Code engine is
+ * reverted in the same write (selection implies engine).
+ *
+ * `target` is either the Assistant surface
+ * (`{ assistant: true, configurableAgentKeys }`) — which dual-writes
+ * orchestrator + general and broadcasts non-Stella picks to every other
+ * configurable agent — or a single Settings tab (`{ agentKey }`).
+ */
+export function buildModelSelectionPatch(preferences, value, target) {
+    const engineRevertPatch = preferences.agentRuntimeEngine !== "default"
+        ? {
+            ...buildEngineRoutingPatch(preferences, "default"),
+            ...buildEngineTransitionReasoningPatch(preferences, "default"),
+        }
+        : null;
+    const basePreferences = engineRevertPatch
+        ? { ...preferences, ...engineRevertPatch }
+        : preferences;
+    const previousOverrides = { ...basePreferences.modelOverrides };
+    const previousPropagated = [
+        ...(basePreferences.assistantPropagatedAgents ?? []),
+    ];
+    const nextOverrides = { ...previousOverrides };
+    let nextPropagated = previousPropagated;
+    if (target.assistant) {
+        // Rebuild propagation from scratch on every Assistant pick: first
+        // unwind whatever the last propagation wrote (so switching from
+        // Anthropic -> Stella cleans every previously-broadcasted agent),
+        // then re-apply against the new pick. User-intentional per-agent
+        // overrides are left alone because they were never in
+        // `previousPropagated` to begin with.
+        for (const propagatedKey of previousPropagated) {
+            delete nextOverrides[propagatedKey];
+        }
+        for (const key of CONVERSATION_AGENT_KEYS) {
+            if (value === "") {
+                delete nextOverrides[key];
+            }
+            else {
+                nextOverrides[key] = value;
+            }
+        }
+        if (value !== "" && !isStellaModelId(value)) {
+            // Broadcast to every other configurable agent that doesn't have
+            // an explicit user-intentional override.
+            const propagateTargets = target.configurableAgentKeys.filter((key) => !CONVERSATION_AGENT_KEYS.some((agentKey) => agentKey === key));
+            const written = [];
+            for (const key of propagateTargets) {
+                const hadManualOverride = previousOverrides[key] !== undefined &&
+                    !previousPropagated.includes(key);
+                if (hadManualOverride)
+                    continue;
+                nextOverrides[key] = value;
+                written.push(key);
+            }
+            nextPropagated = written;
+        }
+        else {
+            nextPropagated = [];
+        }
+    }
+    else {
+        // Single-agent path (Settings tabs other than Assistant). The user
+        // is explicitly setting this agent, so remove it from the
+        // propagated set — it's owned by them now.
+        if (value === "") {
+            delete nextOverrides[target.agentKey];
+        }
+        else {
+            nextOverrides[target.agentKey] = value;
+        }
+        nextPropagated = previousPropagated.filter((key) => key !== target.agentKey);
+    }
+    // After the (possible) engine revert the effective engine is always
+    // "default", so the Stella conversation mirror syncs unconditionally.
+    const nextStellaConversationModelOverrides = {
+        ...(basePreferences.stellaConversationModelOverrides ?? {}),
+    };
+    for (const key of CONVERSATION_AGENT_KEYS) {
+        if (nextOverrides[key]) {
+            nextStellaConversationModelOverrides[key] = nextOverrides[key];
+        }
+        else {
+            delete nextStellaConversationModelOverrides[key];
+        }
+    }
+    return {
+        ...(engineRevertPatch ?? {}),
+        modelOverrides: nextOverrides,
+        assistantPropagatedAgents: nextPropagated,
+        stellaConversationModelOverrides: nextStellaConversationModelOverrides,
+    };
+}
 export function buildEngineReasoningPatch(preferences, engine, effort, agentKeys) {
     const nextReasoning = { ...preferences.reasoningEfforts };
     const stellaReasoning = {

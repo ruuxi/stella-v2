@@ -10,19 +10,14 @@ import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
 import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-code-model-catalog";
 import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
-import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getDefaultModelOptionLabel, getModelDisplayLabel, getLocalModelDefaults, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
+import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getDefaultModelOptionLabel, getModelPickerDisplayLabel, getLocalModelDefaults, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
+import { REASONING_EFFORT_OPTIONS, listReasoningEffortOptions, } from "@/global/settings/lib/reasoning-effort-options";
+import { recordRecentModel } from "@/global/settings/lib/recent-models";
 import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billing/audience";
 import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
 import { showToast } from "@/ui/toast";
-import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, fromOpenAiCodexModelId, intersectChatGptModels, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, } from "@/global/settings/lib/engine-model-routing";
+import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, fromOpenAiCodexModelId, intersectChatGptModels, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, } from "@/global/settings/lib/engine-model-routing";
 import "./AgentModelPicker.css";
-const REASONING_EFFORT_OPTIONS = [
-    { id: "minimal", label: "Minimal" },
-    { id: "low", label: "Low" },
-    { id: "medium", label: "Medium" },
-    { id: "high", label: "High" },
-    { id: "xhigh", label: "Extra" },
-];
 const ASSISTANT_TARGET = "__assistant__";
 const IMAGE_TARGET = "__image__";
 const VOICE_TARGET = "__voice__";
@@ -69,7 +64,6 @@ function sectionOfModelValue(value) {
  * never touches user-intentional per-agent picks.
  */
 const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"];
-const isStellaModelId = (modelId) => modelId === "" || modelId.startsWith("stella/");
 const DEFAULT_IMAGE_GENERATION = {
     provider: "stella",
 };
@@ -135,40 +129,6 @@ export function warmAgentModelPickerCache() {
             cachedLocalPreferences = next;
     })
         .catch(() => undefined);
-}
-/** Friendly names for Claude Code CLI model aliases. */
-const CLAUDE_CODE_ALIAS_LABELS = {
-    default: "Default",
-    best: "Best",
-    fable: "Fable",
-    opus: "Opus",
-    sonnet: "Sonnet",
-    haiku: "Haiku",
-    opusplan: "Opus Plan",
-    "sonnet[1m]": "Sonnet · 1M",
-    "opus[1m]": "Opus · 1M",
-};
-function getModelPickerDisplayLabel(modelId, modelNamesById) {
-    if (modelId.startsWith("claude-code/")) {
-        const engineModel = modelId.slice("claude-code/".length);
-        return `Claude Code · ${CLAUDE_CODE_ALIAS_LABELS[engineModel] ?? engineModel}`;
-    }
-    if (modelId.startsWith("codex-cli/")) {
-        return `ChatGPT · ${modelId.slice("codex-cli/".length)}`;
-    }
-    if (modelId.startsWith("local/")) {
-        const localId = modelId.slice("local/".length);
-        const slash = localId.indexOf("/");
-        if (slash > 0) {
-            const maybeBaseUrl = decodeURIComponent(localId.slice(0, slash));
-            const customModel = localId.slice(slash + 1).trim();
-            if (/^https?:\/\//i.test(maybeBaseUrl) && customModel) {
-                return `Local ${customModel}`;
-            }
-        }
-        return `Local ${localId}`;
-    }
-    return getModelDisplayLabel(modelId, modelNamesById);
 }
 /**
  * Inline, no-popover model picker keyed off the agent toggle at the top.
@@ -483,108 +443,28 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const handleSelect = useCallback(async (value) => {
         if (!preferences || pendingAgent)
             return;
-        // Picking any model outside the engine panels routes back through
-        // Stella's own runtime, so a committed ChatGPT/Claude Code engine is
-        // reverted in the same write (selection implies engine).
-        const engineRevertPatch = preferences.agentRuntimeEngine !== "default"
-            ? {
-                ...buildEngineRoutingPatch(preferences, "default"),
-                ...buildEngineTransitionReasoningPatch(preferences, "default"),
-            }
-            : null;
-        if (engineRevertPatch)
+        // The patch may revert a committed ChatGPT/Claude Code engine
+        // (selection implies engine), so the migration guard resets with it.
+        if (preferences.agentRuntimeEngine !== "default")
             migrationAttemptedRef.current = null;
-        const basePreferences = engineRevertPatch
-            ? { ...preferences, ...engineRevertPatch }
-            : preferences;
-        const previousOverrides = { ...basePreferences.modelOverrides };
-        const previousPropagated = [
-            ...(basePreferences.assistantPropagatedAgents ?? []),
-        ];
-        const nextOverrides = { ...previousOverrides };
-        let nextPropagated = previousPropagated;
-        if (activeAssistant) {
-            // Rebuild propagation from scratch on every Assistant pick: first
-            // unwind whatever the last propagation wrote (so switching from
-            // Anthropic -> Stella cleans every previously-broadcasted agent),
-            // then re-apply against the new pick. User-intentional per-agent
-            // overrides are left alone because they were never in
-            // `previousPropagated` to begin with.
-            for (const propagatedKey of previousPropagated) {
-                delete nextOverrides[propagatedKey];
+        const patch = buildModelSelectionPatch(preferences, value, activeAssistant
+            ? {
+                assistant: true,
+                configurableAgentKeys: configurableAgents.map((agent) => agent.key),
             }
-            for (const key of assistantWriteKeys) {
-                if (value === "") {
-                    delete nextOverrides[key];
-                }
-                else {
-                    nextOverrides[key] = value;
-                }
-            }
-            if (value !== "" && !isStellaModelId(value)) {
-                // Broadcast to every other configurable agent that doesn't have
-                // an explicit user-intentional override.
-                const propagateTargets = configurableAgents
-                    .map((agent) => agent.key)
-                    .filter((key) => !assistantWriteKeys.includes(key));
-                const written = [];
-                for (const key of propagateTargets) {
-                    const hadManualOverride = previousOverrides[key] !== undefined &&
-                        !previousPropagated.includes(key);
-                    if (hadManualOverride)
-                        continue;
-                    nextOverrides[key] = value;
-                    written.push(key);
-                }
-                nextPropagated = written;
-            }
-            else {
-                nextPropagated = [];
-            }
-        }
-        else {
-            // Single-agent path (Settings tabs other than Assistant). The user
-            // is explicitly setting this agent, so remove it from the
-            // propagated set — it's owned by them now.
-            if (value === "") {
-                delete nextOverrides[activeAgent];
-            }
-            else {
-                nextOverrides[activeAgent] = value;
-            }
-            nextPropagated = previousPropagated.filter((key) => key !== activeAgent);
-        }
+            : { agentKey: activeAgent });
         setPendingAgent(activeAgent);
-        // After the (possible) engine revert the effective engine is always
-        // "default", so the Stella conversation mirror syncs unconditionally.
-        const nextStellaConversationModelOverrides = {
-            ...(basePreferences.stellaConversationModelOverrides ?? {}),
-        };
-        for (const key of ASSISTANT_AGENT_KEYS) {
-            if (nextOverrides[key]) {
-                nextStellaConversationModelOverrides[key] = nextOverrides[key];
-            }
-            else {
-                delete nextStellaConversationModelOverrides[key];
-            }
-        }
-        setPreferences({
-            ...basePreferences,
-            modelOverrides: nextOverrides,
-            assistantPropagatedAgents: nextPropagated,
-            stellaConversationModelOverrides: nextStellaConversationModelOverrides,
-        });
+        setPreferences({ ...preferences, ...patch });
         try {
-            const saved = await window.electronAPI?.system?.setLocalModelPreferences?.({
-                ...(engineRevertPatch ?? {}),
-                modelOverrides: nextOverrides,
-                assistantPropagatedAgents: nextPropagated,
-                stellaConversationModelOverrides: nextStellaConversationModelOverrides,
-            });
+            const saved = await window.electronAPI?.system?.setLocalModelPreferences?.(patch);
             if (saved)
                 setPreferences(saved);
             // Let other model listeners pick up the new override without remounting.
             window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
+            // Real catalog picks feed the Recent list in the composer's mini
+            // picker; the empty "default" pick is never recorded.
+            if (value)
+                recordRecentModel(value);
             setError(null);
             // Restricted-tier picks used to fire a toast here. The picker
             // now disables Stella-provider models that aren't available on
@@ -606,7 +486,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     }, [
         activeAgent,
         activeAssistant,
-        assistantWriteKeys,
         configurableAgents,
         onSelected,
         pendingAgent,
@@ -883,6 +762,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             const saved = await window.electronAPI?.system?.setLocalModelPreferences?.(patch);
             if (saved)
                 setPreferences(saved);
+            // Effort changes surface in the composer's mini picker too, so
+            // announce them like model changes.
+            window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
             setError(null);
             onSelected?.();
         }
@@ -1061,7 +943,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const currentReasoningEffort = savedReasoningEffort === "default"
         ? effectiveDefaultReasoningEffort
         : savedReasoningEffort;
-    const reasoningEffortOptions = REASONING_EFFORT_OPTIONS.filter((option) => committedEngine !== "claude_code_local" || option.id !== "minimal");
+    const reasoningEffortOptions = listReasoningEffortOptions(committedEngine);
     const reasoningDisabled = pendingAgent !== null ||
         (committedEngine === "codex_cli" &&
             (chatGptConnection !== "connected" || codexCatalog.loading));

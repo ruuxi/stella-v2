@@ -13,6 +13,7 @@ import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecy
 import { displaySearchStore, useDisplaySearchFocusRequest, useDisplaySearchOpen, useDisplaySearchQuery, } from "@/features/workspace-display/display-search-store";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { forgetArtifactFileEntry, useFileEntries, } from "@/features/workspace-display/files-index";
+import { composerModelPin, useComposerModelPinned, } from "@/features/chat/composer-model-pin-store";
 import { dataTransferHasSupportedMedia, importLocalMedia, isSupportedMediaFile, } from "@/features/workspace-display/media-files";
 import { openAgentThreadTab, openDisplayPayloadTab, } from "@/features/workspace-display/open-payload";
 import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
@@ -274,6 +275,7 @@ function WorkList() {
 export function FilesSection() {
     const openTabId = useSidebarSectionLocation("files");
     const modelsOpen = useEngineOverlayOpen();
+    const modelPinned = useComposerModelPinned();
     const panelOpen = useDisplayPanelOpen();
     const activeSection = useActiveSidebarSection();
     const { tabs } = useDisplayTabList();
@@ -308,6 +310,9 @@ export function FilesSection() {
         </>)}
       </div>
       {showModelsControl ? (<div className="work-section__footer">
+          {modelsOpen ? (<button type="button" className="pill-btn work-models-pin-button" data-active={modelPinned || undefined} aria-pressed={modelPinned} onClick={() => composerModelPin.toggle()}>
+              Show in composer
+            </button>) : null}
           <SidebarModelsControl />
         </div>) : null}
     </div>);

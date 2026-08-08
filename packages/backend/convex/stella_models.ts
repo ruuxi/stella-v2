@@ -25,7 +25,7 @@ export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 8, 22, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 8, 23, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -83,9 +83,11 @@ const catalogRoutingModel = (config: ModelConfig): string =>
     : config.model;
 
 const listUpstreamManagedModels = (): string[] => {
-  return listManagedModelIds().sort((a, b) =>
-    deriveDisplayName(a).localeCompare(deriveDisplayName(b)),
-  );
+  return listManagedModelIds()
+    .filter((model) =>
+      isStellaModelAllowedForAudience(toStellaModelId(model), "pro"),
+    )
+    .sort((a, b) => deriveDisplayName(a).localeCompare(deriveDisplayName(b)));
 };
 
 export const toStellaModelId = (upstreamModel: string): string =>

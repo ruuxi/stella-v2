@@ -328,6 +328,25 @@ pub async fn run_daemon(session: &str) {
     }
 }
 
+/// Pre-flight mirror of the `ensure_daemon` length check in connection.rs:
+/// the Electron host spawns `service run` directly (bypassing
+/// `ensure_daemon`), so an over-long path must fail here with a readable
+/// error naming the path and byte count instead of a bare "Failed to bind
+/// socket". Unix `sun_path` is 104 bytes including the null terminator.
+#[cfg(unix)]
+fn validate_unix_socket_path_len(socket_path: &std::path::Path) -> Result<(), String> {
+    let path_len = socket_path.as_os_str().len();
+    if path_len > 103 {
+        return Err(format!(
+            "Socket path '{}' is too long: {} bytes (max 103).\n\
+             Use a shorter session name or set STELLA_BROWSER_SOCKET_DIR to a shorter path.",
+            socket_path.display(),
+            path_len
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 async fn run_socket_server(
     socket_path: &PathBuf,
@@ -338,6 +357,7 @@ async fn run_socket_server(
 ) -> Result<(), String> {
     use tokio::net::UnixListener;
 
+    validate_unix_socket_path_len(socket_path)?;
     let listener =
         UnixListener::bind(socket_path).map_err(|e| format!("Failed to bind socket: {}", e))?;
 
@@ -698,6 +718,29 @@ mod tests {
         assert_eq!(get_port_for_session(""), 49152);
     }
 
+    #[test]
+    #[cfg(unix)]
+    fn test_unix_socket_path_length_guard() {
+        use std::path::PathBuf;
+
+        assert!(validate_unix_socket_path_len(&PathBuf::from("/tmp/short.sock")).is_ok());
+
+        // Boundary: exactly 103 bytes passes, 104 fails.
+        let base = "/tmp/";
+        let at_limit = PathBuf::from(format!("{}{}", base, "a".repeat(103 - base.len())));
+        assert_eq!(at_limit.as_os_str().len(), 103);
+        assert!(validate_unix_socket_path_len(&at_limit).is_ok());
+
+        let over_limit = PathBuf::from(format!("{}{}", base, "a".repeat(104 - base.len())));
+        let err = validate_unix_socket_path_len(&over_limit).unwrap_err();
+        assert!(err.contains("104 bytes"), "unexpected message: {err}");
+        assert!(err.contains("max 103"), "unexpected message: {err}");
+        assert!(
+            err.contains(over_limit.to_str().unwrap()),
+            "error should name the offending path: {err}"
+        );
+    }
+
     #[tokio::test]
     async fn test_handle_connection_close_requests_graceful_shutdown() {
         let (client, server) = tokio::io::duplex(1024);
@@ -844,7 +887,7 @@ mod tests {
         assert!(response["error"]
             .as_str()
             .unwrap()
-            .contains("extension backend"));
+            .contains("not implemented on this browser backend"));
 
         handle.await.unwrap();
         assert!(shutdown_rx.try_recv().is_err());

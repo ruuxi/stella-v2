@@ -99,7 +99,7 @@ describe("browser worker API", () => {
     });
   });
 
-  it("fails loudly when a legacy extension returns index-only tab payloads", async () => {
+  it("fails loudly when a legacy backend returns index-only tab payloads", async () => {
     const browser = installBrowserWorkerApi(async (method, args) => {
       if (method === "command" && args[0] === "tab_list") {
         return {
@@ -117,10 +117,33 @@ describe("browser worker API", () => {
     });
 
     await expect(browser.tabs.list()).rejects.toThrow(
-      /protocol mismatch.*stable positive tabId.*1\.2\.6/i,
+      /protocol mismatch.*stable positive tabId.*predates stable tab ids/i,
     );
     await expect(browser.tabs.new()).rejects.toThrow(
-      /protocol mismatch.*tab_new returned no stable tabId.*1\.2\.6/i,
+      /protocol mismatch.*tab_new returned no stable tabId.*predates stable tab ids/i,
+    );
+    const error = await browser.tabs.list().then(
+      () => {
+        throw new Error("expected tabs.list to reject");
+      },
+      (cause: unknown) => cause as Error,
+    );
+    expect(error.message).not.toContain("1.2.6");
+  });
+
+  it("reports a generic protocol mismatch for malformed tab payloads without blaming the extension", async () => {
+    const browser = installBrowserWorkerApi(async (method, args) => {
+      if (method === "command" && args[0] === "tab_list") {
+        return {
+          success: true,
+          data: { tabs: [{ tabId: "not-a-number", title: "Broken" }] },
+        };
+      }
+      return { success: true, data: {} };
+    });
+
+    await expect(browser.tabs.list()).rejects.toThrow(
+      /protocol mismatch.*stable positive tabId.*backend and runtime versions match/i,
     );
   });
 
@@ -181,6 +204,92 @@ describe("browser worker API", () => {
         args: ["screenshot", { tabId: 9, fullPage: true, format: "png" }],
       },
       { method: "command", args: ["tab_close", { tabId: 9 }] },
+    ]);
+  });
+
+  it("exposes page-level press and keyboard on the tab handle", async () => {
+    const calls: RecordedCall[] = [];
+    const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
+      calls.push({ method, args });
+      return { success: true, data: { pressed: true } };
+    });
+    const tab = installBrowserWorkerApi(callBrowser).tabs.get(9);
+
+    await tab.press("Enter");
+    await tab.press("Control+a");
+    await tab.keyboard.press("Meta+Shift+P");
+    await tab.keyboard.type("héllo 🌍");
+    await tab.keyboard.type("");
+
+    expect(calls).toEqual([
+      { method: "command", args: ["press", { tabId: 9, key: "Enter" }] },
+      { method: "command", args: ["press", { tabId: 9, key: "Control+a" }] },
+      {
+        method: "command",
+        args: ["press", { tabId: 9, key: "Meta+Shift+P" }],
+      },
+      {
+        method: "command",
+        args: ["inserttext", { tabId: 9, text: "héllo 🌍" }],
+      },
+      { method: "command", args: ["inserttext", { tabId: 9, text: "" }] },
+    ]);
+
+    // Keyboard handle is frozen and identity-stable per tab.
+    expect(Object.isFrozen(tab.keyboard)).toBe(true);
+    expect(tab.keyboard).toBe(tab.keyboard);
+
+    // Invalid inputs are rejected before transport.
+    await expect(tab.press("")).rejects.toThrow(TypeError);
+    await expect(
+      tab.press("x".repeat(65)),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      tab.keyboard.type(42 as unknown as string),
+    ).rejects.toThrow(TypeError);
+    expect(calls).toHaveLength(5);
+
+    // The agent-facing documentation advertises the page-level keyboard.
+    const browser = installBrowserWorkerApi(callBrowser);
+    expect(browser.documentation()).toContain("tab.press(key)");
+    expect(browser.documentation()).toContain("tab.keyboard.type(text)");
+  });
+
+  it("sends press-with-selector payloads that focus the target element", async () => {
+    const calls: RecordedCall[] = [];
+    const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
+      calls.push({ method, args });
+      return { success: true, data: { pressed: true } };
+    });
+    const playwright =
+      installBrowserWorkerApi(callBrowser).tabs.get(21).playwright;
+
+    await playwright
+      .getByRole("textbox", { name: "Search", exact: true })
+      .press("Enter");
+    await playwright.locator("#query").press("Control+a");
+
+    expect(calls).toEqual([
+      {
+        method: "command",
+        args: [
+          "press",
+          {
+            tabId: 21,
+            selector: semantic({
+              kind: "role",
+              role: "textbox",
+              name: "Search",
+              exact: true,
+            }),
+            key: "Enter",
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: ["press", { tabId: 21, selector: "#query", key: "Control+a" }],
+      },
     ]);
   });
 

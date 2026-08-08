@@ -1104,10 +1104,27 @@ class NodeReplKernel {
         );
         const tabsData = tabsReceipt.result.data ?? {};
         const tabs = Array.isArray(tabsData.tabs) ? tabsData.tabs : [];
-        const activeTabId =
-          typeof tabsData.activeTabId === "number"
+        let activeTabId =
+          typeof tabsData.activeTabId === "number" && tabsData.activeTabId > 0
             ? tabsData.activeTabId
             : undefined;
+        if (activeTabId === undefined) {
+          // Older backends omit the top-level activeTabId; derive it from the
+          // per-tab active flag that both the extension and CDP backends emit.
+          for (const tab of tabs) {
+            if (!tab || typeof tab !== "object") continue;
+            const entry = tab as { active?: unknown; tabId?: unknown };
+            if (entry.active !== true) continue;
+            if (
+              typeof entry.tabId === "number" &&
+              Number.isInteger(entry.tabId) &&
+              entry.tabId > 0
+            ) {
+              activeTabId = entry.tabId;
+            }
+            break;
+          }
+        }
         const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated} tabs=${tabs.length}${
           activeTabId === undefined ? "" : ` activeTabId=${activeTabId}`
         }${activity.lastAction ? ` last=${activity.lastAction}` : ""}`;

@@ -592,6 +592,7 @@ export async function processResponsesStream<TApi extends Api>(
 					// OpenAI includes cached tokens in input_tokens, so subtract to get non-cached input
 					input: (response.usage.input_tokens || 0) - cachedTokens,
 					output: response.usage.output_tokens || 0,
+					reasoning: response.usage.output_tokens_details?.reasoning_tokens || 0,
 					cacheRead: cachedTokens,
 					cacheWrite: 0,
 					totalTokens: response.usage.total_tokens || 0,

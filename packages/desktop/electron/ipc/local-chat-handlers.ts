@@ -3,6 +3,7 @@ import type { ConversationSummaryCursor } from "@stella/contracts/local-chat";
 import {
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
+  IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
 } from "@stella/contracts/desktop/ipc-channels";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
@@ -248,6 +249,33 @@ export const registerLocalChatHandlers = (
         (client) =>
           client.listAgentThreadMessages({
             threadId: payload?.threadId ?? "",
+            limit: payload?.limit,
+          }),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
+    async (
+      event,
+      payload: {
+        fromMs?: number;
+        toMs?: number;
+        conversationId?: string;
+        threadId?: string;
+        limit?: number;
+      },
+    ) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
+        (client) =>
+          client.listModelUsage({
+            fromMs: payload?.fromMs,
+            toMs: payload?.toMs,
+            conversationId: payload?.conversationId,
+            threadId: payload?.threadId,
             limit: payload?.limit,
           }),
       ),

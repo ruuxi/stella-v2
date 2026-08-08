@@ -46,6 +46,132 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
+  it("projects durable provider usage by conversation and agent thread", () => {
+    const { store } = createTestContext();
+    const conversationId = "conversation-usage";
+    const orchestrator = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "orchestrator",
+      nameHint: "Orchestrator",
+    });
+    const agent = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "general",
+      nameHint: "Research pricing",
+    });
+    store.saveAgentRecord({
+      threadId: agent.threadId,
+      conversationId,
+      agentType: "general",
+      description: "Research pricing",
+      agentDepth: 1,
+      parentAgentId: orchestrator.threadId,
+      rootRunId: "run-usage",
+      status: "completed",
+      startedAt: 150,
+      completedAt: 210,
+      updatedAt: 210,
+    });
+
+    const appendUsage = (
+      threadKey: string,
+      timestamp: number,
+      model: string,
+      input: number,
+      cacheRead: number,
+      output: number,
+      reasoning: number,
+      totalCost: number,
+    ) =>
+      store.appendThreadMessage({
+        threadKey,
+        role: "assistant",
+        content: "done",
+        timestamp,
+        payload: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          api: "openai-responses",
+          provider: "fireworks",
+          model,
+          usage: {
+            input,
+            cacheRead,
+            cacheWrite: 0,
+            output,
+            reasoning,
+            totalTokens: input + cacheRead + output,
+            cost: {
+              input: totalCost / 4,
+              cacheRead: totalCost / 4,
+              cacheWrite: 0,
+              output: totalCost / 2,
+              total: totalCost,
+            },
+          },
+          stopReason: "stop",
+          timestamp,
+        },
+      });
+
+    appendUsage(
+      orchestrator.threadId,
+      100,
+      "deepseek-v4-flash",
+      100,
+      200,
+      50,
+      20,
+      0.01,
+    );
+    appendUsage(
+      agent.threadId,
+      200,
+      "deepseek-v4-flash",
+      300,
+      400,
+      60,
+      30,
+      0.02,
+    );
+
+    expect(store.listModelUsage({ conversationId })).toEqual({
+      truncated: false,
+      records: [
+        expect.objectContaining({
+          timestamp: 200,
+          threadId: agent.threadId,
+          agentType: "general",
+          agentDescription: "Research pricing",
+          agentDepth: 1,
+          parentAgentId: orchestrator.threadId,
+          rootRunId: "run-usage",
+          inputTokens: 300,
+          cacheReadTokens: 400,
+          outputTokens: 60,
+          reasoningTokens: 30,
+          totalCostUsd: 0.02,
+        }),
+        expect.objectContaining({
+          timestamp: 100,
+          threadId: orchestrator.threadId,
+          agentType: "orchestrator",
+          totalCostUsd: 0.01,
+        }),
+      ],
+    });
+    expect(
+      store.listModelUsage({ threadId: agent.threadId, limit: 1 }),
+    ).toMatchObject({
+      truncated: false,
+      records: [{ threadId: agent.threadId }],
+    });
+    expect(store.listModelUsage({ conversationId, limit: 1 })).toMatchObject({
+      truncated: true,
+      records: [{ threadId: agent.threadId }],
+    });
+  });
+
   it("persists parent-owned lifecycle entries outside model-visible thread messages", () => {
     const { store } = createTestContext();
     const { threadId } = store.resolveOrCreateActiveThread({
@@ -74,7 +200,9 @@ describe("session-store", () => {
     store.appendThreadLifecycleEvent({ threadKey: threadId, event: completed });
 
     expect(store.hasThreadLifecycleEvent(threadId, started._id)).toBe(true);
-    expect(store.hasThreadLifecycleEvent(threadId, "missing-event")).toBe(false);
+    expect(store.hasThreadLifecycleEvent(threadId, "missing-event")).toBe(
+      false,
+    );
     expect(store.listThreadLifecycleEntries(threadId)).toEqual([
       { entryId: expect.any(String), event: started },
       { entryId: expect.any(String), event: completed },

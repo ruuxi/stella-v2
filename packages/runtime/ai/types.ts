@@ -256,6 +256,8 @@ export interface ToolCall {
 export interface Usage {
   input: number;
   output: number;
+  /** Provider-reported reasoning/thinking tokens. Included in `output`. */
+  reasoning?: number;
   cacheRead: number;
   cacheWrite: number;
   totalTokens: number;

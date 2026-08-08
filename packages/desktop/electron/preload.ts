@@ -4,6 +4,7 @@ import type { ChatContext } from "@stella/contracts";
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
+  LocalModelUsagePage,
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
 } from "@stella/contracts/local-chat";
@@ -24,6 +25,7 @@ import {
   IPC_HOME_LIST_RECENT_APPS,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
+  IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
   IPC_MEDIA_COPY_IMAGE,
   IPC_MEDIA_GET_DIR,
   IPC_MEDIA_SAVE_OUTPUT,
@@ -1832,6 +1834,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("localChat:listThreadActivity", payload),
     listAgentThreadMessages: (payload = {}) =>
       ipcRenderer.invoke("localChat:listAgentThreadMessages", payload),
+    listModelUsage: (payload: {
+      fromMs?: number;
+      toMs?: number;
+      conversationId?: string;
+      threadId?: string;
+      limit?: number;
+    }): Promise<LocalModelUsagePage> =>
+      ipcRenderer.invoke(IPC_LOCAL_CHAT_LIST_MODEL_USAGE, payload),
     listFiles: (payload: {
       conversationId: string;
       limit?: number;

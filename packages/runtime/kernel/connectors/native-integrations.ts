@@ -300,76 +300,36 @@ export const getNativeConnectorOAuthConfig = (
 const getOAuthCatalogProvider = (id: string) =>
   getOAuthProviderCatalog().find((entry) => entry.id === id);
 
-const schemaTypeLabel = (schema: unknown): string => {
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return "";
-  const record = schema as Record<string, unknown>;
-  if (typeof record.type === "string") return record.type;
-  if (Array.isArray(record.type)) {
-    return record.type.filter((entry) => typeof entry === "string").join(" | ");
-  }
-  if (Array.isArray(record.anyOf)) return "one of";
-  if (Array.isArray(record.oneOf)) return "one of";
-  return "";
-};
-
-const schemaDescription = (schema: unknown): string => {
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return "";
-  const description = (schema as Record<string, unknown>).description;
-  if (typeof description !== "string") return "";
-  return description.replace(/\s+/gu, " ").trim();
-};
-
-const summarizeInputSchema = (schema?: Record<string, unknown>) => {
+/**
+ * Compact one-line parameter summary for an action's input schema
+ * ("required: a, b; optional: c, d, +3"). Shared by the generated
+ * ACTIONS.md reference and the node_repl `connect.actions` listing —
+ * full schemas stay on-demand via `connect.schema` / `catalog-actions`.
+ */
+export const summarizeActionParams = (
+  schema?: Record<string, unknown>,
+): string => {
   if (!schema) return "";
   const required = Array.isArray(schema.required)
     ? schema.required.filter(
         (entry): entry is string => typeof entry === "string",
       )
     : [];
-  const properties =
+  const propertyNames =
     schema.properties &&
     typeof schema.properties === "object" &&
     !Array.isArray(schema.properties)
-      ? (schema.properties as Record<string, unknown>)
-      : {};
-  const propertyNames = Object.keys(properties);
-  if (propertyNames.length === 0) return "";
-
-  const describeProperty = (name: string) => {
-    const property = properties[name];
-    const type = schemaTypeLabel(property);
-    const description = schemaDescription(property);
-    const suffix = [
-      type ? ` (${type})` : "",
-      description ? `: ${description}` : "",
-    ].join("");
-    return `\`${name}\`${suffix}`;
-  };
+      ? Object.keys(schema.properties as Record<string, unknown>)
+      : [];
+  if (propertyNames.length === 0 && required.length === 0) return "";
   const requiredSet = new Set(required);
-  const requiredProperties = propertyNames
-    .filter((name) => requiredSet.has(name))
-    .slice(0, 8);
-  const optionalProperties = propertyNames
-    .filter((name) => !requiredSet.has(name))
-    .slice(0, Math.max(0, 8 - requiredProperties.length));
+  const optional = propertyNames.filter((name) => !requiredSet.has(name));
+  const renderNames = (names: readonly string[]) =>
+    `${names.slice(0, 6).join(", ")}${names.length > 6 ? `, +${names.length - 6}` : ""}`;
   const parts: string[] = [];
-  if (requiredProperties.length > 0) {
-    parts.push(
-      `Required: ${requiredProperties.map(describeProperty).join("; ")}`,
-    );
-  }
-  if (optionalProperties.length > 0) {
-    parts.push(
-      `Optional: ${optionalProperties.map(describeProperty).join("; ")}`,
-    );
-  }
-  const omitted =
-    propertyNames.length -
-    requiredProperties.length -
-    optionalProperties.length;
-  return parts.length > 0
-    ? ` ${parts.join(". ")}${omitted > 0 ? `. Plus ${omitted} more.` : "."}`
-    : "";
+  if (required.length > 0) parts.push(`required: ${renderNames(required)}`);
+  if (optional.length > 0) parts.push(`optional: ${renderNames(optional)}`);
+  return parts.join("; ");
 };
 
 export const getNativeConnectorCatalogActions = (
@@ -418,7 +378,7 @@ export const getNativeConnectorTools = (
       {
         name: backendIntegrationRunToolName(entry.id),
         title: `Run ${entry.name} Action`,
-        description: `Run a ${entry.name} action through Stella's connected integration account. Use catalog-actions to inspect supported action names and inputs.`,
+        description: `Run a ${entry.name} action through Stella's connected integration account. Inspect supported action names and inputs with the node_repl connect client (connect.actions / connect.schema).`,
         inputSchema: {
           type: "object",
           additionalProperties: false,
@@ -426,7 +386,8 @@ export const getNativeConnectorTools = (
           properties: {
             action: {
               type: "string",
-              description: "Action slug from stella-connect catalog-actions.",
+              description:
+                "Action slug from the connector's action catalog (connect.actions).",
             },
             arguments: {
               type: "object",
@@ -658,6 +619,22 @@ export const isNativeConnectorEnabled = async (
   return state.integrations[id]?.enabled === true;
 };
 
+/**
+ * Cap on the actions listed in a generated ACTIONS.md. The old unbounded
+ * listing (every action + schema summary) produced context-bloating files
+ * for Gmail-scale toolkits; the compact top-N reference points agents at
+ * `connect.actions` / `connect.schema` for everything else. Existing
+ * oversized ACTIONS.md files are rewritten the next time the connector is
+ * enabled (Store enable or an accepted in-chat connect card).
+ */
+const ACTIONS_MD_TOP_LIMIT = 30;
+
+const oneLine = (value: string | undefined, max = 140): string => {
+  const collapsed = (value ?? "").replace(/\s+/gu, " ").trim();
+  if (collapsed.length <= max) return collapsed;
+  return `${collapsed.slice(0, max - 1)}…`;
+};
+
 const writeNativeConnectorSkill = async (
   stellaAppDir: string,
   entry: NativeConnectorCatalogEntry,
@@ -674,17 +651,22 @@ const writeNativeConnectorSkill = async (
         })
         .join("\n")
     : "- No executable tools are available yet.";
+  const topActions = catalogActions.slice(0, ACTIONS_MD_TOP_LIMIT);
+  const remainingActionCount = catalogActions.length - topActions.length;
   const catalogActionLines =
-    catalogActions.length > 0
-      ? catalogActions
+    topActions.length > 0
+      ? topActions
           .map((action) => {
-            const description = action.description
-              ? ` - ${action.description}`
-              : "";
-            return `- ${action.name}${description}${summarizeInputSchema(action.inputSchema)}`;
+            const description = oneLine(action.description ?? action.title);
+            const params = summarizeActionParams(action.inputSchema);
+            return `- ${action.name}${description ? ` — ${description}` : ""}${params ? ` (${params})` : ""}`;
           })
           .join("\n")
       : "- No recovered catalog actions were available for this provider.";
+  const restLine =
+    remainingActionCount > 0
+      ? `\n\n${remainingActionCount} more actions are not listed here. Find them with \`await connect.actions("${entry.id}", { query: "<keywords>" })\` and fetch a full input schema with \`await connect.schema("${entry.id}", "<ACTION>")\` in node_repl.`
+      : `\n\nFull input schemas: \`await connect.schema("${entry.id}", "<ACTION>")\` in node_repl.`;
   const catalogActionsPath = path.join(skillDir, "ACTIONS.md");
   if (
     entry.provider === "oauth-catalog" ||
@@ -693,68 +675,39 @@ const writeNativeConnectorSkill = async (
     await fs.writeFile(
       catalogActionsPath,
       entry.provider === "backend-composio"
-        ? `# ${entry.name} Actions\n\nThese are Stella action references for ${entry.name}. Stella owns the CLI and backend contract; the current backend provider may use Composio behind the scenes. Call actions with \`stella-connect call ${entry.id} <action-name> --json '{}'\` or \`${backendIntegrationRunToolName(entry.id)}\`.\n\n${catalogActionLines}\n`
-        : `# ${entry.name} Catalog Actions\n\nThese are recovered OAuth action references from the Composio toolkit catalog. Use them to choose the right ${entry.name} API endpoint and arguments. Stella executes this integration through \`stella-connect call ${entry.id} /path\` and \`${nativeOAuthApiRequestToolName(entry.id)}\` until a provider-specific typed dispatcher exists.\n\n${catalogActionLines}\n`,
+        ? `# ${entry.name} Actions (top ${topActions.length} of ${catalogActions.length})\n\nCompact Stella action reference for ${entry.name}. Execute with \`await connect.call("${entry.id}", "<ACTION>", { ... })\` in node_repl.\n\n${catalogActionLines}${restLine}\n`
+        : `# ${entry.name} Catalog Actions (top ${topActions.length} of ${catalogActions.length})\n\nRecovered OAuth action references for choosing the right ${entry.name} API endpoint. Execute via \`await connect.call("${entry.id}", "/path", { method, query, body })\` in node_repl.\n\n${catalogActionLines}${restLine}\n`,
       "utf-8",
     );
   }
   const body = `---
 name: ${entry.id}
-description: Use the ${entry.name} integration through stella-connect.
+description: Use the ${entry.name} integration through Stella's connect client.
 ---
 ${GENERATED_SKILL_MARKER}
 
 # ${entry.name}
 
-Use this skill for work that needs ${entry.name}. The integration must stay enabled in the Store; \`stella-connect\` refuses calls when it is disabled.
+Use this skill for work that needs ${entry.name}. The integration must stay enabled in the Store; calls are refused when it is disabled.
 
-Inspect executable tools:
+Preferred: the frozen \`connect\` client inside \`node_repl\`:
 
-\`\`\`bash
-stella-connect tools ${entry.id}
+\`\`\`js
+await connect.actions("${entry.id}", { query: "<keywords>" }); // find actions (capped list)
+await connect.schema("${entry.id}", "<ACTION>");               // full input schema for one action
+await connect.call("${entry.id}", "<ACTION>", { /* args */ }); // execute; throws on refusal
 \`\`\`
-
 ${
   entry.provider === "backend-composio"
     ? `
-Call an action:
-
-\`\`\`bash
-stella-connect call ${entry.id} <action-name> --json '{"key":"value"}'
-\`\`\`
-
-This provider has ${entry.catalogToolCount} Stella catalog actions. Use \`ACTIONS.md\` in this skill folder as the action reference. The backend owns the provider boundary, so the CLI shape stays the same if Stella later moves this integration to native OAuth.
-
-Inspect the catalog actions:
-
-\`\`\`bash
-stella-connect catalog-actions ${entry.id}
-\`\`\`
-`
+This provider has ${entry.catalogToolCount} actions. \`ACTIONS.md\` in this skill folder lists the top ones; discover the rest with \`connect.actions\`.`
     : entry.provider === "oauth-catalog"
       ? `
-For native OAuth API calls, pass an API path instead of an action name:
-
-\`\`\`bash
-stella-connect call ${entry.id} /path --method GET --query-json '{}'
-\`\`\`
-
-This provider has ${entry.catalogToolCount} recovered OAuth catalog actions. Use \`ACTIONS.md\` in this skill folder as the action reference, then call the provider API with the connected OAuth account.
-
-Inspect the recovered catalog actions:
-
-\`\`\`bash
-stella-connect catalog-actions ${entry.id}
-\`\`\`
-`
+This provider is REST-style: \`await connect.call("${entry.id}", "/path", { method: "GET", query: {} })\` calls the API with the connected OAuth account. \`ACTIONS.md\` lists the top recovered catalog actions (${entry.catalogToolCount} total).`
       : `
-Call an action:
-
-\`\`\`bash
-stella-connect call ${entry.id} <action-name> --json '{"key":"value"}'
-\`\`\`
-`
+Call the executable tools below directly, e.g. \`await connect.call("${entry.id}", "${tools[0]?.name ?? "<tool>"}", { /* args */ })\`.`
 }
+
 
 ## Executable Tools
 

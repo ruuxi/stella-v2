@@ -101,7 +101,7 @@ describe("connector-availability reminder hook", () => {
       basePayload("add a row to my notion database"),
     );
     const message = result?.prependMessages?.[0];
-    expect(message?.text).toContain("is connected via stella-connect");
+    expect(message?.text).toContain("is connected (integration id");
     expect(message?.text).not.toContain("connector_status");
   });
 
@@ -158,7 +158,7 @@ describe("connector-availability reminder hook", () => {
     const hook = makeHook(root);
     const result = await hook.handler(basePayload("update my notion tracker"));
     expect(result?.prependMessages?.[0]?.text).toContain(
-      "is connected via stella-connect",
+      "is connected (integration id",
     );
   });
 

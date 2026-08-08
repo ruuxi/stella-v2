@@ -62,8 +62,6 @@ const electronRuntimeEntryPoints = {
     : {}),
   "runtime/kernel/cli/stella-computer":
     "packages/runtime/kernel/cli/stella-computer.ts",
-  "runtime/kernel/cli/stella-connect":
-    "packages/runtime/kernel/cli/stella-connect.ts",
   "runtime/kernel/cli/stella-media":
     "packages/runtime/kernel/cli/stella-media.ts",
   "runtime/kernel/tools/deferred-delete-cli":

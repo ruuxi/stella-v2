@@ -1,8 +1,10 @@
 import type { MessagePort } from "node:worker_threads";
 
 import { installBrowserWorkerApi } from "../browser-use/worker-api.js";
+import { installConnectWorkerApi } from "../connectors/connect-worker-api.js";
 import type {
   BrowserMethod,
+  ConnectMethod,
   NodeReplWorkerData,
   ParentToNodeReplWorkerMessage,
   SerializedError,
@@ -17,6 +19,7 @@ import type {
  */
 const nodeReplWorkerMain = async (
   installBrowserApi: typeof installBrowserWorkerApi,
+  installConnectApi: typeof installConnectWorkerApi,
 ) => {
   const dynamicImport = new Function(
     "specifier",
@@ -213,11 +216,16 @@ const nodeReplWorkerMain = async (
   let nextSkyCallId = 1;
   let nextBrowserCallId = 1;
   let nextToolCallId = 1;
+  let nextConnectCallId = 1;
   const pendingSkyCalls = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
   const pendingBrowserCalls = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  >();
+  const pendingConnectCalls = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
@@ -318,6 +326,45 @@ const nodeReplWorkerMain = async (
   };
   const browser = installBrowserApi(callBrowser);
 
+  const callConnect = (
+    method: ConnectMethod,
+    args: readonly unknown[],
+  ): Promise<unknown> => {
+    if (activeEvaluationId === null) {
+      return Promise.reject(
+        new Error(
+          "connect methods may only be called during node_repl evaluation.",
+        ),
+      );
+    }
+    if (pendingConnectCalls.size >= (workerData.maxPendingConnectCalls ?? 16)) {
+      return Promise.reject(new Error("Too many pending connect calls."));
+    }
+    if (serializedSize(args) > workerData.maxProtocolMessageBytes) {
+      return Promise.reject(
+        new Error("connect call arguments exceed the protocol limit."),
+      );
+    }
+
+    const callId = nextConnectCallId++;
+    return new Promise((resolve, reject) => {
+      pendingConnectCalls.set(callId, { resolve, reject });
+      try {
+        post({
+          type: "connect-call",
+          evaluationId: activeEvaluationId!,
+          callId,
+          method,
+          args: [...args],
+        });
+      } catch (error) {
+        pendingConnectCalls.delete(callId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  };
+  const connect = installConnectApi(callConnect);
+
   const callTool = (
     toolName: string,
     args: Record<string, unknown> = {},
@@ -333,7 +380,9 @@ const nodeReplWorkerMain = async (
       Array.isArray(args) ||
       serializedSize(args) > workerData.maxProtocolMessageBytes
     ) {
-      return Promise.reject(new Error(`Invalid arguments for tools.${toolName}.`));
+      return Promise.reject(
+        new Error(`Invalid arguments for tools.${toolName}.`),
+      );
     }
     if (pendingToolCalls.size >= workerData.maxPendingToolCalls) {
       return Promise.reject(new Error("Too many pending tool calls."));
@@ -569,6 +618,12 @@ const nodeReplWorkerMain = async (
       writable: false,
       configurable: false,
     },
+    connect: {
+      value: connect,
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    },
     tools: {
       value: tools,
       enumerable: true,
@@ -593,6 +648,7 @@ const nodeReplWorkerMain = async (
     activeEvaluationId = null;
     pendingSkyCalls.clear();
     pendingBrowserCalls.clear();
+    pendingConnectCalls.clear();
     pendingToolCalls.clear();
     pendingToolSettlements.clear();
     writes = null;
@@ -771,6 +827,19 @@ const nodeReplWorkerMain = async (
       }
       return;
     }
+    if (message.type === "connect-result") {
+      const pending = pendingConnectCalls.get(message.callId);
+      if (!pending) return;
+      pendingConnectCalls.delete(message.callId);
+      if (message.ok) pending.resolve(message.value);
+      else {
+        const error = new Error(message.error.message);
+        error.name = message.error.name;
+        if (message.error.stack) error.stack = message.error.stack;
+        pending.reject(error);
+      }
+      return;
+    }
     if (message.type === "tool-result") {
       const pending = pendingToolCalls.get(message.callId);
       if (!pending) return;
@@ -789,4 +858,4 @@ const nodeReplWorkerMain = async (
 };
 
 export const createNodeReplWorkerSource = (): string =>
-  `const __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n(${nodeReplWorkerMain.toString()})((${installBrowserWorkerApi.toString()})).catch((error) => setImmediate(() => { throw error; }))`;
+  `const __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n(${nodeReplWorkerMain.toString()})((${installBrowserWorkerApi.toString()}), (${installConnectWorkerApi.toString()})).catch((error) => setImmediate(() => { throw error; }))`;

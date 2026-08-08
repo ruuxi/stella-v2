@@ -1,6 +1,6 @@
 // STELLA-GUARD: connector-credential-broker
 // Brokers `connector-credential:request` prompts that originate from the
-// runtime CLI bridge when `stella-connect call` hits a 401/403. The user
+// runtime CLI bridge when a connector call hits a 401/403. The user
 // types the key into the same dialog the existing CredentialService uses
 // (api_key mode) OR authorizes in their default browser (oauth mode);
 // either way the resulting access token lands in

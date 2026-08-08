@@ -62,7 +62,6 @@ export type StellaHostRunnerOptions = {
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
   stellaComputerCliPath?: string;
-  stellaConnectCliPath?: string;
   stellaMediaCliPath?: string;
   stellaXApiCliPath?: string;
   /** UDS path for the worker-side CLI bridge (see runtime/worker/cli-bridge-server.ts).
@@ -333,7 +332,6 @@ export type RunnerContext = {
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
   stellaComputerCliPath?: string;
-  stellaConnectCliPath?: string;
   stellaMediaCliPath?: string;
   stellaXApiCliPath?: string;
   cliBridgeSocketPath?: string;

@@ -1,7 +1,9 @@
 /**
- * Tiny local-IPC RPC the worker exposes for sidecar CLIs (currently just
- * `stella-connect`) that need to call back into the host without speaking
- * the full host↔worker JSON-RPC protocol.
+ * Tiny local-IPC RPC the worker exposes for sidecar processes (the
+ * `stella-computer` daemon spawn path) and the in-process connector
+ * client (node_repl `connect.*` via `connectors/connect-service.ts`)
+ * that need to call back into the host without speaking the full
+ * host↔worker JSON-RPC protocol.
  *
  * Protocol: one connection = one request line of JSON, one response line
  * of JSON, server closes. Request: `{ id, method, params }`. Response:
@@ -22,10 +24,7 @@ import type {
   AutomationDaemonSpawnParams,
   AutomationDaemonSpawnResult,
   BackendConnectorActionResult,
-  ConnectorTokenStoreRequest,
-  ConnectorTokenStoreResult,
 } from "../kernel/connectors/cli-broker-client.js";
-import type { ConnectorTokenPayload } from "../kernel/connectors/oauth.js";
 
 /**
  * Defensive ceiling kept below the 104-byte BSD `sun_path` limit (UTF-8
@@ -49,9 +48,6 @@ type ResponseMessage =
   | { id: string | number; error: { message: string } };
 
 export type CliBridgeHandlers = {
-  requestConnectorTokenStore?: (
-    request: ConnectorTokenStoreRequest,
-  ) => Promise<ConnectorTokenStoreResult>;
   /**
    * Resolves with `{ ok: true }` once the credential is persisted on
    * disk, or `{ ok: false, reason }` when the user dismisses the dialog
@@ -101,26 +97,6 @@ export type CliBridgeHandlers = {
   }) => Promise<
     | { ok: true }
     | { ok: false; reason: "cancelled" | "timeout" | "unsupported" | string }
-  >;
-  /**
-   * Show an inline connect card in the active chat offering to connect
-   * a native Store integration. Resolves once the user accepts and the
-   * host finishes the enable + OAuth flow (`{ ok: true }`), or when the
-   * user declines / the card times out (`{ ok: false, reason }`).
-   */
-  requestConnectorConnection?: (params: {
-    id: string;
-    name: string;
-    description?: string;
-    iconUrl?: string;
-    category?: string;
-    reason?: string;
-  }) => Promise<
-    | { ok: true; status: "connected" | "already_connected" }
-    | {
-        ok: false;
-        reason: "declined" | "cancelled" | "timeout" | "unsupported" | string;
-      }
   >;
   runBackendConnectorAction?: (params: {
     connectorId: string;
@@ -255,78 +231,6 @@ const dispatch = async (
   signal?: AbortSignal,
 ): Promise<unknown> => {
   switch (method) {
-    case "connector.tokenStore": {
-      if (!handlers.requestConnectorTokenStore) {
-        return { ok: false, reason: "unsupported" };
-      }
-      const record =
-        params && typeof params === "object" && !Array.isArray(params)
-          ? (params as Record<string, unknown>)
-          : {};
-      if (record.operation === "load") {
-        const tokenKey =
-          typeof record.tokenKey === "string" ? record.tokenKey.trim() : "";
-        if (
-          !tokenKey ||
-          Object.keys(record).some(
-            (key) => !["operation", "tokenKey"].includes(key),
-          )
-        ) {
-          throw new Error("connector.tokenStore: invalid load request");
-        }
-        return await handlers.requestConnectorTokenStore({
-          operation: "load",
-          tokenKey,
-        });
-      }
-      if (record.operation === "save") {
-        const tokenKey =
-          typeof record.tokenKey === "string" ? record.tokenKey.trim() : "";
-        const payload =
-          record.payload &&
-          typeof record.payload === "object" &&
-          !Array.isArray(record.payload)
-            ? (record.payload as Record<string, unknown>)
-            : null;
-        if (
-          !tokenKey ||
-          !payload ||
-          typeof payload.accessToken !== "string" ||
-          !payload.accessToken ||
-          Object.keys(record).some(
-            (key) => !["operation", "tokenKey", "payload"].includes(key),
-          )
-        ) {
-          throw new Error("connector.tokenStore: invalid save request");
-        }
-        return await handlers.requestConnectorTokenStore({
-          operation: "save",
-          tokenKey,
-          payload: payload as unknown as ConnectorTokenPayload,
-        });
-      }
-      if (record.operation === "delete") {
-        const tokenKeys = Array.isArray(record.tokenKeys)
-          ? record.tokenKeys
-              .filter((value): value is string => typeof value === "string")
-              .map((value) => value.trim())
-              .filter(Boolean)
-          : [];
-        if (
-          tokenKeys.length === 0 ||
-          Object.keys(record).some(
-            (key) => !["operation", "tokenKeys"].includes(key),
-          )
-        ) {
-          throw new Error("connector.tokenStore: invalid delete request");
-        }
-        return await handlers.requestConnectorTokenStore({
-          operation: "delete",
-          tokenKeys,
-        });
-      }
-      throw new Error("connector.tokenStore: unsupported operation");
-    }
     case "connector.runBackendAction": {
       if (!handlers.runBackendConnectorAction) {
         return { ok: false, reason: "unsupported" };
@@ -601,36 +505,6 @@ const dispatch = async (
         preregisteredOAuth: normalizedPreregisteredOAuth,
         description,
         placeholder,
-      });
-    }
-    case "connector.requestConnection": {
-      if (!handlers.requestConnectorConnection) {
-        return { ok: false, reason: "unsupported" };
-      }
-      const record =
-        params && typeof params === "object"
-          ? (params as Record<string, unknown>)
-          : {};
-      const id =
-        typeof record.id === "string" ? record.id.trim().toLowerCase() : "";
-      if (!id) {
-        throw new Error("connector.requestConnection: id is required");
-      }
-      const name =
-        typeof record.name === "string" && record.name.trim()
-          ? record.name.trim()
-          : id;
-      const readOptional = (key: string) =>
-        typeof record[key] === "string" && (record[key] as string).trim()
-          ? (record[key] as string).trim()
-          : undefined;
-      return await handlers.requestConnectorConnection({
-        id,
-        name,
-        description: readOptional("description"),
-        iconUrl: readOptional("iconUrl"),
-        category: readOptional("category"),
-        reason: readOptional("reason"),
       });
     }
     default:

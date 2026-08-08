@@ -45,7 +45,6 @@ export type ShellState = {
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
   stellaComputerCliPath?: string;
-  stellaConnectCliPath?: string;
   stellaMediaCliPath?: string;
   stellaXApiCliPath?: string;
   nodeShimDir?: string;
@@ -53,9 +52,8 @@ export type ShellState = {
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
   /**
    * Per-root CLI bridge UDS path (worker-side). Forwarded into the PTY
-   * env as `STELLA_CLI_BRIDGE_SOCK` so sidecar CLIs (`stella-connect`)
-   * can call back into the host for credential dialogs. The CLI gates
-   * on the env var existing; absent ⇒ legacy exit-2 `auth_required`.
+   * env as `STELLA_CLI_BRIDGE_SOCK` so sidecar CLIs (e.g. `stella-computer`)
+   * can call back into the host for approvals and daemon spawns.
    */
   cliBridgeSocketPath?: string;
   lastDeferredDeleteSweepAt: number;
@@ -65,7 +63,6 @@ type ShellStateOptions = {
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
   stellaComputerCliPath?: string;
-  stellaConnectCliPath?: string;
   stellaMediaCliPath?: string;
   stellaXApiCliPath?: string;
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
@@ -82,11 +79,6 @@ const WINDOWS_CLI_SHIMS = [
     command: "stella-computer",
     optionKey: "stellaComputerCliPath",
     envVar: "STELLA_COMPUTER_CLI",
-  },
-  {
-    command: "stella-connect",
-    optionKey: "stellaConnectCliPath",
-    envVar: "STELLA_CONNECT_CLI",
   },
   {
     command: "stella-media",
@@ -710,7 +702,6 @@ export function createShellState(
     stellaBrowserBinPath: options?.stellaBrowserBinPath,
     stellaOfficeBinPath: options?.stellaOfficeBinPath,
     stellaComputerCliPath: options?.stellaComputerCliPath,
-    stellaConnectCliPath: options?.stellaConnectCliPath,
     stellaMediaCliPath: options?.stellaMediaCliPath,
     stellaXApiCliPath: options?.stellaXApiCliPath,
     ...(nodeShimDir ? { nodeShimDir } : {}),
@@ -740,7 +731,6 @@ const buildProtectedCommand = (
     stellaBrowserBinPath?: string;
     stellaOfficeBinPath?: string;
     stellaComputerCliPath?: string;
-    stellaConnectCliPath?: string;
     stellaMediaCliPath?: string;
     stellaXApiCliPath?: string;
   },
@@ -755,10 +745,6 @@ const buildProtectedCommand = (
   const stellaComputerCli =
     options?.stellaComputerCliPath && existsSync(options.stellaComputerCliPath)
       ? options.stellaComputerCliPath
-      : "";
-  const stellaConnectCli =
-    options?.stellaConnectCliPath && existsSync(options.stellaConnectCliPath)
-      ? options.stellaConnectCliPath
       : "";
   const stellaMediaCli =
     options?.stellaMediaCliPath && existsSync(options.stellaMediaCliPath)
@@ -848,11 +834,10 @@ powershell() { __stella_dd powershell "$PWD" "$(type -P powershell || true)" "$@
 pwsh() { __stella_dd powershell "$PWD" "$(type -P pwsh || true)" "$@"; }
 ${stellaOfficeBin ? `stella-office() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_OFFICE_BIN" "$@"; }` : ""}
 ${stellaComputerCli ? `stella-computer() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_COMPUTER_CLI" "$@"; }` : ""}
-${stellaConnectCli ? `stella-connect() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_CONNECT_CLI" "$@"; }` : ""}
 ${stellaMediaCli ? `stella-media() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_MEDIA_CLI" "$@"; }` : ""}
 ${stellaXApiCli ? `stella-x-api() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_X_API_CLI" "$@"; }` : ""}
 ${pythonFuncs}
-export -f __stella_dd __stella_git_exec __stella_git_stage_feature_dependencies git rm rmdir unlink del erase rd powershell pwsh${stellaOfficeBin ? " stella-office" : ""}${stellaComputerCli ? " stella-computer" : ""}${stellaConnectCli ? " stella-connect" : ""}${stellaMediaCli ? " stella-media" : ""}${stellaXApiCli ? " stella-x-api" : ""}${pythonExports} >/dev/null 2>&1 || true
+export -f __stella_dd __stella_git_exec __stella_git_stage_feature_dependencies git rm rmdir unlink del erase rd powershell pwsh${stellaOfficeBin ? " stella-office" : ""}${stellaComputerCli ? " stella-computer" : ""}${stellaMediaCli ? " stella-media" : ""}${stellaXApiCli ? " stella-x-api" : ""}${pythonExports} >/dev/null 2>&1 || true
 `;
 
   return `${preamble}\n${rewriteDeleteBypassPatterns(command)}`;
@@ -958,7 +943,6 @@ const buildShellEnv = (
     stellaBrowserBinPath?: string;
     stellaOfficeBinPath?: string;
     stellaComputerCliPath?: string;
-    stellaConnectCliPath?: string;
     stellaMediaCliPath?: string;
     stellaXApiCliPath?: string;
     nodeShimDir?: string;
@@ -981,9 +965,6 @@ const buildShellEnv = (
       : {}),
     ...(options?.stellaComputerCliPath
       ? { STELLA_COMPUTER_CLI: options.stellaComputerCliPath }
-      : {}),
-    ...(options?.stellaConnectCliPath
-      ? { STELLA_CONNECT_CLI: options.stellaConnectCliPath }
       : {}),
     ...(options?.stellaMediaCliPath
       ? { STELLA_MEDIA_CLI: options.stellaMediaCliPath }
@@ -1358,9 +1339,7 @@ export const startShell = (
       startedAt: Date.now(),
       completedAt: Date.now(),
       unreadOutput: safeLaunchError,
-      unreadOutputBuffer: new HeadTailOutputBuffer(
-        RAW_SHELL_OUTPUT_MAX_BYTES,
-      ),
+      unreadOutputBuffer: new HeadTailOutputBuffer(RAW_SHELL_OUTPUT_MAX_BYTES),
       outputVersion: 1,
       waiters: new Set(),
       exitWatchers: new Set(),

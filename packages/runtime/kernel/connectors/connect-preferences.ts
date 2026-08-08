@@ -5,7 +5,7 @@
  * user-driven path to change their mind (enabling there clears the
  * decline via `clearConnectorDecline`).
  *
- * Single-writer discipline: the `stella-connect` CLI records declines
+ * Single-writer discipline: the runtime records declines
  * when its bridge round-trip resolves `declined`, and the enable paths
  * (Store IPC, `enable-native`, chat connect card) clear them. The
  * desktop reads it only indirectly through CLI output.

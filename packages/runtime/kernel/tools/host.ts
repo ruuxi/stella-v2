@@ -65,6 +65,7 @@ import {
 } from "../computer-use/stella-computer-executor.js";
 import { createWindowsComputerUseSession } from "../computer-use/windows-session.js";
 import { cleanupWindowsStellaComputerSessionDaemon } from "../cli/stella-computer-windows.js";
+import { createReplConnectClient } from "../connectors/connect-service.js";
 
 import type { ToolDefinition } from "../extensions/types.js";
 
@@ -132,7 +133,9 @@ export const collectReplSearchableTools = (
     if (NODE_REPL_EXCLUDED_TOOL_NAMES.has(tool.name)) continue;
     if (!allowedNames.has(tool.name)) continue;
     if (!isAgentAllowedForTool(tool, context.agentType)) continue;
-    if (isOrchestrationToolWithheld(tool.name, Boolean(context.parentAgentId))) {
+    if (
+      isOrchestrationToolWithheld(tool.name, Boolean(context.parentAgentId))
+    ) {
       continue;
     }
     const requiredProvider = tool.demoted?.requiredConnectorProvider;
@@ -150,7 +153,6 @@ export const createToolHost = ({
   stellaBrowserBinPath: _stellaBrowserBinPath,
   stellaOfficeBinPath: _stellaOfficeBinPath,
   stellaComputerCliPath,
-  stellaConnectCliPath,
   stellaMediaCliPath,
   stellaXApiCliPath,
   cliBridgeSocketPath,
@@ -179,7 +181,6 @@ export const createToolHost = ({
     stellaBrowserBinPath: _stellaBrowserBinPath,
     stellaOfficeBinPath: _stellaOfficeBinPath,
     stellaComputerCliPath,
-    stellaConnectCliPath,
     stellaMediaCliPath,
     stellaXApiCliPath,
     getStellaSiteAuth,
@@ -254,6 +255,15 @@ export const createToolHost = ({
         query,
         limit,
       ),
+    // In-REPL `connect` client — the only agent surface for third-party
+    // app integrations: catalog from the shared disk cache, action
+    // execution through the CLI bridge → backend connector action broker.
+    connectClient: createReplConnectClient({
+      stellaAppDir: stateRoot,
+      ...(cliBridgeSocketPath ? { cliBridgeSocketPath } : {}),
+      onBridgeUnreachable: (message) =>
+        logError("node_repl connect bridge unreachable", message),
+    }),
   });
 
   void recoverStaleSecretFiles(stateRoot)
@@ -282,7 +292,6 @@ export const createToolHost = ({
     stellaBrowserBinPath: _stellaBrowserBinPath,
     stellaOfficeBinPath: _stellaOfficeBinPath,
     stellaComputerCliPath,
-    stellaConnectCliPath,
     stellaMediaCliPath,
     stellaXApiCliPath,
     requestCredential,

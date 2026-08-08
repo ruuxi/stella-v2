@@ -23,7 +23,8 @@ import {
  * google calendar, …). On a hit, a hidden `<system-reminder>` is
  * attached to that user message:
  *
- *  - connected  → notes it's connected via stella-connect; nothing else
+ *  - connected  → notes it's connected (agents use the node_repl
+ *    `connect` client); nothing else
  *    to do, the orchestrator proceeds/delegates with that knowledge.
  *  - not connected → tells the orchestrator it can call the
  *    `connector_status` tool for this connector if relevant (directly, or
@@ -50,7 +51,7 @@ export const offerReminderKey = (id: string) => `connector-offer:${id}`;
 export const buildConnectedReminderText = (
   entry: NativeConnectorCatalogEntry,
 ): string =>
-  `${entry.name} is connected via stella-connect (integration id \`${entry.id}\`). Agents can use it directly for this request — no setup needed.`;
+  `${entry.name} is connected (integration id \`${entry.id}\`). Agents can use it directly for this request via the node_repl connect client (await connect.call("${entry.id}", …)) — no setup needed.`;
 
 export const buildOfferReminderText = (
   entry: NativeConnectorCatalogEntry,

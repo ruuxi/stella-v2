@@ -100,6 +100,10 @@ const managedGatewayStore = createResourceStore<"default", ManagedRuntimeCatalog
     const data = await window.electronAPI?.system?.listLlmModels?.({
       forceRefresh: context.force,
     });
+    // Do not normalize a missing response into an empty catalog — that would
+    // cache `{revision: 0, directModels: []}` as a successful fetch for the
+    // whole stale window. Surface the missing bridge as an error instead.
+    if (!data) throw new Error("Model catalog IPC bridge is unavailable.");
     return normalizeRuntimeCatalogSnapshot(data);
   },
 });

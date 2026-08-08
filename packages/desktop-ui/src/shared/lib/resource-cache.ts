@@ -113,7 +113,11 @@ export function createResourceStore<K extends string, T>(opts: {
                   fetchedAt: Date.now(),
                   isFetching: false,
                 }
-              : { error: null, isFetching: false },
+              : // Rejected by `accept` (e.g. same/lower revision): keep the
+                // existing data, but still mark the entry freshly fetched —
+                // the fetch itself succeeded, so the data is confirmed
+                // current and shouldn't be refetched on every mount.
+                { error: null, fetchedAt: Date.now(), isFetching: false },
           );
         }
         return data;

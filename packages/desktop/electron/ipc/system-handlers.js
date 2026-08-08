@@ -1176,14 +1176,15 @@ export const registerSystemHandlers = (options) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_MODELS)) {
             throw new Error("Blocked untrusted preferences:listModels request.");
         }
-        const runner = options.getStellaHostRunner();
-        if (!runner) {
-            // Do not let a renderer preload during runner attachment turn a
-            // transient lifecycle gap into a successful, 24-hour cached empty
-            // catalog. Runtime availability will prompt the renderer to retry once
-            // the worker-owned last-good snapshot is readable.
-            throw new Error("Stella runtime model catalog is not ready.");
-        }
+        // Do not let a renderer preload during runner attachment turn a
+        // transient lifecycle gap into a successful, 24-hour cached empty
+        // catalog. Await runner attachment instead so early renderer mounts
+        // resolve once the deferred host-runner initialization completes.
+        const runner = await waitForConnectedRunner(options.getStellaHostRunner, {
+            timeoutMs: 10_000,
+            unavailableMessage: "Stella runtime model catalog is not ready.",
+            onRunnerChanged: options.onStellaHostRunnerChanged,
+        });
         const forceRefresh = Boolean(payload) &&
             typeof payload === "object" &&
             payload.forceRefresh === true;

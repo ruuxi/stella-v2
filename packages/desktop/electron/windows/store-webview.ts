@@ -2,7 +2,7 @@ import { shell, type BrowserWindow } from "electron";
 
 /**
  * Guard rails for the in-DOM `<webview>` tag that hosts the embedded
- * stella.sh Store/Billing pages inside the full shell window.
+ * stella.sh Store page inside the full shell window.
  *
  * The embed used to be a main-process `WebContentsView` composited over the
  * window, which required manual bounds syncing and overlay suppression in the

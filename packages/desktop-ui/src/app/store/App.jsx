@@ -99,7 +99,7 @@ export function StoreApp() {
     }, [openSignIn]);
     return (<div className="workspace-area">
       <div className="workspace-content workspace-content--full">
-        <EmbeddedWebsiteView route="store" tab={requestedTab} packageId={typeof search.package === "string" && search.package.trim()
+        <EmbeddedWebsiteView tab={requestedTab} packageId={typeof search.package === "string" && search.package.trim()
             ? search.package
             : undefined} theme={embeddedTheme}/>
       </div>

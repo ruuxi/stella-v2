@@ -1,0 +1,262 @@
+"use node";
+
+import { createHash, randomUUID } from "node:crypto";
+import { uploadR2Object } from "../lib/r2_sigv4";
+import { ConvexError, v } from "convex/values";
+import { internal } from "../_generated/api";
+import { action } from "../_generated/server";
+import type { Doc } from "../_generated/dataModel";
+import { requireConnectedUserIdAction } from "../auth";
+import { getFalApiKey, submitFalRequest, fetchFalResultPayload } from "../media_fal_webhooks";
+import {
+  RATE_STANDARD,
+  enforceActionRateLimit,
+} from "../lib/rate_limits";
+import { checkManagedUsageLimit } from "../lib/managed_billing";
+import { emoji_pack_validator, emoji_pack_visibility_validator } from "../schema/emoji_packs";
+import { requireBoundedString } from "../shared_validators";
+import { EMOJI_SHEETS, EMOJI_SHEET_GRID_SIZE } from "./emoji_pack_grid_constants";
+import { EMOJI_REFERENCE_SHEET_DATA_URLS } from "./emoji_pack_reference_images";
+
+const DEFAULT_BUCKET = "stella-emotes";
+const DEFAULT_PREFIX = "emoji-packs";
+const DEFAULT_PUBLIC_BASE =
+  "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev";
+const DEFAULT_STYLE = "playful party style";
+const CACHE_CONTROL = "public, max-age=31536000, immutable";
+const FAL_ENDPOINT_ID = "openai/gpt-image-2/edit";
+const SHEET_SIZE = 768;
+const CHROMA_BACKGROUND = "#ff00ff";
+const POLL_INTERVAL_MS = 2_000;
+const POLL_TIMEOUT_MS = 6 * 60_000;
+const MAX_PROMPT = 2_000;
+
+const requireEnv = (name: string): string => {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new ConvexError({
+      code: "SERVER_MISCONFIGURED",
+      message: `Missing ${name} for emoji pack generation.`,
+    });
+  }
+  return value;
+};
+
+const normalizePrefix = (value: string | undefined): string =>
+  (value?.trim() || DEFAULT_PREFIX).replace(/^\/+|\/+$/g, "");
+
+const sha256Hex = (data: string | Buffer): string =>
+  createHash("sha256").update(data).digest("hex");
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const slugify = (value: string): string =>
+  value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+
+const buildPackId = (prompt: string): string => {
+  const slug = slugify(prompt) || "emoji-pack";
+  return `${slug}-${Date.now().toString(36).slice(-6)}`;
+};
+
+const buildReferenceSheetDataUrl = (sheetIndex: number): string => {
+  const url = EMOJI_REFERENCE_SHEET_DATA_URLS[sheetIndex];
+  if (!url) throw new Error(`Unknown sheet index ${sheetIndex}`);
+  return url;
+};
+
+const buildSheetEditPrompt = (style: string): string => {
+  const theme = style.trim() || DEFAULT_STYLE;
+  return [
+    `Edit the reference image into a custom emoji sheet styled entirely as: "${theme}".`,
+    "Replace every reference emoji glyph with fully original artwork in that style. Keep the same meaning, cell position, relative scale, and row-major order shown in the reference image.",
+    "The reference image is a positional and semantic guide only. Do not copy default Apple, Google, Microsoft, Samsung, Twemoji, or system emoji rendering.",
+    `Theme reminder: "${theme}". Apply it to every cell: linework, palette, shading, mood, and character design must all read as that theme.`,
+    "",
+    "Layout:",
+    `- Output a single square image as a ${EMOJI_SHEET_GRID_SIZE}x${EMOJI_SHEET_GRID_SIZE} layout of cells.`,
+    "- Cells are perfectly uniform in size with consistent padding.",
+    "- Each icon is fully contained inside its cell, centered, with breathing room.",
+    "- Preserve the reference image's positions exactly: top-left stays top-left and bottom-right stays bottom-right.",
+    "",
+    "Background:",
+    `- Preserve the reference image's existing ${CHROMA_BACKGROUND} background exactly wherever there is no icon.`,
+    `- The gutters between cells must remain the same flat ${CHROMA_BACKGROUND} chroma key (true RGB, no gradient, no noise, no texture).`,
+    "- Do not use magenta or magenta-adjacent colors inside any icon.",
+    "",
+    "Forbidden:",
+    "- Default platform emoji rendering of any kind.",
+    "- Borders, frame lines, grid lines, labels, captions, watermarks, signatures, or text anywhere on the canvas.",
+    "- Decorative confetti, sparkles, particles, motion lines, or background props that do not belong to the icon itself.",
+    "- Icons crossing into neighboring cells.",
+  ].join("\n");
+};
+
+const extractFirstImageUrl = (output: unknown): string | null => {
+  if (!output || typeof output !== "object") return null;
+  const images = (output as { images?: Array<{ url?: unknown }> }).images;
+  if (!Array.isArray(images)) return null;
+  for (const entry of images) {
+    if (entry && typeof entry.url === "string" && entry.url.length > 0) {
+      return entry.url;
+    }
+  }
+  return null;
+};
+
+const pollFalImageUrl = async (args: {
+  apiKey: string;
+  responseUrl: string;
+}): Promise<string> => {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let lastError = "";
+  while (Date.now() < deadline) {
+    try {
+      const output = await fetchFalResultPayload({
+        apiKey: args.apiKey,
+        url: args.responseUrl,
+      });
+      const imageUrl = extractFirstImageUrl(output);
+      if (imageUrl) return imageUrl;
+      lastError = "Fal result did not include an image URL.";
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "Fal result was not ready.";
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  throw new Error(lastError || "Timed out waiting for emoji sheet generation.");
+};
+
+const submitSheet = async (args: {
+  apiKey: string;
+  webhookUrl: string;
+  sheetIndex: number;
+  style: string;
+}): Promise<string> => {
+  const referenceImageUrl = buildReferenceSheetDataUrl(args.sheetIndex);
+  const submitted = await submitFalRequest({
+    apiKey: args.apiKey,
+    endpointId: FAL_ENDPOINT_ID,
+    webhookUrl: args.webhookUrl,
+    input: {
+      prompt: buildSheetEditPrompt(args.style),
+      image_urls: [referenceImageUrl],
+      image_size: { width: SHEET_SIZE, height: SHEET_SIZE },
+      quality: "medium",
+      output_format: "webp",
+    },
+  });
+  const responseUrl =
+    submitted.responseUrl ??
+    `https://queue.fal.run/${FAL_ENDPOINT_ID}/requests/${submitted.requestId}`;
+  return await pollFalImageUrl({ apiKey: args.apiKey, responseUrl });
+};
+
+const downloadImage = async (url: string): Promise<Buffer> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Image download failed (${response.status})`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+};
+
+export const generatePack = action({
+  args: {
+    prompt: v.string(),
+    visibility: emoji_pack_visibility_validator,
+  },
+  returns: emoji_pack_validator,
+  handler: async (ctx, args): Promise<Doc<"emoji_packs">> => {
+    const ownerId = await requireConnectedUserIdAction(ctx);
+    const usageLimit = await checkManagedUsageLimit(ctx, ownerId);
+    if (!usageLimit.allowed) {
+      throw new ConvexError({
+        code: "USAGE_LIMIT_REACHED",
+        message: usageLimit.message,
+        retryAfterMs: usageLimit.retryAfterMs,
+      });
+    }
+    await enforceActionRateLimit(
+      ctx,
+      "emojiPacks.generatePack",
+      ownerId,
+      RATE_STANDARD,
+    );
+    const prompt = args.prompt.trim();
+    requireBoundedString(prompt, "prompt", MAX_PROMPT);
+    if (!prompt) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Prompt is required.",
+      });
+    }
+    const apiKey = getFalApiKey();
+    if (!apiKey) {
+      throw new ConvexError({
+        code: "SERVER_MISCONFIGURED",
+        message: "Media generation is not configured yet.",
+      });
+    }
+    const siteUrl = requireEnv("CONVEX_SITE_URL").replace(/\/+$/, "");
+    const webhookUrl = `${siteUrl}/api/media/v1/webhooks/fal?jobId=${encodeURIComponent(`emoji-pack-${randomUUID()}`)}`;
+    const r2 = {
+      accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
+      secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),
+      endpoint: requireEnv("R2_ENDPOINT"),
+      bucket:
+        process.env.R2_EMOJI_BUCKET?.trim() ||
+        process.env.R2_PETS_BUCKET?.trim() ||
+        DEFAULT_BUCKET,
+    };
+    const prefix = normalizePrefix(process.env.R2_EMOJI_PREFIX);
+    const publicBase = (
+      process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_PUBLIC_BASE
+    ).replace(/\/+$/, "");
+    const packId = buildPackId(prompt);
+    const ownerKey = sha256Hex(ownerId).slice(0, 24);
+    const uploadId = randomUUID();
+    const baseKey = `${prefix}/${ownerKey}/${packId}/${uploadId}`;
+
+    const imageUrls = await Promise.all(
+      EMOJI_SHEETS.map((_, sheetIndex) =>
+        submitSheet({ apiKey, webhookUrl, sheetIndex, style: prompt }),
+      ),
+    );
+    const sheetBuffers = await Promise.all(
+      imageUrls.map((url) => downloadImage(url)),
+    );
+    const sheetUrls = sheetBuffers.map((_, index) => {
+      const key = `${baseKey}/sheet-${index + 1}.webp`;
+      return `${publicBase}/${key}`;
+    });
+
+    await Promise.all(
+      sheetBuffers.map((bytes, index) =>
+        uploadR2Object({
+          key: `${baseKey}/sheet-${index + 1}.webp`,
+          bytes,
+          contentType: "image/webp",
+          cacheControl: CACHE_CONTROL,
+          r2,
+        }),
+      ),
+    );
+
+    return await ctx.runMutation(internal.data.emoji_packs.createGeneratedPack, {
+      ownerId,
+      packId,
+      displayName: "Stella emoji pack",
+      description: prompt,
+      prompt,
+      coverEmoji: EMOJI_SHEETS[0]![0]!,
+      sheetUrls,
+      visibility: args.visibility,
+    });
+  },
+});

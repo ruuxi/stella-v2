@@ -1,0 +1,1482 @@
+import type { HttpRouter } from "convex/server";
+import { httpAction } from "../_generated/server";
+import { internal } from "../_generated/api";
+import {
+  errorResponse,
+  handleCorsRequest,
+  jsonResponse,
+  registerCorsOptions,
+  withCors,
+} from "../http_shared/cors";
+import { rateLimitResponse } from "../http_shared/webhook_controls";
+import {
+  listMediaCapabilities,
+  resolveMediaProfile,
+  type MediaCapability,
+  type MediaProfile,
+} from "../media_catalog";
+import {
+  createMediaGenerateAcceptedResponse,
+  createMediaJobError,
+  type MediaJobStatus,
+  parseMediaGenerateRequest,
+} from "../media_contract";
+import {
+  MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
+  PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+  summarizeMediaRequestForStorage,
+} from "../media_jobs";
+import {
+  buildFalResponseUrl,
+  cancelFalRequest,
+  fetchFalResultPayload,
+  getFalApiKey,
+  isDefinitiveFalSubmissionRejection,
+  submitFalRequest,
+  verifyFalWebhookSignature,
+} from "../media_fal_webhooks";
+import { hashSha256Hex } from "../lib/crypto_utils";
+import { getUserProviderKey } from "../lib/provider_keys";
+import { isRecord } from "../shared_validators";
+import {
+  getMediaBillingAdmissionIssue,
+  meterCompletedMediaJob,
+} from "../media_billing";
+import {
+  generateMusic,
+  LYRIA_MUSIC_ENDPOINT_ID,
+  parseMusicStreamRequest,
+} from "../media_lyria";
+import { checkManagedUsageLimit } from "../lib/managed_billing";
+import { dollarsToMicroCents } from "../lib/billing_money";
+import { requireSignedInAccountAction } from "../http_shared/auth";
+import { encryptSecret } from "../data/secrets_crypto";
+import {
+  MAX_MANAGED_IMAGE_REQUEST_BYTES,
+  validateManagedImageReferenceEnvelope,
+} from "../media_image_limits";
+import {
+  readRequestTextBounded,
+  RequestBodyLimitError,
+} from "../http_shared/bounded_request_body";
+
+const MEDIA_API_BASE_PATH = "/api/media/v1";
+const MEDIA_CAPABILITIES_PATH = `${MEDIA_API_BASE_PATH}/capabilities`;
+const MEDIA_GENERATE_PATH = `${MEDIA_API_BASE_PATH}/generate`;
+const MEDIA_JOB_PATH = `${MEDIA_API_BASE_PATH}/job`;
+const MEDIA_FAL_WEBHOOK_PATH = `${MEDIA_API_BASE_PATH}/webhooks/fal`;
+const MEDIA_SUBSCRIPTION_QUERY = "api.media_jobs.getByJobId";
+
+/**
+ * Public agent-facing docs are served from the marketing site, not from the
+ * backend. The backend just points callers at the right URL.
+ *
+ * Pages live at /docs/media (overview) and /docs/media/{images,video,audio,music,3d}.
+ * See `stella-website/src/lib/media-docs.ts` for the source content.
+ */
+const MEDIA_DOCS_URL = "https://stella.sh/docs/media";
+
+const MEDIA_RATE_LIMIT = 20;
+const MEDIA_RATE_WINDOW_MS = 5 * 60_000;
+const MEDIA_DENY_BUFFER_MICRO_CENTS = dollarsToMicroCents(0.8);
+const MEDIA_IDEMPOTENCY_MAX_LENGTH = 200;
+
+const MEDIA_AUTH_REQUIRED_MESSAGE =
+  "Sign in to Stella to use media generation.";
+const MEDIA_AUTH_REQUIRED_ACTION =
+  "Ask the user to open the Stella desktop app and finish signing in (Settings → Account, or the welcome screen on first launch). Once they're signed in, retry the same request — no payload changes needed.";
+
+type FalWebhookPayload = {
+  request_id?: unknown;
+  gateway_request_id?: unknown;
+  status?: unknown;
+  payload?: unknown;
+  payload_error?: unknown;
+  error?: unknown;
+  error_type?: unknown;
+};
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0;
+
+const asTrimmedString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+
+const hasAspectRatioSupport = (capability: MediaCapability): boolean =>
+  capability.supportsAspectRatio === true;
+
+/**
+ * Maps a Stella-style aspect ratio (e.g. "16:9") to a {width, height} pair
+ * sized to satisfy the GPT Image 2 input constraints:
+ *   - width and height are multiples of 16
+ *   - max edge ≤ 3840
+ *   - 655,360 ≤ width × height ≤ 8,294,400
+ *   - longest edge ≤ 3× shortest edge
+ *
+ * Anything we don't recognize maps to undefined so the upstream default
+ * (`landscape_4_3`) kicks in instead of us hard-failing the request.
+ */
+const GPT_IMAGE_2_ASPECT_PRESETS: Record<
+  string,
+  { width: number; height: number }
+> = {
+  "1:1": { width: 1024, height: 1024 },
+  "4:3": { width: 1024, height: 768 },
+  "3:4": { width: 768, height: 1024 },
+  "3:2": { width: 1152, height: 768 },
+  "2:3": { width: 768, height: 1152 },
+  "16:9": { width: 1280, height: 720 },
+  "9:16": { width: 720, height: 1280 },
+  "21:9": { width: 1344, height: 576 },
+};
+
+const isGptImage2Endpoint = (endpointId: string): boolean =>
+  endpointId === "openai/gpt-image-2" ||
+  endpointId === "openai/gpt-image-2/edit";
+
+const isSeedanceReferenceToVideoEndpoint = (endpointId: string): boolean =>
+  endpointId === "bytedance/seedance-2.0/fast/reference-to-video";
+
+const applyCapabilityDefaults = (args: {
+  capability: MediaCapability;
+  profile?: MediaProfile;
+  input: Record<string, unknown>;
+}): Record<string, unknown> => {
+  const normalized = { ...args.input };
+  if (args.capability.id === "icon") {
+    normalized.image_size = { width: 512, height: 512 };
+  }
+  if (
+    (args.capability.id === "text_to_image" ||
+      args.capability.id === "image_edit") &&
+    normalized.quality === undefined
+  ) {
+    normalized.quality = "low";
+  }
+  if (args.capability.id === "image_edit" && args.profile?.id === "fast") {
+    normalized.image_size = "auto";
+  }
+  return normalized;
+};
+
+/**
+ * Endpoint-specific final pass after all the convenience-field merging is
+ * done. This is where we translate from the gateway's neutral schema (e.g.
+ * `aspect_ratio`) into whatever shape a particular upstream model expects
+ * (e.g. GPT Image 2's `image_size`). Keeping this separate from
+ * `applyCapabilityDefaults` means it sees the *final* merged input.
+ */
+const applyEndpointTransforms = (args: {
+  capability: MediaCapability;
+  profile?: MediaProfile;
+  input: Record<string, unknown>;
+}): Record<string, unknown> => {
+  const normalized = { ...args.input };
+  const targetsGptImage2 = args.profile
+    ? isGptImage2Endpoint(args.profile.endpointId)
+    : args.capability.profiles.some((p) => isGptImage2Endpoint(p.endpointId));
+  if (targetsGptImage2 && typeof normalized.aspect_ratio === "string") {
+    if (normalized.image_size === undefined) {
+      const mapped = GPT_IMAGE_2_ASPECT_PRESETS[normalized.aspect_ratio.trim()];
+      if (mapped) {
+        normalized.image_size = mapped;
+      }
+    }
+    delete normalized.aspect_ratio;
+  }
+  if (
+    targetsGptImage2 &&
+    args.capability.id === "text_to_image" &&
+    normalized.image_size === undefined
+  ) {
+    normalized.image_size = "auto";
+  }
+  const targetsSeedanceReference = args.profile
+    ? isSeedanceReferenceToVideoEndpoint(args.profile.endpointId)
+    : args.capability.profiles.some((p) =>
+        isSeedanceReferenceToVideoEndpoint(p.endpointId),
+      );
+  if (targetsSeedanceReference) {
+    if (
+      normalized.image_url !== undefined &&
+      normalized.image_urls === undefined
+    ) {
+      normalized.image_urls = [normalized.image_url];
+      delete normalized.image_url;
+    }
+    if (
+      normalized.video_url !== undefined &&
+      normalized.video_urls === undefined
+    ) {
+      normalized.video_urls = [normalized.video_url];
+      delete normalized.video_url;
+    }
+    if (
+      normalized.audio_url !== undefined &&
+      normalized.audio_urls === undefined
+    ) {
+      normalized.audio_urls = [normalized.audio_url];
+      delete normalized.audio_url;
+    }
+  }
+  return normalized;
+};
+
+const isHttpUrl = (value: unknown): value is string => {
+  if (!isNonEmptyString(value)) {
+    return false;
+  }
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+};
+
+const isDataUri = (value: unknown): value is string =>
+  isNonEmptyString(value) && /^data:[^;,\s]+;base64,/i.test(value);
+
+const isMediaSourceReference = (value: unknown): value is string =>
+  isHttpUrl(value) || isDataUri(value);
+
+const isMimeType = (value: unknown): value is string =>
+  isNonEmptyString(value) &&
+  /^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$/.test(value.trim());
+
+const normalizeBase64Payload = (value: string): string =>
+  value.replace(/^data:[^;,\s]+;base64,/i, "").replace(/\s+/g, "");
+
+const isValidBase64Payload = (value: unknown): value is string => {
+  if (!isNonEmptyString(value)) {
+    return false;
+  }
+  const normalized = normalizeBase64Payload(value);
+  // Only validate a small prefix — decoding multi-MB payloads crashes the runtime.
+  const sample = normalized.slice(0, 256);
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(sample)) {
+    return false;
+  }
+  try {
+    atob(sample);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const toMediaSourceDataUri = (args: {
+  mimeType: string;
+  base64: string;
+}): string =>
+  `data:${args.mimeType};base64,${normalizeBase64Payload(args.base64)}`;
+
+const SOURCE_SLOT_ALIASES: Record<string, string> = {
+  image: "image_url",
+  video: "video_url",
+  audio: "audio_url",
+  reference_image: "reference_image_url",
+  reference_video: "reference_video_url",
+  mask_image: "mask_image_url",
+};
+
+const normalizeSourceReference = (
+  value:
+    | string
+    | {
+        base64: string;
+        mimeType: string;
+        fileName?: string;
+      },
+): string =>
+  typeof value === "string"
+    ? value.trim()
+    : toMediaSourceDataUri({ mimeType: value.mimeType, base64: value.base64 });
+
+const toMediaJobStatus = (upstreamStatus: string): MediaJobStatus => {
+  switch (upstreamStatus.trim().toUpperCase()) {
+    case "IN_QUEUE":
+    case "PENDING":
+    case "QUEUED":
+      return "queued";
+    case "COMPLETED":
+    case "OK":
+      return "succeeded";
+    case "FAILED":
+    case "ERROR":
+    case "PAYLOAD_ERROR":
+      return "failed";
+    case "CANCELLED":
+    case "CANCELED":
+      return "canceled";
+    default:
+      return "running";
+  }
+};
+
+export const applyConvenienceInput = (args: {
+  capability: MediaCapability;
+  profile?: MediaProfile;
+  input: Record<string, unknown>;
+  prompt?: string;
+  aspectRatio?: string;
+  sourceUrl?: string;
+  source?:
+    | string
+    | {
+        base64: string;
+        mimeType: string;
+        fileName?: string;
+      };
+  sources?: Record<
+    string,
+    | string
+    | {
+        base64: string;
+        mimeType: string;
+        fileName?: string;
+      }
+  >;
+}): Record<string, unknown> => {
+  let normalized = applyCapabilityDefaults(args);
+  if (
+    args.prompt &&
+    args.capability.promptKey &&
+    normalized[args.capability.promptKey] === undefined
+  ) {
+    normalized[args.capability.promptKey] = args.prompt;
+  }
+  if (args.capability.id === "text_to_music") {
+    normalized = createLyriaInput({ prompt: args.prompt, input: normalized });
+  }
+  if (
+    args.aspectRatio &&
+    hasAspectRatioSupport(args.capability) &&
+    normalized.aspect_ratio === undefined
+  ) {
+    normalized.aspect_ratio = args.aspectRatio;
+  }
+  const rawSourceValue =
+    args.sourceUrl ??
+    (args.source ? normalizeSourceReference(args.source) : undefined);
+  if (
+    rawSourceValue &&
+    args.capability.sourceUrlKey &&
+    normalized[args.capability.sourceUrlKey] === undefined
+  ) {
+    normalized[args.capability.sourceUrlKey] =
+      args.capability.sourceUrlKey.endsWith("_urls")
+        ? [rawSourceValue]
+        : rawSourceValue;
+  }
+  if (args.sources) {
+    for (const [key, value] of Object.entries(args.sources)) {
+      const slot = SOURCE_SLOT_ALIASES[key] ?? key;
+      if (normalized[slot] === undefined) {
+        normalized[slot] = normalizeSourceReference(value);
+      }
+    }
+  }
+  return applyEndpointTransforms({
+    capability: args.capability,
+    profile: args.profile,
+    input: normalized,
+  });
+};
+
+const requireCapabilityInputs = (args: {
+  capability: MediaCapability;
+  profile?: MediaProfile;
+  prompt?: string;
+  aspectRatio?: string;
+  sourceUrl?: string;
+  source?:
+    | {
+        base64: string;
+        mimeType: string;
+        fileName?: string;
+      }
+    | string;
+  sources?: Record<
+    string,
+    | string
+    | {
+        base64: string;
+        mimeType: string;
+        fileName?: string;
+      }
+  >;
+  input: Record<string, unknown>;
+  managedImageEnvelope?: boolean;
+}): string | null => {
+  const normalized = applyConvenienceInput(args);
+  const validateSource = (
+    label: string,
+    value:
+      | string
+      | {
+          base64: string;
+          mimeType: string;
+          fileName?: string;
+        },
+  ): string | null => {
+    if (typeof value === "string") {
+      return isMediaSourceReference(value)
+        ? null
+        : `${label} must be a valid http(s) URL or data URI`;
+    }
+    if (!isMimeType(value.mimeType))
+      return `${label}.mimeType must be a valid MIME type`;
+    if (!isValidBase64Payload(value.base64))
+      return `${label}.base64 must be valid base64`;
+    return null;
+  };
+  if (args.source) {
+    const error = validateSource("source", args.source);
+    if (error) return error;
+  }
+  if (args.sources) {
+    for (const [key, value] of Object.entries(args.sources)) {
+      const error = validateSource(`sources.${key}`, value);
+      if (error) return error;
+    }
+  }
+  if (args.aspectRatio !== undefined && !isNonEmptyString(args.aspectRatio)) {
+    return "aspectRatio must be a non-empty string";
+  }
+  if (
+    args.capability.promptKey &&
+    !isNonEmptyString(normalized[args.capability.promptKey])
+  ) {
+    return "prompt is required for this capability";
+  }
+  if (args.managedImageEnvelope) {
+    const managedReferenceError = validateManagedImageReferenceEnvelope(
+      args.capability.id,
+      normalized,
+    );
+    if (managedReferenceError) return managedReferenceError;
+  }
+  const sourceSlotValue = args.capability.sourceUrlKey
+    ? normalized[args.capability.sourceUrlKey]
+    : undefined;
+  const sourceSlotRef = Array.isArray(sourceSlotValue)
+    ? sourceSlotValue[0]
+    : sourceSlotValue;
+  if (
+    args.capability.requiresSourceUrl &&
+    (!args.capability.sourceUrlKey || !isMediaSourceReference(sourceSlotRef))
+  ) {
+    return "A valid http(s) sourceUrl or source.base64 input is required for this capability";
+  }
+  if (
+    args.capability.sourceUrlKey &&
+    sourceSlotRef !== undefined &&
+    !isMediaSourceReference(sourceSlotRef)
+  ) {
+    return "sourceUrl must be a valid http(s) URL or data URI";
+  }
+  if (args.capability.id === "text_to_music") {
+    const parsedMusic = parseMusicStreamRequest(normalized);
+    if (!parsedMusic) {
+      return "weightedPrompts and musicGenerationConfig are required for this capability";
+    }
+  }
+  return null;
+};
+
+const createLyriaInput = (args: {
+  prompt?: string;
+  input: Record<string, unknown>;
+}): Record<string, unknown> => {
+  const input = { ...args.input };
+  if (!Array.isArray(input.weightedPrompts) && args.prompt) {
+    input.weightedPrompts = [{ text: args.prompt, weight: 1 }];
+  }
+  if (!isRecord(input.musicGenerationConfig)) {
+    input.musicGenerationConfig = {
+      bpm: 95,
+      density: 0.5,
+      brightness: 0.5,
+      guidance: 4,
+      temperature: 1,
+    };
+  }
+  return input;
+};
+
+export const registerMediaRoutes = (http: HttpRouter) => {
+  registerCorsOptions(http, [
+    MEDIA_CAPABILITIES_PATH,
+    MEDIA_GENERATE_PATH,
+    MEDIA_JOB_PATH,
+    MEDIA_FAL_WEBHOOK_PATH,
+  ]);
+
+  http.route({
+    path: MEDIA_CAPABILITIES_PATH,
+    method: "GET",
+    handler: httpAction(async (_ctx, request) =>
+      handleCorsRequest(request, async (origin) =>
+        jsonResponse(
+          { data: listMediaCapabilities(), docsUrl: MEDIA_DOCS_URL },
+          200,
+          origin,
+        ),
+      ),
+    ),
+  });
+
+  http.route({
+    path: MEDIA_JOB_PATH,
+    method: "GET",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: MEDIA_AUTH_REQUIRED_MESSAGE,
+          action: MEDIA_AUTH_REQUIRED_ACTION,
+          docsUrl: MEDIA_DOCS_URL,
+          realm: "stella-media",
+        });
+        if (!auth.ok) return auth.response;
+
+        const url = new URL(request.url);
+        let jobId = asTrimmedString(url.searchParams.get("jobId"));
+        const clientRequestKey = asTrimmedString(
+          url.searchParams.get("clientRequestKey"),
+        );
+        const requestHash = asTrimmedString(
+          url.searchParams.get("requestHash"),
+        );
+        if (!jobId && clientRequestKey && requestHash) {
+          const existing = await ctx.runQuery(
+            internal.media_jobs.getByOwnerClientRequestKey,
+            { ownerId: auth.ownerId, clientRequestKey },
+          );
+          if (!existing) {
+            return errorResponse(404, "Media request not found.", origin);
+          }
+          if (existing.clientRequestHash !== requestHash) {
+            return errorResponse(
+              409,
+              "Idempotency-Key was used with a different media request hash.",
+              origin,
+            );
+          }
+          jobId = existing.jobId;
+        }
+        if (!jobId) {
+          return errorResponse(
+            400,
+            "Missing jobId or clientRequestKey/requestHash.",
+            origin,
+          );
+        }
+
+        const job = await ctx.runQuery(internal.media_jobs.getByOwnerJobId, {
+          ownerId: auth.ownerId,
+          jobId,
+        });
+        if (!job) {
+          return errorResponse(404, "Media job not found.", origin);
+        }
+
+        return jsonResponse(job, 200, origin);
+      }),
+    ),
+  });
+
+  http.route({
+    path: MEDIA_JOB_PATH,
+    method: "DELETE",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: MEDIA_AUTH_REQUIRED_MESSAGE,
+          action: MEDIA_AUTH_REQUIRED_ACTION,
+          docsUrl: MEDIA_DOCS_URL,
+          realm: "stella-media",
+        });
+        if (!auth.ok) return auth.response;
+
+        const clientRequestKey = request.headers.get("idempotency-key")?.trim();
+        if (!clientRequestKey) {
+          return errorResponse(
+            400,
+            "Idempotency-Key is required to cancel a media request.",
+            origin,
+          );
+        }
+        if (clientRequestKey.length > MEDIA_IDEMPOTENCY_MAX_LENGTH) {
+          return errorResponse(
+            400,
+            `Idempotency-Key must be at most ${MEDIA_IDEMPOTENCY_MAX_LENGTH} characters.`,
+            origin,
+          );
+        }
+
+        const canceled = await ctx.runMutation(
+          internal.media_jobs.cancelIdempotentRequest,
+          {
+            ownerId: auth.ownerId,
+            clientRequestKey,
+            canceledAt: Date.now(),
+          },
+        );
+        if (
+          "submissionPayloadStorageId" in canceled &&
+          canceled.submissionPayloadStorageId
+        ) {
+          await ctx.runMutation(
+            internal.media_jobs.makePrivateSubmissionBlobDeletable,
+            {
+              ownerId: auth.ownerId,
+              storageId: canceled.submissionPayloadStorageId,
+              ...(canceled.jobId ? { jobId: canceled.jobId } : {}),
+            },
+          );
+        }
+        if (
+          canceled.state === "canceled" &&
+          "endpointId" in canceled &&
+          canceled.endpointId &&
+          "providerRequestId" in canceled &&
+          canceled.providerRequestId
+        ) {
+          const apiKey = getFalApiKey();
+          if (apiKey) {
+            await cancelFalRequest({
+              apiKey,
+              endpointId: canceled.endpointId,
+              requestId: canceled.providerRequestId,
+            }).catch((error) => {
+              console.error(
+                `[media/cancel] Fal cancellation failed for ${"jobId" in canceled ? canceled.jobId : clientRequestKey}:`,
+                error,
+              );
+            });
+          }
+        }
+        return jsonResponse(canceled, 200, origin);
+      }),
+    ),
+  });
+
+  http.route({
+    path: MEDIA_GENERATE_PATH,
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: MEDIA_AUTH_REQUIRED_MESSAGE,
+          action: MEDIA_AUTH_REQUIRED_ACTION,
+          docsUrl: MEDIA_DOCS_URL,
+          realm: "stella-media",
+        });
+        if (!auth.ok) return auth.response;
+        const ownerId = auth.ownerId;
+        const clientRequestKey = request.headers.get("idempotency-key")?.trim();
+        if (
+          clientRequestKey &&
+          clientRequestKey.length > MEDIA_IDEMPOTENCY_MAX_LENGTH
+        ) {
+          return errorResponse(
+            400,
+            `Idempotency-Key must be at most ${MEDIA_IDEMPOTENCY_MAX_LENGTH} characters.`,
+            origin,
+          );
+        }
+
+        let rawRequestBody = "";
+        let requestBody: unknown = null;
+        try {
+          // Durable image_gen requests are identifiable before body access by
+          // their required idempotency key, so their strict ingress cap does
+          // not silently alter legacy video/audio/3D request semantics on this
+          // shared endpoint.
+          rawRequestBody = clientRequestKey
+            ? await readRequestTextBounded(
+                request,
+                MAX_MANAGED_IMAGE_REQUEST_BYTES,
+              )
+            : await request.text();
+          requestBody = rawRequestBody ? JSON.parse(rawRequestBody) : null;
+        } catch (error) {
+          if (error instanceof RequestBodyLimitError) {
+            return errorResponse(error.status, error.message, origin);
+          }
+          requestBody = null;
+        }
+        try {
+          const body = parseMediaGenerateRequest(requestBody);
+          if (!body)
+            return errorResponse(
+              400,
+              "Invalid media generation JSON body",
+              origin,
+            );
+          const resolved = resolveMediaProfile(body.capability, body.profile);
+          if (!resolved)
+            return errorResponse(
+              400,
+              `Unknown capability or profile. See ${MEDIA_DOCS_URL}.`,
+              origin,
+            );
+          const validationError = requireCapabilityInputs({
+            capability: resolved.capability,
+            profile: resolved.profile,
+            prompt: body.prompt,
+            aspectRatio: body.aspectRatio,
+            sourceUrl: body.sourceUrl,
+            source: body.source,
+            sources: body.sources,
+            input: body.input,
+            managedImageEnvelope: Boolean(clientRequestKey),
+          });
+          if (validationError)
+            return errorResponse(400, validationError, origin);
+          const submissionInput = applyConvenienceInput({
+            capability: resolved.capability,
+            profile: resolved.profile,
+            input: body.input,
+            prompt: body.prompt,
+            aspectRatio: body.aspectRatio,
+            sourceUrl: body.sourceUrl,
+            source: body.source,
+            sources: body.sources,
+          });
+          const storedRequest = summarizeMediaRequestForStorage({
+            ...body,
+            input: submissionInput,
+          });
+          const clientRequestHash = clientRequestKey
+            ? await hashSha256Hex(rawRequestBody)
+            : undefined;
+
+          if (clientRequestKey && clientRequestHash) {
+            const existing = await ctx.runQuery(
+              internal.media_jobs.getByOwnerClientRequestKey,
+              { ownerId, clientRequestKey },
+            );
+            if (existing) {
+              if (existing.clientRequestHash !== clientRequestHash) {
+                return errorResponse(
+                  409,
+                  "Idempotency-Key was already used with a different media request.",
+                  origin,
+                );
+              }
+              return jsonResponse(
+                createMediaGenerateAcceptedResponse({
+                  jobId: existing.jobId,
+                  capability: existing.capability,
+                  profile: existing.profile,
+                  status: existing.status,
+                  upstreamStatus: existing.upstreamStatus,
+                  reattached: true,
+                  subscription: {
+                    query: MEDIA_SUBSCRIPTION_QUERY,
+                    args: { jobId: existing.jobId },
+                  },
+                }),
+                202,
+                origin,
+              );
+            }
+          }
+
+          // Reattachments above bypass admission and rate limiting: they do
+          // not allocate new provider work or usage. Only a fresh reservation
+          // consumes the media-generation rate budget.
+          const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId, {
+            minimumRemainingMicroCents: MEDIA_DENY_BUFFER_MICRO_CENTS,
+          });
+          if (!subscriptionCheck.allowed)
+            return errorResponse(429, subscriptionCheck.message, origin);
+          const rateLimit = await ctx.runMutation(
+            internal.rate_limits.consumeWebhookRateLimit,
+            {
+              scope: "media_generate",
+              key: ownerId,
+              limit: MEDIA_RATE_LIMIT,
+              windowMs: MEDIA_RATE_WINDOW_MS,
+              blockMs: MEDIA_RATE_WINDOW_MS,
+            },
+          );
+          if (!rateLimit.allowed)
+            return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+
+          const billingAdmissionIssue = getMediaBillingAdmissionIssue({
+            endpointId: resolved.profile.endpointId,
+            request: storedRequest,
+          });
+          if (billingAdmissionIssue) {
+            return errorResponse(
+              503,
+              `Media billing is not configured for ${resolved.profile.endpointId}: ${billingAdmissionIssue}`,
+              origin,
+            );
+          }
+          const apiKey = getFalApiKey();
+          if (!apiKey)
+            return errorResponse(
+              503,
+              "Media generation is not configured yet.",
+              origin,
+            );
+
+          const jobId = clientRequestKey
+            ? `img_${(
+                await hashSha256Hex(
+                  `media-job:v1:${ownerId}:${clientRequestKey}`,
+                )
+              ).slice(0, 40)}`
+            : crypto.randomUUID();
+          if (clientRequestKey && clientRequestHash) {
+            const isDurableFalImage =
+              resolved.profile.provider === "fal" &&
+              ["text_to_image", "image_edit", "icon"].includes(
+                resolved.capability.id,
+              );
+            let submissionPayloadManifestId: string | undefined;
+            if (isDurableFalImage) {
+              const encrypted = await encryptSecret(
+                JSON.stringify({
+                  input: submissionInput,
+                  webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}`,
+                }),
+              );
+              const encryptedSubmissionPayload = JSON.stringify(encrypted);
+              if (
+                encryptedSubmissionPayload.length < 1 ||
+                encryptedSubmissionPayload.length >
+                  MAX_PRIVATE_MEDIA_PAYLOAD_CHARS
+              ) {
+                return errorResponse(
+                  413,
+                  "Encrypted image submission exceeds the managed payload limit.",
+                  origin,
+                );
+              }
+              submissionPayloadManifestId = `payload_${(
+                await hashSha256Hex(
+                  `media-payload:v1:${ownerId}:${clientRequestKey}:${clientRequestHash}`,
+                )
+              ).slice(0, 48)}`;
+              const chunks = Array.from(
+                {
+                  length: Math.ceil(
+                    encryptedSubmissionPayload.length /
+                      PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+                  ),
+                },
+                (_, index) =>
+                  encryptedSubmissionPayload.slice(
+                    index * PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+                    (index + 1) * PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+                  ),
+              );
+              const manifestState = await ctx.runMutation(
+                internal.media_jobs.createPrivatePayloadManifest,
+                {
+                  ownerId,
+                  manifestId: submissionPayloadManifestId,
+                  jobId,
+                  clientRequestKey,
+                  expectedChunks: chunks.length,
+                  totalChars: encryptedSubmissionPayload.length,
+                  createdAt: Date.now(),
+                },
+              );
+              if (manifestState === "owner_purged") {
+                await ctx.runMutation(
+                  internal.media_jobs.makePrivatePayloadManifestDeletable,
+                  { manifestId: submissionPayloadManifestId },
+                );
+                return errorResponse(
+                  409,
+                  "Media generation is unavailable while account deletion is in progress.",
+                  origin,
+                );
+              }
+              if (manifestState === "pending") {
+                await ctx.runMutation(
+                  internal.media_jobs.makePrivatePayloadManifestDeletable,
+                  { manifestId: submissionPayloadManifestId },
+                );
+                return errorResponse(
+                  503,
+                  "A prior encrypted media upload is being cleaned up; retry this request.",
+                  origin,
+                );
+              }
+              if (manifestState !== "held") {
+                for (let index = 0; index < chunks.length; index += 1) {
+                  const appendState = await ctx.runMutation(
+                    internal.media_jobs.appendPrivatePayloadChunk,
+                    {
+                      ownerId,
+                      manifestId: submissionPayloadManifestId,
+                      index,
+                      data: chunks[index]!,
+                      writtenAt: Date.now(),
+                    },
+                  );
+                  if (appendState === "owner_purged") {
+                    await ctx.runMutation(
+                      internal.media_jobs.makePrivatePayloadManifestDeletable,
+                      { manifestId: submissionPayloadManifestId },
+                    );
+                    return errorResponse(
+                      409,
+                      "Media generation is unavailable while account deletion is in progress.",
+                      origin,
+                    );
+                  }
+                }
+                const finalized = await ctx.runMutation(
+                  internal.media_jobs.finalizePrivatePayloadManifest,
+                  {
+                    ownerId,
+                    manifestId: submissionPayloadManifestId,
+                    finalizedAt: Date.now(),
+                  },
+                );
+                if (finalized === "owner_purged") {
+                  await ctx.runMutation(
+                    internal.media_jobs.makePrivatePayloadManifestDeletable,
+                    { manifestId: submissionPayloadManifestId },
+                  );
+                  return errorResponse(
+                    409,
+                    "Media generation is unavailable while account deletion is in progress.",
+                    origin,
+                  );
+                }
+              }
+            }
+            const reservation = await ctx
+              .runMutation(internal.media_jobs.reserveIdempotentJob, {
+                ownerId,
+                jobId,
+                clientRequestKey,
+                clientRequestHash,
+                capability: resolved.capability.id,
+                profile: resolved.profile.id,
+                provider: resolved.profile.provider,
+                endpointId: resolved.profile.endpointId,
+                request: storedRequest,
+                ...(body.connectorRequestId
+                  ? { connectorRequestId: body.connectorRequestId }
+                  : {}),
+                ...(submissionPayloadManifestId
+                  ? { submissionPayloadManifestId }
+                  : {}),
+              })
+              .catch(async (error) => {
+                if (submissionPayloadManifestId) {
+                  await ctx.runMutation(
+                    internal.media_jobs.makePrivatePayloadManifestDeletable,
+                    { manifestId: submissionPayloadManifestId },
+                  );
+                }
+                throw error;
+              });
+            if (reservation.state === "owner_purged") {
+              return errorResponse(
+                409,
+                "Media generation is unavailable while account deletion is in progress.",
+                origin,
+              );
+            }
+            if (reservation.state === "canceled") {
+              return errorResponse(
+                409,
+                "This media request was canceled before submission.",
+                origin,
+              );
+            }
+            if (reservation.state === "conflict") {
+              return errorResponse(
+                409,
+                "Idempotency-Key was already used with a different media request.",
+                origin,
+              );
+            }
+            if (reservation.state === "existing") {
+              return jsonResponse(
+                createMediaGenerateAcceptedResponse({
+                  jobId: reservation.jobId,
+                  capability: reservation.capability,
+                  profile: reservation.profile,
+                  status: reservation.status,
+                  upstreamStatus: reservation.upstreamStatus,
+                  reattached: true,
+                  subscription: {
+                    query: MEDIA_SUBSCRIPTION_QUERY,
+                    args: { jobId: reservation.jobId },
+                  },
+                }),
+                202,
+                origin,
+              );
+            }
+            if (isDurableFalImage) {
+              return jsonResponse(
+                createMediaGenerateAcceptedResponse({
+                  jobId,
+                  capability: resolved.capability.id,
+                  profile: resolved.profile.id,
+                  status: "queued",
+                  upstreamStatus: "IN_QUEUE",
+                  subscription: {
+                    query: MEDIA_SUBSCRIPTION_QUERY,
+                    args: { jobId },
+                  },
+                }),
+                202,
+                origin,
+              );
+            }
+          } else {
+            await ctx.runMutation(internal.media_jobs.createJob, {
+              ownerId,
+              jobId,
+              capability: resolved.capability.id,
+              profile: resolved.profile.id,
+              provider: resolved.profile.provider,
+              endpointId: resolved.profile.endpointId,
+              request: storedRequest,
+              ...(body.connectorRequestId
+                ? { connectorRequestId: body.connectorRequestId }
+                : {}),
+            });
+          }
+
+          const maySubmit = await ctx.runMutation(
+            internal.media_jobs.beginSubmission,
+            { ownerId, jobId },
+          );
+          if (!maySubmit) {
+            return errorResponse(
+              409,
+              "This media request was canceled before submission.",
+              origin,
+            );
+          }
+
+          if (resolved.profile.provider === "google_lyria") {
+            const parsedMusic = parseMusicStreamRequest(submissionInput);
+            if (!parsedMusic) {
+              await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
+                jobId,
+                upstreamStatus: "ERROR",
+                error: {
+                  message:
+                    "weightedPrompts and musicGenerationConfig are required for this capability.",
+                },
+              });
+              return errorResponse(
+                400,
+                "weightedPrompts and musicGenerationConfig are required for this capability.",
+                origin,
+              );
+            }
+            const apiKey =
+              (await getUserProviderKey(ctx, ownerId, "llm:google")) ??
+              process.env.GOOGLE_AI_API_KEY ??
+              null;
+            if (!apiKey) {
+              await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
+                jobId,
+                upstreamStatus: "ERROR",
+                error: {
+                  message:
+                    "No Google AI API key configured. Add one in Settings or contact your administrator.",
+                },
+              });
+              return errorResponse(
+                503,
+                "No Google AI API key configured. Add one in Settings or contact your administrator.",
+                origin,
+              );
+            }
+            try {
+              const result = await generateMusic({
+                apiKey,
+                parsedBody: parsedMusic,
+              });
+              const audioBytes = Uint8Array.from(
+                atob(result.audio.data),
+                (char) => char.charCodeAt(0),
+              );
+              const storageId = await ctx.storage.store(
+                new Blob([audioBytes], { type: result.audio.mimeType }),
+              );
+              const audioUrl = await ctx.storage.getUrl(storageId);
+              if (!audioUrl) {
+                throw new Error(
+                  "Failed to create a downloadable URL for the music clip.",
+                );
+              }
+              const output = {
+                audio: {
+                  url: audioUrl,
+                  mimeType: result.audio.mimeType,
+                },
+                promptLabel: result.promptLabel,
+                textParts: result.textParts,
+              };
+              const billing = meterCompletedMediaJob({
+                endpointId: LYRIA_MUSIC_ENDPOINT_ID,
+                request: storedRequest,
+                output,
+              });
+              const meteredBilling =
+                billing && !("supported" in billing) ? billing : undefined;
+              if (billing && "supported" in billing) {
+                console.error(
+                  `[media/generate] Failed to meter Lyria: ${billing.reason}`,
+                );
+              }
+              await ctx.runMutation(internal.media_jobs.markGenerated, {
+                jobId,
+                upstreamStatus: "OK",
+                output: output as never,
+                ...(meteredBilling ? { billing: meteredBilling as never } : {}),
+              });
+              const accepted = createMediaGenerateAcceptedResponse({
+                jobId,
+                capability: resolved.capability.id,
+                profile: resolved.profile.id,
+                status: "succeeded",
+                upstreamStatus: "OK",
+                subscription: {
+                  query: MEDIA_SUBSCRIPTION_QUERY,
+                  args: { jobId },
+                },
+              });
+              return jsonResponse({ ...accepted, output }, 202, origin);
+            } catch (error) {
+              await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
+                jobId,
+                upstreamStatus: "ERROR",
+                error: (createMediaJobError({
+                  value: (error as Error).message,
+                  fallbackMessage: "Music generation failed upstream.",
+                }) ?? {
+                  message: "Music generation failed upstream.",
+                }) as never,
+              });
+              return errorResponse(
+                502,
+                `Music generation failed: ${(error as Error).message || "Unknown error"}`,
+                origin,
+              );
+            }
+          }
+
+          try {
+            const submitted = await submitFalRequest({
+              apiKey,
+              endpointId: resolved.profile.endpointId,
+              input: submissionInput,
+              webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}`,
+            });
+            const submissionState = await ctx.runMutation(
+              internal.media_jobs.markSubmitted,
+              {
+                jobId,
+                providerRequestId: submitted.requestId,
+                ...(submitted.gatewayRequestId
+                  ? { providerGatewayRequestId: submitted.gatewayRequestId }
+                  : {}),
+                ...(submitted.responseUrl
+                  ? { providerResponseUrl: submitted.responseUrl }
+                  : {}),
+                ...(submitted.statusUrl
+                  ? { providerStatusUrl: submitted.statusUrl }
+                  : {}),
+                upstreamStatus: submitted.upstreamStatus,
+                ...(submitted.queuePosition !== undefined
+                  ? { queuePosition: submitted.queuePosition }
+                  : {}),
+              },
+            );
+            if (submissionState.cancelRequested) {
+              await cancelFalRequest({
+                apiKey,
+                endpointId: resolved.profile.endpointId,
+                requestId: submitted.requestId,
+              }).catch((cancelError) => {
+                console.error(
+                  `[media/generate] Fal cancellation failed for ${jobId}:`,
+                  cancelError,
+                );
+              });
+              return errorResponse(
+                409,
+                "This media request was canceled during submission.",
+                origin,
+              );
+            }
+            return jsonResponse(
+              createMediaGenerateAcceptedResponse({
+                jobId,
+                capability: resolved.capability.id,
+                profile: resolved.profile.id,
+                status: toMediaJobStatus(submitted.upstreamStatus),
+                upstreamStatus: submitted.upstreamStatus,
+                subscription: {
+                  query: MEDIA_SUBSCRIPTION_QUERY,
+                  args: { jobId },
+                },
+              }),
+              202,
+              origin,
+            );
+          } catch (error) {
+            const errorCode = (error as Error & { code?: unknown }).code;
+            const definitiveRejection =
+              isDefinitiveFalSubmissionRejection(error);
+            if (!clientRequestKey || definitiveRejection) {
+              await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
+                jobId,
+                upstreamStatus: "ERROR",
+                error: (createMediaJobError({
+                  value: {
+                    message: (error as Error).message,
+                    ...(typeof errorCode === "string" && errorCode.trim()
+                      ? { code: errorCode.trim() }
+                      : {}),
+                  },
+                  fallbackMessage: "Media generation failed upstream.",
+                }) ?? {
+                  message: "Media generation failed upstream.",
+                }) as never,
+              });
+            } else {
+              // A timeout/network failure after POST send is ambiguous: Fal
+              // may have accepted work and will still call our jobId webhook.
+              // Keep the durable reservation queued instead of resubmitting;
+              // the webhook completes it, or the stale-job policy fails it.
+              console.warn(
+                `[media/generate] Ambiguous Fal submission for ${jobId}; awaiting webhook/stale timeout:`,
+                error,
+              );
+              return jsonResponse(
+                createMediaGenerateAcceptedResponse({
+                  jobId,
+                  capability: resolved.capability.id,
+                  profile: resolved.profile.id,
+                  status: "queued",
+                  upstreamStatus: "IN_QUEUE",
+                  subscription: {
+                    query: MEDIA_SUBSCRIPTION_QUERY,
+                    args: { jobId },
+                  },
+                }),
+                202,
+                origin,
+              );
+            }
+            return errorResponse(
+              502,
+              `Fal request failed: ${(error as Error).message || "Unknown error"}`,
+              origin,
+            );
+          }
+        } catch (error) {
+          console.error("[media/generate] Unhandled error:", error);
+          return errorResponse(500, "Media generation error", origin);
+        }
+      }),
+    ),
+  });
+
+  http.route({
+    path: MEDIA_FAL_WEBHOOK_PATH,
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const rawBody = await request.text();
+        if (!(await verifyFalWebhookSignature(request, rawBody))) {
+          return errorResponse(400, "Invalid Fal webhook signature", origin);
+        }
+        let parsed: unknown;
+        try {
+          parsed = rawBody ? JSON.parse(rawBody) : null;
+        } catch {
+          parsed = null;
+        }
+        if (!isRecord(parsed))
+          return errorResponse(400, "Invalid Fal webhook payload", origin);
+        const payload = parsed as FalWebhookPayload;
+        const requestId = asTrimmedString(payload.request_id);
+        const gatewayRequestId = asTrimmedString(payload.gateway_request_id);
+        const upstreamStatus =
+          asTrimmedString(payload.status)?.toUpperCase() ?? "ERROR";
+        const jobId =
+          new URL(request.url).searchParams.get("jobId")?.trim() || undefined;
+        const dedupKey = `${requestId ?? jobId ?? "unknown"}:${await hashSha256Hex(rawBody)}`;
+
+        const webhookJob =
+          jobId || requestId
+            ? await ctx.runQuery(internal.media_jobs.getWebhookJob, {
+                ...(jobId ? { jobId } : {}),
+                ...(requestId ? { providerRequestId: requestId } : {}),
+              })
+            : null;
+        let output =
+          upstreamStatus === "OK" && payload.payload !== undefined
+            ? payload.payload
+            : undefined;
+        const payloadError = createMediaJobError({
+          value: payload.payload_error,
+          fallbackMessage:
+            upstreamStatus === "OK"
+              ? "Fal completed the job but returned a non-JSON payload."
+              : undefined,
+        });
+
+        if (upstreamStatus === "OK" && output === undefined && payloadError) {
+          const apiKey = getFalApiKey();
+          const resultUrl =
+            webhookJob?.providerResponseUrl ??
+            (requestId && webhookJob?.endpointId
+              ? buildFalResponseUrl(webhookJob.endpointId, requestId)
+              : undefined);
+          if (apiKey && resultUrl) {
+            try {
+              output = await fetchFalResultPayload({ apiKey, url: resultUrl });
+            } catch (error) {
+              console.error(
+                "[media/webhook] Failed to fetch Fal result payload",
+                error,
+              );
+            }
+          }
+        }
+
+        const finalPayloadError =
+          output === undefined ? payloadError : undefined;
+        const error =
+          finalPayloadError ??
+          createMediaJobError({
+            value: {
+              message: payload.error,
+              code: payload.error_type,
+              ...(isRecord(payload.payload)
+                ? { details: payload.payload }
+                : {}),
+            },
+            fallbackMessage:
+              upstreamStatus === "ERROR"
+                ? "Media generation failed upstream."
+                : undefined,
+          });
+        const normalizedUpstreamStatus = finalPayloadError
+          ? "PAYLOAD_ERROR"
+          : upstreamStatus;
+        const billing =
+          normalizedUpstreamStatus === "OK" &&
+          output !== undefined &&
+          webhookJob
+            ? meterCompletedMediaJob({
+                endpointId: webhookJob.endpointId,
+                request: webhookJob.request,
+                output,
+              })
+            : null;
+        const meteredBilling =
+          billing && !("supported" in billing) ? billing : null;
+        if (billing && "supported" in billing) {
+          console.error(
+            `[media/webhook] Failed to meter ${webhookJob?.endpointId ?? "unknown"}: ${billing.reason}`,
+          );
+        }
+
+        const applied = await ctx.runMutation(
+          internal.media_jobs.applyFalWebhook,
+          {
+            dedupKey,
+            ...(jobId ? { jobId } : {}),
+            ...(requestId ? { providerRequestId: requestId } : {}),
+            ...(gatewayRequestId
+              ? { providerGatewayRequestId: gatewayRequestId }
+              : {}),
+            upstreamStatus: normalizedUpstreamStatus,
+            ...(upstreamStatus === "OK" && output !== undefined
+              ? { output: output as never }
+              : {}),
+            ...(meteredBilling ? { billing: meteredBilling as never } : {}),
+            ...(error ? { error: error as never } : {}),
+            receivedAt: Date.now(),
+          },
+        );
+        if (applied.notFound) {
+          // Do not consume the webhook identity before its durable job is
+          // visible. Fal will retry this non-2xx response.
+          return errorResponse(
+            503,
+            "Media job is not ready for webhook reconciliation.",
+            origin,
+          );
+        }
+        return jsonResponse(
+          { received: true, ...(applied.duplicate ? { duplicate: true } : {}) },
+          200,
+          origin,
+        );
+      }),
+    ),
+  });
+};
+
+export const describeCapabilityValidation = (capabilityId: string) => {
+  const resolved = resolveMediaProfile(capabilityId);
+  if (!resolved) return null;
+  return {
+    requiresPrompt: Boolean(resolved.capability.promptKey),
+    requiresSourceUrl: Boolean(resolved.capability.requiresSourceUrl),
+    acceptsBase64Source: Boolean(resolved.capability.sourceUrlKey),
+    supportsAspectRatio: hasAspectRatioSupport(resolved.capability),
+  };
+};
+
+export const validateCapabilityRequest = (args: {
+  capabilityId: string;
+  prompt?: string;
+  aspectRatio?: string;
+  sourceUrl?: string;
+  source?: { base64: string; mimeType: string; fileName?: string } | string;
+  sources?: Record<
+    string,
+    string | { base64: string; mimeType: string; fileName?: string }
+  >;
+  input?: Record<string, unknown>;
+}) => {
+  const resolved = resolveMediaProfile(args.capabilityId);
+  if (!resolved) return `Unknown capability or profile. See ${MEDIA_DOCS_URL}.`;
+  return requireCapabilityInputs({
+    capability: resolved.capability,
+    prompt: args.prompt,
+    aspectRatio: args.aspectRatio,
+    sourceUrl: args.sourceUrl,
+    source: args.source,
+    sources: args.sources,
+    input: args.input ?? {},
+    managedImageEnvelope: true,
+  });
+};
+
+export {
+  MEDIA_API_BASE_PATH,
+  MEDIA_CAPABILITIES_PATH,
+  MEDIA_DOCS_URL,
+  MEDIA_FAL_WEBHOOK_PATH,
+  MEDIA_GENERATE_PATH,
+  MEDIA_JOB_PATH,
+};

@@ -1,0 +1,243 @@
+import { defineTable } from "convex/server";
+import { v } from "convex/values";
+import { socialBadgeValidator } from "./social";
+
+// ── Categories + visibility ──────────────────────────────────────────────────
+
+export const store_package_visibility_validator = v.union(
+  v.literal("public"),
+  v.literal("unlisted"),
+  v.literal("private"),
+);
+
+export const store_package_category_validator = v.union(
+  v.literal("apps-games"),
+  v.literal("productivity"),
+  v.literal("customization"),
+  v.literal("skills-agents"),
+  v.literal("integrations"),
+  v.literal("other"),
+);
+
+// Slim release manifest. The release payload itself is the blueprint
+// markdown stored alongside; this manifest just carries display
+// metadata + an optional `authoredAtCommit` hint.
+export const store_release_manifest_validator = v.object({
+  category: v.optional(store_package_category_validator),
+  summary: v.optional(v.string()),
+  iconUrl: v.optional(v.string()),
+  authoredAtCommit: v.optional(v.string()),
+});
+
+// Per-commit reference diff in its hydrated form. The author's tree
+// authored these; the installer's tree may have diverged, so the install
+// agent reads them as a strong default rather than a literal patch. `diff`
+// is the raw `git show -U10` output post-redaction (home-dir paths,
+// usernames, and obvious credential shapes scrubbed). This shape is the
+// payload stored in the R2 commits bundle and returned by
+// `getReleaseCommits` — it is NOT stored inline on the release document.
+export const store_release_commit_validator = v.object({
+  hash: v.string(),
+  subject: v.string(),
+  diff: v.string(),
+});
+
+// Per-commit metadata persisted inline on the release document. The diff
+// text itself lives in R2 (referenced by `commitsDiffRef`) so the document
+// stays well under the 1 MiB limit and list/detail subscriptions stay cheap.
+export const store_release_commit_meta_validator = v.object({
+  hash: v.string(),
+  subject: v.string(),
+});
+
+export const store_release_git_object_type_validator = v.union(
+  v.literal("blob"),
+  v.literal("tree"),
+  v.literal("commit"),
+);
+
+export const store_release_git_object_validator = v.object({
+  sha: v.string(),
+  type: store_release_git_object_type_validator,
+  sizeBytes: v.number(),
+});
+
+export const store_release_git_artifact_validator = v.object({
+  kind: v.literal("git-object-artifact"),
+  schemaVersion: v.literal(1),
+  baseCommit: v.string(),
+  featureCommit: v.string(),
+  objects: v.array(store_release_git_object_validator),
+  security: v.optional(
+    v.object({
+      redactedPaths: v.array(v.string()),
+      omittedPaths: v.array(v.string()),
+      warnings: v.array(v.string()),
+    }),
+  ),
+});
+
+export const store_release_diff_ref_validator = v.object({
+  kind: v.literal("r2"),
+  r2Key: v.string(),
+  sha256: v.string(),
+  sizeBytes: v.number(),
+});
+
+// ── Manual review queue ──────────────────────────────────────────────────────
+
+// Review lifecycle for a release. `undefined` on legacy rows means the
+// release predates the manual queue and is treated as approved (it was
+// published live under the old auto-review flow).
+export const store_release_review_status_validator = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("rejected"),
+);
+
+// Advisory output of the automated LLM pre-review. It no longer gates
+// publishing — it is attached to the submission so the human reviewer
+// sees it in the approval queue.
+export const store_release_advisory_review_validator = v.object({
+  // "passed" — no blocking findings; "flagged" — the LLM would have
+  // blocked this release; "failed" — the review could not complete.
+  outcome: v.union(
+    v.literal("passed"),
+    v.literal("flagged"),
+    v.literal("failed"),
+  ),
+  summary: v.string(),
+  findings: v.array(
+    v.object({
+      path: v.string(),
+      detail: v.string(),
+    }),
+  ),
+  reviewedAt: v.number(),
+});
+
+// ── Packages + releases ──────────────────────────────────────────────────────
+
+const storePackageFields = {
+  ownerId: v.string(),
+  packageId: v.string(),
+  category: v.optional(store_package_category_validator),
+  tags: v.optional(v.array(v.string())),
+  displayName: v.string(),
+  description: v.optional(v.string()),
+  searchText: v.string(),
+  latestReleaseNumber: v.number(),
+  latestReleaseId: v.optional(v.id("store_package_releases")),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  authorUsername: v.optional(v.string()),
+  // Denormalized snapshot of `social_profiles.badge` for the package's
+  // owner. Written at publish/update time and re-synced when the
+  // author's billing state changes. Listing queries sort on this so
+  // they don't have to join through `billing_profiles`.
+  authorBadge: v.optional(socialBadgeValidator),
+  iconUrl: v.optional(v.string()),
+  featured: v.optional(v.boolean()),
+  featuredAt: v.optional(v.number()),
+  // Paid promotion / advertising. `promoted` listings sort above
+  // organic results in the "For You" feed. `promotedUntil` lets a
+  // scheduled job (not implemented yet) auto-clear expired
+  // placements. We deliberately do NOT surface a "Sponsored" pill in
+  // the UI yet — this is schema + ranking prep so the ad surface can
+  // ship later without another migration.
+  promoted: v.optional(v.boolean()),
+  promotedAt: v.optional(v.number()),
+  promotedUntil: v.optional(v.number()),
+  visibility: v.optional(store_package_visibility_validator),
+  installCount: v.optional(v.number()),
+};
+
+const storePackageReleaseFields = {
+  ownerId: v.string(),
+  packageRef: v.id("store_packages"),
+  packageId: v.string(),
+  releaseNumber: v.number(),
+  releaseNotes: v.optional(v.string()),
+  manifest: store_release_manifest_validator,
+  // The receiving general agent reads this markdown as the behaviour
+  // spec for the release. The actual implementation is the reference
+  // diffs in R2 (`diffRef` / `commitsDiffRef`) — the installer's tree may
+  // have diverged from the author's tree, so the agent treats those diffs
+  // as a strong default rather than a literal patch.
+  blueprintMarkdown: v.string(),
+  // Per-commit metadata only. The diff text lives in R2 (`commitsDiffRef`).
+  commits: v.optional(v.array(store_release_commit_meta_validator)),
+  // R2 bundle holding the per-commit reference diffs. Hydrated on demand
+  // via `getReleaseCommits`.
+  commitsDiffRef: v.optional(store_release_diff_ref_validator),
+  gitArtifact: v.optional(store_release_git_artifact_validator),
+  // Squashed base→feature diff. Always stored in R2 (`diffRef`); never
+  // inline, so the release document stays small and reads stay cheap.
+  diffRef: v.optional(store_release_diff_ref_validator),
+  createdAt: v.number(),
+  // Manual review queue. `undefined` = legacy release published before
+  // manual review existed (treated as approved everywhere).
+  reviewStatus: v.optional(store_release_review_status_validator),
+  reviewedAt: v.optional(v.number()),
+  reviewRejectionReason: v.optional(v.string()),
+  advisoryReview: v.optional(store_release_advisory_review_validator),
+};
+
+export const store_package_validator = v.object({
+  _id: v.id("store_packages"),
+  _creationTime: v.number(),
+  ...storePackageFields,
+});
+
+export const store_package_release_validator = v.object({
+  _id: v.id("store_package_releases"),
+  _creationTime: v.number(),
+  ...storePackageReleaseFields,
+});
+
+export const store_publish_result_validator = v.object({
+  package: store_package_validator,
+  release: store_package_release_validator,
+});
+
+// ── Schema export ────────────────────────────────────────────────────────────
+
+export const storeSchema = {
+  store_packages: defineTable(storePackageFields)
+    .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
+    .index("by_ownerId_and_packageId", ["ownerId", "packageId"])
+    .index("by_packageId", ["packageId"])
+    .index("by_featured_and_featuredAt", ["featured", "featuredAt"])
+    .index("by_updatedAt", ["updatedAt"])
+    .index("by_category_and_updatedAt", ["category", "updatedAt"])
+    .index("by_visibility_and_updatedAt", ["visibility", "updatedAt"])
+    .index("by_visibility_and_category_and_updatedAt", [
+      "visibility",
+      "category",
+      "updatedAt",
+    ])
+    // "New" section ordering — surface the most recently created
+    // public packages without re-sorting the whole "by_updatedAt"
+    // page client-side. updatedAt mutates on every release, so
+    // creation-time is the right key for "new on the store".
+    .index("by_visibility_and_createdAt", ["visibility", "createdAt"])
+    // Promoted listings live in their own sort bucket — query by
+    // visibility + promoted so we can page sponsored placements
+    // separately from organic results.
+    .index("by_visibility_and_promoted_and_promotedAt", [
+      "visibility",
+      "promoted",
+      "promotedAt",
+    ])
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["category", "visibility"],
+    }),
+
+  store_package_releases: defineTable(storePackageReleaseFields)
+    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
+    .index("by_packageRef_and_releaseNumber", ["packageRef", "releaseNumber"])
+    .index("by_packageId_and_releaseNumber", ["packageId", "releaseNumber"])
+    // Manual approval queue — page pending submissions oldest-first.
+    .index("by_reviewStatus_and_createdAt", ["reviewStatus", "createdAt"]),
+};

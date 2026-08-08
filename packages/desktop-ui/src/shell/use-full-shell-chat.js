@@ -182,7 +182,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
      * and content geometry; the hook adapts list state into the surface
      * UI concerns (at-bottom, custom thumb, scroll-to-bottom button).
      */
-    const { listRef, isAtBottom, isFollowingLatest, isUserScrolling, noteManualScroll, getIsFollowing, showScrollButton, scrollToBottom, releaseFollow, nudgeAfterSend, nudgeQueuedMessagesIntoView, thumbRef, } = useChatScrollManagement({
+    const { listRef, isAtBottom, isFollowingLatest, isUserScrolling, noteManualScroll, getIsFollowing, getShouldPlaceLatestTurn, showScrollButton, scrollToBottom, releaseFollow, nudgeAfterSend, nudgeQueuedMessagesIntoView, thumbRef, } = useChatScrollManagement({
         hasOlderEvents: hasOlderMessages,
         isLoadingOlder: isLoadingOlderMessages,
         onLoadOlder: loadOlderMessages,
@@ -240,11 +240,10 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         scrollToBottom,
     ]);
     const handleSend = useCallback(() => {
-        // `getIsFollowing()` reads the follow latch (intent), not the
-        // physical scroll position. After a short assistant reply, the
-        // user is visually at the bottom of the conversation but ~150px
-        // physically above the absolute end (because the trailing-region
-        // footer is off-screen below the latest text).
+        // The placement gate subtracts the synthetic response spacer before
+        // applying Codex's 300px near-bottom threshold. That keeps a visually
+        // bottomed short reply eligible without pulling deliberate scrollback
+        // forward.
         //
         // While a stream is already in flight, the send queues as a
         // follow-up chip at the keyed tail of the event list (not yet a sent
@@ -252,7 +251,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         // it would fall through to the prior turn's user bubble and scroll
         // *backwards* to re-frame it. The streaming branch below uses a
         // footer-tail target instead.
-        const shouldKeepTailFramed = showHomeContent || getIsFollowing();
+        const shouldKeepTailFramed = showHomeContent || getShouldPlaceLatestTurn();
         const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
         if (showHomeContent) {
             setComposerFocusRequestId((id) => id + 1);
@@ -280,9 +279,9 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             }
         }
         else if (shouldNudgeAfterSend) {
-            // Routes the small post-send bump through the same lerp loop
-            // as streaming auto-follow so the two motions blend rather
-            // than fight via separate concurrent rAF tweens.
+            // Places the newest user turn near the top of the readable area,
+            // above the viewport-derived response spacer. The existing gentle
+            // loop keeps that reframe continuous with stream-follow.
             nudgeAfterSend();
         }
         else {
@@ -292,6 +291,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         chatContext,
         enterChatSurfaceForInteraction,
         getIsFollowing,
+        getShouldPlaceLatestTurn,
         isStreaming,
         latestMessageRef,
         nudgeAfterSend,

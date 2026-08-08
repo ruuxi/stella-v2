@@ -229,12 +229,10 @@ export function ChatPanelTab({ openRequest, wideLayout = false, messages, conver
         });
         if (!canSubmit)
             return;
-        // Follow-latch (intent) wins over the physical near-bottom
-        // pixel check: after a short reply the user is visually at the
-        // bottom but ~150px above the absolute content end (off-screen
-        // trailing-region footer). A pure pixel check would skip the
-        // next send's nudge in that window.
-        const shouldNudgeAfterSend = sidebarScroll.getIsFollowing();
+        // The placement gate subtracts the synthetic response spacer before
+        // applying Codex's 300px near-bottom threshold, so a visually-bottomed
+        // short reply still reframes while deliberate scrollback stays put.
+        const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
         onSend(trimmedMessage, chatContext, selectedText);
         setInputText("");
         setChatContext(null);
@@ -250,9 +248,8 @@ export function ChatPanelTab({ openRequest, wideLayout = false, messages, conver
             }
         }
         else if (shouldNudgeAfterSend) {
-            // Routes the small post-send bump through the same lerp loop
-            // as streaming auto-follow so the two motions blend rather
-            // than fight via separate concurrent rAF tweens.
+            // Place the newest user turn above the viewport-derived response
+            // spacer, using the same gentle loop as stream-follow.
             sidebarScroll.nudgeAfterSend();
         }
         else {

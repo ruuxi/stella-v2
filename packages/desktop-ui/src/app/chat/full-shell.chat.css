@@ -17,6 +17,16 @@
   --chat-text-line-height: 1.5;
   --chat-text-color: var(--text-strong);
 
+  /* Initial response-spacer geometry before the scroll hook attaches. The
+     hook writes the same value in pixels and keeps it synced by ResizeObserver.
+     Full chat has a 56px unreadable bottom fade, so its physical spacer is:
+       fade + min(2/3 * readable height, readable height - 240px)
+     which simplifies to the expression below. */
+  --chat-response-spacer-height: max(
+    160px,
+    min(calc(66.6667cqh + 18.6667px), calc(100cqh - 240px))
+  );
+
   /* ------------------------------------------------------------
    * Vertical rhythm contract (see also the ROW_GAP family of
    * constants in ChatTimeline.tsx — the BETWEEN-rows half of the
@@ -35,6 +45,16 @@
    * default, the assistant variant zeroes the vertical component.
    * ------------------------------------------------------------ */
   --chat-item-part-gap: 8px;
+}
+
+.chat-viewport-region--sidebar,
+.chat-viewport-region--orb {
+  /* Compact chat has no bottom fade, but preserves the same two-thirds
+     response area and 240px latest-turn floor. */
+  --chat-response-spacer-height: max(
+    120px,
+    min(66.6667cqh, calc(100cqh - 240px))
+  );
 }
 
 /* Fallback wrapper used only by the empty / loading-history states in
@@ -76,12 +96,12 @@
 
 /*
  * Trailing region: renders as the LegendList footer underneath every
- * virtualized row. Hosts any surface-specific `extraTail` node and a fixed
- * bottom-floor
- * `min-height` so the reading area below the latest row stays
- * pre-allocated even when the row itself is short (a freshly sent user
- * bubble before the assistant has streamed, or an empty streaming
- * placeholder). Pre-virtualization this lived on a synthetic "tail"
+ * virtualized row. Hosts any surface-specific `extraTail` node and a
+ * viewport-derived response spacer so a freshly-sent user bubble settles
+ * near the top with room for the assistant to stream beneath it. The scroll
+ * hook writes `--chat-response-spacer-height` from the live viewport using
+ * the same two-thirds / 240px-floor geometry as Codex. Pre-virtualization
+ * this lived on a synthetic "tail"
  * list item that wrapped the latest user + assistant rows; that caused
  * the rows to migrate between virtualized contexts on send, losing
  * their measured sizes and producing a visible upward scroll jump back
@@ -91,12 +111,12 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  min-height: 160px;
+  min-height: var(--chat-response-spacer-height, 160px);
 }
 
 .chat-viewport-region--sidebar .event-list-trailing-region,
 .chat-viewport-region--orb .event-list-trailing-region {
-  min-height: 120px;
+  min-height: var(--chat-response-spacer-height, 120px);
 }
 
 /* The queued virtual item owns the normal trailing floor and bottom-aligns

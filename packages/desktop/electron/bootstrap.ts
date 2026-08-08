@@ -17,7 +17,7 @@ import {
   getTotalSystemMemoryMb,
   isLowMemoryWindowsDevice,
 } from "./resource-profile.js";
-import { resolveRuntimeStatePath } from "@stella/runtime/kernel/home/stella-home";
+import { resolveDesktopStellaDataDirPath } from "./data-paths.js";
 import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,
@@ -45,11 +45,15 @@ const stellaAppDir = app.isPackaged
 const configuredStatePath = isDev
   ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
   : process.env.STELLA_DATA_DIR?.trim();
-const stellaDataDirPath = resolveRuntimeStatePath(
-  app,
-  stellaAppDir,
-  configuredStatePath || app.getPath("userData"),
-);
+// Development shares the packaged `~/.stella` home (see data-paths.ts) so the
+// bundled-skill reconciliation, the runtime worker, and prompt-facing skill
+// paths all agree on one tree. Electron's userData keeps its own dev-scoped
+// profile ("Stella Development") for Chromium state only.
+const stellaDataDirPath = resolveDesktopStellaDataDirPath({
+  isPackaged: app.isPackaged,
+  configuredStatePath,
+  userDataPath: app.getPath("userData"),
+});
 const useDevServer = isDev;
 const installDevBrokenPipeGuards = () => {
   if (!isDev) {

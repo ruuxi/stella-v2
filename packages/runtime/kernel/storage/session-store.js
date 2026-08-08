@@ -1337,6 +1337,9 @@ export class SessionStore {
         const threadId =
             typeof args.threadId === "string" && args.threadId.trim() ? normalizeRuntimeThreadId(args.threadId) : undefined;
         const normalizedLimit = Math.min(10000, Math.max(1, Math.floor(asFiniteNumber(args.limit) ?? 5000)));
+        // The first three clauses must stay textually in sync with the WHERE
+        // of idx_runtime_thread_entries_usage (database-init.ts) so SQLite's
+        // partial-index prover keeps this off the full-table-scan path.
         const clauses = [
             "entry.entry_type = 'message'",
             "json_extract(entry.data_json, '$.message.role') = 'assistant'",
@@ -1405,36 +1408,46 @@ export class SessionStore {
             .all(...params);
         const truncated = rows.length > normalizedLimit;
         return {
-            records: rows.slice(0, normalizedLimit).map((row) => ({
-                id: asTrimmedString(row.id),
-                timestamp: asFiniteNumber(row.timestamp) ?? 0,
-                conversationId: asTrimmedString(row.conversationId),
-                conversationTitle: asTrimmedString(row.conversationTitle) || asTrimmedString(row.conversationId),
-                threadId: asTrimmedString(row.threadId),
-                threadName: asTrimmedString(row.threadName) || asTrimmedString(row.agentType),
-                agentType: asTrimmedString(row.agentType) || "unknown",
-                ...(asTrimmedString(row.agentDescription) ? { agentDescription: asTrimmedString(row.agentDescription) } : {}),
-                ...(asFiniteNumber(row.agentDepth) !== null ? { agentDepth: asFiniteNumber(row.agentDepth) } : {}),
-                ...(asTrimmedString(row.parentAgentId) ? { parentAgentId: asTrimmedString(row.parentAgentId) } : {}),
-                ...(asTrimmedString(row.rootRunId) ? { rootRunId: asTrimmedString(row.rootRunId) } : {}),
-                provider: asTrimmedString(row.provider) || "unknown",
-                api: asTrimmedString(row.api) || "unknown",
-                model: asTrimmedString(row.model) || "unknown",
-                ...(asTrimmedString(row.responseModel) ? { responseModel: asTrimmedString(row.responseModel) } : {}),
-                inputTokens: asFiniteNumber(row.inputTokens) ?? 0,
-                cacheReadTokens: asFiniteNumber(row.cacheReadTokens) ?? 0,
-                cacheWriteTokens: asFiniteNumber(row.cacheWriteTokens) ?? 0,
-                outputTokens: asFiniteNumber(row.outputTokens) ?? 0,
-                reasoningTokens: asFiniteNumber(row.reasoningTokens) ?? 0,
-                totalTokens: asFiniteNumber(row.totalTokens) ?? 0,
-                inputCostUsd: asFiniteNumber(row.inputCostUsd) ?? 0,
-                cacheReadCostUsd: asFiniteNumber(row.cacheReadCostUsd) ?? 0,
-                cacheWriteCostUsd: asFiniteNumber(row.cacheWriteCostUsd) ?? 0,
-                outputCostUsd: asFiniteNumber(row.outputCostUsd) ?? 0,
-                totalCostUsd: asFiniteNumber(row.totalCostUsd) ?? 0,
-                stopReason: asTrimmedString(row.stopReason) || "unknown",
-                ...(asTrimmedString(row.errorMessage) ? { errorMessage: asTrimmedString(row.errorMessage) } : {}),
-            })),
+            records: rows.slice(0, normalizedLimit).map((row) => {
+                const rowConversationId = asTrimmedString(row.conversationId);
+                const agentType = asTrimmedString(row.agentType);
+                const agentDescription = asTrimmedString(row.agentDescription);
+                const agentDepth = asFiniteNumber(row.agentDepth);
+                const parentAgentId = asTrimmedString(row.parentAgentId);
+                const rootRunId = asTrimmedString(row.rootRunId);
+                const responseModel = asTrimmedString(row.responseModel);
+                const errorMessage = asTrimmedString(row.errorMessage);
+                return {
+                    id: asTrimmedString(row.id),
+                    timestamp: asFiniteNumber(row.timestamp) ?? 0,
+                    conversationId: rowConversationId,
+                    conversationTitle: asTrimmedString(row.conversationTitle) || rowConversationId,
+                    threadId: asTrimmedString(row.threadId),
+                    threadName: asTrimmedString(row.threadName) || agentType,
+                    agentType: agentType || "unknown",
+                    ...(agentDescription ? { agentDescription } : {}),
+                    ...(agentDepth !== null ? { agentDepth } : {}),
+                    ...(parentAgentId ? { parentAgentId } : {}),
+                    ...(rootRunId ? { rootRunId } : {}),
+                    provider: asTrimmedString(row.provider) || "unknown",
+                    api: asTrimmedString(row.api) || "unknown",
+                    model: asTrimmedString(row.model) || "unknown",
+                    ...(responseModel ? { responseModel } : {}),
+                    inputTokens: asFiniteNumber(row.inputTokens) ?? 0,
+                    cacheReadTokens: asFiniteNumber(row.cacheReadTokens) ?? 0,
+                    cacheWriteTokens: asFiniteNumber(row.cacheWriteTokens) ?? 0,
+                    outputTokens: asFiniteNumber(row.outputTokens) ?? 0,
+                    reasoningTokens: asFiniteNumber(row.reasoningTokens) ?? 0,
+                    totalTokens: asFiniteNumber(row.totalTokens) ?? 0,
+                    inputCostUsd: asFiniteNumber(row.inputCostUsd) ?? 0,
+                    cacheReadCostUsd: asFiniteNumber(row.cacheReadCostUsd) ?? 0,
+                    cacheWriteCostUsd: asFiniteNumber(row.cacheWriteCostUsd) ?? 0,
+                    outputCostUsd: asFiniteNumber(row.outputCostUsd) ?? 0,
+                    totalCostUsd: asFiniteNumber(row.totalCostUsd) ?? 0,
+                    stopReason: asTrimmedString(row.stopReason) || "unknown",
+                    ...(errorMessage ? { errorMessage } : {}),
+                };
+            }),
             truncated,
         };
     }

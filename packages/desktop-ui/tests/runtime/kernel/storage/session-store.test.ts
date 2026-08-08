@@ -172,6 +172,38 @@ describe("session-store", () => {
     });
   });
 
+  it("serves listModelUsage from the partial usage index instead of a table scan", () => {
+    const { db } = createTestContext();
+    // Mirrors the static WHERE / ORDER BY of SessionStore.listModelUsage —
+    // these clauses must stay textually in sync with the WHERE of
+    // idx_runtime_thread_entries_usage for the partial-index prover to
+    // accept the index.
+    const plan = db
+      .prepare(
+        `
+      EXPLAIN QUERY PLAN
+      SELECT entry.entry_id
+      FROM runtime_thread_entries entry
+      JOIN runtime_threads thread ON thread.thread_key = entry.thread_key
+      LEFT JOIN runtime_agents agent ON agent.thread_id = thread.thread_key
+      LEFT JOIN session ON session.id = thread.conversation_id
+      WHERE entry.entry_type = 'message'
+        AND json_extract(entry.data_json, '$.message.role') = 'assistant'
+        AND json_type(entry.data_json, '$.message.usage') = 'object'
+        AND COALESCE(json_extract(entry.data_json, '$.message.model'), '') != 'history'
+      ORDER BY entry.created_at DESC, entry.entry_id DESC
+      LIMIT ?
+    `,
+      )
+      .all(100) as Array<{ detail: string }>;
+    const details = plan.map((row) => row.detail);
+
+    const entryStep = details.find((detail) => detail.includes("entry"));
+    expect(entryStep).toContain("USING INDEX idx_runtime_thread_entries_usage");
+    // The index also satisfies the recency ORDER BY — no temp sort.
+    expect(details.join("\n")).not.toContain("TEMP B-TREE");
+  });
+
   it("persists parent-owned lifecycle entries outside model-visible thread messages", () => {
     const { store } = createTestContext();
     const { threadId } = store.resolveOrCreateActiveThread({

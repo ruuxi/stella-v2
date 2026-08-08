@@ -24,10 +24,13 @@ const BROWSER_CHAIN_STEP_BUDGET_MS = 1_000;
 const MIN_BROWSER_CHAIN_TIMEOUT_MS = 3 * 60_000;
 const MAX_BROWSER_CHAIN_TIMEOUT_MS = 4 * 60_000;
 
+// Contract-checked against packages/stella-browser/protocol/actions.json
+// ("chain": true) by tests/runtime/kernel/browser-use/action-contract.test.ts:
+// adding, removing, or renaming an entry fails that test until the manifest
+// and the Rust daemon (is_chain_allowed_action) agree.
 export const BROWSER_CHAIN_ACTIONS = [
   "healthcheck",
   "navigate",
-  "open",
   "back",
   "forward",
   "reload",
@@ -85,10 +88,7 @@ export const BROWSER_CHAIN_ACTIONS = [
   "cookies_get",
   "cookies_set",
   "cookies_clear",
-  "site_mod_set",
-  "site_mod_list",
-  "site_mod_remove",
-  "site_mod_toggle",
+  "upload",
 ] as const;
 
 export const BROWSER_PROTOCOL_ACTIONS = [

@@ -293,6 +293,103 @@ describe("browser worker API", () => {
     ]);
   });
 
+  it("uploads files through locator.setInputFiles with absolute-path validation", async () => {
+    const calls: RecordedCall[] = [];
+    const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
+      calls.push({ method, args });
+      return { success: true, data: { uploaded: 1 } };
+    });
+    const playwright =
+      installBrowserWorkerApi(callBrowser).tabs.get(4).playwright;
+    const input = playwright.locator("input[type=file]");
+
+    await input.setInputFiles("/tmp/report.pdf");
+    await input.setInputFiles(["/tmp/a.png", "C:\\data\\b.png"]);
+    await input.setInputFiles([]);
+
+    expect(calls).toEqual([
+      {
+        method: "command",
+        args: [
+          "upload",
+          {
+            tabId: 4,
+            selector: "input[type=file]",
+            files: ["/tmp/report.pdf"],
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: [
+          "upload",
+          {
+            tabId: 4,
+            selector: "input[type=file]",
+            files: ["/tmp/a.png", "C:\\data\\b.png"],
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: ["upload", { tabId: 4, selector: "input[type=file]", files: [] }],
+      },
+    ]);
+
+    // Relative paths and non-strings are rejected before transport.
+    await expect(input.setInputFiles("relative/path.txt")).rejects.toThrow(
+      TypeError,
+    );
+    await expect(
+      input.setInputFiles([42] as unknown as string[]),
+    ).rejects.toThrow(TypeError);
+    expect(calls).toHaveLength(3);
+
+    expect(
+      installBrowserWorkerApi(callBrowser).documentation(),
+    ).toContain("setInputFiles");
+  });
+
+  it("scrolls the page and elements through tab.scroll", async () => {
+    const calls: RecordedCall[] = [];
+    const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
+      calls.push({ method, args });
+      return { success: true, data: { scrolled: true } };
+    });
+    const tab = installBrowserWorkerApi(callBrowser).tabs.get(6);
+
+    await tab.scroll({ y: 600 });
+    await tab.scroll({ x: -120, y: -40 });
+    await tab.scroll({ selector: ".list", direction: "down", amount: 300 });
+
+    expect(calls).toEqual([
+      { method: "command", args: ["scroll", { tabId: 6, y: 600 }] },
+      { method: "command", args: ["scroll", { tabId: 6, x: -120, y: -40 }] },
+      {
+        method: "command",
+        args: [
+          "scroll",
+          { tabId: 6, selector: ".list", direction: "down", amount: 300 },
+        ],
+      },
+    ]);
+
+    await expect(
+      tab.scroll({ direction: "diagonal" }),
+    ).rejects.toThrow(TypeError);
+    await expect(
+      tab.scroll({ y: Number.NaN }),
+    ).rejects.toThrow(TypeError);
+    await expect(
+      tab.scroll({ velocity: 3 } as Record<string, unknown>),
+    ).rejects.toThrow(TypeError);
+    expect(calls).toHaveLength(3);
+
+    expect(installBrowserWorkerApi(callBrowser).documentation()).toContain(
+      "tab.scroll(",
+    );
+  });
+
   it("encodes semantic selectors deterministically and re-encodes nth", async () => {
     const calls: RecordedCall[] = [];
     const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
@@ -485,6 +582,148 @@ describe("browser worker API", () => {
     });
   });
 
+  it("round-trips a filtered locator through the daemon chain response shape", async () => {
+    // Mocks the CDP daemon's native chain executor response: per-step results
+    // with step/action/success/data/durationMs plus completed/total counters.
+    const calls: RecordedCall[] = [];
+    const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
+      calls.push({ method, args });
+      if (method === "chain") {
+        return {
+          result: {
+            id: "req-1",
+            success: true,
+            data: {
+              results: [
+                {
+                  step: 0,
+                  action: "evaluate",
+                  success: true,
+                  data: { result: true, origin: "https://rows.test" },
+                  durationMs: 4,
+                },
+                {
+                  step: 1,
+                  action: "innertext",
+                  success: true,
+                  data: { text: "Ready row", origin: "https://rows.test" },
+                  durationMs: 2,
+                },
+              ],
+              completed: 2,
+              total: 2,
+              totalDurationMs: 6,
+            },
+          },
+        };
+      }
+      return { success: true, data: { result: 0 } };
+    });
+    const locator = installBrowserWorkerApi(callBrowser)
+      .tabs.get(6)
+      .playwright.locator(".row")
+      .filter({ hasText: "Ready" });
+
+    await expect(locator.innerText()).resolves.toBe("Ready row");
+
+    // Exact chain payload: a two-step marker chain (tag via evaluate, act via
+    // the marker attribute selector) with waits disabled.
+    expect(calls[0]!.method).toBe("chain");
+    const [steps, options] = calls[0]!.args as [
+      ReadonlyArray<{ action: string; params: Record<string, unknown> }>,
+      Record<string, unknown>,
+    ];
+    expect(options).toEqual({ abortOnError: false, waitForSelector: false });
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toEqual({
+      action: "evaluate",
+      params: { tabId: 6, script: expect.stringContaining("setAttribute") },
+    });
+    expect(steps[0]!.params.script).toContain("data-stella-worker-locator");
+    expect(steps[0]!.params.script).toContain("Ready");
+    expect(steps[1]).toEqual({
+      action: "innertext",
+      params: {
+        tabId: 6,
+        selector: expect.stringMatching(
+          /^\[data-stella-worker-locator="[^"]+"\]$/,
+        ),
+      },
+    });
+    // The marker the tag script writes is the marker the action step targets.
+    const marker = /data-stella-worker-locator="([^"]+)"/.exec(
+      steps[1]!.params.selector as string,
+    )![1]!;
+    expect(steps[0]!.params.script).toContain(JSON.stringify(marker));
+
+    // Cleanup runs as a separate top-level evaluate afterwards.
+    expect(calls[1]).toMatchObject({
+      method: "command",
+      args: [
+        "evaluate",
+        expect.objectContaining({
+          tabId: 6,
+          script: expect.stringContaining("removeAttribute"),
+        }),
+      ],
+    });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("surfaces the daemon chain failure envelope for filtered locators", async () => {
+    // The CDP daemon fails the whole chain envelope when a step fails
+    // (success: false + "Chain step N (action) failed: ..."), which the
+    // transport surfaces as a rejection before per-step parsing.
+    const calls: RecordedCall[] = [];
+    const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
+      calls.push({ method, args });
+      if (method === "chain") {
+        return {
+          result: {
+            id: "req-2",
+            success: false,
+            error:
+              "Chain step 1 (click) failed: Element found but not visible (display: none or visibility: hidden): [data-stella-worker-locator]",
+            data: {
+              results: [
+                { step: 0, action: "evaluate", success: true, durationMs: 3 },
+                {
+                  step: 1,
+                  action: "click",
+                  success: false,
+                  error: "Element found but not visible",
+                  durationMs: 2504,
+                },
+              ],
+              completed: 1,
+              total: 2,
+              totalDurationMs: 2507,
+            },
+          },
+        };
+      }
+      return { success: true, data: {} };
+    });
+    const locator = installBrowserWorkerApi(callBrowser)
+      .tabs.get(6)
+      .playwright.locator(".row")
+      .filter({ hasText: "Ready" });
+
+    await expect(locator.click()).rejects.toThrow(
+      /Chain step 1 \(click\) failed: Element found but not visible/,
+    );
+    // Marker cleanup still runs after the failure.
+    expect(calls[1]).toMatchObject({
+      method: "command",
+      args: [
+        "evaluate",
+        expect.objectContaining({
+          script: expect.stringContaining("removeAttribute"),
+        }),
+      ],
+    });
+  });
+
   it("normalizes locator read payloads and keeps Locator identity stable", async () => {
     const callBrowser: BrowserWorkerCall = vi.fn(async (_method, args) => {
       switch (args[0]) {
@@ -630,6 +869,60 @@ describe("browser worker API", () => {
         ],
       },
     ]);
+  });
+
+  it("round-trips finalize against the CDP daemon response shape", async () => {
+    // Mirrors the CDP backend's finalize_tabs envelope: the daemon wraps
+    // { closedTabIds, releasedTabIds, kept } in a success envelope, and
+    // finalize() resolves with the unwrapped data.
+    const callBrowser = vi.fn<BrowserWorkerCall>(async (method, args) => {
+      expect(method).toBe("command");
+      expect(args[0]).toBe("finalize_tabs");
+      expect(args[1]).toEqual({ keep: [{ tabId: 2, status: "handoff" }] });
+      return {
+        result: {
+          id: "finalize-1",
+          success: true,
+          data: {
+            closedTabIds: [3, 5],
+            releasedTabIds: [2],
+            kept: [{ tabId: 2, status: "handoff" }],
+          },
+        },
+      };
+    });
+    const browser = installBrowserWorkerApi(callBrowser);
+
+    const finalized = await browser.tabs.finalize([
+      { tabId: 2, status: "handoff" },
+    ]);
+
+    expect(finalized).toEqual({
+      closedTabIds: [3, 5],
+      releasedTabIds: [2],
+      kept: [{ tabId: 2, status: "handoff" }],
+    });
+    expect(callBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it("finalize with no entries closes everything the owner holds", async () => {
+    const callBrowser = vi.fn<BrowserWorkerCall>(async () => ({
+      success: true,
+      data: { closedTabIds: [1], releasedTabIds: [], kept: [] },
+    }));
+    const browser = installBrowserWorkerApi(callBrowser);
+
+    const finalized = await browser.tabs.finalize();
+
+    expect(callBrowser).toHaveBeenCalledWith("command", [
+      "finalize_tabs",
+      { keep: [] },
+    ]);
+    expect(finalized).toEqual({
+      closedTabIds: [1],
+      releasedTabIds: [],
+      kept: [],
+    });
   });
 
   it("rejects RegExp selector inputs before transport", async () => {

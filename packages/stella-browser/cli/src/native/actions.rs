@@ -42,10 +42,14 @@ pub struct PendingConfirmation {
     pub cmd: Value,
 }
 
+// The command vocabulary is contract-checked against
+// packages/stella-browser/protocol/actions.json (see contract_tests.rs).
+// Adding, removing, or renaming an action here without updating the manifest
+// (and the JS layers listed in it) fails the contract tests.
 fn is_known_action(action: &str) -> bool {
     matches!(
         action,
-        "" | "healthcheck"
+        "healthcheck"
             | "launch"
             | "navigate"
             | "url"
@@ -210,6 +214,78 @@ fn is_known_action(action: &str) -> bool {
 
 const MAX_CHAIN_STEPS: usize = 100;
 
+/// Actions the JS client (BROWSER_CHAIN_ACTIONS in
+/// packages/runtime/kernel/browser-use/client.ts) permits inside a chain,
+/// contract-checked against protocol/actions.json ("chain": true). Kept in
+/// sync as defense-in-depth: lifecycle, credential, and state-mutating
+/// maintenance actions must stay top-level so policy prompts and confirmation
+/// flows cannot be smuggled past inside a batch.
+fn is_chain_allowed_action(action: &str) -> bool {
+    matches!(
+        action,
+        "healthcheck"
+            | "navigate"
+            | "back"
+            | "forward"
+            | "reload"
+            | "url"
+            | "title"
+            | "click"
+            | "fill"
+            | "type"
+            | "hover"
+            | "select"
+            | "press"
+            | "scroll"
+            | "clear"
+            | "check"
+            | "uncheck"
+            | "focus"
+            | "dblclick"
+            | "wait"
+            | "screenshot"
+            | "snapshot"
+            | "content"
+            | "evaluate"
+            | "gettext"
+            | "getattribute"
+            | "innertext"
+            | "innerhtml"
+            | "inputvalue"
+            | "boundingbox"
+            | "scrollintoview"
+            | "isvisible"
+            | "isenabled"
+            | "ischecked"
+            | "count"
+            | "styles"
+            | "waitforurl"
+            | "bringtofront"
+            | "requests"
+            | "responsebody"
+            | "route"
+            | "unroute"
+            | "har_start"
+            | "har_stop"
+            | "clipboard"
+            | "mousemove"
+            | "mousedown"
+            | "mouseup"
+            | "drag"
+            | "keydown"
+            | "keyup"
+            | "inserttext"
+            | "tab_new"
+            | "tab_list"
+            | "tab_switch"
+            | "tab_close"
+            | "cookies_get"
+            | "cookies_set"
+            | "cookies_clear"
+            | "upload"
+    )
+}
+
 fn validate_chain_actions(cmd: &Value) -> Result<Vec<&str>, String> {
     let steps = cmd
         .get("steps")
@@ -255,26 +331,46 @@ fn validate_chain_actions(cmd: &Value) -> Result<Vec<&str>, String> {
                 index, action
             ));
         }
+        if !is_chain_allowed_action(action) {
+            return Err(format!(
+                "Chain step {} action is not allowed: {}",
+                index, action
+            ));
+        }
         actions.push(action);
     }
     Ok(actions)
 }
 
-fn validate_owner_finalization(cmd: &Value, action: &str) -> Result<(), String> {
-    let owner_id = cmd
-        .get("ownerId")
+/// Trimmed, non-empty `ownerId` a command was sent with, if any. The JS
+/// client stamps every command with the session's owner id; commands from
+/// other transports may omit it.
+fn command_owner_id(cmd: &Value) -> Option<&str> {
+    cmd.get("ownerId")
         .and_then(Value::as_str)
-        .filter(|owner_id| !owner_id.trim().is_empty())
+        .map(str::trim)
+        .filter(|owner_id| !owner_id.is_empty())
+}
+
+/// Validates `finalize_tabs`/`close_owner` inputs. Owner finalization on this
+/// backend needs only `ownerId`; the extension-era owner-lease fields
+/// (`ownerLeaseId`/`ownerLeaseIssuedAt`) are accepted but ignored. `keep` is
+/// optional (missing means "close everything") but must be well-formed when
+/// present.
+fn validate_owner_finalization(cmd: &Value, action: &str) -> Result<(), String> {
+    let owner_id = command_owner_id(cmd)
         .ok_or_else(|| format!("Action '{}' requires a non-empty ownerId", action))?;
     if owner_id.len() > 256 {
         return Err(format!("Action '{}' ownerId is too long", action));
     }
 
     if action == "finalize_tabs" {
-        let keep = cmd
-            .get("keep")
-            .and_then(Value::as_array)
-            .ok_or("finalize_tabs keep must be an array")?;
+        let keep = match cmd.get("keep") {
+            None | Some(Value::Null) => return Ok(()),
+            Some(value) => value
+                .as_array()
+                .ok_or("finalize_tabs keep must be an array")?,
+        };
         let mut seen = std::collections::HashSet::new();
         for (index, entry) in keep.iter().enumerate() {
             let entry = entry
@@ -420,6 +516,10 @@ pub struct DaemonState {
     pub tracked_requests: Vec<TrackedRequest>,
     pub request_tracking: bool,
     pub active_frame_id: Option<String>,
+    /// Directory downloads are routed to, recorded when the `download` action
+    /// configures Browser.setDownloadBehavior so `waitfordownload` can report
+    /// the real on-disk path of a completed download.
+    pub download_dir: Option<String>,
     /// Shared slot for stream server to receive CDP client when browser launches.
     pub stream_client: Option<Arc<RwLock<Option<Arc<CdpClient>>>>>,
     /// Stream server instance kept alive so the broadcast channel remains open.
@@ -462,6 +562,9 @@ impl DaemonState {
             tracked_requests: Vec::new(),
             request_tracking: false,
             active_frame_id: None,
+            download_dir: env::var("STELLA_BROWSER_DOWNLOAD_PATH")
+                .ok()
+                .filter(|s| !s.is_empty()),
             stream_client: None,
             stream_server: None,
             daemon_shutdown_tx: None,
@@ -941,7 +1044,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
                     .await;
                 }
 
-                mgr.add_page(super::browser::PageInfo {
+                let tab_id = mgr.add_page(super::browser::PageInfo {
                     target_id: te.target_info.target_id.clone(),
                     session_id: attach.session_id,
                     tab_id: 0, // assigned by add_page
@@ -949,6 +1052,22 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
                     title: te.target_info.title.clone(),
                     target_type: te.target_info.target_type.clone(),
                 });
+
+                // Popups inherit ownership from their opener tab (mirrors the
+                // extension's owner-tab adoption): a tab opened by an
+                // owner-tracked tab belongs to the same owner, so
+                // finalize_tabs reaps it too. Tabs without a tracked opener
+                // (e.g. user-created tabs in the in-app browser) stay
+                // unowned and are never reaped on the owner's behalf.
+                let opener_owner = te
+                    .target_info
+                    .opener_id
+                    .as_deref()
+                    .and_then(|opener_target_id| mgr.known_tab_id_for_target(opener_target_id))
+                    .and_then(|opener_tab_id| mgr.owner_of_tab(opener_tab_id));
+                if let Some(owner_id) = opener_owner {
+                    mgr.record_owner_tab(&owner_id, tab_id);
+                }
             }
         }
     }
@@ -1030,7 +1149,6 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             | "state_clean"
             | "state_rename"
             | "device_list"
-            | "chain"
             | "finalize_tabs"
             | "close_owner"
             | "release_owner_lease"
@@ -1061,7 +1179,15 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
 
         if let Some(ref mut mgr) = state.browser {
             if mgr.page_count() == 0 {
-                let _ = mgr.ensure_page().await;
+                // The blank page exists only because this command needed one,
+                // so it belongs to this command's owner: finalize_tabs must
+                // be able to reap implicit helper tabs (e.g. the privileged
+                // fetch owner's cookies_get tab) too.
+                if let Ok(Some(tab_id)) = mgr.ensure_page().await {
+                    if let Some(owner_id) = command_owner_id(cmd) {
+                        mgr.record_owner_tab(owner_id, tab_id);
+                    }
+                }
             }
         }
     }
@@ -1136,7 +1262,28 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         }
     }
 
-    let result = match action {
+    if action == "chain" {
+        return handle_chain(cmd, state, &id).await;
+    }
+
+    let result = dispatch_action(action, cmd, state).await;
+
+    match result {
+        Ok(data) => success_response(&id, data),
+        Err(e) => error_response(&id, &super::browser::to_ai_friendly_error(&e)),
+    }
+}
+
+/// Single-step dispatch shared by top-level commands and chain steps. Every
+/// per-action handler is routed through here so chains reuse the exact same
+/// implementations (including the shared actionability waits) instead of
+/// duplicating handler logic.
+async fn dispatch_action(
+    action: &str,
+    cmd: &Value,
+    state: &mut DaemonState,
+) -> Result<Value, String> {
+    match action {
         "healthcheck" => Ok(json!({ "status": "ok" })),
         "extension_status" => Ok(handle_extension_status(state).await),
         "launch" => handle_launch(cmd, state).await,
@@ -1290,25 +1437,452 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         "mousemove" => handle_mousemove(cmd, state).await,
         "mousedown" => handle_mousedown(cmd, state).await,
         "mouseup" => handle_mouseup(cmd, state).await,
-        "chain" => Err(
-            "The 'chain' action is not implemented on this browser backend; send the steps as individual commands"
-                .to_string(),
-        ),
-        "finalize_tabs" | "close_owner" | "release_owner_lease" => Err(format!(
-            "Action '{}' is not implemented on this browser backend",
-            action
-        )),
+        // Chains are executed by handle_chain before dispatch; reaching this
+        // arm means a nested chain step slipped past validation.
+        "chain" => Err("Chain steps cannot contain a nested chain".to_string()),
+        "finalize_tabs" | "close_owner" => handle_finalize_tabs(action, cmd, state).await,
+        // The extension-era owner-lease protocol does not exist on this
+        // backend: session teardown's lease release is a graceful no-op so
+        // dispose() stops surfacing (and swallowing) an error on every
+        // teardown. Response shape matches the extension handler.
+        "release_owner_lease" => Ok(json!({ "released": true })),
         "cookies_export_all" | "cookies_export_for_urls" => Err(format!(
             "Action '{}' requires the extension backend (it exports cookies from the user's real browser)",
             action
         )),
         _ => Err(format!("Not yet implemented: {}", action)),
-    };
-
-    match result {
-        Ok(data) => success_response(&id, data),
-        Err(e) => error_response(&id, &super::browser::to_ai_friendly_error(&e)),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Chain execution
+// ---------------------------------------------------------------------------
+
+/// Total execution budget for one chain, mirroring the extension executor
+/// (MAX_CHAIN_RUNTIME_MS in extension/commands/chain.js).
+const MAX_CHAIN_RUNTIME_MS: u64 = 45_000;
+/// Default implicit selector wait per step, mirroring the extension executor.
+const DEFAULT_CHAIN_WAIT_TIMEOUT_MS: u64 = 10_000;
+/// Poll interval for the implicit selector-existence wait.
+const CHAIN_SELECTOR_POLL_MS: u64 = 200;
+
+fn chain_step_failure(index: usize, action: &str, error: String, duration_ms: u64) -> Value {
+    json!({
+        "step": index,
+        "action": action,
+        "success": false,
+        "error": error,
+        "durationMs": duration_ms,
+    })
+}
+
+/// Random delay in `[min, max]` with a rough bell-curve distribution
+/// (average of two uniform draws), matching the extension's randomDelay().
+fn chain_random_delay_ms(min: u64, max: u64) -> u64 {
+    if max <= min {
+        return min;
+    }
+    let mut buf = [0u8; 16];
+    if getrandom::getrandom(&mut buf).is_err() {
+        return (min + max) / 2;
+    }
+    let first = u64::from_le_bytes(buf[0..8].try_into().unwrap());
+    let second = u64::from_le_bytes(buf[8..16].try_into().unwrap());
+    let span = max - min + 1;
+    min + ((first % span) + (second % span)) / 2
+}
+
+/// Implicit per-step wait: poll for the step's selector/ref to resolve before
+/// dispatching the handler. The handler's own actionability wait (visibility,
+/// occlusion) still runs afterwards; this only extends the existence window to
+/// the chain's waitTimeout the way the extension executor does. Skipped when
+/// no CDP page is available (the handler will produce the precise error).
+async fn wait_for_chain_step_selector(
+    state: &DaemonState,
+    selector_or_ref: &str,
+    timeout_ms: u64,
+) -> bool {
+    let Some(ref mgr) = state.browser else {
+        return true;
+    };
+    let Ok(session_id) = mgr.active_session_id() else {
+        return true;
+    };
+    let session_id = session_id.to_string();
+    let deadline =
+        tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+    loop {
+        if super::element::resolve_element_object_id(
+            &mgr.client,
+            &session_id,
+            &state.ref_map,
+            selector_or_ref,
+        )
+        .await
+        .is_ok()
+        {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(CHAIN_SELECTOR_POLL_MS)).await;
+    }
+}
+
+/// Re-select the chain's addressed tab before a trailing snapshot/screenshot,
+/// since per-step tabIds may have moved the active page.
+async fn chain_select_tab(state: &mut DaemonState, tab_id: Option<u64>) {
+    let Some(tab_id) = tab_id else { return };
+    if let Some(ref mut mgr) = state.browser {
+        if let Ok(true) = mgr.select_tab_by_id(tab_id).await {
+            state.ref_map.clear();
+        }
+    }
+}
+
+/// Executes a validated `chain` command: runs each step through the shared
+/// per-action dispatch with implicit selector waits, optional inter-step
+/// delays, and stop-on-first-error semantics, then returns the extension
+/// executor's response shape:
+///
+/// ```json
+/// {
+///   "id": "...",
+///   "success": <all steps ok and requested outputs ok>,
+///   "error": "Chain step N (action) failed: ..."   // only on failure
+///   "data": {
+///     "results": [{ "step", "action", "success", "data"?, "error"?, "durationMs" }],
+///     "completed": <count of successful steps>,
+///     "total": <steps.len()>,
+///     "totalDurationMs": <elapsed>,
+///     "snapshot"?, "snapshotError"?,
+///     "screenshot"?, "screenshotFormat"?, "screenshotError"?
+///   }
+/// }
+/// ```
+async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
+    // Steps were validated by validate_chain_actions before dispatch reached
+    // this point; re-derive them defensively.
+    let steps: Vec<Value> = cmd
+        .get("steps")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let chain_tab_id = cmd
+        .get("tabId")
+        .and_then(Value::as_u64)
+        .filter(|tab_id| *tab_id > 0);
+    let should_wait = cmd
+        .get("waitForSelector")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let wait_timeout_ms = cmd
+        .get("waitTimeout")
+        .and_then(Value::as_u64)
+        .filter(|timeout| *timeout > 0)
+        .unwrap_or(DEFAULT_CHAIN_WAIT_TIMEOUT_MS);
+    let abort_on_error = cmd
+        .get("abortOnError")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let delay = cmd.get("delay").and_then(Value::as_object).map(|config| {
+        let min = config.get("min").and_then(Value::as_u64).unwrap_or(300);
+        let max = config.get("max").and_then(Value::as_u64).unwrap_or(1_200);
+        (min, max.max(min))
+    });
+
+    let chain_start = tokio::time::Instant::now();
+    let deadline = chain_start + tokio::time::Duration::from_millis(MAX_CHAIN_RUNTIME_MS);
+    let mut results: Vec<Value> = Vec::new();
+
+    for (index, step) in steps.iter().enumerate() {
+        let action = step.get("action").and_then(Value::as_str).unwrap_or("");
+        let step_start = tokio::time::Instant::now();
+
+        if tokio::time::Instant::now() >= deadline {
+            results.push(chain_step_failure(
+                index,
+                action,
+                format!(
+                    "Chain exceeded its {}ms execution budget",
+                    MAX_CHAIN_RUNTIME_MS
+                ),
+                0,
+            ));
+            break;
+        }
+
+        // Build the step command: the flat step fields plus an inherited chain
+        // tabId, a derived id, and the chain's owner metadata so per-step
+        // handlers observe the same caller as the container.
+        let mut step_cmd = step.clone();
+        if let Some(step_object) = step_cmd.as_object_mut() {
+            step_object.insert("id".to_string(), json!(format!("{}_s{}", id, index)));
+            if !step_object.contains_key("tabId") {
+                if let Some(tab_id) = chain_tab_id {
+                    step_object.insert("tabId".to_string(), json!(tab_id));
+                }
+            }
+            for key in ["ownerId", "ownerLeaseId", "ownerLeaseIssuedAt"] {
+                if !step_object.contains_key(key) {
+                    if let Some(value) = cmd.get(key) {
+                        step_object.insert(key.to_string(), value.clone());
+                    }
+                }
+            }
+        }
+
+        // Route the step to its addressed tab. This mirrors execute_command's
+        // pre-dispatch tabId resolution: tab_* actions resolve their own
+        // targets, every other action runs against the active page.
+        if !matches!(action, "tab_list" | "tab_new" | "tab_switch" | "tab_close") {
+            if let Some(tab_id_value) = step_cmd.get("tabId") {
+                match tab_id_value.as_u64().filter(|tab_id| *tab_id > 0) {
+                    None => {
+                        results.push(chain_step_failure(
+                            index,
+                            action,
+                            "'tabId' must be a positive integer".to_string(),
+                            step_start.elapsed().as_millis() as u64,
+                        ));
+                        if abort_on_error {
+                            break;
+                        }
+                        continue;
+                    }
+                    Some(tab_id) => {
+                        let mut switch_error = None;
+                        if let Some(ref mut mgr) = state.browser {
+                            match mgr.select_tab_by_id(tab_id).await {
+                                Ok(switched) => {
+                                    if switched {
+                                        state.ref_map.clear();
+                                    }
+                                }
+                                Err(error) => switch_error = Some(error),
+                            }
+                        }
+                        if let Some(error) = switch_error {
+                            results.push(chain_step_failure(
+                                index,
+                                action,
+                                error,
+                                step_start.elapsed().as_millis() as u64,
+                            ));
+                            if abort_on_error {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        if matches!(state.backend_type, BackendType::WebDriver)
+            && WEBDRIVER_UNSUPPORTED_ACTIONS.contains(&action)
+        {
+            results.push(chain_step_failure(
+                index,
+                action,
+                format!(
+                    "Action '{}' is not supported on the WebDriver backend",
+                    action
+                ),
+                step_start.elapsed().as_millis() as u64,
+            ));
+            if abort_on_error {
+                break;
+            }
+            continue;
+        }
+
+        // Implicit wait: element-targeted steps get a bounded existence wait
+        // before the handler's own actionability wait takes over.
+        if should_wait {
+            if let Some(selector) = step
+                .get("selector")
+                .or_else(|| step.get("ref"))
+                .and_then(Value::as_str)
+            {
+                let remaining = deadline
+                    .saturating_duration_since(tokio::time::Instant::now())
+                    .as_millis() as u64;
+                let budget = wait_timeout_ms.min(remaining);
+                if budget == 0
+                    || !wait_for_chain_step_selector(state, selector, budget).await
+                {
+                    results.push(chain_step_failure(
+                        index,
+                        action,
+                        format!("Timeout waiting for selector: {}", selector),
+                        step_start.elapsed().as_millis() as u64,
+                    ));
+                    if abort_on_error {
+                        break;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        match dispatch_action(action, &step_cmd, state).await {
+            Ok(data) => {
+                results.push(json!({
+                    "step": index,
+                    "action": action,
+                    "success": true,
+                    "data": data,
+                    "durationMs": step_start.elapsed().as_millis() as u64,
+                }));
+            }
+            Err(error) => {
+                results.push(chain_step_failure(
+                    index,
+                    action,
+                    super::browser::to_ai_friendly_error(&error),
+                    step_start.elapsed().as_millis() as u64,
+                ));
+                if abort_on_error {
+                    break;
+                }
+            }
+        }
+
+        // Optional randomized delay between steps (never after the last one).
+        if let Some((min, max)) = delay {
+            if index + 1 < steps.len() {
+                let remaining = deadline
+                    .saturating_duration_since(tokio::time::Instant::now())
+                    .as_millis() as u64;
+                if remaining == 0 {
+                    break;
+                }
+                let pause = chain_random_delay_ms(min.min(remaining), max.min(remaining));
+                if pause > 0 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(pause)).await;
+                }
+            }
+        }
+    }
+
+    let completed = results
+        .iter()
+        .filter(|result| result.get("success").and_then(Value::as_bool) == Some(true))
+        .count();
+    let failed_step_error = results
+        .iter()
+        .find(|result| result.get("success").and_then(Value::as_bool) == Some(false))
+        .map(|failed| {
+            format!(
+                "Chain step {} ({}) failed: {}",
+                failed.get("step").and_then(Value::as_u64).unwrap_or(0),
+                failed
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .filter(|action| !action.is_empty())
+                    .unwrap_or("unknown"),
+                failed
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("browser action failed without an error message"),
+            )
+        });
+
+    let mut data = json!({
+        "results": results,
+        "completed": completed,
+        "total": steps.len(),
+        "totalDurationMs": chain_start.elapsed().as_millis() as u64,
+    });
+
+    let mut requested_output_error: Option<String> = None;
+
+    if cmd
+        .get("returnSnapshot")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        chain_select_tab(state, chain_tab_id).await;
+        let mut snapshot_cmd = json!({
+            "id": format!("{}_snap", id),
+            "action": "snapshot",
+            "interactive": true,
+            "compact": true,
+        });
+        if let Some(tab_id) = chain_tab_id {
+            snapshot_cmd["tabId"] = json!(tab_id);
+        }
+        match dispatch_action("snapshot", &snapshot_cmd, state).await {
+            Ok(snapshot_data) => match snapshot_data.get("snapshot") {
+                Some(snapshot) => {
+                    data["snapshot"] = snapshot.clone();
+                }
+                None => {
+                    let error = "Snapshot capture returned no snapshot data".to_string();
+                    data["snapshotError"] = json!(error);
+                    requested_output_error = Some(error);
+                }
+            },
+            Err(error) => {
+                let error = super::browser::to_ai_friendly_error(&error);
+                data["snapshotError"] = json!(error);
+                requested_output_error = Some(error);
+            }
+        }
+    }
+
+    if cmd
+        .get("returnScreenshot")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        chain_select_tab(state, chain_tab_id).await;
+        let mut screenshot_cmd = json!({
+            "id": format!("{}_shot", id),
+            "action": "screenshot",
+        });
+        if let Some(tab_id) = chain_tab_id {
+            screenshot_cmd["tabId"] = json!(tab_id);
+        }
+        match dispatch_action("screenshot", &screenshot_cmd, state).await {
+            Ok(shot) => {
+                let format = shot
+                    .get("format")
+                    .and_then(Value::as_str)
+                    .unwrap_or("png")
+                    .to_string();
+                match shot
+                    .get("base64")
+                    .and_then(Value::as_str)
+                    .filter(|base64| !base64.is_empty())
+                {
+                    Some(base64) => {
+                        data["screenshot"] = json!(base64);
+                        data["screenshotFormat"] = json!(format);
+                    }
+                    None => {
+                        let error = "Screenshot capture returned no image data".to_string();
+                        data["screenshotError"] = json!({ "error": error, "format": format });
+                        requested_output_error = Some(error);
+                    }
+                }
+            }
+            Err(error) => {
+                let error = super::browser::to_ai_friendly_error(&error);
+                data["screenshotError"] = json!({ "error": error, "format": "png" });
+                requested_output_error = Some(error);
+            }
+        }
+    }
+
+    let success = failed_step_error.is_none() && requested_output_error.is_none();
+    let mut response = json!({ "id": id, "success": success, "data": data });
+    if let Some(error) = requested_output_error.or(failed_step_error) {
+        response["error"] = json!(error);
+    }
+    response
 }
 
 async fn handle_extension_status(state: &DaemonState) -> Value {
@@ -3313,7 +3887,90 @@ async fn handle_tab_new(cmd: &Value, state: &mut DaemonState) -> Result<Value, S
     let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
     let url = cmd.get("url").and_then(|v| v.as_str());
     state.ref_map.clear();
-    mgr.tab_new(url).await
+    let result = mgr.tab_new(url).await?;
+    if let Some(owner_id) = command_owner_id(cmd) {
+        if let Some(tab_id) = result.get("tabId").and_then(Value::as_u64) {
+            mgr.record_owner_tab(owner_id, tab_id);
+        }
+    }
+    Ok(result)
+}
+
+/// CDP implementation of `finalize_tabs`/`close_owner`: closes every tab
+/// recorded for the command owner (minus `keep` entries, which are released
+/// from ownership without closing) and clears the owner's mapping. The
+/// response shape mirrors the extension handler
+/// (extension/commands/tabs.js finalizeOwnerTabs), which is the contract
+/// worker-api.ts `browser.tabs.finalize` round-trips:
+/// `{ closedTabIds, releasedTabIds, kept }`.
+///
+/// Tabs that are already gone are success, not an error — the goal state
+/// (tab closed) holds. With no browser connected there is nothing to reap,
+/// which is likewise success with empty results.
+async fn handle_finalize_tabs(
+    action: &str,
+    cmd: &Value,
+    state: &mut DaemonState,
+) -> Result<Value, String> {
+    let owner_id = command_owner_id(cmd)
+        .ok_or_else(|| format!("Action '{}' requires a non-empty ownerId", action))?
+        .to_string();
+
+    // `close_owner` always closes everything; `finalize_tabs` may keep tabs.
+    // Entries were validated by validate_owner_finalization before dispatch.
+    let keep_entries: Vec<(u64, String)> = if action == "finalize_tabs" {
+        cmd.get("keep")
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|entry| {
+                        let tab_id = entry.get("tabId").and_then(Value::as_u64)?;
+                        let status = entry
+                            .get("status")
+                            .and_then(Value::as_str)
+                            .unwrap_or("deliverable")
+                            .to_string();
+                        Some((tab_id, status))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let keep_ids: std::collections::HashSet<u64> =
+        keep_entries.iter().map(|(tab_id, _)| *tab_id).collect();
+
+    let mut closed_tab_ids: Vec<u64> = Vec::new();
+    let mut released_tab_ids: Vec<u64> = Vec::new();
+    if let Some(ref mut mgr) = state.browser {
+        for tab_id in mgr.owner_tab_ids(&owner_id) {
+            if keep_ids.contains(&tab_id) {
+                mgr.release_owner_tab(&owner_id, tab_id);
+                released_tab_ids.push(tab_id);
+                continue;
+            }
+            if mgr.close_tab_by_id(tab_id).await? {
+                closed_tab_ids.push(tab_id);
+            }
+        }
+        if !closed_tab_ids.is_empty() {
+            // Closing tabs can move the active page; stale element refs must
+            // not resolve against the wrong tab.
+            state.ref_map.clear();
+        }
+    }
+
+    let kept: Vec<Value> = keep_entries
+        .iter()
+        .map(|(tab_id, status)| json!({ "tabId": tab_id, "status": status }))
+        .collect();
+    Ok(json!({
+        "closedTabIds": closed_tab_ids,
+        "releasedTabIds": released_tab_ids,
+        "kept": kept,
+    }))
 }
 
 /// Resolves which tab a `tab_switch`/`tab_close` command addresses. Prefers
@@ -3389,13 +4046,16 @@ async fn handle_set_media(cmd: &Value, state: &DaemonState) -> Result<Value, Str
     Ok(json!({ "set": true }))
 }
 
-async fn handle_download(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
+async fn handle_download(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
     let path = cmd
         .get("path")
         .and_then(|v| v.as_str())
         .ok_or("Missing 'path' parameter")?;
     mgr.set_download_behavior(path).await?;
+    // Remembered so waitfordownload can report the real on-disk path of the
+    // completed download instead of echoing whatever the caller asked for.
+    state.download_dir = Some(path.to_string());
     Ok(json!({ "downloadPath": path }))
 }
 
@@ -3524,7 +4184,7 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
         }
 
         // Add page and switch to it
-        mgr.add_page(super::browser::PageInfo {
+        let recording_tab_id = mgr.add_page(super::browser::PageInfo {
             target_id: create_result.target_id,
             session_id: new_session_id.clone(),
             tab_id: 0, // assigned by add_page
@@ -3532,6 +4192,9 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
             title: String::new(),
             target_type: "page".to_string(),
         });
+        if let Some(owner_id) = command_owner_id(cmd) {
+            mgr.record_owner_tab(owner_id, recording_tab_id);
+        }
 
         // Navigate to URL
         if nav_url != "about:blank" {
@@ -4624,6 +5287,48 @@ async fn handle_drag(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
     let (sx, sy) = (source_point.x, source_point.y);
     let (tx, ty) = (target_point.x, target_point.y);
 
+    // HTML5 drag-and-drop (dragstart/dragover/drop) is not triggered by raw
+    // Input.dispatchMouseEvent sequences: Chromium synthesizes drag events
+    // from OS-level drags, not injected mouse moves. Input.setInterceptDrags
+    // makes Chromium surface the drag as an Input.dragIntercepted event whose
+    // payload can be replayed with Input.dispatchDragEvent, which does fire
+    // the HTML5 events. Interception is best-effort: if the command is
+    // unsupported or no drag starts (plain, non-draggable content), this
+    // falls back to the raw mouse drag and says so in the result.
+    let intercepting = mgr
+        .client
+        .send_command(
+            "Input.setInterceptDrags",
+            Some(json!({ "enabled": true })),
+            Some(&session_id),
+        )
+        .await
+        .is_ok();
+    let mut drag_events = if intercepting {
+        Some(mgr.client.subscribe())
+    } else {
+        None
+    };
+    let mut drag_data: Option<Value> = None;
+    let poll_intercepted = |rx: &mut Option<broadcast::Receiver<CdpEvent>>| {
+        if let Some(rx) = rx.as_mut() {
+            loop {
+                match rx.try_recv() {
+                    Ok(event) => {
+                        if event.method == "Input.dragIntercepted" {
+                            if let Some(data) = event.params.get("data") {
+                                return Some(data.clone());
+                            }
+                        }
+                    }
+                    Err(broadcast::error::TryRecvError::Lagged(_)) => continue,
+                    Err(_) => break,
+                }
+            }
+        }
+        None
+    };
+
     // Mouse down at source
     mgr.client
         .send_command(
@@ -4653,18 +5358,97 @@ async fn handle_drag(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
             )
             .await?;
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        if drag_data.is_none() {
+            drag_data = poll_intercepted(&mut drag_events);
+        }
     }
 
-    // Mouse up at target
-    mgr.client
-        .send_command(
-            "Input.dispatchMouseEvent",
-            Some(json!({ "type": "mouseReleased", "x": tx, "y": ty, "button": "left", "clickCount": 1 })),
-            Some(&session_id),
-        )
-        .await?;
+    // A dragstart fired by the final moves can arrive slightly after the
+    // move that triggered it; give interception a short grace window.
+    if intercepting && drag_data.is_none() {
+        for _ in 0..10 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+            drag_data = poll_intercepted(&mut drag_events);
+            if drag_data.is_some() {
+                break;
+            }
+        }
+    }
 
-    Ok(json!({ "dragged": true, "source": source, "target": target }))
+    let result = if let Some(data) = drag_data {
+        // Replay the intercepted drag over the target so the page sees the
+        // full HTML5 sequence (dragEnter -> dragOver -> drop).
+        let mut replay: Result<(), String> = Ok(());
+        for event_type in ["dragEnter", "dragOver", "drop"] {
+            if let Err(e) = mgr
+                .client
+                .send_command(
+                    "Input.dispatchDragEvent",
+                    Some(json!({ "type": event_type, "x": tx, "y": ty, "data": data })),
+                    Some(&session_id),
+                )
+                .await
+            {
+                replay = Err(e);
+                break;
+            }
+        }
+        match replay {
+            Ok(()) => {
+                json!({ "dragged": true, "html5": true, "source": source, "target": target })
+            }
+            Err(e) => {
+                // Don't leave the page mid-drag with the button down.
+                let _ = mgr
+                    .client
+                    .send_command(
+                        "Input.dispatchMouseEvent",
+                        Some(json!({ "type": "mouseReleased", "x": tx, "y": ty, "button": "left", "clickCount": 1 })),
+                        Some(&session_id),
+                    )
+                    .await;
+                let _ = mgr
+                    .client
+                    .send_command(
+                        "Input.setInterceptDrags",
+                        Some(json!({ "enabled": false })),
+                        Some(&session_id),
+                    )
+                    .await;
+                return Err(format!("HTML5 drop dispatch failed: {}", e));
+            }
+        }
+    } else {
+        // Raw mouse drag: works for pointer-event based UIs (sliders, canvas,
+        // custom mouse handlers) but does NOT fire HTML5 dragstart/drop.
+        mgr.client
+            .send_command(
+                "Input.dispatchMouseEvent",
+                Some(json!({ "type": "mouseReleased", "x": tx, "y": ty, "button": "left", "clickCount": 1 })),
+                Some(&session_id),
+            )
+            .await?;
+        json!({
+            "dragged": true,
+            "html5": false,
+            "source": source,
+            "target": target,
+            "note": "No HTML5 drag was detected, so a raw mouse drag was performed. Pages that rely on HTML5 dragstart/drop events may not respond; pointer-event based drag UIs will.",
+        })
+    };
+
+    if intercepting {
+        let _ = mgr
+            .client
+            .send_command(
+                "Input.setInterceptDrags",
+                Some(json!({ "enabled": false })),
+                Some(&session_id),
+            )
+            .await;
+    }
+
+    Ok(result)
 }
 
 async fn handle_expose(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -4810,6 +5594,18 @@ async fn handle_responsebody(cmd: &Value, state: &DaemonState) -> Result<Value, 
     }
 }
 
+/// Waits for a download to complete and reports where it actually landed.
+///
+/// `Browser.downloadWillBegin`/`Page.downloadWillBegin` supply the download's
+/// guid, source url, and suggested filename; the matching
+/// `*.downloadProgress` event with state `completed` marks the finish. With
+/// the download directory known (recorded by the `download` action or
+/// STELLA_BROWSER_DOWNLOAD_PATH), the real path is `<dir>/<guid>`
+/// (Browser.setDownloadBehavior "allowAndName") or `<dir>/<suggested>`
+/// ("allow" from launch); whichever exists on disk wins and is returned with
+/// `verified: true`. When neither can be confirmed, the response falls back
+/// to the caller-requested `path` with `verified: false` so callers can no
+/// longer mistake an echo of their own input for the download location.
 async fn handle_waitfordownload(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
     let session_id = mgr.active_session_id()?.to_string();
@@ -4818,28 +5614,100 @@ async fn handle_waitfordownload(cmd: &Value, state: &DaemonState) -> Result<Valu
     let mut rx = mgr.client.subscribe();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
 
+    // guid -> (url, suggestedFilename) from downloadWillBegin events.
+    let mut announced: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
             return Err("Timeout waiting for download".to_string());
         }
 
-        match tokio::time::timeout(remaining, rx.recv()).await {
-            Ok(Ok(event)) => {
-                if event.method == "Page.downloadProgress"
-                    && event.session_id.as_deref() == Some(&session_id)
-                    && event.params.get("state").and_then(|v| v.as_str()) == Some("completed")
-                {
-                    let path = cmd
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("download");
-                    return Ok(json!({ "path": path }));
-                }
-            }
+        let event = match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Ok(event)) => event,
             Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
             Ok(Err(_)) => return Err("Event stream closed".to_string()),
             Err(_) => return Err("Timeout waiting for download".to_string()),
+        };
+
+        match event.method.as_str() {
+            // Deprecated Page.* and current Browser.* variants carry the same
+            // fields; which one fires depends on how download behavior was
+            // configured (eventsEnabled) and the Chromium version.
+            "Browser.downloadWillBegin" | "Page.downloadWillBegin" => {
+                if let Some(guid) = event.params.get("guid").and_then(|v| v.as_str()) {
+                    let url = event
+                        .params
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    let suggested = event
+                        .params
+                        .get("suggestedFilename")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    announced.insert(guid.to_string(), (url, suggested));
+                }
+            }
+            "Browser.downloadProgress" | "Page.downloadProgress" => {
+                let is_page_event = event.method.starts_with("Page.");
+                if is_page_event && event.session_id.as_deref() != Some(&session_id) {
+                    continue;
+                }
+                if event.params.get("state").and_then(|v| v.as_str()) != Some("completed") {
+                    continue;
+                }
+                let guid = event
+                    .params
+                    .get("guid")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let (url, suggested) = announced
+                    .get(guid)
+                    .cloned()
+                    .unwrap_or_else(|| (String::new(), String::new()));
+
+                // Resolve the real on-disk location if the download directory
+                // is known: allowAndName saves as <dir>/<guid>, plain allow
+                // saves as <dir>/<suggestedFilename>.
+                if let Some(dir) = state.download_dir.as_deref() {
+                    let mut candidates: Vec<PathBuf> = Vec::new();
+                    if !guid.is_empty() {
+                        candidates.push(PathBuf::from(dir).join(guid));
+                    }
+                    if !suggested.is_empty() {
+                        candidates.push(PathBuf::from(dir).join(&suggested));
+                    }
+                    if let Some(real) = candidates.iter().find(|p| p.exists()) {
+                        return Ok(json!({
+                            "path": real.to_string_lossy(),
+                            "suggestedFilename": suggested,
+                            "url": url,
+                            "guid": guid,
+                            "verified": true,
+                        }));
+                    }
+                }
+
+                // Could not verify a file on disk: report the caller's
+                // requested path, explicitly marked unverified.
+                let requested = cmd
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("download");
+                return Ok(json!({
+                    "path": requested,
+                    "suggestedFilename": suggested,
+                    "url": url,
+                    "guid": guid,
+                    "verified": false,
+                    "note": "Download completed, but the reported path is the caller-requested value and was not verified on disk. Run the 'download' action first to set a download directory the daemon can verify against.",
+                }));
+            }
+            _ => {}
         }
     }
 }
@@ -4879,7 +5747,7 @@ async fn handle_window_new(cmd: &Value, state: &mut DaemonState) -> Result<Value
         )
         .await?;
 
-    mgr.add_page(super::browser::PageInfo {
+    let tab_id = mgr.add_page(super::browser::PageInfo {
         target_id: create_result.target_id,
         session_id: attach.session_id,
         tab_id: 0, // assigned by add_page
@@ -4887,6 +5755,9 @@ async fn handle_window_new(cmd: &Value, state: &mut DaemonState) -> Result<Value
         title: String::new(),
         target_type: "page".to_string(),
     });
+    if let Some(owner_id) = command_owner_id(cmd) {
+        mgr.record_owner_tab(owner_id, tab_id);
+    }
 
     if let Some(viewport) = cmd.get("viewport") {
         let width = viewport
@@ -6393,6 +7264,196 @@ mod tests {
             .contains("maximum"));
     }
 
+    #[test]
+    fn test_chain_validation_rejects_actions_outside_the_chain_allowlist() {
+        for action in [
+            "launch",
+            "close",
+            "state_save",
+            "download",
+            "highlight",
+            "auth_login",
+            "credentials_get",
+        ] {
+            let cmd = json!({ "steps": [{ "action": "title" }, { "action": action }] });
+            let error = validate_chain_actions(&cmd).unwrap_err();
+            assert!(
+                error.contains("Chain step 1 action is not allowed"),
+                "unexpected error for {}: {}",
+                action,
+                error
+            );
+            assert!(error.contains(action), "{}", error);
+        }
+
+        // Everything the JS client allows and the CDP backend knows must pass.
+        let steps: Vec<Value> = [
+            "navigate",
+            "click",
+            "fill",
+            "press",
+            "evaluate",
+            "innertext",
+            "inputvalue",
+            "tab_switch",
+            "cookies_get",
+            "screenshot",
+            "snapshot",
+            "waitforurl",
+            "drag",
+            "keydown",
+            "scrollintoview",
+            "upload",
+        ]
+        .iter()
+        .map(|action| json!({ "action": action }))
+        .collect();
+        let cmd = json!({ "steps": steps });
+        let actions = validate_chain_actions(&cmd).unwrap();
+        assert_eq!(actions.len(), 16);
+    }
+
+    #[tokio::test]
+    async fn test_chain_disallowed_step_error_carries_step_index_via_execute() {
+        let mut state = DaemonState::new();
+        let cmd = json!({
+            "id": "chain-bad-step",
+            "action": "chain",
+            "steps": [
+                { "action": "title" },
+                { "action": "launch" }
+            ]
+        });
+        let response = execute_command(&cmd, &mut state).await;
+        assert_eq!(response["success"], false);
+        assert!(response["error"]
+            .as_str()
+            .unwrap()
+            .contains("Chain step 1 action is not allowed: launch"));
+        assert!(state.browser.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_chain_reports_failing_step_index_and_aborts_by_default() {
+        let mut state = DaemonState::new();
+        // No browser: the first step's handler fails; the chain must surface
+        // the failing step index and stop before the second step runs.
+        let cmd = json!({
+            "id": "chain-abort",
+            "action": "chain",
+            "steps": [
+                { "action": "url" },
+                { "action": "healthcheck" }
+            ]
+        });
+        let response = handle_chain(&cmd, &mut state, "chain-abort").await;
+        assert_eq!(response["success"], false);
+        let error = response["error"].as_str().unwrap();
+        assert!(
+            error.starts_with("Chain step 0 (url) failed:"),
+            "unexpected error: {}",
+            error
+        );
+        let data = &response["data"];
+        assert_eq!(data["total"], 2);
+        assert_eq!(data["completed"], 0);
+        assert!(data["totalDurationMs"].is_u64());
+        let results = data["results"].as_array().unwrap();
+        assert_eq!(results.len(), 1, "abortOnError must stop after step 0");
+        assert_eq!(results[0]["step"], 0);
+        assert_eq!(results[0]["action"], "url");
+        assert_eq!(results[0]["success"], false);
+        assert!(results[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("Browser not launched"));
+        assert!(results[0]["durationMs"].is_u64());
+    }
+
+    #[tokio::test]
+    async fn test_chain_continues_past_failures_when_abort_on_error_is_false() {
+        let mut state = DaemonState::new();
+        let cmd = json!({
+            "id": "chain-continue",
+            "action": "chain",
+            "abortOnError": false,
+            "steps": [
+                { "action": "url" },
+                { "action": "healthcheck" }
+            ]
+        });
+        let response = handle_chain(&cmd, &mut state, "chain-continue").await;
+        // A failed step still fails the chain envelope, but every step ran and
+        // the per-step results are preserved for the caller.
+        assert_eq!(response["success"], false);
+        assert!(response["error"]
+            .as_str()
+            .unwrap()
+            .contains("Chain step 0 (url) failed"));
+        let data = &response["data"];
+        assert_eq!(data["completed"], 1);
+        assert_eq!(data["total"], 2);
+        let results = data["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["success"], false);
+        assert_eq!(results[1]["step"], 1);
+        assert_eq!(results[1]["action"], "healthcheck");
+        assert_eq!(results[1]["success"], true);
+        assert_eq!(results[1]["data"]["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn test_chain_rejects_invalid_step_tab_id_as_a_step_failure() {
+        let mut state = DaemonState::new();
+        let cmd = json!({
+            "id": "chain-tab",
+            "action": "chain",
+            "steps": [{ "action": "title", "tabId": 0 }]
+        });
+        let response = handle_chain(&cmd, &mut state, "chain-tab").await;
+        assert_eq!(response["success"], false);
+        let results = response["data"]["results"].as_array().unwrap();
+        assert_eq!(results[0]["step"], 0);
+        assert!(results[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("'tabId' must be a positive integer"));
+    }
+
+    #[tokio::test]
+    async fn test_chain_requested_snapshot_failure_fails_the_chain() {
+        let mut state = DaemonState::new();
+        let cmd = json!({
+            "id": "chain-snap",
+            "action": "chain",
+            "returnSnapshot": true,
+            "steps": [{ "action": "healthcheck" }]
+        });
+        let response = handle_chain(&cmd, &mut state, "chain-snap").await;
+        // All steps passed but the requested trailing snapshot could not be
+        // captured, so the chain reports failure with the snapshot error.
+        assert_eq!(response["success"], false);
+        assert_eq!(response["data"]["completed"], 1);
+        assert!(response["data"]["snapshotError"]
+            .as_str()
+            .unwrap()
+            .contains("Browser not launched"));
+        assert!(response["error"]
+            .as_str()
+            .unwrap()
+            .contains("Browser not launched"));
+    }
+
+    #[test]
+    fn test_chain_random_delay_stays_within_bounds() {
+        for _ in 0..64 {
+            let delay = chain_random_delay_ms(300, 1_200);
+            assert!((300..=1_200).contains(&delay), "delay {} out of range", delay);
+        }
+        assert_eq!(chain_random_delay_ms(500, 500), 500);
+        assert_eq!(chain_random_delay_ms(700, 100), 700);
+    }
+
     #[tokio::test]
     async fn test_chain_policy_checks_each_nested_action() {
         let path = std::env::temp_dir().join(format!(
@@ -6449,6 +7510,123 @@ mod tests {
         let response = execute_command(&close_owner, &mut state).await;
         assert_eq!(response["success"], false);
         assert!(response["error"].as_str().unwrap().contains("ownerId"));
+    }
+
+    #[tokio::test]
+    async fn test_release_owner_lease_is_a_graceful_noop_on_cdp() {
+        let mut state = DaemonState::new();
+        let release = json!({
+            "id": "release",
+            "action": "release_owner_lease",
+            "ownerId": "worker-1",
+            "ownerLeaseId": "lease-1",
+            "ownerLeaseIssuedAt": 1,
+        });
+
+        // Every BrowserSession.dispose() fires this on teardown; it must
+        // succeed (idempotently) instead of erroring on the CDP backend.
+        for _ in 0..2 {
+            let response = execute_command(&release, &mut state).await;
+            assert_eq!(response["success"], true, "response: {}", response);
+            assert_eq!(response["data"]["released"], true);
+        }
+        assert!(state.browser.is_none(), "lease release must not auto-launch");
+    }
+
+    #[tokio::test]
+    async fn test_owner_finalization_without_browser_succeeds_with_empty_results() {
+        let mut state = DaemonState::new();
+        for cmd in [
+            json!({ "id": "f1", "action": "finalize_tabs", "ownerId": "worker-1", "keep": [] }),
+            // `keep` is optional on the CDP backend: ownerId alone suffices.
+            json!({ "id": "f2", "action": "finalize_tabs", "ownerId": "worker-1" }),
+            json!({ "id": "c1", "action": "close_owner", "ownerId": "worker-1" }),
+        ] {
+            let response = execute_command(&cmd, &mut state).await;
+            assert_eq!(response["success"], true, "response: {}", response);
+            assert_eq!(response["data"]["closedTabIds"], json!([]));
+            assert_eq!(response["data"]["releasedTabIds"], json!([]));
+            assert_eq!(response["data"]["kept"], json!([]));
+        }
+        assert!(state.browser.is_none(), "finalization must not auto-launch");
+    }
+
+    #[tokio::test]
+    async fn test_finalize_tabs_echoes_keep_entries_in_kept() {
+        let mut state = DaemonState::new();
+        let cmd = json!({
+            "id": "finalize-keep",
+            "action": "finalize_tabs",
+            "ownerId": "worker-1",
+            "keep": [
+                { "tabId": 4, "status": "handoff" },
+                { "tabId": 9, "status": "deliverable" },
+            ],
+        });
+        let response = execute_command(&cmd, &mut state).await;
+        assert_eq!(response["success"], true, "response: {}", response);
+        assert_eq!(
+            response["data"]["kept"],
+            json!([
+                { "tabId": 4, "status": "handoff" },
+                { "tabId": 9, "status": "deliverable" },
+            ])
+        );
+        // No browser: the keep entries were never owned, so nothing was
+        // actually released or closed.
+        assert_eq!(response["data"]["closedTabIds"], json!([]));
+        assert_eq!(response["data"]["releasedTabIds"], json!([]));
+    }
+
+    #[test]
+    fn test_owner_finalization_validation_keeps_rejecting_malformed_keep() {
+        let base = |keep: Value| {
+            json!({
+                "id": "finalize",
+                "action": "finalize_tabs",
+                "ownerId": "worker-1",
+                "keep": keep,
+            })
+        };
+
+        assert!(validate_owner_finalization(&base(json!("nope")), "finalize_tabs")
+            .unwrap_err()
+            .contains("keep must be an array"));
+        assert!(
+            validate_owner_finalization(&base(json!([{ "tabId": 0, "status": "handoff" }])), "finalize_tabs")
+                .unwrap_err()
+                .contains("positive integer")
+        );
+        assert!(validate_owner_finalization(
+            &base(json!([
+                { "tabId": 2, "status": "handoff" },
+                { "tabId": 2, "status": "handoff" },
+            ])),
+            "finalize_tabs"
+        )
+        .unwrap_err()
+        .contains("duplicate"));
+        assert!(
+            validate_owner_finalization(&base(json!([{ "tabId": 2, "status": "keep" }])), "finalize_tabs")
+                .unwrap_err()
+                .contains("invalid status")
+        );
+        assert!(validate_owner_finalization(
+            &base(json!([{ "tabId": 2, "status": "handoff", "extra": true }])),
+            "finalize_tabs"
+        )
+        .unwrap_err()
+        .contains("unknown fields"));
+
+        // Missing keep is allowed: CDP finalization needs only ownerId.
+        let no_keep = json!({ "id": "finalize", "action": "finalize_tabs", "ownerId": "worker-1" });
+        assert!(validate_owner_finalization(&no_keep, "finalize_tabs").is_ok());
+        // The extension-era lease fields are not required.
+        assert!(validate_owner_finalization(
+            &json!({ "action": "close_owner", "ownerId": "worker-1" }),
+            "close_owner"
+        )
+        .is_ok());
     }
 
     #[test]

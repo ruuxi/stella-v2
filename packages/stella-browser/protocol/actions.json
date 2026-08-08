@@ -1,0 +1,1106 @@
+{
+  "$comment": "Single source of truth for the Stella Browser CDP daemon command vocabulary. Every layer that names an action — the Rust daemon (is_known_action / is_chain_allowed_action / dispatch_action in packages/stella-browser/cli/src/native/actions.rs), the JS client allowlists (BROWSER_CHAIN_ACTIONS / BROWSER_PROTOCOL_ACTIONS in packages/runtime/kernel/browser-use/client.ts), and the agent-facing worker API (SAFE_ACTION_KEYS and the method surface in packages/runtime/kernel/browser-use/worker-api.ts) — is checked against this file by contract tests: contract_tests.rs (cargo) and action-contract.test.ts (vitest). Adding, removing, or renaming an action in any layer fails those tests until this manifest and every layer agree. The extension transport's vocabulary (extension/background.js) is legacy/credential-seeding only and is deliberately out of scope.",
+  "version": 1,
+  "globalParams": {
+    "$comment": "Accepted on every command in addition to the per-action params below. tabId addresses the target tab (resolved before dispatch; tab_list/tab_new take none, tab_switch/tab_close resolve their own).",
+    "params": [
+      "id",
+      "action",
+      "tabId",
+      "ownerId",
+      "ownerLeaseId",
+      "ownerLeaseIssuedAt"
+    ]
+  },
+  "actions": {
+    "addinitscript": {
+      "chain": false,
+      "params": [
+        "content",
+        "script",
+        "source"
+      ]
+    },
+    "addscript": {
+      "chain": false,
+      "params": [
+        "content",
+        "script",
+        "source",
+        "url"
+      ]
+    },
+    "addstyle": {
+      "chain": false,
+      "params": [
+        "content",
+        "css",
+        "url"
+      ]
+    },
+    "auth_delete": {
+      "chain": false,
+      "params": [
+        "name"
+      ]
+    },
+    "auth_list": {
+      "chain": false,
+      "params": []
+    },
+    "auth_login": {
+      "chain": false,
+      "params": [
+        "name",
+        "passwordSelector",
+        "submitSelector",
+        "usernameSelector"
+      ]
+    },
+    "auth_save": {
+      "chain": false,
+      "params": [
+        "name",
+        "password",
+        "passwordSelector",
+        "submitSelector",
+        "url",
+        "username",
+        "usernameSelector"
+      ]
+    },
+    "auth_show": {
+      "chain": false,
+      "params": [
+        "name"
+      ]
+    },
+    "back": {
+      "chain": true,
+      "params": [
+        "timeout"
+      ],
+      "note": "timeout is accepted for caller compatibility; ignored by the CDP handler."
+    },
+    "boundingbox": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "bringtofront": {
+      "chain": true,
+      "params": []
+    },
+    "cdp_url": {
+      "chain": false,
+      "params": []
+    },
+    "chain": {
+      "chain": false,
+      "params": [
+        "steps",
+        "waitForSelector",
+        "waitTimeout",
+        "abortOnError",
+        "delay",
+        "returnSnapshot",
+        "returnScreenshot"
+      ],
+      "note": "Top-level only. Steps run through the same per-action dispatch; step actions must have \"chain\": true."
+    },
+    "check": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "clear": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "click": {
+      "chain": true,
+      "params": [
+        "button",
+        "clickCount",
+        "newTab",
+        "selector"
+      ]
+    },
+    "clipboard": {
+      "chain": true,
+      "params": [
+        "operation",
+        "subAction",
+        "text",
+        "value"
+      ]
+    },
+    "close": {
+      "chain": false,
+      "params": []
+    },
+    "close_owner": {
+      "chain": false,
+      "params": [],
+      "note": "Top-level only. Requires ownerId; closes every owner-tracked tab."
+    },
+    "confirm": {
+      "chain": false,
+      "params": []
+    },
+    "console": {
+      "chain": false,
+      "params": []
+    },
+    "content": {
+      "chain": true,
+      "params": []
+    },
+    "cookies_clear": {
+      "chain": true,
+      "params": []
+    },
+    "cookies_export_all": {
+      "chain": false,
+      "params": [],
+      "note": "Extension transport only: exports cookies from the user's real browser. The CDP backend rejects it with an explicit error."
+    },
+    "cookies_export_for_urls": {
+      "chain": false,
+      "params": [
+        "urls"
+      ],
+      "note": "Extension transport only: exports cookies from the user's real browser. The CDP backend rejects it with an explicit error."
+    },
+    "cookies_get": {
+      "chain": true,
+      "params": [
+        "url",
+        "urls"
+      ]
+    },
+    "cookies_set": {
+      "chain": true,
+      "params": [
+        "cookies"
+      ]
+    },
+    "count": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "credentials": {
+      "chain": false,
+      "params": [
+        "password",
+        "username"
+      ]
+    },
+    "credentials_delete": {
+      "chain": false,
+      "params": [
+        "name"
+      ]
+    },
+    "credentials_get": {
+      "chain": false,
+      "params": [
+        "name"
+      ]
+    },
+    "credentials_list": {
+      "chain": false,
+      "params": []
+    },
+    "credentials_set": {
+      "chain": false,
+      "params": [
+        "name",
+        "password",
+        "url",
+        "username"
+      ]
+    },
+    "dblclick": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "deny": {
+      "chain": false,
+      "params": []
+    },
+    "device": {
+      "chain": false,
+      "params": [
+        "device",
+        "name"
+      ]
+    },
+    "device_list": {
+      "chain": false,
+      "params": []
+    },
+    "dialog": {
+      "chain": false,
+      "params": [
+        "accept",
+        "promptText",
+        "response"
+      ]
+    },
+    "diff_screenshot": {
+      "chain": false,
+      "params": [
+        "baseline",
+        "fullPage",
+        "output",
+        "selector",
+        "threshold"
+      ]
+    },
+    "diff_snapshot": {
+      "chain": false,
+      "params": [
+        "baseline",
+        "compact",
+        "maxDepth",
+        "selector"
+      ]
+    },
+    "diff_url": {
+      "chain": false,
+      "params": [
+        "waitUntil"
+      ]
+    },
+    "dispatch": {
+      "chain": false,
+      "params": [
+        "event",
+        "eventInit",
+        "eventType",
+        "selector"
+      ]
+    },
+    "download": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "drag": {
+      "chain": true,
+      "params": [
+        "source",
+        "target"
+      ],
+      "note": "Attempts an HTML5 drag via Input.setInterceptDrags/dispatchDragEvent and falls back to raw mouse events; the result reports which path ran (html5: true|false)."
+    },
+    "emulatemedia": {
+      "chain": false,
+      "params": [
+        "features",
+        "media"
+      ]
+    },
+    "errors": {
+      "chain": false,
+      "params": []
+    },
+    "evalhandle": {
+      "chain": false,
+      "params": [
+        "script"
+      ]
+    },
+    "evaluate": {
+      "chain": true,
+      "params": [
+        "script"
+      ]
+    },
+    "expose": {
+      "chain": false,
+      "params": [
+        "name"
+      ]
+    },
+    "extension_status": {
+      "chain": false,
+      "params": []
+    },
+    "fill": {
+      "chain": true,
+      "params": [
+        "selector",
+        "value"
+      ]
+    },
+    "finalize_tabs": {
+      "chain": false,
+      "params": [
+        "keep"
+      ],
+      "note": "Top-level only. Requires ownerId; closes every owner-tracked tab not listed in keep."
+    },
+    "find": {
+      "chain": false,
+      "params": [
+        "selector"
+      ]
+    },
+    "focus": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "forward": {
+      "chain": true,
+      "params": [
+        "timeout"
+      ],
+      "note": "timeout is accepted for caller compatibility; ignored by the CDP handler."
+    },
+    "frame": {
+      "chain": false,
+      "params": [
+        "name",
+        "selector",
+        "url"
+      ]
+    },
+    "geolocation": {
+      "chain": false,
+      "params": [
+        "accuracy",
+        "latitude",
+        "longitude"
+      ]
+    },
+    "getattribute": {
+      "chain": true,
+      "params": [
+        "attribute",
+        "selector"
+      ]
+    },
+    "getbyalttext": {
+      "chain": false,
+      "params": [
+        "alt",
+        "exact",
+        "subaction"
+      ]
+    },
+    "getbylabel": {
+      "chain": false,
+      "params": [
+        "label",
+        "exact",
+        "subaction"
+      ]
+    },
+    "getbyplaceholder": {
+      "chain": false,
+      "params": [
+        "placeholder",
+        "exact",
+        "subaction"
+      ]
+    },
+    "getbyrole": {
+      "chain": false,
+      "params": [
+        "role",
+        "name",
+        "exact",
+        "subaction"
+      ]
+    },
+    "getbytestid": {
+      "chain": false,
+      "params": [
+        "testid",
+        "exact",
+        "subaction"
+      ]
+    },
+    "getbytext": {
+      "chain": false,
+      "params": [
+        "text",
+        "exact",
+        "subaction"
+      ]
+    },
+    "getbytitle": {
+      "chain": false,
+      "params": [
+        "title",
+        "exact",
+        "subaction"
+      ]
+    },
+    "gettext": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "har_start": {
+      "chain": true,
+      "params": []
+    },
+    "har_stop": {
+      "chain": true,
+      "params": [
+        "path"
+      ]
+    },
+    "headers": {
+      "chain": false,
+      "params": [
+        "headers"
+      ]
+    },
+    "healthcheck": {
+      "chain": true,
+      "params": []
+    },
+    "highlight": {
+      "chain": false,
+      "params": [
+        "selector"
+      ]
+    },
+    "hover": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "innerhtml": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "innertext": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "input_keyboard": {
+      "chain": false,
+      "params": [
+        "type"
+      ]
+    },
+    "input_mouse": {
+      "chain": false,
+      "params": [
+        "button",
+        "clickCount",
+        "deltaX",
+        "deltaY",
+        "type",
+        "x",
+        "y"
+      ]
+    },
+    "input_touch": {
+      "chain": false,
+      "params": [
+        "touchPoints",
+        "type"
+      ]
+    },
+    "inputvalue": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "inserttext": {
+      "chain": true,
+      "params": [
+        "text"
+      ]
+    },
+    "inspect": {
+      "chain": false,
+      "params": []
+    },
+    "ischecked": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "isenabled": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "isvisible": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "keyboard": {
+      "chain": false,
+      "params": [
+        "code",
+        "eventType",
+        "key",
+        "text"
+      ]
+    },
+    "keydown": {
+      "chain": true,
+      "params": [
+        "key"
+      ]
+    },
+    "keyup": {
+      "chain": true,
+      "params": [
+        "key"
+      ]
+    },
+    "launch": {
+      "chain": false,
+      "params": [
+        "allowFileAccess",
+        "allowedDomains",
+        "args",
+        "autoConnect",
+        "cdpPort",
+        "cdpUrl",
+        "colorScheme",
+        "downloadPath",
+        "engine",
+        "executablePath",
+        "extensions",
+        "headless",
+        "ignoreHTTPSErrors",
+        "profile",
+        "proxy",
+        "storageState",
+        "userAgent"
+      ]
+    },
+    "locale": {
+      "chain": false,
+      "params": [
+        "locale"
+      ]
+    },
+    "mainframe": {
+      "chain": false,
+      "params": []
+    },
+    "mouse": {
+      "chain": false,
+      "params": [
+        "button",
+        "clickCount",
+        "eventType",
+        "x",
+        "y"
+      ]
+    },
+    "mousedown": {
+      "chain": true,
+      "params": [
+        "button"
+      ]
+    },
+    "mousemove": {
+      "chain": true,
+      "params": [
+        "x",
+        "y"
+      ]
+    },
+    "mouseup": {
+      "chain": true,
+      "params": [
+        "button"
+      ]
+    },
+    "multiselect": {
+      "chain": false,
+      "params": [
+        "selector",
+        "values"
+      ]
+    },
+    "navigate": {
+      "chain": true,
+      "params": [
+        "url",
+        "waitUntil",
+        "headers",
+        "timeout"
+      ],
+      "note": "timeout is accepted for caller compatibility; the CDP handler uses its own navigation timeout."
+    },
+    "nth": {
+      "chain": false,
+      "params": [
+        "index",
+        "selector"
+      ]
+    },
+    "offline": {
+      "chain": false,
+      "params": [
+        "offline"
+      ]
+    },
+    "pause": {
+      "chain": false,
+      "params": []
+    },
+    "pdf": {
+      "chain": false,
+      "params": [
+        "landscape",
+        "path",
+        "preferCSSPageSize",
+        "printBackground"
+      ]
+    },
+    "permissions": {
+      "chain": false,
+      "params": [
+        "permissions"
+      ]
+    },
+    "press": {
+      "chain": true,
+      "params": [
+        "key",
+        "selector"
+      ]
+    },
+    "profiler_start": {
+      "chain": false,
+      "params": [
+        "categories"
+      ]
+    },
+    "profiler_stop": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "recording_restart": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "recording_start": {
+      "chain": false,
+      "params": [
+        "path",
+        "url"
+      ]
+    },
+    "recording_stop": {
+      "chain": false,
+      "params": []
+    },
+    "release_owner_lease": {
+      "chain": false,
+      "params": [],
+      "note": "Top-level only. Graceful no-op on the CDP backend (extension-era lease protocol)."
+    },
+    "reload": {
+      "chain": true,
+      "params": [
+        "timeout"
+      ],
+      "note": "timeout is accepted for caller compatibility; ignored by the CDP handler."
+    },
+    "requests": {
+      "chain": true,
+      "params": [
+        "clear",
+        "filter"
+      ]
+    },
+    "responsebody": {
+      "chain": true,
+      "params": [
+        "timeout",
+        "url"
+      ]
+    },
+    "route": {
+      "chain": true,
+      "params": [
+        "abort",
+        "response",
+        "url"
+      ]
+    },
+    "screencast_start": {
+      "chain": false,
+      "params": [
+        "format",
+        "maxHeight",
+        "maxWidth",
+        "quality"
+      ]
+    },
+    "screencast_stop": {
+      "chain": false,
+      "params": []
+    },
+    "screenshot": {
+      "chain": true,
+      "params": [
+        "annotate",
+        "format",
+        "fullPage",
+        "path",
+        "quality",
+        "screenshotDir",
+        "selector",
+        "type"
+      ]
+    },
+    "scroll": {
+      "chain": true,
+      "params": [
+        "amount",
+        "direction",
+        "selector",
+        "x",
+        "y"
+      ]
+    },
+    "scrollintoview": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "select": {
+      "chain": true,
+      "params": [
+        "selector",
+        "value",
+        "values"
+      ]
+    },
+    "selectall": {
+      "chain": false,
+      "params": [
+        "selector"
+      ]
+    },
+    "set_media": {
+      "chain": false,
+      "params": [
+        "features",
+        "media"
+      ]
+    },
+    "setcontent": {
+      "chain": false,
+      "params": [
+        "html"
+      ]
+    },
+    "setvalue": {
+      "chain": false,
+      "params": [
+        "selector",
+        "value"
+      ]
+    },
+    "snapshot": {
+      "chain": true,
+      "params": [
+        "compact",
+        "cursor",
+        "interactive",
+        "maxDepth",
+        "selector"
+      ]
+    },
+    "state_clean": {
+      "chain": false,
+      "params": [
+        "days"
+      ]
+    },
+    "state_clear": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "state_list": {
+      "chain": false,
+      "params": []
+    },
+    "state_load": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "state_rename": {
+      "chain": false,
+      "params": [
+        "name",
+        "path"
+      ]
+    },
+    "state_save": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "state_show": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "storage_clear": {
+      "chain": false,
+      "params": [
+        "type"
+      ]
+    },
+    "storage_get": {
+      "chain": false,
+      "params": [
+        "key",
+        "type"
+      ]
+    },
+    "storage_set": {
+      "chain": false,
+      "params": [
+        "key",
+        "type",
+        "value"
+      ]
+    },
+    "styles": {
+      "chain": true,
+      "params": [
+        "properties",
+        "selector"
+      ]
+    },
+    "swipe": {
+      "chain": false,
+      "params": [
+        "direction",
+        "distance",
+        "duration",
+        "endX",
+        "endY",
+        "startX",
+        "startY"
+      ]
+    },
+    "tab_close": {
+      "chain": true,
+      "params": [
+        "index"
+      ],
+      "note": "index is the legacy positional address; prefer the global tabId parameter."
+    },
+    "tab_list": {
+      "chain": true,
+      "params": []
+    },
+    "tab_new": {
+      "chain": true,
+      "params": [
+        "url"
+      ]
+    },
+    "tab_switch": {
+      "chain": true,
+      "params": [
+        "index"
+      ],
+      "note": "index is the legacy positional address; prefer the global tabId parameter."
+    },
+    "tap": {
+      "chain": false,
+      "params": [
+        "selector",
+        "x",
+        "y"
+      ]
+    },
+    "timezone": {
+      "chain": false,
+      "params": [
+        "timezone",
+        "timezoneId"
+      ]
+    },
+    "title": {
+      "chain": true,
+      "params": []
+    },
+    "trace_start": {
+      "chain": false,
+      "params": []
+    },
+    "trace_stop": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "type": {
+      "chain": true,
+      "params": [
+        "clear",
+        "delay",
+        "selector",
+        "text"
+      ]
+    },
+    "uncheck": {
+      "chain": true,
+      "params": [
+        "selector"
+      ]
+    },
+    "unroute": {
+      "chain": true,
+      "params": [
+        "url"
+      ]
+    },
+    "upload": {
+      "chain": true,
+      "params": [
+        "file",
+        "files",
+        "selector"
+      ],
+      "note": "files must be absolute paths; file is a legacy single-path alias."
+    },
+    "url": {
+      "chain": true,
+      "params": []
+    },
+    "user_agent": {
+      "chain": false,
+      "params": [
+        "userAgent"
+      ]
+    },
+    "useragent": {
+      "chain": false,
+      "params": [
+        "userAgent"
+      ]
+    },
+    "video_start": {
+      "chain": false,
+      "params": [
+        "path"
+      ]
+    },
+    "video_stop": {
+      "chain": false,
+      "params": []
+    },
+    "viewport": {
+      "chain": false,
+      "params": [
+        "deviceScaleFactor",
+        "height",
+        "mobile",
+        "width"
+      ]
+    },
+    "wait": {
+      "chain": true,
+      "params": [
+        "function",
+        "loadState",
+        "selector",
+        "state",
+        "text",
+        "timeout",
+        "url"
+      ]
+    },
+    "waitfordownload": {
+      "chain": false,
+      "params": [
+        "path",
+        "timeout"
+      ],
+      "note": "Resolves with the real on-disk path when it can be verified from CDP download events; otherwise returns the requested path with verified: false."
+    },
+    "waitforfunction": {
+      "chain": false,
+      "params": [
+        "expression",
+        "timeout"
+      ]
+    },
+    "waitforloadstate": {
+      "chain": false,
+      "params": [
+        "state",
+        "timeout"
+      ]
+    },
+    "waitforurl": {
+      "chain": true,
+      "params": [
+        "timeout",
+        "url"
+      ]
+    },
+    "wheel": {
+      "chain": false,
+      "params": [
+        "deltaX",
+        "deltaY",
+        "x",
+        "y"
+      ]
+    },
+    "window_new": {
+      "chain": false,
+      "params": [
+        "viewport"
+      ]
+    }
+  },
+  "paramsPolicy": "params lists the keys each handler reads or deliberately tolerates; the daemon ignores unknown keys. \"chain\": true means the action may also run as a chain step (is_chain_allowed_action / BROWSER_CHAIN_ACTIONS); every action is accepted top-level unless its note says the backend rejects it."
+}

@@ -110,6 +110,10 @@ pub struct TargetInfo {
     pub url: String,
     pub attached: Option<bool>,
     pub browser_context_id: Option<String>,
+    /// Target that opened this one (e.g. `window.open`, target=_blank).
+    /// Present only for page-opened targets; used to inherit command-owner
+    /// tab tracking from the opener tab.
+    pub opener_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

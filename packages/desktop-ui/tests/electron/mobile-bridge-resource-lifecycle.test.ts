@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   bridgeOptions: null as Record<string, unknown> | null,
   bridgeStart: vi.fn(),
   bridgeStop: vi.fn(),
+  bridgeSetConvexDeploymentUrl: vi.fn(),
   tunnelStart: vi.fn(),
   tunnelStop: vi.fn().mockResolvedValue(undefined),
 }));
@@ -28,6 +29,9 @@ vi.mock(
       }
       setDeviceId() {}
       setHostAuthToken() {}
+      setConvexDeploymentUrl(value: string | null) {
+        mocks.bridgeSetConvexDeploymentUrl(value);
+      }
       setConvexSiteUrl() {}
       setTunnelUrl() {}
       broadcastToMobile() {}
@@ -53,6 +57,7 @@ describe("mobile bridge resource lifecycle", () => {
     mocks.bridgeOptions = null;
     mocks.bridgeStart.mockClear();
     mocks.bridgeStop.mockClear();
+    mocks.bridgeSetConvexDeploymentUrl.mockClear();
     mocks.tunnelStart.mockClear();
     mocks.tunnelStop.mockClear();
   });
@@ -70,6 +75,7 @@ describe("mobile bridge resource lifecycle", () => {
       isDev: false,
       getDevServerUrl: () => "http://127.0.0.1:5173",
       getAuthToken: async () => "token",
+      getConvexUrl: () => "https://example.convex.cloud",
       getConvexSiteUrl: () => "https://example.convex.site",
       getDeviceId: () => "desktop-1",
       getBootstrapPayload: () => ({}),
@@ -86,6 +92,11 @@ describe("mobile bridge resource lifecycle", () => {
     expect(mocks.tunnelStart).toHaveBeenCalledOnce();
     expect(setManagedTimeout).not.toHaveBeenCalled();
     expect(mocks.bridgeOptions).not.toHaveProperty("onClientActivity");
+    await vi.waitFor(() => {
+      expect(mocks.bridgeSetConvexDeploymentUrl).toHaveBeenCalledWith(
+        "https://example.convex.cloud",
+      );
+    });
 
     await resource.stop();
     expect(mocks.tunnelStop).toHaveBeenCalledOnce();

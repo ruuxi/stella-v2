@@ -17,6 +17,7 @@ export const startMobileBridge = (context) => {
             isDev: context.config.useDevServer,
             getAuthToken: () => context.services.authService.getAuthToken(),
             getBootstrapPayload: () => readMobileBridgeBootstrap(context),
+            getConvexUrl: () => context.services.authService.getPendingConvexUrl(),
             getConvexSiteUrl: () => context.services.authService.getConvexSiteUrl(),
             getDeviceId: () => context.state.deviceId,
             getDevServerUrl: () => getDevServerUrl() ?? "",

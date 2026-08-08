@@ -22,6 +22,7 @@ const configureReadyService = (service: MobileBridgeService) => {
   anyService.tunnelUrl = "https://desktop.example.com";
   anyService.registrationState = "healthy";
   anyService.registrationLeaseExpiresAt = Date.now() + 120_000;
+  anyService.hasRegisteredBridge = true;
   return anyService;
 };
 

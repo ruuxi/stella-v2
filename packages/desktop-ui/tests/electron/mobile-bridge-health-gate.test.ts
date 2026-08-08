@@ -13,6 +13,7 @@ const createService = () =>
 const configureReadyService = (service: MobileBridgeService) => {
   const anyService = service as any;
   anyService.port = 4318;
+  anyService.convexDeploymentUrl = "https://example.convex.cloud";
   anyService.convexSiteUrl = "https://example.convex.site";
   anyService.hostAuthToken = "desktop-token";
   anyService.deviceId = "desktop-device";
@@ -20,18 +21,15 @@ const configureReadyService = (service: MobileBridgeService) => {
   return anyService;
 };
 
-/** Routes the desktop's Convex calls to in-memory counters. */
+/** Routes the desktop's registration and clear calls to in-memory counters. */
 const mockBridgeCalls = (anyService: any) => {
   const counts = { register: 0, clear: 0 };
+  anyService.registerDesktopBridge = vi.fn(async () => {
+    counts.register += 1;
+    return { ok: true, leaseExpiresAt: Date.now() + 15 * 60_000 };
+  });
   anyService.postBridgeJson = vi.fn(
     async (_siteUrl: string, route: string) => {
-      if (route.endsWith("/register")) {
-        counts.register += 1;
-        return new Response(
-          JSON.stringify({ ok: true, leaseExpiresAt: Date.now() + 150_000 }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
       if (route.endsWith("/clear")) {
         counts.clear += 1;
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -128,9 +126,8 @@ describe("MobileBridgeService health-gated registration", () => {
     expect(anyService.registrationState).toBe("degraded");
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
 
-    // Periodic failed probes must refresh the degraded lease. With 60s refreshes
-    // and a 150s lease, waiting for the third failure would create an availability
-    // gap before the next registration attempt.
+    // Periodic failed probes must refresh the degraded lease while waiting for
+    // the tunnel to become verifiable from this desktop.
     await anyService.syncRegistration();
     await anyService.syncRegistration();
     expect(health.probe).toHaveBeenCalledTimes(2);
@@ -176,6 +173,13 @@ describe("MobileBridgeService health-gated registration", () => {
     await anyService.syncRegistration(); // establish lease
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
     const registersBeforeOutage = counts.register;
+
+    // Direct access remains authorized after presence expiry, but sustained
+    // tunnel failure must still explicitly clear that authorization.
+    anyService.clearRegistrationLeaseTimer();
+    anyService.registrationLeaseExpiresAt = null;
+    anyService.registrationState = "expired";
+    expect(anyService.isBridgeAccessEnabled()).toBe(true);
 
     // Sustained outage: threshold is 3 consecutive failed probes. Clear the
     // probe cache so each sync re-probes (real refresh ticks are spaced past it).

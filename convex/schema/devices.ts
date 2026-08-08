@@ -54,6 +54,15 @@ export const devicesSchema = {
     .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
 
+  // Dedicated fixed-window state for the public one-call bridge registration
+  // mutation. Keeping this in the app transaction avoids a second billed
+  // function invocation through the shared rate-limiter component.
+  mobile_bridge_registration_limits: defineTable({
+    ownerId: v.string(),
+    windowStartedAt: v.number(),
+    count: v.number(),
+  }).index("by_ownerId", ["ownerId"]),
+
   mobile_bridge_sessions: defineTable({
     ownerId: v.string(),
     desktopDeviceId: v.string(),

@@ -40,6 +40,7 @@ const MOBILE_TABLES = [
   "paired_mobile_devices",
   "mobile_connect_intents",
   "mobile_bridge_registrations",
+  "mobile_bridge_registration_limits",
   "mobile_bridge_sessions",
   "mobile_push_tokens",
 ] as const;
@@ -93,6 +94,14 @@ async function deleteOneMobileTableBatch(
       ids = rows.map((r) => r._id) as Id<MobileTable>[];
       break;
     }
+    case "mobile_bridge_registration_limits": {
+      const rows = await ctx.db
+        .query("mobile_bridge_registration_limits")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .take(MOBILE_BATCH);
+      ids = rows.map((r) => r._id) as Id<MobileTable>[];
+      break;
+    }
     case "mobile_bridge_sessions": {
       const rows = await ctx.db
         .query("mobile_bridge_sessions")
@@ -128,6 +137,7 @@ export const _deleteMobileTableBatch = internalMutation({
       v.literal("paired_mobile_devices"),
       v.literal("mobile_connect_intents"),
       v.literal("mobile_bridge_registrations"),
+      v.literal("mobile_bridge_registration_limits"),
       v.literal("mobile_bridge_sessions"),
       v.literal("mobile_push_tokens"),
     ),

@@ -151,6 +151,18 @@ export const METHOD_NAMES = {
   HOST_DISPLAY_UPDATE: "host.display.update",
   HOST_NOTIFICATION_SHOW: "host.notification.show",
   HOST_SYSTEM_REQUEST_PERMISSION: "host.system.requestPermission",
+  /**
+   * Ask the Electron host process to spawn the desktop_automation daemon on
+   * behalf of the (detached) runtime worker. macOS attributes TCC permission
+   * checks (Accessibility) to the responsible process, which is inherited at
+   * spawn time. The worker outlives the Electron app that spawned it, so
+   * daemons spawned from the worker's process tree lose Stella.app attribution
+   * after an app restart and fail AXIsProcessTrusted(). Spawning from the live
+   * Electron main process keeps every automation process under the single
+   * "Stella" TCC identity the user granted.
+   */
+  HOST_COMPUTER_USE_SPAWN_AUTOMATION_DAEMON:
+    "host.computerUse.spawnAutomationDaemon",
   HOST_SYSTEM_OPEN_EXTERNAL: "host.system.openExternal",
   HOST_WINDOW_SHOW: "host.window.show",
   HOST_WINDOW_FOCUS: "host.window.focus",

@@ -1011,6 +1011,23 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               };
             }
           },
+          spawnAutomationDaemon: async (params) => {
+            try {
+              return await peer.request<
+                | { ok: true; pid: number; hostPid: number }
+                | { ok: false; reason: string }
+              >(
+                METHOD_NAMES.HOST_COMPUTER_USE_SPAWN_AUTOMATION_DAEMON,
+                params,
+                { retryOnDisconnect: true },
+              );
+            } catch (error) {
+              return {
+                ok: false,
+                reason: (error as Error).message || "host_unreachable",
+              };
+            }
+          },
         },
       });
       if (state.db !== db) {

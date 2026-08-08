@@ -1,4 +1,8 @@
 import { app } from "electron";
+import { spawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync } from "node:fs";
+import path from "node:path";
+import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { getOrCreateDeviceIdentity, resetDeviceIdentity as resetStoredDeviceIdentity, signDeviceHeartbeat, } from "@stella/runtime/kernel/home/device";
 import { getSoundNotificationsEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 import { deleteConnectorAccessTokens, loadConnectorTokenPayload, saveConnectorTokenPayload, } from "@stella/runtime/kernel/connectors/oauth";
@@ -77,6 +81,79 @@ export const syncConfiguredPromptSiteUrl = async (context, siteUrl) => {
         if (configuredPromptSyncPromise === attempt) {
             configuredPromptSyncPromise = null;
         }
+    }
+};
+// macOS attributes TCC (Accessibility) checks to the "responsible process",
+// which is inherited at spawn time. The detached runtime worker outlives the
+// Electron process that spawned it, so any desktop_automation daemon spawned
+// from the worker's process tree loses Stella's TCC attribution after an app
+// restart and fails AXIsProcessTrusted() even though the user granted
+// Accessibility to Stella. Spawning the daemon from the Electron main process
+// keeps it under the single "Stella" identity. The worker side lives in
+// stella-computer-executor.ts (ensureAutomationDaemon); it records the
+// returned hostPid so a daemon whose spawning host has exited is restarted
+// by the next live host.
+const spawnAutomationDaemonFromHost = async (params) => {
+    if (process.platform === "win32") {
+        return { ok: false, reason: "unsupported_platform" };
+    }
+    const daemonSocketPath = typeof params?.daemonSocketPath === "string" ? params.daemonSocketPath : "";
+    const pidPath = typeof params?.pidPath === "string" ? params.pidPath : "";
+    const logPath = typeof params?.logPath === "string" ? params.logPath : "";
+    const sessionId = typeof params?.sessionId === "string" ? params.sessionId : "";
+    const stateDir = typeof params?.stateDir === "string" ? params.stateDir : "";
+    if (!daemonSocketPath ||
+        !pidPath ||
+        !logPath ||
+        !sessionId ||
+        !stateDir ||
+        !path.isAbsolute(daemonSocketPath) ||
+        !path.isAbsolute(pidPath) ||
+        !path.isAbsolute(logPath)) {
+        return { ok: false, reason: "invalid_params" };
+    }
+    // Only the fixed daemon argv for the bundled helper is ever spawned here;
+    // this handler must never grow into an arbitrary-exec RPC.
+    const helperPath = resolveNativeHelperPath("desktop_automation");
+    if (!helperPath) {
+        return { ok: false, reason: "helper_not_found" };
+    }
+    const extraEnv = Object.fromEntries(Object.entries(params?.env && typeof params.env === "object" ? params.env : {}).filter(([key, value]) => key.startsWith("STELLA_COMPUTER_") && typeof value === "string"));
+    let logFd;
+    try {
+        mkdirSync(path.dirname(logPath), { recursive: true });
+        logFd = openSync(logPath, "a");
+    }
+    catch (error) {
+        return { ok: false, reason: `log_open_failed: ${error?.message ?? error}` };
+    }
+    try {
+        const child = spawn(helperPath, ["daemon", "--socket-path", daemonSocketPath, "--pid-file", pidPath], {
+            detached: true,
+            stdio: ["ignore", logFd, logFd],
+            env: {
+                ...process.env,
+                ...extraEnv,
+                STELLA_COMPUTER_SESSION: sessionId,
+                STELLA_COMPUTER_STATE_DIR: stateDir,
+            },
+        });
+        await new Promise((resolve, reject) => {
+            child.once("spawn", resolve);
+            child.once("error", reject);
+        });
+        child.unref();
+        getMainLogger()?.process?.("computer-use.automation-daemon.spawned", {
+            pid: child.pid,
+            sessionId,
+        });
+        return { ok: true, pid: child.pid ?? -1, hostPid: process.pid };
+    }
+    catch (error) {
+        return { ok: false, reason: `spawn_failed: ${error?.message ?? error}` };
+    }
+    finally {
+        closeSync(logFd);
     }
 };
 export const createHostRunnerHandlers = (context, options) => ({
@@ -192,6 +269,7 @@ export const createHostRunnerHandlers = (context, options) => ({
         });
     },
     requestDesktopPermission: async (kind) => requestMacPermission(kind),
+    spawnAutomationDaemon: (params) => spawnAutomationDaemonFromHost(params),
     openExternal: async (url) => {
         context.services.externalLinkService.openSafeExternalUrl(url);
     },

@@ -39,7 +39,57 @@ describe("CLI bridge transport security", () => {
     const first = createSecureCliBridgeEndpoint(paths);
     const second = createSecureCliBridgeEndpoint(paths);
     expect(first).not.toBe(second);
-    expect(path.basename(path.dirname(first))).toMatch(/^cli-[a-f0-9]{32}$/u);
+    // The nonce must stay its own directory component (the 0700 dir is the
+    // unpredictability barrier) and carry >= 128 bits (22 base64url chars).
+    expect(path.dirname(path.dirname(first))).toBe(root);
+    expect(path.basename(path.dirname(first))).toMatch(/^[A-Za-z0-9_-]{22}$/u);
+    expect(path.basename(first)).toBe("b.sock");
+  });
+
+  it("stays under the 104-byte macOS sun_path cap for long home directories", () => {
+    // Simulated long-username home dir; the real rootDir shape is
+    // ~/.stella/runtime/<16-hex>.
+    const homeDir = "/Users/alexandra.rodriguez";
+    const rootDir = path.join(
+      homeDir,
+      ".stella",
+      "runtime",
+      "0123456789abcdef",
+    );
+    const endpoint = createSecureCliBridgeEndpoint({
+      rootDir,
+      rootHash: "0123456789abcdef",
+    });
+    expect(Buffer.byteLength(endpoint, "utf8")).toBe(
+      Buffer.byteLength(homeDir, "utf8") + 63,
+    );
+    expect(Buffer.byteLength(endpoint, "utf8")).toBeLessThanOrEqual(103);
+  });
+
+  it("rejects nonces carrying fewer than 128 bits of entropy", () => {
+    const paths = { rootDir: makeRoot(), rootHash: "0123456789abcdef" };
+    for (const nonce of ["", "abc", "a".repeat(21), "b@d!".repeat(8)]) {
+      expect(() => createSecureCliBridgeEndpoint(paths, { nonce })).toThrow(
+        "128 bits",
+      );
+    }
+    // 22 base64url chars (current default) and legacy 32-hex both pass.
+    expect(() =>
+      createSecureCliBridgeEndpoint(paths, { nonce: "A-_b".repeat(5) + "Zz" }),
+    ).not.toThrow();
+    expect(() =>
+      createSecureCliBridgeEndpoint(paths, {
+        nonce: "0123456789abcdef0123456789abcdef",
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses to bind a socket path over the defensive byte ceiling", async () => {
+    const root = makeRoot();
+    const socketPath = path.join(root, "x".repeat(120), "b.sock");
+    await expect(
+      startCliBridgeServer({ socketPath, handlers }),
+    ).rejects.toThrow(/exceeding the 100-byte ceiling/u);
   });
 
   it("advertises only after establishing 0700 directory and 0600 socket permissions", async () => {

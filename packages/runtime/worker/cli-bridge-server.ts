@@ -19,11 +19,24 @@ import { createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
 import { runtimeIpcPathUsesFilesystem } from "./runtime-paths.js";
 import type {
+  AutomationDaemonSpawnParams,
+  AutomationDaemonSpawnResult,
   BackendConnectorActionResult,
   ConnectorTokenStoreRequest,
   ConnectorTokenStoreResult,
 } from "../kernel/connectors/cli-broker-client.js";
 import type { ConnectorTokenPayload } from "../kernel/connectors/oauth.js";
+
+/**
+ * Defensive ceiling kept below the 104-byte BSD `sun_path` limit (UTF-8
+ * bytes + NUL, so 103 usable; Linux allows 108). Mirrors
+ * `maxAutomationSocketPathBytes` in
+ * `runtime/kernel/computer-use/automation-socket-paths.ts`. The endpoint from
+ * `createSecureCliBridgeEndpoint` is homedir + 63 bytes, so tripping this
+ * means the home directory itself is extraordinarily long; fail with an
+ * error naming the path instead of an opaque bind failure.
+ */
+export const maxCliBridgeSocketPathBytes = 100;
 
 type RequestMessage = {
   id?: string | number;
@@ -125,6 +138,14 @@ export type CliBridgeHandlers = {
       >
     | { ok: true; granted: boolean; alreadyGranted: boolean }
     | { ok: false; reason: string };
+  /**
+   * Forwarded to the Electron host so the desktop_automation daemon is
+   * spawned by the live app process (single "Stella" TCC identity) instead
+   * of the detached worker's process tree.
+   */
+  spawnAutomationDaemon?: (
+    params: AutomationDaemonSpawnParams,
+  ) => Promise<AutomationDaemonSpawnResult>;
 };
 
 export type CliBridgeServer = {
@@ -370,6 +391,54 @@ const dispatch = async (
       }
       return await handlers.requestDesktopPermission({ kind });
     }
+    case "computerUse.spawnAutomationDaemon": {
+      if (!handlers.spawnAutomationDaemon) {
+        return { ok: false, reason: "unsupported" };
+      }
+      const record =
+        params && typeof params === "object"
+          ? (params as Record<string, unknown>)
+          : {};
+      const daemonSocketPath =
+        typeof record.daemonSocketPath === "string"
+          ? record.daemonSocketPath
+          : "";
+      const pidPath = typeof record.pidPath === "string" ? record.pidPath : "";
+      const logPath = typeof record.logPath === "string" ? record.logPath : "";
+      const sessionId =
+        typeof record.sessionId === "string" ? record.sessionId : "";
+      const stateDir =
+        typeof record.stateDir === "string" ? record.stateDir : "";
+      if (
+        !daemonSocketPath ||
+        !pidPath ||
+        !logPath ||
+        !sessionId ||
+        !stateDir
+      ) {
+        throw new Error(
+          "computerUse.spawnAutomationDaemon: daemonSocketPath, pidPath, logPath, sessionId, and stateDir are required",
+        );
+      }
+      const env =
+        record.env && typeof record.env === "object"
+          ? Object.fromEntries(
+              Object.entries(record.env as Record<string, unknown>).filter(
+                (entry): entry is [string, string] =>
+                  entry[0].startsWith("STELLA_COMPUTER_") &&
+                  typeof entry[1] === "string",
+              ),
+            )
+          : undefined;
+      return await handlers.spawnAutomationDaemon({
+        daemonSocketPath,
+        pidPath,
+        logPath,
+        sessionId,
+        stateDir,
+        ...(env ? { env } : {}),
+      });
+    }
     case "connector.requestCredential": {
       const record =
         params && typeof params === "object"
@@ -582,6 +651,15 @@ export const startCliBridgeServer = async ({
   if (!usesFilesystem) {
     throw new Error(
       "cli-bridge: secure current-user named-pipe ACLs are unavailable in this runtime",
+    );
+  }
+  const socketPathBytes = Buffer.byteLength(socketPath, "utf8");
+  if (socketPathBytes > maxCliBridgeSocketPathBytes) {
+    throw new Error(
+      `cli-bridge: socket path "${socketPath}" is ${socketPathBytes} bytes, ` +
+        `exceeding the ${maxCliBridgeSocketPathBytes}-byte ceiling kept under ` +
+        "the 104-byte macOS sun_path limit. The home directory is too long " +
+        "to host Unix domain sockets.",
     );
   }
   const socketDir = path.dirname(socketPath);

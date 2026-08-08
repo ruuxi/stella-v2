@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { z } from "zod";
 import { uiState } from "@/platform/ui-state";
 import { getEmojiSpriteSheetCount } from "./sprite-map";
 
@@ -14,19 +15,13 @@ export const hasCompleteEmojiSpritePack = (
 ): pack is ActiveEmojiPack =>
   (pack?.sheetUrls.length ?? 0) >= getEmojiSpriteSheetCount();
 
-const isActiveEmojiPack = (value: unknown): value is ActiveEmojiPack => {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.packId === "string" &&
-    record.packId.trim().length > 0 &&
-    Array.isArray(record.sheetUrls) &&
-    record.sheetUrls.length > 0 &&
-    record.sheetUrls.every(
-      (url) => typeof url === "string" && url.trim().length > 0,
-    )
-  );
-};
+const activeEmojiPackSchema = z.looseObject({
+  packId: z.string().trim().min(1),
+  sheetUrls: z.array(z.string().trim().min(1)).min(1),
+});
+
+const isActiveEmojiPack = (value: unknown): value is ActiveEmojiPack =>
+  activeEmojiPackSchema.safeParse(value).success;
 
 export const readActiveEmojiPack = (): ActiveEmojiPack | null => {
   try {

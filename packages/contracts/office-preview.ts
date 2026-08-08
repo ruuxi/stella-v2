@@ -1,12 +1,16 @@
+import { z } from "zod";
+
 export type OfficePreviewStatus = "starting" | "ready" | "error" | "stopped";
 
 export type OfficePreviewFormat = "docx" | "xlsx" | "pptx" | null;
 
-export type OfficePreviewRef = {
-  sessionId: string;
-  title: string;
-  sourcePath: string;
-};
+export const officePreviewRefSchema = z.object({
+  sessionId: z.string(),
+  title: z.string(),
+  sourcePath: z.string(),
+});
+
+export type OfficePreviewRef = z.infer<typeof officePreviewRefSchema>;
 
 export type OfficePreviewSnapshot = {
   sessionId: string;
@@ -20,17 +24,5 @@ export type OfficePreviewSnapshot = {
   error?: string;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object";
-
-export const isOfficePreviewRef = (value: unknown): value is OfficePreviewRef => {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.sessionId === "string" &&
-    typeof value.title === "string" &&
-    typeof value.sourcePath === "string"
-  );
-};
+export const isOfficePreviewRef = (value: unknown): value is OfficePreviewRef =>
+  officePreviewRefSchema.safeParse(value).success;

@@ -17,6 +17,7 @@
  */
 
 import { constants as fsConstants, promises as fsPromises } from "node:fs";
+import { z } from "zod";
 import { createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
 import { runtimeIpcPathUsesFilesystem } from "./runtime-paths.js";
@@ -129,6 +130,26 @@ export type CliBridgeServer = {
   stop: () => Promise<void>;
 };
 
+const runBackendActionParamsSchema = z.strictObject({
+  connectorId: z.string().trim().toLowerCase().min(1),
+  action: z.string().trim().min(1),
+  input: z.record(z.string(), z.unknown()),
+  requestId: z.string().trim().min(1).optional().catch(undefined),
+});
+
+const requestPermissionParamsSchema = z.object({
+  kind: z.enum(["accessibility", "screen"]),
+});
+
+const spawnAutomationDaemonParamsSchema = z.object({
+  daemonSocketPath: z.string().min(1),
+  pidPath: z.string().min(1),
+  logPath: z.string().min(1),
+  sessionId: z.string().min(1),
+  stateDir: z.string().min(1),
+  env: z.unknown().optional(),
+});
+
 const REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_REQUEST_BYTES = 64 * 1024;
 
@@ -235,42 +256,22 @@ const dispatch = async (
       if (!handlers.runBackendConnectorAction) {
         return { ok: false, reason: "unsupported" };
       }
-      const record =
-        params && typeof params === "object" && !Array.isArray(params)
-          ? (params as Record<string, unknown>)
-          : {};
-      const allowedKeys = new Set([
-        "connectorId",
-        "action",
-        "input",
-        "requestId",
-      ]);
-      if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
-        throw new Error(
-          "connector.runBackendAction: arbitrary transport fields are not allowed",
-        );
-      }
-      const connectorId =
-        typeof record.connectorId === "string"
-          ? record.connectorId.trim().toLowerCase()
-          : "";
-      const action =
-        typeof record.action === "string" ? record.action.trim() : "";
-      const input =
-        record.input &&
-        typeof record.input === "object" &&
-        !Array.isArray(record.input)
-          ? (record.input as Record<string, unknown>)
-          : null;
-      const requestId =
-        typeof record.requestId === "string" && record.requestId.trim()
-          ? record.requestId.trim()
-          : undefined;
-      if (!connectorId || !action || !input) {
+      const parsed = runBackendActionParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        if (
+          parsed.error.issues.some(
+            (issue) => issue.code === "unrecognized_keys",
+          )
+        ) {
+          throw new Error(
+            "connector.runBackendAction: arbitrary transport fields are not allowed",
+          );
+        }
         throw new Error(
           "connector.runBackendAction: connectorId, action, and object input are required",
         );
       }
+      const { connectorId, action, input, requestId } = parsed.data;
       return await handlers.runBackendConnectorAction({
         connectorId,
         action,
@@ -283,51 +284,30 @@ const dispatch = async (
       if (!handlers.requestDesktopPermission) {
         return { ok: false, reason: "unsupported" };
       }
-      const record =
-        params && typeof params === "object"
-          ? (params as Record<string, unknown>)
-          : {};
-      const kind = typeof record.kind === "string" ? record.kind : "";
-      if (kind !== "accessibility" && kind !== "screen") {
+      const parsed = requestPermissionParamsSchema.safeParse(params);
+      if (!parsed.success) {
         throw new Error(
           "system.requestPermission: unsupported permission kind",
         );
       }
-      return await handlers.requestDesktopPermission({ kind });
+      return await handlers.requestDesktopPermission(parsed.data);
     }
     case "computerUse.spawnAutomationDaemon": {
       if (!handlers.spawnAutomationDaemon) {
         return { ok: false, reason: "unsupported" };
       }
-      const record =
-        params && typeof params === "object"
-          ? (params as Record<string, unknown>)
-          : {};
-      const daemonSocketPath =
-        typeof record.daemonSocketPath === "string"
-          ? record.daemonSocketPath
-          : "";
-      const pidPath = typeof record.pidPath === "string" ? record.pidPath : "";
-      const logPath = typeof record.logPath === "string" ? record.logPath : "";
-      const sessionId =
-        typeof record.sessionId === "string" ? record.sessionId : "";
-      const stateDir =
-        typeof record.stateDir === "string" ? record.stateDir : "";
-      if (
-        !daemonSocketPath ||
-        !pidPath ||
-        !logPath ||
-        !sessionId ||
-        !stateDir
-      ) {
+      const parsed = spawnAutomationDaemonParamsSchema.safeParse(params);
+      if (!parsed.success) {
         throw new Error(
           "computerUse.spawnAutomationDaemon: daemonSocketPath, pidPath, logPath, sessionId, and stateDir are required",
         );
       }
+      const { daemonSocketPath, pidPath, logPath, sessionId, stateDir } =
+        parsed.data;
       const env =
-        record.env && typeof record.env === "object"
+        parsed.data.env && typeof parsed.data.env === "object"
           ? Object.fromEntries(
-              Object.entries(record.env as Record<string, unknown>).filter(
+              Object.entries(parsed.data.env).filter(
                 (entry): entry is [string, string] =>
                   entry[0].startsWith("STELLA_COMPUTER_") &&
                   typeof entry[1] === "string",

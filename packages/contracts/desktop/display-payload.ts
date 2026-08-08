@@ -1,5 +1,6 @@
+import { z } from "zod";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
-import { isOfficePreviewRef } from "@stella/contracts/office-preview";
+import { officePreviewRefSchema } from "@stella/contracts/office-preview";
 
 export type DisplayFileArtifactKind =
   | "office-document"
@@ -112,111 +113,76 @@ export type MediaAsset =
   | { kind: "download"; filePath: string; label: string }
   | { kind: "text"; text: string };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object";
-
-const isHttpUrl = (value: unknown): value is string => {
-  if (typeof value !== "string") return false;
+const httpUrlSchema = z.string().refine((value) => {
   try {
     const url = new URL(value);
     return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
   }
+});
+
+const anyNumber = z.custom<number>((value) => typeof value === "number");
+
+const mediaAssetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("image"), filePaths: z.array(z.string()) }),
+  z.object({ kind: z.literal("video"), filePath: z.string() }),
+  z.object({ kind: z.literal("audio"), filePath: z.string() }),
+  z.object({ kind: z.literal("model3d"), filePath: z.string() }),
+  z.object({ kind: z.literal("download"), filePath: z.string() }),
+  z.object({ kind: z.literal("text"), text: z.string() }),
+]);
+
+const markdownLikeShape = {
+  filePath: z.string(),
+  title: z.string().optional(),
+  patch: z.string().optional(),
+  createdAt: z.number().optional(),
 };
 
-const isMediaAsset = (value: unknown): value is MediaAsset => {
-  if (!isRecord(value)) return false;
-  switch (value.kind) {
-    case "image":
-      return (
-        Array.isArray((value as { filePaths?: unknown }).filePaths) &&
-        (value as { filePaths: unknown[] }).filePaths.every(
-          (p) => typeof p === "string",
-        )
-      );
-    case "video":
-    case "audio":
-      return typeof (value as { filePath?: unknown }).filePath === "string";
-    case "model3d":
-    case "download":
-      return typeof (value as { filePath?: unknown }).filePath === "string";
-    case "text":
-      return typeof (value as { text?: unknown }).text === "string";
-    default:
-      return false;
-  }
-};
+const displayPayloadSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("canvas-html"),
+    filePath: z.string(),
+    createdAt: z.number(),
+    title: z.string().optional(),
+    slug: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("url"),
+    url: httpUrlSchema,
+    title: z.string(),
+    tabId: z.string(),
+  }),
+  z.object({ kind: z.literal("office"), previewRef: officePreviewRefSchema }),
+  z.object({ kind: z.literal("markdown"), ...markdownLikeShape }),
+  z.object({ kind: z.literal("source-diff"), ...markdownLikeShape }),
+  z.object({
+    kind: z.literal("file-artifact"),
+    filePath: z.string(),
+    artifactKind: z.enum([
+      "office-document",
+      "office-spreadsheet",
+      "office-slides",
+      "delimited-table",
+    ]),
+    createdAt: z.number().optional(),
+  }),
+  z.object({ kind: z.literal("pdf"), filePath: z.string() }),
+  z.object({
+    kind: z.literal("trash"),
+    title: z.string().optional(),
+    createdAt: z.number().optional(),
+  }),
+  z.object({
+    kind: z.literal("media"),
+    asset: mediaAssetSchema,
+    createdAt: anyNumber,
+  }),
+]);
 
-export const isDisplayPayload = (value: unknown): value is DisplayPayload => {
-  if (!isRecord(value)) return false;
-  if (value.kind === "canvas-html") {
-    const createdAt = (value as { createdAt?: unknown }).createdAt;
-    return (
-      typeof (value as { filePath?: unknown }).filePath === "string" &&
-      typeof createdAt === "number" &&
-      Number.isFinite(createdAt) &&
-      ((value as { title?: unknown }).title === undefined ||
-        typeof (value as { title?: unknown }).title === "string") &&
-      ((value as { slug?: unknown }).slug === undefined ||
-        typeof (value as { slug?: unknown }).slug === "string")
-    );
-  }
-  if (value.kind === "url") {
-    return (
-      isHttpUrl((value as { url?: unknown }).url) &&
-      typeof (value as { title?: unknown }).title === "string" &&
-      typeof (value as { tabId?: unknown }).tabId === "string"
-    );
-  }
-  if (value.kind === "office") {
-    return isOfficePreviewRef((value as { previewRef?: unknown }).previewRef);
-  }
-  if (value.kind === "markdown" || value.kind === "source-diff") {
-    const createdAt = (value as { createdAt?: unknown }).createdAt;
-    return (
-      typeof (value as { filePath?: unknown }).filePath === "string" &&
-      ((value as { title?: unknown }).title === undefined ||
-        typeof (value as { title?: unknown }).title === "string") &&
-      ((value as { patch?: unknown }).patch === undefined ||
-        typeof (value as { patch?: unknown }).patch === "string") &&
-      (createdAt === undefined ||
-        (typeof createdAt === "number" && Number.isFinite(createdAt)))
-    );
-  }
-  if (value.kind === "file-artifact") {
-    const artifactKind = (value as { artifactKind?: unknown }).artifactKind;
-    const createdAt = (value as { createdAt?: unknown }).createdAt;
-    return (
-      typeof (value as { filePath?: unknown }).filePath === "string" &&
-      (createdAt === undefined ||
-        (typeof createdAt === "number" && Number.isFinite(createdAt))) &&
-      (artifactKind === "office-document" ||
-        artifactKind === "office-spreadsheet" ||
-        artifactKind === "office-slides" ||
-        artifactKind === "delimited-table")
-    );
-  }
-  if (value.kind === "pdf") {
-    return typeof (value as { filePath?: unknown }).filePath === "string";
-  }
-  if (value.kind === "trash") {
-    const createdAt = (value as { createdAt?: unknown }).createdAt;
-    return (
-      ((value as { title?: unknown }).title === undefined ||
-        typeof (value as { title?: unknown }).title === "string") &&
-      (createdAt === undefined ||
-        (typeof createdAt === "number" && Number.isFinite(createdAt)))
-    );
-  }
-  if (value.kind === "media") {
-    return (
-      isMediaAsset((value as { asset?: unknown }).asset) &&
-      typeof (value as { createdAt?: unknown }).createdAt === "number"
-    );
-  }
-  return false;
-};
+export const isDisplayPayload = (value: unknown): value is DisplayPayload =>
+  displayPayloadSchema.safeParse(value).success;
 
 export const isDisplayTabPayload = (
   value: unknown,

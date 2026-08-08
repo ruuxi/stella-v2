@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
+import { z } from "zod";
 
 import {
   getStellaInAppBrowserInitEndpoint,
@@ -17,6 +18,11 @@ export type InAppBrowserBootstrapServerOptions = {
   endpoint?: StellaInAppBrowserInitEndpoint;
   tokenPath?: string;
 };
+
+const ensureRequestSchema = z.looseObject({
+  action: z.literal("ensure"),
+  token: z.unknown().optional(),
+});
 
 const sameToken = (received: unknown, expected: string) => {
   if (typeof received !== "string") return false;
@@ -132,10 +138,10 @@ export class InAppBrowserBootstrapServer {
 
   private async handleRequest(socket: Socket, line: string) {
     try {
-      const payload = JSON.parse(line) as Record<string, unknown>;
+      const payload = ensureRequestSchema.safeParse(JSON.parse(line));
       if (
-        payload.action !== "ensure" ||
-        !sameToken(payload.token, this.options.token)
+        !payload.success ||
+        !sameToken(payload.data.token, this.options.token)
       ) {
         this.reply(
           socket,

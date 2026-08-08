@@ -1,3 +1,7 @@
+import { z } from "zod";
+
+const headerRecordSchema = z.record(z.string(), z.unknown());
+
 export interface RetryOptions {
 	/** Total attempts including the first try. Default: 10. */
 	maxAttempts?: number;
@@ -107,8 +111,9 @@ function readHeader(headers: unknown, name: string): string | undefined {
 		const value = (headers as { get: (key: string) => unknown }).get(name);
 		return typeof value === "string" ? value : undefined;
 	}
-	const record = headers as Record<string, unknown>;
-	const value = record[name] ?? record[name.toLowerCase()];
+	const record = headerRecordSchema.safeParse(headers);
+	if (!record.success) return undefined;
+	const value = record.data[name] ?? record.data[name.toLowerCase()];
 	return typeof value === "string" ? value : undefined;
 }
 

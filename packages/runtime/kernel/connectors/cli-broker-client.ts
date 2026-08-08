@@ -15,6 +15,7 @@
  */
 
 import { connect, type Socket } from "node:net";
+import { z } from "zod";
 import type { ConnectorTokenPayload } from "./oauth.js";
 
 /**
@@ -54,6 +55,28 @@ export type DesktopPermissionRequestResult =
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 let nextRequestId = 1;
+
+const spawnSuccessSchema = z.looseObject({
+  ok: z.literal(true),
+  pid: z.number(),
+  hostPid: z.number(),
+});
+
+const isSpawnSuccess = (
+  value: unknown,
+): value is z.infer<typeof spawnSuccessSchema> =>
+  spawnSuccessSchema.safeParse(value).success;
+
+const permissionSuccessSchema = z.looseObject({
+  ok: z.literal(true),
+  granted: z.boolean(),
+  alreadyGranted: z.boolean(),
+});
+
+const isPermissionSuccess = (
+  value: unknown,
+): value is z.infer<typeof permissionSuccessSchema> =>
+  permissionSuccessSchema.safeParse(value).success;
 
 const sendRequest = (
   socketPath: string,
@@ -293,11 +316,7 @@ export const requestAutomationDaemonSpawnFromBridge = async ({
     return { ok: false, reason: "invalid_response" };
   }
   const record = result as Record<string, unknown>;
-  if (
-    record.ok === true &&
-    typeof record.pid === "number" &&
-    typeof record.hostPid === "number"
-  ) {
+  if (isSpawnSuccess(record)) {
     return { ok: true, pid: record.pid, hostPid: record.hostPid };
   }
   return {
@@ -328,11 +347,7 @@ export const requestDesktopPermissionFromBridge = async ({
     return { ok: false, reason: "invalid_response" };
   }
   const record = result as Record<string, unknown>;
-  if (
-    record.ok === true &&
-    typeof record.granted === "boolean" &&
-    typeof record.alreadyGranted === "boolean"
-  ) {
+  if (isPermissionSuccess(record)) {
     return {
       ok: true,
       granted: record.granted,

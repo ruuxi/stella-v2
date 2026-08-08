@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { z } from "zod";
+
 import type { SqliteDatabase } from "../storage/shared.js";
 
 import {
@@ -257,19 +259,20 @@ const readCache = async (
   }
 };
 
-const isValidAppliedState = (value: unknown): value is AppliedPromptState => {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<AppliedPromptState>;
-  return (
-    typeof candidate.endpoint === "string" &&
-    canonicalPromptEndpoint(candidate.endpoint) === candidate.endpoint &&
-    typeof candidate.publishedAt === "number" &&
-    Number.isSafeInteger(candidate.publishedAt) &&
-    candidate.publishedAt >= 0 &&
-    typeof candidate.revision === "string" &&
-    STELLA_PROMPT_REVISION_PATTERN.test(candidate.revision)
-  );
-};
+const appliedPromptStateSchema = z.object({
+  endpoint: z
+    .string()
+    .refine((entry) => canonicalPromptEndpoint(entry) === entry),
+  publishedAt: z
+    .number()
+    .refine((entry) => Number.isSafeInteger(entry) && entry >= 0),
+  revision: z
+    .string()
+    .refine((entry) => STELLA_PROMPT_REVISION_PATTERN.test(entry)),
+});
+
+const isValidAppliedState = (value: unknown): value is AppliedPromptState =>
+  appliedPromptStateSchema.safeParse(value).success;
 
 const parseAppliedStateFile = (
   value: unknown,

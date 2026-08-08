@@ -11,6 +11,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
+import { z } from "zod";
 
 const log = (...args: unknown[]) => console.error("[steam-library]", ...args);
 
@@ -158,14 +159,31 @@ const findUserId = async (steamDir: string): Promise<string | null> => {
   }
 };
 
+const loginUsersSchema = z.record(
+  z.string(),
+  z.looseObject({
+    PersonaName: z.string().optional(),
+    AccountName: z.string().optional(),
+  }),
+);
+
+const libraryFoldersSchema = z.record(z.string(), z.unknown());
+
+const libraryFolderEntrySchema = z.looseObject({ path: z.string() });
+
+const appStateSchema = z.looseObject({
+  appid: z.string().optional(),
+  name: z.string().optional(),
+});
+
 /** Get username from loginusers.vdf */
 const getUsername = async (steamDir: string): Promise<string> => {
   try {
     const content = await fs.readFile(path.join(steamDir, "config", "loginusers.vdf"), "utf-8");
     const data = parseVdf(content);
-    const users = (data.users ?? data.Users) as Record<string, Record<string, string>> | undefined;
-    if (users) {
-      for (const info of Object.values(users)) {
+    const users = loginUsersSchema.safeParse(data.users ?? data.Users);
+    if (users.success) {
+      for (const info of Object.values(users.data)) {
         if (info.PersonaName) return info.PersonaName;
         if (info.AccountName) return info.AccountName;
       }
@@ -183,11 +201,12 @@ const getLibraryPaths = async (steamDir: string): Promise<string[]> => {
       "utf-8",
     );
     const data = parseVdf(content);
-    const folders = (data.libraryfolders ?? data.LibraryFolders) as Record<string, unknown> | undefined;
-    if (folders) {
-      for (const entry of Object.values(folders)) {
-        if (typeof entry === "object" && entry !== null && "path" in entry) {
-          const p = (entry as Record<string, string>).path;
+    const folders = libraryFoldersSchema.safeParse(data.libraryfolders ?? data.LibraryFolders);
+    if (folders.success) {
+      for (const entry of Object.values(folders.data)) {
+        const parsed = libraryFolderEntrySchema.safeParse(entry);
+        if (parsed.success) {
+          const p = parsed.data.path;
           if (p && p !== steamDir) paths.push(p);
         }
       }
@@ -211,9 +230,9 @@ const getGameNamesFromManifests = async (
         try {
           const content = await fs.readFile(path.join(steamapps, file), "utf-8");
           const data = parseVdf(content);
-          const state = (data.AppState ?? data.appstate) as Record<string, string> | undefined;
-          if (state?.appid && state?.name) {
-            names.set(state.appid, state.name);
+          const state = appStateSchema.safeParse(data.AppState ?? data.appstate);
+          if (state.success && state.data.appid && state.data.name) {
+            names.set(state.data.appid, state.data.name);
           }
         } catch { /* skip bad manifest */ }
       }

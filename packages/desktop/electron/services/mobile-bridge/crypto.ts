@@ -5,6 +5,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { utf8ToBytes } from "@noble/hashes/utils.js";
 import { randomBytes } from "crypto";
 import { deflateRawSync, inflateRawSync } from "zlib";
+import { z } from "zod";
 
 export const BRIDGE_CRYPTO_PROTOCOL = "x25519-hkdf-sha256-aes-256-gcm-v1";
 
@@ -138,20 +139,19 @@ const envelopeAad = (
     [BRIDGE_CRYPTO_PROTOCOL, sessionId, direction, String(seq)].join("\n"),
   );
 
+const bridgeEncryptedEnvelopeSchema = z.looseObject({
+  v: z.literal(1),
+  alg: z.literal(BRIDGE_CRYPTO_PROTOCOL),
+  sid: z.string(),
+  seq: z.number(),
+  iv: z.string(),
+  ct: z.string(),
+});
+
 export const isBridgeEncryptedEnvelope = (
   value: unknown,
-): value is BridgeEncryptedEnvelope => {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return (
-    record.v === 1 &&
-    record.alg === BRIDGE_CRYPTO_PROTOCOL &&
-    typeof record.sid === "string" &&
-    typeof record.seq === "number" &&
-    typeof record.iv === "string" &&
-    typeof record.ct === "string"
-  );
-};
+): value is BridgeEncryptedEnvelope =>
+  bridgeEncryptedEnvelopeSchema.safeParse(value).success;
 
 /**
  * Sliding-window replay guard for received envelope sequence numbers.

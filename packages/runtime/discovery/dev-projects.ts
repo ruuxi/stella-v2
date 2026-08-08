@@ -23,6 +23,7 @@ import path from "path";
 import os from "os";
 import { exec, execFile } from "child_process";
 import { pathToFileURL } from "node:url";
+import { z } from "zod";
 
 import type { DevProject } from "./types.js";
 
@@ -1011,6 +1012,11 @@ const PYTHON_FRAMEWORKS: { needle: string; label: string }[] = [
   { needle: "fastapi", label: "FastAPI" },
 ];
 
+const packageDepsSchema = z.looseObject({
+  dependencies: z.record(z.string(), z.unknown()).optional(),
+  devDependencies: z.record(z.string(), z.unknown()).optional(),
+});
+
 const readJsonSafe = async (
   filePath: string,
 ): Promise<Record<string, unknown> | null> => {
@@ -1047,15 +1053,17 @@ const detectTechAtDir = async (
   const tech = new Set<string>();
 
   if (has("package.json")) {
-    const pkg = await readJsonSafe(path.join(dir, "package.json"));
-    const depNames = new Set([
-      ...Object.keys(
-        (pkg?.dependencies as Record<string, unknown> | undefined) ?? {},
-      ),
-      ...Object.keys(
-        (pkg?.devDependencies as Record<string, unknown> | undefined) ?? {},
-      ),
-    ]);
+    const pkg = packageDepsSchema.safeParse(
+      await readJsonSafe(path.join(dir, "package.json")),
+    );
+    const depNames = new Set(
+      pkg.success
+        ? [
+            ...Object.keys(pkg.data.dependencies ?? {}),
+            ...Object.keys(pkg.data.devDependencies ?? {}),
+          ]
+        : [],
+    );
     tech.add(
       has("tsconfig.json") || depNames.has("typescript")
         ? "TypeScript"

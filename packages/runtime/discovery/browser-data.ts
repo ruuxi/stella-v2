@@ -15,6 +15,7 @@ import path from "path";
 import os from "os";
 import { exec } from "child_process";
 import { pathToFileURL } from "node:url";
+import { z } from "zod";
 import type {
   BrowserType,
   DomainVisit,
@@ -1460,6 +1461,16 @@ const LOCATION_PROVIDERS: LocationProvider[] = [
   },
 ];
 
+const jsonRecordSchema = z.record(z.string(), z.unknown());
+
+const profileInfoSchema = z.looseObject({
+  name: z.string().optional(),
+  gaia_name: z.string().optional(),
+});
+
+const isJsonRecord = (value: unknown): value is Record<string, unknown> =>
+  jsonRecordSchema.safeParse(value).success;
+
 const asTrimmed = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -1486,7 +1497,9 @@ const fetchLocationFromProvider = async (
       log(`Location lookup ${provider.url} HTTP ${response.status}`);
       return null;
     }
-    const body = (await response.json()) as Record<string, unknown>;
+    const parsed = (await response.json()) as unknown;
+    if (!isJsonRecord(parsed)) return null;
+    const body = parsed;
     // ipwho.is uses `success:false`; ipapi.co uses `error:true` on failure.
     if (body.success === false || body.error === true) return null;
     const fields = provider.extract(body);
@@ -1643,8 +1656,10 @@ export const listBrowserProfiles = async (browserType: BrowserType): Promise<Bro
       const infoCache = localState?.profile?.info_cache;
       if (infoCache && typeof infoCache === "object") {
         for (const [profileId, info] of Object.entries(infoCache)) {
-          const profileInfo = info as Record<string, unknown>;
-          const name = (profileInfo.name ?? profileInfo.gaia_name ?? profileId) as string;
+          const profileInfo = profileInfoSchema.safeParse(info);
+          const name = profileInfo.success
+            ? (profileInfo.data.name ?? profileInfo.data.gaia_name ?? profileId)
+            : profileId;
           displayNames.set(profileId, name);
         }
       }

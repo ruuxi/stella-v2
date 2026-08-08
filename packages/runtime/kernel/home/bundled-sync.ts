@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { z } from "zod";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 
 /**
@@ -92,6 +93,12 @@ type BundledManifest = {
   entries: Record<string, BundledManifestEntry>;
 };
 
+const bundledManifestEntrySchema = z.object({
+  lastSyncedHash: z.string().regex(/^[0-9a-f]{64}$/),
+  sourceRevision: z.string(),
+  customized: z.boolean(),
+});
+
 const readManifest = async (
   manifestPath: string,
   legacyEntriesKey?: string,
@@ -127,20 +134,9 @@ const readManifest = async (
             };
             continue;
           }
-          if (value && typeof value === "object") {
-            const entry = value as Partial<BundledManifestEntry>;
-            if (
-              typeof entry.lastSyncedHash === "string" &&
-              /^[0-9a-f]{64}$/.test(entry.lastSyncedHash) &&
-              typeof entry.sourceRevision === "string" &&
-              typeof entry.customized === "boolean"
-            ) {
-              clean[id] = {
-                lastSyncedHash: entry.lastSyncedHash,
-                sourceRevision: entry.sourceRevision,
-                customized: entry.customized,
-              };
-            }
+          const parsedEntry = bundledManifestEntrySchema.safeParse(value);
+          if (parsedEntry.success) {
+            clean[id] = parsedEntry.data;
           }
         }
         return { version: MANIFEST_VERSION, entries: clean };

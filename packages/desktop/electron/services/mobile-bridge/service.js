@@ -5,21 +5,24 @@ import os from "os";
 import path from "path";
 import { Readable } from "stream";
 import { WebSocketServer, WebSocket } from "ws";
+import { ConvexHttpClient } from "convex/browser";
+import { anyApi } from "convex/server";
+import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
 import { isMobileBridgeEventChannel, isMobileBridgeRequestChannel, } from "./bridge-policy.js";
 import { encodeBridgeBinaryValues } from "./binary-codec.js";
 import { BRIDGE_CRYPTO_PROTOCOL, BRIDGE_FEATURE_DEFLATE, createBridgeKeyPair, createBridgeReplayGuard, decryptBridgeBytes, decryptBridgePayload, deriveBridgeCryptoSession, encryptBridgeBytes, encryptBridgePayload, isBridgeEncryptedEnvelope, } from "./crypto.js";
 import { getHandler, getOnHandlers } from "./handler-registry.js";
 import { adaptLegacyMobileArgs } from "./legacy-args.js";
 import { probeBridgePublicHealth } from "./public-health.js";
-const REGISTRATION_REFRESH_MS = 60_000;
+export const MOBILE_BRIDGE_REGISTRATION_REFRESH_MS = 5 * 60_000;
+const REGISTER_DESKTOP_BRIDGE_MUTATION = anyApi.mobile_bridge.registerDesktopBridge;
 /**
  * Debounce window for setter-driven registration syncs. The desktop learns its
  * endpoints (device id, auth token, Convex site URL, tunnel URL) from several
  * setters that fire in a burst ~0.5s apart during bootstrap and each refresh
- * cycle. Coalescing them into a single register POST avoids two auth-verify +
- * rate-limit + row-patch round-trips that otherwise collide on the rate-limit
- * doc and trigger OCC retries. Kept above the ~0.5s inter-setter gap so the
- * whole burst lands in one POST; the 60s refresh timer stays undebounced.
+ * cycle. Coalescing them into one mutation avoids duplicate registration
+ * writes. Kept above the ~0.5s inter-setter gap so the whole burst lands in one
+ * mutation; the five-minute refresh timer stays undebounced.
  */
 const REGISTRATION_SYNC_DEBOUNCE_MS = 750;
 /**
@@ -61,14 +64,14 @@ const BRIDGE_PUBLIC_HEALTH_TIMEOUT_MS = 2_000;
 /**
  * Consecutive failed health probes (across refresh/sync ticks) before we treat
  * the advertised tunnel as dead and clear availability. A small streak avoids
- * down-registering on a single transient blip while still reacting well within
- * the 150s registration lease.
+ * down-registering on a single transient blip while still reacting within the
+ * registration lease.
  */
 const BRIDGE_PUBLIC_HEALTH_FAILURE_THRESHOLD = 3;
 /**
  * Reuse a successful probe for this long. Coalesced/burst syncs fire within
  * milliseconds, so this collapses their duplicate probe; the real refresh ticks
- * (30s setters / 60s timer) are spaced well beyond it and always re-probe.
+ * (30s setters / five-minute timer) are spaced well beyond it and re-probe.
  */
 const BRIDGE_PUBLIC_HEALTH_CACHE_MS = 3_000;
 const MIME_TYPES = {
@@ -273,9 +276,17 @@ export class MobileBridgeService {
     port = null;
     registrationLeaseExpiresAt = null;
     registrationState = "inactive";
+    // A successful authenticated registration establishes local bridge access.
+    // The backend lease is only presence metadata: expiry must not tear down an
+    // otherwise authenticated direct connection to a last-known descriptor.
+    hasRegisteredBridge = false;
     deviceId = null;
     hostAuthToken = null;
+    convexDeploymentUrl = null;
     convexSiteUrl = null;
+    convexHttpClient = null;
+    convexHttpClientUrl = null;
+    convexHttpClientAuthToken = null;
     tunnelUrl = null;
     registerUnverifiedTunnelFallback = false;
     refreshUnverifiedTunnelRegistration = false;
@@ -319,11 +330,32 @@ export class MobileBridgeService {
         if (nextToken === previousToken)
             return;
         this.hostAuthToken = nextToken;
+        if (this.convexHttpClient) {
+            if (nextToken) {
+                this.convexHttpClient.setAuth(nextToken);
+            }
+            else {
+                this.convexHttpClient.clearAuth();
+            }
+            this.convexHttpClientAuthToken = nextToken;
+        }
         if (!this.hostAuthToken && previousToken) {
             this.invalidateBridgeAccess("Desktop signed out");
             void this.clearRegistrationWithToken(previousToken);
             return;
         }
+        if (!previousToken || !this.hasRegisteredBridge) {
+            this.scheduleRegistrationSync();
+        }
+    }
+    setConvexDeploymentUrl(value) {
+        const next = readConfiguredConvexUrl(value);
+        if (next === this.convexDeploymentUrl)
+            return;
+        this.convexDeploymentUrl = next;
+        this.convexHttpClient = null;
+        this.convexHttpClientUrl = null;
+        this.convexHttpClientAuthToken = null;
         this.scheduleRegistrationSync();
     }
     setConvexSiteUrl(value) {
@@ -469,7 +501,7 @@ export class MobileBridgeService {
         });
         this.refreshTimer = setInterval(() => {
             void this.syncRegistration();
-        }, REGISTRATION_REFRESH_MS);
+        }, MOBILE_BRIDGE_REGISTRATION_REFRESH_MS);
     }
     stop() {
         if (this.refreshTimer) {
@@ -503,9 +535,6 @@ export class MobileBridgeService {
             return;
         }
         if (!this.isBridgeAccessEnabled()) {
-            if (this.wsClients.size > 0 || this.sessions.size > 0) {
-                this.expireBridgeAccess("Desktop bridge unavailable");
-            }
             return;
         }
         const encodedData = encodeBridgeBinaryValues(data);
@@ -548,20 +577,20 @@ export class MobileBridgeService {
         this.registrationLeaseExpiresAt = expiresAt;
         this.registrationLeaseTimer = setTimeout(() => {
             if (!this.hasActiveRegistrationLease()) {
-                this.expireBridgeAccess("Desktop bridge lease expired");
+                this.expireRegistrationPresence();
             }
         }, Math.max(0, expiresAt - Date.now()));
     }
-    expireBridgeAccess(reason) {
+    expireRegistrationPresence() {
         this.clearRegistrationLeaseTimer();
         this.registrationLeaseExpiresAt = null;
         this.registrationState = "expired";
-        this.closeBridgeClients(reason);
     }
     invalidateBridgeAccess(reason) {
         this.clearRegistrationLeaseTimer();
         this.registrationLeaseExpiresAt = null;
         this.registrationState = "revoked";
+        this.hasRegisteredBridge = false;
         this.closeBridgeClients(reason);
     }
     hasActiveRegistrationLease(nowMs = Date.now()) {
@@ -569,7 +598,7 @@ export class MobileBridgeService {
             this.registrationLeaseExpiresAt > nowMs);
     }
     isBridgeAccessEnabled() {
-        return Boolean(this.hasActiveRegistrationLease() &&
+        return Boolean(this.hasRegisteredBridge &&
             this.hostAuthToken &&
             this.convexSiteUrl &&
             this.deviceId);
@@ -1183,6 +1212,32 @@ export class MobileBridgeService {
             body: JSON.stringify(body),
         });
     }
+    getRegistrationConvexClient() {
+        const deploymentUrl = readConfiguredConvexUrl(this.convexDeploymentUrl);
+        const authToken = this.hostAuthToken?.trim() || null;
+        if (!deploymentUrl || !authToken) {
+            return null;
+        }
+        if (!this.convexHttpClient || this.convexHttpClientUrl !== deploymentUrl) {
+            this.convexHttpClient = new ConvexHttpClient(deploymentUrl, {
+                logger: false,
+            });
+            this.convexHttpClientUrl = deploymentUrl;
+            this.convexHttpClientAuthToken = null;
+        }
+        if (this.convexHttpClientAuthToken !== authToken) {
+            this.convexHttpClient.setAuth(authToken);
+            this.convexHttpClientAuthToken = authToken;
+        }
+        return this.convexHttpClient;
+    }
+    registerDesktopBridge(args) {
+        const client = this.getRegistrationConvexClient();
+        if (!client) {
+            throw new Error("Desktop bridge registration is missing Convex configuration or auth");
+        }
+        return client.mutation(REGISTER_DESKTOP_BRIDGE_MUTATION, args);
+    }
     // ── Frontend serving ──────────────────────────────────────────────────
     async proxyToDevServer(req, res) {
         const target = new URL(req.url ?? "/", `${trimTrailingSlash(this.options.getDevServerUrl())}/`);
@@ -1256,7 +1311,7 @@ export class MobileBridgeService {
     /**
      * Debounced entry point for the endpoint setters. A bootstrap/refresh cycle
      * updates several fields ~0.5s apart; coalescing them here means the whole
-     * burst produces one register POST (with all endpoints in `baseUrls`) instead
+     * burst produces one register mutation (with all endpoints in `baseUrls`) instead
      * of colliding writes that force server-side OCC retries. The refresh timer
      * and initial listen still call `syncRegistration` directly.
      */
@@ -1297,6 +1352,7 @@ export class MobileBridgeService {
     }
     async performRegistrationSync() {
         if (!this.port ||
+            !this.convexDeploymentUrl ||
             !this.convexSiteUrl ||
             !this.hostAuthToken ||
             !this.deviceId) {
@@ -1317,7 +1373,7 @@ export class MobileBridgeService {
         if (useUnverifiedFallback) {
             // The tunnel layer already exhausted its readiness window. Register the
             // advertised fallback immediately so a resolver-blinded desktop does not
-            // add three 60s refresh ticks to the cold path.
+            // add three periodic refresh ticks to the cold path.
             healthy = false;
         }
         else if (Date.now() - this.lastHealthyProbeAt < BRIDGE_PUBLIC_HEALTH_CACHE_MS) {
@@ -1344,7 +1400,7 @@ export class MobileBridgeService {
             // the phone's network resolves the hostname fine), so clearing — or
             // never registering — would strand a working tunnel.
             const everVerified = this.tunnelEverVerified;
-            if (streakExceeded && everVerified && this.hasActiveRegistrationLease()) {
+            if (streakExceeded && everVerified && this.hasRegisteredBridge) {
                 console.warn(`[mobile-bridge] Public tunnel failed ${this.healthFailureStreak} health checks; clearing availability`);
                 await this.clearRegistration();
                 return;
@@ -1360,8 +1416,7 @@ export class MobileBridgeService {
             }
             if (this.refreshUnverifiedTunnelRegistration) {
                 // Once an unverified endpoint has been accepted, refresh its lease on
-                // every tick while continuing to probe. Skipping two 60s refreshes
-                // would otherwise let the 150s lease expire before the third probe.
+                // every five-minute tick while continuing to probe.
                 console.warn("[mobile-bridge] Public tunnel remains unverified; refreshing degraded registration");
             }
             else {
@@ -1378,35 +1433,39 @@ export class MobileBridgeService {
             this.healthFailureStreak = 0;
         }
         try {
-            const response = await this.postBridgeJson(this.convexSiteUrl, "/api/mobile/desktop-bridge/register", `Bearer ${this.hostAuthToken}`, {
+            const response = await this.registerDesktopBridge({
                 deviceId: this.deviceId,
                 baseUrls,
                 platform: getDesktopPlatformLabel(),
                 desktopPublicKey: this.bridgeKeyPair.publicKey,
             });
-            if (response.ok) {
-                const body = (await response.json());
-                const expiresAt = typeof body.leaseExpiresAt === "number" &&
-                    Number.isFinite(body.leaseExpiresAt) &&
-                    body.leaseExpiresAt > Date.now()
-                    ? body.leaseExpiresAt
-                    : typeof body.leaseDurationMs === "number" &&
-                        Number.isFinite(body.leaseDurationMs) &&
-                        body.leaseDurationMs > 0
-                        ? Date.now() + body.leaseDurationMs
-                        : null;
-                if (expiresAt === null) {
-                    throw new Error("Registration response missing a valid lease expiry");
-                }
-                this.setRegistrationLease(expiresAt);
-                this.registerUnverifiedTunnelFallback = false;
-                this.refreshUnverifiedTunnelRegistration = !healthy;
-                // An unverified advertise-anyway registration stays degraded until a
-                // probe actually succeeds from this desktop.
-                this.registrationState = healthy ? "healthy" : "degraded";
-                return;
+            const expiresAt = typeof response.leaseExpiresAt === "number" &&
+                Number.isFinite(response.leaseExpiresAt) &&
+                response.leaseExpiresAt > Date.now()
+                ? response.leaseExpiresAt
+                : typeof response.leaseDurationMs === "number" &&
+                    Number.isFinite(response.leaseDurationMs) &&
+                    response.leaseDurationMs > 0
+                    ? Date.now() + response.leaseDurationMs
+                    : null;
+            if (expiresAt === null) {
+                throw new Error("Registration response missing a valid lease expiry");
             }
-            if (response.status === 401 || response.status === 403) {
+            this.setRegistrationLease(expiresAt);
+            this.hasRegisteredBridge = true;
+            this.registerUnverifiedTunnelFallback = false;
+            this.refreshUnverifiedTunnelRegistration = !healthy;
+            // An unverified advertise-anyway registration stays degraded until a
+            // probe actually succeeds from this desktop.
+            this.registrationState = healthy ? "healthy" : "degraded";
+        }
+        catch (error) {
+            const errorCode = error && typeof error === "object"
+                ? (error.data?.code ?? error.code)
+                : null;
+            if (errorCode === "UNAUTHENTICATED" ||
+                errorCode === "UNAUTHORIZED" ||
+                errorCode === "FORBIDDEN") {
                 this.invalidateBridgeAccess("Desktop bridge authorization expired");
                 return;
             }
@@ -1414,16 +1473,7 @@ export class MobileBridgeService {
                 this.registrationState = "degraded";
             }
             else {
-                this.expireBridgeAccess("Desktop bridge unavailable");
-            }
-            console.warn("[mobile-bridge] registration rejected:", response.status);
-        }
-        catch (error) {
-            if (this.hasActiveRegistrationLease()) {
-                this.registrationState = "degraded";
-            }
-            else {
-                this.expireBridgeAccess("Desktop bridge unavailable");
+                this.expireRegistrationPresence();
             }
             console.warn("[mobile-bridge] registration failed:", error);
         }
@@ -1432,22 +1482,23 @@ export class MobileBridgeService {
         return probeBridgePublicHealth(url, BRIDGE_PUBLIC_HEALTH_TIMEOUT_MS);
     }
     async clearRegistration() {
-        if (this.registrationLeaseExpiresAt === null || !this.hostAuthToken) {
+        if (!this.hostAuthToken) {
             this.clearRegistrationLeaseTimer();
             this.registrationLeaseExpiresAt = null;
             this.registrationState = "inactive";
+            this.hasRegisteredBridge = false;
             this.closeBridgeClients("Desktop bridge unavailable");
             return;
         }
         await this.clearRegistrationWithToken(this.hostAuthToken);
     }
     async clearRegistrationWithToken(token) {
-        if (this.registrationLeaseExpiresAt === null ||
-            !this.convexSiteUrl ||
+        if (!this.convexSiteUrl ||
             !this.deviceId) {
             this.clearRegistrationLeaseTimer();
             this.registrationLeaseExpiresAt = null;
             this.registrationState = "inactive";
+            this.hasRegisteredBridge = false;
             this.closeBridgeClients("Desktop bridge unavailable");
             return;
         }
@@ -1460,6 +1511,7 @@ export class MobileBridgeService {
         this.clearRegistrationLeaseTimer();
         this.registrationLeaseExpiresAt = null;
         this.registrationState = "inactive";
+        this.hasRegisteredBridge = false;
         this.closeBridgeClients("Desktop bridge unavailable");
     }
 }

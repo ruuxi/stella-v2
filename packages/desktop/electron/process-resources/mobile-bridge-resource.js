@@ -44,6 +44,7 @@ export const createMobileBridgeResource = (options) => {
         }
         activeBridge.setDeviceId(options.getDeviceId());
         activeBridge.setHostAuthToken(await options.getAuthToken());
+        activeBridge.setConvexDeploymentUrl(options.getConvexUrl());
         activeBridge.setConvexSiteUrl(options.getConvexSiteUrl());
     };
     const attachWindowMirror = (candidateSessionId) => {

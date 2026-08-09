@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { ArrowLeft, Smartphone } from "@/ui/icons";
+import { ArrowLeft, ChevronRight, Smartphone } from "@/ui/icons";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Dialog,
@@ -103,9 +103,20 @@ const ConnectSurfaceBody = ({
               aria-disabled={!isSignedIn || undefined}
             >
               <span className="connect-grid-card-icon">{PHONE_ICON}</span>
-              <span className="connect-grid-card-name">
-                {t("global.integrations.connectStellaApp")}
+              <span className="connect-grid-card-text">
+                <span className="connect-grid-card-name">
+                  {t("global.integrations.connectStellaApp")}
+                </span>
+                <span className="connect-grid-card-sub">
+                  {t("global.integrations.connectStellaAppSub")}
+                </span>
               </span>
+              <ChevronRight
+                className="connect-grid-card-chevron"
+                size={16}
+                strokeWidth={2}
+                aria-hidden
+              />
             </button>
             <p className="connect-section-title">
               {t("global.integrations.sectionTitle")}
@@ -217,7 +228,7 @@ export const ConnectDialog = ({ open, onOpenChange }: ConnectDialogProps) => {
               ? t("global.integrations.connectStellaApp")
               : selectedIntegration
                 ? t(selectedIntegration.displayNameKey)
-                : t("global.integrations.connectTitle")}
+                : t("global.integrations.phoneTitle")}
           </DialogTitle>
           <DialogCloseButton />
         </DialogHeader>

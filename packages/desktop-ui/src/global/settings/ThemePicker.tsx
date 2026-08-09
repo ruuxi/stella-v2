@@ -10,7 +10,7 @@ import { useTheme, useThemeControl } from "@/context/theme-context";
 import { isHiddenOverlay } from "@/shared/theme/themes";
 import { Popover, PopoverContent, PopoverTrigger, PopoverBody } from "@/ui/popover";
 import { Button } from "@/ui/button";
-import { Check } from "@/ui/icons";
+import { ThemeOrb } from "@/ui/theme-orb";
 import "./ThemePicker.css";
 
 type ColorScheme = "light" | "dark" | "system";
@@ -57,7 +57,15 @@ export function ThemePicker({
   side = "top",
   align = "end",
 }: ThemePickerProps) {
-  const { selectedThemeId, themes, colorMode, gradientMode, gradientColor, flat } = useTheme();
+  const {
+    selectedThemeId,
+    themes,
+    colorMode,
+    gradientMode,
+    gradientColor,
+    flat,
+    resolvedColorMode,
+  } = useTheme();
   const {
     setTheme,
     setColorMode,
@@ -69,6 +77,7 @@ export function ThemePicker({
   } = useThemeControl();
 
   const [internalOpen, setInternalOpen] = useState(false);
+  const [hoveredThemeId, setHoveredThemeId] = useState<string | null>(null);
 
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = controlledOnOpenChange || setInternalOpen;
@@ -81,6 +90,15 @@ export function ThemePicker({
         .filter((t) => !isHiddenOverlay(t))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [themes]
+  );
+
+  const selectedTheme = useMemo(
+    () => sortedThemes.find((t) => t.id === selectedThemeId),
+    [sortedThemes, selectedThemeId]
+  );
+  const hoveredTheme = useMemo(
+    () => sortedThemes.find((t) => t.id === hoveredThemeId),
+    [sortedThemes, hoveredThemeId]
   );
 
 
@@ -111,7 +129,13 @@ export function ThemePicker({
       : null;
 
   const themeContent = (
-    <div data-slot="theme-picker-sections" onMouseLeave={() => cancelPreview()}>
+    <div
+      data-slot="theme-picker-sections"
+      onMouseLeave={() => {
+        setHoveredThemeId(null);
+        cancelPreview();
+      }}
+    >
       <div data-slot="theme-picker-section" data-bordered>
         <div data-slot="theme-picker-label">Appearance</div>
         <div data-slot="theme-picker-button-row">
@@ -176,38 +200,53 @@ export function ThemePicker({
         </div>
       </div>
 
-      <div
-        data-slot="theme-picker-theme-list"
-        onMouseLeave={() => cancelThemePreview()}
-      >
-        {sortedThemes.map((t) => {
-          const isSelected = t.id === selectedThemeId;
-          return (
-            <Button
-              key={t.id}
-              size="normal"
-              variant={isSelected ? "secondary" : "ghost"}
-              data-slot="theme-picker-theme-button"
-              onClick={() => {
-                setTheme(t.id);
-                cancelPreview();
-                if (!inline) setOpen(false);
-                onThemeSelect?.();
-              }}
-              onMouseEnter={() => {
-                if (open || inline) previewTheme(t.id);
-              }}
-              onFocus={() => {
-                if (open || inline) previewTheme(t.id);
-              }}
-            >
-              <span data-slot="theme-picker-theme-name">{t.name}</span>
-              {isSelected && (
-                <Check size={12} data-slot="theme-picker-check" />
-              )}
-            </Button>
-          );
-        })}
+      <div data-slot="theme-picker-section">
+        {/* Swatches carry no text, so this row is where the name lives. It
+            follows the cursor and falls back to the current selection, which
+            also makes it the readout for keyboard focus. */}
+        <div data-slot="theme-picker-label" data-row>
+          <span>Theme</span>
+          <span data-slot="theme-picker-theme-name">
+            {(hoveredTheme ?? selectedTheme)?.name ?? ""}
+          </span>
+        </div>
+        <div
+          data-slot="theme-picker-theme-grid"
+          onMouseLeave={() => {
+            setHoveredThemeId(null);
+            cancelThemePreview();
+          }}
+        >
+          {sortedThemes.map((t) => {
+            const isSelected = t.id === selectedThemeId;
+            const preview = () => {
+              if (!open && !inline) return;
+              setHoveredThemeId(t.id);
+              previewTheme(t.id);
+            };
+            return (
+              <button
+                key={t.id}
+                type="button"
+                data-slot="theme-picker-orb"
+                data-active={isSelected}
+                aria-label={t.name}
+                aria-pressed={isSelected}
+                title={t.name}
+                onClick={() => {
+                  setTheme(t.id);
+                  cancelPreview();
+                  if (!inline) setOpen(false);
+                  onThemeSelect?.();
+                }}
+                onMouseEnter={preview}
+                onFocus={preview}
+              >
+                <ThemeOrb theme={t} isDark={resolvedColorMode === "dark"} />
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -225,7 +264,10 @@ export function ThemePicker({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) cancelPreview();
+        if (!next) {
+          setHoveredThemeId(null);
+          cancelPreview();
+        }
       }}
     >
       <PopoverTrigger asChild>

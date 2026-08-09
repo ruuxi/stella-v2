@@ -1,0 +1,26 @@
+.shell-settings-dialog {
+  width: min(920px, 92vw);
+  height: min(680px, 88vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-settings-dialog__body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.shell-settings-dialog__body > .settings-screen {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.shell-settings-dialog__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+}

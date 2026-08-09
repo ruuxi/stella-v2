@@ -20,19 +20,8 @@ import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 import { displayTabs } from "./tab-store";
 
-export const SIDEBAR_SECTIONS = [
-  "home",
-  "files",
-  "apps",
-  "browser",
-  "settings",
-] as const;
-export const PANEL_SIDEBAR_SECTIONS = [
-  "files",
-  "apps",
-  "browser",
-  "settings",
-] as const;
+export const SIDEBAR_SECTIONS = ["home", "files", "apps", "browser"] as const;
+export const PANEL_SIDEBAR_SECTIONS = ["files", "apps", "browser"] as const;
 
 export type SidebarSection = (typeof SIDEBAR_SECTIONS)[number];
 export type PanelSidebarSection = (typeof PANEL_SIDEBAR_SECTIONS)[number];
@@ -43,11 +32,13 @@ export const isSidebarSection = (value: unknown): value is SidebarSection =>
 
 /**
  * Older builds persisted section ids that no longer exist: `tasks` was
- * renamed to `home`, and `search` was folded into it as an in-view control.
+ * renamed to `home`, `search` was folded into it as an in-view control, and
+ * `settings` was dissolved into dialogs (gear, account menu, Home footer).
  */
 const LEGACY_SECTION_ALIASES: Readonly<Record<string, SidebarSection>> = {
   tasks: "home",
   search: "home",
+  settings: "home",
 };
 
 export const LEGACY_SIDEBAR_SECTION_IDS = Object.keys(
@@ -82,14 +73,12 @@ export const resolvePanelSidebarSection = (
  * - `home`  — reserved legacy Activity location.
  * - `files` — a display-tab id for an open agent thread or artifact.
  * - `apps`  — a user-app slug.
- * - `settings` — the selected Settings destination.
  */
 export type SidebarSectionLocations = {
   home: string | null;
   files: string | null;
   apps: string | null;
   browser: string | null;
-  settings: string | null;
 };
 
 export type SidebarSectionsSnapshot = {
@@ -107,7 +96,6 @@ const DEFAULT_LOCATIONS: SidebarSectionLocations = {
   files: null,
   apps: null,
   browser: null,
-  settings: null,
 };
 
 const readPersistedSection = (): SidebarSection => {
@@ -145,7 +133,6 @@ const readPersistedLocations = (): SidebarSectionLocations => {
       files: pick("files"),
       apps: pick("apps"),
       browser: pick("browser"),
-      settings: pick("settings"),
     };
   } catch {
     return DEFAULT_LOCATIONS;
@@ -178,7 +165,6 @@ const persistLocations = (locations: SidebarSectionLocations): void => {
       files: locations.files,
       apps: locations.apps,
       browser: locations.browser,
-      settings: locations.settings,
     }),
   );
 };

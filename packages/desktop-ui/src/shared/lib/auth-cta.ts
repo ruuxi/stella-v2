@@ -31,10 +31,8 @@ export const SIGN_IN_TOAST_ACTION: ToastAction = {
 export const OPEN_SETTINGS_TOAST_ACTION: ToastAction = {
   label: 'Open settings',
   onClick: () => {
-    void import('@/features/workspace-display/sidebar-sections').then(
-      ({ sidebarSections }) => {
-        sidebarSections.openLocation('settings', null)
-      },
-    )
+    void import('@/shell/settings-dialog-store').then(({ settingsDialog }) => {
+      settingsDialog.open()
+    })
   },
 }

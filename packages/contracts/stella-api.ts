@@ -8,8 +8,6 @@ export const STELLA_DEFAULT_MODEL = "stella/default";
 export const STELLA_STANDARD_MODEL = "stella/standard";
 export const STELLA_DEFAULT_UPSTREAM_MODEL =
   "accounts/fireworks/models/deepseek-v4-flash-0731";
-export const STELLA_WAFER_FAST_UPSTREAM_MODEL =
-  "wafer/DeepSeek-V4-Flash-0731-Fast";
 
 /** True for every routed spelling of the DeepSeek V4 Flash family. */
 export const isDeepSeekV4FlashModel = (
@@ -22,7 +20,6 @@ export const STELLA_RELAY_PROVIDERS = [
   "openai",
   "google",
   "fireworks",
-  "wafer",
   "openrouter",
 ] as const;
 export type StellaRelayProvider = (typeof STELLA_RELAY_PROVIDERS)[number];
@@ -36,10 +33,7 @@ export const normalizeStellaSiteUrl = (value: string): string =>
     .replace(/\/models\/?$/i, "")
     .replace(/\/api\/stella\/v1\/?$/i, "")
     .replace(/\/api\/stella\/relay(?:\/.*)?$/i, "")
-    .replace(
-      /\/api\/stella\/(?:anthropic|openai|fireworks|wafer)(?:\/v1)?\/?$/i,
-      "",
-    )
+    .replace(/\/api\/stella\/(?:anthropic|openai|fireworks)(?:\/v1)?\/?$/i, "")
     .replace(/\/api\/stella\/google\/v1beta\/?$/i, "")
     .replace(/\/api\/stella\/openrouter\/api\/v1\/?$/i, "")
     .replace(/\/api\/stella\/?$/i, "")

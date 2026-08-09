@@ -1,12 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createStellaRoute } from "@stella/runtime/kernel/model-routing-stella";
-import {
-  buildOpenAICompletionsParams,
-  convertMessages,
-  getCompat,
-} from "@stella/runtime/ai/providers/openai-completions";
-import { buildBaseOptions } from "@stella/runtime/ai/providers/simple-options";
 import { streamSimple } from "@stella/runtime/ai/stream";
 import { transformMessages } from "@stella/runtime/ai/providers/transform-messages";
 import type { Context, Message, Model } from "@stella/runtime/ai/types";
@@ -127,85 +121,6 @@ describe("Stella relay route shape", () => {
     expect(model.api).toBe("openai-responses");
     expect(model.provider).toBe("fireworks");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
-  });
-
-  it("Wafer fast relay uses max effort and preserves reasoning across turns", () => {
-    const route = makeRoute("stella/wafer/DeepSeek-V4-Flash-0731-Fast");
-    const model = route!.model as Model<"openai-completions">;
-    expect(model).toMatchObject({
-      api: "openai-completions",
-      provider: "wafer",
-      baseUrl: `${STELLA_SITE}/api/stella/relay`,
-      contextWindow: 1_000_000,
-      maxTokens: 0,
-      input: ["text"],
-    });
-    expect(model.thinkingLevelMap?.xhigh).toBe("max");
-    expect(model.compat).toMatchObject({
-      supportsReasoningEffort: true,
-      maxTokensField: "max_tokens",
-      replayReasoningContentField: true,
-    });
-
-    const defaultParams = buildOpenAICompletionsParams(
-      model,
-      userContext("Hello!"),
-      buildBaseOptions(model),
-    ) as unknown as Record<string, unknown>;
-    expect(defaultParams).not.toHaveProperty("max_tokens");
-
-    const params = buildOpenAICompletionsParams(model, userContext("Hello!"), {
-      maxTokens: 256,
-      reasoningEffort: "xhigh",
-    }) as unknown as Record<string, unknown>;
-    expect(params.max_tokens).toBe(256);
-    expect(params.reasoning_effort).toBe("max");
-
-    const messages = convertMessages(
-      model,
-      {
-        messages: [
-          { role: "user", content: "Start", timestamp: 0 },
-          {
-            role: "assistant",
-            content: [
-              {
-                type: "thinking",
-                thinking: "Prior reasoning",
-                thinkingSignature: "reasoning_content",
-              },
-              { type: "text", text: "Prior answer" },
-            ],
-            api: "openai-completions",
-            provider: "wafer",
-            model: "stella/wafer/DeepSeek-V4-Flash-0731-Fast",
-            usage: {
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 0,
-              cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                total: 0,
-              },
-            },
-            stopReason: "stop",
-            timestamp: 0,
-          },
-          { role: "user", content: "Continue", timestamp: 0 },
-        ],
-      },
-      getCompat(model),
-    );
-    expect(messages[1]).toMatchObject({
-      role: "assistant",
-      content: "Prior answer",
-      reasoning_content: "Prior reasoning",
-    });
   });
 
   it("creates a Stella route when auth is refreshable but not loaded yet", async () => {

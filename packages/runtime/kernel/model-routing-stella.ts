@@ -11,7 +11,6 @@ import {
   STELLA_DEFAULT_UPSTREAM_MODEL,
   STELLA_RELAY_PROVIDERS,
   STELLA_STANDARD_MODEL,
-  STELLA_WAFER_FAST_UPSTREAM_MODEL,
   isDeepSeekV4FlashModel,
   stellaManagedRelayBaseUrlFromSiteUrl,
   type StellaRelayProvider,
@@ -54,7 +53,6 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["openai/", "openai"],
   ["anthropic/", "anthropic"],
   ["google/", "google"],
-  ["wafer/", "wafer"],
 ] as const satisfies readonly (readonly [string, ManagedGatewayProvider])[];
 
 export const inferManagedGatewayProviderFromModel = (
@@ -87,8 +85,6 @@ export const resolveManagedStellaRegistryMatches = (
         return [`${registryProvider}/${model.id}`];
       case "fireworks":
         return model.id.startsWith("accounts/fireworks/") ? [model.id] : [];
-      case "wafer":
-        return [`wafer/${model.id}`];
       default:
         return [];
     }
@@ -173,8 +169,7 @@ const providerNativeModelId = (
   if (
     (provider === "openai" ||
       provider === "anthropic" ||
-      provider === "google" ||
-      provider === "wafer") &&
+      provider === "google") &&
     resolvedModelId.startsWith(`${provider}/`)
   ) {
     return resolvedModelId.slice(provider.length + 1);
@@ -197,8 +192,6 @@ const apiForRelay = (
     case "fireworks":
       return "openai-responses";
     case "openrouter":
-      return "openai-completions";
-    case "wafer":
       return "openai-completions";
     case "openai":
       return registryModel?.api ?? "openai-responses";
@@ -245,72 +238,30 @@ const createRelayModel = (args: {
       lookup.candidates,
     );
 
-  const waferFastFallback =
-    args.resolvedModelId === STELLA_WAFER_FAST_UPSTREAM_MODEL
-      ? {
-          id: nativeId,
-          name: "DeepSeek V4 Flash 0731 Fast",
-          provider: "wafer",
-          api: "openai-completions" as const,
-          baseUrl: "https://pass.wafer.ai/v1",
-          reasoning: true,
-          input: ["text"] as Array<"text">,
-          cost: {
-            input: 0.28,
-            output: 0.56,
-            cacheRead: 0.07,
-            cacheWrite: 0,
-          },
-          contextWindow: 1_000_000,
-          // Zero tells buildBaseOptions to omit max_tokens and let Wafer
-          // enforce the model's native output limit.
-          maxTokens: 0,
-        }
-      : null;
-
   const model = {
-    ...(registryModel ??
-      waferFastFallback ?? {
-        id: nativeId,
-        name: nativeId,
-        provider: args.provider,
-        api: apiForRelay(args.provider, null),
-        reasoning: true,
-        input: ["text", "image"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: STELLA_CONTEXT_WINDOW,
-        maxTokens: STELLA_MAX_TOKENS,
-      }),
+    ...(registryModel ?? {
+      id: nativeId,
+      name: nativeId,
+      provider: args.provider,
+      api: apiForRelay(args.provider, null),
+      reasoning: true,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: STELLA_CONTEXT_WINDOW,
+      maxTokens: STELLA_MAX_TOKENS,
+    }),
     id: args.requestedModelId,
     name: modelName(args.requestedModelId),
     provider: registryModel?.provider ?? args.provider,
     api: apiForRelay(args.provider, registryModel),
     baseUrl: stellaManagedRelayBaseUrlFromSiteUrl(args.siteBaseUrl),
-    ...(args.resolvedModelId === STELLA_WAFER_FAST_UPSTREAM_MODEL
-      ? {
-          reasoning: true,
-          input: ["text"] as Array<"text">,
-          contextWindow: registryModel?.contextWindow ?? 1_000_000,
-          // Never inherit a registry output cap for this reasoning model.
-          maxTokens: 0,
-          compat: {
-            ...registryModel?.compat,
-            supportsReasoningEffort: true,
-            maxTokensField: "max_tokens" as const,
-            replayReasoningContentField: true,
-          },
-        }
-      : {}),
     ...(isDeepSeekV4FlashModel(args.resolvedModelId)
       ? {
           thinkingLevelMap: {
             ...registryModel?.thinkingLevelMap,
-            // Preserve Stella's xhigh setting while mapping it to each
-            // provider's maximum wire value.
-            xhigh:
-              args.resolvedModelId === STELLA_WAFER_FAST_UPSTREAM_MODEL
-                ? "max"
-                : "high",
+            // V4 Flash calls its maximum native effort "high". Preserve
+            // Stella's xhigh setting while mapping it to that wire value.
+            xhigh: "high",
           },
         }
       : {}),

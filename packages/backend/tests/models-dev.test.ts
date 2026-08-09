@@ -6,28 +6,6 @@ import {
 } from "../convex/lib/models_dev";
 
 describe("managed model price entries", () => {
-  it("fills Wafer DeepSeek V4 Flash Fast pricing", () => {
-    const { entries, missingModels } = buildManagedModelPriceEntries({
-      data: {},
-      modelIds: ["wafer/DeepSeek-V4-Flash-0731-Fast"],
-      syncedAt: 1,
-    });
-
-    expect(missingModels).toEqual([]);
-    expect(entries[0]).toMatchObject({
-      model: "wafer/DeepSeek-V4-Flash-0731-Fast",
-      source: "static",
-      sourceProvider: "wafer",
-      sourceModelId: "DeepSeek-V4-Flash-0731-Fast",
-      inputPerMillionUsd: 0.28,
-      outputPerMillionUsd: 0.56,
-      cacheReadPerMillionUsd: 0.07,
-      reasoningPerMillionUsd: 0.56,
-      modalitiesInput: ["text"],
-      modalitiesOutput: ["text"],
-    });
-  });
-
   it("fills Muse Spark from static overrides when models.dev is empty", () => {
     const { entries, missingModels } = buildManagedModelPriceEntries({
       data: {},

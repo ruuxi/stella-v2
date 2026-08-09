@@ -41,7 +41,6 @@ const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
   google: "google/",
   openai: "openai/",
   meta: "meta/",
-  wafer: "wafer/",
 };
 
 const STELLA_RELAY_PROBE_SECRET_ENV = "STELLA_RELAY_PROBE_SECRET";

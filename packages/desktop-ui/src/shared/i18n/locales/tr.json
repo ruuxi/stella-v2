@@ -44,6 +44,10 @@
       "directDescription": "Stella görevleri kendisi yürütür ve yalnızca yararlı olduğunda devreder.",
       "orchestratedDescription": "Stella, daha büyük işleri alt aracılara bölebilen bir General aracısını koordine eder."
     },
+    "memory": {
+      "title": "Bellek",
+      "description": "Kaydedilmiş anıları ve profilinizi Stella'nın model bağlamına dahil edin. Bunu kapattığınızda bellek dosyaları cihazınızda kalır ancak sonraki yanıtlara dahil edilmez."
+    },
     "developerPreviews": {
       "title": "Geliştirici dosya önizlemeleri",
       "description": "Kod değişikliklerini sohbette gösterir ve yan panelde açar."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Orkestratör modu yüklenemedi.",
       "saveWorkingMode": "Orkestratör modu güncellenemedi.",
       "workingModeUnavailable": "Orkestratör modu bu pencerede kullanılamıyor.",
+      "loadMemory": "Bellek ayarı yüklenemedi.",
+      "saveMemory": "Bellek ayarı güncellenemedi.",
+      "memoryUnavailable": "Bellek ayarları bu pencerede kullanılamıyor.",
       "loadPermissions": "Masaüstü izin durumu yüklenemedi.",
       "savePermission": "{kind} izni güncellenemedi.",
       "resetPermission": "{kind} izni sıfırlanamadı.",
@@ -1862,8 +1869,10 @@
       "heroTagline": "Stella'ya istediğiniz platformdan mesaj atın — doğal biçimde sohbet edin ya da işleri doğrudan bilgisayarınızda halletmesini isteyin.",
       "signInToConnect": "Bağlanmak için Stella'ya giriş yapın",
       "connectStellaApp": "Stella Uygulamasına bağlan",
+      "connectStellaAppSub": "Telefonunuzdaki Stella uygulamasını bu bilgisayarla eşleştirin",
       "sectionTitle": "Entegrasyonlar",
       "connectTitle": "Bağlan",
+      "phoneTitle": "Telefonunuz",
       "backToConnections": "Bağlantılara dön",
       "connected": "Bağlı",
       "connectProvider": "{provider} bağla",

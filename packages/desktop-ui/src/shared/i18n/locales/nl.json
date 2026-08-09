@@ -44,6 +44,10 @@
       "directDescription": "Stella werkt zelf aan taken en delegeert alleen wanneer dat nuttig is.",
       "orchestratedDescription": "Stella coördineert een Algemene agent die groter werk over subagents kan verdelen."
     },
+    "memory": {
+      "title": "Geheugen",
+      "description": "Neem opgeslagen herinneringen en je profiel op in Stella's modelcontext. Als je dit uitschakelt, blijven de geheugenbestanden op je apparaat staan maar worden ze uitgesloten van volgende beurten."
+    },
     "developerPreviews": {
       "title": "Bestandsvoorbeelden voor ontwikkelaars",
       "description": "Toon codewijzigingen in de chat en open ze in het zijpaneel."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Laden van de orkestratormodus is mislukt.",
       "saveWorkingMode": "Bijwerken van de orkestratormodus is mislukt.",
       "workingModeUnavailable": "De orkestratormodus is niet beschikbaar in dit venster.",
+      "loadMemory": "Geheugeninstelling laden mislukt.",
+      "saveMemory": "Geheugeninstelling bijwerken mislukt.",
+      "memoryUnavailable": "Geheugeninstellingen zijn niet beschikbaar in dit venster.",
       "loadPermissions": "Machtigingsstatus van bureaublad laden mislukt.",
       "savePermission": "Machtiging {kind} bijwerken mislukt.",
       "resetPermission": "Machtiging {kind} resetten mislukt.",
@@ -1862,8 +1869,10 @@
       "heroTagline": "Stuur Stella een bericht vanaf elk platform dat je wilt — chat gewoon, of laat het dingen doen op je computer.",
       "signInToConnect": "Log in bij Stella om te verbinden",
       "connectStellaApp": "Verbinden met Stella-app",
+      "connectStellaAppSub": "Koppel de Stella-app op je telefoon aan deze computer",
       "sectionTitle": "Integraties",
       "connectTitle": "Verbinden",
+      "phoneTitle": "Je telefoon",
       "backToConnections": "Terug naar verbindingen",
       "connected": "Verbonden",
       "connectProvider": "{provider} verbinden",

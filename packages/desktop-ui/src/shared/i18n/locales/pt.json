@@ -44,6 +44,10 @@
       "directDescription": "A Stella trabalha nas tarefas por conta própria e delega apenas quando é útil.",
       "orchestratedDescription": "A Stella coordena um agente Geral que pode dividir trabalhos maiores entre subagentes."
     },
+    "memory": {
+      "title": "Memória",
+      "description": "Incluir as memórias salvas e seu perfil no contexto do modelo da Stella. Ao desativar, os arquivos de memória continuam no seu dispositivo, mas ficam de fora das próximas respostas."
+    },
     "developerPreviews": {
       "title": "Pré-visualizações de arquivos para desenvolvedores",
       "description": "Mostra as alterações de código no chat e abre-as no painel lateral."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Falha ao carregar o modo orquestrador.",
       "saveWorkingMode": "Falha ao atualizar o modo orquestrador.",
       "workingModeUnavailable": "O modo orquestrador não está disponível nesta janela.",
+      "loadMemory": "Falha ao carregar a configuração de memória.",
+      "saveMemory": "Falha ao atualizar a configuração de memória.",
+      "memoryUnavailable": "As configurações de memória não estão disponíveis nesta janela.",
       "loadPermissions": "Falha ao carregar o status das permissões do desktop.",
       "savePermission": "Falha ao atualizar a permissão de {kind}.",
       "resetPermission": "Falha ao redefinir a permissão de {kind}.",
@@ -1886,8 +1893,10 @@
       "heroTagline": "Fale com a Stella pela plataforma que você quiser — converse naturalmente, ou peça para ela resolver as coisas direto no seu computador.",
       "signInToConnect": "Entre na Stella para conectar",
       "connectStellaApp": "Conectar ao app da Stella",
+      "connectStellaAppSub": "Pareie o app da Stella no seu telefone com este computador",
       "sectionTitle": "Integrações",
       "connectTitle": "Conectar",
+      "phoneTitle": "Seu telefone",
       "backToConnections": "Voltar às conexões",
       "connected": "Conectado",
       "connectProvider": "Conectar o {provider}",

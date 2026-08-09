@@ -44,6 +44,10 @@
       "directDescription": "Stella traite les tâches elle-même et ne délègue que lorsque c'est utile.",
       "orchestratedDescription": "Stella coordonne un agent Général capable de répartir les travaux plus importants entre des sous-agents."
     },
+    "memory": {
+      "title": "Mémoire",
+      "description": "Inclure les souvenirs enregistrés et votre profil dans le contexte du modèle de Stella. Si vous désactivez cette option, les fichiers de mémoire restent sur votre appareil mais sont exclus des prochains échanges."
+    },
     "developerPreviews": {
       "title": "Aperçus de fichiers pour développeurs",
       "description": "Affiche les modifications de code dans le chat et ouvre-les dans le panneau latéral."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Échec du chargement du mode orchestrateur.",
       "saveWorkingMode": "Échec de la mise à jour du mode orchestrateur.",
       "workingModeUnavailable": "Le mode orchestrateur n'est pas disponible dans cette fenêtre.",
+      "loadMemory": "Échec du chargement du réglage de mémoire.",
+      "saveMemory": "Échec de la mise à jour du réglage de mémoire.",
+      "memoryUnavailable": "Les réglages de mémoire ne sont pas disponibles dans cette fenêtre.",
       "loadPermissions": "Échec du chargement de l'état des autorisations du bureau.",
       "savePermission": "Échec de la mise à jour de l'autorisation {kind}.",
       "resetPermission": "Échec de la réinitialisation de l'autorisation {kind}.",
@@ -1886,8 +1893,10 @@
       "heroTagline": "Écrivez à Stella depuis la plateforme de votre choix — discutez naturellement, ou demandez-lui d’agir directement sur votre ordinateur.",
       "signInToConnect": "Connectez-vous à Stella pour établir la connexion",
       "connectStellaApp": "Se connecter à l’app Stella",
+      "connectStellaAppSub": "Associez l’app Stella de votre téléphone à cet ordinateur",
       "sectionTitle": "Intégrations",
       "connectTitle": "Connecter",
+      "phoneTitle": "Votre téléphone",
       "backToConnections": "Retour aux connexions",
       "connected": "Connecté",
       "connectProvider": "Connecter {provider}",

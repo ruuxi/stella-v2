@@ -44,6 +44,10 @@
       "directDescription": "A Stella maga dolgozik a feladatokon, és csak akkor delegál, ha az hasznos.",
       "orchestratedDescription": "A Stella egy General ügynököt koordinál, amely a nagyobb munkát alügynökök között tudja szétosztani."
     },
+    "memory": {
+      "title": "Memória",
+      "description": "A mentett emlékek és a profilod belefoglalása a Stella modellkontextusába. Kikapcsolva a memóriafájlok a készülékeden maradnak, de kimaradnak a további válaszokból."
+    },
     "developerPreviews": {
       "title": "Fejlesztői fájl-előnézetek",
       "description": "Megjeleníti a kódmódosításokat a csevegésben, és megnyitja őket az oldalsó panelen."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Az orkesztrátor mód betöltése sikertelen.",
       "saveWorkingMode": "Az orkesztrátor mód frissítése sikertelen.",
       "workingModeUnavailable": "Az orkesztrátor mód nem érhető el ebben az ablakban.",
+      "loadMemory": "Nem sikerült betölteni a memóriabeállítást.",
+      "saveMemory": "Nem sikerült frissíteni a memóriabeállítást.",
+      "memoryUnavailable": "A memóriabeállítások nem érhetők el ebben az ablakban.",
       "loadPermissions": "Nem sikerült betölteni az asztali engedélyek állapotát.",
       "savePermission": "Nem sikerült frissíteni a(z) {kind} engedélyt.",
       "resetPermission": "Nem sikerült visszaállítani a(z) {kind} engedélyt.",
@@ -1862,8 +1869,10 @@
       "heroTagline": "Írj a Stellának bármelyik platformról – csevegj vele természetesen, vagy kérd meg, hogy intézzen el dolgokat a számítógépeden.",
       "signInToConnect": "Jelentkezz be a Stellába a csatlakoztatáshoz",
       "connectStellaApp": "Csatlakozás a Stella alkalmazáshoz",
+      "connectStellaAppSub": "Párosítsd a telefonodon lévő Stella alkalmazást ezzel a számítógéppel",
       "sectionTitle": "Integrációk",
       "connectTitle": "Csatlakozás",
+      "phoneTitle": "A telefonod",
       "backToConnections": "Vissza a kapcsolatokhoz",
       "connected": "Csatlakoztatva",
       "connectProvider": "Csatlakozás: {provider}",

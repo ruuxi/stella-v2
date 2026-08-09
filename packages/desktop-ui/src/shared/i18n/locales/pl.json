@@ -44,6 +44,10 @@
       "directDescription": "Stella sama wykonuje zadania i deleguje je tylko wtedy, gdy to przydatne.",
       "orchestratedDescription": "Stella koordynuje agenta General, który może dzielić większe zadania między subagentów."
     },
+    "memory": {
+      "title": "Pamięć",
+      "description": "Uwzględniaj zapisane wspomnienia i Twój profil w kontekście modelu Stelli. Po wyłączeniu pliki pamięci pozostaną na urządzeniu, ale nie będą używane w kolejnych odpowiedziach."
+    },
     "developerPreviews": {
       "title": "Podglądy plików dla deweloperów",
       "description": "Pokazuje zmiany w kodzie na czacie i otwiera je w panelu bocznym."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Nie udało się wczytać trybu orkiestratora.",
       "saveWorkingMode": "Nie udało się zaktualizować trybu orkiestratora.",
       "workingModeUnavailable": "Tryb orkiestratora jest niedostępny w tym oknie.",
+      "loadMemory": "Nie udało się wczytać ustawienia pamięci.",
+      "saveMemory": "Nie udało się zaktualizować ustawienia pamięci.",
+      "memoryUnavailable": "Ustawienia pamięci są niedostępne w tym oknie.",
       "loadPermissions": "Nie udało się wczytać statusu uprawnień pulpitu.",
       "savePermission": "Nie udało się zaktualizować uprawnienia {kind}.",
       "resetPermission": "Nie udało się zresetować uprawnienia {kind}.",
@@ -1910,8 +1917,10 @@
       "heroTagline": "Pisz do Stelli z dowolnej platformy — rozmawiaj swobodnie albo poproś, by załatwiła sprawy wprost na Twoim komputerze.",
       "signInToConnect": "Zaloguj się do Stelli, aby połączyć",
       "connectStellaApp": "Połącz z aplikacją Stella",
+      "connectStellaAppSub": "Sparuj aplikację Stella w telefonie z tym komputerem",
       "sectionTitle": "Integracje",
       "connectTitle": "Połącz",
+      "phoneTitle": "Twój telefon",
       "backToConnections": "Wróć do połączeń",
       "connected": "Połączono",
       "connectProvider": "Połącz {provider}",

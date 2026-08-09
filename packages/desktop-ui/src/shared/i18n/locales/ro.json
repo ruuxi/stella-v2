@@ -44,6 +44,10 @@
       "directDescription": "Stella lucrează singură la sarcini și deleagă doar când este util.",
       "orchestratedDescription": "Stella coordonează un agent General care poate împărți lucrările mai mari între subagenți."
     },
+    "memory": {
+      "title": "Memorie",
+      "description": "Include amintirile salvate și profilul tău în contextul modelului Stella. Dezactivarea păstrează fișierele de memorie pe dispozitiv, dar le exclude din răspunsurile următoare."
+    },
     "developerPreviews": {
       "title": "Previzualizări de fișiere pentru dezvoltatori",
       "description": "Afișează modificările de cod în chat și le deschide în panoul lateral."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Încărcarea modului orchestrator a eșuat.",
       "saveWorkingMode": "Actualizarea modului orchestrator a eșuat.",
       "workingModeUnavailable": "Modul orchestrator nu este disponibil în această fereastră.",
+      "loadMemory": "Nu s-a putut încărca setarea de memorie.",
+      "saveMemory": "Nu s-a putut actualiza setarea de memorie.",
+      "memoryUnavailable": "Setările de memorie nu sunt disponibile în această fereastră.",
       "loadPermissions": "Nu s-a putut încărca starea permisiunilor desktopului.",
       "savePermission": "Nu s-a putut actualiza permisiunea {kind}.",
       "resetPermission": "Nu s-a putut reseta permisiunea {kind}.",
@@ -1886,8 +1893,10 @@
       "heroTagline": "Scrie-i Stellei de pe orice platformă îți place — conversează firesc sau cere-i să rezolve lucruri direct pe computerul tău.",
       "signInToConnect": "Conectează-te la Stella pentru a lega conturile",
       "connectStellaApp": "Conectează la aplicația Stella",
+      "connectStellaAppSub": "Asociază aplicația Stella de pe telefonul tău cu acest computer",
       "sectionTitle": "Integrări",
       "connectTitle": "Conectează",
+      "phoneTitle": "Telefonul tău",
       "backToConnections": "Înapoi la conexiuni",
       "connected": "Conectat",
       "connectProvider": "Conectează {provider}",

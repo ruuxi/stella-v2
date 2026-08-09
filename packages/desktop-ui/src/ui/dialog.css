@@ -21,7 +21,8 @@
   --dialog-title-weight: var(--weight-regular);
   --dialog-title-spacing: -0.03em;
   --dialog-title-line: 1.2;
-  --dialog-header-pad: var(--space-5) var(--space-4) var(--space-4) var(--space-6);
+  --dialog-header-pad: var(--space-5) var(--space-4) var(--space-4)
+    var(--space-6);
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -68,7 +69,14 @@
    */
   border: 1px solid var(--border-weak);
   border-radius: var(--radius-2xl, 14px);
-  background: var(--panel-glass-bg);
+  /* `--panel-glass-bg` layers the panel tint over `--card`, but several
+     themes give `--card` an alpha channel, so the "opaque panel" promised
+     above still let live content read through. Re-lay the same two tints
+     over an opaque `--background` backstop: identical color, no
+     bleed-through. */
+  background-color: var(--background);
+  background-image:
+    var(--panel-surface-bg-gradient), linear-gradient(var(--card), var(--card));
   backdrop-filter: var(--panel-glass-blur);
   -webkit-backdrop-filter: var(--panel-glass-blur);
   background-clip: padding-box;

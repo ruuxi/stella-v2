@@ -95,6 +95,28 @@ const makeLookupStore = (overrides: Partial<LookupStore> = {}): LookupStore =>
   }) as unknown as LookupStore;
 
 describe("buildContextLookupUserPrompt", () => {
+  it("does not expose memory files or memory search results when memory is disabled", async () => {
+    const { rootPath, db } = await createRoot();
+    await writeFile(
+      path.join(rootPath, "memories", "memory_summary.md"),
+      "private saved memory",
+    );
+
+    const prompt = await buildContextLookupUserPrompt({
+      conversationId: "conv-1",
+      lookupPrompt: "Find prior context",
+      searchTerms: ["private saved memory"],
+      stellaDataDir: rootPath,
+      store: makeLookupStore(),
+      localEvents: [],
+      memoryEnabled: false,
+    });
+    db.close();
+
+    expect(prompt).toContain("Memory is disabled in Settings.");
+    expect(prompt).not.toContain("private saved memory");
+  });
+
   it("pre-seeds thread/transcript/memory searches and orders sections stable → volatile → request", async () => {
     const { rootPath, db } = await createRoot();
     await writeFile(
@@ -305,9 +327,9 @@ describe("buildContextLookupUserPrompt", () => {
     expect(liveSection).toContain("live progress (newest last):");
     expect(liveSection).toMatch(/- \[[^\]]+\] running smoke tests/);
     // Paused threads never render as live status.
-    expect(liveSection.slice(0, liveSection.indexOf("# Lookup Request"))).not.toContain(
-      "summing spreadsheet rows",
-    );
+    expect(
+      liveSection.slice(0, liveSection.indexOf("# Lookup Request")),
+    ).not.toContain("summing spreadsheet rows");
   });
 });
 

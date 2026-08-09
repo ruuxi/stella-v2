@@ -32,6 +32,7 @@ import {
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
+import { loadLocalPreferences } from "../preferences/local-preferences.js";
 
 const MAX_CONTEXT_OUTPUT_TOKENS = 1_500;
 const EAGER_MEMORY_FILE_CHAR_BUDGET = 4_000;
@@ -855,18 +856,25 @@ export const buildContextLookupUserPrompt = async (args: {
   store: ContextLookupStore;
   localEvents: LocalContextEvent[];
   appBrowserContext?: HostAppBrowserContextSnapshot;
+  memoryEnabled?: boolean;
 }): Promise<string> => {
   const terms = normalizeMemorySearchTerms(args.searchTerms);
   const hasTerms = terms.length > 0;
   const seedQuery = terms.join(" ");
-  const [memoryFiles, memorySearchResults] = await Promise.all([
-    readMemoryFiles(args.stellaDataDir, { hasSearchTerms: hasTerms }),
-    hasTerms
-      ? readMemorySearchResults(args.stellaDataDir, terms)
-      : Promise.resolve(
-          "No search terms provided — the memory ledger above is the memory evidence; use search_memory for targeted lines.",
-        ),
-  ]);
+  const memoryEnabled = args.memoryEnabled !== false;
+  const [memoryFiles, memorySearchResults] = memoryEnabled
+    ? await Promise.all([
+        readMemoryFiles(args.stellaDataDir, { hasSearchTerms: hasTerms }),
+        hasTerms
+          ? readMemorySearchResults(args.stellaDataDir, terms)
+          : Promise.resolve(
+              "No search terms provided — the memory ledger above is the memory evidence; use search_memory for targeted lines.",
+            ),
+      ])
+    : [
+        "Memory is disabled in Settings.",
+        "Memory is disabled in Settings; search_memory is unavailable.",
+      ];
   const threadSearchResults = formatThreadSearchResults(
     args.store,
     args.conversationId,
@@ -986,6 +994,8 @@ export const runRecall = async (args: {
   resolvedLlm: ResolvedLlmRoute;
   signal?: AbortSignal;
 }): Promise<string> => {
+  const memoryEnabled =
+    loadLocalPreferences(args.stellaDataDir).memoryEnabled !== false;
   // The Recall tool requires search terms; for callers that still omit
   // them, tokenizing the lookup prompt keeps the pre-seed useful.
   const seedTerms = normalizeMemorySearchTerms(
@@ -1003,6 +1013,7 @@ export const runRecall = async (args: {
     ...(args.appBrowserContext
       ? { appBrowserContext: args.appBrowserContext }
       : {}),
+    memoryEnabled,
   });
 
   // Engine preferences live in the data dir (`~/.stella/preferences.json`) —
@@ -1031,7 +1042,9 @@ export const runRecall = async (args: {
     ranSearch = true;
     const observation =
       action.kind === "search_memory"
-        ? await readMemorySearchResults(args.stellaDataDir, action.terms)
+        ? memoryEnabled
+          ? await readMemorySearchResults(args.stellaDataDir, action.terms)
+          : "Memory is disabled in Settings; search_memory is unavailable."
         : action.kind === "search_transcripts"
           ? formatTranscriptSearchResults(
               args.store,

@@ -12,6 +12,7 @@ import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
 import { readHomePrompt } from "./prompts/home-prompts.js";
 import { isThreadCompactionForced } from "./agent-runtime/context-budget.js";
+import { loadLocalPreferences } from "./preferences/local-preferences.js";
 
 const logger = createRuntimeLogger("thread-runtime");
 
@@ -650,6 +651,9 @@ export const buildDurableMemoryReference = (
   stellaDataDir: string | undefined,
 ): string | undefined => {
   if (!stellaDataDir?.trim()) {
+    return undefined;
+  }
+  if (loadLocalPreferences(stellaDataDir).memoryEnabled === false) {
     return undefined;
   }
   const sections = [

@@ -44,6 +44,10 @@
       "directDescription": "Stella works on tasks itself and delegates only when useful.",
       "orchestratedDescription": "Stella coordinates a General agent that can split larger work across subagents."
     },
+    "memory": {
+      "title": "Memory",
+      "description": "Include saved memories and your profile in Stella's model context. Turning this off keeps memory files on your device but excludes them from future turns."
+    },
     "developerPreviews": {
       "title": "Developer file previews",
       "description": "Show code changes in chat and open them in the side panel."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Failed to load orchestrator mode.",
       "saveWorkingMode": "Failed to update orchestrator mode.",
       "workingModeUnavailable": "Orchestrator mode is unavailable in this window.",
+      "loadMemory": "Failed to load memory setting.",
+      "saveMemory": "Failed to update memory setting.",
+      "memoryUnavailable": "Memory settings are unavailable in this window.",
       "loadPermissions": "Failed to load desktop permission status.",
       "savePermission": "Failed to update {kind} permission.",
       "resetPermission": "Failed to reset {kind} permission.",

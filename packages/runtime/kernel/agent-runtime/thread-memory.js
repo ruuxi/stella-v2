@@ -11,6 +11,11 @@ const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
 const LIFE_MEMORY_SUMMARY_DISPLAY_PATH = "~/.stella/memories/memory_summary.md";
 const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
 const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
+const MEMORY_STARTUP_DOC_PATHS = [
+    LIFE_CORE_MEMORY_DISPLAY_PATH,
+    LIFE_USER_PROFILE_DISPLAY_PATH,
+    LIFE_MEMORY_SUMMARY_DISPLAY_PATH,
+];
 export const buildRunThreadKey = ({ conversationId, agentType, runId, threadId, }) => buildRuntimeThreadKey({
     conversationId,
     agentType,
@@ -70,6 +75,7 @@ export const buildHistorySource = (context) => {
     // Keep older bootstrap entries so cadence injections do not shift the
     // prompt-cache prefix on coast turns.
     const messages = context.threadHistory
+        ?.filter((entry) => context.memoryEnabled !== false || !isMemoryStartupDocEntry(entry))
         ?.map((entry) => {
         if (entry.payload) {
             return toRuntimeMessage(entry.payload);
@@ -113,6 +119,14 @@ export const buildHistorySource = (context) => {
     })
         .filter((entry) => entry !== null) ?? [];
     return messages;
+};
+const isMemoryStartupDocEntry = (entry) => {
+    if (entry.role !== "runtimeInternal" ||
+        entry.customMessage?.customType !== BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE) {
+        return false;
+    }
+    const text = customMessageContentText(entry.customMessage.content);
+    return MEMORY_STARTUP_DOC_PATHS.some((displayPath) => text.includes(`<startup_doc path="${displayPath}">`));
 };
 const createHistoryAssistantMessage = (content, errorMessage) => ({
     role: "assistant",

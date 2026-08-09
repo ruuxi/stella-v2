@@ -94,6 +94,20 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
+    titleKey: "settings.memory.title",
+    descriptionKey: "settings.memory.description",
+    keywords: [
+      "memory",
+      "memories",
+      "remember",
+      "profile",
+      "context",
+      "personalization",
+      "memory.md",
+    ],
+  },
+  {
+    tab: "general",
     titleKey: "settings.developerPreviews.title",
     descriptionKey: "settings.developerPreviews.description",
     keywords: ["developer", "code", "diff", "file previews", "preview"],
@@ -655,9 +669,7 @@ function resolveEntries(
 let normalizedCacheKey: SettingsSearchTranslate | null = null;
 let normalizedCache: NormalizedEntry[] = [];
 
-function getNormalizedEntries(
-  t: SettingsSearchTranslate,
-): NormalizedEntry[] {
+function getNormalizedEntries(t: SettingsSearchTranslate): NormalizedEntry[] {
   if (normalizedCacheKey === t) return normalizedCache;
   normalizedCache = resolveEntries(t).map((entry) => ({
     entry,

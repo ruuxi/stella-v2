@@ -31,6 +31,7 @@ export class PiSessionCore {
     agent = null;
     currentResolvedLlm = null;
     pendingHistoryRefresh = false;
+    lastMemoryEnabled = null;
     /**
      * Deterministic provider-abort tracking for this durable thread: instant
      * first-call failure counting and the request-assembly quarantine
@@ -258,6 +259,7 @@ export class PiSessionCore {
     }
     createOrReuseAgent(args) {
         const serviceTier = resolveCodexProviderServiceTier(args.resolvedLlm, args.agentContext);
+        const memoryEnabled = args.agentContext.memoryEnabled !== false;
         if (!this.agent) {
             const historySource = buildHistorySource(args.agentContext);
             this.agent = createRuntimeAgent({
@@ -288,7 +290,18 @@ export class PiSessionCore {
                 model: args.resolvedLlm.model.id,
                 ...args.logContext,
             });
+            this.lastMemoryEnabled = memoryEnabled;
             return this.agent;
+        }
+        if (this.lastMemoryEnabled !== memoryEnabled) {
+            this.agent.state.messages = buildHistorySource(args.agentContext);
+            this.lastMemoryEnabled = memoryEnabled;
+            this.logger.debug("history-refreshed.memory-preference", {
+                threadKey: this.threadKey,
+                memoryEnabled,
+                historyLength: this.agent.state.messages.length,
+                ...args.logContext,
+            });
         }
         this.agent.state.systemPrompt = args.systemPrompt;
         this.agent.state.tools = args.tools;
@@ -321,6 +334,7 @@ export class PiSessionCore {
         this.agent = null;
         this.currentResolvedLlm = null;
         this.pendingHistoryRefresh = false;
+        this.lastMemoryEnabled = null;
         clearProviderContextWindow(this.threadKey);
         // Release per-session provider resources keyed by the same id used as the
         // AI cache session id (the thread key), e.g. Codex WebSocket connections

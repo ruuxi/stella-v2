@@ -82,6 +82,19 @@ describe("loadLocalPreferences", () => {
     );
   });
 
+  it("enables memory by default and persists an explicit opt-out", () => {
+    const stellaDataDir = makeStellaDataDir();
+    writePreferences(stellaDataDir, {});
+
+    expect(loadLocalPreferences(stellaDataDir).memoryEnabled).toBe(true);
+
+    const saved = updateLocalModelPreferences(stellaDataDir, {
+      memoryEnabled: false,
+    });
+    expect(saved.memoryEnabled).toBe(false);
+    expect(loadLocalPreferences(stellaDataDir).memoryEnabled).toBe(false);
+  });
+
   it("preserves an explicit wake-word preference", () => {
     const enabledHome = makeStellaDataDir();
     writePreferences(enabledHome, { wakeWordEnabled: true });

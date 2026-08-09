@@ -804,6 +804,7 @@ export type ElectronSystemApi = {
     };
     realtimeVoice: RealtimeVoicePreferences;
     assistantWorkingMode: AssistantWorkingMode;
+    memoryEnabled: boolean;
   } | null>;
   setLocalModelPreferences: (payload: {
     defaultModels?: Record<string, string>;
@@ -844,6 +845,7 @@ export type ElectronSystemApi = {
     };
     realtimeVoice?: RealtimeVoicePreferences;
     assistantWorkingMode?: AssistantWorkingMode;
+    memoryEnabled?: boolean;
   }) => Promise<{
     defaultModels: Record<string, string>;
     modelOverrides: Record<string, string>;
@@ -883,6 +885,7 @@ export type ElectronSystemApi = {
     };
     realtimeVoice: RealtimeVoicePreferences;
     assistantWorkingMode: AssistantWorkingMode;
+    memoryEnabled: boolean;
   } | null>;
   listCodexModels: () => Promise<{
     models: Array<{

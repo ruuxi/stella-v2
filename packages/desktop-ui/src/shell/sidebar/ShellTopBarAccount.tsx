@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { LogOut } from "@/ui/icons";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { CreditCard, LogOut } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
-import { preloadAuthDialog } from "@/shell/topbar/nav-surface-preloads";
+import {
+  preloadAuthDialog,
+  preloadBillingScreen,
+} from "@/shell/topbar/nav-surface-preloads";
 import { usePersistentConvexOneShot } from "@/shared/lib/use-convex-one-shot";
 import { SUBSCRIPTION_UPGRADED_EVENT } from "@/global/billing/SubscriptionUpgradeDialog";
 import { api } from "@/convex/api";
@@ -9,7 +12,7 @@ import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state"
 import { useCurrentUser } from "@/global/auth/hooks/use-current-user";
 import { useNickname } from "@/global/auth/hooks/use-nickname";
 import { secureSignOut } from "@/global/auth/services/auth";
-import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
+import { feedbackDialog } from "@/shell/sidebar-sections/feedback-dialog-store";
 import { Button } from "@/ui/button";
 import {
   Dialog,
@@ -28,6 +31,12 @@ import { CustomLogIn as LogIn } from "@/ui/nav-icons";
 import { useFeedbackPrompt } from "./use-feedback-prompt";
 import "./topbar-nav.css";
 import "./account-dialogs.css";
+
+const PlanUsageDialog = lazy(() =>
+  import("@/global/billing/PlanUsageDialog").then((module) => ({
+    default: module.PlanUsageDialog,
+  })),
+);
 
 type BillingPlanId = "free" | "go" | "pro" | "plus" | "ultra";
 
@@ -76,7 +85,7 @@ export const ShellTopBarAccount = ({
 
   useEffect(() => {
     if (!shouldAutoPromptFeedback) return;
-    sidebarSections.openLocation("settings", "feedback");
+    feedbackDialog.open();
     acknowledgeFeedbackPrompt();
   }, [shouldAutoPromptFeedback, acknowledgeFeedbackPrompt]);
 
@@ -120,6 +129,7 @@ export const ShellTopBarAccount = ({
 
   const pendingSignOutRef = useRef(false);
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
+  const [planUsageOpen, setPlanUsageOpen] = useState(false);
 
   const handleDropdownCloseAutoFocus = useCallback((event: Event) => {
     event.preventDefault();
@@ -211,6 +221,16 @@ export const ShellTopBarAccount = ({
           onCloseAutoFocus={handleDropdownCloseAutoFocus}
         >
           <DropdownMenuItem
+            onClick={() => setPlanUsageOpen(true)}
+            onMouseEnter={preloadBillingScreen}
+            onFocus={preloadBillingScreen}
+          >
+            <span data-slot="dropdown-menu-item-icon">
+              <CreditCard size={14} strokeWidth={1.75} />
+            </span>
+            Plan &amp; usage
+          </DropdownMenuItem>
+          <DropdownMenuItem
             data-variant="destructive"
             onClick={() => {
               pendingSignOutRef.current = true;
@@ -223,6 +243,11 @@ export const ShellTopBarAccount = ({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {planUsageOpen ? (
+        <Suspense fallback={null}>
+          <PlanUsageDialog open onOpenChange={setPlanUsageOpen} />
+        </Suspense>
+      ) : null}
       <Dialog open={signOutConfirmOpen} onOpenChange={setSignOutConfirmOpen}>
         <DialogContent
           fit

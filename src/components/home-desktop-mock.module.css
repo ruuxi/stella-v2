@@ -178,12 +178,6 @@
   letter-spacing: 0;
 }
 
-.workspaceActionsBody {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-}
-
 .workspaceList {
   display: flex;
   flex-direction: column;
@@ -199,7 +193,6 @@
   gap: 10px;
 }
 
-.workspaceActionRow,
 .workspaceFileButton {
   appearance: none;
   display: inline-flex;
@@ -218,24 +211,11 @@
     color 120ms ease;
 }
 
-.workspaceActionRow {
-  gap: 8px;
-  margin: 0 -6px;
-  padding: 5px 6px;
-  color: var(--mock-text-base);
-  font-size: 13px;
-  font-weight: 300;
-  line-height: 1.35;
-  letter-spacing: 0;
-}
-
-.workspaceActionRow:hover,
 .workspaceFileButton:hover {
   background: color-mix(in oklch, var(--mock-foreground) 5%, transparent);
   color: var(--mock-text-strong);
 }
 
-.workspaceActionIcon,
 .workspaceTaskIconWrap {
   display: inline-flex;
   flex: 0 0 auto;
@@ -244,7 +224,6 @@
   color: var(--mock-text-weak);
 }
 
-.workspaceActionLabel,
 .workspaceTaskLabel,
 .workspaceRowLabel,
 .workspaceFileName {

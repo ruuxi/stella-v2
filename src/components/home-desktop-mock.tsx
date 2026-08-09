@@ -7,9 +7,6 @@ import {
   FileImage,
   FileText,
   LoaderCircle,
-  MessageSquarePlus,
-  Scan,
-  VolumeX,
 } from "lucide-react";
 import {
   useCallback,
@@ -545,11 +542,6 @@ const SCROLL_THEMES = [
 const RENDER_SCALE = 0.6;
 const GRADIENT_CACHE_LIMIT = 12;
 const gradientImageCache = new Map<string, ImageData>();
-const WORKSPACE_ACTIONS = [
-  { label: "Read replies aloud", icon: VolumeX },
-  { label: "New chat", icon: MessageSquarePlus },
-  { label: "Select area", icon: Scan },
-];
 const WORKSPACE_ACTIVITY = [
   {
     label: "Comparing flight options to Lisbon",
@@ -1040,36 +1032,6 @@ function WorkspacePanel() {
         className={styles.workspacePanel}
         aria-label="Workspace panel mock"
       >
-        <section className={styles.workspaceSection}>
-          <header className={styles.workspaceSectionHeader}>
-            <span className={styles.workspaceSectionTitle}>Actions</span>
-          </header>
-          <div className={styles.workspaceActionsBody}>
-            <ul className={styles.workspaceList}>
-              {WORKSPACE_ACTIONS.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <li key={item.label}>
-                    <button type="button" className={styles.workspaceActionRow}>
-                      <span
-                        className={styles.workspaceActionIcon}
-                        aria-hidden="true"
-                      >
-                        <Icon size={15} strokeWidth={1.8} />
-                      </span>
-                      <span className={styles.workspaceActionLabel}>
-                        {item.label}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </section>
-
-        <div className={styles.workspaceDivider} />
-
         <section className={styles.workspaceSection}>
           <header className={styles.workspaceSectionHeader}>
             <span className={styles.workspaceSectionTitle}>Activity</span>

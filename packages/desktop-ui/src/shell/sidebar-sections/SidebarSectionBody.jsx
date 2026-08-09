@@ -13,7 +13,6 @@ import { PANEL_SIDEBAR_SECTIONS, resolvePanelSidebarSection, useActiveSidebarSec
 import { AppsSection } from "./AppsSection";
 import { BrowserSection } from "./BrowserSection";
 import { FilesSection } from "./FilesSection";
-import { SettingsSection } from "./SettingsSection";
 import "./sidebar-sections.css";
 /**
  * Typed as a total `Record` rather than inferred: adding a section without a
@@ -23,7 +22,6 @@ const SECTION_BODIES = {
     files: FilesSection,
     apps: AppsSection,
     browser: BrowserSection,
-    settings: SettingsSection,
 };
 /**
  * The body for a section id, never `undefined`.

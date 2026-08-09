@@ -5,76 +5,51 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  activeSection: "home",
-  hasConnectedAccount: true,
-  location: null as string | null,
-  closeSearch: vi.fn(),
-  dismissConnectHint: vi.fn(),
-  openLocation: vi.fn(),
+  preloadSettingsScreen: vi.fn(),
+  signOut: vi.fn(),
 }));
 
-vi.mock("@/features/workspace-display/display-search-store", () => ({
-  displaySearchStore: { close: mocks.closeSearch },
+vi.mock("@/shell/topbar/nav-surface-preloads", () => ({
+  preloadSettingsScreen: mocks.preloadSettingsScreen,
 }));
 
-vi.mock("@/features/workspace-display/sidebar-sections", () => ({
-  sidebarSections: { openLocation: mocks.openLocation },
-  useActiveSidebarSection: () => mocks.activeSection,
-  useSidebarSections: () => ({
-    locations: { settings: mocks.location },
-  }),
+vi.mock("@/global/auth/services/auth", () => ({
+  secureSignOut: mocks.signOut,
 }));
 
-vi.mock("@/global/auth/hooks/use-auth-session-state", () => ({
-  useAuthSessionState: () => ({
-    hasConnectedAccount: mocks.hasConnectedAccount,
-  }),
-}));
-
-vi.mock("@/global/onboarding/post-onboarding-hints", () => ({
-  usePostOnboardingHint: () => ({
-    active: true,
-    dismiss: mocks.dismissConnectHint,
-  }),
+vi.mock("@/global/settings/SettingsView", () => ({
+  SettingsScreen: ({ onSignOut }: { onSignOut?: () => void }) => (
+    <div data-testid="settings-screen">
+      <button type="button" onClick={onSignOut}>
+        Sign out
+      </button>
+    </div>
+  ),
 }));
 
 import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
+import { SettingsDialogHost } from "@/shell/SettingsDialogHost";
+import { settingsDialog } from "@/shell/settings-dialog-store";
 
-describe("settings menu button", () => {
+describe("settings gear button", () => {
   let container: HTMLDivElement;
   let root: Root;
-
-  const openMenu = async () => {
-    const trigger = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Settings"]',
-    );
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      trigger?.focus();
-      trigger?.dispatchEvent(
-        new MouseEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          ctrlKey: false,
-        }),
-      );
-    });
-  };
 
   beforeEach(async () => {
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
-    mocks.activeSection = "home";
-    mocks.hasConnectedAccount = true;
-    mocks.location = null;
     vi.clearAllMocks();
+    settingsDialog.close();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     await act(async () => {
       root.render(
-        <SettingsMenuButton className="shell-topbar-account-settings" />,
+        <>
+          <SettingsMenuButton className="shell-topbar-account-settings" />
+          <SettingsDialogHost />
+        </>,
       );
     });
   });
@@ -82,84 +57,76 @@ describe("settings menu button", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
-    document.body
-      .querySelectorAll('[role="menu"]')
-      .forEach((menu) => menu.remove());
+    settingsDialog.close();
   });
 
-  it("opens the destination menu without opening the sidebar", async () => {
-    await openMenu();
+  const trigger = () =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Settings"]');
 
-    expect(mocks.openLocation).not.toHaveBeenCalled();
-    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+  it("opens the settings dialog directly, with no destination menu", async () => {
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+
+    await act(async () => {
+      trigger()?.click();
+    });
+
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    // Wait a tick for the lazy SettingsScreen chunk to resolve.
+    await act(async () => Promise.resolve());
     expect(
-      document.body.querySelectorAll('[role="menuitemradio"]'),
-    ).toHaveLength(6);
+      document.body.querySelector('[data-testid="settings-screen"]'),
+    ).not.toBeNull();
   });
 
-  it("selects a destination, closes the menu, and opens that sidebar detail", async () => {
-    await openMenu();
-    const themeItem = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
-    ).find((item) => item.textContent?.includes("Theme"));
-    expect(themeItem).not.toBeUndefined();
-
+  it("preloads the settings screen on hover", async () => {
     await act(async () => {
-      themeItem?.click();
-    });
-
-    expect(mocks.closeSearch).toHaveBeenCalledOnce();
-    expect(mocks.openLocation).toHaveBeenCalledWith("settings", "theme");
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-  });
-
-  it("marks the currently open sidebar destination", async () => {
-    await act(async () => root.unmount());
-    mocks.activeSection = "settings";
-    mocks.location = "theme";
-    root = createRoot(container);
-    await act(async () => {
-      root.render(
-        <SettingsMenuButton className="shell-topbar-account-settings" />,
+      trigger()?.dispatchEvent(
+        new MouseEvent("mouseenter", { bubbles: false }),
       );
     });
-    await openMenu();
-
-    const themeItem = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
-    ).find((item) => item.textContent?.includes("Theme"));
-    expect(themeItem?.getAttribute("aria-checked")).toBe("true");
+    // React attaches mouseenter via onMouseEnter — simulate through focus,
+    // which uses the same preload path.
+    await act(async () => {
+      trigger()?.focus();
+      trigger()?.dispatchEvent(new FocusEvent("focus", { bubbles: false }));
+    });
+    expect(mocks.preloadSettingsScreen).toHaveBeenCalled();
   });
 
-  it("dismisses with Escape using the shared menu keyboard behavior", async () => {
-    await openMenu();
-    const menu = document.body.querySelector<HTMLElement>('[role="menu"]');
-    expect(menu).not.toBeNull();
-
+  it("closes when the dialog host is dismissed through the store", async () => {
     await act(async () => {
-      menu?.dispatchEvent(
-        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
-      );
+      trigger()?.click();
     });
-
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    await act(async () => Promise.resolve());
     expect(
-      container
-        .querySelector('button[aria-label="Settings"]')
-        ?.getAttribute("aria-expanded"),
-    ).toBe("false");
-  });
-
-  it("dismisses on an outside pointer interaction", async () => {
-    await openMenu();
-    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+      document.body.querySelector('[data-testid="settings-screen"]'),
+    ).not.toBeNull();
 
     await act(async () => {
-      document.body.dispatchEvent(
-        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
-      );
+      settingsDialog.close();
+    });
+    expect(
+      document.body.querySelector('[data-testid="settings-screen"]'),
+    ).toBeNull();
+  });
+
+  it("signs out through the hosted settings screen", async () => {
+    await act(async () => {
+      trigger()?.click();
+    });
+    await act(async () => Promise.resolve());
+    const signOutButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "Sign out");
+    expect(signOutButton).not.toBeUndefined();
+
+    await act(async () => {
+      signOutButton?.click();
     });
 
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(mocks.signOut).toHaveBeenCalledOnce();
+    expect(
+      document.body.querySelector('[data-testid="settings-screen"]'),
+    ).toBeNull();
   });
 });

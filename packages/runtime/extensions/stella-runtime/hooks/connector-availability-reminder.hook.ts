@@ -47,6 +47,16 @@ const MAX_REMINDERS_PER_TURN = 2;
 
 export const connectedReminderKey = (id: string) => `connector-connected:${id}`;
 export const offerReminderKey = (id: string) => `connector-offer:${id}`;
+export const MCP_HINT_REMINDER_KEY = "connector-mcp-hint";
+
+/**
+ * "mcp" / "mcp server(s)" in the user message: not a catalog entry, but the
+ * connect client can register one — surface that in one sentence.
+ */
+const MCP_KEYWORD_RE = /\bmcp\b/iu;
+
+export const MCP_HINT_REMINDER_TEXT =
+  'The user mentioned MCP. Agents can register an MCP server through the node_repl connect client — await connect.addMcp({ id, transport: { url: "…" } }) for hosted servers or transport: { command, args } for stdio — and connect.remove(id) uninstalls one (connect.documentation() has details).';
 
 export const buildConnectedReminderText = (
   entry: NativeConnectorCatalogEntry,
@@ -81,11 +91,26 @@ export const createConnectorAvailabilityReminderHook = (options: {
       const index = await getConnectorKeywordIndex(options.stellaDataDir);
       matches = matchConnectorsInMessage(index, prompt);
     } catch {
-      return;
+      matches = [];
     }
-    if (matches.length === 0) return;
 
     const reminders: Array<{ key: string; text: string }> = [];
+    if (MCP_KEYWORD_RE.test(prompt)) {
+      const shown = await isReminderShownInActiveWindow({
+        stellaDataDir: options.stellaDataDir,
+        store: options.store,
+        threadKey,
+        key: MCP_HINT_REMINDER_KEY,
+      }).catch(() => true);
+      if (!shown) {
+        reminders.push({
+          key: MCP_HINT_REMINDER_KEY,
+          text: MCP_HINT_REMINDER_TEXT,
+        });
+      }
+    }
+    if (matches.length === 0 && reminders.length === 0) return;
+
     for (const entry of matches) {
       if (reminders.length >= MAX_REMINDERS_PER_TURN) break;
       try {

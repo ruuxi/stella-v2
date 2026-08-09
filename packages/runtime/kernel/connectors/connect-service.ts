@@ -13,6 +13,9 @@
  * validation + tiered action allowlist) → stella.sh backend.
  */
 
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
 import { callApiConnector } from "./api-client.js";
 import {
   resolveNativeConnectorCatalog,
@@ -31,13 +34,17 @@ import {
   callConnectorBridgeTool,
   closeConnectorBridgeSessions,
   ConnectorAuthError,
-  listConnectorBridgeTools,
+  probeConnectorBridgeTools,
+  type ConnectorBridgeProbe,
 } from "./connector-bridge.js";
 import {
   listConfiguredApiConnectors,
   listConfiguredConnectorCommands,
+  removeConfiguredConnector,
+  saveConfiguredConnectorCommands,
 } from "./state.js";
 import {
+  deleteConnectorAccessTokens,
   loadConnectorAccessToken,
   loadConnectorTokenPayload,
 } from "./oauth.js";
@@ -642,6 +649,442 @@ export const callNativeConnector = async (
 };
 
 // ---------------------------------------------------------------------------
+// MCP connector management (connect.addMcp / connect.remove)
+// ---------------------------------------------------------------------------
+
+/** Marks skills this module generated so remove/refresh never touch user files. */
+const MCP_GENERATED_SKILL_MARKER = "<!-- stella-connect-mcp-skill -->";
+/**
+ * Sentinel inside a generated MCP skill whose probe was deferred on auth.
+ * `connect.actions`/`connect.schema` regenerate the skill automatically the
+ * first time a tools listing succeeds after the credential lands (that is
+ * the folded-in replacement for the old CLI's `refresh-skill`).
+ */
+const MCP_SKILL_DEFERRED_MARKER =
+  "Action list deferred until credentials are configured";
+/** Same cap as the native skill generator's ACTIONS.md top-N. */
+const MCP_SKILL_ACTIONS_LIMIT = 30;
+
+const connectorSkillDir = (stellaAppDir: string, id: string) =>
+  path.join(stellaAppDir, "skills", id);
+
+/** Mirrors the old CLI's `safeId`, throwing instead of exiting. */
+export const validateMcpConnectorId = (value: string): string => {
+  const id = value.trim().toLowerCase();
+  if (
+    !id ||
+    id === "." ||
+    id === ".." ||
+    id.includes("/") ||
+    id.includes("\\") ||
+    !/^[a-z0-9._-]+$/u.test(id)
+  ) {
+    throw new Error(
+      `Invalid connector id: ${value}. Use lowercase letters, digits, ".", "_", "-".`,
+    );
+  }
+  return id;
+};
+
+export type AddMcpTransport =
+  | { command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
+  | { url: string };
+
+export type AddMcpOptions = {
+  id: string;
+  name?: string;
+  description?: string;
+  transport: AddMcpTransport;
+  auth?: {
+    type: "oauth" | "api_key";
+    tokenKey?: string;
+    headerName?: string;
+    scheme?: "bearer" | "basic" | "oauth" | "raw";
+  };
+};
+
+export type AddMcpResult = {
+  imported: ConnectorCommandConfig;
+  toolCount: number;
+  skillPath: string;
+  probeDeferred?: true;
+  hint?: string;
+};
+
+export type RemoveConnectorResult = {
+  removed: { commands: number; apis: number };
+  deletedTokenKeys: string[];
+  skillRemoved: boolean;
+};
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === "string");
+
+const isStringRecordValue = (
+  value: unknown,
+): value is Record<string, string> =>
+  isPlainRecord(value) &&
+  Object.values(value).every((entry) => typeof entry === "string");
+
+/** Strict shape check for `connect.addMcp` options with actionable errors. */
+export const parseAddMcpOptions = (raw: Record<string, unknown>): {
+  command: ConnectorCommandConfig;
+} => {
+  if (typeof raw.id !== "string" || !raw.id.trim()) {
+    throw new Error("connect.addMcp requires an id string.");
+  }
+  const id = validateMcpConnectorId(raw.id);
+  const displayName =
+    typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : id;
+  const description =
+    typeof raw.description === "string" && raw.description.trim()
+      ? raw.description.trim()
+      : undefined;
+
+  const transport = raw.transport;
+  if (!isPlainRecord(transport)) {
+    throw new Error(
+      'connect.addMcp requires transport: { url } or { command, args?, env?, cwd? }.',
+    );
+  }
+  const url = typeof transport.url === "string" ? transport.url.trim() : "";
+  const commandName =
+    typeof transport.command === "string" ? transport.command.trim() : "";
+  if (Boolean(url) === Boolean(commandName)) {
+    throw new Error(
+      "connect.addMcp transport must have exactly one of url or command.",
+    );
+  }
+  if (url) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`connect.addMcp transport.url is not a valid URL: ${url}`);
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("connect.addMcp transport.url must be http(s).");
+    }
+  }
+  if (transport.args !== undefined && !isStringArray(transport.args)) {
+    throw new Error("connect.addMcp transport.args must be an array of strings.");
+  }
+  if (transport.env !== undefined && !isStringRecordValue(transport.env)) {
+    throw new Error(
+      "connect.addMcp transport.env must be a string-to-string record.",
+    );
+  }
+  if (transport.cwd !== undefined && typeof transport.cwd !== "string") {
+    throw new Error("connect.addMcp transport.cwd must be a string.");
+  }
+
+  let auth: ConnectorCommandConfig["auth"] = { type: "none" };
+  if (raw.auth !== undefined) {
+    if (!isPlainRecord(raw.auth)) {
+      throw new Error("connect.addMcp auth must be a plain object.");
+    }
+    const authType = raw.auth.type;
+    if (authType !== "oauth" && authType !== "api_key") {
+      throw new Error('connect.addMcp auth.type must be "oauth" or "api_key".');
+    }
+    const tokenKey =
+      typeof raw.auth.tokenKey === "string" && raw.auth.tokenKey.trim()
+        ? raw.auth.tokenKey.trim()
+        : id;
+    const headerName =
+      typeof raw.auth.headerName === "string" && raw.auth.headerName.trim()
+        ? raw.auth.headerName.trim()
+        : undefined;
+    const scheme = raw.auth.scheme;
+    if (
+      scheme !== undefined &&
+      scheme !== "bearer" &&
+      scheme !== "basic" &&
+      scheme !== "oauth" &&
+      scheme !== "raw"
+    ) {
+      throw new Error(
+        'connect.addMcp auth.scheme must be "bearer" | "basic" | "oauth" | "raw".',
+      );
+    }
+    auth = {
+      type: authType,
+      tokenKey,
+      ...(headerName ? { headerName } : {}),
+      ...(scheme ? { scheme } : {}),
+    };
+  }
+
+  const command: ConnectorCommandConfig = url
+    ? {
+        id,
+        displayName,
+        ...(description ? { description } : {}),
+        transport: "streamable_http",
+        url,
+        auth,
+      }
+    : {
+        id,
+        displayName,
+        ...(description ? { description } : {}),
+        transport: "stdio",
+        command: commandName,
+        args: isStringArray(transport.args) ? transport.args : [],
+        ...(typeof transport.cwd === "string" && transport.cwd
+          ? { cwd: transport.cwd }
+          : {}),
+        ...(isStringRecordValue(transport.env) &&
+        Object.keys(transport.env).length
+          ? { env: transport.env }
+          : {}),
+        auth,
+      };
+  return { command };
+};
+
+/** Port of the old CLI skill generator, teaching connect.* instead of a shell CLI. */
+export const writeGeneratedMcpSkill = async (
+  stellaAppDir: string,
+  command: ConnectorCommandConfig,
+  tools: ConnectorToolInfo[],
+  options: { probeDeferred?: boolean; instructions?: string } = {},
+): Promise<string> => {
+  const skillDir = connectorSkillDir(stellaAppDir, command.id);
+  await fs.mkdir(skillDir, { recursive: true });
+  const shownTools = tools.slice(0, MCP_SKILL_ACTIONS_LIMIT);
+  const remaining = tools.length - shownTools.length;
+  const toolLines = shownTools.length
+    ? shownTools
+        .map((tool) => {
+          const description = tool.description
+            ? ` - ${collapseLine(tool.description, 200)}`
+            : "";
+          return `- \`${tool.name}\`${description}`;
+        })
+        .join("\n") +
+      (remaining > 0
+        ? `\n\n${remaining} more actions are not listed here. Find them with \`await connect.actions("${command.id}", { query: "<keywords>" })\`.`
+        : "")
+    : options.probeDeferred
+      ? `- _${MCP_SKILL_DEFERRED_MARKER}. The list fills in automatically the first time \`await connect.actions("${command.id}")\` succeeds after auth._`
+      : `- List available actions with \`await connect.actions("${command.id}")\`.`;
+  const description =
+    command.description ??
+    `Use the ${command.displayName} connector from Stella.`;
+  const instructionsSection = options.instructions
+    ? `\n## Server instructions\n\n${options.instructions.trim()}\n`
+    : "";
+  const body = `---
+name: ${command.id}
+description: ${description.replace(/\n+/gu, " ")}
+---
+${MCP_GENERATED_SKILL_MARKER}
+
+# ${command.displayName}
+
+Imported MCP connector. Use the frozen \`connect\` client inside \`node_repl\`:
+
+\`\`\`js
+await connect.actions("${command.id}", { query: "<keywords>" }); // find actions (capped list)
+await connect.schema("${command.id}", "<ACTION>");               // full input schema for one action
+await connect.call("${command.id}", "<ACTION>", { /* args */ }); // execute; throws on refusal
+\`\`\`
+${instructionsSection}
+## Actions
+
+${toolLines}
+`;
+  const skillPath = path.join(skillDir, "SKILL.md");
+  await fs.writeFile(skillPath, body, "utf-8");
+  return skillPath;
+};
+
+/**
+ * Auto-refresh for auth-deferred imports: once a real tools listing
+ * succeeds, rewrite the stub skill with the actual action list (and the
+ * server's `instructions`, if it published any). No-ops on user-authored
+ * or already-complete skills.
+ */
+const refreshDeferredMcpSkill = async (
+  stellaAppDir: string,
+  command: ConnectorCommandConfig,
+  probe: ConnectorBridgeProbe,
+): Promise<void> => {
+  if (probe.tools.length === 0) return;
+  const skillPath = path.join(
+    connectorSkillDir(stellaAppDir, command.id),
+    "SKILL.md",
+  );
+  const content = await fs.readFile(skillPath, "utf-8").catch(() => null);
+  if (
+    !content?.includes(MCP_GENERATED_SKILL_MARKER) ||
+    !content.includes(MCP_SKILL_DEFERRED_MARKER)
+  ) {
+    return;
+  }
+  await writeGeneratedMcpSkill(stellaAppDir, command, probe.tools, {
+    ...(probe.instructions ? { instructions: probe.instructions } : {}),
+  });
+};
+
+/**
+ * Shared MCP tools listing: probe through the bridge (popping the auth
+ * dialog on 401/403 via `withAuthRetry`), then opportunistically complete
+ * a deferred generated skill while the session is still warm.
+ */
+const probeMcpConnector = async (
+  options: ConnectClientOptions,
+  command: ConnectorCommandConfig,
+): Promise<ConnectorBridgeProbe> => {
+  const probe = await withConnectorBridgeCleanup(
+    options.stellaAppDir,
+    command,
+    () =>
+      withAuthRetry(options, () =>
+        probeConnectorBridgeTools(options.stellaAppDir, command),
+      ),
+  );
+  await refreshDeferredMcpSkill(options.stellaAppDir, command, probe).catch(
+    () => undefined,
+  );
+  return probe;
+};
+
+/**
+ * `connect.addMcp` engine: validate → probe (auth failures deferred,
+ * other failures fatal) → persist to commands.json → generate the
+ * connector skill.
+ */
+export const addMcpConnector = async (
+  options: ConnectClientOptions,
+  raw: Record<string, unknown>,
+): Promise<AddMcpResult> => {
+  const { stellaAppDir } = options;
+  const { command } = parseAddMcpOptions(raw);
+
+  // Probe before persisting (a broken server must not get silently
+  // imported); auth failures are non-fatal because the user already
+  // declared the auth shape — credentials land on first use instead.
+  let probe: ConnectorBridgeProbe = { tools: [] };
+  let probeDeferred = false;
+  let probeDeferredReason: string | undefined;
+  try {
+    probe = await withConnectorBridgeCleanup(stellaAppDir, command, () =>
+      withAuthRetry(
+        options,
+        () => probeConnectorBridgeTools(stellaAppDir, command),
+        {
+          authType: command.auth?.type === "oauth" ? "oauth" : "api_key",
+          resourceUrl: command.url,
+        },
+      ),
+    );
+  } catch (error) {
+    if (
+      error instanceof ConnectorAuthError &&
+      command.auth &&
+      command.auth.type !== "none"
+    ) {
+      probeDeferred = true;
+      probeDeferredReason = error.message;
+    } else {
+      throw error;
+    }
+  }
+
+  const existing = await listConfiguredConnectorCommands(stellaAppDir);
+  const next = new Map(existing.map((entry) => [entry.id, entry]));
+  next.set(command.id, command);
+  await saveConfiguredConnectorCommands(
+    stellaAppDir,
+    [...next.values()].sort((left, right) =>
+      left.displayName.localeCompare(right.displayName),
+    ),
+  );
+  const skillPath = await writeGeneratedMcpSkill(
+    stellaAppDir,
+    command,
+    probe.tools,
+    {
+      probeDeferred,
+      ...(probe.instructions ? { instructions: probe.instructions } : {}),
+    },
+  );
+  return {
+    imported: command,
+    toolCount: probe.tools.length,
+    skillPath,
+    ...(probeDeferred
+      ? {
+          probeDeferred: true as const,
+          hint: `The server requires auth (${collapseLine(probeDeferredReason, 200)}). The connector was saved anyway: the credential dialog pops on first use, and the skill's action list fills in automatically once await connect.actions("${command.id}") succeeds.`,
+        }
+      : {}),
+  };
+};
+
+/**
+ * `connect.remove` engine: drop from commands.json/api-connectors.json →
+ * close live bridge sessions → delete the generated skill → delete stored
+ * credentials for the connector's tokenKeys (fixing the old CLI's
+ * token-leak wart).
+ */
+export const removeMcpConnector = async (
+  options: ConnectClientOptions,
+  rawId: string,
+  resolved: ResolvedNativeCatalog,
+): Promise<RemoveConnectorResult> => {
+  const { stellaAppDir } = options;
+  const id = validateMcpConnectorId(rawId);
+  if (getNativeConnectorCatalogEntry(id, resolved.entries)) {
+    throw new Error(
+      `${id} is a native Store integration. Disable it in the Store instead of connect.remove.`,
+    );
+  }
+  const [command, api] = await Promise.all([
+    findConnectorCommand(stellaAppDir, id),
+    findConnectorApi(stellaAppDir, id),
+  ]);
+  if (!command && !api) {
+    throw new Error(
+      `Connector is not installed: ${id}. List installed connectors with connect.connectors().`,
+    );
+  }
+  const removed = await removeConfiguredConnector(stellaAppDir, id);
+  await closeConnectorBridgeSessions(stellaAppDir, [id]);
+
+  const tokenKeys = [
+    ...new Set(
+      [
+        ...removed.removedCommands.map((entry) => entry.auth?.tokenKey),
+        ...removed.removedApis.map((entry) => entry.auth?.tokenKey),
+      ].filter((key): key is string => Boolean(key)),
+    ),
+  ];
+  await deleteConnectorAccessTokens(stellaAppDir, tokenKeys);
+
+  let skillRemoved = false;
+  const skillDir = connectorSkillDir(stellaAppDir, id);
+  const skillContent = await fs
+    .readFile(path.join(skillDir, "SKILL.md"), "utf-8")
+    .catch(() => null);
+  if (skillContent?.includes(MCP_GENERATED_SKILL_MARKER)) {
+    await fs.rm(skillDir, { recursive: true, force: true });
+    skillRemoved = true;
+  }
+
+  return {
+    removed: {
+      commands: removed.removedCommands.length,
+      apis: removed.removedApis.length,
+    },
+    deletedTokenKeys: tokenKeys,
+    skillRemoved,
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Discovery / listing surface (shared by the CLI and the REPL client)
 // ---------------------------------------------------------------------------
 
@@ -903,17 +1346,10 @@ export const listConnectorActionSummaries = async (
   }
   const command = await findConnectorCommand(options.stellaAppDir, id);
   if (command) {
-    const tools = await withConnectorBridgeCleanup(
-      options.stellaAppDir,
-      command,
-      () =>
-        withAuthRetry(options, () =>
-          listConnectorBridgeTools(options.stellaAppDir, command),
-        ),
-    );
+    const probe = await probeMcpConnector(options, command);
     return toActionsList(
       id,
-      tools.map((tool: ConnectorToolInfo) => ({
+      probe.tools.map((tool: ConnectorToolInfo) => ({
         name: tool.name,
         description: tool.description,
         ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
@@ -983,15 +1419,8 @@ export const getConnectorActionSchema = async (
   }
   const command = await findConnectorCommand(options.stellaAppDir, id);
   if (command) {
-    const tools = await withConnectorBridgeCleanup(
-      options.stellaAppDir,
-      command,
-      () =>
-        withAuthRetry(options, () =>
-          listConnectorBridgeTools(options.stellaAppDir, command),
-        ),
-    );
-    const match = tools.find((tool) => tool.name === wanted);
+    const probe = await probeMcpConnector(options, command);
+    const match = probe.tools.find((tool) => tool.name === wanted);
     if (match) return finish(match);
     throw new Error(
       `Unknown action ${wanted} for ${id}. List actions with connect.actions("${id}").`,
@@ -1126,6 +1555,8 @@ export type ReplConnectClient = {
     action: string,
     args?: Record<string, unknown>,
   ): Promise<unknown>;
+  addMcp(options: Record<string, unknown>): Promise<unknown>;
+  remove(id: string): Promise<unknown>;
 };
 
 export const createReplConnectClient = (
@@ -1194,6 +1625,18 @@ export const createReplConnectClient = (
         input,
         await catalog(),
       );
+    },
+    addMcp: async (addOptions) => {
+      if (!isPlainRecord(addOptions)) {
+        throw new Error("connect.addMcp requires an options object.");
+      }
+      return await addMcpConnector(options, addOptions);
+    },
+    remove: async (id) => {
+      if (typeof id !== "string" || !id.trim()) {
+        throw new Error("connect.remove requires a connector id.");
+      }
+      return await removeMcpConnector(options, id.trim(), await catalog());
     },
   };
 };

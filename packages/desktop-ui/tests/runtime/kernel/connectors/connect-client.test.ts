@@ -1,8 +1,18 @@
+import http from "node:http";
 import { mkdtempSync } from "node:fs";
-import { mkdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  loadConnectorAccessToken,
+  saveConnectorAccessToken,
+} from "@stella/runtime/kernel/connectors/oauth";
+import {
+  installTestSafeStorage,
+  resetTestSafeStorage,
+} from "../../../helpers/protected-storage.js";
 
 import {
   writeCachedServerCatalog,
@@ -102,16 +112,29 @@ describe("installConnectWorkerApi (in-REPL surface)", () => {
     expect(Object.isFrozen(connect)).toBe(true);
     expect(Object.keys(connect).sort()).toEqual([
       "actions",
+      "addMcp",
       "call",
       "connectors",
       "discover",
       "documentation",
+      "remove",
       "schema",
     ]);
     expect(connect.documentation()).toContain("connect.discover(query)");
     expect(connect.documentation()).toContain(
       "discover → actions → schema → call",
     );
+    expect(connect.documentation()).toContain("connect.addMcp(");
+    expect(connect.documentation()).toContain("connect.remove(id)");
+    // One example each for the two transports.
+    expect(connect.documentation()).toContain(
+      'transport: { url: "https://mcp.linear.app/mcp" }',
+    );
+    expect(connect.documentation()).toContain(
+      'transport: { command: "npx", args: ["-y", "my-mcp-server"] }',
+    );
+    // The doc must not claim the client can only call connectors.
+    expect(connect.documentation()).toContain("manages connectors too");
     expect(connect.documentation()).not.toContain("stella-connect");
 
     await connect.discover("  google docs ");
@@ -119,6 +142,8 @@ describe("installConnectWorkerApi (in-REPL surface)", () => {
     await connect.actions("googledocs", { query: "comment", limit: 5 });
     await connect.schema("googledocs", "GOOGLEDOCS_CREATE_COMMENT");
     await connect.call("googledocs", "GOOGLEDOCS_CREATE_COMMENT", { a: 1 });
+    await connect.addMcp({ id: "svc", transport: { url: "https://x.test/mcp" } });
+    await connect.remove(" svc ");
     expect(calls).toEqual([
       { method: "discover", args: ["google docs"] },
       { method: "connectors", args: [] },
@@ -131,6 +156,11 @@ describe("installConnectWorkerApi (in-REPL surface)", () => {
         method: "call",
         args: ["googledocs", "GOOGLEDOCS_CREATE_COMMENT", { a: 1 }],
       },
+      {
+        method: "addMcp",
+        args: [{ id: "svc", transport: { url: "https://x.test/mcp" } }],
+      },
+      { method: "remove", args: ["svc"] },
     ]);
   });
 
@@ -149,6 +179,10 @@ describe("installConnectWorkerApi (in-REPL surface)", () => {
       ),
     ).toThrow(/plain object/);
     expect(() => connect.schema("gmail", "")).toThrow(/non-empty string/);
+    expect(() =>
+      connect.addMcp(5 as unknown as Record<string, unknown>),
+    ).toThrow(/plain object/);
+    expect(() => connect.remove("   ")).toThrow(/non-empty string/);
     expect(callConnect).not.toHaveBeenCalled();
   });
 });
@@ -511,5 +545,314 @@ describe("createReplConnectClient broker round-trip", () => {
     await expect(
       client.call("outlook", "OUTLOOK_QUERY_EMAILS", {}),
     ).rejects.toThrow("The Stella connector broker is unavailable.");
+  });
+});
+
+describe("connect.addMcp / connect.remove management surface", () => {
+  beforeEach(() => {
+    installTestSafeStorage();
+  });
+  afterEach(() => {
+    resetTestSafeStorage();
+  });
+
+  const FIXTURE_INSTRUCTIONS = "Use fixture.read to fetch fixture records.";
+
+  const writeStdioFixtureServer = async (root: string) => {
+    const serverPath = path.join(root, "mcp-server.cjs");
+    await writeFile(
+      serverPath,
+      `const readline = require("node:readline");
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  const request = JSON.parse(line);
+  if (request.id === undefined) return;
+  const result = request.method === "initialize"
+    ? { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" }, instructions: ${JSON.stringify(FIXTURE_INSTRUCTIONS)} }
+    : request.method === "tools/list"
+      ? { tools: [{ name: "fixture.read", description: "Read fixture", inputSchema: { type: "object" } }] }
+      : {};
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\\n");
+});
+`,
+    );
+    return serverPath;
+  };
+
+  const readCommands = async (root: string) =>
+    JSON.parse(
+      await readFile(path.join(root, "connectors/commands.json"), "utf-8"),
+    ) as { commands: Array<{ id: string }> };
+
+  it("rejects malformed options before touching disk", async () => {
+    const root = await makeRoot();
+    const client = createReplConnectClient({ stellaAppDir: root });
+
+    await expect(
+      client.addMcp({ id: "Bad/Id", transport: { url: "https://x.test" } }),
+    ).rejects.toThrow(/Invalid connector id/);
+    await expect(client.addMcp({ id: "svc" })).rejects.toThrow(
+      /transport: \{ url \}/,
+    );
+    await expect(
+      client.addMcp({
+        id: "svc",
+        transport: { url: "https://x.test/mcp", command: "npx" },
+      }),
+    ).rejects.toThrow(/exactly one of url or command/);
+    await expect(
+      client.addMcp({ id: "svc", transport: { url: "ftp://x.test" } }),
+    ).rejects.toThrow(/http\(s\)/);
+    await expect(
+      client.addMcp({
+        id: "svc",
+        transport: { url: "https://x.test/mcp" },
+        auth: { type: "password" },
+      }),
+    ).rejects.toThrow(/auth\.type/);
+
+    await expect(stat(path.join(root, "connectors/commands.json"))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+  });
+
+  it("imports a stdio MCP: probes tools, persists config, and writes a skill with server instructions", async () => {
+    const root = await makeRoot();
+    const serverPath = await writeStdioFixtureServer(root);
+    const client = createReplConnectClient({ stellaAppDir: root });
+
+    const result = (await client.addMcp({
+      id: "Fixture-MCP",
+      name: "Fixture MCP",
+      transport: { command: process.execPath, args: [serverPath] },
+    })) as {
+      imported: { id: string; transport: string };
+      toolCount: number;
+      skillPath: string;
+      probeDeferred?: true;
+    };
+
+    expect(result.imported).toMatchObject({
+      id: "fixture-mcp",
+      transport: "stdio",
+    });
+    expect(result.toolCount).toBe(1);
+    expect(result.probeDeferred).toBeUndefined();
+
+    const commands = await readCommands(root);
+    expect(commands.commands).toEqual([
+      expect.objectContaining({ id: "fixture-mcp", displayName: "Fixture MCP" }),
+    ]);
+
+    const skill = await readFile(result.skillPath, "utf-8");
+    expect(result.skillPath).toBe(
+      path.join(root, "skills", "fixture-mcp", "SKILL.md"),
+    );
+    expect(skill).toContain("<!-- stella-connect-mcp-skill -->");
+    expect(skill).toContain("`fixture.read`");
+    expect(skill).toContain(FIXTURE_INSTRUCTIONS);
+    expect(skill).toContain('await connect.actions("fixture-mcp"');
+    expect(skill).not.toContain("stella-connect ");
+
+    // The imported connector is immediately listable through the client.
+    const actions = (await client.actions("fixture-mcp")) as {
+      actions: Array<{ name: string }>;
+    };
+    expect(actions.actions).toEqual([
+      expect.objectContaining({ name: "fixture.read" }),
+    ]);
+  });
+
+  it("surfaces non-auth probe failures without persisting anything", async () => {
+    const root = await makeRoot();
+    const client = createReplConnectClient({ stellaAppDir: root });
+    await expect(
+      client.addMcp({
+        id: "broken",
+        transport: {
+          command: process.execPath,
+          args: ["-e", "process.exit(1)"],
+        },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      stat(path.join(root, "connectors/commands.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      stat(path.join(root, "skills", "broken")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("defers the probe on auth, then completes the skill once actions() succeeds with a credential", async () => {
+    const root = await makeRoot();
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk: string | Buffer) => {
+        body += String(chunk);
+      });
+      req.on("end", () => {
+        if (req.headers.authorization !== "Bearer secret-token") {
+          res.writeHead(401, { "content-type": "text/plain" });
+          res.end("auth required");
+          return;
+        }
+        const message = JSON.parse(body || "{}") as {
+          id?: string;
+          method?: string;
+        };
+        if (message.id === undefined) {
+          res.writeHead(202);
+          res.end();
+          return;
+        }
+        const result =
+          message.method === "initialize"
+            ? {
+                protocolVersion: "2025-06-18",
+                capabilities: { tools: {} },
+                serverInfo: { name: "hosted", version: "1" },
+                instructions: "Hosted fixture guidance.",
+              }
+            : message.method === "tools/list"
+              ? {
+                  tools: [
+                    {
+                      name: "hosted.read",
+                      description: "Read hosted fixture",
+                      inputSchema: { type: "object" },
+                    },
+                  ],
+                }
+              : {};
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address() as { port: number };
+    try {
+      const client = createReplConnectClient({ stellaAppDir: root });
+      const result = (await client.addMcp({
+        id: "hosted-fixture",
+        transport: { url: `http://127.0.0.1:${address.port}/mcp` },
+        auth: { type: "api_key", tokenKey: "hosted-fixture" },
+      })) as {
+        toolCount: number;
+        skillPath: string;
+        probeDeferred?: true;
+        hint?: string;
+      };
+
+      // No bridge socket → no credential dialog → the probe defers but the
+      // import is preserved (the user declared the auth shape on purpose).
+      expect(result.probeDeferred).toBe(true);
+      expect(result.toolCount).toBe(0);
+      expect(result.hint).toContain('connect.actions("hosted-fixture")');
+      const commands = await readCommands(root);
+      expect(commands.commands).toEqual([
+        expect.objectContaining({
+          id: "hosted-fixture",
+          transport: "streamable_http",
+        }),
+      ]);
+      const stubSkill = await readFile(result.skillPath, "utf-8");
+      expect(stubSkill).toContain(
+        "Action list deferred until credentials are configured",
+      );
+
+      // The credential lands (out of band here); the next successful tools
+      // listing rewrites the stub skill with real actions + instructions.
+      await saveConnectorAccessToken(root, "hosted-fixture", "secret-token");
+      const actions = (await client.actions("hosted-fixture")) as {
+        actions: Array<{ name: string }>;
+      };
+      expect(actions.actions).toEqual([
+        expect.objectContaining({ name: "hosted.read" }),
+      ]);
+      const refreshed = await readFile(result.skillPath, "utf-8");
+      expect(refreshed).toContain("`hosted.read`");
+      expect(refreshed).toContain("Hosted fixture guidance.");
+      expect(refreshed).not.toContain(
+        "Action list deferred until credentials are configured",
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("removes an imported connector: config, generated skill, and stored tokens", async () => {
+    const root = await makeRoot();
+    const serverPath = await writeStdioFixtureServer(root);
+    const client = createReplConnectClient({ stellaAppDir: root });
+    const imported = (await client.addMcp({
+      id: "fixture-mcp",
+      transport: { command: process.execPath, args: [serverPath] },
+      auth: { type: "api_key" },
+    })) as { skillPath: string; probeDeferred?: true };
+    // auth.tokenKey defaults to the connector id.
+    await saveConnectorAccessToken(root, "fixture-mcp", "stored-secret");
+    await expect(
+      loadConnectorAccessToken(root, "fixture-mcp"),
+    ).resolves.toBe("stored-secret");
+
+    const removed = (await client.remove("fixture-mcp")) as {
+      removed: { commands: number; apis: number };
+      deletedTokenKeys: string[];
+      skillRemoved: boolean;
+    };
+    expect(removed).toEqual({
+      removed: { commands: 1, apis: 0 },
+      deletedTokenKeys: ["fixture-mcp"],
+      skillRemoved: true,
+    });
+    expect((await readCommands(root)).commands).toEqual([]);
+    await expect(stat(imported.skillPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(
+      loadConnectorAccessToken(root, "fixture-mcp"),
+    ).resolves.toBeNull();
+  });
+
+  it("never deletes a user-authored skill directory on remove", async () => {
+    const root = await makeRoot();
+    await writeFile(
+      path.join(root, "connectors/commands.json"),
+      JSON.stringify({
+        commands: [
+          {
+            id: "hand-rolled",
+            displayName: "Hand Rolled",
+            transport: "streamable_http",
+            url: "https://example.invalid/mcp",
+            auth: { type: "none" },
+          },
+        ],
+      }),
+    );
+    const skillDir = path.join(root, "skills", "hand-rolled");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(path.join(skillDir, "SKILL.md"), "# my own notes\n");
+    const client = createReplConnectClient({ stellaAppDir: root });
+
+    const removed = (await client.remove("hand-rolled")) as {
+      skillRemoved: boolean;
+    };
+    expect(removed.skillRemoved).toBe(false);
+    await expect(
+      readFile(path.join(skillDir, "SKILL.md"), "utf-8"),
+    ).resolves.toContain("my own notes");
+  });
+
+  it("refuses to remove unknown ids and native Store integrations", async () => {
+    const root = await makeRoot();
+    await writeCachedServerCatalog(root, [backendEntry("outlook", "Outlook")]);
+    const client = createReplConnectClient({ stellaAppDir: root });
+    await expect(client.remove("missing-connector")).rejects.toThrow(
+      /not installed/,
+    );
+    await expect(client.remove("outlook")).rejects.toThrow(/Store/);
   });
 });

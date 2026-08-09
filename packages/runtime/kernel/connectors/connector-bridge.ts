@@ -86,9 +86,26 @@ const replaceSecretPlaceholders = async (stellaAppDir: string, value: string) =>
   return parts.join("");
 };
 
+/**
+ * Optional server-provided usage guidance from the MCP `initialize`
+ * response (`result.instructions`). Captured so imports can embed it in
+ * the generated connector skill.
+ */
+const readInstructions = (result: unknown): string | undefined => {
+  const instructions =
+    result && typeof result === "object"
+      ? (result as { instructions?: unknown }).instructions
+      : undefined;
+  return typeof instructions === "string" && instructions.trim()
+    ? instructions.trim()
+    : undefined;
+};
+
 class HttpConnectorBridgeSession {
   private sessionId: string | null = null;
   private initialized = false;
+  /** From the last successful `initialize` (see {@link readInstructions}). */
+  instructions: string | undefined;
 
   constructor(
     private readonly stellaAppDir: string,
@@ -228,11 +245,12 @@ class HttpConnectorBridgeSession {
 
   async initialize() {
     if (this.initialized) return;
-    await this.request("initialize", {
+    const result = await this.request("initialize", {
       protocolVersion: "2025-06-18",
       capabilities: {},
       clientInfo: { name: "stella", version: "0" },
     });
+    this.instructions = readInstructions(result) ?? this.instructions;
     await this.notify("notifications/initialized");
     this.initialized = true;
   }
@@ -265,6 +283,8 @@ class HttpConnectorBridgeSession {
 class StdioConnectorBridgeSession {
   private child: ChildProcessWithoutNullStreams | null = null;
   private processRecordPromise: Promise<string | null> | null = null;
+  /** From the last successful `initialize` (see {@link readInstructions}). */
+  instructions: string | undefined;
   private nextId = 1;
   private pending = new Map<
     string,
@@ -423,11 +443,12 @@ class StdioConnectorBridgeSession {
 
   async initialize() {
     if (this.initialized) return;
-    await this.request("initialize", {
+    const result = await this.request("initialize", {
       protocolVersion: "2025-06-18",
       capabilities: {},
       clientInfo: { name: "stella", version: "0" },
     });
+    this.instructions = readInstructions(result) ?? this.instructions;
     await this.notify("notifications/initialized");
     this.initialized = true;
   }
@@ -491,6 +512,28 @@ export const listConnectorBridgeTools = async (
   stellaAppDir: string,
   server: ConnectorCommandConfig,
 ) => getSession(stellaAppDir, server).listTools();
+
+export type ConnectorBridgeProbe = {
+  tools: ConnectorToolInfo[];
+  /** Server-provided usage guidance from the MCP `initialize` response. */
+  instructions?: string;
+};
+
+/**
+ * `tools/list` plus the `instructions` string the server volunteered
+ * during `initialize` — the shape MCP imports need to generate a skill.
+ */
+export const probeConnectorBridgeTools = async (
+  stellaAppDir: string,
+  server: ConnectorCommandConfig,
+): Promise<ConnectorBridgeProbe> => {
+  const session = getSession(stellaAppDir, server);
+  const tools = await session.listTools();
+  return {
+    tools,
+    ...(session.instructions ? { instructions: session.instructions } : {}),
+  };
+};
 
 export const callConnectorBridgeTool = async (
   stellaAppDir: string,

@@ -163,6 +163,8 @@ const CONNECT_METHODS = new Set<ConnectMethod>([
   "actions",
   "schema",
   "call",
+  "addMcp",
+  "remove",
 ]);
 
 const SKY_METHODS = new Set<SkyMethod>([
@@ -856,6 +858,10 @@ class NodeReplKernel {
           isPlainRecord(args[2]) ? args[2] : {},
         );
       }
+      case "addMcp":
+        return isPlainRecord(args[0]) ? client.addMcp(args[0]) : invalid();
+      case "remove":
+        return isNonEmptyString(args[0]) ? client.remove(args[0]) : invalid();
     }
   }
 

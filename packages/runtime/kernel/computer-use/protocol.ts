@@ -34,7 +34,9 @@ export type ConnectMethod =
   | "connectors"
   | "actions"
   | "schema"
-  | "call";
+  | "call"
+  | "addMcp"
+  | "remove";
 
 export type SerializedError = {
   name: string;

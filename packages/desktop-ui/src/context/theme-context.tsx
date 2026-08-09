@@ -18,7 +18,10 @@ import {
   type Theme,
   type ThemeColors,
 } from "../shared/theme/themes";
-import { generateGradientTokens } from "../shared/theme/color";
+import {
+  generateAuroraStops,
+  generateGradientTokens,
+} from "../shared/theme/color";
 import { uiState } from "../platform/ui-state";
 
 type ColorMode = "light" | "dark" | "system";
@@ -83,7 +86,9 @@ const GRADIENT_MODE_STORAGE_KEY = "stella-gradient-mode";
 const GRADIENT_COLOR_STORAGE_KEY = "stella-gradient-color";
 
 function getSystemColorMode(): "light" | "dark" {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
 
 // The old separate "light"/"dark" themes were `forcedMode`-pinned and are now a
@@ -166,6 +171,19 @@ function applyThemeToDocument(
   root.style.setProperty("--stella-animation-color-2", colors.success);
   root.style.setProperty("--stella-animation-color-3", colors.warning);
 
+  // Five aurora ramp stops for the StellaAnimation (see shell/aurora),
+  // derived from the theme's interactive/accent hues. The animation's
+  // MutationObserver re-reads these on every root style change, so theme
+  // switches and picker previews recolor the aurora live.
+  const auroraStops = generateAuroraStops(
+    colors.interactive,
+    colors.accent,
+    isDark,
+  );
+  auroraStops.forEach((stop, index) => {
+    root.style.setProperty(`--stella-aurora-${index + 1}`, stop);
+  });
+
   const gradientTokens = getGradientTokens(
     {
       primary: colors.primary,
@@ -174,10 +192,13 @@ function applyThemeToDocument(
       info: colors.info,
       interactive: colors.interactive,
     },
-    isDark
+    isDark,
   );
 
-  root.style.setProperty("--text-interactive-base", gradientTokens.textInteractive);
+  root.style.setProperty(
+    "--text-interactive-base",
+    gradientTokens.textInteractive,
+  );
 }
 
 // ─── Persistence helpers ─────────────────────────────────────────────────
@@ -202,33 +223,50 @@ interface PersistedThemeState {
   setGradientColor: (color: GradientColor) => void;
 }
 
-function useThemePersistence(
-  clearPreviews: () => void,
-): PersistedThemeState {
-  const [themeId, setThemeIdRaw] = useState(() => migrateThemeId(readStorage(THEME_STORAGE_KEY, defaultTheme.id)));
-  const [customBase, setCustomBaseRaw] = useState<string | null>(() => migrateThemeId(uiState.getItem(CUSTOM_BASE_STORAGE_KEY)));
-  const [colorMode, setColorModeRaw] = useState<ColorMode>(
-    () => readLegacyForcedAppearance() ?? readStorage<ColorMode>(COLOR_MODE_STORAGE_KEY, "light"),
+function useThemePersistence(clearPreviews: () => void): PersistedThemeState {
+  const [themeId, setThemeIdRaw] = useState(() =>
+    migrateThemeId(readStorage(THEME_STORAGE_KEY, defaultTheme.id)),
   );
-  const [gradientMode, setGradientModeRaw] = useState(() => readStorage<GradientMode>(GRADIENT_MODE_STORAGE_KEY, "soft"));
-  const [gradientColor, setGradientColorRaw] = useState(() => readStorage<GradientColor>(GRADIENT_COLOR_STORAGE_KEY, "relative"));
-  const [systemMode, setSystemMode] = useState<"light" | "dark">(getSystemColorMode);
+  const [customBase, setCustomBaseRaw] = useState<string | null>(() =>
+    migrateThemeId(uiState.getItem(CUSTOM_BASE_STORAGE_KEY)),
+  );
+  const [colorMode, setColorModeRaw] = useState<ColorMode>(
+    () =>
+      readLegacyForcedAppearance() ??
+      readStorage<ColorMode>(COLOR_MODE_STORAGE_KEY, "light"),
+  );
+  const [gradientMode, setGradientModeRaw] = useState(() =>
+    readStorage<GradientMode>(GRADIENT_MODE_STORAGE_KEY, "soft"),
+  );
+  const [gradientColor, setGradientColorRaw] = useState(() =>
+    readStorage<GradientColor>(GRADIENT_COLOR_STORAGE_KEY, "relative"),
+  );
+  const [systemMode, setSystemMode] = useState<"light" | "dark">(
+    getSystemColorMode,
+  );
 
   useEffect(() => {
     if (!window.electronAPI) return;
     if (!window.electronAPI.theme.listInstalled) return;
-    window.electronAPI.theme.listInstalled().then((installed) => {
-      if (Array.isArray(installed)) {
-        for (const t of installed) registerTheme(t);
-      }
-    }).catch((err) => {
-      console.debug('[theme] Failed to load installed themes:', (err as Error).message);
-    });
+    window.electronAPI.theme
+      .listInstalled()
+      .then((installed) => {
+        if (Array.isArray(installed)) {
+          for (const t of installed) registerTheme(t);
+        }
+      })
+      .catch((err) => {
+        console.debug(
+          "[theme] Failed to load installed themes:",
+          (err as Error).message,
+        );
+      });
   }, []);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => setSystemMode(e.matches ? "dark" : "light");
+    const handler = (e: MediaQueryListEvent) =>
+      setSystemMode(e.matches ? "dark" : "light");
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
@@ -241,9 +279,11 @@ function useThemePersistence(
     const legacy = readLegacyForcedAppearance();
     if (!legacy) return;
     const rawTheme = uiState.getItem(THEME_STORAGE_KEY);
-    if (rawTheme === "light" || rawTheme === "dark") uiState.setItem(THEME_STORAGE_KEY, "default");
+    if (rawTheme === "light" || rawTheme === "dark")
+      uiState.setItem(THEME_STORAGE_KEY, "default");
     const rawBase = uiState.getItem(CUSTOM_BASE_STORAGE_KEY);
-    if (rawBase === "light" || rawBase === "dark") uiState.setItem(CUSTOM_BASE_STORAGE_KEY, "default");
+    if (rawBase === "light" || rawBase === "dark")
+      uiState.setItem(CUSTOM_BASE_STORAGE_KEY, "default");
     uiState.setItem(COLOR_MODE_STORAGE_KEY, legacy);
     setColorModeRaw(legacy);
   }, []);
@@ -252,23 +292,60 @@ function useThemePersistence(
   // dispatched by the shared UI state client.
   useEffect(() => {
     const handler = (e: StorageEvent) => {
-      if (e.key === THEME_STORAGE_KEY && e.newValue) { setThemeIdRaw(migrateThemeId(e.newValue)); clearPreviews(); }
-      else if (e.key === CUSTOM_BASE_STORAGE_KEY && e.newValue) { setCustomBaseRaw(migrateThemeId(e.newValue)); clearPreviews(); }
-      else if (e.key === COLOR_MODE_STORAGE_KEY && e.newValue) setColorModeRaw(e.newValue as ColorMode);
-      else if (e.key === GRADIENT_MODE_STORAGE_KEY && e.newValue) { setGradientModeRaw(e.newValue as GradientMode); clearPreviews(); }
-      else if (e.key === GRADIENT_COLOR_STORAGE_KEY && e.newValue) { setGradientColorRaw(e.newValue as GradientColor); clearPreviews(); }
+      if (e.key === THEME_STORAGE_KEY && e.newValue) {
+        setThemeIdRaw(migrateThemeId(e.newValue));
+        clearPreviews();
+      } else if (e.key === CUSTOM_BASE_STORAGE_KEY && e.newValue) {
+        setCustomBaseRaw(migrateThemeId(e.newValue));
+        clearPreviews();
+      } else if (e.key === COLOR_MODE_STORAGE_KEY && e.newValue)
+        setColorModeRaw(e.newValue as ColorMode);
+      else if (e.key === GRADIENT_MODE_STORAGE_KEY && e.newValue) {
+        setGradientModeRaw(e.newValue as GradientMode);
+        clearPreviews();
+      } else if (e.key === GRADIENT_COLOR_STORAGE_KEY && e.newValue) {
+        setGradientColorRaw(e.newValue as GradientColor);
+        clearPreviews();
+      }
     };
     window.addEventListener("storage", handler);
     return () => window.removeEventListener("storage", handler);
   }, [clearPreviews]);
 
-  const setThemeId = useCallback((id: string) => { setThemeIdRaw(id); uiState.setItem(THEME_STORAGE_KEY, id); }, []);
-  const setCustomBase = useCallback((id: string) => { setCustomBaseRaw(id); uiState.setItem(CUSTOM_BASE_STORAGE_KEY, id); }, []);
-  const setColorMode = useCallback((mode: ColorMode) => { setColorModeRaw(mode); uiState.setItem(COLOR_MODE_STORAGE_KEY, mode); }, []);
-  const setGradientMode = useCallback((mode: GradientMode) => { setGradientModeRaw(mode); uiState.setItem(GRADIENT_MODE_STORAGE_KEY, mode); }, []);
-  const setGradientColor = useCallback((color: GradientColor) => { setGradientColorRaw(color); uiState.setItem(GRADIENT_COLOR_STORAGE_KEY, color); }, []);
+  const setThemeId = useCallback((id: string) => {
+    setThemeIdRaw(id);
+    uiState.setItem(THEME_STORAGE_KEY, id);
+  }, []);
+  const setCustomBase = useCallback((id: string) => {
+    setCustomBaseRaw(id);
+    uiState.setItem(CUSTOM_BASE_STORAGE_KEY, id);
+  }, []);
+  const setColorMode = useCallback((mode: ColorMode) => {
+    setColorModeRaw(mode);
+    uiState.setItem(COLOR_MODE_STORAGE_KEY, mode);
+  }, []);
+  const setGradientMode = useCallback((mode: GradientMode) => {
+    setGradientModeRaw(mode);
+    uiState.setItem(GRADIENT_MODE_STORAGE_KEY, mode);
+  }, []);
+  const setGradientColor = useCallback((color: GradientColor) => {
+    setGradientColorRaw(color);
+    uiState.setItem(GRADIENT_COLOR_STORAGE_KEY, color);
+  }, []);
 
-  return { themeId, customBase, colorMode, gradientMode, gradientColor, systemMode, setThemeId, setCustomBase, setColorMode, setGradientMode, setGradientColor };
+  return {
+    themeId,
+    customBase,
+    colorMode,
+    gradientMode,
+    gradientColor,
+    systemMode,
+    setThemeId,
+    setCustomBase,
+    setColorMode,
+    setGradientMode,
+    setGradientColor,
+  };
 }
 
 // ─── useThemePreview — temporary preview state ───────────────────────────
@@ -288,15 +365,31 @@ interface ThemePreviewState {
 
 function useThemePreview(): ThemePreviewState {
   const [previewThemeId, setPreviewThemeId] = useState<string | null>(null);
-  const [previewGradientMode, setPreviewGradientModeRaw] = useState<GradientMode | null>(null);
-  const [previewGradientColor, setPreviewGradientColorRaw] = useState<GradientColor | null>(null);
+  const [previewGradientMode, setPreviewGradientModeRaw] =
+    useState<GradientMode | null>(null);
+  const [previewGradientColor, setPreviewGradientColorRaw] =
+    useState<GradientColor | null>(null);
 
-  const setPreviewTheme = useCallback((id: string) => { if (getThemeById(id)) setPreviewThemeId(id); }, []);
+  const setPreviewTheme = useCallback((id: string) => {
+    if (getThemeById(id)) setPreviewThemeId(id);
+  }, []);
   const cancelThemePreview = useCallback(() => setPreviewThemeId(null), []);
-  const setPreviewGradientMode = useCallback((mode: GradientMode) => setPreviewGradientModeRaw(mode), []);
-  const cancelGradientModePreview = useCallback(() => setPreviewGradientModeRaw(null), []);
-  const setPreviewGradientColor = useCallback((color: GradientColor) => setPreviewGradientColorRaw(color), []);
-  const cancelGradientColorPreview = useCallback(() => setPreviewGradientColorRaw(null), []);
+  const setPreviewGradientMode = useCallback(
+    (mode: GradientMode) => setPreviewGradientModeRaw(mode),
+    [],
+  );
+  const cancelGradientModePreview = useCallback(
+    () => setPreviewGradientModeRaw(null),
+    [],
+  );
+  const setPreviewGradientColor = useCallback(
+    (color: GradientColor) => setPreviewGradientColorRaw(color),
+    [],
+  );
+  const cancelGradientColorPreview = useCallback(
+    () => setPreviewGradientColorRaw(null),
+    [],
+  );
   const clearAll = useCallback(() => {
     setPreviewThemeId(null);
     setPreviewGradientModeRaw(null);
@@ -304,10 +397,15 @@ function useThemePreview(): ThemePreviewState {
   }, []);
 
   return {
-    previewThemeId, previewGradientMode, previewGradientColor,
-    setPreviewTheme, cancelThemePreview,
-    setPreviewGradientMode, cancelGradientModePreview,
-    setPreviewGradientColor, cancelGradientColorPreview,
+    previewThemeId,
+    previewGradientMode,
+    previewGradientColor,
+    setPreviewTheme,
+    cancelThemePreview,
+    setPreviewGradientMode,
+    cancelGradientModePreview,
+    setPreviewGradientColor,
+    cancelGradientColorPreview,
     clearAll,
   };
 }
@@ -317,7 +415,11 @@ function useThemePreview(): ThemePreviewState {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const preview = useThemePreview();
   const persisted = useThemePersistence(preview.clearAll);
-  const availableThemes = useSyncExternalStore(subscribeThemes, getThemesSnapshot, getThemesSnapshot);
+  const availableThemes = useSyncExternalStore(
+    subscribeThemes,
+    getThemesSnapshot,
+    getThemesSnapshot,
+  );
 
   // ─ Custom overlay two-phase model ─
   // Phase 1 (Custom unpopulated): the user is always on Custom; picking a theme
@@ -333,14 +435,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       ? persisted.customBase
       : persisted.themeId !== "custom" && getThemeById(persisted.themeId)
         ? persisted.themeId
-        : customTheme?.base ?? defaultTheme.id;
+        : (customTheme?.base ?? defaultTheme.id);
 
   const effectiveActiveId = customPopulated ? persisted.themeId : "custom";
   const selectedThemeId = customPopulated ? persisted.themeId : customBaseId;
 
   const activeThemeId = preview.previewThemeId ?? effectiveActiveId;
   const theme = getThemeById(activeThemeId) ?? defaultTheme;
-  const userResolvedColorMode = persisted.colorMode === "system" ? persisted.systemMode : persisted.colorMode;
+  const userResolvedColorMode =
+    persisted.colorMode === "system"
+      ? persisted.systemMode
+      : persisted.colorMode;
   // Custom inherits colors, forced mode, and flatness from the base it
   // currently displays. The stock Default theme is `flat` (solid surface, no
   // blob) but has no `forcedMode`, so its light↔dark follows the mode toggle.
@@ -354,8 +459,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const resolvedColorMode = forcedMode ?? userResolvedColorMode;
   const effectiveGradientMode = flat
     ? "flat"
-    : preview.previewGradientMode ?? persisted.gradientMode;
-  const effectiveGradientColor = preview.previewGradientColor ?? persisted.gradientColor;
+    : (preview.previewGradientMode ?? persisted.gradientMode);
+  const effectiveGradientColor =
+    preview.previewGradientColor ?? persisted.gradientColor;
 
   // Normalize legacy/stock selections onto Custom while it is unpopulated, so
   // the instant a redesign populates Custom the user is already on it.
@@ -368,15 +474,41 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [customPopulated, rawThemeId, setCustomBase, setThemeId]);
 
   useEffect(() => {
-    applyThemeToDocument(colors, resolvedColorMode === "dark", theme.id, baseThemeId);
+    applyThemeToDocument(
+      colors,
+      resolvedColorMode === "dark",
+      theme.id,
+      baseThemeId,
+    );
   }, [colors, resolvedColorMode, theme.id, baseThemeId]);
 
   const readValue = useMemo<ThemeReadValue>(
     () => ({
-      theme, themeId: effectiveActiveId, selectedThemeId, colorMode: persisted.colorMode, resolvedColorMode, forcedMode, flat,
-      gradientMode: effectiveGradientMode, gradientColor: effectiveGradientColor, colors, themes: availableThemes,
+      theme,
+      themeId: effectiveActiveId,
+      selectedThemeId,
+      colorMode: persisted.colorMode,
+      resolvedColorMode,
+      forcedMode,
+      flat,
+      gradientMode: effectiveGradientMode,
+      gradientColor: effectiveGradientColor,
+      colors,
+      themes: availableThemes,
     }),
-    [theme, effectiveActiveId, selectedThemeId, persisted.colorMode, resolvedColorMode, forcedMode, flat, effectiveGradientMode, effectiveGradientColor, colors, availableThemes],
+    [
+      theme,
+      effectiveActiveId,
+      selectedThemeId,
+      persisted.colorMode,
+      resolvedColorMode,
+      forcedMode,
+      flat,
+      effectiveGradientMode,
+      effectiveGradientColor,
+      colors,
+      availableThemes,
+    ],
   );
 
   const controlValue = useMemo<ThemeControlValue>(
@@ -392,8 +524,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         preview.cancelThemePreview();
       },
       setColorMode: persisted.setColorMode,
-      setGradientMode: (mode: GradientMode) => { persisted.setGradientMode(mode); preview.cancelGradientModePreview(); },
-      setGradientColor: (color: GradientColor) => { persisted.setGradientColor(color); preview.cancelGradientColorPreview(); },
+      setGradientMode: (mode: GradientMode) => {
+        persisted.setGradientMode(mode);
+        preview.cancelGradientModePreview();
+      },
+      setGradientColor: (color: GradientColor) => {
+        persisted.setGradientColor(color);
+        preview.cancelGradientColorPreview();
+      },
       previewTheme: preview.setPreviewTheme,
       cancelThemePreview: preview.cancelThemePreview,
       previewGradientMode: preview.setPreviewGradientMode,

@@ -19,7 +19,7 @@ import {
   useOnboardingState,
 } from "@/global/onboarding/use-onboarding-state";
 import { SPLIT_PHASES, type Phase } from "@/global/onboarding/onboarding-flow";
-import type { StellaAnimationHandle } from "@/shell/ascii-creature/StellaAnimation";
+import type { StellaAnimationHandle } from "@/shell/aurora/StellaAnimation";
 
 export const CREATURE_INITIAL_SIZE = 0.22;
 

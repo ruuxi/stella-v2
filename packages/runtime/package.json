@@ -11,8 +11,6 @@
     "./ai/providers/anthropic.js": "./ai/providers/anthropic.js",
     "./ai/providers/openai-codex-responses": "./ai/providers/openai-codex-responses.js",
     "./ai/providers/openai-codex-responses.js": "./ai/providers/openai-codex-responses.js",
-    "./ai/utils/deferred-tools": "./ai/utils/deferred-tools.js",
-    "./ai/utils/deferred-tools.js": "./ai/utils/deferred-tools.js",
     "./ai/utils/oauth": "./ai/utils/oauth/index.ts",
     "./host": "./host/index.js",
     "./host/index": "./host/index.js",

@@ -44,6 +44,10 @@
       "directDescription": "Stella מבצעת משימות בעצמה ומאצילה רק כשזה מועיל.",
       "orchestratedDescription": "Stella מתאמת סוכן General שיכול לחלק עבודות גדולות בין תת-סוכנים."
     },
+    "memory": {
+      "title": "זיכרון",
+      "description": "כלול את הזיכרונות השמורים ואת הפרופיל שלך בהקשר המודל של Stella. כיבוי האפשרות ישאיר את קובצי הזיכרון במכשיר שלך אך יחריג אותם מהתורות הבאים."
+    },
     "developerPreviews": {
       "title": "תצוגות מקדימות של קבצים למפתחים",
       "description": "הצגת שינויי קוד בצ'אט ופתיחתם בלוח הצד."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "טעינת מצב התזמור נכשלה.",
       "saveWorkingMode": "עדכון מצב התזמור נכשל.",
       "workingModeUnavailable": "מצב התזמור אינו זמין בחלון הזה.",
+      "loadMemory": "טעינת הגדרת הזיכרון נכשלה.",
+      "saveMemory": "עדכון הגדרת הזיכרון נכשל.",
+      "memoryUnavailable": "הגדרות הזיכרון אינן זמינות בחלון זה.",
       "loadPermissions": "טעינת סטטוס ההרשאות של שולחן העבודה נכשלה.",
       "savePermission": "עדכון הרשאת {kind} נכשל.",
       "resetPermission": "איפוס הרשאת {kind} נכשל.",
@@ -1882,8 +1889,10 @@
       "heroTagline": "שלח הודעות ל-Stella מכל פלטפורמה שתרצה — שוחח בטבעיות, או בקש ממנה לבצע דברים ישירות במחשב שלך.",
       "signInToConnect": "התחבר ל-Stella כדי לחבר",
       "connectStellaApp": "התחבר לאפליקציית Stella",
+      "connectStellaAppSub": "שייך את אפליקציית Stella שבטלפון שלך למחשב הזה",
       "sectionTitle": "אינטגרציות",
       "connectTitle": "חיבור",
+      "phoneTitle": "הטלפון שלך",
       "backToConnections": "חזרה לחיבורים",
       "connected": "מחובר",
       "connectProvider": "חבר את {provider}",

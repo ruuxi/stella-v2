@@ -44,6 +44,10 @@
       "directDescription": "Stella mengerjakan tugas sendiri dan hanya mendelegasikan bila bermanfaat.",
       "orchestratedDescription": "Stella mengoordinasikan agen General yang dapat membagi pekerjaan besar ke subagen."
     },
+    "memory": {
+      "title": "Memori",
+      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Menonaktifkan ini akan membiarkan berkas memori tetap di perangkat Anda tetapi mengecualikannya dari giliran berikutnya."
+    },
     "developerPreviews": {
       "title": "Pratinjau berkas pengembang",
       "description": "Tampilkan perubahan kode di obrolan dan buka di panel samping."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Gagal memuat mode orkestrator.",
       "saveWorkingMode": "Gagal memperbarui mode orkestrator.",
       "workingModeUnavailable": "Mode orkestrator tidak tersedia di jendela ini.",
+      "loadMemory": "Gagal memuat pengaturan memori.",
+      "saveMemory": "Gagal memperbarui pengaturan memori.",
+      "memoryUnavailable": "Pengaturan memori tidak tersedia di jendela ini.",
       "loadPermissions": "Gagal memuat status izin desktop.",
       "savePermission": "Gagal memperbarui izin {kind}.",
       "resetPermission": "Gagal mengatur ulang izin {kind}.",
@@ -1838,8 +1845,10 @@
       "heroTagline": "Kirim pesan ke Stella dari platform mana pun yang Anda suka — mengobrol dengan santai, atau minta dia menyelesaikan pekerjaan langsung di komputer Anda.",
       "signInToConnect": "Masuk ke Stella untuk menghubungkan",
       "connectStellaApp": "Hubungkan ke Aplikasi Stella",
+      "connectStellaAppSub": "Pasangkan aplikasi Stella di ponsel Anda dengan komputer ini",
       "sectionTitle": "Integrasi",
       "connectTitle": "Hubungkan",
+      "phoneTitle": "Ponsel Anda",
       "backToConnections": "Kembali ke koneksi",
       "connected": "Terhubung",
       "connectProvider": "Hubungkan {provider}",

@@ -44,6 +44,10 @@
       "directDescription": "Stella tự thực hiện các tác vụ và chỉ ủy quyền khi cần thiết.",
       "orchestratedDescription": "Stella điều phối một tác nhân General có thể chia công việc lớn cho các tác nhân phụ."
     },
+    "memory": {
+      "title": "Bộ nhớ",
+      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Khi tắt, các tệp bộ nhớ vẫn nằm trên thiết bị của bạn nhưng sẽ không được dùng trong các lượt sau."
+    },
     "developerPreviews": {
       "title": "Xem trước tệp dành cho nhà phát triển",
       "description": "Hiển thị thay đổi mã trong trò chuyện và mở chúng trong bảng bên."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Không tải được chế độ điều phối.",
       "saveWorkingMode": "Không cập nhật được chế độ điều phối.",
       "workingModeUnavailable": "Chế độ điều phối không khả dụng trong cửa sổ này.",
+      "loadMemory": "Không tải được cài đặt bộ nhớ.",
+      "saveMemory": "Không cập nhật được cài đặt bộ nhớ.",
+      "memoryUnavailable": "Cài đặt bộ nhớ không khả dụng trong cửa sổ này.",
       "loadPermissions": "Không tải được trạng thái quyền trên máy tính để bàn.",
       "savePermission": "Không cập nhật được quyền {kind}.",
       "resetPermission": "Không đặt lại được quyền {kind}.",
@@ -1841,8 +1848,10 @@
       "heroTagline": "Nhắn tin cho Stella từ bất kỳ nền tảng nào bạn thích — trò chuyện tự nhiên, hoặc nhờ Stella làm việc ngay trên máy tính của bạn.",
       "signInToConnect": "Đăng nhập vào Stella để kết nối",
       "connectStellaApp": "Kết nối với ứng dụng Stella",
+      "connectStellaAppSub": "Ghép nối ứng dụng Stella trên điện thoại của bạn với máy tính này",
       "sectionTitle": "Tích hợp",
       "connectTitle": "Kết nối",
+      "phoneTitle": "Điện thoại của bạn",
       "backToConnections": "Quay lại danh sách kết nối",
       "connected": "Đã kết nối",
       "connectProvider": "Kết nối {provider}",

@@ -44,6 +44,10 @@
       "directDescription": "Stella arbetar med uppgifter själv och delegerar bara när det är användbart.",
       "orchestratedDescription": "Stella samordnar en General-agent som kan dela upp större arbete på underagenter."
     },
+    "memory": {
+      "title": "Minne",
+      "description": "Inkludera sparade minnen och din profil i Stellas modellkontext. Om du stänger av detta ligger minnesfilerna kvar på din enhet men utesluts från kommande svar."
+    },
     "developerPreviews": {
       "title": "Filförhandsvisningar för utvecklare",
       "description": "Visa kodändringar i chatten och öppna dem i sidopanelen."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Det gick inte att läsa in orkestratorläget.",
       "saveWorkingMode": "Det gick inte att uppdatera orkestratorläget.",
       "workingModeUnavailable": "Orkestratorläget är inte tillgängligt i det här fönstret.",
+      "loadMemory": "Det gick inte att läsa in minnesinställningen.",
+      "saveMemory": "Det gick inte att uppdatera minnesinställningen.",
+      "memoryUnavailable": "Minnesinställningar är inte tillgängliga i det här fönstret.",
       "loadPermissions": "Det gick inte att läsa in behörighetsstatus för skrivbordet.",
       "savePermission": "Det gick inte att uppdatera behörigheten {kind}.",
       "resetPermission": "Det gick inte att återställa behörigheten {kind}.",
@@ -1861,8 +1868,10 @@
       "heroTagline": "Skicka meddelanden till Stella från vilken plattform du vill — chatta naturligt, eller be henne få saker gjorda direkt på din dator.",
       "signInToConnect": "Logga in på Stella för att ansluta",
       "connectStellaApp": "Anslut till Stella-appen",
+      "connectStellaAppSub": "Parkoppla Stella-appen på din telefon med den här datorn",
       "sectionTitle": "Integrationer",
       "connectTitle": "Anslut",
+      "phoneTitle": "Din telefon",
       "backToConnections": "Tillbaka till anslutningar",
       "connected": "Ansluten",
       "connectProvider": "Anslut {provider}",

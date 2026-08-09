@@ -44,6 +44,10 @@
       "directDescription": "Stella trabaja en las tareas por sí misma y delega solo cuando resulta útil.",
       "orchestratedDescription": "Stella coordina un agente General que puede repartir el trabajo más grande entre subagentes."
     },
+    "memory": {
+      "title": "Memoria",
+      "description": "Incluir las memorias guardadas y tu perfil en el contexto del modelo de Stella. Si lo desactivas, los archivos de memoria seguirán en tu dispositivo pero se excluirán de los próximos turnos."
+    },
     "developerPreviews": {
       "title": "Vistas previas de archivos para desarrolladores",
       "description": "Muestra los cambios de código en el chat y ábrelos en el panel lateral."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "No se pudo cargar el modo orquestador.",
       "saveWorkingMode": "No se pudo actualizar el modo orquestador.",
       "workingModeUnavailable": "El modo orquestador no está disponible en esta ventana.",
+      "loadMemory": "No se pudo cargar el ajuste de memoria.",
+      "saveMemory": "No se pudo actualizar el ajuste de memoria.",
+      "memoryUnavailable": "Los ajustes de memoria no están disponibles en esta ventana.",
       "loadPermissions": "No se pudo cargar el estado de permisos del escritorio.",
       "savePermission": "No se pudo actualizar el permiso de {kind}.",
       "resetPermission": "No se pudo restablecer el permiso de {kind}.",
@@ -1886,8 +1893,10 @@
       "heroTagline": "Escribe a Stella desde la plataforma que quieras: charla con naturalidad o pídele que haga cosas directamente en tu ordenador.",
       "signInToConnect": "Inicia sesión en Stella para conectar",
       "connectStellaApp": "Conectar con la app de Stella",
+      "connectStellaAppSub": "Vincula la app de Stella de tu teléfono con este ordenador",
       "sectionTitle": "Integraciones",
       "connectTitle": "Conectar",
+      "phoneTitle": "Tu teléfono",
       "backToConnections": "Volver a las conexiones",
       "connected": "Conectado",
       "connectProvider": "Conectar {provider}",

@@ -1798,6 +1798,7 @@
         "historyEmpty": "अभी तक कोई वार्तालाप नहीं",
         "historyRetry": "वार्तालाप लोड नहीं हो सके। फिर कोशिश करें",
         "openConversations": "वार्तालाप खोलें",
+        "unread": "अपठित संदेश",
         "openConversation": "{title} खोलें",
         "closeConversation": "{title} बंद करें",
         "delete": "{title} मिटाएँ",

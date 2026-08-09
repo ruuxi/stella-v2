@@ -1801,6 +1801,7 @@
         "historyEmpty": "Inga konversationer ännu",
         "historyRetry": "Det gick inte att läsa in konversationer. Försök igen",
         "openConversations": "Öppna konversationer",
+        "unread": "Olästa meddelanden",
         "openConversation": "Öppna {title}",
         "closeConversation": "Stäng {title}",
         "delete": "Radera {title}",

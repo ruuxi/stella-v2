@@ -1771,6 +1771,7 @@
         "historyEmpty": "还没有对话",
         "historyRetry": "无法加载对话。请重试",
         "openConversations": "打开对话列表",
+        "unread": "未读消息",
         "openConversation": "打开 {title}",
         "closeConversation": "关闭 {title}",
         "delete": "删除 {title}",

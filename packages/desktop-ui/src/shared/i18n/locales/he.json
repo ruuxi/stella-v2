@@ -1821,6 +1821,7 @@
         "historyEmpty": "אין עדיין שיחות",
         "historyRetry": "לא ניתן היה לטעון שיחות. נסה שוב",
         "openConversations": "פתח שיחות",
+        "unread": "הודעות שלא נקראו",
         "openConversation": "פתח את {title}",
         "closeConversation": "סגור את {title}",
         "delete": "מחק את {title}",

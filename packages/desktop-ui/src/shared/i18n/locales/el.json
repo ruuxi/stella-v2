@@ -1805,6 +1805,7 @@
         "historyEmpty": "Δεν υπάρχουν ακόμη συνομιλίες",
         "historyRetry": "Δεν ήταν δυνατή η φόρτωση των συνομιλιών. Δοκιμάστε ξανά",
         "openConversations": "Άνοιγμα συνομιλιών",
+        "unread": "Μη αναγνωσμένα μηνύματα",
         "openConversation": "Άνοιγμα {title}",
         "closeConversation": "Κλείσιμο {title}",
         "delete": "Διαγραφή {title}",

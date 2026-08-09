@@ -1802,6 +1802,7 @@
         "historyEmpty": "Még nincsenek beszélgetések",
         "historyRetry": "Nem sikerült betölteni a beszélgetéseket. Próbáld újra",
         "openConversations": "Beszélgetések megnyitása",
+        "unread": "Olvasatlan üzenetek",
         "openConversation": "Megnyitás: {title}",
         "closeConversation": "Bezárás: {title}",
         "delete": "Törlés: {title}",

@@ -1802,6 +1802,7 @@
         "historyEmpty": "Ingen samtaler ennå",
         "historyRetry": "Kunne ikke laste inn samtaler. Prøv igjen",
         "openConversations": "Åpne samtaler",
+        "unread": "Uleste meldinger",
         "openConversation": "Åpne {title}",
         "closeConversation": "Lukk {title}",
         "delete": "Slett {title}",

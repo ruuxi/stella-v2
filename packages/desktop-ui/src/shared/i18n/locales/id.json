@@ -1779,6 +1779,7 @@
         "historyEmpty": "Belum ada percakapan",
         "historyRetry": "Tidak dapat memuat percakapan. Coba lagi",
         "openConversations": "Buka percakapan",
+        "unread": "Pesan belum dibaca",
         "openConversation": "Buka {title}",
         "closeConversation": "Tutup {title}",
         "delete": "Hapus {title}",

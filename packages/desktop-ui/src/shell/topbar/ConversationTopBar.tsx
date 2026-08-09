@@ -105,6 +105,19 @@ const isKeyboardClick = (event: React.MouseEvent<HTMLElement>) =>
 const historyKeyExtractor = (summary: ConversationSummary) =>
   summary.conversationId;
 
+/**
+ * A background tab earns its unread dot from a persisted assistant message
+ * only. User turns are always the user's own doing, and the conversation the
+ * user is currently reading is by definition already read.
+ */
+export const shouldMarkConversationUnread = (
+  payload: LocalChatUpdatedPayload | null,
+  conversationId: string,
+  activeConversationId: string | null,
+): boolean =>
+  payload?.event?.type === "assistant_message" &&
+  conversationId !== activeConversationId;
+
 type ConversationTabShortcut =
   | { type: "new" }
   | { type: "close"; conversationId: string }
@@ -284,9 +297,15 @@ export function ConversationTopBar() {
     [],
   );
 
+  // The update subscription below is mounted once; it reads the active
+  // conversation through this ref so it never resubscribes on navigation.
+  const activeConversationIdRef = useRef(activeConversationId);
+  activeConversationIdRef.current = activeConversationId;
+
   useEffect(() => {
     if (!activeConversationId) return;
     conversationTabs.openConversation(activeConversationId);
+    conversationTabs.markRead(activeConversationId);
   }, [activeConversationId]);
 
   // Hydrate cached tab titles from one bounded history page. Inactive tabs
@@ -319,6 +338,15 @@ export function ConversationTopBar() {
           update.title,
           incomingCursor,
         );
+        if (
+          shouldMarkConversationUnread(
+            payload,
+            update.conversationId,
+            activeConversationIdRef.current,
+          )
+        ) {
+          conversationTabs.markUnread(update.conversationId);
+        }
         setHistory((current) => {
           const index = current.findIndex(
             (item) => item.conversationId === update.conversationId,
@@ -885,6 +913,7 @@ export function ConversationTopBar() {
           >
             {tabs.map((tab) => {
               const active = tab.conversationId === activeConversationId;
+              const unread = Boolean(tab.unread) && !active;
               return (
                 <div
                   key={tab.conversationId}
@@ -895,6 +924,7 @@ export function ConversationTopBar() {
                   }}
                   className="conversation-topbar__tab"
                   data-active={active ? "true" : undefined}
+                  data-unread={unread ? "true" : undefined}
                   data-title-overflow={
                     overflowingTitleIds.has(tab.conversationId)
                       ? "true"
@@ -976,6 +1006,14 @@ export function ConversationTopBar() {
                       {tab.title}
                     </span>
                   </button>
+                  {unread ? (
+                    <span
+                      className="conversation-topbar__tab-unread"
+                      role="img"
+                      aria-label={t("shell.topbar.conversation.unread")}
+                      title={t("shell.topbar.conversation.unread")}
+                    />
+                  ) : null}
                   <button
                     type="button"
                     className="conversation-topbar__tab-close"

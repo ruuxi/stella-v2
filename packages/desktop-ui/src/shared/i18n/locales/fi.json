@@ -1802,6 +1802,7 @@
         "historyEmpty": "Ei vielä keskusteluja",
         "historyRetry": "Keskusteluja ei voitu ladata. Yritä uudelleen",
         "openConversations": "Avaa keskustelut",
+        "unread": "Lukemattomia viestejä",
         "openConversation": "Avaa: {title}",
         "closeConversation": "Sulje: {title}",
         "delete": "Poista: {title}",

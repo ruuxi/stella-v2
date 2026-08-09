@@ -1782,6 +1782,7 @@
         "historyEmpty": "Chưa có cuộc trò chuyện nào",
         "historyRetry": "Không tải được cuộc trò chuyện. Thử lại",
         "openConversations": "Mở các cuộc trò chuyện",
+        "unread": "Tin nhắn chưa đọc",
         "openConversation": "Mở {title}",
         "closeConversation": "Đóng {title}",
         "delete": "Xóa {title}",

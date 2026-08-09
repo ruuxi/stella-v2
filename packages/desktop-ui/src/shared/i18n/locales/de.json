@@ -1805,6 +1805,7 @@
         "historyEmpty": "Noch keine Unterhaltungen",
         "historyRetry": "Unterhaltungen konnten nicht geladen werden. Erneut versuchen",
         "openConversations": "Unterhaltungen öffnen",
+        "unread": "Ungelesene Nachrichten",
         "openConversation": "{title} öffnen",
         "closeConversation": "{title} schließen",
         "delete": "{title} löschen",

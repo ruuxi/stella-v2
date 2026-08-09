@@ -1825,6 +1825,7 @@
         "historyEmpty": "Ainda não há conversas",
         "historyRetry": "Não foi possível carregar as conversas. Tente de novo",
         "openConversations": "Abrir conversas",
+        "unread": "Mensagens não lidas",
         "openConversation": "Abrir {title}",
         "closeConversation": "Fechar {title}",
         "delete": "Excluir {title}",

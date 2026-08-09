@@ -32,6 +32,7 @@ import {
 import { buildInlineWorkingIndicatorProps } from "@/features/chat/working-indicator-state";
 import { useFileDrop } from "@/features/chat/hooks/use-file-drop";
 import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
+import { useOptimisticStop } from "@/features/chat/hooks/use-optimistic-stop";
 import { handleComposerPaste } from "@/features/chat/lib/paste-context";
 import { useReadAloud } from "@/features/voice/services/read-aloud/use-read-aloud";
 import {
@@ -155,6 +156,7 @@ export function ChatPanelTab({
     messageRef: inputTextRef,
   } = useComposerMessageState();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const { showStop, requestStop } = useOptimisticStop(isStreaming, onStop);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const restoredConversationScrollRef = useRef<string | null>(null);
 
@@ -626,10 +628,10 @@ export function ChatPanelTab({
                                   : undefined
                               }
                             />
-                            {isStreaming && (
+                            {showStop && (
                               <ComposerStopButton
                                 className="composer-stop"
-                                onClick={onStop}
+                                onClick={requestStop}
                                 title={t("shell.chatSidebar.stop")}
                                 aria-label={t("shell.chatSidebar.stop")}
                               />

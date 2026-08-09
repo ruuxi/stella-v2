@@ -74,6 +74,7 @@ const createContext = () =>
     toolHost: {
       getToolCatalog: () => [],
       executeTool: vi.fn(),
+      endBrowserTurn: vi.fn(async () => undefined),
     },
     runtimeStore: {},
     deviceId: "device-1",
@@ -136,5 +137,8 @@ describe("startPreparedOrchestratorRun background agent handling", () => {
 
     expect(cleanupRun).toHaveBeenCalledWith("run-1");
     expect(context.state.activeOrchestratorRunId).toBeNull();
+    await vi.waitFor(() =>
+      expect(context.toolHost.endBrowserTurn).toHaveBeenCalledWith("run-1"),
+    );
   });
 });

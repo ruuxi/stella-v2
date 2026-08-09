@@ -2238,13 +2238,19 @@ fn aria_selector(payload: Value) -> String {
         Some("role") => super::selector::SemanticSelector::by_role(
             payload["role"].as_str().unwrap(),
             payload.get("name").and_then(|v| v.as_str()),
-            payload.get("exact").and_then(|v| v.as_bool()).unwrap_or(false),
+            payload
+                .get("exact")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         )
         .unwrap(),
         Some(kind) => super::selector::SemanticSelector::by_value(
             super::selector::SemanticKind::from_str(kind).unwrap(),
             payload["value"].as_str().unwrap(),
-            payload.get("exact").and_then(|v| v.as_bool()).unwrap_or(false),
+            payload
+                .get("exact")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         )
         .unwrap(),
         _ => panic!("bad payload"),
@@ -2291,7 +2297,8 @@ async fn e2e_semantic_selector_click_and_fill() {
 
     // getByRole("button", { name: "Save changes" }).click() equivalent:
     // worker-api sends an aria= selector string on an ordinary click command.
-    let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Save changes" }));
+    let selector =
+        aria_selector(json!({ "kind": "role", "role": "button", "name": "Save changes" }));
     let resp = execute_command(
         &json!({ "id": "1", "action": "click", "selector": selector }),
         &mut state,
@@ -2394,14 +2401,17 @@ async fn e2e_semantic_nth_and_exact() {
     assert_eq!(get_data(&resp)["result"], "second");
 
     // exact: false substring-matches all three; exact: true only two
-    let loose = aria_selector(json!({ "kind": "role", "role": "button", "name": "Repeat", "exact": false }));
+    let loose = aria_selector(
+        json!({ "kind": "role", "role": "button", "name": "Repeat", "exact": false }),
+    );
     let resp = execute_command(
         &json!({ "id": "3", "action": "count", "selector": loose }),
         &mut state,
     )
     .await;
     assert_eq!(get_data(&resp)["count"], 3);
-    let strict = aria_selector(json!({ "kind": "role", "role": "button", "name": "Repeat", "exact": true }));
+    let strict =
+        aria_selector(json!({ "kind": "role", "role": "button", "name": "Repeat", "exact": true }));
     let resp = execute_command(
         &json!({ "id": "4", "action": "count", "selector": strict }),
         &mut state,
@@ -2648,7 +2658,8 @@ async fn e2e_wait_supports_semantic_selectors() {
     )
     .await;
 
-    let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Late button" }));
+    let selector =
+        aria_selector(json!({ "kind": "role", "role": "button", "name": "Late button" }));
     let resp = execute_command(
         &json!({ "id": "1", "action": "wait", "selector": selector, "timeout": 5000 }),
         &mut state,
@@ -2796,6 +2807,22 @@ async fn e2e_chain_runs_steps_and_marker_chain_flow() {
 // Owner tab lifecycle: finalize_tabs / close_owner / release_owner_lease
 // ---------------------------------------------------------------------------
 
+fn with_owner_lease(
+    mut command: Value,
+    owner_id: &str,
+    turn_id: &str,
+    lease_id: &str,
+    issued_at: u64,
+) -> Value {
+    let object = command.as_object_mut().unwrap();
+    object.insert("ownerId".to_string(), json!(owner_id));
+    object.insert("sessionId".to_string(), json!(owner_id));
+    object.insert("turnId".to_string(), json!(turn_id));
+    object.insert("ownerLeaseId".to_string(), json!(lease_id));
+    object.insert("ownerLeaseIssuedAt".to_string(), json!(issued_at));
+    command
+}
+
 #[tokio::test]
 #[ignore]
 async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
@@ -2810,14 +2837,26 @@ async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
 
     // Two owner-tracked tabs plus the launch tab (unowned).
     let resp = execute_command(
-        &json!({ "id": "2", "action": "tab_new", "ownerId": "owner-e2e" }),
+        &with_owner_lease(
+            json!({ "id": "2", "action": "tab_new" }),
+            "owner-e2e",
+            "turn-e2e",
+            "lease-e2e",
+            100,
+        ),
         &mut state,
     )
     .await;
     assert_success(&resp);
     let first_tab = get_data(&resp)["tabId"].as_u64().unwrap();
     let resp = execute_command(
-        &json!({ "id": "3", "action": "tab_new", "ownerId": "owner-e2e" }),
+        &with_owner_lease(
+            json!({ "id": "3", "action": "tab_new" }),
+            "owner-e2e",
+            "turn-e2e",
+            "lease-e2e",
+            100,
+        ),
         &mut state,
     )
     .await;
@@ -2826,12 +2865,17 @@ async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
 
     // Keep the first tab as a handoff; the second must be closed.
     let resp = execute_command(
-        &json!({
-            "id": "4",
-            "action": "finalize_tabs",
-            "ownerId": "owner-e2e",
-            "keep": [ { "tabId": first_tab, "status": "handoff" } ],
-        }),
+        &with_owner_lease(
+            json!({
+                "id": "4",
+                "action": "finalize_tabs",
+                "keep": [ { "tabId": first_tab, "status": "handoff" } ],
+            }),
+            "owner-e2e",
+            "turn-e2e",
+            "lease-e2e",
+            100,
+        ),
         &mut state,
     )
     .await;
@@ -2851,21 +2895,282 @@ async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
     // Finalizing again is success with nothing left to close (the kept tab
     // was released from ownership).
     let resp = execute_command(
-        &json!({ "id": "6", "action": "close_owner", "ownerId": "owner-e2e" }),
+        &with_owner_lease(
+            json!({ "id": "6", "action": "close_owner" }),
+            "owner-e2e",
+            "turn-e2e",
+            "lease-e2e",
+            100,
+        ),
         &mut state,
     )
     .await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["closedTabIds"], json!([]));
 
-    // Lease release is a graceful no-op on the CDP backend.
+    // Lease release detaches this exact turn without touching the handoff.
     let resp = execute_command(
-        &json!({ "id": "7", "action": "release_owner_lease", "ownerId": "owner-e2e" }),
+        &with_owner_lease(
+            json!({ "id": "7", "action": "release_owner_lease" }),
+            "owner-e2e",
+            "turn-e2e",
+            "lease-e2e",
+            100,
+        ),
         &mut state,
     )
     .await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["released"], true);
+
+    let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
+    assert_success(&resp);
+}
+
+#[tokio::test]
+#[ignore]
+async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
+    let mut state = DaemonState::new();
+
+    let resp = execute_command(
+        &json!({ "id": "1", "action": "launch", "headless": true }),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+
+    // The first owner-scoped command receives its own implicit tab instead of
+    // adopting the launch tab or another owner's active page.
+    let resp = execute_command(
+        &with_owner_lease(
+            json!({ "id": "2", "action": "tab_list" }),
+            "owner-a",
+            "turn-a",
+            "lease-a",
+            100,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let owner_a_tabs = get_data(&resp)["tabs"].as_array().unwrap();
+    assert_eq!(owner_a_tabs.len(), 1, "response: {}", resp);
+    let owner_a_first_tab = owner_a_tabs[0]["tabId"].as_u64().unwrap();
+
+    let resp = execute_command(
+        &with_owner_lease(
+            json!({ "id": "2b", "action": "tab_new" }),
+            "owner-a",
+            "turn-a",
+            "lease-a",
+            100,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let owner_a_tab = get_data(&resp)["tabId"].as_u64().unwrap();
+
+    let resp = execute_command(
+        &with_owner_lease(
+            json!({ "id": "3", "action": "tab_new" }),
+            "owner-b",
+            "turn-b",
+            "lease-b",
+            100,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let owner_b_tab = get_data(&resp)["tabId"].as_u64().unwrap();
+
+    let resp = execute_command(
+        &with_owner_lease(
+            json!({ "id": "4", "action": "tab_list" }),
+            "owner-a",
+            "turn-a",
+            "lease-a",
+            100,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let owner_a_tabs_again = get_data(&resp)["tabs"].as_array().unwrap();
+    assert_eq!(owner_a_tabs_again.len(), 2, "response: {}", resp);
+    assert!(owner_a_tabs_again
+        .iter()
+        .any(|tab| tab["tabId"] == owner_a_first_tab));
+    assert_eq!(get_data(&resp)["activeTabId"].as_u64(), Some(owner_a_tab));
+    assert_eq!(
+        owner_a_tabs_again
+            .iter()
+            .find(|tab| tab["tabId"] == owner_a_tab)
+            .and_then(|tab| tab["active"].as_bool()),
+        Some(true)
+    );
+    assert!(owner_a_tabs_again
+        .iter()
+        .all(|tab| tab["tabId"] != owner_b_tab));
+
+    // Unscoped/manual discovery keeps the legacy full browser view.
+    let resp = execute_command(&json!({ "id": "5", "action": "tab_list" }), &mut state).await;
+    assert_success(&resp);
+    let all_tabs = get_data(&resp)["tabs"].as_array().unwrap();
+    assert!(all_tabs.iter().any(|tab| tab["tabId"] == owner_a_first_tab));
+    assert!(all_tabs.iter().any(|tab| tab["tabId"] == owner_a_tab));
+    assert!(all_tabs.iter().any(|tab| tab["tabId"] == owner_b_tab));
+
+    for command in [
+        with_owner_lease(
+            json!({
+                "id": "foreign-per-tab",
+                "action": "title",
+                "tabId": owner_b_tab,
+            }),
+            "owner-a",
+            "turn-a",
+            "lease-a",
+            100,
+        ),
+        with_owner_lease(
+            json!({
+                "id": "foreign-switch",
+                "action": "tab_switch",
+                "tabId": owner_b_tab,
+            }),
+            "owner-a",
+            "turn-a",
+            "lease-a",
+            100,
+        ),
+        with_owner_lease(
+            json!({
+                "id": "foreign-close",
+                "action": "tab_close",
+                "tabId": owner_b_tab,
+            }),
+            "owner-a",
+            "turn-a",
+            "lease-a",
+            100,
+        ),
+    ] {
+        let resp = execute_command(&command, &mut state).await;
+        assert_eq!(resp["success"], false, "response: {}", resp);
+        assert!(resp["error"]
+            .as_str()
+            .unwrap()
+            .contains("another browser owner"));
+    }
+
+    // A step cannot spoof owner-b inside an owner-a chain.
+    let resp = execute_command(
+        &with_owner_lease(
+            json!({
+                "id": "foreign-chain",
+                "action": "chain",
+                "steps": [{
+                    "action": "title",
+                    "ownerId": "owner-b",
+                    "tabId": owner_b_tab,
+                }],
+            }),
+            "owner-a",
+            "turn-a",
+            "lease-a",
+            100,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_eq!(resp["success"], false, "response: {}", resp);
+    assert!(resp["error"]
+        .as_str()
+        .unwrap()
+        .contains("another browser owner"));
+
+    // Failed foreign close did not touch owner-b's tab.
+    let resp = execute_command(
+        &with_owner_lease(
+            json!({ "id": "6", "action": "tab_list" }),
+            "owner-b",
+            "turn-b",
+            "lease-b",
+            100,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert!(get_data(&resp)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tab| tab["tabId"] == owner_b_tab));
+
+    // A newer lease for the same owner closes prior-lease owned tabs before it
+    // receives a fresh implicit tab. It cannot inherit the old active tab.
+    let resp = execute_command(
+        &with_owner_lease(
+            json!({ "id": "7", "action": "tab_list" }),
+            "owner-a",
+            "turn-a-new",
+            "lease-a-new",
+            200,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    let superseding_tabs = get_data(&resp)["tabs"].as_array().unwrap();
+    assert_eq!(superseding_tabs.len(), 1, "response: {}", resp);
+    assert!(superseding_tabs
+        .iter()
+        .all(|tab| { tab["tabId"] != owner_a_first_tab && tab["tabId"] != owner_a_tab }));
+    let newer_tab = superseding_tabs[0]["tabId"].as_u64().unwrap();
+
+    // Late disposal from the prior turn is rejected before finalization, so it
+    // cannot close the newer lease's fresh tab.
+    let stale_cleanup = execute_command(
+        &with_owner_lease(
+            json!({ "id": "8", "action": "finalize_tabs", "keep": [] }),
+            "owner-a",
+            "turn-a",
+            "lease-a",
+            100,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_eq!(
+        stale_cleanup["success"], false,
+        "response: {}",
+        stale_cleanup
+    );
+    assert!(stale_cleanup["error"]
+        .as_str()
+        .unwrap()
+        .contains("Stale browser owner lease"));
+
+    let resp = execute_command(
+        &with_owner_lease(
+            json!({ "id": "9", "action": "tab_list" }),
+            "owner-a",
+            "turn-a-new",
+            "lease-a-new",
+            200,
+        ),
+        &mut state,
+    )
+    .await;
+    assert_success(&resp);
+    assert!(get_data(&resp)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tab| tab["tabId"] == newer_tab));
 
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
@@ -2966,7 +3271,8 @@ async fn e2e_same_origin_iframe_resolution_and_input() {
 
     // Coordinate-based click: the click point must be translated across the
     // iframe boundary (border offset included) so the button actually fires.
-    let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Frame button" }));
+    let selector =
+        aria_selector(json!({ "kind": "role", "role": "button", "name": "Frame button" }));
     let resp = execute_command(
         &json!({ "id": "7", "action": "click", "selector": selector }),
         &mut state,

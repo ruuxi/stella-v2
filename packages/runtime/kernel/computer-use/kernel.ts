@@ -512,6 +512,10 @@ class NodeReplKernel {
     return this.closePromise;
   }
 
+  async endBrowserTurn(turnId: string): Promise<void> {
+    await this.browser.endTurn?.(turnId);
+  }
+
   enqueue(
     code: string,
     context: ToolContext,
@@ -916,6 +920,11 @@ class NodeReplKernel {
     }
 
     try {
+      const turnId =
+        active.context.runId ??
+        active.context.rootRunId ??
+        active.context.requestId;
+      this.browser.beginTurn?.(turnId);
       let value: unknown;
       try {
         value = await this.executeBrowserMessage(active, message);
@@ -1581,6 +1590,12 @@ export class NodeReplKernelRegistry {
       pending.push(this.disposeKernel(id, kernel));
     }
     await Promise.all(pending);
+  }
+
+  async endBrowserTurn(turnId: string): Promise<void> {
+    await Promise.allSettled(
+      [...this.kernels.values()].map((kernel) => kernel.endBrowserTurn(turnId)),
+    );
   }
 
   private disposeKernel(id: string, kernel: NodeReplKernel): Promise<void> {

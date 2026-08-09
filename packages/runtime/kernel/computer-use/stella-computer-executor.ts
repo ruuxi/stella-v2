@@ -56,6 +56,10 @@ import {
   type JsonObject,
 } from "./contract.js";
 import type { ComputerUseSession } from "./session.js";
+import {
+  ComputerUseResourceStaleError,
+  macComputerUseResourceArbiter,
+} from "./resource-arbiter.js";
 
 type Rect = {
   x: number;
@@ -3320,9 +3324,13 @@ const computerUseErrorResponse = (
   ...typedResponseEnvelope(request),
   type: "error",
   error: {
-    code: "native_request_failed",
+    code:
+      error instanceof ComputerUseResourceStaleError
+        ? error.code
+        : "native_request_failed",
     message: error instanceof Error ? error.message : String(error),
-    retryable: false,
+    retryable:
+      error instanceof ComputerUseResourceStaleError ? error.retryable : false,
   },
 });
 
@@ -3763,7 +3771,12 @@ export const createMacComputerUseSession = (options: {
               }
             : {}),
         },
-        async () => await executeMacComputerUseRequest(request),
+        async () =>
+          await macComputerUseResourceArbiter.runRequest(
+            request,
+            signal,
+            async () => await executeMacComputerUseRequest(request),
+          ),
       );
       return result.value;
     } catch (error) {
@@ -3776,8 +3789,12 @@ export const shutdownMacStellaComputerSession = (
   sessionId: string,
 ): boolean => {
   if (process.platform !== "darwin") return false;
+  macComputerUseResourceArbiter.forgetSession(sessionId);
   const sanitized = sanitizeStellaComputerSessionId(sessionId);
   if (!sanitized) return false;
+  if (sanitized !== sessionId) {
+    macComputerUseResourceArbiter.forgetSession(sanitized);
+  }
   const sessionPaths = resolveSessionPaths(sanitized);
   const pid = readPidFile(automationPidPath(sessionPaths));
   if (pid && pidIsRunning(pid)) killDetachedProcess(pid);

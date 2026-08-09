@@ -1,17 +1,12 @@
 import { EventEmitter } from "node:events";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
+  BrowserWindow: class {},
   session: { fromPath: vi.fn() },
   WebContentsView: class {},
 }));
@@ -76,11 +71,38 @@ class FakeView {
   readonly setBounds = vi.fn();
 }
 
+class FakeWindow extends EventEmitter {
+  destroyed = false;
+  readonly addChildView = vi.fn();
+  readonly removeChildView = vi.fn();
+  readonly contentView = {
+    addChildView: this.addChildView,
+    removeChildView: this.removeChildView,
+  };
+  readonly isDestroyed = vi.fn(() => this.destroyed);
+  readonly getContentSize = vi.fn(() => [800, 600]);
+  readonly setBounds = vi.fn();
+  readonly setFocusable = vi.fn();
+  readonly setOpacity = vi.fn();
+  readonly setSkipTaskbar = vi.fn();
+  readonly showInactive = vi.fn();
+  readonly destroy = vi.fn(() => {
+    this.destroyed = true;
+    this.emit("closed");
+  });
+
+  constructor() {
+    super();
+  }
+}
+
 const tempRoots: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+    tempRoots
+      .splice(0)
+      .map((root) => rm(root, { recursive: true, force: true })),
   );
 });
 
@@ -98,59 +120,58 @@ const createHarness = (status: () => Promise<boolean>) => {
     setPermissionCheckHandler: vi.fn(),
     setDevicePermissionHandler: vi.fn(),
   };
-  const addChildView = vi.fn();
-  const removeChildView = vi.fn();
-  const fakeWindow = {
-    isDestroyed: vi.fn(() => false),
-    getContentSize: vi.fn(() => [800, 600]),
-    contentView: { addChildView, removeChildView },
-  };
+  const fakeWindow = new FakeWindow();
+  const drawableHost = new FakeWindow();
+  const createDrawableHost = vi.fn(() => drawableHost as never);
   const onStateChanged = vi.fn();
   const ensureBrowserBridgeStarted = vi.fn(async () => undefined);
   const openExtensionStore = vi.fn(async () => undefined);
-  const exportAllCookies = vi.fn(async (): Promise<StellaBrowserExportedCookie[]> => [
-    {
-      name: "host",
-      value: "one",
-      domain: "example.com",
-      path: "/",
-      secure: true,
-      httpOnly: true,
-      hostOnly: true,
-      session: false,
-      storeId: "0",
-      sameSite: "lax",
-      expirationDate: 2_000_000_000,
-    },
-    {
-      name: "domain",
-      value: "two",
-      domain: ".example.org",
-      path: "/app",
-      secure: false,
-      httpOnly: false,
-      hostOnly: false,
-      session: true,
-      storeId: "0",
-      sameSite: "strict",
-    },
-    {
-      name: "partitioned",
-      value: "three",
-      domain: ".example.net",
-      path: "/",
-      secure: true,
-      httpOnly: true,
-      hostOnly: false,
-      session: true,
-      storeId: "0",
-      sameSite: "no_restriction",
-      partitionKey: { topLevelSite: "https://top.example" },
-    },
-  ]);
+  const exportAllCookies = vi.fn(
+    async (): Promise<StellaBrowserExportedCookie[]> => [
+      {
+        name: "host",
+        value: "one",
+        domain: "example.com",
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        hostOnly: true,
+        session: false,
+        storeId: "0",
+        sameSite: "lax",
+        expirationDate: 2_000_000_000,
+      },
+      {
+        name: "domain",
+        value: "two",
+        domain: ".example.org",
+        path: "/app",
+        secure: false,
+        httpOnly: false,
+        hostOnly: false,
+        session: true,
+        storeId: "0",
+        sameSite: "strict",
+      },
+      {
+        name: "partitioned",
+        value: "three",
+        domain: ".example.net",
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        hostOnly: false,
+        session: true,
+        storeId: "0",
+        sameSite: "no_restriction",
+        partitionKey: { topLevelSite: "https://top.example" },
+      },
+    ],
+  );
   const exportCookiesForUrls = vi.fn(
     async (): Promise<StellaBrowserExportedCookie[]> => [],
   );
+  const wait = vi.fn(async () => undefined);
   const service = new InAppBrowserService({
     stellaDataDir: root,
     getWindow: () => fakeWindow as never,
@@ -180,8 +201,9 @@ const createHarness = (status: () => Promise<boolean>) => {
       views.push(view);
       return view as never;
     },
+    createDrawableHost,
     createId: () => `tab-${views.length + 1}`,
-    wait: async () => undefined,
+    wait,
     connectionTimeoutMs: 50,
     connectionPollMs: 1,
     automaticConnectionTimeoutMs: 0,
@@ -192,13 +214,16 @@ const createHarness = (status: () => Promise<boolean>) => {
     fakeSession,
     cookieSet,
     fakeWindow,
-    addChildView,
-    removeChildView,
+    addChildView: fakeWindow.addChildView,
+    removeChildView: fakeWindow.removeChildView,
+    drawableHost,
+    createDrawableHost,
     onStateChanged,
     ensureBrowserBridgeStarted,
     openExtensionStore,
     exportAllCookies,
     exportCookiesForUrls,
+    wait,
   };
 };
 
@@ -235,7 +260,9 @@ describe("InAppBrowserService", () => {
       harness.views[0]?.webContents.debugger.sendCommand,
     ).toHaveBeenCalledWith(
       "Network.setCookies",
-      expect.objectContaining({ cookies: [expect.objectContaining({ name: "partitioned" })] }),
+      expect.objectContaining({
+        cookies: [expect.objectContaining({ name: "partitioned" })],
+      }),
     );
 
     await harness.service.show({
@@ -330,6 +357,170 @@ describe("InAppBrowserService", () => {
       method: "Page.loadEventFired",
       params: { timestamp: 1 },
     });
+  });
+
+  it("isolates tabs by owner without letting background activation steal the visible surface", async () => {
+    const harness = createHarness(async () => true);
+    const manual = await harness.service.createTab({
+      url: "https://manual.example",
+    });
+    await harness.service.show({
+      surfaceBounds: { x: 0, y: 0, width: 800, height: 600 },
+      pageBounds: { x: 0, y: 0, width: 800, height: 600 },
+    });
+    const ownerATarget = await harness.service.createDebuggerTarget(
+      "https://agent-a.example",
+      "owner-a",
+    );
+    const ownerBTarget = await harness.service.createDebuggerTarget(
+      "https://agent-b.example",
+      "owner-b",
+    );
+
+    expect(harness.service.listDebuggerTargets()).toEqual([
+      expect.objectContaining({ id: manual.activeTabId }),
+    ]);
+    expect(harness.service.listDebuggerTargets("owner-a")).toEqual([
+      expect.objectContaining({ id: ownerATarget.id }),
+    ]);
+    expect(harness.service.listDebuggerTargets("owner-b")).toEqual([
+      expect.objectContaining({ id: ownerBTarget.id }),
+    ]);
+    expect(harness.addChildView).toHaveBeenCalledTimes(1);
+    expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[0]);
+
+    await harness.service.activateDebuggerTarget(ownerBTarget.id, "owner-b");
+    expect(harness.addChildView).toHaveBeenCalledTimes(1);
+    await expect(
+      harness.service.sendDebuggerCommand(
+        ownerBTarget.id,
+        "Runtime.evaluate",
+        {},
+        "owner-a",
+      ),
+    ).rejects.toThrow("Browser tab not found for owner");
+    await expect(
+      harness.service.closeDebuggerTarget(ownerBTarget.id, "owner-a"),
+    ).resolves.toBe(false);
+
+    expect(
+      harness.views[1]?.webContents.windowOpenHandler?.({
+        url: "https://agent-a-popup.example",
+      }),
+    ).toEqual({ action: "deny" });
+    await vi.waitFor(() =>
+      expect(harness.service.listDebuggerTargets("owner-a")).toHaveLength(2),
+    );
+    expect(harness.service.listDebuggerTargets("owner-b")).toHaveLength(1);
+  });
+
+  it("shows the latest agent owner only when the manual owner has no tabs", async () => {
+    const harness = createHarness(async () => true);
+    const agent = await harness.service.createDebuggerTarget(
+      "https://agent.example",
+      "owner-a",
+    );
+    const shown = await harness.service.show({
+      surfaceBounds: { x: 0, y: 0, width: 800, height: 600 },
+      pageBounds: { x: 0, y: 0, width: 800, height: 600 },
+    });
+    expect(shown.activeTabId).toBe(agent.id);
+    expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[0]);
+
+    const manual = await harness.service.createTab({
+      url: "https://manual.example",
+    });
+    expect(manual.activeTabId).toBe("tab-2");
+    expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[1]);
+  });
+
+  it("reference-counts hidden drawable mounts and restores visible mounts safely", async () => {
+    const harness = createHarness(async () => true);
+    const first = await harness.service.createTab({
+      url: "https://one.example",
+    });
+    await harness.service.show({
+      surfaceBounds: { x: 0, y: 0, width: 800, height: 600 },
+      pageBounds: { x: 20, y: 40, width: 640, height: 480 },
+    });
+    const second = await harness.service.createTab({
+      url: "https://two.example",
+    });
+    await harness.service.selectTab({ tabId: first.activeTabId! });
+    const visibleLease = harness.service.acquireDrawableHost(
+      first.activeTabId!,
+    );
+
+    await harness.service.selectTab({ tabId: second.activeTabId! });
+    expect(harness.drawableHost.addChildView).toHaveBeenCalledWith(
+      harness.views[0],
+    );
+    expect(harness.drawableHost.showInactive).toHaveBeenCalledOnce();
+    expect(harness.drawableHost.setBounds).toHaveBeenCalledWith(
+      { x: -100_000, y: -100_000, width: 1280, height: 720 },
+      false,
+    );
+    expect(harness.drawableHost.setFocusable).toHaveBeenCalledWith(false);
+    expect(harness.drawableHost.setOpacity).toHaveBeenCalledWith(0);
+    expect(harness.drawableHost.setSkipTaskbar).toHaveBeenCalledWith(true);
+    expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[1]);
+
+    const nestedLease = harness.service.acquireDrawableHost(first.activeTabId!);
+    visibleLease.release();
+    expect(harness.drawableHost.removeChildView).not.toHaveBeenCalled();
+    nestedLease.release();
+    expect(harness.drawableHost.removeChildView).toHaveBeenCalledOnce();
+    expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[1]);
+
+    const agent = await harness.service.createDebuggerTarget(
+      "https://background.example",
+      "background-owner",
+    );
+    await harness.service.sendDebuggerCommand(
+      agent.id,
+      "Page.captureScreenshot",
+      {},
+      "background-owner",
+    );
+    expect(harness.drawableHost.addChildView).toHaveBeenLastCalledWith(
+      harness.views[2],
+    );
+    expect(harness.drawableHost.removeChildView).toHaveBeenCalledTimes(2);
+    expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[1]);
+    expect(harness.wait).toHaveBeenCalledWith(16);
+
+    harness.service.closeOwnerTabs("background-owner");
+    expect(harness.service.listDebuggerTargets("background-owner")).toEqual([]);
+    harness.service.dispose();
+    expect(harness.drawableHost.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("remounts an active drawable lease if the hidden host is destroyed", async () => {
+    const harness = createHarness(async () => true);
+    const target = await harness.service.createDebuggerTarget(
+      "https://background.example",
+      "owner-a",
+    );
+    const lease = harness.service.acquireDrawableHost(target.id, "owner-a");
+    const replacementHost = new FakeWindow();
+    harness.createDrawableHost.mockReturnValue(replacementHost as never);
+
+    harness.drawableHost.destroy();
+    await harness.service.sendDebuggerCommand(
+      target.id,
+      "Page.printToPDF",
+      {},
+      "owner-a",
+    );
+
+    expect(replacementHost.addChildView).toHaveBeenCalledWith(harness.views[0]);
+    expect(harness.wait).toHaveBeenCalledWith(16);
+    lease.release();
+    expect(replacementHost.removeChildView).toHaveBeenCalledWith(
+      harness.views[0],
+    );
+    harness.service.dispose();
+    expect(replacementHost.destroy).toHaveBeenCalledOnce();
   });
 });
 

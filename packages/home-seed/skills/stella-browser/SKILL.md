@@ -199,4 +199,4 @@ Timeouts are non-negative milliseconds and are capped at 120 seconds unless a sm
 
 ## Transport Failures
 
-Do not fall back to shell commands when the frozen browser API reports a bridge or transport failure. Report the exact error and use an appropriate visible-browser computer-control fallback only when the task calls for it. Do not promise automatic backend recovery, retries, or stale-tab cleanup; none is part of the frozen worker API contract.
+Do not fall back to shell commands or a visible Chrome/Brave browser when the frozen browser API reports a bridge or transport failure. Report the exact error and park the browser-dependent step; continue only work that does not require browser access. Do not promise automatic backend recovery, retries, or stale-tab cleanup; none is part of the frozen worker API contract.

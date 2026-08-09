@@ -7,6 +7,7 @@ export const STELLA_BROWSER_BRIDGE_PROVIDER = "extension";
 export const STELLA_BROWSER_BRIDGE_SESSION = "stella-app-bridge";
 export const STELLA_BROWSER_BRIDGE_PORT = "39040";
 export const STELLA_IN_APP_BROWSER_INIT_PORT = 39041;
+export const STELLA_BROWSER_MANAGED_BRIDGE = "1";
 
 /** Chrome native messaging host name — must match extension `connectNative` and host manifest. */
 export const STELLA_NATIVE_MESSAGING_HOST_NAME = "com.stella.browser_bridge";
@@ -26,6 +27,11 @@ const readBridgeToken = (tokenPath: string): string | null => {
 export type StellaInAppBrowserInitEndpoint =
   | Readonly<{ path: string }>
   | Readonly<{ host: string; port: number }>;
+
+const getBootstrapSession = (env: NodeJS.ProcessEnv) =>
+  env.STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION?.trim() ||
+  env.STELLA_BROWSER_SESSION?.trim() ||
+  STELLA_BROWSER_BRIDGE_SESSION;
 
 export const getStellaBrowserSocketDir = (
   env: NodeJS.ProcessEnv = process.env,
@@ -50,7 +56,7 @@ export const getStellaInAppBrowserInitEndpoint = (
     : Object.freeze({
         path: path.join(
           getStellaBrowserSocketDir(env),
-          `${env.STELLA_BROWSER_SESSION?.trim() || STELLA_BROWSER_BRIDGE_SESSION}.in-app.sock`,
+          `${getBootstrapSession(env)}.in-app.sock`,
         ),
       });
 
@@ -59,7 +65,7 @@ export const getStellaInAppBrowserInitTokenPath = (
 ): string =>
   path.join(
     getStellaBrowserSocketDir(env),
-    `${env.STELLA_BROWSER_SESSION?.trim() || STELLA_BROWSER_BRIDGE_SESSION}.in-app-token`,
+    `${getBootstrapSession(env)}.in-app-token`,
   );
 
 const getBridgeTokenPath = (): string => {
@@ -123,6 +129,8 @@ export const STELLA_BROWSER_BRIDGE_TOKEN = getOrCreateBridgeToken();
 export const getStellaBrowserBridgeEnv = (): Record<string, string> => ({
   STELLA_BROWSER_PROVIDER: STELLA_BROWSER_BRIDGE_PROVIDER,
   STELLA_BROWSER_SESSION: STELLA_BROWSER_BRIDGE_SESSION,
+  STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: STELLA_BROWSER_BRIDGE_SESSION,
+  STELLA_BROWSER_MANAGED_BRIDGE,
   STELLA_BROWSER_EXT_PORT: STELLA_BROWSER_BRIDGE_PORT,
   STELLA_BROWSER_EXT_TOKEN: STELLA_BROWSER_BRIDGE_TOKEN,
 });

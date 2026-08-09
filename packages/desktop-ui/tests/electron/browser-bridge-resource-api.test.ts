@@ -28,6 +28,17 @@ describe("Stella browser bridge resource API", () => {
     await expect(resource.connectCdp("ws://localhost:9222")).rejects.toThrow(
       "Browser bridge service is not running.",
     );
+    await expect(
+      resource.connectAgentCdp(
+        {
+          ownerId: "owner-1",
+          turnId: "turn-1",
+          ownerLeaseId: "lease-1",
+          ownerLeaseIssuedAt: 1,
+        },
+        "ws://localhost:9223",
+      ),
+    ).rejects.toThrow("Browser bridge service is not running.");
   });
 
   it("delegates browser bootstrap operations to the managed service", async () => {
@@ -56,14 +67,17 @@ describe("Stella browser bridge resource API", () => {
       .spyOn(StellaBrowserBridgeService.prototype, "exportAllCookies")
       .mockResolvedValue(exportedCookies);
     const exportCookiesForUrls = vi
-      .spyOn(
-        StellaBrowserBridgeService.prototype,
-        "exportCookiesForUrls",
-      )
+      .spyOn(StellaBrowserBridgeService.prototype, "exportCookiesForUrls")
       .mockResolvedValue(exportedCookies);
     const connectCdp = vi
       .spyOn(StellaBrowserBridgeService.prototype, "connectCdp")
       .mockResolvedValue();
+    const connectAgentCdp = vi
+      .spyOn(StellaBrowserBridgeService.prototype, "connectAgentCdp")
+      .mockResolvedValue({
+        bridgeSessionId: "agent-backend-1",
+        capabilityExpiresAt: 10_000,
+      });
     const resource = createResource();
 
     resource.start();
@@ -74,13 +88,34 @@ describe("Stella browser bridge resource API", () => {
       resource.exportCookiesForUrls(["https://example.com"]),
     ).resolves.toBe(exportedCookies);
     await resource.connectCdp("ws://localhost:9222");
+    await expect(
+      resource.connectAgentCdp(
+        {
+          ownerId: "owner-1",
+          turnId: "turn-1",
+          ownerLeaseId: "lease-1",
+          ownerLeaseIssuedAt: 1,
+        },
+        "ws://localhost:9223",
+      ),
+    ).resolves.toEqual({
+      bridgeSessionId: "agent-backend-1",
+      capabilityExpiresAt: 10_000,
+    });
 
     expect(getExtensionStatus).toHaveBeenCalledOnce();
     expect(exportAllCookies).toHaveBeenCalledOnce();
-    expect(exportCookiesForUrls).toHaveBeenCalledWith([
-      "https://example.com",
-    ]);
+    expect(exportCookiesForUrls).toHaveBeenCalledWith(["https://example.com"]);
     expect(connectCdp).toHaveBeenCalledWith("ws://localhost:9222");
+    expect(connectAgentCdp).toHaveBeenCalledWith(
+      {
+        ownerId: "owner-1",
+        turnId: "turn-1",
+        ownerLeaseId: "lease-1",
+        ownerLeaseIssuedAt: 1,
+      },
+      "ws://localhost:9223",
+    );
 
     await resource.stop();
     expect(stop).toHaveBeenCalledOnce();

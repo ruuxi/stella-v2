@@ -1,11 +1,14 @@
 /**
- * Work — one recent, searchable index of agent threads and files.
+ * Home — the sidebar's default view: one recent, searchable index of agent
+ * threads and files, with the utility surfaces (Models, Theme, Phone,
+ * Connectors, Feedback) anchored as popovers/dialogs off the footer.
  *
  * The persisted section id remains `files` so existing locations migrate
- * without churn. Its default view merges both sources by their latest update;
- * selecting either kind opens its viewer inside the resizable right sidebar.
+ * without churn. Its default view merges both sources by their latest
+ * update; selecting either kind opens its viewer inside the resizable
+ * right sidebar.
  */
-import { lazy, startTransition, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, } from "react";
 import { DropOverlay } from "@/app/chat/DropOverlay";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
@@ -13,7 +16,6 @@ import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecy
 import { displaySearchStore, useDisplaySearchFocusRequest, useDisplaySearchOpen, useDisplaySearchQuery, } from "@/features/workspace-display/display-search-store";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { forgetArtifactFileEntry, useFileEntries, } from "@/features/workspace-display/files-index";
-import { composerModelPin, useComposerModelPinned, } from "@/features/chat/composer-model-pin-store";
 import { dataTransferHasSupportedMedia, importLocalMedia, isSupportedMediaFile, } from "@/features/workspace-display/media-files";
 import { openAgentThreadTab, openDisplayPayloadTab, } from "@/features/workspace-display/open-payload";
 import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
@@ -22,14 +24,11 @@ import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toa
 import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/canvas-tab/canvas-items";
 import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
-import { preloadModelsPicker } from "@/shell/topbar/nav-surface-preloads";
 import { ChevronLeft, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
 import { SidebarModelsControl } from "./SidebarModelsControl";
+import { SidebarUtilityControls } from "./SidebarUtilityControls";
 import "./files-section.css";
-const AgentModelPicker = lazy(() => import("@/global/settings/AgentModelPicker").then((module) => ({
-    default: module.AgentModelPicker,
-})));
 /**
  * Keep the Work panel cheap to open even after a long-running conversation.
  * Fifty rows covers more than a typical sidebar viewport while avoiding a
@@ -93,8 +92,8 @@ function WorkList() {
             displaySearchStore.close();
         }
     }, [activeSection, panelOpen, searchOpen]);
+    const query = searchOpen ? deferredQuery : "";
     const items = useMemo(() => {
-        const query = searchOpen ? deferredQuery : "";
         const agents = chat.conversation.tasks
             .filter((task) => {
             if (!query)
@@ -124,7 +123,7 @@ function WorkList() {
             entry,
         }));
         return [...agents, ...files].sort((a, b) => b.timestamp - a.timestamp || a.id.localeCompare(b.id));
-    }, [chat.conversation.tasks, deferredQuery, entries, searchOpen]);
+    }, [chat.conversation.tasks, entries, query]);
     const visibleItems = useMemo(() => items.slice(0, visibleItemCount), [items, visibleItemCount]);
     const hasOlderItems = visibleItemCount < items.length;
     useEffect(() => {
@@ -275,32 +274,20 @@ function WorkList() {
 export function FilesSection() {
     const openTabId = useSidebarSectionLocation("files");
     const modelsOpen = useEngineOverlayOpen();
-    const modelPinned = useComposerModelPinned();
-    const panelOpen = useDisplayPanelOpen();
-    const activeSection = useActiveSidebarSection();
     const { tabs } = useDisplayTabList();
     const openTab = openTabId
         ? (tabs.find((tab) => tab.id === openTabId) ?? null)
         : null;
-    useEffect(() => {
-        if (modelsOpen)
-            preloadModelsPicker();
-    }, [modelsOpen]);
-    const modelsActive = modelsOpen && panelOpen && activeSection === "files";
-    const showModelsControl = modelsOpen || !openTab;
+    // The footer is the Models popover's anchor: keep it visible when the
+    // picker is opened externally while a viewer tab is showing.
+    const showFooter = modelsOpen || !openTab;
     return (<div className="work-section">
       <div className="work-section__body">
-        {modelsOpen ? (<div className="work-models-panel">
-          <Suspense fallback={<div className="work-models-panel__loading" aria-busy="true" aria-live="polite">
-              Loading…
-            </div>}>
-            <AgentModelPicker active={modelsActive}/>
-          </Suspense>
-        </div>) : !openTab ? (<WorkList />) : (<>
+        {!openTab ? (<WorkList />) : (<>
           <div className="sidebar-section__viewer-head">
-            <button type="button" className="sidebar-section__back" onClick={() => sidebarSections.clearLocation("files")} aria-label="Back to work">
+            <button type="button" className="sidebar-section__back" onClick={() => sidebarSections.clearLocation("files")} aria-label="Back to home">
               <ChevronLeft size={15} strokeWidth={1.75} aria-hidden="true"/>
-              Work
+              Home
             </button>
             <span className="sidebar-section__viewer-title">{openTab.title}</span>
           </div>
@@ -309,10 +296,8 @@ export function FilesSection() {
           </div>
         </>)}
       </div>
-      {showModelsControl ? (<div className="work-section__footer">
-          {modelsOpen ? (<button type="button" className="pill-btn work-models-pin-button" data-active={modelPinned || undefined} aria-pressed={modelPinned} onClick={() => composerModelPin.toggle()}>
-              Show in composer
-            </button>) : null}
+      {showFooter ? (<div className="work-section__footer">
+          <SidebarUtilityControls />
           <SidebarModelsControl />
         </div>) : null}
     </div>);

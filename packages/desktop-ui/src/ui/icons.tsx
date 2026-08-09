@@ -302,6 +302,16 @@ export const Box = createIcon("box", <>
     <path d="M20.25 16.18V7.82a2 2 0 0 0-1.03-1.75l-6.25-3.47a2 2 0 0 0-1.94 0L4.78 6.07a2 2 0 0 0-1.03 1.75v8.36a2 2 0 0 0 1.03 1.75l6.25 3.47a2 2 0 0 0 1.94 0l6.25-3.47a2 2 0 0 0 1.03-1.75Z"/>
     <path d="m4 7.6 8 4.4 8-4.4M12 12v8.5"/>
   </>);
+export const Plug = createIcon("plug", <>
+    <path d="M12 20.25V16"/>
+    <path d="M9.25 7.75V3.75M14.75 7.75V3.75"/>
+    <path d="M17.5 7.75v4.25a4 4 0 0 1-4 4h-3a4 4 0 0 1-4-4V7.75Z"/>
+  </>);
+export const CircleQuestionMark = createIcon("circle-question-mark", <>
+    <circle cx="12" cy="12" r="8.25"/>
+    <path d="M9.4 9.1a2.7 2.7 0 0 1 5.25.9c0 1.8-2.65 2.5-2.65 3.7"/>
+    <circle cx="12" cy="16.6" r="1" fill="currentColor" stroke="none"/>
+  </>);
 export const Palette = createIcon("palette", <>
     <path d="M12 3.75a8.25 8.25 0 1 0 0 16.5c1 0 1.66-.78 1.66-1.62 0-.43-.17-.8-.42-1.1-.24-.3-.39-.62-.39-1.03 0-.9.73-1.62 1.63-1.62h1.92a3.85 3.85 0 0 0 3.85-3.85c0-4.07-3.78-7.28-8.25-7.28Z"/>
     <circle cx="7.6" cy="10.2" r="1" fill="currentColor" stroke="none"/>

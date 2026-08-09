@@ -1,0 +1,143 @@
+.connectors-popover {
+  width: 300px;
+  /* Never grow past the viewport: cap to the space Radix measured between
+     the trigger and the collision boundary (it already accounts for
+     collisionPadding), then scroll the connector list internally. */
+  max-height: min(420px, var(--radix-popover-content-available-height, 60vh));
+  display: flex;
+  flex-direction: column;
+}
+
+/* The popover body is a plain div; make it a height-constrained flex
+   column so the "Connectors" head stays pinned and the list below can
+   actually shrink and scroll instead of overflowing the rounded edge. */
+.connectors-popover [data-slot="popover-body"] {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.connectors-popover__head {
+  padding: 4px 6px 8px;
+  color: var(--text-strong);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+}
+
+.connectors-popover__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 6px 12px;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+}
+
+.connectors-popover__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  /* Contain momentum/overscroll so a rubber-band at the list edge doesn't
+     bleed into the page behind the popover. */
+  overscroll-behavior: contain;
+  /* Thin, app-consistent scrollbar (matches dropdown menus). */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-weak) transparent;
+}
+
+.connectors-popover__list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.connectors-popover__list::-webkit-scrollbar-thumb {
+  background: var(--border-weak);
+  border-radius: 3px;
+}
+
+.connectors-popover__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.connectors-popover__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 5px 6px;
+  border-radius: var(--radius-md, 8px);
+}
+
+.connectors-popover__row:hover {
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+
+.connectors-popover__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
+.connectors-popover__icon--fallback {
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+  color: var(--text-weak);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+}
+
+.connectors-popover__copy {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.connectors-popover__name {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectors-popover__meta {
+  overflow: hidden;
+  color: var(--text-weak);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectors-popover__toggle {
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-weak);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  cursor: default;
+}
+
+.connectors-popover__toggle[data-enabled] {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-strong);
+}
+
+.connectors-popover__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

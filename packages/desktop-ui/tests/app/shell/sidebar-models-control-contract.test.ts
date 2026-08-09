@@ -12,7 +12,7 @@ const readSource = (relativePath: string) =>
   fs.readFileSync(path.join(SOURCE_ROOT, relativePath), "utf8");
 
 describe("sidebar Models control placement", () => {
-  it("keeps Models inside Work and swaps that section instead of using a popover", () => {
+  it("hosts Models as a footer popover anchored in Home", () => {
     const panel = readSource("shell/RightSidebar.tsx");
     const home = readSource("shell/WorkspaceHomeSurface.tsx");
     const work = readSource("shell/sidebar-sections/FilesSection.jsx");
@@ -27,21 +27,27 @@ describe("sidebar Models control placement", () => {
     expect(home).toMatch(/<SidebarModelsControl\s+openSidebar\s*\/>/);
     expect(home).not.toContain("AgentModelPicker");
 
+    // Home's footer is the popover anchor; the section body never swaps to
+    // an inline models panel, and it stays visible when the picker is
+    // opened externally while a viewer tab is showing.
     expect(work).toContain('className="work-section__footer"');
     expect(work).toContain("<SidebarModelsControl />");
-    expect(work).toContain("const showModelsControl = modelsOpen || !openTab;");
-    expect(work).toContain("{showModelsControl ?");
-    expect(work).toContain("modelsOpen ?");
-    expect(work).toContain("<AgentModelPicker active={modelsActive}/>");
+    expect(work).toContain("const showFooter = modelsOpen || !openTab;");
+    expect(work).toContain("{showFooter ?");
+    expect(work).not.toContain("AgentModelPicker");
 
-    expect(control).not.toContain("ModelsPicker");
+    // The picker renders inside the control's popover, driven by the shared
+    // engine-overlay store so `openEngineDisplayTab()` and the
+    // `stella:open-model-picker` event keep working.
+    expect(control).toContain("PopoverTrigger");
+    expect(control).toContain("AgentModelPicker");
+    expect(control).toContain("engineOverlay.setOpen");
     expect(control).toContain('sidebarSections.setActiveSection("files")');
     expect(control).toContain("displayTabs.setPanelOpen(true)");
-    expect(control).toContain("engineOverlay.setOpen(true)");
-    expect(control).toContain("engineOverlay.toggle()");
+
     expect(styles).toContain(".work-section__footer {");
-    expect(styles).toContain(".work-models-panel {");
+    expect(styles).toContain(".models-popover {");
     expect(styles).toContain(".pill-btn.work-models-button[data-active]");
-    expect(styles).not.toContain("border-color: var(--border);");
+    expect(styles).not.toContain(".work-models-panel {");
   });
 });

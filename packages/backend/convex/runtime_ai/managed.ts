@@ -40,6 +40,8 @@ export type ManagedProtocol =
   | "anthropic-messages"
   | "google-generative-ai";
 
+const WAFER_DEEPSEEK_V4_FLASH_FAST_MODEL = "wafer/DeepSeek-V4-Flash-0731-Fast";
+
 export type ManagedModelConfig = {
   model: string;
   managedGatewayProvider?: ManagedGatewayProvider;
@@ -532,6 +534,8 @@ export function buildManagedModel<TApi extends Api>(
   });
   const provider = providerFromBaseUrl(managedGateway.baseURL);
   const modelId = modelIdForGateway(config.model, provider);
+  const isWaferDeepSeekFast =
+    config.model === WAFER_DEEPSEEK_V4_FLASH_FAST_MODEL;
   const defaultHeaders: Record<string, string> = { ...headers };
   if (
     provider === "openrouter" ||
@@ -549,8 +553,11 @@ export function buildManagedModel<TApi extends Api>(
     reasoning: true,
     input: resolveModelInput(config.modalitiesInput),
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 256_000,
-    maxTokens: config.maxOutputTokens ?? 16_384,
+    contextWindow: isWaferDeepSeekFast ? 1_000_000 : 256_000,
+    // A zero model limit makes buildBaseOptions omit max_tokens. Wafer then
+    // applies the Fast model's native output limit instead of Stella imposing
+    // the generic managed-runtime default.
+    maxTokens: isWaferDeepSeekFast ? 0 : (config.maxOutputTokens ?? 16_384),
     headers: defaultHeaders,
     compat:
       api === "openai-completions"

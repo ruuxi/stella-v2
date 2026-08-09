@@ -1,7 +1,10 @@
 /* ThemePicker - Aura-style theme dropdown */
 
+/* Wide enough for eight swatches on a row, matching the onboarding theme
+ * step. Still a large net saving: this replaces a scrolling sixteen-row list
+ * with two rows. */
 [data-theme-picker] {
-  width: 256px;
+  width: 296px;
 }
 
 [data-theme-picker][data-theme-picker-inline="true"] {
@@ -14,9 +17,11 @@
   padding: 4px 2px 16px;
 }
 
+/* The inline settings surface is full-width, so it can fit more per row than
+ * the fixed-width popover. */
 [data-theme-picker][data-theme-picker-inline="true"]
-  [data-slot="theme-picker-theme-list"] {
-  max-height: none;
+  [data-slot="theme-picker-theme-grid"] {
+  grid-template-columns: repeat(auto-fill, 26px);
 }
 
 /* Selected appearance / gradient / theme rows use the secondary variant;
@@ -96,36 +101,73 @@
   padding: 0 8px;
 }
 
-[data-slot="theme-picker-theme-list"] {
+/* Themes are swatches of the surface they produce rather than a list of
+ * names — see @/ui/theme-orb. Eight to a row, so the stock sixteen make an
+ * even 8x2 and a seventeenth (a populated Custom) starts a short third row
+ * instead of reflowing everything. */
+[data-slot="theme-picker-theme-grid"] {
+  display: grid;
+  grid-template-columns: repeat(8, 26px);
+  justify-content: start;
+  gap: 6px;
+  padding: 2px 8px 4px;
+}
+
+[data-slot="theme-picker-orb"] {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  background: none;
+  /* Barely dimmed: dimming a swatch falsifies the one thing it exists to
+   * show, so selection is carried by the ring below instead. */
+  opacity: 0.82;
+  cursor: pointer;
+  transition:
+    opacity 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.12s ease;
+}
+
+[data-slot="theme-picker-orb"]:hover {
+  opacity: 1;
+  transform: scale(1.08);
+  border-color: color-mix(in oklch, var(--foreground) 28%, transparent);
+}
+
+[data-slot="theme-picker-orb"][data-active="true"] {
+  opacity: 1;
+  border-color: var(--select-border);
+  box-shadow: 0 0 0 2px var(--select-fill);
+}
+
+[data-slot="theme-picker-orb"]:focus-visible {
+  outline: none;
+  opacity: 1;
+  box-shadow: var(--focus-ring);
+}
+
+[data-slot="theme-picker-orb"]:active {
+  transform: scale(0.94);
+}
+
+/* The label row doubles as the name readout for the hovered swatch. */
+[data-slot="theme-picker-label"][data-row] {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: clamp(120px, 40vh, 400px);
-  overflow-y: auto;
-  scrollbar-width: none;
-  padding: 2px;
-  margin: -2px;
-}
-
-[data-slot="theme-picker-theme-list"]::-webkit-scrollbar {
-  display: none;
-}
-
-[data-slot="theme-picker-theme-button"] {
-  width: 100%;
+  align-items: baseline;
   justify-content: space-between;
-  padding: 0 8px;
+  gap: 8px;
 }
 
 [data-slot="theme-picker-theme-name"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-[data-slot="theme-picker-check"] {
-  flex-shrink: 0;
-  color: var(--primary);
+  color: var(--foreground);
+  font-weight: var(--weight-medium);
 }
 
 /* Trigger button styling */

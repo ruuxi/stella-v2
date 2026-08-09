@@ -5,13 +5,18 @@ import {
   useCallback,
 } from "react";
 import { useTheme } from "@/context/theme-context";
-import { cssToRgb } from "@/shared/lib/color";
 import { shouldUseLowPowerEffects } from "@/shared/lib/device-perf";
-import { generateGradientTokens } from "@/shared/theme/color";
+import {
+  BASE_POSITIONS,
+  FALLBACK_BACKGROUND,
+  buildGradientPalette,
+  parseThemeColor,
+  type GradientColor,
+  type GradientMode,
+  type RGB,
+} from "@/shared/theme/gradient-palette";
 import { cn } from "@/shared/lib/utils";
 import "./ShiftingGradient.css";
-
-type RGB = { r: number; g: number; b: number };
 
 interface Blob {
   x: number;
@@ -20,9 +25,6 @@ interface Blob {
   alpha: number;
   color: RGB;
 }
-
-type GradientMode = "soft" | "flat";
-type GradientColor = "relative" | "strong";
 
 interface ShiftingGradientProps {
   className?: string;
@@ -35,35 +37,8 @@ interface ShiftingGradientProps {
   contained?: boolean;
 }
 
-const BASE_POSITIONS = [
-  { x: 0.16, y: 0.14 },
-  { x: 0.86, y: 0.16 },
-  { x: 0.18, y: 0.88 },
-  { x: 0.88, y: 0.88 },
-  { x: 0.52, y: 0.54 },
-];
-
 function rand(min: number, max: number): number {
   return min + Math.random() * (max - min);
-}
-
-function parseColor(color: string): RGB | null {
-  if (!color || color === "transparent") return null;
-
-  try {
-    const [r, g, b] = cssToRgb(color);
-    return { r, g, b };
-  } catch {
-    return null;
-  }
-}
-
-function mixRgb(a: RGB, b: RGB, t: number): RGB {
-  return {
-    r: Math.round(a.r * (1 - t) + b.r * t),
-    g: Math.round(a.g * (1 - t) + b.g * t),
-    b: Math.round(a.b * (1 - t) + b.b * t),
-  };
 }
 
 // ─── Blue noise dithering ───────────────────────────────────────────────
@@ -203,54 +178,11 @@ export const ShiftingGradient = memo(function ShiftingGradient({
   // visible) measures 0x0 on the first settings pass.
   const paintedRef = useRef(false);
 
-  const getPalette = useCallback((): RGB[] => {
-    const isDark = resolvedColorMode === "dark";
-    const fallback = { r: 120, g: 120, b: 120 };
-
-    const tokens = generateGradientTokens(
-      {
-        primary: colors.primary,
-        success: colors.success,
-        warning: colors.warning,
-        info: colors.info,
-        interactive: colors.interactive,
-      },
-      isDark,
-    );
-
-    const bg = parseColor(colors.background) ?? { r: 248, g: 247, b: 247 };
-
-    if (colorMode === "relative") {
-      const tokenColors = [
-        tokens.textInteractive,
-        tokens.surfaceInfoStrong,
-        tokens.surfaceSuccessStrong,
-        tokens.surfaceWarningStrong,
-        tokens.surfaceBrandBase,
-      ];
-      const strength = isDark ? 0.32 : 0.5;
-      return tokenColors.map((token) => {
-        const color = parseColor(token) ?? fallback;
-        return mixRgb(bg, color, strength);
-      });
-    }
-
-    const brandColor =
-      parseColor(tokens.surfaceBrandBase) ?? parseColor(colors.primary) ?? fallback;
-    const accentColor =
-      parseColor(tokens.textInteractive) ??
-      parseColor(colors.interactive) ??
-      brandColor;
-    const strength = isDark ? 0.55 : 0.85;
-
-    return [
-      mixRgb(bg, brandColor, strength),
-      mixRgb(bg, accentColor, strength),
-      mixRgb(bg, brandColor, strength * 0.85),
-      mixRgb(bg, accentColor, strength * 0.88),
-      mixRgb(bg, brandColor, strength * 0.9),
-    ];
-  }, [resolvedColorMode, colorMode, colors]);
+  const getPalette = useCallback(
+    (): RGB[] =>
+      buildGradientPalette(colors, resolvedColorMode === "dark", colorMode),
+    [resolvedColorMode, colorMode, colors],
+  );
 
   // Render to canvas when settings change
   useEffect(() => {
@@ -287,7 +219,7 @@ export const ShiftingGradient = memo(function ShiftingGradient({
     const blobs = flat ? [] : generateBlobs(palette, mode);
     blobsRef.current = blobs;
 
-    const bg = parseColor(colors.background) ?? { r: 248, g: 247, b: 247 };
+    const bg = parseThemeColor(colors.background) ?? FALLBACK_BACKGROUND;
     const rect = canvas.parentElement?.getBoundingClientRect();
     const w = rect?.width ?? window.innerWidth;
     const h = rect?.height ?? window.innerHeight;
@@ -321,7 +253,7 @@ export const ShiftingGradient = memo(function ShiftingGradient({
       // prevKeyRef doubles as "the settings effect has run": blobsRef alone
       // can't gate this because flat themes intentionally paint zero blobs.
       if (!ctx || prevKeyRef.current === "") return false;
-      const bg = parseColor(colors.background) ?? { r: 248, g: 247, b: 247 };
+      const bg = parseThemeColor(colors.background) ?? FALLBACK_BACKGROUND;
       const rect = canvas.parentElement?.getBoundingClientRect();
       const w = rect?.width ?? 0;
       const h = rect?.height ?? 0;

@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getThemeById } from "@/shared/theme/themes";
-
-type ThemeSummary = {
-  id: string;
-  name: string;
-};
+import { useTheme } from "@/context/theme-context";
+import { getThemeById, type Theme } from "@/shared/theme/themes";
+import { OnboardingThemeOrb } from "./OnboardingThemeOrb";
 
 type ThemePhaseProps = {
   colorMode: "light" | "dark" | "system";
   gradientColor: "relative" | "strong";
   gradientMode: "soft" | "flat";
-  sortedThemes: ThemeSummary[];
+  sortedThemes: Theme[];
   splitTransitionActive: boolean;
   themeId: string;
   onContinue: () => void;
@@ -101,6 +98,14 @@ export function OnboardingThemePhase({
   const [showGradientStyle, setShowGradientStyle] = useState(false);
   const [showGradientColor, setShowGradientColor] = useState(false);
   const [hasSelectedGradientColor, setHasSelectedGradientColor] = useState(false);
+  // Swatches carry no text, so the caption under the grid is the only place
+  // the theme's name appears. It follows the cursor and falls back to the
+  // current selection.
+  const [hoveredThemeId, setHoveredThemeId] = useState<string | null>(null);
+
+  // Swatches render each theme in the appearance it would actually resolve to,
+  // so they need the mode the toggle resolves "system" into, not the raw value.
+  const { resolvedColorMode } = useTheme();
 
   const selectedTheme = useMemo(() => getThemeById(themeId), [themeId]);
   // Overlay themes (Custom) inherit their forced appearance from the base.
@@ -135,6 +140,7 @@ export function OnboardingThemePhase({
       cancelAnimationFrame(previewFrameRef.current);
       previewFrameRef.current = null;
     }
+    setHoveredThemeId(null);
     onThemePreviewLeave();
   }, [onThemePreviewLeave]);
   useEffect(
@@ -229,21 +235,25 @@ export function OnboardingThemePhase({
     <div className="onboarding-step-content">
       <div className="onboarding-step-label">Theme</div>
       <div
-        className="onboarding-theme-grid onboarding-pill-stagger"
+        className="onboarding-theme-grid onboarding-theme-grid--orbs onboarding-pill-stagger"
         onMouseLeave={handleThemePreviewLeave}
       >
         {sortedThemes.map((theme) => (
-          <button
+          <OnboardingThemeOrb
             key={theme.id}
-            type="button"
-            className="onboarding-pill"
-            data-active={theme.id === themeId}
-            onClick={() => handleSelectTheme(theme.id)}
-            onMouseEnter={() => handleThemePreviewEnter(theme.id)}
-          >
-            {theme.name}
-          </button>
+            theme={theme}
+            isDark={resolvedColorMode === "dark"}
+            active={theme.id === themeId}
+            onSelect={() => handleSelectTheme(theme.id)}
+            onPreviewEnter={() => {
+              setHoveredThemeId(theme.id);
+              handleThemePreviewEnter(theme.id);
+            }}
+          />
         ))}
+      </div>
+      <div className="onboarding-theme-orb-caption" aria-live="polite">
+        {getThemeById(hoveredThemeId ?? themeId)?.name ?? ""}
       </div>
 
       <div

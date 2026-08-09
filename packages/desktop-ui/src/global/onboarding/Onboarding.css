@@ -649,57 +649,73 @@
  * parallel as a softer wash; per-pill keyframes layer on top so each
  * item visibly resolves on its own beat, but the timeline is short
  * enough (≤ ~16 * step) that the eye reads it as one disclosure. */
-.onboarding-pill-stagger .onboarding-pill {
+.onboarding-pill-stagger :is(.onboarding-pill, .onboarding-theme-orb) {
   animation: onboardingPillStaggerIn var(--onboarding-duration-text)
     var(--onboarding-ease-standard) both;
 }
 
-.onboarding-pill-stagger .onboarding-pill:nth-child(1) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(1) {
   animation-delay: calc(var(--onboarding-stagger-step) * 1);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(2) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(2) {
   animation-delay: calc(var(--onboarding-stagger-step) * 2);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(3) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(3) {
   animation-delay: calc(var(--onboarding-stagger-step) * 3);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(4) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(4) {
   animation-delay: calc(var(--onboarding-stagger-step) * 4);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(5) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(5) {
   animation-delay: calc(var(--onboarding-stagger-step) * 5);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(6) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(6) {
   animation-delay: calc(var(--onboarding-stagger-step) * 6);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(7) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(7) {
   animation-delay: calc(var(--onboarding-stagger-step) * 7);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(8) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(8) {
   animation-delay: calc(var(--onboarding-stagger-step) * 8);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(9) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(9) {
   animation-delay: calc(var(--onboarding-stagger-step) * 9);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(10) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(10) {
   animation-delay: calc(var(--onboarding-stagger-step) * 10);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(11) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(11) {
   animation-delay: calc(var(--onboarding-stagger-step) * 11);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(12) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(12) {
   animation-delay: calc(var(--onboarding-stagger-step) * 12);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(13) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(13) {
   animation-delay: calc(var(--onboarding-stagger-step) * 13);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(14) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(14) {
   animation-delay: calc(var(--onboarding-stagger-step) * 14);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(15) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(15) {
   animation-delay: calc(var(--onboarding-stagger-step) * 15);
 }
-.onboarding-pill-stagger .onboarding-pill:nth-child(16) {
+.onboarding-pill-stagger
+  :is(.onboarding-pill, .onboarding-theme-orb):nth-child(16) {
   animation-delay: calc(var(--onboarding-stagger-step) * 16);
 }
 
@@ -725,6 +741,78 @@
 .onboarding-theme-grid .onboarding-pill {
   padding: 8px 16px;
   font-size: var(--font-size-sm);
+}
+
+/* ═══ Theme swatches ═══ */
+
+/* Each theme shows the surface it produces rather than its name — the same
+ * blob palette the shifting gradient paints, at the same five positions. The
+ * name moves to the caption below, which tracks the cursor. */
+
+/* A fixed 8 columns rather than free wrapping. Left to flex-wrap the sixteen
+ * themes break wherever the panel happens to end — 9 and 7 — which reads as a
+ * mistake. Eight gives an even 8x2, and a seventeenth (a populated Custom)
+ * lands as a short third row instead of reflowing everything. */
+.onboarding-theme-grid--orbs {
+  display: grid;
+  grid-template-columns: repeat(8, 38px);
+  justify-content: start;
+  gap: 12px;
+}
+
+.onboarding-theme-orb {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  background: none;
+  /* Barely dimmed. Pills can drop to 0.35 when unselected because their
+   * content is text, but dimming a swatch falsifies the one thing it is
+   * there to show — so selection is carried by the ring below instead. */
+  opacity: 0.82;
+  cursor: default;
+  -webkit-app-region: no-drag;
+  transition:
+    opacity 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    transform 0.15s ease;
+}
+
+.onboarding-theme-orb:hover {
+  opacity: 1;
+  transform: scale(1.08);
+  border-color: color-mix(in oklch, var(--foreground) 28%, transparent);
+}
+
+.onboarding-theme-orb[data-active="true"] {
+  opacity: 1;
+  border-color: color-mix(in oklch, var(--foreground) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+.onboarding-theme-orb:focus-visible {
+  outline: none;
+  opacity: 1;
+  box-shadow: var(--focus-ring);
+}
+
+.onboarding-theme-orb:active {
+  transform: scale(0.95);
+}
+
+/* Reserves its line so revealing Appearance below doesn't shift as the
+ * caption swaps between an empty and a filled string. */
+.onboarding-theme-orb-caption {
+  margin-top: 10px;
+  min-height: 1.3em;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  color: var(--foreground);
+  opacity: 0.6;
 }
 
 /* Theme step: each sub-row (Appearance → Gradient Style → Color) grows open
@@ -1478,19 +1566,19 @@
     filter: none;
   }
 
+  /* Swatches carry their own resting opacity — that is what separates the
+   * selected theme from the rest — so only the animation is dropped here. */
+  .onboarding-pill-stagger .onboarding-theme-orb {
+    animation: none;
+    transform: none;
+    filter: none;
+  }
+
   .onboarding-legal-footer--new-session {
     animation: none;
     opacity: 0.48;
     transform: none;
     filter: none;
-  }
-
-  .onboarding-moment--ripple .onboarding-choices,
-  .onboarding-moment--ripple .onboarding-choices[data-visible="true"] {
-    transition: none;
-    transform: none;
-    filter: none;
-    opacity: 1;
   }
 
   .onboarding-dialogue[data-phase="browser"]

@@ -13,8 +13,9 @@ import React, {
 } from "react";
 import { StyleSheet, View } from "react-native";
 import { GLView, type ExpoWebGLRenderingContext } from "expo-gl";
-import { useColors } from "../../theme/theme-context";
+import { useColors, useTheme } from "../../theme/theme-context";
 import { type Colors } from "../../theme/colors";
+import { generateAuroraStops } from "../../theme/oklch";
 import {
   BIRTH_DURATION,
   FLASH_DURATION,
@@ -23,6 +24,7 @@ import {
 } from "./glyph-atlas";
 import { getStellaRenderLayout } from "./layout";
 import { initRenderer, type StellaRenderer } from "./renderer";
+import { initAuroraRenderer } from "./aurora-renderer";
 
 const TIME_RATE = 0.96;
 const NOISE_FLOOR_FAST_RATE = 0.1;
@@ -44,6 +46,13 @@ export interface StellaAnimationHandle {
 
 export type VoiceMode = "idle" | "listening" | "speaking";
 
+/**
+ * `"creature"` — the ascii/glyph creature.
+ * `"orb"` — the aurora nebula orb, matching the desktop working indicator
+ * (`desktop-ui/src/shell/aurora`, variant `"orb"`).
+ */
+export type StellaVariant = "creature" | "orb";
+
 export interface StellaAnimationProps {
   /** Character-grid width — matches desktop `StellaAnimation` `width`. */
   width?: number;
@@ -59,6 +68,11 @@ export interface StellaAnimationProps {
   displayHeight?: number;
   /** Skip frames between draws (desktop indicator uses 2). */
   frameSkip?: number;
+  /**
+   * Multiplier on shader time. The orb wants 2.2 to match the desktop working
+   * indicator's churn rate — its motion was tuned at that speed.
+   */
+  timeScale?: number;
   initialBirthProgress?: number;
   paused?: boolean;
   /** Audio-reactive state used by the realtime voice surface. */
@@ -71,6 +85,8 @@ export interface StellaAnimationProps {
   outputLevel?: number;
   /** Restores the original drifting/blinking creature eyes. */
   showEyes?: boolean;
+  /** Which creature to draw. Defaults to the ascii `"creature"`. */
+  variant?: StellaVariant;
 }
 
 const colorsToFloat = (c: Colors): Float32Array =>
@@ -82,6 +98,19 @@ const colorsToFloat = (c: Colors): Float32Array =>
     ...parseColor(c.text),
   ]);
 
+/**
+ * The orb's five aurora ramp stops. Desktop seeds these from the theme's
+ * `interactive` + `accent`; the mobile `Colors` shape carries those same two
+ * seeds as `accentHover` (= `Src.interactive`) and `decorative`
+ * (= `Src.accent`) — see the `map()` in theme/themes.ts.
+ */
+const colorsToAurora = (c: Colors, isDark: boolean): Float32Array =>
+  new Float32Array(
+    generateAuroraStops(c.accentHover, c.decorative, isDark).flatMap((stop) =>
+      parseColor(stop),
+    ),
+  );
+
 export const StellaAnimation = React.forwardRef<
   StellaAnimationHandle,
   StellaAnimationProps
@@ -92,6 +121,7 @@ export const StellaAnimation = React.forwardRef<
     displayWidth,
     displayHeight,
     frameSkip = 0,
+    timeScale = 1,
     initialBirthProgress = 1,
     paused = false,
     voiceMode = "idle",
@@ -99,12 +129,25 @@ export const StellaAnimation = React.forwardRef<
     micLevel = 0,
     outputLevel = 0,
     showEyes = false,
+    variant = "creature",
   },
   ref,
 ) {
   const colors = useColors();
-  const colorsRef = useRef(colors);
-  colorsRef.current = colors;
+  const { isDark } = useTheme();
+  const shaderColors = useMemo(
+    () =>
+      variant === "orb"
+        ? colorsToAurora(colors, isDark)
+        : colorsToFloat(colors),
+    [colors, isDark, variant],
+  );
+  const shaderColorsRef = useRef(shaderColors);
+  shaderColorsRef.current = shaderColors;
+  const variantRef = useRef(variant);
+  variantRef.current = variant;
+  const timeScaleRef = useRef(timeScale);
+  timeScaleRef.current = timeScale;
 
   const layout = useMemo(
     () => getStellaRenderLayout(width, height),
@@ -199,8 +242,8 @@ export const StellaAnimation = React.forwardRef<
   );
 
   useEffect(() => {
-    rendererRef.current?.setColors(colorsToFloat(colors));
-  }, [colors]);
+    rendererRef.current?.setColors(shaderColors);
+  }, [shaderColors]);
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -213,21 +256,35 @@ export const StellaAnimation = React.forwardRef<
 
   const onContextCreate = useCallback(
     (gl: ExpoWebGLRenderingContext) => {
-      const bufferW = gl.drawingBufferWidth;
-      const bufferH = gl.drawingBufferHeight;
-      const glyphWidth = Math.max(4, Math.floor(bufferW / shaderGridW));
-      const glyphHeight = Math.max(4, Math.floor(bufferH / shaderGridH));
-
-      const atlas = buildGlyphAtlas(glyphWidth, glyphHeight);
-      const renderer = initRenderer(
-        gl,
-        atlas,
-        shaderGridW,
-        shaderGridH,
-        colorsToFloat(colorsRef.current),
-        birthRef.current,
-        flashRef.current,
-      );
+      const buildRenderer = (): StellaRenderer | null => {
+        if (variantRef.current === "orb") {
+          // The orb is a plain screen-space quad — no glyph atlas or grid.
+          return initAuroraRenderer(
+            gl,
+            shaderColorsRef.current,
+            birthRef.current,
+            flashRef.current,
+          );
+        }
+        const glyphWidth = Math.max(
+          4,
+          Math.floor(gl.drawingBufferWidth / shaderGridW),
+        );
+        const glyphHeight = Math.max(
+          4,
+          Math.floor(gl.drawingBufferHeight / shaderGridH),
+        );
+        return initRenderer(
+          gl,
+          buildGlyphAtlas(glyphWidth, glyphHeight),
+          shaderGridW,
+          shaderGridH,
+          shaderColorsRef.current,
+          birthRef.current,
+          flashRef.current,
+        );
+      };
+      const renderer = buildRenderer();
       if (!renderer) return;
       rendererRef.current = renderer;
       frameCountRef.current = 0;
@@ -259,7 +316,7 @@ export const StellaAnimation = React.forwardRef<
             ? Math.min(now - lastFrameMsRef.current, 100)
             : 16.667;
         lastFrameMsRef.current = now;
-        timeRef.current += (dt / 1000) * TIME_RATE;
+        timeRef.current += (dt / 1000) * TIME_RATE * timeScaleRef.current;
 
         const birthAnim = birthAnimRef.current;
         if (birthAnim) {

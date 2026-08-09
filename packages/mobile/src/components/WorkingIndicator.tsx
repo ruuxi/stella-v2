@@ -276,11 +276,14 @@ export const WorkingIndicator = memo(function WorkingIndicator({
               collapsable={false}
             >
               <StellaAnimation
+                variant="orb"
                 width={WORKING_INDICATOR_GRID}
                 height={WORKING_INDICATOR_GRID}
                 displayWidth={WORKING_INDICATOR_DISPLAY_PT}
                 displayHeight={WORKING_INDICATOR_DISPLAY_PT}
                 frameSkip={2}
+                // The orb's motion was tuned at the desktop indicator's rate.
+                timeScale={2.2}
                 paused={!active}
               />
             </View>
@@ -325,9 +328,12 @@ const makeStyles = (colors: Colors) =>
       paddingRight: 18,
       paddingTop: INDICATOR_PAD_TOP,
     },
+    // No circular crop: the orb's silhouette is carved by its own noise field,
+    // and clipping it to a circle turns the aurora into a filled disc (the
+    // same mistake desktop's `.indicator-stella` removed). The shader's frame
+    // fade keeps the wisp's fringes soft at the canvas bounds instead.
     viewport: {
-      borderRadius: 999,
-      overflow: "hidden",
+      overflow: "visible",
       position: "relative",
     },
     canvasSlot: {

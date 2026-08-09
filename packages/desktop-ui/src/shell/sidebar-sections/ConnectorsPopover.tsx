@@ -4,7 +4,13 @@
  * `nativeIntegrations.list`). Connectable entries can be switched on and
  * off in place; everything else just shows what the agent can reach.
  */
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+} from "react";
 import type { ElectronNativeIntegration } from "@/shared/types/electron";
 import {
   Popover,
@@ -12,7 +18,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/ui/popover";
-import { LoaderCircle } from "@/ui/icons";
+import { LoaderCircle, Search } from "@/ui/icons";
 import "./connectors-popover.css";
 
 type Phase = "idle" | "loading" | "ready" | "error";
@@ -22,6 +28,7 @@ export function ConnectorsPopover({ trigger }: { trigger: ReactElement }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [connectors, setConnectors] = useState<ElectronNativeIntegration[]>([]);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
+  const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
     const api = window.electronAPI?.nativeIntegrations;
@@ -47,7 +54,20 @@ export function ConnectorsPopover({ trigger }: { trigger: ReactElement }) {
 
   useEffect(() => {
     if (open) void load();
+    // Each opening starts from the full list rather than resuming a filter
+    // the user can no longer see.
+    else setQuery("");
   }, [load, open]);
+
+  const visibleConnectors = useMemo(() => {
+    const trimmed = query.trim().toLowerCase();
+    if (!trimmed) return connectors;
+    return connectors.filter((connector) =>
+      `${connector.name} ${connector.category} ${connector.description}`
+        .toLowerCase()
+        .includes(trimmed),
+    );
+  }, [connectors, query]);
 
   const toggle = useCallback(async (connector: ElectronNativeIntegration) => {
     const api = window.electronAPI?.nativeIntegrations;
@@ -82,7 +102,20 @@ export function ConnectorsPopover({ trigger }: { trigger: ReactElement }) {
         collisionPadding={8}
       >
         <PopoverBody>
-          <div className="connectors-popover__head">Connectors</div>
+          <div className="connectors-popover__head">
+            <span className="connectors-popover__title">Connectors</span>
+            <label className="connectors-popover__search">
+              <Search size={13} strokeWidth={1.75} aria-hidden="true" />
+              <input
+                type="text"
+                value={query}
+                onChange={(event) => setQuery(event.currentTarget.value)}
+                placeholder="Search"
+                aria-label="Search connectors"
+                disabled={phase !== "ready"}
+              />
+            </label>
+          </div>
           {phase === "loading" || phase === "idle" ? (
             <div className="connectors-popover__status" role="status">
               <LoaderCircle
@@ -101,9 +134,13 @@ export function ConnectorsPopover({ trigger }: { trigger: ReactElement }) {
             <div className="connectors-popover__status">
               No connectors available yet.
             </div>
+          ) : visibleConnectors.length === 0 ? (
+            <div className="connectors-popover__status">
+              No connectors match that search.
+            </div>
           ) : (
             <ul className="connectors-popover__list">
-              {connectors.map((connector) => {
+              {visibleConnectors.map((connector) => {
                 const busy = busyIds.has(connector.id);
                 return (
                   <li key={connector.id} className="connectors-popover__row">

@@ -1,5 +1,5 @@
 .connectors-popover {
-  width: 300px;
+  width: 320px;
   /* Never grow past the viewport: cap to the space Radix measured between
      the trigger and the collision boundary (it already accounts for
      collisionPadding), then scroll the connector list internally. */
@@ -15,20 +15,68 @@
   display: flex;
   min-height: 0;
   flex-direction: column;
+  /* Drop the body's right padding so the list's scrollbar rides the
+     popover's own inner edge instead of floating 12px inside it. Every
+     child that isn't the scroll container re-adds that inset itself. */
+  padding-right: 0;
 }
 
 .connectors-popover__head {
-  padding: 4px 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 2px 12px 8px 6px;
+}
+
+.connectors-popover__title {
+  flex-shrink: 0;
   color: var(--text-strong);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
+}
+
+.connectors-popover__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-inset);
+  color: var(--text-weak);
+}
+
+.connectors-popover__search:focus-within {
+  border-color: var(--border-strong, var(--border));
+  box-shadow: var(--focus-ring);
+}
+
+.connectors-popover__search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.connectors-popover__search input::placeholder {
+  color: var(--text-weaker);
 }
 
 .connectors-popover__status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 6px 12px;
+  padding: 10px 12px 12px 6px;
   color: var(--text-weak);
   font-size: var(--font-size-sm);
 }

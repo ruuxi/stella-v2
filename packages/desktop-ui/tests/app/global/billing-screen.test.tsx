@@ -82,8 +82,8 @@ const subscriptionStatus = (
   usagePolicy: { kind: "managed_cost" },
   plans: {
     free: { label: "Free", monthlyPriceCents: 0, ...PLAN_CONFIG },
-    go: { label: "Go", monthlyPriceCents: 1_000, ...PLAN_CONFIG },
-    pro: { label: "Pro", monthlyPriceCents: 6_000, ...PLAN_CONFIG },
+    go: { label: "Go", monthlyPriceCents: 500, ...PLAN_CONFIG },
+    pro: { label: "Pro", monthlyPriceCents: 1_500, ...PLAN_CONFIG },
   },
   ...overrides,
 });
@@ -158,8 +158,97 @@ describe("billing panel", () => {
     expect(findButton("Choose Pro")).not.toBeUndefined();
     // Free user has no subscription to manage.
     expect(findButton("Manage subscription")).toBeUndefined();
+    expect(container.textContent).toContain("Limited free use");
+    expect(container.textContent).not.toContain("3x the usage");
+    expect(container.textContent).not.toContain("Verified creator badge");
     expect(container.textContent).toContain("Extra usage credit");
     expect(container.textContent).toContain("$12.50");
+  });
+
+  it("lists only what each plan includes, in one shared order", async () => {
+    seedQueries(subscriptionStatus());
+    await render();
+
+    const rowsFor = (nth: number) =>
+      Array.from(
+        container.querySelectorAll<HTMLLIElement>(
+          `.billing-plan:nth-of-type(${nth}) .billing-plan-features li`,
+        ),
+      ).map((li) => li.textContent?.trim());
+
+    const [free, go, pro] = [1, 2, 3].map(rowsFor);
+
+    // No card ever renders a feature it does not include.
+    expect(free).toEqual([
+      "Personal assistant",
+      "Coding agent",
+      "Research and knowledge work",
+    ]);
+    expect(go).toEqual([
+      ...free,
+      "Voice, image and video generation",
+      "No ads",
+    ]);
+    expect(pro).toEqual(go);
+
+    // The rows plans share stay in the same sequence in every column, so
+    // a longer card reads as an extension of the one beside it.
+    expect(go.slice(0, free.length)).toEqual(free);
+    expect(pro.slice(0, go.length)).toEqual(go);
+  });
+
+  // The Go discount is a Stripe coupon created `duration=once`: it comes
+  // off the first invoice only. The headline may lead with the
+  // discounted price, but it must never imply that price recurs.
+  const discountedGo = (overrides: Record<string, unknown> = {}) => {
+    const status = subscriptionStatus(overrides);
+    return {
+      ...status,
+      plans: {
+        ...status.plans,
+        go: { ...status.plans.go, introFirstMonthPriceCents: 100 },
+      },
+    };
+  };
+
+  const goPriceBlock = () =>
+    container
+      .querySelectorAll(".billing-plan")[1]
+      ?.querySelector(".billing-plan-price");
+
+  it("leads with the discounted Go price and states the term with it", async () => {
+    seedQueries(discountedGo());
+    await render();
+
+    const price = goPriceBlock();
+    // The charged price is the headline; the standard rate is demoted.
+    expect(price?.querySelector(".billing-plan-amount")?.textContent).toBe(
+      "$1",
+    );
+    expect(price?.querySelector(".billing-plan-list-price")?.textContent).toBe(
+      "$5",
+    );
+
+    // …and the term never gets separated from the number.
+    expect(price?.textContent).toContain("first month");
+    expect(price?.querySelector(".billing-plan-terms")?.textContent).toBe(
+      "then $5/month",
+    );
+  });
+
+  it("withholds the first-month offer from existing subscribers", async () => {
+    seedQueries(
+      discountedGo({
+        plan: "pro",
+        subscriptionStatus: "active",
+        currentPeriodEnd: Date.UTC(2026, 8, 1),
+      }),
+    );
+    await render();
+
+    const price = goPriceBlock();
+    expect(price?.querySelector(".billing-plan-list-price")).toBeNull();
+    expect(price?.textContent).toBe("$5/month");
   });
 
   it("starts Stripe checkout in the external browser", async () => {
@@ -213,6 +302,20 @@ describe("billing panel", () => {
     expect(mocks.openExternalUrl).toHaveBeenCalledWith(
       "https://billing.stripe.com/portal",
     );
+  });
+
+  it("omits payment-provider copy when renewal timing is unavailable", async () => {
+    seedQueries(
+      subscriptionStatus({
+        plan: "go",
+        subscriptionStatus: "active",
+        currentPeriodEnd: null,
+      }),
+    );
+    await render();
+
+    expect(container.textContent).not.toContain("Managed by Stripe");
+    expect(container.querySelector(".billing-account-renewal")).toBeNull();
   });
 
   it("validates custom credit amounts before checkout", async () => {

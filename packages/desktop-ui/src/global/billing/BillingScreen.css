@@ -1,3 +1,22 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Plan & billing.
+
+   A purchase surface has one job: make the choice obvious and make the
+   product feel worth paying for. Three rules hold this file together,
+   and every value below answers to one of them.
+
+   1. ONE accent. Exactly one blue thing is on screen — the button you
+      are meant to press. Everything that used to compete with it (the
+      intro price, the meter fills) is neutral or subordinate to it.
+   2. ONE baseline grid. The three cards share row tracks via subgrid, so
+      name, price, tagline and CTA land on the same line across all
+      three columns however many features each card lists. A pricing
+      table that doesn't line up is three boxes.
+   3. NOTHING repeated. Anything the eye has already read is not shown
+      again — no percentage restating the bar it sits on, no second
+      container wrapping a grid of containers.
+   ═══════════════════════════════════════════════════════════════════════ */
+
 @keyframes billing-enter {
   from {
     opacity: 0;
@@ -10,20 +29,29 @@
 }
 
 .billing-panel {
+  /* Component-scoped tokens. The price is the one size on this surface
+     the global scale has no stop for: --font-size-2xl (20px) is barely
+     louder than a heading and --font-size-4xl (32px) overwhelms a 253px
+     card. 28px is where the number leads without shouting. */
+  --billing-price-size: 28px;
+  /* Cards nest inside a --radius-2xl dialog, so they take the step
+     below it. Equal radii on nested surfaces read as an accident. */
+  --billing-card-radius: var(--radius-xl);
+
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
   box-sizing: border-box;
   container-type: inline-size;
-  padding: 8px 2px 28px;
+  padding: 0 0 4px;
   color: var(--foreground);
   font-family: var(--font-family-sans);
   letter-spacing: var(--font-family-sans--default-letter-spacing, -0.02em);
   animation: billing-enter 180ms ease-out both;
 }
 
-/* Full-route wrapper (settings sidebar provides its own scroll region). */
+/* Full-route wrapper (the dialog and sidebar provide their own scroll). */
 .billing-screen-scroll {
   flex: 1;
   min-height: 0;
@@ -32,135 +60,222 @@
 }
 
 .billing-label {
-  color: var(--text-weak);
-  font-size: 11px;
+  color: var(--text-weaker);
+  font-size: var(--font-size-2xs);
   font-weight: var(--weight-semibold);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* Screen-reader-only. Absolutely positioned, so it is out of flow and
+   never becomes a flex item in the price row that contains it. A
+   `<s>` element conveys nothing to assistive tech, so the struck-through
+   standard rate needs its meaning in words. */
+.billing-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .billing-notice {
   margin: 0;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
+  padding: 9px 14px;
+  border: 1px solid var(--border-base);
   border-radius: var(--radius-xl);
-  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  background: var(--surface-inset);
   color: var(--text-base);
   font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
 .billing-notice--error {
-  border-color: color-mix(in srgb, var(--destructive, #d33) 40%, var(--border));
-  background: color-mix(in srgb, var(--destructive, #d33) 8%, var(--card));
+  border-color: color-mix(in srgb, var(--destructive) 40%, var(--border-base));
+  background: color-mix(in srgb, var(--destructive) 8%, var(--surface-inset));
 }
 
 .billing-state {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--card);
+  gap: 10px;
+  padding: 24px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-3xl);
+  background: var(--surface-inset);
 }
 
 .billing-state strong {
   color: var(--text-strong);
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
+  font-family: var(--font-family-display);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-regular);
+  letter-spacing: -0.025em;
 }
 
 .billing-state span {
+  max-width: 46ch;
   color: var(--text-weak);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
+  font-size: var(--font-size-base);
+  line-height: 1.55;
 }
 
-.billing-account,
-.billing-plan,
-.billing-credit {
+/* ── Where you stand ─────────────────────────────────────────────────
+   A band, not a card. This used to be a bordered, filled box sitting on
+   top of a grid of bordered, filled boxes — two levels of container
+   competing before the user reached a single price. Stripped to a rule,
+   it leaves the plan grid as the only object on the surface, which is
+   what the user opened this dialog for. */
+
+/* No closing rule. The three meter tracks already draw a horizontal
+   terminus across the full width; a hairline 12px under them made four
+   stacked lines in a row, and the eye read the lot as one broken rule
+   rather than as three meters. The gap does the separating. */
+.billing-account {
   box-sizing: border-box;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--card);
+  padding: 0 2px;
+  margin-bottom: 4px;
 }
 
 .billing-account-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  min-height: 26px;
 }
 
 .billing-account-plan {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
   min-width: 0;
 }
 
 .billing-account-plan-name {
   color: var(--text-strong);
-  font-family: var(--font-family-display);
-  font-size: 22px;
-  letter-spacing: -0.025em;
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
 }
 
 .billing-account-renewal {
-  color: var(--text-weak);
-  font-size: var(--font-size-sm);
+  color: var(--text-weaker);
+  font-size: var(--font-size-xs);
 }
 
 .billing-account-meters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 14px;
+  gap: 18px;
+  margin-top: 12px;
 }
 
-.billing-meter-label {
+.billing-meter-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 5px;
+  margin-bottom: 6px;
+}
+
+.billing-meter-label {
+  color: var(--text-base);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+}
+
+.billing-meter-amount {
   color: var(--text-weak);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.billing-meter-amount span {
+  color: var(--text-weaker);
 }
 
 .billing-meter-track {
-  height: 5px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklch, var(--foreground) 12%, transparent);
   overflow: hidden;
 }
 
+/* Neutral, not accent. These bars report a fact; they are not the thing
+   to press. Blue here is a second accent arguing with the CTA — and a
+   blue bar filling up reads as "good" when it means "you are nearly
+   out". Red at the limit is the only color this strip earns. */
 .billing-meter-fill {
   height: 100%;
   border-radius: inherit;
-  background: var(--accent);
-  transition: width 200ms ease;
+  background: color-mix(in oklch, var(--foreground) 45%, transparent);
+  transition: width 260ms ease;
 }
+
+.billing-meter-fill[data-full] {
+  background: var(--destructive);
+}
+
+/* ── Plans ───────────────────────────────────────────────────────────
+   Subgrid keeps the plan name, price, tagline and CTA of all three
+   cards on shared baselines however many features each one lists — the
+   thing that separates a pricing table from three stacked boxes. The
+   feature list is the flexible track, so a shorter list leaves its slack
+   above the CTA rather than dragging the button up out of line. */
 
 .billing-plans {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: auto auto auto 1fr auto;
+  gap: 12px 10px;
 }
 
 .billing-plan {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-row: span 5;
+  grid-template-rows: subgrid;
+  box-sizing: border-box;
+  padding: 14px 16px 14px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--billing-card-radius);
+  background: var(--surface-raised);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 
+.billing-plan:hover {
+  border-color: var(--border-strong);
+}
+
+/* Current: a firmer hairline, nothing more. You already own it — it
+   doesn't need selling, and tinting it would put a second colored
+   surface beside the one the user is meant to choose. */
 .billing-plan[data-active] {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  background: color-mix(in srgb, var(--accent) 5%, var(--card));
+  border-color: var(--border-strong);
+}
+
+/* Recommended: three quiet signals instead of one loud one — an accent
+   hairline, a 4% wash of the accent through the card, and a soft lift
+   off the surface. Each is nearly subliminal alone; together the eye
+   lands here first without anything raising its voice. The filled CTA
+   finishes the sentence. */
+.billing-plan[data-recommended] {
+  border-color: color-mix(in oklch, var(--primary) 42%, transparent);
+  background: color-mix(in oklch, var(--primary) 4%, var(--surface-raised));
+  box-shadow: var(--shadow-md);
+}
+
+.billing-plan[data-recommended]:hover {
+  border-color: color-mix(in oklch, var(--primary) 60%, transparent);
 }
 
 .billing-plan-head {
@@ -168,142 +283,185 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 18px;
 }
 
+/* The plan name is a column header, not a headline — the price is the
+   headline. Small, tracked-out and weak, it labels the column and then
+   gets out of the way. */
 .billing-plan-name {
-  color: var(--text-strong);
-  font-size: var(--font-size-base, 14px);
-  font-weight: var(--weight-medium);
+  color: var(--text-weak);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .billing-plan-badge {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--text-base);
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--text-interactive-base);
+  font-size: var(--font-size-2xs);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
-.billing-plan-price {
+.billing-plan-badge--current {
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
   color: var(--text-weak);
-  font-size: var(--font-size-sm);
-  line-height: 1.4;
 }
 
-.billing-plan-price strong {
+.billing-plan-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  margin-top: 10px;
+}
+
+.billing-plan-price-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.billing-plan-amount {
   color: var(--text-strong);
-  font-size: 18px;
-  font-weight: var(--weight-medium);
-  letter-spacing: -0.02em;
+  font-size: var(--billing-price-size);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  /* Large type needs tighter tracking than small type to hold the same
+     optical density — the global -0.01em reads loose at 28px. */
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.billing-plan-period {
+  color: var(--text-weaker);
+  font-size: var(--font-size-sm);
+}
+
+/* The standard rate, struck through beside the price actually charged.
+   Achromatic on purpose: a discount marked in blue would be a second
+   accent arguing with the only control on this surface that should be
+   filled. The strike plus the weaker weight already say "was". */
+.billing-plan-list-price {
+  color: var(--text-weaker);
+  font-size: var(--font-size-base);
+  font-variant-numeric: tabular-nums;
+  text-decoration-line: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* What the card bills on renewal. Directly under the price, never
+   further away — this line is the other half of the offer, not a
+   footnote to it. */
+.billing-plan-terms {
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .billing-plan-tagline {
-  margin: 0;
+  margin: 8px 0 0;
   color: var(--text-weak);
   font-size: var(--font-size-sm);
+  line-height: 1.45;
 }
 
+/* The rule under the tagline turns "some words, then some rows" into
+   "the pitch, then the spec sheet". */
 .billing-plan-features {
-  margin: 0 0 4px;
-  padding: 0 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border-weak);
+  list-style: none;
+}
+
+/* Every row is something the plan includes, so every row reads at one
+   strength. A card simply runs shorter than the one beside it when it
+   includes less. */
+.billing-plan-features li {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  color: var(--text-base);
+  font-size: var(--font-size-sm);
+  line-height: 1.35;
+}
+
+.billing-plan-feature-icon {
+  margin-top: 2px;
   color: var(--text-weak);
-  font-size: var(--font-size-sm);
-  line-height: 1.7;
 }
 
-.billing-plan-features li::marker {
-  color: color-mix(in srgb, var(--foreground) 35%, transparent);
+.billing-plan-cta.pill-btn {
+  width: 100%;
+  margin-top: 12px;
 }
 
-.billing-plan .billing-cta {
-  margin-top: auto;
-}
-
-.billing-cta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  flex-shrink: 0;
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-inset);
-  color: var(--foreground);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
-  cursor: default;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease;
-}
-
-.billing-cta:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
-  border-color: var(--border-strong, var(--border));
-}
-
-.billing-cta:focus-visible,
-.billing-credit-preset:focus-visible,
-.billing-credit-input:focus-visible,
-.billing-state button:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.billing-cta:disabled {
-  opacity: 0.55;
-}
-
-.billing-cta--current {
+/* A disabled current-plan CTA shouldn't read as "broken button" — it is a
+   status line that happens to occupy the button slot. */
+.billing-plan[data-active] .billing-plan-cta.pill-btn:disabled {
   opacity: 1;
   border-style: dashed;
-  background: transparent;
-  color: var(--text-weak);
+  border-color: var(--border-base);
+  color: var(--text-weaker);
 }
 
-.billing-state button {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+/* ── Extra usage credit ──────────────────────────────────────────────
+   One instrument on one line: presets, amount, action, read left to
+   right as a single sentence. It used to be a row of outlined pills,
+   then a full-width field, then a button — three stacked controls for
+   one number, tall enough on its own to push the dialog into a scroll. */
+
+.billing-credit {
+  box-sizing: border-box;
+  padding: 12px 16px 13px;
+  border: 1px solid var(--border-weak);
+  border-radius: var(--billing-card-radius);
   background: var(--surface-inset);
-  color: var(--foreground);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
-  cursor: default;
 }
 
 .billing-credit-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
+  gap: 20px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+}
+
+.billing-credit-copy {
+  min-width: 0;
 }
 
 .billing-section-title {
-  margin: 0 0 3px;
+  margin: 0 0 2px;
   color: var(--text-strong);
-  font-size: var(--font-size-base, 14px);
-  font-weight: var(--weight-medium);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
 }
 
 .billing-section-sub {
   margin: 0;
-  max-width: 52ch;
+  max-width: 58ch;
   color: var(--text-weak);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   line-height: 1.5;
 }
 
@@ -312,90 +470,151 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 .billing-credit-balance-value {
   color: var(--text-strong);
-  font-size: 18px;
-  font-weight: var(--weight-medium);
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  line-height: 1.15;
   letter-spacing: -0.02em;
-}
-
-.billing-credit-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-bottom: 10px;
-}
-
-.billing-credit-preset {
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-inset);
-  color: var(--foreground);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  cursor: default;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease;
-}
-
-.billing-credit-preset:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
-}
-
-.billing-credit-preset[data-active] {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface-inset));
-  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
 }
 
 .billing-credit-form {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* Amount segments. The selected one uses the app's canonical quiet
+   "you are here" recipe -- the same `--select-surface-*` pair the
+   sidebar tab rail uses -- rather than a hand-rolled recessed-track and
+   raised-thumb pair.
+
+   The hand-rolled version was wrong in dark. A track painted as
+   `foreground @ 7%` always moves TOWARD the foreground: darker than the
+   surface in light (a recess, correct) but LIGHTER than it in dark (a
+   ridge). The thumb, painted with the opaque `--surface-raised`, then
+   sat darker than its own track -- the selected segment read as a hole
+   and the empty track as the raised part, exactly inverted. index.css
+   warns about this on `--select-fill`: alpha tints composite against
+   whatever sits behind them, so one value becomes a different material
+   on every surface and in every theme. The `--select-surface-*` pair is
+   built to carry both themes and already ships in the tab rail. */
+.billing-credit-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.billing-credit-preset {
+  min-height: 28px;
+  padding: 0 13px;
+  /* Transparent on unselected segments so gaining the selected border
+     never shifts the row by a pixel. */
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-weak);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.billing-credit-preset:hover:not(:disabled):not([data-active]) {
+  color: var(--text-strong);
+}
+
+.billing-credit-preset[data-active] {
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
+  color: var(--text-strong);
+}
+
+.billing-credit-preset:focus-visible,
+.billing-credit-input-wrap:focus-within,
+.billing-state button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .billing-credit-input-wrap {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  flex: 1 1 140px;
-  min-width: 120px;
+  gap: 5px;
+  flex: 0 1 118px;
+  min-width: 92px;
+  min-height: 30px;
   padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-inset);
-  color: var(--text-weak);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
   font-size: var(--font-size-sm);
 }
 
+.billing-credit-input-prefix {
+  color: var(--text-weaker);
+}
+
 .billing-credit-input {
-  flex: 1;
+  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
-  min-height: 32px;
   border: none;
   background: transparent;
-  color: var(--foreground);
+  color: var(--text-strong);
   font: inherit;
   font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .billing-credit-input:focus {
   outline: none;
 }
 
-/* Narrow sidebar embedding: stack meters and plans vertically. */
-@container (max-width: 520px) {
+.billing-credit-input::placeholder {
+  color: var(--text-weaker);
+}
+
+.billing-credit-submit.pill-btn {
+  margin-left: auto;
+}
+
+/* Narrow embeddings (sidebar panel): stack everything. */
+@container (max-width: 620px) {
   .billing-account-meters {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    gap: 12px;
   }
 
   .billing-plans {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .billing-plan {
+    grid-row: auto;
+    grid-template-rows: none;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .billing-credit-submit.pill-btn {
+    margin-left: 0;
+  }
+
+  /* Once the head wraps, the balance is no longer opposite anything —
+     right-aligning it would leave it floating against nothing. */
+  .billing-credit-balance {
+    align-items: flex-start;
   }
 }

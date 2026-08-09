@@ -8,6 +8,7 @@ import { api } from "@/convex/api";
 import { useLocale } from "@/shared/i18n/I18nProvider";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { openExternalUrl } from "@/platform/electron/open-external";
+import { Check } from "@/ui/icons";
 import "./BillingScreen.css";
 
 /**
@@ -85,34 +86,38 @@ const STATIC_PLAN_DISPLAY: Record<
   { label: string; monthlyPriceCents: number }
 > = {
   free: { label: "Free", monthlyPriceCents: 0 },
-  go: { label: "Go", monthlyPriceCents: 1_000 },
-  pro: { label: "Pro", monthlyPriceCents: 6_000 },
+  go: { label: "Go", monthlyPriceCents: 500 },
+  pro: { label: "Pro", monthlyPriceCents: 1_500 },
 };
 
 const PLAN_USAGE_TAGLINE: Record<BillingPlan, string> = {
-  free: "Light usage to try Stella",
-  go: "Baseline monthly usage",
-  pro: "3x the usage of Go",
+  free: "Limited free use",
+  go: "More included usage",
+  pro: "Highest included usage",
 };
 
-const BASE_PLAN_FEATURES: readonly string[] = [
-  "Voice features",
-  "Image, video, audio and 3D generation",
+/**
+ * One matrix, one order. Each card renders only the rows it includes —
+ * a card never shows a feature struck through or dashed out, so every
+ * line on this surface is something you get.
+ *
+ * The matrix is still the single source of truth rather than three hand
+ * -written lists: keeping the order shared means the rows all three
+ * plans have in common land in the same sequence in every column, so a
+ * card that includes more simply runs longer than the one beside it.
+ */
+type PlanFeature = { text: string; plans: readonly BillingPlan[] };
+
+const ALL_PLANS: readonly BillingPlan[] = ["free", "go", "pro"];
+const PAID_PLANS: readonly BillingPlan[] = ["go", "pro"];
+
+const PLAN_FEATURE_MATRIX: readonly PlanFeature[] = [
+  { text: "Personal assistant", plans: ALL_PLANS },
+  { text: "Coding agent", plans: ALL_PLANS },
+  { text: "Research and knowledge work", plans: ALL_PLANS },
+  { text: "Voice, image and video generation", plans: PAID_PLANS },
+  { text: "No ads", plans: PAID_PLANS },
 ];
-
-const PRIORITY_PLAN_FEATURE = "Higher priority, increased speeds";
-const VERIFIED_BADGE_FEATURE = "Verified creator badge on the Store";
-
-const PRIORITY_PLANS = new Set<BillingPlan>(["pro"]);
-const PAID_PLANS = new Set<BillingPlan>(["go", "pro"]);
-
-const getPlanFeatures = (plan: BillingPlan): readonly string[] => {
-  const features: string[] = [];
-  if (PRIORITY_PLANS.has(plan)) features.push(PRIORITY_PLAN_FEATURE);
-  features.push(...BASE_PLAN_FEATURES);
-  if (PAID_PLANS.has(plan)) features.push(VERIFIED_BADGE_FEATURE);
-  return features;
-};
 
 /**
  * Amounts are denominated in USD regardless of where the user is —
@@ -408,7 +413,11 @@ export function BillingPanel() {
             Plans, usage limits and extra credit are tied to your Stella
             account.
           </span>
-          <button type="button" onClick={openSignInDialog}>
+          <button
+            type="button"
+            className="pill-btn pill-btn--lg pill-btn--primary"
+            onClick={openSignInDialog}
+          >
             Sign in
           </button>
         </div>
@@ -450,7 +459,7 @@ export function BillingPanel() {
     ? billingStatus.cancelAtPeriodEnd
       ? `Access ends ${formatters.date.format(new Date(billingStatus.currentPeriodEnd))}`
       : `Renews ${formatters.date.format(new Date(billingStatus.currentPeriodEnd))}`
-    : "Managed by Stripe";
+    : null;
 
   return (
     <div className="billing-panel">
@@ -468,7 +477,7 @@ export function BillingPanel() {
             <span className="billing-account-plan-name">
               {isLoadingStatus ? "…" : getPlanDisplay(currentPlan).label}
             </span>
-            {isActivePaidSubscriber ? (
+            {isActivePaidSubscriber && renewalDetail ? (
               <span className="billing-account-renewal">
                 {renewalLabel} · {renewalDetail}
               </span>
@@ -477,7 +486,7 @@ export function BillingPanel() {
           {isActivePaidSubscriber ? (
             <button
               type="button"
-              className="billing-cta"
+              className="pill-btn pill-btn--lg"
               onClick={() => void handleOpenPortal()}
               disabled={openingPortal}
             >
@@ -488,28 +497,45 @@ export function BillingPanel() {
 
         {usageMeters ? (
           <div className="billing-account-meters">
-            {usageMeters.map((meter) => (
-              <div
-                key={meter.key}
-                className="billing-meter"
-                title={`${formatters.usd.format(meter.usedUsd)} of ${formatters.usd.format(meter.limitUsd)}`}
-              >
-                <div className="billing-meter-label">
-                  <span>{meter.label}</span>
-                  <span>
-                    {formatUsagePercent(meter.usedUsd, meter.limitUsd)}
-                  </span>
-                </div>
-                <div className="billing-meter-track">
+            {usageMeters.map((meter) => {
+              const percent = toUsagePercent(meter.usedUsd, meter.limitUsd);
+              return (
+                <div key={meter.key} className="billing-meter">
+                  {/* Two lines, not three. The percentage used to sit on
+                      its own row opposite the label while the amounts sat
+                      under the bar — but the bar already *is* the
+                      percentage, drawn to scale. Dropping the number and
+                      lifting the amounts up beside the label gives the
+                      same information in one fewer line per meter, three
+                      fewer down the strip. The percent stays as the
+                      accessible name, where a bar can't speak. */}
+                  <div className="billing-meter-head">
+                    <span className="billing-meter-label">{meter.label}</span>
+                    <span className="billing-meter-amount">
+                      {formatters.usd.format(meter.usedUsd)}
+                      <span> / {formatters.usd.format(meter.limitUsd)}</span>
+                    </span>
+                  </div>
                   <div
-                    className="billing-meter-fill"
-                    style={{
-                      width: `${toUsagePercent(meter.usedUsd, meter.limitUsd)}%`,
-                    }}
-                  />
+                    className="billing-meter-track"
+                    role="progressbar"
+                    aria-label={`${meter.label}: ${formatUsagePercent(
+                      meter.usedUsd,
+                      meter.limitUsd,
+                    )} used`}
+                    aria-valuenow={Math.round(percent)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="billing-meter-fill"
+                      style={{ width: `${percent}%` }}
+                      data-full={percent >= 100 || undefined}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
       </section>
@@ -518,12 +544,17 @@ export function BillingPanel() {
         {PLAN_ORDER.map((plan) => {
           const display = getPlanDisplay(plan);
           const isCurrentPlan = plan === currentPlan;
+          // An intro rate is a first-subscription offer. Showing it to
+          // someone who already pays turns the Go card into "downgrade
+          // and get a discount" — an offer Stripe would not honour
+          // through the portal anyway.
           const introCents =
             plan === "go" &&
             typeof display.introFirstMonthPriceCents === "number" &&
             display.introFirstMonthPriceCents > 0 &&
             display.monthlyPriceCents > display.introFirstMonthPriceCents &&
-            !isCurrentPlan
+            !isCurrentPlan &&
+            !isActivePaidSubscriber
               ? display.introFirstMonthPriceCents
               : null;
           const isPaidPlan = plan !== "free";
@@ -577,47 +608,88 @@ export function BillingPanel() {
             >
               <div className="billing-plan-head">
                 <span className="billing-plan-name">{display.label}</span>
-                {isRecommended ? (
+                {isCurrentPlan ? (
+                  <span className="billing-plan-badge billing-plan-badge--current">
+                    <Check size={11} strokeWidth={2.4} aria-hidden="true" />
+                    Current
+                  </span>
+                ) : isRecommended ? (
                   <span className="billing-plan-badge">Recommended</span>
                 ) : null}
               </div>
+
+              {/* A discounted plan leads with the price you actually pay
+                  and demotes the standard rate to a struck-through
+                  reference beside it. Free renders as $0 rather than the
+                  word "Free": the card is already named Free, and a word
+                  among numbers breaks the row.
+
+                  The term is welded to the number, never whispered under
+                  it. The discount this app can issue is a Stripe coupon
+                  created `duration=once` (see STRIPE_COUPON_GO_FIRST_MONTH)
+                  — it comes off the first invoice and renewals bill at the
+                  standard rate. So "$1" never appears without "first
+                  month" on the same line, and the renewal rate gets its
+                  own line directly beneath. A headline reading "$5" with
+                  the term buried is a price the billing system will not
+                  honour on the second invoice. */}
               <div className="billing-plan-price">
+                <span className="billing-plan-price-row">
+                  <span className="billing-plan-amount">
+                    {formatters.currency.format(
+                      (introCents ?? display.monthlyPriceCents) / 100,
+                    )}
+                  </span>
+                  {introCents !== null ? (
+                    <>
+                      <span className="billing-visually-hidden">
+                        , down from{" "}
+                      </span>
+                      <s className="billing-plan-list-price">
+                        {formatters.currency.format(
+                          display.monthlyPriceCents / 100,
+                        )}
+                      </s>
+                      <span className="billing-plan-period">first month</span>
+                    </>
+                  ) : (
+                    <span className="billing-plan-period">/month</span>
+                  )}
+                </span>
                 {introCents !== null ? (
-                  <>
-                    <strong>
-                      {formatters.currency.format(introCents / 100)}
-                    </strong>
-                    <span> first month, then </span>
-                    <strong>
-                      {formatters.currency.format(
-                        display.monthlyPriceCents / 100,
-                      )}
-                    </strong>
-                    <span>/mo</span>
-                  </>
-                ) : display.monthlyPriceCents <= 0 ? (
-                  <strong>Free</strong>
-                ) : (
-                  <>
-                    <strong>
-                      {formatters.currency.format(
-                        display.monthlyPriceCents / 100,
-                      )}
-                    </strong>
-                    <span>/mo</span>
-                  </>
-                )}
+                  <span className="billing-plan-terms">
+                    then{" "}
+                    {formatters.currency.format(
+                      display.monthlyPriceCents / 100,
+                    )}
+                    /month
+                  </span>
+                ) : null}
               </div>
+
               <p className="billing-plan-tagline">{PLAN_USAGE_TAGLINE[plan]}</p>
+
               <ul className="billing-plan-features">
-                {getPlanFeatures(plan).map((feature) => (
-                  <li key={feature}>{feature}</li>
+                {PLAN_FEATURE_MATRIX.filter((feature) =>
+                  feature.plans.includes(plan),
+                ).map((feature) => (
+                  <li key={feature.text}>
+                    <Check
+                      className="billing-plan-feature-icon"
+                      size={13}
+                      strokeWidth={2.2}
+                      aria-hidden="true"
+                    />
+                    <span>{feature.text}</span>
+                  </li>
                 ))}
               </ul>
+
               <button
                 type="button"
                 className={
-                  "billing-cta" + (isCurrentPlan ? " billing-cta--current" : "")
+                  "pill-btn pill-btn--lg billing-plan-cta" +
+                  (isRecommended && !isDisabled ? " pill-btn--primary" : "")
                 }
                 onClick={handlePlanClick}
                 disabled={isDisabled}
@@ -630,12 +702,15 @@ export function BillingPanel() {
       </section>
 
       <section className="billing-credit" aria-label="Extra usage credit">
+        {/* Copy and balance on the top line, the whole instrument on the
+            second: presets, amount and action read left-to-right as one
+            sentence instead of three stacked controls in a box. */}
         <div className="billing-credit-head">
-          <div>
+          <div className="billing-credit-copy">
             <h2 className="billing-section-title">Extra usage credit</h2>
             <p className="billing-section-sub">
-              One-time top-up. Stella spends it automatically once your included
-              monthly usage is gone, then resumes from your plan next month.
+              Spent automatically once your included monthly usage is gone, then
+              your plan resumes next month.
             </p>
           </div>
           {creditStatus?.authenticated ? (
@@ -648,35 +723,37 @@ export function BillingPanel() {
           ) : null}
         </div>
 
-        {creditOptions ? (
-          <div
-            className="billing-credit-presets"
-            role="radiogroup"
-            aria-label="Preset amounts"
-          >
-            {creditOptions.presetAmountCents.map((amountCents) => {
-              const isSelected = creditSelectedPresetCents === amountCents;
-              return (
-                <button
-                  key={amountCents}
-                  type="button"
-                  role="radio"
-                  aria-checked={isSelected}
-                  className="billing-credit-preset"
-                  data-active={isSelected || undefined}
-                  onClick={() => handleSelectCreditPreset(amountCents)}
-                  disabled={startingCredit}
-                >
-                  {formatters.currency.format(amountCents / 100)}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-
         <div className="billing-credit-form">
+          {creditOptions ? (
+            <div
+              className="billing-credit-presets"
+              role="radiogroup"
+              aria-label="Preset amounts"
+            >
+              {creditOptions.presetAmountCents.map((amountCents) => {
+                const isSelected = creditSelectedPresetCents === amountCents;
+                return (
+                  <button
+                    key={amountCents}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    className="billing-credit-preset"
+                    data-active={isSelected || undefined}
+                    onClick={() => handleSelectCreditPreset(amountCents)}
+                    disabled={startingCredit}
+                  >
+                    {formatters.currency.format(amountCents / 100)}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
           <label className="billing-credit-input-wrap">
-            <span aria-hidden="true">$</span>
+            <span className="billing-credit-input-prefix" aria-hidden="true">
+              $
+            </span>
             <input
               type="text"
               inputMode="decimal"
@@ -697,7 +774,7 @@ export function BillingPanel() {
           </label>
           <button
             type="button"
-            className="billing-cta"
+            className="pill-btn pill-btn--lg pill-btn--primary billing-credit-submit"
             onClick={() => void handleStartCreditCheckout()}
             disabled={
               !creditOptions || startingCredit || !creditCustomAmount.trim()

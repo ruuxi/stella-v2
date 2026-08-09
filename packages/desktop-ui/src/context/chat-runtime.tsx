@@ -1,11 +1,11 @@
-import { type ReactNode } from 'react'
-import { useFullShellChat } from '@/shell/use-full-shell-chat'
-import { ChatRuntimeContext } from '@/context/chat-runtime-context'
-import { ChatMessagesContext } from '@/context/chat-messages-context'
-import { usePetStatusBroadcast } from '@/shell/pet/use-pet-status-broadcast'
-import { useAgentProgressSummaryEngine } from '@/features/chat/use-agent-progress-summary-engine'
-import { useTaskDecorationPublisher } from '@/features/chat/streaming/use-task-decoration-publisher'
-import { isTraceDiagnosticsEnabled } from '@/platform/diagnostics/trace-store'
+import { type ReactNode } from "react";
+import { useFullShellChat } from "@/shell/use-full-shell-chat";
+import { ChatRuntimeContext } from "@/context/chat-runtime-context";
+import { ChatMessagesContext } from "@/context/chat-messages-context";
+import { usePetStatusBroadcast } from "@/shell/pet/use-pet-status-broadcast";
+import { AgentProgressSummaryController } from "@/features/chat/AgentProgressSummaryController";
+import { useTaskDecorationPublisher } from "@/features/chat/streaming/use-task-decoration-publisher";
+import { isTraceDiagnosticsEnabled } from "@/platform/diagnostics/trace-store";
 
 /**
  * Hoists `useFullShellChat`'s output into a single Context so the chat
@@ -18,10 +18,10 @@ import { isTraceDiagnosticsEnabled } from '@/platform/diagnostics/trace-store'
  * exports *only* the Provider component and stays Fast-Refresh eligible.
  */
 type ChatRuntimeProviderProps = {
-  activeConversationId: string | null
-  isOnChatRoute: boolean
-  children: ReactNode
-}
+  activeConversationId: string | null;
+  isOnChatRoute: boolean;
+  children: ReactNode;
+};
 
 export function ChatRuntimeProvider({
   activeConversationId,
@@ -38,7 +38,7 @@ export function ChatRuntimeProvider({
     // real users — gating trace diagnostics on it would run (and leak) them in
     // production. Use an explicit opt-in flag that defaults OFF instead.
     traceEnabled: isTraceDiagnosticsEnabled(),
-  })
+  });
 
   // Broadcast a derived PetOverlayStatus alongside the existing working
   // indicator so the floating pet always mirrors the same agent state
@@ -46,22 +46,20 @@ export function ChatRuntimeProvider({
   usePetStatusBroadcast({
     messages,
     tasks: runtime.conversation.tasks,
-    runtimeStatusText: runtime.conversation.streaming.runtimeStatusText ?? '',
+    runtimeStatusText: runtime.conversation.streaming.runtimeStatusText ?? "",
     isStreaming: runtime.conversation.isStreaming,
     pendingUserMessageId: runtime.conversation.pendingUserMessageId ?? null,
-  })
-
-  // Generate rolling 3-7 word progress summaries for each active sub-agent.
-  useAgentProgressSummaryEngine(runtime.conversation.tasks)
+  });
 
   // Mirror mid-run statusText ticks to main for the desktop→mobile bridge.
-  useTaskDecorationPublisher()
+  useTaskDecorationPublisher();
 
   return (
     <ChatRuntimeContext.Provider value={runtime}>
       <ChatMessagesContext.Provider value={messages}>
+        <AgentProgressSummaryController tasks={runtime.conversation.tasks} />
         {children}
       </ChatMessagesContext.Provider>
     </ChatRuntimeContext.Provider>
-  )
+  );
 }

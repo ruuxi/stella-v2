@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { ChatContext } from "@stella/contracts";
+import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
@@ -767,6 +768,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       model?: string;
       reasoningEffort?: "none" | "low" | "medium" | "high";
       utility?: boolean;
+      modelConfigSnapshot?: AgentModelConfigSnapshot;
       sessionKey?: string;
       closeSession?: boolean;
       sessionIdleTtlMs?: number;

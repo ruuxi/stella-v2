@@ -10,6 +10,7 @@ import {
   getMaxAgentConcurrency,
   getModelOverride,
   getReasoningEffort,
+  getSubscriptionHarnessEnabled,
 } from "../preferences/local-preferences.js";
 import { readOrSeedPersonality } from "../personality/personality.js";
 import {
@@ -47,6 +48,7 @@ import type {
   AgentModelConfigSnapshot,
   AgentModelReasoningEffort,
   AgentRuntimeEngine,
+  CodexServiceTier,
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
@@ -513,27 +515,70 @@ export const createRunnerContext = ({
     captureSpawnModelConfig: async ({
       agentType,
       spawnEngine,
+      useConfiguredEngine,
       model: spawnModel,
       spawnReasoningEffort,
     }) => {
+      const configuredEngine = getAgentRuntimeEngine(stellaDataDir);
+      const selectedEngine = useConfiguredEngine
+        ? configuredEngine
+        : spawnEngine.engine;
+      const subscriptionHarnessEnabled = getSubscriptionHarnessEnabled(
+        stellaDataDir,
+        selectedEngine,
+      );
       const agent = resolveAgent(context, agentType);
       const configuredModel =
         spawnModel ?? getConfiguredModel(context, agentType, agent);
-      const reasoningEffort =
-        spawnReasoningEffort ?? getReasoningEffort(stellaDataDir, agentType);
+      const configuredReasoningEffort = getReasoningEffort(
+        stellaDataDir,
+        agentType,
+      );
+      const sampledEngineConfig = sampleAgentEngineConfig({
+        stellaDataDir,
+        engine: selectedEngine,
+        configuredModel,
+        engineModelOverride: useConfiguredEngine
+          ? undefined
+          : spawnEngine.model,
+        reasoningEffort: spawnReasoningEffort ?? configuredReasoningEffort,
+      });
+      const sampledSpawnEngine: SpawnEngineSelection =
+        selectedEngine === "default"
+          ? { engine: "default" }
+          : {
+              engine: selectedEngine,
+              ...(sampledEngineConfig.engineModel
+                ? { model: sampledEngineConfig.engineModel }
+                : {}),
+            };
+      const harnessRouteModel = resolveSubscriptionHarnessRouteModel({
+        stellaDataDir,
+        agentType,
+        configuredEngine,
+        subscriptionHarnessEnabled,
+        configuredModel,
+        spawnEngine: sampledSpawnEngine,
+      });
+      const model = harnessRouteModel ?? configuredModel;
       const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
         context,
         agentType,
-        configuredModel,
+        model,
         spawnReasoningEffort,
       );
       return captureEffectiveModelConfig({
         stellaDataDir,
-        engine: spawnEngine.engine,
-        configuredModel,
-        engineModelOverride: spawnEngine.model,
+        engine: selectedEngine,
+        subscriptionHarnessEnabled,
+        configuredModel: model,
+        engineModelOverride: sampledEngineConfig.engineModel,
+        ...(sampledEngineConfig.serviceTier
+          ? { serviceTierOverride: sampledEngineConfig.serviceTier }
+          : {}),
+        engineConfigSampled: true,
         resolvedLlm,
-        reasoningEffort,
+        reasoningEffort: sampledEngineConfig.reasoningEffort,
       });
     },
     scheduleApi,
@@ -856,6 +901,14 @@ export type BuildAgentContextArgs = {
   spawnReasoningEffort?: SpawnReasoningEffort;
   /** Effective Orchestrator route inherited by a durable Manager thread. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
+  /** One-shot configured-engine sample paired with route resolution. */
+  configuredAgentEngine?: AgentRuntimeEngine;
+  /** One-shot generic agent effort sample paired with route resolution. */
+  configuredReasoningEffort?: string;
+  /** Engine model/effort/tier sampled before route resolution. */
+  sampledEngineConfig?: SampledAgentEngineConfig;
+  /** Preference sample taken before async route resolution. */
+  subscriptionHarnessEnabled?: boolean;
   toolWorkspaceRoot?: string;
 } & ResolvedAgentModelRoute;
 
@@ -899,31 +952,47 @@ const exactRouteModelReference = (
 export const captureEffectiveModelConfig = (args: {
   stellaDataDir: string;
   engine: AgentRuntimeEngine;
+  subscriptionHarnessEnabled?: boolean;
   configuredModel?: string;
   engineModelOverride?: string;
+  serviceTierOverride?: CodexServiceTier;
+  /** Engine preferences, including an intentional absent effort, were frozen. */
+  engineConfigSampled?: boolean;
   resolvedLlm: ResolvedLlmRoute;
   reasoningEffort?: string;
 }): AgentModelConfigSnapshot => {
-  const routeModel = exactRouteModelReference(
-    args.resolvedLlm,
-    args.configuredModel,
-  );
   if (args.engine === "codex_cli") {
     const codex = getCodexRuntimePreferences(
       args.stellaDataDir,
       args.configuredModel,
       args.engineModelOverride,
     );
+    const codexModel =
+      args.subscriptionHarnessEnabled &&
+      args.resolvedLlm.model.provider === "openai-codex"
+        ? args.resolvedLlm.model.id
+        : codex.model;
+    const routeModel = args.subscriptionHarnessEnabled
+      ? `openai-codex/${codexModel}`
+      : exactRouteModelReference(args.resolvedLlm, args.configuredModel);
     const effort =
       normalizeCapturedReasoningEffort(args.reasoningEffort) ??
-      normalizeCapturedReasoningEffort(codex.reasoningEffort);
+      (args.engineConfigSampled
+        ? undefined
+        : normalizeCapturedReasoningEffort(codex.reasoningEffort));
     return {
       engine: args.engine,
+      subscriptionHarnessEnabled: args.subscriptionHarnessEnabled === true,
       routeModel,
-      engineModel: codex.model,
+      engineModel: codexModel,
       ...(effort ? { reasoningEffort: effort } : {}),
+      serviceTier: args.serviceTierOverride ?? codex.serviceTier,
     };
   }
+  const routeModel = exactRouteModelReference(
+    args.resolvedLlm,
+    args.configuredModel,
+  );
   if (args.engine === "claude_code_local") {
     const model = getClaudeCodeAgentModelId(
       args.stellaDataDir,
@@ -933,11 +1002,14 @@ export const captureEffectiveModelConfig = (args: {
     ).replace(/^claude-code\//, "");
     const effort =
       normalizeCapturedReasoningEffort(args.reasoningEffort) ??
-      normalizeCapturedReasoningEffort(
-        getClaudeCodeRuntimeEffortLevel(args.stellaDataDir),
-      );
+      (args.engineConfigSampled
+        ? undefined
+        : normalizeCapturedReasoningEffort(
+            getClaudeCodeRuntimeEffortLevel(args.stellaDataDir),
+          ));
     return {
       engine: args.engine,
+      subscriptionHarnessEnabled: args.subscriptionHarnessEnabled === true,
       routeModel,
       engineModel: model,
       ...(effort ? { reasoningEffort: effort } : {}),
@@ -955,6 +1027,89 @@ export const resolveAgentEngineForRun = (
   configuredEngine: AgentRuntimeEngine,
   spawnEngine?: SpawnEngineSelection,
 ): AgentRuntimeEngine => spawnEngine?.engine ?? configuredEngine;
+
+export type SampledAgentEngineConfig = {
+  engineModel?: string;
+  reasoningEffort?: AgentModelReasoningEffort;
+  serviceTier?: CodexServiceTier;
+};
+
+/** Freeze every engine-owned picker value before any async route lookup. */
+export const sampleAgentEngineConfig = (args: {
+  stellaDataDir: string;
+  engine: AgentRuntimeEngine;
+  configuredModel?: string;
+  engineModelOverride?: string;
+  reasoningEffort?: string;
+}): SampledAgentEngineConfig => {
+  const explicitEffort = normalizeCapturedReasoningEffort(args.reasoningEffort);
+  if (args.engine === "codex_cli") {
+    const codex = getCodexRuntimePreferences(
+      args.stellaDataDir,
+      args.configuredModel,
+      args.engineModelOverride,
+    );
+    const effort =
+      explicitEffort ?? normalizeCapturedReasoningEffort(codex.reasoningEffort);
+    return {
+      engineModel: codex.model,
+      ...(effort ? { reasoningEffort: effort } : {}),
+      serviceTier: codex.serviceTier,
+    };
+  }
+  if (args.engine === "claude_code_local") {
+    const model = getClaudeCodeAgentModelId(
+      args.stellaDataDir,
+      args.configuredModel,
+      AGENT_IDS.ORCHESTRATOR,
+      args.engineModelOverride,
+    ).replace(/^claude-code\//, "");
+    const effort =
+      explicitEffort ??
+      normalizeCapturedReasoningEffort(
+        getClaudeCodeRuntimeEffortLevel(args.stellaDataDir),
+      );
+    return {
+      engineModel: model,
+      ...(effort ? { reasoningEffort: effort } : {}),
+    };
+  }
+  return explicitEffort ? { reasoningEffort: explicitEffort } : {};
+};
+
+/**
+ * Resolve the provider route used when a General Codex run executes through
+ * Stella's Pi harness. Root Orchestrator routing remains unchanged.
+ */
+export const resolveSubscriptionHarnessRouteModel = (args: {
+  stellaDataDir: string;
+  agentType: string;
+  configuredEngine: AgentRuntimeEngine;
+  subscriptionHarnessEnabled: boolean;
+  configuredModel?: string;
+  spawnEngine?: SpawnEngineSelection;
+  modelConfigSnapshot?: AgentModelConfigSnapshot;
+}): string | undefined => {
+  if (args.agentType === AGENT_IDS.ORCHESTRATOR) return undefined;
+  const engine =
+    args.modelConfigSnapshot?.engine ??
+    resolveAgentEngineForRun(args.configuredEngine, args.spawnEngine);
+  if (engine !== "codex_cli") return undefined;
+  if (args.modelConfigSnapshot) {
+    return args.modelConfigSnapshot.subscriptionHarnessEnabled === true
+      ? args.modelConfigSnapshot.routeModel
+      : undefined;
+  }
+  if (!args.subscriptionHarnessEnabled) return undefined;
+  const codex = getCodexRuntimePreferences(
+    args.stellaDataDir,
+    args.configuredModel,
+    args.spawnEngine?.engine === "codex_cli"
+      ? args.spawnEngine.model
+      : undefined,
+  );
+  return `openai-codex/${codex.model}`;
+};
 
 export const resolveSpawnReasoningEffortForModel = (
   model: Model<Api>,
@@ -1091,29 +1246,51 @@ export const buildAgentContext = async (
         };
   // A per-spawn engine selection wins over the preference-configured engine
   // for this run only; saved preferences are never touched.
+  const configuredAgentEngine =
+    args.configuredAgentEngine ?? getAgentRuntimeEngine(context.stellaDataDir);
   const agentEngine =
     args.modelConfigSnapshot?.engine ??
-    resolveAgentEngineForRun(
-      getAgentRuntimeEngine(context.stellaDataDir),
-      args.spawnEngine,
-    );
-  const savedReasoningEffort = getReasoningEffort(
-    context.stellaDataDir,
-    args.agentType,
-  );
+    resolveAgentEngineForRun(configuredAgentEngine, args.spawnEngine);
+  // Persisted snapshots are authoritative. An absent mode field is the
+  // backward-compatible native meaning for legacy external-engine runs.
+  const subscriptionHarnessEnabled = args.modelConfigSnapshot
+    ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
+    : (args.subscriptionHarnessEnabled ??
+      getSubscriptionHarnessEnabled(context.stellaDataDir, agentEngine));
+  const capturedSubscriptionHarness =
+    subscriptionHarnessEnabled &&
+    (agentEngine === "codex_cli" || agentEngine === "claude_code_local");
+  const usesInProcessSubscriptionHarness =
+    args.agentType !== AGENT_IDS.ORCHESTRATOR &&
+    capturedSubscriptionHarness &&
+    agentEngine === "codex_cli";
+  const savedReasoningEffort =
+    args.configuredReasoningEffort ??
+    getReasoningEffort(context.stellaDataDir, args.agentType);
   const spawnReasoningEffort = args.spawnReasoningEffort;
   const inheritedReasoningEffort = args.modelConfigSnapshot?.reasoningEffort;
+  const sampledEngineReasoningEffort =
+    args.sampledEngineConfig?.reasoningEffort === "none"
+      ? undefined
+      : args.sampledEngineConfig?.reasoningEffort;
   const effectiveReasoningEffort = inheritedReasoningEffort
     ? inheritedReasoningEffort === "none"
       ? undefined
       : inheritedReasoningEffort
-    : spawnReasoningEffort && agentEngine === "default"
+    : spawnReasoningEffort &&
+        (agentEngine === "default" || usesInProcessSubscriptionHarness)
       ? resolveSpawnReasoningEffortForModel(
           resolvedLlm.model,
           spawnReasoningEffort,
         )
-      : (spawnReasoningEffort ?? savedReasoningEffort);
-  if (spawnReasoningEffort && agentEngine === "default") {
+      : (spawnReasoningEffort ??
+        (savedReasoningEffort !== "default"
+          ? savedReasoningEffort
+          : (sampledEngineReasoningEffort ?? savedReasoningEffort)));
+  if (
+    spawnReasoningEffort &&
+    (agentEngine === "default" || usesInProcessSubscriptionHarness)
+  ) {
     if (!effectiveReasoningEffort) {
       console.debug("[stella:spawn-reasoning] effort dropped", {
         requested: spawnReasoningEffort,
@@ -1157,7 +1334,7 @@ export const buildAgentContext = async (
   }
   if (agentHasCapability(args.agentType, "injectsSkillCatalog")) {
     const skillCatalogOptions =
-      agentEngine === "codex_cli"
+      agentEngine === "codex_cli" && !usesInProcessSubscriptionHarness
         ? { omitSkillIds: CODEX_SKILL_CATALOG_OMITTED_IDS }
         : undefined;
     dynamicContextSections.push(
@@ -1208,8 +1385,12 @@ export const buildAgentContext = async (
       captureEffectiveModelConfig({
         stellaDataDir: context.stellaDataDir,
         engine: agentEngine,
+        subscriptionHarnessEnabled: capturedSubscriptionHarness,
         configuredModel: model,
-        engineModelOverride: args.spawnEngine?.model,
+        engineModelOverride:
+          args.sampledEngineConfig?.engineModel ?? args.spawnEngine?.model,
+        serviceTierOverride: args.sampledEngineConfig?.serviceTier,
+        engineConfigSampled: Boolean(args.sampledEngineConfig),
         resolvedLlm,
         reasoningEffort: effectiveReasoningEffort,
       }),

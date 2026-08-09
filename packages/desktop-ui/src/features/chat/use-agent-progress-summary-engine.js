@@ -3,16 +3,16 @@
  * sub-agent. Mounted once at the chat-runtime level so summaries keep
  * accruing even when the activity tray is closed.
  *
- * For every running agent it fires a cheap `stella/light` completion 10s
+ * For every eligible running agent it fires a lightweight completion 10s
  * after the agent appears, then every 30s after that. Each tick builds a
  * change signature from the agent's reasoning + status; if nothing has
  * changed since the last summary it skips the LLM call entirely and waits
  * for the next tick. Results land in `agent-progress-summary-store`.
  *
- * Model routing: we pin `stella/light` explicitly so non-Stella engines map
- * it to their own light tier (Claude Code -> Haiku, Codex -> mini) and Stella
- * users hit deepseek-v4-flash via the locked backend `progress_summary` agent
- * type, instead of an expensive default.
+ * Model routing follows the task's immutable model snapshot: Stella uses
+ * `stella/light`, Claude Code uses Haiku, Codex uses a stateless Luna request,
+ * and direct providers stay on their exact captured route. Unknown legacy
+ * tasks are omitted rather than guessed.
  */
 import { useEffect, useMemo, useRef } from "react";
 import { isActivityFeedTask, } from "@/features/chat/lib/event-transforms";
@@ -96,17 +96,28 @@ const requestSummary = async (task, priorPhrases) => {
     const agentApi = window.electronAPI?.agent;
     if (!agentApi?.oneShotCompletion)
         return "";
+    const modelConfigSnapshot = task.modelConfigSnapshot ??
+        (task.source === "claude-native"
+            ? {
+                engine: "claude_code_local",
+                routeModel: "claude-code/haiku",
+                engineModel: "haiku",
+            }
+            : undefined);
+    // Unknown legacy routes are deliberately omitted by the controller. Keep
+    // this final guard so a direct hook caller cannot guess a provider and
+    // accidentally fall through to Stella.
+    if (!modelConfigSnapshot)
+        return "";
     const result = await agentApi.oneShotCompletion({
         agentType: "progress_summary",
-        model: "stella/light",
-        reasoningEffort: "low",
+        reasoningEffort: "none",
         utility: true,
-        // If a pure-BYOK user has no Stella access, ride their general pick.
-        fallbackAgentTypes: ["general"],
+        modelConfigSnapshot,
         systemPrompt: SUMMARY_SYSTEM_PROMPT,
         userText: buildAgentProgressUserText(task, priorPhrases),
         maxOutputTokens: 24,
-        temperature: 0.4,
+        temperature: 1.0,
         sessionKey: summarySessionKey(task.id),
         sessionIdleTtlMs: SUMMARY_SESSION_IDLE_TTL_MS,
     });

@@ -2,8 +2,11 @@ import {
   buildAgentContext,
   createRunnerContext,
   getConfiguredModel,
+  resolveAgentEngineForRun,
   resolveAgentModelRoute,
+  resolveSubscriptionHarnessRouteModel,
   resolveAgent,
+  sampleAgentEngineConfig,
 } from "./runner/context.js";
 import { createConvexSession } from "./runner/convex-session.js";
 import { createOrchestratorController } from "./runner/orchestrator.js";
@@ -37,6 +40,11 @@ export {
 import type { ToolResult } from "./tools/types.js";
 import type { RuntimeRunCallbacks } from "./agent-runtime/types.js";
 import type { RuntimeVoiceHistoryItem } from "@stella/contracts/protocol";
+import {
+  getAgentRuntimeEngine,
+  getReasoningEffort,
+  getSubscriptionHarnessEnabled,
+} from "./preferences/local-preferences.js";
 
 const VOICE_ORCHESTRATOR_HISTORY_LIMIT = 80;
 
@@ -187,14 +195,63 @@ export const createStellaHostRunner = (
     if ("resolvedLlm" in args && args.resolvedLlm) {
       return await buildAgentContext(context, args);
     }
+    const configuredModel =
+      args.model ??
+      getConfiguredModel(
+        context,
+        args.agentType,
+        resolveAgent(context, args.agentType),
+      );
+    const configuredAgentEngine = getAgentRuntimeEngine(context.stellaDataDir);
+    const configuredReasoningEffort = getReasoningEffort(
+      context.stellaDataDir,
+      args.agentType,
+    );
+    const selectedEngine =
+      args.modelConfigSnapshot?.engine ??
+      resolveAgentEngineForRun(configuredAgentEngine, args.spawnEngine);
+    const subscriptionHarnessEnabled = args.modelConfigSnapshot
+      ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
+      : getSubscriptionHarnessEnabled(context.stellaDataDir, selectedEngine);
+    const sampledEngineConfig = args.modelConfigSnapshot
+      ? undefined
+      : sampleAgentEngineConfig({
+          stellaDataDir: context.stellaDataDir,
+          engine: selectedEngine,
+          configuredModel,
+          engineModelOverride: args.spawnEngine?.model,
+          reasoningEffort:
+            args.spawnReasoningEffort ?? configuredReasoningEffort,
+        });
+    const sampledSpawnEngine =
+      selectedEngine === "default"
+        ? args.spawnEngine
+        : {
+            engine: selectedEngine,
+            ...(sampledEngineConfig?.engineModel
+              ? { model: sampledEngineConfig.engineModel }
+              : {}),
+          };
+    const harnessRouteModel = resolveSubscriptionHarnessRouteModel({
+      stellaDataDir: context.stellaDataDir,
+      agentType: args.agentType,
+      configuredEngine: configuredAgentEngine,
+      subscriptionHarnessEnabled,
+      configuredModel,
+      ...(sampledSpawnEngine ? { spawnEngine: sampledSpawnEngine } : {}),
+      ...(args.modelConfigSnapshot
+        ? { modelConfigSnapshot: args.modelConfigSnapshot }
+        : {}),
+    });
     const resolved = await resolveAgentModelRoute(
       context,
       args.agentType,
-      "modelConfigSnapshot" in args && args.modelConfigSnapshot
-        ? args.modelConfigSnapshot.routeModel
-        : "model" in args
-          ? args.model
-          : undefined,
+      harnessRouteModel ??
+        ("modelConfigSnapshot" in args && args.modelConfigSnapshot
+          ? args.modelConfigSnapshot.routeModel
+          : "model" in args
+            ? args.model
+            : undefined),
       "modelConfigSnapshot" in args && args.modelConfigSnapshot
         ? AGENT_IDS.ORCHESTRATOR
         : args.agentType,
@@ -202,6 +259,10 @@ export const createStellaHostRunner = (
     return await buildAgentContext(context, {
       ...args,
       ...resolved,
+      configuredAgentEngine,
+      configuredReasoningEffort,
+      ...(sampledEngineConfig ? { sampledEngineConfig } : {}),
+      subscriptionHarnessEnabled,
     });
   };
   const orchestratorController = createOrchestratorController(context, {

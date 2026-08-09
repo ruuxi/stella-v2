@@ -64,6 +64,7 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
+  margin: 0 14px 14px;
   color: var(--text-base);
   font-size: var(--font-size-xs);
   font-weight: var(--weight-medium);
@@ -211,5 +212,4 @@
   flex: 1 1 auto;
   min-height: 0;
 }
-
 

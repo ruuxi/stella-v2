@@ -149,9 +149,11 @@ describe("spawn_manager model inheritance snapshots", () => {
       }),
     ).toEqual({
       engine: "codex_cli",
+      subscriptionHarnessEnabled: false,
       routeModel: "stella/meta/muse-spark-1.1",
       engineModel: "gpt-5.6-codex",
       reasoningEffort: "high",
+      serviceTier: "standard",
     });
   });
 });

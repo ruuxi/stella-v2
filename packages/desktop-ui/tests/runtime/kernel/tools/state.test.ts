@@ -181,7 +181,11 @@ describe("state tools", () => {
     );
 
     expect(captured).toEqual([
-      { agentType: AGENT_IDS.GENERAL, spawnEngine: { engine: "default" } },
+      {
+        agentType: AGENT_IDS.GENERAL,
+        spawnEngine: { engine: "default" },
+        useConfiguredEngine: true,
+      },
     ]);
     expect(created[0]?.modelConfigSnapshot).toEqual(generalSnapshot);
     expect(created[0]?.modelConfigSnapshot).not.toEqual(

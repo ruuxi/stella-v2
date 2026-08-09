@@ -76,10 +76,22 @@ function oklchToRgb(oklch: OklchColor): { r: number; g: number; b: number } {
   const m = L - 0.1055613458 * a - 0.0638541728 * b;
   const s = L - 0.0894841775 * a - 1.291485548 * b;
 
+  const l3 = l * l * l;
+  const m3 = m * m * m;
+  const s3 = s * s * s;
+
+  // The cubed values are LMS cone responses, not linear RGB. Without this
+  // matrix the conversion is not the inverse of `rgbToOklch` above, and every
+  // chromatic color comes back desaturated and hue-shifted (#2563eb round-
+  // tripped to #6075c5; greys survived because chroma 0 needs no matrix).
+  const lr = 4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+  const lg = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+  const lb = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.707614701 * s3;
+
   return {
-    r: linearToSrgb(Math.max(0, l * l * l)),
-    g: linearToSrgb(Math.max(0, m * m * m)),
-    b: linearToSrgb(Math.max(0, s * s * s)),
+    r: linearToSrgb(Math.max(0, lr)),
+    g: linearToSrgb(Math.max(0, lg)),
+    b: linearToSrgb(Math.max(0, lb)),
   };
 }
 
@@ -111,6 +123,51 @@ function blendToward(hex: string, bg: string, strength: number): string {
 /** Create a soft/muted version of a color (reduce chroma, blend toward background). */
 export function soften(hex: string, bg: string, alpha: number): string {
   return blendToward(hex, bg, alpha);
+}
+
+/**
+ * Generate the five aurora ramp stops (see components/stella-animation) from a
+ * theme's seed colors. Ported from desktop/src/shared/theme/color.ts — keep the
+ * two in step or the same theme renders a different creature per platform.
+ *
+ * The ramp follows the brand aurora's lightness/chroma profile (bright airy low
+ * stops, a saturated dip, a bright top) but takes its hues from the theme: it
+ * starts below the interactive hue and sweeps toward the accent hue when the
+ * accent is chromatic and far enough away to read as a second color; otherwise
+ * it fans a synthetic spread around the interactive hue alone.
+ */
+export function generateAuroraStops(
+  interactive: string,
+  accent: string,
+  isDark: boolean,
+): [string, string, string, string, string] {
+  const p = hexToOklch(interactive);
+  const a = hexToOklch(accent);
+
+  // Shortest signed hue arc from interactive to accent.
+  let delta = ((a.h - p.h + 540) % 360) - 180;
+  const accentIsDistinct = a.c >= 0.05 && Math.abs(delta) >= 50;
+  if (!accentIsDistinct) delta = 75;
+
+  const hues = accentIsDistinct
+    ? [p.h - 30, p.h - 12, p.h, p.h + delta * 0.55, p.h + delta]
+    : [p.h - 40, p.h - 18, p.h, p.h + 32, p.h + delta];
+
+  // Lightness/chroma profile measured from the brand teal→rose ramp.
+  const lightness = [0.74, 0.7, 0.65, 0.58, 0.67];
+  const chromaMul = [0.9, 0.85, 1.0, 1.15, 1.0];
+  const cBase = Math.min(Math.max(p.c, 0.05), 0.16);
+  // Alpha compositing washes the ramp out over light backgrounds; sit the
+  // stops slightly darker there so the waves keep their color.
+  const lightnessShift = isDark ? 0 : -0.06;
+
+  return hues.map((h, i) =>
+    oklchToHex({
+      l: lightness[i] + lightnessShift,
+      c: cBase * chromaMul[i],
+      h: ((h % 360) + 360) % 360,
+    }),
+  ) as [string, string, string, string, string];
 }
 
 /** Fade a hex color by reducing its lightness toward 50% gray. Returns hex with alpha suffix. */

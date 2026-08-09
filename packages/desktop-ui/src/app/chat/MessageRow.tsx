@@ -63,8 +63,9 @@ import {
   ContextPill,
   FileAttachmentChip,
   ImageAttachmentChip,
-  fileAttachmentTypeLabel,
+  fileAttachmentTypeLabelKey,
 } from "@/app/chat/ComposerContextChips";
+import { useT } from "@/shared/i18n";
 import { eventRowEqual } from "@/features/chat/lib/row-equality";
 import { assistantRowHasVisibleContent } from "@/features/chat/lib/assistant-row-content";
 import type {
@@ -73,7 +74,13 @@ import type {
 } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 
-const getAttachmentLabel = (attachment: Attachment, index: number) => {
+type Translate = ReturnType<typeof useT>;
+
+const getAttachmentLabel = (
+  attachment: Attachment,
+  index: number,
+  t: Translate,
+) => {
   if (attachment.name) return attachment.name;
   if (attachment.kind) {
     const normalized = attachment.kind.replace(/[_-]+/g, " ").trim();
@@ -82,7 +89,7 @@ const getAttachmentLabel = (attachment: Attachment, index: number) => {
     }
   }
   if (attachment.mimeType) return attachment.mimeType;
-  return `Attachment ${index + 1}`;
+  return t("app.chat.messageRow.attachmentFallback", { index: index + 1 });
 };
 
 const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|avif|bmp|ico|tiff?|heic|heif)$/i;
@@ -108,7 +115,10 @@ const isImageAttachment = (attachment: Attachment, safeUrl: string): boolean => 
 };
 
 /** Display name for a sent non-image attachment chip. */
-const getFileAttachmentName = (attachment: Attachment): string => {
+const getFileAttachmentName = (
+  attachment: Attachment,
+  t: Translate,
+): string => {
   if (attachment.name) return attachment.name;
   if (attachment.kind && attachment.kind !== "file") {
     const normalized = attachment.kind.replace(/[_-]+/g, " ").trim();
@@ -116,15 +126,15 @@ const getFileAttachmentName = (attachment: Attachment): string => {
       return normalized[0].toUpperCase() + normalized.slice(1);
     }
   }
-  return fileAttachmentTypeLabel(attachment.mimeType);
+  return t(fileAttachmentTypeLabelKey(attachment.mimeType));
 };
 
-const formatChannelKind = (kind: ChannelEnvelope["kind"]) => {
-  if (kind === "message") return "message";
-  if (kind === "reaction") return "reaction";
-  if (kind === "edit") return "edited";
-  if (kind === "delete") return "deleted";
-  return "system";
+const formatChannelKind = (kind: ChannelEnvelope["kind"], t: Translate) => {
+  if (kind === "message") return t("app.chat.messageRow.channelKind.message");
+  if (kind === "reaction") return t("app.chat.messageRow.channelKind.reaction");
+  if (kind === "edit") return t("app.chat.messageRow.channelKind.edited");
+  if (kind === "delete") return t("app.chat.messageRow.channelKind.deleted");
+  return t("app.chat.messageRow.channelKind.system");
 };
 
 const formatProvider = (provider: string) =>
@@ -135,7 +145,10 @@ const formatProvider = (provider: string) =>
     .map((part) => part[0].toUpperCase() + part.slice(1))
     .join(" ");
 
-const summarizeReactions = (envelope: ChannelEnvelope): string | null => {
+const summarizeReactions = (
+  envelope: ChannelEnvelope,
+  t: Translate,
+): string | null => {
   const reactions = envelope.reactions ?? [];
   if (reactions.length === 0) return null;
   const labels = reactions.slice(0, 3).map((reaction) => {
@@ -143,7 +156,9 @@ const summarizeReactions = (envelope: ChannelEnvelope): string | null => {
     return `${prefix}${reaction.emoji}`;
   });
   const suffix = reactions.length > 3 ? ` +${reactions.length - 3}` : "";
-  return `Reactions ${labels.join(" ")}${suffix}`;
+  return t("app.chat.messageRow.reactionsSummary", {
+    reactions: `${labels.join(" ")}${suffix}`,
+  });
 };
 
 /**
@@ -159,6 +174,7 @@ function UserWindowContextChip({
   label: string;
   previewImageUrl?: string;
 }) {
+  const t = useT();
   const { triggerRef, open } = useHoverPreview<HTMLSpanElement>();
   return (
     <span className="event-window-badge-hovercard">
@@ -178,7 +194,7 @@ function UserWindowContextChip({
         >
           <img
             src={previewImageUrl}
-            alt="Window content preview"
+            alt={t("app.chat.messageRow.windowPreviewAlt")}
             className="event-window-preview-img"
           />
         </ChipPreviewPortal>
@@ -198,6 +214,7 @@ function UserPastedTextChip({
 }: {
   descriptor: PastedTextDescriptor;
 }) {
+  const t = useT();
   const { triggerRef, open, previewProps } = useHoverPreview<HTMLSpanElement>();
   const stats = describePastedText(descriptor);
   const preview = pastedTextPreview(descriptor);
@@ -206,10 +223,10 @@ function UserPastedTextChip({
       <ContextPill
         kind="pasted-text"
         pillRef={triggerRef}
-        label="Pasted text"
+        label={t("app.chat.messageRow.pastedTextLabel")}
         data-has-preview={preview ? "true" : undefined}
         tabIndex={preview ? 0 : undefined}
-        title={`Pasted text — ${stats}`}
+        title={t("app.chat.messageRow.pastedTextTitle", { stats })}
       />
       {preview && (
         <ChipPreviewPortal
@@ -242,6 +259,7 @@ const CHIP_GAP = 6;
  * (portaled so it escapes the scrolling chat container's clip rect).
  */
 function UserContextChips({ chips }: { chips: ContextChip[] }) {
+  const t = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
   // The "+N" trigger mounts only after the measurement pass collapses chips,
@@ -328,7 +346,9 @@ function UserContextChips({ chips }: { chips: ContextChip[] }) {
             type="button"
             ref={triggerRef}
             className="event-context-chip event-context-chip--overflow"
-            aria-label={`Show ${hidden.length} more`}
+            aria-label={t("app.chat.messageRow.showMoreChips", {
+              count: hidden.length,
+            })}
             onMouseEnter={() => setOverflowOpen(true)}
             onMouseLeave={() => setOverflowOpen(false)}
             onFocus={() => setOverflowOpen(true)}
@@ -366,13 +386,14 @@ function AttachmentImage({
   index: number;
   safeUrl: string;
 }) {
-  const label = getAttachmentLabel(attachment, index);
+  const t = useT();
+  const label = getAttachmentLabel(attachment, index, t);
   return (
     <ImageAttachmentChip
       thumbnailUrl={safeUrl}
       fullImageUrl={safeUrl}
-      alt={attachment.name ?? "Attachment"}
-      title={`Click to enlarge ${label}`}
+      alt={attachment.name ?? t("app.chat.messageRow.attachmentAlt")}
+      title={t("app.chat.messageRow.clickToEnlarge", { label })}
     />
   );
 }
@@ -383,6 +404,7 @@ type UserRowProps = {
 
 export const UserMessageRow = memo(
   function UserMessageRow({ row }: UserRowProps) {
+    const t = useT();
     const { text, windowLabel, attachments, channelEnvelope } = row;
     const appSelectionLabels = (row.appSelectionLabels ?? [])
       .map((label) => label.trim())
@@ -393,7 +415,7 @@ export const UserMessageRow = memo(
       row.windowPreviewImageUrl,
     );
     const reactionSummary = channelEnvelope
-      ? summarizeReactions(channelEnvelope)
+      ? summarizeReactions(channelEnvelope, t)
       : null;
 
     const chips: ContextChip[] = [];
@@ -441,7 +463,7 @@ export const UserMessageRow = memo(
         key: "channel-kind",
         node: (
           <span className="event-channel-badge kind">
-            {formatChannelKind(channelEnvelope.kind)}
+            {formatChannelKind(channelEnvelope.kind, t)}
           </span>
         ),
       });
@@ -479,7 +501,7 @@ export const UserMessageRow = memo(
         key,
         node: (
           <FileAttachmentChip
-            name={getFileAttachmentName(attachment)}
+            name={getFileAttachmentName(attachment, t)}
             size={attachment.size}
             mimeType={attachment.mimeType}
             path={attachment.path}

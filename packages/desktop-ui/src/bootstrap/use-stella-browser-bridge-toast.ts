@@ -1,16 +1,27 @@
 import { useEffect, useRef } from 'react'
 import { showToast } from '@/ui/toast'
+import { useT, useTPlural } from '@/shared/i18n'
 
-const formatRetryDelay = (retryMs?: number) => {
+const formatRetryDelay = (
+  retryMs: number | undefined,
+  tPlural: (
+    key: string,
+    count: number,
+    params?: Record<string, string | number>,
+  ) => string,
+) => {
   if (!retryMs || retryMs <= 0) {
     return ''
   }
 
   const seconds = Math.max(1, Math.round(retryMs / 1000))
-  return ` Stella will keep retrying in about ${seconds} second${seconds === 1 ? '' : 's'}.`
+  // Leading space: this is appended straight onto the preceding sentence.
+  return ` ${tPlural('features.browserBridge.retryDelay', seconds)}`
 }
 
 export const useStellaBrowserBridgeToast = () => {
+  const t = useT()
+  const tPlural = useTPlural()
   const lastToastKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -38,10 +49,10 @@ export const useStellaBrowserBridgeToast = () => {
 
       if (status.state === 'host_registration_failed') {
         showToast({
-          title: 'Browser extension unavailable',
+          title: t('features.browserBridge.unavailableTitle'),
           description:
             status.error ??
-            'Stella could not connect to your browser. Restart the app or reinstall Stella if this continues.',
+            t('features.browserBridge.unavailableBody'),
           variant: 'error',
           duration: 9000,
         })
@@ -49,15 +60,15 @@ export const useStellaBrowserBridgeToast = () => {
       }
 
       const description = status.error
-        ? `${status.error}.${formatRetryDelay(status.nextRetryMs)}`
-        : `The Stella browser bridge disconnected.${formatRetryDelay(status.nextRetryMs)}`
+        ? `${status.error}.${formatRetryDelay(status.nextRetryMs, tPlural)}`
+        : `${t('features.browserBridge.disconnected')}${formatRetryDelay(status.nextRetryMs, tPlural)}`
 
       showToast({
-        title: 'Browser connection lost',
+        title: t('features.browserBridge.connectionLostTitle'),
         description,
         variant: 'error',
         duration: 7000,
       })
     })
-  }, [])
+  }, [t, tPlural])
 }

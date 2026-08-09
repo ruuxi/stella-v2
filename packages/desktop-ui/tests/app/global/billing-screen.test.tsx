@@ -2,6 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -110,7 +111,7 @@ describe("billing panel", () => {
 
   const render = async () => {
     await act(async () => {
-      root.render(<BillingPanel />);
+      root.render(withI18n(<BillingPanel />));
     });
   };
 

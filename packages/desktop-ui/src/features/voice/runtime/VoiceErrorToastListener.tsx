@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { showToast } from "@/ui/toast";
 import { resolveVoiceErrorToast } from "@/features/voice/runtime/voice-error-toast";
+import { useT } from "@/shared/i18n";
 
 /**
  * The realtime voice runtime runs in the hidden overlay window, so it can't
@@ -10,9 +11,10 @@ import { resolveVoiceErrorToast } from "@/features/voice/runtime/voice-error-toa
  * with a working sign-in or settings action.
  */
 export function VoiceErrorToastListener() {
+  const t = useT();
   useEffect(() => {
     const off = window.electronAPI?.voice?.onSessionError?.((message) => {
-      const toast = resolveVoiceErrorToast(message);
+      const toast = resolveVoiceErrorToast(message, t);
       if (toast) {
         showToast(toast);
       }
@@ -20,7 +22,7 @@ export function VoiceErrorToastListener() {
     return () => {
       off?.();
     };
-  }, []);
+  }, [t]);
 
   return null;
 }

@@ -12,6 +12,7 @@ import { CanvasIllustration } from "../illustrations/CanvasIllustration";
 import { CanvasShareBar } from "./CanvasShareBar";
 import type { CanvasHtmlItem } from "./canvas-items";
 import { classifyCanvasNavigation } from "./canvas-navigation";
+import { useT } from "@/shared/i18n";
 import "./canvas-tab.css";
 import type { ReactNode } from "react";
 
@@ -190,6 +191,7 @@ const CanvasIllustrationSpot = ({ label }: { label?: ReactNode }) => (<div class
     {label ? (<div className="canvas-tab__illustration-label">{label}</div>) : null}
   </div>);
 const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
+    const t = useT();
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
     const loadCountRef = useRef(0);
     const [navigationReset, setNavigationReset] = useState(0);
@@ -219,12 +221,12 @@ const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
     }, []);
     if (error) {
         return (<div className="canvas-tab__frame-state canvas-tab__frame-state--error">
-        Couldn't load this canvas.
+        {t("shell.display.canvas.loadFailed")}
       </div>);
     }
     if (loading || !html) {
         return (<CanvasIllustrationSpot label={<div className="canvas-tab__loading-label">
-            Loading
+            {t("shell.display.canvas.loading")}
             <CanvasLoadingDots />
           </div>}/>);
     }
@@ -245,6 +247,7 @@ const CanvasHeroFrame = ({ item, panelOpen, }: {
   item: CanvasHtmlItem;
   panelOpen: boolean;
 }) => {
+    const t = useT();
     const [ready, setReady] = useState(false);
     useEffect(() => {
         if (!panelOpen || ready)
@@ -262,7 +265,7 @@ const CanvasHeroFrame = ({ item, panelOpen, }: {
     }, [panelOpen, ready]);
     if (!ready) {
         return (<CanvasIllustrationSpot label={<div className="canvas-tab__loading-label">
-            Loading
+            {t("shell.display.canvas.loading")}
             <CanvasLoadingDots />
           </div>}/>);
     }

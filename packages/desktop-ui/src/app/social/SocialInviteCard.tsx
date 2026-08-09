@@ -2,6 +2,7 @@ import { api } from "@/convex/api";
 import { usePersistentConvexOneShot } from "@/shared/lib/use-convex-one-shot";
 import { Avatar } from "@/ui/avatar";
 import { UserPlus, Users } from "@/ui/icons";
+import { useT, useTPlural } from "@/shared/i18n";
 import { setPendingSocialInvite } from "@/global/social/social-invite-store";
 import type { SocialInvite } from "./invite-links";
 import "./social.css";
@@ -37,6 +38,8 @@ type FriendPreview = {
  * happens without an explicit confirm.
  */
 export function SocialInviteCard({ invite }: SocialInviteCardProps) {
+  const t = useT();
+  const tPlural = useTPlural();
   const isJoin = invite.kind === "join-community";
 
   // One-shot with TTL, matching AddonShareCard: cards can appear many
@@ -60,24 +63,36 @@ export function SocialInviteCard({ invite }: SocialInviteCardProps) {
     },
   ) as FriendPreview | undefined;
 
-  const eyebrow = isJoin ? "Community invite" : "Friend invite";
+  const eyebrow = isJoin
+    ? t("app.social.inviteCard.communityEyebrow")
+    : t("app.social.inviteCard.friendEyebrow");
   const loading = isJoin
     ? communityPreview === undefined
     : friendPreview === undefined;
   const missing = !loading && (isJoin ? !communityPreview : !friendPreview);
 
   const name = isJoin
-    ? (communityPreview?.name ?? "Community")
+    ? (communityPreview?.name ??
+      t("app.social.inviteCard.defaultCommunityName"))
     : friendPreview
       ? `@${friendPreview.username}`
-      : "Stella user";
+      : t("app.social.inviteCard.defaultUserName");
   const detail = isJoin
     ? communityPreview
-      ? `${communityPreview.memberCount}${communityPreview.memberCountTruncated ? "+" : ""} ${
-          communityPreview.memberCount === 1 ? "member" : "members"
-        } · tap to join`
+      ? // The rendered number carries a "+" when the server truncated the
+        // roster, so it goes in as `{countLabel}`; the raw count still
+        // drives which plural form we pick.
+        tPlural(
+          "app.social.inviteCard.communityDetail",
+          communityPreview.memberCount,
+          {
+            countLabel: `${communityPreview.memberCount}${
+              communityPreview.memberCountTruncated ? "+" : ""
+            }`,
+          },
+        )
       : ""
-    : "Tap to send a friend request";
+    : t("app.social.inviteCard.friendDetail");
 
   if (loading) {
     return (
@@ -100,12 +115,14 @@ export function SocialInviteCard({ invite }: SocialInviteCardProps) {
         <div className="social-invite-card-body">
           <div className="social-invite-card-eyebrow">{eyebrow}</div>
           <div className="social-invite-card-name">
-            {isJoin ? "Invite unavailable" : "User not found"}
+            {isJoin
+              ? t("app.social.inviteCard.inviteUnavailable")
+              : t("app.social.inviteCard.userNotFound")}
           </div>
           <div className="social-invite-card-detail">
             {isJoin
-              ? "This community no longer exists or the code changed."
-              : "This invite link doesn't match a Stella user."}
+              ? t("app.social.inviteCard.communityMissing")
+              : t("app.social.inviteCard.userMissing")}
           </div>
         </div>
       </div>

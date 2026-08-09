@@ -9,6 +9,7 @@ import {
 import { Copy, Download, Trash2 } from "@/ui/icons";
 import { useDisplayFileBlobs } from "@/shared/hooks/use-display-file-data";
 import { copyImageBlob } from "@/shell/media-clipboard";
+import { useT } from "@/shared/i18n";
 import type { MediaTabItem } from "./media-item";
 
 const filePathsForItem = (item: MediaTabItem): string[] => {
@@ -32,6 +33,7 @@ export const MediaActionBar = ({
   item: MediaTabItem;
   onDelete: () => void;
 }) => {
+  const t = useT();
   const [message, setMessage] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const disarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,8 +67,12 @@ export const MediaActionBar = ({
       filePath.split(/[\\/]/).pop() ?? filePath,
     );
     if (!result || result.canceled) return;
-    setMessage(result.ok ? "Saved" : (result.error ?? "Could not save"));
-  }, [filePath]);
+    setMessage(
+      result.ok
+        ? t("shell.display.media.saved")
+        : (result.error ?? t("shell.display.media.saveFailed")),
+    );
+  }, [filePath, t]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -79,11 +85,15 @@ export const MediaActionBar = ({
       } else {
         return;
       }
-      setMessage("Copied");
+      setMessage(t("shell.display.media.copied"));
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not copy");
+      setMessage(
+        err instanceof Error
+          ? err.message
+          : t("shell.display.media.copyFailed"),
+      );
     }
-  }, [blob, filePath, item]);
+  }, [blob, filePath, item, t]);
 
   const canSave = Boolean(filePath && window.electronAPI?.system?.saveFileAs);
 
@@ -94,8 +104,8 @@ export const MediaActionBar = ({
           type="button"
           className="media-tab__action-btn"
           onClick={handleSave}
-          aria-label="Save"
-          title="Save"
+          aria-label={t("shell.display.media.save")}
+          title={t("shell.display.media.save")}
         >
           <Download size={14} strokeWidth={1.85} />
         </button>
@@ -104,8 +114,8 @@ export const MediaActionBar = ({
         type="button"
         className="media-tab__action-btn"
         onClick={handleCopy}
-        aria-label="Copy"
-        title="Copy"
+        aria-label={t("shell.display.media.copy")}
+        title={t("shell.display.media.copy")}
       >
         <Copy size={14} strokeWidth={1.85} />
       </button>
@@ -115,8 +125,16 @@ export const MediaActionBar = ({
           armed ? " media-tab__action-btn--armed" : ""
         }`}
         onClick={handleTrash}
-        aria-label={armed ? "Click again to delete" : "Delete"}
-        title={armed ? "Click again to delete" : "Delete"}
+        aria-label={
+          armed
+            ? t("shell.display.media.deleteConfirm")
+            : t("shell.display.media.delete")
+        }
+        title={
+          armed
+            ? t("shell.display.media.deleteConfirm")
+            : t("shell.display.media.delete")
+        }
       >
         <Trash2 size={14} strokeWidth={1.85} />
       </button>

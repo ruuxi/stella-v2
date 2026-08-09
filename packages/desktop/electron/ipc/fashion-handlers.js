@@ -23,6 +23,7 @@ import { MAX_IMAGE_REFERENCE_BYTES, readValidatedImageFileNoFollow, } from "@ste
 import { decodeAndValidateImage, validateDecodedImageFile, } from "@stella/runtime/kernel/tools/image-decode-validation";
 import { materializeMediaArtifact } from "@stella/runtime/kernel/tools/media-artifact-store";
 import { MAX_MANAGED_IMAGE_REFERENCE_ITEMS } from "@stella/runtime/kernel/tools/managed-image-references";
+import { t } from "../services/i18n-service.js";
 const SUPPORTED_EXTENSIONS = [
     "jpg",
     "jpeg",
@@ -379,21 +380,21 @@ export const registerFashionHandlers = (options) => {
         const ownerWindow = BrowserWindow.fromWebContents(event.sender);
         const result = ownerWindow
             ? await dialog.showOpenDialog(ownerWindow, {
-                title: "Pick your body photo",
+                title: t("desktop.fashion.pickBodyPhotoTitle"),
                 properties: ["openFile"],
                 filters: [
                     {
-                        name: "Image",
+                        name: t("desktop.fashion.imageFilterName"),
                         extensions: [...SUPPORTED_EXTENSIONS],
                     },
                 ],
             })
             : await dialog.showOpenDialog({
-                title: "Pick your body photo",
+                title: t("desktop.fashion.pickBodyPhotoTitle"),
                 properties: ["openFile"],
                 filters: [
                     {
-                        name: "Image",
+                        name: t("desktop.fashion.imageFilterName"),
                         extensions: [...SUPPORTED_EXTENSIONS],
                     },
                 ],
@@ -430,11 +431,11 @@ export const registerFashionHandlers = (options) => {
     registerPrivilegedHandle(options, IPC_FASHION_PICK_TRY_ON_IMAGES, async (event) => {
         const ownerWindow = BrowserWindow.fromWebContents(event.sender);
         const dialogOptions = {
-            title: "Pick clothes images",
+            title: t("desktop.fashion.pickClothesTitle"),
             properties: ["openFile", "multiSelections"],
             filters: [
                 {
-                    name: "Image",
+                    name: t("desktop.fashion.imageFilterName"),
                     extensions: [...SUPPORTED_EXTENSIONS],
                 },
             ],

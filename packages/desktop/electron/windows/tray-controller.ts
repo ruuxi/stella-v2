@@ -1,6 +1,7 @@
 import { Menu, Tray, nativeImage } from 'electron'
 import fs from 'fs'
 import path from 'path'
+import { onMainLocaleChanged, t } from '../services/i18n-service.js'
 
 type TrayControllerOptions = {
   electronDir: string
@@ -36,8 +37,31 @@ export const resolveTrayIconPath = (
 export class TrayController {
   private tray: Tray | null = null
   private hintShown = false
+  private unsubscribeLocale: (() => void) | null = null
 
   constructor(private readonly options: TrayControllerOptions) {}
+
+  /**
+   * Tooltip + context menu in the active locale. Rebuilt whenever the user
+   * switches language — Electron has no way to re-render an existing menu
+   * template, so the whole menu is replaced.
+   */
+  private applyLocalizedChrome(tray: Tray) {
+    tray.setToolTip(t('desktop.tray.tooltip'))
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        {
+          label: t('desktop.tray.openStella'),
+          click: () => this.options.onShowWindow(),
+        },
+        { type: 'separator' },
+        {
+          label: t('desktop.tray.quitStella'),
+          click: () => this.options.onQuit(),
+        },
+      ]),
+    )
+  }
 
   create(): Tray | null {
     if (this.tray && !this.tray.isDestroyed()) {
@@ -60,20 +84,12 @@ export class TrayController {
     }
 
     const tray = new Tray(image)
-    tray.setToolTip('Stella')
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        {
-          label: 'Open Stella',
-          click: () => this.options.onShowWindow(),
-        },
-        { type: 'separator' },
-        {
-          label: 'Quit Stella',
-          click: () => this.options.onQuit(),
-        },
-      ]),
-    )
+    this.applyLocalizedChrome(tray)
+    this.unsubscribeLocale?.()
+    this.unsubscribeLocale = onMainLocaleChanged(() => {
+      if (tray.isDestroyed()) return
+      this.applyLocalizedChrome(tray)
+    })
     // Single click is the expected "bring it back" gesture on Windows; the
     // double-click is wired too so either habit works.
     tray.on('click', () => this.options.onShowWindow())
@@ -93,12 +109,14 @@ export class TrayController {
     if (!this.tray || this.tray.isDestroyed()) return
     if (process.platform !== 'win32') return
     this.tray.displayBalloon({
-      title: 'Stella is still running',
-      content: 'Stella stays in your system tray. Click the icon to reopen it.',
+      title: t('desktop.tray.balloon.title'),
+      content: t('desktop.tray.balloon.content'),
     })
   }
 
   destroy() {
+    this.unsubscribeLocale?.()
+    this.unsubscribeLocale = null
     if (this.tray && !this.tray.isDestroyed()) {
       this.tray.destroy()
     }

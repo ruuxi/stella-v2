@@ -39,6 +39,7 @@ import { type Colors } from "../../src/theme/colors";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { probeDesktopBridgeStatus } from "../../src/lib/desktop-bridge-discovery";
+import { useT } from "../../src/i18n";
 
 type MobileBridgeBootstrap = {
   localStorage: Record<string, string>;
@@ -68,8 +69,16 @@ type BridgeState = {
 };
 
 type ScreenState =
-  | { type: "loading"; message: string }
-  | { type: "unavailable"; error: string | null; title: string }
+  // `messageKey` / `titleKey` are catalog keys resolved at render time, so a
+  // language change repaints existing state instead of stranding old copy.
+  | { type: "loading"; messageKey: string }
+  | {
+      type: "unavailable";
+      /** Already-resolved backend/user-facing error text, or null. */
+      error: string | null;
+      titleKey: string;
+      titleParams?: Record<string, string | number>;
+    }
   | { type: "ready"; bridge: BridgeState };
 
 type ShimMessage =
@@ -155,18 +164,21 @@ function readShimMessage(data: string): ShimMessage {
 }
 
 function readUnavailableState(
-  title: string,
+  titleKey: string,
   error: string | null = null,
+  titleParams?: Record<string, string | number>,
 ): Extract<ScreenState, { type: "unavailable" }> {
   return {
     type: "unavailable",
     error,
-    title,
+    titleKey,
+    titleParams,
   };
 }
 
 function GuestDesktopScreen() {
   const colors = useColors();
+  const t = useT();
   const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => makeStyles(colors, insets.bottom),
@@ -175,11 +187,9 @@ function GuestDesktopScreen() {
   return (
     <View style={styles.centered}>
       <DesktopTabAnimation />
-      <Text style={styles.title}>Pair your phone</Text>
-      <Text style={styles.body}>
-        See your Stella desktop app right on your phone. After pairing, your phone will reconnect automatically.
-      </Text>
-      <SignInPrompt message="Sign in to get started." />
+      <Text style={styles.title}>{t("mobile.desktop.pairTitle")}</Text>
+      <Text style={styles.body}>{t("mobile.desktop.guestBody")}</Text>
+      <SignInPrompt message={t("mobile.desktop.guestSignInPrompt")} />
     </View>
   );
 }
@@ -194,6 +204,7 @@ export default function StellaScreen() {
 
 function AuthenticatedStellaScreen() {
   const colors = useColors();
+  const t = useT();
   const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => makeStyles(colors, insets.bottom),
@@ -218,7 +229,7 @@ function AuthenticatedStellaScreen() {
 
   const [screenState, setScreenState] = useState<ScreenState>({
     type: "loading",
-    message: "Connecting to desktop",
+    messageKey: "mobile.desktop.connecting",
   });
   const [canGoBack, setCanGoBack] = useState(false);
   const [bridgeConnected, setBridgeConnected] = useState(true);
@@ -250,7 +261,7 @@ function AuthenticatedStellaScreen() {
     async (nextAccess?: StoredPhoneAccess | null) => {
       setScreenState({
         type: "loading",
-        message: "Connecting to desktop",
+        messageKey: "mobile.desktop.connecting",
       });
 
       const access =
@@ -261,7 +272,7 @@ function AuthenticatedStellaScreen() {
       if (!access) {
         updatePreferredAccess(null);
         setPairedDesktops([]);
-        setScreenState(readUnavailableState("Pair your phone"));
+        setScreenState(readUnavailableState("mobile.desktop.pairTitle"));
         return;
       }
 
@@ -296,11 +307,13 @@ function AuthenticatedStellaScreen() {
           const platform =
             status.platform ?? status.lastKnownRegistration?.platform;
           setScreenState(
-            readUnavailableState(
-              platform
-                ? `Your ${platform} isn't reachable`
-                : "Can't reach your desktop",
-            ),
+            platform
+              ? readUnavailableState(
+                  "mobile.desktop.deviceUnreachable",
+                  null,
+                  { platform },
+                )
+              : readUnavailableState("mobile.desktop.unreachable"),
           );
           return;
         }
@@ -339,19 +352,19 @@ function AuthenticatedStellaScreen() {
           updatePreferredAccess(null);
           setScreenState(
             readUnavailableState(
-              "Pair your phone",
-              "This phone needs to be paired with your computer again.",
+              "mobile.desktop.pairTitle",
+              t("mobile.desktop.repairNeeded"),
             ),
           );
           return;
         }
 
         setScreenState(
-          readUnavailableState("Can't reach your desktop", message),
+          readUnavailableState("mobile.desktop.unreachable", message),
         );
       }
     },
-    [updatePreferredAccess],
+    [t, updatePreferredAccess],
   );
 
   const pairPhone = useCallback(
@@ -360,8 +373,8 @@ function AuthenticatedStellaScreen() {
       if (!nextCode) {
         setScreenState(
           readUnavailableState(
-            "Pair your phone",
-            "Enter the code shown on your computer.",
+            "mobile.desktop.pairTitle",
+            t("mobile.desktop.enterCode"),
           ),
         );
         return;
@@ -370,7 +383,7 @@ function AuthenticatedStellaScreen() {
       setIsPairing(true);
       setScreenState({
         type: "loading",
-        message: "Pairing this phone",
+        messageKey: "mobile.desktop.pairing",
       });
 
       const result = await pairWithCode(nextCode);
@@ -382,10 +395,12 @@ function AuthenticatedStellaScreen() {
         // spun up when they explicitly tap "View computer".
         router.replace("/computer");
       } else {
-        setScreenState(readUnavailableState("Pair your phone", result.error));
+        setScreenState(
+          readUnavailableState("mobile.desktop.pairTitle", result.error),
+        );
       }
     },
-    [router, setScreenState, updatePreferredAccess],
+    [router, setScreenState, t, updatePreferredAccess],
   );
 
   useEffect(() => {
@@ -393,7 +408,7 @@ function AuthenticatedStellaScreen() {
       // Pairing deep link — show the pair sheet immediately and skip the
       // bridge refresh entirely so the desktop tunnel/WebView only starts
       // when the user explicitly opens View computer.
-      setScreenState(readUnavailableState("Pair your phone"));
+      setScreenState(readUnavailableState("mobile.desktop.pairTitle"));
       setIsPairSheetOpen(true);
       return;
     }
@@ -466,7 +481,7 @@ function AuthenticatedStellaScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="small" color={colors.textMuted} />
-        <Text style={styles.secondaryText}>{screenState.message}</Text>
+        <Text style={styles.secondaryText}>{t(screenState.messageKey)}</Text>
       </View>
     );
   }
@@ -477,11 +492,13 @@ function AuthenticatedStellaScreen() {
       <View style={styles.unavailableView}>
         <View style={styles.statusBlock}>
           <DesktopTabAnimation />
-          <Text style={styles.title}>{screenState.title}</Text>
+          <Text style={styles.title}>
+            {t(screenState.titleKey, screenState.titleParams)}
+          </Text>
           <Text style={styles.body}>
             {preferredAccess
-              ? "Make sure Stella is open on your computer and connected to the internet. Once connected, your desktop app will appear right here on your phone."
-              : "See your Stella desktop app right on your phone. Scan the QR code shown in Stella on your computer to get started — after that, your phone will reconnect automatically."}
+              ? t("mobile.desktop.unavailableBodyPaired")
+              : t("mobile.desktop.unavailableBodyUnpaired")}
           </Text>
           {screenState.error && (
             <Text style={styles.errorText}>{screenState.error}</Text>
@@ -490,26 +507,32 @@ function AuthenticatedStellaScreen() {
 
         <View style={styles.actionRow}>
           <PrimaryButton
-            label={preferredAccess ? "Pair another computer" : "Pair phone"}
+            label={
+              preferredAccess
+                ? t("mobile.desktop.pairAnother")
+                : t("mobile.computer.pairPhone")
+            }
             onPress={() => setIsPairSheetOpen(true)}
             disabled={isPairing}
             accessibilityLabel={
               preferredAccess
-                ? "Pair another computer"
-                : "Start pairing a computer"
+                ? t("mobile.desktop.pairAnother")
+                : t("mobile.desktop.startPairingLabel")
             }
           />
 
           {showRetry && (
             <Pressable
               onPress={() => void refreshBridge()}
-              accessibilityLabel="Try connecting again"
+              accessibilityLabel={t("mobile.desktop.retryLabel")}
               style={({ pressed }) => [
                 styles.secondaryButton,
                 pressed && styles.secondaryButtonPressed,
               ]}
             >
-              <Text style={styles.secondaryButtonText}>Try again</Text>
+              <Text style={styles.secondaryButtonText}>
+                {t("mobile.common.tryAgain")}
+              </Text>
             </Pressable>
           )}
         </View>
@@ -552,7 +575,7 @@ function AuthenticatedStellaScreen() {
           <Pressable
             onPress={goBackOrExit}
             hitSlop={8}
-            accessibilityLabel="Back"
+            accessibilityLabel={t("mobile.common.back")}
             style={({ pressed }) => [
               styles.stellaBarBtn,
               pressed && styles.stellaBarBtnPressed,
@@ -569,12 +592,14 @@ function AuthenticatedStellaScreen() {
             {!bridgeConnected ? (
               <>
                 <ActivityIndicator size="small" color={colors.textMuted} />
-                <Text style={styles.reconnectText}>Reconnecting...</Text>
+                <Text style={styles.reconnectText}>
+                  {t("mobile.desktop.reconnecting")}
+                </Text>
               </>
             ) : (
               limitedCapabilities.length > 0 && (
                 <Text style={styles.reconnectText} numberOfLines={1}>
-                  Some things need your computer
+                  {t("mobile.desktop.limitedCapabilities")}
                 </Text>
               )
             )}
@@ -618,14 +643,16 @@ function AuthenticatedStellaScreen() {
           onError={() =>
             setScreenState(
               readUnavailableState(
-                "Can't reach your desktop",
-                "The link to your computer was interrupted.",
+                "mobile.desktop.unreachable",
+                t("mobile.desktop.linkInterrupted"),
               ),
             )
           }
           onHttpError={(e) => {
             if (e.nativeEvent.statusCode >= 500) {
-              setScreenState(readUnavailableState("Can't reach your desktop"));
+              setScreenState(
+                readUnavailableState("mobile.desktop.unreachable"),
+              );
             }
           }}
           originWhitelist={[bridgeOrigin, "about:blank"]}

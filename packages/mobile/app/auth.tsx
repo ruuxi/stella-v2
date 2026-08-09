@@ -7,9 +7,11 @@ import { type Colors } from "../src/theme/colors";
 import { useColors } from "../src/theme/theme-context";
 import { fonts } from "../src/theme/fonts";
 import { loadLastMainTabHref } from "../src/lib/last-main-tab";
+import { useT } from "../src/i18n";
 
 type CallbackError = {
-  message: string;
+  /** Catalog key for the user-facing message. */
+  messageKey: string;
   retryable: boolean;
 };
 
@@ -22,19 +24,20 @@ const readCallbackError = (error: unknown): CallbackError => {
     || message === "Session expired"
   ) {
     return {
-      message: "This sign-in link has expired. Please request a new one.",
+      messageKey: "mobile.authCallback.linkExpired",
       retryable: false,
     };
   }
 
   return {
-    message: "We couldn't sign you in right now. Please try again.",
+    messageKey: "mobile.authCallback.genericFailure",
     retryable: true,
   };
 };
 
 export default function AuthCallbackScreen() {
   const colors = useColors();
+  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const params = useLocalSearchParams<{ ott?: string }>();
@@ -45,7 +48,7 @@ export default function AuthCallbackScreen() {
     const token = params.ott;
     if (!token) {
       setError({
-        message: "Invalid sign-in link.",
+        messageKey: "mobile.authCallback.invalidLink",
         retryable: false,
       });
       return;
@@ -82,8 +85,8 @@ export default function AuthCallbackScreen() {
   if (error) {
     return (
       <SafeAreaView style={styles.screen}>
-        <Text style={styles.title}>Couldn't sign you in</Text>
-        <Text style={styles.body}>{error.message}</Text>
+        <Text style={styles.title}>{t("mobile.authCallback.failedTitle")}</Text>
+        <Text style={styles.body}>{t(error.messageKey)}</Text>
         <Pressable
           onPress={() => {
             if (error.retryable) {
@@ -99,7 +102,9 @@ export default function AuthCallbackScreen() {
           ]}
         >
           <Text style={styles.buttonText}>
-            {error.retryable ? "Try again" : "Back to sign in"}
+            {error.retryable
+              ? t("mobile.common.tryAgain")
+              : t("mobile.authCallback.backToSignIn")}
           </Text>
         </Pressable>
       </SafeAreaView>
@@ -108,8 +113,8 @@ export default function AuthCallbackScreen() {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <Text style={styles.title}>Signing you in</Text>
-      <Text style={styles.body}>Just a moment...</Text>
+      <Text style={styles.title}>{t("mobile.authCallback.signingInTitle")}</Text>
+      <Text style={styles.body}>{t("mobile.authCallback.signingInBody")}</Text>
     </SafeAreaView>
   );
 }

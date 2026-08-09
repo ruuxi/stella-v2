@@ -20,6 +20,7 @@ import {
   type SharedCanvasLink,
 } from "@/features/canvas-share/canvas-share-context";
 import type { CanvasHtmlItem } from "./canvas-items";
+import { useT } from "@/shared/i18n";
 import "./canvas-share.css";
 
 const decoder = new TextDecoder("utf-8");
@@ -60,6 +61,7 @@ const ShareResultView = ({
   status: PublishStatus;
   result: PublishedCanvasShare | null;
 }) => {
+  const t = useT();
   const [copied, setCopied] = useState(false);
 
   const onCopy = useCallback(async () => {
@@ -67,25 +69,25 @@ const ShareResultView = ({
     try {
       await copyToClipboard(result.url);
       setCopied(true);
-      showToast("Share link copied");
+      showToast(t("shell.display.canvasShare.toasts.linkCopied"));
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      showToast("Couldn't copy the link");
+      showToast(t("shell.display.canvasShare.toasts.copyFailed"));
     }
-  }, [result]);
+  }, [result, t]);
 
   if (status === "publishing") {
     return (
       <div className="canvas-share__state">
         <LoaderCircle size={15} className="canvas-share__spin" aria-hidden />
-        <span>Publishing canvas…</span>
+        <span>{t("shell.display.canvasShare.publishing")}</span>
       </div>
     );
   }
   if (status === "error" || !result) {
     return (
       <div className="canvas-share__state canvas-share__state--error">
-        Couldn't publish this canvas. Please try again.
+        {t("shell.display.canvasShare.publishFailed")}
       </div>
     );
   }
@@ -93,7 +95,7 @@ const ShareResultView = ({
     <div className="canvas-share__result">
       <div className="canvas-share__result-head">
         <Check size={14} strokeWidth={2} aria-hidden />
-        <span>Canvas is live</span>
+        <span>{t("shell.display.canvasShare.live")}</span>
       </div>
       <div className="canvas-share__url-row">
         <input
@@ -102,13 +104,13 @@ const ShareResultView = ({
           readOnly
           spellCheck={false}
           onFocus={(event) => event.currentTarget.select()}
-          aria-label="Public canvas link"
+          aria-label={t("shell.display.canvasShare.publicLink")}
         />
         <button
           type="button"
           className="canvas-share__copy"
           onClick={() => void onCopy()}
-          aria-label="Copy link"
+          aria-label={t("shell.display.canvasShare.copyLink")}
         >
           {copied ? (
             <Check size={14} strokeWidth={2} aria-hidden />
@@ -119,7 +121,9 @@ const ShareResultView = ({
       </div>
       {result.expiresAt ? (
         <div className="canvas-share__meta">
-          Expires {formatDate(result.expiresAt)}
+          {t("shell.display.canvasShare.expires", {
+            date: formatDate(result.expiresAt),
+          })}
         </div>
       ) : null}
     </div>
@@ -127,6 +131,7 @@ const ShareResultView = ({
 };
 
 const SharedLinksPanel = () => {
+  const t = useT();
   const share = useCanvasShare();
   const version = share?.version ?? 0;
   const [links, setLinks] = useState<SharedCanvasLink[] | null>(null);
@@ -157,12 +162,12 @@ const SharedLinksPanel = () => {
     try {
       await copyToClipboard(link.url);
       setCopiedSlug(link.slug);
-      showToast("Share link copied");
+      showToast(t("shell.display.canvasShare.toasts.linkCopied"));
       window.setTimeout(() => setCopiedSlug(null), 1600);
     } catch {
-      showToast("Couldn't copy the link");
+      showToast(t("shell.display.canvasShare.toasts.copyFailed"));
     }
-  }, []);
+  }, [t]);
 
   const onRevoke = useCallback(
     async (slug: string) => {
@@ -173,31 +178,33 @@ const SharedLinksPanel = () => {
         setLinks((current) =>
           current ? current.filter((link) => link.slug !== slug) : current,
         );
-        showToast("Share revoked");
+        showToast(t("shell.display.canvasShare.toasts.revoked"));
       } catch {
-        showToast("Couldn't revoke this share");
+        showToast(t("shell.display.canvasShare.toasts.revokeFailed"));
       } finally {
         setRevoking(null);
       }
     },
-    [share],
+    [share, t],
   );
 
   return (
     <div className="canvas-share__links">
-      <div className="canvas-share__links-title">Shared links</div>
+      <div className="canvas-share__links-title">
+        {t("shell.display.canvasShare.sharedLinks")}
+      </div>
       {error ? (
         <div className="canvas-share__state canvas-share__state--error">
-          Couldn't load your shares.
+          {t("shell.display.canvasShare.loadFailed")}
         </div>
       ) : links === null ? (
         <div className="canvas-share__state">
           <LoaderCircle size={15} className="canvas-share__spin" aria-hidden />
-          <span>Loading…</span>
+          <span>{t("common.loading")}</span>
         </div>
       ) : links.length === 0 ? (
         <div className="canvas-share__empty">
-          No active shares yet. Publish a canvas to get a public link.
+          {t("shell.display.canvasShare.empty")}
         </div>
       ) : (
         <ul className="canvas-share__list">
@@ -205,21 +212,25 @@ const SharedLinksPanel = () => {
             <li key={link.slug} className="canvas-share__item">
               <div className="canvas-share__item-main">
                 <span className="canvas-share__item-title">
-                  {link.title?.trim() || "Untitled canvas"}
+                  {link.title?.trim() || t("shell.display.canvasShare.untitled")}
                 </span>
                 <span className="canvas-share__item-url">{link.url}</span>
                 <span className="canvas-share__item-meta">
-                  Shared {formatDate(link.createdAt)}
                   {link.expiresAt
-                    ? ` · expires ${formatDate(link.expiresAt)}`
-                    : ""}
+                    ? t("shell.display.canvasShare.sharedWithExpiry", {
+                        shared: formatDate(link.createdAt),
+                        expires: formatDate(link.expiresAt),
+                      })
+                    : t("shell.display.canvasShare.shared", {
+                        date: formatDate(link.createdAt),
+                      })}
                 </span>
               </div>
               <div className="canvas-share__item-actions">
                 <button
                   type="button"
                   className="canvas-share__icon-btn"
-                  aria-label="Copy link"
+                  aria-label={t("shell.display.canvasShare.copyLink")}
                   onClick={() => void onCopy(link)}
                 >
                   {copiedSlug === link.slug ? (
@@ -231,7 +242,7 @@ const SharedLinksPanel = () => {
                 <button
                   type="button"
                   className="canvas-share__icon-btn canvas-share__icon-btn--danger"
-                  aria-label="Revoke share"
+                  aria-label={t("shell.display.canvasShare.revoke")}
                   disabled={revoking === link.slug}
                   onClick={() => void onRevoke(link.slug)}
                 >
@@ -255,6 +266,7 @@ const SharedLinksPanel = () => {
 };
 
 export const CanvasShareBar = ({ item }: { item: CanvasHtmlItem }) => {
+  const t = useT();
   const share = useCanvasShare();
   const [shareOpen, setShareOpen] = useState(false);
   const [linksOpen, setLinksOpen] = useState(false);
@@ -295,7 +307,7 @@ export const CanvasShareBar = ({ item }: { item: CanvasHtmlItem }) => {
             disabled={status === "publishing"}
           >
             <Globe size={14} strokeWidth={1.6} aria-hidden />
-            <span>Share</span>
+            <span>{t("shell.display.canvasShare.share")}</span>
           </button>
         </PopoverTrigger>
         <PopoverContent
@@ -313,9 +325,9 @@ export const CanvasShareBar = ({ item }: { item: CanvasHtmlItem }) => {
           <button
             type="button"
             className="canvas-share__btn"
-            aria-label="Shared links"
+            aria-label={t("shell.display.canvasShare.sharedLinks")}
           >
-            <span>Links</span>
+            <span>{t("shell.display.canvasShare.links")}</span>
           </button>
         </PopoverTrigger>
         <PopoverContent

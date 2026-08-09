@@ -19,8 +19,10 @@ import {
 } from "./store-side-panel/ShareDialog";
 import { RecentChangesList } from "./store-side-panel/RecentChangesList";
 import { StoreIllustration } from "@/shell/display/illustrations/StoreIllustration";
+import { useT } from "@/shared/i18n";
 
 export function StoreSidePanel() {
+  const t = useT();
   const state = useStoreSidePanelState();
   const [publishFeatures, setPublishFeatures] = useState<ShareFeatureRef[]>(
     [],
@@ -76,8 +78,7 @@ export function StoreSidePanel() {
             <StoreIllustration />
           </div>
           <p className="store-side-panel-empty-state-body">
-            After Stella makes a change for you, share it with friends, a
-            community, or the store from here.
+            {t("features.store.sidePanel.emptyState")}
           </p>
         </div>
       ) : null}

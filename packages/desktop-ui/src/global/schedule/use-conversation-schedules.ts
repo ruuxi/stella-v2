@@ -18,6 +18,7 @@ import type {
   LocalCronSchedule,
   LocalHeartbeatConfigRecord,
 } from "@stella/contracts/scheduling";
+import { useT } from "@/shared/i18n";
 
 export type ScheduleEntry =
   | {
@@ -39,6 +40,7 @@ export type ScheduleEntry =
 
 const heartbeatDisplayName = (
   record: LocalHeartbeatConfigRecord,
+  t: ReturnType<typeof useT>,
 ): string => {
   const prompt = record.prompt?.trim();
   if (prompt) {
@@ -46,7 +48,7 @@ const heartbeatDisplayName = (
     // to identify the schedule without dumping the whole checklist.
     return prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt;
   }
-  return "Check-in";
+  return t("global.schedule.checkIn");
 };
 
 const sortByNextRun = (entries: ScheduleEntry[]): ScheduleEntry[] =>
@@ -57,6 +59,7 @@ const EMPTY: ScheduleEntry[] = [];
 export function useConversationSchedules(
   conversationId: string | null,
 ): ScheduleEntry[] {
+  const t = useT();
   const [crons, setCrons] = useState<LocalCronJobRecord[]>([]);
   const [heartbeats, setHeartbeats] = useState<LocalHeartbeatConfigRecord[]>(
     [],
@@ -107,7 +110,7 @@ export function useConversationSchedules(
       entries.push({
         kind: "cron",
         id: cron.id,
-        name: cron.name?.trim() || "Scheduled task",
+        name: cron.name?.trim() || t("global.schedule.untitledTask"),
         enabled: cron.enabled,
         nextRunAtMs: cron.nextRunAtMs,
         schedule: cron.schedule,
@@ -119,12 +122,12 @@ export function useConversationSchedules(
       entries.push({
         kind: "heartbeat",
         id: heartbeat.id,
-        name: heartbeatDisplayName(heartbeat),
+        name: heartbeatDisplayName(heartbeat, t),
         enabled: heartbeat.enabled,
         nextRunAtMs: heartbeat.nextRunAtMs,
         intervalMs: heartbeat.intervalMs,
       });
     }
     return sortByNextRun(entries);
-  }, [conversationId, crons, heartbeats]);
+  }, [conversationId, crons, heartbeats, t]);
 }

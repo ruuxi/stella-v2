@@ -14,6 +14,7 @@ import {
 import { Avatar } from "@/ui/avatar";
 import { showToast } from "@/ui/toast";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
+import { useT, useTPlural } from "@/shared/i18n";
 import { parseSocialInviteLink } from "@/app/social/invite-links";
 import { getSocialActionErrorMessage } from "@/app/social/social-errors";
 import {
@@ -97,6 +98,8 @@ export function SocialInviteLayer() {
 }
 
 function SocialInviteDialog() {
+  const t = useT();
+  const tPlural = useTPlural();
   const invite = usePendingSocialInvite();
   const { hasConnectedAccount } = useAuthSessionState();
   const [busy, setBusy] = useState(false);
@@ -154,15 +157,19 @@ function SocialInviteDialog() {
         await joinMutation({ inviteCode: invite.inviteCode });
         showToast({
           description: communityPreview?.name
-            ? `Welcome to ${communityPreview.name}!`
-            : "You joined the community!",
+            ? t("global.social.welcomeToCommunity", {
+                community: communityPreview.name,
+              })
+            : t("global.social.joinedCommunity"),
         });
         setPendingSocialInvite(null);
         void router.navigate({ to: "/social" });
       } else {
         await sendFriendRequestMutation({ username: invite.username });
         showToast({
-          description: `Friend request sent to @${invite.username}.`,
+          description: t("global.social.friendRequestSent", {
+            username: invite.username,
+          }),
         });
         setPendingSocialInvite(null);
       }
@@ -170,15 +177,15 @@ function SocialInviteDialog() {
       setError(
         getSocialActionErrorMessage(
           invite.kind === "join-community"
-            ? "Couldn't join that community. The invite may have expired."
-            : "Couldn't send that friend request. Please try again.",
+            ? t("global.social.joinFailed")
+            : t("global.social.friendRequestFailed"),
           err,
         ),
       );
     } finally {
       setBusy(false);
     }
-  }, [invite, joinMutation, sendFriendRequestMutation, communityPreview]);
+  }, [invite, joinMutation, sendFriendRequestMutation, communityPreview, t]);
 
   if (!invite) return null;
 
@@ -203,24 +210,23 @@ function SocialInviteDialog() {
 
   const copy = isStore
     ? {
-        title: "Open add-on",
-        confirmLabel: "View in Store",
-        sub: "A link you opened points at a Stella add-on. Nothing installs. This only opens its Store page.",
-        missing: "This add-on is private or no longer published.",
+        title: t("global.social.store.title"),
+        confirmLabel: t("global.social.store.confirmLabel"),
+        sub: t("global.social.store.sub"),
+        missing: t("global.social.store.missing"),
       }
     : isJoin
       ? {
-          title: "Join community",
-          confirmLabel: "Join",
-          sub: "You were invited to a community: a trusted circle where members share add-ons with each other.",
-          missing:
-            "No community was found for this invite code. Ask for a fresh link.",
+          title: t("global.social.join.title"),
+          confirmLabel: t("global.social.join.confirmLabel"),
+          sub: t("global.social.join.sub"),
+          missing: t("global.social.join.missing"),
         }
       : {
-          title: "Add friend",
-          confirmLabel: "Send friend request",
-          sub: "You were invited to connect on Stella.",
-          missing: "No user was found for this invite link.",
+          title: t("global.social.friend.title"),
+          confirmLabel: t("global.social.friend.confirmLabel"),
+          sub: t("global.social.friend.sub"),
+          missing: t("global.social.friend.missing"),
         };
 
   return (
@@ -231,7 +237,7 @@ function SocialInviteDialog() {
         </VisuallyHidden>
         <VisuallyHidden asChild>
           <DialogDescription>
-            Confirm this invitation before anything happens.
+            {t("global.social.dialogDescription")}
           </DialogDescription>
         </VisuallyHidden>
         <DialogCloseButton className="friends-dialog-close" />
@@ -244,10 +250,12 @@ function SocialInviteDialog() {
           <div className="social-invite-preview">
             {needsAccount ? (
               <div className="friends-empty">
-                Sign in to Stella to accept this invite.
+                {t("global.social.signInToAccept")}
               </div>
             ) : previewLoading ? (
-              <div className="friends-empty">Looking up the invite…</div>
+              <div className="friends-empty">
+                {t("global.social.lookingUpInvite")}
+              </div>
             ) : previewMissing ? (
               <div className="friends-empty">{copy.missing}</div>
             ) : isStore && storePreview ? (
@@ -262,9 +270,11 @@ function SocialInviteDialog() {
                     {storePreview.displayName}
                   </div>
                   <div className="friends-item-tag">
-                    Stella add-on
+                    {t("global.social.stellaAddOn")}
                     {storePreview.authorUsername
-                      ? ` \u00b7 by @${storePreview.authorUsername}`
+                      ? t("global.social.byAuthor", {
+                          username: storePreview.authorUsername,
+                        })
                       : ""}
                   </div>
                 </div>
@@ -277,10 +287,16 @@ function SocialInviteDialog() {
                     {communityPreview.name}
                   </div>
                   <div className="friends-item-tag">
-                    {communityPreview.memberCount}
-                    {communityPreview.memberCountTruncated ? "+" : ""}{" "}
-                    {communityPreview.memberCount === 1 ? "member" : "members"}
-                    {alreadyDone ? " \u00b7 you're already in" : ""}
+                    {communityPreview.memberCountTruncated
+                      ? `${communityPreview.memberCount}+ `
+                      : ""}
+                    {communityPreview.memberCountTruncated
+                      ? t("global.social.membersLabel")
+                      : tPlural(
+                          "global.social.memberCount",
+                          communityPreview.memberCount,
+                        )}
+                    {alreadyDone ? t("global.social.alreadyIn") : ""}
                   </div>
                 </div>
               </div>
@@ -295,7 +311,9 @@ function SocialInviteDialog() {
                   <div className="friends-item-name">
                     @{friendPreview.username}
                   </div>
-                  <div className="friends-item-tag">Stella user</div>
+                  <div className="friends-item-tag">
+                    {t("global.social.stellaUser")}
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -314,7 +332,7 @@ function SocialInviteDialog() {
               onClick={close}
               disabled={busy}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               type="button"
@@ -331,7 +349,11 @@ function SocialInviteDialog() {
                 alreadyDone
               }
             >
-              {busy ? "Working…" : alreadyDone ? "Already joined" : copy.confirmLabel}
+              {busy
+                ? t("global.social.working")
+                : alreadyDone
+                  ? t("global.social.alreadyJoined")
+                  : copy.confirmLabel}
             </button>
           </div>
         </DialogBody>

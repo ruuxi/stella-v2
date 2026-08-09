@@ -15,6 +15,7 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/shared/lib/utils";
 import { ArrowUp, Check, X } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import "./dictation-recording-bar.css";
 
 type DictationRecordingBarProps = {
@@ -40,6 +41,7 @@ export function DictationRecordingBar({
   showControls = true,
   onSend,
 }: DictationRecordingBarProps) {
+  const t = useT();
   return (
     <>
       <DictationWaveform levels={levels} />
@@ -54,8 +56,8 @@ export function DictationRecordingBar({
               "chat-composer-icon-button composer-dictation-control",
             )}
             onClick={onCancel}
-            title="Cancel dictation"
-            aria-label="Cancel dictation"
+            title={t("features.dictation.cancel")}
+            aria-label={t("features.dictation.cancel")}
           >
             <CancelIcon />
           </button>
@@ -66,8 +68,8 @@ export function DictationRecordingBar({
               "composer-dictation-control--confirm",
             )}
             onClick={onConfirm}
-            title="Stop and transcribe"
-            aria-label="Stop dictation and transcribe"
+            title={t("features.dictation.stopAndTranscribe")}
+            aria-label={t("features.dictation.stopAndTranscribeLabel")}
           >
             <CheckIcon />
           </button>
@@ -79,8 +81,8 @@ export function DictationRecordingBar({
                 "composer-dictation-control--send",
               )}
               onClick={onSend}
-              title="Stop, transcribe, and send"
-              aria-label="Stop dictation, transcribe, and send"
+              title={t("features.dictation.stopTranscribeSend")}
+              aria-label={t("features.dictation.stopTranscribeSendLabel")}
             >
               <SendIcon />
             </button>

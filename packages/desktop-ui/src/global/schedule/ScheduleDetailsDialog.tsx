@@ -28,6 +28,7 @@ import type {
   ScheduleToolAffectedRef,
 } from "@stella/contracts/scheduling";
 import { formatNextRun, summarizeSchedule } from "./format-schedule";
+import { useT, useTPlural } from "@/shared/i18n";
 import "./schedule-details-dialog.css";
 
 const NEXT_RUN_TICK_MS = 30_000;
@@ -49,22 +50,27 @@ type DialogRow = {
   conversationId?: string;
 };
 
-const cronToRow = (record: LocalCronJobRecord): DialogRow => ({
+type Translate = ReturnType<typeof useT>;
+
+const cronToRow = (record: LocalCronJobRecord, t: Translate): DialogRow => ({
   kind: "cron",
   id: record.id,
-  name: record.name?.trim() || "Scheduled task",
+  name: record.name?.trim() || t("global.schedule.untitledTask"),
   enabled: record.enabled,
   nextRunAtMs: record.nextRunAtMs,
   recurrence: summarizeSchedule(record.schedule),
   conversationId: record.conversationId,
 });
 
-const heartbeatToRow = (record: LocalHeartbeatConfigRecord): DialogRow => ({
+const heartbeatToRow = (
+  record: LocalHeartbeatConfigRecord,
+  t: Translate,
+): DialogRow => ({
   kind: "heartbeat",
   id: record.id,
   name: (() => {
     const prompt = record.prompt?.trim();
-    if (!prompt) return "Check-in";
+    if (!prompt) return t("global.schedule.checkIn");
     return prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt;
   })(),
   enabled: record.enabled,
@@ -84,6 +90,7 @@ function useResolvedRows(
   affectedRefs: ReadonlyArray<ScheduleToolAffectedRef>,
   open: boolean,
 ): { rows: DialogRow[]; refreshTick: number; bumpRefresh: () => void } {
+  const t = useT();
   const [rows, setRows] = useState<DialogRow[]>([]);
   const [refreshTick, setRefreshTick] = useState(0);
 
@@ -109,11 +116,11 @@ function useResolvedRows(
         for (const ref of affectedRefs) {
           if (ref.kind === "cron") {
             const found = cronById.get(ref.id);
-            if (found) next.push(cronToRow(found));
+            if (found) next.push(cronToRow(found, t));
             continue;
           }
           const found = heartbeatById.get(ref.id);
-          if (found) next.push(heartbeatToRow(found));
+          if (found) next.push(heartbeatToRow(found, t));
         }
         setRows(next);
       } catch {
@@ -129,7 +136,7 @@ function useResolvedRows(
       cancelled = true;
       unsubscribe();
     };
-  }, [open, affectedRefs, refreshTick]);
+  }, [open, affectedRefs, refreshTick, t]);
 
   const bumpRefresh = () => setRefreshTick((tick) => tick + 1);
   return { rows, refreshTick, bumpRefresh };
@@ -161,6 +168,7 @@ function ScheduleDialogRow({
   nowMs: number;
   onMutation: () => void;
 }) {
+  const t = useT();
   const [state, setState] = useState<RowActionsState>(initialActionState);
   const api = window.electronAPI?.schedule;
 
@@ -177,7 +185,10 @@ function ScheduleDialogRow({
     } catch (error) {
       setState({
         busy: "none",
-        error: error instanceof Error ? error.message : "Action failed.",
+        error:
+          error instanceof Error
+            ? error.message
+            : t("global.schedule.actionFailed"),
       });
     }
   };
@@ -229,7 +240,7 @@ function ScheduleDialogRow({
 
   const badge = row.enabled
     ? formatNextRun(row.nextRunAtMs, nowMs)
-    : "Paused";
+    : t("global.schedule.paused");
 
   return (
     <li className="schedule-details-dialog__row" data-enabled={row.enabled}>
@@ -252,7 +263,9 @@ function ScheduleDialogRow({
           disabled={state.busy !== "none" || !row.enabled}
           onClick={onRunNow}
         >
-          {state.busy === "run" ? "Running…" : "Run now"}
+          {state.busy === "run"
+            ? t("global.schedule.running")
+            : t("global.schedule.runNow")}
         </Button>
         <Button
           type="button"
@@ -261,12 +274,12 @@ function ScheduleDialogRow({
           onClick={onTogglePause}
         >
           {state.busy === "pause"
-            ? "Pausing…"
+            ? t("global.schedule.pausing")
             : state.busy === "resume"
-              ? "Resuming…"
+              ? t("global.schedule.resuming")
               : row.enabled
-                ? "Pause"
-                : "Resume"}
+                ? t("global.schedule.pause")
+                : t("global.schedule.resume")}
         </Button>
         <Button
           type="button"
@@ -274,7 +287,9 @@ function ScheduleDialogRow({
           disabled={state.busy !== "none"}
           onClick={onDelete}
         >
-          {state.busy === "delete" ? "Removing…" : "Delete"}
+          {state.busy === "delete"
+            ? t("global.schedule.removing")
+            : t("global.schedule.delete")}
         </Button>
       </div>
       {state.error && (
@@ -301,14 +316,16 @@ export function ScheduleDetailsDialog({
   affected,
   summary,
 }: ScheduleDetailsDialogProps) {
+  const t = useT();
+  const tPlural = useTPlural();
   const { rows, bumpRefresh } = useResolvedRows(affected, open);
   const nowMs = useNowTick(open && rows.length > 0);
 
   const title = useMemo(() => {
-    if (rows.length === 0) return "Schedule";
+    if (rows.length === 0) return t("global.schedule.dialogTitle");
     if (rows.length === 1) return rows[0].name;
-    return `${rows.length} schedules`;
-  }, [rows]);
+    return tPlural("global.schedule.scheduleCount", rows.length);
+  }, [rows, t, tPlural]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -323,7 +340,7 @@ export function ScheduleDetailsDialog({
         <Dialog.Body>
           {rows.length === 0 ? (
             <p className="schedule-details-dialog__empty">
-              This schedule no longer exists.
+              {t("global.schedule.missing")}
             </p>
           ) : (
             <ul className="schedule-details-dialog__rows">

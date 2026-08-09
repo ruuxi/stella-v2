@@ -27,6 +27,7 @@ import { tapLight } from "../src/lib/haptics";
 import { type Colors } from "../src/theme/colors";
 import { useColors } from "../src/theme/theme-context";
 import { fonts } from "../src/theme/fonts";
+import { useI18n } from "../src/i18n";
 
 const DIAGNOSTICS_KEY = "StellaCarPlayDiagnostics";
 
@@ -45,6 +46,7 @@ export default function CarPlayDiagnosticsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
+  const { t, tPlural } = useI18n();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [lines, setLines] = useState<string[]>([]);
@@ -62,10 +64,12 @@ export default function CarPlayDiagnosticsScreen() {
   const copyAll = useCallback(async () => {
     tapLight();
     await Clipboard.setStringAsync(
-      lines.length > 0 ? lines.join("\n") : "(no CarPlay diagnostics recorded)",
+      lines.length > 0
+        ? lines.join("\n")
+        : t("mobile.carPlayDiagnostics.clipboardEmpty"),
     );
     setCopied(true);
-  }, [lines]);
+  }, [lines, t]);
 
   const clearAll = useCallback(() => {
     tapLight();
@@ -91,43 +95,52 @@ export default function CarPlayDiagnosticsScreen() {
             tapLight();
             router.back();
           }}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("mobile.common.goBack")}
           hitSlop={12}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
-          <Text style={styles.backText}>‹ Back</Text>
+          <Text style={styles.backText}>{t("mobile.common.backChevron")}</Text>
         </Pressable>
-        <Text style={styles.title}>CarPlay diagnostics</Text>
+        <Text style={styles.title}>
+          {t("mobile.carPlayDiagnostics.title")}
+        </Text>
         {/* Spacer balances the back button so the title centers. */}
         <View style={styles.headerSpacer} />
       </View>
 
       <Text style={styles.subtitle}>
-        Breadcrumbs from the CarPlay connection ({lines.length} lines, newest
-        first). Copy and send these after anything misbehaves in the car.
+        {tPlural("mobile.carPlayDiagnostics.subtitle", lines.length)}
       </Text>
 
       <View style={styles.actions}>
         <Pressable
           onPress={() => void copyAll()}
-          accessibilityLabel="Copy all diagnostics"
+          accessibilityLabel={t("mobile.carPlayDiagnostics.copyAllLabel")}
           style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
         >
-          <Text style={styles.actionText}>{copied ? "Copied ✓" : "Copy all"}</Text>
+          <Text style={styles.actionText}>
+            {copied
+              ? t("mobile.carPlayDiagnostics.copied")
+              : t("mobile.carPlayDiagnostics.copyAll")}
+          </Text>
         </Pressable>
         <Pressable
           onPress={refresh}
-          accessibilityLabel="Refresh diagnostics"
+          accessibilityLabel={t("mobile.carPlayDiagnostics.refreshLabel")}
           style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
         >
-          <Text style={styles.actionText}>Refresh</Text>
+          <Text style={styles.actionText}>
+            {t("mobile.carPlayDiagnostics.refresh")}
+          </Text>
         </Pressable>
         <Pressable
           onPress={clearAll}
-          accessibilityLabel="Clear diagnostics"
+          accessibilityLabel={t("mobile.carPlayDiagnostics.clearLabel")}
           style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
         >
-          <Text style={[styles.actionText, styles.actionDanger]}>Clear</Text>
+          <Text style={[styles.actionText, styles.actionDanger]}>
+            {t("mobile.carPlayDiagnostics.clear")}
+          </Text>
         </Pressable>
       </View>
 
@@ -137,8 +150,7 @@ export default function CarPlayDiagnosticsScreen() {
       >
         {newestFirst.length === 0 ? (
           <Text style={styles.empty}>
-            No CarPlay diagnostics recorded yet. Connect to CarPlay once, then
-            come back here.
+            {t("mobile.carPlayDiagnostics.empty")}
           </Text>
         ) : (
           newestFirst.map((line, i) => (

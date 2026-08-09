@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@/ui/dialog";
 import { Button } from "@/ui/button";
+import { useT } from "@/shared/i18n";
 import { TextField } from "@/ui/text-field";
 import {
   hasNicknameBeenAsked,
@@ -18,6 +19,7 @@ import "@/shell/sidebar/account-dialogs.css";
 const NICKNAME_MAX_LENGTH = 40;
 
 export function NicknameDialog() {
+  const t = useT();
   const { nickname, email, hasConnectedAccount, setNickname } = useNickname();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -72,17 +74,17 @@ export function NicknameDialog() {
         aria-describedby={undefined}
       >
         <DialogHeader>
-          <DialogTitle>What should I call you?</DialogTitle>
+          <DialogTitle>{t("global.auth.nicknameTitle")}</DialogTitle>
         </DialogHeader>
         <DialogDescription className="sidebar-nickname-description">
-          Pick a name for Stella to use across the app.
+          {t("global.auth.nicknameDescription")}
         </DialogDescription>
         <div className="sidebar-nickname-body">
           <TextField
             ref={inputRef as React.RefObject<HTMLInputElement>}
-            label="Nickname"
+            label={t("global.auth.nicknameLabel")}
             hideLabel
-            placeholder="Your nickname"
+            placeholder={t("global.auth.nicknamePlaceholder")}
             value={draft}
             maxLength={NICKNAME_MAX_LENGTH}
             autoComplete="off"
@@ -98,7 +100,7 @@ export function NicknameDialog() {
             className="pill-btn pill-btn--lg"
             onClick={handleClose}
           >
-            Not now
+            {t("global.auth.notNow")}
           </Button>
           <Button
             variant="primary"
@@ -107,7 +109,7 @@ export function NicknameDialog() {
             onClick={handleSave}
             disabled={draft.trim().length === 0}
           >
-            Save
+            {t("common.save")}
           </Button>
         </div>
       </DialogContent>

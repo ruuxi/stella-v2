@@ -17,11 +17,14 @@ import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
 import { Clock } from "@/ui/icons";
 import { formatNextRun } from "@/global/schedule/format-schedule";
 import { ScheduleDetailsDialog } from "@/global/schedule/ScheduleDetailsDialog";
+import { useT, useTPlural } from "@/shared/i18n";
 import "./schedule-receipt-chip.css";
 
 const labelFor = (
   affected: ReadonlyArray<ScheduleToolAffectedRef>,
   nowMs: number,
+  t: ReturnType<typeof useT>,
+  tPlural: ReturnType<typeof useTPlural>,
 ): { primary: string; meta: string } => {
   if (affected.length === 1) {
     const entry = affected[0];
@@ -38,8 +41,12 @@ const labelFor = (
     Number.POSITIVE_INFINITY,
   );
   return {
-    primary: `${affected.length} schedules`,
-    meta: Number.isFinite(next) ? `next ${formatNextRun(next, nowMs)}` : "",
+    primary: tPlural("app.chat.scheduleReceipt.scheduleCount", affected.length),
+    meta: Number.isFinite(next)
+      ? t("app.chat.scheduleReceipt.nextRun", {
+          nextRun: formatNextRun(next, nowMs),
+        })
+      : "",
   };
 };
 
@@ -50,13 +57,15 @@ export function ScheduleReceiptChip({
   affected: ReadonlyArray<ScheduleToolAffectedRef>;
   summary?: string;
 }) {
+  const t = useT();
+  const tPlural = useTPlural();
   const [open, setOpen] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now);
   // Computed once on mount + on `open` toggles only — no ticker. The chip
   // is a static receipt; the live next-run countdown lives in the dialog.
   const { primary, meta } = useMemo(
-    () => labelFor(affected, nowMs),
-    [affected, nowMs],
+    () => labelFor(affected, nowMs, t, tPlural),
+    [affected, nowMs, t, tPlural],
   );
 
   if (affected.length === 0) return null;

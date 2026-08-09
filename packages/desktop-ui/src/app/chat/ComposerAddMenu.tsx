@@ -32,6 +32,7 @@ import {
 import { useRecentFiles } from "@/features/chat/hooks/use-recent-files";
 import type { ChatContext, ChatContextFile } from "@/shared/types/electron";
 import type { ComposerContextSuggestion } from "./ComposerContextRow";
+import { useT } from "@/shared/i18n";
 import "./composer-add-menu.css";
 
 type ComposerAddMenuProps = {
@@ -83,6 +84,7 @@ export function ComposerAddMenu({
   contextSuggestions = [],
   onSelectContextSuggestion,
 }: ComposerAddMenuProps) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const { recentFiles, recordRecentFiles } = useRecentFiles();
@@ -138,7 +140,10 @@ export function ComposerAddMenu({
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <ComposerAddButton className={className} title={title ?? "Add"} />
+          <ComposerAddButton
+            className={className}
+            title={title ?? t("app.chat.addMenu.add")}
+          />
         </DropdownMenuTrigger>
         <DropdownMenuContent
           side="top"
@@ -148,7 +153,9 @@ export function ComposerAddMenu({
         >
           {recentFiles.length > 0 && (
             <>
-              <DropdownMenuLabel>Recent</DropdownMenuLabel>
+              <DropdownMenuLabel>
+                {t("app.chat.addMenu.recent")}
+              </DropdownMenuLabel>
               {recentFiles.map((file) => (
                 <DropdownMenuItem
                   key={`${file.name}::${file.size}`}
@@ -170,7 +177,9 @@ export function ComposerAddMenu({
           )}
           {contextSuggestions.length > 0 ? (
             <>
-              <DropdownMenuLabel>Context</DropdownMenuLabel>
+              <DropdownMenuLabel>
+                {t("app.chat.addMenu.context")}
+              </DropdownMenuLabel>
               {contextSuggestions.map((suggestion) => {
                 const label = getContextSuggestionLabel(suggestion);
                 return (
@@ -196,21 +205,21 @@ export function ComposerAddMenu({
             <span data-slot="dropdown-menu-item-icon">
               <Camera size={16} strokeWidth={1.75} />
             </span>
-            Capture
+            {t("app.chat.addMenu.capture")}
           </DropdownMenuItem>
           {onSelectArea ? (
             <DropdownMenuItem onSelect={handleSelectArea}>
               <span data-slot="dropdown-menu-item-icon">
                 <Scan size={16} strokeWidth={1.75} />
               </span>
-              Select area
+              {t("app.chat.addMenu.selectArea")}
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem onSelect={handleAttachFiles}>
             <span data-slot="dropdown-menu-item-icon">
               <Paperclip size={16} strokeWidth={1.75} />
             </span>
-            Attach files…
+            {t("app.chat.addMenu.attachFiles")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

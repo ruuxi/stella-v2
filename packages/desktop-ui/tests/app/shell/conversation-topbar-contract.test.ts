@@ -11,11 +11,34 @@ import {
   shouldRenderNewChatLabel,
   shouldRenderConversationHomeLauncher,
 } from "@/shell/topbar/ConversationTopBar";
+import enCatalog from "../../../src/shared/i18n/locales/en.json";
 
 const SOURCE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../src",
 );
+
+/**
+ * The New chat label used to be literal JSX text. It is now a `t()` key,
+ * so the contract is checked in two halves: the source renders the key in
+ * the right slot, and the English catalog still maps that key to the copy
+ * this contract is about. Checking only the key would let the copy drift
+ * silently; checking only the copy would miss the label being moved to a
+ * different control.
+ */
+const englishFor = (key: string): string => {
+  const value = key
+    .split(".")
+    .reduce<unknown>(
+      (node, segment) =>
+        node && typeof node === "object"
+          ? (node as Record<string, unknown>)[segment]
+          : undefined,
+      enCatalog,
+    );
+  expect(typeof value, `${key} missing from en.json`).toBe("string");
+  return value as string;
+};
 
 describe("conversation top-bar contracts", () => {
   const tabs = [
@@ -161,13 +184,18 @@ describe("conversation top-bar contracts", () => {
     );
     expect(source).toContain("onClick={dispatchShowHome}");
     expect(source).not.toContain("conversation-topbar__home-label");
-    expect(source).toContain(
-      '<span className="conversation-topbar__new-label">New chat</span>',
+    expect(englishFor("shell.topbar.conversation.newChat")).toBe("New chat");
+    // Whitespace-tolerant: prettier reflows the span across lines once the
+    // literal becomes a t() call.
+    expect(source).toMatch(
+      /<span className="conversation-topbar__new-label">\s*\{t\("shell\.topbar\.conversation\.newChat"\)\}\s*<\/span>/,
     );
     expect(source).toContain(
       'data-compact={!showNewChatLabel ? "true" : undefined}',
     );
-    expect(source).toContain('aria-label="New chat"');
+    expect(source).toContain(
+      'aria-label={t("shell.topbar.conversation.newChat")}',
+    );
     expect(source).toMatch(
       /<House[\s\S]*?size=\{16\}[\s\S]*?strokeWidth=\{1\.85\}/,
     );

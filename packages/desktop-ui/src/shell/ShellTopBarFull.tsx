@@ -36,6 +36,7 @@ import { ConversationTopBar } from "@/shell/topbar/ConversationTopBar";
 import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
 import { WindowControls } from "@/shell/WindowControls";
 import { PanelRight } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import "./shell-topbar-full.css";
 
 /**
@@ -49,6 +50,7 @@ type ShellTopBarFullProps = {
 };
 
 export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
+  const t = useT();
   const platform = getPlatform();
   const isMac = platform === "darwin";
   const isWin = platform === "win32";
@@ -77,8 +79,8 @@ export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
               type="button"
               className="shell-topbar-icon-btn"
               onClick={() => displayTabs.setPanelOpen(true)}
-              aria-label="Open panel"
-              title="Open panel"
+              aria-label={t("shell.displayPanel.openPanel")}
+              title={t("shell.displayPanel.openPanel")}
             >
               <PanelRight size={16} strokeWidth={1.75} />
             </button>

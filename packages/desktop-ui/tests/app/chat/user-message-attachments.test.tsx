@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UserMessageRow } from "@/app/chat/MessageRow";
 import type { UserRowViewModel } from "@/features/chat/conversation-row-types";
@@ -46,7 +47,7 @@ describe("sent user image attachments", () => {
 
   it("reuses the composer's compact image chip above the user bubble", async () => {
     await act(async () => {
-      root.render(<UserMessageRow row={row} />);
+      root.render(withI18n(<UserMessageRow row={row} />));
     });
 
     const chip = container.querySelector<HTMLButtonElement>(
@@ -78,7 +79,7 @@ describe("sent user image attachments", () => {
 
   it("keeps click-to-enlarge through the shared image lightbox", async () => {
     await act(async () => {
-      root.render(<UserMessageRow row={row} />);
+      root.render(withI18n(<UserMessageRow row={row} />));
     });
 
     const chip = container.querySelector<HTMLButtonElement>(

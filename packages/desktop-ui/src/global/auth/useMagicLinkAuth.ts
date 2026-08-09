@@ -11,8 +11,35 @@ import {
 } from "react";
 import { refreshAuthSession } from "@/global/auth/services/auth-session";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { useT, useTPlural } from "@/shared/i18n";
 
 type Status = "idle" | "sending" | "sent" | "verifying" | "error";
+
+/**
+ * Errors are stored as i18n descriptors rather than resolved strings: the
+ * provider mounts above <I18nProvider>, so the state hook has no `t`. The
+ * consumer hook (`useMagicLinkAuth`, always called from inside the i18n
+ * tree) resolves them to display text.
+ */
+type MagicLinkError =
+  | { kind: "key"; key: string }
+  | { kind: "plural"; key: string; count: number }
+  | { kind: "text"; text: string };
+
+/** Thrown internally so a catch block can preserve the i18n key. */
+class MagicLinkKeyError extends Error {
+  readonly key: string;
+  constructor(key: string) {
+    super(key);
+    this.key = key;
+  }
+}
+
+const toMagicLinkError = (err: unknown): MagicLinkError => {
+  if (err instanceof MagicLinkKeyError) return { kind: "key", key: err.key };
+  if (err instanceof Error) return { kind: "text", text: err.message };
+  return { kind: "key", key: "global.auth.magicLinkFailed" };
+};
 
 const POLL_INTERVAL_MS = 2500;
 /**
@@ -43,7 +70,11 @@ interface UseMagicLinkAuthResult {
   reset: () => void;
 }
 
-const MagicLinkAuthContext = createContext<UseMagicLinkAuthResult | null>(null);
+type MagicLinkAuthState = Omit<UseMagicLinkAuthResult, "error"> & {
+  errorState: MagicLinkError | null;
+};
+
+const MagicLinkAuthContext = createContext<MagicLinkAuthState | null>(null);
 
 const getConvexSiteUrl = () => {
   const url = readConfiguredConvexSiteUrl(
@@ -55,10 +86,10 @@ const getConvexSiteUrl = () => {
   return url;
 };
 
-function useMagicLinkAuthState(): UseMagicLinkAuthResult {
+function useMagicLinkAuthState(): MagicLinkAuthState {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<MagicLinkError | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [sentToEmail, setSentToEmail] = useState<string | null>(null);
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
@@ -87,9 +118,11 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
           ? Math.max(1, parseInt(retryAfterHeader, 10) || 1)
           : 60;
         setCooldownUntil(Date.now() + retryAfterSec * 1000);
-        setError(
-          `Too many requests. Try again in ${retryAfterSec} second${retryAfterSec === 1 ? "" : "s"}.`,
-        );
+        setError({
+          kind: "plural",
+          key: "global.auth.tooManyRequests",
+          count: retryAfterSec,
+        });
         if (mode === "initial") setStatus("error");
         return false;
       }
@@ -99,7 +132,8 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
         error?: string;
       };
       if (!response.ok || !data.requestId) {
-        throw new Error(data.error || "Failed to send sign-in email.");
+        if (data.error) throw new Error(data.error);
+        throw new MagicLinkKeyError("global.auth.sendFailed");
       }
       setRequestId(data.requestId);
       setSentToEmail(targetEmail);
@@ -108,9 +142,7 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
       return true;
     } catch (err) {
       if (mode === "initial") setStatus("error");
-      setError(
-        err instanceof Error ? err.message : "Failed to send magic link.",
-      );
+      setError(toMagicLinkError(err));
       return false;
     } finally {
       if (mode === "resend") setIsResending(false);
@@ -122,7 +154,7 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
     const trimmed = email.trim();
 
     if (!trimmed) {
-      setError("Enter an email address.");
+      setError({ kind: "key", key: "global.auth.enterEmail" });
       return;
     }
 
@@ -189,7 +221,7 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
               await refreshAuthSession();
             } catch {
               setStatus("error");
-              setError("Could not finish sign-in. Please try again.");
+              setError({ kind: "key", key: "global.auth.finishFailed" });
               setRequestId(null);
             }
             return;
@@ -198,7 +230,7 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
           if (data.status === "completed") {
             if (cancelled) return;
             setStatus("error");
-            setError("Sign-in incomplete. Please try again.");
+            setError({ kind: "key", key: "global.auth.signInIncomplete" });
             setRequestId(null);
             return;
           }
@@ -206,7 +238,7 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
           if (data.status === "expired") {
             if (cancelled) return;
             setStatus("error");
-            setError("Sign-in link expired. Please try again.");
+            setError({ kind: "key", key: "global.auth.signInLinkExpired" });
             setRequestId(null);
             return;
           }
@@ -237,7 +269,7 @@ function useMagicLinkAuthState(): UseMagicLinkAuthResult {
     setEmail,
     status,
     sentToEmail,
-    error,
+    errorState: error,
     handleMagicLinkSubmit,
     resend,
     resendCooldownSeconds,
@@ -253,10 +285,21 @@ export function MagicLinkAuthProvider({ children }: { children: ReactNode }) {
 
 export const useMagicLinkAuth = (): UseMagicLinkAuthResult => {
   const value = useContext(MagicLinkAuthContext);
+  const t = useT();
+  const tPlural = useTPlural();
   if (!value) {
     throw new Error(
       "useMagicLinkAuth must be used within MagicLinkAuthProvider",
     );
   }
-  return value;
+  const { errorState, ...rest } = value;
+  const error =
+    errorState === null
+      ? null
+      : errorState.kind === "text"
+        ? errorState.text
+        : errorState.kind === "plural"
+          ? tPlural(errorState.key, errorState.count)
+          : t(errorState.key);
+  return { ...rest, error };
 };

@@ -10,6 +10,7 @@ import { Document, Page, pdfjs } from "react-pdf";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import { FilePreviewCardShell } from "./FilePreviewCardShell";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
+import { useT } from "@/shared/i18n";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import "./pdf-viewer-card.css";
@@ -40,11 +41,12 @@ export function PdfViewerCard({ filePath, title }: PdfViewerCardProps) {
 }
 
 function PdfViewerCardContent({ filePath, title }: PdfViewerCardProps) {
+  const t = useT();
   const [loadStatus, setLoadStatus] = useState<LoadStatus>("loading");
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
   const { bytes, error: fileError } = useDisplayFileBytes(
     filePath,
-    "PDF viewer requires the Electron host runtime.",
+    t("app.chat.pdfViewer.hostRequired"),
   );
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -99,10 +101,13 @@ function PdfViewerCardContent({ filePath, title }: PdfViewerCardProps) {
     [],
   );
 
-  const handleLoadError = useCallback((error: Error) => {
-    setLoadStatus("error");
-    setLoadErrorMessage(error.message || "Failed to load PDF.");
-  }, []);
+  const handleLoadError = useCallback(
+    (error: Error) => {
+      setLoadStatus("error");
+      setLoadErrorMessage(error.message || t("app.chat.pdfViewer.loadFailed"));
+    },
+    [t],
+  );
 
   const documentFile = useMemo(() => (bytes ? { data: bytes } : null), [bytes]);
 
@@ -175,7 +180,7 @@ function PdfViewerCardContent({ filePath, title }: PdfViewerCardProps) {
     >
       {status === "error" ? (
         <div className="file-preview-card__placeholder file-preview-card__placeholder--error pdf-viewer-card__placeholder">
-          {errorMessage ?? "Failed to load PDF."}
+          {errorMessage ?? t("app.chat.pdfViewer.loadFailed")}
         </div>
       ) : (
         <div ref={containerRef} className="pdf-viewer-card__scroll">
@@ -209,7 +214,7 @@ function PdfViewerCardContent({ filePath, title }: PdfViewerCardProps) {
             </Document>
           ) : (
             <div className="file-preview-card__placeholder pdf-viewer-card__placeholder">
-              Loading PDF…
+              {t("app.chat.pdfViewer.loading")}
             </div>
           )}
         </div>

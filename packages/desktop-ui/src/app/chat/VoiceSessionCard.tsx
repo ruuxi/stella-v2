@@ -9,6 +9,7 @@
  * fallback wording changes.
  */
 import { AudioLines } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import "./voice-session-card.css";
 
 const formatDuration = (durationMs: number): string => {
@@ -22,6 +23,7 @@ const formatDuration = (durationMs: number): string => {
 };
 
 export function VoiceSessionCard({ durationMs }: { durationMs: number }) {
+  const t = useT();
   return (
     <span className="voice-session-pill">
       <AudioLines
@@ -30,7 +32,9 @@ export function VoiceSessionCard({ durationMs }: { durationMs: number }) {
         strokeWidth={1.75}
         aria-hidden="true"
       />
-      <span className="voice-session-pill__label">Talked with Stella</span>
+      <span className="voice-session-pill__label">
+        {t("app.chat.voiceSession.label")}
+      </span>
       <span className="voice-session-pill__meta">
         {formatDuration(durationMs)}
       </span>

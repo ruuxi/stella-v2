@@ -12,9 +12,11 @@ import { removeGeneratedMediaItem } from "../payload-to-tab-spec";
 import type { MediaTabItem } from "./media-item";
 import { MediaActionBar } from "./MediaActionBar";
 import { HeroPrompt } from "./HeroPrompt";
+import { useT } from "@/shared/i18n";
 import "../media-tab.css";
 
 export const MediaTabContent = ({ item }: { item: MediaTabItem }) => {
+  const t = useT();
   const handleDelete = useCallback(() => {
     removeGeneratedMediaItem(item.id);
     // Deleting the asset leaves the viewer with nothing to show, so retire
@@ -40,7 +42,7 @@ export const MediaTabContent = ({ item }: { item: MediaTabItem }) => {
               <div
                 className="media-tab__hero-actions"
                 role="group"
-                aria-label="Item actions"
+                aria-label={t("shell.display.media.itemActions")}
               >
                 <MediaActionBar item={item} onDelete={handleDelete} />
               </div>

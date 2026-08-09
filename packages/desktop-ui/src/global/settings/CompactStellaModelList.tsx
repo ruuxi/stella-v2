@@ -5,6 +5,7 @@ import {
   getStellaSubtitle,
   type CatalogModel,
 } from "@/global/settings/lib/model-catalog";
+import { useT } from "@/shared/i18n";
 import "./CompactStellaModelList.css";
 
 export interface CompactModelListEntry {
@@ -73,6 +74,7 @@ export function CompactStellaModelList({
   restrictedPlanLabel,
   onUpgrade,
 }: CompactStellaModelListProps) {
+  const t = useT();
   const presets = useMemo(
     () =>
       stellaModels.filter(
@@ -92,15 +94,17 @@ export function CompactStellaModelList({
     <div
       className="compact-stella-list"
       role="listbox"
-      aria-label="Stella models"
+      aria-label={t("settings.compactModelList.ariaLabel")}
     >
       {recents.length > 0 ? (
         <>
-          <div className="compact-stella-list-heading">Recent</div>
+          <div className="compact-stella-list-heading">
+            {t("settings.compactModelList.recent")}
+          </div>
           {recents.map((entry) => {
             const selected = entry.id === value;
             const subtitle = entry.unavailable
-              ? "Unavailable"
+              ? t("settings.compactModelList.unavailable")
               : entry.subtitle;
             return (
               <button
@@ -114,7 +118,7 @@ export function CompactStellaModelList({
                 data-restricted={entry.unavailable || undefined}
                 title={
                   entry.unavailable
-                    ? "This model is no longer available — pick another."
+                    ? t("settings.compactModelList.unavailableTitle")
                     : undefined
                 }
                 onClick={() => onSelect(entry.id)}
@@ -155,13 +159,15 @@ export function CompactStellaModelList({
       </button>
       {presets.length === 0 ? (
         loading ? (
-          <div className="compact-stella-list-empty">Loading Stella models…</div>
+          <div className="compact-stella-list-empty">
+            {t("settings.compactModelList.loading")}
+          </div>
         ) : (
           <div className="compact-stella-list-empty compact-stella-list-empty--state">
             <span>
               {error
-                ? "Couldn't load Stella models."
-                : "No Stella models available."}
+                ? t("settings.compactModelList.loadFailed")
+                : t("settings.compactModelList.empty")}
             </span>
             {onRetry ? (
               <button
@@ -169,7 +175,7 @@ export function CompactStellaModelList({
                 className="compact-stella-list-restricted-link"
                 onClick={onRetry}
               >
-                Retry
+                {t("settings.compactModelList.retry")}
               </button>
             ) : null}
           </div>
@@ -194,7 +200,9 @@ export function CompactStellaModelList({
               data-restricted={rowRestricted || undefined}
               title={
                 rowRestricted && restrictedPlanLabel
-                  ? `Not available on the ${restrictedPlanLabel} plan`
+                  ? t("settings.modelPicker.restrictedPlan", {
+                      plan: restrictedPlanLabel,
+                    })
                   : undefined
               }
               onClick={() => onSelect(model.id)}
@@ -221,8 +229,10 @@ export function CompactStellaModelList({
         <div className="compact-stella-list-restricted">
           <span>
             {restrictedPlanLabel
-              ? `${restrictedPlanLabel} plan uses Stella's pick.`
-              : `Your plan uses Stella's pick.`}
+              ? t("settings.compactModelList.restrictedPlan", {
+                  plan: restrictedPlanLabel,
+                })
+              : t("settings.compactModelList.restricted")}
           </span>
           {onUpgrade ? (
             <button
@@ -230,7 +240,7 @@ export function CompactStellaModelList({
               className="compact-stella-list-restricted-link"
               onClick={onUpgrade}
             >
-              Upgrade
+              {t("settings.compactModelList.upgrade")}
             </button>
           ) : null}
         </div>

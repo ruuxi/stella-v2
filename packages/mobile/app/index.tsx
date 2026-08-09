@@ -5,26 +5,25 @@ import { hasMobileConfig } from "../src/config/env";
 import { type Colors } from "../src/theme/colors";
 import { useColors } from "../src/theme/theme-context";
 import { fonts } from "../src/theme/fonts";
+import { useT } from "../src/i18n";
 
 export default function Index() {
   const colors = useColors();
+  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   if (!hasMobileConfig) {
     return (
       <SafeAreaView style={styles.screen}>
-        <Text style={styles.title}>Add mobile environment variables</Text>
-        <Text style={styles.body}>
-          Set EXPO_PUBLIC_CONVEX_URL and optionally EXPO_PUBLIC_CONVEX_SITE_URL
-          before starting the app.
-        </Text>
+        <Text style={styles.title}>{t("mobile.boot.missingConfigTitle")}</Text>
+        <Text style={styles.body}>{t("mobile.boot.missingConfigBody")}</Text>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.screen}>
-      <Text style={styles.title}>Checking your session</Text>
-      <Text style={styles.body}>Hang tight while Stella wakes up.</Text>
+      <Text style={styles.title}>{t("mobile.boot.checkingSessionTitle")}</Text>
+      <Text style={styles.body}>{t("mobile.boot.checkingSessionBody")}</Text>
     </SafeAreaView>
   );
 }

@@ -8,6 +8,7 @@
  */
 import { useDeferredValue, useMemo, useState, useSyncExternalStore, } from "react";
 import { Search } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import { Select } from "@/ui/select";
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import { getServerSnapshot, getSnapshot, refreshUserApps, subscribe, } from "./user-apps-registry";
@@ -18,6 +19,7 @@ function useUserApps() {
     return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 export function AppsApp() {
+    const t = useT();
     const registry = useUserApps();
     const { apps, error, phase, refreshing } = registry;
     const [query, setQuery] = useState("");
@@ -28,61 +30,61 @@ export function AppsApp() {
     const hasApps = apps.length > 0;
     if (phase === "loading" && !hasApps) {
         return (<main className="apps-screen apps-screen--status" role="status" aria-live="polite">
-        Loading apps…
+        {t("app.apps.loading")}
       </main>);
     }
     if (phase === "unsupported") {
         return (<main className="apps-screen apps-screen--status" role="status">
-        <h1 className="apps-screen__empty-title">Apps are available on desktop.</h1>
+        <h1 className="apps-screen__empty-title">{t("app.apps.unsupportedTitle")}</h1>
         <p className="apps-screen__empty-body">
-          Open Stella on your computer to use locally installed apps.
+          {t("app.apps.unsupportedBody")}
         </p>
       </main>);
     }
     if (phase === "error" && !hasApps) {
         return (<main className="apps-screen apps-screen--status" role="alert">
-        <h1 className="apps-screen__empty-title">Couldn’t load apps</h1>
+        <h1 className="apps-screen__empty-title">{t("app.apps.errorTitle")}</h1>
         <p className="apps-screen__empty-body">
-          {error || "Stella couldn’t read your apps folder."}
+          {error || t("app.apps.errorBody")}
         </p>
         <button type="button" className="pill-btn pill-btn--primary pill-btn--lg" onClick={() => void refreshUserApps()}>
-          Try again
+          {t("app.apps.tryAgain")}
         </button>
       </main>);
     }
     return (<main className="apps-screen" aria-busy={refreshing || undefined}>
       {hasApps ? (<header className="apps-screen__hero">
           <h1 className="apps-screen__title">
-            <em>Your</em> apps
+            <em>{t("app.apps.heroTitleEmphasis")}</em> {t("app.apps.heroTitleRest")}
           </h1>
         </header>) : null}
 
       {hasApps ? (<>
           {phase === "error" ? (<div className="apps-screen__warning" role="status">
-              <span>Apps may be out of date.</span>
+              <span>{t("app.apps.staleWarning")}</span>
               <button type="button" className="pill-btn" onClick={() => void refreshUserApps()}>
-                Try again
+                {t("app.apps.tryAgain")}
               </button>
             </div>) : null}
           <div className="apps-screen__toolbar">
             <label className="apps-screen__search">
               <Search size={14} className="apps-screen__search-icon" aria-hidden/>
-              <input type="search" placeholder="Search apps" value={query} onChange={(event) => setQuery(event.currentTarget.value)} className="apps-screen__search-input"/>
+              <input type="search" placeholder={t("app.apps.searchPlaceholder")} value={query} onChange={(event) => setQuery(event.currentTarget.value)} className="apps-screen__search-input"/>
             </label>
             <div className="apps-screen__sort">
-              <span className="apps-screen__sort-label">Sort</span>
+              <span className="apps-screen__sort-label">{t("app.apps.sortLabel")}</span>
               <Select className="apps-screen__sort-trigger" value={sort} onValueChange={(value) => setSort(value as UserAppSort)} options={(Object.keys(USER_APP_SORT_LABELS) as UserAppSort[]).map((option) => ({
                 value: option,
-                label: USER_APP_SORT_LABELS[option],
-            }))} aria-label="Sort"/>
+                label: t(USER_APP_SORT_LABELS[option]),
+            }))} aria-label={t("app.apps.sortLabel")}/>
             </div>
             <button type="button" className="pill-btn pill-btn--lg" onClick={handleCreateApp}>
-              Create an app
+              {t("app.apps.createApp")}
             </button>
           </div>
 
           {visible.length === 0 ? (<div className="apps-screen__no-match">
-              No apps match <span className="apps-screen__no-match-query">"{deferredQuery}"</span>.
+              {t("app.apps.noMatchPrefix")} <span className="apps-screen__no-match-query">"{deferredQuery}"</span>{t("app.apps.noMatchSuffix")}
             </div>) : (<ul className="apps-screen__grid">
               {visible.map((app) => (<li key={app.slug} className="apps-card">
                   <button type="button" className="apps-card__link" onClick={() => sidebarSections.openLocation("apps", app.slug)}>
@@ -98,13 +100,13 @@ export function AppsApp() {
             <AppCreationIllustration />
           </div>
           <h2 id="apps-empty-title" className="apps-screen__empty-title">
-            Nothing here yet.
+            {t("app.apps.emptyTitle")}
           </h2>
           <p className="apps-screen__empty-body">
-            Ask Stella to build a small app. It will show up here.
+            {t("app.apps.emptyBody")}
           </p>
           <button type="button" className="pill-btn pill-btn--primary pill-btn--lg" onClick={handleCreateApp}>
-            Ask Stella to create an app
+            {t("app.apps.emptyAction")}
           </button>
         </section>)}
     </main>);

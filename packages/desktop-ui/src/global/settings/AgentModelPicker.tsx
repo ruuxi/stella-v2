@@ -16,6 +16,7 @@ import { recordRecentModel } from "@/global/settings/lib/recent-models";
 import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billing/audience";
 import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
 import { showToast } from "@/ui/toast";
+import { useT } from "@/shared/i18n";
 import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, fromOpenAiCodexModelId, intersectChatGptModels, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, type LiveCodexModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
 import "./AgentModelPicker.css";
 
@@ -106,47 +107,22 @@ const DEFAULT_IMAGE_GENERATION: ImageGenerationPreferences = {
 const DEFAULT_REALTIME_VOICE: RealtimeVoicePreferences = {
     provider: "stella",
 };
+/**
+ * Provider labels are brand names (data). The "bring your own key" blurb is
+ * UI copy, so it is resolved from the catalog at render time — see
+ * `useByokProviderOptions` below.
+ */
 export const IMAGE_PROVIDER_OPTIONS: readonly ProviderOption[] = [
-    {
-        key: "stella",
-        label: "Stella",
-    },
-    {
-        key: "openai",
-        label: "OpenAI",
-        description: "Use your own OpenAI API key.",
-    },
-    {
-        key: "openrouter",
-        label: "OpenRouter",
-        description: "Use your own OpenRouter API key.",
-    },
-    {
-        key: "fal",
-        label: "fal",
-        description: "Use your own fal API key.",
-    },
+    { key: "stella", label: "Stella" },
+    { key: "openai", label: "OpenAI" },
+    { key: "openrouter", label: "OpenRouter" },
+    { key: "fal", label: "fal" },
 ];
 const VOICE_PROVIDER_OPTIONS: readonly ProviderOption[] = [
-    {
-        key: "stella",
-        label: "Stella",
-    },
-    {
-        key: "openai",
-        label: "OpenAI",
-        description: "Use your own OpenAI API key.",
-    },
-    {
-        key: "xai",
-        label: "xAI",
-        description: "Use your own xAI API key.",
-    },
-    {
-        key: "inworld",
-        label: "Inworld",
-        description: "Use your own Inworld API key.",
-    },
+    { key: "stella", label: "Stella" },
+    { key: "openai", label: "OpenAI" },
+    { key: "xai", label: "xAI" },
+    { key: "inworld", label: "Inworld" },
 ];
 /**
  * Last-known local model preferences, used to seed `useState` so re-opening
@@ -169,7 +145,25 @@ export function warmAgentModelPickerCache() {
 /**
  * Inline, no-popover model picker keyed off the agent toggle at the top.
  */
+/**
+ * Attach the localized "use your own API key" description to every
+ * non-Stella provider option.
+ */
+function useByokProviderOptions(options: readonly ProviderOption[]): ProviderOption[] {
+    const t = useT();
+    return useMemo(() => options.map((option) => option.key === "stella"
+        ? option
+        : {
+            ...option,
+            description: t("settings.agentModelPicker.byokDescription", {
+                provider: option.label,
+            }),
+        }), [options, t]);
+}
 export function AgentModelPicker({ active = true, onSelected, className, surface = "sidebar", }: AgentModelPickerProps) {
+    const t = useT();
+    const imageProviderOptions = useByokProviderOptions(IMAGE_PROVIDER_OPTIONS);
+    const voiceProviderOptions = useByokProviderOptions(VOICE_PROVIDER_OPTIONS);
     const { allModels, defaults: stellaDefaultModels, groups, refresh, refreshing, audience, error: catalogError, } = useModelCatalog();
     const [preferences, setPreferencesRaw] = useState<LocalModelPreferences | null>(() => cachedLocalPreferences);
     const [pendingAgent, setPendingAgent] = useState<string | null>(null);
@@ -212,7 +206,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 if (!cancelled) {
                     setError(caught instanceof Error
                         ? caught.message
-                        : "Failed to load model settings.");
+                        : t("settings.agentModelPicker.errors.loadPreferences"));
                 }
             }
         };
@@ -225,7 +219,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             cancelled = true;
             window.removeEventListener("stella:local-model-preferences-changed", onExternalChange);
         };
-    }, [setPreferences]);
+    }, [setPreferences, t]);
     const modelDefaults = useMemo(() => {
         if (!preferences)
             return undefined;
@@ -281,11 +275,11 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             {
                 id: selectedChatGptModel,
                 label: selectedChatGptModel,
-                description: "Unavailable — choose another model",
+                description: t("settings.agentModelPicker.unavailableChooseAnother"),
                 unavailable: true,
             },
         ];
-    }, [chatGptCatalogSettled, chatGptModels, selectedChatGptModel]);
+    }, [chatGptCatalogSettled, chatGptModels, selectedChatGptModel, t]);
     // Even without a ChatGPT connection the static registry knows which
     // OpenAI models the ChatGPT engine can route — show those instead of an
     // empty wall. Picking one starts the OAuth flow.
@@ -351,7 +345,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             catch (caught) {
                 setError(caught instanceof Error
                     ? caught.message
-                    : "ChatGPT routing migration failed.");
+                    : t("settings.agentModelPicker.errors.chatGptMigration"));
             }
             finally {
                 setPendingAgent(null);
@@ -364,6 +358,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         preferences,
         selectedChatGptModel,
         setPreferences,
+        t,
     ]);
     const defaultModelMap = useMemo(() => buildModelDefaultsMap(modelDefaults), [modelDefaults]);
     const resolvedDefaultModelMap = useMemo(() => buildResolvedModelDefaultsMap(modelDefaults), [modelDefaults]);
@@ -424,11 +419,13 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         catalogError ??
         ((chatGptSectionOpen || committedEngine === "codex_cli") &&
             codexCatalog.error
-            ? `ChatGPT models could not be verified: ${codexCatalog.error}`
+            ? t("settings.agentModelPicker.errors.chatGptVerify", {
+                error: codexCatalog.error,
+            })
             : null);
     const visiblePickerErrorTitle = error
-        ? "Couldn't update model settings"
-        : "Couldn't refresh models";
+        ? t("settings.agentModelPicker.errors.updateTitle")
+        : t("settings.agentModelPicker.errors.refreshTitle");
     const lastToastedErrorRef = useRef<string | null>(null);
     useEffect(() => {
         if (!visiblePickerError) {
@@ -514,7 +511,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             setPreferences(preferences);
             setError(caught instanceof Error
                 ? caught.message
-                : "Failed to update model setting.");
+                : t("settings.agentModelPicker.errors.updateModel"));
         }
         finally {
             setPendingAgent(null);
@@ -527,6 +524,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         pendingAgent,
         preferences,
         setPreferences,
+        t,
     ]);
     const commitEngineSelection = useCallback(async (engine: ModelPickerEngine, modelId?: string, options?: { explicit?: boolean }): Promise<boolean> => {
         if (!preferences || pendingAgent)
@@ -544,7 +542,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         try {
             if (engine === "codex_cli") {
                 if (codexCatalog.loading) {
-                    throw new Error("Wait for ChatGPT models to finish verifying.");
+                    throw new Error(t("settings.agentModelPicker.errors.chatGptVerifying"));
                 }
                 const selectedModel = modelId?.trim() || preferences.codexModel;
                 setChatGptConnection("checking");
@@ -567,20 +565,22 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 }
                 if (!validation.connected) {
                     setChatGptConnection(validation.needsReauth ? "needs-reauth" : "disconnected");
-                    throw new Error("ChatGPT needs to be connected before selection.");
+                    throw new Error(t("settings.agentModelPicker.errors.chatGptNotConnected"));
                 }
                 setChatGptConnection("connected");
                 const resolution = resolveChatGptEngineModel(selectedModel, chatGptModels.map((model) => model.id), chatGptRegistryIds, DEFAULT_CHATGPT_MODEL);
                 if (resolution.kind === "unavailable") {
                     throw new Error(codexCatalog.error ??
-                        "No ChatGPT models are currently available.");
+                        t("settings.agentModelPicker.errors.chatGptNoModels"));
                 }
                 // transient-gap keeps the saved (registry-routable) model rather than
                 // silently switching on a flaky live-list miss; rerouted surfaces a
                 // notice so a genuine switch is never silent.
                 effectiveModelId = resolution.modelId;
                 if (resolution.kind === "rerouted") {
-                    setChatGptRoutedNotice(`Routed to ${resolution.modelId} (saved model unavailable).`);
+                    setChatGptRoutedNotice(t("settings.agentModelPicker.chatGptRouted", {
+                        model: resolution.modelId,
+                    }));
                 }
             }
             const patch: Partial<LocalModelPreferences> = {
@@ -617,8 +617,8 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 setError(caught instanceof Error && caught.message.trim()
                     ? caught.message
                     : engine === "codex_cli"
-                        ? "Failed to connect ChatGPT."
-                        : "Failed to update the engine.");
+                        ? t("settings.agentModelPicker.errors.connectChatGpt")
+                        : t("settings.agentModelPicker.errors.updateEngine"));
             }
             return false;
         }
@@ -639,6 +639,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         pendingAgent,
         preferences,
         setPreferences,
+        t,
     ]);
     const handleEngineModelSelect = useCallback(async (engine: ModelPickerEngine, modelId: string) => {
         if (!preferences)
@@ -682,12 +683,12 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 : current);
             setError(caught instanceof Error
                 ? caught.message
-                : "Failed to update image setting.");
+                : t("settings.agentModelPicker.errors.updateImage"));
         }
         finally {
             setPendingAgent(null);
         }
-    }, [onSelected, pendingAgent, preferences, setPreferences]);
+    }, [onSelected, pendingAgent, preferences, setPreferences, t]);
     /**
      * Optimistic patch of just the `realtimeVoice` slice. Voice catalog
      * changes (voice id, speed, sub-family) are tiny and idempotent, so we
@@ -717,8 +718,8 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         void patchRealtimeVoice({
             ...previous,
             voices: { ...(previous.voices ?? {}), [underlyingProvider]: voiceId },
-        }, "Failed to update voice setting.");
-    }, [patchRealtimeVoice, preferences]);
+        }, t("settings.agentModelPicker.errors.updateVoice"));
+    }, [patchRealtimeVoice, preferences, t]);
     const handleInworldSpeedSelect = useCallback((speed: number) => {
         const previous = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
         const clamped = Math.min(2.0, Math.max(0.5, speed));
@@ -726,20 +727,20 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             Math.abs(previous.inworldSpeed - clamped) < 0.001) {
             return;
         }
-        void patchRealtimeVoice({ ...previous, inworldSpeed: clamped }, "Failed to update Inworld speed.");
-    }, [patchRealtimeVoice, preferences]);
+        void patchRealtimeVoice({ ...previous, inworldSpeed: clamped }, t("settings.agentModelPicker.errors.updateInworldSpeed"));
+    }, [patchRealtimeVoice, preferences, t]);
     const handleStellaSubProviderSelect = useCallback((subProvider: RealtimeVoiceUnderlyingProvider) => {
         const previous = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
         if (previous.stellaSubProvider === subProvider)
             return;
-        void patchRealtimeVoice({ ...previous, stellaSubProvider: subProvider }, "Failed to update voice family.");
-    }, [patchRealtimeVoice, preferences]);
+        void patchRealtimeVoice({ ...previous, stellaSubProvider: subProvider }, t("settings.agentModelPicker.errors.updateVoiceFamily"));
+    }, [patchRealtimeVoice, preferences, t]);
     const handleReadAloudProviderSelect = useCallback((provider: ReadAloudVoiceProvider) => {
         const previous = preferences?.realtimeVoice ?? DEFAULT_REALTIME_VOICE;
         if ((previous.readAloudProvider ?? "inworld") === provider)
             return;
-        void patchRealtimeVoice({ ...previous, readAloudProvider: provider }, "Failed to update read-aloud provider.");
-    }, [patchRealtimeVoice, preferences]);
+        void patchRealtimeVoice({ ...previous, readAloudProvider: provider }, t("settings.agentModelPicker.errors.updateReadAloud"));
+    }, [patchRealtimeVoice, preferences, t]);
     const handleVoiceProviderSelect = useCallback(async (providerKey: string) => {
         if (!preferences || pendingAgent)
             return;
@@ -773,12 +774,12 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             setPreferences((current) => current ? { ...current, realtimeVoice: previous } : current);
             setError(caught instanceof Error
                 ? caught.message
-                : "Failed to update voice setting.");
+                : t("settings.agentModelPicker.errors.updateVoice"));
         }
         finally {
             setPendingAgent(null);
         }
-    }, [onSelected, pendingAgent, preferences, setPreferences]);
+    }, [onSelected, pendingAgent, preferences, setPreferences, t]);
     const handleReasoningEffortSelect = useCallback(async (effort: ReasoningEffort) => {
         if (!preferences || pendingAgent)
             return;
@@ -815,7 +816,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 : current);
             setError(caught instanceof Error
                 ? caught.message
-                : "Failed to update reasoning effort.");
+                : t("settings.agentModelPicker.errors.updateReasoning"));
         }
         finally {
             setPendingAgent(null);
@@ -828,6 +829,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         pendingAgent,
         preferences,
         setPreferences,
+        t,
     ]);
     const handleCodexServiceTierSelect = useCallback(async (serviceTier: CodexServiceTier) => {
         if (!preferences ||
@@ -856,7 +858,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 : current);
             setError(caught instanceof Error
                 ? caught.message
-                : "Failed to update ChatGPT speed.");
+                : t("settings.agentModelPicker.errors.updateChatGptSpeed"));
         }
         finally {
             setPendingAgent(null);
@@ -867,6 +869,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         preferences,
         selectedChatGptSupportsFast,
         setPreferences,
+        t,
     ]);
     const handleNativeRuntimeChange = useCallback(async (preference: "useNativeCodexRuntime" | "useNativeClaudeCodeRuntime", enabled: boolean) => {
         if (!preferences || pendingAgent)
@@ -889,12 +892,14 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             setPreferences((current) => current ? { ...current, [preference]: previous } : current);
             setError(caught instanceof Error
                 ? caught.message
-                : `Failed to update direct ${runtimeLabel} setting.`);
+                : t("settings.agentModelPicker.errors.updateDirectRuntime", {
+                    runtime: runtimeLabel,
+                }));
         }
         finally {
             setPendingAgent(null);
         }
-    }, [pendingAgent, preferences, setPreferences]);
+    }, [pendingAgent, preferences, setPreferences, t]);
     // These persisted handlers remain part of the current implementation even
     // though their controls are temporarily absent from this surface.
     void handleCodexServiceTierSelect;
@@ -922,9 +927,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const defaultLabel = activeProviderSetting
         ? "Stella"
         : !ready
-            ? "Default"
+            ? t("settings.agentModelPicker.default")
             : activeAssistant
-                ? "Stella Default"
+                ? t("settings.agentModelPicker.stellaDefault")
                 : getDefaultModelOptionLabel(canonicalAgentKey, defaultModelMap, resolvedDefaultModelMap, modelNamesById);
     const defaultModelId = resolvedDefaultModelMap[canonicalAgentKey] ??
         defaultModelMap[canonicalAgentKey] ??
@@ -939,7 +944,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                 : activeAssistant
                     ? getModelPickerDisplayLabel(defaultModelId, modelNamesById)
                     : defaultLabel
-            : "Loading…";
+            : t("common.loading");
     const claudeCodeModelsWithCurrent = useMemo(() => {
         const models = claudeCodeModels ?? [];
         if (claudeCodeModels === null ||
@@ -952,11 +957,11 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             {
                 id: selectedClaudeCodeModel,
                 label: selectedClaudeCodeModel,
-                description: "Unavailable",
+                description: t("settings.compactModelList.unavailable"),
                 unavailable: true,
             },
         ];
-    }, [claudeCodeModels, selectedClaudeCodeModel]);
+    }, [claudeCodeModels, selectedClaudeCodeModel, t]);
     const savedReasoningEffort = committedEngine === "codex_cli"
         ? (preferences?.codexReasoningEffort ?? "default")
         : committedEngine === "claude_code_local"
@@ -991,9 +996,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
      * of living in a detached footer. */
     const reasoningControl = (<div className="agent-model-picker-reasoning">
         <Lightbulb size={14} strokeWidth={1.75} className="agent-model-picker-reasoning-icon" aria-hidden/>
-        <div className="agent-model-picker-reasoning-options" role="radiogroup" aria-label="Reasoning effort">
+        <div className="agent-model-picker-reasoning-options" role="radiogroup" aria-label={t("settings.modelPicker.reasoning.label")}>
           {reasoningEffortOptions.map((option) => (<button key={option.id} type="button" role="radio" aria-checked={currentReasoningEffort === option.id} data-active={currentReasoningEffort === option.id || undefined} disabled={reasoningDisabled} onClick={() => void handleReasoningEffortSelect(option.id)}>
-              {option.label}
+              {t(option.labelKey)}
             </button>))}
         </div>
       </div>);
@@ -1040,34 +1045,34 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     </button>);
     return (<div className={["agent-model-picker", className].filter(Boolean).join(" ")}>
       <div className="agent-model-picker-header">
-          <div className="agent-model-picker-toggle" role="tablist" aria-label="Surface" data-surface={surface}>
+          <div className="agent-model-picker-toggle" role="tablist" aria-label={t("settings.agentModelPicker.surfaceAriaLabel")} data-surface={surface}>
             {surface === "settings"
             ? [
                 ...configurableAgents.map((agent) => tabButton(agent.key, agent.label, agent.desc, agent.key === activeAgent)),
-                tabButton(IMAGE_TARGET, "Image", "Image generation provider", activeImage),
-                tabButton(VOICE_TARGET, "Voice", "Realtime voice provider", activeVoice),
+                tabButton(IMAGE_TARGET, t("settings.agentModelPicker.tabs.image"), t("settings.agentModelPicker.tabs.imageTitle"), activeImage),
+                tabButton(VOICE_TARGET, t("settings.agentModelPicker.tabs.voice"), t("settings.agentModelPicker.tabs.voiceTitle"), activeVoice),
             ]
             : [
-                tabButton(ASSISTANT_TARGET, "Assistant", "Stella's main assistant", activeAssistant),
-                tabButton(IMAGE_TARGET, "Image", "Image generation provider", activeImage),
-                tabButton(VOICE_TARGET, "Voice", "Realtime voice provider", activeVoice),
+                tabButton(ASSISTANT_TARGET, t("settings.agentModelPicker.tabs.assistant"), t("settings.agentModelPicker.tabs.assistantTitle"), activeAssistant),
+                tabButton(IMAGE_TARGET, t("settings.agentModelPicker.tabs.image"), t("settings.agentModelPicker.tabs.imageTitle"), activeImage),
+                tabButton(VOICE_TARGET, t("settings.agentModelPicker.tabs.voice"), t("settings.agentModelPicker.tabs.voiceTitle"), activeVoice),
             ]}
           </div>
         </div>
 
       <div className="agent-model-picker-body">
         {pendingAgent === ENGINE_PENDING_TARGET && oauthPendingProvider ? (<p className="agent-model-picker-connection" role="status">
-            Waiting for ChatGPT…{" "}
+            {t("settings.agentModelPicker.waitingForChatGpt")}{" "}
             <button type="button" onClick={() => void cancelPendingOAuth()}>
-              Cancel
+              {t("common.cancel")}
             </button>
           </p>) : null}
 
-        {activeImage ? (<ProviderOnlyPicker providers={IMAGE_PROVIDER_OPTIONS} value={current || "stella"} onSelect={(key) => void handleImageProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel="Image provider"/>) : activeVoice ? (<>
-            <ProviderOnlyPicker providers={VOICE_PROVIDER_OPTIONS} value={current || "stella"} onSelect={(key) => void handleVoiceProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel="Voice provider"/>
+        {activeImage ? (<ProviderOnlyPicker providers={imageProviderOptions} value={current || "stella"} onSelect={(key) => void handleImageProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel={t("settings.agentModelPicker.imageProviderAriaLabel")}/>) : activeVoice ? (<>
+            <ProviderOnlyPicker providers={voiceProviderOptions} value={current || "stella"} onSelect={(key) => void handleVoiceProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel={t("settings.agentModelPicker.voiceProviderAriaLabel")}/>
             <VoiceCatalogPicker voiceProvider={voicePreferences.provider} stellaSubProvider={voicePreferences.stellaSubProvider} selectedVoices={voicePreferences.voices} inworldSpeed={voicePreferences.inworldSpeed} readAloudProvider={voicePreferences.readAloudProvider} onSelectVoice={(underlyingProvider, voiceId) => void handleVoiceSelect(underlyingProvider, voiceId)} onSelectStellaSubProvider={(sub) => void handleStellaSubProviderSelect(sub)} onSelectInworldSpeed={(speed) => void handleInworldSpeedSelect(speed)} onSelectReadAloudProvider={(provider) => void handleReadAloudProviderSelect(provider)} disabled={!preferences || pendingAgent !== null}/>
           </>) : (<>
-            <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel="Assistant model picker" onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={reasoningControl} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} refreshing={refreshing ||
+            <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel={t("settings.agentModelPicker.assistantPickerAriaLabel")} onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={reasoningControl} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} refreshing={refreshing ||
                 ((claudeCodeSectionOpen || committedEngine === "claude_code_local") &&
                     claudeCodeModelsLoading) ||
                 ((chatGptSectionOpen || committedEngine === "codex_cli") &&
@@ -1088,12 +1093,12 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     selected: committedEngine === "codex_cli",
                     content: () => (<>
                         {codexCatalog.loading ? (<p className="agent-model-picker-connection" role="status">
-                            Verifying ChatGPT models…
+                            {t("settings.agentModelPicker.verifyingChatGpt")}
                           </p>) : chatGptDisplayModels.length === 0 ? (<p className="agent-model-picker-connection" role="status">
-                            No models are currently available to both ChatGPT and Codex.
+                            {t("settings.agentModelPicker.noChatGptCodexModels")}
                           </p>) : chatGptConnection === "connected" &&
                             selectedChatGptModelUnavailable ? (<p className="agent-model-picker-connection" role="status">
-                            The saved model is unavailable. Choose another model.
+                            {t("settings.agentModelPicker.savedModelUnavailable")}
                           </p>) : chatGptRoutedNotice ? (<p className="agent-model-picker-connection" role="status">
                             {chatGptRoutedNotice}
                           </p>) : null}

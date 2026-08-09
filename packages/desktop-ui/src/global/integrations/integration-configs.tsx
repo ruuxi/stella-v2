@@ -5,19 +5,21 @@ type IntegrationGroup = "messaging";
 
 export interface Integration {
   provider: string;
-  displayName: string;
+  /** Brand/product name shown in the UI. Resolve with `t()`. */
+  displayNameKey: string;
   type: IntegrationType;
   group: IntegrationGroup;
   brandColor: string;
   icon: ReactNode;
   botLink?: string;
-  instructions: string;
+  /** Setup copy shown in the detail pane. Resolve with `t()`. */
+  instructionsKey: string;
 }
 
 export const INTEGRATIONS: Integration[] = [
   {
     provider: "linq",
-    displayName: "Text Stella",
+    displayNameKey: "global.integrations.providers.linq.name",
     type: "bot",
     group: "messaging",
     brandColor: "#34C759",
@@ -26,11 +28,11 @@ export const INTEGRATIONS: Integration[] = [
         <path fill="#34C759" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9z" />
       </svg>
     ),
-    instructions: "Enter your phone number and we\u2019ll text you a code to connect. Once linked, you can message Stella anytime via iMessage or SMS.",
+    instructionsKey: "global.integrations.providers.linq.instructions",
   },
   {
     provider: "discord",
-    displayName: "Discord",
+    displayNameKey: "global.integrations.providers.discord.name",
     type: "bot",
     group: "messaging",
     brandColor: "#5865F2",
@@ -40,11 +42,11 @@ export const INTEGRATIONS: Integration[] = [
       </svg>
     ),
     botLink: "https://discord.com/oauth2/authorize?client_id=1466921030873518161&integration_type=1&scope=applications.commands",
-    instructions: "Install the Stella app to your Discord account, run /link with the code once, then DM @Stella normally.",
+    instructionsKey: "global.integrations.providers.discord.instructions",
   },
   {
     provider: "slack",
-    displayName: "Slack",
+    displayNameKey: "global.integrations.providers.slack.name",
     type: "bot",
     group: "messaging",
     brandColor: "#611F69",
@@ -56,11 +58,11 @@ export const INTEGRATIONS: Integration[] = [
         <path fill="#ECB22E" d="M15.163 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.163 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.27a2.527 2.527 0 0 1-2.52-2.523 2.527 2.527 0 0 1 2.52-2.52h6.315A2.528 2.528 0 0 1 24 15.163a2.528 2.528 0 0 1-2.522 2.523h-6.315z" />
       </svg>
     ),
-    instructions: "Install the Stella app in your workspace, then DM @Stella with the code below.",
+    instructionsKey: "global.integrations.providers.slack.instructions",
   },
   {
     provider: "telegram",
-    displayName: "Telegram",
+    displayNameKey: "global.integrations.providers.telegram.name",
     type: "bot",
     group: "messaging",
     brandColor: "#26A5E4",
@@ -70,6 +72,6 @@ export const INTEGRATIONS: Integration[] = [
       </svg>
     ),
     botLink: "https://t.me/StellaAppBot",
-    instructions: "Open @StellaAppBot in Telegram, then send it the code below.",
+    instructionsKey: "global.integrations.providers.telegram.instructions",
   },
 ];

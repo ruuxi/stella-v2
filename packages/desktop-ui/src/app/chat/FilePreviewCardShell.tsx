@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useT } from "@/shared/i18n";
 import "./file-preview-card-shell.css";
 
 type FilePreviewCardShellProps = {
@@ -26,6 +27,7 @@ export function FilePreviewCardShell({
   onCopy,
   children,
 }: FilePreviewCardShellProps) {
+  const t = useT();
   return (
     <section className={`file-preview-card${className ? ` ${className}` : ""}`}>
       <header
@@ -46,14 +48,14 @@ export function FilePreviewCardShell({
             className="file-preview-card__action"
             onClick={onSave}
           >
-            Save
+            {t("app.chat.filePreview.save")}
           </button>
           <button
             type="button"
             className="file-preview-card__action"
             onClick={onCopy}
           >
-            Copy
+            {t("app.chat.filePreview.copy")}
           </button>
           {actionStatus ? (
             <span className="file-preview-card__action-status">

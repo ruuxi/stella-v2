@@ -3,6 +3,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/api";
 import { useConvexOneShot } from "@/shared/lib/use-convex-one-shot";
 import { showToast } from "@/ui/toast";
+import { useT, useTPlural } from "@/shared/i18n";
 import { Select } from "@/ui/select";
 import { Check, Store, Users } from "@/ui/icons";
 import {
@@ -69,6 +70,8 @@ function ShareDialogInner({
   onClose,
   onShared,
 }: ShareDialogProps) {
+  const t = useT();
+  const tPlural = useTPlural();
   const myPackages = useConvexOneShot(
     api.data.store_packages.listMyPackages,
     {},
@@ -151,16 +154,16 @@ function ShareDialogInner({
     if (!destination) return;
     if (sourceFeatures.length === 0) {
       showToast({
-        title: "No source changes",
-        description: "Select at least one recent source-backed change first.",
+        title: t("features.store.shareDialog.noSourceChangesTitle"),
+        description: t("features.store.shareDialog.noSourceChangesBody"),
         variant: "error",
       });
       return;
     }
     if (destination === "circle" && recipients.size === 0) {
       showToast({
-        title: "Pick someone to share with",
-        description: "Choose at least one friend or community.",
+        title: t("features.store.shareDialog.pickRecipientTitle"),
+        description: t("features.store.shareDialog.pickRecipientBody"),
         variant: "error",
       });
       return;
@@ -177,8 +180,8 @@ function ShareDialogInner({
       );
       if (!selectedPackage) {
         showToast({
-          title: "Pick an add-on",
-          description: "Choose the add-on you want to update.",
+          title: t("features.store.shareDialog.pickAddonTitle"),
+          description: t("features.store.shareDialog.pickAddonBody"),
           variant: "error",
         });
         return;
@@ -191,8 +194,8 @@ function ShareDialogInner({
       const trimmedName = displayName.trim();
       if (!trimmedName) {
         showToast({
-          title: "Name required",
-          description: "Give your add-on a short name before sharing.",
+          title: t("features.store.shareDialog.nameRequiredTitle"),
+          description: t("features.store.shareDialog.nameRequiredBody"),
           variant: "error",
         });
         return;
@@ -200,9 +203,8 @@ function ShareDialogInner({
       const slug = packageIdFromName(trimmedName);
       if (!slug) {
         showToast({
-          title: "Pick a different name",
-          description:
-            "Use letters or numbers in the name so we can build an ID.",
+          title: t("features.store.shareDialog.badNameTitle"),
+          description: t("features.store.shareDialog.badNameBody"),
           variant: "error",
         });
         return;
@@ -223,8 +225,8 @@ function ShareDialogInner({
     const publishSelectedFeatures = storeApi?.publishSelectedFeatures;
     if (!publishSelectedFeatures) {
       showToast({
-        title: "Share failed",
-        description: "The publish backend is not available.",
+        title: t("features.store.shareDialog.shareFailedTitle"),
+        description: t("features.store.shareDialog.publishBackendMissing"),
         variant: "error",
       });
       return;
@@ -261,8 +263,10 @@ function ShareDialogInner({
     setSubmitting(true);
     onClose();
     showToast({
-      title: isCircle ? "Sharing" : "Submitting",
-      description: "Stella will let you know when it's finished.",
+      title: isCircle
+        ? t("features.store.shareDialog.sharingTitle")
+        : t("features.store.shareDialog.submittingTitle"),
+      description: t("features.store.shareDialog.inProgressBody"),
     });
     void (async () => {
       try {
@@ -276,8 +280,10 @@ function ShareDialogInner({
 
         if (!isCircle) {
           showToast({
-            title: "Submitted for review",
-            description: `${toastName} was sent to the Stella team. It goes live in the store once it's approved.`,
+            title: t("features.store.shareDialog.submittedTitle"),
+            description: t("features.store.shareDialog.submittedBody", {
+              name: toastName,
+            }),
           });
           return;
         }
@@ -310,16 +316,26 @@ function ShareDialogInner({
           }
         }
         showToast({
-          title: "Shared",
+          title: t("features.store.shareDialog.sharedTitle"),
           description:
             failed === 0
-              ? `${toastName} is on its way to ${delivered} ${delivered === 1 ? "chat" : "chats"}.`
-              : `${toastName} reached ${delivered} of ${delivered + failed} chats. Open Messages to retry the rest.`,
+              ? tPlural(
+                  "features.store.shareDialog.sharedBodyDelivered",
+                  delivered,
+                  { name: toastName },
+                )
+              : tPlural(
+                  "features.store.shareDialog.sharedBodyPartial",
+                  delivered + failed,
+                  { name: toastName, delivered },
+                ),
           ...(failed > 0 ? { variant: "error" as const } : {}),
         });
       } catch (error) {
         showToast({
-          title: isCircle ? "Share failed" : "Submission failed",
+          title: isCircle
+            ? t("features.store.shareDialog.shareFailedTitle")
+            : t("features.store.shareDialog.submissionFailedTitle"),
           description: (error as Error)?.message,
           variant: "error",
         });
@@ -329,14 +345,14 @@ function ShareDialogInner({
 
   const title =
     destination === null
-      ? "Share"
+      ? t("features.store.shareDialog.title")
       : destination === "circle"
         ? asUpdate
-          ? "Share an update"
-          : "Share with your circle"
+          ? t("features.store.shareDialog.titleCircleUpdate")
+          : t("features.store.shareDialog.titleCircle")
         : asUpdate
-          ? "Submit an update"
-          : "Share to the Store";
+          ? t("features.store.shareDialog.titleStoreUpdate")
+          : t("features.store.shareDialog.titleStore");
 
   return (
     <Dialog open onOpenChange={(next) => (next ? null : onClose())}>
@@ -349,8 +365,7 @@ function ShareDialogInner({
           {destination === null ? (
             <>
               <p className="share-destination-lede">
-                Where should this go? Sharing sends runnable code, so pick the
-                audience you mean.
+                {t("features.store.shareDialog.destinationLede")}
               </p>
               <div className="share-destination-options">
                 <button
@@ -363,11 +378,10 @@ function ShareDialogInner({
                   </span>
                   <span className="share-destination-option-body">
                     <span className="share-destination-option-name">
-                      A friend or community
+                      {t("features.store.shareDialog.circleOptionName")}
                     </span>
                     <span className="share-destination-option-desc">
-                      Instant. Goes straight to people you trust as a share card
-                      in chat — no review, never listed publicly.
+                      {t("features.store.shareDialog.circleOptionDesc")}
                     </span>
                   </span>
                 </button>
@@ -381,11 +395,10 @@ function ShareDialogInner({
                   </span>
                   <span className="share-destination-option-body">
                     <span className="share-destination-option-name">
-                      The Stella Store
+                      {t("features.store.shareDialog.storeOptionName")}
                     </span>
                     <span className="share-destination-option-desc">
-                      Public. Reviewed by the Stella team first, then live in
-                      the store for everyone.
+                      {t("features.store.shareDialog.storeOptionDesc")}
                     </span>
                   </span>
                 </button>
@@ -400,22 +413,29 @@ function ShareDialogInner({
                     checked={asUpdate}
                     onChange={(event) => setAsUpdate(event.target.checked)}
                   />
-                  <span>Update an existing add-on</span>
+                  <span>{t("features.store.shareDialog.updateExisting")}</span>
                 </label>
               ) : null}
 
               {asUpdate ? (
                 <div className="store-publish-dialog-field">
                   <span className="store-publish-dialog-field-label">
-                    Existing add-on
+                    {t("features.store.shareDialog.existingAddon")}
                   </span>
                   <Select
                     value={updatePackageId}
                     onValueChange={(value) => setUpdatePackageId(value)}
-                    aria-label="Existing add-on"
-                    placeholder="Select…"
+                    aria-label={t("features.store.shareDialog.existingAddon")}
+                    placeholder={t(
+                      "features.store.shareDialog.selectPlaceholder",
+                    )}
                     options={[
-                      { value: "", label: "Select…" },
+                      {
+                        value: "",
+                        label: t(
+                          "features.store.shareDialog.selectPlaceholder",
+                        ),
+                      },
                       ...updatablePackages.map((pkg) => ({
                         value: pkg.packageId,
                         label: pkg.displayName,
@@ -427,21 +447,23 @@ function ShareDialogInner({
                 <>
                   <label className="store-publish-dialog-field">
                     <span className="store-publish-dialog-field-label">
-                      Name
+                      {t("features.store.shareDialog.nameLabel")}
                     </span>
                     <input
                       type="text"
                       value={displayName}
                       onChange={(event) => setDisplayName(event.target.value)}
-                      placeholder="Example mod"
+                      placeholder={t(
+                        "features.store.shareDialog.namePlaceholder",
+                      )}
                       maxLength={120}
                     />
                   </label>
                   <label className="store-publish-dialog-field">
                     <span className="store-publish-dialog-field-label">
-                      Description{" "}
+                      {t("features.store.shareDialog.descriptionLabel")}{" "}
                       <span className="store-publish-dialog-field-hint">
-                        (optional)
+                        {t("features.store.shareDialog.optionalHint")}
                       </span>
                     </span>
                     <textarea
@@ -449,8 +471,12 @@ function ShareDialogInner({
                       onChange={(event) => setDescription(event.target.value)}
                       placeholder={
                         destination === "circle"
-                          ? "A short line for the share card."
-                          : "A short line for the store listing."
+                          ? t(
+                              "features.store.shareDialog.descriptionPlaceholderCircle",
+                            )
+                          : t(
+                              "features.store.shareDialog.descriptionPlaceholderStore",
+                            )
                       }
                       rows={3}
                       maxLength={4_000}
@@ -459,23 +485,50 @@ function ShareDialogInner({
                   {destination === "store" ? (
                     <div className="store-publish-dialog-field">
                       <span className="store-publish-dialog-field-label">
-                        Category
+                        {t("features.store.shareDialog.categoryLabel")}
                       </span>
                       <Select
                         value={category}
                         onValueChange={(value) =>
                           setCategory(value as typeof category)
                         }
-                        aria-label="Category"
-                        placeholder="Pick a category…"
+                        aria-label={t(
+                          "features.store.shareDialog.categoryLabel",
+                        )}
+                        placeholder={t(
+                          "features.store.shareDialog.categoryPlaceholder",
+                        )}
                         options={[
-                          { value: "", label: "Pick a category…" },
-                          { value: "apps-games", label: "Apps & games" },
-                          { value: "productivity", label: "Productivity" },
-                          { value: "customization", label: "Customization" },
-                          { value: "skills-agents", label: "Skills & agents" },
-                          { value: "integrations", label: "Integrations" },
-                          { value: "other", label: "Other" },
+                          {
+                            value: "",
+                            label: t(
+                              "features.store.shareDialog.categoryPlaceholder",
+                            ),
+                          },
+                          {
+                            value: "apps-games",
+                            label: t("features.store.categories.appsGames"),
+                          },
+                          {
+                            value: "productivity",
+                            label: t("features.store.categories.productivity"),
+                          },
+                          {
+                            value: "customization",
+                            label: t("features.store.categories.customization"),
+                          },
+                          {
+                            value: "skills-agents",
+                            label: t("features.store.categories.skillsAgents"),
+                          },
+                          {
+                            value: "integrations",
+                            label: t("features.store.categories.integrations"),
+                          },
+                          {
+                            value: "other",
+                            label: t("features.store.categories.other"),
+                          },
                         ]}
                       />
                     </div>
@@ -486,19 +539,20 @@ function ShareDialogInner({
               {destination === "circle" ? (
                 <div className="store-publish-dialog-field">
                   <span className="store-publish-dialog-field-label">
-                    Send to
+                    {t("features.store.shareDialog.sendTo")}
                   </span>
                   {communities.length === 0 && friends.length === 0 ? (
                     <p className="share-recipient-empty">
-                      No friends or communities yet — add some from the Messages
-                      page first.
+                      {t("features.store.shareDialog.noRecipients")}
                     </p>
                   ) : (
                     <div className="share-recipient-list">
                       {communities.map((community) => {
                         const key: RecipientKey = `room:${community.room._id}`;
                         const selected = recipients.has(key);
-                        const name = community.room.title ?? "Community";
+                        const name =
+                          community.room.title ??
+                          t("features.store.shareDialog.communityFallbackName");
                         return (
                           <button
                             key={key}
@@ -510,7 +564,7 @@ function ShareDialogInner({
                             <Avatar fallback={name} size="small" />
                             <span className="share-recipient-name">{name}</span>
                             <span className="share-recipient-tag">
-                              Community
+                              {t("features.store.shareDialog.communityTag")}
                             </span>
                             {selected ? (
                               <Check
@@ -558,8 +612,8 @@ function ShareDialogInner({
 
               <p className="share-destination-note">
                 {destination === "circle"
-                  ? "Shares land instantly as an installable card in each chat. Only the people you pick (and anyone in those communities) can grab it."
-                  : "The Stella team reviews store submissions before they go live for everyone."}
+                  ? t("features.store.shareDialog.circleNote")
+                  : t("features.store.shareDialog.storeNote")}
               </p>
             </>
           )}
@@ -572,11 +626,11 @@ function ShareDialogInner({
                 onClick={() => selectDestination(null)}
                 disabled={submitting}
               >
-                Back
+                {t("common.back")}
               </button>
             ) : null}
             <button type="button" className="pill-btn" onClick={onClose}>
-              Cancel
+              {t("common.cancel")}
             </button>
             {destination !== null ? (
               <button
@@ -589,10 +643,10 @@ function ShareDialogInner({
                 }
               >
                 {submitting
-                  ? "Sharing…"
+                  ? t("features.store.shareDialog.submitPending")
                   : destination === "circle"
-                    ? "Share now"
-                    : "Submit for review"}
+                    ? t("features.store.shareDialog.submitCircle")
+                    : t("features.store.shareDialog.submitStore")}
               </button>
             ) : null}
           </div>

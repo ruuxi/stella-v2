@@ -1,5 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 import { cn } from "@/shared/lib/utils";
+import { useT } from "@/shared/i18n";
 import { Button, type ButtonProps } from "@/ui/button";
 import { TextField } from "@/ui/text-field";
 import { useMagicLinkAuth } from "./useMagicLinkAuth";
@@ -42,14 +43,14 @@ type MagicLinkAuthFlowProps = {
 export function MagicLinkAuthFlow({
   className,
   intro,
-  emailLabel = "Email",
+  emailLabel: emailLabelProp,
   hideEmailLabel = false,
-  emailPlaceholder = "you@example.com",
+  emailPlaceholder: emailPlaceholderProp,
   inputVariant = "normal",
   inputClassName,
   formClassName,
-  submitLabel = "Send sign-in email",
-  sendingLabel = "Sending...",
+  submitLabel: submitLabelProp,
+  sendingLabel: sendingLabelProp,
   buttonClassName,
   buttonVariant = "primary",
   buttonSize = "normal",
@@ -58,15 +59,31 @@ export function MagicLinkAuthFlow({
   extrasClassName,
   extrasInnerClassName,
   sentClassName,
-  sentMessage = "Check your inbox for the sign-in link.",
+  sentMessage: sentMessageProp,
   openInboxClassName,
-  openInboxLabel = (provider) => `Open ${provider}`,
-  resendCooldownLabel = (secondsLeft) => `Resend in ${secondsLeft}s`,
-  resendLabel = "Resend email",
+  openInboxLabel: openInboxLabelProp,
+  resendCooldownLabel: resendCooldownLabelProp,
+  resendLabel: resendLabelProp,
   skipClassName,
-  skipLabel = "Skip for now",
+  skipLabel: skipLabelProp,
   onSkip,
 }: MagicLinkAuthFlowProps) {
+  const t = useT();
+  const emailLabel = emailLabelProp ?? t("global.auth.emailLabel");
+  const emailPlaceholder =
+    emailPlaceholderProp ?? t("global.auth.emailPlaceholder");
+  const submitLabel = submitLabelProp ?? t("global.auth.sendSignInEmail");
+  const sendingLabel = sendingLabelProp ?? t("global.auth.sending");
+  const sentMessage = sentMessageProp ?? t("global.auth.checkInbox");
+  const openInboxLabel =
+    openInboxLabelProp ??
+    ((provider: string) => t("global.auth.openInbox", { provider }));
+  const resendCooldownLabel =
+    resendCooldownLabelProp ??
+    ((secondsLeft: number) =>
+      t("global.auth.resendIn", { seconds: secondsLeft }));
+  const resendLabel = resendLabelProp ?? t("global.auth.resendEmail");
+  const skipLabel = skipLabelProp ?? t("global.auth.skipForNow");
   const {
     email,
     setEmail,
@@ -93,7 +110,7 @@ export function MagicLinkAuthFlow({
     status === "sending"
       ? sendingLabel
       : status === "verifying"
-        ? "Signing in..."
+        ? t("global.auth.signingIn")
         : isResending
           ? sendingLabel
           : matchesSent

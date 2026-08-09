@@ -31,6 +31,7 @@ import { fadeHex } from "../../src/theme/oklch";
 import { fonts } from "../../src/theme/fonts";
 import { LEGAL_TITLES, TERMS_OF_SERVICE, PRIVACY_POLICY } from "../../src/lib/legal-text";
 import { loadLastMainTabHref } from "../../src/lib/last-main-tab";
+import { useT } from "../../src/i18n";
 
 type LegalDoc = "terms" | "privacy" | null;
 
@@ -55,6 +56,7 @@ type SocialSignInResult = {
 
 export default function LoginScreen() {
   const colors = useColors();
+  const t = useT();
   const { isDark } = useTheme();
   const router = useRouter();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -78,7 +80,10 @@ export default function LoginScreen() {
   const sendMagicLink = async () => {
     const trimmed = email.trim();
     if (!trimmed) {
-      setSubmitState({ type: "error", message: "Enter your email." });
+      setSubmitState({
+        type: "error",
+        message: t("mobile.login.enterEmail"),
+      });
       return;
     }
 
@@ -98,7 +103,7 @@ export default function LoginScreen() {
         error?: string;
       };
       if (!response.ok || !data.requestId) {
-        throw new Error(data.error || "Failed to send sign-in email.");
+        throw new Error(data.error || t("mobile.login.sendFailed"));
       }
       setSubmitState({ type: "sent", requestId: data.requestId });
     } catch (error) {
@@ -121,7 +126,7 @@ export default function LoginScreen() {
           message:
             result.error.message ||
             result.error.statusText ||
-            "Google sign-in could not start.",
+            t("mobile.login.googleStartFailed"),
         });
         return;
       }
@@ -159,7 +164,7 @@ export default function LoginScreen() {
         if (!credential.identityToken) {
           setSubmitState({
             type: "error",
-            message: "Apple did not return an identity token.",
+            message: t("mobile.login.appleNoToken"),
           });
           return;
         }
@@ -178,7 +183,7 @@ export default function LoginScreen() {
             message:
               result.error.message ||
               result.error.statusText ||
-              "Apple sign-in could not complete.",
+              t("mobile.login.appleCompleteFailed"),
           });
           return;
         }
@@ -198,7 +203,7 @@ export default function LoginScreen() {
           message:
             result.error.message ||
             result.error.statusText ||
-            "Apple sign-in could not start.",
+            t("mobile.login.appleStartFailed"),
         });
         return;
       }
@@ -273,7 +278,7 @@ export default function LoginScreen() {
             } catch {
               setSubmitState({
                 type: "error",
-                message: "Could not finish sign-in. Please try again.",
+                message: t("mobile.login.finishFailed"),
               });
             }
             return;
@@ -282,7 +287,7 @@ export default function LoginScreen() {
             if (cancelled) return;
             setSubmitState({
               type: "error",
-              message: "Sign-in incomplete. Please try again.",
+              message: t("mobile.login.incomplete"),
             });
             return;
           }
@@ -291,7 +296,7 @@ export default function LoginScreen() {
             if (cancelled) return;
             setSubmitState({
               type: "error",
-              message: "Link expired. Please try again.",
+              message: t("mobile.login.linkExpired"),
             });
             return;
           }
@@ -305,7 +310,7 @@ export default function LoginScreen() {
     return () => {
       cancelled = true;
     };
-  }, [submitState]);
+  }, [submitState, t]);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -316,11 +321,9 @@ export default function LoginScreen() {
       >
         <Pressable style={styles.hero} onPress={Keyboard.dismiss}>
           <Text style={styles.title} maxFontSizeMultiplier={1.2}>
-            Your assistant,{"\n"}pocket-sized.
+            {t("mobile.login.heroTitle")}
           </Text>
-          <Text style={styles.body}>
-            Use Apple, Google, or the email you use on your computer.
-          </Text>
+          <Text style={styles.body}>{t("mobile.login.heroBody")}</Text>
         </Pressable>
 
         <View style={styles.formArea}>
@@ -335,7 +338,7 @@ export default function LoginScreen() {
                 submitState.type === "sending" ||
                 submitState.type === "verifying"
               }
-              accessibilityLabel="Continue with Apple"
+              accessibilityLabel={t("mobile.login.continueWithApple")}
               style={({ pressed }) => [
                 styles.socialButton,
                 styles.appleButton,
@@ -348,8 +351,8 @@ export default function LoginScreen() {
               <AppleIcon />
               <Text style={styles.appleButtonText}>
                 {submitState.type === "apple"
-                  ? "Opening Apple..."
-                  : "Continue with Apple"}
+                  ? t("mobile.login.openingApple")
+                  : t("mobile.login.continueWithApple")}
               </Text>
             </Pressable>
           ) : null}
@@ -364,7 +367,7 @@ export default function LoginScreen() {
               submitState.type === "sending" ||
               submitState.type === "verifying"
             }
-            accessibilityLabel="Continue with Google"
+            accessibilityLabel={t("mobile.login.continueWithGoogle")}
             style={({ pressed }) => [
               styles.socialButton,
               pressed ? styles.socialButtonPressed : null,
@@ -376,14 +379,16 @@ export default function LoginScreen() {
             <GoogleIcon />
             <Text style={styles.googleButtonText}>
               {submitState.type === "google"
-                ? "Opening Google..."
-                : "Continue with Google"}
+                ? t("mobile.login.openingGoogle")
+                : t("mobile.login.continueWithGoogle")}
             </Text>
           </Pressable>
 
           <View style={styles.methodDivider}>
             <View style={styles.methodDividerLine} />
-            <Text style={styles.methodDividerText}>or use email</Text>
+            <Text style={styles.methodDividerText}>
+              {t("mobile.login.orUseEmail")}
+            </Text>
             <View style={styles.methodDividerLine} />
           </View>
 
@@ -392,7 +397,7 @@ export default function LoginScreen() {
             autoComplete="email"
             keyboardType="email-address"
             onChangeText={setEmail}
-            placeholder="Email"
+            placeholder={t("mobile.login.emailPlaceholder")}
             placeholderTextColor={fadeHex(colors.textMuted, 0.4)}
             style={styles.input}
             value={email}
@@ -417,40 +422,43 @@ export default function LoginScreen() {
           >
             <Text style={styles.primaryButtonText}>
               {submitState.type === "sending"
-                ? "Sending..."
+                ? t("mobile.login.sending")
                 : submitState.type === "verifying"
-                  ? "Signing in..."
-                  : "Continue"}
+                  ? t("mobile.login.signingIn")
+                  : t("mobile.common.continue")}
             </Text>
           </Pressable>
 
           {submitState.type === "sent" ? (
             <View style={styles.sentBlock}>
               <Text style={styles.successText}>
-                Check your inbox and tap the link — you'll be signed in
-                automatically.
+                {t("mobile.login.checkInbox")}
               </Text>
               <View style={styles.sentActions}>
                 <Pressable
                   onPress={editEmail}
-                  accessibilityLabel="Use a different email"
+                  accessibilityLabel={t("mobile.login.useDifferentEmail")}
                   style={({ pressed }) => [
                     styles.inlineLink,
                     pressed && styles.inlineLinkPressed,
                   ]}
                 >
-                  <Text style={styles.inlineLinkText}>Use a different email</Text>
+                  <Text style={styles.inlineLinkText}>
+                    {t("mobile.login.useDifferentEmail")}
+                  </Text>
                 </Pressable>
                 {canResend ? (
                   <Pressable
                     onPress={() => void sendMagicLink()}
-                    accessibilityLabel="Resend sign-in email"
+                    accessibilityLabel={t("mobile.login.resendLabel")}
                     style={({ pressed }) => [
                       styles.inlineLink,
                       pressed && styles.inlineLinkPressed,
                     ]}
                   >
-                    <Text style={styles.inlineLinkText}>Resend</Text>
+                    <Text style={styles.inlineLinkText}>
+                      {t("mobile.login.resend")}
+                    </Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -462,21 +470,21 @@ export default function LoginScreen() {
           ) : null}
 
           <Text style={styles.legalFooter}>
-            By continuing, you agree to our{" "}
+            {t("mobile.login.legalPrefix")}
             <Text
               style={styles.legalLink}
               onPress={() => setActiveLegal("terms")}
             >
-              Terms
+              {t("mobile.login.legalTerms")}
             </Text>
-            {" and "}
+            {t("mobile.login.legalConjunction")}
             <Text
               style={styles.legalLink}
               onPress={() => setActiveLegal("privacy")}
             >
-              Privacy Policy
+              {t("mobile.login.legalPrivacy")}
             </Text>
-            .
+            {t("mobile.login.legalSuffix")}
           </Text>
 
           <Pressable
@@ -487,7 +495,7 @@ export default function LoginScreen() {
             ]}
           >
             <Text style={styles.guestButtonText}>
-              Continue without signing in
+              {t("mobile.login.continueAsGuest")}
             </Text>
           </Pressable>
         </View>
@@ -508,7 +516,9 @@ export default function LoginScreen() {
               onPress={() => setActiveLegal(null)}
               style={styles.legalModalClose}
             >
-              <Text style={styles.legalModalCloseText}>Done</Text>
+              <Text style={styles.legalModalCloseText}>
+                {t("mobile.common.done")}
+              </Text>
             </Pressable>
           </View>
           <ScrollView

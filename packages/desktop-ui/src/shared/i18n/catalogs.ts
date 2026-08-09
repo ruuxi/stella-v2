@@ -97,6 +97,122 @@ export const translate = (
 };
 
 /**
+ * CLDR plural categories, in the order `Intl.PluralRules` can emit them.
+ * A pluralised catalog entry is an object keyed by these instead of a
+ * bare string:
+ *
+ *   "newMessages": { "one": "{count} new message",
+ *                    "other": "{count} new messages" }
+ *
+ * `other` is the only required category — every locale has it, and it is
+ * what we fall back to when a translator hasn't supplied the narrower
+ * form their language needs.
+ */
+const PLURAL_CATEGORIES = [
+  "zero",
+  "one",
+  "two",
+  "few",
+  "many",
+  "other",
+] as const;
+
+type PluralCategory = (typeof PLURAL_CATEGORIES)[number];
+
+type PluralForms = Partial<Record<PluralCategory, string>>;
+
+const isPluralForms = (value: unknown): value is PluralForms => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  return entries.every(
+    ([category, form]) =>
+      (PLURAL_CATEGORIES as ReadonlyArray<string>).includes(category) &&
+      typeof form === "string",
+  );
+};
+
+// `Intl.PluralRules` construction is not free and the same handful of
+// locales are asked for over and over, so memoise per locale.
+const pluralRulesCache = new Map<string, Intl.PluralRules>();
+
+const pluralRulesFor = (locale: string): Intl.PluralRules | undefined => {
+  const cached = pluralRulesCache.get(locale);
+  if (cached) return cached;
+  try {
+    const rules = new Intl.PluralRules(locale);
+    pluralRulesCache.set(locale, rules);
+    return rules;
+  } catch {
+    // Unknown/unsupported tag — caller falls back to `other`.
+    return undefined;
+  }
+};
+
+const selectPluralForm = (
+  forms: PluralForms,
+  locale: string,
+  count: number,
+): string | undefined => {
+  // `zero` is offered as an explicit override for count === 0 even in
+  // locales whose CLDR rules never emit that category (English says
+  // "other" for 0). Copy like "No unread messages" is a product
+  // decision, not a grammatical one, so honour it when present.
+  if (count === 0 && typeof forms.zero === "string") return forms.zero;
+
+  const category = pluralRulesFor(locale)?.select(count);
+  if (category) {
+    const exact = forms[category as PluralCategory];
+    if (typeof exact === "string") return exact;
+  }
+  return forms.other;
+};
+
+/**
+ * Resolve a pluralised key against `catalog` using `locale`'s CLDR
+ * plural rules, then English, then the key itself. `count` is
+ * interpolated as `{count}` on top of any `params`, so callers don't
+ * have to pass it twice.
+ *
+ * Never hand-roll `n === 1 ? "item" : "items"` — that is only correct
+ * for English and a handful of its relatives. Languages in the catalog
+ * need up to four distinct forms (Arabic, Polish, Russian, Czech,
+ * Romanian, Hebrew, Welsh-style rules), and CJK/Thai/Vietnamese need
+ * exactly one.
+ */
+export const translatePlural = (
+  catalog: Catalog | undefined,
+  locale: string,
+  key: string,
+  count: number,
+  params?: TranslateParams,
+): string => {
+  const withCount: TranslateParams = { ...params, count };
+
+  const value = lookupPath(catalog, key);
+  if (isPluralForms(value)) {
+    const form = selectPluralForm(value, locale, count);
+    if (typeof form === "string") return interpolate(form, withCount);
+  }
+  // Tolerate a key that was authored as a plain string (or has not been
+  // pluralised in this locale yet) rather than rendering the raw key.
+  if (typeof value === "string") return interpolate(value, withCount);
+
+  if (catalog !== EAGER[DEFAULT_LOCALE]) {
+    const fallback = lookupPath(EAGER[DEFAULT_LOCALE], key);
+    if (isPluralForms(fallback)) {
+      // English rules, because the English copy is what we're rendering.
+      const form = selectPluralForm(fallback, DEFAULT_LOCALE, count);
+      if (typeof form === "string") return interpolate(form, withCount);
+    }
+    if (typeof fallback === "string") return interpolate(fallback, withCount);
+  }
+  return key;
+};
+
+/**
  * Resolve a key whose value is an array of strings (e.g. plan feature
  * lists). Falls back to English when the active catalog hasn't translated
  * the array yet.

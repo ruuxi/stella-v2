@@ -12,6 +12,7 @@ import type {
   OfficePreviewRef,
   OfficePreviewSnapshot,
 } from "@stella/contracts/office-preview";
+import { useT, useTPlural } from "@/shared/i18n";
 import { useOfficePreview } from "@/features/chat/office-preview-store";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import { Select } from "@/ui/select";
@@ -34,10 +35,14 @@ const kindForFormat = (format: OfficePreviewFormat): ArtifactKind => {
   return "document";
 };
 
-const labelForKind = (kind: ArtifactKind) => {
-  if (kind === "spreadsheet") return "Spreadsheet";
-  if (kind === "presentation") return "Presentation";
-  return "Document";
+/**
+ * Returns a catalog *key*, not copy — resolving here would freeze the
+ * label to whatever locale was active when the module first evaluated.
+ */
+const labelKeyForKind = (kind: ArtifactKind) => {
+  if (kind === "spreadsheet") return "shell.display.office.kind.spreadsheet";
+  if (kind === "presentation") return "shell.display.office.kind.presentation";
+  return "shell.display.office.kind.document";
 };
 
 const titleForPreview = (
@@ -96,21 +101,24 @@ const StatusPanel = ({
 }: {
   error?: string | null;
   loading?: boolean;
-}) => (
-  <div className="display-artifact-status">
-    <div
-      className={
-        loading
-          ? "display-artifact-status__text loading-shimmer-pure-text"
-          : "display-artifact-status__text"
-      }
-    >
-      {loading
-        ? "Preparing preview..."
-        : error?.trim() || "Couldn't load this preview"}
+}) => {
+  const t = useT();
+  return (
+    <div className="display-artifact-status">
+      <div
+        className={
+          loading
+            ? "display-artifact-status__text loading-shimmer-pure-text"
+            : "display-artifact-status__text"
+        }
+      >
+        {loading
+          ? t("shell.display.office.preparing")
+          : error?.trim() || t("shell.display.office.loadFailed")}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const KindIcon = ({ kind }: { kind: ArtifactKind }) => {
   if (kind === "spreadsheet") return <FileSpreadsheet size={15} />;
@@ -123,6 +131,8 @@ export function OfficeArtifactPanel({
 }: {
   previewRef: OfficePreviewRef;
 }) {
+  const t = useT();
+  const tPlural = useTPlural();
   const snapshot = useOfficePreview(previewRef.sessionId);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const [zoomPercent, setZoomPercent] = useState(100);
@@ -210,16 +220,16 @@ export function OfficeArtifactPanel({
   const ready = snapshot?.status === "ready" && Boolean(srcDoc);
   const error =
     snapshot?.status === "error"
-      ? snapshot.error || "The preview session reported an error."
+      ? snapshot.error || t("shell.display.office.sessionError")
       : null;
   const loading = !snapshot || snapshot.status === "starting";
 
   const countLabel =
     kind === "spreadsheet" && meta.count > 0
-      ? `${meta.count} sheet${meta.count === 1 ? "" : "s"}`
+      ? tPlural("shell.display.office.sheetCount", meta.count)
       : kind === "presentation" && meta.count > 0
-        ? `${meta.count} slide${meta.count === 1 ? "" : "s"}`
-        : labelForKind(kind);
+        ? tPlural("shell.display.office.slideCount", meta.count)
+        : t(labelKeyForKind(kind));
 
   return (
     <section
@@ -232,7 +242,7 @@ export function OfficeArtifactPanel({
           </div>
           <div className="display-artifact-panel__title-group">
             <div className="display-artifact-panel__eyebrow">
-              {labelForKind(kind)}
+              {t(labelKeyForKind(kind))}
             </div>
             <div
               className="display-artifact-panel__title"
@@ -248,7 +258,7 @@ export function OfficeArtifactPanel({
         <div className="display-artifact-panel__actions">
           <Select
             className="display-artifact-panel__zoom"
-            aria-label="Preview zoom"
+            aria-label={t("shell.display.office.zoomAriaLabel")}
             value={String(zoomPercent)}
             onValueChange={(value) => {
               setZoomPercent(Number(value));
@@ -266,8 +276,8 @@ export function OfficeArtifactPanel({
                 previewRef.sourcePath,
               );
             }}
-            title="Reveal in Finder"
-            aria-label="Reveal in Finder"
+            title={t("shell.display.office.revealInFinder")}
+            aria-label={t("shell.display.office.revealInFinder")}
           >
             <FolderOpen size={14} />
           </button>
@@ -275,8 +285,8 @@ export function OfficeArtifactPanel({
             type="button"
             className="display-artifact-panel__action"
             onClick={handleSave}
-            title="Save"
-            aria-label="Save"
+            title={t("common.save")}
+            aria-label={t("common.save")}
           >
             <Download size={14} />
           </button>
@@ -284,8 +294,8 @@ export function OfficeArtifactPanel({
             type="button"
             className="display-artifact-panel__action"
             onClick={handleCopy}
-            title="Copy"
-            aria-label="Copy"
+            title={t("common.copy")}
+            aria-label={t("common.copy")}
           >
             <Copy size={14} />
           </button>
@@ -297,7 +307,10 @@ export function OfficeArtifactPanel({
           <iframe
             ref={frameRef}
             className="display-artifact-panel__frame"
-            title={`${labelForKind(kind)} preview: ${title}`}
+            title={t("shell.display.office.frameTitle", {
+              kind: t(labelKeyForKind(kind)),
+              title,
+            })}
             sandbox="allow-scripts allow-same-origin"
             srcDoc={srcDoc}
           />
@@ -314,7 +327,7 @@ export function OfficeArtifactPanel({
                   hour: "numeric",
                   minute: "2-digit",
                 })}`
-              : "Live preview"}
+              : t("shell.display.office.livePreview")}
           </span>
           {actionStatus && <strong>{actionStatus}</strong>}
         </footer>

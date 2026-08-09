@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useT } from "@/shared/i18n";
 import { executionLabel, type UsageThreadGroup } from "./usage-data";
 import {
   formatCost,
@@ -17,24 +18,25 @@ export const UsageThreadsTable = memo(function UsageThreadsTable({
   threads,
   onSelectThread,
 }: UsageThreadsTableProps) {
+  const t = useT();
   return (
     <section className="usage-panel">
       <div className="usage-panel-heading">
         <div>
-          <h2>Threads</h2>
-          <p>Orchestrator, agents, and nested sub-agents.</p>
+          <h2>{t("app.usage.threads.title")}</h2>
+          <p>{t("app.usage.threads.description")}</p>
         </div>
       </div>
       <div className="usage-table-scroll">
         <table className="usage-table">
           <thead>
             <tr>
-              <th>Execution</th>
-              <th>Model</th>
-              <th>Calls</th>
-              <th>Tokens</th>
-              <th>Cache</th>
-              <th>Cost</th>
+              <th>{t("app.usage.threads.columns.execution")}</th>
+              <th>{t("app.usage.threads.columns.model")}</th>
+              <th>{t("app.usage.threads.columns.calls")}</th>
+              <th>{t("app.usage.threads.columns.tokens")}</th>
+              <th>{t("app.usage.threads.columns.cache")}</th>
+              <th>{t("app.usage.threads.columns.cost")}</th>
             </tr>
           </thead>
           <tbody>

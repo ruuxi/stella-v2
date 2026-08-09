@@ -15,6 +15,7 @@ import {
   readRecentModels,
   recordRecentModel,
 } from "@/global/settings/lib/recent-models";
+import { useT } from "@/shared/i18n";
 import "./composer-model-mention-menu.css";
 
 export type ComposerModelMentionTrigger = {
@@ -267,6 +268,7 @@ export const ComposerModelMentionMenu = forwardRef<
   { trigger, textarea, onSelect, onDismiss },
   ref,
 ) {
+  const t = useT();
   const [preferences, setPreferences] =
     useState<EngineMentionPreferences | null>(cachedEngineMentionPreferences);
   const [recentValues, setRecentValues] = useState(() => readRecentModels());
@@ -416,7 +418,7 @@ export const ComposerModelMentionMenu = forwardRef<
       className="composer-model-mention-menu"
       data-model-mention-menu=""
       role="listbox"
-      aria-label="Engines"
+      aria-label={t("app.chat.modelMention.enginesLabel")}
       style={position}
       onMouseDown={(event) => event.preventDefault()}
     >
@@ -446,7 +448,7 @@ export const ComposerModelMentionMenu = forwardRef<
         ))}
         {filteredOptions.length === 0 && (
           <div className="composer-model-mention-menu__empty">
-            No matching engine
+            {t("app.chat.modelMention.noMatch")}
           </div>
         )}
       </div>

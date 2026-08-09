@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Download } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import "./drop-overlay.css";
 
 type DropOverlayProps = {
@@ -12,6 +13,7 @@ function DropIcon() {
 }
 
 export function DropOverlay({ visible, variant = "surface" }: DropOverlayProps) {
+  const t = useT();
   return (
     <AnimatePresence>
       {visible && (
@@ -25,7 +27,9 @@ export function DropOverlay({ visible, variant = "surface" }: DropOverlayProps) 
         >
           <div className="drop-overlay-content">
             <DropIcon />
-            <span className="drop-overlay-label">Drop files here</span>
+            <span className="drop-overlay-label">
+              {t("app.chat.dropOverlay.label")}
+            </span>
           </div>
         </motion.div>
       )}

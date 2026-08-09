@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { ChatContext } from "@/shared/types/electron";
+import { useT } from "@/shared/i18n";
 
 export function useScreenshotPreview(chatContext: ChatContext | null) {
   const [index, setIndex] = useState<number | null>(null);
@@ -34,6 +35,7 @@ export function ScreenshotPreviewOverlay({
   index: number;
   onClose: () => void;
 }) {
+  const t = useT();
   return createPortal(
     <div
       onClick={onClose}
@@ -50,7 +52,7 @@ export function ScreenshotPreviewOverlay({
     >
       <img
         src={screenshot.dataUrl}
-        alt={`Screenshot preview ${index + 1}`}
+        alt={t("app.chat.screenshotPreview.alt", { index: index + 1 })}
         onClick={(event) => event.stopPropagation()}
         style={{
           maxWidth: "92vw",

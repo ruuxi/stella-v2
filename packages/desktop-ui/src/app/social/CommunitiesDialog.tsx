@@ -8,6 +8,7 @@ import {
   DialogBody,
   DialogCloseButton,
 } from "@/ui/dialog";
+import { useT, useTPlural } from "@/shared/i18n";
 import { TextField } from "@/ui/text-field";
 import { Avatar } from "@/ui/avatar";
 import { ChevronLeft } from "@/ui/icons";
@@ -39,6 +40,8 @@ export function CommunitiesDialog({
   currentOwnerId,
   onOpenRoom,
 }: CommunitiesDialogProps) {
+  const t = useT();
+  const tPlural = useTPlural();
   const {
     communities,
     createCommunity,
@@ -99,31 +102,37 @@ export function CommunitiesDialog({
     const name = nameInput.trim();
     if (!name) return;
     const ok = await runAction(
-      "Couldn't create that community. Please try again.",
+      t("app.social.communities.errors.create"),
       async () => {
         await createCommunity(name);
       },
     );
     if (ok) {
       setNameInput("");
-      setStatus({ type: "success", text: `Created "${name}"!` });
+      setStatus({
+        type: "success",
+        text: t("app.social.communities.created", { name }),
+      });
     }
-  }, [nameInput, createCommunity, runAction]);
+  }, [nameInput, createCommunity, runAction, t]);
 
   const handleJoin = useCallback(async () => {
     const code = codeInput.trim();
     if (!code) return;
     const ok = await runAction(
-      "Couldn't join with that invite code. Check the code and try again.",
+      t("app.social.communities.errors.join"),
       async () => {
         await joinCommunity(code);
       },
     );
     if (ok) {
       setCodeInput("");
-      setStatus({ type: "success", text: "You're in!" });
+      setStatus({
+        type: "success",
+        text: t("app.social.communities.joined"),
+      });
     }
-  }, [codeInput, joinCommunity, runAction]);
+  }, [codeInput, joinCommunity, runAction, t]);
 
   const handleOpenChat = useCallback(
     (roomId: string) => {
@@ -137,12 +146,11 @@ export function CommunitiesDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent fit className="friends-dialog-content">
         <VisuallyHidden asChild>
-          <DialogTitle>Communities</DialogTitle>
+          <DialogTitle>{t("app.social.communities.title")}</DialogTitle>
         </VisuallyHidden>
         <VisuallyHidden asChild>
           <DialogDescription>
-            Create a community or join one with an invite code, then share
-            add-ons with everyone in it.
+            {t("app.social.communities.description")}
           </DialogDescription>
         </VisuallyHidden>
         <DialogCloseButton className="friends-dialog-close" />
@@ -169,10 +177,11 @@ export function CommunitiesDialog({
           ) : (
             <>
               <header className="friends-dialog-header">
-                <p className="friends-dialog-title">Communities</p>
+                <p className="friends-dialog-title">
+                  {t("app.social.communities.title")}
+                </p>
                 <p className="friends-dialog-sub">
-                  Trusted circles for sharing. Everyone in a community sees
-                  what its members share.
+                  {t("app.social.communities.subtitle")}
                 </p>
               </header>
 
@@ -184,9 +193,9 @@ export function CommunitiesDialog({
                 }}
               >
                 <TextField
-                  label="Create a community"
+                  label={t("app.social.communities.createLabel")}
                   hideLabel
-                  placeholder="Name a new community"
+                  placeholder={t("app.social.communities.createPlaceholder")}
                   value={nameInput}
                   maxLength={80}
                   onChange={(e) => {
@@ -199,7 +208,7 @@ export function CommunitiesDialog({
                   className="pill-btn pill-btn--primary pill-btn--lg friends-add-button"
                   disabled={!nameInput.trim() || busy}
                 >
-                  Create
+                  {t("app.social.communities.create")}
                 </button>
               </form>
 
@@ -211,9 +220,9 @@ export function CommunitiesDialog({
                 }}
               >
                 <TextField
-                  label="Join with an invite code"
+                  label={t("app.social.communities.joinLabel")}
                   hideLabel
-                  placeholder="Enter an invite code"
+                  placeholder={t("app.social.communities.joinPlaceholder")}
                   value={codeInput}
                   autoCapitalize="characters"
                   autoCorrect="off"
@@ -228,7 +237,7 @@ export function CommunitiesDialog({
                   className="pill-btn pill-btn--lg friends-add-button"
                   disabled={!codeInput.trim() || busy}
                 >
-                  Join
+                  {t("app.social.communities.join")}
                 </button>
               </form>
 
@@ -240,18 +249,22 @@ export function CommunitiesDialog({
 
               <section className="friends-section">
                 <div className="friends-section-label">
-                  Your communities
-                  {communities.length > 0 ? ` (${communities.length})` : ""}
+                  {communities.length > 0
+                    ? t("app.social.communities.yourCommunitiesCount", {
+                        count: communities.length,
+                      })
+                    : t("app.social.communities.yourCommunities")}
                 </div>
                 {communities.length === 0 ? (
                   <div className="friends-empty">
-                    No communities yet. Create one and share the invite code,
-                    or join with a code someone sent you.
+                    {t("app.social.communities.empty")}
                   </div>
                 ) : (
                   <div className="friends-list">
                     {communities.map((community) => {
-                      const name = community.room.title ?? "Community";
+                      const name =
+                        community.room.title ??
+                        t("app.social.communities.defaultName");
                       const memberCount = community.memberProfiles.length;
                       return (
                         <div key={community.room._id} className="friends-item">
@@ -259,10 +272,12 @@ export function CommunitiesDialog({
                           <div className="friends-item-info">
                             <div className="friends-item-name">{name}</div>
                             <div className="friends-item-tag">
-                              {memberCount}{" "}
-                              {memberCount === 1 ? "member" : "members"}
+                              {tPlural(
+                                "app.social.communities.memberCount",
+                                memberCount,
+                              )}
                               {community.membership.role === "owner"
-                                ? " \u00b7 created by you"
+                                ? t("app.social.communities.createdByYouSuffix")
                                 : ""}
                             </div>
                           </div>
@@ -272,7 +287,7 @@ export function CommunitiesDialog({
                               className="pill-btn"
                               onClick={() => handleOpenChat(community.room._id)}
                             >
-                              Open
+                              {t("app.social.communities.open")}
                             </button>
                             <button
                               type="button"
@@ -282,7 +297,7 @@ export function CommunitiesDialog({
                                 setStatus(null);
                               }}
                             >
-                              Details
+                              {t("app.social.communities.details")}
                             </button>
                           </div>
                         </div>
@@ -336,8 +351,9 @@ function CommunityManagePane({
   leaveCommunity,
   deleteCommunity,
 }: CommunityManagePaneProps) {
+  const t = useT();
   const roomId = community.room._id;
-  const name = community.room.title ?? "Community";
+  const name = community.room.title ?? t("app.social.communities.defaultName");
   const isCreator = community.membership.role === "owner";
   const inviteCode = community.room.inviteCode;
 
@@ -370,26 +386,26 @@ function CommunityManagePane({
       return;
     }
     const ok = await runAction(
-      "Couldn't rename the community. Please try again.",
+      t("app.social.communities.errors.rename"),
       async () => {
         await renameCommunity(roomId, nextName);
       },
     );
     if (ok) setEditingName(false);
-  }, [nameInput, name, roomId, renameCommunity, runAction]);
+  }, [nameInput, name, roomId, renameCommunity, runAction, t]);
 
   const handleRemoveMember = useCallback(
     async (memberOwnerId: string) => {
       setPendingMemberOwnerId(memberOwnerId);
       await runAction(
-        "Couldn't remove that member. Please try again.",
+        t("app.social.communities.errors.removeMember"),
         async () => {
           await removeCommunityMember(roomId, memberOwnerId);
         },
       );
       setPendingMemberOwnerId(null);
     },
-    [roomId, removeCommunityMember, runAction],
+    [roomId, removeCommunityMember, runAction, t],
   );
 
   const handleDanger = useCallback(async () => {
@@ -399,8 +415,8 @@ function CommunityManagePane({
     }
     const ok = await runAction(
       isCreator
-        ? "Couldn't delete the community. Please try again."
-        : "Couldn't leave the community. Please try again.",
+        ? t("app.social.communities.errors.delete")
+        : t("app.social.communities.errors.leave"),
       async () => {
         if (isCreator) {
           await deleteCommunity(roomId);
@@ -419,6 +435,7 @@ function CommunityManagePane({
     leaveCommunity,
     runAction,
     onClosed,
+    t,
   ]);
 
   return (
@@ -431,7 +448,7 @@ function CommunityManagePane({
           disabled={busy}
         >
           <ChevronLeft size={14} aria-hidden />
-          Back
+          {t("app.social.communities.back")}
         </button>
         {editingName ? (
           <form
@@ -442,9 +459,9 @@ function CommunityManagePane({
             }}
           >
             <TextField
-              label="Community name"
+              label={t("app.social.communities.nameLabel")}
               hideLabel
-              placeholder="Community name"
+              placeholder={t("app.social.communities.nameLabel")}
               value={nameInput}
               maxLength={80}
               autoFocus
@@ -458,7 +475,7 @@ function CommunityManagePane({
               className="pill-btn pill-btn--primary friends-add-button"
               disabled={!nameInput.trim() || busy}
             >
-              Save
+              {t("app.social.communities.save")}
             </button>
             <button
               type="button"
@@ -469,7 +486,7 @@ function CommunityManagePane({
               }}
               disabled={busy}
             >
-              Cancel
+              {t("app.social.communities.cancel")}
             </button>
           </form>
         ) : (
@@ -477,8 +494,8 @@ function CommunityManagePane({
             <p className="friends-dialog-title">{name}</p>
             <p className="friends-dialog-sub">
               {isCreator
-                ? "You created this community."
-                : "You're a member of this community."}
+                ? t("app.social.communities.createdByYou")
+                : t("app.social.communities.memberOf")}
             </p>
           </>
         )}
@@ -487,7 +504,9 @@ function CommunityManagePane({
       {inviteCode ? (
         <div className="friends-code-card">
           <div className="friends-code-card-info">
-            <span className="friends-section-label">Invite code</span>
+            <span className="friends-section-label">
+              {t("app.social.communities.inviteCode")}
+            </span>
             <span className="friends-code-card-value">
               {formatInviteCode(inviteCode)}
             </span>
@@ -498,23 +517,25 @@ function CommunityManagePane({
               className="pill-btn"
               onClick={() => handleCopy("code")}
             >
-              {copied === "code" ? "Copied!" : "Copy code"}
+              {copied === "code"
+                ? t("app.social.communities.copied")
+                : t("app.social.communities.copyCode")}
             </button>
             <button
               type="button"
               className="pill-btn pill-btn--primary"
-              title="Copy a link that opens Stella and joins this community"
+              title={t("app.social.communities.copyInviteLinkTitle")}
               onClick={() => handleCopy("link")}
             >
-              {copied === "link" ? "Copied!" : "Copy invite link"}
+              {copied === "link"
+                ? t("app.social.communities.copied")
+                : t("app.social.communities.copyInviteLink")}
             </button>
           </div>
         </div>
       ) : null}
       <p className="communities-invite-hint">
-        The link works anywhere — paste it in a Stella chat or send it over
-        iMessage or Discord. Anyone with it can join, so only share it with
-        people you trust.
+        {t("app.social.communities.inviteHint")}
       </p>
 
       {status ? (
@@ -525,7 +546,9 @@ function CommunityManagePane({
 
       <section className="friends-section">
         <div className="friends-section-label">
-          Members ({community.memberProfiles.length})
+          {t("app.social.communities.membersCount", {
+            count: community.memberProfiles.length,
+          })}
         </div>
         <div className="friends-list">
           {community.memberProfiles.map((member) => {
@@ -543,8 +566,10 @@ function CommunityManagePane({
                 <div className="friends-item-info">
                   <div className="friends-item-name">@{member.username}</div>
                   <div className="friends-item-tag">
-                    {isMemberCreator ? "Creator" : "Member"}
-                    {isSelf ? " \u00b7 you" : ""}
+                    {isMemberCreator
+                      ? t("app.social.communities.roleCreator")
+                      : t("app.social.communities.roleMember")}
+                    {isSelf ? t("app.social.communities.youSuffix") : ""}
                   </div>
                 </div>
                 {isCreator && !isSelf ? (
@@ -555,7 +580,9 @@ function CommunityManagePane({
                       disabled={busy}
                       onClick={() => void handleRemoveMember(member.ownerId)}
                     >
-                      {isRemoving ? "Removing..." : "Remove"}
+                      {isRemoving
+                        ? t("app.social.communities.removing")
+                        : t("app.social.communities.remove")}
                     </button>
                   </div>
                 ) : null}
@@ -574,11 +601,11 @@ function CommunityManagePane({
         >
           {isCreator
             ? confirmingDanger
-              ? "Really delete this community?"
-              : "Delete community"
+              ? t("app.social.communities.confirmDelete")
+              : t("app.social.communities.delete")
             : confirmingDanger
-              ? "Really leave?"
-              : "Leave community"}
+              ? t("app.social.communities.confirmLeave")
+              : t("app.social.communities.leave")}
         </button>
         <span className="communities-footer-spacer" aria-hidden />
         {isCreator && !editingName ? (
@@ -592,7 +619,7 @@ function CommunityManagePane({
               setConfirmingDanger(false);
             }}
           >
-            Rename
+            {t("app.social.communities.rename")}
           </button>
         ) : null}
         <button
@@ -600,7 +627,7 @@ function CommunityManagePane({
           className="pill-btn pill-btn--primary"
           onClick={() => onOpenChat(roomId)}
         >
-          Open chat
+          {t("app.social.communities.openChat")}
         </button>
       </div>
     </>

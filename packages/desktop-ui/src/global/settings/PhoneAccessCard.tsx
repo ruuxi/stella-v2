@@ -4,6 +4,9 @@ import { ConnectHeroAnimation } from "@/global/integrations/ConnectHeroAnimation
 import { usePhoneAccessController } from "@/global/settings/hooks/use-phone-access-controller";
 import { Button } from "@/ui/button";
 import { showToast } from "@/ui/toast";
+import { useT, useTPlural } from "@/shared/i18n";
+
+type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 const APP_STORE_URL =
   "https://apps.apple.com/us/app/stella-your-ai/id6761148311";
@@ -11,18 +14,22 @@ const APP_STORE_URL =
 const toErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
 
-const formatCountdown = (expiresAt: number) => {
+const formatCountdown = (expiresAt: number, t: Translate) => {
   const remainingMs = expiresAt - Date.now();
   if (remainingMs <= 0) {
-    return "Expired";
+    return t("settings.phoneAccess.expired");
   }
   const totalSeconds = Math.ceil(remainingMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")} left`;
+  return t("settings.phoneAccess.timeLeft", {
+    time: `${minutes}:${String(seconds).padStart(2, "0")}`,
+  });
 };
 
 export function PhoneAccessConnectCard() {
+  const t = useT();
+  const tPlural = useTPlural();
   const {
     hasConnectedAccount,
     desktopDeviceId,
@@ -62,36 +69,38 @@ export function PhoneAccessConnectCard() {
     try {
       await createPairing();
     } catch (e) {
-      setError(toErrorMessage(e, "Unable to create a pairing code."));
+      setError(toErrorMessage(e, t("settings.phoneAccess.errors.createPairing")));
     }
-  }, [createPairing]);
+  }, [createPairing, t]);
 
   const handleCopy = useCallback(() => {
     if (activePairing) {
       void navigator.clipboard.writeText(activePairing.pairingCode);
-      showToast("Code copied to clipboard");
+      showToast(t("settings.phoneAccess.toasts.codeCopied"));
     }
-  }, [activePairing]);
+  }, [activePairing, t]);
 
   const handleRemovePhone = useCallback(async (mobileDeviceId: string) => {
     try {
       const didRemove = await removePhone(mobileDeviceId);
       if (didRemove) {
-        showToast("Phone removed");
+        showToast(t("settings.phoneAccess.toasts.phoneRemoved"));
       }
     } catch {
-      showToast("Failed to remove phone");
+      showToast(t("settings.phoneAccess.toasts.removeFailed"));
     }
-  }, [removePhone]);
+  }, [removePhone, t]);
 
   if (!hasConnectedAccount) {
     return (
       <div className="connect-detail-area">
         <div className="connect-detail-body connect-pair-centered">
           <ConnectHeroAnimation />
-          <p className="connect-pair-headline">Sign in to get started</p>
+          <p className="connect-pair-headline">
+            {t("settings.phoneAccess.signedOut.headline")}
+          </p>
           <p className="connect-pair-sub">
-            Sign in to your Stella account to pair with the mobile app.
+            {t("settings.phoneAccess.signedOut.body")}
           </p>
         </div>
       </div>
@@ -104,9 +113,11 @@ export function PhoneAccessConnectCard() {
         <ConnectHeroAnimation />
         {activePairing ? (
           <>
-            <p className="connect-pair-headline">Scan or enter this code</p>
+            <p className="connect-pair-headline">
+              {t("settings.phoneAccess.pairing.headline")}
+            </p>
             <p className="connect-pair-sub">
-              Open the Stella app on your phone and scan the QR code, or type in the code below. You only need to do this once.
+              {t("settings.phoneAccess.pairing.body")}
             </p>
 
             {visibleError && <div className="connect-error">{visibleError}</div>}
@@ -115,7 +126,7 @@ export function PhoneAccessConnectCard() {
               {qrDataUrl ? (
                 <img
                   src={qrDataUrl}
-                  alt="Scan to pair your phone"
+                  alt={t("settings.phoneAccess.pairing.qrAlt")}
                   className="connect-pair-qr"
                 />
               ) : (
@@ -126,32 +137,32 @@ export function PhoneAccessConnectCard() {
             <div className="connect-pair-code-group">
               <span className="connect-pair-code">{activePairing.pairingCode}</span>
               <Button variant="ghost" size="small" onClick={handleCopy}>
-                Copy
+                {t("settings.phoneAccess.copy")}
               </Button>
             </div>
 
             <span className="connect-pair-timer">
-              {formatCountdown(activePairing.expiresAt)}
+              {formatCountdown(activePairing.expiresAt, t)}
             </span>
           </>
         ) : (
           <>
             <p className="connect-pair-headline">
-              Connect your phone to your computer
+              {t("settings.phoneAccess.intro.headline")}
             </p>
 
             <ol className="connect-pair-steps">
               <li className="connect-pair-step">
                 <p className="connect-pair-step-title">
                   <span className="connect-pair-step-num">1.</span>
-                  Download the app
+                  {t("settings.phoneAccess.steps.download")}
                 </p>
                 <div className="connect-pair-step-visual">
                   <div className="connect-pair-qr-block">
                     {appStoreQrDataUrl ? (
                       <img
                         src={appStoreQrDataUrl}
-                        alt="Scan to download Stella from the App Store"
+                        alt={t("settings.phoneAccess.steps.downloadQrAlt")}
                         className="connect-pair-qr"
                       />
                     ) : (
@@ -164,7 +175,7 @@ export function PhoneAccessConnectCard() {
               <li className="connect-pair-step">
                 <p className="connect-pair-step-title">
                   <span className="connect-pair-step-num">2.</span>
-                  Connect your phone
+                  {t("settings.phoneAccess.steps.connect")}
                 </p>
                 <div className="connect-pair-step-visual">
                   <Button
@@ -182,7 +193,9 @@ export function PhoneAccessConnectCard() {
                       textUnderlineOffset: "4px",
                     }}
                   >
-                    {isCreating ? "Preparing..." : "Get Code"}
+                    {isCreating
+                      ? t("settings.phoneAccess.preparing")
+                      : t("settings.phoneAccess.getCode")}
                   </Button>
                 </div>
               </li>
@@ -195,12 +208,15 @@ export function PhoneAccessConnectCard() {
         {pairedDevices.length > 0 && (
           <div className="connect-paired-devices">
             <span className="connect-pair-meta">
-              {pairedDevices.length} phone{pairedDevices.length > 1 ? "s" : ""} paired
+              {tPlural(
+                "settings.phoneAccess.pairedCount",
+                pairedDevices.length,
+              )}
             </span>
             {pairedDevices.map((device) => (
               <div key={device.mobileDeviceId} className="connect-paired-device">
                 <span className="connect-paired-device-name">
-                  {device.displayName?.trim() || "Phone"}
+                  {device.displayName?.trim() || t("settings.phoneAccess.deviceFallback")}
                 </span>
                 <button
                   type="button"
@@ -208,7 +224,9 @@ export function PhoneAccessConnectCard() {
                   onClick={() => void handleRemovePhone(device.mobileDeviceId)}
                   disabled={removingMobileDeviceId === device.mobileDeviceId}
                 >
-                  {removingMobileDeviceId === device.mobileDeviceId ? "Removing..." : "Remove"}
+                  {removingMobileDeviceId === device.mobileDeviceId
+                    ? t("settings.phoneAccess.removing")
+                    : t("settings.phoneAccess.remove")}
                 </button>
               </div>
             ))}

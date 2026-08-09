@@ -45,6 +45,7 @@ import {
 import { ComposerModelMentionTextarea } from "./ModelMentionText";
 import { MiniModelPicker } from "./MiniModelPicker";
 import { useUiState } from "@/context/ui-state";
+import { useT } from "@/shared/i18n";
 import "./full-shell.composer.css";
 
 type ComposerProps = {
@@ -84,6 +85,7 @@ function ComposerImpl({
   replyPeek,
   suggestionsActive = true,
 }: ComposerProps) {
+  const t = useT();
   const { state: uiState } = useUiState();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -268,7 +270,7 @@ function ComposerImpl({
           >
             <ComposerAddMenu
               className="composer-add-button"
-              title="Add"
+              title={t("app.chat.composer.add")}
               setChatContext={setChatContext}
               onSelectArea={onSelectArea}
               contextSuggestions={contextSuggestions.suggestions}
@@ -346,7 +348,7 @@ function ComposerImpl({
                   <div className="composer-toolbar-left">
                     <ComposerAddMenu
                       className="composer-add-button composer-add-button--toolbar"
-                      title="Add"
+                      title={t("app.chat.composer.add")}
                       setChatContext={setChatContext}
                       onSelectArea={onSelectArea}
                       contextSuggestions={contextSuggestions.suggestions}
@@ -366,7 +368,9 @@ function ComposerImpl({
                         onClick={dictation.toggle}
                         title={
                           dictation.error
-                            ? `Dictation: ${dictation.error}`
+                            ? t("app.chat.composer.dictationError", {
+                                error: dictation.error,
+                              })
                             : undefined
                         }
                       />
@@ -382,8 +386,8 @@ function ComposerImpl({
                       <ComposerStopButton
                         className="composer-stop"
                         onClick={onStop}
-                        title="Stop"
-                        aria-label="Stop"
+                        title={t("app.chat.composer.stop")}
+                        aria-label={t("app.chat.composer.stop")}
                       />
                     )}
                     {showRealtimeVoice ? null : (

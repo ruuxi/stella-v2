@@ -15,6 +15,7 @@ import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
 import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import type { ChatArtifact } from "../../src/types";
+import { useT } from "../../src/i18n";
 
 /**
  * The Chat tab: a cloud conversation with Stella that works anywhere, with no
@@ -24,6 +25,7 @@ import type { ChatArtifact } from "../../src/types";
  */
 export default function ChatScreen() {
   const colors = useColors();
+  const t = useT();
   const guest = isGuest();
   const offline = useIsOffline();
   const { setConnection: setTopBarConnection } = useTopBarStatus();
@@ -106,7 +108,9 @@ export default function ChatScreen() {
         messages={thread.messages}
         streaming={thread.sending}
         workingIndicator={thread.workingIndicator}
-        emptyContent={<Text style={styles.emptyText}>Ask Stella anything</Text>}
+        emptyContent={
+          <Text style={styles.emptyText}>{t("mobile.chat.emptyPrompt")}</Text>
+        }
         historyLoading={!thread.storageLoaded}
         draft={thread.draft}
         onChangeDraft={thread.setDraft}
@@ -117,7 +121,7 @@ export default function ChatScreen() {
         realtimeVoiceExecution="phone"
         realtimeVoiceSignInRequired={guest}
         onRealtimeVoiceAction={performRealtimeVoiceAction}
-        placeholder="Message Stella"
+        placeholder={t("mobile.chat.composerPlaceholder")}
         offline={offline}
         enableAttachments
         attachments={thread.attachments}

@@ -11,15 +11,29 @@ export type ReasoningEffortOptionId =
 
 export type ReasoningEffortOption = {
   id: ReasoningEffortOptionId;
+  /**
+   * English label kept for surfaces that have not moved onto `useT()` yet.
+   * Prefer `labelKey` with the i18n catalog for anything user-visible.
+   */
   label: string;
+  /** Catalog key for the localized label. */
+  labelKey: string;
 };
 
 export const REASONING_EFFORT_OPTIONS: readonly ReasoningEffortOption[] = [
-  { id: "minimal", label: "Minimal" },
-  { id: "low", label: "Low" },
-  { id: "medium", label: "Medium" },
-  { id: "high", label: "High" },
-  { id: "xhigh", label: "Extra" },
+  {
+    id: "minimal",
+    label: "Minimal",
+    labelKey: "settings.reasoningEffort.minimal",
+  },
+  { id: "low", label: "Low", labelKey: "settings.reasoningEffort.low" },
+  {
+    id: "medium",
+    label: "Medium",
+    labelKey: "settings.reasoningEffort.medium",
+  },
+  { id: "high", label: "High", labelKey: "settings.reasoningEffort.high" },
+  { id: "xhigh", label: "Extra", labelKey: "settings.reasoningEffort.xhigh" },
 ];
 
 /**

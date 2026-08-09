@@ -10,14 +10,16 @@
 
 import { useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useT } from "@/shared/i18n";
 import { dispatchComposeText } from "@/shared/lib/stella-orb-chat";
 import type { UserApp } from "@/app/apps/user-apps-registry";
 
 export type UserAppSort = "recent" | "name";
 
+/** i18n keys (not literal copy) — resolve with `t()` at render time. */
 export const USER_APP_SORT_LABELS: Record<UserAppSort, string> = {
-  recent: "Recent",
-  name: "Name",
+  recent: "app.apps.sort.recent",
+  name: "app.apps.sort.name",
 };
 
 export const isUserAppSort = (value: string): value is UserAppSort =>
@@ -86,8 +88,6 @@ export function listUserApps(
   return filtered;
 }
 
-const CREATE_APP_PROMPT = "Tell me what stella apps can you make for me?";
-
 /**
  * Hand the user to chat with the "what can you build me" prompt already in the
  * composer. The compose event only lands on a mounted composer, so the
@@ -95,11 +95,12 @@ const CREATE_APP_PROMPT = "Tell me what stella apps can you make for me?";
  */
 export function useRequestUserApp(): () => void {
   const navigate = useNavigate();
+  const t = useT();
   return useCallback(() => {
     void navigate({ to: "/chat" }).then(() => {
       requestAnimationFrame(() => {
-        dispatchComposeText({ text: CREATE_APP_PROMPT });
+        dispatchComposeText({ text: t("app.apps.createAppPrompt") });
       });
     });
-  }, [navigate]);
+  }, [navigate, t]);
 }

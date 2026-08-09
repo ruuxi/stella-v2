@@ -16,7 +16,8 @@
     "tryAgain": "Tekrar dene",
     "language": "Dil",
     "yes": "Evet",
-    "no": "Hayır"
+    "no": "Hayır",
+    "copy": "Kopyala"
   },
   "sidebar": {
     "signIn": "Giriş yap",
@@ -37,6 +38,11 @@
     "language": {
       "title": "Dil",
       "description": "Stella'nın uygulamada ve yanıtlarında kullanacağı dili seçin."
+    },
+    "workingMode": {
+      "title": "Orkestratör modu",
+      "directDescription": "Stella görevleri kendisi yürütür ve yalnızca yararlı olduğunda devreder.",
+      "orchestratedDescription": "Stella, daha büyük işleri alt aracılara bölebilen bir General aracısını koordine eder."
     },
     "developerPreviews": {
       "title": "Geliştirici dosya önizlemeleri",
@@ -312,6 +318,7 @@
       "descriptions": {
         "voice": "Stella'nın konuşma tarzını ve kişilik sesini seçin.",
         "permissions": "macOS'te erişilebilirlik, ekran kaydı ve mikrofon erişimi verin.",
+        "shortcuts": "Dikte ve ses kısayollarını değiştirin.",
         "backup": "Otomatik şifreli yedekler, geri yükleme noktaları ve istek üzerine anlık görüntüler.",
         "account": "Çıkış yapın, verilerinizi silin veya hesabınızı kalıcı olarak silin.",
         "legal": "Hizmet Koşulları ve Gizlilik Politikası.",
@@ -334,6 +341,9 @@
       "loadVoice": "Ses ayarı yüklenemedi.",
       "saveVoice": "Ses ayarı güncellenemedi.",
       "voiceUnavailable": "Ses ayarları bu pencerede kullanılamıyor.",
+      "loadWorkingMode": "Orkestratör modu yüklenemedi.",
+      "saveWorkingMode": "Orkestratör modu güncellenemedi.",
+      "workingModeUnavailable": "Orkestratör modu bu pencerede kullanılamıyor.",
       "loadPermissions": "Masaüstü izin durumu yüklenemedi.",
       "savePermission": "{kind} izni güncellenemedi.",
       "resetPermission": "{kind} izni sıfırlanamadı.",
@@ -341,6 +351,229 @@
       "microphoneDeniedReopen": "Mikrofon erişimi daha önce reddedildi. Sistem Ayarları'ndan açın, ardından Stella'yı yeniden açın.",
       "microphoneStillOff": "Mikrofon erişimi hâlâ kapalı. Sistem Ayarları'ndan açın, ardından Stella'yı yeniden açın.",
       "restart": "Stella yeniden başlatılamadı."
+    },
+    "voiceCatalog": {
+      "label": "Ses",
+      "familyAriaLabel": "Ses ailesi",
+      "familyTitle": {
+        "openai": "OpenAI Realtime sesleri (belirteci Stella üretir)",
+        "xai": "xAI Grok sesleri (belirteci Stella üretir)",
+        "inworld": "Inworld sesleri (SDP değişimini Stella aktarır)"
+      },
+      "source": {
+        "openai": "OpenAI sesleri",
+        "xai": "Grok sesleri",
+        "inworld": "Inworld sesleri"
+      },
+      "previousVoice": "Önceki ses",
+      "nextVoice": "Sonraki ses",
+      "menuAriaLabel": "{source} sesi",
+      "speed": "Hız",
+      "speedAriaLabel": "Inworld ses hızı",
+      "readAloud": {
+        "label": "Sesli oku",
+        "ariaLabel": "Sesli okuma ses sağlayıcısı",
+        "openaiTitle": "Yanıtları OpenAI TTS ile sesli oku",
+        "inworldTitle": "Yanıtları Inworld TTS ile sesli oku",
+        "description": "Yanıtları bu sağlayıcının sesiyle sesli okur."
+      }
+    },
+    "phoneAccess": {
+      "expired": "Süresi doldu",
+      "timeLeft": "{time} kaldı",
+      "copy": "Kopyala",
+      "preparing": "Hazırlanıyor...",
+      "getCode": "Kod Al",
+      "deviceFallback": "Telefon",
+      "removing": "Kaldırılıyor...",
+      "remove": "Kaldır",
+      "signedOut": {
+        "headline": "Başlamak için giriş yapın",
+        "body": "Mobil uygulamayla eşleştirmek için Stella hesabınıza giriş yapın."
+      },
+      "pairing": {
+        "headline": "Bu kodu tarayın veya girin",
+        "body": "Telefonunuzda Stella uygulamasını açıp QR kodu tarayın veya aşağıdaki kodu yazın. Bunu yalnızca bir kez yapmanız gerekir.",
+        "qrAlt": "Telefonunuzu eşleştirmek için tarayın"
+      },
+      "intro": {
+        "headline": "Telefonunuzu bilgisayarınıza bağlayın"
+      },
+      "steps": {
+        "download": "Uygulamayı indirin",
+        "downloadQrAlt": "Stella'yı App Store'dan indirmek için tarayın",
+        "connect": "Telefonunuzu bağlayın"
+      },
+      "toasts": {
+        "codeCopied": "Kod panoya kopyalandı",
+        "phoneRemoved": "Telefon kaldırıldı",
+        "removeFailed": "Telefon kaldırılamadı"
+      },
+      "errors": {
+        "createPairing": "Eşleştirme kodu oluşturulamıyor."
+      },
+      "pairedCount": {
+        "one": "{count} telefon eşleştirildi",
+        "other": "{count} telefon eşleştirildi"
+      }
+    },
+    "modelPicker": {
+      "searchPlaceholder": "Modellerde ara…",
+      "searchAriaLabel": "Modellerde ara",
+      "closeSearch": "Aramayı kapat",
+      "apiKeyPlaceholder": "API anahtarı",
+      "apiKeyAriaLabel": "{provider} API anahtarı",
+      "cancelSignIn": "Girişi iptal et",
+      "signInWith": "{provider} ile giriş yap",
+      "saving": "Kaydediliyor…",
+      "use": "Kullan",
+      "selected": "Seçili",
+      "refresh": "Model kataloğunu yenile",
+      "restrictedPlan": "{plan} planında kullanılamaz",
+      "reasoning": {
+        "label": "Akıl yürütme düzeyi",
+        "default": "Otomatik",
+        "minimal": "En az",
+        "low": "Düşük",
+        "medium": "Orta",
+        "high": "Yüksek",
+        "xhigh": "En yüksek"
+      },
+      "authHint": {
+        "both": "Giriş yapın veya bir API anahtarı yapıştırın. Kimlik bilgileri bu cihazda kalır.",
+        "oauth": "Kimlik bilgileri bu cihazda kalır.",
+        "apiKey": "API anahtarınız bu cihazda kalır."
+      },
+      "actions": {
+        "cancel": "İptal",
+        "signIn": "Giriş yap",
+        "addKey": "Anahtar ekle",
+        "custom": "Özel"
+      },
+      "signOut": {
+        "ariaLabel": "{provider} oturumunu kapat",
+        "confirmAriaLabel": "{provider} oturumunu kapatmak için tekrar tıklayın",
+        "confirmTitle": "Onaylamak için tekrar tıklayın"
+      },
+      "local": {
+        "hint": "OpenAI uyumlu herhangi bir yerel sunucuyu kullanın. Ollama genellikle aşağıdaki adreste çalışır.",
+        "serverUrlAriaLabel": "Yerel sunucu adresi",
+        "modelNameAriaLabel": "Yerel model adı"
+      },
+      "openRouter": {
+        "hintBefore": "OpenRouter herhangi bir",
+        "hintAfter": "kimliğini kabul eder. Doğrudan kullanmak için birini yazın.",
+        "modelIdAriaLabel": "OpenRouter model kimliği"
+      },
+      "empty": {
+        "none": "Henüz kullanılabilir model yok.",
+        "noMatch": "Eşleşen model yok."
+      },
+      "favorite": {
+        "remove": "Favorilerden çıkar",
+        "add": "Favorilere ekle",
+        "addTitle": "Favori — en üste sabitle"
+      },
+      "errors": {
+        "saveApiKey": "API anahtarı kaydedilemedi.",
+        "oauthLogin": "OAuth girişi başarısız oldu."
+      }
+    },
+    "providerPicker": {
+      "connected": "Bağlı",
+      "connect": "Bağlan",
+      "opening": "Açılıyor…"
+    },
+    "engineModels": {
+      "ariaLabel": "{engine} modelleri",
+      "loading": "{engine} modelleri yükleniyor…",
+      "empty": "Kullanılabilir {engine} modeli yok."
+    },
+    "providerConnected": {
+      "title": "Stella için {provider} kullanılsın mı?",
+      "description": "{provider}, Stella'nın birden fazla bölümünü çalıştırabilir. Nerede devralmasını istediğinizi seçin — gerisini Stella yapmaya devam eder.",
+      "assistant": {
+        "label": "Asistan",
+        "description": "Stella'nın sohbet asistanını {provider} üzerinden yönlendirin."
+      },
+      "image": {
+        "label": "Görsel",
+        "description": "Görselleri {provider} hesabınız üzerinden oluşturun."
+      },
+      "voice": {
+        "label": "Ses",
+        "description": "Gerçek zamanlı sesli görüşmeler için {provider} kullanın."
+      },
+      "skip": "Atla",
+      "apply": "Uygula",
+      "applying": "Uygulanıyor…",
+      "errors": {
+        "apply": "Sağlayıcı ayarları uygulanamadı."
+      }
+    },
+    "compactModelList": {
+      "ariaLabel": "Stella modelleri",
+      "recent": "Son kullanılanlar",
+      "unavailable": "Kullanılamıyor",
+      "unavailableTitle": "Bu model artık kullanılamıyor — başka birini seçin.",
+      "loading": "Stella modelleri yükleniyor…",
+      "loadFailed": "Stella modelleri yüklenemedi.",
+      "empty": "Kullanılabilir Stella modeli yok.",
+      "retry": "Yeniden dene",
+      "restricted": "Planınız Stella'nın seçimini kullanır.",
+      "restrictedPlan": "{plan} planı Stella'nın seçimini kullanır.",
+      "upgrade": "Yükselt"
+    },
+    "reasoningEffort": {
+      "minimal": "En az",
+      "low": "Düşük",
+      "medium": "Orta",
+      "high": "Yüksek",
+      "xhigh": "Ekstra"
+    },
+    "agentModelPicker": {
+      "byokDescription": "Kendi {provider} API anahtarınızı kullanın.",
+      "unavailableChooseAnother": "Kullanılamıyor — başka bir model seçin",
+      "chatGptRouted": "{model} modeline yönlendirildi (kayıtlı model kullanılamıyor).",
+      "default": "Varsayılan",
+      "stellaDefault": "Stella Varsayılanı",
+      "surfaceAriaLabel": "Yüzey",
+      "waitingForChatGpt": "ChatGPT bekleniyor…",
+      "imageProviderAriaLabel": "Görsel sağlayıcısı",
+      "voiceProviderAriaLabel": "Ses sağlayıcısı",
+      "assistantPickerAriaLabel": "Asistan modeli seçici",
+      "verifyingChatGpt": "ChatGPT modelleri doğrulanıyor…",
+      "noChatGptCodexModels": "Şu anda hem ChatGPT hem de Codex için kullanılabilir model yok.",
+      "savedModelUnavailable": "Kayıtlı model kullanılamıyor. Başka bir model seçin.",
+      "tabs": {
+        "assistant": "Asistan",
+        "assistantTitle": "Stella'nın ana asistanı",
+        "image": "Görsel",
+        "imageTitle": "Görsel oluşturma sağlayıcısı",
+        "voice": "Ses",
+        "voiceTitle": "Gerçek zamanlı ses sağlayıcısı"
+      },
+      "errors": {
+        "loadPreferences": "Model ayarları yüklenemedi.",
+        "chatGptMigration": "ChatGPT yönlendirme geçişi başarısız oldu.",
+        "chatGptVerify": "ChatGPT modelleri doğrulanamadı: {error}",
+        "chatGptVerifying": "ChatGPT modellerinin doğrulanmasının bitmesini bekleyin.",
+        "chatGptNotConnected": "Seçim yapmadan önce ChatGPT bağlanmalıdır.",
+        "chatGptNoModels": "Şu anda kullanılabilir ChatGPT modeli yok.",
+        "connectChatGpt": "ChatGPT bağlanamadı.",
+        "updateEngine": "Motor güncellenemedi.",
+        "updateTitle": "Model ayarları güncellenemedi",
+        "refreshTitle": "Modeller yenilenemedi",
+        "updateModel": "Model ayarı güncellenemedi.",
+        "updateImage": "Görsel ayarı güncellenemedi.",
+        "updateVoice": "Ses ayarı güncellenemedi.",
+        "updateInworldSpeed": "Inworld hızı güncellenemedi.",
+        "updateVoiceFamily": "Ses ailesi güncellenemedi.",
+        "updateReadAloud": "Sesli okuma sağlayıcısı güncellenemedi.",
+        "updateReasoning": "Akıl yürütme düzeyi güncellenemedi.",
+        "updateChatGptSpeed": "ChatGPT hızı güncellenemedi.",
+        "updateDirectRuntime": "Doğrudan {runtime} ayarı güncellenemedi."
+      }
     }
   },
   "onboarding": {
@@ -357,6 +590,7 @@
       "secondary": "Stella herkes için değildir. Stella sizin içindir."
     },
     "stepTitles": {
+      "engine": "Stella'yı neyin çalıştıracağını seçin.",
       "extension": "Stella'yı tarayıcınıza ekleyin.",
       "browser": "Stella'nın sizi tanımasına izin verin.",
       "theme": "Stella nasıl görünmeli?",
@@ -372,19 +606,10 @@
       "ready": "Hazır"
     },
     "discovery": {
-      "appsSystem": {
-        "label": "Uygulamalarınız ve bilgisayarınız",
-        "description": "En çok kullandığınız uygulamalar, masaüstünüzün düzeni ve çalışma akışınız"
-      },
-      "messagesNotes": {
-        "label": "Notlarınız ve takviminiz",
-        "description": "Ne üzerinde çalıştığınız, programınız ve düşüncelerinizi nasıl düzenlediğiniz"
-      },
       "devEnvironment": {
         "label": "Geliştirme ortamınız",
         "description": "Kullandığınız araçlar, üzerinde çalıştığınız projeler ve ortamınızın yapılandırması"
-      },
-      "fdaNote": "Bazı seçenekler tam disk erişimi gerektirir"
+      }
     }
   },
   "billing": {
@@ -409,6 +634,11 @@
           "Tüm otomasyon özellikleri"
         ]
       }
+    },
+    "upgradeDialog": {
+      "title": "Stella {plan} kullanıyorsunuz.",
+      "description": "Yükseltme için teşekkürler. Daha yüksek öncelik ve artırılmış kullanım şimdi etkin — devam edin.",
+      "cta": "Başlayın"
     }
   },
   "chat": {
@@ -421,5 +651,1553 @@
     "rateLimited": "Biraz hızlısınız. Birazdan tekrar deneyin.",
     "networkUnavailable": "Stella çevrimdışı. Devam etmek için yeniden bağlanın.",
     "permissionDenied": "Stella'nın bunu yapmaya izni yok."
+  },
+  "app": {
+    "social": {
+      "newChat": {
+        "title": "Yeni mesaj",
+        "emptySubtitle": "Sohbet başlatmak için önce birkaç arkadaş ekleyin.",
+        "description": "Bir arkadaş seçin veya yeni bir grup sohbeti başlatın.",
+        "subtitle": "Bir arkadaş seçin veya grup başlatın.",
+        "groupTitle": "Yeni grup",
+        "groupSubtitle": "Bu gruba eklenecek arkadaşları seçin.",
+        "groupNameLabel": "Grup adı",
+        "groupNamePlaceholder": "Grup adı (isteğe bağlı)",
+        "members": "Üyeler",
+        "back": "Geri",
+        "creating": "Oluşturuluyor...",
+        "createGroup": "Grup oluştur",
+        "newGroup": "Yeni grup",
+        "friends": "Arkadaşlar",
+        "opening": "Açılıyor..."
+      },
+      "friends": {
+        "title": "Arkadaşlar",
+        "description": "Bağlanmak için arkadaş kodunuzu paylaşın veya istek göndermek için başkasının kodunu girin.",
+        "subtitle": "Kullanıcı adınızı paylaşın veya bağlanmak için bir arkadaşınızınkini girin.",
+        "requestSent": "Arkadaşlık isteği gönderildi!",
+        "usernameCopied": "Kullanıcı adı kopyalandı!",
+        "inviteLinkCopied": "Davet bağlantısı kopyalandı — istediğiniz yere gönderin.",
+        "yourUsername": "Kullanıcı adınız",
+        "copy": "Kopyala",
+        "copyUsernameTitle": "Kullanıcı adınızı kopyalayın",
+        "copyInviteLink": "Davet bağlantısını kopyala",
+        "copyInviteLinkTitle": "Stella'yı açıp size arkadaşlık isteği gönderen bir bağlantı kopyalayın — iMessage'da, Discord'da, her yerde çalışır",
+        "addLabel": "Arkadaş ekle",
+        "addPlaceholder": "Kullanıcı adı girin",
+        "add": "Ekle",
+        "adding": "Ekleniyor...",
+        "requestsCount": "İstekler ({count})",
+        "accept": "Kabul et",
+        "decline": "Reddet",
+        "sent": "Gönderildi",
+        "waitingForResponse": "Yanıt bekleniyor",
+        "friendsCount": "Arkadaşlar ({count})",
+        "empty": "Henüz arkadaş yok. Bağlanmak için kullanıcı adınızı paylaşın veya yukarıya başkasınınkini girin.",
+        "message": "Mesaj gönder",
+        "opening": "Açılıyor...",
+        "remove": "Kaldır",
+        "removing": "Kaldırılıyor...",
+        "errors": {
+          "sendRequest": "Bu arkadaşlık isteği gönderilemedi. Kullanıcı adını kontrol edip tekrar deneyin."
+        }
+      },
+      "communities": {
+        "title": "Topluluklar",
+        "description": "Bir topluluk oluşturun ya da davet koduyla katılın, sonra eklentileri içindeki herkesle paylaşın.",
+        "subtitle": "Paylaşım için güvenilir çevreler. Bir topluluktaki herkes, üyelerinin paylaştıklarını görür.",
+        "defaultName": "Topluluk",
+        "created": "\"{name}\" oluşturuldu!",
+        "joined": "Katıldınız!",
+        "createLabel": "Topluluk oluştur",
+        "createPlaceholder": "Yeni topluluğa bir ad verin",
+        "create": "Oluştur",
+        "joinLabel": "Davet koduyla katıl",
+        "joinPlaceholder": "Bir davet kodu girin",
+        "join": "Katıl",
+        "yourCommunities": "Toplulukların",
+        "yourCommunitiesCount": "Toplulukların ({count})",
+        "empty": "Henüz topluluk yok. Bir tane oluşturup davet kodunu paylaşın veya size gönderilen bir kodla katılın.",
+        "createdByYouSuffix": " · sizin oluşturduğunuz",
+        "open": "Aç",
+        "details": "Ayrıntılar",
+        "back": "Geri",
+        "nameLabel": "Topluluk adı",
+        "save": "Kaydet",
+        "cancel": "İptal",
+        "createdByYou": "Bu topluluğu siz oluşturdunuz.",
+        "memberOf": "Bu topluluğun üyesisiniz.",
+        "inviteCode": "Davet kodu",
+        "copied": "Kopyalandı!",
+        "copyCode": "Kodu kopyala",
+        "copyInviteLink": "Davet bağlantısını kopyala",
+        "copyInviteLinkTitle": "Stella'yı açıp bu topluluğa katılan bir bağlantı kopyalayın",
+        "inviteHint": "Bağlantı her yerde çalışır — bir Stella sohbetine yapıştırın ya da iMessage veya Discord ile gönderin. Bağlantıya sahip olan herkes katılabilir, bu yüzden yalnızca güvendiğiniz kişilerle paylaşın.",
+        "membersCount": "Üyeler ({count})",
+        "roleCreator": "Oluşturan",
+        "roleMember": "Üye",
+        "youSuffix": " · siz",
+        "remove": "Kaldır",
+        "removing": "Kaldırılıyor...",
+        "confirmDelete": "Bu topluluk gerçekten silinsin mi?",
+        "delete": "Topluluğu sil",
+        "confirmLeave": "Gerçekten ayrılmak istiyor musunuz?",
+        "leave": "Topluluktan ayrıl",
+        "rename": "Yeniden adlandır",
+        "openChat": "Sohbeti aç",
+        "errors": {
+          "create": "Bu topluluk oluşturulamadı. Lütfen tekrar deneyin.",
+          "join": "Bu davet koduyla katılınamadı. Kodu kontrol edip tekrar deneyin.",
+          "rename": "Topluluk yeniden adlandırılamadı. Lütfen tekrar deneyin.",
+          "removeMember": "Bu üye kaldırılamadı. Lütfen tekrar deneyin.",
+          "delete": "Topluluk silinemedi. Lütfen tekrar deneyin.",
+          "leave": "Topluluktan ayrılınamadı. Lütfen tekrar deneyin."
+        },
+        "memberCount": {
+          "one": "{count} üye",
+          "other": "{count} üye"
+        }
+      },
+      "view": {
+        "messages": "Mesajlar",
+        "signIn": "Giriş yap",
+        "signInSubtitle": "Arkadaşlarınıza mesaj atmak ve Stella ile birlikte çalışmak için giriş yapın.",
+        "friends": "Arkadaşlar",
+        "communities": "Topluluklar",
+        "newMessage": "Yeni mesaj",
+        "noRooms": "Henüz sohbet yok. Arkadaş ekleyin veya yeni bir mesaj başlatın.",
+        "addFriends": "Arkadaş ekle",
+        "communityBadge": "Topluluk",
+        "communityBadgeTitle": "Bu topluluktaki herkesle paylaşıldı",
+        "usernamePlaceholder": "kullanici-adiniz",
+        "editUsername": "Kullanıcı adınızı düzenleyin",
+        "copied": "Kopyalandı!",
+        "clickToCopyUsername": "Kullanıcı adınızı kopyalamak için tıklayın",
+        "copyUsername": "Kullanıcı adını kopyala",
+        "cancel": "İptal",
+        "save": "Kaydet",
+        "saving": "Kaydediliyor...",
+        "emptyTitle": "Mesajlarınız",
+        "emptySubtitle": "Soldan bir sohbet seçin veya bir arkadaşınızla yeni bir sohbet başlatın.",
+        "errors": {
+          "startConversation": "Bu sohbet başlatılamadı. Lütfen tekrar deneyin.",
+          "createGroup": "Grup oluşturulamadı. Lütfen tekrar deneyin."
+        },
+        "usernameErrors": {
+          "empty": "Kullanıcı adı boş olamaz.",
+          "length": "Kullanıcı adı 3-32 karakter olmalıdır.",
+          "format": "Küçük harf, rakam, _ veya - kullanın. Bir harf veya rakamla başlayıp bitmelidir.",
+          "update": "Kullanıcı adınız güncellenemedi. Lütfen tekrar deneyin."
+        },
+        "newRequestCount": {
+          "one": "{count} yeni istek",
+          "other": "{count} yeni istek"
+        },
+        "friendsWithRequestsTitle": "Arkadaşlar ({countPhrase})",
+        "friendsWithRequestsAria": "Arkadaşlar, {countPhrase}"
+      },
+      "chat": {
+        "stellaNoReply": "Stella yanıt vermeden tamamladı.",
+        "stellaFailed": "Stella bu isteği tamamlayamadı.",
+        "stellaThinking": "Stella düşünüyor...",
+        "sharedStellaUnavailable": "Paylaşılan Stella bu uygulama oturumunda kullanılamıyor.",
+        "back": "Geri",
+        "backToConversations": "Sohbetlere dön",
+        "peopleCount": "{count} kişi",
+        "startStella": "Stella'yı başlat",
+        "startStellaTitle": "Stella'yı bu sohbete dahil edin",
+        "starting": "Başlatılıyor...",
+        "startAgain": "Yeniden Başlat",
+        "pause": "Duraklat",
+        "resume": "Sürdür",
+        "end": "Bitir",
+        "sayHello": "Sohbeti başlatmak için selam verin",
+        "loadingOlder": "Eski mesajlar yükleniyor…",
+        "armedOnTitle": "Sonraki mesajı Stella'ya gönder",
+        "armedOffTitle": "Sonraki mesajı normal bir sohbet mesajı olarak gönder",
+        "tellStella": "Stella'ya söyle",
+        "tellingStella": "Stella'ya söyleniyor",
+        "tellStellaPlaceholder": "Stella'ya ne istediğinizi söyleyin...",
+        "messagePlaceholder": "{name} kişisine mesaj",
+        "sessionBadge": {
+          "live": "Stella · Canlı",
+          "paused": "Stella · Duraklatıldı",
+          "ended": "Stella · Sona erdi"
+        },
+        "sessionHint": {
+          "live": "Buradaki herkes Stella'ya söyleyebilir.",
+          "paused": "Duraklatıldı — Stella'ya yeniden söylemek için sürdürün.",
+          "ended": "Bu paylaşılan Stella alanı sona erdi."
+        },
+        "errors": {
+          "startStella": "Stella burada başlatılamadı. Lütfen tekrar deneyin.",
+          "updateStella": "Stella şu anda güncellenemedi. Lütfen tekrar deneyin.",
+          "sendToStella": "Bu, Stella'ya gönderilemedi. Lütfen tekrar deneyin.",
+          "sendMessage": "Mesajınız gönderilemedi. Lütfen tekrar deneyin."
+        }
+      },
+      "composer": {
+        "placeholder": "Bir mesaj yazın...",
+        "send": "Gönder"
+      },
+      "inviteCard": {
+        "communityEyebrow": "Topluluk daveti",
+        "friendEyebrow": "Arkadaşlık daveti",
+        "defaultCommunityName": "Topluluk",
+        "defaultUserName": "Stella kullanıcısı",
+        "friendDetail": "Arkadaşlık isteği göndermek için dokunun",
+        "inviteUnavailable": "Davet kullanılamıyor",
+        "userNotFound": "Kullanıcı bulunamadı",
+        "communityMissing": "Bu topluluk artık yok veya kod değişti.",
+        "userMissing": "Bu davet bağlantısı bir Stella kullanıcısıyla eşleşmiyor.",
+        "communityDetail": {
+          "one": "{countLabel} üye · katılmak için dokunun",
+          "other": "{countLabel} üye · katılmak için dokunun"
+        }
+      }
+    },
+    "usage": {
+      "desktopOnly": "Yerel kullanım, Stella masaüstü uygulamasında sunulur.",
+      "intro": "Bu cihazda saklanan sağlayıcı çağrıları. Maliyetler yerel tahminlerdir; sunucu tarafındaki faturalandırma esas alınır.",
+      "refresh": "Yenile",
+      "refreshLabel": "Kullanımı yenile",
+      "selectedThread": "Seçili iş parçacığı",
+      "viewAllThreads": "Tüm iş parçacıklarını gör",
+      "loading": "Yerel kullanım yükleniyor…",
+      "loadError": "Yerel kullanım yüklenemedi",
+      "tryAgain": "Tekrar deneyin",
+      "emptyTitle": "Bu filtrelerle eşleşen model çağrısı yok.",
+      "emptyBody": "Yerel çağrılar, sağlayıcıları nihai kullanım verisi döndürdükten sonra burada görünür.",
+      "truncatedWarning": "Bu aralıktaki en son 10.000 çağrı gösteriliyor. Tam toplamlar için zaman aralığını daraltın.",
+      "filters": {
+        "label": "Kullanım filtreleri",
+        "timeRange": "Zaman aralığı",
+        "conversation": "Sohbet",
+        "thread": "İş parçacığı",
+        "agentType": "Aracı türü",
+        "model": "Model",
+        "allConversations": "Tüm sohbetler",
+        "allThreads": "Tüm iş parçacıkları",
+        "allAgentTypes": "Tüm aracı türleri",
+        "allModels": "Tüm modeller",
+        "range": {
+          "24h": "Son 24 saat",
+          "7d": "Son 7 gün",
+          "30d": "Son 30 gün",
+          "all": "Tüm zamanlar"
+        }
+      },
+      "summary": {
+        "label": "Kullanım özeti",
+        "estimatedCost": "Tahmini maliyet",
+        "providerCalls": "{count} sağlayıcı çağrısı",
+        "totalTokens": "Toplam token",
+        "uncachedInput": "{value} önbelleklenmemiş giriş",
+        "cacheRead": "Önbellek okuma",
+        "cacheDetail": "{read} okundu · {written} yazıldı",
+        "output": "Çıkış",
+        "reasoningTokens": "{value} akıl yürütme token'ı"
+      },
+      "timeline": {
+        "title": "Zaman çizelgesi",
+        "description": "Zaman dilimi başına tahmini maliyet ve toplam token.",
+        "chartLabel": "Tahmini model maliyeti ve token kullanımının zaman çizelgesi",
+        "series": {
+          "cost": "Tahmini maliyet",
+          "tokens": "Token"
+        },
+        "tooltip": {
+          "estimated": "{value} tahmini",
+          "tokens": "{value} token",
+          "calls": "{count} model çağrısı"
+        }
+      },
+      "threads": {
+        "title": "İş parçacıkları",
+        "description": "Orkestratör, aracılar ve iç içe alt aracılar.",
+        "columns": {
+          "execution": "Yürütme",
+          "model": "Model",
+          "calls": "Çağrılar",
+          "tokens": "Token",
+          "cache": "Önbellek",
+          "cost": "Maliyet"
+        }
+      },
+      "calls": {
+        "title": "Sağlayıcı çağrıları",
+        "description": "Sağlayıcı dahil ettiğinde çıkış akıl yürütmeyi de içerir; bildirildiğinde akıl yürütme ayrıca gösterilir.",
+        "costBreakdown": "Giriş {input} · önbellek okuma {cacheRead} · önbellek yazma {cacheWrite} · çıkış {output}",
+        "truncatedNote": "Eşleşen en son 500 çağrı gösteriliyor; özet toplamları yüklenen {count} çağrının tamamını içerir.",
+        "columns": {
+          "time": "Zaman",
+          "execution": "Yürütme",
+          "providerModel": "Sağlayıcı / model",
+          "input": "Giriş",
+          "cache": "Önbellek O / Y",
+          "output": "Çıkış",
+          "reasoning": "Akıl yürütme",
+          "cost": "Maliyet",
+          "stop": "Durdurma"
+        }
+      }
+    },
+    "apps": {
+      "loading": "Uygulamalar yükleniyor…",
+      "unsupportedTitle": "Uygulamalar masaüstünde kullanılabilir.",
+      "unsupportedBody": "Yerel olarak kurulu uygulamaları kullanmak için Stella'yı bilgisayarınızda açın.",
+      "errorTitle": "Uygulamalar yüklenemedi",
+      "errorBody": "Stella uygulama klasörünüzü okuyamadı.",
+      "tryAgain": "Tekrar deneyin",
+      "heroTitleEmphasis": "Sizin",
+      "heroTitleRest": "uygulamalarınız",
+      "staleWarning": "Uygulamalar güncel olmayabilir.",
+      "searchPlaceholder": "Uygulamalarda ara",
+      "sortLabel": "Sırala",
+      "createApp": "Uygulama oluştur",
+      "noMatchPrefix": "Eşleşen uygulama yok:",
+      "noMatchSuffix": ".",
+      "emptyTitle": "Burada henüz bir şey yok.",
+      "emptyBody": "Stella'dan küçük bir uygulama oluşturmasını isteyin. Burada görünecek.",
+      "emptyAction": "Stella'dan uygulama oluşturmasını iste",
+      "createAppPrompt": "Söyle bakalım, benim için hangi stella uygulamalarını yapabilirsin?",
+      "sort": {
+        "recent": "Son kullanılanlar",
+        "name": "Ad"
+      },
+      "frame": {
+        "startFailed": "Uygulama başlatılamadı.",
+        "timeout": "Uygulamanın yüklenmesi çok uzun sürdü.",
+        "loadFailed": "Uygulama yüklenemedi.",
+        "loading": "{name} yükleniyor…",
+        "openFailed": "{name} açılamadı"
+      }
+    },
+    "pets": {
+      "sort": {
+        "downloads": "En popüler",
+        "name": "Alfabetik"
+      },
+      "animations": {
+        "idle": "Boşta",
+        "runningRight": "Sağa koş",
+        "runningLeft": "Sola koş",
+        "waving": "El sallama",
+        "jumping": "Zıplama",
+        "failed": "Başarısız",
+        "waiting": "Bekleme",
+        "running": "Çalışma",
+        "review": "İnceleme"
+      },
+      "card": {
+        "by": "{creator} tarafından",
+        "selections": "{count} seçim",
+        "get": "Al",
+        "select": "Seç",
+        "selected": "Seçili",
+        "remove": "Kaldır"
+      },
+      "details": {
+        "caption": "{creator} tarafından · {downloads} seçim",
+        "previewLabel": "{name} önizlemesi",
+        "animations": "Animasyonlar",
+        "animationStates": "Animasyon durumları"
+      }
+    },
+    "chat": {
+      "activityPill": {
+        "idle": "Etkinlik",
+        "openActivity": "{label} — etkinliği aç",
+        "statusCanceled": "Durduruldu",
+        "statusDone": "Tamamlandı",
+        "statusError": "Tamamlanamadı",
+        "statusRunning": "Görev sürüyor",
+        "tasksInProgress": {
+          "one": "{count} görev sürüyor",
+          "other": "{count} görev sürüyor"
+        }
+      },
+      "addMenu": {
+        "add": "Ekle",
+        "attachFiles": "Dosya ekle…",
+        "capture": "Yakala",
+        "context": "Bağlam",
+        "recent": "Son kullanılanlar",
+        "selectArea": "Alan seç"
+      },
+      "agentCompletion": {
+        "openNamedThread": "{title} aracı iş parçacığını aç",
+        "openThread": "Aracı iş parçacığını aç",
+        "showLess": "Daha az göster",
+        "showMore": {
+          "one": "+{count} daha",
+          "other": "+{count} daha"
+        }
+      },
+      "agentModelIcon": {
+        "unavailable": "Model ayrıntıları kullanılamıyor"
+      },
+      "backgroundWork": {
+        "agentThread": "Aracı iş parçacığı",
+        "followUp": "Takip",
+        "openNamedThread": "{title} aracı iş parçacığını aç",
+        "openThread": "Aracı iş parçacığını aç",
+        "taskCount": {
+          "one": "{count} görev",
+          "other": "{count} görev"
+        },
+        "title": "Arka plandaki iş"
+      },
+      "column": {
+        "scrollToBottom": "En alta kaydır"
+      },
+      "composer": {
+        "add": "Ekle",
+        "dictationError": "Dikte: {error}",
+        "stop": "Durdur"
+      },
+      "connectorConnect": {
+        "cancel": "İptal",
+        "connect": "Bağlan",
+        "connectedApp": "Bağlandı. Stella isteğinize devam ediyor.",
+        "connectedExtension": "Uzantı algılandı. Stella isteğinize devam ediyor.",
+        "connectingApp": "Tarayıcınızda {name} girişini tamamlayın. Onaylandığında Stella devam edecek.",
+        "connectingExtension": "Az önce açılan Chrome Web Store sekmesinden uzantıyı ekleyin. Kurulduğunda Stella otomatik olarak devam eder.",
+        "errorBody": "{name} bağlanamadı.",
+        "install": "Kur",
+        "notNow": "Şimdi değil",
+        "titleConnected": "{name} bağlandı",
+        "titleError": "{name} bağlanamadı",
+        "titleOffer": "{name} bağlansın mı?",
+        "titleOfferExtension": "{name} bağlansın mı?",
+        "titleWaiting": "{name} bekleniyor"
+      },
+      "contextChips": {
+        "activityFallback": "Etkinlik",
+        "fileClickToOpen": "{name} — açmak için tıklayın",
+        "pastedTextLabel": "Yapıştırılan metin · {stats}",
+        "pastedTextTitle": "Yapıştırılan metin — {stats}",
+        "removeActivity": "Etkinlik bağlamını kaldır",
+        "removeFile": "{name} dosyasını kaldır",
+        "removePastedText": "Yapıştırılan metni kaldır",
+        "removeScreenshot": "{index} numaralı ekran görüntüsünü kaldır",
+        "removeSelectedArea": "Seçili alanı kaldır: {label}",
+        "removeSelectedText": "Seçili metni kaldır",
+        "removeWindow": "{app} pencere bağlamını kaldır",
+        "screenshotAlt": "Ekran görüntüsü {index}",
+        "screenshotEnlargeTitle": "Ekran görüntüsünü büyütmek için tıklayın",
+        "selectedAreaFallback": "Seçili alan",
+        "windowCapturing": "{label} — pencere yakalanıyor…",
+        "windowClickToEnlarge": "{label} — büyütmek için tıklayın",
+        "windowPreviewAlt": "Pencere içeriği önizlemesi",
+        "windowScreenshotAlt": "{label} pencere ekran görüntüsü"
+      },
+      "contextRow": {
+        "addActiveWindow": "{detail} ögesini (geçerli pencere) bağlam olarak ekle",
+        "addContext": "{detail} ögesini bağlam olarak ekle"
+      },
+      "dropOverlay": {
+        "label": "Dosyaları buraya bırakın"
+      },
+      "endResource": {
+        "category": {
+          "audio": "Ses",
+          "canvas": "Tuval",
+          "code": "Kod",
+          "document": "Belge",
+          "file": "Dosya",
+          "image": "Görsel",
+          "link": "Bağlantı",
+          "media": "Medya",
+          "model3d": "3B Model",
+          "pdf": "PDF",
+          "slides": "Slaytlar",
+          "spreadsheet": "E-tablo",
+          "table": "Tablo",
+          "text": "Metin",
+          "trash": "Çöp Kutusu",
+          "video": "Video"
+        },
+        "fileChangeCount": {
+          "one": "{count} dosya değişikliği",
+          "other": "{count} dosya değişikliği"
+        },
+        "imageCount": {
+          "one": "{count} görsel",
+          "other": "{count} görsel"
+        },
+        "openInPanel": "Panelde aç",
+        "openPreview": "Önizlemeyi aç"
+      },
+      "fileCategory": {
+        "archive": "Arşiv",
+        "audio": "Ses",
+        "code": "Kod dosyası",
+        "document": "Belge",
+        "file": "Dosya",
+        "pdf": "PDF",
+        "spreadsheet": "E-tablo",
+        "video": "Video"
+      },
+      "fileLink": {
+        "openFailed": "{filePath} açılamadı"
+      },
+      "filePreview": {
+        "copy": "Kopyala",
+        "save": "Kaydet"
+      },
+      "generatedImage": {
+        "generating": "Oluşturuluyor...",
+        "generatingImage": "Görsel oluşturuluyor...",
+        "generationFailed": "Görsel oluşturma başarısız oldu",
+        "hostRequired": "Görsel önizlemesi Electron ana çalışma ortamını gerektirir.",
+        "image": "Görsel",
+        "loadFailed": "Görsel yüklenemedi",
+        "openInPanel": "Panelde aç",
+        "stripLabel": "Oluşturulan görseller"
+      },
+      "mapCard": {
+        "appleMapsLabel": "Apple Maps'te aç",
+        "appleMapsTitle": "Adım adım yol tarifi için Apple Maps'te aç",
+        "frameTitle": "Harita: {title}",
+        "modeCycling": "Bisiklet",
+        "modeDriving": "Araba",
+        "modeTransit": "Toplu taşıma",
+        "modeWalking": "Yürüyüş",
+        "placesCount": {
+          "one": "{count} yer",
+          "other": "{count} yer"
+        },
+        "previewFailed": "Harita önizlemesi yüklenemedi."
+      },
+      "messageActions": {
+        "copied": "Kopyalandı",
+        "copy": "Kopyala",
+        "readAloud": "Sesli oku",
+        "stopReading": "Okumayı durdur"
+      },
+      "messageRow": {
+        "attachmentAlt": "Ek",
+        "attachmentFallback": "Ek {index}",
+        "channelKind": {
+          "deleted": "silinen",
+          "edited": "düzenlenen",
+          "message": "mesaj",
+          "reaction": "tepki",
+          "system": "sistem"
+        },
+        "clickToEnlarge": "{label} ögesini büyütmek için tıklayın",
+        "pastedTextLabel": "Yapıştırılan metin",
+        "pastedTextTitle": "Yapıştırılan metin — {stats}",
+        "reactionsSummary": "Tepkiler {reactions}",
+        "showMoreChips": "{count} tane daha göster",
+        "windowPreviewAlt": "Pencere içeriği önizlemesi"
+      },
+      "miniModelPicker": {
+        "loading": "Yükleniyor…",
+        "modelUpdateFailed": "Model ayarı güncellenemedi.",
+        "popoverLabel": "Model seçenekleri",
+        "reasoningEffortLabel": "Akıl yürütme düzeyi",
+        "reasoningUpdateFailed": "Akıl yürütme düzeyi güncellenemedi.",
+        "recent": "Son kullanılanlar",
+        "triggerLabel": "Model: {model}",
+        "unavailable": "Kullanılamıyor",
+        "updateFailedTitle": "Model ayarları güncellenemedi"
+      },
+      "modelMention": {
+        "enginesLabel": "Motorlar",
+        "noMatch": "Eşleşen motor yok"
+      },
+      "officePreview": {
+        "frameTitle": "Office önizlemesi: {title}",
+        "preparingBody": "Stella bu belge için canlı bir önizleme hazırlıyor.",
+        "sessionError": "Önizleme oturumu bir hata bildirdi.",
+        "statusError": "Önizleme hatası",
+        "statusPreparing": "Önizleme hazırlanıyor",
+        "statusReady": "Canlı önizleme",
+        "statusStopped": "Önizleme durduruldu",
+        "updatedAt": "{time} güncellendi"
+      },
+      "openWith": {
+        "loading": "Yükleniyor…",
+        "otherWaysLabel": "Başka yollarla aç",
+        "otherWaysTitle": "Başka yollarla aç…",
+        "triggerLabel": "Aç",
+        "triggerTitle": "Birlikte aç…"
+      },
+      "pdfViewer": {
+        "hostRequired": "PDF görüntüleyici Electron ana çalışma ortamını gerektirir.",
+        "loadFailed": "PDF yüklenemedi.",
+        "loading": "PDF yükleniyor…"
+      },
+      "queuedMessages": {
+        "cancel": "Sıradaki mesajı iptal et",
+        "cancelAndEdit": "İptal et ve düzenle",
+        "cancelIndexed": "Sıradaki {index} numaralı mesajı iptal et",
+        "previewLabel": "{label}. Sıradaki mesajları önizle",
+        "queuedCount": {
+          "one": "{count} mesaj sırada",
+          "other": "{count} mesaj sırada"
+        }
+      },
+      "replyPeek": {
+        "dismiss": "Önizlemeyi kapat",
+        "jumpToLatest": "En son yanıta git"
+      },
+      "scheduleReceipt": {
+        "nextRun": "sonraki {nextRun}",
+        "scheduleCount": {
+          "one": "{count} zamanlama",
+          "other": "{count} zamanlama"
+        }
+      },
+      "screenshotPreview": {
+        "alt": "Ekran görüntüsü önizlemesi {index}"
+      },
+      "timeline": {
+        "empty": "Bir sohbet başlatın",
+        "loadingConversation": "Sohbet yükleniyor"
+      },
+      "userMessage": {
+        "showLess": "Daha az göster",
+        "showMore": "Daha fazla göster"
+      },
+      "voiceSession": {
+        "label": "Stella ile konuşuldu"
+      },
+      "webSearchResults": {
+        "caption": "Web'den sonuçlar",
+        "listLabel": "Web arama sonuçları"
+      }
+    },
+    "media": {
+      "capability": {
+        "audioGeneration": {
+          "description": "Metinden konuşma, diyalog, ses efektleri veya ortam sesi",
+          "name": "Ses Üretimi"
+        },
+        "icon": {
+          "description": "Bir istemden simgeler, logolar ve küçük görseller",
+          "name": "Simge Üretici"
+        },
+        "imageEdit": {
+          "description": "Mevcut bir görseli metin talimatlarıyla düzenleyin",
+          "name": "Görsel Düzenleme"
+        },
+        "imageToVideo": {
+          "description": "Sabit bir görseli kısa bir videoya dönüştürün",
+          "name": "Görselden Videoya"
+        },
+        "speechToText": {
+          "description": "Konuşulan sesi metne dönüştürün",
+          "name": "Konuşmadan Metne"
+        },
+        "textTo3d": {
+          "description": "Bir metin isteminden 3B model oluşturun",
+          "name": "Metinden 3B'ye"
+        },
+        "textToImage": {
+          "description": "Bir metin isteminden görseller oluşturun",
+          "name": "Metinden Görsele"
+        },
+        "textToMusic": {
+          "description": "Bir istemden kısa bir müzik parçası oluşturun",
+          "name": "Metinden Müziğe"
+        },
+        "textToVideo": {
+          "description": "Bir metin isteminden kısa bir video oluşturun",
+          "name": "Metinden Videoya"
+        },
+        "videoExtend": {
+          "description": "Bir video parçasını sürdürün veya uzatın",
+          "name": "Video Uzatma"
+        },
+        "videoToVideo": {
+          "description": "Bir videoyu metin talimatlarıyla dönüştürün",
+          "name": "Videodan Videoya"
+        }
+      },
+      "imageFailure": {
+        "blocked": "Görsel isteği engellendi",
+        "canceled": "Görsel oluşturma iptal edildi",
+        "generic": "Görsel oluşturma başarısız oldu",
+        "interrupted": "Görsel oluşturma kesintiye uğradı",
+        "invalidRequest": "Görsel isteği geçersizdi",
+        "notConfigured": "Görsel hizmeti yapılandırılmamış",
+        "resultUnreadable": "Görsel sonucu okunamadı",
+        "serviceBusy": "Görsel hizmeti meşgul",
+        "temporaryError": "Görsel hizmeti geçici bir hatayla karşılaştı",
+        "tookTooLong": "Görsel oluşturma çok uzun sürdü",
+        "tookTooLongToStart": "Görsel oluşturmanın başlaması çok uzun sürdü"
+      },
+      "studio": {
+        "animate": "Canlandır",
+        "aspectRatio": "En boy oranı",
+        "category3d": "3B",
+        "categoryAudio": "Ses",
+        "categoryImage": "Görsel",
+        "categoryMusic": "Müzik",
+        "categoryVideo": "Video",
+        "chooseDifferentFile": "Başka bir dosya seçin",
+        "chooseFile": "Dosya seçin veya herhangi bir yere bırakın",
+        "copy": "Kopyala",
+        "dropFile": "Dosyayı bırakın",
+        "edit": "Düzenle",
+        "emptyDescription": "Bir yetenek seçip oluşturun — ya da başlamak için herhangi bir yere dosya bırakın.",
+        "emptyTitle": "Eseriniz",
+        "extendVideo": "Videoyu uzat",
+        "fileReadFailed": "Dosya okunamadı",
+        "generate": "Oluştur",
+        "generatedAlt": "Oluşturulan {index}",
+        "generating": "Oluşturuluyor…",
+        "generationFailed": "Oluşturma başarısız oldu",
+        "lead": "Görsel, ses, müzik, video ve 3B içerik oluşturun.",
+        "openOutputsFolder": "Çıktı klasörünü aç",
+        "profileBest": "En iyi",
+        "profileFast": "Hızlı",
+        "prompt": "İstem",
+        "promptPlaceholder": "Ne istediğinizi anlatın…",
+        "quality": "Kalite",
+        "queued": "Sırada bekliyor…",
+        "sourceAudio": "Ses dosyası",
+        "sourceFile": "Kaynak dosya",
+        "sourceImage": "Kaynak görsel",
+        "sourceVideo": "Kaynak video",
+        "submitting": "Gönderiliyor…",
+        "title": "Medya",
+        "transformVideo": "Videoyu dönüştür"
+      }
+    }
+  },
+  "desktop": {
+    "common": {
+      "continue": "Devam"
+    },
+    "tray": {
+      "tooltip": "Stella",
+      "openStella": "Stella'yı aç",
+      "quitStella": "Stella'dan çık",
+      "balloon": {
+        "title": "Stella hâlâ çalışıyor",
+        "content": "Stella sistem tepsisinde kalır. Yeniden açmak için simgeye tıklayın."
+      }
+    },
+    "dialog": {
+      "startupFailure": {
+        "title": "Stella",
+        "message": "Stella başlatmayı tamamlayamadı.",
+        "detail": "Başlatma, uygulama arayüzü yüklenemeden başarısız oldu.\n\n{detail}",
+        "relaunch": "Yeniden başlat",
+        "quit": "Çık"
+      }
+    },
+    "security": {
+      "confirmationTitle": "Stella Güvenlik Onayı",
+      "allow": "İzin ver",
+      "deny": "Reddet",
+      "rememberDecision": "Bu karar bu cihazda hatırlansın",
+      "computerUse": {
+        "message": "Computer Use'un {app} uygulamasını kullanmasına izin verilsin mi?",
+        "detail": "Computer Use, {app} uygulamasını görüntüleyebilecek ve onunla etkileşebilecek.",
+        "risk": "Risk: {risk}"
+      }
+    },
+    "oauth": {
+      "xaiCodeMessage": "xAI'yi bağlamak için bu kodu girin",
+      "expectedValue": "Beklenen değer: {value}"
+    },
+    "fashion": {
+      "pickBodyPhotoTitle": "Vücut fotoğrafınızı seçin",
+      "pickClothesTitle": "Kıyafet görsellerini seçin",
+      "imageFilterName": "Görsel"
+    }
+  },
+  "features": {
+    "browserBridge": {
+      "unavailableTitle": "Tarayıcı uzantısı kullanılamıyor",
+      "unavailableBody": "Stella tarayıcınıza bağlanamadı. Bu devam ederse uygulamayı yeniden başlatın veya Stella'yı yeniden kurun.",
+      "connectionLostTitle": "Tarayıcı bağlantısı koptu",
+      "disconnected": "Stella tarayıcı köprüsünün bağlantısı kesildi.",
+      "retryDelay": {
+        "one": "Stella yaklaşık {count} saniye içinde yeniden denemeyi sürdürecek.",
+        "other": "Stella yaklaşık {count} saniye içinde yeniden denemeyi sürdürecek."
+      }
+    },
+    "dictation": {
+      "cancel": "Dikteyi iptal et",
+      "stopAndTranscribe": "Durdur ve yazıya dök",
+      "stopAndTranscribeLabel": "Dikteyi durdur ve yazıya dök",
+      "stopTranscribeSend": "Durdur, yazıya dök ve gönder",
+      "stopTranscribeSendLabel": "Dikteyi durdur, yazıya dök ve gönder",
+      "localNotReadyTitle": "Yerel dikte hazır değil",
+      "localNotReadyBody": "Bu cihazda dikte etmek için ses özelliğini indirin ya da bulut yazıya dökmeyi kullanmak için giriş yapın.",
+      "signInTitle": "Dikteyi kullanmak için giriş yapın",
+      "signInBody": "Cihazda yazıya dökme kullanılamadığında dikte için Stella'ya giriş yapmış olmanız gerekir. Devam etmek için giriş yapın.",
+      "failedTitle": "Dikte çalışmadı",
+      "failedBody": "Stella bunu yazıya dökemedi. Lütfen tekrar deneyin.",
+      "partialTitle": "Diktenizin bir kısmı yazıya döküldü",
+      "partialBody": "Kaydın bir kısmı yazıya dökülemedi, bu yüzden eklenen metin eksik olabilir."
+    },
+    "voice": {
+      "signInTitle": "Sesi kullanmak için giriş yapın",
+      "needsSetupTitle": "Ses kurulum gerektiriyor"
+    },
+    "store": {
+      "sidePanel": {
+        "emptyState": "Stella sizin için bir değişiklik yaptıktan sonra, buradan arkadaşlarınızla, bir toplulukla veya mağazayla paylaşın."
+      },
+      "recentChanges": {
+        "rowSelectHint": "Paylaşıma dahil etmek için tıklayın",
+        "rowDeselectHint": "Seçimden çıkarmak için tıklayın",
+        "updated": "{time} güncellendi",
+        "showOlder": "Daha eskileri göster",
+        "justNow": "Az önce",
+        "publishEmpty": "Paylaşılacak değişiklikleri seçin",
+        "publishLabel": "Paylaş · {countPhrase}",
+        "selectedCount": {
+          "one": "{count} seçildi",
+          "other": "{count} seçildi"
+        }
+      },
+      "shareCard": {
+        "eyebrow": "Stella eklentisi",
+        "unavailableName": "Eklenti kullanılamıyor",
+        "unavailableDesc": "Bu eklenti özel ya da artık yayında değil.",
+        "viewCta": "Görüntüle →"
+      },
+      "creator": {
+        "loading": "Oluşturan yükleniyor…",
+        "notFoundTitle": "Oluşturan bulunamadı",
+        "notFoundBodyPrefix": "Bu kullanıcı adını henüz kimse almadı:",
+        "notFoundBodySuffix": ".",
+        "noAddons": "{username} henüz hiç eklenti paylaşmadı.",
+        "version": "Sürüm {version}",
+        "addonCount": {
+          "zero": "Henüz eklenti yok",
+          "one": "{count} eklenti",
+          "other": "{count} eklenti"
+        }
+      },
+      "categories": {
+        "appsGames": "Uygulamalar ve oyunlar",
+        "productivity": "Verimlilik",
+        "customization": "Kişiselleştirme",
+        "skillsAgents": "Beceriler ve aracılar",
+        "integrations": "Entegrasyonlar",
+        "other": "Diğer"
+      },
+      "shareDialog": {
+        "title": "Paylaş",
+        "titleCircle": "Çevrenizle paylaşın",
+        "titleCircleUpdate": "Bir güncelleme paylaşın",
+        "titleStore": "Mağazada paylaşın",
+        "titleStoreUpdate": "Bir güncelleme gönderin",
+        "destinationLede": "Bu nereye gitsin? Paylaşım çalıştırılabilir kod gönderir, bu yüzden hedeflediğiniz kitleyi seçin.",
+        "circleOptionName": "Bir arkadaş veya topluluk",
+        "circleOptionDesc": "Anında. Güvendiğiniz kişilere sohbette paylaşım kartı olarak doğrudan ulaşır — inceleme yok, hiçbir zaman herkese açık listelenmez.",
+        "storeOptionName": "Stella Mağazası",
+        "storeOptionDesc": "Herkese açık. Önce Stella ekibi inceler, sonra mağazada herkes için yayına girer.",
+        "updateExisting": "Mevcut bir eklentiyi güncelle",
+        "existingAddon": "Mevcut eklenti",
+        "selectPlaceholder": "Seçin…",
+        "nameLabel": "Ad",
+        "namePlaceholder": "Örnek mod",
+        "descriptionLabel": "Açıklama",
+        "optionalHint": "(isteğe bağlı)",
+        "descriptionPlaceholderCircle": "Paylaşım kartı için kısa bir satır.",
+        "descriptionPlaceholderStore": "Mağaza girişi için kısa bir satır.",
+        "categoryLabel": "Kategori",
+        "categoryPlaceholder": "Bir kategori seçin…",
+        "sendTo": "Şuraya gönder",
+        "noRecipients": "Henüz arkadaş veya topluluk yok — önce Mesajlar sayfasından ekleyin.",
+        "communityFallbackName": "Topluluk",
+        "communityTag": "Topluluk",
+        "circleNote": "Paylaşımlar her sohbete anında kurulabilir bir kart olarak düşer. Yalnızca seçtiğiniz kişiler (ve o topluluklardaki herkes) alabilir.",
+        "storeNote": "Stella ekibi, mağaza gönderimlerini herkes için yayına girmeden önce inceler.",
+        "submitPending": "Paylaşılıyor…",
+        "submitCircle": "Şimdi paylaş",
+        "submitStore": "İncelemeye gönder",
+        "noSourceChangesTitle": "Kaynak değişikliği yok",
+        "noSourceChangesBody": "Önce kaynak destekli en az bir güncel değişiklik seçin.",
+        "pickRecipientTitle": "Paylaşacağınız kişiyi seçin",
+        "pickRecipientBody": "En az bir arkadaş veya topluluk seçin.",
+        "pickAddonTitle": "Bir eklenti seçin",
+        "pickAddonBody": "Güncellemek istediğiniz eklentiyi seçin.",
+        "nameRequiredTitle": "Ad gerekli",
+        "nameRequiredBody": "Paylaşmadan önce eklentinize kısa bir ad verin.",
+        "badNameTitle": "Farklı bir ad seçin",
+        "badNameBody": "Bir kimlik oluşturabilmemiz için adda harf veya rakam kullanın.",
+        "publishBackendMissing": "Yayınlama arka ucu kullanılamıyor.",
+        "sharingTitle": "Paylaşılıyor",
+        "submittingTitle": "Gönderiliyor",
+        "inProgressBody": "Bittiğinde Stella size haber verecek.",
+        "submittedTitle": "İncelemeye gönderildi",
+        "submittedBody": "{name} Stella ekibine gönderildi. Onaylandığında mağazada yayına girer.",
+        "sharedTitle": "Paylaşıldı",
+        "shareFailedTitle": "Paylaşım başarısız oldu",
+        "submissionFailedTitle": "Gönderim başarısız oldu",
+        "sharedBodyDelivered": {
+          "one": "{name} {count} sohbete doğru yolda.",
+          "other": "{name} {count} sohbete doğru yolda."
+        },
+        "sharedBodyPartial": {
+          "one": "{name} {count} sohbetten {delivered} tanesine ulaştı. Kalanı yeniden denemek için Mesajlar'ı açın.",
+          "other": "{name} {count} sohbetten {delivered} tanesine ulaştı. Kalanı yeniden denemek için Mesajlar'ı açın."
+        }
+      }
+    }
+  },
+  "ui": {
+    "imageLightbox": {
+      "title": "Görsel önizlemesi",
+      "close": "Önizlemeyi kapat"
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "Son aracı mesajları",
+      "recentProgress": "Son ilerleme"
+    },
+    "audioPlayer": {
+      "pause": "Duraklat",
+      "play": "Oynat",
+      "seek": "İleri/geri sar"
+    },
+    "capture": {
+      "failedTitle": "Bu yakalanamadı",
+      "failedDescription": "Ekran görüntüsü alınırken bir sorun oluştu. Tekrar deneyin."
+    },
+    "chatSidebar": {
+      "add": "Ekle",
+      "dictationError": "Dikte: {error}",
+      "stop": "Durdur"
+    },
+    "displayPanel": {
+      "closePanel": "Paneli kapat",
+      "openPanel": "Paneli aç"
+    },
+    "rightSidebar": {
+      "workspace": "Çalışma alanı",
+      "resize": "Görüntü panelini yeniden boyutlandır",
+      "resizeHint": "Boyutlandırmak için sürükleyin · sıfırlamak için çift tıklayın"
+    },
+    "windowControls": {
+      "minimize": "Simge durumuna küçült",
+      "restore": "Geri yükle",
+      "maximize": "Tam ekran yap"
+    },
+    "workspace": {
+      "activity": "Etkinlik",
+      "viewFiles": {
+        "one": "{count} dosyayı görüntüle",
+        "other": "{count} dosyayı görüntüle"
+      }
+    },
+    "updatePill": {
+      "update": "Güncelle",
+      "updateFallback": "güncelleme",
+      "availableFallback": "mevcut",
+      "downloading": "İndiriliyor %{percent}",
+      "restartToUpdate": "Güncellemek için yeniden başlat",
+      "retryUpdate": "Güncellemeyi yeniden dene",
+      "restartTitle": "Stella'yı yeniden başlatıp {version} sürümünü kur",
+      "retryTitle": "Masaüstü güncelleme kontrolünü yeniden dene",
+      "downloadTitle": "Stella {version} sürümünü indir",
+      "toasts": {
+        "downloadedTitle": "Güncelleme indirildi",
+        "downloadedDescription": "{version} sürümünü kurmak için Stella'yı yeniden başlatın.",
+        "checkingTitle": "Güncellemeler denetleniyor",
+        "checkingDescription": "Stella, yalıtılmış masaüstü v2 kanalını denetliyor.",
+        "failedTitle": "Masaüstü güncellemesi başarısız oldu"
+      }
+    },
+    "display": {
+      "homeLauncher": {
+        "files": {
+          "label": "Dosyalar",
+          "description": "Sayfalar, görseller, video ve belgeler"
+        },
+        "store": {
+          "label": "Mağaza",
+          "description": "Eklentiler ve oluşturduğunuz şeyler"
+        },
+        "trash": {
+          "label": "Çöp Kutusu",
+          "description": "Son zamanlarda sildiğiniz şeyler"
+        }
+      },
+      "trash": {
+        "title": "Çöp Kutusu",
+        "empty": "Şu anda burada bir şey yok.",
+        "refresh": "Yenile",
+        "emptying": "Boşaltılıyor…",
+        "emptyTrash": "Çöp kutusunu boşalt",
+        "trashedAgo": "{time} önce çöpe atıldı",
+        "pendingPurge": "Temizlenmeyi bekliyor",
+        "autoDeletesIn": "{time} içinde otomatik silinir",
+        "deleting": "Siliniyor…",
+        "deleteNow": "Şimdi sil",
+        "itemsAutoDeleted": {
+          "one": "{count} öge — 24 saat içinde otomatik silinir.",
+          "other": "{count} öge — 24 saat içinde otomatik silinir."
+        }
+      },
+      "canvasShare": {
+        "share": "Paylaş",
+        "links": "Bağlantılar",
+        "sharedLinks": "Paylaşılan bağlantılar",
+        "publishing": "Tuval yayımlanıyor…",
+        "publishFailed": "Bu tuval yayımlanamadı. Lütfen tekrar deneyin.",
+        "live": "Tuval yayında",
+        "publicLink": "Herkese açık tuval bağlantısı",
+        "copyLink": "Bağlantıyı kopyala",
+        "revoke": "Paylaşımı iptal et",
+        "expires": "{date} tarihinde sona erer",
+        "shared": "{date} tarihinde paylaşıldı",
+        "sharedWithExpiry": "{shared} tarihinde paylaşıldı · {expires} tarihinde sona erer",
+        "loadFailed": "Paylaşımlarınız yüklenemedi.",
+        "empty": "Henüz etkin paylaşım yok. Herkese açık bağlantı almak için bir tuval yayımlayın.",
+        "untitled": "Adsız tuval",
+        "toasts": {
+          "linkCopied": "Paylaşım bağlantısı kopyalandı",
+          "copyFailed": "Bağlantı kopyalanamadı",
+          "revoked": "Paylaşım iptal edildi",
+          "revokeFailed": "Bu paylaşım iptal edilemedi"
+        }
+      },
+      "canvas": {
+        "loadFailed": "Bu tuval yüklenemedi.",
+        "loading": "Yükleniyor"
+      },
+      "media": {
+        "save": "Kaydet",
+        "saved": "Kaydedildi",
+        "saveFailed": "Kaydedilemedi",
+        "copy": "Kopyala",
+        "copied": "Kopyalandı",
+        "copyFailed": "Kopyalanamadı",
+        "delete": "Sil",
+        "deleteConfirm": "Silmek için tekrar tıklayın",
+        "itemActions": "Öge işlemleri"
+      },
+      "url": {
+        "eyebrow": "Canlı önizleme",
+        "reload": "Yeniden yükle",
+        "openInBrowser": "Tarayıcıda aç"
+      },
+      "office": {
+        "preparing": "Önizleme hazırlanıyor...",
+        "kind": {
+          "spreadsheet": "E-tablo",
+          "presentation": "Sunum",
+          "document": "Belge"
+        },
+        "sheetCount": {
+          "one": "{count} sayfa",
+          "other": "{count} sayfa"
+        },
+        "slideCount": {
+          "one": "{count} slayt",
+          "other": "{count} slayt"
+        },
+        "loadFailed": "Bu önizleme yüklenemedi",
+        "sessionError": "Önizleme oturumu bir hata bildirdi.",
+        "zoomAriaLabel": "Önizleme yakınlaştırması",
+        "revealInFinder": "Finder'da göster",
+        "livePreview": "Canlı önizleme",
+        "frameTitle": "{kind} önizlemesi: {title}"
+      },
+      "filePreview": {
+        "save": "Kaydet",
+        "copy": "Kopyala",
+        "loading": "Yükleniyor..."
+      },
+      "spreadsheet": {
+        "eyebrow": "E-tablo",
+        "desktopRequired": "E-tablo önizlemesi Stella masaüstü uygulamasını gerektirir.",
+        "noRows": "Satır bulunamadı.",
+        "column": "Sütun {index}"
+      },
+      "markdown": {
+        "eyebrow": "Markdown",
+        "desktopRequired": "Markdown önizlemesi Stella masaüstü uygulamasını gerektirir.",
+        "noContent": "İçerik bulunamadı."
+      },
+      "diff": {
+        "changes": "Değişiklikler",
+        "codeChanges": "Kod değişiklikleri",
+        "noChanges": "Değişiklik bulunamadı.",
+        "desktopRequired": "Kod önizlemesi Stella masaüstü uygulamasını gerektirir.",
+        "empty": "Henüz dosya değişikliği yok. Bir aracı kodu düzenlediğinde değişiklikler burada görünür."
+      },
+      "agentThread": {
+        "role": {
+          "user": "Talimat",
+          "assistant": "Aracı",
+          "lifecycle": "Etkinlik"
+        },
+        "status": {
+          "running": "Çalışıyor",
+          "completed": "Tamamlandı",
+          "error": "Başarısız",
+          "canceled": "Durduruldu"
+        },
+        "newMessages": {
+          "one": "{count} yeni mesaj.",
+          "other": "{count} yeni mesaj."
+        },
+        "newMessagesWithPreview": "{countPhrase} Son {role}: {preview}",
+        "unavailable": "Aracı iş parçacığı geçmişi kullanılamıyor.",
+        "loadFailed": "Bu iş parçacığı yüklenemedi.",
+        "showingNewest": "En yeni mesaj gösteriliyor.",
+        "claudeAriaLabel": "Salt okunur Claude alt aracı sohbeti",
+        "claudeBadge": "Salt okunur Claude alt aracısı",
+        "badge": "Salt okunur aracı iş parçacığı",
+        "retrying": "Yeniden deneniyor…",
+        "empty": "Bu iş parçacığında henüz mesaj yok.",
+        "newMessagesButton": {
+          "one": "{count} yeni mesaj",
+          "other": "{count} yeni mesaj"
+        },
+        "showNewMessagesAria": "{countPhrase} göster"
+      }
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, {plan} planı",
+        "signOutTitle": "Stella oturumu kapatılsın mı?",
+        "signOutDescription": "Emin misiniz?"
+      },
+      "nav": {
+        "apps": "Uygulamalar",
+        "unreadTitle": "{label} ({count} okunmamış)",
+        "unreadAriaLabel": "{label}, {count} okunmamış"
+      },
+      "feedback": {
+        "title": {
+          "manual": "Geri bildirim gönder",
+          "auto": "Stella nasıl gidiyor?"
+        },
+        "description": {
+          "manual": "Mesajınız anonim olarak gönderilir — hesabınızla ilişkilendirilmez.",
+          "auto": "Bilmemiz gereken bir şey var mı? Anonim gönderilir — hesabınızla ilişkilendirilmez."
+        },
+        "notNow": "Şimdi değil",
+        "fieldLabel": "Geri bildirim",
+        "placeholder": "Neyin işe yaradığını, neyin yaramadığını veya ne görmek istediğinizi anlatın…",
+        "send": "Gönder",
+        "sending": "Gönderiliyor…",
+        "toasts": {
+          "sentTitle": "Geri bildirim gönderildi",
+          "sentDescription": "Teşekkürler — her not Stella'yı şekillendirmemize yardımcı oluyor.",
+          "failedTitle": "Geri bildirim gönderilemedi"
+        }
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "newChat": "Yeni sohbet",
+        "home": "Ana sayfa",
+        "history": "Sohbet geçmişi",
+        "historyEmpty": "Henüz sohbet yok",
+        "historyRetry": "Sohbetler yüklenemedi. Tekrar deneyin",
+        "openConversations": "Sohbetleri aç",
+        "openConversation": "{title} sohbetini aç",
+        "closeConversation": "{title} sohbetini kapat",
+        "delete": "{title} sohbetini sil",
+        "deleteConfirm": "Onaylamak için tekrar tıklayın",
+        "deleteConfirmFor": "{title} sohbetini silmek için tekrar tıklayın",
+        "deleteFailed": "Bu sohbet silinemedi",
+        "deleteFailedFor": "{title} silinemedi"
+      }
+    }
+  },
+  "global": {
+    "auth": {
+      "welcomeTitle": "Stella'ya hoş geldiniz",
+      "welcomeDescription": "Stella'yı kullanmaya başlamak için e-postanızla giriş yapın.",
+      "welcomeSub": "Giriş yapmak için Google'ı veya e-postanızı kullanın. Parolaya gerek yok.",
+      "orUseEmail": "ya da e-posta kullanın",
+      "emailLabel": "E-posta",
+      "emailPlaceholder": "siz@ornek.com",
+      "sending": "Gönderiliyor...",
+      "signingIn": "Giriş yapılıyor...",
+      "sendSignInEmail": "Giriş e-postası gönder",
+      "checkInbox": "Giriş bağlantısı için gelen kutunuzu kontrol edin.",
+      "magicLinkSentDesktop": "Bir giriş bağlantısı gönderdik. Tamamlamak için bu cihazda açın.",
+      "openInbox": "{provider} uygulamasını aç",
+      "resendIn": "{seconds} sn içinde yeniden gönder",
+      "resendEmail": "E-postayı yeniden gönder",
+      "skipForNow": "Şimdilik atla",
+      "enterEmail": "Bir e-posta adresi girin.",
+      "sendFailed": "Giriş e-postası gönderilemedi.",
+      "magicLinkFailed": "Sihirli bağlantı gönderilemedi.",
+      "finishFailed": "Giriş tamamlanamadı. Lütfen tekrar deneyin.",
+      "signInIncomplete": "Giriş tamamlanmadı. Lütfen tekrar deneyin.",
+      "signInLinkExpired": "Giriş bağlantısının süresi doldu. Lütfen tekrar deneyin.",
+      "tooManyRequests": {
+        "one": "Çok fazla istek. {count} saniye içinde tekrar deneyin.",
+        "other": "Çok fazla istek. {count} saniye içinde tekrar deneyin."
+      },
+      "googleContinue": "Google ile devam et",
+      "googleWaiting": "Google bekleniyor...",
+      "googleStartFailed": "Google girişi başlatılamadı.",
+      "googleNoSession": "Google girişi oturum oluşturmadan tamamlandı.",
+      "googleExpired": "Google girişinin süresi doldu. Lütfen tekrar deneyin.",
+      "googleTimedOut": "Google girişi zaman aşımına uğradı. Lütfen tekrar deneyin.",
+      "nicknameTitle": "Size nasıl hitap edeyim?",
+      "nicknameDescription": "Stella'nın uygulama genelinde kullanacağı bir ad seçin.",
+      "nicknameLabel": "Takma ad",
+      "nicknamePlaceholder": "Takma adınız",
+      "notNow": "Şimdi değil"
+    },
+    "legal": {
+      "terms": {
+        "title": "Hizmet Şartları",
+        "subtitle": "Stella'nın nasıl çalıştığı ve kullandığınızda neyi kabul ettiğiniz."
+      },
+      "privacy": {
+        "title": "Gizlilik Politikası",
+        "subtitle": "Neyi topladığımız, neyi toplamadığımız ve bunu nasıl güvende tuttuğumuz."
+      }
+    },
+    "integrations": {
+      "heroTagline": "Stella'ya istediğiniz platformdan mesaj atın — doğal biçimde sohbet edin ya da işleri doğrudan bilgisayarınızda halletmesini isteyin.",
+      "signInToConnect": "Bağlanmak için Stella'ya giriş yapın",
+      "connectStellaApp": "Stella Uygulamasına bağlan",
+      "sectionTitle": "Entegrasyonlar",
+      "connectTitle": "Bağlan",
+      "backToConnections": "Bağlantılara dön",
+      "connected": "Bağlı",
+      "connectProvider": "{provider} bağla",
+      "openProvider": "{provider} uygulamasını aç",
+      "listeningOn": "Stella {provider} üzerinde dinliyor. Ona istediğiniz zaman oradan yazın.",
+      "disconnect": "Bağlantıyı kes",
+      "disconnecting": "Bağlantı kesiliyor...",
+      "disconnected": "{provider} bağlantısı kesildi",
+      "disconnectFailed": "{provider} bağlantısı kesilemedi",
+      "codeCopied": "Kod panoya kopyalandı",
+      "generateCodeFailed": "Kod oluşturulamadı",
+      "slackInstallUrlFailed": "Slack kurulum adresi hazırlanamadı",
+      "signInHeadline": "Başlamak için giriş yapın",
+      "signInSub": "{provider} bağlamak için Stella hesabınıza giriş yapın.",
+      "providers": {
+        "linq": {
+          "name": "Stella'ya mesaj at",
+          "instructions": "Telefon numaranızı girin, bağlanmanız için size bir kod göndereceğiz. Bağlandıktan sonra Stella'ya iMessage veya SMS ile istediğiniz zaman yazabilirsiniz."
+        },
+        "discord": {
+          "name": "Discord",
+          "instructions": "Stella uygulamasını Discord hesabınıza kurun, kodla bir kez /link çalıştırın, sonra @Stella'ya normal şekilde DM atın."
+        },
+        "slack": {
+          "name": "Slack",
+          "instructions": "Stella uygulamasını çalışma alanınıza kurun, ardından @Stella'ya aşağıdaki kodla DM atın."
+        },
+        "telegram": {
+          "name": "Telegram",
+          "instructions": "Telegram'da @StellaAppBot hesabını açın, ardından aşağıdaki kodu gönderin."
+        }
+      },
+      "linq": {
+        "countryCode": "Ülke kodu",
+        "phonePlaceholder": "(555) 123-4567",
+        "sending": "Gönderiliyor...",
+        "sendCode": "Kod Gönder",
+        "sendCodeFailed": "Kod gönderilemedi. Numarayı kontrol edip tekrar deneyin.",
+        "enterCodeTitle": "Kodunuzu girin",
+        "enterCodeSub": "Telefonunuza bakın — {phone} numarasına 6 haneli bir kod gönderdik.",
+        "codePlaceholder": "ABC123",
+        "verify": "Doğrula",
+        "verifying": "Doğrulanıyor...",
+        "verifyCodeFailed": "Kod doğrulanamadı.",
+        "connected": "Bağlandı! Artık Stella'ya mesaj atabilirsiniz.",
+        "invalidCode": "Geçersiz veya süresi dolmuş kod. Yeni bir tane göndermeyi deneyin.",
+        "genericError": "Bir şeyler ters gitti. Lütfen tekrar deneyin.",
+        "useDifferentNumber": "Farklı bir numara kullan"
+      },
+      "credential": {
+        "title": "{provider} bağla",
+        "description": "Bağlanmak için Stella'nın {provider} API anahtarınıza ihtiyacı var. Aşağıya yapıştırın. Bilgisayarınızda kalır.",
+        "defaultLabel": "{provider} anahtarı",
+        "apiKeyLabel": "API anahtarı",
+        "apiKeyRequired": "API anahtarı gereklidir.",
+        "keyPlaceholder": "Anahtarınızı yapıştırın",
+        "labelLabel": "Etiket",
+        "labelDescription": "Bu anahtarı sonradan tanımanız için anlaşılır bir ad.",
+        "saving": "Kaydediliyor...",
+        "saveKey": "Anahtarı kaydet",
+        "saveFailed": "Kimlik bilgisi kaydedilemedi."
+      }
+    },
+    "schedule": {
+      "dialogTitle": "Zamanlama",
+      "untitledTask": "Zamanlanmış görev",
+      "checkIn": "Durum bildirimi",
+      "paused": "Duraklatıldı",
+      "pause": "Duraklat",
+      "pausing": "Duraklatılıyor…",
+      "resume": "Sürdür",
+      "resuming": "Sürdürülüyor…",
+      "runNow": "Şimdi çalıştır",
+      "running": "Çalışıyor…",
+      "delete": "Sil",
+      "removing": "Kaldırılıyor…",
+      "actionFailed": "İşlem başarısız oldu.",
+      "missing": "Bu zamanlama artık yok.",
+      "scheduleCount": {
+        "one": "{count} zamanlama",
+        "other": "{count} zamanlama"
+      }
+    },
+    "social": {
+      "dialogDescription": "Bir şey olmadan önce bu daveti onaylayın.",
+      "signInToAccept": "Bu daveti kabul etmek için Stella'ya giriş yapın.",
+      "lookingUpInvite": "Davet aranıyor…",
+      "stellaAddOn": "Stella eklentisi",
+      "stellaUser": "Stella kullanıcısı",
+      "byAuthor": " · @{username} tarafından",
+      "alreadyIn": " · zaten üyesiniz",
+      "membersLabel": "üye",
+      "memberCount": {
+        "one": "{count} üye",
+        "other": "{count} üye"
+      },
+      "working": "Çalışıyor…",
+      "alreadyJoined": "Zaten katıldınız",
+      "welcomeToCommunity": "{community} topluluğuna hoş geldiniz!",
+      "joinedCommunity": "Topluluğa katıldınız!",
+      "friendRequestSent": "@{username} kullanıcısına arkadaşlık isteği gönderildi.",
+      "joinFailed": "Bu topluluğa katılınamadı. Davetin süresi dolmuş olabilir.",
+      "friendRequestFailed": "Bu arkadaşlık isteği gönderilemedi. Lütfen tekrar deneyin.",
+      "store": {
+        "title": "Eklentiyi aç",
+        "confirmLabel": "Mağazada görüntüle",
+        "sub": "Açtığınız bağlantı bir Stella eklentisine işaret ediyor. Hiçbir şey kurulmaz. Bu yalnızca Mağaza sayfasını açar.",
+        "missing": "Bu eklenti özel ya da artık yayında değil."
+      },
+      "join": {
+        "title": "Topluluğa katıl",
+        "confirmLabel": "Katıl",
+        "sub": "Bir topluluğa davet edildiniz: üyelerin eklentileri birbiriyle paylaştığı güvenilir bir çevre.",
+        "missing": "Bu davet kodu için topluluk bulunamadı. Yeni bir bağlantı isteyin."
+      },
+      "friend": {
+        "title": "Arkadaş ekle",
+        "confirmLabel": "Arkadaşlık isteği gönder",
+        "sub": "Stella'da bağlanmaya davet edildiniz.",
+        "missing": "Bu davet bağlantısı için kullanıcı bulunamadı."
+      }
+    },
+    "websiteView": {
+      "storeTitle": "Mağaza"
+    }
+  },
+  "mobile": {
+    "common": {
+      "back": "Geri",
+      "backChevron": "‹ Geri",
+      "cancel": "İptal",
+      "continue": "Devam et",
+      "delete": "Sil",
+      "done": "Bitti",
+      "goBack": "Geri dön",
+      "somethingWentWrong": "Bir şeyler ters gitti.",
+      "tryAgain": "Tekrar dene"
+    },
+    "boot": {
+      "crashTitle": "Başlatılırken bir sorun oluştu",
+      "missingConfigTitle": "Mobil ortam değişkenlerini ekleyin",
+      "missingConfigBody": "Uygulamayı başlatmadan önce EXPO_PUBLIC_CONVEX_URL ve isteğe bağlı olarak EXPO_PUBLIC_CONVEX_SITE_URL değerlerini ayarlayın.",
+      "checkingSessionTitle": "Oturumunuz denetleniyor",
+      "checkingSessionBody": "Stella uyanırken biraz bekleyin."
+    },
+    "authCallback": {
+      "failedTitle": "Giriş yapılamadı",
+      "invalidLink": "Geçersiz giriş bağlantısı.",
+      "linkExpired": "Bu giriş bağlantısının süresi doldu. Lütfen yenisini isteyin.",
+      "genericFailure": "Şu anda giriş yapamadık. Lütfen tekrar deneyin.",
+      "backToSignIn": "Girişe dön",
+      "signingInTitle": "Giriş yapılıyor",
+      "signingInBody": "Bir saniye..."
+    },
+    "nav": {
+      "chat": "Sohbet",
+      "computer": "Bilgisayar",
+      "settings": "Ayarlar",
+      "openLabel": "Gezinmeyi aç",
+      "closeLabel": "Gezinmeyi kapat"
+    },
+    "search": {
+      "placeholder": "Mesajlarda ara",
+      "openLabel": "Mesajlarda ara",
+      "clearLabel": "Aramayı temizle",
+      "cancelLabel": "Aramayı iptal et"
+    },
+    "onboarding": {
+      "skip": "Atla",
+      "skipLabel": "Tanıtımı atla",
+      "welcomeTitle": "Stella ile tanışın",
+      "welcomeBody": "İstediğinizi sorun, konuyu birlikte düşünün ya da gerçek işleri devredin — Stella burada yanıt verir ve bilgisayarınızda işlem yapabilir.",
+      "themeTitle": "Size özel yapın",
+      "themeBody": "Bir tema seçin. İstediğiniz zaman Ayarlar'dan değiştirebilirsiniz.",
+      "connectTitle": "Bilgisayarınız, her yerde",
+      "connectBodyGuest": "Stella'yı bilgisayarınızla eşleştirmek için daha sonra giriş yapın — sonra telefonunuzdan web'de gezinmesini, dosyaları yönetmesini ve evdeki görevleri çalıştırmasını isteyebilirsiniz.",
+      "connectBodyPaired": "Stella masaüstü uygulamasıyla bir kez eşleştirin; telefonunuz ondan web'de gezinmesini, dosyaları yönetmesini ve görevleri çalıştırmasını isteyebilir — şehrin öbür ucundan bile.",
+      "pairComputer": "Bilgisayarımı eşleştir",
+      "startChatting": "Sohbete başla"
+    },
+    "login": {
+      "heroTitle": "Asistanınız,\ncebinizde.",
+      "heroBody": "Apple, Google ya da bilgisayarınızda kullandığınız e-postayı kullanın.",
+      "continueWithApple": "Apple ile devam et",
+      "openingApple": "Apple açılıyor...",
+      "continueWithGoogle": "Google ile devam et",
+      "openingGoogle": "Google açılıyor...",
+      "orUseEmail": "veya e-posta kullanın",
+      "emailPlaceholder": "E-posta",
+      "sending": "Gönderiliyor...",
+      "signingIn": "Giriş yapılıyor...",
+      "checkInbox": "Gelen kutunuzu kontrol edip bağlantıya dokunun — otomatik olarak giriş yapacaksınız.",
+      "useDifferentEmail": "Farklı bir e-posta kullan",
+      "resend": "Yeniden gönder",
+      "resendLabel": "Giriş e-postasını yeniden gönder",
+      "enterEmail": "E-posta adresinizi girin.",
+      "sendFailed": "Giriş e-postası gönderilemedi.",
+      "googleStartFailed": "Google ile giriş başlatılamadı.",
+      "appleStartFailed": "Apple ile giriş başlatılamadı.",
+      "appleCompleteFailed": "Apple ile giriş tamamlanamadı.",
+      "appleNoToken": "Apple bir kimlik belirteci döndürmedi.",
+      "finishFailed": "Giriş tamamlanamadı. Lütfen tekrar deneyin.",
+      "incomplete": "Giriş tamamlanmadı. Lütfen tekrar deneyin.",
+      "linkExpired": "Bağlantının süresi doldu. Lütfen tekrar deneyin.",
+      "legalPrefix": "Devam ederek ",
+      "legalTerms": "Hizmet Koşullarını",
+      "legalConjunction": " ve ",
+      "legalPrivacy": "Gizlilik Politikasını",
+      "legalSuffix": " kabul edersiniz.",
+      "continueAsGuest": "Giriş yapmadan devam et"
+    },
+    "chat": {
+      "emptyPrompt": "Stella'ya istediğinizi sorun",
+      "composerPlaceholder": "Stella'ya mesaj yazın"
+    },
+    "computer": {
+      "guestHeroTitle": "Bilgisayarınız parmaklarınızın ucunda",
+      "guestHeroBody": "Stella'dan bilgisayarınızda işler yapmasını isteyin — web'de gezinsin, dosyaları yönetsin, görevleri çalıştırsın ve daha fazlası.",
+      "pairFirstTitle": "Önce telefonunuzu eşleştirin",
+      "pairFirstBody": "Her yerden sohbet edebilmek için bu telefonu bilgisayarınızdaki Stella ile eşleştirin. Bunu yalnızca bir kez yapmanız yeterli.",
+      "pairPhone": "Telefonu eşleştir",
+      "pairThisPhoneLabel": "Bu telefonu eşleştir",
+      "emptyPrompt": "Bilgisayarınıza istediğinizi sorun",
+      "composerPlaceholder": "Bilgisayarınıza mesaj yazın",
+      "defaultDeviceLabel": "Bilgisayarınız",
+      "statusChecking": "Denetleniyor…",
+      "statusWaking": "Uyandırılıyor…",
+      "statusConnected": "Bağlandı",
+      "statusAsleep": "Uykuda",
+      "connectingLabel": "Bilgisayarınıza bağlanılıyor",
+      "connectedLabel": "Bilgisayar bağlandı",
+      "disconnectedLabel": "Bilgisayar bağlantısı kesildi",
+      "unreachableTitle": "Bilgisayara ulaşılamıyor",
+      "unreachableBody": "Bilgisayarınıza şu anda ulaşılamıyor. Bir uyandırma isteği gönderildi — birkaç saniye sonra tekrar deneyin.",
+      "syncWaitingTitle": "Eşitleme bekliyor",
+      "syncWaitingBody": "Bir mesaj hâlâ gönderiliyor. Eşitleme, gönderim biter bitmez çalışacak.",
+      "syncFailedTitle": "Eşitleme başarısız oldu",
+      "syncFailedBody": "Bilgisayarınız eşitleme sırasında yanıt vermeyi bıraktı. Tekrar deneyin."
+    },
+    "desktop": {
+      "pairTitle": "Telefonunuzu eşleştirin",
+      "guestBody": "Stella masaüstü uygulamasını doğrudan telefonunuzda görün. Eşleştirmeden sonra telefonunuz otomatik olarak yeniden bağlanır.",
+      "guestSignInPrompt": "Başlamak için giriş yapın.",
+      "connecting": "Masaüstüne bağlanılıyor",
+      "pairing": "Bu telefon eşleştiriliyor",
+      "unreachable": "Masaüstüne ulaşılamıyor",
+      "deviceUnreachable": "Şu cihaza ulaşılamıyor: {platform}",
+      "repairNeeded": "Bu telefonun bilgisayarınızla yeniden eşleştirilmesi gerekiyor.",
+      "enterCode": "Bilgisayarınızda görünen kodu girin.",
+      "linkInterrupted": "Bilgisayarınızla olan bağlantı kesildi.",
+      "unavailableBodyPaired": "Stella'nın bilgisayarınızda açık ve internete bağlı olduğundan emin olun. Bağlandığında masaüstü uygulamanız tam burada, telefonunuzda görünecek.",
+      "unavailableBodyUnpaired": "Stella masaüstü uygulamasını doğrudan telefonunuzda görün. Başlamak için bilgisayarınızdaki Stella'da görünen QR kodunu tarayın — sonrasında telefonunuz otomatik olarak yeniden bağlanır.",
+      "pairAnother": "Başka bir bilgisayar eşleştir",
+      "startPairingLabel": "Bilgisayar eşleştirmeyi başlat",
+      "retryLabel": "Yeniden bağlanmayı dene",
+      "reconnecting": "Yeniden bağlanılıyor...",
+      "limitedCapabilities": "Bazı şeyler bilgisayarınızı gerektirir"
+    },
+    "settings": {
+      "title": "Ayarlar",
+      "loadingSession": "Oturum yükleniyor…",
+      "signIn": "Giriş yap",
+      "signInTitle": "Stella'ya giriş yapın",
+      "showEmailLabel": "E-postayı göster",
+      "hideEmailLabel": "E-postayı gizle",
+      "appearanceSection": "Görünüm",
+      "appearance": {
+        "system": "Sistem",
+        "light": "Açık",
+        "dark": "Koyu"
+      },
+      "background": {
+        "soft": "Yumuşak",
+        "flat": "Düz"
+      },
+      "useAppearanceLabel": "Şu görünümü kullan: {name}",
+      "useBackgroundLabel": "Şu arka planı kullan: {name}",
+      "useThemeLabel": "Şu temayı kullan: {name}",
+      "notificationsSection": "Bildirimler",
+      "pushToggleLabel": "Anlık bildirimlere izin ver",
+      "pushToggleSub": "Bilgisayarınız bir isteği tamamladığında bildirim alın.",
+      "pushToggleA11y": "Anlık bildirimleri aç/kapat",
+      "voiceSection": "Stella ile konuşun",
+      "voiceSectionHint": "Eller serbest ses (örneğin CarPlay) mesajlarınızı nereye gönderir. Otomatik, en son orada kaldıysanız ve ulaşılabiliyorsa bilgisayarınızdaki sohbeti seçer — aksi hâlde bu telefondaki sohbeti.",
+      "voiceTarget": {
+        "auto": "Otomatik",
+        "phone": "Telefon",
+        "computer": "Bilgisayar"
+      },
+      "voiceTargetLabel": "Sesli mesajları şuraya gönder: {name}",
+      "pairedSection": "Eşleştirilmiş bilgisayarlar",
+      "pairedEmpty": "Henüz eşleştirilmiş bilgisayar yok. Bilgisayar sekmesinden eşleştirin.",
+      "pairedOn": "Eşleştirildi: {date}",
+      "paired": {
+        "unnamedComputer": "Bilgisayar · {id}"
+      },
+      "forget": "Unut",
+      "forgetLabel": "Şunu unut: {name}",
+      "forgetConfirmTitle": "Şu unutulsun mu: {name}?",
+      "forgetConfirmBody": "Bu telefon, yeniden eşleştirene kadar o bilgisayara bağlanmayı bırakacak.",
+      "carPlayDiagnostics": "CarPlay tanılama",
+      "openCarPlayDiagnosticsLabel": "CarPlay tanılamayı aç",
+      "termsOfService": "Hizmet Koşulları",
+      "openTermsLabel": "Hizmet Koşullarını aç",
+      "privacyPolicy": "Gizlilik Politikası",
+      "openPrivacyLabel": "Gizlilik Politikasını aç",
+      "signOut": "Çıkış yap",
+      "signingOut": "Çıkış yapılıyor…",
+      "signOutLabel": "Stella'dan çıkış yap",
+      "deleteAccount": "Hesabı sil",
+      "deletingAccount": "Hesap siliniyor…",
+      "deleteAccountLabel": "Stella hesabınızı silin",
+      "deleteConfirmTitle": "Hesabı sil",
+      "deleteConfirmBody": "Bu işlem Stella hesabınızı kalıcı olarak siler ve sunucularımızdaki ilgili bulut verilerini kaldırır. Bu işlem geri alınamaz.",
+      "deleteFailedTitle": "Hesap silinemedi"
+    },
+    "carPlayDiagnostics": {
+      "title": "CarPlay tanılama",
+      "subtitle": {
+        "one": "CarPlay bağlantısından kayıtlar ({count} satır, en yenisi başta). Arabada bir şey ters giderse bunları kopyalayıp gönderin.",
+        "other": "CarPlay bağlantısından kayıtlar ({count} satır, en yenisi başta). Arabada bir şey ters giderse bunları kopyalayıp gönderin."
+      },
+      "copyAll": "Tümünü kopyala",
+      "copyAllLabel": "Tüm tanılama kayıtlarını kopyala",
+      "copied": "Kopyalandı ✓",
+      "refresh": "Yenile",
+      "refreshLabel": "Tanılamayı yenile",
+      "clear": "Temizle",
+      "clearLabel": "Tanılamayı temizle",
+      "empty": "Henüz CarPlay tanılama kaydı yok. Bir kez CarPlay'e bağlanın, sonra buraya dönün.",
+      "clipboardEmpty": "(CarPlay tanılama kaydı yok)"
+    }
   }
 }

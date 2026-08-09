@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/ui/dialog";
 import { showToast } from "@/ui/toast";
+import { useT } from "@/shared/i18n";
 import { PetIdlePreview } from "./PetIdlePreview";
 import { useInstalledPets, isBundledPetId } from "./installed-pets";
 import {
@@ -80,24 +81,26 @@ const SEARCH_DEBOUNCE_MS = 200;
 
 type SortOption = "downloads" | "name";
 
+/** i18n keys (not literal copy) — resolve with `t()` at render time. */
 const SORT_LABELS: Record<SortOption, string> = {
-  downloads: "Most popular",
-  name: "Alphabetical",
+  downloads: "app.pets.sort.downloads",
+  name: "app.pets.sort.name",
 };
 
 const ANIMATION_STATES: ReadonlyArray<{
   state: PetAnimationState;
-  label: string;
+  /** i18n key — resolve with `t()` at render time. */
+  labelKey: string;
 }> = [
-  { state: "idle", label: "Idle" },
-  { state: "running-right", label: "Run right" },
-  { state: "running-left", label: "Run left" },
-  { state: "waving", label: "Waving" },
-  { state: "jumping", label: "Jumping" },
-  { state: "failed", label: "Failed" },
-  { state: "waiting", label: "Waiting" },
-  { state: "running", label: "Running" },
-  { state: "review", label: "Review" },
+  { state: "idle", labelKey: "app.pets.animations.idle" },
+  { state: "running-right", labelKey: "app.pets.animations.runningRight" },
+  { state: "running-left", labelKey: "app.pets.animations.runningLeft" },
+  { state: "waving", labelKey: "app.pets.animations.waving" },
+  { state: "jumping", labelKey: "app.pets.animations.jumping" },
+  { state: "failed", labelKey: "app.pets.animations.failed" },
+  { state: "waiting", labelKey: "app.pets.animations.waiting" },
+  { state: "running", labelKey: "app.pets.animations.running" },
+  { state: "review", labelKey: "app.pets.animations.review" },
 ];
 
 const downloadCountFormatter = new Intl.NumberFormat(undefined, {
@@ -184,6 +187,7 @@ function PetCard({
   onSelect,
   onRemove,
 }: PetCardProps) {
+  const t = useT();
   // Use the lightweight 8-frame strip only for our own user-generated
   // pets (where `previewUrl` matches `PREVIEW_STRIP`). Everything else
   // (bundled + upstream catalog) animates the full sprite atlas via
@@ -231,10 +235,14 @@ function PetCard({
         ) : null}
       </div>
       <div className="pets-card-meta">
-        <span className="pets-card-creator">by {pet.creator}</span>
+        <span className="pets-card-creator">
+          {t("app.pets.card.by", { creator: pet.creator })}
+        </span>
         <span
           className="pets-card-downloads"
-          title={`${pet.downloads.toLocaleString()} selections`}
+          title={t("app.pets.card.selections", {
+            count: pet.downloads.toLocaleString(),
+          })}
         >
           <Download size={11} aria-hidden="true" />
           {formatDownloads(pet.downloads)}
@@ -253,7 +261,7 @@ function PetCard({
             onClick={onGet}
           >
             <Plus size={12} />
-            Get
+            {t("app.pets.card.get")}
           </Button>
         ) : (
           <>
@@ -267,7 +275,9 @@ function PetCard({
               onClick={state === "selected" ? undefined : onSelect}
               disabled={state === "selected"}
             >
-              {state === "selected" ? "Selected" : "Select"}
+              {state === "selected"
+                ? t("app.pets.card.selected")
+                : t("app.pets.card.select")}
             </Button>
             {removable ? (
               <Button
@@ -277,7 +287,7 @@ function PetCard({
                 className="pill-btn"
                 onClick={onRemove}
               >
-                Remove
+                {t("app.pets.card.remove")}
               </Button>
             ) : null}
           </>
@@ -307,10 +317,15 @@ function PetDetailsDialog({
   onSelect,
   onRemove,
 }: PetDetailsDialogProps) {
+  const t = useT();
   const [mainState, setMainState] = useState<PetAnimationState>("idle");
 
   const primaryLabel =
-    state === "selected" ? "Selected" : state === "installed" ? "Select" : "Get";
+    state === "selected"
+      ? t("app.pets.card.selected")
+      : state === "installed"
+        ? t("app.pets.card.select")
+        : t("app.pets.card.get");
 
   const handlePrimary = async () => {
     if (state === "selected") return;
@@ -333,13 +348,18 @@ function PetDetailsDialog({
             {pet.displayName}
           </DialogTitle>
           <p className="pet-detail-caption">
-            by {pet.creator} · {formatDownloads(pet.downloads)} selections
+            {t("app.pets.details.caption", {
+              creator: pet.creator,
+              downloads: formatDownloads(pet.downloads),
+            })}
           </p>
         </DialogHeader>
         <DialogBody className="pet-detail-body">
           <div
             className="pet-detail-stage"
-            aria-label={`${pet.displayName} preview`}
+            aria-label={t("app.pets.details.previewLabel", {
+              name: pet.displayName,
+            })}
           >
             <PetSprite
               spritesheetUrl={pet.spritesheetUrl}
@@ -377,17 +397,19 @@ function PetDetailsDialog({
                   onOpenChange(false);
                 }}
               >
-                Remove
+                {t("app.pets.card.remove")}
               </Button>
             ) : null}
           </div>
 
           <section className="pet-detail-states-section">
-            <span className="pet-detail-states-label">Animations</span>
+            <span className="pet-detail-states-label">
+              {t("app.pets.details.animations")}
+            </span>
             <div
               className="pet-detail-states"
               role="tablist"
-              aria-label="Animation states"
+              aria-label={t("app.pets.details.animationStates")}
             >
               {ANIMATION_STATES.map((entry) => (
                 <button
@@ -395,8 +417,8 @@ function PetDetailsDialog({
                   type="button"
                   role="tab"
                   aria-selected={mainState === entry.state}
-                  aria-label={entry.label}
-                  title={entry.label}
+                  aria-label={t(entry.labelKey)}
+                  title={t(entry.labelKey)}
                   className="pet-detail-state-thumb"
                   data-active={mainState === entry.state || undefined}
                   onClick={() => setMainState(entry.state)}

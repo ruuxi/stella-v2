@@ -1,4 +1,5 @@
 import { X } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import "./assistant-reply-peek.css";
 
 export type AssistantReplyPeekProps = {
@@ -12,13 +13,14 @@ export function AssistantReplyPeek({
   onJumpToBottom,
   onDismiss,
 }: AssistantReplyPeekProps) {
+  const t = useT();
   return (
     <div className="assistant-reply-peek" role="status" aria-live="polite">
       <button
         type="button"
         className="assistant-reply-peek__body"
         onClick={onJumpToBottom}
-        title="Jump to latest reply"
+        title={t("app.chat.replyPeek.jumpToLatest")}
       >
         <span className="assistant-reply-peek__text">{text}</span>
       </button>
@@ -29,7 +31,7 @@ export function AssistantReplyPeek({
           event.stopPropagation();
           onDismiss();
         }}
-        aria-label="Dismiss preview"
+        aria-label={t("app.chat.replyPeek.dismiss")}
       >
         <X size={14} aria-hidden="true" />
       </button>

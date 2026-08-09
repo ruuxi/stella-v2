@@ -58,18 +58,35 @@ import {
   TopBarStatusProvider,
   type DesktopConnection,
 } from "../../src/lib/top-bar-status";
+import { useT } from "../../src/i18n";
 
 type TabId = MainTabId;
 
 const TABS: {
   id: TabId;
-  label: string;
+  /** Catalog key for the sidebar label. */
+  labelKey: string;
   icon: IconName;
   href: string;
 }[] = [
-  { id: "chat", label: "Chat", icon: "message-square", href: "/chat" },
-  { id: "computer", label: "Computer", icon: "monitor", href: "/computer" },
-  { id: "account", label: "Settings", icon: "settings", href: "/account" },
+  {
+    id: "chat",
+    labelKey: "mobile.nav.chat",
+    icon: "message-square",
+    href: "/chat",
+  },
+  {
+    id: "computer",
+    labelKey: "mobile.nav.computer",
+    icon: "monitor",
+    href: "/computer",
+  },
+  {
+    id: "account",
+    labelKey: "mobile.nav.settings",
+    icon: "settings",
+    href: "/account",
+  },
 ];
 
 // Message search is built but hidden for now — flip to true to surface the
@@ -106,6 +123,7 @@ function Sidebar({
   showComputerHint: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const t = useT();
   return (
     <GlassCard
       radius={0}
@@ -140,7 +158,7 @@ function Sidebar({
               <Text
                 style={[styles.navLabel, active && styles.navLabelActive]}
               >
-                {tab.label}
+                {t(tab.labelKey)}
               </Text>
             </Pressable>
           );
@@ -163,6 +181,7 @@ export default function MainLayout() {
   // the Computer tab.
   const [showComputerHint, setShowComputerHint] = useState(false);
   const colors = useColors();
+  const t = useT();
   const { isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const topBarStatus = useMemo(() => ({ setConnection }), []);
@@ -409,7 +428,7 @@ export default function MainLayout() {
                         style={styles.searchInput}
                         value={search.query}
                         onChangeText={search.setQuery}
-                        placeholder="Search messages"
+                        placeholder={t("mobile.search.placeholder")}
                         placeholderTextColor={fadeHex(colors.textMuted, 0.6)}
                         selectionColor={colors.accent}
                         autoFocus
@@ -420,7 +439,7 @@ export default function MainLayout() {
                         <Pressable
                           onPress={() => search.setQuery("")}
                           hitSlop={8}
-                          accessibilityLabel="Clear search"
+                          accessibilityLabel={t("mobile.search.clearLabel")}
                         >
                           <Icon name="x" size={15} color={colors.textMuted} />
                         </Pressable>
@@ -429,10 +448,12 @@ export default function MainLayout() {
                     <Pressable
                       onPress={search.close}
                       hitSlop={8}
-                      accessibilityLabel="Cancel search"
+                      accessibilityLabel={t("mobile.search.cancelLabel")}
                       style={styles.searchCancel}
                     >
-                      <Text style={styles.searchCancelText}>Cancel</Text>
+                      <Text style={styles.searchCancelText}>
+                        {t("mobile.common.cancel")}
+                      </Text>
                     </Pressable>
                   </View>
                 ) : (
@@ -441,7 +462,7 @@ export default function MainLayout() {
                       <Pressable
                         onPress={openSidebar}
                         hitSlop={8}
-                        accessibilityLabel="Open navigation"
+                        accessibilityLabel={t("mobile.nav.openLabel")}
                         style={styles.hamburger}
                       >
                         <Icon
@@ -458,7 +479,7 @@ export default function MainLayout() {
                         <Pressable
                           onPress={search.open}
                           hitSlop={8}
-                          accessibilityLabel="Search messages"
+                          accessibilityLabel={t("mobile.search.openLabel")}
                           style={styles.hamburger}
                         >
                           <Icon
@@ -476,15 +497,15 @@ export default function MainLayout() {
                           <ActivityIndicator
                             size="small"
                             color={colors.textMuted}
-                            accessibilityLabel="Connecting to your computer"
+                            accessibilityLabel={t("mobile.computer.connectingLabel")}
                           />
                         ) : (
                           <View
                             style={styles.connectionBadge}
                             accessibilityLabel={
                               connection === "connected"
-                                ? "Computer connected"
-                                : "Computer disconnected"
+                                ? t("mobile.computer.connectedLabel")
+                                : t("mobile.computer.disconnectedLabel")
                             }
                           >
                             <Icon
@@ -527,7 +548,7 @@ export default function MainLayout() {
                 <Pressable
                   onPress={closeSidebar}
                   style={StyleSheet.absoluteFill}
-                  accessibilityLabel="Close navigation"
+                  accessibilityLabel={t("mobile.nav.closeLabel")}
                 />
               </Animated.View>
             </Animated.View>

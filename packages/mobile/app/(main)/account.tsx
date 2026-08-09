@@ -48,24 +48,27 @@ import {
   type ThemePreference,
 } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
+import { useT } from "../../src/i18n";
 
-const APPEARANCE_OPTIONS: { value: ThemePreference; label: string }[] = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
+const APPEARANCE_OPTIONS: { value: ThemePreference; labelKey: string }[] = [
+  { value: "system", labelKey: "mobile.settings.appearance.system" },
+  { value: "light", labelKey: "mobile.settings.appearance.light" },
+  { value: "dark", labelKey: "mobile.settings.appearance.dark" },
 ];
 
-const GRADIENT_OPTIONS: { value: GradientMode; label: string }[] = [
-  { value: "soft", label: "Soft" },
-  { value: "flat", label: "Flat" },
+const GRADIENT_OPTIONS: { value: GradientMode; labelKey: string }[] = [
+  { value: "soft", labelKey: "mobile.settings.background.soft" },
+  { value: "flat", labelKey: "mobile.settings.background.flat" },
 ];
 
-const VOICE_TARGET_OPTIONS: { value: VoiceTargetPreference; label: string }[] =
-  [
-    { value: "auto", label: "Auto" },
-    { value: "phone", label: "Phone" },
-    { value: "computer", label: "Computer" },
-  ];
+const VOICE_TARGET_OPTIONS: {
+  value: VoiceTargetPreference;
+  labelKey: string;
+}[] = [
+  { value: "auto", labelKey: "mobile.settings.voiceTarget.auto" },
+  { value: "phone", labelKey: "mobile.settings.voiceTarget.phone" },
+  { value: "computer", labelKey: "mobile.settings.voiceTarget.computer" },
+];
 
 function maskEmail(email: string): string {
   const at = email.indexOf("@");
@@ -78,16 +81,20 @@ function maskEmail(email: string): string {
 }
 
 function platformLabelFor(
+  t: (key: string, params?: Record<string, string | number>) => string,
   access: StoredPhoneAccess,
   platform: string | null | undefined,
 ): string {
   const base = platform?.trim();
   if (base) return base;
-  return `Computer · ${access.desktopDeviceId.slice(0, 4).toUpperCase()}`;
+  return t("mobile.settings.paired.unnamedComputer", {
+    id: access.desktopDeviceId.slice(0, 4).toUpperCase(),
+  });
 }
 
 export default function AccountScreen() {
   const colors = useColors();
+  const t = useT();
   const {
     preference,
     setPreference,
@@ -204,7 +211,7 @@ export default function AccountScreen() {
       await clearLocalAccountState();
       clearAiConsent();
     } catch (e) {
-      Alert.alert("Could not delete account", userFacingError(e));
+      Alert.alert(t("mobile.settings.deleteFailedTitle"), userFacingError(e));
     } finally {
       setIsDeletingAccount(false);
     }
@@ -212,12 +219,12 @@ export default function AccountScreen() {
 
   const confirmDeleteAccount = () => {
     Alert.alert(
-      "Delete account",
-      "This permanently deletes your Stella account and removes cloud data associated with it on our servers. This cannot be undone.",
+      t("mobile.settings.deleteConfirmTitle"),
+      t("mobile.settings.deleteConfirmBody"),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("mobile.common.cancel"), style: "cancel" },
         {
-          text: "Delete",
+          text: t("mobile.common.delete"),
           style: "destructive",
           onPress: () => void runDeleteAccount(),
         },
@@ -227,16 +234,17 @@ export default function AccountScreen() {
 
   const confirmForgetDesktop = (access: StoredPhoneAccess) => {
     const label = platformLabelFor(
+      t,
       access,
       desktopPlatforms[access.desktopDeviceId],
     );
     Alert.alert(
-      `Forget ${label}?`,
-      "This phone will stop reconnecting to that computer until you pair it again.",
+      t("mobile.settings.forgetConfirmTitle", { name: label }),
+      t("mobile.settings.forgetConfirmBody"),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("mobile.common.cancel"), style: "cancel" },
         {
-          text: "Forget",
+          text: t("mobile.settings.forget"),
           style: "destructive",
           onPress: () => {
             setRemovingDesktopId(access.desktopDeviceId);
@@ -264,7 +272,7 @@ export default function AccountScreen() {
       ]}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>Settings</Text>
+      <Text style={styles.title}>{t("mobile.settings.title")}</Text>
 
       {isSignedIn ? (
         <>
@@ -297,7 +305,9 @@ export default function AccountScreen() {
                   }}
                   hitSlop={10}
                   accessibilityLabel={
-                    emailRevealed ? "Hide email" : "Show email"
+                    emailRevealed
+                      ? t("mobile.settings.hideEmailLabel")
+                      : t("mobile.settings.showEmailLabel")
                   }
                   style={styles.identityEmailToggle}
                 >
@@ -313,14 +323,16 @@ export default function AccountScreen() {
 
         </>
       ) : showLoadingHeader ? (
-        <Text style={styles.body}>Loading session…</Text>
+        <Text style={styles.body}>{t("mobile.settings.loadingSession")}</Text>
       ) : (
         <View style={styles.signInBlock}>
-          <Text style={styles.signInTitle}>Sign in to Stella</Text>
+          <Text style={styles.signInTitle}>
+            {t("mobile.settings.signInTitle")}
+          </Text>
           <PrimaryButton
-            label="Sign in"
+            label={t("mobile.settings.signIn")}
             onPress={() => router.replace("/login")}
-            accessibilityLabel="Sign in to Stella"
+            accessibilityLabel={t("mobile.settings.signInTitle")}
             style={styles.signInButton}
           />
         </View>
@@ -328,7 +340,9 @@ export default function AccountScreen() {
 
       <View style={styles.separator} />
 
-      <Text style={styles.sectionLabel}>Appearance</Text>
+      <Text style={styles.sectionLabel}>
+        {t("mobile.settings.appearanceSection")}
+      </Text>
       <View style={styles.themeRow}>
         {APPEARANCE_OPTIONS.map((opt) => (
           <Pressable
@@ -337,7 +351,9 @@ export default function AccountScreen() {
               tapLight();
               setPreference(opt.value);
             }}
-            accessibilityLabel={`Use ${opt.label} appearance`}
+            accessibilityLabel={t("mobile.settings.useAppearanceLabel", {
+              name: t(opt.labelKey),
+            })}
             style={[
               styles.themeOption,
               preference === opt.value && styles.themeOptionActive,
@@ -349,7 +365,7 @@ export default function AccountScreen() {
                 preference === opt.value && styles.themeOptionTextActive,
               ]}
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </Text>
           </Pressable>
         ))}
@@ -370,7 +386,9 @@ export default function AccountScreen() {
                 setGradientPreference(opt.value);
               }}
               disabled={disabled}
-              accessibilityLabel={`Use ${opt.label} background`}
+              accessibilityLabel={t("mobile.settings.useBackgroundLabel", {
+                name: t(opt.labelKey),
+              })}
               accessibilityState={{ selected: isSelected, disabled }}
               style={[
                 styles.themeOption,
@@ -384,7 +402,7 @@ export default function AccountScreen() {
                   isSelected && styles.themeOptionTextActive,
                 ]}
               >
-                {opt.label}
+                {t(opt.labelKey)}
               </Text>
             </Pressable>
           );
@@ -407,7 +425,7 @@ export default function AccountScreen() {
                 tapLight();
                 setThemeId(th.id);
               }}
-              accessibilityLabel={`Use ${th.name} theme`}
+              accessibilityLabel={t("mobile.settings.useThemeLabel", { name: th.name })}
               accessibilityState={{ selected: isActive }}
               style={[
                 styles.themeDotOuter,
@@ -437,18 +455,22 @@ export default function AccountScreen() {
 
       <View style={styles.separator} />
 
-      <Text style={styles.sectionLabel}>Notifications</Text>
+      <Text style={styles.sectionLabel}>
+        {t("mobile.settings.notificationsSection")}
+      </Text>
       <View style={styles.toggleRow}>
         <View style={styles.toggleCopy}>
-          <Text style={styles.toggleLabel}>Allow push notifications</Text>
+          <Text style={styles.toggleLabel}>
+            {t("mobile.settings.pushToggleLabel")}
+          </Text>
           <Text style={styles.toggleSub}>
-            Get notified when your computer finishes a request.
+            {t("mobile.settings.pushToggleSub")}
           </Text>
         </View>
         <GlassToggle
           value={!notificationsMuted}
           onValueChange={toggleNotifications}
-          accessibilityLabel="Toggle push notifications"
+          accessibilityLabel={t("mobile.settings.pushToggleA11y")}
         />
       </View>
 
@@ -456,11 +478,11 @@ export default function AccountScreen() {
         <>
           <View style={styles.separator} />
 
-          <Text style={styles.sectionLabel}>Talk to Stella</Text>
+          <Text style={styles.sectionLabel}>
+            {t("mobile.settings.voiceSection")}
+          </Text>
           <Text style={styles.emptyHint}>
-            Where hands-free voice (like CarPlay) sends your messages. Auto
-            picks your computer&apos;s chat when that&apos;s where you left off
-            and it&apos;s reachable — otherwise this phone&apos;s chat.
+            {t("mobile.settings.voiceSectionHint")}
           </Text>
           <View style={styles.themeRow}>
             {VOICE_TARGET_OPTIONS.map((opt) => (
@@ -470,7 +492,9 @@ export default function AccountScreen() {
                   tapLight();
                   chooseVoiceTarget(opt.value);
                 }}
-                accessibilityLabel={`Send voice messages to ${opt.label}`}
+                accessibilityLabel={t("mobile.settings.voiceTargetLabel", {
+                  name: t(opt.labelKey),
+                })}
                 accessibilityState={{ selected: voiceTarget === opt.value }}
                 style={[
                   styles.themeOption,
@@ -483,7 +507,7 @@ export default function AccountScreen() {
                     voiceTarget === opt.value && styles.themeOptionTextActive,
                   ]}
                 >
-                  {opt.label}
+                  {t(opt.labelKey)}
                 </Text>
               </Pressable>
             ))}
@@ -495,15 +519,18 @@ export default function AccountScreen() {
         <>
           <View style={styles.separator} />
 
-          <Text style={styles.sectionLabel}>Paired computers</Text>
+          <Text style={styles.sectionLabel}>
+            {t("mobile.settings.pairedSection")}
+          </Text>
           {pairedDesktops.length === 0 ? (
             <Text style={styles.emptyHint}>
-              No computers paired yet. Pair from the Computer tab.
+              {t("mobile.settings.pairedEmpty")}
             </Text>
           ) : (
             <View style={styles.pairedList}>
               {pairedDesktops.map((access) => {
                 const label = platformLabelFor(
+                  t,
                   access,
                   desktopPlatforms[access.desktopDeviceId],
                 );
@@ -514,17 +541,22 @@ export default function AccountScreen() {
                     <View style={styles.pairedCopy}>
                       <Text style={styles.pairedName}>{label}</Text>
                       <Text style={styles.pairedSub}>
-                        Paired{" "}
-                        {new Date(access.approvedAt).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
+                        {t("mobile.settings.pairedOn", {
+                          date: new Date(
+                            access.approvedAt,
+                          ).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          }),
                         })}
                       </Text>
                     </View>
                     <Pressable
                       onPress={() => confirmForgetDesktop(access)}
                       disabled={removing}
-                      accessibilityLabel={`Forget ${label}`}
+                      accessibilityLabel={t("mobile.settings.forgetLabel", {
+                        name: label,
+                      })}
                       style={({ pressed }) => [
                         styles.forgetButton,
                         pressed && styles.forgetButtonPressed,
@@ -532,7 +564,9 @@ export default function AccountScreen() {
                       ]}
                     >
                       <Text style={styles.forgetText}>
-                        {removing ? "\u2026" : "Forget"}
+                        {removing
+                          ? "\u2026"
+                          : t("mobile.settings.forget")}
                       </Text>
                     </Pressable>
                   </View>
@@ -548,35 +582,41 @@ export default function AccountScreen() {
       <View style={styles.legalBlock}>
         <Pressable
           onPress={() => router.push("/carplay-diagnostics")}
-          accessibilityLabel="Open CarPlay diagnostics"
+          accessibilityLabel={t("mobile.settings.openCarPlayDiagnosticsLabel")}
           style={({ pressed }) => [
             styles.legalRow,
             pressed && styles.legalRowPressed,
           ]}
         >
-          <Text style={styles.legalLabel}>CarPlay diagnostics</Text>
+          <Text style={styles.legalLabel}>
+            {t("mobile.settings.carPlayDiagnostics")}
+          </Text>
           <Text style={styles.legalChevron}>›</Text>
         </Pressable>
         <Pressable
           onPress={() => void Linking.openURL("https://stella.sh/terms")}
-          accessibilityLabel="Open Terms of Service"
+          accessibilityLabel={t("mobile.settings.openTermsLabel")}
           style={({ pressed }) => [
             styles.legalRow,
             pressed && styles.legalRowPressed,
           ]}
         >
-          <Text style={styles.legalLabel}>Terms of Service</Text>
+          <Text style={styles.legalLabel}>
+            {t("mobile.settings.termsOfService")}
+          </Text>
           <Text style={styles.legalChevron}>›</Text>
         </Pressable>
         <Pressable
           onPress={() => void Linking.openURL("https://stella.sh/privacy")}
-          accessibilityLabel="Open Privacy Policy"
+          accessibilityLabel={t("mobile.settings.openPrivacyLabel")}
           style={({ pressed }) => [
             styles.legalRow,
             pressed && styles.legalRowPressed,
           ]}
         >
-          <Text style={styles.legalLabel}>Privacy Policy</Text>
+          <Text style={styles.legalLabel}>
+            {t("mobile.settings.privacyPolicy")}
+          </Text>
           <Text style={styles.legalChevron}>›</Text>
         </Pressable>
       </View>
@@ -586,7 +626,7 @@ export default function AccountScreen() {
           <Pressable
             onPress={() => void signOut()}
             disabled={isSigningOut || isDeletingAccount}
-            accessibilityLabel="Sign out of Stella"
+            accessibilityLabel={t("mobile.settings.signOutLabel")}
             style={({ pressed }) => [
               styles.signOut,
               pressed && styles.signOutPressed,
@@ -594,21 +634,25 @@ export default function AccountScreen() {
             ]}
           >
             <Text style={styles.signOutText}>
-              {isSigningOut ? "Signing out\u2026" : "Sign out"}
+              {isSigningOut
+                ? t("mobile.settings.signingOut")
+                : t("mobile.settings.signOut")}
             </Text>
           </Pressable>
 
           <Pressable
             onPress={confirmDeleteAccount}
             disabled={isDeletingAccount || isSigningOut}
-            accessibilityLabel="Delete your Stella account"
+            accessibilityLabel={t("mobile.settings.deleteAccountLabel")}
             style={({ pressed }) => [
               styles.deleteAccountLink,
               pressed && styles.deleteAccountLinkPressed,
             ]}
           >
             <Text style={styles.deleteAccountLinkText}>
-              {isDeletingAccount ? "Deleting account\u2026" : "Delete account"}
+              {isDeletingAccount
+                ? t("mobile.settings.deletingAccount")
+                : t("mobile.settings.deleteAccount")}
             </Text>
           </Pressable>
         </>

@@ -22,6 +22,7 @@ import {
   type SuggestionSlot,
 } from "@/features/chat/hooks/use-auto-context-chips";
 import { truncateChipLabel } from "@/features/chat/composer-context";
+import { useT } from "@/shared/i18n";
 
 // ---------------------------------------------------------------------------
 // Attached chips — context the user has committed to sending. Lives INSIDE
@@ -490,6 +491,7 @@ function AppSuggestionChip({
   phase: SlotPhaseAttr;
   onClick: () => void;
 }) {
+  const t = useT();
   const detail = app.windowTitle
     ? `${app.name} — ${app.windowTitle}`
     : app.name;
@@ -501,8 +503,8 @@ function AppSuggestionChip({
       data-phase={phase}
       title={
         app.isActive
-          ? `Add ${detail} (current window) as context`
-          : `Add ${detail} as context`
+          ? t("app.chat.contextRow.addActiveWindow", { detail })
+          : t("app.chat.contextRow.addContext", { detail })
       }
       onClick={(event) => {
         event.preventDefault();

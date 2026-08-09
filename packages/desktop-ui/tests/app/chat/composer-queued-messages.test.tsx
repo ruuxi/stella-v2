@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComposerQueuedMessages } from "@/app/chat/ComposerQueuedMessages";
 import type { QueuedUserMessage } from "@/features/chat/hooks/queued-user-messages";
@@ -45,7 +46,7 @@ describe("ComposerQueuedMessages", () => {
     const message = queued("queued-animation-once");
 
     await act(async () => {
-      root.render(<ComposerQueuedMessages messages={[message]} />);
+      root.render(withI18n(<ComposerQueuedMessages messages={[message]} />));
     });
     expect(
       container.querySelector<HTMLElement>(".composer-queued-message")?.style
@@ -55,7 +56,7 @@ describe("ComposerQueuedMessages", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await act(async () => {
-      root.render(<ComposerQueuedMessages messages={[message]} />);
+      root.render(withI18n(<ComposerQueuedMessages messages={[message]} />));
     });
 
     expect(
@@ -67,17 +68,20 @@ describe("ComposerQueuedMessages", () => {
   it("keeps one queued message as its normal text bubble", async () => {
     await act(async () => {
       root.render(
-        <ComposerQueuedMessages
-          messages={[queued("queued-single", "Only this message")]}
-        />,
+        withI18n(
+          <ComposerQueuedMessages
+            messages={[queued("queued-single", "Only this message")]}
+          />,
+        ),
       );
     });
 
     expect(container.querySelectorAll(".composer-queued-message")).toHaveLength(
       1,
     );
-    expect(container.querySelector(".composer-queued-message__bubble")?.textContent)
-      .toBe("Only this message");
+    expect(
+      container.querySelector(".composer-queued-message__bubble")?.textContent,
+    ).toBe("Only this message");
     expect(
       container.querySelector(".composer-queued-message__bubble--summary"),
     ).toBeNull();
@@ -91,7 +95,7 @@ describe("ComposerQueuedMessages", () => {
     ];
 
     await act(async () => {
-      root.render(<ComposerQueuedMessages messages={messages} />);
+      root.render(withI18n(<ComposerQueuedMessages messages={messages} />));
     });
 
     expect(container.querySelectorAll(".composer-queued-message")).toHaveLength(
@@ -120,7 +124,7 @@ describe("ComposerQueuedMessages", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await act(async () => {
-      root.render(<ComposerQueuedMessages messages={messages} />);
+      root.render(withI18n(<ComposerQueuedMessages messages={messages} />));
     });
     expect(
       container.querySelector<HTMLElement>(".composer-queued-message")?.style

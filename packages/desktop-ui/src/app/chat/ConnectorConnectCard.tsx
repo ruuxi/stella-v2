@@ -15,6 +15,7 @@ import {
   respondToConnectorConnect,
   useConnectorConnectRequest,
 } from "@/features/chat/connector-connect-store";
+import { useT } from "@/shared/i18n";
 import "./connector-connect-card.css";
 
 export const ConnectorConnectCard = ({
@@ -25,6 +26,7 @@ export const ConnectorConnectCard = ({
   /** Scope: only requests for this chat (or unscoped ones) render here. */
   conversationId?: string | null;
 }) => {
+  const t = useT();
   const request = useConnectorConnectRequest(conversationId);
   const [iconFailed, setIconFailed] = useState(false);
   if (!request) return null;
@@ -34,26 +36,31 @@ export const ConnectorConnectCard = ({
   const sub =
     request.phase === "connecting"
       ? isBrowserExtension
-        ? "Add the extension from the Chrome Web Store tab that just opened. Stella continues automatically once it's installed."
-        : `Finish signing in to ${request.name} in your browser. Stella will continue once it's approved.`
+        ? t("app.chat.connectorConnect.connectingExtension")
+        : t("app.chat.connectorConnect.connectingApp", { name: request.name })
       : request.phase === "connected"
         ? isBrowserExtension
-          ? "Extension detected. Stella is continuing with your request."
-          : "Connected. Stella is continuing with your request."
+          ? t("app.chat.connectorConnect.connectedExtension")
+          : t("app.chat.connectorConnect.connectedApp")
         : request.phase === "error"
-          ? (request.message ?? `Could not connect ${request.name}.`)
+          ? (request.message ??
+            t("app.chat.connectorConnect.errorBody", { name: request.name }))
           : (request.reason ?? request.description ?? undefined);
 
   const title =
     request.phase === "connected"
-      ? `${request.name} connected`
+      ? t("app.chat.connectorConnect.titleConnected", { name: request.name })
       : request.phase === "connecting"
-        ? `Waiting for ${request.name}`
+        ? t("app.chat.connectorConnect.titleWaiting", { name: request.name })
         : request.phase === "error"
-          ? `Couldn't connect ${request.name}`
+          ? t("app.chat.connectorConnect.titleError", { name: request.name })
           : isBrowserExtension
-            ? `Connect the ${request.name}?`
-            : `Connect ${request.name}?`;
+            ? t("app.chat.connectorConnect.titleOfferExtension", {
+                name: request.name,
+              })
+            : t("app.chat.connectorConnect.titleOffer", {
+                name: request.name,
+              });
 
   return (
     <div
@@ -87,7 +94,7 @@ export const ConnectorConnectCard = ({
             className="pill-btn connector-connect-card__decline"
             onClick={() => respondToConnectorConnect(request.requestId, "decline")}
           >
-            Not now
+            {t("app.chat.connectorConnect.notNow")}
           </Button>
           <Button
             type="button"
@@ -95,7 +102,9 @@ export const ConnectorConnectCard = ({
             className="pill-btn pill-btn--primary connector-connect-card__accept"
             onClick={() => respondToConnectorConnect(request.requestId, "accept")}
           >
-            {isBrowserExtension ? "Install" : "Connect"}
+            {isBrowserExtension
+              ? t("app.chat.connectorConnect.install")
+              : t("app.chat.connectorConnect.connect")}
           </Button>
         </div>
       ) : request.phase === "connecting" ? (
@@ -106,7 +115,7 @@ export const ConnectorConnectCard = ({
             className="pill-btn connector-connect-card__decline"
             onClick={() => respondToConnectorConnect(request.requestId, "cancel")}
           >
-            Cancel
+            {t("app.chat.connectorConnect.cancel")}
           </Button>
         </div>
       ) : null}

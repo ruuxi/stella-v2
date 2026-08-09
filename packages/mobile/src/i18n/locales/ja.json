@@ -1,0 +1,2179 @@
+{
+  "common": {
+    "appName": "Stella",
+    "continue": "続ける",
+    "back": "戻る",
+    "next": "次へ",
+    "previous": "前へ",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "close": "閉じる",
+    "open": "開く",
+    "openPreferences": "環境設定を開く",
+    "signIn": "サインイン",
+    "signOut": "サインアウト",
+    "loading": "読み込み中…",
+    "tryAgain": "もう一度試す",
+    "language": "言語",
+    "yes": "はい",
+    "no": "いいえ",
+    "copy": "コピー"
+  },
+  "sidebar": {
+    "signIn": "サインイン",
+    "account": "アカウント",
+    "feedback": "フィードバックを送る",
+    "upgrade": "アップグレード",
+    "newChat": "新しいチャット"
+  },
+  "settings": {
+    "title": "設定",
+    "tabs": {
+      "general": "基本",
+      "shortcuts": "ショートカット",
+      "backup": "バックアップ",
+      "account": "アカウントと法的事項",
+      "audio": "オーディオ"
+    },
+    "language": {
+      "title": "言語",
+      "description": "Stella がアプリ内および応答で使う言語を選びます。"
+    },
+    "workingMode": {
+      "title": "オーケストレーターモード",
+      "directDescription": "Stella がタスクを自分で処理し、必要な場合にのみ委任します。",
+      "orchestratedDescription": "Stella が General エージェントを調整し、大きな作業をサブエージェントに分割できます。"
+    },
+    "developerPreviews": {
+      "title": "開発者向けファイルプレビュー",
+      "description": "コードの変更をチャットに表示し、サイドパネルで開きます。"
+    },
+    "nativeFontSmoothing": {
+      "title": "ネイティブのフォントスムージング",
+      "description": "macOS アプリと同じように、グレースケールのアンチエイリアスでテキストを描画します。"
+    },
+    "motion": {
+      "title": "モーション",
+      "reduceMotion": {
+        "label": "視差効果を減らす",
+        "description": "インターフェースのアニメーションを最小限にします。",
+        "system": "システム",
+        "on": "オン",
+        "off": "オフ"
+      }
+    },
+    "voice": {
+      "title": "音声",
+      "personality": {
+        "label": "パーソナリティ"
+      }
+    },
+    "notifications": {
+      "title": "サウンド通知",
+      "description": "Stella がエージェントの実行を終えたときにサウンドを再生します。"
+    },
+    "power": {
+      "title": "コンピュータをスリープさせない",
+      "description": "Stella を開いている間、コンピュータがスリープしないようにします。"
+    },
+    "lockedComputerUse": {
+      "title": "ロック中のコンピュータ操作",
+      "description": "この Mac がロックされた後も Stella がコンピュータ操作タスクを続行できるようにします。管理者の許可が必要で、Stella の作業中は画面を覆います。",
+      "unsupported": "ロック中のコンピュータ操作は macOS でのみ利用できます。"
+    },
+    "browserExtension": {
+      "title": "Stella for Chrome",
+      "description": "開いているページを Stella が確認し、ブラウザ内で操作できるようにします。",
+      "action": "拡張機能を入手"
+    },
+    "permissions": {
+      "title": "アクセス権",
+      "enable": "有効にする",
+      "granted": "許可済み",
+      "opening": "開いています…",
+      "reset": "リセット",
+      "resetting": "リセット中…",
+      "accessibility": {
+        "label": "アクセシビリティ",
+        "description": "選択したテキストを Stella が読み取り、コンピュータのどこからでも ⌘+右クリックのショートカットで開けるようにします。"
+      },
+      "screen": {
+        "label": "画面収録",
+        "description": "あなたが見ている内容を手伝えるよう、Stella が画面を確認できるようにします。有効にした後、Stella を終了して再度開く必要がある場合があります。"
+      },
+      "microphone": {
+        "label": "マイク",
+        "description": "音声と音声入力に使用します。以前に Stella が拒否され、macOS が再度確認しない場合はリセットしてください。"
+      },
+      "restart": {
+        "label": "Stella を再起動",
+        "description": "画面収録が有効になりました。設定を完了するには Stella を終了して再度開いてください。",
+        "action": "再起動",
+        "closing": "終了中…"
+      }
+    },
+    "shortcuts": {
+      "title": "ショートカット",
+      "change": "変更",
+      "capturing": "キーを押してください…",
+      "clear": "クリア",
+      "off": "オフ",
+      "actions": {
+        "dictation": "音声入力",
+        "voice": "音声エージェント"
+      },
+      "dictation": {
+        "description": "Option を押し続けると、Stella や使用中のアプリに音声入力できます。"
+      },
+      "voiceAgent": {
+        "description": "Stella のライブ音声エージェントを開始または停止します。"
+      },
+      "targets": {
+        "dictation": "音声入力",
+        "voice": "音声エージェント"
+      },
+      "toasts": {
+        "updatedTitle": "{action} のショートカットを更新しました",
+        "clearedTitle": "{action} のショートカットをクリアしました",
+        "updatedDescription": "{keys} を押すと {target} を開始します。",
+        "clearedDescription": "新しいショートカットを設定するまで {action} は無効です。",
+        "unavailableTitle": "ショートカットを利用できません",
+        "failedTitle": "ショートカットの更新に失敗しました"
+      },
+      "errors": {
+        "load": "ショートカットを読み込めませんでした。",
+        "unavailable": "このウィンドウではショートカットを利用できません。",
+        "unavailableShortcut": "そのショートカットは利用できません。",
+        "update": "ショートカットを更新できませんでした。"
+      }
+    },
+    "backup": {
+      "title": "バックアップ",
+      "upgradeNotice": "バックアップはすべての有料 Stella プランに含まれています。",
+      "never": "なし",
+      "automatic": {
+        "label": "自動バックアップ",
+        "lastLocal": "最後のローカルバックアップ: {time}",
+        "lastRemote": "最後のリモートバックアップ: {time}",
+        "remoteIssue": "リモートバックアップの問題: {error}",
+        "off": "オフ",
+        "hourly": "1 時間ごとの自動バックアップ",
+        "ariaLabel": "バックアップ"
+      },
+      "backupNow": {
+        "label": "今すぐバックアップ",
+        "description": "今すぐバックアップを保存します。サインインしていると自動的にアップロードされます。",
+        "action": "今すぐバックアップ",
+        "working": "バックアップ中…"
+      },
+      "saved": {
+        "label": "保存済みバックアップ",
+        "signedInDescription": "このデバイスで復元するバックアップを選択してください。",
+        "signedOutDescription": "サインインすると、オンラインにバックアップを保存し、どのデバイスでも復元できます。",
+        "empty": "リモートバックアップはまだありません。",
+        "latest": "最新",
+        "files": "{count} 個のファイル",
+        "from": "送信元: {source}",
+        "restore": "復元",
+        "restoring": "復元中…"
+      },
+      "toasts": {
+        "completedTitle": "バックアップが完了しました",
+        "queuedTitle": "バックアップをキューに追加しました",
+        "deferredTitle": "バックアップを延期しました",
+        "noneNeededTitle": "バックアップは不要です",
+        "failedTitle": "バックアップに失敗しました",
+        "restorePreparedTitle": "復元の準備ができました",
+        "restorePreparedDescription": "このバックアップの適用を完了するため、Stella が再起動します。",
+        "restoreFailedTitle": "復元に失敗しました"
+      },
+      "errors": {
+        "load": "バックアップ設定を読み込めませんでした。",
+        "unavailable": "このウィンドウではバックアップ設定を利用できません。",
+        "signInRequired": "バックアップを有効にするには、サインインして Stella プランを選択してください。",
+        "checkingPlan": "バックアップを有効にする前に Stella プランを確認しています。",
+        "subscriptionRequired": "バックアップには有効な Stella サブスクリプションが必要です。",
+        "updateMode": "バックアップモードを更新できませんでした。",
+        "backupUnavailable": "このウィンドウではバックアップを利用できません。",
+        "startBackup": "バックアップを開始できませんでした。",
+        "restoreUnavailable": "このウィンドウでは復元を利用できません。",
+        "restore": "バックアップを復元できませんでした。"
+      }
+    },
+    "account": {
+      "title": "アカウント",
+      "signOut": {
+        "label": "サインアウト",
+        "description": "このデバイスで Stella からサインアウトします。",
+        "action": "サインアウト"
+      },
+      "deleteData": {
+        "label": "データを削除",
+        "description": "すべての会話・メモリ・保存済みの Stella 設定を消去します。",
+        "action": "削除",
+        "working": "削除中…"
+      },
+      "deleteAccount": {
+        "label": "アカウントを削除",
+        "description": "アカウントとその中のすべてを完全に削除します。",
+        "action": "削除",
+        "working": "削除中…"
+      },
+      "legal": {
+        "title": "法的情報",
+        "terms": "利用規約",
+        "privacy": "プライバシーポリシー",
+        "view": "表示"
+      },
+      "dialog": {
+        "deleteDataTitle": "Stella のデータを削除しますか？",
+        "deleteAccountTitle": "Stella のアカウントを削除しますか？",
+        "deleteDataDescription": "これにより、会話・メモリ・設定・Stella のローカル状態が消去されます。これは元に戻せません。",
+        "deleteAccountDescription": "これにより、アカウントと Stella のデータが完全に削除されます。これは元に戻せません。",
+        "deleteDataButton": "データを削除",
+        "deleteAccountButton": "アカウントを削除",
+        "working": "削除中…"
+      },
+      "toasts": {
+        "dataDeleted": "Stella のデータを削除しました。",
+        "accountDeleted": "Stella のアカウントを削除しました。",
+        "deleteDataFailed": "データを削除できませんでした。もう一度お試しください。",
+        "deleteAccountFailed": "アカウントを削除できませんでした。もう一度お試しください。",
+        "signInBeforeDelete": "アカウントを削除する前にサインインしてください。"
+      }
+    },
+    "audio": {
+      "systemDefault": "システムのデフォルト",
+      "microphoneDeviceFallback": "マイク {index}",
+      "speakerDeviceFallback": "スピーカー {index}",
+      "microphone": {
+        "title": "マイク",
+        "enableLabel": "マイクを有効にする",
+        "enableDescription": "Stella と話すために必要です。",
+        "deviceLabel": "マイク",
+        "deviceDescription": "Stella はどのマイクを使用しますか？"
+      },
+      "recovery": {
+        "manageLabel": "マイクのアクセスを管理",
+        "recoverLabel": "マイクのアクセスを回復",
+        "manageDescription": "マイクの許可が動かなくなった場合は、リセットして macOS に再度確認させることができます。",
+        "recoverDescription": "一度拒否すると、macOS は自動的に再確認しません。許可をリセットしてから、Stella を終了して再度開いてください。",
+        "openSettings": "設定を開く",
+        "reset": "リセットして再起動",
+        "closing": "終了中…"
+      },
+      "wakeWord": {
+        "label": "ウェイクワード「Hey Stella」",
+        "description": "バックグラウンドで「Hey Stella」を待ち受け、音声会話を開始します。オフの場合、音声入力を押すまでマイクは待機状態のままです。"
+      },
+      "superFast": {
+        "label": "超高速音声入力",
+        "description": "マイクを準備状態に保ち、音声入力が少ない遅延で開始できるようにします。"
+      },
+      "dictationSounds": {
+        "label": "音声入力のサウンド",
+        "description": "音声入力の開始時と停止時にサウンドを再生します。"
+      },
+      "enhance": {
+        "label": "文字起こしを強化",
+        "description": "ローカルの音声入力テキストを挿入する前に Mercury で整えます。"
+      },
+      "localDictation": {
+        "label": "デバイス上の文字起こし",
+        "description": "Inworld の代わりにローカルの Parakeet モデルを使用します。低スペックの Mac ではメモリ使用量が増える場合があります。",
+        "unavailableFallback": "この Mac では利用できません。"
+      },
+      "speaker": {
+        "title": "スピーカー",
+        "outputLabel": "出力デバイス",
+        "outputDescription": "使用するスピーカーまたはヘッドフォンを選択してください。",
+        "empty": "スピーカーが見つかりません。",
+        "emptyMicOff": "マイクをオンにすると、スピーカーが表示されます。"
+      },
+      "errors": {
+        "listDevices": "オーディオデバイスを一覧表示できません。",
+        "micDeniedReset": "以前にマイクのアクセスが拒否されました。リセットして Stella を再起動するか、システム設定を開いてください。",
+        "micDenied": "マイクのアクセスが拒否されました。システム設定で許可してください。"
+      }
+    },
+    "connectedProviders": {
+      "title": "接続済みプロバイダ",
+      "empty": "接続済みのプロバイダはまだありません。API キーを追加するかサインインするには、上のモデルピッカーで Stella 以外のオプションを選択してください。",
+      "apiKey": "API キー",
+      "signedIn": "サインイン済み",
+      "removeKey": "キーを削除",
+      "removingKey": "削除中…",
+      "signOut": "サインアウト",
+      "signingOut": "サインアウト中…"
+    },
+    "search": {
+      "placeholder": "設定を検索",
+      "clear": "検索をクリア",
+      "noResultsTitle": "「{query}」に一致する設定はありません",
+      "noResultsBody": "より短い、または別の言葉でお試しください。",
+      "resultsOne": "{count} 件の結果:",
+      "resultsOther": "{count} 件の結果:",
+      "resultsAriaOne": "{count} 件の結果",
+      "resultsAriaOther": "{count} 件の結果",
+      "descriptions": {
+        "voice": "Stella の話し方とパーソナリティの声を選びます。",
+        "permissions": "macOS でアクセシビリティ・画面収録・マイクへのアクセスを許可します。",
+        "shortcuts": "音声入力と音声のショートカットを変更します。",
+        "backup": "自動の暗号化バックアップ、復元ポイント、オンデマンドのスナップショット。",
+        "account": "サインアウト、データの削除、またはアカウントの完全な削除を行います。",
+        "legal": "利用規約とプライバシーポリシー。",
+        "microphone": "入力デバイスを選択し、ウェイクワード・音声入力のサウンド・デバイス上の文字起こしを有効にします。",
+        "speaker": "Stella の声を再生するスピーカーまたはヘッドフォンを選びます。",
+        "wakeWord": "「Hey Stella」を待ち受けて音声会話を開始します。",
+        "onDeviceTranscription": "クラウドの文字起こしの代わりにローカルの Parakeet モデルを使用します。"
+      }
+    },
+    "errors": {
+      "loadPower": "電源設定を読み込めませんでした。",
+      "savePower": "電源設定を更新できませんでした。",
+      "powerUnavailable": "このウィンドウでは電源設定を利用できません。",
+      "loadLockedComputerUse": "ロック中のコンピュータ操作の設定を読み込めませんでした。",
+      "saveLockedComputerUse": "ロック中のコンピュータ操作を更新できませんでした。",
+      "lockedComputerUseUnavailable": "このウィンドウではロック中のコンピュータ操作を利用できません。",
+      "loadSoundNotifications": "サウンド通知の設定を読み込めませんでした。",
+      "saveSoundNotifications": "サウンド通知の設定を更新できませんでした。",
+      "soundNotificationsUnavailable": "このウィンドウではサウンド通知の設定を利用できません。",
+      "loadVoice": "音声設定を読み込めませんでした。",
+      "saveVoice": "音声設定を更新できませんでした。",
+      "voiceUnavailable": "このウィンドウでは音声設定を利用できません。",
+      "loadWorkingMode": "オーケストレーターモードを読み込めませんでした。",
+      "saveWorkingMode": "オーケストレーターモードを更新できませんでした。",
+      "workingModeUnavailable": "このウィンドウではオーケストレーターモードを利用できません。",
+      "loadPermissions": "デスクトップのアクセス権の状態を読み込めませんでした。",
+      "savePermission": "{kind} のアクセス権を更新できませんでした。",
+      "resetPermission": "{kind} のアクセス権をリセットできませんでした。",
+      "resetPermissionMaybeReopen": "{kind} のアクセス権をリセットできませんでした。Stella を開き直す必要があるかもしれません。",
+      "microphoneDeniedReopen": "以前にマイクのアクセスが拒否されました。システム設定でオンにしてから、Stella を開き直してください。",
+      "microphoneStillOff": "マイクのアクセスはまだオフです。システム設定でオンにしてから、Stella を開き直してください。",
+      "restart": "Stella を再起動できませんでした。"
+    },
+    "voiceCatalog": {
+      "label": "音声",
+      "familyAriaLabel": "音声ファミリー",
+      "familyTitle": {
+        "openai": "OpenAI Realtime の音声（Stella がトークンを発行します）",
+        "xai": "xAI Grok の音声（Stella がトークンを発行します）",
+        "inworld": "Inworld の音声（Stella が SDP 交換を仲介します）"
+      },
+      "source": {
+        "openai": "OpenAI の音声",
+        "xai": "Grok の音声",
+        "inworld": "Inworld の音声"
+      },
+      "previousVoice": "前の音声",
+      "nextVoice": "次の音声",
+      "menuAriaLabel": "{source} の音声",
+      "speed": "速度",
+      "speedAriaLabel": "Inworld の音声速度",
+      "readAloud": {
+        "label": "読み上げ",
+        "ariaLabel": "読み上げの音声プロバイダ",
+        "openaiTitle": "OpenAI TTS で返信を読み上げます",
+        "inworldTitle": "Inworld TTS で返信を読み上げます",
+        "description": "このプロバイダの音声で返信を読み上げます。"
+      }
+    },
+    "phoneAccess": {
+      "expired": "期限切れ",
+      "timeLeft": "残り {time}",
+      "copy": "コピー",
+      "preparing": "準備中...",
+      "getCode": "コードを取得",
+      "deviceFallback": "スマートフォン",
+      "removing": "削除中...",
+      "remove": "削除",
+      "signedOut": {
+        "headline": "サインインして始めましょう",
+        "body": "Stella アカウントにサインインして、モバイルアプリとペアリングします。"
+      },
+      "pairing": {
+        "headline": "このコードをスキャンまたは入力",
+        "body": "スマートフォンで Stella アプリを開いて QR コードをスキャンするか、下のコードを入力してください。この操作は一度だけで済みます。",
+        "qrAlt": "スキャンしてスマートフォンをペアリング"
+      },
+      "intro": {
+        "headline": "スマートフォンをコンピュータに接続"
+      },
+      "steps": {
+        "download": "アプリをダウンロード",
+        "downloadQrAlt": "スキャンして App Store から Stella をダウンロード",
+        "connect": "スマートフォンを接続"
+      },
+      "toasts": {
+        "codeCopied": "コードをクリップボードにコピーしました",
+        "phoneRemoved": "スマートフォンを削除しました",
+        "removeFailed": "スマートフォンを削除できませんでした"
+      },
+      "errors": {
+        "createPairing": "ペアリングコードを作成できません。"
+      },
+      "pairedCount": {
+        "other": "{count} 台のスマートフォンをペアリング済み"
+      }
+    },
+    "modelPicker": {
+      "searchPlaceholder": "モデルを検索…",
+      "searchAriaLabel": "モデルを検索",
+      "closeSearch": "検索を閉じる",
+      "apiKeyPlaceholder": "API キー",
+      "apiKeyAriaLabel": "{provider} の API キー",
+      "cancelSignIn": "サインインをキャンセル",
+      "signInWith": "{provider} でサインイン",
+      "saving": "保存中…",
+      "use": "使用",
+      "selected": "選択中",
+      "refresh": "モデルカタログを更新",
+      "restrictedPlan": "{plan} プランでは利用できません",
+      "reasoning": {
+        "label": "推論の強度",
+        "default": "自動",
+        "minimal": "最小",
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "xhigh": "最大"
+      },
+      "authHint": {
+        "both": "サインインするか、API キーを貼り付けてください。認証情報はこのデバイスに保存されます。",
+        "oauth": "認証情報はこのデバイスに保存されます。",
+        "apiKey": "API キーはこのデバイスに保存されます。"
+      },
+      "actions": {
+        "cancel": "キャンセル",
+        "signIn": "サインイン",
+        "addKey": "キーを追加",
+        "custom": "カスタム"
+      },
+      "signOut": {
+        "ariaLabel": "{provider} からサインアウト",
+        "confirmAriaLabel": "もう一度クリックすると {provider} からサインアウトします",
+        "confirmTitle": "もう一度クリックして確定"
+      },
+      "local": {
+        "hint": "OpenAI 互換のローカルサーバーを利用できます。Ollama は通常、下の URL で動作します。",
+        "serverUrlAriaLabel": "ローカルサーバーの URL",
+        "modelNameAriaLabel": "ローカルモデル名"
+      },
+      "openRouter": {
+        "hintBefore": "OpenRouter は任意の",
+        "hintAfter": "ID を受け付けます。入力すると直接使用できます。",
+        "modelIdAriaLabel": "OpenRouter のモデル ID"
+      },
+      "empty": {
+        "none": "利用できるモデルはまだありません。",
+        "noMatch": "一致するモデルはありません。"
+      },
+      "favorite": {
+        "remove": "お気に入りから削除",
+        "add": "お気に入りに追加",
+        "addTitle": "お気に入り — 上部に固定"
+      },
+      "errors": {
+        "saveApiKey": "API キーを保存できませんでした。",
+        "oauthLogin": "OAuth ログインに失敗しました。"
+      }
+    },
+    "providerPicker": {
+      "connected": "接続済み",
+      "connect": "接続",
+      "opening": "開いています…"
+    },
+    "engineModels": {
+      "ariaLabel": "{engine} のモデル",
+      "loading": "{engine} のモデルを読み込み中…",
+      "empty": "利用できる {engine} のモデルはありません。"
+    },
+    "providerConnected": {
+      "title": "Stella で {provider} を使いますか？",
+      "description": "{provider} は Stella の複数の部分を担当できます。任せたい範囲を選んでください — 残りは Stella が引き続き担当します。",
+      "assistant": {
+        "label": "アシスタント",
+        "description": "Stella のチャットアシスタントを {provider} 経由にします。"
+      },
+      "image": {
+        "label": "画像",
+        "description": "あなたの {provider} アカウントで画像を生成します。"
+      },
+      "voice": {
+        "label": "音声",
+        "description": "リアルタイム音声会話に {provider} を使用します。"
+      },
+      "skip": "スキップ",
+      "apply": "適用",
+      "applying": "適用中…",
+      "errors": {
+        "apply": "プロバイダ設定を適用できませんでした。"
+      }
+    },
+    "compactModelList": {
+      "ariaLabel": "Stella のモデル",
+      "recent": "最近",
+      "unavailable": "利用不可",
+      "unavailableTitle": "このモデルは利用できなくなりました — 別のモデルを選んでください。",
+      "loading": "Stella のモデルを読み込み中…",
+      "loadFailed": "Stella のモデルを読み込めませんでした。",
+      "empty": "利用できる Stella のモデルはありません。",
+      "retry": "再試行",
+      "restricted": "現在のプランでは Stella の選択を使用します。",
+      "restrictedPlan": "{plan} プランでは Stella の選択を使用します。",
+      "upgrade": "アップグレード"
+    },
+    "reasoningEffort": {
+      "minimal": "最小",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "特大"
+    },
+    "agentModelPicker": {
+      "byokDescription": "自分の {provider} API キーを使用します。",
+      "unavailableChooseAnother": "利用不可 — 別のモデルを選択してください",
+      "chatGptRouted": "{model} にルーティングしました（保存済みのモデルは利用できません）。",
+      "default": "デフォルト",
+      "stellaDefault": "Stella のデフォルト",
+      "surfaceAriaLabel": "対象",
+      "waitingForChatGpt": "ChatGPT を待っています…",
+      "imageProviderAriaLabel": "画像プロバイダ",
+      "voiceProviderAriaLabel": "音声プロバイダ",
+      "assistantPickerAriaLabel": "アシスタントのモデルピッカー",
+      "verifyingChatGpt": "ChatGPT のモデルを確認中…",
+      "noChatGptCodexModels": "現在、ChatGPT と Codex の両方で利用できるモデルはありません。",
+      "savedModelUnavailable": "保存済みのモデルは利用できません。別のモデルを選択してください。",
+      "tabs": {
+        "assistant": "アシスタント",
+        "assistantTitle": "Stella のメインアシスタント",
+        "image": "画像",
+        "imageTitle": "画像生成プロバイダ",
+        "voice": "音声",
+        "voiceTitle": "リアルタイム音声プロバイダ"
+      },
+      "errors": {
+        "loadPreferences": "モデル設定を読み込めませんでした。",
+        "chatGptMigration": "ChatGPT のルーティング移行に失敗しました。",
+        "chatGptVerify": "ChatGPT のモデルを確認できませんでした: {error}",
+        "chatGptVerifying": "ChatGPT のモデルの確認が終わるまでお待ちください。",
+        "chatGptNotConnected": "選択する前に ChatGPT を接続する必要があります。",
+        "chatGptNoModels": "現在、利用できる ChatGPT のモデルはありません。",
+        "connectChatGpt": "ChatGPT に接続できませんでした。",
+        "updateEngine": "エンジンを更新できませんでした。",
+        "updateTitle": "モデル設定を更新できませんでした",
+        "refreshTitle": "モデルを更新できませんでした",
+        "updateModel": "モデル設定を更新できませんでした。",
+        "updateImage": "画像設定を更新できませんでした。",
+        "updateVoice": "音声設定を更新できませんでした。",
+        "updateInworldSpeed": "Inworld の速度を更新できませんでした。",
+        "updateVoiceFamily": "音声ファミリーを更新できませんでした。",
+        "updateReadAloud": "読み上げプロバイダを更新できませんでした。",
+        "updateReasoning": "推論の強度を更新できませんでした。",
+        "updateChatGptSpeed": "ChatGPT の速度を更新できませんでした。",
+        "updateDirectRuntime": "{runtime} の直接設定を更新できませんでした。"
+      }
+    }
+  },
+  "onboarding": {
+    "ready": "準備中...",
+    "retryStart": "Stella の起動をやり直す",
+    "startStella": "Stella を始める",
+    "legalFooter": "Stella を利用することで、{terms}および{privacy}に同意したことになります。",
+    "termsOfService": "利用規約",
+    "privacyPolicy": "プライバシーポリシー",
+    "previousStep": "前のステップ",
+    "nextStep": "次のステップ",
+    "intro": {
+      "primary": "Stella はあなたのコンピューターで動く AI です。",
+      "secondary": "Stella はみんなのためのものではありません。あなたのためのものです。"
+    },
+    "stepTitles": {
+      "engine": "Stella を動かすエンジンを選択します。",
+      "extension": "ブラウザに Stella を追加しましょう。",
+      "browser": "Stella にあなたを知ってもらいましょう。",
+      "theme": "Stella の見た目はどうしますか？",
+      "personality": "Stella の話し方はどうしますか？",
+      "voice": "入力ではなく声で話しかける。",
+      "enter": "Stella の準備はもうすぐ整います。"
+    },
+    "acts": {
+      "discover": "発見",
+      "personalize": "自分仕様に",
+      "connect": "つなぐ",
+      "flow": "あなたのフロー",
+      "ready": "準備完了"
+    },
+    "discovery": {
+      "devEnvironment": {
+        "label": "開発環境",
+        "description": "使っているツール、進めているプロジェクト、環境の設定"
+      }
+    }
+  },
+  "billing": {
+    "plans": {
+      "free": {
+        "tagline": "Stella を始めよう",
+        "features": [
+          "基本的なチャットとサポート",
+          "1 日の利用量に制限あり"
+        ]
+      },
+      "go": {
+        "tagline": "毎日の個人利用に",
+        "features": [
+          "1 日あたりの会話数を増加",
+          "ブラウザ自動操作",
+          "音声会話"
+        ]
+      },
+      "pro": {
+        "tagline": "パワーユーザーへ",
+        "features": [
+          "Go の 3 倍の利用量",
+          "優先的な応答時間",
+          "すべての自動化機能"
+        ]
+      }
+    },
+    "upgradeDialog": {
+      "title": "現在 Stella {plan} をご利用中です。",
+      "description": "アップグレードありがとうございます。優先度の向上と利用量の増加がすでに有効です — そのまま続けましょう。",
+      "cta": "始める"
+    }
+  },
+  "chat": {
+    "stoppedReply": "Stella はこの返信を開始できませんでした",
+    "tryAgainHint": "もう一度お試しください。"
+  },
+  "errors": {
+    "generic": "問題が発生しました",
+    "subscriptionRequired": "バックアップには有効な Stella サブスクリプションが必要です。",
+    "rateLimited": "少し早すぎます。少し時間をおいてからもう一度試してください。",
+    "networkUnavailable": "Stella はオフラインです。再接続して続行してください。",
+    "permissionDenied": "Stella にはこの操作の権限がありません。"
+  },
+  "app": {
+    "social": {
+      "newChat": {
+        "title": "新しいメッセージ",
+        "emptySubtitle": "会話を始めるには、まず友だちを追加してください。",
+        "description": "友だちを選ぶか、新しいグループ会話を始めましょう。",
+        "subtitle": "友だちを選ぶか、グループを作成します。",
+        "groupTitle": "新しいグループ",
+        "groupSubtitle": "このグループに追加する友だちを選んでください。",
+        "groupNameLabel": "グループ名",
+        "groupNamePlaceholder": "グループ名（任意）",
+        "members": "メンバー",
+        "back": "戻る",
+        "creating": "作成中...",
+        "createGroup": "グループを作成",
+        "newGroup": "新しいグループ",
+        "friends": "友だち",
+        "opening": "開いています..."
+      },
+      "friends": {
+        "title": "友だち",
+        "description": "フレンドコードを共有してつながるか、相手のコードを入力してリクエストを送りましょう。",
+        "subtitle": "自分のユーザー名を共有するか、友だちのユーザー名を入力してつながりましょう。",
+        "requestSent": "フレンドリクエストを送信しました！",
+        "usernameCopied": "ユーザー名をコピーしました！",
+        "inviteLinkCopied": "招待リンクをコピーしました — どこへでも送れます。",
+        "yourUsername": "あなたのユーザー名",
+        "copy": "コピー",
+        "copyUsernameTitle": "自分のユーザー名をコピー",
+        "copyInviteLink": "招待リンクをコピー",
+        "copyInviteLinkTitle": "Stella を開いてフレンドリクエストを送るリンクをコピーします — iMessage や Discord など、どこでも使えます",
+        "addLabel": "友だちを追加",
+        "addPlaceholder": "ユーザー名を入力",
+        "add": "追加",
+        "adding": "追加中...",
+        "requestsCount": "リクエスト（{count}）",
+        "accept": "承認",
+        "decline": "拒否",
+        "sent": "送信済み",
+        "waitingForResponse": "返答を待っています",
+        "friendsCount": "友だち（{count}）",
+        "empty": "友だちはまだいません。上で自分のユーザー名を共有するか、相手のユーザー名を入力してつながりましょう。",
+        "message": "メッセージ",
+        "opening": "開いています...",
+        "remove": "削除",
+        "removing": "削除中...",
+        "errors": {
+          "sendRequest": "そのフレンドリクエストを送信できませんでした。ユーザー名を確認して、もう一度お試しください。"
+        }
+      },
+      "communities": {
+        "title": "コミュニティ",
+        "description": "コミュニティを作成するか、招待コードで参加して、メンバー全員とアドオンを共有しましょう。",
+        "subtitle": "共有のための信頼できる輪。コミュニティのメンバーが共有したものは全員が見られます。",
+        "defaultName": "コミュニティ",
+        "created": "「{name}」を作成しました！",
+        "joined": "参加しました！",
+        "createLabel": "コミュニティを作成",
+        "createPlaceholder": "新しいコミュニティの名前",
+        "create": "作成",
+        "joinLabel": "招待コードで参加",
+        "joinPlaceholder": "招待コードを入力",
+        "join": "参加",
+        "yourCommunities": "あなたのコミュニティ",
+        "yourCommunitiesCount": "あなたのコミュニティ（{count}）",
+        "empty": "コミュニティはまだありません。作成して招待コードを共有するか、送られてきたコードで参加しましょう。",
+        "createdByYouSuffix": " · あなたが作成",
+        "open": "開く",
+        "details": "詳細",
+        "back": "戻る",
+        "nameLabel": "コミュニティ名",
+        "save": "保存",
+        "cancel": "キャンセル",
+        "createdByYou": "あなたがこのコミュニティを作成しました。",
+        "memberOf": "あなたはこのコミュニティのメンバーです。",
+        "inviteCode": "招待コード",
+        "copied": "コピーしました！",
+        "copyCode": "コードをコピー",
+        "copyInviteLink": "招待リンクをコピー",
+        "copyInviteLinkTitle": "Stella を開いてこのコミュニティに参加するリンクをコピー",
+        "inviteHint": "このリンクはどこでも使えます — Stella のチャットに貼り付けても、iMessage や Discord で送っても構いません。リンクを持つ人は誰でも参加できるので、信頼できる相手にのみ共有してください。",
+        "membersCount": "メンバー（{count}）",
+        "roleCreator": "作成者",
+        "roleMember": "メンバー",
+        "youSuffix": " · あなた",
+        "remove": "削除",
+        "removing": "削除中...",
+        "confirmDelete": "このコミュニティを削除しますか？",
+        "delete": "コミュニティを削除",
+        "confirmLeave": "本当に退出しますか？",
+        "leave": "コミュニティを退出",
+        "rename": "名前を変更",
+        "openChat": "チャットを開く",
+        "errors": {
+          "create": "そのコミュニティを作成できませんでした。もう一度お試しください。",
+          "join": "その招待コードでは参加できませんでした。コードを確認して、もう一度お試しください。",
+          "rename": "コミュニティの名前を変更できませんでした。もう一度お試しください。",
+          "removeMember": "そのメンバーを削除できませんでした。もう一度お試しください。",
+          "delete": "コミュニティを削除できませんでした。もう一度お試しください。",
+          "leave": "コミュニティを退出できませんでした。もう一度お試しください。"
+        },
+        "memberCount": {
+          "other": "{count} 人のメンバー"
+        }
+      },
+      "view": {
+        "messages": "メッセージ",
+        "signIn": "サインイン",
+        "signInSubtitle": "サインインすると、友だちとメッセージをやり取りし、Stella と一緒に作業できます。",
+        "friends": "友だち",
+        "communities": "コミュニティ",
+        "newMessage": "新しいメッセージ",
+        "noRooms": "会話はまだありません。友だちを追加するか、新しいメッセージを始めましょう。",
+        "addFriends": "友だちを追加",
+        "communityBadge": "コミュニティ",
+        "communityBadgeTitle": "このコミュニティの全員と共有されます",
+        "usernamePlaceholder": "your-username",
+        "editUsername": "ユーザー名を編集",
+        "copied": "コピーしました！",
+        "clickToCopyUsername": "クリックしてユーザー名をコピー",
+        "copyUsername": "ユーザー名をコピー",
+        "cancel": "キャンセル",
+        "save": "保存",
+        "saving": "保存中...",
+        "emptyTitle": "あなたのメッセージ",
+        "emptySubtitle": "左から会話を選ぶか、友だちと新しい会話を始めましょう。",
+        "errors": {
+          "startConversation": "その会話を開始できませんでした。もう一度お試しください。",
+          "createGroup": "グループを作成できませんでした。もう一度お試しください。"
+        },
+        "usernameErrors": {
+          "empty": "ユーザー名は空にできません。",
+          "length": "ユーザー名は 3〜32 文字にしてください。",
+          "format": "小文字・数字・_ または - を使用してください。先頭と末尾は英数字にする必要があります。",
+          "update": "ユーザー名を更新できませんでした。もう一度お試しください。"
+        },
+        "newRequestCount": {
+          "other": "{count} 件の新しいリクエスト"
+        },
+        "friendsWithRequestsTitle": "友だち（{countPhrase}）",
+        "friendsWithRequestsAria": "友だち、{countPhrase}"
+      },
+      "chat": {
+        "stellaNoReply": "Stella は返信せずに終了しました。",
+        "stellaFailed": "Stella はそのリクエストを完了できませんでした。",
+        "stellaThinking": "Stella が考えています...",
+        "sharedStellaUnavailable": "共有 Stella はこのアプリセッションでは利用できません。",
+        "back": "戻る",
+        "backToConversations": "会話一覧に戻る",
+        "peopleCount": "{count} 人",
+        "startStella": "Stella を開始",
+        "startStellaTitle": "この会話に Stella を招き入れる",
+        "starting": "開始中...",
+        "startAgain": "もう一度開始",
+        "pause": "一時停止",
+        "resume": "再開",
+        "end": "終了",
+        "sayHello": "あいさつして会話を始めましょう",
+        "loadingOlder": "以前のメッセージを読み込み中…",
+        "armedOnTitle": "次のメッセージを Stella に送信",
+        "armedOffTitle": "次のメッセージを通常のチャットメッセージとして送信",
+        "tellStella": "Stella に伝える",
+        "tellingStella": "Stella に伝えています",
+        "tellStellaPlaceholder": "してほしいことを Stella に伝えてください...",
+        "messagePlaceholder": "{name} にメッセージ",
+        "sessionBadge": {
+          "live": "Stella · ライブ",
+          "paused": "Stella · 一時停止中",
+          "ended": "Stella · 終了"
+        },
+        "sessionHint": {
+          "live": "ここにいる全員が Stella に指示できます。",
+          "paused": "一時停止中 — 再開すると再び Stella に指示できます。",
+          "ended": "この共有 Stella スペースは終了しました。"
+        },
+        "errors": {
+          "startStella": "ここで Stella を開始できませんでした。もう一度お試しください。",
+          "updateStella": "現在 Stella を更新できませんでした。もう一度お試しください。",
+          "sendToStella": "それを Stella に送信できませんでした。もう一度お試しください。",
+          "sendMessage": "メッセージを送信できませんでした。もう一度お試しください。"
+        }
+      },
+      "composer": {
+        "placeholder": "メッセージを入力...",
+        "send": "送信"
+      },
+      "inviteCard": {
+        "communityEyebrow": "コミュニティの招待",
+        "friendEyebrow": "友だちの招待",
+        "defaultCommunityName": "コミュニティ",
+        "defaultUserName": "Stella ユーザー",
+        "friendDetail": "タップしてフレンドリクエストを送信",
+        "inviteUnavailable": "招待を利用できません",
+        "userNotFound": "ユーザーが見つかりません",
+        "communityMissing": "このコミュニティは存在しないか、コードが変更されました。",
+        "userMissing": "この招待リンクは Stella のユーザーと一致しません。",
+        "communityDetail": {
+          "other": "メンバー {countLabel} 人 · タップして参加"
+        }
+      }
+    },
+    "usage": {
+      "desktopOnly": "ローカルの使用状況は Stella デスクトップアプリで確認できます。",
+      "intro": "このデバイスに保存されたプロバイダ呼び出しです。コストはローカルの概算で、正式な請求はバックエンドの記録に基づきます。",
+      "refresh": "更新",
+      "refreshLabel": "使用状況を更新",
+      "selectedThread": "選択中のスレッド",
+      "viewAllThreads": "すべてのスレッドを表示",
+      "loading": "ローカルの使用状況を読み込み中…",
+      "loadError": "ローカルの使用状況を読み込めませんでした",
+      "tryAgain": "もう一度試す",
+      "emptyTitle": "このフィルタに一致するモデル呼び出しはありません。",
+      "emptyBody": "ネイティブの呼び出しは、プロバイダが最終的な使用量データを返した後にここに表示されます。",
+      "truncatedWarning": "この範囲の最新 10,000 件の呼び出しを表示しています。正確な合計を見るには期間を絞り込んでください。",
+      "filters": {
+        "label": "使用状況のフィルタ",
+        "timeRange": "期間",
+        "conversation": "会話",
+        "thread": "スレッド",
+        "agentType": "エージェントの種類",
+        "model": "モデル",
+        "allConversations": "すべての会話",
+        "allThreads": "すべてのスレッド",
+        "allAgentTypes": "すべてのエージェントの種類",
+        "allModels": "すべてのモデル",
+        "range": {
+          "24h": "過去 24 時間",
+          "7d": "過去 7 日間",
+          "30d": "過去 30 日間",
+          "all": "全期間"
+        }
+      },
+      "summary": {
+        "label": "使用状況の概要",
+        "estimatedCost": "推定コスト",
+        "providerCalls": "{count} 件のプロバイダ呼び出し",
+        "totalTokens": "合計トークン",
+        "uncachedInput": "キャッシュなし入力 {value}",
+        "cacheRead": "キャッシュ読み取り",
+        "cacheDetail": "読み取り {read} · 書き込み {written}",
+        "output": "出力",
+        "reasoningTokens": "推論トークン {value}"
+      },
+      "timeline": {
+        "title": "タイムライン",
+        "description": "期間ごとの推定コストと合計トークン。",
+        "chartLabel": "推定モデルコストとトークン使用量のタイムライン",
+        "series": {
+          "cost": "推定コスト",
+          "tokens": "トークン"
+        },
+        "tooltip": {
+          "estimated": "推定 {value}",
+          "tokens": "{value} トークン",
+          "calls": "{count} 件のモデル呼び出し"
+        }
+      },
+      "threads": {
+        "title": "スレッド",
+        "description": "オーケストレーター、エージェント、ネストされたサブエージェント。",
+        "columns": {
+          "execution": "実行",
+          "model": "モデル",
+          "calls": "呼び出し",
+          "tokens": "トークン",
+          "cache": "キャッシュ",
+          "cost": "コスト"
+        }
+      },
+      "calls": {
+        "title": "プロバイダ呼び出し",
+        "description": "プロバイダが推論を含める場合、出力にはそれも含まれます。報告された場合は推論も個別に表示されます。",
+        "costBreakdown": "入力 {input} · キャッシュ読み取り {cacheRead} · キャッシュ書き込み {cacheWrite} · 出力 {output}",
+        "truncatedNote": "一致する最新 500 件の呼び出しを表示しています。概要の合計には読み込まれた {count} 件すべてが含まれます。",
+        "columns": {
+          "time": "時刻",
+          "execution": "実行",
+          "providerModel": "プロバイダ / モデル",
+          "input": "入力",
+          "cache": "キャッシュ R / W",
+          "output": "出力",
+          "reasoning": "推論",
+          "cost": "コスト",
+          "stop": "停止"
+        }
+      }
+    },
+    "apps": {
+      "loading": "アプリを読み込み中…",
+      "unsupportedTitle": "アプリはデスクトップで利用できます。",
+      "unsupportedBody": "ローカルにインストールされたアプリを使うには、コンピュータで Stella を開いてください。",
+      "errorTitle": "アプリを読み込めませんでした",
+      "errorBody": "Stella はアプリフォルダを読み取れませんでした。",
+      "tryAgain": "もう一度試す",
+      "heroTitleEmphasis": "あなたの",
+      "heroTitleRest": "アプリ",
+      "staleWarning": "アプリが最新でない可能性があります。",
+      "searchPlaceholder": "アプリを検索",
+      "sortLabel": "並べ替え",
+      "createApp": "アプリを作成",
+      "noMatchPrefix": "一致するアプリはありません:",
+      "noMatchSuffix": "。",
+      "emptyTitle": "ここにはまだ何もありません。",
+      "emptyBody": "Stella に小さなアプリを作ってもらいましょう。ここに表示されます。",
+      "emptyAction": "Stella にアプリの作成を依頼",
+      "createAppPrompt": "どんな Stella アプリを作れるか教えて",
+      "sort": {
+        "recent": "最近",
+        "name": "名前"
+      },
+      "frame": {
+        "startFailed": "アプリを起動できませんでした。",
+        "timeout": "アプリの読み込みに時間がかかりすぎました。",
+        "loadFailed": "アプリを読み込めませんでした。",
+        "loading": "{name} を読み込み中…",
+        "openFailed": "{name} を開けませんでした"
+      }
+    },
+    "pets": {
+      "sort": {
+        "downloads": "人気順",
+        "name": "アルファベット順"
+      },
+      "animations": {
+        "idle": "待機",
+        "runningRight": "右に走る",
+        "runningLeft": "左に走る",
+        "waving": "手を振る",
+        "jumping": "ジャンプ",
+        "failed": "失敗",
+        "waiting": "待機中",
+        "running": "実行中",
+        "review": "確認"
+      },
+      "card": {
+        "by": "作成者: {creator}",
+        "selections": "{count} 回選択",
+        "get": "入手",
+        "select": "選択",
+        "selected": "選択中",
+        "remove": "削除"
+      },
+      "details": {
+        "caption": "作成者: {creator} · {downloads} 回選択",
+        "previewLabel": "{name} のプレビュー",
+        "animations": "アニメーション",
+        "animationStates": "アニメーションの状態"
+      }
+    },
+    "chat": {
+      "activityPill": {
+        "idle": "アクティビティ",
+        "openActivity": "{label} — アクティビティを開く",
+        "statusCanceled": "停止しました",
+        "statusDone": "完了しました",
+        "statusError": "完了できませんでした",
+        "statusRunning": "タスクを実行中",
+        "tasksInProgress": {
+          "other": "{count} 件のタスクを実行中"
+        }
+      },
+      "addMenu": {
+        "add": "追加",
+        "attachFiles": "ファイルを添付…",
+        "capture": "キャプチャ",
+        "context": "コンテキスト",
+        "recent": "最近",
+        "selectArea": "範囲を選択"
+      },
+      "agentCompletion": {
+        "openNamedThread": "{title} のエージェントスレッドを開く",
+        "openThread": "エージェントスレッドを開く",
+        "showLess": "表示を減らす",
+        "showMore": {
+          "other": "他 {count} 件"
+        }
+      },
+      "agentModelIcon": {
+        "unavailable": "モデルの詳細を利用できません"
+      },
+      "backgroundWork": {
+        "agentThread": "エージェントスレッド",
+        "followUp": "フォローアップ",
+        "openNamedThread": "{title} のエージェントスレッドを開く",
+        "openThread": "エージェントスレッドを開く",
+        "taskCount": {
+          "other": "{count} 件のタスク"
+        },
+        "title": "バックグラウンドの作業"
+      },
+      "column": {
+        "scrollToBottom": "一番下へスクロール"
+      },
+      "composer": {
+        "add": "追加",
+        "dictationError": "音声入力: {error}",
+        "stop": "停止"
+      },
+      "connectorConnect": {
+        "cancel": "キャンセル",
+        "connect": "接続",
+        "connectedApp": "接続しました。Stella がリクエストを続行します。",
+        "connectedExtension": "拡張機能を検出しました。Stella がリクエストを続行します。",
+        "connectingApp": "ブラウザで {name} へのサインインを完了してください。承認されると Stella が続行します。",
+        "connectingExtension": "今開いた Chrome ウェブストアのタブから拡張機能を追加してください。インストールされると Stella が自動的に続行します。",
+        "errorBody": "{name} に接続できませんでした。",
+        "install": "インストール",
+        "notNow": "今はしない",
+        "titleConnected": "{name} に接続しました",
+        "titleError": "{name} に接続できませんでした",
+        "titleOffer": "{name} に接続しますか？",
+        "titleOfferExtension": "{name}を接続しますか？",
+        "titleWaiting": "{name} を待っています"
+      },
+      "contextChips": {
+        "activityFallback": "アクティビティ",
+        "fileClickToOpen": "{name} — クリックして開く",
+        "pastedTextLabel": "貼り付けたテキスト · {stats}",
+        "pastedTextTitle": "貼り付けたテキスト — {stats}",
+        "removeActivity": "アクティビティのコンテキストを削除",
+        "removeFile": "{name} を削除",
+        "removePastedText": "貼り付けたテキストを削除",
+        "removeScreenshot": "スクリーンショット {index} を削除",
+        "removeSelectedArea": "選択範囲を削除: {label}",
+        "removeSelectedText": "選択したテキストを削除",
+        "removeWindow": "{app} のウィンドウコンテキストを削除",
+        "screenshotAlt": "スクリーンショット {index}",
+        "screenshotEnlargeTitle": "クリックしてスクリーンショットを拡大",
+        "selectedAreaFallback": "選択範囲",
+        "windowCapturing": "{label} — ウィンドウをキャプチャ中…",
+        "windowClickToEnlarge": "{label} — クリックして拡大",
+        "windowPreviewAlt": "ウィンドウ内容のプレビュー",
+        "windowScreenshotAlt": "{label} のウィンドウのスクリーンショット"
+      },
+      "contextRow": {
+        "addActiveWindow": "{detail}（現在のウィンドウ）をコンテキストとして追加",
+        "addContext": "{detail} をコンテキストとして追加"
+      },
+      "dropOverlay": {
+        "label": "ここにファイルをドロップ"
+      },
+      "endResource": {
+        "category": {
+          "audio": "オーディオ",
+          "canvas": "キャンバス",
+          "code": "コード",
+          "document": "ドキュメント",
+          "file": "ファイル",
+          "image": "画像",
+          "link": "リンク",
+          "media": "メディア",
+          "model3d": "3D モデル",
+          "pdf": "PDF",
+          "slides": "スライド",
+          "spreadsheet": "スプレッドシート",
+          "table": "テーブル",
+          "text": "テキスト",
+          "trash": "ゴミ箱",
+          "video": "動画"
+        },
+        "fileChangeCount": {
+          "other": "{count} 件のファイル変更"
+        },
+        "imageCount": {
+          "other": "{count} 枚の画像"
+        },
+        "openInPanel": "パネルで開く",
+        "openPreview": "プレビューを開く"
+      },
+      "fileCategory": {
+        "archive": "アーカイブ",
+        "audio": "オーディオ",
+        "code": "コードファイル",
+        "document": "ドキュメント",
+        "file": "ファイル",
+        "pdf": "PDF",
+        "spreadsheet": "スプレッドシート",
+        "video": "動画"
+      },
+      "fileLink": {
+        "openFailed": "{filePath} を開けませんでした"
+      },
+      "filePreview": {
+        "copy": "コピー",
+        "save": "保存"
+      },
+      "generatedImage": {
+        "generating": "生成中...",
+        "generatingImage": "画像を生成中...",
+        "generationFailed": "画像の生成に失敗しました",
+        "hostRequired": "画像プレビューには Electron のホストランタイムが必要です。",
+        "image": "画像",
+        "loadFailed": "画像を読み込めませんでした",
+        "openInPanel": "パネルで開く",
+        "stripLabel": "生成された画像"
+      },
+      "mapCard": {
+        "appleMapsLabel": "Apple Maps で開く",
+        "appleMapsTitle": "Apple Maps で開いてターンバイターンのナビを利用",
+        "frameTitle": "地図: {title}",
+        "modeCycling": "自転車",
+        "modeDriving": "車",
+        "modeTransit": "公共交通機関",
+        "modeWalking": "徒歩",
+        "placesCount": {
+          "other": "{count} 件の場所"
+        },
+        "previewFailed": "地図のプレビューを読み込めませんでした。"
+      },
+      "messageActions": {
+        "copied": "コピーしました",
+        "copy": "コピー",
+        "readAloud": "読み上げ",
+        "stopReading": "読み上げを停止"
+      },
+      "messageRow": {
+        "attachmentAlt": "添付ファイル",
+        "attachmentFallback": "添付ファイル {index}",
+        "channelKind": {
+          "deleted": "削除",
+          "edited": "編集",
+          "message": "メッセージ",
+          "reaction": "リアクション",
+          "system": "システム"
+        },
+        "clickToEnlarge": "クリックして {label} を拡大",
+        "pastedTextLabel": "貼り付けたテキスト",
+        "pastedTextTitle": "貼り付けたテキスト — {stats}",
+        "reactionsSummary": "リアクション {reactions}",
+        "showMoreChips": "他 {count} 件を表示",
+        "windowPreviewAlt": "ウィンドウ内容のプレビュー"
+      },
+      "miniModelPicker": {
+        "loading": "読み込み中…",
+        "modelUpdateFailed": "モデル設定を更新できませんでした。",
+        "popoverLabel": "モデルのオプション",
+        "reasoningEffortLabel": "推論の強度",
+        "reasoningUpdateFailed": "推論の強度を更新できませんでした。",
+        "recent": "最近",
+        "triggerLabel": "モデル: {model}",
+        "unavailable": "利用不可",
+        "updateFailedTitle": "モデル設定を更新できませんでした"
+      },
+      "modelMention": {
+        "enginesLabel": "エンジン",
+        "noMatch": "一致するエンジンはありません"
+      },
+      "officePreview": {
+        "frameTitle": "Office のプレビュー: {title}",
+        "preparingBody": "Stella がこのドキュメントのライブプレビューを準備しています。",
+        "sessionError": "プレビューのセッションでエラーが報告されました。",
+        "statusError": "プレビューエラー",
+        "statusPreparing": "プレビューを準備中",
+        "statusReady": "ライブプレビュー",
+        "statusStopped": "プレビューを停止しました",
+        "updatedAt": "更新 {time}"
+      },
+      "openWith": {
+        "loading": "読み込み中…",
+        "otherWaysLabel": "別の方法で開く",
+        "otherWaysTitle": "別の方法で開く…",
+        "triggerLabel": "開く",
+        "triggerTitle": "アプリを選んで開く…"
+      },
+      "pdfViewer": {
+        "hostRequired": "PDF ビューアには Electron のホストランタイムが必要です。",
+        "loadFailed": "PDF を読み込めませんでした。",
+        "loading": "PDF を読み込み中…"
+      },
+      "queuedMessages": {
+        "cancel": "キューのメッセージをキャンセル",
+        "cancelAndEdit": "キャンセルして編集",
+        "cancelIndexed": "キューのメッセージ {index} をキャンセル",
+        "previewLabel": "{label}。キューのメッセージをプレビュー",
+        "queuedCount": {
+          "other": "{count} 件のメッセージをキューに追加"
+        }
+      },
+      "replyPeek": {
+        "dismiss": "プレビューを閉じる",
+        "jumpToLatest": "最新の返信へ移動"
+      },
+      "scheduleReceipt": {
+        "nextRun": "次回 {nextRun}",
+        "scheduleCount": {
+          "other": "{count} 件のスケジュール"
+        }
+      },
+      "screenshotPreview": {
+        "alt": "スクリーンショットのプレビュー {index}"
+      },
+      "timeline": {
+        "empty": "会話を始めましょう",
+        "loadingConversation": "会話を読み込み中"
+      },
+      "userMessage": {
+        "showLess": "表示を減らす",
+        "showMore": "もっと見る"
+      },
+      "voiceSession": {
+        "label": "Stella と会話しました"
+      },
+      "webSearchResults": {
+        "caption": "ウェブからの結果",
+        "listLabel": "ウェブ検索の結果"
+      }
+    },
+    "media": {
+      "capability": {
+        "audioGeneration": {
+          "description": "テキストから音声・会話・効果音・環境音を生成",
+          "name": "オーディオ生成"
+        },
+        "icon": {
+          "description": "プロンプトからアイコン・ロゴ・サムネイルを生成",
+          "name": "アイコンジェネレーター"
+        },
+        "imageEdit": {
+          "description": "テキストの指示で既存の画像を編集",
+          "name": "画像編集"
+        },
+        "imageToVideo": {
+          "description": "静止画をアニメーションさせて短い動画に",
+          "name": "画像から動画"
+        },
+        "speechToText": {
+          "description": "話し声の音声をテキストに書き起こし",
+          "name": "音声からテキスト"
+        },
+        "textTo3d": {
+          "description": "テキストのプロンプトから 3D モデルを生成",
+          "name": "テキストから 3D"
+        },
+        "textToImage": {
+          "description": "テキストのプロンプトから画像を生成",
+          "name": "テキストから画像"
+        },
+        "textToMusic": {
+          "description": "プロンプトから短い音楽クリップを生成",
+          "name": "テキストから音楽"
+        },
+        "textToVideo": {
+          "description": "テキストのプロンプトから短い動画を生成",
+          "name": "テキストから動画"
+        },
+        "videoExtend": {
+          "description": "動画クリップを続けて伸ばす",
+          "name": "動画の延長"
+        },
+        "videoToVideo": {
+          "description": "テキストの指示で動画を変換",
+          "name": "動画から動画"
+        }
+      },
+      "imageFailure": {
+        "blocked": "画像リクエストがブロックされました",
+        "canceled": "画像の生成がキャンセルされました",
+        "generic": "画像の生成に失敗しました",
+        "interrupted": "画像の生成が中断されました",
+        "invalidRequest": "画像リクエストが不正でした",
+        "notConfigured": "画像サービスが設定されていません",
+        "resultUnreadable": "画像の結果を読み取れませんでした",
+        "serviceBusy": "画像サービスが混み合っています",
+        "temporaryError": "画像サービスで一時的なエラーが発生しました",
+        "tookTooLong": "画像の生成に時間がかかりすぎました",
+        "tookTooLongToStart": "画像の生成の開始に時間がかかりすぎました"
+      },
+      "studio": {
+        "animate": "アニメーション化",
+        "aspectRatio": "アスペクト比",
+        "category3d": "3D",
+        "categoryAudio": "オーディオ",
+        "categoryImage": "画像",
+        "categoryMusic": "音楽",
+        "categoryVideo": "動画",
+        "chooseDifferentFile": "別のファイルを選択",
+        "chooseFile": "ファイルを選択するか、どこにでもドロップ",
+        "copy": "コピー",
+        "dropFile": "ファイルをドロップ",
+        "edit": "編集",
+        "emptyDescription": "機能を選んで生成しましょう — またはファイルをどこかにドロップして始めてください。",
+        "emptyTitle": "あなたの作品",
+        "extendVideo": "動画を延長",
+        "fileReadFailed": "ファイルを読み取れませんでした",
+        "generate": "生成",
+        "generatedAlt": "生成物 {index}",
+        "generating": "生成中…",
+        "generationFailed": "生成に失敗しました",
+        "lead": "画像・オーディオ・音楽・動画・3D を作成します。",
+        "openOutputsFolder": "出力フォルダを開く",
+        "profileBest": "高品質",
+        "profileFast": "高速",
+        "prompt": "プロンプト",
+        "promptPlaceholder": "作りたいものを説明してください…",
+        "quality": "品質",
+        "queued": "キューで待機中…",
+        "sourceAudio": "オーディオファイル",
+        "sourceFile": "ソースファイル",
+        "sourceImage": "ソース画像",
+        "sourceVideo": "ソース動画",
+        "submitting": "送信中…",
+        "title": "メディア",
+        "transformVideo": "動画を変換"
+      }
+    }
+  },
+  "desktop": {
+    "common": {
+      "continue": "続ける"
+    },
+    "tray": {
+      "tooltip": "Stella",
+      "openStella": "Stella を開く",
+      "quitStella": "Stella を終了",
+      "balloon": {
+        "title": "Stella はまだ実行中です",
+        "content": "Stella はシステムトレイに常駐します。アイコンをクリックすると再度開けます。"
+      }
+    },
+    "dialog": {
+      "startupFailure": {
+        "title": "Stella",
+        "message": "Stella は起動を完了できませんでした。",
+        "detail": "アプリの UI が読み込まれる前に起動が失敗しました。\n\n{detail}",
+        "relaunch": "再起動",
+        "quit": "終了"
+      }
+    },
+    "security": {
+      "confirmationTitle": "Stella のセキュリティ確認",
+      "allow": "許可",
+      "deny": "拒否",
+      "rememberDecision": "このデバイスでこの選択を記憶する",
+      "computerUse": {
+        "message": "コンピュータ操作に {app} の使用を許可しますか？",
+        "detail": "コンピュータ操作は {app} を表示し、操作できるようになります。",
+        "risk": "リスク: {risk}"
+      }
+    },
+    "oauth": {
+      "xaiCodeMessage": "このコードを入力して xAI を接続してください",
+      "expectedValue": "想定される値: {value}"
+    },
+    "fashion": {
+      "pickBodyPhotoTitle": "全身写真を選択",
+      "pickClothesTitle": "服の画像を選択",
+      "imageFilterName": "画像"
+    }
+  },
+  "features": {
+    "browserBridge": {
+      "unavailableTitle": "ブラウザ拡張機能を利用できません",
+      "unavailableBody": "Stella はブラウザに接続できませんでした。この状態が続く場合は、アプリを再起動するか Stella を再インストールしてください。",
+      "connectionLostTitle": "ブラウザとの接続が切れました",
+      "disconnected": "Stella のブラウザブリッジが切断されました。",
+      "retryDelay": {
+        "other": "Stella は約 {count} 秒後に再試行を続けます。"
+      }
+    },
+    "dictation": {
+      "cancel": "音声入力をキャンセル",
+      "stopAndTranscribe": "停止して文字起こし",
+      "stopAndTranscribeLabel": "音声入力を停止して文字起こし",
+      "stopTranscribeSend": "停止して文字起こしし、送信",
+      "stopTranscribeSendLabel": "音声入力を停止して文字起こしし、送信",
+      "localNotReadyTitle": "ローカルの音声入力は準備できていません",
+      "localNotReadyBody": "このデバイスで音声入力するには音声機能をダウンロードするか、サインインしてクラウドの文字起こしをご利用ください。",
+      "signInTitle": "音声入力を使うにはサインインしてください",
+      "signInBody": "デバイス上の文字起こしが使えない場合、音声入力には Stella へのサインインが必要です。サインインして続けてください。",
+      "failedTitle": "音声入力できませんでした",
+      "failedBody": "Stella はそれを文字起こしできませんでした。もう一度お試しください。",
+      "partialTitle": "音声入力の一部だけが文字起こしされました",
+      "partialBody": "録音の一部を文字起こしできなかったため、挿入されたテキストは不完全な可能性があります。"
+    },
+    "voice": {
+      "signInTitle": "音声を使うにはサインインしてください",
+      "needsSetupTitle": "音声の設定が必要です"
+    },
+    "store": {
+      "sidePanel": {
+        "emptyState": "Stella が変更を加えたら、ここから友だち・コミュニティ・ストアに共有できます。"
+      },
+      "recentChanges": {
+        "rowSelectHint": "クリックして共有に含める",
+        "rowDeselectHint": "クリックして選択から外す",
+        "updated": "更新 {time}",
+        "showOlder": "以前のものを表示",
+        "justNow": "たった今",
+        "publishEmpty": "共有する変更を選択",
+        "publishLabel": "共有 · {countPhrase}",
+        "selectedCount": {
+          "other": "{count} 件選択中"
+        }
+      },
+      "shareCard": {
+        "eyebrow": "Stella のアドオン",
+        "unavailableName": "アドオンを利用できません",
+        "unavailableDesc": "このアドオンは非公開か、公開が終了しています。",
+        "viewCta": "表示 →"
+      },
+      "creator": {
+        "loading": "作成者を読み込み中…",
+        "notFoundTitle": "作成者が見つかりません",
+        "notFoundBodyPrefix": "このユーザー名はまだ誰も取得していません:",
+        "notFoundBodySuffix": "。",
+        "noAddons": "{username} はまだアドオンを共有していません。",
+        "version": "バージョン {version}",
+        "addonCount": {
+          "zero": "アドオンはまだありません",
+          "other": "{count} 個のアドオン"
+        }
+      },
+      "categories": {
+        "appsGames": "アプリとゲーム",
+        "productivity": "生産性",
+        "customization": "カスタマイズ",
+        "skillsAgents": "スキルとエージェント",
+        "integrations": "連携",
+        "other": "その他"
+      },
+      "shareDialog": {
+        "title": "共有",
+        "titleCircle": "自分の輪に共有",
+        "titleCircleUpdate": "更新を共有",
+        "titleStore": "Store に共有",
+        "titleStoreUpdate": "更新を申請",
+        "destinationLede": "これはどこに公開しますか？共有では実行可能なコードが送られるので、意図した相手を選んでください。",
+        "circleOptionName": "友だちまたはコミュニティ",
+        "circleOptionDesc": "すぐに届きます。信頼できる相手のチャットに共有カードとして直接送られます — 審査なし、一般公開もされません。",
+        "storeOptionName": "Stella Store",
+        "storeOptionDesc": "一般公開。まず Stella チームが審査し、その後ストアで全員に公開されます。",
+        "updateExisting": "既存のアドオンを更新",
+        "existingAddon": "既存のアドオン",
+        "selectPlaceholder": "選択…",
+        "nameLabel": "名前",
+        "namePlaceholder": "サンプル MOD",
+        "descriptionLabel": "説明",
+        "optionalHint": "（任意）",
+        "descriptionPlaceholderCircle": "共有カードに載せる短い一文。",
+        "descriptionPlaceholderStore": "ストア掲載用の短い一文。",
+        "categoryLabel": "カテゴリ",
+        "categoryPlaceholder": "カテゴリを選択…",
+        "sendTo": "送信先",
+        "noRecipients": "友だちもコミュニティもまだありません — まずメッセージのページで追加してください。",
+        "communityFallbackName": "コミュニティ",
+        "communityTag": "コミュニティ",
+        "circleNote": "共有は各チャットにインストール可能なカードとしてすぐに届きます。選んだ相手（およびそのコミュニティのメンバー）だけが入手できます。",
+        "storeNote": "Stella チームは、ストアへの申請を全員に公開する前に審査します。",
+        "submitPending": "共有中…",
+        "submitCircle": "今すぐ共有",
+        "submitStore": "審査に提出",
+        "noSourceChangesTitle": "ソースの変更がありません",
+        "noSourceChangesBody": "まず、ソースに基づく最近の変更を 1 つ以上選択してください。",
+        "pickRecipientTitle": "共有する相手を選択",
+        "pickRecipientBody": "友だちまたはコミュニティを 1 つ以上選んでください。",
+        "pickAddonTitle": "アドオンを選択",
+        "pickAddonBody": "更新したいアドオンを選んでください。",
+        "nameRequiredTitle": "名前が必要です",
+        "nameRequiredBody": "共有する前に、アドオンに短い名前を付けてください。",
+        "badNameTitle": "別の名前を選んでください",
+        "badNameBody": "ID を作成できるよう、名前には英数字を使用してください。",
+        "publishBackendMissing": "公開用のバックエンドを利用できません。",
+        "sharingTitle": "共有中",
+        "submittingTitle": "送信中",
+        "inProgressBody": "完了したら Stella がお知らせします。",
+        "submittedTitle": "審査に提出しました",
+        "submittedBody": "{name} を Stella チームに送信しました。承認されるとストアで公開されます。",
+        "sharedTitle": "共有しました",
+        "shareFailedTitle": "共有に失敗しました",
+        "submissionFailedTitle": "提出に失敗しました",
+        "sharedBodyDelivered": {
+          "other": "{name} を {count} 件のチャットに送信中です。"
+        },
+        "sharedBodyPartial": {
+          "other": "{name} は {count} 件中 {delivered} 件のチャットに届きました。残りを再試行するにはメッセージを開いてください。"
+        }
+      }
+    }
+  },
+  "ui": {
+    "imageLightbox": {
+      "title": "画像のプレビュー",
+      "close": "プレビューを閉じる"
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "最近のエージェントのメッセージ",
+      "recentProgress": "最近の進捗"
+    },
+    "audioPlayer": {
+      "pause": "一時停止",
+      "play": "再生",
+      "seek": "シーク"
+    },
+    "capture": {
+      "failedTitle": "キャプチャできませんでした",
+      "failedDescription": "スクリーンショットの取得中に問題が発生しました。もう一度お試しください。"
+    },
+    "chatSidebar": {
+      "add": "追加",
+      "dictationError": "音声入力: {error}",
+      "stop": "停止"
+    },
+    "displayPanel": {
+      "closePanel": "パネルを閉じる",
+      "openPanel": "パネルを開く"
+    },
+    "rightSidebar": {
+      "workspace": "ワークスペース",
+      "resize": "表示パネルのサイズを変更",
+      "resizeHint": "ドラッグでサイズ変更 · ダブルクリックでリセット"
+    },
+    "windowControls": {
+      "minimize": "最小化",
+      "restore": "元のサイズに戻す",
+      "maximize": "最大化"
+    },
+    "workspace": {
+      "activity": "アクティビティ",
+      "viewFiles": {
+        "other": "{count} 個のファイルを表示"
+      }
+    },
+    "updatePill": {
+      "update": "アップデート",
+      "updateFallback": "アップデート",
+      "availableFallback": "利用可能",
+      "downloading": "ダウンロード中 {percent}%",
+      "restartToUpdate": "再起動してアップデート",
+      "retryUpdate": "アップデートを再試行",
+      "restartTitle": "Stella を再起動してバージョン {version} をインストール",
+      "retryTitle": "デスクトップのアップデート確認を再試行",
+      "downloadTitle": "Stella {version} をダウンロード",
+      "toasts": {
+        "downloadedTitle": "アップデートをダウンロードしました",
+        "downloadedDescription": "Stella を再起動してバージョン {version} をインストールしてください。",
+        "checkingTitle": "アップデートを確認中",
+        "checkingDescription": "Stella は独立したデスクトップ v2 チャンネルを確認しています。",
+        "failedTitle": "デスクトップのアップデートに失敗しました"
+      }
+    },
+    "display": {
+      "homeLauncher": {
+        "files": {
+          "label": "ファイル",
+          "description": "ページ・画像・動画・ドキュメント"
+        },
+        "store": {
+          "label": "Store",
+          "description": "アドオンと、あなたが作ったもの"
+        },
+        "trash": {
+          "label": "ゴミ箱",
+          "description": "最近削除したもの"
+        }
+      },
+      "trash": {
+        "title": "ゴミ箱",
+        "empty": "今は何もありません。",
+        "refresh": "更新",
+        "emptying": "空にしています…",
+        "emptyTrash": "ゴミ箱を空にする",
+        "trashedAgo": "{time} 前に削除",
+        "pendingPurge": "完全削除を保留中",
+        "autoDeletesIn": "{time} 後に自動削除",
+        "deleting": "削除中…",
+        "deleteNow": "今すぐ削除",
+        "itemsAutoDeleted": {
+          "other": "{count} 件 — 24 時間後に自動削除されます。"
+        }
+      },
+      "canvasShare": {
+        "share": "共有",
+        "links": "リンク",
+        "sharedLinks": "共有されたリンク",
+        "publishing": "キャンバスを公開中…",
+        "publishFailed": "このキャンバスを公開できませんでした。もう一度お試しください。",
+        "live": "キャンバスを公開しました",
+        "publicLink": "キャンバスの公開リンク",
+        "copyLink": "リンクをコピー",
+        "revoke": "共有を取り消す",
+        "expires": "有効期限 {date}",
+        "shared": "共有日 {date}",
+        "sharedWithExpiry": "共有 {shared} · 有効期限 {expires}",
+        "loadFailed": "共有を読み込めませんでした。",
+        "empty": "有効な共有はまだありません。キャンバスを公開すると公開リンクを取得できます。",
+        "untitled": "無題のキャンバス",
+        "toasts": {
+          "linkCopied": "共有リンクをコピーしました",
+          "copyFailed": "リンクをコピーできませんでした",
+          "revoked": "共有を取り消しました",
+          "revokeFailed": "この共有を取り消せませんでした"
+        }
+      },
+      "canvas": {
+        "loadFailed": "このキャンバスを読み込めませんでした。",
+        "loading": "読み込み中"
+      },
+      "media": {
+        "save": "保存",
+        "saved": "保存しました",
+        "saveFailed": "保存できませんでした",
+        "copy": "コピー",
+        "copied": "コピーしました",
+        "copyFailed": "コピーできませんでした",
+        "delete": "削除",
+        "deleteConfirm": "もう一度クリックして削除",
+        "itemActions": "項目の操作"
+      },
+      "url": {
+        "eyebrow": "ライブプレビュー",
+        "reload": "再読み込み",
+        "openInBrowser": "ブラウザで開く"
+      },
+      "office": {
+        "preparing": "プレビューを準備中...",
+        "kind": {
+          "spreadsheet": "スプレッドシート",
+          "presentation": "プレゼンテーション",
+          "document": "ドキュメント"
+        },
+        "sheetCount": {
+          "other": "{count} 枚のシート"
+        },
+        "slideCount": {
+          "other": "{count} 枚のスライド"
+        },
+        "loadFailed": "このプレビューを読み込めませんでした",
+        "sessionError": "プレビューのセッションでエラーが報告されました。",
+        "zoomAriaLabel": "プレビューのズーム",
+        "revealInFinder": "Finder に表示",
+        "livePreview": "ライブプレビュー",
+        "frameTitle": "{kind} のプレビュー: {title}"
+      },
+      "filePreview": {
+        "save": "保存",
+        "copy": "コピー",
+        "loading": "読み込み中..."
+      },
+      "spreadsheet": {
+        "eyebrow": "スプレッドシート",
+        "desktopRequired": "スプレッドシートのプレビューには Stella デスクトップアプリが必要です。",
+        "noRows": "行が見つかりません。",
+        "column": "列 {index}"
+      },
+      "markdown": {
+        "eyebrow": "Markdown",
+        "desktopRequired": "Markdown のプレビューには Stella デスクトップアプリが必要です。",
+        "noContent": "コンテンツが見つかりません。"
+      },
+      "diff": {
+        "changes": "変更",
+        "codeChanges": "コードの変更",
+        "noChanges": "変更は見つかりません。",
+        "desktopRequired": "コードのプレビューには Stella デスクトップアプリが必要です。",
+        "empty": "ファイルの変更はまだありません。エージェントがコードを編集すると、ここに変更が表示されます。"
+      },
+      "agentThread": {
+        "role": {
+          "user": "指示",
+          "assistant": "エージェント",
+          "lifecycle": "アクティビティ"
+        },
+        "status": {
+          "running": "作業中",
+          "completed": "完了",
+          "error": "失敗",
+          "canceled": "停止"
+        },
+        "newMessages": {
+          "other": "{count} 件の新しいメッセージ。"
+        },
+        "newMessagesWithPreview": "{countPhrase} 最新の {role}: {preview}",
+        "unavailable": "エージェントスレッドの履歴を利用できません。",
+        "loadFailed": "このスレッドを読み込めませんでした。",
+        "showingNewest": "最新のメッセージを表示しています。",
+        "claudeAriaLabel": "Claude サブエージェントの読み取り専用の会話",
+        "claudeBadge": "読み取り専用の Claude サブエージェント",
+        "badge": "読み取り専用のエージェントスレッド",
+        "retrying": "再試行中…",
+        "empty": "このスレッドにはまだメッセージがありません。",
+        "newMessagesButton": {
+          "other": "{count} 件の新しいメッセージ"
+        },
+        "showNewMessagesAria": "{countPhrase} を表示"
+      }
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}、{plan} プラン",
+        "signOutTitle": "Stella からサインアウトしますか？",
+        "signOutDescription": "よろしいですか？"
+      },
+      "nav": {
+        "apps": "アプリ",
+        "unreadTitle": "{label}（未読 {count} 件）",
+        "unreadAriaLabel": "{label}、未読 {count} 件"
+      },
+      "feedback": {
+        "title": {
+          "manual": "フィードバックを送る",
+          "auto": "Stella の使い心地はいかがですか？"
+        },
+        "description": {
+          "manual": "メッセージは匿名で送信され、アカウントとは結び付けられません。",
+          "auto": "お知らせいただきたいことはありますか？匿名で送信され、アカウントとは結び付けられません。"
+        },
+        "notNow": "今はしない",
+        "fieldLabel": "フィードバック",
+        "placeholder": "うまくいっていること、いないこと、こうなってほしいことを教えてください…",
+        "send": "送信",
+        "sending": "送信中…",
+        "toasts": {
+          "sentTitle": "フィードバックを送信しました",
+          "sentDescription": "ありがとうございます — いただいた声はすべて Stella づくりに役立ちます。",
+          "failedTitle": "フィードバックを送信できませんでした"
+        }
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "newChat": "新しいチャット",
+        "home": "ホーム",
+        "history": "会話の履歴",
+        "historyEmpty": "会話はまだありません",
+        "historyRetry": "会話を読み込めませんでした。もう一度試す",
+        "openConversations": "会話を開く",
+        "openConversation": "{title} を開く",
+        "closeConversation": "{title} を閉じる",
+        "delete": "{title} を削除",
+        "deleteConfirm": "もう一度クリックして確定",
+        "deleteConfirmFor": "もう一度クリックして {title} を削除",
+        "deleteFailed": "この会話を削除できませんでした",
+        "deleteFailedFor": "{title} を削除できませんでした"
+      }
+    }
+  },
+  "global": {
+    "auth": {
+      "welcomeTitle": "Stella へようこそ",
+      "welcomeDescription": "メールでサインインして Stella を使い始めましょう。",
+      "welcomeSub": "Google またはメールでサインインします。パスワードは不要です。",
+      "orUseEmail": "またはメールを使う",
+      "emailLabel": "メールアドレス",
+      "emailPlaceholder": "you@example.com",
+      "sending": "送信中...",
+      "signingIn": "サインイン中...",
+      "sendSignInEmail": "サインイン用メールを送信",
+      "checkInbox": "受信トレイでサインインリンクを確認してください。",
+      "magicLinkSentDesktop": "サインインリンクを送信しました。このデバイスで開いて完了してください。",
+      "openInbox": "{provider} を開く",
+      "resendIn": "{seconds} 秒後に再送信",
+      "resendEmail": "メールを再送信",
+      "skipForNow": "今はスキップ",
+      "enterEmail": "メールアドレスを入力してください。",
+      "sendFailed": "サインイン用メールを送信できませんでした。",
+      "magicLinkFailed": "マジックリンクを送信できませんでした。",
+      "finishFailed": "サインインを完了できませんでした。もう一度お試しください。",
+      "signInIncomplete": "サインインが完了していません。もう一度お試しください。",
+      "signInLinkExpired": "サインインリンクの有効期限が切れました。もう一度お試しください。",
+      "tooManyRequests": {
+        "other": "リクエストが多すぎます。{count} 秒後にもう一度お試しください。"
+      },
+      "googleContinue": "Google で続ける",
+      "googleWaiting": "Google を待っています...",
+      "googleStartFailed": "Google のサインインを開始できませんでした。",
+      "googleNoSession": "Google のサインインはセッションなしで完了しました。",
+      "googleExpired": "Google のサインインの有効期限が切れました。もう一度お試しください。",
+      "googleTimedOut": "Google のサインインがタイムアウトしました。もう一度お試しください。",
+      "nicknameTitle": "何とお呼びすればいいですか？",
+      "nicknameDescription": "Stella がアプリ全体で使う名前を決めてください。",
+      "nicknameLabel": "ニックネーム",
+      "nicknamePlaceholder": "あなたのニックネーム",
+      "notNow": "今はしない"
+    },
+    "legal": {
+      "terms": {
+        "title": "利用規約",
+        "subtitle": "Stella のしくみと、利用にあたって同意する内容。"
+      },
+      "privacy": {
+        "title": "プライバシーポリシー",
+        "subtitle": "収集する情報、収集しない情報、そして安全に守る方法。"
+      }
+    },
+    "integrations": {
+      "heroTagline": "好きなプラットフォームから Stella にメッセージを送れます — 自然に会話したり、コンピュータ上で作業を任せたりできます。",
+      "signInToConnect": "接続するには Stella にサインインしてください",
+      "connectStellaApp": "Stella アプリに接続",
+      "sectionTitle": "連携",
+      "connectTitle": "接続",
+      "backToConnections": "接続一覧に戻る",
+      "connected": "接続済み",
+      "connectProvider": "{provider} を接続",
+      "openProvider": "{provider} を開く",
+      "listeningOn": "Stella は {provider} で待機しています。いつでもそちらからメッセージを送れます。",
+      "disconnect": "接続を解除",
+      "disconnecting": "接続を解除中...",
+      "disconnected": "{provider} との接続を解除しました",
+      "disconnectFailed": "{provider} との接続を解除できませんでした",
+      "codeCopied": "コードをクリップボードにコピーしました",
+      "generateCodeFailed": "コードを生成できませんでした",
+      "slackInstallUrlFailed": "Slack のインストール URL を準備できませんでした",
+      "signInHeadline": "サインインして始めましょう",
+      "signInSub": "{provider} を接続するには、Stella アカウントにサインインしてください。",
+      "providers": {
+        "linq": {
+          "name": "Stella にメッセージ",
+          "instructions": "電話番号を入力すると、接続用のコードをメッセージでお送りします。連携すると、iMessage や SMS からいつでも Stella にメッセージを送れます。"
+        },
+        "discord": {
+          "name": "Discord",
+          "instructions": "Discord アカウントに Stella アプリをインストールし、コードを付けて /link を一度実行してから、通常どおり @Stella に DM を送ってください。"
+        },
+        "slack": {
+          "name": "Slack",
+          "instructions": "ワークスペースに Stella アプリをインストールし、下のコードを付けて @Stella に DM を送ってください。"
+        },
+        "telegram": {
+          "name": "Telegram",
+          "instructions": "Telegram で @StellaAppBot を開き、下のコードを送信してください。"
+        }
+      },
+      "linq": {
+        "countryCode": "国番号",
+        "phonePlaceholder": "(555) 123-4567",
+        "sending": "送信中...",
+        "sendCode": "コードを送信",
+        "sendCodeFailed": "コードを送信できませんでした。番号を確認して、もう一度お試しください。",
+        "enterCodeTitle": "コードを入力してください",
+        "enterCodeSub": "お使いの端末をご確認ください — {phone} に 6 桁のコードを送信しました。",
+        "codePlaceholder": "ABC123",
+        "verify": "確認",
+        "verifying": "確認中...",
+        "verifyCodeFailed": "コードを確認できませんでした。",
+        "connected": "接続しました！これで Stella にメッセージを送れます。",
+        "invalidCode": "コードが無効か、有効期限が切れています。新しいコードを送信してみてください。",
+        "genericError": "問題が発生しました。もう一度お試しください。",
+        "useDifferentNumber": "別の番号を使う"
+      },
+      "credential": {
+        "title": "{provider} を接続",
+        "description": "接続には {provider} の API キーが必要です。下に貼り付けてください。キーはお使いのコンピュータに保存されます。",
+        "defaultLabel": "{provider} のキー",
+        "apiKeyLabel": "API キー",
+        "apiKeyRequired": "API キーは必須です。",
+        "keyPlaceholder": "キーを貼り付け",
+        "labelLabel": "ラベル",
+        "labelDescription": "後でこのキーを見分けるためのわかりやすい名前。",
+        "saving": "保存中...",
+        "saveKey": "キーを保存",
+        "saveFailed": "認証情報を保存できませんでした。"
+      }
+    },
+    "schedule": {
+      "dialogTitle": "スケジュール",
+      "untitledTask": "スケジュールされたタスク",
+      "checkIn": "チェックイン",
+      "paused": "一時停止中",
+      "pause": "一時停止",
+      "pausing": "一時停止中…",
+      "resume": "再開",
+      "resuming": "再開中…",
+      "runNow": "今すぐ実行",
+      "running": "実行中…",
+      "delete": "削除",
+      "removing": "削除中…",
+      "actionFailed": "操作に失敗しました。",
+      "missing": "このスケジュールは存在しません。",
+      "scheduleCount": {
+        "other": "{count} 件のスケジュール"
+      }
+    },
+    "social": {
+      "dialogDescription": "何かが起きる前に、この招待を確認してください。",
+      "signInToAccept": "この招待を受け入れるには Stella にサインインしてください。",
+      "lookingUpInvite": "招待を確認しています…",
+      "stellaAddOn": "Stella のアドオン",
+      "stellaUser": "Stella ユーザー",
+      "byAuthor": " · @{username} による",
+      "alreadyIn": " · すでに参加済み",
+      "membersLabel": "メンバー",
+      "memberCount": {
+        "other": "{count} 人のメンバー"
+      },
+      "working": "処理中…",
+      "alreadyJoined": "参加済み",
+      "welcomeToCommunity": "{community} へようこそ！",
+      "joinedCommunity": "コミュニティに参加しました！",
+      "friendRequestSent": "@{username} にフレンドリクエストを送信しました。",
+      "joinFailed": "そのコミュニティに参加できませんでした。招待の有効期限が切れている可能性があります。",
+      "friendRequestFailed": "そのフレンドリクエストを送信できませんでした。もう一度お試しください。",
+      "store": {
+        "title": "アドオンを開く",
+        "confirmLabel": "Store で表示",
+        "sub": "開いたリンクは Stella のアドオンを指しています。インストールは行われません。Store のページを開くだけです。",
+        "missing": "このアドオンは非公開か、公開が終了しています。"
+      },
+      "join": {
+        "title": "コミュニティに参加",
+        "confirmLabel": "参加",
+        "sub": "コミュニティに招待されました。メンバー同士がアドオンを共有する、信頼できる輪です。",
+        "missing": "この招待コードに対応するコミュニティは見つかりませんでした。新しいリンクをもらってください。"
+      },
+      "friend": {
+        "title": "友だちを追加",
+        "confirmLabel": "フレンドリクエストを送信",
+        "sub": "Stella でつながるよう招待されました。",
+        "missing": "この招待リンクに対応するユーザーは見つかりませんでした。"
+      }
+    },
+    "websiteView": {
+      "storeTitle": "Store"
+    }
+  },
+  "mobile": {
+    "common": {
+      "back": "戻る",
+      "backChevron": "‹ 戻る",
+      "cancel": "キャンセル",
+      "continue": "続ける",
+      "delete": "削除",
+      "done": "完了",
+      "goBack": "戻る",
+      "somethingWentWrong": "問題が発生しました。",
+      "tryAgain": "もう一度試す"
+    },
+    "boot": {
+      "crashTitle": "起動時に問題が発生しました",
+      "missingConfigTitle": "モバイルの環境変数を追加してください",
+      "missingConfigBody": "アプリを起動する前に EXPO_PUBLIC_CONVEX_URL を、必要に応じて EXPO_PUBLIC_CONVEX_SITE_URL を設定してください。",
+      "checkingSessionTitle": "セッションを確認しています",
+      "checkingSessionBody": "Stella が起動するまでお待ちください。"
+    },
+    "authCallback": {
+      "failedTitle": "サインインできませんでした",
+      "invalidLink": "サインインリンクが無効です。",
+      "linkExpired": "このサインインリンクは期限切れです。新しいリンクをリクエストしてください。",
+      "genericFailure": "現在サインインできませんでした。もう一度お試しください。",
+      "backToSignIn": "サインインに戻る",
+      "signingInTitle": "サインインしています",
+      "signingInBody": "少々お待ちください..."
+    },
+    "nav": {
+      "chat": "チャット",
+      "computer": "コンピュータ",
+      "settings": "設定",
+      "openLabel": "ナビゲーションを開く",
+      "closeLabel": "ナビゲーションを閉じる"
+    },
+    "search": {
+      "placeholder": "メッセージを検索",
+      "openLabel": "メッセージを検索",
+      "clearLabel": "検索をクリア",
+      "cancelLabel": "検索をキャンセル"
+    },
+    "onboarding": {
+      "skip": "スキップ",
+      "skipLabel": "紹介をスキップ",
+      "welcomeTitle": "Stella をご紹介",
+      "welcomeBody": "何でも聞いて、じっくり相談して、実際の作業も任せられます。Stella はここで答え、あなたのコンピュータで操作もできます。",
+      "themeTitle": "自分好みに",
+      "themeBody": "テーマを選びましょう。設定でいつでも変更できます。",
+      "connectTitle": "どこにいてもあなたのコンピュータを",
+      "connectBodyGuest": "後でサインインしてコンピュータの Stella とペアリングすると、外出先の携帯からブラウズやファイル整理、タスク実行を頼めます。",
+      "connectBodyPaired": "Stella デスクトップアプリと一度ペアリングすれば、離れた場所からでも携帯でブラウズやファイル整理、タスク実行を頼めます。",
+      "pairComputer": "コンピュータをペアリング",
+      "startChatting": "チャットを始める"
+    },
+    "login": {
+      "heroTitle": "あなたのアシスタントを、\nポケットに。",
+      "heroBody": "Apple、Google、またはコンピュータで使っているメールアドレスをご利用ください。",
+      "continueWithApple": "Apple で続ける",
+      "openingApple": "Apple を開いています...",
+      "continueWithGoogle": "Google で続ける",
+      "openingGoogle": "Google を開いています...",
+      "orUseEmail": "またはメールを使う",
+      "emailPlaceholder": "メールアドレス",
+      "sending": "送信中...",
+      "signingIn": "サインインしています...",
+      "checkInbox": "受信トレイを確認してリンクをタップすると、自動的にサインインされます。",
+      "useDifferentEmail": "別のメールアドレスを使う",
+      "resend": "再送信",
+      "resendLabel": "サインインメールを再送信",
+      "enterEmail": "メールアドレスを入力してください。",
+      "sendFailed": "サインインメールを送信できませんでした。",
+      "googleStartFailed": "Google サインインを開始できませんでした。",
+      "appleStartFailed": "Apple サインインを開始できませんでした。",
+      "appleCompleteFailed": "Apple サインインを完了できませんでした。",
+      "appleNoToken": "Apple から ID トークンが返されませんでした。",
+      "finishFailed": "サインインを完了できませんでした。もう一度お試しください。",
+      "incomplete": "サインインが完了していません。もう一度お試しください。",
+      "linkExpired": "リンクの有効期限が切れました。もう一度お試しください。",
+      "legalPrefix": "続けると、",
+      "legalTerms": "利用規約",
+      "legalConjunction": "および",
+      "legalPrivacy": "プライバシーポリシー",
+      "legalSuffix": "に同意したものとみなされます。",
+      "continueAsGuest": "サインインせずに続ける"
+    },
+    "chat": {
+      "emptyPrompt": "Stella に何でも聞いてください",
+      "composerPlaceholder": "Stella にメッセージ"
+    },
+    "computer": {
+      "guestHeroTitle": "あなたのコンピュータを手元に",
+      "guestHeroBody": "ウェブの閲覧、ファイル整理、タスク実行など、コンピュータでの操作を Stella に頼めます。",
+      "pairFirstTitle": "まず携帯をペアリング",
+      "pairFirstBody": "この携帯を Stella デスクトップとペアリングすると、どこからでもチャットできます。最初の一度だけで済みます。",
+      "pairPhone": "携帯をペアリング",
+      "pairThisPhoneLabel": "この携帯をペアリング",
+      "emptyPrompt": "コンピュータに何でも聞いてください",
+      "composerPlaceholder": "コンピュータにメッセージ",
+      "defaultDeviceLabel": "あなたのコンピュータ",
+      "statusChecking": "確認中…",
+      "statusWaking": "起動中…",
+      "statusConnected": "接続済み",
+      "statusAsleep": "スリープ中",
+      "connectingLabel": "コンピュータに接続しています",
+      "connectedLabel": "コンピュータに接続しました",
+      "disconnectedLabel": "コンピュータの接続が切れました",
+      "unreachableTitle": "コンピュータに接続できません",
+      "unreachableBody": "現在コンピュータに接続できません。起動リクエストを送信しました。数秒後にもう一度お試しください。",
+      "syncWaitingTitle": "同期を待機中",
+      "syncWaitingBody": "メッセージをまだ送信中です。送信が終わり次第、同期を実行します。",
+      "syncFailedTitle": "同期に失敗しました",
+      "syncFailedBody": "同期中にコンピュータが応答しなくなりました。もう一度お試しください。"
+    },
+    "desktop": {
+      "pairTitle": "携帯をペアリング",
+      "guestBody": "Stella デスクトップアプリを携帯でそのまま表示できます。ペアリング後は自動的に再接続されます。",
+      "guestSignInPrompt": "サインインして始めましょう。",
+      "connecting": "デスクトップに接続しています",
+      "pairing": "この携帯をペアリングしています",
+      "unreachable": "デスクトップに接続できません",
+      "deviceUnreachable": "{platform} に接続できません",
+      "repairNeeded": "この携帯をコンピュータと再度ペアリングする必要があります。",
+      "enterCode": "コンピュータに表示されたコードを入力してください。",
+      "linkInterrupted": "コンピュータとの接続が中断されました。",
+      "unavailableBodyPaired": "コンピュータで Stella が開いていて、インターネットに接続されていることを確認してください。接続されると、デスクトップアプリがこの携帯に表示されます。",
+      "unavailableBodyUnpaired": "Stella デスクトップアプリを携帯でそのまま表示できます。コンピュータの Stella に表示された QR コードをスキャンして始めましょう。その後は自動的に再接続されます。",
+      "pairAnother": "別のコンピュータをペアリング",
+      "startPairingLabel": "コンピュータのペアリングを開始",
+      "retryLabel": "もう一度接続を試す",
+      "reconnecting": "再接続しています...",
+      "limitedCapabilities": "一部の機能にはコンピュータが必要です"
+    },
+    "settings": {
+      "title": "設定",
+      "loadingSession": "セッションを読み込んでいます…",
+      "signIn": "サインイン",
+      "signInTitle": "Stella にサインイン",
+      "showEmailLabel": "メールアドレスを表示",
+      "hideEmailLabel": "メールアドレスを非表示",
+      "appearanceSection": "外観",
+      "appearance": {
+        "system": "システム",
+        "light": "ライト",
+        "dark": "ダーク"
+      },
+      "background": {
+        "soft": "ソフト",
+        "flat": "フラット"
+      },
+      "useAppearanceLabel": "{name} の外観を使う",
+      "useBackgroundLabel": "{name} の背景を使う",
+      "useThemeLabel": "{name} のテーマを使う",
+      "notificationsSection": "通知",
+      "pushToggleLabel": "プッシュ通知を許可",
+      "pushToggleSub": "コンピュータがリクエストを完了したときに通知します。",
+      "pushToggleA11y": "プッシュ通知を切り替える",
+      "voiceSection": "Stella と話す",
+      "voiceSectionHint": "ハンズフリー音声（CarPlay など）のメッセージの送信先です。自動では、前回の続きがコンピュータのチャットで、接続できる場合はそちらを選び、それ以外はこの携帯のチャットを使います。",
+      "voiceTarget": {
+        "auto": "自動",
+        "phone": "携帯",
+        "computer": "コンピュータ"
+      },
+      "voiceTargetLabel": "音声メッセージを {name} に送る",
+      "pairedSection": "ペアリング済みのコンピュータ",
+      "pairedEmpty": "ペアリング済みのコンピュータはまだありません。コンピュータタブからペアリングしてください。",
+      "pairedOn": "{date} にペアリング",
+      "paired": {
+        "unnamedComputer": "コンピュータ · {id}"
+      },
+      "forget": "解除",
+      "forgetLabel": "{name} を解除",
+      "forgetConfirmTitle": "{name} を解除しますか？",
+      "forgetConfirmBody": "再度ペアリングするまで、この携帯はそのコンピュータに再接続しなくなります。",
+      "carPlayDiagnostics": "CarPlay 診断",
+      "openCarPlayDiagnosticsLabel": "CarPlay 診断を開く",
+      "termsOfService": "利用規約",
+      "openTermsLabel": "利用規約を開く",
+      "privacyPolicy": "プライバシーポリシー",
+      "openPrivacyLabel": "プライバシーポリシーを開く",
+      "signOut": "サインアウト",
+      "signingOut": "サインアウトしています…",
+      "signOutLabel": "Stella からサインアウト",
+      "deleteAccount": "アカウントを削除",
+      "deletingAccount": "アカウントを削除しています…",
+      "deleteAccountLabel": "Stella のアカウントを削除",
+      "deleteConfirmTitle": "アカウントを削除",
+      "deleteConfirmBody": "Stella のアカウントを完全に削除し、当社サーバー上の関連するクラウドデータも削除します。この操作は取り消せません。",
+      "deleteFailedTitle": "アカウントを削除できませんでした"
+    },
+    "carPlayDiagnostics": {
+      "title": "CarPlay 診断",
+      "subtitle": {
+        "other": "CarPlay 接続の記録です（{count} 行、新しい順）。車内で不具合があったら、これをコピーして送ってください。"
+      },
+      "copyAll": "すべてコピー",
+      "copyAllLabel": "診断をすべてコピー",
+      "copied": "コピーしました ✓",
+      "refresh": "更新",
+      "refreshLabel": "診断を更新",
+      "clear": "クリア",
+      "clearLabel": "診断をクリア",
+      "empty": "CarPlay の診断はまだ記録されていません。一度 CarPlay に接続してから、ここに戻ってきてください。",
+      "clipboardEmpty": "（CarPlay の診断は記録されていません）"
+    }
+  }
+}

@@ -41,6 +41,7 @@ import {
 import { ShareIntentProvider } from "expo-share-intent";
 import { ThemeProvider } from "../src/theme/theme-context";
 import { ChatSearchProvider } from "../src/lib/chat-search";
+import { I18nProvider, useT } from "../src/i18n";
 import { ShareIntentHandler } from "../src/lib/share-intent-handler";
 import { CarPlayBridge } from "../src/carplay/CarPlayBridge";
 
@@ -63,6 +64,9 @@ const BOOT_CRASH_BREADCRUMB_KEY = "stella-mobile-last-boot-crash-v1";
  * so the fallback itself can't be taken down by whatever module just failed.
  */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  // Rendered OUTSIDE the provider tree by expo-router, so this resolves
+  // through the English fallback catalog rather than throwing.
+  const t = useT();
   useEffect(() => {
     void SplashScreen.hideAsync().catch(() => undefined);
     const breadcrumb = JSON.stringify({
@@ -77,7 +81,9 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
   return (
     <View style={bootErrorStyles.root}>
-      <Text style={bootErrorStyles.title}>Something broke at launch</Text>
+      <Text style={bootErrorStyles.title}>
+        {t("mobile.boot.crashTitle")}
+      </Text>
       <Text style={bootErrorStyles.detail} numberOfLines={6}>
         {String(error?.message ?? error)}
       </Text>
@@ -89,7 +95,9 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
           pressed && bootErrorStyles.buttonPressed,
         ]}
       >
-        <Text style={bootErrorStyles.buttonLabel}>Try again</Text>
+        <Text style={bootErrorStyles.buttonLabel}>
+          {t("mobile.common.tryAgain")}
+        </Text>
       </Pressable>
     </View>
   );
@@ -330,11 +338,13 @@ export default function RootLayout() {
     <ShareIntentProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <ThemeProvider>
-            <ChatSearchProvider>
-              <AppLayout />
-            </ChatSearchProvider>
-          </ThemeProvider>
+          <I18nProvider>
+            <ThemeProvider>
+              <ChatSearchProvider>
+                <AppLayout />
+              </ChatSearchProvider>
+            </ThemeProvider>
+          </I18nProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ShareIntentProvider>

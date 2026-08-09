@@ -185,7 +185,10 @@ export const ShellTopBarAccount = ({
             }
             aria-label={
               sidebarPlanLabel
-                ? `${displayLabel}, ${sidebarPlanLabel} plan`
+                ? t("shell.sidebar.account.planAriaLabel", {
+                    name: displayLabel,
+                    plan: sidebarPlanLabel,
+                  })
                 : displayLabel
             }
           >
@@ -227,10 +230,10 @@ export const ShellTopBarAccount = ({
           aria-describedby={undefined}
         >
           <DialogHeader>
-            <DialogTitle>Sign out of Stella?</DialogTitle>
+            <DialogTitle>{t("shell.sidebar.account.signOutTitle")}</DialogTitle>
           </DialogHeader>
           <DialogDescription className="sidebar-signout-description">
-            Are you sure?
+            {t("shell.sidebar.account.signOutDescription")}
           </DialogDescription>
           <div className="sidebar-confirm-actions">
             <Button
@@ -239,7 +242,7 @@ export const ShellTopBarAccount = ({
               className="pill-btn pill-btn--lg"
               onClick={() => setSignOutConfirmOpen(false)}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               variant="primary"
@@ -248,7 +251,7 @@ export const ShellTopBarAccount = ({
               data-tone="destructive"
               className="pill-btn pill-btn--danger pill-btn--lg"
             >
-              Sign out
+              {t("common.signOut")}
             </Button>
           </div>
         </DialogContent>

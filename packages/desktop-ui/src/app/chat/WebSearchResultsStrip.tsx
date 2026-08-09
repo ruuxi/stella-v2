@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Globe } from "@/ui/icons";
 import type { WebSearchImageHit } from "@/features/chat/lib/derive-turn-web-search";
 import { notifyAssistantScrollFollowLayoutChange } from "@/shell/chat-scroll-follow";
+import { useT } from "@/shared/i18n";
 import "./web-search-results-strip.css";
 
 /**
@@ -28,6 +29,7 @@ export const WebSearchResultsStrip = ({
 }: {
   results: WebSearchImageHit[];
 }) => {
+  const t = useT();
   const [failed, setFailed] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
@@ -44,7 +46,7 @@ export const WebSearchResultsStrip = ({
       <div
         className="web-search-results__row"
         role="list"
-        aria-label="Web search results"
+        aria-label={t("app.chat.webSearchResults.listLabel")}
       >
         {visible.map((hit) => {
           const source = prettySource(hit.url);
@@ -95,7 +97,9 @@ export const WebSearchResultsStrip = ({
           );
         })}
       </div>
-      <div className="web-search-results__caption">Results from the web</div>
+      <div className="web-search-results__caption">
+        {t("app.chat.webSearchResults.caption")}
+      </div>
     </div>
   );
 };

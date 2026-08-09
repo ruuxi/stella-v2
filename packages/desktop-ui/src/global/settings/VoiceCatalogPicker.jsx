@@ -20,6 +20,7 @@ import { Check, ChevronLeft, ChevronRight, ChevronDown } from "@/ui/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
 import { DEFAULT_INWORLD_REALTIME_SPEED, getDefaultRealtimeVoice, getRealtimeVoiceCatalog, } from "@stella/contracts/realtime-voice-catalog";
 import { resolveReadAloudProvider, resolveRealtimeUnderlyingProvider, } from "@stella/contracts/local-preferences";
+import { useT } from "@/shared/i18n";
 import "./VoiceCatalogPicker.css";
 /**
  * Speed slider uses a logarithmic mapping so that 1.0× lands at the
@@ -47,6 +48,7 @@ const sliderPositionToSpeed = (position) => {
     return Math.round(raw * 20) / 20;
 };
 export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedVoices, inworldSpeed, onSelectVoice, onSelectStellaSubProvider, onSelectInworldSpeed, readAloudProvider, onSelectReadAloudProvider, disabled = false, }) {
+    const t = useT();
     // For BYOK modes this is pinned to the provider; for Stella mode it
     // follows the user's sub-family choice (default "openai").
     const underlyingProvider = resolveRealtimeUnderlyingProvider({
@@ -122,21 +124,21 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
         onSelectReadAloudProvider(provider);
     }, [activeReadAloud, disabled, onSelectReadAloudProvider]);
     const labelSourceText = underlyingProvider === "xai"
-        ? "Grok voices"
+        ? t("settings.voiceCatalog.source.xai")
         : underlyingProvider === "inworld"
-            ? "Inworld voices"
-            : "OpenAI voices";
+            ? t("settings.voiceCatalog.source.inworld")
+            : t("settings.voiceCatalog.source.openai");
     return (<div className="voice-catalog-picker" data-disabled={disabled || undefined}>
       <div className="voice-catalog-picker-label">
-        <span>Voice</span>
-        {showSubToggle ? (<div className="voice-catalog-subtoggle" role="tablist" aria-label="Voice family">
-            <button type="button" role="tab" aria-selected={underlyingProvider === "openai"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "openai" || undefined} onClick={() => handleSubToggle("openai")} disabled={disabled} title="OpenAI Realtime voices (Stella mints the token)">
+        <span>{t("settings.voiceCatalog.label")}</span>
+        {showSubToggle ? (<div className="voice-catalog-subtoggle" role="tablist" aria-label={t("settings.voiceCatalog.familyAriaLabel")}>
+            <button type="button" role="tab" aria-selected={underlyingProvider === "openai"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "openai" || undefined} onClick={() => handleSubToggle("openai")} disabled={disabled} title={t("settings.voiceCatalog.familyTitle.openai")}>
               OpenAI
             </button>
-            <button type="button" role="tab" aria-selected={underlyingProvider === "xai"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "xai" || undefined} onClick={() => handleSubToggle("xai")} disabled={disabled} title="xAI Grok voices (Stella mints the token)">
+            <button type="button" role="tab" aria-selected={underlyingProvider === "xai"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "xai" || undefined} onClick={() => handleSubToggle("xai")} disabled={disabled} title={t("settings.voiceCatalog.familyTitle.xai")}>
               xAI
             </button>
-            <button type="button" role="tab" aria-selected={underlyingProvider === "inworld"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "inworld" || undefined} onClick={() => handleSubToggle("inworld")} disabled={disabled} title="Inworld voices (Stella proxies the SDP exchange)">
+            <button type="button" role="tab" aria-selected={underlyingProvider === "inworld"} className="voice-catalog-subtoggle-btn" data-active={underlyingProvider === "inworld" || undefined} onClick={() => handleSubToggle("inworld")} disabled={disabled} title={t("settings.voiceCatalog.familyTitle.inworld")}>
               Inworld
             </button>
           </div>) : (<span className="voice-catalog-picker-label-source">
@@ -145,8 +147,8 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
       </div>
 
       <div className="voice-catalog-stepper-wrap">
-        <div className="voice-catalog-stepper" role="group" aria-label="Voice">
-          <button type="button" className="voice-catalog-stepper-arrow" onClick={() => cycleBy(-1)} disabled={disabled || catalog.length < 2} aria-label="Previous voice">
+        <div className="voice-catalog-stepper" role="group" aria-label={t("settings.voiceCatalog.label")}>
+          <button type="button" className="voice-catalog-stepper-arrow" onClick={() => cycleBy(-1)} disabled={disabled || catalog.length < 2} aria-label={t("settings.voiceCatalog.previousVoice")}>
             <ChevronLeft size={14} strokeWidth={2}/>
           </button>
           <DropdownMenu>
@@ -158,7 +160,7 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
                 <ChevronDown size={12} strokeWidth={2}/>
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="center" sideOffset={6} className="voice-catalog-menu" aria-label={`${labelSourceText} voice`}>
+            <DropdownMenuContent side="top" align="center" sideOffset={6} className="voice-catalog-menu" aria-label={t("settings.voiceCatalog.menuAriaLabel", { source: labelSourceText })}>
               {catalog.map((voice) => {
             const selected = voice.id === activeVoiceId;
             return (<DropdownMenuItem key={voice.id} onSelect={() => handleDropdownPick(voice.id)} disabled={disabled} data-selected={selected || undefined} className="voice-catalog-menu-item">
@@ -175,7 +177,7 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
         })}
             </DropdownMenuContent>
           </DropdownMenu>
-          <button type="button" className="voice-catalog-stepper-arrow" onClick={() => cycleBy(1)} disabled={disabled || catalog.length < 2} aria-label="Next voice">
+          <button type="button" className="voice-catalog-stepper-arrow" onClick={() => cycleBy(1)} disabled={disabled || catalog.length < 2} aria-label={t("settings.voiceCatalog.nextVoice")}>
             <ChevronRight size={14} strokeWidth={2}/>
           </button>
         </div>
@@ -184,12 +186,12 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
 
       {showSpeed ? (<div className="voice-catalog-speed">
           <div className="voice-catalog-speed-header">
-            <span className="voice-catalog-speed-label">Speed</span>
+            <span className="voice-catalog-speed-label">{t("settings.voiceCatalog.speed")}</span>
             <span className="voice-catalog-speed-value">
               {draftSpeed.toFixed(2)}×
             </span>
           </div>
-          <input type="range" className="voice-catalog-speed-slider" min={0} max={100} step={0.5} value={speedToSliderPosition(draftSpeed)} onChange={handleSpeedChange} onPointerUp={handleSpeedCommit} onKeyUp={handleSpeedCommit} onBlur={handleSpeedCommit} disabled={disabled} aria-label="Inworld voice speed" aria-valuetext={`${draftSpeed.toFixed(2)}×`}/>
+          <input type="range" className="voice-catalog-speed-slider" min={0} max={100} step={0.5} value={speedToSliderPosition(draftSpeed)} onChange={handleSpeedChange} onPointerUp={handleSpeedCommit} onKeyUp={handleSpeedCommit} onBlur={handleSpeedCommit} disabled={disabled} aria-label={t("settings.voiceCatalog.speedAriaLabel")} aria-valuetext={`${draftSpeed.toFixed(2)}×`}/>
           <div className="voice-catalog-speed-marks">
             <span>0.5×</span>
             <span>1.0×</span>
@@ -199,18 +201,18 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
 
       {showReadAloud ? (<div className="voice-catalog-readaloud">
           <div className="voice-catalog-picker-label">
-            <span>Read aloud</span>
-            <div className="voice-catalog-subtoggle" role="tablist" aria-label="Read aloud voice provider">
-              <button type="button" role="tab" aria-selected={activeReadAloud === "openai"} className="voice-catalog-subtoggle-btn" data-active={activeReadAloud === "openai" || undefined} onClick={() => handleReadAloudPick("openai")} disabled={disabled} title="Read replies aloud with OpenAI TTS">
+            <span>{t("settings.voiceCatalog.readAloud.label")}</span>
+            <div className="voice-catalog-subtoggle" role="tablist" aria-label={t("settings.voiceCatalog.readAloud.ariaLabel")}>
+              <button type="button" role="tab" aria-selected={activeReadAloud === "openai"} className="voice-catalog-subtoggle-btn" data-active={activeReadAloud === "openai" || undefined} onClick={() => handleReadAloudPick("openai")} disabled={disabled} title={t("settings.voiceCatalog.readAloud.openaiTitle")}>
                 OpenAI
               </button>
-              <button type="button" role="tab" aria-selected={activeReadAloud === "inworld"} className="voice-catalog-subtoggle-btn" data-active={activeReadAloud === "inworld" || undefined} onClick={() => handleReadAloudPick("inworld")} disabled={disabled} title="Read replies aloud with Inworld TTS">
+              <button type="button" role="tab" aria-selected={activeReadAloud === "inworld"} className="voice-catalog-subtoggle-btn" data-active={activeReadAloud === "inworld" || undefined} onClick={() => handleReadAloudPick("inworld")} disabled={disabled} title={t("settings.voiceCatalog.readAloud.inworldTitle")}>
                 Inworld
               </button>
             </div>
           </div>
           <p className="voice-catalog-readaloud-desc">
-            Speaks replies out loud using this provider's voice.
+            {t("settings.voiceCatalog.readAloud.description")}
           </p>
         </div>) : null}
     </div>);

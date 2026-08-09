@@ -20,6 +20,7 @@ import type { KeyboardEvent } from "react";
 import { displayPayloadForStellaFile } from "@/features/chat/lib/stella-file-links";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { basenameOf } from "@/features/workspace-display/path-to-viewer";
+import { useT } from "@/shared/i18n";
 
 type StellaFileLinkProps = {
   path?: unknown;
@@ -28,6 +29,7 @@ type StellaFileLinkProps = {
 };
 
 export const StellaFileLink = ({ path, label }: StellaFileLinkProps) => {
+  const t = useT();
   const [failed, setFailed] = useState(false);
   const filePath = typeof path === "string" ? path : "";
   const rawLabel = typeof label === "string" ? label.trim() : "";
@@ -78,7 +80,9 @@ export const StellaFileLink = ({ path, label }: StellaFileLinkProps) => {
       tabIndex={0}
       className="markdown-stella-file"
       data-failed={failed || undefined}
-      title={failed ? `Couldn't open ${filePath}` : filePath}
+      title={
+        failed ? t("app.chat.fileLink.openFailed", { filePath }) : filePath
+      }
       onClick={open}
       onKeyDown={handleKeyDown}
     >

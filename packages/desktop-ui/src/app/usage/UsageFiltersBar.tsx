@@ -1,16 +1,17 @@
 import { memo, useMemo } from "react";
 import type { LocalModelUsageRecord } from "@stella/contracts/local-chat";
 import { Select } from "@/ui/select";
+import { useT } from "@/shared/i18n";
 import { executionLabel, type UsageRange } from "./usage-data";
 import { threadLabel } from "./format";
 
 const ALL = "__all__";
 const RANGE_OPTIONS = [
-  { value: "24h", label: "Last 24 hours" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
-  { value: "all", label: "All time" },
-] satisfies Array<{ value: UsageRange; label: string }>;
+  { value: "24h", labelKey: "app.usage.filters.range.24h" },
+  { value: "7d", labelKey: "app.usage.filters.range.7d" },
+  { value: "30d", labelKey: "app.usage.filters.range.30d" },
+  { value: "all", labelKey: "app.usage.filters.range.all" },
+] satisfies Array<{ value: UsageRange; labelKey: string }>;
 
 export type UsageSearchPatch = {
   range?: UsageRange;
@@ -39,18 +40,27 @@ export const UsageFiltersBar = memo(function UsageFiltersBar({
   records,
   onSearchChange,
 }: UsageFiltersBarProps) {
+  const t = useT();
+  const rangeOptions = useMemo(
+    () =>
+      RANGE_OPTIONS.map((option) => ({
+        value: option.value,
+        label: t(option.labelKey),
+      })),
+    [t],
+  );
   const conversationOptions = useMemo(() => {
     const byId = new Map<string, string>();
     for (const record of records) {
       byId.set(record.conversationId, record.conversationTitle);
     }
     return [
-      { value: ALL, label: "All conversations" },
+      { value: ALL, label: t("app.usage.filters.allConversations") },
       ...[...byId.entries()]
         .sort((a, b) => a[1].localeCompare(b[1]))
         .map(([value, label]) => ({ value, label })),
     ];
-  }, [records]);
+  }, [records, t]);
 
   const recordsForConversation = useMemo(
     () =>
@@ -65,41 +75,44 @@ export const UsageFiltersBar = memo(function UsageFiltersBar({
       if (!byId.has(record.threadId)) byId.set(record.threadId, record);
     }
     return [
-      { value: ALL, label: "All threads" },
+      { value: ALL, label: t("app.usage.filters.allThreads") },
       ...[...byId.values()].map((record) => ({
         value: record.threadId,
         label: `${executionLabel(record)} · ${threadLabel(record)}`,
       })),
     ];
-  }, [recordsForConversation]);
+  }, [recordsForConversation, t]);
   const agentOptions = useMemo(
     () => [
-      { value: ALL, label: "All agent types" },
+      { value: ALL, label: t("app.usage.filters.allAgentTypes") },
       ...[...new Set(records.map((record) => record.agentType))]
         .sort()
         .map((value) => ({ value, label: value })),
     ],
-    [records],
+    [records, t],
   );
   const modelOptions = useMemo(
     () => [
-      { value: ALL, label: "All models" },
+      { value: ALL, label: t("app.usage.filters.allModels") },
       ...[...new Set(records.map((record) => record.model))]
         .sort()
         .map((value) => ({ value, label: value })),
     ],
-    [records],
+    [records, t],
   );
 
   return (
-    <section className="usage-filters" aria-label="Usage filters">
+    <section
+      className="usage-filters"
+      aria-label={t("app.usage.filters.label")}
+    >
       <Select
         value={range}
         onValueChange={(value) =>
           onSearchChange({ range: value as UsageRange })
         }
-        options={RANGE_OPTIONS}
-        aria-label="Time range"
+        options={rangeOptions}
+        aria-label={t("app.usage.filters.timeRange")}
       />
       <Select
         value={conversation ?? ALL}
@@ -110,7 +123,7 @@ export const UsageFiltersBar = memo(function UsageFiltersBar({
           })
         }
         options={conversationOptions}
-        aria-label="Conversation"
+        aria-label={t("app.usage.filters.conversation")}
       />
       <Select
         value={thread ?? ALL}
@@ -122,7 +135,7 @@ export const UsageFiltersBar = memo(function UsageFiltersBar({
           });
         }}
         options={threadOptions}
-        aria-label="Thread"
+        aria-label={t("app.usage.filters.thread")}
       />
       <Select
         value={agent ?? ALL}
@@ -130,7 +143,7 @@ export const UsageFiltersBar = memo(function UsageFiltersBar({
           onSearchChange({ agent: value === ALL ? undefined : value })
         }
         options={agentOptions}
-        aria-label="Agent type"
+        aria-label={t("app.usage.filters.agentType")}
       />
       <Select
         value={model ?? ALL}
@@ -138,7 +151,7 @@ export const UsageFiltersBar = memo(function UsageFiltersBar({
           onSearchChange({ model: value === ALL ? undefined : value })
         }
         options={modelOptions}
-        aria-label="Model"
+        aria-label={t("app.usage.filters.model")}
       />
     </section>
   );

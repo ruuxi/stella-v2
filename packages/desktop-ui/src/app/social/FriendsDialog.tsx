@@ -8,6 +8,7 @@ import {
   DialogBody,
   DialogCloseButton,
 } from "@/ui/dialog";
+import { useT } from "@/shared/i18n";
 import { TextField } from "@/ui/text-field";
 import { Avatar } from "@/ui/avatar";
 import { useSocialFriends } from "./hooks/use-social-friends";
@@ -31,6 +32,7 @@ export function FriendsDialog({
   onOpenChange,
   onStartChat,
 }: FriendsDialogProps) {
+  const t = useT();
   const { profile } = useSocialProfile();
   const {
     friends,
@@ -59,20 +61,20 @@ export function FriendsDialog({
     setStatus(null);
     try {
       await sendFriendRequest(username);
-      setStatus({ type: "success", text: "Friend request sent!" });
+      setStatus({ type: "success", text: t("app.social.friends.requestSent") });
       setUsernameInput("");
     } catch (err) {
       setStatus({
         type: "error",
         text: getSocialActionErrorMessage(
-          "Couldn't send that friend request. Check the username and try again.",
+          t("app.social.friends.errors.sendRequest"),
           err,
         ),
       });
     } finally {
       setSending(false);
     }
-  }, [usernameInput, sendFriendRequest]);
+  }, [usernameInput, sendFriendRequest, t]);
 
   const runOwnerAction = useCallback(
     async (ownerId: string, action: () => Promise<unknown>) => {
@@ -102,17 +104,20 @@ export function FriendsDialog({
   const handleCopyCode = useCallback(() => {
     if (!profile) return;
     void navigator.clipboard.writeText(`@${profile.username}`);
-    setStatus({ type: "success", text: "Username copied!" });
-  }, [profile]);
+    setStatus({
+      type: "success",
+      text: t("app.social.friends.usernameCopied"),
+    });
+  }, [profile, t]);
 
   const handleCopyInviteLink = useCallback(() => {
     if (!profile) return;
     void navigator.clipboard.writeText(buildFriendInviteLink(profile.username));
     setStatus({
       type: "success",
-      text: "Invite link copied — send it anywhere.",
+      text: t("app.social.friends.inviteLinkCopied"),
     });
-  }, [profile]);
+  }, [profile, t]);
 
   const { incoming, outgoing } = pendingRequests;
 
@@ -128,27 +133,30 @@ export function FriendsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent fit className="friends-dialog-content">
         <VisuallyHidden asChild>
-          <DialogTitle>Friends</DialogTitle>
+          <DialogTitle>{t("app.social.friends.title")}</DialogTitle>
         </VisuallyHidden>
         <VisuallyHidden asChild>
           <DialogDescription>
-            Share your friend code to connect, or enter someone else&rsquo;s to
-            send a request.
+            {t("app.social.friends.description")}
           </DialogDescription>
         </VisuallyHidden>
         <DialogCloseButton className="friends-dialog-close" />
         <DialogBody className="friends-dialog-body">
           <header className="friends-dialog-header">
-            <p className="friends-dialog-title">Friends</p>
+            <p className="friends-dialog-title">
+              {t("app.social.friends.title")}
+            </p>
             <p className="friends-dialog-sub">
-              Share your username, or enter a friend&rsquo;s to connect.
+              {t("app.social.friends.subtitle")}
             </p>
           </header>
 
           {profile ? (
             <div className="friends-code-card">
               <div className="friends-code-card-info">
-                <span className="friends-section-label">Your username</span>
+                <span className="friends-section-label">
+                  {t("app.social.friends.yourUsername")}
+                </span>
                 <span className="friends-code-card-value">
                   @{profile.username}
                 </span>
@@ -157,18 +165,18 @@ export function FriendsDialog({
                 <button
                   type="button"
                   className="pill-btn"
-                  title="Copy your username"
+                  title={t("app.social.friends.copyUsernameTitle")}
                   onClick={handleCopyCode}
                 >
-                  Copy
+                  {t("app.social.friends.copy")}
                 </button>
                 <button
                   type="button"
                   className="pill-btn pill-btn--primary"
-                  title="Copy a link that opens Stella and sends you a friend request — works in iMessage, Discord, anywhere"
+                  title={t("app.social.friends.copyInviteLinkTitle")}
                   onClick={handleCopyInviteLink}
                 >
-                  Copy invite link
+                  {t("app.social.friends.copyInviteLink")}
                 </button>
               </div>
             </div>
@@ -182,9 +190,9 @@ export function FriendsDialog({
             }}
           >
             <TextField
-              label="Add a friend"
+              label={t("app.social.friends.addLabel")}
               hideLabel
-              placeholder="Enter username"
+              placeholder={t("app.social.friends.addPlaceholder")}
               value={usernameInput}
               onChange={(e) => {
                 setUsernameInput((e.target as HTMLInputElement).value);
@@ -196,7 +204,9 @@ export function FriendsDialog({
               className="pill-btn pill-btn--primary pill-btn--lg friends-add-button"
               disabled={!usernameInput.trim() || sending}
             >
-              {sending ? "Adding..." : "Add"}
+              {sending
+                ? t("app.social.friends.adding")
+                : t("app.social.friends.add")}
             </button>
           </form>
 
@@ -209,7 +219,9 @@ export function FriendsDialog({
           {incoming.length > 0 ? (
             <section className="friends-section">
               <div className="friends-section-label">
-                Requests ({incoming.length})
+                {t("app.social.friends.requestsCount", {
+                  count: incoming.length,
+                })}
               </div>
               <div className="friends-list">
                 {incoming.map((request) => {
@@ -238,7 +250,7 @@ export function FriendsDialog({
                             )
                           }
                         >
-                          Accept
+                          {t("app.social.friends.accept")}
                         </button>
                         <button
                           type="button"
@@ -250,7 +262,7 @@ export function FriendsDialog({
                             )
                           }
                         >
-                          Decline
+                          {t("app.social.friends.decline")}
                         </button>
                       </div>
                     </div>
@@ -262,7 +274,9 @@ export function FriendsDialog({
 
           {outgoing.length > 0 ? (
             <section className="friends-section">
-              <div className="friends-section-label">Sent</div>
+              <div className="friends-section-label">
+                {t("app.social.friends.sent")}
+              </div>
               <div className="friends-list">
                 {outgoing.map((request) => (
                   <div
@@ -279,7 +293,7 @@ export function FriendsDialog({
                         @{request.profile.username}
                       </div>
                       <div className="friends-item-tag">
-                        Waiting for response
+                        {t("app.social.friends.waitingForResponse")}
                       </div>
                     </div>
                   </div>
@@ -290,12 +304,15 @@ export function FriendsDialog({
 
           <section className="friends-section">
             <div className="friends-section-label">
-              Friends{friends.length > 0 ? ` (${friends.length})` : ""}
+              {friends.length > 0
+                ? t("app.social.friends.friendsCount", {
+                    count: friends.length,
+                  })
+                : t("app.social.friends.title")}
             </div>
             {friends.length === 0 ? (
               <div className="friends-empty">
-                No friends yet. Share your username or enter someone
-                else&rsquo;s above to connect.
+                {t("app.social.friends.empty")}
               </div>
             ) : (
               <div className="friends-list">
@@ -322,7 +339,9 @@ export function FriendsDialog({
                           disabled={pendingChatOwnerId !== null}
                           onClick={() => void handleStartChat(ownerId)}
                         >
-                          {isOpening ? "Opening..." : "Message"}
+                          {isOpening
+                            ? t("app.social.friends.opening")
+                            : t("app.social.friends.message")}
                         </button>
                         <button
                           type="button"
@@ -334,7 +353,9 @@ export function FriendsDialog({
                             )
                           }
                         >
-                          {isRemoving ? "Removing..." : "Remove"}
+                          {isRemoving
+                            ? t("app.social.friends.removing")
+                            : t("app.social.friends.remove")}
                         </button>
                       </div>
                     </div>

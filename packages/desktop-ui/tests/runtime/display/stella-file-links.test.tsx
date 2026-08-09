@@ -10,6 +10,7 @@ import {
   STELLA_FILE_TAG_ATTRIBUTES,
 } from "../../../src/features/chat/lib/stella-file-links";
 import { StellaFileLink } from "../../../src/app/chat/StellaFileLink";
+import { withI18n } from "../../helpers/i18n";
 
 describe("parseStellaFileUrl", () => {
   it("extracts the absolute path from the canonical form", () => {
@@ -68,7 +69,10 @@ describe("displayPayloadForStellaFile", () => {
   it("opens ANY html file as a canvas, not just outputs-tree html", () => {
     expect(
       displayPayloadForStellaFile("/Users/sam/site/index.html", 1),
-    ).toMatchObject({ kind: "canvas-html", filePath: "/Users/sam/site/index.html" });
+    ).toMatchObject({
+      kind: "canvas-html",
+      filePath: "/Users/sam/site/index.html",
+    });
     expect(
       displayPayloadForStellaFile(
         "/Users/sam/.stella/outputs/html/city-guide.html",
@@ -89,20 +93,22 @@ describe("stella-file chat rendering round-trip", () => {
   // omitted so `allowedTags` engages), and the component mapping.
   const render = (markdown: string) =>
     renderToStaticMarkup(
-      createElement(
-        Streamdown,
-        {
-          remarkPlugins: [
-            ...Object.values(defaultRemarkPlugins),
-            remarkStellaFileLinks,
-          ],
-          components: { [STELLA_FILE_TAG]: StellaFileLink },
-          allowedTags: {
-            [STELLA_FILE_TAG]: [...STELLA_FILE_TAG_ATTRIBUTES],
+      withI18n(
+        createElement(
+          Streamdown,
+          {
+            remarkPlugins: [
+              ...Object.values(defaultRemarkPlugins),
+              remarkStellaFileLinks,
+            ],
+            components: { [STELLA_FILE_TAG]: StellaFileLink },
+            allowedTags: {
+              [STELLA_FILE_TAG]: [...STELLA_FILE_TAG_ATTRIBUTES],
+            },
+            linkSafety: { enabled: false },
           },
-          linkSafety: { enabled: false },
-        },
-        markdown,
+          markdown,
+        ),
       ),
     );
 

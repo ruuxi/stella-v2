@@ -1,0 +1,2260 @@
+{
+  "common": {
+    "appName": "Stella",
+    "continue": "Pokračovat",
+    "back": "Zpět",
+    "next": "Další",
+    "previous": "Předchozí",
+    "cancel": "Zrušit",
+    "save": "Uložit",
+    "close": "Zavřít",
+    "open": "Otevřít",
+    "openPreferences": "Otevřít předvolby",
+    "signIn": "Přihlásit se",
+    "signOut": "Odhlásit se",
+    "loading": "Načítání…",
+    "tryAgain": "Zkusit znovu",
+    "language": "Jazyk",
+    "yes": "Ano",
+    "no": "Ne",
+    "copy": "Kopírovat"
+  },
+  "sidebar": {
+    "signIn": "Přihlásit se",
+    "account": "Účet",
+    "feedback": "Odeslat zpětnou vazbu",
+    "upgrade": "Upgradovat",
+    "newChat": "Nový chat"
+  },
+  "settings": {
+    "title": "Nastavení",
+    "tabs": {
+      "general": "Obecné",
+      "shortcuts": "Zkratky",
+      "backup": "Zálohy",
+      "account": "Účet a právní",
+      "audio": "Zvuk"
+    },
+    "language": {
+      "title": "Jazyk",
+      "description": "Vyberte jazyk, který Stella používá v aplikaci a ve svých odpovědích."
+    },
+    "workingMode": {
+      "title": "Režim orchestrátoru",
+      "directDescription": "Stella pracuje na úkolech sama a deleguje jen tehdy, když je to užitečné.",
+      "orchestratedDescription": "Stella koordinuje agenta General, který dokáže rozdělit větší práci mezi subagenty."
+    },
+    "developerPreviews": {
+      "title": "Náhledy souborů pro vývojáře",
+      "description": "Zobrazí změny kódu v chatu a otevře je v bočním panelu."
+    },
+    "nativeFontSmoothing": {
+      "title": "Nativní vyhlazování písma",
+      "description": "Vykresluje text jako aplikace macOS, s vyhlazováním ve stupních šedi."
+    },
+    "motion": {
+      "title": "Pohyb",
+      "reduceMotion": {
+        "label": "Omezit pohyb",
+        "description": "Minimalizuje animace rozhraní.",
+        "system": "Systém",
+        "on": "Zapnuto",
+        "off": "Vypnuto"
+      }
+    },
+    "voice": {
+      "title": "Hlas",
+      "personality": {
+        "label": "Osobnost"
+      }
+    },
+    "notifications": {
+      "title": "Zvuková upozornění",
+      "description": "Přehraje zvuk, když Stella dokončí běh agenta."
+    },
+    "power": {
+      "title": "Udržovat počítač vzhůru",
+      "description": "Zabrání počítači v přechodu do režimu spánku, když je Stella otevřená."
+    },
+    "lockedComputerUse": {
+      "title": "Použití při zamčeném počítači",
+      "description": "Umožní Stelle pokračovat v úlohách ovládání počítače poté, co se tento Mac zamkne. Vyžaduje výzvu správce a během práce Stelly zakrývá obrazovku.",
+      "unsupported": "Použití při zamčeném počítači je dostupné pouze v systému macOS."
+    },
+    "browserExtension": {
+      "title": "Stella pro Chrome",
+      "description": "Umožní Stelle vidět stránku, na které jste, a provádět akce ve vašem prohlížeči.",
+      "action": "Získat rozšíření"
+    },
+    "permissions": {
+      "title": "Oprávnění",
+      "enable": "Povolit",
+      "granted": "Uděleno",
+      "opening": "Otevírání…",
+      "reset": "Obnovit",
+      "resetting": "Obnovování…",
+      "accessibility": {
+        "label": "Zpřístupnění",
+        "description": "Umožní Stelle číst vybraný text a otevírat se zkratkou ⌘+pravé tlačítko kdekoli v počítači."
+      },
+      "screen": {
+        "label": "Záznam obrazovky",
+        "description": "Umožní Stelle vidět vaši obrazovku, aby vám pomohla s tím, na co se díváte. Po zapnutí může být nutné Stellu ukončit a znovu otevřít."
+      },
+      "microphone": {
+        "label": "Mikrofon",
+        "description": "Používá se pro hlas a diktování. Obnovte, pokud byla Stella dříve zamítnuta a macOS se znovu neptá."
+      },
+      "restart": {
+        "label": "Restartovat Stellu",
+        "description": "Záznam obrazovky byl právě zapnut. Ukončete a znovu otevřete Stellu, abyste dokončili nastavení.",
+        "action": "Restartovat",
+        "closing": "Zavírání…"
+      }
+    },
+    "shortcuts": {
+      "title": "Zkratky",
+      "change": "Změnit",
+      "capturing": "Stiskněte klávesy…",
+      "clear": "Vymazat",
+      "off": "Vypnuto",
+      "actions": {
+        "dictation": "Diktování",
+        "voice": "Hlasový agent"
+      },
+      "dictation": {
+        "description": "Podržte Option pro diktování do Stelly nebo do aplikace, kterou používáte."
+      },
+      "voiceAgent": {
+        "description": "Spustí nebo zastaví živého hlasového agenta Stelly."
+      },
+      "targets": {
+        "dictation": "diktování",
+        "voice": "hlasového agenta"
+      },
+      "toasts": {
+        "updatedTitle": "Zkratka {action} aktualizována",
+        "clearedTitle": "Zkratka {action} vymazána",
+        "updatedDescription": "Stisknutím {keys} spustíte {target}.",
+        "clearedDescription": "{action} je zakázáno, dokud nenastavíte novou zkratku.",
+        "unavailableTitle": "Zkratka není dostupná",
+        "failedTitle": "Aktualizace zkratky se nezdařila"
+      },
+      "errors": {
+        "load": "Nepodařilo se načíst zkratky.",
+        "unavailable": "Zkratky nejsou v tomto okně dostupné.",
+        "unavailableShortcut": "Tato zkratka není dostupná.",
+        "update": "Nepodařilo se aktualizovat zkratku."
+      }
+    },
+    "backup": {
+      "title": "Zálohy",
+      "upgradeNotice": "Zálohy jsou součástí každého placeného plánu Stella.",
+      "never": "Nikdy",
+      "automatic": {
+        "label": "Automatické zálohy",
+        "lastLocal": "Poslední místní záloha: {time}",
+        "lastRemote": "Poslední vzdálená záloha: {time}",
+        "remoteIssue": "Problém se vzdálenou zálohou: {error}",
+        "off": "Vypnuto",
+        "hourly": "Automatické zálohy každou hodinu",
+        "ariaLabel": "Zálohy"
+      },
+      "backupNow": {
+        "label": "Zálohovat nyní",
+        "description": "Uloží zálohu hned teď. Po přihlášení se nahraje automaticky.",
+        "action": "Zálohovat nyní",
+        "working": "Zálohování…"
+      },
+      "saved": {
+        "label": "Uložené zálohy",
+        "signedInDescription": "Vyberte zálohu k obnovení na tomto zařízení.",
+        "signedOutDescription": "Přihlaste se, abyste ukládali zálohy online a obnovovali je na jakémkoli zařízení.",
+        "empty": "Zatím žádné vzdálené zálohy.",
+        "latest": "Nejnovější",
+        "files": "souborů: {count}",
+        "from": "Z: {source}",
+        "restore": "Obnovit",
+        "restoring": "Obnovování…"
+      },
+      "toasts": {
+        "completedTitle": "Zálohování dokončeno",
+        "queuedTitle": "Záloha ve frontě",
+        "deferredTitle": "Záloha odložena",
+        "noneNeededTitle": "Záloha není potřeba",
+        "failedTitle": "Zálohování se nezdařilo",
+        "restorePreparedTitle": "Obnovení připraveno",
+        "restorePreparedDescription": "Stella se restartuje, aby dokončila použití této zálohy.",
+        "restoreFailedTitle": "Obnovení se nezdařilo"
+      },
+      "errors": {
+        "load": "Nepodařilo se načíst nastavení záloh.",
+        "unavailable": "Nastavení záloh nejsou v tomto okně dostupná.",
+        "signInRequired": "Přihlaste se a vyberte plán Stella, abyste zapnuli zálohy.",
+        "checkingPlan": "Před zapnutím záloh se kontroluje váš plán Stella.",
+        "subscriptionRequired": "Zálohy vyžadují aktivní předplatné Stella.",
+        "updateMode": "Nepodařilo se aktualizovat režim zálohování.",
+        "backupUnavailable": "Zálohování není v tomto okně dostupné.",
+        "startBackup": "Nepodařilo se spustit zálohování.",
+        "restoreUnavailable": "Obnovení není v tomto okně dostupné.",
+        "restore": "Nepodařilo se obnovit zálohu."
+      }
+    },
+    "account": {
+      "title": "Účet",
+      "signOut": {
+        "label": "Odhlásit se",
+        "description": "Odhlaste se ze Stelly na tomto zařízení.",
+        "action": "Odhlásit se"
+      },
+      "deleteData": {
+        "label": "Smazat data",
+        "description": "Vymaže všechny konverzace, paměť a uložená nastavení Stelly.",
+        "action": "Smazat",
+        "working": "Mazání…"
+      },
+      "deleteAccount": {
+        "label": "Smazat účet",
+        "description": "Trvale smaže váš účet a vše v něm.",
+        "action": "Smazat",
+        "working": "Mazání…"
+      },
+      "legal": {
+        "title": "Právní informace",
+        "terms": "Podmínky služby",
+        "privacy": "Zásady ochrany osobních údajů",
+        "view": "Zobrazit"
+      },
+      "dialog": {
+        "deleteDataTitle": "Smazat vaše data Stella?",
+        "deleteAccountTitle": "Smazat váš účet Stella?",
+        "deleteDataDescription": "Tímto se vymažou vaše konverzace, paměť, nastavení a místní stav Stelly. Toto nelze vrátit zpět.",
+        "deleteAccountDescription": "Tímto se trvale smaže váš účet a data Stella. Toto nelze vrátit zpět.",
+        "deleteDataButton": "Smazat data",
+        "deleteAccountButton": "Smazat účet",
+        "working": "Mazání…"
+      },
+      "toasts": {
+        "dataDeleted": "Vaše data Stella byla smazána.",
+        "accountDeleted": "Váš účet Stella byl smazán.",
+        "deleteDataFailed": "Vaše data se nepodařilo smazat. Zkuste to znovu.",
+        "deleteAccountFailed": "Váš účet se nepodařilo smazat. Zkuste to znovu.",
+        "signInBeforeDelete": "Před smazáním účtu se přihlaste."
+      }
+    },
+    "audio": {
+      "systemDefault": "Výchozí systémové",
+      "microphoneDeviceFallback": "Mikrofon {index}",
+      "speakerDeviceFallback": "Reproduktor {index}",
+      "microphone": {
+        "title": "Mikrofon",
+        "enableLabel": "Povolit mikrofon",
+        "enableDescription": "Vyžadováno pro mluvení se Stellou.",
+        "deviceLabel": "Mikrofon",
+        "deviceDescription": "Který mikrofon má Stella poslouchat?"
+      },
+      "recovery": {
+        "manageLabel": "Spravovat přístup k mikrofonu",
+        "recoverLabel": "Obnovit přístup k mikrofonu",
+        "manageDescription": "Pokud se oprávnění mikrofonu zasekne, můžete ho obnovit a požádat macOS, aby se zeptal znovu.",
+        "recoverDescription": "Jakmile řeknete ne, macOS se sám znovu nezeptá. Obnovte oprávnění a poté Stellu ukončete a znovu otevřete.",
+        "openSettings": "Otevřít Nastavení",
+        "reset": "Obnovit a restartovat",
+        "closing": "Zavírání…"
+      },
+      "wakeWord": {
+        "label": "Aktivační slovo „Hey Stella“",
+        "description": "Naslouchá „Hey Stella“ na pozadí a zahájí hlasovou konverzaci. Když je vypnuto, mikrofon zůstává nečinný, dokud nestisknete diktování."
+      },
+      "superFast": {
+        "label": "Superrychlé diktování",
+        "description": "Udržuje mikrofon připravený, aby diktování začínalo s menším zpožděním."
+      },
+      "dictationSounds": {
+        "label": "Zvuky diktování",
+        "description": "Přehraje zvuk, když diktování začne a skončí."
+      },
+      "enhance": {
+        "label": "Vylepšit přepis",
+        "description": "Před vložením vyčistí text místního diktování pomocí Mercury."
+      },
+      "localDictation": {
+        "label": "Přepis na zařízení",
+        "description": "Používá místní model Parakeet místo Inworld. Na slabších Macích to může využívat více paměti.",
+        "unavailableFallback": "Na tomto Macu není dostupné."
+      },
+      "speaker": {
+        "title": "Reproduktor",
+        "outputLabel": "Výstupní zařízení",
+        "outputDescription": "Vyberte reproduktor nebo sluchátka, která chcete použít.",
+        "empty": "Nebyly nalezeny žádné reproduktory.",
+        "emptyMicOff": "Zapněte mikrofon, abyste viděli své reproduktory."
+      },
+      "errors": {
+        "listDevices": "Nelze vypsat zvuková zařízení.",
+        "micDeniedReset": "Přístup k mikrofonu byl dříve odepřen. Obnovte ho a restartujte Stellu, nebo otevřete Nastavení systému.",
+        "micDenied": "Přístup k mikrofonu byl odepřen. Povolte ho v nastavení systému."
+      }
+    },
+    "connectedProviders": {
+      "title": "Připojení poskytovatelé",
+      "empty": "Zatím nejsou připojeni žádní poskytovatelé. Vyberte výše v přepínači modelů jinou možnost než Stella, abyste přidali klíč API nebo se přihlásili.",
+      "apiKey": "Klíč API",
+      "signedIn": "Přihlášeno",
+      "removeKey": "Odebrat klíč",
+      "removingKey": "Odebírání…",
+      "signOut": "Odhlásit se",
+      "signingOut": "Odhlašování…"
+    },
+    "search": {
+      "placeholder": "Hledat v nastavení",
+      "clear": "Vymazat hledání",
+      "noResultsTitle": "Žádné nastavení neodpovídá „{query}“",
+      "noResultsBody": "Zkuste kratší nebo jiné slovo.",
+      "resultsOne": "{count} výsledek pro",
+      "resultsOther": "Výsledků ({count}) pro",
+      "resultsAriaOne": "{count} výsledek",
+      "resultsAriaOther": "Výsledky: {count}",
+      "descriptions": {
+        "voice": "Vyberte styl mluvení a hlas osobnosti Stelly.",
+        "permissions": "Udělte v systému macOS přístup ke zpřístupnění, záznamu obrazovky a mikrofonu.",
+        "shortcuts": "Změňte klávesové zkratky pro diktování a hlas.",
+        "backup": "Automatické šifrované zálohy, body obnovení a snímky na vyžádání.",
+        "account": "Odhlaste se, smažte svá data nebo trvale smažte svůj účet.",
+        "legal": "Podmínky služby a zásady ochrany osobních údajů.",
+        "microphone": "Vyberte vstupní zařízení, povolte aktivační slovo, zvuky diktování a přepis na zařízení.",
+        "speaker": "Vyberte reproduktor nebo sluchátka, kterými se přehrává hlas Stelly.",
+        "wakeWord": "Naslouchá „Hey Stella“ a zahájí hlasovou konverzaci.",
+        "onDeviceTranscription": "Používá místní model Parakeet místo cloudového přepisu."
+      }
+    },
+    "errors": {
+      "loadPower": "Nepodařilo se načíst nastavení napájení.",
+      "savePower": "Nepodařilo se aktualizovat nastavení napájení.",
+      "powerUnavailable": "Nastavení napájení nejsou v tomto okně dostupná.",
+      "loadLockedComputerUse": "Nepodařilo se načíst nastavení použití při zamčeném počítači.",
+      "saveLockedComputerUse": "Nepodařilo se aktualizovat použití při zamčeném počítači.",
+      "lockedComputerUseUnavailable": "Použití při zamčeném počítači není v tomto okně dostupné.",
+      "loadSoundNotifications": "Nepodařilo se načíst nastavení zvukových upozornění.",
+      "saveSoundNotifications": "Nepodařilo se aktualizovat nastavení zvukových upozornění.",
+      "soundNotificationsUnavailable": "Nastavení zvukových upozornění nejsou v tomto okně dostupná.",
+      "loadVoice": "Nepodařilo se načíst nastavení hlasu.",
+      "saveVoice": "Nepodařilo se aktualizovat nastavení hlasu.",
+      "voiceUnavailable": "Nastavení hlasu nejsou v tomto okně dostupná.",
+      "loadWorkingMode": "Nepodařilo se načíst režim orchestrátoru.",
+      "saveWorkingMode": "Nepodařilo se aktualizovat režim orchestrátoru.",
+      "workingModeUnavailable": "Režim orchestrátoru není v tomto okně k dispozici.",
+      "loadPermissions": "Nepodařilo se načíst stav oprávnění plochy.",
+      "savePermission": "Nepodařilo se aktualizovat oprávnění {kind}.",
+      "resetPermission": "Nepodařilo se obnovit oprávnění {kind}.",
+      "resetPermissionMaybeReopen": "Oprávnění {kind} nelze obnovit. Možná bude nutné Stellu znovu otevřít.",
+      "microphoneDeniedReopen": "Přístup k mikrofonu byl dříve odepřen. Zapněte ho v Nastavení systému a poté Stellu znovu otevřete.",
+      "microphoneStillOff": "Přístup k mikrofonu je stále vypnutý. Zapněte ho v Nastavení systému a poté Stellu znovu otevřete.",
+      "restart": "Nepodařilo se restartovat Stellu."
+    },
+    "voiceCatalog": {
+      "label": "Hlas",
+      "familyAriaLabel": "Rodina hlasů",
+      "familyTitle": {
+        "openai": "Hlasy OpenAI Realtime (token vydává Stella)",
+        "xai": "Hlasy xAI Grok (token vydává Stella)",
+        "inworld": "Hlasy Inworld (Stella zprostředkuje výměnu SDP)"
+      },
+      "source": {
+        "openai": "Hlasy OpenAI",
+        "xai": "Hlasy Grok",
+        "inworld": "Hlasy Inworld"
+      },
+      "previousVoice": "Předchozí hlas",
+      "nextVoice": "Další hlas",
+      "menuAriaLabel": "Hlas {source}",
+      "speed": "Rychlost",
+      "speedAriaLabel": "Rychlost hlasu Inworld",
+      "readAloud": {
+        "label": "Číst nahlas",
+        "ariaLabel": "Poskytovatel hlasu pro čtení nahlas",
+        "openaiTitle": "Číst odpovědi nahlas pomocí OpenAI TTS",
+        "inworldTitle": "Číst odpovědi nahlas pomocí Inworld TTS",
+        "description": "Předčítá odpovědi nahlas hlasem tohoto poskytovatele."
+      }
+    },
+    "phoneAccess": {
+      "expired": "Vypršelo",
+      "timeLeft": "zbývá {time}",
+      "copy": "Kopírovat",
+      "preparing": "Příprava...",
+      "getCode": "Získat kód",
+      "deviceFallback": "Telefon",
+      "removing": "Odebírání...",
+      "remove": "Odebrat",
+      "signedOut": {
+        "headline": "Přihlaste se a začněte",
+        "body": "Přihlaste se ke svému účtu Stella, abyste ho spárovali s mobilní aplikací."
+      },
+      "pairing": {
+        "headline": "Naskenujte nebo zadejte tento kód",
+        "body": "Otevřete aplikaci Stella v telefonu a naskenujte QR kód, nebo zadejte kód níže. Stačí to udělat jen jednou.",
+        "qrAlt": "Naskenujte pro spárování telefonu"
+      },
+      "intro": {
+        "headline": "Připojte telefon k počítači"
+      },
+      "steps": {
+        "download": "Stáhněte aplikaci",
+        "downloadQrAlt": "Naskenujte pro stažení Stelly z App Store",
+        "connect": "Připojte telefon"
+      },
+      "toasts": {
+        "codeCopied": "Kód zkopírován do schránky",
+        "phoneRemoved": "Telefon odebrán",
+        "removeFailed": "Nepodařilo se odebrat telefon"
+      },
+      "errors": {
+        "createPairing": "Nelze vytvořit párovací kód."
+      },
+      "pairedCount": {
+        "one": "Spárován {count} telefon",
+        "few": "Spárovány {count} telefony",
+        "many": "Spárováno {count} telefonu",
+        "other": "Spárováno {count} telefonů"
+      }
+    },
+    "modelPicker": {
+      "searchPlaceholder": "Hledat modely…",
+      "searchAriaLabel": "Hledat modely",
+      "closeSearch": "Zavřít hledání",
+      "apiKeyPlaceholder": "Klíč API",
+      "apiKeyAriaLabel": "Klíč API {provider}",
+      "cancelSignIn": "Zrušit přihlášení",
+      "signInWith": "Přihlásit se přes {provider}",
+      "saving": "Ukládání…",
+      "use": "Použít",
+      "selected": "Vybráno",
+      "refresh": "Obnovit katalog modelů",
+      "restrictedPlan": "Není dostupné v plánu {plan}",
+      "reasoning": {
+        "label": "Míra uvažování",
+        "default": "Auto",
+        "minimal": "Minimální",
+        "low": "Nízká",
+        "medium": "Střední",
+        "high": "Vysoká",
+        "xhigh": "Maximální"
+      },
+      "authHint": {
+        "both": "Přihlaste se nebo vložte klíč API. Přihlašovací údaje zůstávají na tomto zařízení.",
+        "oauth": "Přihlašovací údaje zůstávají na tomto zařízení.",
+        "apiKey": "Váš klíč API zůstává na tomto zařízení."
+      },
+      "actions": {
+        "cancel": "Zrušit",
+        "signIn": "Přihlásit se",
+        "addKey": "Přidat klíč",
+        "custom": "Vlastní"
+      },
+      "signOut": {
+        "ariaLabel": "Odhlásit se z {provider}",
+        "confirmAriaLabel": "Klikněte znovu pro odhlášení z {provider}",
+        "confirmTitle": "Klikněte znovu pro potvrzení"
+      },
+      "local": {
+        "hint": "Použijte libovolný místní server kompatibilní s OpenAI. Ollama obvykle běží na adrese níže.",
+        "serverUrlAriaLabel": "URL místního serveru",
+        "modelNameAriaLabel": "Název místního modelu"
+      },
+      "openRouter": {
+        "hintBefore": "OpenRouter přijímá jakékoli",
+        "hintAfter": "id. Zadejte ho a použijte přímo.",
+        "modelIdAriaLabel": "id modelu OpenRouter"
+      },
+      "empty": {
+        "none": "Zatím nejsou dostupné žádné modely.",
+        "noMatch": "Žádné modely neodpovídají."
+      },
+      "favorite": {
+        "remove": "Odebrat z oblíbených",
+        "add": "Přidat do oblíbených",
+        "addTitle": "Oblíbené — připnout nahoru"
+      },
+      "errors": {
+        "saveApiKey": "Nepodařilo se uložit klíč API.",
+        "oauthLogin": "Přihlášení přes OAuth se nezdařilo."
+      }
+    },
+    "providerPicker": {
+      "connected": "Připojeno",
+      "connect": "Připojit",
+      "opening": "Otevírání…"
+    },
+    "engineModels": {
+      "ariaLabel": "Modely {engine}",
+      "loading": "Načítání modelů {engine}…",
+      "empty": "Nejsou dostupné žádné modely {engine}."
+    },
+    "providerConnected": {
+      "title": "Použít {provider} pro Stellu?",
+      "description": "{provider} může pohánět více než jednu část Stelly. Vyberte, kde má převzít práci — o zbytek se dál stará Stella.",
+      "assistant": {
+        "label": "Asistent",
+        "description": "Vést chatového asistenta Stelly přes {provider}."
+      },
+      "image": {
+        "label": "Obrázky",
+        "description": "Generovat obrázky přes váš účet {provider}."
+      },
+      "voice": {
+        "label": "Hlas",
+        "description": "Používat {provider} pro hlasové konverzace v reálném čase."
+      },
+      "skip": "Přeskočit",
+      "apply": "Použít",
+      "applying": "Používání…",
+      "errors": {
+        "apply": "Nepodařilo se použít nastavení poskytovatele."
+      }
+    },
+    "compactModelList": {
+      "ariaLabel": "Modely Stella",
+      "recent": "Nedávné",
+      "unavailable": "Nedostupné",
+      "unavailableTitle": "Tento model už není dostupný — vyberte jiný.",
+      "loading": "Načítání modelů Stella…",
+      "loadFailed": "Nepodařilo se načíst modely Stella.",
+      "empty": "Nejsou dostupné žádné modely Stella.",
+      "retry": "Zkusit znovu",
+      "restricted": "Váš plán používá model zvolený Stellou.",
+      "restrictedPlan": "Plán {plan} používá model zvolený Stellou.",
+      "upgrade": "Upgradovat"
+    },
+    "reasoningEffort": {
+      "minimal": "Minimální",
+      "low": "Nízká",
+      "medium": "Střední",
+      "high": "Vysoká",
+      "xhigh": "Extra"
+    },
+    "agentModelPicker": {
+      "byokDescription": "Použijte vlastní klíč API {provider}.",
+      "unavailableChooseAnother": "Nedostupné — vyberte jiný model",
+      "chatGptRouted": "Přesměrováno na {model} (uložený model není dostupný).",
+      "default": "Výchozí",
+      "stellaDefault": "Výchozí Stella",
+      "surfaceAriaLabel": "Oblast",
+      "waitingForChatGpt": "Čekání na ChatGPT…",
+      "imageProviderAriaLabel": "Poskytovatel obrázků",
+      "voiceProviderAriaLabel": "Poskytovatel hlasu",
+      "assistantPickerAriaLabel": "Výběr modelu asistenta",
+      "verifyingChatGpt": "Ověřování modelů ChatGPT…",
+      "noChatGptCodexModels": "Momentálně není dostupný žádný model současně pro ChatGPT i Codex.",
+      "savedModelUnavailable": "Uložený model není dostupný. Vyberte jiný model.",
+      "tabs": {
+        "assistant": "Asistent",
+        "assistantTitle": "Hlavní asistent Stelly",
+        "image": "Obrázek",
+        "imageTitle": "Poskytovatel generování obrázků",
+        "voice": "Hlas",
+        "voiceTitle": "Poskytovatel hlasu v reálném čase"
+      },
+      "errors": {
+        "loadPreferences": "Nepodařilo se načíst nastavení modelů.",
+        "chatGptMigration": "Migrace směrování ChatGPT se nezdařila.",
+        "chatGptVerify": "Modely ChatGPT nebylo možné ověřit: {error}",
+        "chatGptVerifying": "Počkejte, až se ověření modelů ChatGPT dokončí.",
+        "chatGptNotConnected": "Před výběrem je nutné připojit ChatGPT.",
+        "chatGptNoModels": "Momentálně nejsou dostupné žádné modely ChatGPT.",
+        "connectChatGpt": "Nepodařilo se připojit ChatGPT.",
+        "updateEngine": "Nepodařilo se aktualizovat engine.",
+        "updateTitle": "Nepodařilo se aktualizovat nastavení modelů",
+        "refreshTitle": "Nepodařilo se obnovit modely",
+        "updateModel": "Nepodařilo se aktualizovat nastavení modelu.",
+        "updateImage": "Nepodařilo se aktualizovat nastavení obrázků.",
+        "updateVoice": "Nepodařilo se aktualizovat nastavení hlasu.",
+        "updateInworldSpeed": "Nepodařilo se aktualizovat rychlost Inworld.",
+        "updateVoiceFamily": "Nepodařilo se aktualizovat rodinu hlasů.",
+        "updateReadAloud": "Nepodařilo se aktualizovat poskytovatele čtení nahlas.",
+        "updateReasoning": "Nepodařilo se aktualizovat míru uvažování.",
+        "updateChatGptSpeed": "Nepodařilo se aktualizovat rychlost ChatGPT.",
+        "updateDirectRuntime": "Nepodařilo se aktualizovat přímé nastavení {runtime}."
+      }
+    }
+  },
+  "onboarding": {
+    "ready": "Příprava...",
+    "retryStart": "Zkusit spustit Stellu znovu",
+    "startStella": "Spustit Stellu",
+    "legalFooter": "Používáním Stelly souhlasíte s našimi {terms} a {privacy}.",
+    "termsOfService": "Smluvními podmínkami",
+    "privacyPolicy": "Zásadami ochrany osobních údajů",
+    "previousStep": "Předchozí krok",
+    "nextStep": "Další krok",
+    "intro": {
+      "primary": "Stella je AI, která běží na vašem počítači.",
+      "secondary": "Stella není pro každého. Stella je pro vás."
+    },
+    "stepTitles": {
+      "engine": "Vyberte, co pohání Stellu.",
+      "extension": "Přidejte Stellu do prohlížeče.",
+      "browser": "Nechte Stellu, ať vás pozná.",
+      "theme": "Jak by Stella měla vypadat?",
+      "personality": "Jak by Stella měla mluvit?",
+      "voice": "Mluvte místo psaní.",
+      "enter": "Stella je téměř připravena."
+    },
+    "acts": {
+      "discover": "Objevuj",
+      "personalize": "Udělej si ji svou",
+      "connect": "Propoj",
+      "flow": "Tvůj rytmus",
+      "ready": "Připraveno"
+    },
+    "discovery": {
+      "devEnvironment": {
+        "label": "Vývojářské prostředí",
+        "description": "Nástroje, které používáte, projekty, na kterých pracujete, a konfigurace prostředí"
+      }
+    }
+  },
+  "billing": {
+    "plans": {
+      "free": {
+        "tagline": "Začněte se Stellou",
+        "features": [
+          "Základní chat a pomoc",
+          "Omezené denní využití"
+        ]
+      },
+      "go": {
+        "tagline": "Pro každodenní osobní použití",
+        "features": [
+          "Více konverzací denně",
+          "Automatizace prohlížeče",
+          "Hlasové konverzace"
+        ]
+      },
+      "pro": {
+        "tagline": "Pro náročné uživatele",
+        "features": [
+          "3× využití plánu Go",
+          "Prioritní časy odezvy",
+          "Všechny funkce automatizace"
+        ]
+      }
+    },
+    "upgradeDialog": {
+      "title": "Máte Stellu {plan}.",
+      "description": "Díky za upgrade. Vyšší priorita a větší limity už jsou aktivní — pokračujte.",
+      "cta": "Začít"
+    }
+  },
+  "chat": {
+    "stoppedReply": "Stella nemohla zahájit tuto odpověď",
+    "tryAgainHint": "Zkuste to znovu."
+  },
+  "errors": {
+    "generic": "Něco se pokazilo",
+    "subscriptionRequired": "Zálohy vyžadují aktivní předplatné Stelly.",
+    "rateLimited": "Trochu rychle. Zkuste to za chvíli znovu.",
+    "networkUnavailable": "Stella je offline. Pro pokračování se znovu připojte.",
+    "permissionDenied": "Stella k tomu nemá oprávnění."
+  },
+  "app": {
+    "social": {
+      "newChat": {
+        "title": "Nová zpráva",
+        "emptySubtitle": "Nejprve přidejte přátele, abyste mohli začít konverzaci.",
+        "description": "Vyberte přítele nebo začněte novou skupinovou konverzaci.",
+        "subtitle": "Vyberte přítele nebo založte skupinu.",
+        "groupTitle": "Nová skupina",
+        "groupSubtitle": "Vyberte přátele, které chcete do skupiny přidat.",
+        "groupNameLabel": "Název skupiny",
+        "groupNamePlaceholder": "Název skupiny (nepovinné)",
+        "members": "Členové",
+        "back": "Zpět",
+        "creating": "Vytváření...",
+        "createGroup": "Vytvořit skupinu",
+        "newGroup": "Nová skupina",
+        "friends": "Přátelé",
+        "opening": "Otevírání..."
+      },
+      "friends": {
+        "title": "Přátelé",
+        "description": "Sdílejte svůj kód přítele pro propojení, nebo zadejte cizí a pošlete žádost.",
+        "subtitle": "Sdílejte své uživatelské jméno, nebo zadejte jméno přítele.",
+        "requestSent": "Žádost o přátelství odeslána!",
+        "usernameCopied": "Uživatelské jméno zkopírováno!",
+        "inviteLinkCopied": "Odkaz s pozvánkou zkopírován — pošlete ho kamkoli.",
+        "yourUsername": "Vaše uživatelské jméno",
+        "copy": "Kopírovat",
+        "copyUsernameTitle": "Kopírovat vaše uživatelské jméno",
+        "copyInviteLink": "Kopírovat odkaz s pozvánkou",
+        "copyInviteLinkTitle": "Zkopírujte odkaz, který otevře Stellu a pošle vám žádost o přátelství — funguje v iMessage, Discordu, kdekoli",
+        "addLabel": "Přidat přítele",
+        "addPlaceholder": "Zadejte uživatelské jméno",
+        "add": "Přidat",
+        "adding": "Přidávání...",
+        "requestsCount": "Žádosti ({count})",
+        "accept": "Přijmout",
+        "decline": "Odmítnout",
+        "sent": "Odesláno",
+        "waitingForResponse": "Čeká na odpověď",
+        "friendsCount": "Přátelé ({count})",
+        "empty": "Zatím žádní přátelé. Sdílejte své uživatelské jméno nebo výše zadejte cizí a propojte se.",
+        "message": "Napsat",
+        "opening": "Otevírání...",
+        "remove": "Odebrat",
+        "removing": "Odebírání...",
+        "errors": {
+          "sendRequest": "Tuto žádost o přátelství se nepodařilo odeslat. Zkontrolujte uživatelské jméno a zkuste to znovu."
+        }
+      },
+      "communities": {
+        "title": "Komunity",
+        "description": "Vytvořte komunitu nebo se do některé připojte pomocí kódu pozvánky a pak sdílejte doplňky se všemi v ní.",
+        "subtitle": "Důvěryhodné kruhy pro sdílení. Všichni v komunitě vidí, co její členové sdílejí.",
+        "defaultName": "Komunita",
+        "created": "Komunita „{name}“ vytvořena!",
+        "joined": "Jste uvnitř!",
+        "createLabel": "Vytvořit komunitu",
+        "createPlaceholder": "Pojmenujte novou komunitu",
+        "create": "Vytvořit",
+        "joinLabel": "Připojit se kódem pozvánky",
+        "joinPlaceholder": "Zadejte kód pozvánky",
+        "join": "Připojit se",
+        "yourCommunities": "Vaše komunity",
+        "yourCommunitiesCount": "Vaše komunity ({count})",
+        "empty": "Zatím žádné komunity. Vytvořte jednu a sdílejte kód pozvánky, nebo se připojte kódem, který vám někdo poslal.",
+        "createdByYouSuffix": " · vytvořeno vámi",
+        "open": "Otevřít",
+        "details": "Podrobnosti",
+        "back": "Zpět",
+        "nameLabel": "Název komunity",
+        "save": "Uložit",
+        "cancel": "Zrušit",
+        "createdByYou": "Tuto komunitu jste vytvořili vy.",
+        "memberOf": "Jste členem této komunity.",
+        "inviteCode": "Kód pozvánky",
+        "copied": "Zkopírováno!",
+        "copyCode": "Kopírovat kód",
+        "copyInviteLink": "Kopírovat odkaz s pozvánkou",
+        "copyInviteLinkTitle": "Zkopírujte odkaz, který otevře Stellu a připojí vás k této komunitě",
+        "inviteHint": "Odkaz funguje kdekoli — vložte ho do chatu Stelly nebo pošlete přes iMessage či Discord. Připojit se může kdokoli, kdo ho má, proto ho sdílejte jen s lidmi, kterým důvěřujete.",
+        "membersCount": "Členové ({count})",
+        "roleCreator": "Zakladatel",
+        "roleMember": "Člen",
+        "youSuffix": " · vy",
+        "remove": "Odebrat",
+        "removing": "Odebírání...",
+        "confirmDelete": "Opravdu smazat tuto komunitu?",
+        "delete": "Smazat komunitu",
+        "confirmLeave": "Opravdu odejít?",
+        "leave": "Opustit komunitu",
+        "rename": "Přejmenovat",
+        "openChat": "Otevřít chat",
+        "errors": {
+          "create": "Tuto komunitu se nepodařilo vytvořit. Zkuste to prosím znovu.",
+          "join": "S tímto kódem pozvánky se nepodařilo připojit. Zkontrolujte kód a zkuste to znovu.",
+          "rename": "Komunitu se nepodařilo přejmenovat. Zkuste to prosím znovu.",
+          "removeMember": "Tohoto člena se nepodařilo odebrat. Zkuste to prosím znovu.",
+          "delete": "Komunitu se nepodařilo smazat. Zkuste to prosím znovu.",
+          "leave": "Komunitu se nepodařilo opustit. Zkuste to prosím znovu."
+        },
+        "memberCount": {
+          "one": "{count} člen",
+          "few": "{count} členové",
+          "many": "{count} člena",
+          "other": "{count} členů"
+        }
+      },
+      "view": {
+        "messages": "Zprávy",
+        "signIn": "Přihlásit se",
+        "signInSubtitle": "Přihlaste se, abyste mohli psát přátelům a spolupracovat spolu se Stellou.",
+        "friends": "Přátelé",
+        "communities": "Komunity",
+        "newMessage": "Nová zpráva",
+        "noRooms": "Zatím žádné konverzace. Přidejte přátele nebo napište novou zprávu.",
+        "addFriends": "Přidat přátele",
+        "communityBadge": "Komunita",
+        "communityBadgeTitle": "Sdíleno se všemi v této komunitě",
+        "usernamePlaceholder": "vase-jmeno",
+        "editUsername": "Upravit své uživatelské jméno",
+        "copied": "Zkopírováno!",
+        "clickToCopyUsername": "Kliknutím zkopírujete své uživatelské jméno",
+        "copyUsername": "Kopírovat uživatelské jméno",
+        "cancel": "Zrušit",
+        "save": "Uložit",
+        "saving": "Ukládání...",
+        "emptyTitle": "Vaše zprávy",
+        "emptySubtitle": "Vyberte konverzaci vlevo, nebo začněte novou s přítelem.",
+        "errors": {
+          "startConversation": "Tuto konverzaci se nepodařilo zahájit. Zkuste to prosím znovu.",
+          "createGroup": "Skupinu se nepodařilo vytvořit. Zkuste to prosím znovu."
+        },
+        "usernameErrors": {
+          "empty": "Uživatelské jméno nemůže být prázdné.",
+          "length": "Uživatelské jméno musí mít 3–32 znaků.",
+          "format": "Použijte malá písmena, číslice, _ nebo -. Musí začínat a končit písmenem nebo číslicí.",
+          "update": "Vaše uživatelské jméno se nepodařilo aktualizovat. Zkuste to prosím znovu."
+        },
+        "newRequestCount": {
+          "one": "{count} nová žádost",
+          "few": "{count} nové žádosti",
+          "many": "{count} nové žádosti",
+          "other": "{count} nových žádostí"
+        },
+        "friendsWithRequestsTitle": "Přátelé ({countPhrase})",
+        "friendsWithRequestsAria": "Přátelé, {countPhrase}"
+      },
+      "chat": {
+        "stellaNoReply": "Stella skončila bez odpovědi.",
+        "stellaFailed": "Stella nemohla tento požadavek dokončit.",
+        "stellaThinking": "Stella přemýšlí...",
+        "sharedStellaUnavailable": "Sdílená Stella není v této relaci aplikace dostupná.",
+        "back": "Zpět",
+        "backToConversations": "Zpět na konverzace",
+        "peopleCount": "lidí: {count}",
+        "startStella": "Spustit Stellu",
+        "startStellaTitle": "Přizvat Stellu do této konverzace",
+        "starting": "Spouštění...",
+        "startAgain": "Spustit znovu",
+        "pause": "Pozastavit",
+        "resume": "Pokračovat",
+        "end": "Ukončit",
+        "sayHello": "Pozdravte a začněte konverzaci",
+        "loadingOlder": "Načítání starších zpráv…",
+        "armedOnTitle": "Odeslat další zprávu Stelle",
+        "armedOffTitle": "Odeslat další zprávu jako běžnou zprávu v chatu",
+        "tellStella": "Říct Stelle",
+        "tellingStella": "Říkáte Stelle",
+        "tellStellaPlaceholder": "Řekněte Stelle, co chcete...",
+        "messagePlaceholder": "Napsat: {name}",
+        "sessionBadge": {
+          "live": "Stella · Živě",
+          "paused": "Stella · Pozastaveno",
+          "ended": "Stella · Ukončeno"
+        },
+        "sessionHint": {
+          "live": "Kdokoli tady může mluvit se Stellou.",
+          "paused": "Pozastaveno — pokračujte, abyste mohli Stelle znovu psát.",
+          "ended": "Tento sdílený prostor Stelly skončil."
+        },
+        "errors": {
+          "startStella": "Stellu se tu nepodařilo spustit. Zkuste to prosím znovu.",
+          "updateStella": "Stellu se teď nepodařilo aktualizovat. Zkuste to prosím znovu.",
+          "sendToStella": "Tohle se nepodařilo odeslat Stelle. Zkuste to prosím znovu.",
+          "sendMessage": "Vaši zprávu se nepodařilo odeslat. Zkuste to prosím znovu."
+        }
+      },
+      "composer": {
+        "placeholder": "Napište zprávu...",
+        "send": "Odeslat"
+      },
+      "inviteCard": {
+        "communityEyebrow": "Pozvánka do komunity",
+        "friendEyebrow": "Pozvánka k přátelství",
+        "defaultCommunityName": "Komunita",
+        "defaultUserName": "Uživatel Stelly",
+        "friendDetail": "Klepnutím pošlete žádost o přátelství",
+        "inviteUnavailable": "Pozvánka není dostupná",
+        "userNotFound": "Uživatel nenalezen",
+        "communityMissing": "Tato komunita už neexistuje, nebo se změnil kód.",
+        "userMissing": "Tomuto odkazu s pozvánkou neodpovídá žádný uživatel Stelly.",
+        "communityDetail": {
+          "one": "{countLabel} člen · klepnutím se připojíte",
+          "few": "{countLabel} členové · klepnutím se připojíte",
+          "many": "{countLabel} člena · klepnutím se připojíte",
+          "other": "{countLabel} členů · klepnutím se připojíte"
+        }
+      }
+    },
+    "usage": {
+      "desktopOnly": "Místní využití je dostupné v desktopové aplikaci Stella.",
+      "intro": "Volání poskytovatelů uložená na tomto zařízení. Náklady jsou místní odhady; závazné zůstává vyúčtování na serveru.",
+      "refresh": "Obnovit",
+      "refreshLabel": "Obnovit využití",
+      "selectedThread": "Vybrané vlákno",
+      "viewAllThreads": "Zobrazit všechna vlákna",
+      "loading": "Načítání místního využití…",
+      "loadError": "Nepodařilo se načíst místní využití",
+      "tryAgain": "Zkusit znovu",
+      "emptyTitle": "Těmto filtrům neodpovídá žádné volání modelu.",
+      "emptyBody": "Nativní volání se zde objeví poté, co poskytovatel vrátí konečné údaje o využití.",
+      "truncatedWarning": "Zobrazujeme posledních 10 000 volání v tomto rozsahu. Pro přesné součty zúžte časový rozsah.",
+      "filters": {
+        "label": "Filtry využití",
+        "timeRange": "Časový rozsah",
+        "conversation": "Konverzace",
+        "thread": "Vlákno",
+        "agentType": "Typ agenta",
+        "model": "Model",
+        "allConversations": "Všechny konverzace",
+        "allThreads": "Všechna vlákna",
+        "allAgentTypes": "Všechny typy agentů",
+        "allModels": "Všechny modely",
+        "range": {
+          "24h": "Posledních 24 hodin",
+          "7d": "Posledních 7 dní",
+          "30d": "Posledních 30 dní",
+          "all": "Celá doba"
+        }
+      },
+      "summary": {
+        "label": "Souhrn využití",
+        "estimatedCost": "Odhadované náklady",
+        "providerCalls": "volání poskytovatele: {count}",
+        "totalTokens": "Tokenů celkem",
+        "uncachedInput": "{value} vstupu bez cache",
+        "cacheRead": "Čtení z cache",
+        "cacheDetail": "{read} čtení · {written} zápis",
+        "output": "Výstup",
+        "reasoningTokens": "{value} tokenů uvažování"
+      },
+      "timeline": {
+        "title": "Časová osa",
+        "description": "Odhadované náklady a celkový počet tokenů za časový úsek.",
+        "chartLabel": "Časová osa odhadovaných nákladů modelů a spotřeby tokenů",
+        "series": {
+          "cost": "Odhadované náklady",
+          "tokens": "Tokeny"
+        },
+        "tooltip": {
+          "estimated": "{value} odhadem",
+          "tokens": "{value} tokenů",
+          "calls": "volání modelu: {count}"
+        }
+      },
+      "threads": {
+        "title": "Vlákna",
+        "description": "Orchestrátor, agenti a vnořené subagenty.",
+        "columns": {
+          "execution": "Provedení",
+          "model": "Model",
+          "calls": "Volání",
+          "tokens": "Tokeny",
+          "cache": "Cache",
+          "cost": "Náklady"
+        }
+      },
+      "calls": {
+        "title": "Volání poskytovatele",
+        "description": "Výstup zahrnuje uvažování tam, kde ho poskytovatel započítává; uvažování je také uvedeno zvlášť, pokud je vykázáno.",
+        "costBreakdown": "Vstup {input} · čtení cache {cacheRead} · zápis cache {cacheWrite} · výstup {output}",
+        "truncatedNote": "Zobrazujeme posledních 500 odpovídajících volání; souhrnné součty zahrnují všechna načtená volání ({count}).",
+        "columns": {
+          "time": "Čas",
+          "execution": "Provedení",
+          "providerModel": "Poskytovatel / model",
+          "input": "Vstup",
+          "cache": "Cache Č / Z",
+          "output": "Výstup",
+          "reasoning": "Uvažování",
+          "cost": "Náklady",
+          "stop": "Stop"
+        }
+      }
+    },
+    "apps": {
+      "loading": "Načítání aplikací…",
+      "unsupportedTitle": "Aplikace jsou dostupné na počítači.",
+      "unsupportedBody": "Otevřete Stellu na počítači, abyste mohli používat místně nainstalované aplikace.",
+      "errorTitle": "Nepodařilo se načíst aplikace",
+      "errorBody": "Stella nemohla přečíst vaši složku s aplikacemi.",
+      "tryAgain": "Zkusit znovu",
+      "heroTitleEmphasis": "Vaše",
+      "heroTitleRest": "aplikace",
+      "staleWarning": "Seznam aplikací může být zastaralý.",
+      "searchPlaceholder": "Hledat aplikace",
+      "sortLabel": "Řadit",
+      "createApp": "Vytvořit aplikaci",
+      "noMatchPrefix": "Žádné aplikace neodpovídají",
+      "noMatchSuffix": ".",
+      "emptyTitle": "Zatím tu nic není.",
+      "emptyBody": "Požádejte Stellu, ať vytvoří malou aplikaci. Objeví se tady.",
+      "emptyAction": "Požádat Stellu o vytvoření aplikace",
+      "createAppPrompt": "Řekni mi, jaké aplikace Stella pro mě umíš vytvořit?",
+      "sort": {
+        "recent": "Nedávné",
+        "name": "Název"
+      },
+      "frame": {
+        "startFailed": "Aplikaci se nepodařilo spustit.",
+        "timeout": "Načítání aplikace trvalo příliš dlouho.",
+        "loadFailed": "Aplikaci se nepodařilo načíst.",
+        "loading": "Načítání {name}…",
+        "openFailed": "Nepodařilo se otevřít {name}"
+      }
+    },
+    "pets": {
+      "sort": {
+        "downloads": "Nejoblíbenější",
+        "name": "Abecedně"
+      },
+      "animations": {
+        "idle": "Klid",
+        "runningRight": "Běh doprava",
+        "runningLeft": "Běh doleva",
+        "waving": "Mávání",
+        "jumping": "Skákání",
+        "failed": "Selhání",
+        "waiting": "Čekání",
+        "running": "Běh",
+        "review": "Kontrola"
+      },
+      "card": {
+        "by": "od {creator}",
+        "selections": "výběrů: {count}",
+        "get": "Získat",
+        "select": "Vybrat",
+        "selected": "Vybráno",
+        "remove": "Odebrat"
+      },
+      "details": {
+        "caption": "od {creator} · výběrů: {downloads}",
+        "previewLabel": "Náhled {name}",
+        "animations": "Animace",
+        "animationStates": "Stavy animací"
+      }
+    },
+    "chat": {
+      "activityPill": {
+        "idle": "Aktivita",
+        "openActivity": "{label} — otevřít aktivitu",
+        "statusCanceled": "Zastaveno",
+        "statusDone": "Dokončeno",
+        "statusError": "Nepodařilo se dokončit",
+        "statusRunning": "Úloha probíhá",
+        "tasksInProgress": {
+          "one": "probíhá {count} úloha",
+          "few": "probíhají {count} úlohy",
+          "many": "probíhá {count} úlohy",
+          "other": "probíhá {count} úloh"
+        }
+      },
+      "addMenu": {
+        "add": "Přidat",
+        "attachFiles": "Připojit soubory…",
+        "capture": "Snímek",
+        "context": "Kontext",
+        "recent": "Nedávné",
+        "selectArea": "Vybrat oblast"
+      },
+      "agentCompletion": {
+        "openNamedThread": "Otevřít vlákno agenta {title}",
+        "openThread": "Otevřít vlákno agenta",
+        "showLess": "Zobrazit méně",
+        "showMore": {
+          "one": "+{count} další",
+          "few": "+{count} další",
+          "many": "+{count} další",
+          "other": "+{count} další"
+        }
+      },
+      "agentModelIcon": {
+        "unavailable": "Podrobnosti o modelu nejsou dostupné"
+      },
+      "backgroundWork": {
+        "agentThread": "Vlákno agenta",
+        "followUp": "Navázání",
+        "openNamedThread": "Otevřít vlákno agenta {title}",
+        "openThread": "Otevřít vlákno agenta",
+        "taskCount": {
+          "one": "{count} úloha",
+          "few": "{count} úlohy",
+          "many": "{count} úlohy",
+          "other": "{count} úloh"
+        },
+        "title": "Práce na pozadí"
+      },
+      "column": {
+        "scrollToBottom": "Posunout dolů"
+      },
+      "composer": {
+        "add": "Přidat",
+        "dictationError": "Diktování: {error}",
+        "stop": "Zastavit"
+      },
+      "connectorConnect": {
+        "cancel": "Zrušit",
+        "connect": "Připojit",
+        "connectedApp": "Připojeno. Stella pokračuje ve vašem požadavku.",
+        "connectedExtension": "Rozšíření nalezeno. Stella pokračuje ve vašem požadavku.",
+        "connectingApp": "Dokončete přihlášení k {name} v prohlížeči. Stella bude pokračovat, jakmile to schválíte.",
+        "connectingExtension": "Přidejte rozšíření z právě otevřené karty Chrome Web Store. Po instalaci Stella pokračuje automaticky.",
+        "errorBody": "Nelze připojit {name}.",
+        "install": "Nainstalovat",
+        "notNow": "Teď ne",
+        "titleConnected": "{name} připojeno",
+        "titleError": "Nepodařilo se připojit {name}",
+        "titleOffer": "Připojit {name}?",
+        "titleOfferExtension": "Připojit {name}?",
+        "titleWaiting": "Čekání na {name}"
+      },
+      "contextChips": {
+        "activityFallback": "Aktivita",
+        "fileClickToOpen": "{name} — kliknutím otevřete",
+        "pastedTextLabel": "Vložený text · {stats}",
+        "pastedTextTitle": "Vložený text — {stats}",
+        "removeActivity": "Odebrat kontext aktivity",
+        "removeFile": "Odebrat {name}",
+        "removePastedText": "Odebrat vložený text",
+        "removeScreenshot": "Odebrat snímek obrazovky {index}",
+        "removeSelectedArea": "Odebrat vybranou oblast: {label}",
+        "removeSelectedText": "Odebrat vybraný text",
+        "removeWindow": "Odebrat kontext okna {app}",
+        "screenshotAlt": "Snímek obrazovky {index}",
+        "screenshotEnlargeTitle": "Kliknutím zvětšíte snímek obrazovky",
+        "selectedAreaFallback": "Vybraná oblast",
+        "windowCapturing": "{label} — snímání okna…",
+        "windowClickToEnlarge": "{label} — kliknutím zvětšíte",
+        "windowPreviewAlt": "Náhled obsahu okna",
+        "windowScreenshotAlt": "Snímek okna {label}"
+      },
+      "contextRow": {
+        "addActiveWindow": "Přidat {detail} (aktuální okno) jako kontext",
+        "addContext": "Přidat {detail} jako kontext"
+      },
+      "dropOverlay": {
+        "label": "Přetáhněte soubory sem"
+      },
+      "endResource": {
+        "category": {
+          "audio": "Zvuk",
+          "canvas": "Plátno",
+          "code": "Kód",
+          "document": "Dokument",
+          "file": "Soubor",
+          "image": "Obrázek",
+          "link": "Odkaz",
+          "media": "Média",
+          "model3d": "3D model",
+          "pdf": "PDF",
+          "slides": "Snímky",
+          "spreadsheet": "Tabulka",
+          "table": "Tabulka",
+          "text": "Text",
+          "trash": "Koš",
+          "video": "Video"
+        },
+        "fileChangeCount": {
+          "one": "{count} změna souboru",
+          "few": "{count} změny souborů",
+          "many": "{count} změny souborů",
+          "other": "{count} změn souborů"
+        },
+        "imageCount": {
+          "one": "{count} obrázek",
+          "few": "{count} obrázky",
+          "many": "{count} obrázku",
+          "other": "{count} obrázků"
+        },
+        "openInPanel": "Otevřít v panelu",
+        "openPreview": "Otevřít náhled"
+      },
+      "fileCategory": {
+        "archive": "Archiv",
+        "audio": "Zvuk",
+        "code": "Soubor s kódem",
+        "document": "Dokument",
+        "file": "Soubor",
+        "pdf": "PDF",
+        "spreadsheet": "Tabulka",
+        "video": "Video"
+      },
+      "fileLink": {
+        "openFailed": "Nepodařilo se otevřít {filePath}"
+      },
+      "filePreview": {
+        "copy": "Kopírovat",
+        "save": "Uložit"
+      },
+      "generatedImage": {
+        "generating": "Generování...",
+        "generatingImage": "Generování obrázku...",
+        "generationFailed": "Generování obrázku selhalo",
+        "hostRequired": "Náhled obrázku vyžaduje hostitelské prostředí Electron.",
+        "image": "Obrázek",
+        "loadFailed": "Obrázek se nepodařilo načíst",
+        "openInPanel": "Otevřít v panelu",
+        "stripLabel": "Vygenerované obrázky"
+      },
+      "mapCard": {
+        "appleMapsLabel": "Otevřít v Apple Maps",
+        "appleMapsTitle": "Otevřít v Apple Maps pro navigaci krok za krokem",
+        "frameTitle": "Mapa: {title}",
+        "modeCycling": "Kolo",
+        "modeDriving": "Auto",
+        "modeTransit": "MHD",
+        "modeWalking": "Pěšky",
+        "placesCount": {
+          "one": "{count} místo",
+          "few": "{count} místa",
+          "many": "{count} místa",
+          "other": "{count} míst"
+        },
+        "previewFailed": "Náhled mapy se nepodařilo načíst."
+      },
+      "messageActions": {
+        "copied": "Zkopírováno",
+        "copy": "Kopírovat",
+        "readAloud": "Číst nahlas",
+        "stopReading": "Zastavit čtení"
+      },
+      "messageRow": {
+        "attachmentAlt": "Příloha",
+        "attachmentFallback": "Příloha {index}",
+        "channelKind": {
+          "deleted": "smazáno",
+          "edited": "upraveno",
+          "message": "zpráva",
+          "reaction": "reakce",
+          "system": "systémové"
+        },
+        "clickToEnlarge": "Kliknutím zvětšíte {label}",
+        "pastedTextLabel": "Vložený text",
+        "pastedTextTitle": "Vložený text — {stats}",
+        "reactionsSummary": "Reakce {reactions}",
+        "showMoreChips": "Zobrazit o {count} více",
+        "windowPreviewAlt": "Náhled obsahu okna"
+      },
+      "miniModelPicker": {
+        "loading": "Načítání…",
+        "modelUpdateFailed": "Nepodařilo se aktualizovat nastavení modelu.",
+        "popoverLabel": "Možnosti modelu",
+        "reasoningEffortLabel": "Míra uvažování",
+        "reasoningUpdateFailed": "Nepodařilo se aktualizovat míru uvažování.",
+        "recent": "Nedávné",
+        "triggerLabel": "Model: {model}",
+        "unavailable": "Nedostupné",
+        "updateFailedTitle": "Nepodařilo se aktualizovat nastavení modelů"
+      },
+      "modelMention": {
+        "enginesLabel": "Enginy",
+        "noMatch": "Žádný odpovídající engine"
+      },
+      "officePreview": {
+        "frameTitle": "Náhled Office: {title}",
+        "preparingBody": "Stella připravuje živý náhled tohoto dokumentu.",
+        "sessionError": "Relace náhledu ohlásila chybu.",
+        "statusError": "Chyba náhledu",
+        "statusPreparing": "Příprava náhledu",
+        "statusReady": "Živý náhled",
+        "statusStopped": "Náhled zastaven",
+        "updatedAt": "Aktualizováno {time}"
+      },
+      "openWith": {
+        "loading": "Načítání…",
+        "otherWaysLabel": "Otevřít jinými způsoby",
+        "otherWaysTitle": "Otevřít jinými způsoby…",
+        "triggerLabel": "Otevřít",
+        "triggerTitle": "Otevřít v…"
+      },
+      "pdfViewer": {
+        "hostRequired": "Prohlížeč PDF vyžaduje hostitelské prostředí Electron.",
+        "loadFailed": "Nepodařilo se načíst PDF.",
+        "loading": "Načítání PDF…"
+      },
+      "queuedMessages": {
+        "cancel": "Zrušit zprávu ve frontě",
+        "cancelAndEdit": "Zrušit a upravit",
+        "cancelIndexed": "Zrušit zprávu ve frontě {index}",
+        "previewLabel": "{label}. Zobrazit zprávy ve frontě",
+        "queuedCount": {
+          "one": "{count} zpráva ve frontě",
+          "few": "{count} zprávy ve frontě",
+          "many": "{count} zprávy ve frontě",
+          "other": "{count} zpráv ve frontě"
+        }
+      },
+      "replyPeek": {
+        "dismiss": "Zavřít náhled",
+        "jumpToLatest": "Přejít na nejnovější odpověď"
+      },
+      "scheduleReceipt": {
+        "nextRun": "příště {nextRun}",
+        "scheduleCount": {
+          "one": "{count} plán",
+          "few": "{count} plány",
+          "many": "{count} plánu",
+          "other": "{count} plánů"
+        }
+      },
+      "screenshotPreview": {
+        "alt": "Náhled snímku obrazovky {index}"
+      },
+      "timeline": {
+        "empty": "Začněte konverzaci",
+        "loadingConversation": "Načítání konverzace"
+      },
+      "userMessage": {
+        "showLess": "Zobrazit méně",
+        "showMore": "Zobrazit více"
+      },
+      "voiceSession": {
+        "label": "Rozhovor se Stellou"
+      },
+      "webSearchResults": {
+        "caption": "Výsledky z webu",
+        "listLabel": "Výsledky vyhledávání na webu"
+      }
+    },
+    "media": {
+      "capability": {
+        "audioGeneration": {
+          "description": "Řeč, dialogy, zvukové efekty nebo zvuková kulisa z textu",
+          "name": "Generování zvuku"
+        },
+        "icon": {
+          "description": "Ikony, loga a náhledy podle zadání",
+          "name": "Generátor ikon"
+        },
+        "imageEdit": {
+          "description": "Upravte existující obrázek textovými pokyny",
+          "name": "Úprava obrázku"
+        },
+        "imageToVideo": {
+          "description": "Rozpohybujte statický obrázek do krátkého videa",
+          "name": "Obrázek na video"
+        },
+        "speechToText": {
+          "description": "Přepis mluveného zvuku do textu",
+          "name": "Řeč na text"
+        },
+        "textTo3d": {
+          "description": "Vygenerujte 3D model z textového zadání",
+          "name": "Text na 3D"
+        },
+        "textToImage": {
+          "description": "Generujte obrázky z textového zadání",
+          "name": "Text na obrázek"
+        },
+        "textToMusic": {
+          "description": "Vygenerujte krátkou hudební ukázku ze zadání",
+          "name": "Text na hudbu"
+        },
+        "textToVideo": {
+          "description": "Vygenerujte krátké video z textového zadání",
+          "name": "Text na video"
+        },
+        "videoExtend": {
+          "description": "Pokračujte ve videoklipu nebo ho prodlužte",
+          "name": "Prodloužení videa"
+        },
+        "videoToVideo": {
+          "description": "Přeměňte video textovými pokyny",
+          "name": "Video na video"
+        }
+      },
+      "imageFailure": {
+        "blocked": "Požadavek na obrázek byl zablokován",
+        "canceled": "Generování obrázku bylo zrušeno",
+        "generic": "Generování obrázku selhalo",
+        "interrupted": "Generování obrázku bylo přerušeno",
+        "invalidRequest": "Požadavek na obrázek byl neplatný",
+        "notConfigured": "Služba obrázků není nastavena",
+        "resultUnreadable": "Výsledek generování obrázku nelze přečíst",
+        "serviceBusy": "Služba obrázků je vytížená",
+        "temporaryError": "Ve službě obrázků nastala dočasná chyba",
+        "tookTooLong": "Generování obrázku trvalo příliš dlouho",
+        "tookTooLongToStart": "Generování obrázku začalo příliš pozdě"
+      },
+      "studio": {
+        "animate": "Animovat",
+        "aspectRatio": "Poměr stran",
+        "category3d": "3D",
+        "categoryAudio": "Zvuk",
+        "categoryImage": "Obrázek",
+        "categoryMusic": "Hudba",
+        "categoryVideo": "Video",
+        "chooseDifferentFile": "Vybrat jiný soubor",
+        "chooseFile": "Vyberte soubor nebo ho kamkoli přetáhněte",
+        "copy": "Kopírovat",
+        "dropFile": "Přetáhněte soubor",
+        "edit": "Upravit",
+        "emptyDescription": "Vyberte schopnost a generujte — nebo začněte přetažením souboru kamkoli.",
+        "emptyTitle": "Váš výtvor",
+        "extendVideo": "Prodloužit video",
+        "fileReadFailed": "Nepodařilo se přečíst soubor",
+        "generate": "Generovat",
+        "generatedAlt": "Vygenerováno {index}",
+        "generating": "Generování…",
+        "generationFailed": "Generování selhalo",
+        "lead": "Tvořte obrázky, zvuk, hudbu, video a 3D.",
+        "openOutputsFolder": "Otevřít složku s výstupy",
+        "profileBest": "Nejlepší",
+        "profileFast": "Rychlé",
+        "prompt": "Zadání",
+        "promptPlaceholder": "Popište, co chcete…",
+        "quality": "Kvalita",
+        "queued": "Čekání ve frontě…",
+        "sourceAudio": "Zvukový soubor",
+        "sourceFile": "Zdrojový soubor",
+        "sourceImage": "Zdrojový obrázek",
+        "sourceVideo": "Zdrojové video",
+        "submitting": "Odesílání…",
+        "title": "Média",
+        "transformVideo": "Přeměnit video"
+      }
+    }
+  },
+  "desktop": {
+    "common": {
+      "continue": "Pokračovat"
+    },
+    "tray": {
+      "tooltip": "Stella",
+      "openStella": "Otevřít Stellu",
+      "quitStella": "Ukončit Stellu",
+      "balloon": {
+        "title": "Stella stále běží",
+        "content": "Stella zůstává v oznamovací oblasti. Kliknutím na ikonu ji znovu otevřete."
+      }
+    },
+    "dialog": {
+      "startupFailure": {
+        "title": "Stella",
+        "message": "Stella nemohla dokončit spuštění.",
+        "detail": "Spuštění selhalo dřív, než se stihlo načíst rozhraní aplikace.\n\n{detail}",
+        "relaunch": "Spustit znovu",
+        "quit": "Ukončit"
+      }
+    },
+    "security": {
+      "confirmationTitle": "Bezpečnostní potvrzení Stelly",
+      "allow": "Povolit",
+      "deny": "Odepřít",
+      "rememberDecision": "Zapamatovat toto rozhodnutí na tomto zařízení",
+      "computerUse": {
+        "message": "Povolit ovládání počítače používat {app}?",
+        "detail": "Ovládání počítače bude moci vidět {app} a pracovat s ním.",
+        "risk": "Riziko: {risk}"
+      }
+    },
+    "oauth": {
+      "xaiCodeMessage": "Zadejte tento kód pro připojení xAI",
+      "expectedValue": "Očekávaná hodnota: {value}"
+    },
+    "fashion": {
+      "pickBodyPhotoTitle": "Vyberte fotku své postavy",
+      "pickClothesTitle": "Vyberte obrázky oblečení",
+      "imageFilterName": "Obrázek"
+    }
+  },
+  "features": {
+    "browserBridge": {
+      "unavailableTitle": "Rozšíření prohlížeče není dostupné",
+      "unavailableBody": "Stella se nemohla připojit k vašemu prohlížeči. Restartujte aplikaci, a pokud to bude přetrvávat, přeinstalujte Stellu.",
+      "connectionLostTitle": "Spojení s prohlížečem ztraceno",
+      "disconnected": "Most Stelly do prohlížeče se odpojil.",
+      "retryDelay": {
+        "one": "Stella to zkusí znovu asi za {count} sekundu.",
+        "few": "Stella to zkusí znovu asi za {count} sekundy.",
+        "many": "Stella to zkusí znovu asi za {count} sekundy.",
+        "other": "Stella to zkusí znovu asi za {count} sekund."
+      }
+    },
+    "dictation": {
+      "cancel": "Zrušit diktování",
+      "stopAndTranscribe": "Zastavit a přepsat",
+      "stopAndTranscribeLabel": "Zastavit diktování a přepsat",
+      "stopTranscribeSend": "Zastavit, přepsat a odeslat",
+      "stopTranscribeSendLabel": "Zastavit diktování, přepsat a odeslat",
+      "localNotReadyTitle": "Místní diktování není připravené",
+      "localNotReadyBody": "Stáhněte si hlasovou funkci, abyste mohli diktovat na tomto zařízení, nebo se přihlaste a použijte přepis v cloudu.",
+      "signInTitle": "Pro diktování se přihlaste",
+      "signInBody": "Když není přepis na zařízení dostupný, diktování vyžaduje přihlášení ke Stelle. Přihlaste se a pokračujte.",
+      "failedTitle": "Diktování nefungovalo",
+      "failedBody": "Stella to nedokázala přepsat. Zkuste to prosím znovu.",
+      "partialTitle": "Přepsala se jen část diktování",
+      "partialBody": "Část nahrávky se nepodařilo přepsat, vložený text proto může být neúplný."
+    },
+    "voice": {
+      "signInTitle": "Pro hlas se přihlaste",
+      "needsSetupTitle": "Hlas vyžaduje nastavení"
+    },
+    "store": {
+      "sidePanel": {
+        "emptyState": "Až pro vás Stella něco změní, sdílejte to odsud s přáteli, komunitou nebo do Store."
+      },
+      "recentChanges": {
+        "rowSelectHint": "Kliknutím zahrnete do sdílení",
+        "rowDeselectHint": "Kliknutím odeberete z výběru",
+        "updated": "Aktualizováno {time}",
+        "showOlder": "Zobrazit starší",
+        "justNow": "Právě teď",
+        "publishEmpty": "Vyberte změny ke sdílení",
+        "publishLabel": "Sdílet · {countPhrase}",
+        "selectedCount": {
+          "one": "vybráno: {count}",
+          "few": "vybráno: {count}",
+          "many": "vybráno: {count}",
+          "other": "vybráno: {count}"
+        }
+      },
+      "shareCard": {
+        "eyebrow": "Doplněk Stelly",
+        "unavailableName": "Doplněk není dostupný",
+        "unavailableDesc": "Tento doplněk je soukromý nebo už není publikovaný.",
+        "viewCta": "Zobrazit →"
+      },
+      "creator": {
+        "loading": "Načítání tvůrce…",
+        "notFoundTitle": "Tvůrce nenalezen",
+        "notFoundBodyPrefix": "Uživatelské jméno si zatím nikdo nezabral:",
+        "notFoundBodySuffix": ".",
+        "noAddons": "{username} zatím nesdílel žádné doplňky.",
+        "version": "Verze {version}",
+        "addonCount": {
+          "zero": "Zatím žádné doplňky",
+          "one": "{count} doplněk",
+          "few": "{count} doplňky",
+          "many": "{count} doplňku",
+          "other": "{count} doplňků"
+        }
+      },
+      "categories": {
+        "appsGames": "Aplikace a hry",
+        "productivity": "Produktivita",
+        "customization": "Přizpůsobení",
+        "skillsAgents": "Dovednosti a agenti",
+        "integrations": "Integrace",
+        "other": "Ostatní"
+      },
+      "shareDialog": {
+        "title": "Sdílet",
+        "titleCircle": "Sdílet se svým okruhem",
+        "titleCircleUpdate": "Sdílet aktualizaci",
+        "titleStore": "Sdílet do Store",
+        "titleStoreUpdate": "Odeslat aktualizaci",
+        "destinationLede": "Kam to má jít? Sdílíte spustitelný kód, proto zvolte publikum uvážlivě.",
+        "circleOptionName": "Přítel nebo komunita",
+        "circleOptionDesc": "Okamžitě. Jde přímo lidem, kterým důvěřujete, jako karta v chatu — bez kontroly a nikdy veřejně.",
+        "storeOptionName": "Stella Store",
+        "storeOptionDesc": "Veřejné. Nejdřív zkontroluje tým Stelly, pak je to ve Store pro všechny.",
+        "updateExisting": "Aktualizovat existující doplněk",
+        "existingAddon": "Existující doplněk",
+        "selectPlaceholder": "Vyberte…",
+        "nameLabel": "Název",
+        "namePlaceholder": "Ukázkový mod",
+        "descriptionLabel": "Popis",
+        "optionalHint": "(nepovinné)",
+        "descriptionPlaceholderCircle": "Krátký řádek pro kartu sdílení.",
+        "descriptionPlaceholderStore": "Krátký řádek pro stránku ve Store.",
+        "categoryLabel": "Kategorie",
+        "categoryPlaceholder": "Vyberte kategorii…",
+        "sendTo": "Odeslat komu",
+        "noRecipients": "Zatím žádní přátelé ani komunity — nejdřív je přidejte na stránce Zprávy.",
+        "communityFallbackName": "Komunita",
+        "communityTag": "Komunita",
+        "circleNote": "Sdílení dorazí okamžitě jako instalovatelná karta do každého chatu. Získat ho mohou jen lidé, které vyberete (a členové těchto komunit).",
+        "storeNote": "Tým Stelly kontroluje příspěvky do Store, než se zpřístupní všem.",
+        "submitPending": "Sdílení…",
+        "submitCircle": "Sdílet nyní",
+        "submitStore": "Odeslat ke kontrole",
+        "noSourceChangesTitle": "Žádné změny ve zdrojích",
+        "noSourceChangesBody": "Nejdřív vyberte alespoň jednu nedávnou změnu se zdrojovým kódem.",
+        "pickRecipientTitle": "Vyberte, s kým sdílet",
+        "pickRecipientBody": "Vyberte alespoň jednoho přítele nebo jednu komunitu.",
+        "pickAddonTitle": "Vyberte doplněk",
+        "pickAddonBody": "Vyberte doplněk, který chcete aktualizovat.",
+        "nameRequiredTitle": "Název je povinný",
+        "nameRequiredBody": "Než budete sdílet, dejte doplňku krátký název.",
+        "badNameTitle": "Zvolte jiný název",
+        "badNameBody": "Použijte v názvu písmena nebo číslice, abychom mohli sestavit ID.",
+        "publishBackendMissing": "Backend publikování není dostupný.",
+        "sharingTitle": "Sdílení",
+        "submittingTitle": "Odesílání",
+        "inProgressBody": "Stella dá vědět, až bude hotovo.",
+        "submittedTitle": "Odesláno ke kontrole",
+        "submittedBody": "{name} bylo odesláno týmu Stelly. Po schválení se objeví ve Store.",
+        "sharedTitle": "Sdíleno",
+        "shareFailedTitle": "Sdílení selhalo",
+        "submissionFailedTitle": "Odeslání selhalo",
+        "sharedBodyDelivered": {
+          "one": "{name} je na cestě do {count} chatu.",
+          "few": "{name} je na cestě do {count} chatů.",
+          "many": "{name} je na cestě do {count} chatu.",
+          "other": "{name} je na cestě do {count} chatů."
+        },
+        "sharedBodyPartial": {
+          "one": "{name} dorazilo do {delivered} z {count} chatu. Otevřete Zprávy a zkuste zbytek znovu.",
+          "few": "{name} dorazilo do {delivered} z {count} chatů. Otevřete Zprávy a zkuste zbytek znovu.",
+          "many": "{name} dorazilo do {delivered} z {count} chatu. Otevřete Zprávy a zkuste zbytek znovu.",
+          "other": "{name} dorazilo do {delivered} z {count} chatů. Otevřete Zprávy a zkuste zbytek znovu."
+        }
+      }
+    }
+  },
+  "ui": {
+    "imageLightbox": {
+      "title": "Náhled obrázku",
+      "close": "Zavřít náhled"
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "Nedávné zprávy agenta",
+      "recentProgress": "Nedávný postup"
+    },
+    "audioPlayer": {
+      "pause": "Pozastavit",
+      "play": "Přehrát",
+      "seek": "Přetočit"
+    },
+    "capture": {
+      "failedTitle": "Snímek se nepodařilo pořídit",
+      "failedDescription": "Při pořizování snímku obrazovky se něco pokazilo. Zkuste to znovu."
+    },
+    "chatSidebar": {
+      "add": "Přidat",
+      "dictationError": "Diktování: {error}",
+      "stop": "Zastavit"
+    },
+    "displayPanel": {
+      "closePanel": "Zavřít panel",
+      "openPanel": "Otevřít panel"
+    },
+    "rightSidebar": {
+      "workspace": "Pracovní plocha",
+      "resize": "Změnit velikost zobrazovacího panelu",
+      "resizeHint": "Tažením změníte velikost · dvojklik obnoví"
+    },
+    "windowControls": {
+      "minimize": "Minimalizovat",
+      "restore": "Obnovit",
+      "maximize": "Maximalizovat"
+    },
+    "workspace": {
+      "activity": "Aktivita",
+      "viewFiles": {
+        "one": "Zobrazit {count} soubor",
+        "few": "Zobrazit {count} soubory",
+        "many": "Zobrazit {count} souboru",
+        "other": "Zobrazit {count} souborů"
+      }
+    },
+    "updatePill": {
+      "update": "Aktualizovat",
+      "updateFallback": "aktualizace",
+      "availableFallback": "k dispozici",
+      "downloading": "Stahování {percent} %",
+      "restartToUpdate": "Restartovat a aktualizovat",
+      "retryUpdate": "Zkusit aktualizaci znovu",
+      "restartTitle": "Restartovat Stellu a nainstalovat verzi {version}",
+      "retryTitle": "Zkusit znovu kontrolu aktualizací aplikace",
+      "downloadTitle": "Stáhnout Stellu {version}",
+      "toasts": {
+        "downloadedTitle": "Aktualizace stažena",
+        "downloadedDescription": "Restartujte Stellu, abyste nainstalovali verzi {version}.",
+        "checkingTitle": "Kontrola aktualizací",
+        "checkingDescription": "Stella kontroluje izolovaný kanál desktop v2.",
+        "failedTitle": "Aktualizace aplikace selhala"
+      }
+    },
+    "display": {
+      "homeLauncher": {
+        "files": {
+          "label": "Soubory",
+          "description": "Stránky, obrázky, videa a dokumenty"
+        },
+        "store": {
+          "label": "Store",
+          "description": "Doplňky a věci, které jste vytvořili"
+        },
+        "trash": {
+          "label": "Koš",
+          "description": "Věci, které jste nedávno smazali"
+        }
+      },
+      "trash": {
+        "title": "Koš",
+        "empty": "Teď tu nic není.",
+        "refresh": "Obnovit",
+        "emptying": "Vysypávání…",
+        "emptyTrash": "Vysypat koš",
+        "trashedAgo": "Smazáno před {time}",
+        "pendingPurge": "Čeká na vymazání",
+        "autoDeletesIn": "Automaticky se smaže za {time}",
+        "deleting": "Mazání…",
+        "deleteNow": "Smazat nyní",
+        "itemsAutoDeleted": {
+          "one": "{count} položka — automaticky smazána za 24 hodin.",
+          "few": "{count} položky — automaticky smazány za 24 hodin.",
+          "many": "{count} položky — automaticky smazáno za 24 hodin.",
+          "other": "{count} položek — automaticky smazáno za 24 hodin."
+        }
+      },
+      "canvasShare": {
+        "share": "Sdílet",
+        "links": "Odkazy",
+        "sharedLinks": "Sdílené odkazy",
+        "publishing": "Publikování plátna…",
+        "publishFailed": "Toto plátno se nepodařilo publikovat. Zkuste to prosím znovu.",
+        "live": "Plátno je veřejné",
+        "publicLink": "Veřejný odkaz na plátno",
+        "copyLink": "Kopírovat odkaz",
+        "revoke": "Zrušit sdílení",
+        "expires": "Vyprší {date}",
+        "shared": "Sdíleno {date}",
+        "sharedWithExpiry": "Sdíleno {shared} · vyprší {expires}",
+        "loadFailed": "Vaše sdílení se nepodařilo načíst.",
+        "empty": "Zatím žádná aktivní sdílení. Publikujte plátno a získáte veřejný odkaz.",
+        "untitled": "Plátno bez názvu",
+        "toasts": {
+          "linkCopied": "Odkaz ke sdílení zkopírován",
+          "copyFailed": "Odkaz se nepodařilo zkopírovat",
+          "revoked": "Sdílení zrušeno",
+          "revokeFailed": "Toto sdílení se nepodařilo zrušit"
+        }
+      },
+      "canvas": {
+        "loadFailed": "Toto plátno se nepodařilo načíst.",
+        "loading": "Načítání"
+      },
+      "media": {
+        "save": "Uložit",
+        "saved": "Uloženo",
+        "saveFailed": "Nepodařilo se uložit",
+        "copy": "Kopírovat",
+        "copied": "Zkopírováno",
+        "copyFailed": "Nepodařilo se zkopírovat",
+        "delete": "Smazat",
+        "deleteConfirm": "Klikněte znovu pro smazání",
+        "itemActions": "Akce položky"
+      },
+      "url": {
+        "eyebrow": "Živý náhled",
+        "reload": "Načíst znovu",
+        "openInBrowser": "Otevřít v prohlížeči"
+      },
+      "office": {
+        "preparing": "Příprava náhledu...",
+        "kind": {
+          "spreadsheet": "Tabulka",
+          "presentation": "Prezentace",
+          "document": "Dokument"
+        },
+        "sheetCount": {
+          "one": "{count} list",
+          "few": "{count} listy",
+          "many": "{count} listu",
+          "other": "{count} listů"
+        },
+        "slideCount": {
+          "one": "{count} snímek",
+          "few": "{count} snímky",
+          "many": "{count} snímku",
+          "other": "{count} snímků"
+        },
+        "loadFailed": "Tento náhled se nepodařilo načíst",
+        "sessionError": "Relace náhledu ohlásila chybu.",
+        "zoomAriaLabel": "Přiblížení náhledu",
+        "revealInFinder": "Zobrazit ve Finderu",
+        "livePreview": "Živý náhled",
+        "frameTitle": "Náhled — {kind}: {title}"
+      },
+      "filePreview": {
+        "save": "Uložit",
+        "copy": "Kopírovat",
+        "loading": "Načítání..."
+      },
+      "spreadsheet": {
+        "eyebrow": "Tabulka",
+        "desktopRequired": "Náhled tabulky vyžaduje desktopovou aplikaci Stella.",
+        "noRows": "Nebyly nalezeny žádné řádky.",
+        "column": "Sloupec {index}"
+      },
+      "markdown": {
+        "eyebrow": "Markdown",
+        "desktopRequired": "Náhled Markdownu vyžaduje desktopovou aplikaci Stella.",
+        "noContent": "Nebyl nalezen žádný obsah."
+      },
+      "diff": {
+        "changes": "Změny",
+        "codeChanges": "Změny v kódu",
+        "noChanges": "Nebyly nalezeny žádné změny.",
+        "desktopRequired": "Náhled kódu vyžaduje desktopovou aplikaci Stella.",
+        "empty": "Zatím žádné změny souborů. Až agent upraví kód, změny se objeví tady."
+      },
+      "agentThread": {
+        "role": {
+          "user": "Pokyn",
+          "assistant": "Agent",
+          "lifecycle": "Aktivita"
+        },
+        "status": {
+          "running": "Pracuje",
+          "completed": "Dokončeno",
+          "error": "Selhalo",
+          "canceled": "Zastaveno"
+        },
+        "newMessages": {
+          "one": "{count} nová zpráva.",
+          "few": "{count} nové zprávy.",
+          "many": "{count} nové zprávy.",
+          "other": "{count} nových zpráv."
+        },
+        "newMessagesWithPreview": "{countPhrase} Poslední — {role}: {preview}",
+        "unavailable": "Historie vlákna agenta není dostupná.",
+        "loadFailed": "Toto vlákno se nepodařilo načíst.",
+        "showingNewest": "Zobrazujeme nejnovější zprávu.",
+        "claudeAriaLabel": "Konverzace subagenta Claude jen pro čtení",
+        "claudeBadge": "Subagent Claude jen pro čtení",
+        "badge": "Vlákno agenta jen pro čtení",
+        "retrying": "Opakování…",
+        "empty": "V tomto vlákně zatím nejsou žádné zprávy.",
+        "newMessagesButton": {
+          "one": "{count} nová zpráva",
+          "few": "{count} nové zprávy",
+          "many": "{count} nové zprávy",
+          "other": "{count} nových zpráv"
+        },
+        "showNewMessagesAria": "Zobrazit {countPhrase}"
+      }
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, plán {plan}",
+        "signOutTitle": "Odhlásit se ze Stelly?",
+        "signOutDescription": "Určitě?"
+      },
+      "nav": {
+        "apps": "Aplikace",
+        "unreadTitle": "{label} (nepřečtených: {count})",
+        "unreadAriaLabel": "{label}, nepřečtených: {count}"
+      },
+      "feedback": {
+        "title": {
+          "manual": "Odeslat zpětnou vazbu",
+          "auto": "Jak to jde se Stellou?"
+        },
+        "description": {
+          "manual": "Vaše zpráva se odesílá anonymně — není spojena s vaším účtem.",
+          "auto": "Něco, co bychom měli vědět? Odesílá se anonymně — bez vazby na váš účet."
+        },
+        "notNow": "Teď ne",
+        "fieldLabel": "Zpětná vazba",
+        "placeholder": "Napište, co funguje, co ne, nebo co byste rádi viděli…",
+        "send": "Odeslat",
+        "sending": "Odesílání…",
+        "toasts": {
+          "sentTitle": "Zpětná vazba odeslána",
+          "sentDescription": "Díky — každá poznámka nám pomáhá Stellu vylepšovat.",
+          "failedTitle": "Zpětnou vazbu se nepodařilo odeslat"
+        }
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "newChat": "Nový chat",
+        "home": "Domů",
+        "history": "Historie konverzací",
+        "historyEmpty": "Zatím žádné konverzace",
+        "historyRetry": "Konverzace se nepodařilo načíst. Zkuste to znovu",
+        "openConversations": "Otevřít konverzace",
+        "openConversation": "Otevřít {title}",
+        "closeConversation": "Zavřít {title}",
+        "delete": "Smazat {title}",
+        "deleteConfirm": "Klikněte znovu pro potvrzení",
+        "deleteConfirmFor": "Klikněte znovu pro smazání {title}",
+        "deleteFailed": "Tuto konverzaci se nepodařilo smazat",
+        "deleteFailedFor": "Nepodařilo se smazat {title}"
+      }
+    }
+  },
+  "global": {
+    "auth": {
+      "welcomeTitle": "Vítejte ve Stelle",
+      "welcomeDescription": "Přihlaste se e-mailem a začněte Stellu používat.",
+      "welcomeSub": "Přihlaste se přes Google nebo e-mailem. Heslo není potřeba.",
+      "orUseEmail": "nebo použijte e-mail",
+      "emailLabel": "E-mail",
+      "emailPlaceholder": "vy@priklad.cz",
+      "sending": "Odesílání...",
+      "signingIn": "Přihlašování...",
+      "sendSignInEmail": "Odeslat přihlašovací e-mail",
+      "checkInbox": "Zkontrolujte schránku, najdete tam přihlašovací odkaz.",
+      "magicLinkSentDesktop": "Poslali jsme přihlašovací odkaz. Otevřete ho na tomto zařízení a dokončete přihlášení.",
+      "openInbox": "Otevřít {provider}",
+      "resendIn": "Znovu odeslat za {seconds} s",
+      "resendEmail": "Odeslat e-mail znovu",
+      "skipForNow": "Zatím přeskočit",
+      "enterEmail": "Zadejte e-mailovou adresu.",
+      "sendFailed": "Přihlašovací e-mail se nepodařilo odeslat.",
+      "magicLinkFailed": "Magický odkaz se nepodařilo odeslat.",
+      "finishFailed": "Přihlášení se nepodařilo dokončit. Zkuste to prosím znovu.",
+      "signInIncomplete": "Přihlášení není dokončené. Zkuste to prosím znovu.",
+      "signInLinkExpired": "Platnost přihlašovacího odkazu vypršela. Zkuste to prosím znovu.",
+      "tooManyRequests": {
+        "one": "Příliš mnoho požadavků. Zkuste to znovu za {count} sekundu.",
+        "few": "Příliš mnoho požadavků. Zkuste to znovu za {count} sekundy.",
+        "many": "Příliš mnoho požadavků. Zkuste to znovu za {count} sekundy.",
+        "other": "Příliš mnoho požadavků. Zkuste to znovu za {count} sekund."
+      },
+      "googleContinue": "Pokračovat přes Google",
+      "googleWaiting": "Čekání na Google...",
+      "googleStartFailed": "Přihlášení přes Google se nepodařilo spustit.",
+      "googleNoSession": "Přihlášení přes Google skončilo bez relace.",
+      "googleExpired": "Přihlášení přes Google vypršelo. Zkuste to prosím znovu.",
+      "googleTimedOut": "Přihlášení přes Google vypršelo časovým limitem. Zkuste to prosím znovu.",
+      "nicknameTitle": "Jak vám mám říkat?",
+      "nicknameDescription": "Vyberte jméno, které bude Stella používat v celé aplikaci.",
+      "nicknameLabel": "Přezdívka",
+      "nicknamePlaceholder": "Vaše přezdívka",
+      "notNow": "Teď ne"
+    },
+    "legal": {
+      "terms": {
+        "title": "Podmínky služby",
+        "subtitle": "Jak Stella funguje a s čím souhlasíte, když ji používáte."
+      },
+      "privacy": {
+        "title": "Zásady ochrany osobních údajů",
+        "subtitle": "Co sbíráme, co ne a jak to chráníme."
+      }
+    },
+    "integrations": {
+      "heroTagline": "Pište Stelle z jakékoli platformy, která vám vyhovuje — povídejte si přirozeně, nebo ji požádejte, ať věci vyřídí přímo ve vašem počítači.",
+      "signInToConnect": "Pro připojení se přihlaste ke Stelle",
+      "connectStellaApp": "Připojit k aplikaci Stella",
+      "sectionTitle": "Integrace",
+      "connectTitle": "Připojit",
+      "backToConnections": "Zpět na připojení",
+      "connected": "Připojeno",
+      "connectProvider": "Připojit {provider}",
+      "openProvider": "Otevřít {provider}",
+      "listeningOn": "Stella naslouchá na {provider}. Napište jí tam kdykoli.",
+      "disconnect": "Odpojit",
+      "disconnecting": "Odpojování...",
+      "disconnected": "Odpojeno od {provider}",
+      "disconnectFailed": "Nepodařilo se odpojit od {provider}",
+      "codeCopied": "Kód zkopírován do schránky",
+      "generateCodeFailed": "Nepodařilo se vygenerovat kód",
+      "slackInstallUrlFailed": "Nepodařilo se připravit instalační URL pro Slack",
+      "signInHeadline": "Přihlaste se a začněte",
+      "signInSub": "Přihlaste se ke svému účtu Stella, abyste připojili {provider}.",
+      "providers": {
+        "linq": {
+          "name": "SMS Stelle",
+          "instructions": "Zadejte své telefonní číslo a pošleme vám SMS s kódem pro připojení. Po propojení můžete Stelle kdykoli psát přes iMessage nebo SMS."
+        },
+        "discord": {
+          "name": "Discord",
+          "instructions": "Nainstalujte aplikaci Stella do svého účtu Discord, jednou spusťte /link s kódem a pak normálně pište @Stella do soukromé zprávy."
+        },
+        "slack": {
+          "name": "Slack",
+          "instructions": "Nainstalujte aplikaci Stella do svého pracovního prostoru a pak napište @Stella kód níže."
+        },
+        "telegram": {
+          "name": "Telegram",
+          "instructions": "Otevřete @StellaAppBot v Telegramu a pošlete mu kód níže."
+        }
+      },
+      "linq": {
+        "countryCode": "Předvolba země",
+        "phonePlaceholder": "(555) 123-4567",
+        "sending": "Odesílání...",
+        "sendCode": "Odeslat kód",
+        "sendCodeFailed": "Kód se nepodařilo odeslat. Zkontrolujte číslo a zkuste to znovu.",
+        "enterCodeTitle": "Zadejte svůj kód",
+        "enterCodeSub": "Podívejte se do telefonu — poslali jsme 6místný kód na {phone}.",
+        "codePlaceholder": "ABC123",
+        "verify": "Ověřit",
+        "verifying": "Ověřování...",
+        "verifyCodeFailed": "Kód se nepodařilo ověřit.",
+        "connected": "Připojeno! Teď můžete Stelle psát SMS.",
+        "invalidCode": "Neplatný nebo prošlý kód. Zkuste poslat nový.",
+        "genericError": "Něco se pokazilo. Zkuste to prosím znovu.",
+        "useDifferentNumber": "Použít jiné číslo"
+      },
+      "credential": {
+        "title": "Připojit {provider}",
+        "description": "Stella potřebuje pro připojení váš klíč API {provider}. Vložte ho níže. Zůstane ve vašem počítači.",
+        "defaultLabel": "Klíč {provider}",
+        "apiKeyLabel": "Klíč API",
+        "apiKeyRequired": "Klíč API je povinný.",
+        "keyPlaceholder": "Vložte svůj klíč",
+        "labelLabel": "Označení",
+        "labelDescription": "Srozumitelný název, podle kterého klíč později poznáte.",
+        "saving": "Ukládání...",
+        "saveKey": "Uložit klíč",
+        "saveFailed": "Přihlašovací údaje se nepodařilo uložit."
+      }
+    },
+    "schedule": {
+      "dialogTitle": "Plán",
+      "untitledTask": "Naplánovaná úloha",
+      "checkIn": "Kontrola",
+      "paused": "Pozastaveno",
+      "pause": "Pozastavit",
+      "pausing": "Pozastavování…",
+      "resume": "Pokračovat",
+      "resuming": "Pokračování…",
+      "runNow": "Spustit nyní",
+      "running": "Běží…",
+      "delete": "Smazat",
+      "removing": "Odebírání…",
+      "actionFailed": "Akce selhala.",
+      "missing": "Tento plán už neexistuje.",
+      "scheduleCount": {
+        "one": "{count} plán",
+        "few": "{count} plány",
+        "many": "{count} plánu",
+        "other": "{count} plánů"
+      }
+    },
+    "social": {
+      "dialogDescription": "Než se cokoli stane, potvrďte tuto pozvánku.",
+      "signInToAccept": "Pro přijetí této pozvánky se přihlaste ke Stelle.",
+      "lookingUpInvite": "Hledáme pozvánku…",
+      "stellaAddOn": "Doplněk Stelly",
+      "stellaUser": "Uživatel Stelly",
+      "byAuthor": " · od @{username}",
+      "alreadyIn": " · už jste členem",
+      "membersLabel": "členů",
+      "memberCount": {
+        "one": "{count} člen",
+        "few": "{count} členové",
+        "many": "{count} člena",
+        "other": "{count} členů"
+      },
+      "working": "Pracujeme…",
+      "alreadyJoined": "Již připojeno",
+      "welcomeToCommunity": "Vítejte v {community}!",
+      "joinedCommunity": "Připojili jste se ke komunitě!",
+      "friendRequestSent": "Žádost o přátelství odeslána @{username}.",
+      "joinFailed": "K této komunitě se nepodařilo připojit. Pozvánka možná vypršela.",
+      "friendRequestFailed": "Tuto žádost o přátelství se nepodařilo odeslat. Zkuste to prosím znovu.",
+      "store": {
+        "title": "Otevřít doplněk",
+        "confirmLabel": "Zobrazit ve Store",
+        "sub": "Odkaz, který jste otevřeli, míří na doplněk Stelly. Nic se neinstaluje. Otevře se jen jeho stránka ve Store.",
+        "missing": "Tento doplněk je soukromý nebo už není publikovaný."
+      },
+      "join": {
+        "title": "Připojit se ke komunitě",
+        "confirmLabel": "Připojit se",
+        "sub": "Byli jste pozváni do komunity: důvěryhodného kruhu, kde členové mezi sebou sdílejí doplňky.",
+        "missing": "K tomuto kódu pozvánky nebyla nalezena žádná komunita. Požádejte o nový odkaz."
+      },
+      "friend": {
+        "title": "Přidat přítele",
+        "confirmLabel": "Odeslat žádost o přátelství",
+        "sub": "Byli jste pozváni k propojení na Stelle.",
+        "missing": "K tomuto odkazu s pozvánkou nebyl nalezen žádný uživatel."
+      }
+    },
+    "websiteView": {
+      "storeTitle": "Store"
+    }
+  },
+  "mobile": {
+    "common": {
+      "back": "Zpět",
+      "backChevron": "‹ Zpět",
+      "cancel": "Zrušit",
+      "continue": "Pokračovat",
+      "delete": "Smazat",
+      "done": "Hotovo",
+      "goBack": "Přejít zpět",
+      "somethingWentWrong": "Něco se pokazilo.",
+      "tryAgain": "Zkusit znovu"
+    },
+    "boot": {
+      "crashTitle": "Při spuštění se něco pokazilo",
+      "missingConfigTitle": "Přidejte proměnné prostředí pro mobil",
+      "missingConfigBody": "Před spuštěním aplikace nastavte EXPO_PUBLIC_CONVEX_URL a případně EXPO_PUBLIC_CONVEX_SITE_URL.",
+      "checkingSessionTitle": "Kontrolujeme vaši relaci",
+      "checkingSessionBody": "Vydržte chvíli, Stella se probouzí."
+    },
+    "authCallback": {
+      "failedTitle": "Přihlášení se nezdařilo",
+      "invalidLink": "Neplatný přihlašovací odkaz.",
+      "linkExpired": "Platnost tohoto přihlašovacího odkazu vypršela. Vyžádejte si nový.",
+      "genericFailure": "Teď se vás nepodařilo přihlásit. Zkuste to prosím znovu.",
+      "backToSignIn": "Zpět na přihlášení",
+      "signingInTitle": "Přihlašujeme vás",
+      "signingInBody": "Okamžik..."
+    },
+    "nav": {
+      "chat": "Chat",
+      "computer": "Počítač",
+      "settings": "Nastavení",
+      "openLabel": "Otevřít navigaci",
+      "closeLabel": "Zavřít navigaci"
+    },
+    "search": {
+      "placeholder": "Hledat ve zprávách",
+      "openLabel": "Hledat ve zprávách",
+      "clearLabel": "Vymazat hledání",
+      "cancelLabel": "Zrušit hledání"
+    },
+    "onboarding": {
+      "skip": "Přeskočit",
+      "skipLabel": "Přeskočit úvod",
+      "welcomeTitle": "Seznamte se se Stellou",
+      "welcomeBody": "Zeptejte se na cokoli, promluvte si o věcech nebo předejte skutečnou práci — Stella odpovídá tady a umí jednat i na vašem počítači.",
+      "themeTitle": "Přizpůsobte si to",
+      "themeBody": "Vyberte motiv. Kdykoli ho můžete změnit v Nastavení.",
+      "connectTitle": "Váš počítač kdekoli",
+      "connectBodyGuest": "Přihlaste se později a spárujte Stellu na svém počítači — pak můžete z telefonu požádat o prohlížení webu, správu souborů a spouštění úloh doma.",
+      "connectBodyPaired": "Stačí se jednou spárovat s desktopovou aplikací Stella a váš telefon ji může požádat o prohlížení webu, správu souborů i spouštění úloh — třeba z druhého konce města.",
+      "pairComputer": "Spárovat můj počítač",
+      "startChatting": "Začít chatovat"
+    },
+    "login": {
+      "heroTitle": "Váš asistent,\nkapesní velikosti.",
+      "heroBody": "Použijte Apple, Google nebo e-mail, který máte na počítači.",
+      "continueWithApple": "Pokračovat s Apple",
+      "openingApple": "Otevírání Apple...",
+      "continueWithGoogle": "Pokračovat s Google",
+      "openingGoogle": "Otevírání Google...",
+      "orUseEmail": "nebo použijte e-mail",
+      "emailPlaceholder": "E-mail",
+      "sending": "Odesílání...",
+      "signingIn": "Přihlašování...",
+      "checkInbox": "Zkontrolujte doručenou poštu a klepněte na odkaz — přihlásíte se automaticky.",
+      "useDifferentEmail": "Použít jiný e-mail",
+      "resend": "Poslat znovu",
+      "resendLabel": "Znovu poslat přihlašovací e-mail",
+      "enterEmail": "Zadejte svůj e-mail.",
+      "sendFailed": "Přihlašovací e-mail se nepodařilo odeslat.",
+      "googleStartFailed": "Přihlášení přes Google se nepodařilo spustit.",
+      "appleStartFailed": "Přihlášení přes Apple se nepodařilo spustit.",
+      "appleCompleteFailed": "Přihlášení přes Apple se nepodařilo dokončit.",
+      "appleNoToken": "Apple nevrátil identitní token.",
+      "finishFailed": "Přihlášení se nepodařilo dokončit. Zkuste to prosím znovu.",
+      "incomplete": "Přihlášení nebylo dokončeno. Zkuste to prosím znovu.",
+      "linkExpired": "Platnost odkazu vypršela. Zkuste to prosím znovu.",
+      "legalPrefix": "Pokračováním souhlasíte s našimi ",
+      "legalTerms": "Podmínkami služby",
+      "legalConjunction": " a ",
+      "legalPrivacy": "Zásadami ochrany osobních údajů",
+      "legalSuffix": ".",
+      "continueAsGuest": "Pokračovat bez přihlášení"
+    },
+    "chat": {
+      "emptyPrompt": "Zeptejte se Stelly na cokoli",
+      "composerPlaceholder": "Napište Stelle"
+    },
+    "computer": {
+      "guestHeroTitle": "Váš počítač na dosah ruky",
+      "guestHeroBody": "Požádejte Stellu, aby na vašem počítači něco udělala — prohlížela web, spravovala soubory, spouštěla úlohy a další.",
+      "pairFirstTitle": "Nejdřív spárujte telefon",
+      "pairFirstBody": "Spárujte tento telefon s desktopovou aplikací Stella, abyste s ní mohli chatovat odkudkoli. Stačí to udělat jednou.",
+      "pairPhone": "Spárovat telefon",
+      "pairThisPhoneLabel": "Spárovat tento telefon",
+      "emptyPrompt": "Zeptejte se svého počítače na cokoli",
+      "composerPlaceholder": "Napište svému počítači",
+      "defaultDeviceLabel": "Váš počítač",
+      "statusChecking": "Kontrola…",
+      "statusWaking": "Probouzení…",
+      "statusConnected": "Připojeno",
+      "statusAsleep": "Spí",
+      "connectingLabel": "Připojování k vašemu počítači",
+      "connectedLabel": "Počítač připojen",
+      "disconnectedLabel": "Počítač odpojen",
+      "unreachableTitle": "Počítač je nedostupný",
+      "unreachableBody": "Váš počítač teď není dostupný. Odeslali jsme požadavek na probuzení — zkuste to za pár sekund znovu.",
+      "syncWaitingTitle": "Synchronizace čeká",
+      "syncWaitingBody": "Zpráva se stále odesílá. Synchronizace proběhne hned, jak se odeslání dokončí.",
+      "syncFailedTitle": "Synchronizace selhala",
+      "syncFailedBody": "Váš počítač během synchronizace přestal odpovídat. Zkuste to znovu."
+    },
+    "desktop": {
+      "pairTitle": "Spárujte svůj telefon",
+      "guestBody": "Mějte desktopovou aplikaci Stella přímo v telefonu. Po spárování se telefon připojí automaticky.",
+      "guestSignInPrompt": "Začněte přihlášením.",
+      "connecting": "Připojování k počítači",
+      "pairing": "Párování tohoto telefonu",
+      "unreachable": "Počítač je nedostupný",
+      "deviceUnreachable": "Zařízení {platform} je nedostupné",
+      "repairNeeded": "Tento telefon je potřeba znovu spárovat s vaším počítačem.",
+      "enterCode": "Zadejte kód zobrazený na vašem počítači.",
+      "linkInterrupted": "Spojení s vaším počítačem bylo přerušeno.",
+      "unavailableBodyPaired": "Ujistěte se, že je Stella na vašem počítači otevřená a připojená k internetu. Jakmile se připojí, desktopová aplikace se objeví přímo tady v telefonu.",
+      "unavailableBodyUnpaired": "Mějte desktopovou aplikaci Stella přímo v telefonu. Naskenujte QR kód zobrazený ve Stelle na vašem počítači — potom se telefon bude připojovat automaticky.",
+      "pairAnother": "Spárovat další počítač",
+      "startPairingLabel": "Zahájit párování počítače",
+      "retryLabel": "Zkusit připojení znovu",
+      "reconnecting": "Připojování znovu...",
+      "limitedCapabilities": "Některé věci vyžadují váš počítač"
+    },
+    "settings": {
+      "title": "Nastavení",
+      "loadingSession": "Načítání relace…",
+      "signIn": "Přihlásit se",
+      "signInTitle": "Přihlaste se do Stelly",
+      "showEmailLabel": "Zobrazit e-mail",
+      "hideEmailLabel": "Skrýt e-mail",
+      "appearanceSection": "Vzhled",
+      "appearance": {
+        "system": "Systém",
+        "light": "Světlý",
+        "dark": "Tmavý"
+      },
+      "background": {
+        "soft": "Jemné",
+        "flat": "Ploché"
+      },
+      "useAppearanceLabel": "Použít vzhled {name}",
+      "useBackgroundLabel": "Použít pozadí {name}",
+      "useThemeLabel": "Použít motiv {name}",
+      "notificationsSection": "Oznámení",
+      "pushToggleLabel": "Povolit push oznámení",
+      "pushToggleSub": "Dostanete upozornění, až váš počítač dokončí požadavek.",
+      "pushToggleA11y": "Přepnout push oznámení",
+      "voiceSection": "Mluvte se Stellou",
+      "voiceSectionHint": "Kam hlasové ovládání bez rukou (třeba CarPlay) posílá vaše zprávy. Automaticky zvolí chat na vašem počítači, pokud jste u něj skončili a je dostupný — jinak chat v tomto telefonu.",
+      "voiceTarget": {
+        "auto": "Automaticky",
+        "phone": "Telefon",
+        "computer": "Počítač"
+      },
+      "voiceTargetLabel": "Posílat hlasové zprávy do: {name}",
+      "pairedSection": "Spárované počítače",
+      "pairedEmpty": "Zatím není spárovaný žádný počítač. Spárujte ho na kartě Počítač.",
+      "pairedOn": "Spárováno {date}",
+      "paired": {
+        "unnamedComputer": "Počítač · {id}"
+      },
+      "forget": "Zapomenout",
+      "forgetLabel": "Zapomenout zařízení {name}",
+      "forgetConfirmTitle": "Zapomenout zařízení {name}?",
+      "forgetConfirmBody": "Tento telefon se k danému počítači přestane připojovat, dokud ho znovu nespárujete.",
+      "carPlayDiagnostics": "Diagnostika CarPlay",
+      "openCarPlayDiagnosticsLabel": "Otevřít diagnostiku CarPlay",
+      "termsOfService": "Podmínky služby",
+      "openTermsLabel": "Otevřít Podmínky služby",
+      "privacyPolicy": "Zásady ochrany osobních údajů",
+      "openPrivacyLabel": "Otevřít Zásady ochrany osobních údajů",
+      "signOut": "Odhlásit se",
+      "signingOut": "Odhlašování…",
+      "signOutLabel": "Odhlásit se ze Stelly",
+      "deleteAccount": "Smazat účet",
+      "deletingAccount": "Mazání účtu…",
+      "deleteAccountLabel": "Smazat váš účet Stella",
+      "deleteConfirmTitle": "Smazat účet",
+      "deleteConfirmBody": "Tímto trvale smažete svůj účet Stella a odstraníte související cloudová data z našich serverů. Tuto akci nelze vrátit zpět.",
+      "deleteFailedTitle": "Účet se nepodařilo smazat"
+    },
+    "carPlayDiagnostics": {
+      "title": "Diagnostika CarPlay",
+      "subtitle": {
+        "one": "Stopy z připojení CarPlay ({count} řádek, nejnovější první). Zkopírujte je a pošlete nám je, když se v autě něco chová divně.",
+        "few": "Stopy z připojení CarPlay ({count} řádky, nejnovější první). Zkopírujte je a pošlete nám je, když se v autě něco chová divně.",
+        "many": "Stopy z připojení CarPlay ({count} řádku, nejnovější první). Zkopírujte je a pošlete nám je, když se v autě něco chová divně.",
+        "other": "Stopy z připojení CarPlay ({count} řádků, nejnovější první). Zkopírujte je a pošlete nám je, když se v autě něco chová divně."
+      },
+      "copyAll": "Kopírovat vše",
+      "copyAllLabel": "Kopírovat všechnu diagnostiku",
+      "copied": "Zkopírováno ✓",
+      "refresh": "Obnovit",
+      "refreshLabel": "Obnovit diagnostiku",
+      "clear": "Vymazat",
+      "clearLabel": "Vymazat diagnostiku",
+      "empty": "Zatím není zaznamenaná žádná diagnostika CarPlay. Připojte se jednou k CarPlay a pak se sem vraťte.",
+      "clipboardEmpty": "(žádná zaznamenaná diagnostika CarPlay)"
+    }
+  }
+}

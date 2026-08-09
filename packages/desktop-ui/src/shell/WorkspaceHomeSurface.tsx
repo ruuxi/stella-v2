@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { useT } from "@/shared/i18n";
 import { useLayoutEffect, useState } from "react";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { HomeSection } from "@/shell/sidebar-sections/HomeSection";
@@ -21,6 +22,7 @@ export function WorkspaceHomeSurface({
   hidden,
   portalTarget,
 }: WorkspaceHomeSurfaceProps) {
+  const t = useT();
   const chat = useChatRuntime();
   const hasActivity = chat.conversation.tasks.length > 0;
   const [settledHasActivity, setSettledHasActivity] = useState(hasActivity);
@@ -44,7 +46,7 @@ export function WorkspaceHomeSurface({
       data-activity-availability-changing={
         activityAvailabilityChanging ? "true" : undefined
       }
-      aria-label="Activity"
+      aria-label={t("shell.workspace.activity")}
       aria-hidden={surfaceHidden}
       inert={surfaceHidden}
     >

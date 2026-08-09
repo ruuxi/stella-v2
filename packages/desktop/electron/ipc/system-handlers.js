@@ -22,6 +22,7 @@ import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, 
 import { waitForConnectedRunner } from "./runtime-availability.js";
 import { getGlobalShortcutsSuspended, setGlobalShortcutsSuspended, } from "./global-shortcuts.js";
 import { createRequire } from "node:module";
+import { t } from "../services/i18n-service.js";
 let _screenCapturePermissions;
 const getScreenCapturePermissions = () => {
     if (_screenCapturePermissions !== undefined)
@@ -1343,9 +1344,9 @@ export const registerSystemHandlers = (options) => {
                     if (providerId === "xai" && info.instructions?.trim()) {
                         void dialog.showMessageBox({
                             type: "info",
-                            message: "Enter this code to connect xAI",
+                            message: t("desktop.oauth.xaiCodeMessage"),
                             detail: info.instructions,
-                            buttons: ["Continue"],
+                            buttons: [t("desktop.common.continue")],
                         });
                     }
                 },
@@ -1356,9 +1357,11 @@ export const registerSystemHandlers = (options) => {
                         type: "info",
                         message: prompt.message,
                         detail: prompt.placeholder
-                            ? `Expected value: ${prompt.placeholder}`
+                            ? t("desktop.oauth.expectedValue", {
+                                value: prompt.placeholder,
+                            })
                             : undefined,
-                        buttons: ["Continue"],
+                        buttons: [t("desktop.common.continue")],
                     });
                     return result.response === 0 ? "" : "";
                 },

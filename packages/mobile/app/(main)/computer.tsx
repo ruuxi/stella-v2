@@ -38,6 +38,7 @@ import { ComputerDeviceSheet } from "../../src/components/ComputerDeviceSheet";
 import { ConnectHeroAnimation } from "../../src/components/ConnectHeroAnimation";
 import { PairPhoneSheet } from "../../src/components/PairPhoneSheet";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { useT } from "../../src/i18n";
 
 const STATUS_POLL_MS = 20_000;
 /**
@@ -75,15 +76,17 @@ export default function ComputerScreen() {
 
 function GuestComputerSurface() {
   const colors = useColors();
+  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.centerSurface}>
       <View style={styles.heroBlock}>
         <ConnectHeroAnimation />
-        <Text style={styles.heroTitle}>Your computer, at your fingertips</Text>
+        <Text style={styles.heroTitle}>
+          {t("mobile.computer.guestHeroTitle")}
+        </Text>
         <Text style={styles.heroBody}>
-          Ask Stella to do things on your computer — browse the web, manage
-          files, run tasks, and more.
+          {t("mobile.computer.guestHeroBody")}
         </Text>
       </View>
       <View style={styles.signInSection}>
@@ -100,6 +103,7 @@ function GuestComputerSurface() {
  */
 function ComputerRouter() {
   const colors = useColors();
+  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [phoneAccess, setPhoneAccess] = useState<StoredPhoneAccess | null>(
     null,
@@ -126,15 +130,16 @@ function ComputerRouter() {
       <View style={styles.centerSurface}>
         <View style={styles.heroBlock}>
           <ConnectHeroAnimation />
-          <Text style={styles.heroTitle}>Pair your phone first</Text>
+          <Text style={styles.heroTitle}>
+            {t("mobile.computer.pairFirstTitle")}
+          </Text>
           <Text style={styles.heroBody}>
-            Pair this phone with your Stella desktop so you can chat with it
-            from anywhere. You only need to do it once.
+            {t("mobile.computer.pairFirstBody")}
           </Text>
           <PrimaryButton
-            label="Pair phone"
+            label={t("mobile.computer.pairPhone")}
             onPress={() => setPairSheetOpen(true)}
-            accessibilityLabel="Pair this phone"
+            accessibilityLabel={t("mobile.computer.pairThisPhoneLabel")}
             style={styles.primaryButton}
           />
         </View>
@@ -164,6 +169,7 @@ function ComputerChatSurface({
   onAccessChange: (access: StoredPhoneAccess) => void;
 }) {
   const colors = useColors();
+  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const offline = useIsOffline();
   const { setConnection: setTopBarConnection } = useTopBarStatus();
@@ -448,8 +454,8 @@ function ComputerChatSurface({
         if (!offlineRef.current && !wakingRef.current) triggerWake();
         notifyError();
         Alert.alert(
-          "Computer unreachable",
-          "Your computer isn't reachable right now. A wake request was sent — try again in a few seconds.",
+          t("mobile.computer.unreachableTitle"),
+          t("mobile.computer.unreachableBody"),
         );
         return;
       }
@@ -460,17 +466,16 @@ function ComputerChatSurface({
       if (outcome.deferred) {
         notifyError();
         Alert.alert(
-          "Sync waiting",
-          "A message is still being sent. The sync will run as soon as it finishes.",
+          t("mobile.computer.syncWaitingTitle"),
+          t("mobile.computer.syncWaitingBody"),
         );
         return;
       }
       if (outcome.offline || outcome.error) {
         notifyError();
         Alert.alert(
-          "Sync failed",
-          outcome.error ??
-            "Your computer stopped responding while syncing. Try again.",
+          t("mobile.computer.syncFailedTitle"),
+          outcome.error ?? t("mobile.computer.syncFailedBody"),
         );
         return;
       }
@@ -478,8 +483,10 @@ function ComputerChatSurface({
     } catch (error) {
       notifyError();
       Alert.alert(
-        "Sync failed",
-        error instanceof Error ? error.message : "Something went wrong.",
+        t("mobile.computer.syncFailedTitle"),
+        error instanceof Error
+          ? error.message
+          : t("mobile.common.somethingWentWrong"),
       );
     } finally {
       setSyncing(false);
@@ -490,16 +497,18 @@ function ComputerChatSurface({
     access.desktopDeviceId,
     triggerWake,
     runDesktopSync,
+    t,
   ]);
 
-  const platformLabel = status.platform?.trim() || "Your computer";
+  const platformLabel =
+    status.platform?.trim() || t("mobile.computer.defaultDeviceLabel");
   const statusLabel = status.checking
-    ? "Checking…"
+    ? t("mobile.computer.statusChecking")
     : waking
-      ? "Waking up…"
+      ? t("mobile.computer.statusWaking")
       : status.available
-        ? "Connected"
-        : "Asleep";
+        ? t("mobile.computer.statusConnected")
+        : t("mobile.computer.statusAsleep");
 
   const canSubmit =
     (thread.draft.trim().length > 0 || thread.attachments.length > 0) &&
@@ -538,7 +547,9 @@ function ComputerChatSurface({
         streaming={thread.sending}
         workingIndicator={thread.workingIndicator}
         emptyContent={
-          <Text style={styles.emptyText}>Ask your computer anything</Text>
+          <Text style={styles.emptyText}>
+            {t("mobile.computer.emptyPrompt")}
+          </Text>
         }
         historyLoading={!thread.storageLoaded}
         draft={thread.draft}
@@ -550,7 +561,7 @@ function ComputerChatSurface({
         realtimeVoiceConversationId={thread.conversationId}
         realtimeVoiceExecution="computer"
         realtimeVoiceDesktopAccess={access}
-        placeholder="Message your computer"
+        placeholder={t("mobile.computer.composerPlaceholder")}
         offline={offline}
         enableAttachments
         attachments={thread.attachments}

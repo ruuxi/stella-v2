@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { api } from "@/convex/api";
 import { usePersistentConvexOneShot } from "@/shared/lib/use-convex-one-shot";
 import type { StorePackageRecord } from "@/shared/types/electron";
+import { useT } from "@/shared/i18n";
 import type { ParsedShareLink } from "./share-link";
 import "./store.css";
 
@@ -34,6 +35,7 @@ export function AddonShareCard({
   link,
   variant = "wide",
 }: AddonShareCardProps) {
+  const t = useT();
   const navigate = useNavigate();
   // One-shot, not a subscription: this card is embedded inside chat
   // bubbles (potentially many per conversation), and a published
@@ -57,7 +59,9 @@ export function AddonShareCard({
       <div className="addon-share-card" data-variant={variant} data-loading>
         <div className="addon-share-card-art" />
         <div className="addon-share-card-body">
-          <div className="addon-share-card-eyebrow">Stella add-on</div>
+          <div className="addon-share-card-eyebrow">
+            {t("features.store.shareCard.eyebrow")}
+          </div>
           <div className="addon-share-card-line addon-share-card-line--name" />
           <div className="addon-share-card-line addon-share-card-line--desc" />
         </div>
@@ -76,10 +80,14 @@ export function AddonShareCard({
           ?
         </div>
         <div className="addon-share-card-body">
-          <div className="addon-share-card-eyebrow">Stella add-on</div>
-          <div className="addon-share-card-name">Add-on unavailable</div>
+          <div className="addon-share-card-eyebrow">
+            {t("features.store.shareCard.eyebrow")}
+          </div>
+          <div className="addon-share-card-name">
+            {t("features.store.shareCard.unavailableName")}
+          </div>
           <div className="addon-share-card-desc">
-            This add-on is private or no longer published.
+            {t("features.store.shareCard.unavailableDesc")}
           </div>
         </div>
       </div>
@@ -113,7 +121,9 @@ export function AddonShareCard({
         </div>
       )}
       <div className="addon-share-card-body">
-        <div className="addon-share-card-eyebrow">Stella add-on</div>
+        <div className="addon-share-card-eyebrow">
+          {t("features.store.shareCard.eyebrow")}
+        </div>
         <div className="addon-share-card-name">{pkg.displayName}</div>
         <div className="addon-share-card-desc">{pkg.description}</div>
         <div className="addon-share-card-meta">
@@ -124,7 +134,9 @@ export function AddonShareCard({
           ) : (
             <span />
           )}
-          <span className="addon-share-card-cta">View →</span>
+          <span className="addon-share-card-cta">
+            {t("features.store.shareCard.viewCta")}
+          </span>
         </div>
       </div>
     </button>

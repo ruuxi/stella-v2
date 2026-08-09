@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TrashIllustration } from "./illustrations/TrashIllustration";
+import { useT, useTPlural } from "@/shared/i18n";
 import "./trash-tab.css";
 
 type TrashRecord = {
@@ -53,6 +54,8 @@ const dirnameOf = (filePath: string): string => {
 };
 
 export const TrashTabContent = () => {
+  const t = useT();
+  const tPlural = useTPlural();
   const [items, setItems] = useState<TrashRecord[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,9 +126,9 @@ export const TrashTabContent = () => {
   const subtitle =
     sorted.length === 0
       ? loading
-        ? "Loading…"
-        : "Nothing here right now."
-      : `${sorted.length} item${sorted.length === 1 ? "" : "s"} — auto-deleted in 24 hours.`;
+        ? t("common.loading")
+        : t("shell.display.trash.empty")
+      : tPlural("shell.display.trash.itemsAutoDeleted", sorted.length);
 
   if (sorted.length === 0 && !loading) {
     return (
@@ -133,8 +136,8 @@ export const TrashTabContent = () => {
         <div style={{ width: 200, height: 150, opacity: 0.9 }}>
           <TrashIllustration />
         </div>
-        <h3 className="trash-tab__title" style={{ margin: 0 }}>Trash</h3>
-        <p className="trash-tab__subtitle" style={{ margin: 0, fontSize: 15 }}>Nothing here right now.</p>
+        <h3 className="trash-tab__title" style={{ margin: 0 }}>{t("shell.display.trash.title")}</h3>
+        <p className="trash-tab__subtitle" style={{ margin: 0, fontSize: 15 }}>{t("shell.display.trash.empty")}</p>
         {errors.length > 0 && (
           <div className="trash-tab__errors">
             {errors.map((line, index) => (
@@ -150,7 +153,7 @@ export const TrashTabContent = () => {
     <div className="trash-tab" data-display-tab="trash">
       <header className="trash-tab__header">
         <div>
-          <h3 className="trash-tab__title">Trash</h3>
+          <h3 className="trash-tab__title">{t("shell.display.trash.title")}</h3>
           <p className="trash-tab__subtitle">{subtitle}</p>
         </div>
         <div className="trash-tab__header-actions">
@@ -160,7 +163,7 @@ export const TrashTabContent = () => {
             onClick={() => void refresh()}
             disabled={loading || emptying}
           >
-            Refresh
+            {t("shell.display.trash.refresh")}
           </button>
           <button
             type="button"
@@ -168,7 +171,9 @@ export const TrashTabContent = () => {
             onClick={() => void handleEmptyAll()}
             disabled={sorted.length === 0 || emptying}
           >
-            {emptying ? "Emptying…" : "Empty trash"}
+            {emptying
+              ? t("shell.display.trash.emptying")
+              : t("shell.display.trash.emptyTrash")}
           </button>
         </div>
       </header>
@@ -207,11 +212,17 @@ export const TrashTabContent = () => {
                     </div>
                   )}
                   <div className="trash-tab__meta">
-                    <span>Trashed {formatRelative(now - item.trashedAt)} ago</span>
+                    <span>
+                      {t("shell.display.trash.trashedAgo", {
+                        time: formatRelative(now - item.trashedAt),
+                      })}
+                    </span>
                     <span>
                       {expired
-                        ? "Pending purge"
-                        : `Auto-deletes in ${formatRelative(remaining)}`}
+                        ? t("shell.display.trash.pendingPurge")
+                        : t("shell.display.trash.autoDeletesIn", {
+                            time: formatRelative(remaining),
+                          })}
                     </span>
                   </div>
                 </div>
@@ -221,7 +232,9 @@ export const TrashTabContent = () => {
                   onClick={() => void handleForceDelete(item.id)}
                   disabled={busyId === item.id}
                 >
-                  {busyId === item.id ? "Deleting…" : "Delete now"}
+                  {busyId === item.id
+                    ? t("shell.display.trash.deleting")
+                    : t("shell.display.trash.deleteNow")}
                 </button>
               </li>
             );

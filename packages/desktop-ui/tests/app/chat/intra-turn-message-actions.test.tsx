@@ -19,6 +19,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
 import { AssistantMessageRow } from "@/app/chat/MessageRow";
 import { isIntraTurnAssistantRuntime } from "@/features/chat/hooks/use-event-rows";
 
@@ -62,8 +63,9 @@ describe("AssistantMessageRow action strip", () => {
   let root: Root;
 
   beforeEach(() => {
-    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-      true;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -77,11 +79,13 @@ describe("AssistantMessageRow action strip", () => {
   const renderRow = async (row: Record<string, unknown>) => {
     await act(async () => {
       root.render(
-        <AssistantMessageRow
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          row={row as any}
-          conversationId="conv-1"
-        />,
+        withI18n(
+          <AssistantMessageRow
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            row={row as any}
+            conversationId="conv-1"
+          />,
+        ),
       );
     });
   };

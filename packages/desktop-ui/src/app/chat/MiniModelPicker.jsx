@@ -20,6 +20,7 @@ import { buildEngineReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MO
 import { listReasoningEffortOptions } from "@/global/settings/lib/reasoning-effort-options";
 import { buildRecentModelRows, createKnownModelIdPredicate, readRecentModels, recordRecentModel, } from "@/global/settings/lib/recent-models";
 import { showToast } from "@/ui/toast";
+import { useT } from "@/shared/i18n";
 import "./mini-model-picker.css";
 /** Mirrors the sidebar Assistant tab's dual orchestrator + general write. */
 const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"];
@@ -31,6 +32,7 @@ const NO_EXCLUDED_IDS = new Set();
  */
 let cachedMiniPickerPreferences = null;
 export function MiniModelPicker() {
+    const t = useT();
     const { allModels, defaults: stellaDefaultModels } = useModelCatalog();
     const [preferences, setPreferencesRaw] = useState(cachedMiniPickerPreferences);
     const [recentIds, setRecentIds] = useState(() => readRecentModels());
@@ -103,7 +105,7 @@ export function MiniModelPicker() {
         buildModelDefaultsMap(modelDefaults).orchestrator ??
         "", [modelDefaults]);
     const triggerLabel = preferences === null
-        ? "Loading…"
+        ? t("app.chat.miniModelPicker.loading")
         : getModelPickerDisplayLabel(currentId || defaultModelId, modelNamesById);
     const reasoningEffortOptions = listReasoningEffortOptions(committedEngine);
     const savedReasoningEffort = committedEngine === "codex_cli"
@@ -163,7 +165,7 @@ export function MiniModelPicker() {
         catch (caught) {
             setPreferences(previous);
             showToast({
-                title: "Couldn't update model settings",
+                title: t("app.chat.miniModelPicker.updateFailedTitle"),
                 description: caught instanceof Error ? caught.message : errorLabel,
                 variant: "error",
             });
@@ -171,13 +173,13 @@ export function MiniModelPicker() {
         finally {
             setPending(false);
         }
-    }, [pending, preferences, setPreferences]);
+    }, [pending, preferences, setPreferences, t]);
     const handleReasoningEffortSelect = useCallback((effort) => {
         if (!preferences)
             return;
         const patch = buildEngineReasoningPatch(preferences, preferences.agentRuntimeEngine, effort, ASSISTANT_AGENT_KEYS);
-        void applyPreferencesPatch(patch, "Failed to update reasoning effort.");
-    }, [applyPreferencesPatch, preferences]);
+        void applyPreferencesPatch(patch, t("app.chat.miniModelPicker.reasoningUpdateFailed"));
+    }, [applyPreferencesPatch, preferences, t]);
     const handleRecentSelect = useCallback((row) => {
         if (!preferences)
             return;
@@ -195,25 +197,25 @@ export function MiniModelPicker() {
             configurableAgentKeys,
         });
         setRecentIds(recordRecentModel(row.id));
-        void applyPreferencesPatch(patch, "Failed to update model setting.");
-    }, [applyPreferencesPatch, configurableAgentKeys, currentId, preferences]);
+        void applyPreferencesPatch(patch, t("app.chat.miniModelPicker.modelUpdateFailed"));
+    }, [applyPreferencesPatch, configurableAgentKeys, currentId, preferences, t]);
     return (<Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" className="pill-btn mini-model-picker-trigger" data-active={open || undefined} title={triggerLabel} aria-label={`Model: ${triggerLabel}`}>
+        <button type="button" className="pill-btn mini-model-picker-trigger" data-active={open || undefined} title={triggerLabel} aria-label={t("app.chat.miniModelPicker.triggerLabel", { model: triggerLabel })}>
           <span className="mini-model-picker-trigger-label">{triggerLabel}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" sideOffset={8} className="mini-model-picker-popover" aria-label="Model options">
+      <PopoverContent side="top" align="end" sideOffset={8} className="mini-model-picker-popover" aria-label={t("app.chat.miniModelPicker.popoverLabel")}>
         <div className="mini-model-picker-reasoning">
           <Lightbulb size={14} strokeWidth={1.75} className="mini-model-picker-reasoning-icon" aria-hidden/>
-          <div className="mini-model-picker-reasoning-options" role="radiogroup" aria-label="Reasoning effort">
+          <div className="mini-model-picker-reasoning-options" role="radiogroup" aria-label={t("app.chat.miniModelPicker.reasoningEffortLabel")}>
             {reasoningEffortOptions.map((option) => (<button key={option.id} type="button" role="radio" aria-checked={currentReasoningEffort === option.id} data-active={currentReasoningEffort === option.id || undefined} disabled={!preferences || pending} onClick={() => handleReasoningEffortSelect(option.id)}>
                 {option.label}
               </button>))}
           </div>
         </div>
         {recentRows.length > 0 ? (<>
-            <div className="mini-model-picker-label">Recent</div>
+            <div className="mini-model-picker-label">{t("app.chat.miniModelPicker.recent")}</div>
             <div className="mini-model-picker-rows">
               {recentRows.map((row) => {
                 const selected = row.id === currentId;
@@ -222,7 +224,7 @@ export function MiniModelPicker() {
                       {getModelPickerDisplayLabel(row.id, modelNamesById)}
                     </span>
                     {row.unavailable ? (<span className="mini-model-picker-row-note">
-                        Unavailable
+                        {t("app.chat.miniModelPicker.unavailable")}
                       </span>) : selected ? (<Check size={13} className="mini-model-picker-row-check" aria-hidden/>) : null}
                   </button>);
             })}

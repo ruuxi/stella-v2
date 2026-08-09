@@ -50,6 +50,7 @@ import {
 import { useAssistantReplyPeek } from "@/features/chat/hooks/use-assistant-reply-peek";
 import { useAgentModelConfigs } from "@/features/chat/hooks/use-agent-model-configs";
 import { ChatRuntimeContext } from "@/context/chat-runtime-context";
+import { useT } from "@/shared/i18n";
 import "./chat-sidebar.css";
 
 // Legend List sums numeric paddings into its content length; passing
@@ -141,6 +142,7 @@ export function ChatPanelTab({
   onSend,
   onStop,
 }: ChatPanelTabProps) {
+  const t = useT();
   // Input state + always-current mirror ref, synced at WRITE time. The
   // dictate-and-submit commit is rAF-deferred and can fire before React
   // flushes the render carrying the appended transcript — a ref synced in the
@@ -547,7 +549,7 @@ export function ChatPanelTab({
                   >
                     <ComposerAddMenu
                       className="composer-add-button"
-                      title="Add"
+                      title={t("shell.chatSidebar.add")}
                       setChatContext={setChatContext}
                       onSelectArea={handleSelectArea}
                       contextSuggestions={contextSuggestions.suggestions}
@@ -598,7 +600,7 @@ export function ChatPanelTab({
                           <div className="composer-toolbar-left">
                             <ComposerAddMenu
                               className="composer-add-button composer-add-button--toolbar"
-                              title="Add"
+                              title={t("shell.chatSidebar.add")}
                               setChatContext={setChatContext}
                               onSelectArea={handleSelectArea}
                               contextSuggestions={
@@ -618,7 +620,9 @@ export function ChatPanelTab({
                               onClick={dictation.toggle}
                               title={
                                 dictation.error
-                                  ? `Dictation: ${dictation.error}`
+                                  ? t("shell.chatSidebar.dictationError", {
+                                      error: dictation.error,
+                                    })
                                   : undefined
                               }
                             />
@@ -626,8 +630,8 @@ export function ChatPanelTab({
                               <ComposerStopButton
                                 className="composer-stop"
                                 onClick={onStop}
-                                title="Stop"
-                                aria-label="Stop"
+                                title={t("shell.chatSidebar.stop")}
+                                aria-label={t("shell.chatSidebar.stop")}
                               />
                             )}
                             <ComposerSubmitButton

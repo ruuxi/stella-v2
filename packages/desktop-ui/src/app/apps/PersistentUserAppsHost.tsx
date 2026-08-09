@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LoaderCircle } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import {
   getServerSnapshot,
   getSnapshot,
@@ -105,6 +106,7 @@ const releaseApp = (slug: string): void => {
 };
 
 function UserAppFrame({ app, active }: { app: UserApp; active: boolean }) {
+  const t = useT();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [load, setLoad] = useState<UserAppLoadState>({
     status: "loading",
@@ -128,7 +130,7 @@ function UserAppFrame({ app, active }: { app: UserApp; active: boolean }) {
             error:
               error instanceof Error
                 ? error.message
-                : "The app failed to start.",
+                : t("app.apps.frame.startFailed"),
           });
         }
       },
@@ -137,7 +139,7 @@ function UserAppFrame({ app, active }: { app: UserApp; active: boolean }) {
       cancelled = true;
       releaseApp(app.slug);
     };
-  }, [app.slug, retryKey]);
+  }, [app.slug, retryKey, t]);
 
   useEffect(() => {
     if (!active) iframeRef.current?.blur();
@@ -151,13 +153,13 @@ function UserAppFrame({ app, active }: { app: UserApp; active: boolean }) {
           ? {
               ...current,
               status: "error",
-              error: "The app took too long to load.",
+              error: t("app.apps.frame.timeout"),
             }
           : current,
       );
     }, 15_000);
     return () => window.clearTimeout(timer);
-  }, [load.status, load.url]);
+  }, [load.status, load.url, t]);
 
   return (
     <>
@@ -175,7 +177,7 @@ function UserAppFrame({ app, active }: { app: UserApp; active: boolean }) {
             setLoad((current) => ({
               ...current,
               status: "error",
-              error: "The app couldn’t be loaded.",
+              error: t("app.apps.frame.loadFailed"),
             }))
           }
         />
@@ -192,19 +194,21 @@ function UserAppFrame({ app, active }: { app: UserApp; active: boolean }) {
             strokeWidth={2}
             aria-hidden="true"
           />
-          <span>Loading {app.meta.label}…</span>
+          <span>{t("app.apps.frame.loading", { name: app.meta.label })}</span>
         </div>
       ) : null}
       {load.status === "error" ? (
         <div className="persistent-user-app-status" role="alert">
-          <strong>Couldn’t open {app.meta.label}</strong>
+          <strong>
+            {t("app.apps.frame.openFailed", { name: app.meta.label })}
+          </strong>
           <span>{load.error}</span>
           <button
             type="button"
             className="pill-btn pill-btn--primary"
             onClick={() => setRetryKey((value) => value + 1)}
           >
-            Try again
+            {t("app.apps.tryAgain")}
           </button>
         </div>
       ) : null}

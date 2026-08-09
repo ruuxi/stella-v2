@@ -2,6 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -92,7 +93,7 @@ describe("AppsSection external-app states", () => {
 
   const render = () =>
     act(() => {
-      root.render(<AppsSection />);
+      root.render(withI18n(<AppsSection />));
     });
 
   it("shows loading without flashing the ready-empty CTA", () => {

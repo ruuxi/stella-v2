@@ -71,6 +71,7 @@ import {
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { LoaderCircle } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 
 type ChatTimelineProps = {
   rows: EventRowViewModel[];
@@ -325,6 +326,7 @@ export const ChatTimeline = memo(function ChatTimeline({
   className,
   contentContainerStyle,
 }: ChatTimelineProps) {
+  const t = useT();
   const listItems = useMemo<TimelineListItem[]>(() => {
     const items = buildChatTimelineItems({
       rows,
@@ -421,7 +423,7 @@ export const ChatTimeline = memo(function ChatTimeline({
         data-loading-history="true"
         role="status"
         aria-live="polite"
-        aria-label="Loading conversation"
+        aria-label={t("app.chat.timeline.loadingConversation")}
       >
         <LoaderCircle
           className="stella-loader-circle"
@@ -436,7 +438,9 @@ export const ChatTimeline = memo(function ChatTimeline({
   if (rows.length === 0) {
     return (
       <div className="event-list-fallback" data-empty="true">
-        {emptyState ?? <div className="event-empty">Start a conversation</div>}
+        {emptyState ?? (
+          <div className="event-empty">{t("app.chat.timeline.empty")}</div>
+        )}
       </div>
     );
   }

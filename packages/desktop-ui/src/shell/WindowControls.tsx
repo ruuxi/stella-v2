@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/shared/i18n";
 import { Maximize2, Minus, Square, X } from "@/ui/icons";
 import {
   WindowsMaximizeIcon,
@@ -14,6 +15,7 @@ export const WindowControls = ({
   useWindowsIcons: boolean;
   hidden: boolean;
 }) => {
+  const t = useT();
   const [isMaximized, setIsMaximized] = useState(false);
 
   const updateMaximizedState = useCallback(() => {
@@ -36,7 +38,7 @@ export const WindowControls = ({
         type="button"
         className="shell-topbar-wc-btn"
         onClick={() => window.electronAPI?.window.minimize?.()}
-        aria-label="Minimize"
+        aria-label={t("shell.windowControls.minimize")}
       >
         <Minus size={13} strokeWidth={1.8} />
       </button>
@@ -47,7 +49,11 @@ export const WindowControls = ({
           window.electronAPI?.window.maximize?.();
           window.setTimeout(updateMaximizedState, MAXIMIZE_STATE_SYNC_DELAY_MS);
         }}
-        aria-label={isMaximized ? "Restore" : "Maximize"}
+        aria-label={
+          isMaximized
+            ? t("shell.windowControls.restore")
+            : t("shell.windowControls.maximize")
+        }
       >
         {useWindowsIcons ? (
           isMaximized ? (
@@ -65,7 +71,7 @@ export const WindowControls = ({
         type="button"
         className="shell-topbar-wc-btn shell-topbar-wc-close"
         onClick={() => window.electronAPI?.window.close?.()}
-        aria-label="Close"
+        aria-label={t("common.close")}
       >
         <X size={13} strokeWidth={1.8} />
       </button>

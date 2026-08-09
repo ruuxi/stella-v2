@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { ArrowUp } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 
 type SocialComposerProps = {
   onSend: (body: string) => void;
@@ -14,6 +15,7 @@ export function SocialComposer({
   armed = false,
   placeholder,
 }: SocialComposerProps) {
+  const t = useT();
   const [message, setMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -28,7 +30,10 @@ export function SocialComposer({
   }, [message, onSend]);
 
   const resolvedPlaceholder =
-    placeholder ?? (armed ? "Tell Stella what you want..." : "Write a message...");
+    placeholder ??
+    (armed
+      ? t("app.social.chat.tellStellaPlaceholder")
+      : t("app.social.composer.placeholder"));
 
   return (
     <div className="social-composer">
@@ -63,7 +68,9 @@ export function SocialComposer({
           data-armed={armed || undefined}
           disabled={!message.trim()}
           onClick={handleSend}
-          aria-label={armed ? "Tell Stella" : "Send"}
+          aria-label={
+            armed ? t("app.social.chat.tellStella") : t("app.social.composer.send")
+          }
         >
           <ArrowUp size={14} strokeWidth={2.5} />
         </button>

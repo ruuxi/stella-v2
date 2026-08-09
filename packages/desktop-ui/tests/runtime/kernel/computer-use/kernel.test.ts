@@ -276,9 +276,13 @@ describe("persistent Node REPL kernels", () => {
       },
     );
     const dispose = vi.fn(async () => undefined);
+    const beginTurn = vi.fn();
+    const endTurn = vi.fn(async () => undefined);
     const browserClient = {
       command,
       chain: vi.fn(),
+      beginTurn,
+      endTurn,
       dispose,
     } as unknown as BrowserSessionClient;
     const browserOptions: BrowserSessionOptions[] = [];
@@ -334,6 +338,10 @@ describe("persistent Node REPL kernels", () => {
         tabId: 101,
         selector: expect.stringContaining("aria="),
       });
+      expect(beginTurn).toHaveBeenCalledWith("run-1");
+      await registry.endBrowserTurn("run-1");
+      expect(endTurn).toHaveBeenCalledOnce();
+      expect(endTurn).toHaveBeenCalledWith("run-1");
     } finally {
       await registry.dispose();
     }
@@ -366,7 +374,11 @@ describe("persistent Node REPL kernels", () => {
       sessionFactory: defaultSessionFactory,
       idleTimeoutMs: 60_000,
       browserSessionFactory: () =>
-        ({ command, chain: vi.fn(), dispose }) as unknown as BrowserSessionClient,
+        ({
+          command,
+          chain: vi.fn(),
+          dispose,
+        }) as unknown as BrowserSessionClient,
     });
 
     try {
@@ -1015,17 +1027,19 @@ describe("persistent Node REPL kernels", () => {
       searchTools: () => [],
     });
     try {
-      const output = await registry.evaluate(
-        [
-          "tools.$search2 = 1",
-          "Object.defineProperty(tools, 'evil', { value: 1 })",
-        ].join("\n"),
-        {
-          ...context("agent-proxy"),
-          // A hostile "$evil" entry in allowedToolNames must be filtered.
-          allowedToolNames: ["node_repl", "$evil", "real_tool"],
-        },
-      ).catch((error: Error) => error.message);
+      const output = await registry
+        .evaluate(
+          [
+            "tools.$search2 = 1",
+            "Object.defineProperty(tools, 'evil', { value: 1 })",
+          ].join("\n"),
+          {
+            ...context("agent-proxy"),
+            // A hostile "$evil" entry in allowedToolNames must be filtered.
+            allowedToolNames: ["node_repl", "$evil", "real_tool"],
+          },
+        )
+        .catch((error: Error) => error.message);
       // defineProperty on a refusing trap throws TypeError in the REPL.
       expect(String(output)).toContain("evil");
 

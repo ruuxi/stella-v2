@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::Write;
 use std::path::PathBuf;
@@ -352,11 +352,159 @@ fn command_owner_id(cmd: &Value) -> Option<&str> {
         .filter(|owner_id| !owner_id.is_empty())
 }
 
-/// Validates `finalize_tabs`/`close_owner` inputs. Owner finalization on this
-/// backend needs only `ownerId`; the extension-era owner-lease fields
-/// (`ownerLeaseId`/`ownerLeaseIssuedAt`) are accepted but ignored. `keep` is
-/// optional (missing means "close everything") but must be well-formed when
-/// present.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OwnerLease {
+    session_id: String,
+    turn_id: String,
+    lease_id: String,
+    issued_at: u64,
+}
+
+#[derive(Clone, Debug)]
+struct OwnerLeaseClaim {
+    owner_id: String,
+    lease: OwnerLease,
+    supersedes_current: bool,
+}
+
+#[derive(Default)]
+struct OwnerLeaseRegistry {
+    current_by_owner: HashMap<String, OwnerLease>,
+    issued_at_high_water: HashMap<String, u64>,
+}
+
+impl OwnerLeaseRegistry {
+    fn validate_claim(&self, cmd: &Value) -> Result<Option<OwnerLeaseClaim>, String> {
+        let Some(owner_id) = command_owner_id(cmd) else {
+            if ["sessionId", "turnId", "ownerLeaseId", "ownerLeaseIssuedAt"]
+                .iter()
+                .any(|key| cmd.get(*key).is_some())
+            {
+                return Err("Browser ownership fields require a non-empty ownerId".to_string());
+            }
+            return Ok(None);
+        };
+        if owner_id.len() > 256 {
+            return Err("ownerId is too long".to_string());
+        }
+        let required_string = |key: &str| {
+            cmd.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| format!("Owner-scoped browser command requires a non-empty {}", key))
+        };
+        let session_id = required_string("sessionId")?;
+        if session_id != owner_id {
+            return Err("Browser command sessionId must match ownerId".to_string());
+        }
+        let turn_id = required_string("turnId")?;
+        let lease_id = required_string("ownerLeaseId")?;
+        let issued_at = cmd
+            .get("ownerLeaseIssuedAt")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0)
+            .ok_or("Owner-scoped browser command requires a positive ownerLeaseIssuedAt")?;
+        let lease = OwnerLease {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            lease_id: lease_id.to_string(),
+            issued_at,
+        };
+        let current = self.current_by_owner.get(owner_id);
+        if current == Some(&lease) {
+            return Ok(Some(OwnerLeaseClaim {
+                owner_id: owner_id.to_string(),
+                lease,
+                supersedes_current: false,
+            }));
+        }
+        if current.is_some_and(|current| current.lease_id == lease.lease_id) {
+            return Err(format!(
+                "Stale browser turn rejected for owner \"{}\"; the lease identity does not match the current turn",
+                owner_id
+            ));
+        }
+        let high_water = self
+            .issued_at_high_water
+            .get(owner_id)
+            .copied()
+            .unwrap_or(0)
+            .max(current.map(|lease| lease.issued_at).unwrap_or(0));
+        if issued_at <= high_water {
+            return Err(format!(
+                "Stale browser owner lease rejected for owner \"{}\"; a newer turn already owns this browser session",
+                owner_id
+            ));
+        }
+        Ok(Some(OwnerLeaseClaim {
+            owner_id: owner_id.to_string(),
+            lease,
+            supersedes_current: current.is_some(),
+        }))
+    }
+
+    fn commit(&mut self, claim: &OwnerLeaseClaim) {
+        self.issued_at_high_water.insert(
+            claim.owner_id.clone(),
+            self.issued_at_high_water
+                .get(&claim.owner_id)
+                .copied()
+                .unwrap_or(0)
+                .max(claim.lease.issued_at),
+        );
+        self.current_by_owner
+            .insert(claim.owner_id.clone(), claim.lease.clone());
+    }
+
+    fn release(&mut self, cmd: &Value) -> Result<bool, String> {
+        let Some(claim) = OwnerLeaseRegistry::default().validate_claim(cmd)? else {
+            return Err("release_owner_lease requires browser ownership fields".to_string());
+        };
+        let is_current = self.current_by_owner.get(&claim.owner_id) == Some(&claim.lease);
+        if is_current {
+            self.current_by_owner.remove(&claim.owner_id);
+        }
+        Ok(is_current)
+    }
+}
+
+async fn close_superseded_owner_tabs(
+    state: &mut DaemonState,
+    owner_id: &str,
+) -> Result<(), String> {
+    let mut closed_any = false;
+    if let Some(ref mut mgr) = state.browser {
+        for tab_id in mgr.owner_tab_ids(owner_id) {
+            closed_any |= mgr.close_tab_by_id(tab_id).await?;
+        }
+    }
+    if closed_any {
+        state.ref_map.clear();
+    }
+    Ok(())
+}
+
+/// Rejects an owner-scoped command unless the addressed tab is recorded for
+/// that exact owner. Commands without `ownerId` retain unrestricted manual/UI
+/// behavior.
+fn validate_tab_ownership(cmd: &Value, mgr: &BrowserManager, tab_id: u64) -> Result<(), String> {
+    let Some(owner_id) = command_owner_id(cmd) else {
+        return Ok(());
+    };
+    if mgr.can_owner_access_tab(Some(owner_id), tab_id) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Tab {} is not owned by browser owner \"{}\"; it belongs to another browser owner or has been released",
+            tab_id, owner_id
+        ))
+    }
+}
+
+/// Validates `finalize_tabs`/`close_owner` action-specific inputs after the
+/// common owner-lease fence has authenticated the caller. `keep` is optional
+/// (missing means "close everything") but must be well-formed when present.
 fn validate_owner_finalization(cmd: &Value, action: &str) -> Result<(), String> {
     let owner_id = command_owner_id(cmd)
         .ok_or_else(|| format!("Action '{}' requires a non-empty ownerId", action))?;
@@ -526,6 +674,7 @@ pub struct DaemonState {
     pub stream_server: Option<Arc<StreamServer>>,
     /// Signals the daemon accept loop to stop gracefully.
     pub daemon_shutdown_tx: Option<mpsc::UnboundedSender<()>>,
+    owner_leases: OwnerLeaseRegistry,
 }
 
 impl DaemonState {
@@ -566,6 +715,7 @@ impl DaemonState {
                 .ok()
                 .filter(|s| !s.is_empty()),
             stream_client: None,
+            owner_leases: OwnerLeaseRegistry::default(),
             stream_server: None,
             daemon_shutdown_tx: None,
         }
@@ -978,6 +1128,29 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         return error_response(&id, &format!("Not yet implemented: {}", action));
     }
 
+    if action == "release_owner_lease" {
+        return match state.owner_leases.release(cmd) {
+            Ok(released) => success_response(&id, json!({ "released": released })),
+            Err(error) => error_response(&id, &error),
+        };
+    }
+
+    let owner_lease_claim = match state.owner_leases.validate_claim(cmd) {
+        Ok(claim) => claim,
+        Err(error) => return error_response(&id, &error),
+    };
+    if let Some(ref claim) = owner_lease_claim {
+        if claim.supersedes_current {
+            if let Err(error) = close_superseded_owner_tabs(state, &claim.owner_id).await {
+                return error_response(
+                    &id,
+                    &format!("Failed to clean up the superseded browser lease: {}", error),
+                );
+            }
+        }
+        state.owner_leases.commit(claim);
+    }
+
     let chain_actions = if action == "chain" {
         match validate_chain_actions(cmd) {
             Ok(actions) => actions,
@@ -1172,21 +1345,68 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
                 state.browser = None;
                 state.update_stream_client().await;
             }
-            if let Err(e) = auto_launch(state).await {
+            if let Err(e) = auto_launch(state, command_owner_id(cmd)).await {
                 return error_response(&id, &format!("Auto-launch failed: {}", e));
             }
         }
 
+        // Validate an explicit stable tab id before creating or selecting any
+        // owner tab. This prevents a rejected foreign-tab command from
+        // mutating browser state as a side effect.
+        if let Some(tab_id_value) = cmd.get("tabId") {
+            let Some(tab_id) = tab_id_value.as_u64().filter(|tab_id| *tab_id > 0) else {
+                return error_response(&id, "'tabId' must be a positive integer");
+            };
+            if let Some(ref mgr) = state.browser {
+                if let Err(error) = validate_tab_ownership(cmd, mgr, tab_id) {
+                    return error_response(&id, &error);
+                }
+            }
+        }
+
         if let Some(ref mut mgr) = state.browser {
-            if mgr.page_count() == 0 {
-                // The blank page exists only because this command needed one,
-                // so it belongs to this command's owner: finalize_tabs must
-                // be able to reap implicit helper tabs (e.g. the privileged
-                // fetch owner's cookies_get tab) too.
-                if let Ok(Some(tab_id)) = mgr.ensure_page().await {
-                    if let Some(owner_id) = command_owner_id(cmd) {
-                        mgr.record_owner_tab(owner_id, tab_id);
+            if let Some(owner_id) = command_owner_id(cmd) {
+                // An owner's first implicit page must be its own even when
+                // other owners or the user already have tabs in the shared
+                // in-app browser. Explicit tab commands resolve the requested
+                // tab instead, and tab_new creates/records its own page.
+                if mgr.owner_tab_ids(owner_id).is_empty()
+                    && cmd.get("tabId").is_none()
+                    && !matches!(action, "tab_new" | "tab_switch" | "tab_close")
+                {
+                    match mgr.tab_new(None).await {
+                        Ok(result) => {
+                            if let Some(tab_id) = result.get("tabId").and_then(Value::as_u64) {
+                                mgr.record_owner_tab(owner_id, tab_id);
+                                state.ref_map.clear();
+                            }
+                        }
+                        Err(error) => return error_response(&id, &error),
                     }
+                }
+
+                // Commands without an explicit tab address operate on the
+                // owner's logical active tab, not whichever other owner most
+                // recently changed the process-global CDP page.
+                if cmd.get("tabId").is_none()
+                    && !matches!(action, "tab_list" | "tab_new" | "tab_switch" | "tab_close")
+                {
+                    if let Some(tab_id) = mgr.active_tab_id_for_owner(Some(owner_id)) {
+                        match mgr.select_tab_by_id(tab_id).await {
+                            Ok(switched) => {
+                                if switched {
+                                    state.ref_map.clear();
+                                }
+                            }
+                            Err(error) => return error_response(&id, &error),
+                        }
+                    }
+                }
+            } else if mgr.page_count() == 0 {
+                // Legacy/manual requests remain unowned and retain the old
+                // shared-page behavior.
+                if let Err(error) = mgr.ensure_page().await {
+                    return error_response(&id, &error);
                 }
             }
         }
@@ -1250,6 +1470,9 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
                     if let Some(ref mut mgr) = state.browser {
                         match mgr.select_tab_by_id(tab_id).await {
                             Ok(switched) => {
+                                if let Some(owner_id) = command_owner_id(cmd) {
+                                    mgr.mark_owner_tab_active(owner_id, tab_id);
+                                }
                                 if switched {
                                     state.ref_map.clear();
                                 }
@@ -1342,7 +1565,7 @@ async fn dispatch_action(
         "recording_stop" => handle_recording_stop(state).await,
         "recording_restart" => handle_recording_restart(cmd, state).await,
         "pdf" => handle_pdf(cmd, state).await,
-        "tab_list" => handle_tab_list(state).await,
+        "tab_list" => handle_tab_list(cmd, state).await,
         "tab_new" => handle_tab_new(cmd, state).await,
         "tab_switch" => handle_tab_switch(cmd, state).await,
         "tab_close" => handle_tab_close(cmd, state).await,
@@ -1441,11 +1664,9 @@ async fn dispatch_action(
         // arm means a nested chain step slipped past validation.
         "chain" => Err("Chain steps cannot contain a nested chain".to_string()),
         "finalize_tabs" | "close_owner" => handle_finalize_tabs(action, cmd, state).await,
-        // The extension-era owner-lease protocol does not exist on this
-        // backend: session teardown's lease release is a graceful no-op so
-        // dispose() stops surfacing (and swallowing) an error on every
-        // teardown. Response shape matches the extension handler.
-        "release_owner_lease" => Ok(json!({ "released": true })),
+        // Handled before launch/policy dispatch so release never creates a
+        // browser and stale cleanup cannot reach tab mutation.
+        "release_owner_lease" => unreachable!("release handled before dispatch"),
         "cookies_export_all" | "cookies_export_for_urls" => Err(format!(
             "Action '{}' requires the extension backend (it exports cookies from the user's real browser)",
             action
@@ -1509,8 +1730,7 @@ async fn wait_for_chain_step_selector(
         return true;
     };
     let session_id = session_id.to_string();
-    let deadline =
-        tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
     loop {
         if super::element::resolve_element_object_id(
             &mgr.client,
@@ -1624,11 +1844,39 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                     step_object.insert("tabId".to_string(), json!(tab_id));
                 }
             }
-            for key in ["ownerId", "ownerLeaseId", "ownerLeaseIssuedAt"] {
-                if !step_object.contains_key(key) {
-                    if let Some(value) = cmd.get(key) {
-                        step_object.insert(key.to_string(), value.clone());
+            for key in [
+                "ownerId",
+                "sessionId",
+                "turnId",
+                "ownerLeaseId",
+                "ownerLeaseIssuedAt",
+            ] {
+                // The chain container is the authorization boundary. A step
+                // cannot replace its caller identity to gain another owner's
+                // tabs.
+                if let Some(value) = cmd.get(key) {
+                    step_object.insert(key.to_string(), value.clone());
+                }
+            }
+        }
+
+        if let Some(tab_id) = step_cmd
+            .get("tabId")
+            .and_then(Value::as_u64)
+            .filter(|tab_id| *tab_id > 0)
+        {
+            if let Some(ref mgr) = state.browser {
+                if let Err(error) = validate_tab_ownership(&step_cmd, mgr, tab_id) {
+                    results.push(chain_step_failure(
+                        index,
+                        action,
+                        error,
+                        step_start.elapsed().as_millis() as u64,
+                    ));
+                    if abort_on_error {
+                        break;
                     }
+                    continue;
                 }
             }
         }
@@ -1656,6 +1904,9 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                         if let Some(ref mut mgr) = state.browser {
                             match mgr.select_tab_by_id(tab_id).await {
                                 Ok(switched) => {
+                                    if let Some(owner_id) = command_owner_id(&step_cmd) {
+                                        mgr.mark_owner_tab_active(owner_id, tab_id);
+                                    }
                                     if switched {
                                         state.ref_map.clear();
                                     }
@@ -1710,9 +1961,7 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                     .saturating_duration_since(tokio::time::Instant::now())
                     .as_millis() as u64;
                 let budget = wait_timeout_ms.min(remaining);
-                if budget == 0
-                    || !wait_for_chain_step_selector(state, selector, budget).await
-                {
+                if budget == 0 || !wait_for_chain_step_selector(state, selector, budget).await {
                     results.push(chain_step_failure(
                         index,
                         action,
@@ -2009,7 +2258,10 @@ async fn export_extension_cookies_for_urls(cmd: &Value, bridge: &ExtensionBridge
         }
     }
 
-    success_response(&id, json!({ "cookies": cookies, "compatibilityMode": true }))
+    success_response(
+        &id,
+        json!({ "cookies": cookies, "compatibilityMode": true }),
+    )
 }
 
 pub(crate) async fn forward_extension_command(cmd: &Value, bridge: &ExtensionBridge) -> Value {
@@ -2054,9 +2306,12 @@ fn normalize_extension_response(id: &str, response: &Value) -> Value {
 
 /// Connect to a running Chrome via auto-discovery and open a fresh tab so
 /// subsequent navigations don't hijack the user's existing tabs.
-async fn connect_auto_with_fresh_tab() -> Result<BrowserManager, String> {
+async fn connect_auto_with_fresh_tab(owner_id: Option<&str>) -> Result<BrowserManager, String> {
     let mut mgr = BrowserManager::connect_auto().await?;
-    mgr.tab_new(None).await?;
+    let tab = mgr.tab_new(None).await?;
+    if let (Some(owner_id), Some(tab_id)) = (owner_id, tab.get("tabId").and_then(Value::as_u64)) {
+        mgr.record_owner_tab(owner_id, tab_id);
+    }
     let session_id = mgr.active_session_id()?.to_string();
     let _ = mgr
         .client
@@ -2077,7 +2332,7 @@ fn requested_provider(cmd: Option<&Value>) -> Option<String> {
     .filter(|provider| !provider.is_empty())
 }
 
-async fn auto_launch(state: &mut DaemonState) -> Result<(), String> {
+async fn auto_launch(state: &mut DaemonState, owner_id: Option<&str>) -> Result<(), String> {
     let options = launch_options_from_env();
     let engine = env::var("STELLA_BROWSER_ENGINE").ok();
 
@@ -2091,7 +2346,7 @@ async fn auto_launch(state: &mut DaemonState) -> Result<(), String> {
     }
 
     if env::var("STELLA_BROWSER_AUTO_CONNECT").is_ok() {
-        state.browser = Some(connect_auto_with_fresh_tab().await?);
+        state.browser = Some(connect_auto_with_fresh_tab(owner_id).await?);
         state.subscribe_to_browser_events();
         state.update_stream_client().await;
         try_auto_restore_state(state).await;
@@ -2274,7 +2529,7 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
     }
 
     if auto_connect {
-        state.browser = Some(connect_auto_with_fresh_tab().await?);
+        state.browser = Some(connect_auto_with_fresh_tab(command_owner_id(cmd)).await?);
         state.backend_type = BackendType::Cdp;
         state.subscribe_to_browser_events();
         state.update_stream_client().await;
@@ -3877,10 +4132,14 @@ async fn handle_keyboard(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
 // Phase 5 handlers
 // ---------------------------------------------------------------------------
 
-async fn handle_tab_list(state: &DaemonState) -> Result<Value, String> {
+async fn handle_tab_list(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    let tabs = mgr.tab_list();
-    Ok(json!({ "tabs": tabs, "activeTabId": mgr.active_tab_id() }))
+    let owner_id = command_owner_id(cmd);
+    let tabs = mgr.tab_list_for_owner(owner_id);
+    Ok(json!({
+        "tabs": tabs,
+        "activeTabId": mgr.active_tab_id_for_owner(owner_id),
+    }))
 }
 
 async fn handle_tab_new(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
@@ -3982,6 +4241,7 @@ fn resolve_tab_index(cmd: &Value, mgr: &BrowserManager) -> Result<Option<usize>,
             .as_u64()
             .filter(|id| *id > 0)
             .ok_or("'tabId' must be a positive integer")?;
+        validate_tab_ownership(cmd, mgr, tab_id)?;
         let index = mgr.tab_index_by_id(tab_id).ok_or_else(|| {
             format!(
                 "Unknown tabId {}. The tab may have been closed; run tab_list to see current tabs.",
@@ -3990,22 +4250,56 @@ fn resolve_tab_index(cmd: &Value, mgr: &BrowserManager) -> Result<Option<usize>,
         })?;
         return Ok(Some(index));
     }
-    Ok(cmd.get("index").and_then(|v| v.as_u64()).map(|i| i as usize))
+    let index = cmd
+        .get("index")
+        .and_then(|v| v.as_u64())
+        .map(|i| i as usize);
+    if let Some(index) = index {
+        if let Some(tab_id) = mgr
+            .tab_list()
+            .get(index)
+            .and_then(|tab| tab["tabId"].as_u64())
+        {
+            validate_tab_ownership(cmd, mgr, tab_id)?;
+        }
+    }
+    Ok(index)
 }
 
 async fn handle_tab_switch(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
     let index =
         resolve_tab_index(cmd, mgr)?.ok_or("Missing 'tabId' (or legacy 'index') parameter")?;
+    let tab_id = mgr
+        .tab_list()
+        .get(index)
+        .and_then(|tab| tab["tabId"].as_u64());
     state.ref_map.clear();
-    mgr.tab_switch(index).await
+    let result = mgr.tab_switch(index).await?;
+    if let (Some(owner_id), Some(tab_id)) = (command_owner_id(cmd), tab_id) {
+        mgr.mark_owner_tab_active(owner_id, tab_id);
+    }
+    Ok(result)
 }
 
 async fn handle_tab_close(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
     let mgr = state.browser.as_mut().ok_or("Browser not launched")?;
-    let index = resolve_tab_index(cmd, mgr)?;
+    let mut index = resolve_tab_index(cmd, mgr)?;
+    if index.is_none() {
+        if let Some(owner_id) = command_owner_id(cmd) {
+            let tab_id = mgr
+                .active_tab_id_for_owner(Some(owner_id))
+                .ok_or("Browser owner has no active tab to close")?;
+            validate_tab_ownership(cmd, mgr, tab_id)?;
+            index = mgr.tab_index_by_id(tab_id);
+        }
+    }
     state.ref_map.clear();
-    mgr.tab_close(index).await
+    let mut result = mgr.tab_close(index).await?;
+    if let Some(owner_id) = command_owner_id(cmd) {
+        result["activeTabId"] = json!(mgr.active_tab_id_for_owner(Some(owner_id)));
+    }
+    Ok(result)
 }
 
 async fn handle_viewport(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -5268,22 +5562,12 @@ async fn handle_drag(cmd: &Value, state: &mut DaemonState) -> Result<Value, Stri
     // win the hit-test (the pointer actually grabs it); the target only needs
     // to be visible with a stable point (drop zones are often overlaid by
     // placeholder/preview elements).
-    let source_point = interaction::wait_for_actionable(
-        &mgr.client,
-        &session_id,
-        &state.ref_map,
-        source,
-        true,
-    )
-    .await?;
-    let target_point = interaction::wait_for_actionable(
-        &mgr.client,
-        &session_id,
-        &state.ref_map,
-        target,
-        false,
-    )
-    .await?;
+    let source_point =
+        interaction::wait_for_actionable(&mgr.client, &session_id, &state.ref_map, source, true)
+            .await?;
+    let target_point =
+        interaction::wait_for_actionable(&mgr.client, &session_id, &state.ref_map, target, false)
+            .await?;
     let (sx, sy) = (source_point.x, source_point.y);
     let (tx, ty) = (target_point.x, target_point.y);
 
@@ -6059,7 +6343,11 @@ async fn har_collect_pending_bodies(state: &mut DaemonState) {
     }
 
     let pending: Vec<String> = std::mem::take(&mut state.har_pending_bodies);
-    let session_id = match state.browser.as_ref().and_then(|mgr| mgr.active_session_id().ok()) {
+    let session_id = match state
+        .browser
+        .as_ref()
+        .and_then(|mgr| mgr.active_session_id().ok())
+    {
         Some(id) => id.to_string(),
         None => return,
     };
@@ -7203,6 +7491,22 @@ mod tests {
     use super::*;
     use crate::test_utils::EnvGuard;
 
+    fn with_owner_lease(
+        mut command: Value,
+        owner_id: &str,
+        turn_id: &str,
+        lease_id: &str,
+        issued_at: u64,
+    ) -> Value {
+        let object = command.as_object_mut().unwrap();
+        object.insert("ownerId".to_string(), json!(owner_id));
+        object.insert("sessionId".to_string(), json!(owner_id));
+        object.insert("turnId".to_string(), json!(turn_id));
+        object.insert("ownerLeaseId".to_string(), json!(lease_id));
+        object.insert("ownerLeaseIssuedAt".to_string(), json!(issued_at));
+        command
+    }
+
     #[test]
     fn test_success_response_structure() {
         let resp = success_response("cmd-1", json!({"url": "https://example.com"}));
@@ -7448,7 +7752,11 @@ mod tests {
     fn test_chain_random_delay_stays_within_bounds() {
         for _ in 0..64 {
             let delay = chain_random_delay_ms(300, 1_200);
-            assert!((300..=1_200).contains(&delay), "delay {} out of range", delay);
+            assert!(
+                (300..=1_200).contains(&delay),
+                "delay {} out of range",
+                delay
+            );
         }
         assert_eq!(chain_random_delay_ms(500, 500), 500);
         assert_eq!(chain_random_delay_ms(700, 100), 700);
@@ -7513,34 +7821,143 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_release_owner_lease_is_a_graceful_noop_on_cdp() {
+    async fn test_release_owner_lease_is_exact_and_idempotent_on_cdp() {
         let mut state = DaemonState::new();
-        let release = json!({
-            "id": "release",
-            "action": "release_owner_lease",
-            "ownerId": "worker-1",
-            "ownerLeaseId": "lease-1",
-            "ownerLeaseIssuedAt": 1,
-        });
+        let claim = with_owner_lease(
+            json!({ "id": "claim", "action": "healthcheck" }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            1,
+        );
+        assert_eq!(execute_command(&claim, &mut state).await["success"], true);
+        let release = with_owner_lease(
+            json!({ "id": "release", "action": "release_owner_lease" }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            1,
+        );
 
-        // Every BrowserSession.dispose() fires this on teardown; it must
-        // succeed (idempotently) instead of erroring on the CDP backend.
-        for _ in 0..2 {
-            let response = execute_command(&release, &mut state).await;
-            assert_eq!(response["success"], true, "response: {}", response);
-            assert_eq!(response["data"]["released"], true);
-        }
-        assert!(state.browser.is_none(), "lease release must not auto-launch");
+        let response = execute_command(&release, &mut state).await;
+        assert_eq!(response["success"], true, "response: {}", response);
+        assert_eq!(response["data"]["released"], true);
+        let response = execute_command(&release, &mut state).await;
+        assert_eq!(response["success"], true, "response: {}", response);
+        assert_eq!(response["data"]["released"], false);
+        assert!(
+            state.browser.is_none(),
+            "lease release must not auto-launch"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_released_and_superseded_owner_leases_fail_closed() {
+        let mut state = DaemonState::new();
+        let first = with_owner_lease(
+            json!({ "id": "first", "action": "healthcheck" }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            100,
+        );
+        assert_eq!(execute_command(&first, &mut state).await["success"], true);
+
+        let release = with_owner_lease(
+            json!({ "id": "release", "action": "release_owner_lease" }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            100,
+        );
+        assert_eq!(
+            execute_command(&release, &mut state).await["data"]["released"],
+            true
+        );
+
+        let replay = execute_command(&first, &mut state).await;
+        assert_eq!(replay["success"], false, "response: {}", replay);
+        assert!(replay["error"]
+            .as_str()
+            .unwrap()
+            .contains("Stale browser owner lease"));
+
+        let newer = with_owner_lease(
+            json!({ "id": "newer", "action": "healthcheck" }),
+            "worker-1",
+            "turn-2",
+            "lease-2",
+            200,
+        );
+        assert_eq!(execute_command(&newer, &mut state).await["success"], true);
+
+        let stale_cleanup = with_owner_lease(
+            json!({ "id": "stale", "action": "finalize_tabs", "keep": [] }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            100,
+        );
+        let response = execute_command(&stale_cleanup, &mut state).await;
+        assert_eq!(response["success"], false, "response: {}", response);
+        assert!(response["error"]
+            .as_str()
+            .unwrap()
+            .contains("Stale browser owner lease"));
+    }
+
+    #[test]
+    fn test_owner_lease_identity_cannot_change_with_same_lease_id() {
+        let mut registry = OwnerLeaseRegistry::default();
+        let initial = with_owner_lease(
+            json!({ "action": "healthcheck" }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            100,
+        );
+        let claim = registry.validate_claim(&initial).unwrap().unwrap();
+        registry.commit(&claim);
+
+        let changed_turn = with_owner_lease(
+            json!({ "action": "healthcheck" }),
+            "worker-1",
+            "turn-2",
+            "lease-1",
+            100,
+        );
+        assert!(registry
+            .validate_claim(&changed_turn)
+            .unwrap_err()
+            .contains("lease identity does not match"));
     }
 
     #[tokio::test]
     async fn test_owner_finalization_without_browser_succeeds_with_empty_results() {
         let mut state = DaemonState::new();
         for cmd in [
-            json!({ "id": "f1", "action": "finalize_tabs", "ownerId": "worker-1", "keep": [] }),
-            // `keep` is optional on the CDP backend: ownerId alone suffices.
-            json!({ "id": "f2", "action": "finalize_tabs", "ownerId": "worker-1" }),
-            json!({ "id": "c1", "action": "close_owner", "ownerId": "worker-1" }),
+            with_owner_lease(
+                json!({ "id": "f1", "action": "finalize_tabs", "keep": [] }),
+                "worker-1",
+                "turn-1",
+                "lease-1",
+                1,
+            ),
+            // `keep` is optional; the owner lease still remains mandatory.
+            with_owner_lease(
+                json!({ "id": "f2", "action": "finalize_tabs" }),
+                "worker-1",
+                "turn-1",
+                "lease-1",
+                1,
+            ),
+            with_owner_lease(
+                json!({ "id": "c1", "action": "close_owner" }),
+                "worker-1",
+                "turn-1",
+                "lease-1",
+                1,
+            ),
         ] {
             let response = execute_command(&cmd, &mut state).await;
             assert_eq!(response["success"], true, "response: {}", response);
@@ -7554,15 +7971,20 @@ mod tests {
     #[tokio::test]
     async fn test_finalize_tabs_echoes_keep_entries_in_kept() {
         let mut state = DaemonState::new();
-        let cmd = json!({
-            "id": "finalize-keep",
-            "action": "finalize_tabs",
-            "ownerId": "worker-1",
-            "keep": [
-                { "tabId": 4, "status": "handoff" },
-                { "tabId": 9, "status": "deliverable" },
-            ],
-        });
+        let cmd = with_owner_lease(
+            json!({
+                "id": "finalize-keep",
+                "action": "finalize_tabs",
+                "keep": [
+                    { "tabId": 4, "status": "handoff" },
+                    { "tabId": 9, "status": "deliverable" },
+                ],
+            }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            1,
+        );
         let response = execute_command(&cmd, &mut state).await;
         assert_eq!(response["success"], true, "response: {}", response);
         assert_eq!(
@@ -7589,14 +8011,17 @@ mod tests {
             })
         };
 
-        assert!(validate_owner_finalization(&base(json!("nope")), "finalize_tabs")
-            .unwrap_err()
-            .contains("keep must be an array"));
         assert!(
-            validate_owner_finalization(&base(json!([{ "tabId": 0, "status": "handoff" }])), "finalize_tabs")
+            validate_owner_finalization(&base(json!("nope")), "finalize_tabs")
                 .unwrap_err()
-                .contains("positive integer")
+                .contains("keep must be an array")
         );
+        assert!(validate_owner_finalization(
+            &base(json!([{ "tabId": 0, "status": "handoff" }])),
+            "finalize_tabs"
+        )
+        .unwrap_err()
+        .contains("positive integer"));
         assert!(validate_owner_finalization(
             &base(json!([
                 { "tabId": 2, "status": "handoff" },
@@ -7606,11 +8031,12 @@ mod tests {
         )
         .unwrap_err()
         .contains("duplicate"));
-        assert!(
-            validate_owner_finalization(&base(json!([{ "tabId": 2, "status": "keep" }])), "finalize_tabs")
-                .unwrap_err()
-                .contains("invalid status")
-        );
+        assert!(validate_owner_finalization(
+            &base(json!([{ "tabId": 2, "status": "keep" }])),
+            "finalize_tabs"
+        )
+        .unwrap_err()
+        .contains("invalid status"));
         assert!(validate_owner_finalization(
             &base(json!([{ "tabId": 2, "status": "handoff", "extra": true }])),
             "finalize_tabs"
@@ -7618,10 +8044,11 @@ mod tests {
         .unwrap_err()
         .contains("unknown fields"));
 
-        // Missing keep is allowed: CDP finalization needs only ownerId.
+        // Missing keep is valid at the action-shape layer; execute_command
+        // separately requires and authenticates the complete owner lease.
         let no_keep = json!({ "id": "finalize", "action": "finalize_tabs", "ownerId": "worker-1" });
         assert!(validate_owner_finalization(&no_keep, "finalize_tabs").is_ok());
-        // The extension-era lease fields are not required.
+        // Lease validation is a separate execute_command concern.
         assert!(validate_owner_finalization(
             &json!({ "action": "close_owner", "ownerId": "worker-1" }),
             "close_owner"

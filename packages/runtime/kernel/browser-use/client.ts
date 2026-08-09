@@ -23,6 +23,8 @@ const DEFAULT_BROWSER_CHAIN_WAIT_TIMEOUT_MS = 10_000;
 const BROWSER_CHAIN_STEP_BUDGET_MS = 1_000;
 const MIN_BROWSER_CHAIN_TIMEOUT_MS = 3 * 60_000;
 const MAX_BROWSER_CHAIN_TIMEOUT_MS = 4 * 60_000;
+const MAX_BROWSER_TURN_CLEANUP_TIMEOUT_MS = 2_000;
+let lastBrowserOwnerLeaseIssuedAt = Date.now();
 
 // Contract-checked against packages/stella-browser/protocol/actions.json
 // ("chain": true) by tests/runtime/kernel/browser-use/action-contract.test.ts:
@@ -107,11 +109,19 @@ export type BrowserJsonValue =
   | Readonly<{ [key: string]: BrowserJsonValue }>;
 export type BrowserCommandParams = Readonly<Record<string, BrowserJsonValue>>;
 export type BrowserBridgeEnvironmentProvider = () => Record<string, string>;
+export type InAppBrowserCapability = Readonly<{
+  bridgeSessionId: string;
+  capabilityExpiresAt: number;
+}>;
 export type InAppBrowserInitializer = (options: {
   env: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   timeoutMs: number;
-}) => Promise<boolean>;
+  sessionId: string;
+  turnId: string;
+  ownerLeaseId: string;
+  ownerLeaseIssuedAt: number;
+}) => Promise<InAppBrowserCapability | boolean>;
 
 export type BrowserCommandResult<TData = unknown> =
   | (Readonly<{
@@ -203,6 +213,7 @@ export type BrowserSessionOptions = Readonly<{
   initializeInAppBrowser?: InAppBrowserInitializer;
   ownerLeaseId?: string;
   ownerLeaseIssuedAt?: number;
+  turnId?: string;
 }>;
 
 export const BROWSER_SESSION_CLIENT_METHODS = [
@@ -224,6 +235,8 @@ export interface BrowserSessionClient {
     steps: readonly BrowserChainStep[],
     options?: BrowserChainOptions,
   ): Promise<BrowserCommandReceipt<BrowserChainResult<TData>>>;
+  beginTurn?(turnId: string): void;
+  endTurn?(turnId: string): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -318,6 +331,8 @@ const RESERVED_PARAM_KEYS = new Set([
   "id",
   "action",
   "ownerId",
+  "sessionId",
+  "turnId",
   "ownerLeaseId",
   "ownerLeaseIssuedAt",
 ]);
@@ -383,108 +398,150 @@ export const initializeStellaInAppBrowser: InAppBrowserInitializer = async ({
   env,
   signal,
   timeoutMs,
+  sessionId,
+  turnId,
+  ownerLeaseId,
+  ownerLeaseIssuedAt,
 }) => {
   throwIfAborted(signal);
   let token = "";
   try {
-    token = readFileSync(getStellaInAppBrowserInitTokenPath(env), "utf8").trim();
+    token = readFileSync(
+      getStellaInAppBrowserInitTokenPath(env),
+      "utf8",
+    ).trim();
   } catch {
     return false;
   }
   if (!token) return false;
   const endpoint = getStellaInAppBrowserInitEndpoint(env);
 
-  return await new Promise<boolean>((resolve, reject) => {
-    let settled = false;
-    let connected = false;
-    let buffer = "";
-    const socket =
-      "path" in endpoint
-        ? createConnection({ path: endpoint.path })
-        : createConnection({ host: endpoint.host, port: endpoint.port });
+  return await new Promise<InAppBrowserCapability | boolean>(
+    (resolve, reject) => {
+      let settled = false;
+      let connected = false;
+      let buffer = "";
+      const socket =
+        "path" in endpoint
+          ? createConnection({ path: endpoint.path })
+          : createConnection({ host: endpoint.host, port: endpoint.port });
 
-    const cleanup = () => {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", onAbort);
-      socket.removeAllListeners();
-      if (!socket.destroyed) socket.destroy();
-    };
-    const finish = (value: boolean) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(value);
-    };
-    const fail = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    };
-    const onAbort = () => fail(abortReason(signal!));
-    const timeout = setTimeout(
-      () =>
-        fail(
-          new Error(
-            `In-app browser initialization timed out after ${timeoutMs}ms.`,
+      const cleanup = () => {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+        socket.removeAllListeners();
+        if (!socket.destroyed) socket.destroy();
+      };
+      const finish = (value: InAppBrowserCapability | boolean) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+      const onAbort = () => fail(abortReason(signal!));
+      const timeout = setTimeout(
+        () =>
+          fail(
+            new Error(
+              `In-app browser initialization timed out after ${timeoutMs}ms.`,
+            ),
           ),
-        ),
-      Math.max(1, timeoutMs),
-    );
+        Math.max(1, timeoutMs),
+      );
 
-    signal?.addEventListener("abort", onAbort, { once: true });
-    socket.setEncoding("utf8");
-    socket.once("connect", () => {
-      connected = true;
-      socket.write(`${JSON.stringify({ action: "ensure", token })}\n`);
-    });
-    socket.on("data", (chunk: string) => {
-      buffer += chunk;
-      if (Buffer.byteLength(buffer) > 16 * 1024) {
-        fail(new Error("In-app browser initialization response is too large."));
-        return;
-      }
-      const newline = buffer.indexOf("\n");
-      if (newline < 0) return;
-      try {
-        const response = JSON.parse(buffer.slice(0, newline)) as Record<
-          string,
-          unknown
-        >;
-        if (response.success === true) {
-          finish(true);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      socket.setEncoding("utf8");
+      socket.once("connect", () => {
+        connected = true;
+        socket.write(
+          `${JSON.stringify({
+            action: "ensure",
+            token,
+            sessionId,
+            turnId,
+            ownerLeaseId,
+            ownerLeaseIssuedAt,
+          })}\n`,
+        );
+      });
+      socket.on("data", (chunk: string) => {
+        buffer += chunk;
+        if (Buffer.byteLength(buffer) > 16 * 1024) {
+          fail(
+            new Error("In-app browser initialization response is too large."),
+          );
           return;
         }
-        fail(
-          new Error(
-            typeof response.error === "string"
-              ? response.error
-              : "Failed to initialize the in-app browser.",
-          ),
-        );
-      } catch (error) {
-        fail(
-          new Error(
-            `In-app browser initialization returned invalid JSON: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          ),
-        );
-      }
-    });
-    socket.once("error", (error) => {
-      if (!connected && isUnavailableInitializerError(error)) {
-        finish(false);
-        return;
-      }
-      fail(error);
-    });
-    socket.once("close", () => {
-      if (!settled) {
-        fail(new Error("In-app browser initialization connection closed."));
-      }
-    });
-  });
+        const newline = buffer.indexOf("\n");
+        if (newline < 0) return;
+        try {
+          const response = JSON.parse(buffer.slice(0, newline)) as Record<
+            string,
+            unknown
+          >;
+          const data = response.data;
+          if (
+            response.success === true &&
+            typeof data === "object" &&
+            data !== null &&
+            !Array.isArray(data) &&
+            typeof (data as Record<string, unknown>).bridgeSessionId ===
+              "string" &&
+            ((data as Record<string, unknown>).bridgeSessionId as string).trim()
+              .length > 0 &&
+            typeof (data as Record<string, unknown>).capabilityExpiresAt ===
+              "number" &&
+            Number.isSafeInteger(
+              (data as Record<string, unknown>).capabilityExpiresAt,
+            )
+          ) {
+            finish(
+              Object.freeze({
+                bridgeSessionId: (data as Record<string, unknown>)
+                  .bridgeSessionId as string,
+                capabilityExpiresAt: (data as Record<string, unknown>)
+                  .capabilityExpiresAt as number,
+              }),
+            );
+            return;
+          }
+          fail(
+            new Error(
+              typeof response.error === "string"
+                ? response.error
+                : "Failed to initialize the in-app browser.",
+            ),
+          );
+        } catch (error) {
+          fail(
+            new Error(
+              `In-app browser initialization returned invalid JSON: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            ),
+          );
+        }
+      });
+      socket.once("error", (error) => {
+        if (!connected && isUnavailableInitializerError(error)) {
+          finish(false);
+          return;
+        }
+        fail(error);
+      });
+      socket.once("close", () => {
+        if (!settled) {
+          fail(new Error("In-app browser initialization connection closed."));
+        }
+      });
+    },
+  );
 };
 
 const validateJson = (
@@ -815,15 +872,25 @@ export class BrowserSession implements BrowserSessionClient {
   private readonly runner: BrowserCommandRunner;
   private readonly getBridgeEnv: BrowserBridgeEnvironmentProvider;
   private readonly initializeInAppBrowser: InAppBrowserInitializer;
-  private readonly ownerLeaseId: string;
-  private readonly ownerLeaseIssuedAt: number;
+  private readonly configuredOwnerLeaseId?: string;
+  private readonly configuredOwnerLeaseIssuedAt?: number;
+  private readonly configuredTurnId?: string;
+  private configuredLeaseConsumed = false;
+  private activeTurn?: Readonly<{
+    turnId: string;
+    ownerLeaseId: string;
+    ownerLeaseIssuedAt: number;
+  }>;
   private executionConfig?: ResolvedExecutionConfig;
   private socket?: Socket;
   private connectingSocket?: Socket;
   private readBuffer = EMPTY_BUFFER;
   private pending?: PendingResponse;
   private fallbackAttempted = false;
-  private inAppBrowserInitialized = false;
+  private inAppBrowserCapability?: InAppBrowserCapability & {
+    turnId: string;
+    ownerLeaseId: string;
+  };
   private queue: Promise<void> = Promise.resolve();
   private disposed = false;
   private disposePromise?: Promise<void>;
@@ -870,19 +937,63 @@ export class BrowserSession implements BrowserSessionClient {
     this.getBridgeEnv = options.getBridgeEnv ?? getStellaBrowserBridgeEnv;
     this.initializeInAppBrowser =
       options.initializeInAppBrowser ?? initializeStellaInAppBrowser;
-    this.ownerLeaseId =
+    this.configuredOwnerLeaseId =
       options.ownerLeaseId === undefined
         ? randomUUID()
         : requireNonEmptyString(options.ownerLeaseId, "ownerLeaseId");
-    this.ownerLeaseIssuedAt = requirePositiveInteger(
-      options.ownerLeaseIssuedAt ?? Date.now(),
+    this.configuredOwnerLeaseIssuedAt = requirePositiveInteger(
+      options.ownerLeaseIssuedAt ??
+        Math.max(Date.now(), lastBrowserOwnerLeaseIssuedAt + 1),
       "ownerLeaseIssuedAt",
     );
+    lastBrowserOwnerLeaseIssuedAt = Math.max(
+      lastBrowserOwnerLeaseIssuedAt,
+      this.configuredOwnerLeaseIssuedAt,
+    );
+    this.configuredTurnId =
+      options.turnId === undefined
+        ? undefined
+        : requireNonEmptyString(options.turnId, "turnId");
     this.signal?.addEventListener("abort", this.onSessionAbort, { once: true });
   }
 
   get isDisposed(): boolean {
     return this.disposed;
+  }
+
+  beginTurn(turnId: string): void {
+    this.assertOpen();
+    const validatedTurnId = requireNonEmptyString(turnId, "turnId");
+    if (this.activeTurn?.turnId === validatedTurnId) return;
+    if (this.activeTurn) {
+      throw new Error(
+        `Browser turn ${this.activeTurn.turnId} must end before ${validatedTurnId} begins.`,
+      );
+    }
+    this.activeTurn = this.createTurnLease(validatedTurnId);
+  }
+
+  async endTurn(turnId: string): Promise<void> {
+    const validatedTurnId = requireNonEmptyString(turnId, "turnId");
+    const turn = this.activeTurn;
+    if (!turn || turn.turnId !== validatedTurnId) return;
+    await this.enqueue(async () => {
+      try {
+        await this.cleanupTurn(turn, false);
+      } finally {
+        if (this.activeTurn === turn) this.activeTurn = undefined;
+        this.inAppBrowserCapability = undefined;
+        if (this.socket) {
+          this.invalidateSocket(
+            this.socket,
+            new BrowserTransportError(
+              "connection_closed",
+              "Browser turn completed.",
+            ),
+          );
+        }
+      }
+    });
   }
 
   async command<TData = unknown>(
@@ -959,31 +1070,16 @@ export class BrowserSession implements BrowserSessionClient {
     if (!this.disposePromise) {
       this.disposed = true;
       this.signal?.removeEventListener("abort", this.onSessionAbort);
+      const turn = this.activeTurn;
       const releaseLease = this.enqueue(async () => {
-        const socket = this.socket;
-        if (!socket || socket.destroyed || !socket.writable) return;
-
-        const requestId = randomUUID();
-        const timeoutMs = Math.min(this.commandTimeoutMs, 1_000);
-        const deadline = Date.now() + timeoutMs;
+        if (!turn) return;
         try {
-          await this.roundTrip(
-            {
-              id: requestId,
-              action: "release_owner_lease",
-              ownerId: this.sessionId,
-              ownerLeaseId: this.ownerLeaseId,
-              ownerLeaseIssuedAt: this.ownerLeaseIssuedAt,
-            },
-            requestId,
-            undefined,
-            deadline,
-            timeoutMs,
-            true,
-          );
+          await this.cleanupTurn(turn, true);
         } catch {
-          // Lease release is best-effort and non-destructive. A newer lease is
-          // intentionally unaffected, and transport disposal must still finish.
+          // Stale disposal and unavailable transports are best-effort. Rust
+          // lease fencing prevents this cleanup from touching a newer turn.
+        } finally {
+          if (this.activeTurn === turn) this.activeTurn = undefined;
         }
       });
       this.disposePromise = releaseLease.finally(() =>
@@ -1001,6 +1097,77 @@ export class BrowserSession implements BrowserSessionClient {
 
   private assertOpen(): void {
     if (this.disposed) throw new BrowserSessionDisposedError();
+  }
+
+  private createTurnLease(turnId: string) {
+    if (!this.configuredLeaseConsumed) {
+      this.configuredLeaseConsumed = true;
+      return Object.freeze({
+        turnId,
+        ownerLeaseId: this.configuredOwnerLeaseId!,
+        ownerLeaseIssuedAt: this.configuredOwnerLeaseIssuedAt!,
+      });
+    }
+    const ownerLeaseIssuedAt = Math.max(
+      Date.now(),
+      lastBrowserOwnerLeaseIssuedAt + 1,
+    );
+    lastBrowserOwnerLeaseIssuedAt = ownerLeaseIssuedAt;
+    return Object.freeze({
+      turnId,
+      ownerLeaseId: randomUUID(),
+      ownerLeaseIssuedAt,
+    });
+  }
+
+  private ensureTurn() {
+    if (!this.activeTurn) {
+      this.beginTurn(this.configuredTurnId ?? randomUUID());
+    }
+    return this.activeTurn!;
+  }
+
+  private async cleanupTurn(
+    turn: Readonly<{
+      turnId: string;
+      ownerLeaseId: string;
+      ownerLeaseIssuedAt: number;
+    }>,
+    allowDisposed: boolean,
+  ): Promise<void> {
+    const timeoutMs = Math.min(
+      this.commandTimeoutMs,
+      MAX_BROWSER_TURN_CLEANUP_TIMEOUT_MS,
+    );
+    const deadline = Date.now() + timeoutMs;
+    if (!this.socket || this.socket.destroyed || !this.socket.writable) {
+      await this.connectOnce(undefined, deadline, timeoutMs, allowDisposed);
+    }
+    const send = async (action: "finalize_tabs" | "release_owner_lease") => {
+      const requestId = randomUUID();
+      return await this.roundTrip(
+        {
+          id: requestId,
+          action,
+          ...(action === "finalize_tabs" ? { keep: [] } : {}),
+          ownerId: this.sessionId,
+          sessionId: this.sessionId,
+          turnId: turn.turnId,
+          ownerLeaseId: turn.ownerLeaseId,
+          ownerLeaseIssuedAt: turn.ownerLeaseIssuedAt,
+        },
+        requestId,
+        undefined,
+        deadline,
+        timeoutMs,
+        allowDisposed,
+      );
+    };
+    try {
+      await send("finalize_tabs");
+    } finally {
+      await send("release_owner_lease").catch(() => undefined);
+    }
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -1058,6 +1225,48 @@ export class BrowserSession implements BrowserSessionClient {
     return this.executionConfig;
   }
 
+  private switchBridgeSession(
+    bridgeSessionId: string,
+  ): ResolvedExecutionConfig {
+    const current = this.resolveExecutionConfig();
+    const validatedSessionId = requireNonEmptyString(
+      bridgeSessionId,
+      "bridgeSessionId",
+    );
+    if (current.bridgeSessionId === validatedSessionId) return current;
+    if (this.socket) {
+      this.invalidateSocket(
+        this.socket,
+        new BrowserTransportError(
+          "connection_closed",
+          "Browser capability switched daemon sessions.",
+          { retryable: true },
+        ),
+        true,
+      );
+    }
+    const env: NodeJS.ProcessEnv = {
+      ...current.env,
+      STELLA_BROWSER_SESSION: validatedSessionId,
+    };
+    const endpoint =
+      process.platform === "win32"
+        ? Object.freeze({
+            host: "127.0.0.1",
+            port: getBrowserDaemonPort(validatedSessionId),
+          })
+        : Object.freeze({
+            path: path.join(getSocketDir(env), `${validatedSessionId}.sock`),
+          });
+    this.executionConfig = Object.freeze({
+      binaryPath: current.binaryPath,
+      bridgeSessionId: validatedSessionId,
+      env,
+      endpoint,
+    });
+    return this.executionConfig;
+  }
+
   private async execute<TData>(
     action: string,
     params: BrowserCommandParams,
@@ -1066,15 +1275,18 @@ export class BrowserSession implements BrowserSessionClient {
   ): Promise<BrowserCommandReceipt<TData>> {
     this.assertOpen();
     throwIfAborted(signal);
-    const config = this.resolveExecutionConfig();
+    const turn = this.ensureTurn();
+    let config = this.resolveExecutionConfig();
     const requestId = randomUUID();
     const request = {
       id: requestId,
       action,
       ...params,
       ownerId: this.sessionId,
-      ownerLeaseId: this.ownerLeaseId,
-      ownerLeaseIssuedAt: this.ownerLeaseIssuedAt,
+      sessionId: this.sessionId,
+      turnId: turn.turnId,
+      ownerLeaseId: turn.ownerLeaseId,
+      ownerLeaseIssuedAt: turn.ownerLeaseIssuedAt,
     };
     const startedAt = Date.now();
     const deadline = startedAt + timeoutMs;
@@ -1086,7 +1298,12 @@ export class BrowserSession implements BrowserSessionClient {
         attempts += 1;
         try {
           if (!BROWSER_OWNER_LIFECYCLE_ACTIONS.has(action)) {
-            await this.ensureInAppBrowserReady(config, signal, deadline);
+            config = await this.ensureInAppBrowserReady(
+              config,
+              turn,
+              signal,
+              deadline,
+            );
           }
           await this.ensureConnected(signal, deadline, timeoutMs);
           response = (await this.roundTrip(
@@ -1107,6 +1324,15 @@ export class BrowserSession implements BrowserSessionClient {
             this.remainingTime(deadline) <= 0
           ) {
             throw cause;
+          }
+          if (
+            this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE ===
+            "1"
+          ) {
+            // A connect failure can happen before a socket is installed, so
+            // invalidate the turn capability explicitly and ask bootstrap for
+            // a fresh daemon on the retry.
+            this.inAppBrowserCapability = undefined;
           }
           if (this.socket) this.invalidateSocket(this.socket, cause);
         }
@@ -1151,10 +1377,22 @@ export class BrowserSession implements BrowserSessionClient {
 
   private async ensureInAppBrowserReady(
     config: ResolvedExecutionConfig,
+    turn: Readonly<{
+      turnId: string;
+      ownerLeaseId: string;
+      ownerLeaseIssuedAt: number;
+    }>,
     signal: AbortSignal | undefined,
     deadline: number,
-  ): Promise<void> {
-    if (this.inAppBrowserInitialized) return;
+  ): Promise<ResolvedExecutionConfig> {
+    const capability = this.inAppBrowserCapability;
+    if (
+      capability?.turnId === turn.turnId &&
+      capability.ownerLeaseId === turn.ownerLeaseId &&
+      capability.capabilityExpiresAt > Date.now()
+    ) {
+      return this.resolveExecutionConfig();
+    }
     const remainingMs = this.remainingTime(deadline);
     if (remainingMs <= 0) {
       throw new Error(
@@ -1165,8 +1403,29 @@ export class BrowserSession implements BrowserSessionClient {
       env: config.env,
       signal,
       timeoutMs: remainingMs,
+      sessionId: this.sessionId,
+      turnId: turn.turnId,
+      ownerLeaseId: turn.ownerLeaseId,
+      ownerLeaseIssuedAt: turn.ownerLeaseIssuedAt,
     });
-    if (initialized) this.inAppBrowserInitialized = true;
+    if (initialized === true) {
+      this.inAppBrowserCapability = {
+        bridgeSessionId: config.bridgeSessionId,
+        capabilityExpiresAt: Number.MAX_SAFE_INTEGER,
+        turnId: turn.turnId,
+        ownerLeaseId: turn.ownerLeaseId,
+      };
+      return config;
+    }
+    if (initialized && typeof initialized === "object") {
+      this.inAppBrowserCapability = {
+        ...initialized,
+        turnId: turn.turnId,
+        ownerLeaseId: turn.ownerLeaseId,
+      };
+      return this.switchBridgeSession(initialized.bridgeSessionId);
+    }
+    return config;
   }
 
   private async ensureConnected(
@@ -1180,6 +1439,11 @@ export class BrowserSession implements BrowserSessionClient {
       return;
     } catch (initialError) {
       throwIfAborted(signal);
+      if (
+        this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE === "1"
+      ) {
+        throw initialError;
+      }
       if (this.fallbackAttempted) throw initialError;
       this.fallbackAttempted = true;
 
@@ -1536,10 +1800,14 @@ export class BrowserSession implements BrowserSessionClient {
     return pending;
   }
 
-  private invalidateSocket(socket: Socket, error: Error): void {
+  private invalidateSocket(
+    socket: Socket,
+    error: Error,
+    preserveCapability = false,
+  ): void {
     if (socket !== this.socket) return;
     this.socket = undefined;
-    this.inAppBrowserInitialized = false;
+    if (!preserveCapability) this.inAppBrowserCapability = undefined;
     this.readBuffer = EMPTY_BUFFER;
     const pending = this.takePending();
     socket.removeAllListeners();

@@ -134,6 +134,7 @@ const createClient = (
       STELLA_BROWSER_EXT_TOKEN: "test-token",
     }),
     runner: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
+    turnId: "test-turn-1",
     ...overrides,
   });
 
@@ -166,6 +167,113 @@ describe("BrowserSession direct daemon client", () => {
         "navigate",
         "title",
       ]);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("switches from the fixed bootstrap session to a turn capability and reboots it after socket loss", async () => {
+    const daemon = createTestDaemon((request, { connection, socket }) => {
+      if (connection === 1) {
+        socket.destroy();
+        return undefined;
+      }
+      return { id: request.id, success: true, data: { recovered: true } };
+    });
+    await daemon.start();
+    const runner = vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const initializeInAppBrowser = vi.fn(async () => ({
+      bridgeSessionId: daemon.sessionId,
+      capabilityExpiresAt: Date.now() + 30_000,
+    }));
+    const client = createClient(daemon, {
+      runner,
+      initializeInAppBrowser,
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_PROVIDER: "extension",
+        STELLA_BROWSER_SESSION: "bootstrap-session",
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+      ownerLeaseId: "lease-1",
+      ownerLeaseIssuedAt: 1_000,
+    });
+
+    try {
+      const receipt = await client.command<{ recovered: boolean }>("url");
+
+      expect(receipt.bridgeSessionId).toBe(daemon.sessionId);
+      expect(receipt.result.data?.recovered).toBe(true);
+      expect(initializeInAppBrowser).toHaveBeenCalledTimes(2);
+      expect(initializeInAppBrowser).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          sessionId: "node-repl-session-1",
+          turnId: "test-turn-1",
+          ownerLeaseId: "lease-1",
+          ownerLeaseIssuedAt: 1_000,
+          env: expect.objectContaining({
+            STELLA_BROWSER_SESSION: "bootstrap-session",
+            STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+          }),
+        }),
+      );
+      expect(initializeInAppBrowser).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          env: expect.objectContaining({
+            STELLA_BROWSER_SESSION: daemon.sessionId,
+            STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+          }),
+        }),
+      );
+      expect(runner).not.toHaveBeenCalled();
+      expect(daemon.connections).toBe(2);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("reboots a managed capability when its initial daemon connection fails", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: { recovered: true },
+    }));
+    await daemon.start();
+    const runner = vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" }));
+    const initializeInAppBrowser = vi
+      .fn()
+      .mockResolvedValueOnce({
+        bridgeSessionId: "dead-capability",
+        capabilityExpiresAt: Date.now() + 30_000,
+      })
+      .mockResolvedValue({
+        bridgeSessionId: daemon.sessionId,
+        capabilityExpiresAt: Date.now() + 30_000,
+      });
+    const client = createClient(daemon, {
+      runner,
+      initializeInAppBrowser,
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_PROVIDER: "extension",
+        STELLA_BROWSER_SESSION: "bootstrap-session",
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+    });
+
+    try {
+      await expect(client.command("url")).resolves.toMatchObject({
+        bridgeSessionId: daemon.sessionId,
+        result: { success: true },
+        attempts: 2,
+      });
+      expect(initializeInAppBrowser).toHaveBeenCalledTimes(2);
+      expect(runner).not.toHaveBeenCalled();
+      expect(daemon.connections).toBe(1);
     } finally {
       await client.dispose();
       await daemon.close();
@@ -207,6 +315,8 @@ describe("BrowserSession direct daemon client", () => {
         "title",
       ]);
       expect(daemon.requests[0]?.ownerId).toBe("node-repl-session-1");
+      expect(daemon.requests[0]?.sessionId).toBe("node-repl-session-1");
+      expect(daemon.requests[0]?.turnId).toBe("test-turn-1");
       expect(daemon.requests[0]?.ownerLeaseId).toEqual(expect.any(String));
       expect(daemon.requests[0]?.ownerLeaseIssuedAt).toEqual(
         expect.any(Number),
@@ -582,6 +692,7 @@ describe("BrowserSession direct daemon client", () => {
 
       expect(daemon.requests.map((request) => request.action)).toEqual([
         "url",
+        "finalize_tabs",
         "release_owner_lease",
       ]);
       expect(client.isDisposed).toBe(true);
@@ -594,7 +705,7 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
-  it("stamps commands with the configured kernel lease and never cleans tabs on dispose", async () => {
+  it("stamps commands and dispose cleanup with the configured turn lease", async () => {
     const socketClosed = deferred();
     const daemon = createTestDaemon((request, { socket }) => {
       socket.once("close", () => socketClosed.resolve());
@@ -615,19 +726,120 @@ describe("BrowserSession direct daemon client", () => {
         expect.objectContaining({
           action: "url",
           ownerId: "node-repl-session-1",
+          sessionId: "node-repl-session-1",
+          turnId: "test-turn-1",
+          ownerLeaseId: "kernel-lease-2",
+          ownerLeaseIssuedAt: 2_000,
+        }),
+        expect.objectContaining({
+          action: "finalize_tabs",
+          keep: [],
+          ownerId: "node-repl-session-1",
+          sessionId: "node-repl-session-1",
+          turnId: "test-turn-1",
           ownerLeaseId: "kernel-lease-2",
           ownerLeaseIssuedAt: 2_000,
         }),
         expect.objectContaining({
           action: "release_owner_lease",
           ownerId: "node-repl-session-1",
+          sessionId: "node-repl-session-1",
+          turnId: "test-turn-1",
           ownerLeaseId: "kernel-lease-2",
           ownerLeaseIssuedAt: 2_000,
         }),
       ]);
-      expect(
-        daemon.requests.some((request) => request.action === "close_owner"),
-      ).toBe(false);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("allocates strictly increasing default lease timestamps in the same millisecond", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: {},
+    }));
+    await daemon.start();
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const first = createClient(daemon, { turnId: "turn-1" });
+    const second = createClient(daemon, { turnId: "turn-2" });
+
+    try {
+      await first.command("url");
+      await second.command("title");
+
+      expect(daemon.requests[1]?.ownerLeaseIssuedAt).toBeGreaterThan(
+        daemon.requests[0]?.ownerLeaseIssuedAt as number,
+      );
+    } finally {
+      now.mockRestore();
+      await first.dispose();
+      await second.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("finalizes and releases each turn before rotating to a newer lease", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: {},
+    }));
+    await daemon.start();
+    const client = createClient(daemon, {
+      ownerLeaseId: "turn-lease-1",
+      ownerLeaseIssuedAt: 5_000,
+    });
+
+    try {
+      await client.command("url");
+      await client.endTurn("test-turn-1");
+      client.beginTurn("test-turn-2");
+      await client.command("title");
+
+      expect(daemon.requests.map((request) => request.action)).toEqual([
+        "url",
+        "finalize_tabs",
+        "release_owner_lease",
+        "title",
+      ]);
+      expect(daemon.requests[3]).toMatchObject({
+        sessionId: "node-repl-session-1",
+        turnId: "test-turn-2",
+      });
+      expect(daemon.requests[3]?.ownerLeaseId).not.toBe("turn-lease-1");
+      expect(daemon.requests[3]?.ownerLeaseIssuedAt).toBeGreaterThan(5_000);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("leaves explicit deliverables released before automatic empty finalization", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: {},
+    }));
+    await daemon.start();
+    const client = createClient(daemon);
+
+    try {
+      await client.command("finalize_tabs", {
+        keep: [{ tabId: 7, status: "deliverable" }],
+      });
+      await client.endTurn("test-turn-1");
+
+      expect(daemon.requests).toEqual([
+        expect.objectContaining({
+          action: "finalize_tabs",
+          keep: [{ tabId: 7, status: "deliverable" }],
+        }),
+        expect.objectContaining({ action: "finalize_tabs", keep: [] }),
+        expect.objectContaining({ action: "release_owner_lease" }),
+      ]);
     } finally {
       await client.dispose();
       await daemon.close();

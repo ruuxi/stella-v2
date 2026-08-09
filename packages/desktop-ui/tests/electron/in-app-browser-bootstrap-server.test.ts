@@ -46,10 +46,22 @@ const sendRequest = (
     });
   });
 
+const capabilityRequest = (token: string) => ({
+  action: "ensure",
+  token,
+  sessionId: "agent-thread-1",
+  turnId: "turn-1",
+  ownerLeaseId: "lease-1",
+  ownerLeaseIssuedAt: 1_000,
+});
+
 describe("InAppBrowserBootstrapServer", () => {
   it("authenticates local requests and invokes only the hidden readiness callback", async () => {
     const endpoint = createEndpoint();
-    const ensureReady = vi.fn(async () => {});
+    const ensureReady = vi.fn(async () => ({
+      bridgeSessionId: "agent-backend-1",
+      capabilityExpiresAt: 10_000,
+    }));
     const server = new InAppBrowserBootstrapServer({
       endpoint,
       tokenPath: `${endpoint.path}.token`,
@@ -60,7 +72,7 @@ describe("InAppBrowserBootstrapServer", () => {
     await server.start();
 
     await expect(
-      sendRequest(endpoint, { action: "ensure", token: "wrong-token" }),
+      sendRequest(endpoint, capabilityRequest("wrong-token")),
     ).resolves.toEqual({
       success: false,
       error: "Unauthorized browser initialization request.",
@@ -68,9 +80,21 @@ describe("InAppBrowserBootstrapServer", () => {
     expect(ensureReady).not.toHaveBeenCalled();
 
     await expect(
-      sendRequest(endpoint, { action: "ensure", token: "secret-token" }),
-    ).resolves.toEqual({ success: true });
+      sendRequest(endpoint, capabilityRequest("secret-token")),
+    ).resolves.toEqual({
+      success: true,
+      data: {
+        bridgeSessionId: "agent-backend-1",
+        capabilityExpiresAt: 10_000,
+      },
+    });
     expect(ensureReady).toHaveBeenCalledOnce();
+    expect(ensureReady).toHaveBeenCalledWith({
+      sessionId: "agent-thread-1",
+      turnId: "turn-1",
+      ownerLeaseId: "lease-1",
+      ownerLeaseIssuedAt: 1_000,
+    });
   });
 
   it("returns readiness failures without exposing another control surface", async () => {
@@ -87,10 +111,43 @@ describe("InAppBrowserBootstrapServer", () => {
     await server.start();
 
     await expect(
-      sendRequest(endpoint, { action: "ensure", token: "secret-token" }),
+      sendRequest(endpoint, capabilityRequest("secret-token")),
     ).resolves.toEqual({
       success: false,
       error: "Connect the Stella browser extension first.",
     });
+  });
+
+  it("rejects incomplete or extra session capability metadata", async () => {
+    const endpoint = createEndpoint();
+    const ensureReady = vi.fn(async () => ({
+      bridgeSessionId: "unused",
+      capabilityExpiresAt: 10_000,
+    }));
+    const server = new InAppBrowserBootstrapServer({
+      endpoint,
+      tokenPath: `${endpoint.path}.token`,
+      token: "secret-token",
+      ensureReady,
+    });
+    servers.push(server);
+    await server.start();
+
+    const { turnId: _turnId, ...missingTurn } =
+      capabilityRequest("secret-token");
+    await expect(sendRequest(endpoint, missingTurn)).resolves.toEqual({
+      success: false,
+      error: "Unauthorized browser initialization request.",
+    });
+    await expect(
+      sendRequest(endpoint, {
+        ...capabilityRequest("secret-token"),
+        ownerId: "different-owner",
+      }),
+    ).resolves.toEqual({
+      success: false,
+      error: "Unauthorized browser initialization request.",
+    });
+    expect(ensureReady).not.toHaveBeenCalled();
   });
 });

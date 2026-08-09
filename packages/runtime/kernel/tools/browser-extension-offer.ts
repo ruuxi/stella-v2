@@ -231,7 +231,7 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
   if (gate.inFlight) {
     return annotate(
       result,
-      "The Stella browser extension is not connected and a connect card is already open in the chat. Wait for the user's response before retrying the browser operation. If the browser service remains unavailable, use the persistent `node_repl` `sky` API for visible browser control.",
+      "The Stella browser extension is not connected and a connect card is already open in the chat. Wait for the user's response before retrying the browser operation. If the browser service remains unavailable, report the exact browser error and park the browser-dependent step.",
     );
   }
   if (
@@ -240,7 +240,7 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
   ) {
     return annotate(
       result,
-      "The Stella browser extension is not connected and the user recently declined (or ignored) the connect offer. Do not re-offer; continue through the persistent `node_repl` `sky` API on a visible browser window, or ask the user only if the task is impossible otherwise.",
+      "The Stella browser extension is not connected and the user recently declined (or ignored) the connect offer. Do not re-offer or switch to a visible Chrome/Brave browser. Report the exact browser error and park the browser-dependent step; continue only work that does not require browser access.",
     );
   }
 
@@ -272,8 +272,8 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
       return annotate(
         result,
         outcome.reason === "declined"
-          ? "A connect card for the Stella browser extension was shown in the chat and the user declined. Acknowledge once at most (it stays available in the Store/settings), do not re-offer, and continue through the persistent `node_repl` `sky` API on a visible browser window."
-          : "A connect card for the Stella browser extension was shown in the chat but the user did not respond in time. Do not re-offer; continue through the persistent `node_repl` `sky` API on a visible browser window, or park the browser-dependent step.",
+          ? "A connect card for the Stella browser extension was shown in the chat and the user declined. Acknowledge once at most (it stays available in the Store/settings), do not re-offer or switch to a visible Chrome/Brave browser, report the exact browser error, and park the browser-dependent step."
+          : "A connect card for the Stella browser extension was shown in the chat but the user did not respond in time. Do not re-offer or switch to a visible Chrome/Brave browser. Report the exact browser error and park the browser-dependent step.",
       );
     }
     // unsupported / bridge error: stay quiet, just return the raw failure.
@@ -287,7 +287,7 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
     gate.lastRefusedAt = now();
     return annotate(
       retried,
-      "The user accepted the browser-extension connect card, but the browser service still cannot reach the extension (the browser may be closed or the extension disabled). Do not re-offer; continue through the persistent `node_repl` `sky` API for visible browser control, or briefly tell the user what is still missing.",
+      "The user accepted the browser-extension connect card, but the browser service still cannot reach the extension (the browser may be closed or the extension disabled). Do not re-offer or switch to a visible Chrome/Brave browser. Report the exact browser error from the retry and park the browser-dependent step.",
     );
   }
   return annotate(

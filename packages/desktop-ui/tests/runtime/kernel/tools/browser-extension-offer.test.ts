@@ -86,6 +86,23 @@ describe("maybeOfferBrowserExtensionConnect", () => {
     expect(payloadOf(result).note).toMatch(/re-run automatically/);
   });
 
+  it("parks the browser step when the accepted connection still fails", async () => {
+    const retried = execResult(EXTENSION_ERROR);
+    const result = await maybeOfferBrowserExtensionConnect({
+      result: execResult(EXTENSION_ERROR),
+      command: "stella-browser snapshot",
+      requestConnect: async () => ({ ok: true, status: "connected" }),
+      rerun: async () => retried,
+    });
+
+    expect(payloadOf(result).output).toBe(EXTENSION_ERROR);
+    expect(payloadOf(result).note).toMatch(/exact browser error/i);
+    expect(payloadOf(result).note).toMatch(/park the browser-dependent step/i);
+    expect(payloadOf(result).note).not.toMatch(
+      /node_repl|visible browser control/i,
+    );
+  });
+
   it("annotates a decline and enters a cool-down without re-running", async () => {
     let offers = 0;
     let now = 1_000_000;
@@ -105,6 +122,8 @@ describe("maybeOfferBrowserExtensionConnect", () => {
     expect(offers).toBe(1);
     expect(payloadOf(first).note).toMatch(/declined/);
     expect(payloadOf(first).note).toMatch(/do not re-offer/i);
+    expect(payloadOf(first).note).toMatch(/park the browser-dependent step/i);
+    expect(payloadOf(first).note).not.toMatch(/visible browser control/i);
 
     // Within the cool-down the offer is suppressed entirely.
     now += 60_000;

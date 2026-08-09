@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;
@@ -23,6 +23,123 @@ const MAX_REPLAY_KEY_BYTES: usize = 512;
 const MAX_IN_FLIGHT_REQUESTS: usize = 256;
 const MAX_REPLAY_WAITERS_PER_REQUEST: usize = 64;
 const MAX_COMPLETED_REQUESTS: usize = 1024;
+const MAX_CAPABILITY_BYTES: usize = 512;
+
+#[derive(Clone, Default)]
+struct DaemonAccessPolicy {
+    control_token: Option<String>,
+    owner_id: Option<String>,
+    turn_id: Option<String>,
+    owner_lease_id: Option<String>,
+    owner_lease_issued_at: Option<u64>,
+    capability_expires_at_ms: Option<u64>,
+}
+
+impl DaemonAccessPolicy {
+    fn from_env() -> Result<Self, String> {
+        let control_token = non_empty_env("STELLA_BROWSER_CONTROL_TOKEN");
+        let owner_id = non_empty_env("STELLA_BROWSER_REQUIRED_OWNER_ID");
+        let turn_id = non_empty_env("STELLA_BROWSER_REQUIRED_TURN_ID");
+        let owner_lease_id = non_empty_env("STELLA_BROWSER_REQUIRED_OWNER_LEASE_ID");
+        let owner_lease_issued_at = non_empty_env("STELLA_BROWSER_REQUIRED_OWNER_LEASE_ISSUED_AT")
+            .map(|value| {
+                value.parse::<u64>().map_err(|_| {
+                    "STELLA_BROWSER_REQUIRED_OWNER_LEASE_ISSUED_AT must be an unsigned integer"
+                        .to_string()
+                })
+            })
+            .transpose()?;
+        let capability_expires_at_ms = non_empty_env("STELLA_BROWSER_CAPABILITY_EXPIRES_AT_MS")
+            .map(|value| {
+                value.parse::<u64>().map_err(|_| {
+                    "STELLA_BROWSER_CAPABILITY_EXPIRES_AT_MS must be an unsigned integer"
+                        .to_string()
+                })
+            })
+            .transpose()?;
+        let owner_fields = [
+            owner_id.is_some(),
+            turn_id.is_some(),
+            owner_lease_id.is_some(),
+            owner_lease_issued_at.is_some(),
+            capability_expires_at_ms.is_some(),
+        ];
+        if owner_fields.iter().any(|present| *present)
+            && (!owner_fields.iter().all(|present| *present) || control_token.is_none())
+        {
+            return Err(
+                "Protected browser daemon requires a control token and a complete owner capability"
+                    .to_string(),
+            );
+        }
+        for (name, value) in [
+            ("control token", control_token.as_deref()),
+            ("owner id", owner_id.as_deref()),
+            ("turn id", turn_id.as_deref()),
+            ("owner lease id", owner_lease_id.as_deref()),
+        ] {
+            if value.is_some_and(|value| value.len() > MAX_CAPABILITY_BYTES) {
+                return Err(format!("Browser daemon {name} is too long"));
+            }
+        }
+        Ok(Self {
+            control_token,
+            owner_id,
+            turn_id,
+            owner_lease_id,
+            owner_lease_issued_at,
+            capability_expires_at_ms,
+        })
+    }
+
+    fn is_protected(&self) -> bool {
+        self.control_token.is_some()
+    }
+
+    fn authorize(&self, command: &Value) -> Result<(), Value> {
+        if !self.is_protected() {
+            return Ok(());
+        }
+        let request_id = command.get("id").and_then(Value::as_str).unwrap_or("");
+        if command.get("controlToken").and_then(Value::as_str) == self.control_token.as_deref() {
+            return Ok(());
+        }
+        let capability_matches = command.get("ownerId").and_then(Value::as_str)
+            == self.owner_id.as_deref()
+            && command.get("sessionId").and_then(Value::as_str) == self.owner_id.as_deref()
+            && command.get("turnId").and_then(Value::as_str) == self.turn_id.as_deref()
+            && command.get("ownerLeaseId").and_then(Value::as_str)
+                == self.owner_lease_id.as_deref()
+            && command.get("ownerLeaseIssuedAt").and_then(Value::as_u64)
+                == self.owner_lease_issued_at;
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let is_expired = self
+            .capability_expires_at_ms
+            .is_some_and(|expires_at| now_ms >= expires_at);
+        if capability_matches && !is_expired {
+            return Ok(());
+        }
+        Err(serde_json::json!({
+            "id": request_id,
+            "success": false,
+            "error": if is_expired {
+                "Browser session capability expired; initialize the in-app browser session again"
+            } else {
+                "Browser daemon rejected a request outside its authorized session"
+            },
+        }))
+    }
+}
+
+fn non_empty_env(name: &str) -> Option<String> {
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct ReplayKey {
@@ -307,6 +424,13 @@ pub async fn run_daemon(session: &str) {
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .filter(|&ms| ms > 0);
+    let access_policy = match DaemonAccessPolicy::from_env() {
+        Ok(policy) => Arc::new(policy),
+        Err(error) => {
+            let _ = writeln!(std::io::stderr(), "Daemon access policy error: {error}");
+            process::exit(1);
+        }
+    };
 
     let result = run_socket_server(
         &socket_path,
@@ -314,6 +438,7 @@ pub async fn run_daemon(session: &str) {
         stream_client,
         stream_server_instance,
         idle_timeout_ms,
+        access_policy,
     )
     .await;
 
@@ -354,12 +479,16 @@ async fn run_socket_server(
     stream_client: Option<Arc<RwLock<Option<Arc<CdpClient>>>>>,
     stream_server: Option<Arc<StreamServer>>,
     idle_timeout_ms: Option<u64>,
+    access_policy: Arc<DaemonAccessPolicy>,
 ) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
 
     validate_unix_socket_path_len(socket_path)?;
     let listener =
         UnixListener::bind(socket_path).map_err(|e| format!("Failed to bind socket: {}", e))?;
+    fs::set_permissions(socket_path, fs::Permissions::from_mode(0o600))
+        .map_err(|e| format!("Failed to secure browser daemon socket: {}", e))?;
 
     let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel::<()>();
     let mut daemon_state = DaemonState::new_with_stream(stream_client, stream_server);
@@ -382,8 +511,9 @@ async fn run_socket_server(
                         let state = state.clone();
                         let replay_cache = replay_cache.clone();
                         let reset_tx = reset_tx.clone();
+                        let access_policy = access_policy.clone();
                         tokio::spawn(async move {
-                            handle_connection(stream, state, replay_cache, reset_tx).await;
+                            handle_connection(stream, state, replay_cache, reset_tx, access_policy).await;
                         });
                     }
                     Err(e) => {
@@ -427,6 +557,7 @@ async fn run_socket_server(
     stream_client: Option<Arc<RwLock<Option<Arc<CdpClient>>>>>,
     stream_server: Option<Arc<StreamServer>>,
     idle_timeout_ms: Option<u64>,
+    access_policy: Arc<DaemonAccessPolicy>,
 ) -> Result<(), String> {
     use tokio::net::TcpListener;
 
@@ -481,8 +612,9 @@ async fn run_socket_server(
                         let state = state.clone();
                         let replay_cache = replay_cache.clone();
                         let reset_tx = reset_tx.clone();
+                        let access_policy = access_policy.clone();
                         tokio::spawn(async move {
-                            handle_connection(stream, state, replay_cache, reset_tx).await;
+                            handle_connection(stream, state, replay_cache, reset_tx, access_policy).await;
                         });
                     }
                     Err(e) => {
@@ -537,6 +669,7 @@ async fn handle_connection<S>(
     state: std::sync::Arc<tokio::sync::Mutex<DaemonState>>,
     replay_cache: Arc<RequestReplayCache>,
     idle_reset_tx: Option<Arc<mpsc::Sender<()>>>,
+    access_policy: Arc<DaemonAccessPolicy>,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
@@ -572,26 +705,34 @@ async fn handle_connection<S>(
                     }
                 };
 
-                if let Some(ref tx) = idle_reset_tx {
-                    let _ = tx.try_send(());
+                let authorization = access_policy.authorize(&cmd);
+                if authorization.is_ok() {
+                    if let Some(ref tx) = idle_reset_tx {
+                        let _ = tx.try_send(());
+                    }
                 }
+                let action = cmd.get("action").and_then(|v| v.as_str());
+                let is_close = authorization.is_ok()
+                    && (action == Some("close")
+                        || (access_policy.is_protected() && action == Some("release_owner_lease")));
 
-                let is_close = cmd.get("action").and_then(|v| v.as_str()) == Some("close");
-
-                let response = match replay_key(&cmd) {
-                    Ok(Some((key, fingerprint))) => {
-                        replay_cache
-                            .execute_once(key, fingerprint, || async {
-                                let mut s = state.lock().await;
-                                execute_command(&cmd, &mut s).await
-                            })
-                            .await
-                    }
-                    Ok(None) => {
-                        let mut s = state.lock().await;
-                        execute_command(&cmd, &mut s).await
-                    }
+                let response = match authorization {
                     Err(response) => response,
+                    Ok(()) => match replay_key(&cmd) {
+                        Ok(Some((key, fingerprint))) => {
+                            replay_cache
+                                .execute_once(key, fingerprint, || async {
+                                    let mut s = state.lock().await;
+                                    execute_command(&cmd, &mut s).await
+                                })
+                                .await
+                        }
+                        Ok(None) => {
+                            let mut s = state.lock().await;
+                            execute_command(&cmd, &mut s).await
+                        }
+                        Err(response) => response,
+                    },
                 };
 
                 let mut resp = serde_json::to_string(&response).unwrap_or_default();
@@ -706,6 +847,81 @@ mod tests {
     use serde_json::json;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+    fn protected_policy(expires_at: u64) -> DaemonAccessPolicy {
+        DaemonAccessPolicy {
+            control_token: Some("control-secret".to_string()),
+            owner_id: Some("agent-thread-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            owner_lease_id: Some("lease-1".to_string()),
+            owner_lease_issued_at: Some(1_000),
+            capability_expires_at_ms: Some(expires_at),
+        }
+    }
+
+    #[test]
+    fn protected_daemon_accepts_only_exact_owner_turn_and_lease() {
+        let policy = protected_policy(u64::MAX);
+        let exact = json!({
+            "id": "request-1",
+            "action": "tab_list",
+            "ownerId": "agent-thread-1",
+            "sessionId": "agent-thread-1",
+            "turnId": "turn-1",
+            "ownerLeaseId": "lease-1",
+            "ownerLeaseIssuedAt": 1_000,
+        });
+        assert!(policy.authorize(&exact).is_ok());
+        for changed in [
+            json!({ "ownerId": "agent-thread-2" }),
+            json!({ "sessionId": "agent-thread-2" }),
+            json!({ "turnId": "turn-2" }),
+            json!({ "ownerLeaseId": "lease-2" }),
+            json!({ "ownerLeaseIssuedAt": 999 }),
+        ] {
+            let mut command = exact.clone();
+            command
+                .as_object_mut()
+                .unwrap()
+                .extend(changed.as_object().unwrap().clone());
+            let error = policy.authorize(&command).unwrap_err();
+            assert_eq!(error["success"], false);
+            assert!(error["error"]
+                .as_str()
+                .unwrap()
+                .contains("outside its authorized session"));
+        }
+    }
+
+    #[test]
+    fn protected_daemon_control_token_and_expiry_are_enforced() {
+        let expired = protected_policy(1);
+        let owner_command = json!({
+            "id": "request-1",
+            "action": "tab_list",
+            "ownerId": "agent-thread-1",
+            "sessionId": "agent-thread-1",
+            "turnId": "turn-1",
+            "ownerLeaseId": "lease-1",
+            "ownerLeaseIssuedAt": 1_000,
+        });
+        let error = expired.authorize(&owner_command).unwrap_err();
+        assert!(error["error"].as_str().unwrap().contains("expired"));
+        assert!(expired
+            .authorize(&json!({
+                "id": "control-1",
+                "action": "close",
+                "controlToken": "control-secret",
+            }))
+            .is_ok());
+        assert!(expired
+            .authorize(&json!({
+                "id": "control-2",
+                "action": "close",
+                "controlToken": "wrong",
+            }))
+            .is_err());
+    }
+
     #[test]
     #[cfg(windows)]
     fn test_port_matches_client_algorithm() {
@@ -752,7 +968,14 @@ mod tests {
         let replay_cache = Arc::new(RequestReplayCache::default());
 
         let handle = tokio::spawn(async move {
-            handle_connection(server, state, replay_cache, None).await;
+            handle_connection(
+                server,
+                state,
+                replay_cache,
+                None,
+                Arc::new(DaemonAccessPolicy::default()),
+            )
+            .await;
         });
 
         let (reader, mut writer) = tokio::io::split(client);
@@ -789,7 +1012,14 @@ mod tests {
         let replay_cache = Arc::new(RequestReplayCache::default());
 
         let handle = tokio::spawn(async move {
-            handle_connection(server, state, replay_cache, None).await;
+            handle_connection(
+                server,
+                state,
+                replay_cache,
+                None,
+                Arc::new(DaemonAccessPolicy::default()),
+            )
+            .await;
         });
 
         let (reader, mut writer) = tokio::io::split(client);
@@ -833,7 +1063,14 @@ mod tests {
         let replay_cache = Arc::new(RequestReplayCache::default());
 
         let handle = tokio::spawn(async move {
-            handle_connection(server, state, replay_cache, None).await;
+            handle_connection(
+                server,
+                state,
+                replay_cache,
+                None,
+                Arc::new(DaemonAccessPolicy::default()),
+            )
+            .await;
         });
 
         let (reader, mut writer) = tokio::io::split(client);
@@ -868,12 +1105,19 @@ mod tests {
         let state = Arc::new(tokio::sync::Mutex::new(daemon_state));
         let replay_cache = Arc::new(RequestReplayCache::default());
         let handle = tokio::spawn(async move {
-            handle_connection(server, state, replay_cache, None).await;
+            handle_connection(
+                server,
+                state,
+                replay_cache,
+                None,
+                Arc::new(DaemonAccessPolicy::default()),
+            )
+            .await;
         });
 
         let (reader, mut writer) = tokio::io::split(client);
         writer
-            .write_all(br#"{"id":"owner-close","action":"close_owner","ownerId":"worker-1"}"#)
+            .write_all(br#"{"id":"owner-close","action":"close_owner","ownerId":"worker-1","sessionId":"worker-1","turnId":"turn-1","ownerLeaseId":"lease-1","ownerLeaseIssuedAt":1}"#)
             .await
             .unwrap();
         writer.write_all(b"\n").await.unwrap();

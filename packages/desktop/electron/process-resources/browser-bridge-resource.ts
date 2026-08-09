@@ -1,6 +1,8 @@
 import { ProcessRuntime } from "../process-runtime.js";
 import {
   StellaBrowserBridgeService,
+  type StellaBrowserAgentBackend,
+  type StellaBrowserAgentCapability,
   type StellaBrowserExportedCookie,
 } from "../services/stella-browser-bridge-service.js";
 import { createManagedResource } from "../managed-resource.js";
@@ -30,6 +32,10 @@ export type StellaBrowserBridgeResource = {
     urls: string[],
   ) => Promise<StellaBrowserExportedCookie[]>;
   connectCdp: (cdpUrl: string) => Promise<void>;
+  connectAgentCdp: (
+    capability: StellaBrowserAgentCapability,
+    cdpUrl: string,
+  ) => Promise<StellaBrowserAgentBackend>;
 };
 
 export const createStellaBrowserBridgeResource = (options: {
@@ -47,6 +53,7 @@ export const createStellaBrowserBridgeResource = (options: {
       | "exportAllCookies"
       | "exportCookiesForUrls"
       | "connectCdp"
+      | "connectAgentCdp"
     >
   >(
     {
@@ -113,6 +120,10 @@ export const createStellaBrowserBridgeResource = (options: {
           requireService().exportCookiesForUrls(urls),
         connectCdp: async (cdpUrl: string) =>
           requireService().connectCdp(cdpUrl),
+        connectAgentCdp: async (
+          capability: StellaBrowserAgentCapability,
+          cdpUrl: string,
+        ) => requireService().connectAgentCdp(capability, cdpUrl),
       };
     },
   );

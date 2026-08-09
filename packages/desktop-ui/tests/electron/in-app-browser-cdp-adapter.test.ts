@@ -47,23 +47,41 @@ afterEach(async () => {
 
 const createController = () => {
   const listeners = new Set<(event: InAppBrowserDebuggerEvent) => void>();
-  const targets = [
-    { id: "tab-1", url: "https://example.com", title: "Example" },
-  ];
-  const sendDebuggerCommand = vi.fn(
-    async (_tabId: string, method: string) =>
-      method === "Page.getNavigationHistory"
-        ? { currentIndex: 0, entries: [] }
-        : {},
+  const targetsByOwner = new Map([
+    ["manual", [{ id: "tab-1", url: "https://example.com", title: "Example" }]],
+    [
+      "owner-test",
+      [{ id: "tab-1", url: "https://example.com", title: "Example" }],
+    ],
+  ]);
+  const targetsFor = (ownerId?: string) => {
+    const key = ownerId ?? "manual";
+    let targets = targetsByOwner.get(key);
+    if (!targets) {
+      targets = [];
+      targetsByOwner.set(key, targets);
+    }
+    return targets;
+  };
+  const sendDebuggerCommand = vi.fn(async (_tabId: string, method: string) =>
+    method === "Page.getNavigationHistory"
+      ? { currentIndex: 0, entries: [] }
+      : {},
   );
   const controller: InAppBrowserDebuggerController = {
-    listDebuggerTargets: () => targets,
-    createDebuggerTarget: (url) => {
-      const target = { id: `tab-${targets.length + 1}`, url, title: "" };
+    listDebuggerTargets: (ownerId) => targetsFor(ownerId),
+    createDebuggerTarget: (url, ownerId) => {
+      const targets = targetsFor(ownerId);
+      const target = {
+        id: `${ownerId ?? "tab"}-${targets.length + 1}`,
+        url,
+        title: "",
+      };
       targets.push(target);
       return target;
     },
-    closeDebuggerTarget: (tabId) => {
+    closeDebuggerTarget: (tabId, ownerId) => {
+      const targets = targetsFor(ownerId);
       const index = targets.findIndex((target) => target.id === tabId);
       if (index === -1) return false;
       targets.splice(index, 1);
@@ -84,7 +102,9 @@ describe("InAppBrowserCdpAdapter", () => {
     const { controller, sendDebuggerCommand } = createController();
     const adapter = new InAppBrowserCdpAdapter(controller);
     adapters.push(adapter);
-    const socket = await connect(await adapter.start());
+    const socket = await connect(
+      (await adapter.createOwnerCapability("owner-test")).cdpUrl,
+    );
 
     const targets = await request(socket, 1, "Target.getTargets");
     expect(targets).toEqual({
@@ -103,18 +123,13 @@ describe("InAppBrowserCdpAdapter", () => {
     });
     const sessionId = String(attached.sessionId);
     await expect(
-      request(
-        socket,
-        3,
-        "Page.getNavigationHistory",
-        {},
-        sessionId,
-      ),
+      request(socket, 3, "Page.getNavigationHistory", {}, sessionId),
     ).resolves.toEqual({ currentIndex: 0, entries: [] });
     expect(sendDebuggerCommand).toHaveBeenLastCalledWith(
       "tab-1",
       "Page.getNavigationHistory",
       {},
+      "owner-test",
     );
 
     socket.close();
@@ -124,7 +139,9 @@ describe("InAppBrowserCdpAdapter", () => {
     const { controller, sendDebuggerCommand } = createController();
     const adapter = new InAppBrowserCdpAdapter(controller);
     adapters.push(adapter);
-    const socket = await connect(await adapter.start());
+    const socket = await connect(
+      (await adapter.createOwnerCapability("owner-test")).cdpUrl,
+    );
 
     await expect(
       request(socket, 1, "Target.createTarget", { url: "file:///tmp/a" }),
@@ -132,7 +149,7 @@ describe("InAppBrowserCdpAdapter", () => {
 
     await expect(
       request(socket, 4, "Target.createTarget", { url: "about:blank" }),
-    ).resolves.toEqual({ targetId: "tab-2" });
+    ).resolves.toEqual({ targetId: "owner-test-2" });
 
     const attached = await request(socket, 2, "Target.attachToTarget", {
       targetId: "tab-1",
@@ -155,8 +172,70 @@ describe("InAppBrowserCdpAdapter", () => {
       "tab-1",
       "Input.dispatchMouseEvent",
       { type: "mousePressed", x: 40, y: 52, button: "left" },
+      "owner-test",
     ]);
 
     socket.close();
+  });
+
+  it("uses expiring single-use capability URLs without advertising them", async () => {
+    const { controller } = createController();
+    const adapter = new InAppBrowserCdpAdapter(controller);
+    adapters.push(adapter);
+    const legacyUrl = await adapter.start();
+    const versionUrl = new URL(
+      "/json/version",
+      legacyUrl.replace("ws:", "http:"),
+    );
+    const version = (await (await fetch(versionUrl)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(version.webSocketDebuggerUrl).toBeUndefined();
+    expect(JSON.stringify(version)).not.toContain("/devtools/browser/");
+    await expect(connect(legacyUrl)).rejects.toThrow();
+    await expect(adapter.createOwnerCapability("  ")).rejects.toThrow(
+      "ownerId must be a non-empty capability string",
+    );
+
+    const startedAt = Date.now();
+    const capability = await adapter.createOwnerCapability("owner-a");
+    expect(capability.expiresAt - startedAt).toBeGreaterThanOrEqual(59_000);
+    expect(capability.expiresAt - startedAt).toBeLessThanOrEqual(60_000);
+    const socket = await connect(capability.cdpUrl);
+    await expect(connect(capability.cdpUrl)).rejects.toThrow();
+    socket.close();
+
+    const expired = await adapter.createOwnerCapability("owner-a");
+    const now = vi.spyOn(Date, "now").mockReturnValue(expired.expiresAt + 1);
+    await expect(connect(expired.cdpUrl)).rejects.toThrow();
+    now.mockRestore();
+  });
+
+  it("isolates target discovery and attachment by owner capability", async () => {
+    const { controller, sendDebuggerCommand } = createController();
+    const adapter = new InAppBrowserCdpAdapter(controller);
+    adapters.push(adapter);
+    const ownerA = await adapter.createOwnerCapability("owner-a");
+    const ownerB = await adapter.createOwnerCapability("owner-b");
+    const socketA = await connect(ownerA.cdpUrl);
+    const socketB = await connect(ownerB.cdpUrl);
+
+    const created = await request(socketA, 1, "Target.createTarget", {
+      url: "https://a.example",
+    });
+    expect(created.targetId).toBe("owner-a-1");
+    await expect(request(socketB, 2, "Target.getTargets")).resolves.toEqual({
+      targetInfos: [],
+    });
+    await expect(
+      request(socketB, 3, "Target.attachToTarget", {
+        targetId: "owner-a-1",
+      }),
+    ).rejects.toThrow("Browser target was not found");
+    expect(sendDebuggerCommand).not.toHaveBeenCalled();
+
+    socketA.close();
+    socketB.close();
   });
 });

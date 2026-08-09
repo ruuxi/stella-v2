@@ -107,6 +107,61 @@ describe("StellaBrowserBridgeService browser bootstrap API", () => {
     );
   });
 
+  it("keeps a successful CDP route sticky across browser sessions", async () => {
+    const service = createService();
+    const sendCommand = mockSendCommand(service, {
+      success: true,
+      data: { launched: true },
+    });
+    const cdpUrl = "ws://127.0.0.1:9222/devtools/browser/test";
+
+    await Promise.all([service.connectCdp(cdpUrl), service.connectCdp(cdpUrl)]);
+    await service.connectCdp(cdpUrl);
+
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a CDP route after a failed launch", async () => {
+    const service = createService();
+    const sendCommand = vi
+      .spyOn(service as unknown as { sendCommand: SendCommand }, "sendCommand")
+      .mockRejectedValueOnce(new Error("launch failed"))
+      .mockResolvedValueOnce({ success: true, data: { launched: true } });
+    const cdpUrl = "ws://127.0.0.1:9222/devtools/browser/retry";
+
+    await expect(service.connectCdp(cdpUrl)).rejects.toThrow("launch failed");
+    await expect(service.connectCdp(cdpUrl)).resolves.toBeUndefined();
+
+    expect(sendCommand).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates the sticky CDP route when the daemon stops", async () => {
+    const service = createService();
+    const sendCommand = mockSendCommand(service, {
+      success: true,
+      data: { launched: true },
+    });
+    vi.spyOn(
+      service as unknown as { killDaemonProcess: () => Promise<void> },
+      "killDaemonProcess",
+    ).mockResolvedValue();
+    vi.spyOn(
+      service as unknown as {
+        stopOrphanedBundledDaemons: () => Promise<void>;
+      },
+      "stopOrphanedBundledDaemons",
+    ).mockResolvedValue();
+    const cdpUrl = "ws://127.0.0.1:9222/devtools/browser/restart";
+
+    await service.connectCdp(cdpUrl);
+    await service.stop();
+    await service.connectCdp(cdpUrl);
+
+    expect(
+      sendCommand.mock.calls.filter(([command]) => command.action === "launch"),
+    ).toHaveLength(2);
+  });
+
   it("rejects an empty CDP endpoint before issuing a command", async () => {
     const service = createService();
     const sendCommand = mockSendCommand(service, { success: true });
@@ -115,5 +170,141 @@ describe("StellaBrowserBridgeService browser bootstrap API", () => {
       "A CDP URL is required.",
     );
     expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it("single-flights an exact agent capability into its own backend session", async () => {
+    const service = createService();
+    const capability = {
+      ownerId: "agent-thread-1",
+      turnId: "turn-1",
+      ownerLeaseId: "lease-1",
+      ownerLeaseIssuedAt: 1_000,
+    };
+    const process = { exitCode: null, killed: false };
+    const spawnAgentBackend = vi
+      .spyOn(
+        service as unknown as {
+          spawnAgentBackend: (
+            input: Record<string, unknown>,
+          ) => Promise<unknown>;
+        },
+        "spawnAgentBackend",
+      )
+      .mockImplementation(async (input) => ({
+        ...input,
+        bridgeSessionId: "agent-random-session",
+        capabilityExpiresAt: Date.now() + 60_000,
+        controlToken: "control-token",
+        process,
+      }));
+
+    const [first, second] = await Promise.all([
+      service.connectAgentCdp(capability, "ws://127.0.0.1:9000/owner-cap"),
+      service.connectAgentCdp(capability, "ws://127.0.0.1:9000/owner-cap"),
+    ]);
+    await service.connectAgentCdp(capability, "ws://127.0.0.1:9000/owner-cap");
+
+    expect(first).toEqual(second);
+    expect(first.bridgeSessionId).toBe("agent-random-session");
+    expect(spawnAgentBackend).toHaveBeenCalledOnce();
+    expect(spawnAgentBackend).toHaveBeenCalledWith({
+      ...capability,
+      cdpUrl: "ws://127.0.0.1:9000/owner-cap",
+    });
+  });
+
+  it("rejects an older lease from replacing an active agent backend", async () => {
+    const service = createService();
+    const process = { exitCode: null, killed: false };
+    vi.spyOn(
+      service as unknown as {
+        spawnAgentBackend: (input: Record<string, unknown>) => Promise<unknown>;
+      },
+      "spawnAgentBackend",
+    ).mockImplementation(async (input) => ({
+      ...input,
+      bridgeSessionId: "agent-random-session",
+      capabilityExpiresAt: Date.now() + 60_000,
+      controlToken: "control-token",
+      process,
+    }));
+    const current = {
+      ownerId: "agent-thread-1",
+      turnId: "turn-2",
+      ownerLeaseId: "lease-2",
+      ownerLeaseIssuedAt: 2_000,
+    };
+    await service.connectAgentCdp(current, "ws://127.0.0.1:9000/current");
+
+    await expect(
+      service.connectAgentCdp(
+        {
+          ...current,
+          turnId: "turn-old",
+          ownerLeaseId: "lease-old",
+          ownerLeaseIssuedAt: 1_000,
+        },
+        "ws://127.0.0.1:9000/stale",
+      ),
+    ).rejects.toThrow("newer browser session already owns");
+  });
+
+  it("invalidates an in-flight agent backend when the service stops", async () => {
+    const service = createService();
+    let releaseSpawn!: (backend: unknown) => void;
+    vi.spyOn(
+      service as unknown as {
+        spawnAgentBackend: (input: Record<string, unknown>) => Promise<unknown>;
+      },
+      "spawnAgentBackend",
+    ).mockImplementation(
+      (input) =>
+        new Promise((resolve) => {
+          releaseSpawn = (backend) => resolve({ ...input, ...backend });
+        }),
+    );
+    const stopAgentBackend = vi
+      .spyOn(
+        service as unknown as {
+          stopAgentBackend: (backend: unknown) => Promise<void>;
+        },
+        "stopAgentBackend",
+      )
+      .mockResolvedValue();
+    mockSendCommand(service, { success: true });
+    vi.spyOn(
+      service as unknown as { killDaemonProcess: () => Promise<void> },
+      "killDaemonProcess",
+    ).mockResolvedValue();
+    vi.spyOn(
+      service as unknown as {
+        stopOrphanedBundledDaemons: () => Promise<void>;
+      },
+      "stopOrphanedBundledDaemons",
+    ).mockResolvedValue();
+
+    const connecting = service.connectAgentCdp(
+      {
+        ownerId: "agent-thread-1",
+        turnId: "turn-1",
+        ownerLeaseId: "lease-1",
+        ownerLeaseIssuedAt: 1_000,
+      },
+      "ws://127.0.0.1:9000/owner-cap",
+    );
+    await vi.waitFor(() => expect(releaseSpawn).toBeTypeOf("function"));
+    const stopping = service.stop();
+    releaseSpawn({
+      bridgeSessionId: "agent-stale-session",
+      capabilityExpiresAt: Date.now() + 60_000,
+      controlToken: "control-token",
+      process: { exitCode: null, killed: false },
+    });
+
+    await expect(connecting).rejects.toThrow(
+      "restarted during agent initialization",
+    );
+    await expect(stopping).resolves.toBeUndefined();
+    expect(stopAgentBackend).toHaveBeenCalledOnce();
   });
 });

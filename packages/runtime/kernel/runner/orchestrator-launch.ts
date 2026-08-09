@@ -229,13 +229,15 @@ export const launchPreparedOrchestratorRun = (args: {
     ...(prepared.userTurnsSinceMemoryReview != null
       ? { userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview }
       : {}),
-  }).catch((error) => {
-    if (isReportedOrchestratorError(error)) {
-      return;
-    }
-    args.cleanupRun(prepared.runId);
-    args.onFatalError(error);
-  });
+  })
+    .finally(() => context.toolHost.endBrowserTurn(prepared.runId))
+    .catch((error) => {
+      if (isReportedOrchestratorError(error)) {
+        return;
+      }
+      args.cleanupRun(prepared.runId);
+      args.onFatalError(error);
+    });
 };
 
 export const startPreparedOrchestratorRun = async (args: {

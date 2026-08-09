@@ -35,6 +35,8 @@ const DAEMON_READY_TIMEOUT_MS = 10_000;
 const COMMAND_TIMEOUT_MS = 10_000;
 const DAEMON_SHUTDOWN_TIMEOUT_MS = 2_000;
 const DAEMON_READY_PROBE_TIMEOUT_MS = 1_000;
+const AGENT_DAEMON_IDLE_TIMEOUT_MS = 30 * 60_000;
+const AGENT_CAPABILITY_TTL_MS = 24 * 60 * 60_000;
 
 type ProcessRow = {
   pid: number;
@@ -163,6 +165,26 @@ type StellaBrowserBridgeServiceOptions = {
   onUnexpectedExit?: (error: string) => void;
 };
 
+export type StellaBrowserAgentCapability = Readonly<{
+  ownerId: string;
+  turnId: string;
+  ownerLeaseId: string;
+  ownerLeaseIssuedAt: number;
+}>;
+
+export type StellaBrowserAgentBackend = Readonly<{
+  bridgeSessionId: string;
+  capabilityExpiresAt: number;
+}>;
+
+type AgentBackendRecord = StellaBrowserAgentCapability &
+  StellaBrowserAgentBackend &
+  Readonly<{
+    cdpUrl: string;
+    controlToken: string;
+    process: ChildProcess;
+  }>;
+
 type DaemonResponse = {
   success?: boolean;
   error?: string;
@@ -194,6 +216,24 @@ export class StellaBrowserBridgeService {
 
   private daemonProcess: ChildProcess | null = null;
   private launchPromise: Promise<void> | null = null;
+  private readonly controlToken = randomUUID();
+  private readonly agentBackends = new Map<string, AgentBackendRecord>();
+  private readonly agentBackendLaunches = new Map<
+    string,
+    Readonly<{
+      ownerLeaseId: string;
+      ownerLeaseIssuedAt: number;
+      turnId: string;
+      promise: Promise<StellaBrowserAgentBackend>;
+    }>
+  >();
+  private agentBackendGeneration = 0;
+  private connectedCdpUrl: string | null = null;
+  private connectingCdp: Readonly<{
+    url: string;
+    promise: Promise<void>;
+  }> | null = null;
+  private cdpRoutingGeneration = 0;
   private isLaunching = false;
   private stopped = false;
 
@@ -253,14 +293,135 @@ export class StellaBrowserBridgeService {
   }
 
   async connectCdp(cdpUrl: string): Promise<void> {
-    if (!cdpUrl.trim()) {
+    const normalizedUrl = cdpUrl.trim();
+    if (!normalizedUrl) {
       throw new Error("A CDP URL is required.");
     }
-    await this.sendCommand({
-      id: randomUUID(),
-      action: "launch",
-      cdpUrl,
+    if (this.connectedCdpUrl === normalizedUrl) {
+      return Promise.resolve();
+    }
+    if (this.connectingCdp?.url === normalizedUrl) {
+      return this.connectingCdp.promise;
+    }
+
+    const previousAttempt = this.connectingCdp?.promise;
+    const routingGeneration = this.cdpRoutingGeneration;
+    const promise = (async () => {
+      // A changed adapter URL is serialized behind any in-flight launch. The
+      // successful URL is checked again afterwards so concurrent callers do
+      // not issue duplicate launch commands.
+      await previousAttempt?.catch(() => undefined);
+      if (this.connectedCdpUrl === normalizedUrl) return;
+      await this.sendCommand({
+        id: randomUUID(),
+        action: "launch",
+        cdpUrl: normalizedUrl,
+      });
+      if (this.cdpRoutingGeneration === routingGeneration) {
+        this.connectedCdpUrl = normalizedUrl;
+      }
+    })();
+    this.connectingCdp = { url: normalizedUrl, promise };
+    void promise.then(
+      () => {
+        if (this.connectingCdp?.promise === promise) {
+          this.connectingCdp = null;
+        }
+      },
+      () => {
+        // Failed launches are deliberately not cached, so the next browser
+        // session can retry the same endpoint.
+        if (this.connectingCdp?.promise === promise) {
+          this.connectingCdp = null;
+        }
+      },
+    );
+    await promise;
+  }
+
+  async connectAgentCdp(
+    capability: StellaBrowserAgentCapability,
+    cdpUrl: string,
+  ): Promise<StellaBrowserAgentBackend> {
+    const ownerId = requireCapabilityString(capability.ownerId, "ownerId");
+    const turnId = requireCapabilityString(capability.turnId, "turnId");
+    const ownerLeaseId = requireCapabilityString(
+      capability.ownerLeaseId,
+      "ownerLeaseId",
+    );
+    const ownerLeaseIssuedAt = requireCapabilityTimestamp(
+      capability.ownerLeaseIssuedAt,
+    );
+    const normalizedUrl = cdpUrl.trim();
+    if (!normalizedUrl) throw new Error("A CDP URL is required.");
+    const backendGeneration = this.agentBackendGeneration;
+
+    const inFlight = this.agentBackendLaunches.get(ownerId);
+    if (
+      inFlight?.ownerLeaseId === ownerLeaseId &&
+      inFlight.ownerLeaseIssuedAt === ownerLeaseIssuedAt &&
+      inFlight.turnId === turnId
+    ) {
+      return await inFlight.promise;
+    }
+
+    const previousLaunch = inFlight?.promise;
+    const promise = (async () => {
+      await previousLaunch?.catch(() => undefined);
+      const existing = this.agentBackends.get(ownerId);
+      if (
+        existing?.ownerLeaseId === ownerLeaseId &&
+        existing.ownerLeaseIssuedAt === ownerLeaseIssuedAt &&
+        existing.turnId === turnId &&
+        existing.cdpUrl === normalizedUrl &&
+        existing.process.exitCode === null &&
+        !existing.process.killed &&
+        existing.capabilityExpiresAt > Date.now()
+      ) {
+        return agentBackendResult(existing);
+      }
+      if (existing && ownerLeaseIssuedAt < existing.ownerLeaseIssuedAt) {
+        throw new Error(
+          "A newer browser session already owns this agent backend.",
+        );
+      }
+      if (existing) await this.stopAgentBackend(existing);
+      const next = await this.spawnAgentBackend({
+        ownerId,
+        turnId,
+        ownerLeaseId,
+        ownerLeaseIssuedAt,
+        cdpUrl: normalizedUrl,
+      });
+      if (
+        this.stopped ||
+        this.agentBackendGeneration !== backendGeneration
+      ) {
+        await this.stopAgentBackend(next);
+        throw new Error("Browser bridge restarted during agent initialization.");
+      }
+      this.agentBackends.set(ownerId, next);
+      return agentBackendResult(next);
+    })();
+    this.agentBackendLaunches.set(ownerId, {
+      ownerLeaseId,
+      ownerLeaseIssuedAt,
+      turnId,
+      promise,
     });
+    void promise.then(
+      () => {
+        if (this.agentBackendLaunches.get(ownerId)?.promise === promise) {
+          this.agentBackendLaunches.delete(ownerId);
+        }
+      },
+      () => {
+        if (this.agentBackendLaunches.get(ownerId)?.promise === promise) {
+          this.agentBackendLaunches.delete(ownerId);
+        }
+      },
+    );
+    return await promise;
   }
 
   start() {
@@ -281,6 +442,24 @@ export class StellaBrowserBridgeService {
 
   async stop() {
     this.stopped = true;
+    this.resetCdpRouting();
+    this.agentBackendGeneration += 1;
+
+    await Promise.allSettled(
+      [
+        ...Array.from(this.agentBackends.values(), (backend) =>
+          this.stopAgentBackend(backend),
+        ),
+        ...Array.from(this.agentBackendLaunches.values(), ({ promise }) =>
+          promise.then(
+            () => undefined,
+            () => undefined,
+          ),
+        ),
+      ],
+    );
+    this.agentBackends.clear();
+    this.agentBackendLaunches.clear();
 
     const closePromise = this.sendCommand({
       id: randomUUID(),
@@ -326,6 +505,7 @@ export class StellaBrowserBridgeService {
   }
 
   private spawnDaemon() {
+    this.resetCdpRouting();
     const stellaBrowserRoot = resolveStellaBrowserRoot();
     activateStagedStellaBrowserBinary(stellaBrowserRoot);
     const binPath = resolveStellaBrowserBinaryPath(stellaBrowserRoot);
@@ -351,6 +531,7 @@ export class StellaBrowserBridgeService {
           ...process.env,
           STELLA_BROWSER_EXT_PORT: STELLA_BROWSER_BRIDGE_PORT,
           STELLA_BROWSER_EXT_TOKEN: STELLA_BROWSER_BRIDGE_TOKEN,
+          STELLA_BROWSER_CONTROL_TOKEN: this.controlToken,
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
@@ -377,6 +558,7 @@ export class StellaBrowserBridgeService {
       }
 
       this.daemonProcess = null;
+      this.resetCdpRouting();
 
       if (this.stopped || this.isLaunching) {
         return;
@@ -393,6 +575,7 @@ export class StellaBrowserBridgeService {
         return;
       }
       this.daemonProcess = null;
+      this.resetCdpRouting();
       if (this.stopped || this.isLaunching) {
         return;
       }
@@ -402,6 +585,142 @@ export class StellaBrowserBridgeService {
     });
 
     this.daemonProcess = daemon;
+  }
+
+  private async spawnAgentBackend(
+    input: StellaBrowserAgentCapability & Readonly<{ cdpUrl: string }>,
+  ): Promise<AgentBackendRecord> {
+    const stellaBrowserRoot = resolveStellaBrowserRoot();
+    activateStagedStellaBrowserBinary(stellaBrowserRoot);
+    const binPath = resolveStellaBrowserBinaryPath(stellaBrowserRoot);
+    if (!binPath) {
+      throw new Error(
+        "The native Stella Browser service is unavailable. Reinstall Stella or restore the browser service artifact.",
+      );
+    }
+    if (process.platform !== "win32") {
+      try {
+        accessSync(binPath, constants.X_OK);
+      } catch {
+        chmodSync(binPath, 0o755);
+      }
+    }
+
+    const bridgeSessionId = `agent-${randomUUID().replaceAll("-", "")}`;
+    const controlToken = randomUUID();
+    const capabilityExpiresAt = Date.now() + AGENT_CAPABILITY_TTL_MS;
+    const daemon = spawn(
+      binPath,
+      ["service", "run", "--session", bridgeSessionId],
+      {
+        cwd: stellaBrowserRoot,
+        env: {
+          ...process.env,
+          STELLA_BROWSER_CONTROL_TOKEN: controlToken,
+          STELLA_BROWSER_REQUIRED_OWNER_ID: input.ownerId,
+          STELLA_BROWSER_REQUIRED_TURN_ID: input.turnId,
+          STELLA_BROWSER_REQUIRED_OWNER_LEASE_ID: input.ownerLeaseId,
+          STELLA_BROWSER_REQUIRED_OWNER_LEASE_ISSUED_AT: String(
+            input.ownerLeaseIssuedAt,
+          ),
+          STELLA_BROWSER_CAPABILITY_EXPIRES_AT_MS: String(capabilityExpiresAt),
+          STELLA_BROWSER_IDLE_TIMEOUT_MS: String(AGENT_DAEMON_IDLE_TIMEOUT_MS),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+    const backend: AgentBackendRecord = {
+      ...input,
+      bridgeSessionId,
+      capabilityExpiresAt,
+      controlToken,
+      process: daemon,
+    };
+    daemon.stdout?.on("data", (chunk: Buffer | string) => {
+      const message = String(chunk).trim();
+      if (message) console.debug("[stella-browser-agent]", message);
+    });
+    daemon.stderr?.on("data", (chunk: Buffer | string) => {
+      const message = String(chunk).trim();
+      if (message) console.warn("[stella-browser-agent]", message);
+    });
+    const forgetBackend = () => {
+      if (this.agentBackends.get(input.ownerId)?.process === daemon) {
+        this.agentBackends.delete(input.ownerId);
+      }
+    };
+    daemon.once("exit", forgetBackend);
+    daemon.once("error", forgetBackend);
+
+    try {
+      await this.waitForAgentDaemonReady(backend);
+      await this.sendCommandToSession(
+        bridgeSessionId,
+        {
+          id: randomUUID(),
+          action: "launch",
+          cdpUrl: input.cdpUrl,
+          controlToken,
+        },
+        COMMAND_TIMEOUT_MS,
+      );
+      return backend;
+    } catch (error) {
+      await stopChildProcessTree(daemon).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async waitForAgentDaemonReady(backend: AgentBackendRecord) {
+    const deadline = Date.now() + DAEMON_READY_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (backend.process.exitCode !== null) {
+        throw new Error("Agent browser daemon exited before it became ready.");
+      }
+      try {
+        await this.sendCommandToSession(
+          backend.bridgeSessionId,
+          {
+            id: randomUUID(),
+            action: "state_list",
+            controlToken: backend.controlToken,
+          },
+          DAEMON_READY_PROBE_TIMEOUT_MS,
+        );
+        return;
+      } catch {
+        await delay(100);
+      }
+    }
+    throw new Error("Agent browser daemon did not become ready in time.");
+  }
+
+  private async stopAgentBackend(backend: AgentBackendRecord) {
+    if (this.agentBackends.get(backend.ownerId)?.process === backend.process) {
+      this.agentBackends.delete(backend.ownerId);
+    }
+    await Promise.race([
+      this.sendCommandToSession(
+        backend.bridgeSessionId,
+        {
+          id: randomUUID(),
+          action: "close",
+          controlToken: backend.controlToken,
+        },
+        1_000,
+      ).catch(() => undefined),
+      delay(1_100),
+    ]).catch(() => undefined);
+    if (!backend.process.killed && backend.process.exitCode === null) {
+      await stopChildProcessTree(backend.process).catch(() => undefined);
+    }
+  }
+
+  private resetCdpRouting() {
+    this.cdpRoutingGeneration += 1;
+    this.connectedCdpUrl = null;
+    this.connectingCdp = null;
   }
 
   private async waitForDaemonReady() {
@@ -455,11 +774,23 @@ export class StellaBrowserBridgeService {
     await this.stopOrphanedBundledDaemons();
   }
 
-  private async sendCommand(
+  private sendCommand(
     command: Record<string, unknown>,
     timeoutMs = COMMAND_TIMEOUT_MS,
   ): Promise<DaemonResponse> {
-    const socket = await this.openConnection();
+    return this.sendCommandToSession(
+      STELLA_BROWSER_BRIDGE_SESSION,
+      { ...command, controlToken: this.controlToken },
+      timeoutMs,
+    );
+  }
+
+  private async sendCommandToSession(
+    session: string,
+    command: Record<string, unknown>,
+    timeoutMs = COMMAND_TIMEOUT_MS,
+  ): Promise<DaemonResponse> {
+    const socket = await this.openConnection(session);
 
     return await new Promise<DaemonResponse>((resolve, reject) => {
       let settled = false;
@@ -543,14 +874,16 @@ export class StellaBrowserBridgeService {
     });
   }
 
-  private async openConnection(): Promise<net.Socket> {
+  private async openConnection(
+    session = STELLA_BROWSER_BRIDGE_SESSION,
+  ): Promise<net.Socket> {
     const endpoint =
       process.platform === "win32"
         ? {
-            port: getPortForSession(STELLA_BROWSER_BRIDGE_SESSION),
+            port: getPortForSession(session),
             host: "127.0.0.1",
           }
-        : { path: getSocketPath(STELLA_BROWSER_BRIDGE_SESSION) };
+        : { path: getSocketPath(session) };
 
     return await new Promise<net.Socket>((resolve, reject) => {
       const socket = net.createConnection(endpoint);
@@ -699,6 +1032,28 @@ export class StellaBrowserBridgeService {
 }
 
 const getSocketDir = getStellaBrowserSocketDir;
+
+const requireCapabilityString = (value: string, name: string) => {
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 512 || normalized.includes("\0")) {
+    throw new Error(`${name} must be a non-empty capability string.`);
+  }
+  return normalized;
+};
+
+const requireCapabilityTimestamp = (value: number) => {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error("ownerLeaseIssuedAt must be a positive integer.");
+  }
+  return value;
+};
+
+const agentBackendResult = (
+  backend: AgentBackendRecord,
+): StellaBrowserAgentBackend => ({
+  bridgeSessionId: backend.bridgeSessionId,
+  capabilityExpiresAt: backend.capabilityExpiresAt,
+});
 
 const getSocketPath = (session: string) =>
   path.join(getSocketDir(), `${session}.sock`);

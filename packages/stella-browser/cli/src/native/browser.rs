@@ -195,12 +195,12 @@ pub struct BrowserManager {
 /// Tracks which stable tab ids each command owner created so
 /// `finalize_tabs`/`close_owner` can reap exactly that owner's tabs. This is
 /// the CDP replacement for the extension's owner-tab bookkeeping
-/// (extension/commands/tabs.js); the extension-era owner *lease* protocol is
-/// deliberately absent — the in-app browser is agent-driven, so `ownerId`
-/// alone identifies the tab set.
+/// (extension/commands/tabs.js). The daemon's separate owner-lease registry
+/// authenticates each turn before this owner-scoped tab registry is touched.
 #[derive(Default)]
 pub struct OwnerTabRegistry {
     tabs_by_owner: HashMap<String, Vec<u64>>,
+    active_tab_by_owner: HashMap<String, u64>,
 }
 
 impl OwnerTabRegistry {
@@ -214,6 +214,8 @@ impl OwnerTabRegistry {
         let tabs = self.tabs_by_owner.entry(owner_id.to_string()).or_default();
         if !tabs.contains(&tab_id) {
             tabs.push(tab_id);
+            self.active_tab_by_owner
+                .insert(owner_id.to_string(), tab_id);
         }
     }
 
@@ -233,6 +235,44 @@ impl OwnerTabRegistry {
             .map(|(owner_id, _)| owner_id.as_str())
     }
 
+    /// Whether a tab is recorded under any command owner.
+    pub fn is_owned(&self, tab_id: u64) -> bool {
+        self.tabs_by_owner
+            .values()
+            .any(|tabs| tabs.contains(&tab_id))
+    }
+
+    /// Whether a tab is recorded under the specified command owner.
+    pub fn is_owned_by(&self, owner_id: &str, tab_id: u64) -> bool {
+        self.tabs_by_owner
+            .get(owner_id.trim())
+            .is_some_and(|tabs| tabs.contains(&tab_id))
+    }
+
+    /// Commands without an owner are legacy/manual and unrestricted. An
+    /// owner-scoped command may use only tabs recorded for that exact owner.
+    /// Released deliverables and handoffs are no longer agent-controlled.
+    pub fn can_access(&self, owner_id: Option<&str>, tab_id: u64) -> bool {
+        let Some(owner_id) = owner_id else {
+            return true;
+        };
+        self.is_owned_by(owner_id, tab_id)
+    }
+
+    /// Marks one of an owner's tabs as its logical active tab. Foreign and
+    /// unowned tabs are ignored rather than adopted implicitly.
+    pub fn mark_active(&mut self, owner_id: &str, tab_id: u64) {
+        let owner_id = owner_id.trim();
+        if self.is_owned_by(owner_id, tab_id) {
+            self.active_tab_by_owner
+                .insert(owner_id.to_string(), tab_id);
+        }
+    }
+
+    pub fn active_tab_id(&self, owner_id: &str) -> Option<u64> {
+        self.active_tab_by_owner.get(owner_id.trim()).copied()
+    }
+
     /// Releases one tab from one owner without touching other owners
     /// (finalize `keep` entries hand the tab off without closing it).
     pub fn release(&mut self, owner_id: &str, tab_id: u64) {
@@ -241,6 +281,12 @@ impl OwnerTabRegistry {
             tabs.retain(|candidate| *candidate != tab_id);
             if tabs.is_empty() {
                 self.tabs_by_owner.remove(owner_id);
+                self.active_tab_by_owner.remove(owner_id);
+            } else if self.active_tab_by_owner.get(owner_id) == Some(&tab_id) {
+                if let Some(fallback) = tabs.last().copied() {
+                    self.active_tab_by_owner
+                        .insert(owner_id.to_string(), fallback);
+                }
             }
         }
     }
@@ -248,8 +294,15 @@ impl OwnerTabRegistry {
     /// Drops a tab from every owner's set once the tab no longer exists.
     /// Idempotent: forgetting an unknown tab is a no-op.
     pub fn forget_tab(&mut self, tab_id: u64) {
-        self.tabs_by_owner.retain(|_, tabs| {
+        self.tabs_by_owner.retain(|owner_id, tabs| {
             tabs.retain(|candidate| *candidate != tab_id);
+            if self.active_tab_by_owner.get(owner_id) == Some(&tab_id) {
+                if let Some(fallback) = tabs.last().copied() {
+                    self.active_tab_by_owner.insert(owner_id.clone(), fallback);
+                } else {
+                    self.active_tab_by_owner.remove(owner_id);
+                }
+            }
             !tabs.is_empty()
         });
     }
@@ -818,9 +871,19 @@ impl BrowserManager {
         self.owner_tabs.tab_ids(owner_id)
     }
 
+    pub fn mark_owner_tab_active(&mut self, owner_id: &str, tab_id: u64) {
+        self.owner_tabs.mark_active(owner_id, tab_id);
+    }
+
     /// The owner a tab is recorded under, if any.
     pub fn owner_of_tab(&self, tab_id: u64) -> Option<String> {
         self.owner_tabs.owner_of(tab_id).map(str::to_string)
+    }
+
+    /// Owner-scoped commands may address only their own tabs. Commands without
+    /// an owner retain the legacy unrestricted manual/UI behavior.
+    pub fn can_owner_access_tab(&self, owner_id: Option<&str>, tab_id: u64) -> bool {
+        self.owner_tabs.can_access(owner_id, tab_id)
     }
 
     /// Releases a tab from an owner's set without closing it (finalize
@@ -876,6 +939,35 @@ impl BrowserManager {
                 })
             })
             .collect()
+    }
+
+    /// Owner-scoped tab discovery exposes only that owner's tabs. Unowned
+    /// tabs remain available to the UI and legacy/manual callers through the
+    /// unscoped `tab_list`, but are not advertised to another agent.
+    pub fn tab_list_for_owner(&self, owner_id: Option<&str>) -> Vec<Value> {
+        let Some(owner_id) = owner_id else {
+            return self.tab_list();
+        };
+        let active_tab_id = self.owner_tabs.active_tab_id(owner_id);
+        self.tab_list()
+            .into_iter()
+            .filter_map(|mut tab| {
+                let tab_id = tab.get("tabId").and_then(Value::as_u64)?;
+                if !self.owner_tabs.is_owned_by(owner_id, tab_id) {
+                    return None;
+                }
+                tab["active"] = json!(active_tab_id == Some(tab_id));
+                Some(tab)
+            })
+            .collect()
+    }
+
+    /// The active tab id only when it belongs to the requesting owner.
+    pub fn active_tab_id_for_owner(&self, owner_id: Option<&str>) -> Option<u64> {
+        match owner_id {
+            Some(owner_id) => self.owner_tabs.active_tab_id(owner_id),
+            None => self.active_tab_id(),
+        }
     }
 
     pub async fn tab_new(&mut self, url: Option<&str>) -> Result<Value, String> {
@@ -1537,6 +1629,7 @@ mod tests {
         registry.release("worker-1", 2);
         assert_eq!(registry.tab_ids("worker-1"), vec![1]);
         assert_eq!(registry.tab_ids("worker-2"), vec![2]);
+        assert_eq!(registry.active_tab_id("worker-1"), Some(1));
         registry.release("worker-1", 2);
         registry.release("unknown", 2);
         assert_eq!(registry.tab_ids("worker-2"), vec![2]);
@@ -1546,11 +1639,40 @@ mod tests {
         registry.forget_tab(2);
         assert_eq!(registry.tab_ids("worker-2"), Vec::<u64>::new());
         assert_eq!(registry.owner_of(2), None);
+        assert_eq!(registry.active_tab_id("worker-2"), None);
 
         // Draining an owner's last tab drops the owner entry entirely.
         registry.release("worker-1", 1);
         assert_eq!(registry.owner_of(1), None);
         assert_eq!(registry.tab_ids("worker-1"), Vec::<u64>::new());
+    }
+
+    #[test]
+    fn test_owner_tab_registry_distinguishes_own_foreign_and_unowned_tabs() {
+        let mut registry = OwnerTabRegistry::default();
+        registry.record("worker-1", 1);
+        registry.record("worker-2", 2);
+
+        assert!(registry.is_owned(1));
+        assert!(registry.is_owned(2));
+        assert!(!registry.is_owned(3));
+        assert!(registry.is_owned_by("worker-1", 1));
+        assert!(!registry.is_owned_by("worker-1", 2));
+        assert!(!registry.is_owned_by("worker-1", 3));
+        assert!(registry.can_access(Some("worker-1"), 1));
+        assert!(!registry.can_access(Some("worker-1"), 2));
+        assert!(!registry.can_access(Some("worker-1"), 3));
+        assert!(registry.can_access(None, 2));
+        assert_eq!(registry.active_tab_id("worker-1"), Some(1));
+        assert_eq!(registry.active_tab_id("worker-2"), Some(2));
+
+        registry.mark_active("worker-1", 1);
+        assert_eq!(registry.active_tab_id("worker-1"), Some(1));
+        registry.mark_active("worker-1", 2);
+        assert_eq!(registry.active_tab_id("worker-1"), Some(1));
+
+        registry.release("worker-1", 1);
+        assert_eq!(registry.active_tab_id("worker-1"), None);
     }
 
     #[test]

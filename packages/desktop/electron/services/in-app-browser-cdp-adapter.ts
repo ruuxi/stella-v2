@@ -1,11 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import {
-  WebSocket,
-  WebSocketServer,
-  type RawData,
-} from "ws";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 export type InAppBrowserDebuggerTarget = {
   id: string;
@@ -20,18 +16,26 @@ export type InAppBrowserDebuggerEvent = {
 };
 
 export type InAppBrowserDebuggerController = {
-  listDebuggerTargets: () =>
-    | InAppBrowserDebuggerTarget[]
-    | Promise<InAppBrowserDebuggerTarget[]>;
+  listDebuggerTargets: (
+    ownerId?: string,
+  ) => InAppBrowserDebuggerTarget[] | Promise<InAppBrowserDebuggerTarget[]>;
   createDebuggerTarget: (
     url: string,
+    ownerId?: string,
   ) => InAppBrowserDebuggerTarget | Promise<InAppBrowserDebuggerTarget>;
-  closeDebuggerTarget: (tabId: string) => boolean | Promise<boolean>;
-  activateDebuggerTarget: (tabId: string) => void | Promise<void>;
+  closeDebuggerTarget: (
+    tabId: string,
+    ownerId?: string,
+  ) => boolean | Promise<boolean>;
+  activateDebuggerTarget: (
+    tabId: string,
+    ownerId?: string,
+  ) => void | Promise<void>;
   sendDebuggerCommand: (
     tabId: string,
     method: string,
     params?: Record<string, unknown>,
+    ownerId?: string,
   ) => unknown | Promise<unknown>;
   subscribeDebuggerEvents: (
     listener: (event: InAppBrowserDebuggerEvent) => void,
@@ -49,7 +53,15 @@ type ClientState = {
   socket: WebSocket;
   sessions: Map<string, string>;
   discoverTargets: boolean;
+  ownerId: string;
 };
+
+export type InAppBrowserCdpCapability = Readonly<{
+  cdpUrl: string;
+  expiresAt: number;
+}>;
+
+const OWNER_CAPABILITY_TTL_MS = 60_000;
 
 const isSafeNavigationUrl = (value: string) => {
   if (value === "about:blank") return true;
@@ -92,8 +104,12 @@ const sendJson = (socket: WebSocket, payload: unknown) => {
  */
 export class InAppBrowserCdpAdapter {
   private readonly controller: InAppBrowserDebuggerController;
-  private readonly token = randomUUID().replaceAll("-", "");
+  private readonly token = randomBytes(32).toString("hex");
   private readonly clients = new Set<ClientState>();
+  private readonly ownerRoutes = new Map<
+    string,
+    Readonly<{ ownerId: string; expiresAt: number }>
+  >();
   private httpServer: HttpServer | null = null;
   private webSocketServer: WebSocketServer | null = null;
   private webSocketUrl: string | null = null;
@@ -109,16 +125,11 @@ export class InAppBrowserCdpAdapter {
     const path = `/devtools/browser/${this.token}`;
     const server = createServer((request, response) => {
       if (request.url === "/json/version") {
-        const address = server.address() as AddressInfo | null;
-        const port = address?.port;
         response.writeHead(200, { "content-type": "application/json" });
         response.end(
           JSON.stringify({
             Browser: "Stella/InAppBrowser",
             "Protocol-Version": "1.3",
-            webSocketDebuggerUrl: port
-              ? `ws://127.0.0.1:${port}${path}`
-              : undefined,
           }),
         );
         return;
@@ -128,15 +139,28 @@ export class InAppBrowserCdpAdapter {
 
     const webSocketServer = new WebSocketServer({ noServer: true });
     server.on("upgrade", (request, socket, head) => {
-      if (request.url !== path) {
+      const requestPath = request.url ?? "";
+      const route = this.ownerRoutes.get(requestPath);
+      if (!route || route.expiresAt <= Date.now()) {
+        this.ownerRoutes.delete(requestPath);
         socket.destroy();
         return;
       }
+      const ownerId = route.ownerId;
+      // Owner routes are bearer capabilities: consume them on the first
+      // successful upgrade so a copied URL cannot attach a second daemon.
+      this.ownerRoutes.delete(requestPath);
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        Reflect.set(webSocket, "__stellaOwnerId", ownerId);
         webSocketServer.emit("connection", webSocket, request);
       });
     });
-    webSocketServer.on("connection", (socket) => this.attachClient(socket));
+    webSocketServer.on("connection", (socket) =>
+      this.attachClient(
+        socket,
+        Reflect.get(socket, "__stellaOwnerId") as string | undefined,
+      ),
+    );
 
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => {
@@ -162,6 +186,27 @@ export class InAppBrowserCdpAdapter {
     return this.webSocketUrl;
   }
 
+  async createOwnerCapability(
+    ownerId: string,
+  ): Promise<InAppBrowserCdpCapability> {
+    const normalizedOwnerId = ownerId.trim();
+    if (
+      !normalizedOwnerId ||
+      normalizedOwnerId.length > 512 ||
+      normalizedOwnerId.includes("\0")
+    ) {
+      throw new Error("ownerId must be a non-empty capability string.");
+    }
+    const legacyUrl = await this.start();
+    const parsed = new URL(legacyUrl);
+    const routePath = `/devtools/browser/${randomBytes(32).toString("hex")}`;
+    const expiresAt = Date.now() + OWNER_CAPABILITY_TTL_MS;
+    this.pruneExpiredOwnerRoutes();
+    this.ownerRoutes.set(routePath, { ownerId: normalizedOwnerId, expiresAt });
+    parsed.pathname = routePath;
+    return { cdpUrl: parsed.toString(), expiresAt };
+  }
+
   async stop(): Promise<void> {
     this.unsubscribeDebuggerEvents?.();
     this.unsubscribeDebuggerEvents = null;
@@ -169,6 +214,7 @@ export class InAppBrowserCdpAdapter {
       client.socket.close();
     }
     this.clients.clear();
+    this.ownerRoutes.clear();
     this.webSocketServer?.close();
     this.webSocketServer = null;
     const server = this.httpServer;
@@ -178,11 +224,16 @@ export class InAppBrowserCdpAdapter {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
-  private attachClient(socket: WebSocket) {
+  private attachClient(socket: WebSocket, ownerId?: string) {
+    if (!ownerId) {
+      socket.close(1008, "Owner capability required");
+      return;
+    }
     const client: ClientState = {
       socket,
       sessions: new Map(),
       discoverTargets: false,
+      ownerId,
     };
     this.clients.add(client);
     socket.on("message", (data) => {
@@ -243,12 +294,16 @@ export class InAppBrowserCdpAdapter {
         return {};
       }
       case "Target.getTargets": {
-        const targets = await this.controller.listDebuggerTargets();
+        const targets = await this.controller.listDebuggerTargets(
+          client.ownerId,
+        );
         return { targetInfos: targets.map(targetInfo) };
       }
       case "Target.getTargetInfo": {
         const targetId = String(params.targetId ?? "");
-        const targets = await this.controller.listDebuggerTargets();
+        const targets = await this.controller.listDebuggerTargets(
+          client.ownerId,
+        );
         const target = targets.find((candidate) => candidate.id === targetId);
         if (!target) throw new Error("Browser target was not found.");
         return { targetInfo: targetInfo(target) };
@@ -256,17 +311,26 @@ export class InAppBrowserCdpAdapter {
       case "Target.createTarget": {
         const url = String(params.url ?? "about:blank");
         if (!isSafeNavigationUrl(url)) {
-          throw new Error("Only http, https, and about:blank URLs are allowed.");
+          throw new Error(
+            "Only http, https, and about:blank URLs are allowed.",
+          );
         }
-        const target = await this.controller.createDebuggerTarget(url);
-        this.broadcastTargetEvent("Target.targetCreated", {
-          targetInfo: targetInfo(target),
-        });
+        const target = await this.controller.createDebuggerTarget(
+          url,
+          client.ownerId,
+        );
+        this.broadcastTargetEvent(
+          "Target.targetCreated",
+          { targetInfo: targetInfo(target) },
+          client.ownerId,
+        );
         return { targetId: target.id };
       }
       case "Target.attachToTarget": {
         const targetId = String(params.targetId ?? "");
-        const targets = await this.controller.listDebuggerTargets();
+        const targets = await this.controller.listDebuggerTargets(
+          client.ownerId,
+        );
         if (!targets.some((target) => target.id === targetId)) {
           throw new Error("Browser target was not found.");
         }
@@ -276,7 +340,7 @@ export class InAppBrowserCdpAdapter {
       }
       case "Target.activateTarget": {
         const targetId = String(params.targetId ?? "");
-        await this.controller.activateDebuggerTarget(targetId);
+        await this.controller.activateDebuggerTarget(targetId, client.ownerId);
         return {};
       }
       case "Target.detachFromTarget": {
@@ -286,12 +350,19 @@ export class InAppBrowserCdpAdapter {
       }
       case "Target.closeTarget": {
         const targetId = String(params.targetId ?? "");
-        const success = await this.controller.closeDebuggerTarget(targetId);
+        const success = await this.controller.closeDebuggerTarget(
+          targetId,
+          client.ownerId,
+        );
         for (const [sessionId, tabId] of client.sessions) {
           if (tabId === targetId) client.sessions.delete(sessionId);
         }
         if (success) {
-          this.broadcastTargetEvent("Target.targetDestroyed", { targetId });
+          this.broadcastTargetEvent(
+            "Target.targetDestroyed",
+            { targetId },
+            client.ownerId,
+          );
         }
         return { success };
       }
@@ -306,11 +377,12 @@ export class InAppBrowserCdpAdapter {
       throw new Error(`CDP method ${method} requires a page session.`);
     }
 
-    await this.presentAgentAction(tabId, method, params);
+    await this.presentAgentAction(tabId, method, params, client.ownerId);
     return await this.controller.sendDebuggerCommand(
       tabId,
       method,
       params,
+      client.ownerId,
     );
   }
 
@@ -327,11 +399,22 @@ export class InAppBrowserCdpAdapter {
     }
   }
 
-  private broadcastTargetEvent(method: string, params: unknown) {
+  private broadcastTargetEvent(
+    method: string,
+    params: unknown,
+    ownerId?: string,
+  ) {
     for (const client of this.clients) {
-      if (client.discoverTargets) {
+      if (client.discoverTargets && client.ownerId === ownerId) {
         sendJson(client.socket, { method, params });
       }
+    }
+  }
+
+  private pruneExpiredOwnerRoutes() {
+    const now = Date.now();
+    for (const [routePath, route] of this.ownerRoutes) {
+      if (route.expiresAt <= now) this.ownerRoutes.delete(routePath);
     }
   }
 
@@ -339,6 +422,7 @@ export class InAppBrowserCdpAdapter {
     tabId: string,
     method: string,
     params: Record<string, unknown>,
+    ownerId?: string,
   ) {
     if (method !== "Input.dispatchMouseEvent") return;
     const x = Number(params.x);
@@ -379,10 +463,15 @@ export class InAppBrowserCdpAdapter {
       }
     })()`;
     await Promise.resolve(
-      this.controller.sendDebuggerCommand(tabId, "Runtime.evaluate", {
-        expression,
-        returnByValue: true,
-      }),
+      this.controller.sendDebuggerCommand(
+        tabId,
+        "Runtime.evaluate",
+        {
+          expression,
+          returnByValue: true,
+        },
+        ownerId,
+      ),
     ).catch(() => undefined);
     if (kind === "click") {
       await new Promise((resolve) => setTimeout(resolve, 180));

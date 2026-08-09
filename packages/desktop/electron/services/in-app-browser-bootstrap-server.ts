@@ -14,14 +14,33 @@ const MAX_REQUEST_BYTES = 16 * 1024;
 
 export type InAppBrowserBootstrapServerOptions = {
   token: string;
-  ensureReady: () => Promise<void>;
+  ensureReady: (
+    capability: InAppBrowserBootstrapCapability,
+  ) => Promise<InAppBrowserBootstrapResult>;
   endpoint?: StellaInAppBrowserInitEndpoint;
   tokenPath?: string;
 };
 
-const ensureRequestSchema = z.looseObject({
+export type InAppBrowserBootstrapCapability = Readonly<{
+  sessionId: string;
+  turnId: string;
+  ownerLeaseId: string;
+  ownerLeaseIssuedAt: number;
+}>;
+
+export type InAppBrowserBootstrapResult = Readonly<{
+  bridgeSessionId: string;
+  capabilityExpiresAt: number;
+}>;
+
+const capabilityString = z.string().trim().min(1).max(512);
+const ensureRequestSchema = z.strictObject({
   action: z.literal("ensure"),
-  token: z.unknown().optional(),
+  token: z.unknown(),
+  sessionId: capabilityString,
+  turnId: capabilityString,
+  ownerLeaseId: capabilityString,
+  ownerLeaseIssuedAt: z.number().int().positive(),
 });
 
 const sameToken = (received: unknown, expected: string) => {
@@ -150,16 +169,32 @@ export class InAppBrowserBootstrapServer {
         );
         return;
       }
-      await this.options.ensureReady();
-      this.reply(socket, true);
+      const result = await this.options.ensureReady({
+        sessionId: payload.data.sessionId,
+        turnId: payload.data.turnId,
+        ownerLeaseId: payload.data.ownerLeaseId,
+        ownerLeaseIssuedAt: payload.data.ownerLeaseIssuedAt,
+      });
+      this.reply(socket, true, undefined, result);
     } catch (error) {
       this.reply(socket, false, errorMessage(error));
     }
   }
 
-  private reply(socket: Socket, success: boolean, error?: string) {
+  private reply(
+    socket: Socket,
+    success: boolean,
+    error?: string,
+    data?: InAppBrowserBootstrapResult,
+  ) {
     if (socket.destroyed) return;
-    socket.end(`${JSON.stringify({ success, ...(error ? { error } : {}) })}\n`);
+    socket.end(
+      `${JSON.stringify({
+        success,
+        ...(error ? { error } : {}),
+        ...(data ? { data } : {}),
+      })}\n`,
+    );
   }
 
   private removeDiscoveryFiles() {

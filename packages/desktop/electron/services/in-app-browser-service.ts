@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
+  BrowserWindow,
   session,
   WebContentsView,
-  type BrowserWindow,
   type Rectangle,
   type Session,
 } from "electron";
@@ -18,10 +18,7 @@ import type {
   InAppBrowserDebuggerTarget,
 } from "./in-app-browser-cdp-adapter.js";
 
-export type BrowserViewConnection =
-  | "checking"
-  | "disconnected"
-  | "connected";
+export type BrowserViewConnection = "checking" | "disconnected" | "connected";
 
 export type BrowserViewTabState = {
   id: string;
@@ -67,10 +64,25 @@ export type StellaBrowserExportedCookie = {
 
 type ManagedTab = {
   id: string;
+  ownerId: string;
   view: WebContentsView;
   title: string;
   faviconUrl?: string;
   loading: boolean;
+};
+
+type OwnerTabRegistry = {
+  tabIds: Set<string>;
+  activeTabId?: string;
+};
+
+type DrawableLease = {
+  count: number;
+  mountedInHiddenHost: boolean;
+};
+
+export type InAppBrowserDrawableLease = {
+  release: () => void;
 };
 
 type InAppBrowserServiceOptions = {
@@ -92,11 +104,23 @@ type InAppBrowserServiceOptions = {
   importProfile?: typeof importBrowserProfileSnapshot;
   sessionFromPath?: typeof session.fromPath;
   createView?: (browserSession: Session) => WebContentsView;
+  createDrawableHost?: () => BrowserWindow;
   createId?: () => string;
   wait?: (delayMs: number) => Promise<void>;
 };
 
 const DEFAULT_URL = "about:blank";
+const MANUAL_OWNER_ID = "stella:manual";
+const DRAWABLE_HOST_BOUNDS: Rectangle = {
+  x: -100_000,
+  y: -100_000,
+  width: 1280,
+  height: 720,
+};
+const DRAWABLE_CDP_METHODS = new Set([
+  "Page.captureScreenshot",
+  "Page.printToPDF",
+]);
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECTION_POLL_MS = 250;
 
@@ -111,9 +135,7 @@ const errorMessage = (error: unknown) =>
 const normalizeWebUrl = (input: string | undefined) => {
   const raw = input?.trim() || DEFAULT_URL;
   if (raw === DEFAULT_URL) return raw;
-  const withProtocol = /^[a-z][a-z\d+.-]*:/i.test(raw)
-    ? raw
-    : `https://${raw}`;
+  const withProtocol = /^[a-z][a-z\d+.-]*:/i.test(raw) ? raw : `https://${raw}`;
   let parsed: URL;
   try {
     parsed = new URL(withProtocol);
@@ -139,7 +161,10 @@ const isAllowedNavigationUrl = (value: string) => {
 const normalizeBounds = (bounds: Rectangle): Rectangle => ({
   x: Math.round(Number.isFinite(bounds.x) ? bounds.x : 0),
   y: Math.round(Number.isFinite(bounds.y) ? bounds.y : 0),
-  width: Math.max(0, Math.round(Number.isFinite(bounds.width) ? bounds.width : 0)),
+  width: Math.max(
+    0,
+    Math.round(Number.isFinite(bounds.width) ? bounds.width : 0),
+  ),
   height: Math.max(
     0,
     Math.round(Number.isFinite(bounds.height) ? bounds.height : 0),
@@ -173,6 +198,8 @@ const cookieUrl = (cookie: StellaBrowserExportedCookie) => {
 export class InAppBrowserService {
   private readonly options: InAppBrowserServiceOptions;
   private readonly tabs = new Map<string, ManagedTab>();
+  private readonly owners = new Map<string, OwnerTabRegistry>();
+  private readonly drawableLeases = new Map<string, DrawableLease>();
   private readonly debuggerListeners = new Set<
     (event: InAppBrowserDebuggerEvent) => void
   >();
@@ -186,11 +213,13 @@ export class InAppBrowserService {
   private profileImport: BrowserProfileImportResult | null = null;
   private initializePromise: Promise<void> | null = null;
   private connectPromise: Promise<BrowserViewState> | null = null;
-  private activeTabId: string | undefined;
+  private visibleOwnerId = MANUAL_OWNER_ID;
+  private latestOwnerId: string | undefined;
   private visible = false;
   private layout: BrowserViewLayout | null = null;
   private attachedView: WebContentsView | null = null;
   private attachedWindow: BrowserWindow | null = null;
+  private drawableHost: BrowserWindow | null = null;
   private disposed = false;
   private seeded = false;
   private pendingPartitionedCookies: StellaBrowserExportedCookie[] = [];
@@ -202,11 +231,12 @@ export class InAppBrowserService {
       path.join(options.stellaDataDir, "browser", "profile-v1");
   }
 
-  async getState(): Promise<BrowserViewState> {
-    if (this.disposed) return this.snapshot();
+  async getState(ownerId?: string): Promise<BrowserViewState> {
+    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    if (this.disposed) return this.snapshot(resolvedOwnerId);
     if (this.seeded) {
       this.updateConnection("connected");
-      return this.snapshot();
+      return this.snapshot(resolvedOwnerId);
     }
     try {
       const extensionConnected = await this.options.getExtensionStatus();
@@ -218,7 +248,7 @@ export class InAppBrowserService {
       // normal disconnected state, not a fatal Browser-tab error.
       this.updateConnection("disconnected");
     }
-    return this.snapshot();
+    return this.snapshot(resolvedOwnerId);
   }
 
   async requestExtensionConnect(): Promise<BrowserViewState> {
@@ -243,7 +273,8 @@ export class InAppBrowserService {
       await this.options.openExtensionStore?.();
       const timeoutMs =
         this.options.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS;
-      const pollMs = this.options.connectionPollMs ?? DEFAULT_CONNECTION_POLL_MS;
+      const pollMs =
+        this.options.connectionPollMs ?? DEFAULT_CONNECTION_POLL_MS;
       if (await this.pollExtensionStatus(timeoutMs, pollMs)) {
         this.updateConnection("checking");
         return this.snapshot();
@@ -258,10 +289,12 @@ export class InAppBrowserService {
     return this.snapshot();
   }
 
-  connect(options: {
-    browserType?: string;
-    profileId?: string;
-  } = {}): Promise<BrowserViewState> {
+  connect(
+    options: {
+      browserType?: string;
+      profileId?: string;
+    } = {},
+  ): Promise<BrowserViewState> {
     if (this.connectPromise) return this.connectPromise;
     const promise = this.connectInternal(options).finally(() => {
       if (this.connectPromise === promise) this.connectPromise = null;
@@ -314,11 +347,23 @@ export class InAppBrowserService {
     return this.snapshot();
   }
 
-  async show(layout: BrowserViewLayout): Promise<BrowserViewState> {
+  async show(
+    layout: BrowserViewLayout,
+    ownerId?: string,
+  ): Promise<BrowserViewState> {
+    this.visibleOwnerId = this.resolveShowOwnerId(ownerId);
     this.visible = true;
     this.setLayoutInternal(layout);
+    this.syncState();
     this.attachActiveView();
-    return this.snapshot();
+    return this.snapshot(this.visibleOwnerId);
+  }
+
+  setVisibleOwner(ownerId?: string): BrowserViewState {
+    this.visibleOwnerId = this.resolveOwnerId(ownerId);
+    this.syncState();
+    this.attachActiveView();
+    return this.snapshot(this.visibleOwnerId);
   }
 
   async setLayout(layout: BrowserViewLayout): Promise<BrowserViewState> {
@@ -333,10 +378,13 @@ export class InAppBrowserService {
     return this.snapshot();
   }
 
-  async createTab(options: { url?: string } = {}): Promise<BrowserViewState> {
+  async createTab(
+    options: { url?: string; ownerId?: string } = {},
+  ): Promise<BrowserViewState> {
     await this.ensureSessionInitialized({});
     const browserSession = this.browserSession;
     if (!browserSession) throw new Error("Browser session is unavailable.");
+    const ownerId = this.resolveOwnerId(options.ownerId);
     const id = (this.options.createId ?? randomUUID)();
     const view =
       this.options.createView?.(browserSession) ??
@@ -355,13 +403,20 @@ export class InAppBrowserService {
       });
     const tab: ManagedTab = {
       id,
+      ownerId,
       view,
       title: "New Tab",
       loading: false,
     };
     this.tabs.set(id, tab);
+    const owner = this.getOrCreateOwner(ownerId);
+    owner.tabIds.add(id);
+    owner.activeTabId = id;
+    this.latestOwnerId = ownerId;
+    if (this.visible && ownerId === MANUAL_OWNER_ID) {
+      this.visibleOwnerId = MANUAL_OWNER_ID;
+    }
     this.bindTab(tab);
-    this.activeTabId = id;
     this.syncState();
     this.attachActiveView();
     try {
@@ -369,97 +424,188 @@ export class InAppBrowserService {
       await view.webContents.loadURL(normalizeWebUrl(options.url));
     } catch (error) {
       if (!view.webContents.isDestroyed()) {
-        this.setError(errorMessage(error));
+        this.setError(errorMessage(error), ownerId);
       }
     }
     this.syncState();
-    return this.snapshot();
+    return this.snapshot(ownerId);
   }
 
-  async selectTab(options: { tabId: string }): Promise<BrowserViewState> {
-    this.requireTab(options.tabId);
-    this.activeTabId = options.tabId;
+  async selectTab(options: {
+    tabId: string;
+    ownerId?: string;
+  }): Promise<BrowserViewState> {
+    const ownerId = this.resolveOwnerId(options.ownerId);
+    this.requireTab(options.tabId, ownerId);
+    this.getOrCreateOwner(ownerId).activeTabId = options.tabId;
+    this.latestOwnerId = ownerId;
+    if (this.visible && ownerId === MANUAL_OWNER_ID) {
+      this.visibleOwnerId = MANUAL_OWNER_ID;
+    }
     this.syncState();
     this.attachActiveView();
-    return this.snapshot();
+    return this.snapshot(ownerId);
   }
 
-  async closeTab(options: { tabId: string }): Promise<BrowserViewState> {
-    this.closeTabInternal(options.tabId);
-    return this.snapshot();
+  async closeTab(options: {
+    tabId: string;
+    ownerId?: string;
+  }): Promise<BrowserViewState> {
+    const ownerId = this.resolveOwnerId(options.ownerId);
+    this.closeTabInternal(options.tabId, ownerId);
+    return this.snapshot(ownerId);
   }
 
   async navigate(options: {
     tabId: string;
     url: string;
+    ownerId?: string;
   }): Promise<BrowserViewState> {
-    const tab = this.requireTab(options.tabId);
+    const ownerId = this.resolveOwnerId(options.ownerId);
+    const tab = this.requireTab(options.tabId, ownerId);
     await tab.view.webContents.loadURL(normalizeWebUrl(options.url));
     this.syncState();
-    return this.snapshot();
+    return this.snapshot(ownerId);
   }
 
-  async goBack(options: { tabId: string }): Promise<BrowserViewState> {
-    const history = this.requireTab(options.tabId).view.webContents
+  async goBack(options: {
+    tabId: string;
+    ownerId?: string;
+  }): Promise<BrowserViewState> {
+    const ownerId = this.resolveOwnerId(options.ownerId);
+    const history = this.requireTab(options.tabId, ownerId).view.webContents
       .navigationHistory;
     if (history.canGoBack()) history.goBack();
     this.syncState();
-    return this.snapshot();
+    return this.snapshot(ownerId);
   }
 
-  async goForward(options: { tabId: string }): Promise<BrowserViewState> {
-    const history = this.requireTab(options.tabId).view.webContents
+  async goForward(options: {
+    tabId: string;
+    ownerId?: string;
+  }): Promise<BrowserViewState> {
+    const ownerId = this.resolveOwnerId(options.ownerId);
+    const history = this.requireTab(options.tabId, ownerId).view.webContents
       .navigationHistory;
     if (history.canGoForward()) history.goForward();
     this.syncState();
-    return this.snapshot();
+    return this.snapshot(ownerId);
   }
 
-  async reload(options: { tabId: string }): Promise<BrowserViewState> {
-    this.requireTab(options.tabId).view.webContents.reload();
+  async reload(options: {
+    tabId: string;
+    ownerId?: string;
+  }): Promise<BrowserViewState> {
+    const ownerId = this.resolveOwnerId(options.ownerId);
+    this.requireTab(options.tabId, ownerId).view.webContents.reload();
     this.syncState();
-    return this.snapshot();
+    return this.snapshot(ownerId);
   }
 
-  listDebuggerTargets(): InAppBrowserDebuggerTarget[] {
-    return [...this.tabs.values()].map((tab) => ({
-      id: tab.id,
-      url: this.readTabUrl(tab),
-      title: tab.title,
-    }));
+  listDebuggerTargets(ownerId?: string): InAppBrowserDebuggerTarget[] {
+    const owner = this.owners.get(this.resolveOwnerId(ownerId));
+    if (!owner) return [];
+    return [...owner.tabIds].flatMap((tabId) => {
+      const tab = this.tabs.get(tabId);
+      if (!tab || tab.view.webContents.isDestroyed()) return [];
+      return [{ id: tab.id, url: this.readTabUrl(tab), title: tab.title }];
+    });
   }
 
   async createDebuggerTarget(
     url = DEFAULT_URL,
+    ownerId?: string,
   ): Promise<InAppBrowserDebuggerTarget> {
-    const state = await this.createTab({ url });
+    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    const state = await this.createTab({ url, ownerId: resolvedOwnerId });
     const tabId = state.activeTabId;
     const target = tabId
-      ? this.listDebuggerTargets().find((candidate) => candidate.id === tabId)
+      ? this.listDebuggerTargets(resolvedOwnerId).find(
+          (candidate) => candidate.id === tabId,
+        )
       : undefined;
     if (!target) throw new Error("Failed to create browser target.");
     return target;
   }
 
-  async closeDebuggerTarget(tabId: string): Promise<boolean> {
-    if (!this.tabs.has(tabId)) return false;
-    this.closeTabInternal(tabId);
+  async closeDebuggerTarget(tabId: string, ownerId?: string): Promise<boolean> {
+    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    if (!this.isOwnedBy(tabId, resolvedOwnerId)) return false;
+    this.closeTabInternal(tabId, resolvedOwnerId);
     return true;
   }
 
-  async activateDebuggerTarget(tabId: string): Promise<void> {
-    await this.selectTab({ tabId });
+  async activateDebuggerTarget(tabId: string, ownerId?: string): Promise<void> {
+    await this.selectTab({ tabId, ownerId: this.resolveOwnerId(ownerId) });
   }
 
   async sendDebuggerCommand(
     tabId: string,
     method: string,
     params?: Record<string, unknown>,
+    ownerId?: string,
   ): Promise<unknown> {
-    const tab = this.requireTab(tabId);
+    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    const tab = this.requireTab(tabId, resolvedOwnerId);
     const tabDebugger = tab.view.webContents.debugger;
     if (!tabDebugger.isAttached()) tabDebugger.attach();
-    return await tabDebugger.sendCommand(method, params);
+    if (!DRAWABLE_CDP_METHODS.has(method)) {
+      return await tabDebugger.sendCommand(method, params);
+    }
+    const lease = this.acquireDrawableHost(tabId, resolvedOwnerId);
+    try {
+      await this.settleDrawableHost(tabId);
+      return await tabDebugger.sendCommand(method, params);
+    } finally {
+      lease.release();
+    }
+  }
+
+  acquireDrawableHost(
+    tabId: string,
+    ownerId?: string,
+  ): InAppBrowserDrawableLease {
+    const tab = this.requireTab(tabId, this.resolveOwnerId(ownerId));
+    let lease = this.drawableLeases.get(tabId);
+    if (lease) {
+      lease.count += 1;
+      if (
+        this.attachedView !== tab.view &&
+        (!lease.mountedInHiddenHost || this.drawableHost?.isDestroyed())
+      ) {
+        lease.mountedInHiddenHost = false;
+        this.mountLeaseInHiddenHost(tab, lease);
+      }
+    } else {
+      lease = { count: 1, mountedInHiddenHost: false };
+      this.drawableLeases.set(tabId, lease);
+      if (this.attachedView !== tab.view)
+        this.mountLeaseInHiddenHost(tab, lease);
+    }
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        this.releaseDrawableHost(tabId);
+      },
+    };
+  }
+
+  closeOwnerTabs(ownerId: string): void {
+    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    const owner = this.owners.get(resolvedOwnerId);
+    if (!owner) return;
+    const wasVisibleOwner = this.visibleOwnerId === resolvedOwnerId;
+    if (wasVisibleOwner) this.visibleOwnerId = MANUAL_OWNER_ID;
+    for (const tabId of [...owner.tabIds]) {
+      if (this.tabs.has(tabId)) this.closeTabInternal(tabId, resolvedOwnerId);
+    }
+    this.owners.delete(resolvedOwnerId);
+    if (wasVisibleOwner) {
+      this.syncState();
+      this.attachActiveView();
+    }
   }
 
   subscribeDebuggerEvents(
@@ -474,7 +620,14 @@ export class InAppBrowserService {
     this.disposed = true;
     this.visible = false;
     this.detachAttachedView();
-    for (const tabId of [...this.tabs.keys()]) this.closeTabInternal(tabId);
+    for (const tab of [...this.tabs.values()]) {
+      this.closeTabInternal(tab.id, tab.ownerId);
+    }
+    this.drawableLeases.clear();
+    const drawableHost = this.drawableHost;
+    this.drawableHost = null;
+    if (drawableHost && !drawableHost.isDestroyed()) drawableHost.destroy();
+    this.owners.clear();
     this.debuggerListeners.clear();
   }
 
@@ -494,9 +647,10 @@ export class InAppBrowserService {
         destinationPath: this.profilePath,
         selection,
       });
-      this.browserSession = (
-        this.options.sessionFromPath ?? session.fromPath
-      )(this.profilePath, { cache: true });
+      this.browserSession = (this.options.sessionFromPath ?? session.fromPath)(
+        this.profilePath,
+        { cache: true },
+      );
       this.browserSession.setPermissionRequestHandler(
         (_webContents, _permission, callback) => callback(false),
       );
@@ -526,17 +680,18 @@ export class InAppBrowserService {
         // probe. A failed attempt is not a terminal connection result.
       }
       if (Date.now() >= deadline || this.disposed) break;
-      await (this.options.wait ??
+      await (
+        this.options.wait ??
         ((delayMs: number) =>
-          new Promise<void>((resolve) => setTimeout(resolve, delayMs))))(
-        pollMs,
-      );
+          new Promise<void>((resolve) => setTimeout(resolve, delayMs)))
+      )(pollMs);
     } while (!this.disposed);
     return false;
   }
 
   private async seedCookies(cookies: StellaBrowserExportedCookie[]) {
-    if (!this.browserSession) throw new Error("Browser session is unavailable.");
+    if (!this.browserSession)
+      throw new Error("Browser session is unavailable.");
     let failed = 0;
     let partitioned = 0;
     for (const cookie of cookies) {
@@ -569,8 +724,8 @@ export class InAppBrowserService {
     }
     await this.browserSession.cookies.flushStore();
     this.browserSession.flushStorageData();
-    this.pendingPartitionedCookies = cookies.filter(
-      (cookie) => Boolean(cookie.partitionKey?.topLevelSite),
+    this.pendingPartitionedCookies = cookies.filter((cookie) =>
+      Boolean(cookie.partitionKey?.topLevelSite),
     );
     if (failed > 0 || partitioned > 0) {
       console.warn(
@@ -647,19 +802,26 @@ export class InAppBrowserService {
       (_event, errorCode, errorDescription, _validatedUrl, isMainFrame) => {
         if (!isMainFrame || errorCode === -3) return;
         tab.loading = false;
-        this.setError(errorDescription || `Page failed to load (${errorCode}).`);
+        this.setError(
+          errorDescription || `Page failed to load (${errorCode}).`,
+          tab.ownerId,
+        );
       },
     );
     contents.on("render-process-gone", (_event, details) => {
       tab.loading = false;
-      this.setError(`Browser page stopped: ${details.reason}.`);
+      this.setError(`Browser page stopped: ${details.reason}.`, tab.ownerId);
     });
     contents.on("destroyed", () => {
       if (this.tabs.get(tab.id) !== tab) return;
       this.tabs.delete(tab.id);
-      if (this.activeTabId === tab.id) {
-        this.activeTabId = this.tabs.keys().next().value;
+      this.drawableLeases.delete(tab.id);
+      const owner = this.owners.get(tab.ownerId);
+      owner?.tabIds.delete(tab.id);
+      if (owner?.activeTabId === tab.id) {
+        owner.activeTabId = [...owner.tabIds].at(-1);
       }
+      if (owner && owner.tabIds.size === 0) this.owners.delete(tab.ownerId);
       this.syncState();
       this.attachActiveView();
     });
@@ -668,8 +830,8 @@ export class InAppBrowserService {
     });
     contents.setWindowOpenHandler(({ url }) => {
       if (isAllowedNavigationUrl(url)) {
-        void this.createTab({ url }).catch((error) => {
-          this.setError(errorMessage(error));
+        void this.createTab({ url, ownerId: tab.ownerId }).catch((error) => {
+          this.setError(errorMessage(error), tab.ownerId);
         });
       }
       return { action: "deny" };
@@ -686,24 +848,32 @@ export class InAppBrowserService {
     });
   }
 
-  private requireTab(tabId: string) {
+  private requireTab(tabId: string, ownerId?: string) {
     const tab = this.tabs.get(tabId);
     if (!tab || tab.view.webContents.isDestroyed()) {
       throw new Error(`Browser tab not found: ${tabId}`);
     }
+    if (ownerId !== undefined && tab.ownerId !== ownerId) {
+      throw new Error(`Browser tab not found for owner: ${tabId}`);
+    }
     return tab;
   }
 
-  private closeTabInternal(tabId: string) {
-    const tab = this.requireTab(tabId);
-    const orderedIds = [...this.tabs.keys()];
+  private closeTabInternal(tabId: string, ownerId: string) {
+    const tab = this.requireTab(tabId, ownerId);
+    const owner = this.owners.get(ownerId);
+    const orderedIds = owner ? [...owner.tabIds] : [];
     const closedIndex = orderedIds.indexOf(tabId);
     if (this.attachedView === tab.view) this.detachAttachedView();
+    this.unmountDrawableLease(tab);
+    this.drawableLeases.delete(tabId);
     this.tabs.delete(tabId);
-    if (this.activeTabId === tabId) {
-      this.activeTabId =
+    owner?.tabIds.delete(tabId);
+    if (owner?.activeTabId === tabId) {
+      owner.activeTabId =
         orderedIds[closedIndex + 1] ?? orderedIds[closedIndex - 1];
     }
+    if (owner && owner.tabIds.size === 0) this.owners.delete(ownerId);
     const tabDebugger = tab.view.webContents.debugger;
     if (tabDebugger.isAttached()) tabDebugger.detach();
     tab.view.webContents.close();
@@ -733,30 +903,50 @@ export class InAppBrowserService {
   }
 
   private syncState() {
-    this.state.tabs = [...this.tabs.values()]
-      .filter((tab) => !tab.view.webContents.isDestroyed())
-      .map((tab) => this.tabState(tab));
-    this.state.activeTabId = this.activeTabId;
+    const owner = this.owners.get(this.visibleOwnerId);
+    this.state.tabs = owner
+      ? [...owner.tabIds].flatMap((tabId) => {
+          const tab = this.tabs.get(tabId);
+          return tab && !tab.view.webContents.isDestroyed()
+            ? [this.tabState(tab)]
+            : [];
+        })
+      : [];
+    this.state.activeTabId = owner?.activeTabId;
     this.emitState();
   }
 
-  private updateConnection(
-    connection: BrowserViewConnection,
-    error?: string,
-  ) {
+  private updateConnection(connection: BrowserViewConnection, error?: string) {
     this.state.connection = connection;
     if (error) this.state.error = error;
     else delete this.state.error;
     this.emitState();
   }
 
-  private setError(error: string) {
+  private setError(error: string, ownerId = this.visibleOwnerId) {
+    if (ownerId !== this.visibleOwnerId) return;
     this.state.error = error;
     this.emitState();
   }
 
-  private snapshot() {
-    return cloneState(this.state);
+  private snapshot(ownerId = this.visibleOwnerId) {
+    if (ownerId === this.visibleOwnerId) return cloneState(this.state);
+    const owner = this.owners.get(ownerId);
+    return cloneState({
+      connection: this.state.connection,
+      ...(this.state.profileName
+        ? { profileName: this.state.profileName }
+        : {}),
+      tabs: owner
+        ? [...owner.tabIds].flatMap((tabId) => {
+            const tab = this.tabs.get(tabId);
+            return tab && !tab.view.webContents.isDestroyed()
+              ? [this.tabState(tab)]
+              : [];
+          })
+        : [],
+      ...(owner?.activeTabId ? { activeTabId: owner.activeTabId } : {}),
+    });
   }
 
   private emitState() {
@@ -773,14 +963,19 @@ export class InAppBrowserService {
         clampBoundsToWindow(this.layout.pageBounds, this.attachedWindow),
       );
     }
+    for (const [tabId, lease] of this.drawableLeases) {
+      if (!lease.mountedInHiddenHost) continue;
+      this.tabs.get(tabId)?.view.setBounds(this.drawableBounds());
+    }
   }
 
   private attachActiveView() {
-    if (!this.visible || !this.layout || !this.activeTabId) {
+    const activeTabId = this.owners.get(this.visibleOwnerId)?.activeTabId;
+    if (!this.visible || !this.layout || !activeTabId) {
       this.detachAttachedView();
       return;
     }
-    const tab = this.tabs.get(this.activeTabId);
+    const tab = this.tabs.get(activeTabId);
     const window = this.options.getWindow();
     if (
       !tab ||
@@ -789,6 +984,15 @@ export class InAppBrowserService {
       window.isDestroyed()
     ) {
       this.detachAttachedView();
+      return;
+    }
+    const drawableLease = this.drawableLeases.get(tab.id);
+    if (drawableLease?.mountedInHiddenHost) {
+      // The view remains drawable without stealing the visible surface. The
+      // final lease release restores it if it is still the visible active tab.
+      if (this.attachedView && this.attachedView !== tab.view) {
+        this.detachAttachedView();
+      }
       return;
     }
     if (this.attachedView !== tab.view || this.attachedWindow !== window) {
@@ -810,6 +1014,140 @@ export class InAppBrowserService {
       window.contentView.removeChildView(view);
     } catch {
       // Window teardown may have already detached its child views.
+    }
+    const tab = [...this.tabs.values()].find(
+      (candidate) => candidate.view === view,
+    );
+    const drawableLease = tab ? this.drawableLeases.get(tab.id) : undefined;
+    if (tab && drawableLease && drawableLease.count > 0) {
+      this.mountLeaseInHiddenHost(tab, drawableLease);
+    }
+  }
+
+  private resolveOwnerId(ownerId?: string) {
+    const normalized = ownerId?.trim();
+    return normalized || MANUAL_OWNER_ID;
+  }
+
+  private resolveShowOwnerId(ownerId?: string) {
+    const normalized = ownerId?.trim();
+    if (normalized) return normalized;
+    if ((this.owners.get(MANUAL_OWNER_ID)?.tabIds.size ?? 0) > 0) {
+      return MANUAL_OWNER_ID;
+    }
+    if (this.latestOwnerId && this.owners.has(this.latestOwnerId)) {
+      return this.latestOwnerId;
+    }
+    return MANUAL_OWNER_ID;
+  }
+
+  private getOrCreateOwner(ownerId: string) {
+    let owner = this.owners.get(ownerId);
+    if (!owner) {
+      owner = { tabIds: new Set() };
+      this.owners.set(ownerId, owner);
+    }
+    return owner;
+  }
+
+  private isOwnedBy(tabId: string, ownerId: string) {
+    return this.tabs.get(tabId)?.ownerId === ownerId;
+  }
+
+  private ensureDrawableHost() {
+    if (this.drawableHost && !this.drawableHost.isDestroyed()) {
+      return this.drawableHost;
+    }
+    const host =
+      this.options.createDrawableHost?.() ??
+      new BrowserWindow({
+        ...DRAWABLE_HOST_BOUNDS,
+        show: false,
+        frame: false,
+        focusable: false,
+        opacity: 0,
+        skipTaskbar: true,
+        resizable: false,
+        movable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+        },
+      });
+    host.setBounds(DRAWABLE_HOST_BOUNDS, false);
+    host.setFocusable(false);
+    host.setOpacity(0);
+    host.setSkipTaskbar(true);
+    host.once("closed", () => {
+      if (this.drawableHost !== host) return;
+      this.drawableHost = null;
+      for (const lease of this.drawableLeases.values()) {
+        lease.mountedInHiddenHost = false;
+      }
+    });
+    host.showInactive();
+    this.drawableHost = host;
+    return host;
+  }
+
+  private drawableBounds(): Rectangle {
+    const requested = this.layout?.pageBounds;
+    return {
+      x: 0,
+      y: 0,
+      width: Math.max(1, requested?.width ?? DRAWABLE_HOST_BOUNDS.width),
+      height: Math.max(1, requested?.height ?? DRAWABLE_HOST_BOUNDS.height),
+    };
+  }
+
+  private mountLeaseInHiddenHost(tab: ManagedTab, lease: DrawableLease) {
+    if (lease.mountedInHiddenHost || tab.view.webContents.isDestroyed()) return;
+    const host = this.ensureDrawableHost();
+    host.contentView.addChildView(tab.view);
+    tab.view.setBounds(this.drawableBounds());
+    lease.mountedInHiddenHost = true;
+  }
+
+  private unmountDrawableLease(tab: ManagedTab) {
+    const lease = this.drawableLeases.get(tab.id);
+    const host = this.drawableHost;
+    if (!lease?.mountedInHiddenHost || !host || host.isDestroyed()) return;
+    lease.mountedInHiddenHost = false;
+    try {
+      host.contentView.removeChildView(tab.view);
+    } catch {
+      // Host teardown can race tab cleanup.
+    }
+  }
+
+  private releaseDrawableHost(tabId: string) {
+    const lease = this.drawableLeases.get(tabId);
+    if (!lease) return;
+    lease.count -= 1;
+    if (lease.count > 0) return;
+    const tab = this.tabs.get(tabId);
+    if (tab) this.unmountDrawableLease(tab);
+    this.drawableLeases.delete(tabId);
+    this.attachActiveView();
+  }
+
+  private async settleDrawableHost(tabId: string) {
+    const wait =
+      this.options.wait ??
+      ((delayMs: number) =>
+        new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+    await wait(16);
+    const tab = this.tabs.get(tabId);
+    const lease = this.drawableLeases.get(tabId);
+    if (!tab || !lease || this.attachedView === tab.view) return;
+    if (!lease.mountedInHiddenHost || this.drawableHost?.isDestroyed()) {
+      lease.mountedInHiddenHost = false;
+      this.mountLeaseInHiddenHost(tab, lease);
+      await wait(16);
     }
   }
 }

@@ -313,154 +313,183 @@ export const createAgentOrchestration = (
   },
 ) => {
   const handleAgentLifecycleEvent = (event) => {
-        const installedManager = context.state.localAgentManager;
-        const parentOwner = installedManager
-            ? installedManager.resolveOwningParentThread(event.agentId, event.parentAgentId)
-            : event.parentAgentId;
-        const parentThreadId = typeof parentOwner === "string" ? parentOwner : undefined;
-        const isParentOwned = parentThreadId !== undefined;
-        const hasUnresolvedParentAncestry = parentOwner === null;
-        // Interjection-turn completions arrive twice (see
-        // `AgentLifecycleEvent.audience`): `orchestrator-only` skips every
-        // display surface (persisted activity row, renderer/run callbacks,
-        // OS notification) so the task UI keeps reading "in progress",
-        // while the deferred `display-only` replay skips the hidden
-        // orchestrator follow-up that already went out.
-        if (event.audience !== "orchestrator-only" &&
-            !isParentOwned &&
-            !hasUnresolvedParentAncestry) {
-            // Progress ticks are ephemeral decoration: they stream to the renderer
-            // below but are never persisted — thread state lives in
-            // `runtime_agents` (see `listThreadActivity`), and persisting every
-            // tick grew the message table without bound.
-            if (event.type !== "agent-progress") {
-                appendAgentLifecycleChatEvent(context, event);
-            }
-            if (event.rootRunId) {
-                context.state.runCallbacksByRunId
-                    .get(event.rootRunId)
-                    ?.onAgentEvent?.(event);
-            }
-        }
-        if (parentThreadId && event.audience !== "orchestrator-only") {
-            // Subagents stay out of the root event table, but the parent's own
-            // read-only thread viewer still needs the canonical lifecycle semantics
-            // so spawns and completions render as cards there. Store a display-only
-            // structured entry beside (not inside) the model-visible terminal
-            // reminder. Starts/progress have no reminder at all, and this entry type
-            // is never replayed into the parent's model context.
-            const lifecycleEvent = buildThreadLifecycleEvent(event, Date.now());
-            if (!context.runtimeStore.hasThreadLifecycleEvent(parentThreadId, lifecycleEvent._id)) {
-                context.runtimeStore.appendThreadLifecycleEvent({
-                    threadKey: parentThreadId,
-                    event: lifecycleEvent,
-                });
-            }
-        }
-        if (event.audience === "display-only") {
-            return;
-        }
-        // A legacy/malformed parent link or ancestry cycle cannot be attributed
-        // safely. Keep the task in Activity, but never guess that it belongs in
-        // root chat or let it finalize the root turn.
-        if (hasUnresolvedParentAncestry)
-            return;
-        const userPrompt = buildAgentEventPrompt(event, {
-            recipient: isParentOwned ? "parent_agent" : "orchestrator",
+    const installedManager = context.state.localAgentManager;
+    const parentOwner = installedManager
+      ? installedManager.resolveOwningParentThread(
+          event.agentId,
+          event.parentAgentId,
+        )
+      : event.parentAgentId;
+    const parentThreadId =
+      typeof parentOwner === "string" ? parentOwner : undefined;
+    const isParentOwned = parentThreadId !== undefined;
+    const hasUnresolvedParentAncestry = parentOwner === null;
+    // Interjection-turn completions arrive twice (see
+    // `AgentLifecycleEvent.audience`): `orchestrator-only` skips every
+    // display surface (persisted activity row, renderer/run callbacks,
+    // OS notification) so the task UI keeps reading "in progress",
+    // while the deferred `display-only` replay skips the hidden
+    // orchestrator follow-up that already went out.
+    if (
+      event.audience !== "orchestrator-only" &&
+      !isParentOwned &&
+      !hasUnresolvedParentAncestry
+    ) {
+      // Progress ticks are ephemeral decoration: they stream to the renderer
+      // below but are never persisted — thread state lives in
+      // `runtime_agents` (see `listThreadActivity`), and persisting every
+      // tick grew the message table without bound.
+      if (event.type !== "agent-progress") {
+        appendAgentLifecycleChatEvent(context, event);
+      }
+      if (event.rootRunId) {
+        context.state.runCallbacksByRunId
+          .get(event.rootRunId)
+          ?.onAgentEvent?.(event);
+      }
+    }
+    if (parentThreadId && event.audience !== "orchestrator-only") {
+      // Subagents stay out of the root event table, but the parent's own
+      // read-only thread viewer still needs the canonical lifecycle semantics
+      // so spawns and completions render as cards there. Store a display-only
+      // structured entry beside (not inside) the model-visible terminal
+      // reminder. Starts/progress have no reminder at all, and this entry type
+      // is never replayed into the parent's model context.
+      const lifecycleEvent = buildThreadLifecycleEvent(event, Date.now());
+      if (
+        !context.runtimeStore.hasThreadLifecycleEvent(
+          parentThreadId,
+          lifecycleEvent._id,
+        )
+      ) {
+        context.runtimeStore.appendThreadLifecycleEvent({
+          threadKey: parentThreadId,
+          event: lifecycleEvent,
         });
-        if (!userPrompt) {
-            return;
-        }
-        if (parentThreadId) {
-            // Subagent reports live in the parent agent's durable thread and wake
-            // that parent directly. They never enter the top-level orchestrator's
-            // history, callbacks, or hidden follow-up stream — so a nested
-            // completion produces no root card and no OS notification.
-            if (!hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)) {
-                persistThreadCustomMessage(context.runtimeStore, {
-                    threadKey: parentThreadId,
-                    customType: "runtime.task_lifecycle",
-                    content: [{ type: "text", text: userPrompt }],
-                    display: false,
-                    timestamp: Date.now(),
-                    ...(event.eventId ? { eventId: event.eventId } : {}),
-                });
+      }
+    }
+    if (event.audience === "display-only") {
+      return;
+    }
+    // A legacy/malformed parent link or ancestry cycle cannot be attributed
+    // safely. Keep the task in Activity, but never guess that it belongs in
+    // root chat or let it finalize the root turn.
+    if (hasUnresolvedParentAncestry) return;
+    const userPrompt = buildAgentEventPrompt(event, {
+      recipient: isParentOwned ? "parent_agent" : "orchestrator",
+    });
+    if (!userPrompt) {
+      return;
+    }
+    if (parentThreadId) {
+      // Subagent reports live in the parent agent's durable thread and wake
+      // that parent directly. They never enter the top-level orchestrator's
+      // history, callbacks, or hidden follow-up stream — so a nested
+      // completion produces no root card and no OS notification.
+      if (
+        !hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)
+      ) {
+        persistThreadCustomMessage(context.runtimeStore, {
+          threadKey: parentThreadId,
+          customType: "runtime.task_lifecycle",
+          content: [{ type: "text", text: userPrompt }],
+          display: false,
+          timestamp: Date.now(),
+          ...(event.eventId ? { eventId: event.eventId } : {}),
+        });
+      }
+      const deliveryEventId = event.eventId?.trim();
+      const delivery = context.state.localAgentManager?.sendAgentMessage(
+        parentThreadId,
+        userPrompt,
+        "orchestrator",
+        {
+          deliveryKind: "child-report",
+          ...(deliveryEventId ? { deliveryEventId } : {}),
+        },
+      );
+      if (deliveryEventId && delivery) {
+        void delivery
+          .then((result) => {
+            if (result.delivered) {
+              context.state.localAgentManager?.markParentWakeDelivered(
+                event.agentId,
+                deliveryEventId,
+              );
             }
-            const deliveryEventId = event.eventId?.trim();
-            const delivery = context.state.localAgentManager?.sendAgentMessage(parentThreadId, userPrompt, "orchestrator", {
-                deliveryKind: "child-report",
-                ...(deliveryEventId ? { deliveryEventId } : {}),
-            });
-            if (deliveryEventId && delivery) {
-                void delivery
-                    .then((result) => {
-                    if (result.delivered) {
-                        context.state.localAgentManager?.markParentWakeDelivered(event.agentId, deliveryEventId);
-                    }
-                })
-                    .catch(() => undefined);
-            }
-            return;
+          })
+          .catch(() => undefined);
+      }
+      return;
+    }
+    // The follow-up below is in-memory delivery for the active orchestrator
+    // session; this row is the durable record read by the next history rebuild.
+    const orchestratorThreadKey = resolveOrchestratorThreadKey(
+      event.conversationId,
+    );
+    if (
+      !hasPersistedThreadCustomEvent(
+        context,
+        orchestratorThreadKey,
+        event.eventId,
+      )
+    ) {
+      persistThreadCustomMessage(context.runtimeStore, {
+        threadKey: orchestratorThreadKey,
+        customType: "runtime.task_lifecycle",
+        content: [{ type: "text", text: userPrompt }],
+        display: false,
+        timestamp: Date.now(),
+        ...(event.eventId ? { eventId: event.eventId } : {}),
+      });
+    }
+    // Two-phase Dream-inbox stamp, phase 2 (persist-time invariant): the
+    // terminal report is now durably in this conversation's orchestrator
+    // thread — the exact premise mechanical delta consumption relies on —
+    // so promote the matching NULL-conversation row recorded at finalize.
+    // Only THIS branch ever promotes: a superseded/adopted/crashed run
+    // whose report never reached here leaves its row NULL forever (model-
+    // driven path). Content-matched, so a later attempt's event can never
+    // stamp an earlier attempt's unreported row. Best-effort: a missed
+    // promotion (partial store, hook write racing behind) only keeps the
+    // row on the model path — never enables consumption.
+    if (event.type === "agent-completed" && event.result?.trim()) {
+      try {
+        const inbox = context.runtimeStore.dreamInboxStore;
+        if (
+          inbox &&
+          typeof inbox.promoteThreadSummaryConversation === "function"
+        ) {
+          inbox.promoteThreadSummaryConversation({
+            threadId: event.agentId,
+            conversationId: event.conversationId,
+            rolloutSummary: event.result,
+          });
         }
-        // The follow-up below is in-memory delivery for the active orchestrator
-        // session; this row is the durable record read by the next history rebuild.
-        const orchestratorThreadKey = resolveOrchestratorThreadKey(event.conversationId);
-        if (!hasPersistedThreadCustomEvent(context, orchestratorThreadKey, event.eventId)) {
-            persistThreadCustomMessage(context.runtimeStore, {
-                threadKey: orchestratorThreadKey,
-                customType: "runtime.task_lifecycle",
-                content: [{ type: "text", text: userPrompt }],
-                display: false,
-                timestamp: Date.now(),
-                ...(event.eventId ? { eventId: event.eventId } : {}),
-            });
-        }
-        // Two-phase Dream-inbox stamp, phase 2 (persist-time invariant): the
-        // terminal report is now durably in this conversation's orchestrator
-        // thread — the exact premise mechanical delta consumption relies on —
-        // so promote the matching NULL-conversation row recorded at finalize.
-        // Only THIS branch ever promotes: a superseded/adopted/crashed run
-        // whose report never reached here leaves its row NULL forever (model-
-        // driven path). Content-matched, so a later attempt's event can never
-        // stamp an earlier attempt's unreported row. Best-effort: a missed
-        // promotion (partial store, hook write racing behind) only keeps the
-        // row on the model path — never enables consumption.
-        if (event.type === "agent-completed" && event.result?.trim()) {
-            try {
-                const inbox = context.runtimeStore.dreamInboxStore;
-                if (inbox &&
-                    typeof inbox.promoteThreadSummaryConversation === "function") {
-                    inbox.promoteThreadSummaryConversation({
-                        threadId: event.agentId,
-                        conversationId: event.conversationId,
-                        rolloutSummary: event.result,
-                    });
-                }
-            }
-            catch {
-                // Promotion is bookkeeping for an optimization; the row remains
-                // consolidatable through the model-driven list either way.
-            }
-        }
-        void deps.sendMessage({
-                conversationId: event.conversationId,
-                text: userPrompt,
-                uiVisibility: "hidden",
-                agentType: AGENT_IDS.ORCHESTRATOR,
-                deliverAs: "followUp",
-                callbackRunId: event.rootRunId,
-                customType: "runtime.task_lifecycle",
-                display: false,
-                responseTarget: createAgentLifecycleResponseTarget({
-                    agentId: event.agentId,
-                    eventType: event.type,
-                    ...(event.type === "agent-completed" && event.eventId
-                        ? { completionEventId: event.eventId }
-                        : {}),
-                }),
-            });
-    };
-    context.state.localAgentManager = new LocalAgentManager({
+      } catch {
+        // Promotion is bookkeeping for an optimization; the row remains
+        // consolidatable through the model-driven list either way.
+      }
+    }
+    void deps.sendMessage({
+      conversationId: event.conversationId,
+      text: userPrompt,
+      uiVisibility: "hidden",
+      agentType: AGENT_IDS.ORCHESTRATOR,
+      deliverAs: "followUp",
+      callbackRunId: event.rootRunId,
+      customType: "runtime.task_lifecycle",
+      display: false,
+      responseTarget: createAgentLifecycleResponseTarget({
+        agentId: event.agentId,
+        eventType: event.type,
+        ...(event.type === "agent-completed" && event.eventId
+          ? { completionEventId: event.eventId }
+          : {}),
+      }),
+    });
+  };
+  context.state.localAgentManager = new LocalAgentManager({
     maxConcurrent: 24,
     ...(deps.attemptTeardownTimeoutMs !== undefined
       ? { attemptTeardownTimeoutMs: deps.attemptTeardownTimeoutMs }
@@ -707,7 +736,7 @@ export const createAgentOrchestration = (
           },
         },
         hookEmitter: context.hookEmitter,
-      });
+      }).finally(() => context.toolHost.endBrowserTurn(runId));
       // Late/background flush: long-running shell commands (e.g. video
       // renders) can finish after the model's last poll, so their produced
       // files were never drained inline and would ride only individual

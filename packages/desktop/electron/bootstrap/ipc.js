@@ -103,33 +103,30 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     if (!state.inAppBrowserCdpAdapter) {
         state.inAppBrowserCdpAdapter = new InAppBrowserCdpAdapter(state.inAppBrowserService);
     }
-    let inAppBrowserRoutingPromise = null;
-    const ensureInAppBrowserAgentRouting = () => {
-        if (inAppBrowserRoutingPromise) {
-            return inAppBrowserRoutingPromise;
+    const ensureInAppBrowserAgentRouting = async (capability) => {
+        if (!capability) {
+            await state.inAppBrowserCdpAdapter.start();
+            return;
         }
-        const promise = (async () => {
-            const cdpUrl = await state.inAppBrowserCdpAdapter.start();
-            const resource = state.stellaBrowserBridgeService;
-            if (!resource?.connectCdp) {
-                throw new Error("Browser bridge service is not running.");
-            }
-            await resource.connectCdp(cdpUrl);
-        })().finally(() => {
-            if (inAppBrowserRoutingPromise === promise) {
-                inAppBrowserRoutingPromise = null;
-            }
-        });
-        inAppBrowserRoutingPromise = promise;
-        return promise;
+        const resource = state.stellaBrowserBridgeService;
+        if (!resource?.connectAgentCdp) {
+            throw new Error("Browser bridge service is not running.");
+        }
+        const route = await state.inAppBrowserCdpAdapter.createOwnerCapability(capability.sessionId);
+        return await resource.connectAgentCdp({
+            ownerId: capability.sessionId,
+            turnId: capability.turnId,
+            ownerLeaseId: capability.ownerLeaseId,
+            ownerLeaseIssuedAt: capability.ownerLeaseIssuedAt,
+        }, route.cdpUrl);
     };
-    const ensureInAppBrowserReady = async () => {
+    const ensureInAppBrowserReady = async (capability) => {
         const browserState = await state.inAppBrowserService.connect();
         if (browserState.connection !== "connected") {
             throw new Error(browserState.error ??
                 "Connect the Stella browser extension before using Stella Browser.");
         }
-        await ensureInAppBrowserAgentRouting();
+        return await ensureInAppBrowserAgentRouting(capability);
     };
     if (!state.inAppBrowserBootstrapServer) {
         state.inAppBrowserBootstrapServer = new InAppBrowserBootstrapServer({

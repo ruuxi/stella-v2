@@ -143,8 +143,9 @@ export function WelcomeDialog({
               <div className="welcome-dialog-card-text">
                 <h3>Take Stella with you</h3>
                 <p>
-                  Connect your phone so you can message Stella anywhere. Open{" "}
-                  <strong>Connect</strong> in the sidebar to pair your device.
+                  Connect your phone so you can message Stella anywhere. The
+                  phone button in the panel&rsquo;s footer pairs your device any
+                  time.
                 </p>
               </div>
               <span className="welcome-dialog-card-arrow">&rsaquo;</span>

@@ -1,114 +1,131 @@
 /**
  * Shared "realistic Stella window" used by the capabilities demo.
- * One faithful mock — traffic
- * lights, the real sidebar grouping (Home / Store / Social), Cormorant
- * wordmark, pill composer — instead of per-scene approximations, so
- * what users watch in onboarding is what they get in the app.
+ *
+ * One faithful mock of the current shell instead of per-scene
+ * approximations, so what users watch in onboarding is what they get in
+ * the app:
+ *
+ *  - the app's own shifting gradient behind everything, in whatever
+ *    theme the user picked two phases earlier;
+ *  - a transparent top bar carrying the traffic-light inset, the
+ *    conversation controls (history / home / New chat) on the left, and
+ *    Settings plus the display-panel toggle on the right;
+ *  - no left sidebar — the shell redesign removed it, moving navigation
+ *    into the top bar and the right-hand display panel;
+ *  - a single centered column holding the Cormorant greeting over a
+ *    centered composer, which on send drops to the bottom and hands the
+ *    column to the message stream — the real home-to-chat morph.
  *
  * Everything is presentation-only: demos drive visibility through the
  * `use-choreography` cues and pass state down as props.
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import { ArrowUp, Check, Mic, Plus } from "@/ui/icons";
-import { CustomHouse, CustomStore, CustomUsers } from "@/ui/nav-icons";
+import {
+  ArrowUp,
+  AudioLines,
+  Check,
+  History,
+  House,
+  Mic,
+  PanelRight,
+  Plus,
+  Settings,
+} from "@/ui/icons";
 import { StellaLogoIcon } from "@/ui/stella-logo-icon";
+import { useTheme } from "@/context/theme-context";
+import { ShiftingGradient } from "@/shell/background/ShiftingGradient";
 import "./demo-shell.css";
 
-export type DemoSidebarItem = {
-  id: string;
-  label: string;
-  icon?: ReactNode;
-  active?: boolean;
-  /** Grows in with a highlight — used when a demo "adds" a feature. */
-  fresh?: boolean;
-};
-
-export const DEMO_DEFAULT_SIDEBAR: DemoSidebarItem[] = [
-  { id: "home", label: "Home", icon: <CustomHouse size={12} />, active: true },
-  { id: "store", label: "Store", icon: <CustomStore size={12} /> },
-  { id: "social", label: "Social", icon: <CustomUsers size={12} /> },
-];
-
 export function DemoShell({
-  sidebarItems = DEMO_DEFAULT_SIDEBAR,
-  tabs,
-  activeTab,
-  wordmark = true,
   className,
   style,
   children,
 }: {
-  sidebarItems?: DemoSidebarItem[];
-  /** Optional tab strip in the top bar (the "Give me tabs" morph). */
-  tabs?: string[];
-  activeTab?: string;
-  wordmark?: boolean;
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
 }) {
+  const { gradientMode, gradientColor } = useTheme();
   return (
     <div
       className={`odemo-shell${className ? ` ${className}` : ""}`}
       style={style}
       aria-hidden="true"
     >
+      {/* The real window backdrop, scoped to the mock — same component and
+          same props `FullShell` passes, so the demo can't drift from the
+          theme the user just chose. It paints once per mount (no animation
+          loop) and self-downgrades to a CSS gradient on low-power machines. */}
+      <ShiftingGradient
+        contained
+        lightweight={false}
+        mode={gradientMode}
+        colorMode={gradientColor}
+      />
       <div className="odemo-shell__topbar">
         <span className="odemo-shell__lights">
           <span />
           <span />
           <span />
         </span>
-        {tabs && tabs.length > 0 ? (
-          <span className="odemo-shell__tabs">
-            {tabs.map((tab) => (
-              <span
-                key={tab}
-                className="odemo-shell__tab"
-                data-active={tab === (activeTab ?? tabs[0]) || undefined}
-              >
-                {tab}
-              </span>
-            ))}
+        <span className="odemo-shell__controls">
+          <span className="odemo-shell__icon-btn">
+            <History size={12} strokeWidth={1.85} />
           </span>
-        ) : null}
+          <span className="odemo-shell__icon-btn">
+            <House size={12} strokeWidth={1.85} />
+          </span>
+          <span className="odemo-shell__icon-btn odemo-shell__new-chat">
+            <Plus size={12} strokeWidth={1.85} />
+            New chat
+          </span>
+        </span>
+        <span className="odemo-shell__topbar-spacer" />
+        <span className="odemo-shell__controls">
+          <span className="odemo-shell__icon-btn">
+            <Settings size={12} strokeWidth={1.75} />
+          </span>
+          <span className="odemo-shell__icon-btn">
+            <PanelRight size={12} strokeWidth={1.75} />
+          </span>
+        </span>
       </div>
-      <div className="odemo-shell__body">
-        <aside className="odemo-shell__sidebar">
-          <nav className="odemo-shell__nav">
-            {sidebarItems.map((item) => (
-              <span
-                key={item.id}
-                className="odemo-shell__nav-item"
-                data-active={item.active || undefined}
-                data-fresh={item.fresh || undefined}
-              >
-                {item.icon}
-                {item.label}
-              </span>
-            ))}
-          </nav>
-          <div className="odemo-shell__account">
-            <span className="odemo-shell__account-avatar" />
-            <span className="odemo-shell__account-name" />
-          </div>
-        </aside>
-        <main className="odemo-shell__main">
-          {wordmark ? (
-            <div className="odemo-shell__wordmark">Stella</div>
-          ) : null}
-          {children}
-        </main>
-      </div>
+      <main className="odemo-shell__main">{children}</main>
     </div>
   );
 }
 
 /* ── Chat column ─────────────────────────────────────────────────── */
 
-export function DemoChat({ children }: { children: ReactNode }) {
-  return <div className="odemo-chat">{children}</div>;
+/**
+ * The message stream plus its composer. `started` runs the home-to-chat
+ * morph: the greeting fades and the trailing spacer collapses, gliding
+ * the composer from its centered home position down to the bottom.
+ */
+export function DemoChat({
+  started,
+  greeting = "What's on your mind?",
+  composer,
+  children,
+}: {
+  started?: boolean;
+  greeting?: string;
+  composer?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="odemo-chat" data-started={started || undefined}>
+      <div className="odemo-chat__stream">
+        {/* Declared first so arriving messages paint over the greeting
+            while it is still fading out. */}
+        <div className="odemo-chat__greeting">{greeting}</div>
+        {children}
+      </div>
+      {composer}
+      <span className="odemo-chat__tail" aria-hidden="true" />
+    </div>
+  );
 }
 
 export function DemoBubble({
@@ -132,8 +149,8 @@ export function DemoBubble({
 }
 
 /**
- * The Claude-style inline working indicator: small Stella mark plus a
- * shimmering status line, exactly where it lives in the real chat.
+ * The inline working indicator: small Stella mark plus a shimmering
+ * status line on an inset pill, exactly where it lives in the real chat.
  */
 export function DemoWorking({
   visible,
@@ -152,7 +169,8 @@ export function DemoWorking({
 
 /**
  * One agent-activity receipt row — "Opening opentable.com", "Reserved
- * 8:00 PM" — `running` shimmers, `done` settles with a check.
+ * 8:00 PM" — on the same soft panel surface the real in-chat work cards
+ * use. `running` shimmers, `done` settles with a check.
  */
 export function DemoWorkCard({
   visible,
@@ -186,7 +204,7 @@ export function DemoComposer({
   value,
   typing,
   sending,
-  placeholder = "Ask Stella anything...",
+  placeholder = "Do anything",
 }: {
   value: string;
   typing?: boolean;
@@ -198,7 +216,7 @@ export function DemoComposer({
   return (
     <div className="odemo-composer" data-filled={!empty || undefined}>
       <span className="odemo-composer__add">
-        <Plus size={12} />
+        <Plus size={12} strokeWidth={1.75} />
       </span>
       <span className="odemo-composer__input">
         {empty ? (
@@ -210,17 +228,21 @@ export function DemoComposer({
           </>
         )}
       </span>
-      {empty ? (
-        <span className="odemo-composer__mic">
-          <Mic size={12} />
-        </span>
-      ) : null}
-      <span
-        className="odemo-composer__send"
-        data-sending={sending || undefined}
-      >
-        <ArrowUp size={12} />
+      <span className="odemo-composer__mic">
+        <Mic size={12} strokeWidth={1.75} />
       </span>
+      {empty ? (
+        <span className="odemo-composer__voice">
+          <AudioLines size={13} strokeWidth={1.75} />
+        </span>
+      ) : (
+        <span
+          className="odemo-composer__send"
+          data-sending={sending || undefined}
+        >
+          <ArrowUp size={12} strokeWidth={1.75} />
+        </span>
+      )}
     </div>
   );
 }

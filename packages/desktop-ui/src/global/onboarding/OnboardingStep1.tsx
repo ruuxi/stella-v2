@@ -165,18 +165,6 @@ export const OnboardingStep1 = ({
   const appearance = useOnboardingAppearance();
 
   useEffect(() => {
-    const shell = document.querySelector(".window-shell");
-    if (!shell) {
-      return;
-    }
-
-    shell.setAttribute("data-onboarding", "");
-    return () => {
-      shell.removeAttribute("data-onboarding");
-    };
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     let previousSuspended = false;
     const api = window.electronAPI?.system;

@@ -857,12 +857,6 @@
   transform: none;
 }
 
-/* ═══ Hide real sidebar during onboarding ═══ */
-
-.window-shell[data-onboarding] .full-body > .sidebar {
-  display: none;
-}
-
 .onboarding-selection-tile {
   display: flex;
   flex-direction: column;

@@ -2,7 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 
 /**
- * Tiny one-shot "look here" markers shown on the sidebar after a fresh
+ * Tiny one-shot "look here" markers shown in the display panel after a fresh
  * onboarding finishes. The user sees a small red dot on the surfaces
  * we want to highlight until they actually visit each one — at which
  * point the dot is dismissed and never returns.

@@ -33,7 +33,7 @@ type PlanUsageDialogProps = {
 export function PlanUsageDialog({ open, onOpenChange }: PlanUsageDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="plan-usage-dialog">
+      <DialogContent size="xl" className="plan-usage-dialog">
         <DialogHeader>
           <DialogTitle>Plan &amp; usage</DialogTitle>
           <DialogCloseButton />

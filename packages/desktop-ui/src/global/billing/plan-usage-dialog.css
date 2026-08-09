@@ -1,6 +1,11 @@
+/* See settings-dialog.css: sizing has to go on the container's variables,
+ * not the content. `size="xl"` sets the width; the extra height fits the
+ * billing panel and the usage analytics stacked under it. */
+[data-component="dialog"]:has(.plan-usage-dialog) {
+  --dialog-height: 760px;
+}
+
 .plan-usage-dialog {
-  width: min(860px, 92vw);
-  height: min(700px, 90vh);
   display: flex;
   flex-direction: column;
 }

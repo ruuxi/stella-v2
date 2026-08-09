@@ -34,6 +34,7 @@ export function SettingsDialogHost() {
   return (
     <Dialog open onOpenChange={(next) => settingsDialog.setOpen(next)}>
       <DialogContent
+        size="xl"
         className="shell-settings-dialog"
         aria-describedby={undefined}
       >

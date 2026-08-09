@@ -585,10 +585,6 @@
     "privacyPolicy": "Personvernerklæring",
     "previousStep": "Forrige trinn",
     "nextStep": "Neste trinn",
-    "intro": {
-      "primary": "Stella er en AI som kjører på datamaskinen din.",
-      "secondary": "Stella er ikke for alle. Stella er for deg."
-    },
     "stepTitles": {
       "engine": "Velg hva som driver Stella.",
       "extension": "Legg til Stella i nettleseren.",

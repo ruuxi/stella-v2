@@ -106,7 +106,7 @@ export function useOnboardingOverlay() {
   }
   const resumePhase = onboardingDone ? null : resumePhaseRef.current;
   const isResuming = resumePhase !== null;
-  const initialPhase: Phase = resumePhase ?? "intro";
+  const initialPhase: Phase = resumePhase ?? "capabilities";
   const creatureInitialBirth =
     onboardingDone || isResuming ? 1 : CREATURE_INITIAL_SIZE;
   const [hasExpanded, setHasExpanded] = useState(
@@ -148,13 +148,7 @@ export function useOnboardingOverlay() {
     stellaAnimationRef.current?.triggerFlash();
   }, []);
 
-  const startOnboarding = useCallback(() => {
-    setHasStarted(true);
-    setHasExpanded(true);
-    stellaAnimationRef.current?.startBirth();
-  }, []);
-
-  const handleEnterSplit = useCallback(() => {
+  const enterSplit = useCallback(() => {
     setSplitMode(true);
     setSplitEntering(true);
     if (splitEnterTimerRef.current) {
@@ -165,6 +159,16 @@ export function useOnboardingOverlay() {
       splitEnterTimerRef.current = null;
     }, 400);
   }, []);
+
+  // "Start Stella" now opens the split flow directly. The centered intro
+  // moment used to sit in between and own this call; with it gone, the
+  // button is the only thing left that can hand off to the steps.
+  const startOnboarding = useCallback(() => {
+    setHasStarted(true);
+    setHasExpanded(true);
+    stellaAnimationRef.current?.startBirth();
+    enterSplit();
+  }, [enterSplit]);
 
   useEffect(
     () => () => {
@@ -242,7 +246,6 @@ export function useOnboardingOverlay() {
     stellaAnimationRef,
     triggerFlash,
     startOnboarding,
-    handleEnterSplit,
     handleResetOnboarding,
   };
 }

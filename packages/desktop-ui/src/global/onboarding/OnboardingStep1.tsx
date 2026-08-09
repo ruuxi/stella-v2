@@ -67,7 +67,6 @@ interface OnboardingStep1Props {
   onInteract?: () => void;
   initialPhase?: Phase;
   onDiscoveryConfirm?: (categories: DiscoveryCategory[]) => void;
-  onEnterSplit?: () => void;
   onPhaseChange?: (phase: Phase) => void;
   onSelectionChange?: (hasSelections: boolean) => void;
   isAuthenticated?: boolean;
@@ -76,11 +75,10 @@ interface OnboardingStep1Props {
 }
 
 export const OnboardingStep1 = ({
-  initialPhase = "intro",
+  initialPhase = "capabilities",
   onComplete,
   onInteract,
   onDiscoveryConfirm,
-  onEnterSplit,
   onSelectionChange,
   onPhaseChange,
   isAuthenticated,
@@ -134,16 +132,13 @@ export const OnboardingStep1 = ({
   const {
     phase,
     leaving,
-    rippleActive,
     maxVisitedSplitStepIndex,
     visibleSteps,
     nextSplitStep,
     prevSplitStep,
-    continueIntro,
   } = useOnboardingFlow({
     initialPhase,
     onComplete,
-    onEnterSplit,
     onInteract,
     onPhaseChange: handlePhaseChange,
     skippedPhases,
@@ -342,30 +337,6 @@ export const OnboardingStep1 = ({
       data-leaving={leaving}
       style={{ display: isComplete ? "none" : undefined }}
     >
-      {phase === "intro" && (
-        <div
-          className="onboarding-moment onboarding-moment--ripple"
-          data-active={rippleActive}
-        >
-          <div className="onboarding-ripple-content">
-            <div className="onboarding-text onboarding-text--fade-in">
-              {t("onboarding.intro.primary")}
-            </div>
-            <div className="onboarding-text onboarding-text--fade-in-delayed">
-              {t("onboarding.intro.secondary")}
-            </div>
-          </div>
-          <div
-            className="onboarding-choices onboarding-choices--subtle"
-            data-visible={rippleActive}
-          >
-            <button className="onboarding-choice" onClick={continueIntro}>
-              {t("common.continue")}
-            </button>
-          </div>
-        </div>
-      )}
-
       {isSplit && (
         <>
           {phase === "browser" ? (

@@ -584,10 +584,6 @@
     "privacyPolicy": "นโยบายความเป็นส่วนตัว",
     "previousStep": "ขั้นตอนก่อนหน้า",
     "nextStep": "ขั้นตอนถัดไป",
-    "intro": {
-      "primary": "Stella คือ AI ที่ทำงานบนคอมพิวเตอร์ของคุณ",
-      "secondary": "Stella ไม่ใช่สำหรับทุกคน Stella คือสำหรับคุณ"
-    },
     "stepTitles": {
       "engine": "เลือกสิ่งที่ขับเคลื่อน Stella",
       "extension": "เพิ่ม Stella ลงในเบราว์เซอร์ของคุณ",

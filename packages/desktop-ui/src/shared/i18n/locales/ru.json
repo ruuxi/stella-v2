@@ -587,10 +587,6 @@
     "privacyPolicy": "Политикой конфиденциальности",
     "previousStep": "Предыдущий шаг",
     "nextStep": "Следующий шаг",
-    "intro": {
-      "primary": "Stella — это ИИ, который работает на вашем компьютере.",
-      "secondary": "Stella не для всех. Stella для вас."
-    },
     "stepTitles": {
       "engine": "Выберите, что будет питать Stella.",
       "extension": "Добавьте Stella в браузер.",

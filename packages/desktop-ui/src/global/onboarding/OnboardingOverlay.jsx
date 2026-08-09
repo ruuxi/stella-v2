@@ -1,5 +1,5 @@
 /**
- * Onboarding flow: Start -> Auth -> Intro (center) -> split layout steps.
+ * Onboarding flow: Start -> Auth -> split layout steps.
  *
  * This module is the heavy "view" half of the onboarding overlay. It is
  * lazy-loaded by FullShell as a single onboarding chunk that pulls in
@@ -85,12 +85,11 @@ export function OnboardingView({
   hasStarted,
   stellaAnimationRef,
   onboardingKey,
-  initialPhase = "intro",
+  initialPhase = "capabilities",
   creatureInitialBirth,
   triggerFlash,
   startOnboarding,
   completeOnboarding,
-  handleEnterSplit,
   onDiscoveryConfirm,
   onSelectionChange,
   onPhaseChange,
@@ -178,7 +177,6 @@ export function OnboardingView({
             onComplete={completeOnboarding}
             onInteract={triggerFlash}
             onDiscoveryConfirm={onDiscoveryConfirm}
-            onEnterSplit={handleEnterSplit}
             onSelectionChange={onSelectionChange}
             onPhaseChange={onPhaseChange}
             isAuthenticated={isAuthenticated}

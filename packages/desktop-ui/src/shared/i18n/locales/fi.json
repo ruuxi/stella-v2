@@ -585,10 +585,6 @@
     "privacyPolicy": "tietosuojakäytäntömme",
     "previousStep": "Edellinen vaihe",
     "nextStep": "Seuraava vaihe",
-    "intro": {
-      "primary": "Stella on tekoäly, joka toimii tietokoneellasi.",
-      "secondary": "Stella ei ole kaikille. Stella on sinulle."
-    },
     "stepTitles": {
       "engine": "Valitse, mikä käyttää Stellaa.",
       "extension": "Lisää Stella selaimeesi.",

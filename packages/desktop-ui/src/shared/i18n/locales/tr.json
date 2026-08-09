@@ -585,10 +585,6 @@
     "privacyPolicy": "Gizlilik politikamızı",
     "previousStep": "Önceki adım",
     "nextStep": "Sonraki adım",
-    "intro": {
-      "primary": "Stella, bilgisayarınızda çalışan bir yapay zekâdır.",
-      "secondary": "Stella herkes için değildir. Stella sizin içindir."
-    },
     "stepTitles": {
       "engine": "Stella'yı neyin çalıştıracağını seçin.",
       "extension": "Stella'yı tarayıcınıza ekleyin.",

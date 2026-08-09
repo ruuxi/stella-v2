@@ -15,16 +15,11 @@ describe("billing audience model restrictions", () => {
     expect(isRestrictedModelOverrideAudience("pro_fallback")).toBe(false);
   });
 
-  it("lets restricted audiences pick both V4 Flash variants", () => {
+  it("lets restricted audiences pick only V4 Flash", () => {
     expect(isRestrictedAudienceAllowedStellaModelId("stella/light")).toBe(true);
     expect(
       isRestrictedAudienceAllowedStellaModelId(
         "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
-      ),
-    ).toBe(true);
-    expect(
-      isRestrictedAudienceAllowedStellaModelId(
-        "stella/wafer/DeepSeek-V4-Flash-0731-Fast",
       ),
     ).toBe(true);
     expect(

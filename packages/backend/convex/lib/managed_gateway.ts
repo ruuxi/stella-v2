@@ -6,7 +6,6 @@ export const MANAGED_GATEWAY_PROVIDERS = [
   "anthropic",
   "google",
   "meta",
-  "wafer",
 ] as const;
 
 export type ManagedGatewayProvider = (typeof MANAGED_GATEWAY_PROVIDERS)[number];
@@ -70,11 +69,6 @@ const MANAGED_GATEWAY_CONFIGS: Record<
     // Meta's own docs export the key as MODEL_API_KEY; accept either name.
     apiKeyEnvVarFallbacks: ["MODEL_API_KEY"],
   },
-  wafer: {
-    provider: "wafer",
-    baseURL: "https://pass.wafer.ai/v1",
-    apiKeyEnvVar: "WAFER_API_KEY",
-  },
 };
 
 const FIREWORKS_MODEL_PREFIXES = [
@@ -89,7 +83,6 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["anthropic/", "anthropic"],
   ["google/", "google"],
   ["meta/", "meta"],
-  ["wafer/", "wafer"],
 ] as const;
 
 export function getManagedGatewayConfig(

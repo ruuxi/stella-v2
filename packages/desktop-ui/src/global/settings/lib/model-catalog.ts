@@ -77,7 +77,7 @@ export type CatalogApiResponse = {
 export { getProviderDisplayName };
 
 /**
- * Always-present fallback for Stella's managed models. This keeps the
+ * Always-present fallback for Stella's single managed model. This keeps the
  * picker usable while `/api/models` is loading or temporarily unavailable;
  * the fetched row replaces it with authoritative metadata.
  */
@@ -92,12 +92,6 @@ const STELLA_PRESET_FALLBACK_DEFS: ReadonlyArray<{
     modelId: "accounts/fireworks/models/deepseek-v4-flash-0731",
     name: "DeepSeek V4 Flash 0731",
     upstreamModel: "accounts/fireworks/models/deepseek-v4-flash-0731",
-  },
-  {
-    id: "stella/wafer/DeepSeek-V4-Flash-0731-Fast",
-    modelId: "wafer/DeepSeek-V4-Flash-0731-Fast",
-    name: "DeepSeek V4 Flash 0731 Fast",
-    upstreamModel: "wafer/DeepSeek-V4-Flash-0731-Fast",
   },
 ];
 
@@ -329,7 +323,6 @@ const STELLA_UPSTREAM_MODEL_NAMES = new Map<string, string>([
     "accounts/fireworks/models/deepseek-v4-flash-0731",
     "DeepSeek V4 Flash 0731",
   ],
-  ["wafer/DeepSeek-V4-Flash-0731-Fast", "DeepSeek V4 Flash 0731 Fast"],
   ["openrouter/x-ai/grok-4.5", "Grok 4.5"],
   ["accounts/fireworks/models/kimi-k2p7-code", "Kimi K2P7 Code"],
   ["openai/gpt-5.5", "GPT-5.5"],

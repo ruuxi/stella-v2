@@ -203,16 +203,6 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesOutput?: string[];
   }
 > = {
-  "wafer/DeepSeek-V4-Flash-0731-Fast": {
-    sourceProvider: "wafer",
-    sourceModelId: "DeepSeek-V4-Flash-0731-Fast",
-    inputPerMillionUsd: 0.28,
-    outputPerMillionUsd: 0.56,
-    cacheReadPerMillionUsd: 0.07,
-    reasoningPerMillionUsd: 0.56,
-    modalitiesInput: ["text"],
-    modalitiesOutput: ["text"],
-  },
   "meta/muse-spark-1.2": {
     sourceProvider: "meta",
     sourceModelId: "muse-spark-1.2",

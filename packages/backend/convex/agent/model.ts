@@ -125,9 +125,6 @@ const GEMINI_3_6_FLASH_SYNTHESIS_CONFIG: ModelConfig = {
   fallbackProviderOptions: DEEPSEEK_V4_FLASH_MODEL_CONFIG.providerOptions,
 };
 
-export const WAFER_DEEPSEEK_V4_FLASH_FAST_MODEL =
-  "wafer/DeepSeek-V4-Flash-0731-Fast";
-
 const INTERNAL_MODEL_CONFIGS = {
   synthesis: GEMINI_3_6_FLASH_SYNTHESIS_CONFIG,
 } as const satisfies Record<string, ModelConfig>;
@@ -217,9 +214,9 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * Stella model ids accepted from clients. The standard and fast DeepSeek
- * variants are public catalog rows; `stella/light` remains as a compatibility
- * alias for existing preferences and older clients.
+ * Stella model ids accepted from clients. The raw DeepSeek id is the only
+ * public catalog row; `stella/light` remains as a compatibility alias for
+ * existing preferences and older clients.
  *
  * Single source of truth for both the request-time coercion in
  * `stella_provider/request.ts` and the `allowedForAudience` flag the
@@ -229,7 +226,6 @@ const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
   new Set<string>([
     "stella/light",
     "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
-    `stella/${WAFER_DEEPSEEK_V4_FLASH_FAST_MODEL}`,
   ]);
 
 export const isStellaModelAllowedForAudience = (
@@ -452,9 +448,7 @@ export function isModelMode(value: string): value is ModelMode {
 // currently the default for any mode or agent task. Prefer putting models
 // behind a mode/task selection when they are catalog defaults; use this list
 // only for extras that have no mode of their own.
-export const ADDITIONAL_MANAGED_MODEL_IDS = [
-  WAFER_DEEPSEEK_V4_FLASH_FAST_MODEL,
-] as const;
+export const ADDITIONAL_MANAGED_MODEL_IDS = [] as const;
 
 export function listManagedModelIds(): string[] {
   const modelIds = new Set<string>();

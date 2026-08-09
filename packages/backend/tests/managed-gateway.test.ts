@@ -6,8 +6,6 @@ import {
   resolveManagedGatewayApiKey,
   resolveManagedGatewayProvider,
 } from "../convex/lib/managed_gateway";
-import { buildManagedModel } from "../convex/runtime_ai/managed";
-import { buildBaseOptions } from "../convex/runtime_ai/simple_options";
 
 describe("managed gateway", () => {
   it("infers xAI from the canonical Grok model prefix", () => {
@@ -23,41 +21,13 @@ describe("managed gateway", () => {
     expect(config.apiKeyEnvVar).toBe("XAI_API_KEY");
   });
 
-  it("infers direct providers from their model prefixes", () => {
+  it("infers meta from the meta/ model prefix", () => {
     expect(inferManagedGatewayProviderFromModel("meta/muse-spark-1.1")).toBe(
       "meta",
     );
     expect(
-      inferManagedGatewayProviderFromModel("wafer/DeepSeek-V4-Flash-0731-Fast"),
-    ).toBe("wafer");
-    expect(
       resolveManagedGatewayProvider({ model: "meta/muse-spark-1.1" }),
     ).toBe("meta");
-    expect(
-      resolveManagedGatewayProvider({
-        model: "wafer/DeepSeek-V4-Flash-0731-Fast",
-      }),
-    ).toBe("wafer");
-  });
-
-  it("points Wafer at chat completions using WAFER_API_KEY", () => {
-    const config = getManagedGatewayConfig("wafer");
-    expect(config.baseURL).toBe("https://pass.wafer.ai/v1");
-    expect(config.apiKeyEnvVar).toBe("WAFER_API_KEY");
-  });
-
-  it("keeps Wafer Fast at a 1M context window without an output cap", () => {
-    const model = buildManagedModel(
-      {
-        model: "wafer/DeepSeek-V4-Flash-0731-Fast",
-        managedGatewayProvider: "wafer",
-      },
-      "openai-completions",
-    );
-
-    expect(model.contextWindow).toBe(1_000_000);
-    expect(model.maxTokens).toBe(0);
-    expect(buildBaseOptions(model).maxTokens).toBeUndefined();
   });
 
   it("points Meta gateway at api.meta.ai with Stella env first", () => {

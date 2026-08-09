@@ -10,7 +10,6 @@ import {
   handleExecCommand,
   handleWriteStdin,
 } from "@stella/runtime/kernel/tools/shell";
-import { handleViewImage } from "@stella/runtime/kernel/tools/view-image";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();
@@ -21,16 +20,6 @@ afterEach(() => tempDirs.cleanup());
 const createTempDir = async () => {
   return await tempDirs.create("stella-general-tools-");
 };
-
-const ONE_BY_ONE_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
-  "base64",
-);
-
-const JPEG_BYTES = Buffer.from([
-  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff,
-  0xd9,
-]);
 
 describe("general agent tools", () => {
   it("exec_command returns one-shot output inline", async () => {
@@ -469,48 +458,6 @@ EOF`,
 
     expect(result.error).toMatch(
       /failed to find expected lines in .*miss\.txt:\s*gamma/,
-    );
-  });
-
-  it("view_image returns an attach marker for local images", async () => {
-    const root = await createTempDir();
-    const imagePath = path.join(root, "snap.png");
-    await writeFile(imagePath, ONE_BY_ONE_PNG);
-
-    const result = await handleViewImage(
-      { path: imagePath },
-      {
-        conversationId: "c1",
-        deviceId: "d1",
-        requestId: "r1",
-        stellaAppDir: root,
-      },
-    );
-
-    expect(result.error).toBeUndefined();
-    expect(result.result).toBe(
-      `[stella-attach-image] inline=image/png ${imagePath}`,
-    );
-  });
-
-  it("view_image labels images from bytes when extension is wrong", async () => {
-    const root = await createTempDir();
-    const imagePath = path.join(root, "snap.png");
-    await writeFile(imagePath, JPEG_BYTES);
-
-    const result = await handleViewImage(
-      { path: imagePath },
-      {
-        conversationId: "c1",
-        deviceId: "d1",
-        requestId: "r1",
-        stellaAppDir: root,
-      },
-    );
-
-    expect(result.error).toBeUndefined();
-    expect(result.result).toBe(
-      `[stella-attach-image] inline=image/jpeg ${imagePath}`,
     );
   });
 

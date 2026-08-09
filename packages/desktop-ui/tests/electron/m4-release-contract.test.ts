@@ -22,14 +22,18 @@ describe("M4 desktop release contracts", () => {
     expect(workflow).toContain("needs: validate_stable_tag");
   });
 
-  it("separates the parent microphone entitlement from helper exceptions", () => {
+  it("keeps the microphone entitlement on the parent only, and JIT on both", () => {
     const rootPackage = JSON.parse(read("package.json")) as {
       build: { mac: { entitlements: string; entitlementsInherit: string } };
     };
     const parent = read(rootPackage.build.mac.entitlements);
     const inherit = read(rootPackage.build.mac.entitlementsInherit);
+    // Only the parent prompts for the mic; helpers must never inherit it.
     expect(parent).toContain("com.apple.security.device.audio-input");
-    expect(parent).not.toContain("com.apple.security.cs.allow-jit");
+    expect(inherit).not.toContain("com.apple.security.device.audio-input");
+    // Electron's own renderer needs JIT too, so this pair is shared rather
+    // than helper-only.
+    expect(parent).toContain("com.apple.security.cs.allow-jit");
     expect(inherit).toContain("com.apple.security.cs.allow-jit");
     expect(inherit).toContain(
       "com.apple.security.cs.disable-library-validation",
@@ -50,7 +54,15 @@ describe("M4 desktop release contracts", () => {
     const pill = read(
       "packages/desktop-ui/src/shell/ShellTopBarUpdatePill.tsx",
     );
-    expect(pill).toContain('title: "Update downloaded"');
-    expect(pill).not.toContain('title: "Downloading Stella update"');
+    // The strings are localized now, so pin the key here and the English
+    // wording in the catalog — the point is that a finished download does not
+    // announce itself as still downloading.
+    expect(pill).toContain('t("shell.updatePill.toasts.downloadedTitle")');
+    const en = JSON.parse(
+      read("packages/desktop-ui/src/shared/i18n/locales/en.json"),
+    ) as { shell: { updatePill: { toasts: Record<string, string> } } };
+    expect(en.shell.updatePill.toasts.downloadedTitle).toBe(
+      "Update downloaded",
+    );
   });
 });

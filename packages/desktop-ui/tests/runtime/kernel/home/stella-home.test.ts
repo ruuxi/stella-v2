@@ -53,17 +53,21 @@ describe("ensureStellaDataDirSeeded", () => {
     await writeFile(
       path.join(
         stellaAppDir,
-        "packages/runtime/extensions/stella-runtime/agent-metadata/manager.md",
+        "packages/runtime/extensions/stella-runtime/agent-metadata/general.md",
       ),
-      "---\nname: Manager\ndescription: manager\ntools: spawn_agent, send_input, pause_agent\nmaxAgentDepth: 2\n---\n\nbundled manager\n",
+      "---\nname: General\ndescription: general\ntools: spawn_agent, send_input, pause_agent\nmaxAgentDepth: 2\n---\n\nbundled general\n",
     );
 
     const result = await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
 
     expect(result.promptResolution).toBe("unavailable");
+    // Agent bodies come from the remote prompt manifest; the bundled
+    // agent-metadata dir only supplies frontmatter to prepend to it. With no
+    // manifest resolved there is nothing to reconcile, so `agents/` stays
+    // empty rather than being seeded from metadata alone.
     await expect(
-      readFile(path.join(stellaDataDir, "agents", "manager.md"), "utf-8"),
-    ).resolves.toContain("bundled manager");
+      readFile(path.join(stellaDataDir, "agents", "general.md"), "utf-8"),
+    ).rejects.toThrow();
 
     await expect(
       readFile(path.join(stellaDataDir, "registry.md"), "utf-8"),

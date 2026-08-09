@@ -205,7 +205,7 @@ describe("preload IPC handler manifest", () => {
     const rendererChannels = readFileSync(
       path.join(
         repoRoot,
-        "packages/desktop-ui/src/shared/contracts/ipc-channels.js",
+        "packages/desktop-ui/src/shared/contracts/ipc-channels.ts",
       ),
       "utf8",
     );

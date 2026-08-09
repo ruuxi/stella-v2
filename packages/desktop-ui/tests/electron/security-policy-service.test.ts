@@ -89,14 +89,16 @@ describe("SecurityPolicyService Computer Use app approvals", () => {
 
     expect(mocks.showMessageBox).toHaveBeenCalledOnce();
     expect(mocks.showMessageBox).toHaveBeenCalledWith(
+      // The dialog is localized; the electron test harness has no catalog
+      // loaded, so `t()` passes its key through. Pin the keys.
       expect.objectContaining({
         type: "warning",
-        title: "Stella Security Confirmation",
-        message: "Allow Computer Use to use Notes?",
+        title: "desktop.security.confirmationTitle",
+        message: "desktop.security.computerUse.message",
         detail:
-          "Computer Use can interact with this app.\n\nRisk: Can edit documents",
-        buttons: ["Allow", "Deny"],
-        checkboxLabel: "Remember this decision on this device",
+          "Computer Use can interact with this app.\n\ndesktop.security.computerUse.risk",
+        buttons: ["desktop.security.allow", "desktop.security.deny"],
+        checkboxLabel: "desktop.security.rememberDecision",
       }),
     );
     expect(mocks.writePrivateFile).not.toHaveBeenCalled();

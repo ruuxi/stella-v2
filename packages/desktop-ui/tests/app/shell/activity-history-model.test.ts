@@ -49,23 +49,36 @@ describe("completed activity hierarchy", () => {
     expect(items).toEqual([]);
   });
 
-  it("keeps legacy groups unchanged and searchable through their members", () => {
+  // Label-based grouping is gone; ownership is the only nesting edge. Rows
+  // that share a former group label are now independent, so the needle
+  // filters them one by one instead of matching a whole group through a
+  // single member.
+  it("filters unowned rows individually", () => {
     const items = buildCompletedActivityList(
       [
-        task({ id: "one", groupKey: "trip", groupLabel: "Plan trip" }),
-        task({
-          id: "two",
-          description: "Compare trains",
-          groupKey: "trip",
-          groupLabel: "Plan trip",
-        }),
+        task({ id: "one" }),
+        task({ id: "two", description: "Compare trains" }),
       ],
       "trains",
     );
 
     expect(items.map((item) => [item.kind, item.depth])).toEqual([
-      ["doneGroup", 0],
-      ["done", 1],
+      ["done", 0],
+    ]);
+    expect(items[0]).toMatchObject({ task: { id: "two" } });
+  });
+
+  it("matches an owner through its descendants' text", () => {
+    const items = buildCompletedActivityList(
+      [
+        task({ id: "owner" }),
+        task({ id: "child", description: "Compare trains", parentAgentId: "owner" }),
+      ],
+      "trains",
+    );
+
+    expect(items.map((item) => [item.kind, item.depth])).toEqual([
+      ["doneHierarchy", 0],
       ["done", 1],
     ]);
   });

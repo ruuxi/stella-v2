@@ -684,8 +684,10 @@ describe("claude-code-session-runtime", () => {
       };
       expect(inlineSettings.workflowKeywordTriggerEnabled).toBe(false);
       expect(inlineSettings.disableWorkflows).toBe(true);
+      // Claude's built-ins and every ambient/user MCP server stay disabled;
+      // only the run-private Stella server is visible.
       const toolsIndex = argv.indexOf("--tools");
-      expect(argv[toolsIndex + 1]).toBe("");
+      expect(argv[toolsIndex + 1]).toBe("mcp__stella__*");
       const mcpConfigIndex = argv.indexOf("--mcp-config");
       const mcpConfigPath = argv[mcpConfigIndex + 1];
       expect(mcpConfigPath).toBeTruthy();

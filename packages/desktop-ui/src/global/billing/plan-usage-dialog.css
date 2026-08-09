@@ -1,0 +1,26 @@
+.plan-usage-dialog {
+  width: min(860px, 92vw);
+  height: min(700px, 90vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.plan-usage-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 20px;
+}
+
+.plan-usage-dialog__usage {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.plan-usage-dialog__usage-title {
+  margin: 0 0 4px;
+  color: var(--text-strong);
+  font-size: var(--font-size-base, 14px);
+  font-weight: var(--weight-medium);
+}

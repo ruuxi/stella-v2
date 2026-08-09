@@ -18,7 +18,7 @@ import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { forgetArtifactFileEntry, useFileEntries, } from "@/features/workspace-display/files-index";
 import { dataTransferHasSupportedMedia, importLocalMedia, isSupportedMediaFile, } from "@/features/workspace-display/media-files";
 import { openAgentThreadTab, openDisplayPayloadTab, } from "@/features/workspace-display/open-payload";
-import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
+import { resolvePanelSidebarSection, sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen, useDisplayTabList, } from "@/features/workspace-display/tab-store";
 import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toast";
 import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/canvas-tab/canvas-items";
@@ -274,6 +274,8 @@ function WorkList() {
 export function FilesSection() {
     const openTabId = useSidebarSectionLocation("files");
     const modelsOpen = useEngineOverlayOpen();
+    const panelOpen = useDisplayPanelOpen();
+    const activeSection = useActiveSidebarSection();
     const { tabs } = useDisplayTabList();
     const openTab = openTabId
         ? (tabs.find((tab) => tab.id === openTabId) ?? null)
@@ -281,6 +283,9 @@ export function FilesSection() {
     // The footer is the Models popover's anchor: keep it visible when the
     // picker is opened externally while a viewer tab is showing.
     const showFooter = modelsOpen || !openTab;
+    // This footer owns the shared Models popover only while it is the one
+    // on screen; otherwise the workspace strip's footer anchors it.
+    const modelsActive = panelOpen && resolvePanelSidebarSection(activeSection) === "files";
     return (<div className="work-section">
       <div className="work-section__body">
         {!openTab ? (<WorkList />) : (<>
@@ -298,7 +303,7 @@ export function FilesSection() {
       </div>
       {showFooter ? (<div className="work-section__footer">
           <SidebarUtilityControls />
-          <SidebarModelsControl />
+          <SidebarModelsControl active={modelsActive}/>
         </div>) : null}
     </div>);
 }

@@ -56,8 +56,14 @@ export function WorkspaceHomeSurface({
             <HomeSection />
           </div>
         </div>
+        {/* Models only. The rest of the utility cluster (Theme, Phone,
+            Connectors, Feedback) stays in the panel's Home footer — this
+            strip is for activity, and a second copy of those triggers just
+            crowded it. `active` hands the shared Models popover to
+            whichever footer is actually visible, since both mount at once
+            and read the same engine-overlay store. */}
         <div className="workspace-home-surface__footer">
-          <SidebarModelsControl openSidebar />
+          <SidebarModelsControl active={!surfaceHidden} />
         </div>
       </div>
     </aside>,

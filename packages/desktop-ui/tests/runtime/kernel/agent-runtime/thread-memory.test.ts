@@ -42,7 +42,9 @@ describe("buildSystemPrompt", () => {
 
 describe("buildStartupPromptMessages", () => {
   it("can include the registry startup doc when explicitly enabled", async () => {
-    const stellaDataDir = await mkdtemp(path.join(tmpdir(), "stella-registry-"));
+    const stellaDataDir = await mkdtemp(
+      path.join(tmpdir(), "stella-registry-"),
+    );
     try {
       await writeFile(
         path.join(stellaDataDir, "registry.md"),
@@ -70,7 +72,9 @@ describe("buildStartupPromptMessages", () => {
   });
 
   it("omits the registry startup doc by default", async () => {
-    const stellaDataDir = await mkdtemp(path.join(tmpdir(), "stella-registry-"));
+    const stellaDataDir = await mkdtemp(
+      path.join(tmpdir(), "stella-registry-"),
+    );
     try {
       await writeFile(
         path.join(stellaDataDir, "registry.md"),
@@ -118,7 +122,8 @@ describe("buildStartupPromptMessages", () => {
         maxAgentDepth: 1,
         threadHistory: [],
         userProfile: "# User Profile\n\n- The user goes by Bob",
-        memorySummary: "# Memory summary\n\n- Shipping the resident-memory rewire",
+        memorySummary:
+          "# Memory summary\n\n- Shipping the resident-memory rewire",
       },
     });
 
@@ -127,9 +132,9 @@ describe("buildStartupPromptMessages", () => {
     expect(promptText).toContain("The user goes by Bob");
     expect(promptText).toContain('path="~/.stella/memories/memory_summary.md"');
     expect(promptText).toContain("resident-memory rewire");
-    expect(messages.every((m) => m.customType === "bootstrap.startup_doc")).toBe(
-      true,
-    );
+    expect(
+      messages.every((m) => m.customType === "bootstrap.startup_doc"),
+    ).toBe(true);
   });
 
   it("does not re-inject resident docs already persisted in thread history", async () => {
@@ -310,6 +315,45 @@ describe("buildSubagentPromptMessages", () => {
 });
 
 describe("buildHistorySource", () => {
+  it("filters persisted memory docs when memory is disabled", () => {
+    const startupDoc = (displayPath: string, text: string) => ({
+      role: "runtimeInternal" as const,
+      content: "",
+      customMessage: {
+        customType: "bootstrap.startup_doc",
+        content: [
+          {
+            type: "text" as const,
+            text: `<startup_doc path="${displayPath}">\n${text}\n</startup_doc>`,
+          },
+        ],
+      },
+    });
+    const history = buildHistorySource({
+      systemPrompt: "system",
+      dynamicContext: "",
+      maxAgentDepth: 1,
+      memoryEnabled: false,
+      threadHistory: [
+        startupDoc("~/.stella/PERSONALITY.md", "Warm and concise."),
+        startupDoc("~/.stella/core-memory.md", "private core memory"),
+        startupDoc("~/.stella/memories/profile.md", "private profile"),
+        startupDoc(
+          "~/.stella/memories/memory_summary.md",
+          "private memory summary",
+        ),
+        { role: "user", content: "keep this turn" },
+      ],
+    });
+
+    const text = JSON.stringify(history);
+    expect(text).toContain("Warm and concise.");
+    expect(text).toContain("keep this turn");
+    expect(text).not.toContain("private core memory");
+    expect(text).not.toContain("private profile");
+    expect(text).not.toContain("private memory summary");
+  });
+
   it("preserves persisted assistant text byte-for-byte", () => {
     const assistantText = "  exact assistant text\n";
     const [message] = buildHistorySource({

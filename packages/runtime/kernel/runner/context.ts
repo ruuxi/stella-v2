@@ -5,6 +5,7 @@ import { createToolHost } from "../tools/host.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
   getAgentRuntimeEngine,
+  loadLocalPreferences,
   getAssistantWorkingMode,
   getMaxAgentConcurrency,
   getModelOverride,
@@ -994,6 +995,9 @@ export const buildAgentContext = async (
   const agent = args.agent;
   const model = args.model;
   const resolvedLlm = args.resolvedLlm;
+  const memoryEnabled = loadLocalPreferences(
+    context.stellaDataDir,
+  ).memoryEnabled;
   const threadKey = buildRuntimeThreadKey({
     conversationId: args.conversationId,
     agentType: args.agentType,
@@ -1211,15 +1215,19 @@ export const buildAgentContext = async (
       }),
     reasoningEffort: effectiveReasoningEffort,
     maxAgentDepth: agent?.maxAgentDepth ?? DEFAULT_MAX_AGENT_DEPTH,
-    coreMemory: injectsCoreMemory
-      ? readCoreMemory(context.stellaDataDir)
-      : undefined,
-    memorySummary: injectsResidentMemory
-      ? readMemorySummaryDoc(context.stellaDataDir)
-      : undefined,
-    userProfile: injectsResidentMemory
-      ? readUserProfileDoc(context.stellaDataDir)
-      : undefined,
+    memoryEnabled,
+    coreMemory:
+      memoryEnabled && injectsCoreMemory
+        ? readCoreMemory(context.stellaDataDir)
+        : undefined,
+    memorySummary:
+      memoryEnabled && injectsResidentMemory
+        ? readMemorySummaryDoc(context.stellaDataDir)
+        : undefined,
+    userProfile:
+      memoryEnabled && injectsResidentMemory
+        ? readUserProfileDoc(context.stellaDataDir)
+        : undefined,
     personality: injectsPersonality
       ? readOrSeedPersonality(context.stellaDataDir)
       : undefined,

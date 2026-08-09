@@ -97,6 +97,12 @@ export function GeneralTab() {
   const [assistantWorkingModeError, setAssistantWorkingModeError] = useState<
     string | null
   >(null);
+  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [memoryEnabledLoaded, setMemoryEnabledLoaded] = useState(false);
+  const [isSavingMemoryEnabled, setIsSavingMemoryEnabled] = useState(false);
+  const [memoryEnabledError, setMemoryEnabledError] = useState<string | null>(
+    null,
+  );
   const initialPermissionStatus = useMemo<DesktopPermissionStatus>(
     () => ({
       accessibility: platform === "darwin" ? false : true,
@@ -122,19 +128,24 @@ export function GeneralTab() {
               ? "orchestrated"
               : "direct",
           );
+          setMemoryEnabled(preferences?.memoryEnabled !== false);
           setAssistantWorkingModeError(null);
+          setMemoryEnabledError(null);
         }
       } catch (error) {
         if (!cancelled) {
-          setAssistantWorkingModeError(
-            getSettingsErrorMessage(
-              error,
-              t("settings.errors.loadWorkingMode"),
-            ),
+          const message = getSettingsErrorMessage(
+            error,
+            t("settings.errors.loadWorkingMode"),
+          );
+          setAssistantWorkingModeError(message);
+          setMemoryEnabledError(
+            getSettingsErrorMessage(error, t("settings.errors.loadMemory")),
           );
         }
       } finally {
         if (!cancelled) setAssistantWorkingModeLoaded(true);
+        if (!cancelled) setMemoryEnabledLoaded(true);
       }
     };
     void load();
@@ -427,6 +438,34 @@ export function GeneralTab() {
       }
     },
     [soundNotificationsEnabled, t],
+  );
+
+  const handleMemoryEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      const preferencesApi = window.electronAPI?.system;
+      if (!preferencesApi?.setLocalModelPreferences) {
+        setMemoryEnabledError(t("settings.errors.memoryUnavailable"));
+        return;
+      }
+      const previous = memoryEnabled;
+      setMemoryEnabled(enabled);
+      setMemoryEnabledError(null);
+      setIsSavingMemoryEnabled(true);
+      try {
+        const preferences = await preferencesApi.setLocalModelPreferences({
+          memoryEnabled: enabled,
+        });
+        setMemoryEnabled(preferences?.memoryEnabled !== false);
+      } catch (error) {
+        setMemoryEnabled(previous);
+        setMemoryEnabledError(
+          getSettingsErrorMessage(error, t("settings.errors.saveMemory")),
+        );
+      } finally {
+        setIsSavingMemoryEnabled(false);
+      }
+    },
+    [memoryEnabled, t],
   );
   const formatPermissionLoadError = useCallback(
     (error: unknown) =>
@@ -758,6 +797,14 @@ export function GeneralTab() {
     <>
       <div className="settings-tab-content">
         <LanguageSettingsRow />
+        {renderToggleCard({
+          title: t("settings.memory.title"),
+          description: t("settings.memory.description"),
+          error: memoryEnabledError,
+          checked: memoryEnabled,
+          disabled: !memoryEnabledLoaded || isSavingMemoryEnabled,
+          onChange: (checked) => void handleMemoryEnabledChange(checked),
+        })}
         <div className="settings-card">
           <div className="settings-card-header">
             <h3 className="settings-card-title">

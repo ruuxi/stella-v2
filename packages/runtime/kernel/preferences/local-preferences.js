@@ -36,6 +36,7 @@ const DEFAULT_PREFERENCES = {
     imageGeneration: { provider: "stella" },
     realtimeVoice: { provider: "stella" },
     assistantWorkingMode: "direct",
+    memoryEnabled: true,
     syncMode: "off",
     dictationShortcut: "Alt",
     voiceRtcShortcut: "CommandOrControl+Shift+D",
@@ -101,6 +102,7 @@ export const loadLocalPreferences = (stellaDataDir) => {
             imageGeneration: normalizeImageGenerationPreferences(parsed.imageGeneration),
             realtimeVoice: normalizeRealtimeVoicePreferences(parsed.realtimeVoice),
             assistantWorkingMode: coerceAssistantWorkingMode(parsed.assistantWorkingMode),
+            memoryEnabled: parsed.memoryEnabled !== false,
             syncMode: parsed.syncMode === "on" ? "on" : "off",
             dictationShortcut: typeof parsed.dictationShortcut === "string"
                 ? parsed.dictationShortcut
@@ -208,6 +210,7 @@ export const getLocalModelPreferences = (stellaDataDir) => {
         imageGeneration: { ...prefs.imageGeneration },
         realtimeVoice: { ...prefs.realtimeVoice },
         assistantWorkingMode: prefs.assistantWorkingMode,
+        memoryEnabled: prefs.memoryEnabled,
     };
 };
 export const updateLocalModelPreferences = (stellaDataDir, patch) => {
@@ -274,6 +277,9 @@ export const updateLocalModelPreferences = (stellaDataDir, patch) => {
         assistantWorkingMode: patch.assistantWorkingMode === undefined
             ? prefs.assistantWorkingMode
             : coerceAssistantWorkingMode(patch.assistantWorkingMode),
+        memoryEnabled: patch.memoryEnabled === undefined
+            ? prefs.memoryEnabled
+            : patch.memoryEnabled !== false,
     };
     saveLocalPreferences(stellaDataDir, next);
     return getLocalModelPreferences(stellaDataDir);

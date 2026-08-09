@@ -1276,6 +1276,9 @@ export const registerSystemHandlers = (options) => {
         if (payload?.assistantWorkingMode !== undefined) {
             patch.assistantWorkingMode = payload.assistantWorkingMode;
         }
+        if (payload?.memoryEnabled !== undefined) {
+            patch.memoryEnabled = payload.memoryEnabled === true;
+        }
         return updateLocalModelPreferences(stellaAppDir, patch);
     });
     ipcMain.handle("llmCredentials:list", (event) => {

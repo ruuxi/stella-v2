@@ -82,6 +82,7 @@ import {
 } from "@/shell/display/default-tabs";
 import { FullShellDialogs } from "@/shell/full-shell-dialogs";
 import { SettingsDialogHost } from "@/shell/SettingsDialogHost";
+import { FeedbackDialogHost } from "@/shell/FeedbackDialogHost";
 import {
   STELLA_COMPOSE_TEXT_EVENT,
   type StellaOpenPanelChatDetail,
@@ -564,6 +565,8 @@ function RootChrome() {
       />
 
       <SettingsDialogHost />
+
+      <FeedbackDialogHost />
 
       {/* Suspense fallback={null} mirrors the lazy RightSidebar above: the
           deferred chunk stays off the first-paint graph, and each dialog still

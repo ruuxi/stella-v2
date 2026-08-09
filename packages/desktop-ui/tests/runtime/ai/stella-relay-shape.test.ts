@@ -6,6 +6,7 @@ import {
   convertMessages,
   getCompat,
 } from "@stella/runtime/ai/providers/openai-completions";
+import { buildBaseOptions } from "@stella/runtime/ai/providers/simple-options";
 import { streamSimple } from "@stella/runtime/ai/stream";
 import { transformMessages } from "@stella/runtime/ai/providers/transform-messages";
 import type { Context, Message, Model } from "@stella/runtime/ai/types";
@@ -136,7 +137,7 @@ describe("Stella relay route shape", () => {
       provider: "wafer",
       baseUrl: `${STELLA_SITE}/api/stella/relay`,
       contextWindow: 1_000_000,
-      maxTokens: 384_000,
+      maxTokens: 0,
       input: ["text"],
     });
     expect(model.thinkingLevelMap?.xhigh).toBe("max");
@@ -145,6 +146,13 @@ describe("Stella relay route shape", () => {
       maxTokensField: "max_tokens",
       replayReasoningContentField: true,
     });
+
+    const defaultParams = buildOpenAICompletionsParams(
+      model,
+      userContext("Hello!"),
+      buildBaseOptions(model),
+    ) as unknown as Record<string, unknown>;
+    expect(defaultParams).not.toHaveProperty("max_tokens");
 
     const params = buildOpenAICompletionsParams(model, userContext("Hello!"), {
       maxTokens: 256,

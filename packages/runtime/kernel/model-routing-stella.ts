@@ -262,7 +262,9 @@ const createRelayModel = (args: {
             cacheWrite: 0,
           },
           contextWindow: 1_000_000,
-          maxTokens: 384_000,
+          // Zero tells buildBaseOptions to omit max_tokens and let Wafer
+          // enforce the model's native output limit.
+          maxTokens: 0,
         }
       : null;
 
@@ -289,7 +291,8 @@ const createRelayModel = (args: {
           reasoning: true,
           input: ["text"] as Array<"text">,
           contextWindow: registryModel?.contextWindow ?? 1_000_000,
-          maxTokens: registryModel?.maxTokens ?? 384_000,
+          // Never inherit a registry output cap for this reasoning model.
+          maxTokens: 0,
           compat: {
             ...registryModel?.compat,
             supportsReasoningEffort: true,

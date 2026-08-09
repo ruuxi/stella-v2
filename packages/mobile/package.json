@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web",
+    "i18n:sync": "node scripts/sync-i18n-catalogs.mjs",
+    "start": "bun run i18n:sync && expo start",
+    "android": "bun run i18n:sync && expo run:android",
+    "ios": "bun run i18n:sync && expo run:ios",
+    "web": "bun run i18n:sync && expo start --web",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun run i18n:sync && tsc --noEmit",
     "test": "bun test src"
   },
   "dependencies": {

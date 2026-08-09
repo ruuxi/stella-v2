@@ -28,7 +28,8 @@ import {
 } from "./media-store"
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload"
 import { showToast } from "@/ui/toast"
-import { friendlyImageGenerationFailure } from "./media-error-copy"
+import { imageGenerationFailureKey } from "./media-error-copy"
+import { useT } from "@/shared/i18n"
 import {
   capInMemory,
   failedNotifiedJobs,
@@ -112,6 +113,7 @@ export const useMediaMaterializer = ({
   onMaterialized,
   suppress = false,
 }: UseMediaMaterializerOptions): void => {
+  const t = useT()
   const { hasConnectedAccount } = useAuthSessionState()
 
   // Stable boot timestamp so we don't re-materialize the entire history on
@@ -210,9 +212,9 @@ export const useMediaMaterializer = ({
       capInMemory(failedNotifiedJobs)
       persistFailedNotifiedJobs()
       showToast({
-        title: friendlyImageGenerationFailure(job.error),
+        title: t(imageGenerationFailureKey(job.error)),
         variant: "error",
       })
     }
-  }, [failedJobs])
+  }, [failedJobs, t])
 }

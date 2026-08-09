@@ -37,6 +37,7 @@ import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import { AgentModelIcon } from "./AgentModelIcon";
 import { Markdown } from "./Markdown";
 import { OpenWithMenu } from "./OpenWithMenu";
+import { useT, useTPlural } from "@/shared/i18n";
 import "./agent-completion-card.css";
 
 /** Pills shown before the "+N more" control kicks in. */
@@ -83,6 +84,8 @@ const CompletionSection = ({
   onOpenThread: () => void;
   modelConfigSnapshot?: AgentModelConfigSnapshot;
 }) => {
+  const t = useT();
+  const tPlural = useTPlural();
   const [expanded, setExpanded] = useState(false);
   const total = section.files.length;
   const capped = total > PILL_CAP;
@@ -113,7 +116,13 @@ const CompletionSection = ({
             }
           : undefined
       }
-      aria-label={showHeader ? `Open ${section.title} agent thread` : undefined}
+      aria-label={
+        showHeader
+          ? t("app.chat.agentCompletion.openNamedThread", {
+              title: section.title,
+            })
+          : undefined
+      }
     >
       {showHeader ? (
         <div className="agent-completion-card__section-head">
@@ -187,7 +196,11 @@ const CompletionSection = ({
             className="agent-completion-card__more-chevron"
             data-expanded={expanded ? "true" : undefined}
           />
-          <span>{expanded ? "Show less" : `+${hiddenCount} more`}</span>
+          <span>
+            {expanded
+              ? t("app.chat.agentCompletion.showLess")
+              : tPlural("app.chat.agentCompletion.showMore", hiddenCount)}
+          </span>
         </button>
       ) : null}
     </div>
@@ -200,19 +213,22 @@ const ThreadChatButton = ({
 }: {
   onOpen: () => void;
   modelConfigSnapshot?: AgentModelConfigSnapshot;
-}) => (
-  <button
-    type="button"
-    className="agent-completion-card__chat"
-    onClick={(event) => {
-      event.stopPropagation();
-      onOpen();
-    }}
-    aria-label="Open agent thread"
-  >
-    <AgentModelIcon snapshot={modelConfigSnapshot} />
-  </button>
-);
+}) => {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className="agent-completion-card__chat"
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+      aria-label={t("app.chat.agentCompletion.openThread")}
+    >
+      <AgentModelIcon snapshot={modelConfigSnapshot} />
+    </button>
+  );
+};
 
 export function AgentCompletionCard({
   sections,
@@ -225,6 +241,7 @@ export function AgentCompletionCard({
   conversationId: string;
   modelConfigByThread?: AgentModelConfigsByThread;
 }) {
+  const t = useT();
   // The completion card usually replaces the (shorter) spawn card after the
   // run has settled — no stream text notify fires, so tell the scroll
   // surfaces about the growth ourselves. See `notifyChatContentGrowth`.
@@ -267,7 +284,11 @@ export function AgentCompletionCard({
       role={!multi ? "button" : undefined}
       tabIndex={!multi ? 0 : undefined}
       aria-label={
-        !multi ? `Open ${primarySection.title} agent thread` : undefined
+        !multi
+          ? t("app.chat.agentCompletion.openNamedThread", {
+              title: primarySection.title,
+            })
+          : undefined
       }
       onClick={
         !multi

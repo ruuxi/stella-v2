@@ -7,6 +7,7 @@ import {
 import { api } from "@/convex/api";
 import { Avatar } from "@/ui/avatar";
 import { showToast } from "@/ui/toast";
+import { useT } from "@/shared/i18n";
 import { useChatScrollManagement } from "@/shell/use-chat-scroll-management";
 import { getSocialActionErrorMessage } from "./social-errors";
 import { useSocialMessages } from "./hooks/use-social-messages";
@@ -85,6 +86,7 @@ export function SocialChatPane({
   currentOwnerId,
   onBack,
 }: SocialChatPaneProps) {
+  const t = useT();
   const roomData = useQuery(api.social.rooms.getRoom, {
     roomId,
   }) as SocialRoomSummary | null;
@@ -168,10 +170,10 @@ export function SocialChatPane({
       });
       const responseBody =
         turn.status === "completed"
-          ? turn.resultText || "Stella finished without a reply."
+          ? turn.resultText || t("app.social.chat.stellaNoReply")
           : turn.status === "failed"
-            ? turn.error || "Stella couldn't finish that request."
-            : "Stella is thinking...";
+            ? turn.error || t("app.social.chat.stellaFailed")
+            : t("app.social.chat.stellaThinking");
       rows.push({
         id: `${turn._id}:response`,
         senderOwnerId: STELLA_SENDER_OWNER_ID,
@@ -183,7 +185,7 @@ export function SocialChatPane({
     }
     rows.sort((left, right) => left.createdAt - right.createdAt);
     return rows;
-  }, [messages, turns]);
+  }, [messages, turns, t]);
 
   const messageGroups = useMemo(() => {
     if (!timelineRows.length) return [];
@@ -373,7 +375,7 @@ export function SocialChatPane({
     if (!socialSessionsApi) {
       showToast({
         variant: "error",
-        description: "Shared Stella isn't available in this app session.",
+        description: t("app.social.chat.sharedStellaUnavailable"),
       });
       return;
     }
@@ -387,14 +389,14 @@ export function SocialChatPane({
       showToast({
         variant: "error",
         description: getSocialActionErrorMessage(
-          "Couldn't start Stella here. Please try again.",
+          t("app.social.chat.errors.startStella"),
           error,
         ),
       });
     } finally {
       setIsStartingSession(false);
     }
-  }, [displayName, roomData, roomId, socialSessionsApi]);
+  }, [displayName, roomData, roomId, socialSessionsApi, t]);
 
   const handleUpdateSessionStatus = useCallback(
     async (status: SocialSessionStatus) => {
@@ -404,7 +406,7 @@ export function SocialChatPane({
       if (!socialSessionsApi) {
         showToast({
           variant: "error",
-          description: "Shared Stella isn't available in this app session.",
+          description: t("app.social.chat.sharedStellaUnavailable"),
         });
         return;
       }
@@ -418,7 +420,7 @@ export function SocialChatPane({
         showToast({
           variant: "error",
           description: getSocialActionErrorMessage(
-            "Couldn't update Stella right now. Please try again.",
+            t("app.social.chat.errors.updateStella"),
             error,
           ),
         });
@@ -426,7 +428,7 @@ export function SocialChatPane({
         setIsUpdatingSession(false);
       }
     },
-    [activeSession, socialSessionsApi],
+    [activeSession, socialSessionsApi, t],
   );
 
   // Single composer entry point — routes to Stella when armed (and a live
@@ -445,7 +447,7 @@ export function SocialChatPane({
           showToast({
             variant: "error",
             description: getSocialActionErrorMessage(
-              "Couldn't send that to Stella. Please try again.",
+              t("app.social.chat.errors.sendToStella"),
               error,
             ),
           });
@@ -458,13 +460,13 @@ export function SocialChatPane({
         showToast({
           variant: "error",
           description: getSocialActionErrorMessage(
-            "Couldn't send your message. Please try again.",
+            t("app.social.chat.errors.sendMessage"),
             error,
           ),
         });
       }
     },
-    [activeSession, roomId, sendMessage, socialSessionsApi, stellaArmed],
+    [activeSession, roomId, sendMessage, socialSessionsApi, stellaArmed, t],
   );
 
   if (!roomData) {
@@ -478,8 +480,8 @@ export function SocialChatPane({
           <button
             type="button"
             className="social-chat-back"
-            aria-label="Back to conversations"
-            title="Back"
+            aria-label={t("app.social.chat.backToConversations")}
+            title={t("app.social.chat.back")}
             onClick={onBack}
           >
             <ChevronLeft size={20} />
@@ -489,7 +491,9 @@ export function SocialChatPane({
           <div className="social-chat-header-name">{displayName}</div>
           {roomData.memberProfiles.length > 2 && (
             <div className="social-chat-header-meta">
-              {roomData.memberProfiles.length} people
+              {t("app.social.chat.peopleCount", {
+                count: roomData.memberProfiles.length,
+              })}
             </div>
           )}
         </div>
@@ -504,14 +508,18 @@ export function SocialChatPane({
             className="social-stella-pill"
             onClick={() => void handleStartSession()}
             disabled={isStartingSession}
-            title="Bring Stella into this conversation"
+            title={t("app.social.chat.startStellaTitle")}
           >
             <img
               src="stella-logo.svg"
               alt=""
               className="social-stella-pill-logo"
             />
-            <span>{isStartingSession ? "Starting..." : "Start Stella"}</span>
+            <span>
+              {isStartingSession
+                ? t("app.social.chat.starting")
+                : t("app.social.chat.startStella")}
+            </span>
           </button>
         )}
       </div>
@@ -529,17 +537,17 @@ export function SocialChatPane({
               data-status={activeSession.status}
             >
               {activeSession.status === "active"
-                ? "Stella · Live"
+                ? t("app.social.chat.sessionBadge.live")
                 : activeSession.status === "paused"
-                  ? "Stella · Paused"
-                  : "Stella · Ended"}
+                  ? t("app.social.chat.sessionBadge.paused")
+                  : t("app.social.chat.sessionBadge.ended")}
             </span>
             <span className="social-session-header-hint">
               {activeSession.status === "active"
-                ? "Anyone here can tell Stella."
+                ? t("app.social.chat.sessionHint.live")
                 : activeSession.status === "paused"
-                  ? "Paused — resume to tell Stella again."
-                  : "This shared Stella space has ended."}
+                  ? t("app.social.chat.sessionHint.paused")
+                  : t("app.social.chat.sessionHint.ended")}
             </span>
           </div>
           <div className="social-session-actions">
@@ -550,7 +558,9 @@ export function SocialChatPane({
                 onClick={() => void handleStartSession()}
                 disabled={isStartingSession}
               >
-                {isStartingSession ? "Starting..." : "Start Again"}
+                {isStartingSession
+                  ? t("app.social.chat.starting")
+                  : t("app.social.chat.startAgain")}
               </button>
             ) : null}
             {isHost && activeSession.status !== "ended" ? (
@@ -565,7 +575,9 @@ export function SocialChatPane({
                   }
                   disabled={isUpdatingSession}
                 >
-                  {activeSession.status === "active" ? "Pause" : "Resume"}
+                  {activeSession.status === "active"
+                    ? t("app.social.chat.pause")
+                    : t("app.social.chat.resume")}
                 </button>
                 <button
                   type="button"
@@ -574,7 +586,7 @@ export function SocialChatPane({
                   onClick={() => void handleUpdateSessionStatus("ended")}
                   disabled={isUpdatingSession}
                 >
-                  End
+                  {t("app.social.chat.end")}
                 </button>
               </>
             ) : null}
@@ -589,7 +601,7 @@ export function SocialChatPane({
               <MessageSquare size={22} />
             </div>
             <div className="social-empty-subtitle">
-              Say hello to start the conversation
+              {t("app.social.chat.sayHello")}
             </div>
           </div>
         ) : (
@@ -610,7 +622,7 @@ export function SocialChatPane({
                   className="social-messages-older-loading"
                   aria-live="polite"
                 >
-                  Loading older messages…
+                  {t("app.social.chat.loadingOlder")}
                 </div>
               ) : undefined
             }
@@ -636,8 +648,8 @@ export function SocialChatPane({
             }
             title={
               stellaArmed
-                ? "Send the next message as a normal chat message"
-                : "Send the next message to Stella"
+                ? t("app.social.chat.armedOffTitle")
+                : t("app.social.chat.armedOnTitle")
             }
           >
             <img
@@ -645,7 +657,11 @@ export function SocialChatPane({
               alt=""
               className="social-stella-arm-button-logo"
             />
-            <span>{stellaArmed ? "Telling Stella" : "Tell Stella"}</span>
+            <span>
+              {stellaArmed
+                ? t("app.social.chat.tellingStella")
+                : t("app.social.chat.tellStella")}
+            </span>
           </button>
         )}
         <SocialComposer
@@ -653,8 +669,8 @@ export function SocialChatPane({
           armed={stellaArmed}
           placeholder={
             stellaArmed
-              ? "Tell Stella what you want..."
-              : `Message ${displayName}`
+              ? t("app.social.chat.tellStellaPlaceholder")
+              : t("app.social.chat.messagePlaceholder", { name: displayName })
           }
         />
       </div>

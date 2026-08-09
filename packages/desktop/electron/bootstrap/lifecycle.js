@@ -2,6 +2,7 @@ import { app, dialog, globalShortcut } from "electron";
 import { writeFileSync } from "node:fs";
 import { applyDockIcon } from "../app-icon.js";
 import { configurePackagedRuntimeEnvironment } from "../bundled-runtime-environment.js";
+import { t } from "../services/i18n-service.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
 import { initializeBootstrapApplication } from "./runtime.js";
 export const initializeBootstrapSingleInstance = (context) => {
@@ -21,13 +22,16 @@ export const registerBootstrapLifecycle = (context) => {
         try {
             const result = await dialog.showMessageBox({
                 type: "error",
-                buttons: ["Relaunch", "Quit"],
+                buttons: [
+                    t("desktop.dialog.startupFailure.relaunch"),
+                    t("desktop.dialog.startupFailure.quit"),
+                ],
                 defaultId: 0,
                 cancelId: 1,
                 noLink: true,
-                title: "Stella",
-                message: "Stella could not finish starting.",
-                detail: `Startup failed before the app UI could load.\n\n${detail}`.slice(0, 12_000),
+                title: t("desktop.dialog.startupFailure.title"),
+                message: t("desktop.dialog.startupFailure.message"),
+                detail: t("desktop.dialog.startupFailure.detail", { detail }).slice(0, 12_000),
             });
             if (result.response === 0) {
                 app.relaunch();

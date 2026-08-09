@@ -7,6 +7,7 @@ import {
 } from "@/features/chat/lib/message-entry-animation-state";
 import { ChipPreviewPortal } from "./ChipPreviewPortal";
 import { useHoverPreview } from "./use-hover-preview";
+import { useT, useTPlural } from "@/shared/i18n";
 
 const EXIT_MS = 100;
 
@@ -49,13 +50,17 @@ function QueuedMessageBubble({
   leaving: boolean;
   onCancel?: (message: QueuedUserMessage) => void;
 }) {
+  const t = useT();
+  const tPlural = useTPlural();
   const { triggerRef, open, previewProps } =
     useHoverPreview<HTMLButtonElement>();
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const [truncated, setTruncated] = useState(false);
   const collapsed = items.length > 1;
   const first = items[0]!;
-  const label = collapsed ? `${items.length} messages queued` : first.text;
+  const label = collapsed
+    ? tPlural("app.chat.queuedMessages.queuedCount", items.length)
+    : first.text;
 
   useLayoutEffect(() => {
     const el = bubbleRef.current;
@@ -92,7 +97,7 @@ function QueuedMessageBubble({
           ref={triggerRef}
           type="button"
           className={bubbleClassName}
-          aria-label={`${label}. Preview queued messages`}
+          aria-label={t("app.chat.queuedMessages.previewLabel", { label })}
           aria-expanded={open}
           aria-haspopup="true"
         >
@@ -107,8 +112,8 @@ function QueuedMessageBubble({
         <button
           type="button"
           className="composer-queued-message__cancel"
-          aria-label="Cancel queued message"
-          title="Cancel and edit"
+          aria-label={t("app.chat.queuedMessages.cancel")}
+          title={t("app.chat.queuedMessages.cancelAndEdit")}
           onClick={() => onCancel(first)}
         >
           <X size={14} strokeWidth={2.25} aria-hidden="true" />
@@ -134,8 +139,10 @@ function QueuedMessageBubble({
                   <button
                     type="button"
                     className="composer-queued-preview__cancel"
-                    aria-label={`Cancel queued message ${index + 1}`}
-                    title="Cancel and edit"
+                    aria-label={t("app.chat.queuedMessages.cancelIndexed", {
+                      index: index + 1,
+                    })}
+                    title={t("app.chat.queuedMessages.cancelAndEdit")}
                     onClick={() => onCancel(item)}
                   >
                     <X size={14} strokeWidth={2.25} aria-hidden="true" />

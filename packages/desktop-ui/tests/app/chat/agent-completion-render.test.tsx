@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 
@@ -51,8 +52,9 @@ describe("AgentCompletionCard fileless summary rendering", () => {
   let root: Root;
 
   beforeEach(() => {
-    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-      true;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -65,7 +67,9 @@ describe("AgentCompletionCard fileless summary rendering", () => {
 
   const renderCard = async (summary: string) => {
     await act(async () => {
-      root.render(<AgentCompletionCard sections={[filelessSection(summary)]} />);
+      root.render(
+        withI18n(<AgentCompletionCard sections={[filelessSection(summary)]} />),
+      );
     });
   };
 
@@ -82,7 +86,9 @@ describe("AgentCompletionCard fileless summary rendering", () => {
   it("emits bold/code/link as data-streamdown nodes — the shape the scoped CSS must target", async () => {
     await renderCard(SUMMARY);
     const scope = ".agent-completion-card__summary .markdown";
-    const strong = container.querySelector(`${scope} [data-streamdown="strong"]`);
+    const strong = container.querySelector(
+      `${scope} [data-streamdown="strong"]`,
+    );
     const code = container.querySelector(
       `${scope} [data-streamdown="inline-code"]`,
     );
@@ -119,31 +125,33 @@ describe("AgentCompletionCard fileless summary rendering", () => {
   it("exposes canonical start/completion/run/artifact identity for replay diagnostics", async () => {
     await act(async () => {
       root.render(
-        <AgentCompletionCard
-          cardId="agent-activity:start-1"
-          sections={[
-            {
-              agentId: "agent-1",
-              title: "Build report",
-              startEventId: "start-1",
-              completionEventId: "done-1",
-              rootRunId: "run-1",
-              completedAtMs: 42,
-              files: [
-                {
-                  path: "/tmp/report.md",
-                  timestamp: 42,
-                  payload: {
-                    kind: "markdown",
-                    filePath: "/tmp/report.md",
-                    title: "report.md",
-                    createdAt: 42,
+        withI18n(
+          <AgentCompletionCard
+            cardId="agent-activity:start-1"
+            sections={[
+              {
+                agentId: "agent-1",
+                title: "Build report",
+                startEventId: "start-1",
+                completionEventId: "done-1",
+                rootRunId: "run-1",
+                completedAtMs: 42,
+                files: [
+                  {
+                    path: "/tmp/report.md",
+                    timestamp: 42,
+                    payload: {
+                      kind: "markdown",
+                      filePath: "/tmp/report.md",
+                      title: "report.md",
+                      createdAt: 42,
+                    },
                   },
-                },
-              ],
-            },
-          ]}
-        />,
+                ],
+              },
+            ]}
+          />,
+        ),
       );
     });
     const card = container.querySelector("[data-activity-card-id]");

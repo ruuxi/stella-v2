@@ -37,6 +37,7 @@ import {
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
 import { AgentModelIcon } from "./AgentModelIcon";
+import { useT, useTPlural } from "@/shared/i18n";
 import "./background-work-card.css";
 
 /** Sweep duration for the title shimmer — a touch quicker than the base
@@ -100,6 +101,8 @@ export function BackgroundWorkCard({
   terminalEventIdsByThread?: Record<string, string>;
   conversationId: string;
 }) {
+  const t = useT();
+  const tPlural = useTPlural();
   const { records: threadActivity } = useThreadActivity(conversationId);
 
   const presentationStatus = useMemo(() => {
@@ -169,10 +172,13 @@ export function BackgroundWorkCard({
   // Several threads in one turn collapse to a plain count instead of cycling
   // through descriptions — a single task shows its own description.
   const lifecycleTitle = isFollowUp
-    ? statusTexts?.[followUpId] || resolved[0] || "Follow-up"
+    ? statusTexts?.[followUpId] ||
+      resolved[0] ||
+      t("app.chat.backgroundWork.followUp")
     : multi
-      ? resolved[0] || `${threadIds.length} tasks`
-      : resolved[0] || "Background work";
+      ? resolved[0] ||
+        tPlural("app.chat.backgroundWork.taskCount", threadIds.length)
+      : resolved[0] || t("app.chat.backgroundWork.title");
 
   // Attempt/root fencing keeps modern historical cards scoped to their own
   // prose. Legacy cards without a generation still need the coarse exclusion
@@ -213,7 +219,9 @@ export function BackgroundWorkCard({
       threadId,
       conversationId,
       agentType: record?.agentType ?? "Agent",
-      title: descriptions?.[threadId]?.trim() || "Agent thread",
+      title:
+        descriptions?.[threadId]?.trim() ||
+        t("app.chat.backgroundWork.agentThread"),
     });
   };
   const primaryThreadId = threadIds[0]!;
@@ -240,7 +248,7 @@ export function BackgroundWorkCard({
       className="background-work-card"
       role="button"
       tabIndex={0}
-      aria-label={`Open ${title} agent thread`}
+      aria-label={t("app.chat.backgroundWork.openNamedThread", { title })}
       onClick={(event) => {
         if ((event.target as Element).closest("button, a")) return;
         openThread(primaryThreadId);
@@ -291,7 +299,7 @@ export function BackgroundWorkCard({
               event.stopPropagation();
               openThread(threadId);
             }}
-            aria-label="Open agent thread"
+            aria-label={t("app.chat.backgroundWork.openThread")}
           >
             <AgentModelIcon
               snapshot={

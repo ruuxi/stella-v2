@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LocalModelUsagePage } from "@stella/contracts/local-chat";
 import { useViewportActivity } from "@/shared/hooks/useViewportActivity";
 import { RefreshCw } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import {
   buildUsageTimeline,
   executionLabel,
@@ -30,6 +31,7 @@ type UsageFiltersState = {
 };
 
 export function UsagePanel() {
+  const t = useT();
   const [filters, setFilters] = useState<UsageFiltersState>({ range: "7d" });
   const [basePage, setBasePage] = useState<LocalModelUsagePage>(EMPTY_PAGE);
   const [scoped, setScoped] = useState<{
@@ -49,7 +51,7 @@ export function UsagePanel() {
   const load = useCallback(async () => {
     const api = window.electronAPI?.localChat;
     if (!api?.listModelUsage) {
-      setError("Local usage is available in the Stella desktop app.");
+      setError(t("app.usage.desktopOnly"));
       setPhase("error");
       return;
     }
@@ -69,7 +71,7 @@ export function UsagePanel() {
     } finally {
       fetchingRef.current = false;
     }
-  }, [range]);
+  }, [range, t]);
 
   useEffect(() => {
     void load();
@@ -200,19 +202,16 @@ export function UsagePanel() {
       aria-busy={phase === "loading" || undefined}
     >
       <header className="usage-header">
-        <p>
-          Provider calls persisted on this device. Costs are local estimates;
-          backend billing remains authoritative.
-        </p>
+        <p>{t("app.usage.intro")}</p>
         <button
           type="button"
           className="usage-refresh"
           onClick={() => setRefreshKey((value) => value + 1)}
-          aria-label="Refresh usage"
-          title="Refresh usage"
+          aria-label={t("app.usage.refreshLabel")}
+          title={t("app.usage.refreshLabel")}
         >
           <RefreshCw size={16} aria-hidden="true" />
-          Refresh
+          {t("app.usage.refresh")}
         </button>
       </header>
 
@@ -227,7 +226,10 @@ export function UsagePanel() {
       />
 
       {selectedThread ? (
-        <section className="usage-selection" aria-label="Selected thread">
+        <section
+          className="usage-selection"
+          aria-label={t("app.usage.selectedThread")}
+        >
           <div>
             <span>{executionLabel(selectedThread)}</span>
             <strong>{threadLabel(selectedThread)}</strong>
@@ -237,37 +239,33 @@ export function UsagePanel() {
             type="button"
             onClick={() => updateSearch({ thread: undefined })}
           >
-            View all threads
+            {t("app.usage.viewAllThreads")}
           </button>
         </section>
       ) : null}
 
       {phase === "loading" ? (
         <div className="usage-state" role="status" aria-live="polite">
-          Loading local usage…
+          {t("app.usage.loading")}
         </div>
       ) : phase === "error" ? (
         <div className="usage-state" role="alert">
-          <strong>Couldn’t load local usage</strong>
+          <strong>{t("app.usage.loadError")}</strong>
           <span>{error}</span>
           <button type="button" onClick={() => void load()}>
-            Try again
+            {t("app.usage.tryAgain")}
           </button>
         </div>
       ) : records.length === 0 ? (
         <div className="usage-state" role="status">
-          <strong>No model calls match these filters.</strong>
-          <span>
-            Native calls appear here after their provider returns a terminal
-            usage payload.
-          </span>
+          <strong>{t("app.usage.emptyTitle")}</strong>
+          <span>{t("app.usage.emptyBody")}</span>
         </div>
       ) : (
         <>
           {activePage.truncated ? (
             <div className="usage-warning" role="status">
-              Showing the latest 10,000 calls in this range. Narrow the time
-              range for exact totals.
+              {t("app.usage.truncatedWarning")}
             </div>
           ) : null}
 

@@ -7,6 +7,7 @@ import {
   type StoreSidePanelOlderEntry,
 } from "../store-side-panel-store";
 import { formatTimeAgo } from "./format";
+import { useLocale, useT, useTPlural } from "@/shared/i18n";
 
 type RecentRowProps = {
   name: string;
@@ -16,6 +17,7 @@ type RecentRowProps = {
 };
 
 function RecentRow({ name, meta, selected, onToggle }: RecentRowProps) {
+  const t = useT();
   return (
     <div
       className="store-side-panel-row"
@@ -32,8 +34,8 @@ function RecentRow({ name, meta, selected, onToggle }: RecentRowProps) {
       }}
       title={
         selected
-          ? "Click to remove from selection"
-          : "Click to include in share"
+          ? t("features.store.recentChanges.rowDeselectHint")
+          : t("features.store.recentChanges.rowSelectHint")
       }
     >
       <span
@@ -57,10 +59,23 @@ function RecentRow({ name, meta, selected, onToggle }: RecentRowProps) {
   );
 }
 
-function publishButtonLabel(selectedCount: number): string {
-  if (selectedCount === 0) return "Select changes to share";
-  if (selectedCount === 1) return "Share · 1 selected";
-  return `Share · ${selectedCount} selected`;
+function publishButtonLabel(
+  selectedCount: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+  tPlural: (
+    key: string,
+    count: number,
+    params?: Record<string, string | number>,
+  ) => string,
+): string {
+  if (selectedCount === 0) {
+    return t("features.store.recentChanges.publishEmpty");
+  }
+  const countPhrase = tPlural(
+    "features.store.recentChanges.selectedCount",
+    selectedCount,
+  );
+  return t("features.store.recentChanges.publishLabel", { countPhrase });
 }
 
 type RecentChangesListProps = {
@@ -83,6 +98,9 @@ export function RecentChangesList({
   publishDisabled = false,
   onPublishSelected,
 }: RecentChangesListProps) {
+  const t = useT();
+  const tPlural = useTPlural();
+  const locale = useLocale();
   const items = snapshot?.items ?? [];
   const selectedCount = selectedFeatureKeys.size;
   if (items.length === 0) return null;
@@ -100,7 +118,9 @@ export function RecentChangesList({
               name={item.name}
               meta={
                 snapshot?.generatedAt
-                  ? `Updated ${formatTimeAgo(snapshot.generatedAt)}`
+                  ? t("features.store.recentChanges.updated", {
+                      time: formatTimeAgo(snapshot.generatedAt, locale, t),
+                    })
                   : null
               }
               selected={selected}
@@ -115,7 +135,9 @@ export function RecentChangesList({
             <RecentRow
               key={key}
               name={entry.name}
-              meta={`Updated ${formatTimeAgo(entry.lastCommitAt)}`}
+              meta={t("features.store.recentChanges.updated", {
+                time: formatTimeAgo(entry.lastCommitAt, locale, t),
+              })}
               selected={selected}
               onToggle={() => storeSidePanelStore.toggleFeature(key)}
             />
@@ -128,7 +150,9 @@ export function RecentChangesList({
             disabled={olderLoading}
             onClick={() => void loadOlderFeatureEntries()}
           >
-            {olderLoading ? "Loading…" : "Show older"}
+            {olderLoading
+              ? t("common.loading")
+              : t("features.store.recentChanges.showOlder")}
           </button>
         ) : null}
       </div>
@@ -139,7 +163,7 @@ export function RecentChangesList({
           disabled={selectedCount === 0 || publishDisabled}
           onClick={onPublishSelected}
         >
-          {publishButtonLabel(selectedCount)}
+          {publishButtonLabel(selectedCount, t, tPlural)}
         </button>
       </div>
     </div>

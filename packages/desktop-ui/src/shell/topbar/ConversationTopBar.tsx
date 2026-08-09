@@ -41,6 +41,7 @@ import {
   X,
 } from "@/ui/icons";
 import { dispatchShowHome } from "@/shared/lib/stella-orb-chat";
+import { useT } from "@/shared/i18n";
 import "./conversation-topbar.css";
 
 const ConversationHistoryPopoverContent = Popover.Content as ComponentType<
@@ -175,6 +176,7 @@ type ConversationTabPointerDrag = {
 };
 
 export function ConversationTopBar() {
+  const t = useT();
   const router = useRouter();
   const { tabs } = useConversationTabs();
   const showNewChatLabel = shouldRenderNewChatLabel(tabs.length);
@@ -237,8 +239,11 @@ export function ConversationTopBar() {
 
   const createConversation = useCallback(async () => {
     const conversationId = await createNewLocalConversationId();
-    navigateToConversation(conversationId, "New chat");
-  }, [navigateToConversation]);
+    navigateToConversation(
+      conversationId,
+      t("shell.topbar.conversation.newChat"),
+    );
+  }, [navigateToConversation, t]);
 
   const loadHistory = useCallback(
     async (cursor: ConversationSummaryCursor | null, replace: boolean) => {
@@ -676,7 +681,9 @@ export function ConversationTopBar() {
               });
               setHistoryOpen(false);
             }}
-            aria-label={`Open ${summary.title}`}
+            aria-label={t("shell.topbar.conversation.openConversation", {
+              title: summary.title,
+            })}
           >
             <span className="conversation-history-popover__title">
               {summary.title}
@@ -691,17 +698,25 @@ export function ConversationTopBar() {
             disabled={deleting}
             aria-label={
               deleteFailed
-                ? `Couldn’t delete ${summary.title}`
+                ? t("shell.topbar.conversation.deleteFailedFor", {
+                    title: summary.title,
+                  })
                 : deleteArmed
-                  ? `Click again to delete ${summary.title}`
-                  : `Delete ${summary.title}`
+                  ? t("shell.topbar.conversation.deleteConfirmFor", {
+                      title: summary.title,
+                    })
+                  : t("shell.topbar.conversation.delete", {
+                      title: summary.title,
+                    })
             }
             title={
               deleteFailed
-                ? "Couldn’t delete this conversation"
+                ? t("shell.topbar.conversation.deleteFailed")
                 : deleteArmed
-                  ? "Click again to confirm"
-                  : `Delete ${summary.title}`
+                  ? t("shell.topbar.conversation.deleteConfirm")
+                  : t("shell.topbar.conversation.delete", {
+                      title: summary.title,
+                    })
             }
             onKeyDown={(event) => {
               if (event.key !== "Escape") return;
@@ -730,6 +745,7 @@ export function ConversationTopBar() {
       historyDeleteErrorId,
       historyDeletingId,
       navigateToConversation,
+      t,
     ],
   );
 
@@ -756,8 +772,8 @@ export function ConversationTopBar() {
           <button
             type="button"
             className="shell-topbar-icon-btn conversation-topbar__history"
-            aria-label="Conversation history"
-            title="Conversation history"
+            aria-label={t("shell.topbar.conversation.history")}
+            title={t("shell.topbar.conversation.history")}
             onPointerEnter={(event) => {
               if (event.pointerType !== "touch") openHistoryFromHover();
             }}
@@ -784,7 +800,7 @@ export function ConversationTopBar() {
           align="start"
           side="bottom"
           sideOffset={6}
-          aria-label="Conversation history"
+          aria-label={t("shell.topbar.conversation.history")}
           onPointerEnter={(event) => {
             if (event.pointerType !== "touch") clearHistoryHoverCloseTimer();
           }}
@@ -811,14 +827,14 @@ export function ConversationTopBar() {
             ListEmptyComponent={
               !historyLoading && !historyError ? (
                 <div className="conversation-history-popover__status">
-                  No conversations yet
+                  {t("shell.topbar.conversation.historyEmpty")}
                 </div>
               ) : undefined
             }
             ListFooterComponent={
               historyLoading ? (
                 <div className="conversation-history-popover__status">
-                  Loading…
+                  {t("common.loading")}
                 </div>
               ) : historyError ? (
                 <button
@@ -826,7 +842,7 @@ export function ConversationTopBar() {
                   className="conversation-history-popover__retry"
                   onClick={() => void loadHistory(null, true)}
                 >
-                  Couldn’t load conversations. Try again
+                  {t("shell.topbar.conversation.historyRetry")}
                 </button>
               ) : undefined
             }
@@ -844,8 +860,8 @@ export function ConversationTopBar() {
           type="button"
           className="shell-topbar-icon-btn conversation-topbar__home"
           onClick={dispatchShowHome}
-          aria-label="Home"
-          title="Home"
+          aria-label={t("shell.topbar.conversation.home")}
+          title={t("shell.topbar.conversation.home")}
         >
           <House
             className="conversation-topbar__control-icon"
@@ -864,7 +880,7 @@ export function ConversationTopBar() {
             ref={stripRef}
             className="conversation-topbar__tabs"
             role="tablist"
-            aria-label="Open conversations"
+            aria-label={t("shell.topbar.conversation.openConversations")}
             onScroll={scheduleOverflowMeasurement}
           >
             {tabs.map((tab) => {
@@ -924,7 +940,12 @@ export function ConversationTopBar() {
                     className="conversation-topbar__tab-target"
                     role="tab"
                     aria-selected={active}
-                    aria-label={`Open ${tab.title}`}
+                    aria-label={t(
+                      "shell.topbar.conversation.openConversation",
+                      {
+                        title: tab.title,
+                      },
+                    )}
                     onMouseDown={(event) => {
                       if (event.button === 0) {
                         navigateToConversation(tab.conversationId, tab.title);
@@ -958,7 +979,12 @@ export function ConversationTopBar() {
                   <button
                     type="button"
                     className="conversation-topbar__tab-close"
-                    aria-label={`Close ${tab.title}`}
+                    aria-label={t(
+                      "shell.topbar.conversation.closeConversation",
+                      {
+                        title: tab.title,
+                      },
+                    )}
                     onMouseDown={(event) => {
                       event.stopPropagation();
                       event.preventDefault();
@@ -987,8 +1013,8 @@ export function ConversationTopBar() {
         className="shell-topbar-icon-btn conversation-topbar__plus"
         data-compact={!showNewChatLabel ? "true" : undefined}
         onClick={() => void createConversation()}
-        aria-label="New chat"
-        title="New chat"
+        aria-label={t("shell.topbar.conversation.newChat")}
+        title={t("shell.topbar.conversation.newChat")}
       >
         <Plus
           className="conversation-topbar__control-icon"
@@ -997,7 +1023,9 @@ export function ConversationTopBar() {
           aria-hidden="true"
         />
         {showNewChatLabel ? (
-          <span className="conversation-topbar__new-label">New chat</span>
+          <span className="conversation-topbar__new-label">
+            {t("shell.topbar.conversation.newChat")}
+          </span>
         ) : null}
       </button>
     </div>

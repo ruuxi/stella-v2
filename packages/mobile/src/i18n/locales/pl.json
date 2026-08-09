@@ -1,0 +1,2260 @@
+{
+  "common": {
+    "appName": "Stella",
+    "continue": "Dalej",
+    "back": "Wstecz",
+    "next": "Dalej",
+    "previous": "Poprzedni",
+    "cancel": "Anuluj",
+    "save": "Zapisz",
+    "close": "Zamknij",
+    "open": "Otwórz",
+    "openPreferences": "Otwórz preferencje",
+    "signIn": "Zaloguj się",
+    "signOut": "Wyloguj",
+    "loading": "Ładowanie…",
+    "tryAgain": "Spróbuj ponownie",
+    "language": "Język",
+    "yes": "Tak",
+    "no": "Nie",
+    "copy": "Kopiuj"
+  },
+  "sidebar": {
+    "signIn": "Zaloguj się",
+    "account": "Konto",
+    "feedback": "Wyślij opinię",
+    "upgrade": "Ulepsz plan",
+    "newChat": "Nowy czat"
+  },
+  "settings": {
+    "title": "Ustawienia",
+    "tabs": {
+      "general": "Podstawowe",
+      "shortcuts": "Skróty",
+      "backup": "Kopie zapasowe",
+      "account": "Konto i prawne",
+      "audio": "Dźwięk"
+    },
+    "language": {
+      "title": "Język",
+      "description": "Wybierz język, którego Stella używa w aplikacji i w odpowiedziach."
+    },
+    "workingMode": {
+      "title": "Tryb orkiestratora",
+      "directDescription": "Stella sama wykonuje zadania i deleguje je tylko wtedy, gdy to przydatne.",
+      "orchestratedDescription": "Stella koordynuje agenta General, który może dzielić większe zadania między subagentów."
+    },
+    "developerPreviews": {
+      "title": "Podglądy plików dla deweloperów",
+      "description": "Pokazuje zmiany w kodzie na czacie i otwiera je w panelu bocznym."
+    },
+    "nativeFontSmoothing": {
+      "title": "Natywne wygładzanie czcionek",
+      "description": "Renderuje tekst tak jak aplikacje macOS, z wygładzaniem w skali szarości."
+    },
+    "motion": {
+      "title": "Ruch",
+      "reduceMotion": {
+        "label": "Ogranicz ruch",
+        "description": "Minimalizuje animacje interfejsu.",
+        "system": "Systemowe",
+        "on": "Wł.",
+        "off": "Wył."
+      }
+    },
+    "voice": {
+      "title": "Głos",
+      "personality": {
+        "label": "Osobowość"
+      }
+    },
+    "notifications": {
+      "title": "Powiadomienia dźwiękowe",
+      "description": "Odtwarza dźwięk, gdy Stella kończy działanie agenta."
+    },
+    "power": {
+      "title": "Utrzymuj komputer aktywnym",
+      "description": "Zapobiega usypianiu komputera, gdy Stella jest otwarta."
+    },
+    "lockedComputerUse": {
+      "title": "Użycie przy zablokowanym komputerze",
+      "description": "Pozwala Stelli kontynuować zadania obsługi komputera po zablokowaniu tego Maca. Wymaga monitu administratora i zasłania ekran, gdy Stella pracuje.",
+      "unsupported": "Użycie przy zablokowanym komputerze jest dostępne tylko w macOS."
+    },
+    "browserExtension": {
+      "title": "Stella dla Chrome",
+      "description": "Pozwala Stelli widzieć stronę, na której jesteś, i wykonywać działania w przeglądarce.",
+      "action": "Pobierz rozszerzenie"
+    },
+    "permissions": {
+      "title": "Uprawnienia",
+      "enable": "Włącz",
+      "granted": "Przyznano",
+      "opening": "Otwieranie…",
+      "reset": "Resetuj",
+      "resetting": "Resetowanie…",
+      "accessibility": {
+        "label": "Dostępność",
+        "description": "Pozwala Stelli czytać zaznaczony tekst i otwierać się skrótem ⌘+kliknięcie prawym przyciskiem w dowolnym miejscu komputera."
+      },
+      "screen": {
+        "label": "Przechwytywanie ekranu",
+        "description": "Pozwala Stelli widzieć Twój ekran, aby pomóc z tym, na co patrzysz. Po włączeniu może być konieczne zamknięcie i ponowne otwarcie Stelli."
+      },
+      "microphone": {
+        "label": "Mikrofon",
+        "description": "Używany do głosu i dyktowania. Zresetuj, jeśli Stella została wcześniej odrzucona, a macOS już nie pyta."
+      },
+      "restart": {
+        "label": "Uruchom Stellę ponownie",
+        "description": "Przechwytywanie ekranu zostało właśnie włączone. Zamknij i otwórz Stellę ponownie, aby dokończyć konfigurację.",
+        "action": "Uruchom ponownie",
+        "closing": "Zamykanie…"
+      }
+    },
+    "shortcuts": {
+      "title": "Skróty",
+      "change": "Zmień",
+      "capturing": "Naciśnij klawisze…",
+      "clear": "Wyczyść",
+      "off": "Wył.",
+      "actions": {
+        "dictation": "Dyktowanie",
+        "voice": "Agent głosowy"
+      },
+      "dictation": {
+        "description": "Przytrzymaj Option, aby dyktować do Stelli lub używanej aplikacji."
+      },
+      "voiceAgent": {
+        "description": "Uruchamia lub zatrzymuje agenta głosowego Stelli na żywo."
+      },
+      "targets": {
+        "dictation": "dyktowanie",
+        "voice": "agenta głosowego"
+      },
+      "toasts": {
+        "updatedTitle": "Zaktualizowano skrót {action}",
+        "clearedTitle": "Wyczyszczono skrót {action}",
+        "updatedDescription": "Naciśnij {keys}, aby uruchomić {target}.",
+        "clearedDescription": "{action} jest wyłączone, dopóki nie ustawisz nowego skrótu.",
+        "unavailableTitle": "Skrót niedostępny",
+        "failedTitle": "Nie udało się zaktualizować skrótu"
+      },
+      "errors": {
+        "load": "Nie udało się wczytać skrótów.",
+        "unavailable": "Skróty są niedostępne w tym oknie.",
+        "unavailableShortcut": "Ten skrót jest niedostępny.",
+        "update": "Nie udało się zaktualizować skrótu."
+      }
+    },
+    "backup": {
+      "title": "Kopie zapasowe",
+      "upgradeNotice": "Kopie zapasowe są dostępne w każdym płatnym planie Stelli.",
+      "never": "Nigdy",
+      "automatic": {
+        "label": "Automatyczne kopie zapasowe",
+        "lastLocal": "Ostatnia kopia lokalna: {time}",
+        "lastRemote": "Ostatnia kopia zdalna: {time}",
+        "remoteIssue": "Problem z kopią zdalną: {error}",
+        "off": "Wył.",
+        "hourly": "Automatyczne kopie co godzinę",
+        "ariaLabel": "Kopie zapasowe"
+      },
+      "backupNow": {
+        "label": "Utwórz kopię teraz",
+        "description": "Zapisz kopię zapasową teraz. Jest przesyłana automatycznie, gdy jesteś zalogowany.",
+        "action": "Utwórz kopię teraz",
+        "working": "Tworzenie kopii…"
+      },
+      "saved": {
+        "label": "Zapisane kopie zapasowe",
+        "signedInDescription": "Wybierz kopię do przywrócenia na tym urządzeniu.",
+        "signedOutDescription": "Zaloguj się, aby zapisywać kopie online i przywracać je na dowolnym urządzeniu.",
+        "empty": "Brak jeszcze kopii zdalnych.",
+        "latest": "Najnowsza",
+        "files": "pliki: {count}",
+        "from": "Z: {source}",
+        "restore": "Przywróć",
+        "restoring": "Przywracanie…"
+      },
+      "toasts": {
+        "completedTitle": "Kopia zapasowa ukończona",
+        "queuedTitle": "Kopia zapasowa w kolejce",
+        "deferredTitle": "Kopia zapasowa odroczona",
+        "noneNeededTitle": "Kopia zapasowa niepotrzebna",
+        "failedTitle": "Kopia zapasowa nie powiodła się",
+        "restorePreparedTitle": "Przywracanie przygotowane",
+        "restorePreparedDescription": "Stella uruchomi się ponownie, aby dokończyć stosowanie tej kopii.",
+        "restoreFailedTitle": "Przywracanie nie powiodło się"
+      },
+      "errors": {
+        "load": "Nie udało się wczytać ustawień kopii zapasowych.",
+        "unavailable": "Ustawienia kopii zapasowych są niedostępne w tym oknie.",
+        "signInRequired": "Zaloguj się i wybierz plan Stelli, aby włączyć kopie zapasowe.",
+        "checkingPlan": "Sprawdzanie planu Stelli przed włączeniem kopii zapasowych.",
+        "subscriptionRequired": "Kopie zapasowe wymagają aktywnej subskrypcji Stelli.",
+        "updateMode": "Nie udało się zaktualizować trybu kopii zapasowych.",
+        "backupUnavailable": "Tworzenie kopii jest niedostępne w tym oknie.",
+        "startBackup": "Nie udało się rozpocząć tworzenia kopii.",
+        "restoreUnavailable": "Przywracanie jest niedostępne w tym oknie.",
+        "restore": "Nie udało się przywrócić kopii zapasowej."
+      }
+    },
+    "account": {
+      "title": "Konto",
+      "signOut": {
+        "label": "Wyloguj się",
+        "description": "Wyloguj się ze Stelli na tym urządzeniu.",
+        "action": "Wyloguj się"
+      },
+      "deleteData": {
+        "label": "Usuń dane",
+        "description": "Usuwa wszystkie rozmowy, pamięć i zapisane ustawienia Stelli.",
+        "action": "Usuń",
+        "working": "Usuwanie…"
+      },
+      "deleteAccount": {
+        "label": "Usuń konto",
+        "description": "Trwale usuwa Twoje konto i wszystko, co się w nim znajduje.",
+        "action": "Usuń",
+        "working": "Usuwanie…"
+      },
+      "legal": {
+        "title": "Informacje prawne",
+        "terms": "Warunki korzystania",
+        "privacy": "Polityka prywatności",
+        "view": "Wyświetl"
+      },
+      "dialog": {
+        "deleteDataTitle": "Usunąć dane Stelli?",
+        "deleteAccountTitle": "Usunąć konto Stelli?",
+        "deleteDataDescription": "To usuwa Twoje rozmowy, pamięć, ustawienia i lokalny stan Stelli. Tego nie można cofnąć.",
+        "deleteAccountDescription": "To trwale usuwa Twoje konto i dane Stelli. Tego nie można cofnąć.",
+        "deleteDataButton": "Usuń dane",
+        "deleteAccountButton": "Usuń konto",
+        "working": "Usuwanie…"
+      },
+      "toasts": {
+        "dataDeleted": "Twoje dane Stelli zostały usunięte.",
+        "accountDeleted": "Twoje konto Stelli zostało usunięte.",
+        "deleteDataFailed": "Nie udało się usunąć danych. Spróbuj ponownie.",
+        "deleteAccountFailed": "Nie udało się usunąć konta. Spróbuj ponownie.",
+        "signInBeforeDelete": "Zaloguj się przed usunięciem konta."
+      }
+    },
+    "audio": {
+      "systemDefault": "Domyślny systemowy",
+      "microphoneDeviceFallback": "Mikrofon {index}",
+      "speakerDeviceFallback": "Głośnik {index}",
+      "microphone": {
+        "title": "Mikrofon",
+        "enableLabel": "Włącz mikrofon",
+        "enableDescription": "Wymagany do rozmowy ze Stellą.",
+        "deviceLabel": "Mikrofon",
+        "deviceDescription": "Którego mikrofonu ma używać Stella?"
+      },
+      "recovery": {
+        "manageLabel": "Zarządzaj dostępem do mikrofonu",
+        "recoverLabel": "Przywróć dostęp do mikrofonu",
+        "manageDescription": "Jeśli uprawnienie do mikrofonu się zablokuje, możesz je zresetować i poprosić macOS o ponowne pytanie.",
+        "recoverDescription": "Gdy raz odmówisz, macOS nie zapyta ponownie samodzielnie. Zresetuj uprawnienie, a następnie zamknij i otwórz Stellę ponownie.",
+        "openSettings": "Otwórz Ustawienia",
+        "reset": "Resetuj i uruchom ponownie",
+        "closing": "Zamykanie…"
+      },
+      "wakeWord": {
+        "label": "Słowo aktywujące „Hey Stella”",
+        "description": "Nasłuchuje „Hey Stella” w tle i rozpoczyna rozmowę głosową. Gdy wyłączone, mikrofon pozostaje bezczynny, dopóki nie naciśniesz dyktowania."
+      },
+      "superFast": {
+        "label": "Superszybkie dyktowanie",
+        "description": "Utrzymuje mikrofon w gotowości, aby dyktowanie zaczynało się z mniejszym opóźnieniem."
+      },
+      "dictationSounds": {
+        "label": "Dźwięki dyktowania",
+        "description": "Odtwarza dźwięk, gdy dyktowanie się zaczyna i kończy."
+      },
+      "enhance": {
+        "label": "Ulepsz transkrypcję",
+        "description": "Porządkuje lokalny tekst dyktowania za pomocą Mercury przed wstawieniem."
+      },
+      "localDictation": {
+        "label": "Transkrypcja na urządzeniu",
+        "description": "Używa lokalnego modelu Parakeet zamiast Inworld. Na słabszych Macach może zużywać więcej pamięci.",
+        "unavailableFallback": "Niedostępne na tym Macu."
+      },
+      "speaker": {
+        "title": "Głośnik",
+        "outputLabel": "Urządzenie wyjściowe",
+        "outputDescription": "Wybierz głośnik lub słuchawki do użycia.",
+        "empty": "Nie znaleziono głośników.",
+        "emptyMicOff": "Włącz mikrofon, aby zobaczyć swoje głośniki."
+      },
+      "errors": {
+        "listDevices": "Nie można wyświetlić listy urządzeń audio.",
+        "micDeniedReset": "Dostęp do mikrofonu został wcześniej odrzucony. Zresetuj go i uruchom Stellę ponownie lub otwórz Ustawienia systemowe.",
+        "micDenied": "Dostęp do mikrofonu został odrzucony. Zezwól na niego w ustawieniach systemu."
+      }
+    },
+    "connectedProviders": {
+      "title": "Połączeni dostawcy",
+      "empty": "Brak połączonych dostawców. Wybierz powyżej w selektorze modeli opcję inną niż Stella, aby dodać klucz API lub się zalogować.",
+      "apiKey": "Klucz API",
+      "signedIn": "Zalogowano",
+      "removeKey": "Usuń klucz",
+      "removingKey": "Usuwanie…",
+      "signOut": "Wyloguj się",
+      "signingOut": "Wylogowywanie…"
+    },
+    "search": {
+      "placeholder": "Szukaj w ustawieniach",
+      "clear": "Wyczyść wyszukiwanie",
+      "noResultsTitle": "Żadne ustawienie nie pasuje do „{query}”",
+      "noResultsBody": "Spróbuj krótszego lub innego słowa.",
+      "resultsOne": "{count} wynik dla",
+      "resultsOther": "Wyniki ({count}) dla",
+      "resultsAriaOne": "{count} wynik",
+      "resultsAriaOther": "Wyniki: {count}",
+      "descriptions": {
+        "voice": "Wybierz styl mówienia i głos osobowości Stelli.",
+        "permissions": "Przyznaj dostęp do dostępności, przechwytywania ekranu i mikrofonu w macOS.",
+        "shortcuts": "Zmień skróty dyktowania i głosu.",
+        "backup": "Automatyczne szyfrowane kopie zapasowe, punkty przywracania i migawki na żądanie.",
+        "account": "Wyloguj się, usuń dane lub trwale usuń konto.",
+        "legal": "Warunki korzystania i polityka prywatności.",
+        "microphone": "Wybierz urządzenie wejściowe, włącz słowo aktywujące, dźwięki dyktowania i transkrypcję na urządzeniu.",
+        "speaker": "Wybierz głośnik lub słuchawki, przez które odtwarzany jest głos Stelli.",
+        "wakeWord": "Nasłuchuje „Hey Stella” i rozpoczyna rozmowę głosową.",
+        "onDeviceTranscription": "Używa lokalnego modelu Parakeet zamiast transkrypcji w chmurze."
+      }
+    },
+    "errors": {
+      "loadPower": "Nie udało się wczytać ustawienia zasilania.",
+      "savePower": "Nie udało się zaktualizować ustawienia zasilania.",
+      "powerUnavailable": "Ustawienia zasilania są niedostępne w tym oknie.",
+      "loadLockedComputerUse": "Nie udało się wczytać ustawienia użycia przy zablokowanym komputerze.",
+      "saveLockedComputerUse": "Nie udało się zaktualizować użycia przy zablokowanym komputerze.",
+      "lockedComputerUseUnavailable": "Użycie przy zablokowanym komputerze jest niedostępne w tym oknie.",
+      "loadSoundNotifications": "Nie udało się wczytać ustawienia powiadomień dźwiękowych.",
+      "saveSoundNotifications": "Nie udało się zaktualizować ustawienia powiadomień dźwiękowych.",
+      "soundNotificationsUnavailable": "Ustawienia powiadomień dźwiękowych są niedostępne w tym oknie.",
+      "loadVoice": "Nie udało się wczytać ustawienia głosu.",
+      "saveVoice": "Nie udało się zaktualizować ustawienia głosu.",
+      "voiceUnavailable": "Ustawienia głosu są niedostępne w tym oknie.",
+      "loadWorkingMode": "Nie udało się wczytać trybu orkiestratora.",
+      "saveWorkingMode": "Nie udało się zaktualizować trybu orkiestratora.",
+      "workingModeUnavailable": "Tryb orkiestratora jest niedostępny w tym oknie.",
+      "loadPermissions": "Nie udało się wczytać statusu uprawnień pulpitu.",
+      "savePermission": "Nie udało się zaktualizować uprawnienia {kind}.",
+      "resetPermission": "Nie udało się zresetować uprawnienia {kind}.",
+      "resetPermissionMaybeReopen": "Nie można zresetować uprawnienia {kind}. Może być konieczne ponowne otwarcie Stelli.",
+      "microphoneDeniedReopen": "Dostęp do mikrofonu został wcześniej odrzucony. Włącz go w Ustawieniach systemowych, a następnie otwórz Stellę ponownie.",
+      "microphoneStillOff": "Dostęp do mikrofonu jest nadal wyłączony. Włącz go w Ustawieniach systemowych, a następnie otwórz Stellę ponownie.",
+      "restart": "Nie udało się uruchomić Stelli ponownie."
+    },
+    "voiceCatalog": {
+      "label": "Głos",
+      "familyAriaLabel": "Rodzina głosów",
+      "familyTitle": {
+        "openai": "Głosy OpenAI Realtime (token wystawia Stella)",
+        "xai": "Głosy xAI Grok (token wystawia Stella)",
+        "inworld": "Głosy Inworld (Stella pośredniczy w wymianie SDP)"
+      },
+      "source": {
+        "openai": "Głosy OpenAI",
+        "xai": "Głosy Grok",
+        "inworld": "Głosy Inworld"
+      },
+      "previousVoice": "Poprzedni głos",
+      "nextVoice": "Następny głos",
+      "menuAriaLabel": "Głos {source}",
+      "speed": "Prędkość",
+      "speedAriaLabel": "Prędkość głosu Inworld",
+      "readAloud": {
+        "label": "Czytaj na głos",
+        "ariaLabel": "Dostawca głosu do czytania na głos",
+        "openaiTitle": "Czytaj odpowiedzi na głos przez OpenAI TTS",
+        "inworldTitle": "Czytaj odpowiedzi na głos przez Inworld TTS",
+        "description": "Wypowiada odpowiedzi na głos głosem tego dostawcy."
+      }
+    },
+    "phoneAccess": {
+      "expired": "Wygasł",
+      "timeLeft": "pozostało {time}",
+      "copy": "Kopiuj",
+      "preparing": "Przygotowywanie...",
+      "getCode": "Pobierz kod",
+      "deviceFallback": "Telefon",
+      "removing": "Usuwanie...",
+      "remove": "Usuń",
+      "signedOut": {
+        "headline": "Zaloguj się, aby zacząć",
+        "body": "Zaloguj się na konto Stelli, aby sparować z aplikacją mobilną."
+      },
+      "pairing": {
+        "headline": "Zeskanuj lub wpisz ten kod",
+        "body": "Otwórz aplikację Stella na telefonie i zeskanuj kod QR albo wpisz kod poniżej. Wystarczy zrobić to raz.",
+        "qrAlt": "Zeskanuj, aby sparować telefon"
+      },
+      "intro": {
+        "headline": "Połącz telefon z komputerem"
+      },
+      "steps": {
+        "download": "Pobierz aplikację",
+        "downloadQrAlt": "Zeskanuj, aby pobrać Stellę z App Store",
+        "connect": "Połącz telefon"
+      },
+      "toasts": {
+        "codeCopied": "Kod skopiowany do schowka",
+        "phoneRemoved": "Telefon usunięty",
+        "removeFailed": "Nie udało się usunąć telefonu"
+      },
+      "errors": {
+        "createPairing": "Nie można utworzyć kodu parowania."
+      },
+      "pairedCount": {
+        "one": "Sparowano {count} telefon",
+        "few": "Sparowano {count} telefony",
+        "many": "Sparowano {count} telefonów",
+        "other": "Sparowano {count} telefonu"
+      }
+    },
+    "modelPicker": {
+      "searchPlaceholder": "Szukaj modeli…",
+      "searchAriaLabel": "Szukaj modeli",
+      "closeSearch": "Zamknij wyszukiwanie",
+      "apiKeyPlaceholder": "Klucz API",
+      "apiKeyAriaLabel": "Klucz API {provider}",
+      "cancelSignIn": "Anuluj logowanie",
+      "signInWith": "Zaloguj się przez {provider}",
+      "saving": "Zapisywanie…",
+      "use": "Użyj",
+      "selected": "Wybrano",
+      "refresh": "Odśwież katalog modeli",
+      "restrictedPlan": "Niedostępne w planie {plan}",
+      "reasoning": {
+        "label": "Poziom rozumowania",
+        "default": "Auto",
+        "minimal": "Minimalny",
+        "low": "Niski",
+        "medium": "Średni",
+        "high": "Wysoki",
+        "xhigh": "Maks."
+      },
+      "authHint": {
+        "both": "Zaloguj się lub wklej klucz API. Dane logowania zostają na tym urządzeniu.",
+        "oauth": "Dane logowania zostają na tym urządzeniu.",
+        "apiKey": "Twój klucz API zostaje na tym urządzeniu."
+      },
+      "actions": {
+        "cancel": "Anuluj",
+        "signIn": "Zaloguj się",
+        "addKey": "Dodaj klucz",
+        "custom": "Własny"
+      },
+      "signOut": {
+        "ariaLabel": "Wyloguj się z {provider}",
+        "confirmAriaLabel": "Kliknij ponownie, aby wylogować się z {provider}",
+        "confirmTitle": "Kliknij ponownie, aby potwierdzić"
+      },
+      "local": {
+        "hint": "Użyj dowolnego lokalnego serwera zgodnego z OpenAI. Ollama zwykle działa pod poniższym adresem.",
+        "serverUrlAriaLabel": "Adres URL lokalnego serwera",
+        "modelNameAriaLabel": "Nazwa lokalnego modelu"
+      },
+      "openRouter": {
+        "hintBefore": "OpenRouter przyjmuje dowolny",
+        "hintAfter": "id. Wpisz je, aby użyć go bezpośrednio.",
+        "modelIdAriaLabel": "id modelu OpenRouter"
+      },
+      "empty": {
+        "none": "Brak jeszcze dostępnych modeli.",
+        "noMatch": "Brak pasujących modeli."
+      },
+      "favorite": {
+        "remove": "Usuń z ulubionych",
+        "add": "Dodaj do ulubionych",
+        "addTitle": "Ulubione — przypnij na górze"
+      },
+      "errors": {
+        "saveApiKey": "Nie udało się zapisać klucza API.",
+        "oauthLogin": "Logowanie OAuth nie powiodło się."
+      }
+    },
+    "providerPicker": {
+      "connected": "Połączono",
+      "connect": "Połącz",
+      "opening": "Otwieranie…"
+    },
+    "engineModels": {
+      "ariaLabel": "Modele {engine}",
+      "loading": "Ładowanie modeli {engine}…",
+      "empty": "Brak dostępnych modeli {engine}."
+    },
+    "providerConnected": {
+      "title": "Używać {provider} w Stelli?",
+      "description": "{provider} może obsługiwać więcej niż jedną część Stelli. Wybierz, gdzie ma przejąć zadania — resztą dalej zajmuje się Stella.",
+      "assistant": {
+        "label": "Asystent",
+        "description": "Kieruj asystenta czatu Stelli przez {provider}."
+      },
+      "image": {
+        "label": "Obrazy",
+        "description": "Generuj obrazy przez swoje konto {provider}."
+      },
+      "voice": {
+        "label": "Głos",
+        "description": "Używaj {provider} do rozmów głosowych na żywo."
+      },
+      "skip": "Pomiń",
+      "apply": "Zastosuj",
+      "applying": "Stosowanie…",
+      "errors": {
+        "apply": "Nie udało się zastosować ustawień dostawcy."
+      }
+    },
+    "compactModelList": {
+      "ariaLabel": "Modele Stelli",
+      "recent": "Ostatnie",
+      "unavailable": "Niedostępny",
+      "unavailableTitle": "Ten model nie jest już dostępny — wybierz inny.",
+      "loading": "Ładowanie modeli Stelli…",
+      "loadFailed": "Nie udało się wczytać modeli Stelli.",
+      "empty": "Brak dostępnych modeli Stelli.",
+      "retry": "Ponów",
+      "restricted": "Twój plan używa modelu wybranego przez Stellę.",
+      "restrictedPlan": "Plan {plan} używa modelu wybranego przez Stellę.",
+      "upgrade": "Ulepsz plan"
+    },
+    "reasoningEffort": {
+      "minimal": "Minimalny",
+      "low": "Niski",
+      "medium": "Średni",
+      "high": "Wysoki",
+      "xhigh": "Ekstra"
+    },
+    "agentModelPicker": {
+      "byokDescription": "Użyj własnego klucza API {provider}.",
+      "unavailableChooseAnother": "Niedostępny — wybierz inny model",
+      "chatGptRouted": "Przekierowano do {model} (zapisany model niedostępny).",
+      "default": "Domyślny",
+      "stellaDefault": "Domyślny Stelli",
+      "surfaceAriaLabel": "Obszar",
+      "waitingForChatGpt": "Czekanie na ChatGPT…",
+      "imageProviderAriaLabel": "Dostawca obrazów",
+      "voiceProviderAriaLabel": "Dostawca głosu",
+      "assistantPickerAriaLabel": "Wybór modelu asystenta",
+      "verifyingChatGpt": "Weryfikowanie modeli ChatGPT…",
+      "noChatGptCodexModels": "Obecnie żaden model nie jest dostępny jednocześnie w ChatGPT i Codeksie.",
+      "savedModelUnavailable": "Zapisany model jest niedostępny. Wybierz inny model.",
+      "tabs": {
+        "assistant": "Asystent",
+        "assistantTitle": "Główny asystent Stelli",
+        "image": "Obraz",
+        "imageTitle": "Dostawca generowania obrazów",
+        "voice": "Głos",
+        "voiceTitle": "Dostawca głosu na żywo"
+      },
+      "errors": {
+        "loadPreferences": "Nie udało się wczytać ustawień modeli.",
+        "chatGptMigration": "Migracja przekierowania ChatGPT nie powiodła się.",
+        "chatGptVerify": "Nie udało się zweryfikować modeli ChatGPT: {error}",
+        "chatGptVerifying": "Poczekaj na zakończenie weryfikacji modeli ChatGPT.",
+        "chatGptNotConnected": "Przed wyborem trzeba połączyć ChatGPT.",
+        "chatGptNoModels": "Obecnie brak dostępnych modeli ChatGPT.",
+        "connectChatGpt": "Nie udało się połączyć ChatGPT.",
+        "updateEngine": "Nie udało się zaktualizować silnika.",
+        "updateTitle": "Nie udało się zaktualizować ustawień modeli",
+        "refreshTitle": "Nie udało się odświeżyć modeli",
+        "updateModel": "Nie udało się zaktualizować ustawienia modelu.",
+        "updateImage": "Nie udało się zaktualizować ustawienia obrazów.",
+        "updateVoice": "Nie udało się zaktualizować ustawienia głosu.",
+        "updateInworldSpeed": "Nie udało się zaktualizować prędkości Inworld.",
+        "updateVoiceFamily": "Nie udało się zaktualizować rodziny głosów.",
+        "updateReadAloud": "Nie udało się zaktualizować dostawcy czytania na głos.",
+        "updateReasoning": "Nie udało się zaktualizować poziomu rozumowania.",
+        "updateChatGptSpeed": "Nie udało się zaktualizować prędkości ChatGPT.",
+        "updateDirectRuntime": "Nie udało się zaktualizować bezpośredniego ustawienia {runtime}."
+      }
+    }
+  },
+  "onboarding": {
+    "ready": "Przygotowanie...",
+    "retryStart": "Uruchom Stellę ponownie",
+    "startStella": "Uruchom Stellę",
+    "legalFooter": "Korzystając ze Stelli, akceptujesz nasze {terms} oraz {privacy}.",
+    "termsOfService": "Warunki świadczenia usług",
+    "privacyPolicy": "Politykę prywatności",
+    "previousStep": "Poprzedni krok",
+    "nextStep": "Następny krok",
+    "intro": {
+      "primary": "Stella to AI działające na Twoim komputerze.",
+      "secondary": "Stella nie jest dla każdego. Stella jest dla Ciebie."
+    },
+    "stepTitles": {
+      "engine": "Wybierz, co napędza Stellę.",
+      "extension": "Dodaj Stellę do przeglądarki.",
+      "browser": "Pozwól Stelli Cię poznać.",
+      "theme": "Jak ma wyglądać Stella?",
+      "personality": "Jak ma mówić Stella?",
+      "voice": "Mów zamiast pisać.",
+      "enter": "Stella jest prawie gotowa."
+    },
+    "acts": {
+      "discover": "Odkrywaj",
+      "personalize": "Uczyń ją swoją",
+      "connect": "Połącz",
+      "flow": "Twój rytm",
+      "ready": "Gotowe"
+    },
+    "discovery": {
+      "devEnvironment": {
+        "label": "Środowisko dev",
+        "description": "Narzędzia, których używasz, projekty, nad którymi pracujesz, i konfiguracja środowiska"
+      }
+    }
+  },
+  "billing": {
+    "plans": {
+      "free": {
+        "tagline": "Zacznij ze Stellą",
+        "features": [
+          "Podstawowy czat i pomoc",
+          "Ograniczone dzienne użycie"
+        ]
+      },
+      "go": {
+        "tagline": "Do codziennego, osobistego użytku",
+        "features": [
+          "Więcej rozmów dziennie",
+          "Automatyzacja przeglądarki",
+          "Rozmowy głosowe"
+        ]
+      },
+      "pro": {
+        "tagline": "Dla zaawansowanych użytkowników",
+        "features": [
+          "3× większe użycie niż Go",
+          "Priorytetowe czasy odpowiedzi",
+          "Wszystkie funkcje automatyzacji"
+        ]
+      }
+    },
+    "upgradeDialog": {
+      "title": "Masz Stellę {plan}.",
+      "description": "Dzięki za ulepszenie planu. Wyższy priorytet i większe limity działają już teraz — do dzieła.",
+      "cta": "Zaczynajmy"
+    }
+  },
+  "chat": {
+    "stoppedReply": "Stella nie mogła rozpocząć tej odpowiedzi",
+    "tryAgainHint": "Spróbuj ponownie."
+  },
+  "errors": {
+    "generic": "Coś poszło nie tak",
+    "subscriptionRequired": "Kopie zapasowe wymagają aktywnej subskrypcji Stelli.",
+    "rateLimited": "Trochę za szybko. Spróbuj ponownie za chwilę.",
+    "networkUnavailable": "Stella jest offline. Połącz się ponownie, aby kontynuować.",
+    "permissionDenied": "Stella nie ma uprawnień, aby to zrobić."
+  },
+  "app": {
+    "social": {
+      "newChat": {
+        "title": "Nowa wiadomość",
+        "emptySubtitle": "Najpierw dodaj znajomych, aby rozpocząć rozmowę.",
+        "description": "Wybierz znajomego lub rozpocznij nową rozmowę grupową.",
+        "subtitle": "Wybierz znajomego lub załóż grupę.",
+        "groupTitle": "Nowa grupa",
+        "groupSubtitle": "Wybierz znajomych do dodania do tej grupy.",
+        "groupNameLabel": "Nazwa grupy",
+        "groupNamePlaceholder": "Nazwa grupy (opcjonalnie)",
+        "members": "Członkowie",
+        "back": "Wstecz",
+        "creating": "Tworzenie...",
+        "createGroup": "Utwórz grupę",
+        "newGroup": "Nowa grupa",
+        "friends": "Znajomi",
+        "opening": "Otwieranie..."
+      },
+      "friends": {
+        "title": "Znajomi",
+        "description": "Udostępnij swój kod znajomego, aby się połączyć, albo wpisz cudzy, aby wysłać zaproszenie.",
+        "subtitle": "Udostępnij swoją nazwę użytkownika lub wpisz nazwę znajomego.",
+        "requestSent": "Zaproszenie wysłane!",
+        "usernameCopied": "Nazwa użytkownika skopiowana!",
+        "inviteLinkCopied": "Link z zaproszeniem skopiowany — wyślij go gdziekolwiek.",
+        "yourUsername": "Twoja nazwa użytkownika",
+        "copy": "Kopiuj",
+        "copyUsernameTitle": "Skopiuj swoją nazwę użytkownika",
+        "copyInviteLink": "Kopiuj link z zaproszeniem",
+        "copyInviteLinkTitle": "Skopiuj link, który otwiera Stellę i wysyła Ci zaproszenie do znajomych — działa w iMessage, Discordzie, wszędzie",
+        "addLabel": "Dodaj znajomego",
+        "addPlaceholder": "Wpisz nazwę użytkownika",
+        "add": "Dodaj",
+        "adding": "Dodawanie...",
+        "requestsCount": "Zaproszenia ({count})",
+        "accept": "Akceptuj",
+        "decline": "Odrzuć",
+        "sent": "Wysłano",
+        "waitingForResponse": "Oczekiwanie na odpowiedź",
+        "friendsCount": "Znajomi ({count})",
+        "empty": "Brak jeszcze znajomych. Udostępnij swoją nazwę użytkownika lub wpisz powyżej cudzą, aby się połączyć.",
+        "message": "Napisz",
+        "opening": "Otwieranie...",
+        "remove": "Usuń",
+        "removing": "Usuwanie...",
+        "errors": {
+          "sendRequest": "Nie udało się wysłać tego zaproszenia. Sprawdź nazwę użytkownika i spróbuj ponownie."
+        }
+      },
+      "communities": {
+        "title": "Społeczności",
+        "description": "Utwórz społeczność lub dołącz do niej kodem zaproszenia, a potem udostępniaj dodatki wszystkim jej członkom.",
+        "subtitle": "Zaufane kręgi do dzielenia się. Wszyscy w społeczności widzą to, co udostępniają jej członkowie.",
+        "defaultName": "Społeczność",
+        "created": "Utworzono „{name}”!",
+        "joined": "Jesteś w środku!",
+        "createLabel": "Utwórz społeczność",
+        "createPlaceholder": "Nazwij nową społeczność",
+        "create": "Utwórz",
+        "joinLabel": "Dołącz kodem zaproszenia",
+        "joinPlaceholder": "Wpisz kod zaproszenia",
+        "join": "Dołącz",
+        "yourCommunities": "Twoje społeczności",
+        "yourCommunitiesCount": "Twoje społeczności ({count})",
+        "empty": "Brak jeszcze społeczności. Utwórz jedną i udostępnij kod zaproszenia albo dołącz kodem, który ktoś Ci przysłał.",
+        "createdByYouSuffix": " · utworzona przez Ciebie",
+        "open": "Otwórz",
+        "details": "Szczegóły",
+        "back": "Wstecz",
+        "nameLabel": "Nazwa społeczności",
+        "save": "Zapisz",
+        "cancel": "Anuluj",
+        "createdByYou": "Ty utworzyłeś tę społeczność.",
+        "memberOf": "Jesteś członkiem tej społeczności.",
+        "inviteCode": "Kod zaproszenia",
+        "copied": "Skopiowano!",
+        "copyCode": "Kopiuj kod",
+        "copyInviteLink": "Kopiuj link z zaproszeniem",
+        "copyInviteLinkTitle": "Skopiuj link, który otwiera Stellę i dołącza do tej społeczności",
+        "inviteHint": "Link działa wszędzie — wklej go w czacie Stelli albo wyślij przez iMessage lub Discorda. Dołączyć może każdy, kto go ma, więc udostępniaj go tylko zaufanym osobom.",
+        "membersCount": "Członkowie ({count})",
+        "roleCreator": "Twórca",
+        "roleMember": "Członek",
+        "youSuffix": " · Ty",
+        "remove": "Usuń",
+        "removing": "Usuwanie...",
+        "confirmDelete": "Na pewno usunąć tę społeczność?",
+        "delete": "Usuń społeczność",
+        "confirmLeave": "Na pewno opuścić?",
+        "leave": "Opuść społeczność",
+        "rename": "Zmień nazwę",
+        "openChat": "Otwórz czat",
+        "errors": {
+          "create": "Nie udało się utworzyć tej społeczności. Spróbuj ponownie.",
+          "join": "Nie udało się dołączyć tym kodem zaproszenia. Sprawdź kod i spróbuj ponownie.",
+          "rename": "Nie udało się zmienić nazwy społeczności. Spróbuj ponownie.",
+          "removeMember": "Nie udało się usunąć tego członka. Spróbuj ponownie.",
+          "delete": "Nie udało się usunąć społeczności. Spróbuj ponownie.",
+          "leave": "Nie udało się opuścić społeczności. Spróbuj ponownie."
+        },
+        "memberCount": {
+          "one": "{count} członek",
+          "few": "{count} członkowie",
+          "many": "{count} członków",
+          "other": "{count} członka"
+        }
+      },
+      "view": {
+        "messages": "Wiadomości",
+        "signIn": "Zaloguj się",
+        "signInSubtitle": "Zaloguj się, aby pisać do znajomych i współpracować razem ze Stellą.",
+        "friends": "Znajomi",
+        "communities": "Społeczności",
+        "newMessage": "Nowa wiadomość",
+        "noRooms": "Brak jeszcze rozmów. Dodaj znajomych lub napisz nową wiadomość.",
+        "addFriends": "Dodaj znajomych",
+        "communityBadge": "Społeczność",
+        "communityBadgeTitle": "Udostępnione wszystkim w tej społeczności",
+        "usernamePlaceholder": "twoja-nazwa",
+        "editUsername": "Edytuj swoją nazwę użytkownika",
+        "copied": "Skopiowano!",
+        "clickToCopyUsername": "Kliknij, aby skopiować swoją nazwę użytkownika",
+        "copyUsername": "Kopiuj nazwę użytkownika",
+        "cancel": "Anuluj",
+        "save": "Zapisz",
+        "saving": "Zapisywanie...",
+        "emptyTitle": "Twoje wiadomości",
+        "emptySubtitle": "Wybierz rozmowę po lewej lub zacznij nową ze znajomym.",
+        "errors": {
+          "startConversation": "Nie udało się rozpocząć tej rozmowy. Spróbuj ponownie.",
+          "createGroup": "Nie udało się utworzyć grupy. Spróbuj ponownie."
+        },
+        "usernameErrors": {
+          "empty": "Nazwa użytkownika nie może być pusta.",
+          "length": "Nazwa użytkownika musi mieć od 3 do 32 znaków.",
+          "format": "Używaj małych liter, cyfr, _ lub -. Musi zaczynać się i kończyć literą lub cyfrą.",
+          "update": "Nie udało się zaktualizować Twojej nazwy użytkownika. Spróbuj ponownie."
+        },
+        "newRequestCount": {
+          "one": "{count} nowe zaproszenie",
+          "few": "{count} nowe zaproszenia",
+          "many": "{count} nowych zaproszeń",
+          "other": "{count} nowego zaproszenia"
+        },
+        "friendsWithRequestsTitle": "Znajomi ({countPhrase})",
+        "friendsWithRequestsAria": "Znajomi, {countPhrase}"
+      },
+      "chat": {
+        "stellaNoReply": "Stella zakończyła bez odpowiedzi.",
+        "stellaFailed": "Stella nie mogła dokończyć tej prośby.",
+        "stellaThinking": "Stella myśli...",
+        "sharedStellaUnavailable": "Wspólna Stella nie jest dostępna w tej sesji aplikacji.",
+        "back": "Wstecz",
+        "backToConversations": "Wróć do rozmów",
+        "peopleCount": "osób: {count}",
+        "startStella": "Uruchom Stellę",
+        "startStellaTitle": "Wprowadź Stellę do tej rozmowy",
+        "starting": "Uruchamianie...",
+        "startAgain": "Uruchom ponownie",
+        "pause": "Wstrzymaj",
+        "resume": "Wznów",
+        "end": "Zakończ",
+        "sayHello": "Przywitaj się, aby zacząć rozmowę",
+        "loadingOlder": "Ładowanie starszych wiadomości…",
+        "armedOnTitle": "Wyślij następną wiadomość do Stelli",
+        "armedOffTitle": "Wyślij następną wiadomość jako zwykłą wiadomość na czacie",
+        "tellStella": "Powiedz Stelli",
+        "tellingStella": "Mówisz Stelli",
+        "tellStellaPlaceholder": "Powiedz Stelli, czego chcesz...",
+        "messagePlaceholder": "Napisz do: {name}",
+        "sessionBadge": {
+          "live": "Stella · Na żywo",
+          "paused": "Stella · Wstrzymana",
+          "ended": "Stella · Zakończona"
+        },
+        "sessionHint": {
+          "live": "Każdy tutaj może zwrócić się do Stelli.",
+          "paused": "Wstrzymane — wznów, aby znów mówić do Stelli.",
+          "ended": "Ta wspólna przestrzeń Stelli została zakończona."
+        },
+        "errors": {
+          "startStella": "Nie udało się tu uruchomić Stelli. Spróbuj ponownie.",
+          "updateStella": "Nie udało się teraz zaktualizować Stelli. Spróbuj ponownie.",
+          "sendToStella": "Nie udało się tego wysłać do Stelli. Spróbuj ponownie.",
+          "sendMessage": "Nie udało się wysłać Twojej wiadomości. Spróbuj ponownie."
+        }
+      },
+      "composer": {
+        "placeholder": "Napisz wiadomość...",
+        "send": "Wyślij"
+      },
+      "inviteCard": {
+        "communityEyebrow": "Zaproszenie do społeczności",
+        "friendEyebrow": "Zaproszenie do znajomych",
+        "defaultCommunityName": "Społeczność",
+        "defaultUserName": "Użytkownik Stelli",
+        "friendDetail": "Dotknij, aby wysłać zaproszenie do znajomych",
+        "inviteUnavailable": "Zaproszenie niedostępne",
+        "userNotFound": "Nie znaleziono użytkownika",
+        "communityMissing": "Ta społeczność już nie istnieje albo kod się zmienił.",
+        "userMissing": "Ten link z zaproszeniem nie pasuje do żadnego użytkownika Stelli.",
+        "communityDetail": {
+          "one": "{countLabel} członek · dotknij, aby dołączyć",
+          "few": "{countLabel} członkowie · dotknij, aby dołączyć",
+          "many": "{countLabel} członków · dotknij, aby dołączyć",
+          "other": "{countLabel} członka · dotknij, aby dołączyć"
+        }
+      }
+    },
+    "usage": {
+      "desktopOnly": "Lokalne zużycie jest dostępne w aplikacji desktopowej Stelli.",
+      "intro": "Wywołania dostawców zapisane na tym urządzeniu. Koszty to lokalne szacunki; rozliczenie po stronie serwera pozostaje wiążące.",
+      "refresh": "Odśwież",
+      "refreshLabel": "Odśwież zużycie",
+      "selectedThread": "Wybrany wątek",
+      "viewAllThreads": "Pokaż wszystkie wątki",
+      "loading": "Ładowanie lokalnego zużycia…",
+      "loadError": "Nie udało się wczytać lokalnego zużycia",
+      "tryAgain": "Spróbuj ponownie",
+      "emptyTitle": "Żadne wywołanie modelu nie pasuje do tych filtrów.",
+      "emptyBody": "Natywne wywołania pojawiają się tutaj, gdy dostawca zwróci końcowe dane o zużyciu.",
+      "truncatedWarning": "Pokazujemy ostatnie 10 000 wywołań w tym zakresie. Zawęź zakres czasu, aby uzyskać dokładne sumy.",
+      "filters": {
+        "label": "Filtry zużycia",
+        "timeRange": "Zakres czasu",
+        "conversation": "Rozmowa",
+        "thread": "Wątek",
+        "agentType": "Typ agenta",
+        "model": "Model",
+        "allConversations": "Wszystkie rozmowy",
+        "allThreads": "Wszystkie wątki",
+        "allAgentTypes": "Wszystkie typy agentów",
+        "allModels": "Wszystkie modele",
+        "range": {
+          "24h": "Ostatnie 24 godziny",
+          "7d": "Ostatnie 7 dni",
+          "30d": "Ostatnie 30 dni",
+          "all": "Cały czas"
+        }
+      },
+      "summary": {
+        "label": "Podsumowanie zużycia",
+        "estimatedCost": "Szacowany koszt",
+        "providerCalls": "wywołań dostawcy: {count}",
+        "totalTokens": "Łącznie tokenów",
+        "uncachedInput": "{value} wejścia bez pamięci podręcznej",
+        "cacheRead": "Odczyt z pamięci podręcznej",
+        "cacheDetail": "{read} odczyt · {written} zapis",
+        "output": "Wyjście",
+        "reasoningTokens": "{value} tokenów rozumowania"
+      },
+      "timeline": {
+        "title": "Oś czasu",
+        "description": "Szacowany koszt i łączna liczba tokenów w przedziale czasu.",
+        "chartLabel": "Oś czasu szacowanego kosztu modeli i zużycia tokenów",
+        "series": {
+          "cost": "Szacowany koszt",
+          "tokens": "Tokeny"
+        },
+        "tooltip": {
+          "estimated": "{value} szacunkowo",
+          "tokens": "{value} tokenów",
+          "calls": "wywołań modelu: {count}"
+        }
+      },
+      "threads": {
+        "title": "Wątki",
+        "description": "Orkiestrator, agenci i zagnieżdżeni subagenci.",
+        "columns": {
+          "execution": "Wykonanie",
+          "model": "Model",
+          "calls": "Wywołania",
+          "tokens": "Tokeny",
+          "cache": "Pamięć podręczna",
+          "cost": "Koszt"
+        }
+      },
+      "calls": {
+        "title": "Wywołania dostawcy",
+        "description": "Wyjście obejmuje rozumowanie, jeśli dostawca je wlicza; rozumowanie jest też pokazywane osobno, gdy jest raportowane.",
+        "costBreakdown": "Wejście {input} · odczyt cache {cacheRead} · zapis cache {cacheWrite} · wyjście {output}",
+        "truncatedNote": "Pokazujemy ostatnie 500 pasujących wywołań; sumy obejmują wszystkie wczytane wywołania ({count}).",
+        "columns": {
+          "time": "Czas",
+          "execution": "Wykonanie",
+          "providerModel": "Dostawca / model",
+          "input": "Wejście",
+          "cache": "Cache O / Z",
+          "output": "Wyjście",
+          "reasoning": "Rozumowanie",
+          "cost": "Koszt",
+          "stop": "Stop"
+        }
+      }
+    },
+    "apps": {
+      "loading": "Ładowanie aplikacji…",
+      "unsupportedTitle": "Aplikacje są dostępne na komputerze.",
+      "unsupportedBody": "Otwórz Stellę na komputerze, aby korzystać z lokalnie zainstalowanych aplikacji.",
+      "errorTitle": "Nie udało się wczytać aplikacji",
+      "errorBody": "Stella nie mogła odczytać Twojego folderu aplikacji.",
+      "tryAgain": "Spróbuj ponownie",
+      "heroTitleEmphasis": "Twoje",
+      "heroTitleRest": "aplikacje",
+      "staleWarning": "Lista aplikacji może być nieaktualna.",
+      "searchPlaceholder": "Szukaj aplikacji",
+      "sortLabel": "Sortuj",
+      "createApp": "Utwórz aplikację",
+      "noMatchPrefix": "Brak aplikacji pasujących do",
+      "noMatchSuffix": ".",
+      "emptyTitle": "Jeszcze nic tu nie ma.",
+      "emptyBody": "Poproś Stellę, aby zbudowała małą aplikację. Pojawi się tutaj.",
+      "emptyAction": "Poproś Stellę o stworzenie aplikacji",
+      "createAppPrompt": "Powiedz mi, jakie aplikacje Stelli możesz dla mnie zrobić?",
+      "sort": {
+        "recent": "Ostatnie",
+        "name": "Nazwa"
+      },
+      "frame": {
+        "startFailed": "Nie udało się uruchomić aplikacji.",
+        "timeout": "Aplikacja ładowała się zbyt długo.",
+        "loadFailed": "Nie udało się wczytać aplikacji.",
+        "loading": "Ładowanie {name}…",
+        "openFailed": "Nie udało się otworzyć {name}"
+      }
+    },
+    "pets": {
+      "sort": {
+        "downloads": "Najpopularniejsze",
+        "name": "Alfabetycznie"
+      },
+      "animations": {
+        "idle": "Bezczynność",
+        "runningRight": "Bieg w prawo",
+        "runningLeft": "Bieg w lewo",
+        "waving": "Machanie",
+        "jumping": "Skakanie",
+        "failed": "Niepowodzenie",
+        "waiting": "Czekanie",
+        "running": "Działanie",
+        "review": "Przegląd"
+      },
+      "card": {
+        "by": "od {creator}",
+        "selections": "wybrań: {count}",
+        "get": "Pobierz",
+        "select": "Wybierz",
+        "selected": "Wybrany",
+        "remove": "Usuń"
+      },
+      "details": {
+        "caption": "od {creator} · wybrań: {downloads}",
+        "previewLabel": "Podgląd {name}",
+        "animations": "Animacje",
+        "animationStates": "Stany animacji"
+      }
+    },
+    "chat": {
+      "activityPill": {
+        "idle": "Aktywność",
+        "openActivity": "{label} — otwórz aktywność",
+        "statusCanceled": "Zatrzymano",
+        "statusDone": "Zakończono",
+        "statusError": "Nie udało się dokończyć",
+        "statusRunning": "Zadanie w toku",
+        "tasksInProgress": {
+          "one": "{count} zadanie w toku",
+          "few": "{count} zadania w toku",
+          "many": "{count} zadań w toku",
+          "other": "{count} zadania w toku"
+        }
+      },
+      "addMenu": {
+        "add": "Dodaj",
+        "attachFiles": "Załącz pliki…",
+        "capture": "Zrzut",
+        "context": "Kontekst",
+        "recent": "Ostatnie",
+        "selectArea": "Zaznacz obszar"
+      },
+      "agentCompletion": {
+        "openNamedThread": "Otwórz wątek agenta {title}",
+        "openThread": "Otwórz wątek agenta",
+        "showLess": "Pokaż mniej",
+        "showMore": {
+          "one": "+{count} więcej",
+          "few": "+{count} więcej",
+          "many": "+{count} więcej",
+          "other": "+{count} więcej"
+        }
+      },
+      "agentModelIcon": {
+        "unavailable": "Szczegóły modelu niedostępne"
+      },
+      "backgroundWork": {
+        "agentThread": "Wątek agenta",
+        "followUp": "Kontynuacja",
+        "openNamedThread": "Otwórz wątek agenta {title}",
+        "openThread": "Otwórz wątek agenta",
+        "taskCount": {
+          "one": "{count} zadanie",
+          "few": "{count} zadania",
+          "many": "{count} zadań",
+          "other": "{count} zadania"
+        },
+        "title": "Praca w tle"
+      },
+      "column": {
+        "scrollToBottom": "Przewiń na dół"
+      },
+      "composer": {
+        "add": "Dodaj",
+        "dictationError": "Dyktowanie: {error}",
+        "stop": "Zatrzymaj"
+      },
+      "connectorConnect": {
+        "cancel": "Anuluj",
+        "connect": "Połącz",
+        "connectedApp": "Połączono. Stella kontynuuje Twoją prośbę.",
+        "connectedExtension": "Wykryto rozszerzenie. Stella kontynuuje Twoją prośbę.",
+        "connectingApp": "Dokończ logowanie do {name} w przeglądarce. Stella będzie kontynuować po zatwierdzeniu.",
+        "connectingExtension": "Dodaj rozszerzenie z otwartej właśnie karty Chrome Web Store. Stella kontynuuje automatycznie po instalacji.",
+        "errorBody": "Nie można połączyć {name}.",
+        "install": "Zainstaluj",
+        "notNow": "Nie teraz",
+        "titleConnected": "Połączono {name}",
+        "titleError": "Nie udało się połączyć {name}",
+        "titleOffer": "Połączyć {name}?",
+        "titleOfferExtension": "Połączyć {name}?",
+        "titleWaiting": "Czekanie na {name}"
+      },
+      "contextChips": {
+        "activityFallback": "Aktywność",
+        "fileClickToOpen": "{name} — kliknij, aby otworzyć",
+        "pastedTextLabel": "Wklejony tekst · {stats}",
+        "pastedTextTitle": "Wklejony tekst — {stats}",
+        "removeActivity": "Usuń kontekst aktywności",
+        "removeFile": "Usuń {name}",
+        "removePastedText": "Usuń wklejony tekst",
+        "removeScreenshot": "Usuń zrzut ekranu {index}",
+        "removeSelectedArea": "Usuń zaznaczony obszar: {label}",
+        "removeSelectedText": "Usuń zaznaczony tekst",
+        "removeWindow": "Usuń kontekst okna {app}",
+        "screenshotAlt": "Zrzut ekranu {index}",
+        "screenshotEnlargeTitle": "Kliknij, aby powiększyć zrzut ekranu",
+        "selectedAreaFallback": "Zaznaczony obszar",
+        "windowCapturing": "{label} — przechwytywanie okna…",
+        "windowClickToEnlarge": "{label} — kliknij, aby powiększyć",
+        "windowPreviewAlt": "Podgląd zawartości okna",
+        "windowScreenshotAlt": "Zrzut okna {label}"
+      },
+      "contextRow": {
+        "addActiveWindow": "Dodaj {detail} (bieżące okno) jako kontekst",
+        "addContext": "Dodaj {detail} jako kontekst"
+      },
+      "dropOverlay": {
+        "label": "Upuść pliki tutaj"
+      },
+      "endResource": {
+        "category": {
+          "audio": "Audio",
+          "canvas": "Kanwa",
+          "code": "Kod",
+          "document": "Dokument",
+          "file": "Plik",
+          "image": "Obraz",
+          "link": "Link",
+          "media": "Multimedia",
+          "model3d": "Model 3D",
+          "pdf": "PDF",
+          "slides": "Slajdy",
+          "spreadsheet": "Arkusz",
+          "table": "Tabela",
+          "text": "Tekst",
+          "trash": "Kosz",
+          "video": "Wideo"
+        },
+        "fileChangeCount": {
+          "one": "{count} zmiana w plikach",
+          "few": "{count} zmiany w plikach",
+          "many": "{count} zmian w plikach",
+          "other": "{count} zmiany w plikach"
+        },
+        "imageCount": {
+          "one": "{count} obraz",
+          "few": "{count} obrazy",
+          "many": "{count} obrazów",
+          "other": "{count} obrazu"
+        },
+        "openInPanel": "Otwórz w panelu",
+        "openPreview": "Otwórz podgląd"
+      },
+      "fileCategory": {
+        "archive": "Archiwum",
+        "audio": "Audio",
+        "code": "Plik kodu",
+        "document": "Dokument",
+        "file": "Plik",
+        "pdf": "PDF",
+        "spreadsheet": "Arkusz",
+        "video": "Wideo"
+      },
+      "fileLink": {
+        "openFailed": "Nie udało się otworzyć {filePath}"
+      },
+      "filePreview": {
+        "copy": "Kopiuj",
+        "save": "Zapisz"
+      },
+      "generatedImage": {
+        "generating": "Generowanie...",
+        "generatingImage": "Generowanie obrazu...",
+        "generationFailed": "Generowanie obrazu nie powiodło się",
+        "hostRequired": "Podgląd obrazu wymaga środowiska hosta Electron.",
+        "image": "Obraz",
+        "loadFailed": "Nie udało się wczytać obrazu",
+        "openInPanel": "Otwórz w panelu",
+        "stripLabel": "Wygenerowane obrazy"
+      },
+      "mapCard": {
+        "appleMapsLabel": "Otwórz w Apple Maps",
+        "appleMapsTitle": "Otwórz w Apple Maps, aby uzyskać nawigację krok po kroku",
+        "frameTitle": "Mapa: {title}",
+        "modeCycling": "Rower",
+        "modeDriving": "Samochód",
+        "modeTransit": "Komunikacja",
+        "modeWalking": "Pieszo",
+        "placesCount": {
+          "one": "{count} miejsce",
+          "few": "{count} miejsca",
+          "many": "{count} miejsc",
+          "other": "{count} miejsca"
+        },
+        "previewFailed": "Nie udało się wczytać podglądu mapy."
+      },
+      "messageActions": {
+        "copied": "Skopiowano",
+        "copy": "Kopiuj",
+        "readAloud": "Czytaj na głos",
+        "stopReading": "Przerwij czytanie"
+      },
+      "messageRow": {
+        "attachmentAlt": "Załącznik",
+        "attachmentFallback": "Załącznik {index}",
+        "channelKind": {
+          "deleted": "usunięte",
+          "edited": "edytowane",
+          "message": "wiadomość",
+          "reaction": "reakcja",
+          "system": "systemowe"
+        },
+        "clickToEnlarge": "Kliknij, aby powiększyć {label}",
+        "pastedTextLabel": "Wklejony tekst",
+        "pastedTextTitle": "Wklejony tekst — {stats}",
+        "reactionsSummary": "Reakcje {reactions}",
+        "showMoreChips": "Pokaż {count} więcej",
+        "windowPreviewAlt": "Podgląd zawartości okna"
+      },
+      "miniModelPicker": {
+        "loading": "Ładowanie…",
+        "modelUpdateFailed": "Nie udało się zaktualizować ustawienia modelu.",
+        "popoverLabel": "Opcje modelu",
+        "reasoningEffortLabel": "Poziom rozumowania",
+        "reasoningUpdateFailed": "Nie udało się zaktualizować poziomu rozumowania.",
+        "recent": "Ostatnie",
+        "triggerLabel": "Model: {model}",
+        "unavailable": "Niedostępny",
+        "updateFailedTitle": "Nie udało się zaktualizować ustawień modeli"
+      },
+      "modelMention": {
+        "enginesLabel": "Silniki",
+        "noMatch": "Brak pasującego silnika"
+      },
+      "officePreview": {
+        "frameTitle": "Podgląd Office: {title}",
+        "preparingBody": "Stella przygotowuje podgląd na żywo tego dokumentu.",
+        "sessionError": "Sesja podglądu zgłosiła błąd.",
+        "statusError": "Błąd podglądu",
+        "statusPreparing": "Przygotowywanie podglądu",
+        "statusReady": "Podgląd na żywo",
+        "statusStopped": "Podgląd zatrzymany",
+        "updatedAt": "Zaktualizowano {time}"
+      },
+      "openWith": {
+        "loading": "Ładowanie…",
+        "otherWaysLabel": "Otwórz w inny sposób",
+        "otherWaysTitle": "Otwórz w inny sposób…",
+        "triggerLabel": "Otwórz",
+        "triggerTitle": "Otwórz za pomocą…"
+      },
+      "pdfViewer": {
+        "hostRequired": "Przeglądarka PDF wymaga środowiska hosta Electron.",
+        "loadFailed": "Nie udało się wczytać PDF.",
+        "loading": "Ładowanie PDF…"
+      },
+      "queuedMessages": {
+        "cancel": "Anuluj wiadomość z kolejki",
+        "cancelAndEdit": "Anuluj i edytuj",
+        "cancelIndexed": "Anuluj wiadomość z kolejki {index}",
+        "previewLabel": "{label}. Podejrzyj wiadomości w kolejce",
+        "queuedCount": {
+          "one": "{count} wiadomość w kolejce",
+          "few": "{count} wiadomości w kolejce",
+          "many": "{count} wiadomości w kolejce",
+          "other": "{count} wiadomości w kolejce"
+        }
+      },
+      "replyPeek": {
+        "dismiss": "Zamknij podgląd",
+        "jumpToLatest": "Przejdź do najnowszej odpowiedzi"
+      },
+      "scheduleReceipt": {
+        "nextRun": "następne {nextRun}",
+        "scheduleCount": {
+          "one": "{count} harmonogram",
+          "few": "{count} harmonogramy",
+          "many": "{count} harmonogramów",
+          "other": "{count} harmonogramu"
+        }
+      },
+      "screenshotPreview": {
+        "alt": "Podgląd zrzutu ekranu {index}"
+      },
+      "timeline": {
+        "empty": "Rozpocznij rozmowę",
+        "loadingConversation": "Ładowanie rozmowy"
+      },
+      "userMessage": {
+        "showLess": "Pokaż mniej",
+        "showMore": "Pokaż więcej"
+      },
+      "voiceSession": {
+        "label": "Rozmowa ze Stellą"
+      },
+      "webSearchResults": {
+        "caption": "Wyniki z sieci",
+        "listLabel": "Wyniki wyszukiwania w sieci"
+      }
+    },
+    "media": {
+      "capability": {
+        "audioGeneration": {
+          "description": "Mowa, dialogi, efekty dźwiękowe lub tło dźwiękowe z tekstu",
+          "name": "Generowanie dźwięku"
+        },
+        "icon": {
+          "description": "Ikony, logotypy i miniatury z promptu",
+          "name": "Generator ikon"
+        },
+        "imageEdit": {
+          "description": "Edytuj istniejący obraz instrukcjami tekstowymi",
+          "name": "Edycja obrazu"
+        },
+        "imageToVideo": {
+          "description": "Ożyw nieruchomy obraz w krótkie wideo",
+          "name": "Obraz na wideo"
+        },
+        "speechToText": {
+          "description": "Przepisz nagraną mowę na tekst",
+          "name": "Mowa na tekst"
+        },
+        "textTo3d": {
+          "description": "Wygeneruj model 3D z promptu tekstowego",
+          "name": "Tekst na 3D"
+        },
+        "textToImage": {
+          "description": "Generuj obrazy z promptu tekstowego",
+          "name": "Tekst na obraz"
+        },
+        "textToMusic": {
+          "description": "Wygeneruj krótki fragment muzyczny z promptu",
+          "name": "Tekst na muzykę"
+        },
+        "textToVideo": {
+          "description": "Wygeneruj krótkie wideo z promptu tekstowego",
+          "name": "Tekst na wideo"
+        },
+        "videoExtend": {
+          "description": "Kontynuuj lub wydłuż klip wideo",
+          "name": "Wydłużanie wideo"
+        },
+        "videoToVideo": {
+          "description": "Przekształć wideo instrukcjami tekstowymi",
+          "name": "Wideo na wideo"
+        }
+      },
+      "imageFailure": {
+        "blocked": "Żądanie obrazu zostało zablokowane",
+        "canceled": "Generowanie obrazu zostało anulowane",
+        "generic": "Generowanie obrazu nie powiodło się",
+        "interrupted": "Generowanie obrazu zostało przerwane",
+        "invalidRequest": "Żądanie obrazu było nieprawidłowe",
+        "notConfigured": "Usługa obrazów nie jest skonfigurowana",
+        "resultUnreadable": "Nie udało się odczytać wyniku generowania obrazu",
+        "serviceBusy": "Usługa obrazów jest zajęta",
+        "temporaryError": "Usługa obrazów napotkała tymczasowy błąd",
+        "tookTooLong": "Generowanie obrazu trwało zbyt długo",
+        "tookTooLongToStart": "Generowanie obrazu zbyt długo się nie zaczynało"
+      },
+      "studio": {
+        "animate": "Animuj",
+        "aspectRatio": "Proporcje",
+        "category3d": "3D",
+        "categoryAudio": "Audio",
+        "categoryImage": "Obraz",
+        "categoryMusic": "Muzyka",
+        "categoryVideo": "Wideo",
+        "chooseDifferentFile": "Wybierz inny plik",
+        "chooseFile": "Wybierz plik lub upuść gdziekolwiek",
+        "copy": "Kopiuj",
+        "dropFile": "Upuść plik",
+        "edit": "Edytuj",
+        "emptyDescription": "Wybierz możliwość i generuj — albo upuść plik gdziekolwiek, aby zacząć.",
+        "emptyTitle": "Twoje dzieło",
+        "extendVideo": "Wydłuż wideo",
+        "fileReadFailed": "Nie udało się odczytać pliku",
+        "generate": "Generuj",
+        "generatedAlt": "Wygenerowane {index}",
+        "generating": "Generowanie…",
+        "generationFailed": "Generowanie nie powiodło się",
+        "lead": "Twórz obrazy, dźwięk, muzykę, wideo i 3D.",
+        "openOutputsFolder": "Otwórz folder wyników",
+        "profileBest": "Najlepsza",
+        "profileFast": "Szybka",
+        "prompt": "Prompt",
+        "promptPlaceholder": "Opisz, czego chcesz…",
+        "quality": "Jakość",
+        "queued": "Oczekiwanie w kolejce…",
+        "sourceAudio": "Plik audio",
+        "sourceFile": "Plik źródłowy",
+        "sourceImage": "Obraz źródłowy",
+        "sourceVideo": "Wideo źródłowe",
+        "submitting": "Wysyłanie…",
+        "title": "Media",
+        "transformVideo": "Przekształć wideo"
+      }
+    }
+  },
+  "desktop": {
+    "common": {
+      "continue": "Dalej"
+    },
+    "tray": {
+      "tooltip": "Stella",
+      "openStella": "Otwórz Stellę",
+      "quitStella": "Zakończ Stellę",
+      "balloon": {
+        "title": "Stella nadal działa",
+        "content": "Stella zostaje w zasobniku systemowym. Kliknij ikonę, aby ją ponownie otworzyć."
+      }
+    },
+    "dialog": {
+      "startupFailure": {
+        "title": "Stella",
+        "message": "Stella nie mogła dokończyć uruchamiania.",
+        "detail": "Uruchamianie nie powiodło się, zanim interfejs aplikacji zdążył się wczytać.\n\n{detail}",
+        "relaunch": "Uruchom ponownie",
+        "quit": "Zakończ"
+      }
+    },
+    "security": {
+      "confirmationTitle": "Potwierdzenie bezpieczeństwa Stelli",
+      "allow": "Zezwól",
+      "deny": "Odmów",
+      "rememberDecision": "Zapamiętaj tę decyzję na tym urządzeniu",
+      "computerUse": {
+        "message": "Zezwolić obsłudze komputera na użycie {app}?",
+        "detail": "Obsługa komputera będzie mogła widzieć {app} i z nim pracować.",
+        "risk": "Ryzyko: {risk}"
+      }
+    },
+    "oauth": {
+      "xaiCodeMessage": "Wpisz ten kod, aby połączyć xAI",
+      "expectedValue": "Oczekiwana wartość: {value}"
+    },
+    "fashion": {
+      "pickBodyPhotoTitle": "Wybierz zdjęcie sylwetki",
+      "pickClothesTitle": "Wybierz zdjęcia ubrań",
+      "imageFilterName": "Obraz"
+    }
+  },
+  "features": {
+    "browserBridge": {
+      "unavailableTitle": "Rozszerzenie przeglądarki niedostępne",
+      "unavailableBody": "Stella nie mogła połączyć się z Twoją przeglądarką. Uruchom aplikację ponownie lub zainstaluj Stellę na nowo, jeśli to się powtarza.",
+      "connectionLostTitle": "Utracono połączenie z przeglądarką",
+      "disconnected": "Mostek Stelli do przeglądarki został rozłączony.",
+      "retryDelay": {
+        "one": "Stella spróbuje ponownie za około {count} sekundę.",
+        "few": "Stella spróbuje ponownie za około {count} sekundy.",
+        "many": "Stella spróbuje ponownie za około {count} sekund.",
+        "other": "Stella spróbuje ponownie za około {count} sekundy."
+      }
+    },
+    "dictation": {
+      "cancel": "Anuluj dyktowanie",
+      "stopAndTranscribe": "Zatrzymaj i przepisz",
+      "stopAndTranscribeLabel": "Zatrzymaj dyktowanie i przepisz",
+      "stopTranscribeSend": "Zatrzymaj, przepisz i wyślij",
+      "stopTranscribeSendLabel": "Zatrzymaj dyktowanie, przepisz i wyślij",
+      "localNotReadyTitle": "Lokalne dyktowanie nie jest gotowe",
+      "localNotReadyBody": "Pobierz moduł głosowy, aby dyktować na tym urządzeniu, albo zaloguj się, aby korzystać z transkrypcji w chmurze.",
+      "signInTitle": "Zaloguj się, aby używać dyktowania",
+      "signInBody": "Gdy transkrypcja na urządzeniu jest niedostępna, dyktowanie wymaga zalogowania do Stelli. Zaloguj się, aby kontynuować.",
+      "failedTitle": "Dyktowanie nie zadziałało",
+      "failedBody": "Stella nie mogła tego przepisać. Spróbuj ponownie.",
+      "partialTitle": "Przepisano tylko część dyktowania",
+      "partialBody": "Części nagrania nie udało się przepisać, więc wstawiony tekst może być niepełny."
+    },
+    "voice": {
+      "signInTitle": "Zaloguj się, aby używać głosu",
+      "needsSetupTitle": "Głos wymaga konfiguracji"
+    },
+    "store": {
+      "sidePanel": {
+        "emptyState": "Gdy Stella wprowadzi dla Ciebie zmianę, udostępnij ją stąd znajomym, społeczności albo w Store."
+      },
+      "recentChanges": {
+        "rowSelectHint": "Kliknij, aby dołączyć do udostępnienia",
+        "rowDeselectHint": "Kliknij, aby usunąć z wyboru",
+        "updated": "Zaktualizowano {time}",
+        "showOlder": "Pokaż starsze",
+        "justNow": "Przed chwilą",
+        "publishEmpty": "Wybierz zmiany do udostępnienia",
+        "publishLabel": "Udostępnij · {countPhrase}",
+        "selectedCount": {
+          "one": "wybrano: {count}",
+          "few": "wybrano: {count}",
+          "many": "wybrano: {count}",
+          "other": "wybrano: {count}"
+        }
+      },
+      "shareCard": {
+        "eyebrow": "Dodatek Stelli",
+        "unavailableName": "Dodatek niedostępny",
+        "unavailableDesc": "Ten dodatek jest prywatny albo nie jest już opublikowany.",
+        "viewCta": "Zobacz →"
+      },
+      "creator": {
+        "loading": "Ładowanie twórcy…",
+        "notFoundTitle": "Nie znaleziono twórcy",
+        "notFoundBodyPrefix": "Nikt jeszcze nie zajął nazwy użytkownika",
+        "notFoundBodySuffix": ".",
+        "noAddons": "{username} nie udostępnił jeszcze żadnych dodatków.",
+        "version": "Wersja {version}",
+        "addonCount": {
+          "zero": "Brak jeszcze dodatków",
+          "one": "{count} dodatek",
+          "few": "{count} dodatki",
+          "many": "{count} dodatków",
+          "other": "{count} dodatku"
+        }
+      },
+      "categories": {
+        "appsGames": "Aplikacje i gry",
+        "productivity": "Produktywność",
+        "customization": "Personalizacja",
+        "skillsAgents": "Umiejętności i agenci",
+        "integrations": "Integracje",
+        "other": "Inne"
+      },
+      "shareDialog": {
+        "title": "Udostępnij",
+        "titleCircle": "Udostępnij swojemu kręgowi",
+        "titleCircleUpdate": "Udostępnij aktualizację",
+        "titleStore": "Opublikuj w Store",
+        "titleStoreUpdate": "Prześlij aktualizację",
+        "destinationLede": "Gdzie to ma trafić? Udostępniasz uruchamialny kod, więc wybierz odbiorców świadomie.",
+        "circleOptionName": "Znajomy lub społeczność",
+        "circleOptionDesc": "Natychmiast. Trafia prosto do zaufanych osób jako karta w czacie — bez weryfikacji, nigdy publicznie.",
+        "storeOptionName": "Stella Store",
+        "storeOptionDesc": "Publicznie. Najpierw sprawdza zespół Stelli, potem trafia do Store dla wszystkich.",
+        "updateExisting": "Zaktualizuj istniejący dodatek",
+        "existingAddon": "Istniejący dodatek",
+        "selectPlaceholder": "Wybierz…",
+        "nameLabel": "Nazwa",
+        "namePlaceholder": "Przykładowy mod",
+        "descriptionLabel": "Opis",
+        "optionalHint": "(opcjonalnie)",
+        "descriptionPlaceholderCircle": "Krótki opis na kartę udostępnienia.",
+        "descriptionPlaceholderStore": "Krótki opis na stronę w Store.",
+        "categoryLabel": "Kategoria",
+        "categoryPlaceholder": "Wybierz kategorię…",
+        "sendTo": "Wyślij do",
+        "noRecipients": "Brak jeszcze znajomych i społeczności — najpierw dodaj ich na stronie Wiadomości.",
+        "communityFallbackName": "Społeczność",
+        "communityTag": "Społeczność",
+        "circleNote": "Udostępnienia trafiają natychmiast jako instalowalna karta w każdym czacie. Pobrać je mogą tylko wybrane przez Ciebie osoby (i członkowie tych społeczności).",
+        "storeNote": "Zespół Stelli sprawdza zgłoszenia do Store, zanim trafią do wszystkich.",
+        "submitPending": "Udostępnianie…",
+        "submitCircle": "Udostępnij teraz",
+        "submitStore": "Prześlij do weryfikacji",
+        "noSourceChangesTitle": "Brak zmian w źródłach",
+        "noSourceChangesBody": "Najpierw wybierz co najmniej jedną niedawną zmianę z kodem źródłowym.",
+        "pickRecipientTitle": "Wybierz, komu udostępnić",
+        "pickRecipientBody": "Wybierz co najmniej jednego znajomego lub jedną społeczność.",
+        "pickAddonTitle": "Wybierz dodatek",
+        "pickAddonBody": "Wybierz dodatek, który chcesz zaktualizować.",
+        "nameRequiredTitle": "Nazwa wymagana",
+        "nameRequiredBody": "Nadaj dodatkowi krótką nazwę przed udostępnieniem.",
+        "badNameTitle": "Wybierz inną nazwę",
+        "badNameBody": "Użyj w nazwie liter lub cyfr, abyśmy mogli zbudować identyfikator.",
+        "publishBackendMissing": "Backend publikowania jest niedostępny.",
+        "sharingTitle": "Udostępnianie",
+        "submittingTitle": "Przesyłanie",
+        "inProgressBody": "Stella da znać, gdy skończy.",
+        "submittedTitle": "Przesłano do weryfikacji",
+        "submittedBody": "{name} trafił do zespołu Stelli. Po zatwierdzeniu pojawi się w Store.",
+        "sharedTitle": "Udostępniono",
+        "shareFailedTitle": "Udostępnianie nie powiodło się",
+        "submissionFailedTitle": "Przesyłanie nie powiodło się",
+        "sharedBodyDelivered": {
+          "one": "{name} jest w drodze do {count} czatu.",
+          "few": "{name} jest w drodze do {count} czatów.",
+          "many": "{name} jest w drodze do {count} czatów.",
+          "other": "{name} jest w drodze do {count} czatu."
+        },
+        "sharedBodyPartial": {
+          "one": "{name} dotarł do {delivered} z {count} czatu. Otwórz Wiadomości, aby ponowić resztę.",
+          "few": "{name} dotarł do {delivered} z {count} czatów. Otwórz Wiadomości, aby ponowić resztę.",
+          "many": "{name} dotarł do {delivered} z {count} czatów. Otwórz Wiadomości, aby ponowić resztę.",
+          "other": "{name} dotarł do {delivered} z {count} czatu. Otwórz Wiadomości, aby ponowić resztę."
+        }
+      }
+    }
+  },
+  "ui": {
+    "imageLightbox": {
+      "title": "Podgląd obrazu",
+      "close": "Zamknij podgląd"
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "Ostatnie wiadomości agenta",
+      "recentProgress": "Ostatnie postępy"
+    },
+    "audioPlayer": {
+      "pause": "Wstrzymaj",
+      "play": "Odtwórz",
+      "seek": "Przewiń"
+    },
+    "capture": {
+      "failedTitle": "Nie udało się zrobić zrzutu",
+      "failedDescription": "Coś poszło nie tak przy robieniu zrzutu ekranu. Spróbuj ponownie."
+    },
+    "chatSidebar": {
+      "add": "Dodaj",
+      "dictationError": "Dyktowanie: {error}",
+      "stop": "Zatrzymaj"
+    },
+    "displayPanel": {
+      "closePanel": "Zamknij panel",
+      "openPanel": "Otwórz panel"
+    },
+    "rightSidebar": {
+      "workspace": "Przestrzeń robocza",
+      "resize": "Zmień rozmiar panelu wyświetlania",
+      "resizeHint": "Przeciągnij, aby zmienić rozmiar · dwuklik resetuje"
+    },
+    "windowControls": {
+      "minimize": "Minimalizuj",
+      "restore": "Przywróć",
+      "maximize": "Maksymalizuj"
+    },
+    "workspace": {
+      "activity": "Aktywność",
+      "viewFiles": {
+        "one": "Zobacz {count} plik",
+        "few": "Zobacz {count} pliki",
+        "many": "Zobacz {count} plików",
+        "other": "Zobacz {count} pliku"
+      }
+    },
+    "updatePill": {
+      "update": "Aktualizuj",
+      "updateFallback": "aktualizacja",
+      "availableFallback": "dostępna",
+      "downloading": "Pobieranie {percent}%",
+      "restartToUpdate": "Uruchom ponownie, aby zaktualizować",
+      "retryUpdate": "Ponów aktualizację",
+      "restartTitle": "Uruchom Stellę ponownie i zainstaluj wersję {version}",
+      "retryTitle": "Ponów sprawdzanie aktualizacji aplikacji",
+      "downloadTitle": "Pobierz Stellę {version}",
+      "toasts": {
+        "downloadedTitle": "Aktualizacja pobrana",
+        "downloadedDescription": "Uruchom Stellę ponownie, aby zainstalować wersję {version}.",
+        "checkingTitle": "Sprawdzanie aktualizacji",
+        "checkingDescription": "Stella sprawdza odizolowany kanał desktop v2.",
+        "failedTitle": "Aktualizacja aplikacji nie powiodła się"
+      }
+    },
+    "display": {
+      "homeLauncher": {
+        "files": {
+          "label": "Pliki",
+          "description": "Strony, obrazy, wideo i dokumenty"
+        },
+        "store": {
+          "label": "Store",
+          "description": "Dodatki i rzeczy, które zbudowałeś"
+        },
+        "trash": {
+          "label": "Kosz",
+          "description": "Rzeczy niedawno usunięte"
+        }
+      },
+      "trash": {
+        "title": "Kosz",
+        "empty": "Nic tu teraz nie ma.",
+        "refresh": "Odśwież",
+        "emptying": "Opróżnianie…",
+        "emptyTrash": "Opróżnij kosz",
+        "trashedAgo": "Usunięto {time} temu",
+        "pendingPurge": "Oczekuje na wyczyszczenie",
+        "autoDeletesIn": "Zostanie usunięte za {time}",
+        "deleting": "Usuwanie…",
+        "deleteNow": "Usuń teraz",
+        "itemsAutoDeleted": {
+          "one": "{count} element — zostanie usunięty automatycznie za 24 godziny.",
+          "few": "{count} elementy — zostaną usunięte automatycznie za 24 godziny.",
+          "many": "{count} elementów — zostanie usuniętych automatycznie za 24 godziny.",
+          "other": "{count} elementu — zostanie usunięte automatycznie za 24 godziny."
+        }
+      },
+      "canvasShare": {
+        "share": "Udostępnij",
+        "links": "Linki",
+        "sharedLinks": "Udostępnione linki",
+        "publishing": "Publikowanie kanwy…",
+        "publishFailed": "Nie udało się opublikować tej kanwy. Spróbuj ponownie.",
+        "live": "Kanwa jest dostępna",
+        "publicLink": "Publiczny link do kanwy",
+        "copyLink": "Kopiuj link",
+        "revoke": "Cofnij udostępnienie",
+        "expires": "Wygasa {date}",
+        "shared": "Udostępniono {date}",
+        "sharedWithExpiry": "Udostępniono {shared} · wygasa {expires}",
+        "loadFailed": "Nie udało się wczytać Twoich udostępnień.",
+        "empty": "Brak aktywnych udostępnień. Opublikuj kanwę, aby uzyskać publiczny link.",
+        "untitled": "Kanwa bez tytułu",
+        "toasts": {
+          "linkCopied": "Link do udostępnienia skopiowany",
+          "copyFailed": "Nie udało się skopiować linku",
+          "revoked": "Udostępnienie cofnięte",
+          "revokeFailed": "Nie udało się cofnąć tego udostępnienia"
+        }
+      },
+      "canvas": {
+        "loadFailed": "Nie udało się wczytać tej kanwy.",
+        "loading": "Ładowanie"
+      },
+      "media": {
+        "save": "Zapisz",
+        "saved": "Zapisano",
+        "saveFailed": "Nie udało się zapisać",
+        "copy": "Kopiuj",
+        "copied": "Skopiowano",
+        "copyFailed": "Nie udało się skopiować",
+        "delete": "Usuń",
+        "deleteConfirm": "Kliknij ponownie, aby usunąć",
+        "itemActions": "Działania na elemencie"
+      },
+      "url": {
+        "eyebrow": "Podgląd na żywo",
+        "reload": "Odśwież",
+        "openInBrowser": "Otwórz w przeglądarce"
+      },
+      "office": {
+        "preparing": "Przygotowywanie podglądu...",
+        "kind": {
+          "spreadsheet": "Arkusz",
+          "presentation": "Prezentacja",
+          "document": "Dokument"
+        },
+        "sheetCount": {
+          "one": "{count} arkusz",
+          "few": "{count} arkusze",
+          "many": "{count} arkuszy",
+          "other": "{count} arkusza"
+        },
+        "slideCount": {
+          "one": "{count} slajd",
+          "few": "{count} slajdy",
+          "many": "{count} slajdów",
+          "other": "{count} slajdu"
+        },
+        "loadFailed": "Nie udało się wczytać tego podglądu",
+        "sessionError": "Sesja podglądu zgłosiła błąd.",
+        "zoomAriaLabel": "Powiększenie podglądu",
+        "revealInFinder": "Pokaż w Finderze",
+        "livePreview": "Podgląd na żywo",
+        "frameTitle": "Podgląd — {kind}: {title}"
+      },
+      "filePreview": {
+        "save": "Zapisz",
+        "copy": "Kopiuj",
+        "loading": "Ładowanie..."
+      },
+      "spreadsheet": {
+        "eyebrow": "Arkusz",
+        "desktopRequired": "Podgląd arkusza wymaga aplikacji desktopowej Stelli.",
+        "noRows": "Nie znaleziono wierszy.",
+        "column": "Kolumna {index}"
+      },
+      "markdown": {
+        "eyebrow": "Markdown",
+        "desktopRequired": "Podgląd Markdown wymaga aplikacji desktopowej Stelli.",
+        "noContent": "Nie znaleziono treści."
+      },
+      "diff": {
+        "changes": "Zmiany",
+        "codeChanges": "Zmiany w kodzie",
+        "noChanges": "Nie znaleziono zmian.",
+        "desktopRequired": "Podgląd kodu wymaga aplikacji desktopowej Stelli.",
+        "empty": "Brak jeszcze zmian w plikach. Gdy agent zmieni kod, zmiany pojawią się tutaj."
+      },
+      "agentThread": {
+        "role": {
+          "user": "Instrukcja",
+          "assistant": "Agent",
+          "lifecycle": "Aktywność"
+        },
+        "status": {
+          "running": "Pracuje",
+          "completed": "Ukończono",
+          "error": "Niepowodzenie",
+          "canceled": "Zatrzymano"
+        },
+        "newMessages": {
+          "one": "{count} nowa wiadomość.",
+          "few": "{count} nowe wiadomości.",
+          "many": "{count} nowych wiadomości.",
+          "other": "{count} nowej wiadomości."
+        },
+        "newMessagesWithPreview": "{countPhrase} Ostatnia — {role}: {preview}",
+        "unavailable": "Historia wątku agenta jest niedostępna.",
+        "loadFailed": "Nie udało się wczytać tego wątku.",
+        "showingNewest": "Pokazujemy najnowszą wiadomość.",
+        "claudeAriaLabel": "Rozmowa subagenta Claude tylko do odczytu",
+        "claudeBadge": "Subagent Claude tylko do odczytu",
+        "badge": "Wątek agenta tylko do odczytu",
+        "retrying": "Ponawianie…",
+        "empty": "Brak jeszcze wiadomości w tym wątku.",
+        "newMessagesButton": {
+          "one": "{count} nowa wiadomość",
+          "few": "{count} nowe wiadomości",
+          "many": "{count} nowych wiadomości",
+          "other": "{count} nowej wiadomości"
+        },
+        "showNewMessagesAria": "Pokaż {countPhrase}"
+      }
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, plan {plan}",
+        "signOutTitle": "Wylogować się ze Stelli?",
+        "signOutDescription": "Na pewno?"
+      },
+      "nav": {
+        "apps": "Aplikacje",
+        "unreadTitle": "{label} (nieprzeczytane: {count})",
+        "unreadAriaLabel": "{label}, nieprzeczytane: {count}"
+      },
+      "feedback": {
+        "title": {
+          "manual": "Wyślij opinię",
+          "auto": "Jak idzie ze Stellą?"
+        },
+        "description": {
+          "manual": "Twoja wiadomość jest wysyłana anonimowo — nie jest powiązana z Twoim kontem.",
+          "auto": "Coś, o czym powinniśmy wiedzieć? Wysyłane anonimowo — bez powiązania z Twoim kontem."
+        },
+        "notNow": "Nie teraz",
+        "fieldLabel": "Opinia",
+        "placeholder": "Napisz, co działa, co nie, albo co chciałbyś zobaczyć…",
+        "send": "Wyślij",
+        "sending": "Wysyłanie…",
+        "toasts": {
+          "sentTitle": "Opinia wysłana",
+          "sentDescription": "Dzięki — każda uwaga pomaga nam kształtować Stellę.",
+          "failedTitle": "Nie udało się wysłać opinii"
+        }
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "newChat": "Nowy czat",
+        "home": "Start",
+        "history": "Historia rozmów",
+        "historyEmpty": "Brak jeszcze rozmów",
+        "historyRetry": "Nie udało się wczytać rozmów. Spróbuj ponownie",
+        "openConversations": "Otwórz rozmowy",
+        "openConversation": "Otwórz {title}",
+        "closeConversation": "Zamknij {title}",
+        "delete": "Usuń {title}",
+        "deleteConfirm": "Kliknij ponownie, aby potwierdzić",
+        "deleteConfirmFor": "Kliknij ponownie, aby usunąć {title}",
+        "deleteFailed": "Nie udało się usunąć tej rozmowy",
+        "deleteFailedFor": "Nie udało się usunąć {title}"
+      }
+    }
+  },
+  "global": {
+    "auth": {
+      "welcomeTitle": "Witamy w Stelli",
+      "welcomeDescription": "Zaloguj się e-mailem, aby zacząć korzystać ze Stelli.",
+      "welcomeSub": "Zaloguj się przez Google lub e-mailem. Hasło niepotrzebne.",
+      "orUseEmail": "albo użyj e-maila",
+      "emailLabel": "E-mail",
+      "emailPlaceholder": "ty@przyklad.com",
+      "sending": "Wysyłanie...",
+      "signingIn": "Logowanie...",
+      "sendSignInEmail": "Wyślij e-mail logowania",
+      "checkInbox": "Sprawdź skrzynkę — jest tam link do logowania.",
+      "magicLinkSentDesktop": "Wysłaliśmy link do logowania. Otwórz go na tym urządzeniu, aby zakończyć.",
+      "openInbox": "Otwórz {provider}",
+      "resendIn": "Wyślij ponownie za {seconds} s",
+      "resendEmail": "Wyślij e-mail ponownie",
+      "skipForNow": "Pomiń na razie",
+      "enterEmail": "Wpisz adres e-mail.",
+      "sendFailed": "Nie udało się wysłać e-maila logowania.",
+      "magicLinkFailed": "Nie udało się wysłać magicznego linku.",
+      "finishFailed": "Nie udało się dokończyć logowania. Spróbuj ponownie.",
+      "signInIncomplete": "Logowanie niedokończone. Spróbuj ponownie.",
+      "signInLinkExpired": "Link do logowania wygasł. Spróbuj ponownie.",
+      "tooManyRequests": {
+        "one": "Za dużo żądań. Spróbuj ponownie za {count} sekundę.",
+        "few": "Za dużo żądań. Spróbuj ponownie za {count} sekundy.",
+        "many": "Za dużo żądań. Spróbuj ponownie za {count} sekund.",
+        "other": "Za dużo żądań. Spróbuj ponownie za {count} sekundy."
+      },
+      "googleContinue": "Kontynuuj z Google",
+      "googleWaiting": "Czekanie na Google...",
+      "googleStartFailed": "Nie udało się rozpocząć logowania przez Google.",
+      "googleNoSession": "Logowanie przez Google zakończyło się bez sesji.",
+      "googleExpired": "Logowanie przez Google wygasło. Spróbuj ponownie.",
+      "googleTimedOut": "Upłynął limit czasu logowania przez Google. Spróbuj ponownie.",
+      "nicknameTitle": "Jak mam Cię nazywać?",
+      "nicknameDescription": "Wybierz imię, którego Stella będzie używać w całej aplikacji.",
+      "nicknameLabel": "Pseudonim",
+      "nicknamePlaceholder": "Twój pseudonim",
+      "notNow": "Nie teraz"
+    },
+    "legal": {
+      "terms": {
+        "title": "Warunki korzystania",
+        "subtitle": "Jak działa Stella i na co się zgadzasz, korzystając z niej."
+      },
+      "privacy": {
+        "title": "Polityka prywatności",
+        "subtitle": "Co zbieramy, czego nie, i jak to chronimy."
+      }
+    },
+    "integrations": {
+      "heroTagline": "Pisz do Stelli z dowolnej platformy — rozmawiaj swobodnie albo poproś, by załatwiła sprawy wprost na Twoim komputerze.",
+      "signInToConnect": "Zaloguj się do Stelli, aby połączyć",
+      "connectStellaApp": "Połącz z aplikacją Stella",
+      "sectionTitle": "Integracje",
+      "connectTitle": "Połącz",
+      "backToConnections": "Wróć do połączeń",
+      "connected": "Połączono",
+      "connectProvider": "Połącz {provider}",
+      "openProvider": "Otwórz {provider}",
+      "listeningOn": "Stella słucha na {provider}. Pisz do niej tam, kiedy chcesz.",
+      "disconnect": "Rozłącz",
+      "disconnecting": "Rozłączanie...",
+      "disconnected": "Rozłączono z {provider}",
+      "disconnectFailed": "Nie udało się rozłączyć z {provider}",
+      "codeCopied": "Kod skopiowany do schowka",
+      "generateCodeFailed": "Nie udało się wygenerować kodu",
+      "slackInstallUrlFailed": "Nie udało się przygotować adresu instalacji Slacka",
+      "signInHeadline": "Zaloguj się, aby zacząć",
+      "signInSub": "Zaloguj się na konto Stelli, aby połączyć {provider}.",
+      "providers": {
+        "linq": {
+          "name": "SMS do Stelli",
+          "instructions": "Podaj numer telefonu, a wyślemy Ci SMS-em kod do połączenia. Po powiązaniu możesz pisać do Stelli w każdej chwili przez iMessage lub SMS."
+        },
+        "discord": {
+          "name": "Discord",
+          "instructions": "Zainstaluj aplikację Stella na koncie Discord, raz uruchom /link z kodem, a potem po prostu pisz do @Stella na priv."
+        },
+        "slack": {
+          "name": "Slack",
+          "instructions": "Zainstaluj aplikację Stella w swojej przestrzeni roboczej, a potem wyślij @Stella poniższy kod."
+        },
+        "telegram": {
+          "name": "Telegram",
+          "instructions": "Otwórz @StellaAppBot w Telegramie i wyślij mu poniższy kod."
+        }
+      },
+      "linq": {
+        "countryCode": "Kod kraju",
+        "phonePlaceholder": "(555) 123-4567",
+        "sending": "Wysyłanie...",
+        "sendCode": "Wyślij kod",
+        "sendCodeFailed": "Nie udało się wysłać kodu. Sprawdź numer i spróbuj ponownie.",
+        "enterCodeTitle": "Wpisz swój kod",
+        "enterCodeSub": "Sprawdź telefon — wysłaliśmy 6-cyfrowy kod na {phone}.",
+        "codePlaceholder": "ABC123",
+        "verify": "Zweryfikuj",
+        "verifying": "Weryfikowanie...",
+        "verifyCodeFailed": "Nie udało się zweryfikować kodu.",
+        "connected": "Połączono! Możesz już pisać do Stelli SMS-em.",
+        "invalidCode": "Nieprawidłowy lub wygasły kod. Spróbuj wysłać nowy.",
+        "genericError": "Coś poszło nie tak. Spróbuj ponownie.",
+        "useDifferentNumber": "Użyj innego numeru"
+      },
+      "credential": {
+        "title": "Połącz {provider}",
+        "description": "Stella potrzebuje Twojego klucza API {provider}, aby się połączyć. Wklej go poniżej. Zostaje na Twoim komputerze.",
+        "defaultLabel": "Klucz {provider}",
+        "apiKeyLabel": "Klucz API",
+        "apiKeyRequired": "Klucz API jest wymagany.",
+        "keyPlaceholder": "Wklej swój klucz",
+        "labelLabel": "Etykieta",
+        "labelDescription": "Przyjazna nazwa, po której później rozpoznasz ten klucz.",
+        "saving": "Zapisywanie...",
+        "saveKey": "Zapisz klucz",
+        "saveFailed": "Nie udało się zapisać danych logowania."
+      }
+    },
+    "schedule": {
+      "dialogTitle": "Harmonogram",
+      "untitledTask": "Zadanie zaplanowane",
+      "checkIn": "Zameldowanie",
+      "paused": "Wstrzymane",
+      "pause": "Wstrzymaj",
+      "pausing": "Wstrzymywanie…",
+      "resume": "Wznów",
+      "resuming": "Wznawianie…",
+      "runNow": "Uruchom teraz",
+      "running": "Działa…",
+      "delete": "Usuń",
+      "removing": "Usuwanie…",
+      "actionFailed": "Akcja nie powiodła się.",
+      "missing": "Ten harmonogram już nie istnieje.",
+      "scheduleCount": {
+        "one": "{count} harmonogram",
+        "few": "{count} harmonogramy",
+        "many": "{count} harmonogramów",
+        "other": "{count} harmonogramu"
+      }
+    },
+    "social": {
+      "dialogDescription": "Potwierdź to zaproszenie, zanim cokolwiek się wydarzy.",
+      "signInToAccept": "Zaloguj się do Stelli, aby przyjąć to zaproszenie.",
+      "lookingUpInvite": "Sprawdzamy zaproszenie…",
+      "stellaAddOn": "Dodatek Stelli",
+      "stellaUser": "Użytkownik Stelli",
+      "byAuthor": " · od @{username}",
+      "alreadyIn": " · już należysz",
+      "membersLabel": "członków",
+      "memberCount": {
+        "one": "{count} członek",
+        "few": "{count} członkowie",
+        "many": "{count} członków",
+        "other": "{count} członka"
+      },
+      "working": "Pracujemy…",
+      "alreadyJoined": "Już dołączono",
+      "welcomeToCommunity": "Witaj w {community}!",
+      "joinedCommunity": "Dołączyłeś do społeczności!",
+      "friendRequestSent": "Zaproszenie do znajomych wysłane do @{username}.",
+      "joinFailed": "Nie udało się dołączyć do tej społeczności. Zaproszenie mogło wygasnąć.",
+      "friendRequestFailed": "Nie udało się wysłać tego zaproszenia. Spróbuj ponownie.",
+      "store": {
+        "title": "Otwórz dodatek",
+        "confirmLabel": "Zobacz w Store",
+        "sub": "Otwarty przez Ciebie link prowadzi do dodatku Stelli. Nic się nie instaluje — otworzy się tylko jego strona w Store.",
+        "missing": "Ten dodatek jest prywatny albo nie jest już opublikowany."
+      },
+      "join": {
+        "title": "Dołącz do społeczności",
+        "confirmLabel": "Dołącz",
+        "sub": "Zostałeś zaproszony do społeczności: zaufanego kręgu, w którym członkowie dzielą się dodatkami.",
+        "missing": "Nie znaleziono społeczności dla tego kodu zaproszenia. Poproś o nowy link."
+      },
+      "friend": {
+        "title": "Dodaj znajomego",
+        "confirmLabel": "Wyślij zaproszenie do znajomych",
+        "sub": "Zaproszono Cię do połączenia w Stelli.",
+        "missing": "Nie znaleziono użytkownika dla tego linku z zaproszeniem."
+      }
+    },
+    "websiteView": {
+      "storeTitle": "Store"
+    }
+  },
+  "mobile": {
+    "common": {
+      "back": "Wstecz",
+      "backChevron": "‹ Wstecz",
+      "cancel": "Anuluj",
+      "continue": "Dalej",
+      "delete": "Usuń",
+      "done": "Gotowe",
+      "goBack": "Wróć",
+      "somethingWentWrong": "Coś poszło nie tak.",
+      "tryAgain": "Spróbuj ponownie"
+    },
+    "boot": {
+      "crashTitle": "Coś się zepsuło przy uruchamianiu",
+      "missingConfigTitle": "Dodaj zmienne środowiskowe aplikacji mobilnej",
+      "missingConfigBody": "Ustaw EXPO_PUBLIC_CONVEX_URL i opcjonalnie EXPO_PUBLIC_CONVEX_SITE_URL przed uruchomieniem aplikacji.",
+      "checkingSessionTitle": "Sprawdzamy twoją sesję",
+      "checkingSessionBody": "Chwileczkę, Stella się budzi."
+    },
+    "authCallback": {
+      "failedTitle": "Nie udało się zalogować",
+      "invalidLink": "Nieprawidłowy link logowania.",
+      "linkExpired": "Ten link logowania wygasł. Poproś o nowy.",
+      "genericFailure": "Nie mogliśmy cię teraz zalogować. Spróbuj ponownie.",
+      "backToSignIn": "Wróć do logowania",
+      "signingInTitle": "Logujemy cię",
+      "signingInBody": "Chwileczkę..."
+    },
+    "nav": {
+      "chat": "Czat",
+      "computer": "Komputer",
+      "settings": "Ustawienia",
+      "openLabel": "Otwórz nawigację",
+      "closeLabel": "Zamknij nawigację"
+    },
+    "search": {
+      "placeholder": "Szukaj w wiadomościach",
+      "openLabel": "Szukaj w wiadomościach",
+      "clearLabel": "Wyczyść wyszukiwanie",
+      "cancelLabel": "Anuluj wyszukiwanie"
+    },
+    "onboarding": {
+      "skip": "Pomiń",
+      "skipLabel": "Pomiń wprowadzenie",
+      "welcomeTitle": "Poznaj Stellę",
+      "welcomeBody": "Zapytaj o cokolwiek, przegadaj sprawę albo przekaż prawdziwą robotę — Stella odpowiada tutaj i może działać na twoim komputerze.",
+      "themeTitle": "Dostosuj do siebie",
+      "themeBody": "Wybierz motyw. Możesz go zmienić w każdej chwili w Ustawieniach.",
+      "connectTitle": "Twój komputer wszędzie",
+      "connectBodyGuest": "Zaloguj się później, aby sparować Stellę na swoim komputerze — wtedy z telefonu poprosisz o przeglądanie sieci, zarządzanie plikami i uruchamianie zadań w domu.",
+      "connectBodyPaired": "Sparuj raz z aplikacją Stella na komputerze, a twój telefon będzie mógł poprosić ją o przeglądanie sieci, zarządzanie plikami i uruchamianie zadań — nawet z drugiego końca miasta.",
+      "pairComputer": "Sparuj mój komputer",
+      "startChatting": "Zacznij rozmowę"
+    },
+    "login": {
+      "heroTitle": "Twój asystent,\nkieszonkowy.",
+      "heroBody": "Użyj Apple, Google albo adresu e-mail, którego używasz na komputerze.",
+      "continueWithApple": "Kontynuuj z Apple",
+      "openingApple": "Otwieranie Apple...",
+      "continueWithGoogle": "Kontynuuj z Google",
+      "openingGoogle": "Otwieranie Google...",
+      "orUseEmail": "lub użyj e-maila",
+      "emailPlaceholder": "E-mail",
+      "sending": "Wysyłanie...",
+      "signingIn": "Logowanie...",
+      "checkInbox": "Sprawdź skrzynkę i dotknij linku — zalogujesz się automatycznie.",
+      "useDifferentEmail": "Użyj innego adresu e-mail",
+      "resend": "Wyślij ponownie",
+      "resendLabel": "Wyślij ponownie e-mail logowania",
+      "enterEmail": "Podaj swój adres e-mail.",
+      "sendFailed": "Nie udało się wysłać e-maila logowania.",
+      "googleStartFailed": "Nie udało się rozpocząć logowania przez Google.",
+      "appleStartFailed": "Nie udało się rozpocząć logowania przez Apple.",
+      "appleCompleteFailed": "Nie udało się dokończyć logowania przez Apple.",
+      "appleNoToken": "Apple nie zwróciło tokenu tożsamości.",
+      "finishFailed": "Nie udało się dokończyć logowania. Spróbuj ponownie.",
+      "incomplete": "Logowanie nie zostało ukończone. Spróbuj ponownie.",
+      "linkExpired": "Link wygasł. Spróbuj ponownie.",
+      "legalPrefix": "Kontynuując, akceptujesz nasze ",
+      "legalTerms": "Warunki korzystania",
+      "legalConjunction": " oraz ",
+      "legalPrivacy": "Politykę prywatności",
+      "legalSuffix": ".",
+      "continueAsGuest": "Kontynuuj bez logowania"
+    },
+    "chat": {
+      "emptyPrompt": "Zapytaj Stellę o cokolwiek",
+      "composerPlaceholder": "Napisz do Stelli"
+    },
+    "computer": {
+      "guestHeroTitle": "Twój komputer w zasięgu ręki",
+      "guestHeroBody": "Poproś Stellę, żeby zrobiła coś na twoim komputerze — przeglądała sieć, zarządzała plikami, uruchamiała zadania i nie tylko.",
+      "pairFirstTitle": "Najpierw sparuj telefon",
+      "pairFirstBody": "Sparuj ten telefon z aplikacją Stella na komputerze, aby rozmawiać z nią z dowolnego miejsca. Wystarczy zrobić to raz.",
+      "pairPhone": "Sparuj telefon",
+      "pairThisPhoneLabel": "Sparuj ten telefon",
+      "emptyPrompt": "Zapytaj swój komputer o cokolwiek",
+      "composerPlaceholder": "Napisz do swojego komputera",
+      "defaultDeviceLabel": "Twój komputer",
+      "statusChecking": "Sprawdzanie…",
+      "statusWaking": "Budzenie…",
+      "statusConnected": "Połączono",
+      "statusAsleep": "Uśpiony",
+      "connectingLabel": "Łączenie z twoim komputerem",
+      "connectedLabel": "Komputer połączony",
+      "disconnectedLabel": "Komputer rozłączony",
+      "unreachableTitle": "Komputer nieosiągalny",
+      "unreachableBody": "Twój komputer jest teraz nieosiągalny. Wysłaliśmy żądanie wybudzenia — spróbuj ponownie za kilka sekund.",
+      "syncWaitingTitle": "Synchronizacja czeka",
+      "syncWaitingBody": "Wiadomość jest wciąż wysyłana. Synchronizacja ruszy zaraz po jej zakończeniu.",
+      "syncFailedTitle": "Synchronizacja nie powiodła się",
+      "syncFailedBody": "Twój komputer przestał odpowiadać podczas synchronizacji. Spróbuj ponownie."
+    },
+    "desktop": {
+      "pairTitle": "Sparuj swój telefon",
+      "guestBody": "Miej aplikację Stella na komputerze prosto w telefonie. Po sparowaniu telefon połączy się automatycznie.",
+      "guestSignInPrompt": "Zaloguj się, aby zacząć.",
+      "connecting": "Łączenie z komputerem",
+      "pairing": "Parowanie tego telefonu",
+      "unreachable": "Nie można połączyć się z komputerem",
+      "deviceUnreachable": "Urządzenie {platform} jest nieosiągalne",
+      "repairNeeded": "Ten telefon trzeba ponownie sparować z twoim komputerem.",
+      "enterCode": "Wpisz kod wyświetlony na twoim komputerze.",
+      "linkInterrupted": "Połączenie z twoim komputerem zostało przerwane.",
+      "unavailableBodyPaired": "Upewnij się, że Stella jest otwarta na twoim komputerze i podłączona do internetu. Po połączeniu aplikacja komputerowa pojawi się tutaj, w telefonie.",
+      "unavailableBodyUnpaired": "Miej aplikację Stella na komputerze prosto w telefonie. Zeskanuj kod QR wyświetlony w Stelli na komputerze, aby zacząć — potem telefon będzie łączył się automatycznie.",
+      "pairAnother": "Sparuj kolejny komputer",
+      "startPairingLabel": "Rozpocznij parowanie komputera",
+      "retryLabel": "Spróbuj połączyć się ponownie",
+      "reconnecting": "Ponowne łączenie...",
+      "limitedCapabilities": "Niektóre rzeczy wymagają twojego komputera"
+    },
+    "settings": {
+      "title": "Ustawienia",
+      "loadingSession": "Wczytywanie sesji…",
+      "signIn": "Zaloguj się",
+      "signInTitle": "Zaloguj się do Stelli",
+      "showEmailLabel": "Pokaż e-mail",
+      "hideEmailLabel": "Ukryj e-mail",
+      "appearanceSection": "Wygląd",
+      "appearance": {
+        "system": "Systemowy",
+        "light": "Jasny",
+        "dark": "Ciemny"
+      },
+      "background": {
+        "soft": "Miękkie",
+        "flat": "Płaskie"
+      },
+      "useAppearanceLabel": "Użyj wyglądu {name}",
+      "useBackgroundLabel": "Użyj tła {name}",
+      "useThemeLabel": "Użyj motywu {name}",
+      "notificationsSection": "Powiadomienia",
+      "pushToggleLabel": "Zezwalaj na powiadomienia push",
+      "pushToggleSub": "Otrzymasz powiadomienie, gdy twój komputer zakończy żądanie.",
+      "pushToggleA11y": "Przełącz powiadomienia push",
+      "voiceSection": "Rozmawiaj ze Stellą",
+      "voiceSectionHint": "Dokąd głos bez użycia rąk (np. CarPlay) wysyła twoje wiadomości. Automatycznie wybiera czat na twoim komputerze, jeśli tam skończyłeś i jest osiągalny — w przeciwnym razie czat w tym telefonie.",
+      "voiceTarget": {
+        "auto": "Automatycznie",
+        "phone": "Telefon",
+        "computer": "Komputer"
+      },
+      "voiceTargetLabel": "Wysyłaj wiadomości głosowe do: {name}",
+      "pairedSection": "Sparowane komputery",
+      "pairedEmpty": "Brak sparowanych komputerów. Sparuj na karcie Komputer.",
+      "pairedOn": "Sparowano {date}",
+      "paired": {
+        "unnamedComputer": "Komputer · {id}"
+      },
+      "forget": "Zapomnij",
+      "forgetLabel": "Zapomnij urządzenie {name}",
+      "forgetConfirmTitle": "Zapomnieć urządzenie {name}?",
+      "forgetConfirmBody": "Ten telefon przestanie łączyć się z tym komputerem, dopóki nie sparujesz go ponownie.",
+      "carPlayDiagnostics": "Diagnostyka CarPlay",
+      "openCarPlayDiagnosticsLabel": "Otwórz diagnostykę CarPlay",
+      "termsOfService": "Warunki korzystania",
+      "openTermsLabel": "Otwórz Warunki korzystania",
+      "privacyPolicy": "Polityka prywatności",
+      "openPrivacyLabel": "Otwórz Politykę prywatności",
+      "signOut": "Wyloguj",
+      "signingOut": "Wylogowywanie…",
+      "signOutLabel": "Wyloguj się ze Stelli",
+      "deleteAccount": "Usuń konto",
+      "deletingAccount": "Usuwanie konta…",
+      "deleteAccountLabel": "Usuń swoje konto Stella",
+      "deleteConfirmTitle": "Usuń konto",
+      "deleteConfirmBody": "To trwale usuwa twoje konto Stella oraz powiązane z nim dane w chmurze na naszych serwerach. Tej operacji nie można cofnąć.",
+      "deleteFailedTitle": "Nie udało się usunąć konta"
+    },
+    "carPlayDiagnostics": {
+      "title": "Diagnostyka CarPlay",
+      "subtitle": {
+        "one": "Ślady połączenia CarPlay ({count} wiersz, od najnowszego). Skopiuj je i wyślij, gdy coś zacznie się dziwnie zachowywać w samochodzie.",
+        "few": "Ślady połączenia CarPlay ({count} wiersze, od najnowszego). Skopiuj je i wyślij, gdy coś zacznie się dziwnie zachowywać w samochodzie.",
+        "many": "Ślady połączenia CarPlay ({count} wierszy, od najnowszego). Skopiuj je i wyślij, gdy coś zacznie się dziwnie zachowywać w samochodzie.",
+        "other": "Ślady połączenia CarPlay ({count} wiersza, od najnowszego). Skopiuj je i wyślij, gdy coś zacznie się dziwnie zachowywać w samochodzie."
+      },
+      "copyAll": "Kopiuj wszystko",
+      "copyAllLabel": "Kopiuj całą diagnostykę",
+      "copied": "Skopiowano ✓",
+      "refresh": "Odśwież",
+      "refreshLabel": "Odśwież diagnostykę",
+      "clear": "Wyczyść",
+      "clearLabel": "Wyczyść diagnostykę",
+      "empty": "Nie zarejestrowano jeszcze żadnej diagnostyki CarPlay. Połącz się raz z CarPlay, a potem wróć tutaj.",
+      "clipboardEmpty": "(brak zarejestrowanej diagnostyki CarPlay)"
+    }
+  }
+}

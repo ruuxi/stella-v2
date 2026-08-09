@@ -43,6 +43,7 @@ import {
 } from "@/features/chat/lib/event-transforms";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
 import { useShellBreakpointState } from "@/shell/shell-breakpoints";
+import { useT, useTPlural } from "@/shared/i18n";
 import "./composer-activity-pill.css";
 
 // Keep the full Activity hierarchy off the composer's eager module graph.
@@ -69,22 +70,24 @@ const TITLE_SHIMMER_MS = 1900;
  *  this long before reverting to idle, so quick work doesn't flash. */
 const TERMINAL_DWELL_MS = 2800;
 
-const STATUS_FALLBACK: Record<Exclude<PillState, "idle">, string> = {
-  running: "Task in progress",
-  done: "Finished",
-  error: "Couldn’t finish",
-  canceled: "Stopped",
+const STATUS_FALLBACK_KEYS: Record<Exclude<PillState, "idle">, string> = {
+  running: "app.chat.activityPill.statusRunning",
+  done: "app.chat.activityPill.statusDone",
+  error: "app.chat.activityPill.statusError",
+  canceled: "app.chat.activityPill.statusCanceled",
 };
 
 export const getActivityPillLabel = (
   state: PillState,
   runningCount: number,
+  t: ReturnType<typeof useT>,
+  tPlural: ReturnType<typeof useTPlural>,
 ): string => {
-  if (state === "idle") return "Activity";
+  if (state === "idle") return t("app.chat.activityPill.idle");
   if (state === "running") {
-    return `${runningCount} ${runningCount === 1 ? "task" : "tasks"} in progress`;
+    return tPlural("app.chat.activityPill.tasksInProgress", runningCount);
   }
-  return STATUS_FALLBACK[state];
+  return t(STATUS_FALLBACK_KEYS[state]);
 };
 
 export const shouldShowActivityPill = (
@@ -219,7 +222,9 @@ const ActivityPillBody = memo(function ActivityPillBody({
   open: boolean;
   onOpenChange: (next: boolean) => void;
 }) {
-  const label = getActivityPillLabel(state, runningCount);
+  const t = useT();
+  const tPlural = useTPlural();
+  const label = getActivityPillLabel(state, runningCount, t, tPlural);
 
   const labelNode: ReactNode =
     state === "running" ? (
@@ -244,7 +249,9 @@ const ActivityPillBody = memo(function ActivityPillBody({
           onMouseEnter={preloadActivityOverview}
           onFocus={preloadActivityOverview}
           aria-label={
-            state === "idle" ? "Activity" : `${label} — open activity`
+            state === "idle"
+              ? t("app.chat.activityPill.idle")
+              : t("app.chat.activityPill.openActivity", { label })
           }
         >
           <span className="composer-activity-pill__glyph" aria-hidden="true">

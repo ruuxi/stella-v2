@@ -21,6 +21,7 @@ import {
 } from "@/features/workspace-display/tab-store";
 import { payloadToTabSpec } from "./display/payload-to-tab-spec";
 import { SidebarSectionBody } from "@/shell/sidebar-sections/SidebarSectionBody";
+import { useT } from "@/shared/i18n";
 import "./right-sidebar.css";
 import "./right-sidebar-panel.css";
 import "./shell-junction.css";
@@ -122,6 +123,7 @@ export const RightSidebar = forwardRef<
   RightSidebarHandle,
   RightSidebarProps
 >(function RightSidebar({ portalTarget }, ref) {
+  const t = useT();
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
   const asideRef = useRef<HTMLElement | null>(null);
@@ -398,7 +400,7 @@ export const RightSidebar = forwardRef<
       }${panelOpen ? " right-sidebar--open" : ""}${
         panelOpen && panelExpanded ? " right-sidebar--expanded" : ""
       }`}
-      aria-label="Workspace"
+      aria-label={t("shell.rightSidebar.workspace")}
       aria-hidden={!shellVisible}
     >
       {panelOpen ? (
@@ -406,10 +408,10 @@ export const RightSidebar = forwardRef<
           className="right-sidebar__resize-handle"
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize display panel"
+          aria-label={t("shell.rightSidebar.resize")}
           onPointerDown={handleResizeStart}
           onDoubleClick={handleResizeDoubleClick}
-          title="Drag to resize · double-click to reset"
+          title={t("shell.rightSidebar.resizeHint")}
         />
       ) : null}
       <div className="right-sidebar-inner right-sidebar-panel__frame">

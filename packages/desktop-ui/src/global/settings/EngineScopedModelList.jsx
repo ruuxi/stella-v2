@@ -1,12 +1,14 @@
 import { Check } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 import "./EngineScopedModelList.css";
 export function EngineScopedModelList({ engineLabel, models, value, onSelect, loading = false, disabled = false, emptyMessage, hideHead = false, selectedRowExtra = null, }) {
-    return (<div className="engine-scoped-model-list" aria-label={`${engineLabel} models`}>
+    const t = useT();
+    return (<div className="engine-scoped-model-list" aria-label={t("settings.engineModels.ariaLabel", { engine: engineLabel })}>
       {hideHead ? null : (<div className="engine-scoped-model-list__head">
           <span>{engineLabel}</span>
         </div>)}
       <div className="engine-scoped-model-list__rows">
-        {loading && models.length === 0 ? (<p>Loading {engineLabel} models…</p>) : models.length === 0 ? (emptyMessage === null ? null : (<p>{emptyMessage ?? `No ${engineLabel} models are available.`}</p>)) : (models.map((model) => {
+        {loading && models.length === 0 ? (<p>{t("settings.engineModels.loading", { engine: engineLabel })}</p>) : models.length === 0 ? (emptyMessage === null ? null : (<p>{emptyMessage ?? t("settings.engineModels.empty", { engine: engineLabel })}</p>)) : (models.map((model) => {
             const selected = model.id === value;
             return (<div key={model.id} className="engine-scoped-model-list__row-slot">
                 <button type="button" aria-pressed={selected} aria-disabled={model.unavailable || undefined} data-selected={selected || undefined} disabled={disabled || model.unavailable} onClick={() => onSelect(model.id)}>

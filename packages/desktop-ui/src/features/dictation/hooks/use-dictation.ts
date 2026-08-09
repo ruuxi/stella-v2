@@ -31,6 +31,7 @@ import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import { getClaimedDictationComposer } from "@/features/dictation/active-composer";
 import { showToast } from "@/ui/toast";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
+import { useT } from "@/shared/i18n";
 
 export const DICTATION_TOGGLE_EVENT = "stella:dictation-toggle";
 
@@ -108,6 +109,7 @@ export const useDictation = ({
   onCommit,
   claimId,
 }: UseDictationOptions): UseDictationResult => {
+  const t = useT();
   const [state, setState] = useState<DictationSessionState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>([]);
@@ -251,18 +253,16 @@ export const useDictation = ({
                 showToast(
                   canDownloadLocalDictation
                     ? {
-                        title: "Local dictation isn't ready",
-                        description:
-                          "Download the voice feature to dictate on this device, or sign in to use cloud transcription.",
+                        title: t("features.dictation.localNotReadyTitle"),
+                        description: t("features.dictation.localNotReadyBody"),
                         variant: "error",
                         duration: 10_000,
                         action: DOWNLOAD_LOCAL_DICTATION_ACTION,
                         secondaryAction: SIGN_IN_TOAST_ACTION,
                       }
                     : {
-                        title: "Sign in to use dictation",
-                        description:
-                          "Dictation needs you signed in to Stella when on-device transcription isn't available. Sign in to keep going.",
+                        title: t("features.dictation.signInTitle"),
+                        description: t("features.dictation.signInBody"),
                         variant: "error",
                         duration: 8000,
                         action: SIGN_IN_TOAST_ACTION,
@@ -270,9 +270,8 @@ export const useDictation = ({
                 );
               } else {
                 showToast({
-                  title: "Dictation didn't work",
-                  description:
-                    "Stella couldn't transcribe that. Please try again.",
+                  title: t("features.dictation.failedTitle"),
+                  description: t("features.dictation.failedBody"),
                   variant: "error",
                 });
               }
@@ -302,9 +301,8 @@ export const useDictation = ({
               // already in the composer, so flag that it may be incomplete
               // rather than letting the user assume it captured everything.
               showToast({
-                title: "Part of your dictation was transcribed",
-                description:
-                  "Some of the recording couldn't be transcribed, so the inserted text may be incomplete.",
+                title: t("features.dictation.partialTitle"),
+                description: t("features.dictation.partialBody"),
                 variant: "error",
                 duration: 8000,
               });
@@ -327,7 +325,7 @@ export const useDictation = ({
         setShowRecordingBar(false);
       }
     },
-    [disabled, fireCommitIfPending],
+    [disabled, fireCommitIfPending, t],
   );
 
   const toggle = useCallback(() => {

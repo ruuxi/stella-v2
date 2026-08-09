@@ -9,11 +9,11 @@ import {
   DialogCloseButton,
 } from "@/ui/dialog";
 import {
-  LEGAL_TITLES,
   TERMS_OF_SERVICE,
   PRIVACY_POLICY,
   type LegalDocument,
 } from "./legal-text";
+import { useT } from "@/shared/i18n";
 import "./legal-dialog.css";
 
 const CONTENT: Record<LegalDocument, string> = {
@@ -21,9 +21,14 @@ const CONTENT: Record<LegalDocument, string> = {
   privacy: PRIVACY_POLICY,
 };
 
-const SUBTITLE: Record<LegalDocument, string> = {
-  terms: "How Stella works, and what you agree to when you use it.",
-  privacy: "What we collect, what we don't, and how we keep it safe.",
+const TITLE_KEYS: Record<LegalDocument, string> = {
+  terms: "global.legal.terms.title",
+  privacy: "global.legal.privacy.title",
+};
+
+const SUBTITLE_KEYS: Record<LegalDocument, string> = {
+  terms: "global.legal.terms.subtitle",
+  privacy: "global.legal.privacy.subtitle",
 };
 
 type LegalDialogProps = {
@@ -32,8 +37,9 @@ type LegalDialogProps = {
 };
 
 export const LegalDialog = ({ document, onOpenChange }: LegalDialogProps) => {
-  const title = document ? LEGAL_TITLES[document] : "";
-  const subtitle = document ? SUBTITLE[document] : "";
+  const t = useT();
+  const title = document ? t(TITLE_KEYS[document]) : "";
+  const subtitle = document ? t(SUBTITLE_KEYS[document]) : "";
   const scrollRef = useEdgeFadeRef<HTMLDivElement>({ axis: "vertical" });
   return (
     <Dialog open={document !== null} onOpenChange={onOpenChange}>

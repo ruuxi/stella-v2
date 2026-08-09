@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import {
   Area,
   CartesianGrid,
@@ -12,42 +12,56 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts";
 import type { UsageTimelinePoint } from "./usage-data";
+import { useT } from "@/shared/i18n";
 import { formatCost, formatTokens } from "./format";
 
 const formatCostTick = (value: unknown) => formatCost(Number(value));
 const formatTokensTick = (value: unknown) => formatTokens(Number(value));
-
-const UsageTooltip = ({ active, payload, label }: TooltipContentProps) => {
-  if (!active || !payload?.length) return null;
-  const point = payload[0]?.payload as UsageTimelinePoint | undefined;
-  if (!point) return null;
-  return (
-    <div className="usage-chart-tooltip">
-      <strong>{label}</strong>
-      <span>{formatCost(point.totalCostUsd)} estimated</span>
-      <span>{formatTokens(point.totalTokens)} tokens</span>
-      <span>{point.calls} model calls</span>
-    </div>
-  );
-};
 
 export const UsageTimelineChart = memo(function UsageTimelineChart({
   timeline,
 }: {
   timeline: UsageTimelinePoint[];
 }) {
+  const t = useT();
+  const UsageTooltip = useCallback(
+    ({ active, payload, label }: TooltipContentProps) => {
+      if (!active || !payload?.length) return null;
+      const point = payload[0]?.payload as UsageTimelinePoint | undefined;
+      if (!point) return null;
+      return (
+        <div className="usage-chart-tooltip">
+          <strong>{label}</strong>
+          <span>
+            {t("app.usage.timeline.tooltip.estimated", {
+              value: formatCost(point.totalCostUsd),
+            })}
+          </span>
+          <span>
+            {t("app.usage.timeline.tooltip.tokens", {
+              value: formatTokens(point.totalTokens),
+            })}
+          </span>
+          <span>
+            {t("app.usage.timeline.tooltip.calls", { count: point.calls })}
+          </span>
+        </div>
+      );
+    },
+    [t],
+  );
   return (
     <section className="usage-panel usage-chart-panel">
       <div className="usage-panel-heading">
         <div>
-          <h2>Timeline</h2>
-          <p>Estimated cost and total tokens per time bucket.</p>
+          <h2>{t("app.usage.timeline.title")}</h2>
+          <p>{t("app.usage.timeline.description")}</p>
         </div>
       </div>
       <div
         className="usage-chart"
         role="img"
-        aria-label="Timeline of estimated model cost and token usage"
+        aria-label={t("app.usage.timeline.chartLabel")}
       >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
@@ -96,7 +110,7 @@ export const UsageTimelineChart = memo(function UsageTimelineChart({
               yAxisId="cost"
               type="monotone"
               dataKey="totalCostUsd"
-              name="Estimated cost"
+              name={t("app.usage.timeline.series.cost")}
               stroke="var(--accent, #7c6cf2)"
               fill="url(#usageCostFill)"
               strokeWidth={2}
@@ -105,7 +119,7 @@ export const UsageTimelineChart = memo(function UsageTimelineChart({
               yAxisId="tokens"
               type="monotone"
               dataKey="totalTokens"
-              name="Tokens"
+              name={t("app.usage.timeline.series.tokens")}
               stroke="var(--foreground)"
               strokeWidth={1.5}
               dot={false}

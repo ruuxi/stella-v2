@@ -11,6 +11,7 @@ import {
 } from "@/ui/dialog";
 import { TextField } from "@/ui/text-field";
 import { showToast } from "@/ui/toast";
+import { useT } from "@/shared/i18n";
 
 interface FeedbackDialogProps {
   open: boolean;
@@ -29,26 +30,28 @@ interface FeedbackDialogProps {
   onSubmitted?: () => void;
 }
 
-const TITLE_BY_VARIANT: Record<NonNullable<FeedbackDialogProps["variant"]>, string> = {
-  manual: "Send feedback",
-  auto: "How's Stella going?",
-};
-
-const DESCRIPTION_BY_VARIANT: Record<
+const TITLE_KEY_BY_VARIANT: Record<
   NonNullable<FeedbackDialogProps["variant"]>,
   string
 > = {
-  manual:
-    "Your message is sent anonymously — it isn't linked to your account.",
-  auto: "Anything we should know? Sent anonymously — not linked to your account.",
+  manual: "shell.sidebar.feedback.title.manual",
+  auto: "shell.sidebar.feedback.title.auto",
 };
 
-const CANCEL_LABEL_BY_VARIANT: Record<
+const DESCRIPTION_KEY_BY_VARIANT: Record<
   NonNullable<FeedbackDialogProps["variant"]>,
   string
 > = {
-  manual: "Cancel",
-  auto: "Not now",
+  manual: "shell.sidebar.feedback.description.manual",
+  auto: "shell.sidebar.feedback.description.auto",
+};
+
+const CANCEL_LABEL_KEY_BY_VARIANT: Record<
+  NonNullable<FeedbackDialogProps["variant"]>,
+  string
+> = {
+  manual: "common.cancel",
+  auto: "shell.sidebar.feedback.notNow",
 };
 
 interface FeedbackFormProps {
@@ -62,6 +65,7 @@ const FeedbackForm = ({
   onCancel,
   onSubmitted,
 }: FeedbackFormProps) => {
+  const t = useT();
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const submitFeedback = useMutation(api.feedback.submitFeedback);
@@ -75,33 +79,33 @@ const FeedbackForm = ({
       onCancel();
       onSubmitted?.();
       showToast({
-        title: "Feedback sent",
-        description: "Thanks — every note helps us shape Stella.",
+        title: t("shell.sidebar.feedback.toasts.sentTitle"),
+        description: t("shell.sidebar.feedback.toasts.sentDescription"),
       });
     } catch (error) {
       const description =
-        error instanceof Error ? error.message : "Please try again.";
+        error instanceof Error ? error.message : t("chat.tryAgainHint");
       showToast({
-        title: "Couldn't send feedback",
+        title: t("shell.sidebar.feedback.toasts.failedTitle"),
         description,
         variant: "error",
       });
     } finally {
       setSubmitting(false);
     }
-  }, [text, submitting, submitFeedback, onCancel, onSubmitted]);
+  }, [text, submitting, submitFeedback, onCancel, onSubmitted, t]);
 
   return (
     <>
       <div className="sidebar-feedback-description">
-        {DESCRIPTION_BY_VARIANT[variant]}
+        {t(DESCRIPTION_KEY_BY_VARIANT[variant])}
       </div>
       <div className="sidebar-feedback-body">
         <TextField
           multiline
           hideLabel
-          label="Feedback"
-          placeholder="Tell us what's working, what isn't, or what you'd love to see…"
+          label={t("shell.sidebar.feedback.fieldLabel")}
+          placeholder={t("shell.sidebar.feedback.placeholder")}
           rows={5}
           maxLength={4000}
           value={text}
@@ -118,7 +122,7 @@ const FeedbackForm = ({
           onClick={onCancel}
           disabled={submitting}
         >
-          {CANCEL_LABEL_BY_VARIANT[variant]}
+          {t(CANCEL_LABEL_KEY_BY_VARIANT[variant])}
         </Button>
         <Button
           variant="primary"
@@ -129,7 +133,9 @@ const FeedbackForm = ({
           }}
           disabled={submitting || text.trim().length === 0}
         >
-          {submitting ? "Sending…" : "Send"}
+          {submitting
+            ? t("shell.sidebar.feedback.sending")
+            : t("shell.sidebar.feedback.send")}
         </Button>
       </div>
     </>
@@ -160,13 +166,14 @@ export const FeedbackDialog = ({
   variant = "manual",
   onSubmitted,
 }: FeedbackDialogProps) => {
+  const t = useT();
   const handleClose = useCallback(() => onOpenChange(false), [onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent fit className="sidebar-feedback-dialog">
         <DialogHeader>
-          <DialogTitle>{TITLE_BY_VARIANT[variant]}</DialogTitle>
+          <DialogTitle>{t(TITLE_KEY_BY_VARIANT[variant])}</DialogTitle>
           <DialogCloseButton />
         </DialogHeader>
         <FeedbackForm

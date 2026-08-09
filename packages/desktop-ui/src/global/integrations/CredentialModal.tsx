@@ -12,6 +12,7 @@ import {
 import { Button } from "@/ui/button";
 import { TextField } from "@/ui/text-field";
 import { getProviderDisplayName } from "@/global/settings/lib/model-catalog";
+import { useT } from "@/shared/i18n";
 import "./credential-modal.css";
 
 type CredentialModalProps = {
@@ -40,26 +41,39 @@ const CredentialModalContent = ({
   onSubmit,
   onCancel,
 }: CredentialModalContentProps) => {
+  const t = useT();
   const [secret, setSecret] = useState("");
   const [labelValue, setLabelValue] = useState(label ?? "");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const providerTitle = label?.trim() || getProviderDisplayName(provider);
+  const connectTitle = t("global.integrations.credential.title", {
+    provider: providerTitle,
+  });
+  const defaultDescription = t("global.integrations.credential.description", {
+    provider: providerTitle,
+  });
+  const defaultLabelValue = t("global.integrations.credential.defaultLabel", {
+    provider: providerTitle,
+  });
 
   const handleSubmit = async (event?: React.FormEvent) => {
     event?.preventDefault();
     setError(null);
     if (!secret.trim()) {
-      setError("API key is required.");
+      setError(t("global.integrations.credential.apiKeyRequired"));
       return;
     }
-    const finalLabel = labelValue.trim() || `${providerTitle} key`;
+    const finalLabel = labelValue.trim() || defaultLabelValue;
     try {
       setSubmitting(true);
       await onSubmit({ label: finalLabel, secret: secret.trim() });
     } catch (err) {
-      setError((err as Error).message || "Failed to save credential.");
+      setError(
+        (err as Error).message ||
+          t("global.integrations.credential.saveFailed"),
+      );
       setSubmitting(false);
     }
   };
@@ -67,12 +81,11 @@ const CredentialModalContent = ({
   return (
     <>
       <VisuallyHidden asChild>
-        <DialogTitle>Connect {providerTitle}</DialogTitle>
+        <DialogTitle>{connectTitle}</DialogTitle>
       </VisuallyHidden>
       <VisuallyHidden asChild>
         <DialogDescription>
-          {description ??
-            `Stella needs your ${providerTitle} API key to connect. Paste it below. It stays on your computer.`}
+          {description ?? defaultDescription}
         </DialogDescription>
       </VisuallyHidden>
       <DialogCloseButton className="credential-modal-close" />
@@ -81,29 +94,30 @@ const CredentialModalContent = ({
           <div className="credential-modal-icon">
             <KeyRound size={20} />
           </div>
-          <p className="credential-modal-headline">Connect {providerTitle}</p>
+          <p className="credential-modal-headline">{connectTitle}</p>
           <p className="credential-modal-sub">
-            {description ??
-              `Stella needs your ${providerTitle} API key to connect. Paste it below. It stays on your computer.`}
+            {description ?? defaultDescription}
           </p>
         </div>
 
         <form className="credential-modal-form" onSubmit={handleSubmit}>
           <TextField
-            label="API key"
+            label={t("global.integrations.credential.apiKeyLabel")}
             type="password"
             value={secret}
             onChange={(event) => setSecret(event.target.value)}
-            placeholder={placeholder ?? "Paste your key"}
+            placeholder={
+              placeholder ?? t("global.integrations.credential.keyPlaceholder")
+            }
             autoFocus
           />
           {showLabel ? (
             <TextField
-              label="Label"
-              description="A friendly name to recognize this key later."
+              label={t("global.integrations.credential.labelLabel")}
+              description={t("global.integrations.credential.labelDescription")}
               value={labelValue}
               onChange={(event) => setLabelValue(event.target.value)}
-              placeholder={`${providerTitle} key`}
+              placeholder={defaultLabelValue}
             />
           ) : null}
           {error ? <div className="credential-modal-error">{error}</div> : null}
@@ -116,7 +130,7 @@ const CredentialModalContent = ({
               disabled={submitting}
               className="pill-btn pill-btn--lg credential-modal-cancel"
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
@@ -124,7 +138,9 @@ const CredentialModalContent = ({
               disabled={submitting}
               className="pill-btn pill-btn--primary pill-btn--lg credential-modal-submit"
             >
-              {submitting ? "Saving..." : "Save key"}
+              {submitting
+                ? t("global.integrations.credential.saving")
+                : t("global.integrations.credential.saveKey")}
             </Button>
           </div>
         </form>

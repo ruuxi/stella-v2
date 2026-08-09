@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ModelMentionText } from "./ModelMentionText";
+import { useT } from "@/shared/i18n";
 
 interface UserMessageBodyProps {
   text: string;
@@ -16,6 +17,7 @@ interface UserMessageBodyProps {
  * occurs at the current width.
  */
 export function UserMessageBody({ text }: UserMessageBodyProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -60,7 +62,9 @@ export function UserMessageBody({ text }: UserMessageBodyProps) {
           onClick={toggle}
           aria-expanded={expanded}
         >
-          {expanded ? "Show less" : "Show more"}
+          {expanded
+            ? t("app.chat.userMessage.showLess")
+            : t("app.chat.userMessage.showMore")}
         </button>
       )}
     </div>

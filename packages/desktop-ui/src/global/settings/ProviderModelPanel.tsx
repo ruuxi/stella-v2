@@ -24,6 +24,7 @@ import {
   type LlmProviderEntry,
 } from "@/global/settings/lib/llm-providers";
 import { findApiKey, findOauthCredential, findOauthProvider, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
+import { useT } from "@/shared/i18n";
 import "./ProviderModelPicker.css";
 export type ReasoningEffort =
   | "default"
@@ -35,14 +36,14 @@ export type ReasoningEffort =
 
 const REASONING_OPTIONS: ReadonlyArray<{
   id: ReasoningEffort;
-  label: string;
+  labelKey: string;
 }> = [
-    { id: "default", label: "Auto" },
-    { id: "minimal", label: "Minimal" },
-    { id: "low", label: "Low" },
-    { id: "medium", label: "Medium" },
-    { id: "high", label: "High" },
-    { id: "xhigh", label: "Max" },
+    { id: "default", labelKey: "settings.modelPicker.reasoning.default" },
+    { id: "minimal", labelKey: "settings.modelPicker.reasoning.minimal" },
+    { id: "low", labelKey: "settings.modelPicker.reasoning.low" },
+    { id: "medium", labelKey: "settings.modelPicker.reasoning.medium" },
+    { id: "high", labelKey: "settings.modelPicker.reasoning.high" },
+    { id: "xhigh", labelKey: "settings.modelPicker.reasoning.xhigh" },
 ];
 const STELLA_PROVIDER_KEY = "stella";
 const LOCAL_PROVIDER_KEY = "local";
@@ -182,6 +183,7 @@ export function buildProviderTabs(groups: readonly ProviderGroup[], visibleProvi
     return Array.from(tabs.values()).sort((a, b) => compareProviderRailOrder(a.key, b.key, a.label, b.label));
 }
 export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, hiddenProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, authOpenRequest = 0, onRequestSearchClose, collapsibleGroups = false, activeSectionKey = null, extraSections = [], sectionOrder = null, onExtraSectionExpanded, onRefresh, refreshing = false, selectedRowExtra = null, }: ProviderModelPanelProps) {
+    const t = useT();
     const credentials = useLlmCredentials();
     const cancelOAuth = credentials.cancelOAuth;
     const tabs = useMemo(() => buildProviderTabs(groups, visibleProviders, hiddenProviders), [groups, hiddenProviders, visibleProviders]);
@@ -363,12 +365,14 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             setExpandedProvider(null);
         }
         catch (caught) {
-            setAuthError(caught instanceof Error ? caught.message : "Failed to save API key.");
+            setAuthError(caught instanceof Error
+                ? caught.message
+                : t("settings.modelPicker.errors.saveApiKey"));
         }
         finally {
             setSavingProvider(null);
         }
-    }, [credentials, draftKey]);
+    }, [credentials, draftKey, t]);
     const handleLoginOAuth = useCallback(async (providerKey: string) => {
         const previousAttempt = oauthAttemptRef.current;
         if (previousAttempt) {
@@ -386,7 +390,9 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         }
         catch (caught) {
             if (!attempt.cancelled) {
-                setAuthError(caught instanceof Error ? caught.message : "OAuth login failed.");
+                setAuthError(caught instanceof Error
+                    ? caught.message
+                    : t("settings.modelPicker.errors.oauthLogin"));
             }
         }
         finally {
@@ -395,7 +401,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 setOauthProvider(null);
             }
         }
-    }, [cancelPendingOAuth, credentials]);
+    }, [cancelPendingOAuth, credentials, t]);
     const handleSubmitOpenRouter = useCallback(() => {
         const trimmed = openRouterCustomId.trim();
         if (!trimmed)
@@ -431,8 +437,8 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 setQuery("");
                 onRequestSearchClose?.();
             }
-        }} placeholder="Search models…" spellCheck={false} autoComplete="off" aria-label="Search models" disabled={disabled}/>
-        {onRequestSearchClose ? (<button type="button" className="model-picker-search-close" aria-label="Close search" onClick={() => {
+        }} placeholder={t("settings.modelPicker.searchPlaceholder")} spellCheck={false} autoComplete="off" aria-label={t("settings.modelPicker.searchAriaLabel")} disabled={disabled}/>
+        {onRequestSearchClose ? (<button type="button" className="model-picker-search-close" aria-label={t("settings.modelPicker.closeSearch")} onClick={() => {
                 setQuery("");
                 onRequestSearchClose();
             }}>
@@ -448,7 +454,11 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const oauthEntry = findOauthProvider(credentials.oauthProviders, tab.key);
         const llmEntry = tab.llmEntry ??
             (!isStella
-                ? { key: tab.key, label: tab.label, placeholder: "API key" }
+                ? {
+                    key: tab.key,
+                    label: tab.label,
+                    placeholder: t("settings.modelPicker.apiKeyPlaceholder"),
+                }
                 : undefined);
         const connected = isStella || Boolean(apiKey) || Boolean(oauthCred);
         // Providers introduced by models.json/extensions own their auth and may
@@ -472,10 +482,10 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         // a header toggle so the section doesn't open expanded by default.
         const hasCustomInputs = isLocal || isOpenRouter;
         const authDescription = supportsOAuth && supportsApiKey
-            ? "Sign in or paste an API key. Credentials stay on this device."
+            ? t("settings.modelPicker.authHint.both")
             : supportsOAuth
-                ? "Credentials stay on this device."
-                : "Your API key stays on this device.";
+                ? t("settings.modelPicker.authHint.oauth")
+                : t("settings.modelPicker.authHint.apiKey");
         return {
             tab,
             isStella,
@@ -495,16 +505,22 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         };
     };
     const renderGroupActions = ({ tab, requiresAuth, supportsOAuth, sectionDisabled, removable, armed, isSigningOut, expanded, hasCustomInputs, }: ReturnType<typeof getSectionContext>) => requiresAuth ? (<button type="button" className="model-picker-group-connect" data-open={expanded || undefined} onClick={() => toggleExpanded(expanded ? null : tab.key)} disabled={sectionDisabled}>
-        {expanded ? "Cancel" : supportsOAuth ? "Sign in" : "Add key"}
+        {expanded
+            ? t("settings.modelPicker.actions.cancel")
+            : supportsOAuth
+                ? t("settings.modelPicker.actions.signIn")
+                : t("settings.modelPicker.actions.addKey")}
       </button>) : (<>
         {hasCustomInputs ? (<button type="button" className="model-picker-group-connect" data-open={expanded || undefined} onClick={() => toggleExpanded(expanded ? null : tab.key)} disabled={sectionDisabled}>
-            {expanded ? "Cancel" : "Custom"}
+            {expanded
+                ? t("settings.modelPicker.actions.cancel")
+                : t("settings.modelPicker.actions.custom")}
           </button>) : null}
         {removable ? (<button type="button" className="model-picker-group-signout" data-armed={armed || undefined} disabled={isSigningOut} aria-label={armed
-                ? `Click again to sign out of ${tab.label}`
-                : `Sign out of ${tab.label}`} title={armed
-                ? "Click again to confirm"
-                : `Sign out of ${tab.label}`} onClick={(event) => {
+                ? t("settings.modelPicker.signOut.confirmAriaLabel", { provider: tab.label })
+                : t("settings.modelPicker.signOut.ariaLabel", { provider: tab.label })} title={armed
+                ? t("settings.modelPicker.signOut.confirmTitle")
+                : t("settings.modelPicker.signOut.ariaLabel", { provider: tab.label })} onClick={(event) => {
                 event.stopPropagation();
                 void handleSignOut(tab.key);
             }}>
@@ -534,12 +550,12 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const connect = liftedRequiresAuth || liftedHasCustomInputs
             ? {
                 label: liftedExpanded
-                    ? "Cancel"
+                    ? t("settings.modelPicker.actions.cancel")
                     : liftedRequiresAuth
                         ? liftedSupportsOAuth
-                            ? "Sign in"
-                            : "Add key"
-                        : "Custom",
+                            ? t("settings.modelPicker.actions.signIn")
+                            : t("settings.modelPicker.actions.addKey")
+                        : t("settings.modelPicker.actions.custom"),
                 onClick: () => toggleExpanded(liftedExpanded ? null : liftedTabKey),
                 disabled: liftedSectionDisabled,
             }
@@ -549,16 +565,16 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 armed: liftedArmed,
                 disabled: liftedIsSigningOut,
                 label: liftedArmed
-                    ? `Click again to sign out of ${liftedTabLabel}`
-                    : `Sign out of ${liftedTabLabel}`,
+                    ? t("settings.modelPicker.signOut.confirmAriaLabel", { provider: liftedTabLabel ?? "" })
+                    : t("settings.modelPicker.signOut.ariaLabel", { provider: liftedTabLabel ?? "" }),
                 title: liftedArmed
-                    ? "Click again to confirm"
-                    : `Sign out of ${liftedTabLabel}`,
+                    ? t("settings.modelPicker.signOut.confirmTitle")
+                    : t("settings.modelPicker.signOut.ariaLabel", { provider: liftedTabLabel ?? "" }),
                 onClick: () => void handleSignOut(liftedTabKey),
             }
             : null;
         return connect || signOut ? { connect, signOut } : null;
-    }, [handleSignOut, liftedArmed, liftedExpanded, liftedHasCustomInputs, liftedIsSigningOut, liftedRemovable, liftedRequiresAuth, liftedSectionDisabled, liftedSupportsOAuth, liftedTabKey, liftedTabLabel, toggleExpanded]);
+    }, [handleSignOut, liftedArmed, liftedExpanded, liftedHasCustomInputs, liftedIsSigningOut, liftedRemovable, liftedRequiresAuth, liftedSectionDisabled, liftedSupportsOAuth, liftedTabKey, liftedTabLabel, t, toggleExpanded]);
     useEffect(() => {
         if (!headerActionsTarget || tabs.length !== 1)
             return undefined;
@@ -629,19 +645,21 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                     : void handleLoginOAuth(tab.key)} disabled={sectionDisabled && oauthProvider !== tab.key}>
                 <LogIn size={13} strokeWidth={1.75} aria-hidden/>
                 {oauthProvider === tab.key
-                        ? "Cancel sign-in"
-                        : `Sign in with ${tab.label}`}
+                        ? t("settings.modelPicker.cancelSignIn")
+                        : t("settings.modelPicker.signInWith", { provider: tab.label })}
               </button>) : null}
             {supportsApiKey ? (<div className="model-picker-connect-field">
                 <KeyRound size={13} strokeWidth={1.75} aria-hidden/>
-                <input type="password" placeholder={llmEntry?.placeholder ?? "API key"} value={draftKey} onChange={(e) => setDraftKey(e.target.value)} onKeyDown={(e) => {
+                <input type="password" placeholder={llmEntry?.placeholder ?? t("settings.modelPicker.apiKeyPlaceholder")} value={draftKey} onChange={(e) => setDraftKey(e.target.value)} onKeyDown={(e) => {
                         if (e.key === "Enter")
                             handleSaveKey(tab.key, tab.label);
-                    }} autoFocus={!supportsOAuth} disabled={sectionDisabled} aria-label={`${tab.label} API key`} spellCheck={false} autoComplete="off"/>
+                    }} autoFocus={!supportsOAuth} disabled={sectionDisabled} aria-label={t("settings.modelPicker.apiKeyAriaLabel", { provider: tab.label })} spellCheck={false} autoComplete="off"/>
                 <button type="button" className="model-picker-connect-go" onClick={() => handleSaveKey(tab.key, tab.label)} disabled={!draftKey.trim() ||
                         savingProvider === tab.key ||
                         sectionDisabled}>
-                  {savingProvider === tab.key ? "Saving…" : "Save"}
+                  {savingProvider === tab.key
+                    ? t("settings.modelPicker.saving")
+                    : t("common.save")}
                 </button>
               </div>) : null}
             {authError ? (<p className="model-picker-connect-error" role="alert">
@@ -651,35 +669,35 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         {!open ? null : <>
           {isLocal && expanded ? (<div className="model-picker-connect">
               <p className="model-picker-connect-hint">
-                Use any local OpenAI-compatible server. Ollama usually runs at
-                the URL below.
+                {t("settings.modelPicker.local.hint")}
               </p>
               <div className="model-picker-connect-field">
-                <input placeholder={DEFAULT_LOCAL_BASE_URL} value={localBaseUrl} onChange={(e) => setLocalBaseUrl(e.target.value)} disabled={sectionDisabled} aria-label="Local server URL" spellCheck={false} autoComplete="off"/>
+                <input placeholder={DEFAULT_LOCAL_BASE_URL} value={localBaseUrl} onChange={(e) => setLocalBaseUrl(e.target.value)} disabled={sectionDisabled} aria-label={t("settings.modelPicker.local.serverUrlAriaLabel")} spellCheck={false} autoComplete="off"/>
               </div>
               <div className="model-picker-connect-field">
                 <input placeholder="llama3.2" value={localModelId} onChange={(e) => setLocalModelId(e.target.value)} onKeyDown={(e) => {
                     if (e.key === "Enter")
                         handleSubmitLocal();
-                }} disabled={sectionDisabled} aria-label="Local model name" spellCheck={false} autoComplete="off"/>
+                }} disabled={sectionDisabled} aria-label={t("settings.modelPicker.local.modelNameAriaLabel")} spellCheck={false} autoComplete="off"/>
                 <button type="button" className="model-picker-connect-go" onClick={handleSubmitLocal} disabled={!localModelId.trim() || sectionDisabled}>
-                  Use
+                  {t("settings.modelPicker.use")}
                 </button>
               </div>
             </div>) : null}
 
           {isOpenRouter && expanded ? (<div className="model-picker-connect">
               <p className="model-picker-connect-hint">
-                OpenRouter accepts any <code>vendor/model</code> id. Type one to
-                use it directly.
+                {t("settings.modelPicker.openRouter.hintBefore")}{" "}
+                <code>vendor/model</code>{" "}
+                {t("settings.modelPicker.openRouter.hintAfter")}
               </p>
               <div className="model-picker-connect-field">
                 <input placeholder="anthropic/claude-opus-4.7" value={openRouterCustomId} onChange={(e) => setOpenRouterCustomId(e.target.value)} onKeyDown={(e) => {
                     if (e.key === "Enter")
                         handleSubmitOpenRouter();
-                }} disabled={sectionDisabled} aria-label="OpenRouter model id" spellCheck={false} autoComplete="off"/>
+                }} disabled={sectionDisabled} aria-label={t("settings.modelPicker.openRouter.modelIdAriaLabel")} spellCheck={false} autoComplete="off"/>
                 <button type="button" className="model-picker-connect-go" onClick={handleSubmitOpenRouter} disabled={!openRouterCustomId.trim() || sectionDisabled}>
-                  Use
+                  {t("settings.modelPicker.use")}
                 </button>
               </div>
             </div>) : null}
@@ -768,7 +786,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         {hideSelectedTitle ? null : (<header className="model-picker-pane-header">
             <div className="model-picker-pane-title">
               <span className="model-picker-pane-kicker">
-                {selectedHeaderKicker ?? "Selected"}
+                {selectedHeaderKicker ?? t("settings.modelPicker.selected")}
               </span>
               <span className="model-picker-pane-current" title={currentLabel}>
                 {currentLabel}
@@ -781,7 +799,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             {inlineProviderActions ? (<div className="model-picker-search-action">
                 {renderGroupActions(getSectionContext(tabs[0]))}
               </div>) : null}
-            {onRefresh ? (<button type="button" className="model-picker-refresh" onClick={onRefresh} disabled={disabled || refreshing} aria-label="Refresh model catalog" title="Refresh model catalog">
+            {onRefresh ? (<button type="button" className="model-picker-refresh" onClick={onRefresh} disabled={disabled || refreshing} aria-label={t("settings.modelPicker.refresh")} title={t("settings.modelPicker.refresh")}>
                 <RefreshCw size={13} strokeWidth={1.75} data-spinning={refreshing || undefined}/>
               </button>) : null}
           </div>) : renderSearch()}
@@ -789,8 +807,8 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         <div className="model-picker-groups" role="listbox" aria-live="polite">
           {orderedSections.length === 0 ? (<div className="model-picker-empty">
               {tabs.length === 0
-                ? "No models available yet."
-                : "No models match."}
+                ? t("settings.modelPicker.empty.none")
+                : t("settings.modelPicker.empty.noMatch")}
             </div>) : (orderedSections.map((entry) => entry.kind === "extra"
                 ? renderExtraSection(entry.extra)
                 : renderSection(entry.tab, entry.models)))}
@@ -815,6 +833,7 @@ type ModelRowProps = {
 };
 
 const ModelRow = memo(function ModelRow({ model, selected, rowRestricted, restrictedPlanLabel, restrictedReason, onPick, disabled, favorite, showFavorite, onToggleFavorite, reasoningEffort, onSelectReasoning, hideSelectionCheck, }: ModelRowProps) {
+    const t = useT();
     const [reasoningOpen, setReasoningOpen] = useState(false);
     const showReasoning = Boolean(onSelectReasoning);
     const hasActions = showReasoning || showFavorite;
@@ -824,7 +843,7 @@ const ModelRow = memo(function ModelRow({ model, selected, rowRestricted, restri
         : model.name;
     return (<div className="model-picker-model-row">
       <button type="button" role="option" aria-selected={selected} aria-disabled={rowRestricted || undefined} className="model-picker-model" data-selected={selected || undefined} data-restricted={rowRestricted || undefined} title={rowRestricted && restrictedPlanLabel
-            ? `Not available on the ${restrictedPlanLabel} plan`
+            ? t("settings.modelPicker.restrictedPlan", { plan: restrictedPlanLabel })
             : rowRestricted
                 ? (restrictedReason ?? undefined)
                 : undefined} onClick={(event) => onPick(model.id, event.currentTarget)} disabled={disabled || rowRestricted}>
@@ -839,19 +858,23 @@ const ModelRow = memo(function ModelRow({ model, selected, rowRestricted, restri
                 <button type="button" className="model-picker-model-reason" data-active={(selected &&
                     reasoningEffort &&
                     reasoningEffort !== "default") ||
-                    undefined} aria-label="Reasoning effort" title="Reasoning effort" disabled={disabled || rowRestricted} onClick={(event) => event.stopPropagation()}>
+                    undefined} aria-label={t("settings.modelPicker.reasoning.label")} title={t("settings.modelPicker.reasoning.label")} disabled={disabled || rowRestricted} onClick={(event) => event.stopPropagation()}>
                   <Lightbulb size={14} strokeWidth={1.75}/>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="end" sideOffset={6}>
                 <DropdownMenuRadioGroup value={reasoningEffort ?? "default"} onValueChange={(value) => onSelectReasoning?.(model.id, value as ReasoningEffort)}>
                   {REASONING_OPTIONS.map((option) => (<DropdownMenuRadioItem key={option.id} value={option.id}>
-                      {option.label}
+                      {t(option.labelKey)}
                     </DropdownMenuRadioItem>))}
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>) : null}
-          {showFavorite ? (<button type="button" className="model-picker-model-star" data-favorite={favorite || undefined} aria-pressed={favorite} aria-label={favorite ? "Remove favorite" : "Add favorite"} title={favorite ? "Remove favorite" : "Favorite — pin to top"} disabled={disabled || rowRestricted} onClick={(event) => {
+          {showFavorite ? (<button type="button" className="model-picker-model-star" data-favorite={favorite || undefined} aria-pressed={favorite} aria-label={favorite
+                    ? t("settings.modelPicker.favorite.remove")
+                    : t("settings.modelPicker.favorite.add")} title={favorite
+                    ? t("settings.modelPicker.favorite.remove")
+                    : t("settings.modelPicker.favorite.addTitle")} disabled={disabled || rowRestricted} onClick={(event) => {
                     event.stopPropagation();
                     onToggleFavorite(model.id);
                 }}>

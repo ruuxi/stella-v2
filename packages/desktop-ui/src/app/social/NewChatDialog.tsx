@@ -11,6 +11,7 @@ import {
 } from "@/ui/dialog";
 import { TextField } from "@/ui/text-field";
 import { Avatar } from "@/ui/avatar";
+import { useT } from "@/shared/i18n";
 import { useSocialFriends } from "./hooks/use-social-friends";
 
 type NewChatDialogProps = {
@@ -26,6 +27,7 @@ export function NewChatDialog({
   onSelectFriend,
   onCreateGroup,
 }: NewChatDialogProps) {
+  const t = useT();
   const { friends } = useSocialFriends();
   const [mode, setMode] = useState<"pick" | "group">("pick");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -90,19 +92,19 @@ export function NewChatDialog({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent fit className="friends-dialog-content">
           <VisuallyHidden asChild>
-            <DialogTitle>New message</DialogTitle>
+            <DialogTitle>{t("app.social.newChat.title")}</DialogTitle>
           </VisuallyHidden>
           <VisuallyHidden asChild>
             <DialogDescription>
-              Add some friends first to start a conversation.
+              {t("app.social.newChat.emptySubtitle")}
             </DialogDescription>
           </VisuallyHidden>
           <DialogCloseButton className="friends-dialog-close" />
           <DialogBody className="friends-dialog-body">
             <header className="friends-dialog-header">
-              <p className="friends-dialog-title">New message</p>
+              <p className="friends-dialog-title">{t("app.social.newChat.title")}</p>
               <p className="friends-dialog-sub">
-                Add some friends first to start a conversation.
+                {t("app.social.newChat.emptySubtitle")}
               </p>
             </header>
           </DialogBody>
@@ -116,32 +118,36 @@ export function NewChatDialog({
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent fit className="friends-dialog-content">
           <VisuallyHidden asChild>
-            <DialogTitle>New group</DialogTitle>
+            <DialogTitle>{t("app.social.newChat.groupTitle")}</DialogTitle>
           </VisuallyHidden>
           <VisuallyHidden asChild>
             <DialogDescription>
-              Pick friends to add to this group.
+              {t("app.social.newChat.groupSubtitle")}
             </DialogDescription>
           </VisuallyHidden>
           <DialogCloseButton className="friends-dialog-close" />
           <DialogBody className="friends-dialog-body">
             <header className="friends-dialog-header">
-              <p className="friends-dialog-title">New group</p>
+              <p className="friends-dialog-title">
+                {t("app.social.newChat.groupTitle")}
+              </p>
               <p className="friends-dialog-sub">
-                Pick friends to add to this group.
+                {t("app.social.newChat.groupSubtitle")}
               </p>
             </header>
 
             <TextField
-              label="Group name"
+              label={t("app.social.newChat.groupNameLabel")}
               hideLabel
-              placeholder="Group name (optional)"
+              placeholder={t("app.social.newChat.groupNamePlaceholder")}
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
             />
 
             <section className="friends-section">
-              <div className="friends-section-label">Members</div>
+              <div className="friends-section-label">
+                {t("app.social.newChat.members")}
+              </div>
               <div className="friends-list">
                 {friends.map((friend) => {
                   const isSelected = selectedIds.has(friend.profile.ownerId);
@@ -182,7 +188,7 @@ export function NewChatDialog({
                 onClick={() => setMode("pick")}
                 disabled={isCreatingGroup}
               >
-                Back
+                {t("app.social.newChat.back")}
               </button>
               <button
                 type="button"
@@ -190,7 +196,9 @@ export function NewChatDialog({
                 disabled={selectedIds.size === 0 || isCreatingGroup}
                 onClick={() => void handleCreateGroup()}
               >
-                {isCreatingGroup ? "Creating..." : "Create group"}
+                {isCreatingGroup
+                  ? t("app.social.newChat.creating")
+                  : t("app.social.newChat.createGroup")}
               </button>
             </div>
           </DialogBody>
@@ -203,19 +211,19 @@ export function NewChatDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent fit className="friends-dialog-content">
         <VisuallyHidden asChild>
-          <DialogTitle>New message</DialogTitle>
+          <DialogTitle>{t("app.social.newChat.title")}</DialogTitle>
         </VisuallyHidden>
         <VisuallyHidden asChild>
           <DialogDescription>
-            Pick a friend or start a new group conversation.
+            {t("app.social.newChat.description")}
           </DialogDescription>
         </VisuallyHidden>
         <DialogCloseButton className="friends-dialog-close" />
         <DialogBody className="friends-dialog-body">
           <header className="friends-dialog-header">
-            <p className="friends-dialog-title">New message</p>
+            <p className="friends-dialog-title">{t("app.social.newChat.title")}</p>
             <p className="friends-dialog-sub">
-              Pick a friend or start a group.
+              {t("app.social.newChat.subtitle")}
             </p>
           </header>
 
@@ -228,11 +236,13 @@ export function NewChatDialog({
               <span className="new-chat-item-icon">
                 <UserPlus size={16} aria-hidden />
               </span>
-              <span className="new-chat-item-name">New group</span>
+              <span className="new-chat-item-name">
+                {t("app.social.newChat.newGroup")}
+              </span>
             </button>
 
             <div className="friends-section-label new-chat-list-label">
-              Friends
+              {t("app.social.newChat.friends")}
             </div>
 
             {friends.map((friend) => (
@@ -250,7 +260,7 @@ export function NewChatDialog({
                 />
                 <span className="new-chat-item-name">
                   {pendingFriendId === friend.profile.ownerId
-                    ? "Opening..."
+                    ? t("app.social.newChat.opening")
                     : `@${friend.profile.username}`}
                 </span>
               </button>

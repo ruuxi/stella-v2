@@ -26,14 +26,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
 
 const fake = vi.hoisted(() => {
   type FakeCallbacks = {
     onStateChange?: (state: string, error?: string) => void;
-    onFinalTranscript?: (
-      text: string,
-      meta?: { partial?: boolean },
-    ) => void;
+    onFinalTranscript?: (text: string, meta?: { partial?: boolean }) => void;
     onLevel?: (level: number) => void;
   };
 
@@ -94,8 +92,9 @@ vi.mock("@/shared/lib/auth-cta", () => ({
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
 import { useComposerMessageState } from "@/features/chat/hooks/use-composer-message-state";
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 const drainMicrotasks = async () => {
   for (let i = 0; i < 25; i += 1) await Promise.resolve();
@@ -181,7 +180,7 @@ describe("dictation send race (commit fires before the transcript render)", () =
     const api: { current: ProbeApi | null } = { current: null };
     const sends: string[] = [];
     await act(async () => {
-      root.render(<Probe api={api} sends={sends} />);
+      root.render(withI18n(<Probe api={api} sends={sends} />));
     });
     return { api, sends };
   };

@@ -41,6 +41,7 @@ import {
   restoreQueuedTextToComposer,
   type QueuedUserMessage,
 } from "@/features/chat/hooks/queued-user-messages";
+import { useT } from "@/shared/i18n";
 import "./full-shell.chat.css";
 
 /**
@@ -70,6 +71,7 @@ export const ChatColumn = memo(function ChatColumn({
   conversationId,
   showHomeContent,
 }: ChatColumnProps) {
+  const t = useT();
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ y: number; scrollTop: number } | null>(null);
   const { noteManualScroll } = scroll;
@@ -349,7 +351,7 @@ export const ChatColumn = memo(function ChatColumn({
               <button
                 className="scroll-to-bottom"
                 onClick={() => scrollToBottom("smooth")}
-                aria-label="Scroll to bottom"
+                aria-label={t("app.chat.column.scrollToBottom")}
               >
                 <ChevronDown size={16} strokeWidth={2.5} />
               </button>

@@ -6,6 +6,7 @@ import { useCurrentUser } from "@/global/auth/hooks/use-current-user";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle, } from "@/ui/dialog";
 import { Button } from "@/ui/button";
 import { uiState } from "@/platform/ui-state";
+import { useT } from "@/shared/i18n";
 import "./SubscriptionUpgradeDialog.css";
 const PAID_PLANS = new Set([
     "go",
@@ -41,6 +42,7 @@ export const SUBSCRIPTION_UPGRADED_EVENT = "stella:subscription-upgraded";
  * channel is needed.
  */
 export function SubscriptionUpgradeDialog() {
+    const t = useT();
     const { hasConnectedAccount } = useAuthSessionState();
     const { user } = useCurrentUser();
     // Scope the "last seen plan" to the signed-in account so switching
@@ -95,10 +97,10 @@ export function SubscriptionUpgradeDialog() {
             return null;
         const label = planLabelOf(shownPlan, billingStatus);
         return {
-            title: `You're on Stella ${label}.`,
-            description: "Thanks for the upgrade. Higher priority and increased usage are active now — keep going.",
+            title: t("billing.upgradeDialog.title", { plan: label }),
+            description: t("billing.upgradeDialog.description"),
         };
-    }, [billingStatus, shownPlan]);
+    }, [billingStatus, shownPlan, t]);
     if (!message)
         return null;
     return (<Dialog open onOpenChange={(open) => (open ? null : onClose())}>
@@ -110,7 +112,7 @@ export function SubscriptionUpgradeDialog() {
         <DialogBody className="subscription-upgrade-dialog-body">
           <div className="subscription-upgrade-actions">
             <Button type="button" variant="primary" className="pill-btn pill-btn--primary" onClick={onClose}>
-              Get started
+              {t("billing.upgradeDialog.cta")}
             </Button>
           </div>
         </DialogBody>

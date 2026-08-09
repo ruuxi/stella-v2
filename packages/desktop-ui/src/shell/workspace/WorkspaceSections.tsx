@@ -32,6 +32,7 @@ import {
 } from "@/app/apps/user-app-library";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
+import { useTPlural } from "@/shared/i18n";
 import { useUiState } from "@/context/ui-state";
 import {
   useConversationSchedules,
@@ -361,6 +362,7 @@ const TaskRow = memo(function TaskRow({
   /** Nested owned rows stay static; the visible top-level row owns motion. */
   isTopLevel: boolean;
 }) {
+  const tPlural = useTPlural();
   const motionProps = useActivityRowMotionProps(orderIndex);
   const rowRef = useRef<HTMLLIElement>(null);
   // Activity rows identify the delegated thread. Live tool state is
@@ -535,9 +537,10 @@ const TaskRow = memo(function TaskRow({
                       aria-expanded={filesExpanded}
                     >
                       <span className="chat-workspace-strip__file-name">
-                        {`View ${files.length} ${
-                          files.length === 1 ? "file" : "files"
-                        }`}
+                        {tPlural(
+                          "shell.workspace.viewFiles",
+                          files.length,
+                        )}
                       </span>
                     </button>
                   ) : null}

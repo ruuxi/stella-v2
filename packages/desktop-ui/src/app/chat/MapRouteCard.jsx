@@ -3,6 +3,7 @@ import { AlertCircle, ExternalLink } from "@/ui/icons";
 import { useTheme } from "@/context/theme-context";
 import { appleMapsUrl, mapsEmbedUrl, } from "@stella/contracts/map-artifact";
 import { notifyAssistantScrollFollowLayoutChange } from "@/shell/chat-scroll-follow";
+import { useT, useTPlural } from "@/shared/i18n";
 import "./map-route-card.css";
 /**
  * Inline interactive map card for the orchestrator's `map` tool.
@@ -13,11 +14,11 @@ import "./map-route-card.css";
  * left, an "Open in Apple Maps" handoff (plain `<a target="_blank">` → OS
  * browser → Apple Maps turn-by-turn) on the right.
  */
-const MODE_LABELS = {
-    driving: "Drive",
-    walking: "Walk",
-    cycling: "Bike",
-    transit: "Transit",
+const MODE_LABEL_KEYS = {
+    driving: "app.chat.mapCard.modeDriving",
+    walking: "app.chat.mapCard.modeWalking",
+    cycling: "app.chat.mapCard.modeCycling",
+    transit: "app.chat.mapCard.modeTransit",
 };
 const formatDistance = (meters) => {
     if (!Number.isFinite(meters) || meters <= 0)
@@ -37,7 +38,7 @@ const formatDuration = (seconds) => {
     const rest = minutes % 60;
     return rest > 0 ? `${hours} hr ${rest} min` : `${hours} hr`;
 };
-const cardTitle = (map) => {
+const cardTitle = (map, tPlural) => {
     if (map.title)
         return map.title;
     if (map.route) {
@@ -48,35 +49,36 @@ const cardTitle = (map) => {
     }
     if (map.markers.length === 1)
         return map.markers[0].name;
-    return `${map.markers.length} places`;
+    return tPlural("app.chat.mapCard.placesCount", map.markers.length);
 };
-const cardSummary = (map) => {
+const cardSummary = (map, t, tPlural) => {
     if (map.route) {
         const parts = [
-            MODE_LABELS[map.route.mode],
+            t(MODE_LABEL_KEYS[map.route.mode]),
             formatDistance(map.route.distanceMeters),
             formatDuration(map.route.durationSeconds),
         ].filter(Boolean);
         return parts.join(" · ");
     }
-    const places = map.markers.length;
-    return places === 1 ? "1 place" : `${places} places`;
+    return tPlural("app.chat.mapCard.placesCount", map.markers.length);
 };
 const MapCard = ({ map }) => {
+    const t = useT();
+    const tPlural = useTPlural();
     const { resolvedColorMode } = useTheme();
     const [frameFailed, setFrameFailed] = useState(false);
     // Theme mode is captured per URL; a theme switch swaps the iframe src and
     // the embed re-renders in the matching palette.
     const embedUrl = useMemo(() => mapsEmbedUrl(map, { mode: resolvedColorMode }), [map, resolvedColorMode]);
     const handoffUrl = useMemo(() => appleMapsUrl(map), [map]);
-    const title = cardTitle(map);
-    const summary = cardSummary(map);
+    const title = cardTitle(map, tPlural);
+    const summary = cardSummary(map, t, tPlural);
     return (<div className="map-route-card">
       <div className="map-route-card__frame">
         {frameFailed ? (<div className="map-route-card__offline" role="status">
             <AlertCircle size={15} aria-hidden/>
-            <span>The map preview couldn’t load.</span>
-          </div>) : (<iframe className="map-route-card__iframe" src={embedUrl} title={`Map: ${title}`} loading="lazy" referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin" onLoad={notifyAssistantScrollFollowLayoutChange} onError={() => setFrameFailed(true)}/>)}
+            <span>{t("app.chat.mapCard.previewFailed")}</span>
+          </div>) : (<iframe className="map-route-card__iframe" src={embedUrl} title={t("app.chat.mapCard.frameTitle", { title })} loading="lazy" referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin" onLoad={notifyAssistantScrollFollowLayoutChange} onError={() => setFrameFailed(true)}/>)}
       </div>
       <div className="map-route-card__footer">
         <div className="map-route-card__meta">
@@ -85,8 +87,8 @@ const MapCard = ({ map }) => {
           </span>
           <span className="map-route-card__summary">{summary}</span>
         </div>
-        <a className="map-route-card__handoff" href={handoffUrl} target="_blank" rel="noreferrer noopener" title="Open in Apple Maps for turn-by-turn navigation">
-          Open in Apple Maps
+        <a className="map-route-card__handoff" href={handoffUrl} target="_blank" rel="noreferrer noopener" title={t("app.chat.mapCard.appleMapsTitle")}>
+          {t("app.chat.mapCard.appleMapsLabel")}
           <ExternalLink size={13} aria-hidden/>
         </a>
       </div>

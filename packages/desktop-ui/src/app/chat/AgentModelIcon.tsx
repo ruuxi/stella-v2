@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import { BrandIcon } from "@/ui/brand-icon";
+import { useT } from "@/shared/i18n";
 import "./agent-model-icon.css";
 
 export type AgentModelPresentation = {
@@ -8,11 +9,14 @@ export type AgentModelPresentation = {
   model: string;
 };
 
+type Translate = ReturnType<typeof useT>;
+
 export const getAgentModelPresentation = (
-  snapshot?: AgentModelConfigSnapshot,
+  snapshot: AgentModelConfigSnapshot | undefined,
+  t: Translate,
 ): AgentModelPresentation => {
   if (!snapshot) {
-    return { brand: "stella", model: "Model details unavailable" };
+    return { brand: "stella", model: t("app.chat.agentModelIcon.unavailable") };
   }
 
   if (snapshot.engine === "codex_cli") {
@@ -35,7 +39,10 @@ export const getAgentModelPresentation = (
     parts[0] === "stella" && parts.length > 2
       ? parts[1]!
       : (parts[0] ?? "stella");
-  return { brand, model: route || "Model details unavailable" };
+  return {
+    brand,
+    model: route || t("app.chat.agentModelIcon.unavailable"),
+  };
 };
 
 export function AgentModelIcon({
@@ -45,7 +52,8 @@ export function AgentModelIcon({
   snapshot?: AgentModelConfigSnapshot;
   size?: number;
 }) {
-  const presentation = getAgentModelPresentation(snapshot);
+  const t = useT();
+  const presentation = getAgentModelPresentation(snapshot, t);
   return (
     <span
       className="agent-model-icon"

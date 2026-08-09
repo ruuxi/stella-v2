@@ -1,0 +1,69 @@
+// GENERATED FILE — DO NOT EDIT.
+// Copied from packages/desktop-ui/src/shared/i18n/locales/*.json
+// by packages/mobile/scripts/sync-i18n-catalogs.mjs.
+
+import type { Catalog } from "./catalog-types";
+
+/**
+ * Lazy thunks, one per catalog. Every catalog is inside the JS bundle
+ * (Metro does not code-split for native), but only the ones actually asked
+ * for are parsed and evaluated, so a cold start pays for English alone.
+ */
+export const CATALOG_LOADERS: Record<string, () => Catalog> = {
+  "ar": () =>
+    require("./locales/ar.json") as Catalog,
+  "cs": () =>
+    require("./locales/cs.json") as Catalog,
+  "da": () =>
+    require("./locales/da.json") as Catalog,
+  "de": () =>
+    require("./locales/de.json") as Catalog,
+  "el": () =>
+    require("./locales/el.json") as Catalog,
+  "en": () =>
+    require("./locales/en.json") as Catalog,
+  "es": () =>
+    require("./locales/es.json") as Catalog,
+  "fi": () =>
+    require("./locales/fi.json") as Catalog,
+  "fr": () =>
+    require("./locales/fr.json") as Catalog,
+  "he": () =>
+    require("./locales/he.json") as Catalog,
+  "hi": () =>
+    require("./locales/hi.json") as Catalog,
+  "hu": () =>
+    require("./locales/hu.json") as Catalog,
+  "id": () =>
+    require("./locales/id.json") as Catalog,
+  "it": () =>
+    require("./locales/it.json") as Catalog,
+  "ja": () =>
+    require("./locales/ja.json") as Catalog,
+  "ko": () =>
+    require("./locales/ko.json") as Catalog,
+  "nb": () =>
+    require("./locales/nb.json") as Catalog,
+  "nl": () =>
+    require("./locales/nl.json") as Catalog,
+  "pl": () =>
+    require("./locales/pl.json") as Catalog,
+  "pt": () =>
+    require("./locales/pt.json") as Catalog,
+  "ro": () =>
+    require("./locales/ro.json") as Catalog,
+  "ru": () =>
+    require("./locales/ru.json") as Catalog,
+  "sv": () =>
+    require("./locales/sv.json") as Catalog,
+  "th": () =>
+    require("./locales/th.json") as Catalog,
+  "tr": () =>
+    require("./locales/tr.json") as Catalog,
+  "vi": () =>
+    require("./locales/vi.json") as Catalog,
+  "zh-Hans": () =>
+    require("./locales/zh-Hans.json") as Catalog,
+  "zh-Hant": () =>
+    require("./locales/zh-Hant.json") as Catalog,
+};

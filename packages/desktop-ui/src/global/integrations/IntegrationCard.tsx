@@ -15,6 +15,7 @@ import { showToast } from "@/ui/toast";
 import type { Integration } from "./integration-configs";
 import { sanitizeExternalLinkUrl } from "@/shared/lib/url-safety";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
+import { useT } from "@/shared/i18n";
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -63,16 +64,20 @@ function SetupContent({
 }
 
 function ConnectedView({ integration }: { integration: Integration }) {
+  const t = useT();
   const deleteConnection = useMutation(api.channels.utils.deleteConnection);
   const [disconnecting, setDisconnecting] = useState(false);
+  const providerName = t(integration.displayNameKey);
 
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
       await deleteConnection({ provider: integration.provider });
-      showToast(`Disconnected from ${integration.displayName}`);
+      showToast(t("global.integrations.disconnected", { provider: providerName }));
     } catch {
-      showToast(`Failed to disconnect from ${integration.displayName}`);
+      showToast(
+        t("global.integrations.disconnectFailed", { provider: providerName }),
+      );
     } finally {
       setDisconnecting(false);
     }
@@ -80,16 +85,20 @@ function ConnectedView({ integration }: { integration: Integration }) {
 
   return (
     <div className="connect-pair-centered">
-      <span className="connect-status">Connected</span>
+      <span className="connect-status">
+        {t("global.integrations.connected")}
+      </span>
       <p className="connect-pair-sub">
-        Stella is listening on {integration.displayName}. Message her there anytime.
+        {t("global.integrations.listeningOn", { provider: providerName })}
       </p>
       <Button
         variant="ghost"
         onClick={handleDisconnect}
         disabled={disconnecting}
       >
-        {disconnecting ? "Disconnecting..." : "Disconnect"}
+        {disconnecting
+          ? t("global.integrations.disconnecting")
+          : t("global.integrations.disconnect")}
       </Button>
     </div>
   );
@@ -156,6 +165,7 @@ function composeE164(dialCode: string, localNumber: string): string {
 }
 
 function LinqSetupView({ integration }: { integration: Integration }) {
+  const t = useT();
   const sendSms = useAction(api.channels.linq.sendLinqLinkSms);
   const verifyCode = useMutation(api.channels.link_codes.verifyLinqLinkCode);
   const [dialCode, setDialCode] = useState("+1");
@@ -177,11 +187,13 @@ function LinqSetupView({ integration }: { integration: Integration }) {
       await sendSms({ phoneNumber: fullPhone });
       setStep("code");
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to send code. Check the number and try again."));
+      setError(
+        getErrorMessage(err, t("global.integrations.linq.sendCodeFailed")),
+      );
     } finally {
       setSending(false);
     }
-  }, [phone, sending, sendSms, fullPhone]);
+  }, [phone, sending, sendSms, fullPhone, t]);
 
   const handleVerify = useCallback(async (e: FormEvent) => {
     e.preventDefault();
@@ -194,25 +206,29 @@ function LinqSetupView({ integration }: { integration: Integration }) {
         phoneNumber: fullPhone,
       });
       if (result === "linked") {
-        showToast("Connected! You can now text Stella.");
+        showToast(t("global.integrations.linq.connected"));
       } else if (result === "invalid_code") {
-        setError("Invalid or expired code. Try sending a new one.");
+        setError(t("global.integrations.linq.invalidCode"));
       } else {
-        setError("Something went wrong. Please try again.");
+        setError(t("global.integrations.linq.genericError"));
       }
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to verify code."));
+      setError(
+        getErrorMessage(err, t("global.integrations.linq.verifyCodeFailed")),
+      );
     } finally {
       setVerifying(false);
     }
-  }, [code, verifying, verifyCode, fullPhone]);
+  }, [code, verifying, verifyCode, fullPhone, t]);
 
   return (
     <div className="connect-pair-centered">
       {step === "phone" ? (
         <>
-          <p className="connect-pair-headline">Text Stella</p>
-          <p className="connect-pair-sub">{integration.instructions}</p>
+          <p className="connect-pair-headline">
+            {t(integration.displayNameKey)}
+          </p>
+          <p className="connect-pair-sub">{t(integration.instructionsKey)}</p>
           {error && <div className="connect-error">{error}</div>}
           <form className="connect-phone-form" onSubmit={handleSendSms}>
             <div className="connect-phone-input-group">
@@ -220,7 +236,7 @@ function LinqSetupView({ integration }: { integration: Integration }) {
                 className="connect-phone-dial"
                 value={dialCode}
                 onValueChange={(value) => setDialCode(value)}
-                aria-label="Country code"
+                aria-label={t("global.integrations.linq.countryCode")}
                 options={COUNTRY_DIAL_CODES.map((c) => ({
                   value: c.code,
                   label: `${c.country} ${c.code}`,
@@ -229,7 +245,7 @@ function LinqSetupView({ integration }: { integration: Integration }) {
               <input
                 type="tel"
                 className="connect-phone-input"
-                placeholder="(555) 123-4567"
+                placeholder={t("global.integrations.linq.phonePlaceholder")}
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 autoFocus
@@ -240,22 +256,26 @@ function LinqSetupView({ integration }: { integration: Integration }) {
               variant="ghost"
               disabled={!phone.trim() || sending}
             >
-              {sending ? "Sending..." : "Send Code"}
+              {sending
+                ? t("global.integrations.linq.sending")
+                : t("global.integrations.linq.sendCode")}
             </Button>
           </form>
         </>
       ) : (
         <>
-          <p className="connect-pair-headline">Enter your code</p>
+          <p className="connect-pair-headline">
+            {t("global.integrations.linq.enterCodeTitle")}
+          </p>
           <p className="connect-pair-sub">
-            Check your phone — we sent a 6-digit code to {fullPhone}.
+            {t("global.integrations.linq.enterCodeSub", { phone: fullPhone })}
           </p>
           {error && <div className="connect-error">{error}</div>}
           <form className="connect-phone-form" onSubmit={handleVerify}>
             <input
               type="text"
               className="connect-code-input"
-              placeholder="ABC123"
+              placeholder={t("global.integrations.linq.codePlaceholder")}
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
               maxLength={6}
@@ -267,7 +287,9 @@ function LinqSetupView({ integration }: { integration: Integration }) {
               variant="ghost"
               disabled={code.trim().length < 6 || verifying}
             >
-              {verifying ? "Verifying..." : "Verify"}
+              {verifying
+                ? t("global.integrations.linq.verifying")
+                : t("global.integrations.linq.verify")}
             </Button>
           </form>
           <button
@@ -275,7 +297,7 @@ function LinqSetupView({ integration }: { integration: Integration }) {
             className="connect-bot-link"
             onClick={() => { setStep("phone"); setCode(""); setError(null); }}
           >
-            Use a different number
+            {t("global.integrations.linq.useDifferentNumber")}
           </button>
         </>
       )}
@@ -290,6 +312,7 @@ function BotSetupView({
   integration: Integration;
   isExpanded: boolean;
 }) {
+  const t = useT();
   const generateCode = useMutation(api.channels.link_codes.generateLinkCode);
   const createSlackInstallUrl = useMutation(api.data.integrations.createSlackInstallUrl);
   const [state, setState] = useState<BotSetupState>(() => ({
@@ -340,7 +363,7 @@ function BotSetupView({
           status: "error",
           message: getErrorMessage(
             codeResult.reason,
-            "Failed to generate code",
+            t("global.integrations.generateCodeFailed"),
           ),
           botLink: nextBotLink,
         });
@@ -352,7 +375,7 @@ function BotSetupView({
           status: "error",
           message: getErrorMessage(
             botLinkResult.reason,
-            "Failed to prepare Slack install URL",
+            t("global.integrations.slackInstallUrlFailed"),
           ),
           botLink: nextBotLink,
         });
@@ -377,6 +400,7 @@ function BotSetupView({
     integration.botLink,
     integration.provider,
     isExpanded,
+    t,
   ]);
 
   const code = state.status === "ready" ? state.code : null;
@@ -414,14 +438,16 @@ function BotSetupView({
   const handleCopy = useCallback(() => {
     if (code) {
       navigator.clipboard.writeText(code);
-      showToast("Code copied to clipboard");
+      showToast(t("global.integrations.codeCopied"));
     }
-  }, [code]);
+  }, [code, t]);
 
   return (
     <SetupContent
-      headline={`Connect ${integration.displayName}`}
-      instructions={integration.instructions}
+      headline={t("global.integrations.connectProvider", {
+        provider: t(integration.displayNameKey),
+      })}
+      instructions={t(integration.instructionsKey)}
       error={error}
     >
       {botLink ? (
@@ -429,7 +455,9 @@ function BotSetupView({
           {qrDataUrl ? (
             <img
               src={qrDataUrl}
-              alt={`Open ${integration.displayName}`}
+              alt={t("global.integrations.openProvider", {
+                provider: t(integration.displayNameKey),
+              })}
               className="connect-pair-qr"
             />
           ) : (
@@ -443,7 +471,7 @@ function BotSetupView({
           <>
             <span className="connect-pair-code">{code}</span>
             <Button variant="ghost" size="small" onClick={handleCopy}>
-              Copy
+              {t("common.copy")}
             </Button>
           </>
         ) : (
@@ -458,7 +486,10 @@ function BotSetupView({
           target="_blank"
           rel="noopener noreferrer"
         >
-          Open {integration.displayName} &#8599;
+          {t("global.integrations.openProvider", {
+            provider: t(integration.displayNameKey),
+          })}{" "}
+          &#8599;
         </a>
       ) : null}
     </SetupContent>
@@ -478,6 +509,7 @@ function IntegrationGridCardComponent({
   onClick,
   disabled,
 }: IntegrationGridCardProps) {
+  const t = useT();
   const isConnected = useIntegrationConnectionStatus(integration.provider);
 
   return (
@@ -489,7 +521,9 @@ function IntegrationGridCardComponent({
       aria-disabled={disabled || undefined}
     >
       <span className="connect-grid-card-icon">{integration.icon}</span>
-      <span className="connect-grid-card-name">{integration.displayName}</span>
+      <span className="connect-grid-card-name">
+        {t(integration.displayNameKey)}
+      </span>
       {isConnected && (
         <span className="connect-grid-card-badge">
           <span className="connect-grid-card-badge-dot" />
@@ -506,6 +540,7 @@ export function IntegrationDetailArea({
 }: {
   integration: Integration;
 }) {
+  const t = useT();
   const isConnected = useIntegrationConnectionStatus(integration.provider);
   const { hasConnectedAccount } = useAuthSessionState();
 
@@ -513,9 +548,13 @@ export function IntegrationDetailArea({
   if (!hasConnectedAccount) {
     detailContent = (
       <div className="connect-pair-centered">
-        <p className="connect-pair-headline">Sign in to get started</p>
+        <p className="connect-pair-headline">
+          {t("global.integrations.signInHeadline")}
+        </p>
         <p className="connect-pair-sub">
-          Sign in to your Stella account to connect {integration.displayName}.
+          {t("global.integrations.signInSub", {
+            provider: t(integration.displayNameKey),
+          })}
         </p>
       </div>
     );
@@ -531,7 +570,9 @@ export function IntegrationDetailArea({
     <div className="connect-detail-area">
       <div className="connect-detail-header">
         <span className="connect-grid-card-icon">{integration.icon}</span>
-        <span className="connect-detail-name">{integration.displayName}</span>
+        <span className="connect-detail-name">
+          {t(integration.displayNameKey)}
+        </span>
       </div>
       <div className="connect-detail-body">{detailContent}</div>
     </div>

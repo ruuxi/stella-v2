@@ -8,6 +8,7 @@ import {
 } from "@/features/voice/services/shared-microphone";
 import { computeAnalyserEnergy } from "@/features/voice/services/audio-energy";
 import { resolveVoiceErrorToast } from "@/features/voice/runtime/voice-error-toast";
+import { useT } from "@/shared/i18n";
 
 type RuntimeVoiceState = {
   sessionState: VoiceSessionState;
@@ -45,6 +46,7 @@ const runtimeStateEquals = (a: RuntimeVoiceState, b: RuntimeVoiceState) =>
   Math.abs(a.outputLevel - b.outputLevel) < 0.01;
 
 export function VoiceRuntimeRoot() {
+  const t = useT();
   const { state } = useUiState();
   const [bootConversationId, setBootConversationId] = useState<string | null>(
     state.conversationId,
@@ -248,7 +250,7 @@ export function VoiceRuntimeRoot() {
           // (not signed in / provider not connected) — transient blips ride
           // the silent auto-retry. Dedupe per distinct message so retries
           // don't restack the toast.
-          const toast = resolveVoiceErrorToast(errorMessage);
+          const toast = resolveVoiceErrorToast(errorMessage, t);
           if (toast && lastVoiceErrorToastRef.current !== (errorMessage ?? "")) {
             lastVoiceErrorToastRef.current = errorMessage ?? "";
             window.electronAPI?.voice.reportSessionError(errorMessage ?? "");
@@ -295,7 +297,7 @@ export function VoiceRuntimeRoot() {
         outputLevel: computeEnergy(outputAnalyserRef.current),
       });
     }, LEVEL_SAMPLE_MS);
-  }, [resolvedConversationId, sessionShouldRun]);
+  }, [resolvedConversationId, sessionShouldRun, t]);
 
   useEffect(() => {
     return () => {

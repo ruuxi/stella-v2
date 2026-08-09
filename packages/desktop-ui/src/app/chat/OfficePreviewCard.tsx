@@ -2,13 +2,14 @@ import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { useOfficePreview } from "@/features/chat/office-preview-store";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import { FilePreviewCardShell } from "./FilePreviewCardShell";
+import { useT } from "@/shared/i18n";
 import "./office-preview-card.css";
 
-const formatStatusLabel = (status?: string) => {
-  if (status === "ready") return "Live preview";
-  if (status === "error") return "Preview error";
-  if (status === "stopped") return "Preview stopped";
-  return "Preparing preview";
+const statusLabelKey = (status?: string) => {
+  if (status === "ready") return "app.chat.officePreview.statusReady";
+  if (status === "error") return "app.chat.officePreview.statusError";
+  if (status === "stopped") return "app.chat.officePreview.statusStopped";
+  return "app.chat.officePreview.statusPreparing";
 };
 
 export function OfficePreviewCard({
@@ -16,6 +17,7 @@ export function OfficePreviewCard({
 }: {
   previewRef: OfficePreviewRef;
 }) {
+  const t = useT();
   const { actionStatus, handleSave, handleCopy } = useFilePreviewActions({
     sourcePath: previewRef.sourcePath,
     suggestedName: previewRef.title,
@@ -23,7 +25,7 @@ export function OfficePreviewCard({
   const snapshot = useOfficePreview(previewRef.sessionId);
   const title = snapshot?.title ?? previewRef.title;
   const status = snapshot?.status;
-  const statusLabel = formatStatusLabel(status);
+  const statusLabel = t(statusLabelKey(status));
   const updatedAtLabel =
     snapshot?.updatedAt != null
       ? new Date(snapshot.updatedAt).toLocaleTimeString([], {
@@ -41,7 +43,7 @@ export function OfficePreviewCard({
       meta={
         updatedAtLabel ? (
           <span className="office-preview-card__timestamp">
-            Updated {updatedAtLabel}
+            {t("app.chat.officePreview.updatedAt", { time: updatedAtLabel })}
           </span>
         ) : null
       }
@@ -51,18 +53,18 @@ export function OfficePreviewCard({
     >
       {snapshot?.status === "error" ? (
         <div className="file-preview-card__placeholder file-preview-card__placeholder--error office-preview-card__placeholder">
-          {snapshot.error?.trim() || "The preview session reported an error."}
+          {snapshot.error?.trim() || t("app.chat.officePreview.sessionError")}
         </div>
       ) : snapshot?.html ? (
         <iframe
           className="office-preview-card__frame"
-          title={`Office preview: ${title}`}
+          title={t("app.chat.officePreview.frameTitle", { title })}
           sandbox="allow-scripts"
           srcDoc={snapshot.html}
         />
       ) : (
         <div className="file-preview-card__placeholder office-preview-card__placeholder">
-          Stella is preparing a live preview for this document.
+          {t("app.chat.officePreview.preparingBody")}
         </div>
       )}
     </FilePreviewCardShell>

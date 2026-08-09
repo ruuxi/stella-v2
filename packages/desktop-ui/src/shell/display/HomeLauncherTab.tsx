@@ -11,13 +11,14 @@ import type { ReactNode } from "react";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import type { DisplayTabKind } from "@/features/workspace-display/types";
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
+import { useT } from "@/shared/i18n";
 import { openStoreDisplayTab, openTrashDisplayTab } from "./default-tabs";
 import "./chat-home-overview.css";
 
 type LauncherEntry = {
   id: string;
-  label: string;
-  description: string;
+  labelKey: string;
+  descriptionKey: string;
   kind: DisplayTabKind;
   onSelect: () => void;
 };
@@ -25,8 +26,8 @@ type LauncherEntry = {
 const ENTRIES: ReadonlyArray<LauncherEntry> = [
   {
     id: "files",
-    label: "Files",
-    description: "Pages, images, video, and documents",
+    labelKey: "shell.display.homeLauncher.files.label",
+    descriptionKey: "shell.display.homeLauncher.files.description",
     kind: "media",
     // A launcher entry is a jump to the top of a surface, so this lands on
     // the list rather than on whichever file the section was last showing.
@@ -34,21 +35,22 @@ const ENTRIES: ReadonlyArray<LauncherEntry> = [
   },
   {
     id: "store",
-    label: "Store",
-    description: "Add-ons and things you've built",
+    labelKey: "shell.display.homeLauncher.store.label",
+    descriptionKey: "shell.display.homeLauncher.store.description",
     kind: "store",
     onSelect: openStoreDisplayTab,
   },
   {
     id: "trash",
-    label: "Trash",
-    description: "Things you've recently deleted",
+    labelKey: "shell.display.homeLauncher.trash.label",
+    descriptionKey: "shell.display.homeLauncher.trash.description",
     kind: "trash",
     onSelect: openTrashDisplayTab,
   },
 ];
 
 function LauncherButton({ entry }: { entry: LauncherEntry }): ReactNode {
+  const t = useT();
   return (
     <button
       type="button"
@@ -59,9 +61,11 @@ function LauncherButton({ entry }: { entry: LauncherEntry }): ReactNode {
         <DisplayTabIcon kind={entry.kind} size={20} />
       </span>
       <span className="chat-home-launcher__entry-text">
-        <span className="chat-home-launcher__entry-label">{entry.label}</span>
+        <span className="chat-home-launcher__entry-label">
+          {t(entry.labelKey)}
+        </span>
         <span className="chat-home-launcher__entry-description">
-          {entry.description}
+          {t(entry.descriptionKey)}
         </span>
       </span>
     </button>

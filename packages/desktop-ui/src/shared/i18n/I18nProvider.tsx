@@ -13,6 +13,7 @@ import {
   loadCatalog,
   translate,
   translateArray,
+  translatePlural,
   type TranslateParams,
 } from "./catalogs";
 import { uiState } from "@/platform/ui-state";
@@ -48,6 +49,13 @@ type I18nContextValue = {
    * English, then an empty array.
    */
   tArray: (key: string, params?: TranslateParams) => string[];
+  /**
+   * Resolve a pluralised key against the active locale's CLDR plural
+   * rules. `count` is interpolated as `{count}` automatically. Use this
+   * instead of `n === 1 ? "item" : "items"`, which is only ever correct
+   * for English.
+   */
+  tPlural: (key: string, count: number, params?: TranslateParams) => string;
   /** All supported locales — handy for picker rendering. */
   supportedLocales: ReadonlyArray<Locale>;
 };
@@ -184,6 +192,12 @@ export function I18nProviderBase({
     [catalog],
   );
 
+  const tPlural = useCallback(
+    (key: string, count: number, params?: TranslateParams) =>
+      translatePlural(catalog, locale, key, count, params),
+    [catalog, locale],
+  );
+
   const value = useMemo<I18nContextValue>(
     () => ({
       locale,
@@ -191,9 +205,10 @@ export function I18nProviderBase({
       setLocale,
       t,
       tArray,
+      tPlural,
       supportedLocales: SUPPORTED_LOCALES,
     }),
-    [locale, setLocale, t, tArray],
+    [locale, setLocale, t, tArray, tPlural],
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
@@ -215,6 +230,10 @@ export function useT() {
   return useI18n().t;
 }
 
+export function useTPlural() {
+  return useI18n().tPlural;
+}
+
 export function useLocale(): Locale {
   return useI18n().locale;
 }
@@ -228,6 +247,14 @@ const FALLBACK: I18nContextValue = {
   t: (key, params) => translate(getEagerCatalog(DEFAULT_LOCALE), key, params),
   tArray: (key, params) =>
     translateArray(getEagerCatalog(DEFAULT_LOCALE), key, params),
+  tPlural: (key, count, params) =>
+    translatePlural(
+      getEagerCatalog(DEFAULT_LOCALE),
+      DEFAULT_LOCALE,
+      key,
+      count,
+      params,
+    ),
   supportedLocales: SUPPORTED_LOCALES,
 };
 

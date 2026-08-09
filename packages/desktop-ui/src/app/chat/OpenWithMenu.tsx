@@ -18,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
+import { useT } from "@/shared/i18n";
 import "./open-with-menu.css";
 
 type Opener = {
@@ -39,6 +40,7 @@ export const OpenWithMenu = ({
    */
   variant?: "button" | "plus";
 }) => {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [openerResult, setOpenerResult] = useState<{
     filePath: string;
@@ -90,8 +92,8 @@ export const OpenWithMenu = ({
             type="button"
             className="open-with-menu__trigger open-with-menu__trigger--plus"
             onClick={(event) => event.stopPropagation()}
-            title="Open in other ways…"
-            aria-label="Open in other ways"
+            title={t("app.chat.openWith.otherWaysTitle")}
+            aria-label={t("app.chat.openWith.otherWaysLabel")}
           >
             <Plus size={13} strokeWidth={2} aria-hidden />
           </button>
@@ -100,9 +102,11 @@ export const OpenWithMenu = ({
             type="button"
             className="open-with-menu__trigger"
             onClick={(event) => event.stopPropagation()}
-            title="Open with…"
+            title={t("app.chat.openWith.triggerTitle")}
           >
-            <span className="open-with-menu__trigger-label">Open</span>
+            <span className="open-with-menu__trigger-label">
+              {t("app.chat.openWith.triggerLabel")}
+            </span>
             <ChevronDown size={12} strokeWidth={2} aria-hidden />
           </button>
         )}
@@ -115,7 +119,9 @@ export const OpenWithMenu = ({
         className="open-with-menu"
       >
         {openers === null ? (
-          <div className="open-with-menu__loading">Loading…</div>
+          <div className="open-with-menu__loading">
+            {t("app.chat.openWith.loading")}
+          </div>
         ) : (
           <>
             {appOpeners.map((opener) => (

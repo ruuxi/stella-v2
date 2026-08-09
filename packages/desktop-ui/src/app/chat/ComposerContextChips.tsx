@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { ChatContext, ChatContextFile } from "@/shared/types/electron";
 import { cn } from "@/shared/lib/utils";
+import { useT } from "@/shared/i18n";
 import {
   AppWindowMac,
   Archive,
@@ -190,6 +191,7 @@ export function WindowContextChip({
   textClassName,
   textFormatter,
 }: WindowContextChipProps) {
+  const t = useT();
   const baseLabel = textFormatter
     ? textFormatter(chatWindow)
     : `${chatWindow.app}${chatWindow.title ? ` - ${chatWindow.title}` : ""}`;
@@ -215,8 +217,10 @@ export function WindowContextChip({
           )}
           title={
             capturePending
-              ? `${baseLabel} — capturing window…`
-              : `${baseLabel} — click to enlarge`
+              ? t("app.chat.contextChips.windowCapturing", { label: baseLabel })
+              : t("app.chat.contextChips.windowClickToEnlarge", {
+                  label: baseLabel,
+                })
           }
           onClick={() => {
             setPreviewOpen(true);
@@ -235,12 +239,14 @@ export function WindowContextChip({
           kind="window"
           label={displayLabel}
           title={
-            capturePending ? `${baseLabel} — capturing window…` : baseLabel
+            capturePending
+              ? t("app.chat.contextChips.windowCapturing", { label: baseLabel })
+              : baseLabel
           }
         />
       )}
       <ChipRemoveButton
-        label={`Remove ${chatWindow.app} window context`}
+        label={t("app.chat.contextChips.removeWindow", { app: chatWindow.app })}
         onRemove={() => clearComposerWindowContext(setChatContext)}
       />
       {hasScreenshot && (
@@ -251,7 +257,7 @@ export function WindowContextChip({
         >
           <img
             src={chatWindowScreenshot!.dataUrl}
-            alt="Window content preview"
+            alt={t("app.chat.contextChips.windowPreviewAlt")}
             className="composer-context-preview-img"
           />
         </ChipPreviewPortal>
@@ -261,7 +267,9 @@ export function WindowContextChip({
           open={previewOpen}
           onOpenChange={setPreviewOpen}
           src={chatWindowScreenshot!.dataUrl}
-          alt={`${baseLabel} window screenshot`}
+          alt={t("app.chat.contextChips.windowScreenshotAlt", {
+            label: baseLabel,
+          })}
         />
       )}
     </div>
@@ -281,6 +289,7 @@ export function SelectedTextChip({
   setChatContext,
   className,
 }: SelectedTextChipProps) {
+  const t = useT();
   const displayText = truncateChipLabel(selectedText, 36);
   return (
     <span className="composer-chip-shell">
@@ -292,7 +301,7 @@ export function SelectedTextChip({
         className={className}
       />
       <ChipRemoveButton
-        label="Remove selected text"
+        label={t("app.chat.contextChips.removeSelectedText")}
         onRemove={() =>
           clearComposerSelectedTextContext(setSelectedText, setChatContext)
         }
@@ -315,7 +324,9 @@ export function AppSelectionChip({
   setChatContext,
   className,
 }: AppSelectionChipProps) {
-  const label = appSelection.label || "Selected area";
+  const t = useT();
+  const label =
+    appSelection.label || t("app.chat.contextChips.selectedAreaFallback");
   const source = appSelection.source;
   const sourceSuffix = source?.filePath
     ? `\n${source.componentName ? `${source.componentName} — ` : ""}${source.filePath}${
@@ -332,7 +343,7 @@ export function AppSelectionChip({
         className={className}
       />
       <ChipRemoveButton
-        label={`Remove selected area: ${label}`}
+        label={t("app.chat.contextChips.removeSelectedArea", { label })}
         onRemove={() => removeComposerAppSelectionContext(index, setChatContext)}
       />
     </span>
@@ -380,7 +391,8 @@ export function ActivityContextChip({
   setChatContext,
   className,
 }: ActivityContextChipProps) {
-  const label = activity.label || "Activity";
+  const t = useT();
+  const label = activity.label || t("app.chat.contextChips.activityFallback");
   const displayLabel = truncateChipLabel(label, 28);
   return (
     <span className="composer-chip-shell">
@@ -392,7 +404,7 @@ export function ActivityContextChip({
         className={className}
       />
       <ChipRemoveButton
-        label="Remove activity context"
+        label={t("app.chat.contextChips.removeActivity")}
         onRemove={() => clearComposerActivityContext(setChatContext)}
       />
     </span>
@@ -498,6 +510,7 @@ export function ScreenshotContextChips({
   chipClassName,
   imageClassName,
 }: ScreenshotContextChipsProps) {
+  const t = useT();
   return (
     <>
       {screenshots.map((screenshot, index) => (
@@ -505,11 +518,13 @@ export function ScreenshotContextChips({
           key={index}
           thumbnailUrl={screenshot.previewUrl ?? screenshot.dataUrl}
           fullImageUrl={screenshot.dataUrl}
-          alt={`Screenshot ${index + 1}`}
-          title="Click to enlarge screenshot"
+          alt={t("app.chat.contextChips.screenshotAlt", { index: index + 1 })}
+          title={t("app.chat.contextChips.screenshotEnlargeTitle")}
           chipClassName={chipClassName}
           imageClassName={imageClassName}
-          removeLabel={`Remove screenshot ${index + 1}`}
+          removeLabel={t("app.chat.contextChips.removeScreenshot", {
+            index: index + 1,
+          })}
           onRemove={() =>
             removeComposerScreenshotContext(index, setChatContext)
           }
@@ -599,27 +614,28 @@ function truncateFileName(name: string, max: number = FILE_NAME_MAX_CHARS): stri
   return `${name.slice(0, max)}…`;
 }
 
-const FILE_CATEGORY_LABELS: Record<
+const FILE_CATEGORY_LABEL_KEYS: Record<
   ReturnType<typeof resolveFileCategory>,
   string
 > = {
-  pdf: "PDF",
-  document: "Document",
-  spreadsheet: "Spreadsheet",
-  code: "Code file",
-  archive: "Archive",
-  audio: "Audio",
-  video: "Video",
-  file: "File",
+  pdf: "app.chat.fileCategory.pdf",
+  document: "app.chat.fileCategory.document",
+  spreadsheet: "app.chat.fileCategory.spreadsheet",
+  code: "app.chat.fileCategory.code",
+  archive: "app.chat.fileCategory.archive",
+  audio: "app.chat.fileCategory.audio",
+  video: "app.chat.fileCategory.video",
+  file: "app.chat.fileCategory.file",
 };
 
 /**
- * Human type label for a file attachment whose real filename is missing
- * (older persisted payloads). Never a generic "Attachment" string that a
- * narrow chip would clip into nonsense.
+ * Catalog key for the human type label of a file attachment whose real
+ * filename is missing (older persisted payloads). Never a generic
+ * "Attachment" string that a narrow chip would clip into nonsense.
+ * Callers resolve it with `t()` at render time.
  */
-export function fileAttachmentTypeLabel(mimeType?: string): string {
-  return FILE_CATEGORY_LABELS[resolveFileCategory(mimeType ?? "", "")];
+export function fileAttachmentTypeLabelKey(mimeType?: string): string {
+  return FILE_CATEGORY_LABEL_KEYS[resolveFileCategory(mimeType ?? "", "")];
 }
 
 type FileAttachmentChipProps = {
@@ -651,6 +667,7 @@ export function FileAttachmentChip({
   removeLabel,
   onRemove,
 }: FileAttachmentChipProps) {
+  const t = useT();
   const category = resolveFileCategory(mimeType ?? "", name);
   // Disk-backed attachments open in their default app for preview;
   // synthetic files (no on-disk path) have no preview target.
@@ -664,7 +681,9 @@ export function FileAttachmentChip({
           chipClassName,
           canOpen && "composer-chip-previewable",
         )}
-        title={canOpen ? `${name} — click to open` : name}
+        title={
+          canOpen ? t("app.chat.contextChips.fileClickToOpen", { name }) : name
+        }
         onClick={
           canOpen
             ? () => {
@@ -701,6 +720,7 @@ function FileContextChip({
   setChatContext: SetChatContext;
   chipClassName?: string;
 }) {
+  const t = useT();
   return (
     <FileAttachmentChip
       name={file.name}
@@ -708,7 +728,7 @@ function FileContextChip({
       mimeType={file.mimeType}
       path={file.path}
       chipClassName={chipClassName}
-      removeLabel={`Remove ${file.name}`}
+      removeLabel={t("app.chat.contextChips.removeFile", { name: file.name })}
       onRemove={() => removeComposerFileContext(index, setChatContext)}
     />
   );
@@ -755,6 +775,7 @@ function PastedTextChip({
   setChatContext: SetChatContext;
   className?: string;
 }) {
+  const t = useT();
   const { triggerRef, open, previewProps } = useHoverPreview<HTMLButtonElement>();
   const stats = describePastedText(toPastedTextDescriptor(text));
   const preview =
@@ -767,12 +788,12 @@ function PastedTextChip({
         as="button"
         kind="pasted-text"
         pillRef={triggerRef}
-        label={`Pasted text · ${stats}`}
-        title={`Pasted text — ${stats}`}
+        label={t("app.chat.contextChips.pastedTextLabel", { stats })}
+        title={t("app.chat.contextChips.pastedTextTitle", { stats })}
         className={className}
       />
       <ChipRemoveButton
-        label="Remove pasted text"
+        label={t("app.chat.contextChips.removePastedText")}
         onRemove={() => removeComposerPastedTextContext(index, setChatContext)}
       />
       <ChipPreviewPortal

@@ -3,6 +3,7 @@ import type {
   EmbeddedWebsiteTheme,
   StoreWebEmbedConfig,
 } from "@/shared/types/electron";
+import { useT } from "@/shared/i18n";
 import "./EmbeddedWebsiteView.css";
 
 /**
@@ -104,6 +105,7 @@ export function EmbeddedWebsiteView({
   packageId,
   theme,
 }: EmbeddedWebsiteViewProps) {
+  const t = useT();
   const [config, setConfig] = useState<StoreWebEmbedConfig | null>(null);
   const webviewRef = useRef<StellaWebviewElement | null>(null);
   const latestThemeRef = useRef(theme);
@@ -179,7 +181,13 @@ export function EmbeddedWebsiteView({
     typeof document !== "undefined" &&
     document.documentElement.getAttribute("data-platform") === "mobile"
   ) {
-    return <iframe className="embedded-website-view" src={src} title="Store" />;
+    return (
+      <iframe
+        className="embedded-website-view"
+        src={src}
+        title={t("global.websiteView.storeTitle")}
+      />
+    );
   }
 
   return (

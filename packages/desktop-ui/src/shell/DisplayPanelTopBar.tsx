@@ -9,8 +9,10 @@ import { SidebarTabRail } from "@/shell/sidebar-sections/SidebarTabRail";
 import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
 import { WindowControls } from "@/shell/WindowControls";
 import { PanelRight } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 
 export function DisplayPanelTopBar() {
+  const t = useT();
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
   const platform = getPlatform();
@@ -40,9 +42,17 @@ export function DisplayPanelTopBar() {
           if (panelOpen) displaySearchStore.close();
           displayTabs.setPanelOpen(!panelOpen);
         }}
-        aria-label={panelOpen ? "Close panel" : "Open panel"}
+        aria-label={
+          panelOpen
+            ? t("shell.displayPanel.closePanel")
+            : t("shell.displayPanel.openPanel")
+        }
         aria-expanded={panelOpen}
-        title={panelOpen ? "Close panel" : "Open panel"}
+        title={
+          panelOpen
+            ? t("shell.displayPanel.closePanel")
+            : t("shell.displayPanel.openPanel")
+        }
       >
         <PanelRight size={16} strokeWidth={1.75} />
       </button>

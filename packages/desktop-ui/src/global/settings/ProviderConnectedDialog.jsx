@@ -3,6 +3,7 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, Dia
 import { Button } from "@/ui/button";
 import { PROVIDER_CREDENTIALS } from "@/global/settings/lib/llm-providers";
 import { PROVIDER_CONNECTED_EVENT, } from "@/global/settings/hooks/use-llm-credentials";
+import { useT } from "@/shared/i18n";
 import "./ProviderConnectedDialog.css";
 const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"];
 /**
@@ -28,6 +29,7 @@ const PROVIDER_SURFACES = {
  * old "set each surface manually" flow that made BYOK feel hostile.
  */
 export function ProviderConnectedDialog() {
+    const t = useT();
     const [stage, setStage] = useState(null);
     const [assistant, setAssistant] = useState(true);
     const [image, setImage] = useState(true);
@@ -141,12 +143,12 @@ export function ProviderConnectedDialog() {
         catch (caught) {
             setError(caught instanceof Error
                 ? caught.message
-                : "Failed to apply provider settings.");
+                : t("settings.providerConnected.errors.apply"));
         }
         finally {
             setBusy(false);
         }
-    }, [assistant, image, onClose, stage, voice]);
+    }, [assistant, image, onClose, stage, t, voice]);
     const anyChecked = useMemo(() => {
         if (!stage)
             return false;
@@ -161,37 +163,52 @@ export function ProviderConnectedDialog() {
     return (<Dialog open onOpenChange={(open) => (open ? null : onClose())}>
       <DialogContent fit className="provider-connected-dialog">
         <DialogHeader>
-          <DialogTitle>Use {providerLabel} for Stella?</DialogTitle>
+          <DialogTitle>
+            {t("settings.providerConnected.title", { provider: providerLabel })}
+          </DialogTitle>
           <DialogDescription>
-            {providerLabel} can power more than one part of Stella. Pick where
-            you&rsquo;d like it to take over — Stella keeps doing the rest.
+            {t("settings.providerConnected.description", {
+                provider: providerLabel,
+            })}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="provider-connected-dialog-body">
           {surfaces.assistant ? (<label className="provider-connected-row">
               <input type="checkbox" checked={assistant} onChange={(event) => setAssistant(event.target.checked)}/>
               <span>
-                <span className="provider-connected-row-label">Assistant</span>
+                <span className="provider-connected-row-label">
+                  {t("settings.providerConnected.assistant.label")}
+                </span>
                 <span className="provider-connected-row-desc">
-                  Route Stella&rsquo;s chat assistant through {providerLabel}.
+                  {t("settings.providerConnected.assistant.description", {
+                    provider: providerLabel,
+                })}
                 </span>
               </span>
             </label>) : null}
           {surfaces.image ? (<label className="provider-connected-row">
               <input type="checkbox" checked={image} onChange={(event) => setImage(event.target.checked)}/>
               <span>
-                <span className="provider-connected-row-label">Image</span>
+                <span className="provider-connected-row-label">
+                  {t("settings.providerConnected.image.label")}
+                </span>
                 <span className="provider-connected-row-desc">
-                  Generate images through your {providerLabel} account.
+                  {t("settings.providerConnected.image.description", {
+                    provider: providerLabel,
+                })}
                 </span>
               </span>
             </label>) : null}
           {surfaces.voice ? (<label className="provider-connected-row">
               <input type="checkbox" checked={voice} onChange={(event) => setVoice(event.target.checked)}/>
               <span>
-                <span className="provider-connected-row-label">Voice</span>
+                <span className="provider-connected-row-label">
+                  {t("settings.providerConnected.voice.label")}
+                </span>
                 <span className="provider-connected-row-desc">
-                  Use {providerLabel} for realtime voice conversations.
+                  {t("settings.providerConnected.voice.description", {
+                    provider: providerLabel,
+                })}
                 </span>
               </span>
             </label>) : null}
@@ -200,10 +217,12 @@ export function ProviderConnectedDialog() {
             </p>) : null}
           <div className="provider-connected-actions">
             <Button type="button" variant="ghost" className="pill-btn" onClick={onClose} disabled={busy}>
-              Skip
+              {t("settings.providerConnected.skip")}
             </Button>
             <Button type="button" variant="primary" className="pill-btn pill-btn--primary" onClick={() => void onApply()} disabled={busy || !anyChecked}>
-              {busy ? "Applying…" : "Apply"}
+              {busy
+                ? t("settings.providerConnected.applying")
+                : t("settings.providerConnected.apply")}
             </Button>
           </div>
         </DialogBody>

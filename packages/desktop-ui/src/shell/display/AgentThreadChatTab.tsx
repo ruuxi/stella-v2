@@ -15,6 +15,7 @@ import {
   type BackgroundTaskLifecycleIndex,
 } from "@/features/chat/lib/background-task-lifecycle";
 import { isAgentStartedEvent } from "@/features/chat/lib/event-transforms";
+import { useT, useTPlural } from "@/shared/i18n";
 import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { MessageSquare } from "@/ui/icons";
@@ -27,14 +28,15 @@ import "./agent-thread-chat-tab.css";
 const MESSAGE_LIMIT = 200;
 const NEAR_BOTTOM_PX = 56;
 
-const roleLabel = (role: AgentThreadMessageRecord["role"]): string => {
+/** Returns a catalog *key*; the caller resolves it against the active locale. */
+const roleLabelKey = (role: AgentThreadMessageRecord["role"]): string => {
   switch (role) {
     case "user":
-      return "Instruction";
+      return "shell.display.agentThread.role.user";
     case "assistant":
-      return "Agent";
+      return "shell.display.agentThread.role.assistant";
     case "lifecycle":
-      return "Activity";
+      return "shell.display.agentThread.role.lifecycle";
   }
 };
 
@@ -131,14 +133,23 @@ const countAppendedMessages = (
 const newestMessageAnnouncement = (
   messages: AgentThreadMessageRecord[],
   count: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+  tPlural: (
+    key: string,
+    count: number,
+    params?: Record<string, string | number>,
+  ) => string,
 ): string => {
   const newest = messages.at(-1);
   if (!newest) return "";
   const preview = newest.content.replace(/\s+/g, " ").trim().slice(0, 140);
-  if (!preview) {
-    return `${count} new ${count === 1 ? "message" : "messages"}.`;
-  }
-  return `${count} new ${count === 1 ? "message" : "messages"}. Latest ${roleLabel(newest.role).toLowerCase()}: ${preview}`;
+  const countPhrase = tPlural("shell.display.agentThread.newMessages", count);
+  if (!preview) return countPhrase;
+  return t("shell.display.agentThread.newMessagesWithPreview", {
+    countPhrase,
+    role: t(roleLabelKey(newest.role)).toLowerCase(),
+    preview,
+  });
 };
 
 export function AgentThreadChatTab({
@@ -156,6 +167,8 @@ export function AgentThreadChatTab({
   readOnly?: boolean;
   parentAgentId?: string;
 }) {
+  const t = useT();
+  const tPlural = useTPlural();
   const { records: threadActivity } = useThreadActivity(conversationId);
   const activityRecord = useMemo(
     () => threadActivity.find((record) => record.threadId === threadId),
@@ -175,17 +188,17 @@ export function AgentThreadChatTab({
   const statusLabel = useMemo(() => {
     switch (activityRecord?.status) {
       case "running":
-        return "Working";
+        return t("shell.display.agentThread.status.running");
       case "completed":
-        return "Completed";
+        return t("shell.display.agentThread.status.completed");
       case "error":
-        return "Failed";
+        return t("shell.display.agentThread.status.error");
       case "canceled":
-        return "Stopped";
+        return t("shell.display.agentThread.status.canceled");
       default:
         return undefined;
     }
-  }, [activityRecord?.status]);
+  }, [activityRecord?.status, t]);
   const [messages, setMessages] = useState<AgentThreadMessageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -243,7 +256,7 @@ export function AgentThreadChatTab({
       const list = window.electronAPI?.localChat?.listAgentThreadMessages;
       if (reason === "refresh") setRefreshing(true);
       if (!list) {
-        setError("Agent thread history is unavailable.");
+        setError(t("shell.display.agentThread.unavailable"));
         setAnnouncement("");
         setLoading(false);
         setRefreshing(false);
@@ -269,7 +282,9 @@ export function AgentThreadChatTab({
             setNewMessageCount(0);
           }
           if (appendedCount > 0) {
-            setAnnouncement(newestMessageAnnouncement(next, appendedCount));
+            setAnnouncement(
+              newestMessageAnnouncement(next, appendedCount, t, tPlural),
+            );
           }
           if (!wasPinned && appendedCount > 0) {
             setNewMessageCount((count) => count + appendedCount);
@@ -278,7 +293,9 @@ export function AgentThreadChatTab({
       } catch (cause) {
         if (generation !== requestGeneration.current) return;
         const nextError =
-          cause instanceof Error ? cause.message : "Couldn’t load this thread.";
+          cause instanceof Error
+            ? cause.message
+            : t("shell.display.agentThread.loadFailed");
         setError(nextError);
         // The visible error owns its focused live announcement through
         // `role=alert`; do not repeat it through the update status region.
@@ -290,7 +307,7 @@ export function AgentThreadChatTab({
         }
       }
     },
-    [threadId],
+    [threadId, t, tPlural],
   );
 
   useEffect(() => {
@@ -370,15 +387,15 @@ export function AgentThreadChatTab({
     scroll.scrollTop = scroll.scrollHeight;
     pinnedToLatestRef.current = true;
     setNewMessageCount(0);
-    setAnnouncement("Showing the newest message.");
-  }, []);
+    setAnnouncement(t("shell.display.agentThread.showingNewest"));
+  }, [t]);
 
   return (
     <section
       className="agent-thread-chat"
       aria-label={
         isClaudeNative
-          ? "Claude subagent read-only conversation"
+          ? t("shell.display.agentThread.claudeAriaLabel")
           : `${agentType} read-only chat`
       }
       data-thread-id={threadId}
@@ -389,8 +406,8 @@ export function AgentThreadChatTab({
       <header className="agent-thread-chat__header">
         <span className="agent-thread-chat__eyebrow">
           {isClaudeNative
-            ? "Read-only Claude subagent"
-            : "Read-only agent thread"}
+            ? t("shell.display.agentThread.claudeBadge")
+            : t("shell.display.agentThread.badge")}
         </span>
         <span className="agent-thread-chat__agent">
           {isClaudeNative ? "Claude Code" : agentType}
@@ -410,7 +427,9 @@ export function AgentThreadChatTab({
             disabled={refreshing}
             onClick={() => void load("refresh")}
           >
-            {refreshing ? "Retrying…" : "Try again"}
+            {refreshing
+              ? t("shell.display.agentThread.retrying")
+              : t("common.tryAgain")}
           </button>
         </div>
       ) : null}
@@ -438,7 +457,7 @@ export function AgentThreadChatTab({
         ) : visibleMessages.length === 0 ? (
           <div className="agent-thread-chat__state">
             <MessageSquare size={22} strokeWidth={1.5} aria-hidden="true" />
-            <span>No messages in this thread yet.</span>
+            <span>{t("shell.display.agentThread.empty")}</span>
           </div>
         ) : (
           // `chat-conversation-surface--sidebar` reuses the panel chat's
@@ -465,7 +484,7 @@ export function AgentThreadChatTab({
                 ) : (
                   <>
                     <span className="agent-thread-chat__role">
-                      {roleLabel(message.role)}
+                      {t(roleLabelKey(message.role))}
                     </span>
                     {message.role === "assistant" ||
                     (message.role === "lifecycle" &&
@@ -493,10 +512,17 @@ export function AgentThreadChatTab({
             type="button"
             className="agent-thread-chat__new-messages"
             onClick={showLatest}
-            aria-label={`Show ${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}`}
+            aria-label={t("shell.display.agentThread.showNewMessagesAria", {
+              countPhrase: tPlural(
+                "shell.display.agentThread.newMessagesButton",
+                newMessageCount,
+              ),
+            })}
           >
-            {newMessageCount} new{" "}
-            {newMessageCount === 1 ? "message" : "messages"}
+            {tPlural(
+              "shell.display.agentThread.newMessagesButton",
+              newMessageCount,
+            )}
           </button>
         ) : null}
       </div>

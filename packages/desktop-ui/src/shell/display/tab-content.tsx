@@ -14,6 +14,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
+import { useT } from "@/shared/i18n";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
@@ -67,12 +68,15 @@ export const UrlTabContent = ({
   url: string;
   title: string;
 }) => {
+  const t = useT();
   const [reloadKey, setReloadKey] = useState(0);
   return (
     <div className="right-sidebar__rich right-sidebar__rich--url">
       <header className="display-file-preview__header">
         <div className="display-file-preview__title-group">
-          <span className="display-file-preview__eyebrow">Live preview</span>
+          <span className="display-file-preview__eyebrow">
+            {t("shell.display.url.eyebrow")}
+          </span>
           <div className="display-file-preview__title" title={url}>
             {title}
           </div>
@@ -82,7 +86,7 @@ export const UrlTabContent = ({
             type="button"
             onClick={() => setReloadKey((value) => value + 1)}
           >
-            Reload
+            {t("shell.display.url.reload")}
           </button>
           <button
             type="button"
@@ -90,7 +94,7 @@ export const UrlTabContent = ({
               openExternalUrl(url);
             }}
           >
-            Open in browser
+            {t("shell.display.url.openInBrowser")}
           </button>
         </div>
       </header>
@@ -141,6 +145,7 @@ export const OfficeFileTabContent = ({
   title?: string;
   refreshToken?: number;
 }) => {
+  const t = useT();
   const [previewRef, setPreviewRef] = useState<OfficePreviewRef | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -179,7 +184,7 @@ export const OfficeFileTabContent = ({
               }
               title={filePath}
             >
-              {error || "Preparing preview..."}
+              {error || t("shell.display.office.preparing")}
             </div>
           </div>
         </div>
@@ -242,9 +247,10 @@ export const DelimitedTableTabContent = ({
   filePath: string;
   title?: string;
 }) => {
+  const t = useT();
   const { bytes, error, loading } = useDisplayFileBytes(
     filePath,
-    "Spreadsheet preview requires the Stella desktop app.",
+    t("shell.display.spreadsheet.desktopRequired"),
   );
   const delimiter = filePath.toLowerCase().endsWith(".tsv") ? "\t" : ",";
   const rows = useMemo(() => {
@@ -267,17 +273,21 @@ export const DelimitedTableTabContent = ({
       <section className="display-file-preview display-file-preview--table">
         <header className="display-file-preview__header">
           <div className="display-file-preview__title-group">
-            <span className="display-file-preview__eyebrow">Spreadsheet</span>
+            <span className="display-file-preview__eyebrow">
+              {t("shell.display.spreadsheet.eyebrow")}
+            </span>
             <div className="display-file-preview__title" title={filePath}>
-              {title ?? filePath.split(/[\\/]/).pop() ?? "Spreadsheet"}
+              {title ??
+                filePath.split(/[\\/]/).pop() ??
+                t("shell.display.spreadsheet.eyebrow")}
             </div>
           </div>
           <div className="display-file-preview__actions">
             <button type="button" onClick={handleSave}>
-              Save
+              {t("shell.display.filePreview.save")}
             </button>
             <button type="button" onClick={handleCopy}>
-              Copy
+              {t("shell.display.filePreview.copy")}
             </button>
             {actionStatus && <span>{actionStatus}</span>}
           </div>
@@ -285,9 +295,11 @@ export const DelimitedTableTabContent = ({
         {error ? (
           <div className="display-file-preview__error">{error}</div>
         ) : loading ? (
-          <div className="display-file-preview__empty">Loading…</div>
+          <div className="display-file-preview__empty">{t("common.loading")}</div>
         ) : rows.length === 0 ? (
-          <div className="display-file-preview__empty">No rows found.</div>
+          <div className="display-file-preview__empty">
+            {t("shell.display.spreadsheet.noRows")}
+          </div>
         ) : (
           <div className="display-file-preview__table-wrap">
             <table className="display-file-preview__table">
@@ -295,7 +307,10 @@ export const DelimitedTableTabContent = ({
                 <tr>
                   {Array.from({ length: columnCount }, (_, index) => (
                     <th key={index}>
-                      {header[index] || `Column ${index + 1}`}
+                      {header[index] ||
+                        t("shell.display.spreadsheet.column", {
+                          index: index + 1,
+                        })}
                     </th>
                   ))}
                 </tr>
@@ -341,9 +356,10 @@ export const MarkdownTabContent = ({
   filePath: string;
   title?: string;
 }) => {
+  const t = useT();
   const { bytes, error, loading } = useDisplayFileBytes(
     filePath,
-    "Markdown preview requires the Stella desktop app.",
+    t("shell.display.markdown.desktopRequired"),
   );
   const markdown = useMemo(() => decodeTextBytes(bytes), [bytes]);
   const { actionStatus, handleSave, handleCopy } = useFilePreviewActions({
@@ -357,17 +373,21 @@ export const MarkdownTabContent = ({
       <section className="display-file-preview display-file-preview--markdown">
         <header className="display-file-preview__header">
           <div className="display-file-preview__title-group">
-            <span className="display-file-preview__eyebrow">Markdown</span>
+            <span className="display-file-preview__eyebrow">
+              {t("shell.display.markdown.eyebrow")}
+            </span>
             <div className="display-file-preview__title" title={filePath}>
-              {title ?? filePath.split(/[\\/]/).pop() ?? "Markdown"}
+              {title ??
+                filePath.split(/[\\/]/).pop() ??
+                t("shell.display.markdown.eyebrow")}
             </div>
           </div>
           <div className="display-file-preview__actions">
             <button type="button" onClick={handleSave}>
-              Save
+              {t("shell.display.filePreview.save")}
             </button>
             <button type="button" onClick={handleCopy}>
-              Copy
+              {t("shell.display.filePreview.copy")}
             </button>
             {actionStatus && <span>{actionStatus}</span>}
           </div>
@@ -376,9 +396,13 @@ export const MarkdownTabContent = ({
           {error ? (
             <div className="display-file-preview__error">{error}</div>
           ) : loading ? (
-            <div className="display-file-preview__empty">Loading...</div>
+            <div className="display-file-preview__empty">
+              {t("shell.display.filePreview.loading")}
+            </div>
           ) : markdown.trim().length === 0 ? (
-            <div className="display-file-preview__empty">No content found.</div>
+            <div className="display-file-preview__empty">
+              {t("shell.display.markdown.noContent")}
+            </div>
           ) : (
             <Suspense fallback={null}>
               <Markdown text={markdown} />
@@ -500,6 +524,7 @@ type SourceDiffPayload = Extract<DisplayPayload, { kind: "source-diff" }>;
  * the patch text already contains every section.
  */
 const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
+  const t = useT();
   const parsedPatchSections = useMemo(() => {
     const parsed = parseApplyPatchPreview(patch);
     return parsed.length > 0 ? parsed : null;
@@ -507,7 +532,9 @@ const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
 
   if (!parsedPatchSections)
     return (
-      <div className="display-file-preview__empty">No changes found.</div>
+      <div className="display-file-preview__empty">
+        {t("shell.display.diff.noChanges")}
+      </div>
     );
   return <DiffRows sections={parsedPatchSections} />;
 };
@@ -519,9 +546,10 @@ const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
  * preview semantics.
  */
 const SourceDiffFileBytesBlock = ({ filePath }: { filePath: string }) => {
+  const t = useT();
   const { bytes, error, loading } = useDisplayFileBytes(
     filePath,
-    "Code preview requires the Stella desktop app.",
+    t("shell.display.diff.desktopRequired"),
   );
   const fileText = useMemo(() => decodeTextBytes(bytes), [bytes]);
   const sections = useMemo(() => {
@@ -531,10 +559,16 @@ const SourceDiffFileBytesBlock = ({ filePath }: { filePath: string }) => {
 
   if (error) return <div className="display-file-preview__error">{error}</div>;
   if (loading)
-    return <div className="display-file-preview__empty">Loading...</div>;
+    return (
+      <div className="display-file-preview__empty">
+        {t("shell.display.filePreview.loading")}
+      </div>
+    );
   if (sections.length === 0)
     return (
-      <div className="display-file-preview__empty">No changes found.</div>
+      <div className="display-file-preview__empty">
+        {t("shell.display.diff.noChanges")}
+      </div>
     );
   return <DiffRows sections={sections} />;
 };
@@ -613,6 +647,7 @@ const SourceDiffBatchFooter = ({
 };
 
 export const SourceDiffTabContent = () => {
+  const t = useT();
   const { batches, activeBatchId } = useSourceDiffBatches();
   const now = useNowTick(30_000);
 
@@ -627,17 +662,19 @@ export const SourceDiffTabContent = () => {
       ? activeBatch.payloads[0]!.kind === "source-diff"
         ? (activeBatch.payloads[0] as SourceDiffPayload).filePath
             .split(/[\\/]/)
-            .pop() ?? "Changes"
-        : "Changes"
+            .pop() ?? t("shell.display.diff.changes")
+        : t("shell.display.diff.changes")
       : `${activeBatch.payloads.length} files changed`
-    : "Code changes";
+    : t("shell.display.diff.codeChanges");
 
   return (
     <div className="right-sidebar__rich right-sidebar__rich--diff">
       <section className="display-file-preview display-file-preview--diff">
         <header className="display-file-preview__header">
           <div className="display-file-preview__title-group">
-            <span className="display-file-preview__eyebrow">Changes</span>
+            <span className="display-file-preview__eyebrow">
+              {t("shell.display.diff.changes")}
+            </span>
             <div className="display-file-preview__title" title={headerLabel}>
               {headerLabel}
             </div>
@@ -646,8 +683,7 @@ export const SourceDiffTabContent = () => {
         <div className="display-diff-batches-body">
           {!activeBatch ? (
             <div className="display-file-preview__empty">
-              No file changes yet. When an agent edits code, the changes
-              appear here.
+              {t("shell.display.diff.empty")}
             </div>
           ) : (
             <div className="display-diff-batches-body__scroll">

@@ -7,6 +7,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { api } from "@/convex/api";
 import { usePersistentConvexOneShot } from "@/shared/lib/use-convex-one-shot";
+import { useT, useTPlural } from "@/shared/i18n";
 import type { StorePackageRecord } from "@/shared/types/electron";
 import "./store.css";
 
@@ -14,6 +15,8 @@ type Props = { username: string };
 const CREATOR_CACHE_TTL_MS = 10 * 60 * 1000;
 
 export function CreatorPage({ username }: Props) {
+  const t = useT();
+  const tPlural = useTPlural();
   const navigate = useNavigate();
   // One-shot, not a subscription: visiting a creator's page is
   // read-only browsing — neither the profile nor their published
@@ -40,7 +43,9 @@ export function CreatorPage({ username }: Props) {
   if (profile === undefined || packages === undefined) {
     return (
       <div className="store-creator-page">
-        <div className="store-creator-loading">Loading creator…</div>
+        <div className="store-creator-loading">
+          {t("features.store.creator.loading")}
+        </div>
       </div>
     );
   }
@@ -49,9 +54,13 @@ export function CreatorPage({ username }: Props) {
     return (
       <div className="store-creator-page">
         <div className="store-creator-empty">
-          <div className="store-creator-empty-title">Creator not found</div>
+          <div className="store-creator-empty-title">
+            {t("features.store.creator.notFoundTitle")}
+          </div>
           <div className="store-creator-empty-body">
-            No one has claimed the username <code>@{username}</code> yet.
+            {t("features.store.creator.notFoundBodyPrefix")}{" "}
+            <code>@{username}</code>{" "}
+            {t("features.store.creator.notFoundBodySuffix")}
           </div>
         </div>
       </div>
@@ -63,18 +72,16 @@ export function CreatorPage({ username }: Props) {
       <header className="store-creator-header">
         <div className="store-creator-handle">@{profile.username}</div>
         <div className="store-creator-count">
-          {packages.length === 0
-            ? "No add-ons yet"
-            : packages.length === 1
-              ? "1 add-on"
-              : `${packages.length} add-ons`}
+          {tPlural("features.store.creator.addonCount", packages.length)}
         </div>
       </header>
 
       {packages.length === 0 ? (
         <div className="store-creator-empty">
           <div className="store-creator-empty-body">
-            @{profile.username} hasn't shared any add-ons yet.
+            {t("features.store.creator.noAddons", {
+              username: `@${profile.username}`,
+            })}
           </div>
         </div>
       ) : (
@@ -97,7 +104,9 @@ export function CreatorPage({ username }: Props) {
                 </div>
                 <div className="store-card-desc">{pkg.description}</div>
                 <div className="store-card-meta">
-                  Version {pkg.latestReleaseNumber}
+                  {t("features.store.creator.version", {
+                    version: pkg.latestReleaseNumber,
+                  })}
                 </div>
               </div>
             </div>

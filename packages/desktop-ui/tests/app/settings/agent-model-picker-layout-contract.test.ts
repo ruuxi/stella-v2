@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import enCatalog from "../../../src/shared/i18n/locales/en.json";
 
 const SOURCE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -11,18 +12,51 @@ const SOURCE_ROOT = path.resolve(
 const readSource = (relativePath: string) =>
   fs.readFileSync(path.join(SOURCE_ROOT, relativePath), "utf8");
 
+/**
+ * These labels used to be asserted as literal strings. They are now `t()`
+ * keys, so the contract is checked in two halves: the source renders the
+ * key in the right slot, and the English catalog still maps that key to
+ * the copy this contract is about. Checking only the key would let the
+ * copy drift silently; checking only the copy would miss the label being
+ * moved to a different control.
+ */
+const englishFor = (key: string): string => {
+  const value = key
+    .split(".")
+    .reduce<unknown>(
+      (node, segment) =>
+        node && typeof node === "object"
+          ? (node as Record<string, unknown>)[segment]
+          : undefined,
+      enCatalog,
+    );
+  expect(typeof value, `${key} missing from en.json`).toBe("string");
+  return value as string;
+};
+
 describe("full-area agent model picker layout", () => {
   it("renders one collapsible provider list with engine sections and inline reasoning under the selection", () => {
     const picker = readSource("global/settings/AgentModelPicker.tsx");
     const styles = readSource("global/settings/AgentModelPicker.css");
 
-    expect(picker).toContain('tabButton(ASSISTANT_TARGET, "Assistant"');
+    expect(englishFor("settings.agentModelPicker.tabs.assistant")).toBe(
+      "Assistant",
+    );
+    // Whitespace-tolerant: prettier may reflow the call once the literal
+    // becomes a t() call.
+    expect(picker).toMatch(
+      /tabButton\(\s*ASSISTANT_TARGET,\s*t\("settings\.agentModelPicker\.tabs\.assistant"\)/,
+    );
     // Single list: no brand icon rail, no scoped brand header, no
     // subscription/API source dropdown — engines are their own sections.
     expect(picker).not.toContain("agent-model-picker-brands");
     expect(picker).not.toContain("agent-model-picker-brand-header");
     expect(picker).not.toContain("brandSearchOpen");
+    // No scoped ChatGPT sign-in affordance here. Guard the key shapes too,
+    // so the extraction cannot smuggle it back in under a key name.
     expect(picker).not.toContain("Sign in with ChatGPT");
+    expect(picker).not.toMatch(/signInWith\s*Chat\s*GPT/i);
+    expect(picker).not.toMatch(/chatgpt\w*\.?signIn/i);
     expect(picker).toContain("collapsibleGroups");
     expect(picker).toContain("activeSectionKey={activeSectionKey}");
     expect(picker).toContain("hiddenProviders={HIDDEN_CATALOG_PROVIDERS}");
@@ -54,7 +88,10 @@ describe("full-area agent model picker layout", () => {
     expect(panel).toContain("onClick: () => void handleSignOut(liftedTabKey)");
     expect(panel).not.toContain("model-picker-group-bar");
     expect(panel).not.toContain("model-picker-group-rule");
-    expect(panel).toContain("Cancel sign-in");
+    expect(englishFor("settings.modelPicker.cancelSignIn")).toBe(
+      "Cancel sign-in",
+    );
+    expect(panel).toContain('t("settings.modelPicker.cancelSignIn")');
     expect(panel).toContain("cancelPendingOAuth");
     expect(panel).toContain("model-picker-group-toggle");
     expect(panel).toContain("renderExtraSection");

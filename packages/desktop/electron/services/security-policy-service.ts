@@ -12,6 +12,7 @@ import {
   writePrivateFile,
 } from "@stella/runtime/kernel/home/private-fs";
 import type { WindowManagerTarget } from "@stella/runtime/kernel/lifecycle-targets";
+import { t } from "./i18n-service.js";
 
 const SECURITY_POLICY_VERSION = 2;
 const SECURITY_APPROVAL_PREFIX = "v1:";
@@ -162,14 +163,14 @@ export class SecurityPolicyService {
 
     const dialogOptions: MessageBoxOptions = {
       type: "warning",
-      title: "Stella Security Confirmation",
+      title: t("desktop.security.confirmationTitle"),
       message,
       detail,
-      buttons: ["Allow", "Deny"],
+      buttons: [t("desktop.security.allow"), t("desktop.security.deny")],
       defaultId: 0,
       cancelId: 1,
       noLink: true,
-      checkboxLabel: "Remember this decision on this device",
+      checkboxLabel: t("desktop.security.rememberDecision"),
       checkboxChecked: true,
     };
 
@@ -207,22 +208,25 @@ export class SecurityPolicyService {
     const warningSubtitle = request.warningSubtitle?.trim();
     const risk = request.risk?.trim();
     const detail =
-      [warningSubtitle, risk ? `Risk: ${risk}` : undefined]
+      [
+        warningSubtitle,
+        risk ? t("desktop.security.computerUse.risk", { risk }) : undefined,
+      ]
         .filter(Boolean)
         .join("\n\n") ||
-      `Computer Use will be able to view and interact with ${displayName}.`;
+      t("desktop.security.computerUse.detail", { app: displayName });
     const dialogOptions: MessageBoxOptions = {
       type: "warning",
-      title: "Stella Security Confirmation",
-      message: `Allow Computer Use to use ${displayName}?`,
+      title: t("desktop.security.confirmationTitle"),
+      message: t("desktop.security.computerUse.message", { app: displayName }),
       detail,
-      buttons: ["Allow", "Deny"],
+      buttons: [t("desktop.security.allow"), t("desktop.security.deny")],
       defaultId: 0,
       cancelId: 1,
       noLink: true,
       ...(request.allowPersistentApproval
         ? {
-            checkboxLabel: "Remember this decision on this device",
+            checkboxLabel: t("desktop.security.rememberDecision"),
             checkboxChecked: true,
           }
         : {}),

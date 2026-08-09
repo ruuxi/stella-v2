@@ -3,6 +3,7 @@ import { CollaborationIllustration } from "./CollaborationIllustration";
 import { Copy, Globe, Pencil, SquarePen, Users } from "@/ui/icons";
 import { Avatar } from "@/ui/avatar";
 import { showToast } from "@/ui/toast";
+import { useT, useTPlural } from "@/shared/i18n";
 import { getSocialActionErrorMessage } from "./social-errors";
 import { useSocialBadges } from "./hooks/use-social-badges";
 import { useSocialProfile } from "./hooks/use-social-profile";
@@ -96,10 +97,16 @@ function hasUnread(room: SocialRoomSummary): boolean {
 }
 
 export function SocialView({ onSignIn }: SocialViewProps) {
+  const t = useT();
+  const tPlural = useTPlural();
   const { profile, isSignedIn, ensureProfile, claimUsername } =
     useSocialProfile();
   const { rooms, openDm, createGroup } = useSocialRooms();
   const { incomingFriendRequestCount } = useSocialBadges();
+  const newRequestPhrase = tPlural(
+    "app.social.view.newRequestCount",
+    incomingFriendRequestCount,
+  );
 
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [friendsOpen, setFriendsOpen] = useState(false);
@@ -132,14 +139,14 @@ export function SocialView({ onSignIn }: SocialViewProps) {
         showToast({
           variant: "error",
           description: getSocialActionErrorMessage(
-            "Couldn't start that conversation. Please try again.",
+            t("app.social.view.errors.startConversation"),
             error,
           ),
         });
         return false;
       }
     },
-    [openDm],
+    [openDm, t],
   );
 
   const handleCreateGroup = useCallback(
@@ -152,14 +159,14 @@ export function SocialView({ onSignIn }: SocialViewProps) {
         showToast({
           variant: "error",
           description: getSocialActionErrorMessage(
-            "Couldn't create the group. Please try again.",
+            t("app.social.view.errors.createGroup"),
             error,
           ),
         });
         return false;
       }
     },
-    [createGroup],
+    [createGroup, t],
   );
 
   const handleCopyTag = useCallback(() => {
@@ -176,17 +183,15 @@ export function SocialView({ onSignIn }: SocialViewProps) {
       return;
     }
     if (!trimmed) {
-      setUsernameError("Username can't be empty.");
+      setUsernameError(t("app.social.view.usernameErrors.empty"));
       return;
     }
     if (trimmed.length < 3 || trimmed.length > 32) {
-      setUsernameError("Username must be 3-32 characters.");
+      setUsernameError(t("app.social.view.usernameErrors.length"));
       return;
     }
     if (!/^[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])$/.test(trimmed)) {
-      setUsernameError(
-        "Use lowercase letters, numbers, _ or -. Must start and end with a letter or number.",
-      );
+      setUsernameError(t("app.social.view.usernameErrors.format"));
       return;
     }
     if (trimmed === profile.username) {
@@ -202,14 +207,14 @@ export function SocialView({ onSignIn }: SocialViewProps) {
     } catch (error) {
       setUsernameError(
         getSocialActionErrorMessage(
-          "Couldn't update your username. Please try again.",
+          t("app.social.view.usernameErrors.update"),
           error,
         ),
       );
     } finally {
       setSavingUsername(false);
     }
-  }, [usernameInput, profile, claimUsername]);
+  }, [usernameInput, profile, claimUsername, t]);
 
   const handleStartEditUsername = useCallback(() => {
     if (!profile) return;
@@ -250,16 +255,18 @@ export function SocialView({ onSignIn }: SocialViewProps) {
           <div style={{ width: 240, height: 180, marginBottom: -10 }}>
             <CollaborationIllustration />
           </div>
-          <div className="social-signin-title">Messages</div>
+          <div className="social-signin-title">
+            {t("app.social.view.messages")}
+          </div>
           <div className="social-signin-subtitle">
-            Sign in to message friends and collaborate together with Stella.
+            {t("app.social.view.signInSubtitle")}
           </div>
           <button
             type="button"
             className="pill-btn pill-btn--primary pill-btn--lg"
             onClick={onSignIn}
           >
-            Sign in
+            {t("app.social.view.signIn")}
           </button>
         </div>
       </div>
@@ -277,20 +284,26 @@ export function SocialView({ onSignIn }: SocialViewProps) {
     >
       <div className="social-sidebar">
         <div className="social-sidebar-header">
-          <span className="social-sidebar-title">Messages</span>
+          <span className="social-sidebar-title">
+            {t("app.social.view.messages")}
+          </span>
           <div className="social-sidebar-actions">
             <button
               type="button"
               className={`social-sidebar-action${incomingFriendRequestCount > 0 ? " social-sidebar-action--badge-host" : ""}`}
               title={
                 incomingFriendRequestCount > 0
-                  ? `Friends (${incomingFriendRequestCount} new request${incomingFriendRequestCount === 1 ? "" : "s"})`
-                  : "Friends"
+                  ? t("app.social.view.friendsWithRequestsTitle", {
+                      countPhrase: newRequestPhrase,
+                    })
+                  : t("app.social.view.friends")
               }
               aria-label={
                 incomingFriendRequestCount > 0
-                  ? `Friends, ${incomingFriendRequestCount} new request${incomingFriendRequestCount === 1 ? "" : "s"}`
-                  : "Friends"
+                  ? t("app.social.view.friendsWithRequestsAria", {
+                      countPhrase: newRequestPhrase,
+                    })
+                  : t("app.social.view.friends")
               }
               onClick={handleOpenFriends}
               onFocus={preloadSocialFriendsDialog}
@@ -311,8 +324,8 @@ export function SocialView({ onSignIn }: SocialViewProps) {
             <button
               type="button"
               className="social-sidebar-action"
-              title="Communities"
-              aria-label="Communities"
+              title={t("app.social.view.communities")}
+              aria-label={t("app.social.view.communities")}
               onClick={handleOpenCommunities}
               onFocus={preloadSocialCommunitiesDialog}
               onMouseEnter={preloadSocialCommunitiesDialog}
@@ -322,7 +335,7 @@ export function SocialView({ onSignIn }: SocialViewProps) {
             <button
               type="button"
               className="social-sidebar-action"
-              title="New message"
+              title={t("app.social.view.newMessage")}
               onClick={handleOpenNewChat}
               onFocus={preloadSocialNewChatDialog}
               onMouseEnter={preloadSocialNewChatDialog}
@@ -336,7 +349,7 @@ export function SocialView({ onSignIn }: SocialViewProps) {
           {rooms.length === 0 ? (
             <div className="social-no-rooms">
               <div className="social-no-rooms-text">
-                No conversations yet. Add friends or start a new message.
+                {t("app.social.view.noRooms")}
               </div>
               <button
                 type="button"
@@ -346,7 +359,7 @@ export function SocialView({ onSignIn }: SocialViewProps) {
                 onMouseEnter={preloadSocialFriendsDialog}
               >
                 <Users size={14} />
-                Add friends
+                {t("app.social.view.addFriends")}
               </button>
             </div>
           ) : (
@@ -379,9 +392,9 @@ export function SocialView({ onSignIn }: SocialViewProps) {
                       {room.room.kind === "community" ? (
                         <span
                           className="social-room-item-kind"
-                          title="Shared with everyone in this community"
+                          title={t("app.social.view.communityBadgeTitle")}
                         >
-                          Community
+                          {t("app.social.view.communityBadge")}
                         </span>
                       ) : null}
                       <span className="social-room-item-time">
@@ -415,7 +428,7 @@ export function SocialView({ onSignIn }: SocialViewProps) {
                     className="social-profile-name-input"
                     value={usernameInput}
                     maxLength={32}
-                    placeholder="your-username"
+                    placeholder={t("app.social.view.usernamePlaceholder")}
                     autoCapitalize="none"
                     autoCorrect="off"
                     spellCheck={false}
@@ -448,7 +461,7 @@ export function SocialView({ onSignIn }: SocialViewProps) {
                   <button
                     type="button"
                     className="social-profile-name social-profile-name-button"
-                    title="Edit your username"
+                    title={t("app.social.view.editUsername")}
                     onClick={handleStartEditUsername}
                   >
                     @{profile.username}
@@ -457,11 +470,15 @@ export function SocialView({ onSignIn }: SocialViewProps) {
                   <span
                     className="social-profile-tag"
                     title={
-                      tagCopied ? "Copied!" : "Click to copy your username"
+                      tagCopied
+                        ? t("app.social.view.copied")
+                        : t("app.social.view.clickToCopyUsername")
                     }
                     onClick={handleCopyTag}
                   >
-                    {tagCopied ? "Copied!" : `@${profile.username}`}
+                    {tagCopied
+                      ? t("app.social.view.copied")
+                      : `@${profile.username}`}
                   </span>
                 </>
               )}
@@ -471,27 +488,29 @@ export function SocialView({ onSignIn }: SocialViewProps) {
                 <button
                   type="button"
                   className="social-sidebar-action"
-                  title="Cancel"
+                  title={t("app.social.view.cancel")}
                   onClick={handleCancelEditUsername}
                   disabled={savingUsername}
                 >
-                  Cancel
+                  {t("app.social.view.cancel")}
                 </button>
                 <button
                   type="button"
                   className="social-sidebar-action social-sidebar-action--primary"
-                  title="Save"
+                  title={t("app.social.view.save")}
                   onClick={() => void handleSaveUsername()}
                   disabled={savingUsername || usernameInput.trim().length === 0}
                 >
-                  {savingUsername ? "Saving..." : "Save"}
+                  {savingUsername
+                    ? t("app.social.view.saving")
+                    : t("app.social.view.save")}
                 </button>
               </div>
             ) : (
               <button
                 type="button"
                 className="social-sidebar-action"
-                title="Copy username"
+                title={t("app.social.view.copyUsername")}
                 onClick={handleCopyTag}
                 style={{ width: 28, height: 28 }}
               >
@@ -523,10 +542,11 @@ export function SocialView({ onSignIn }: SocialViewProps) {
             >
               <CollaborationIllustration />
             </div>
-            <div className="social-empty-title">Your messages</div>
+            <div className="social-empty-title">
+              {t("app.social.view.emptyTitle")}
+            </div>
             <div className="social-empty-subtitle">
-              Pick a conversation from the left, or start a new one with a
-              friend.
+              {t("app.social.view.emptySubtitle")}
             </div>
           </div>
         </div>

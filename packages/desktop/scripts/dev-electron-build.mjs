@@ -52,6 +52,20 @@ const verifyIdentifiers = process.argv.includes("--verify-identifiers");
 const runtimeStaticAssetRoots = [
   "packages/runtime/extensions/stella-runtime/agent-metadata",
 ];
+/**
+ * Static assets copied next to the compiled electron-main bundle. The
+ * renderer's `src/` tree is not part of a packaged build (electron-builder
+ * ships `dist-electron/electron/**` plus the renderer's *built* output), so
+ * the translation catalogs electron-main reads at runtime — tray menu, native
+ * dialogs, notifications — have to land under `dist-electron/electron/`, which
+ * `files` already includes. See `electron/services/i18n-service.ts`.
+ */
+const electronStaticAssetCopies = [
+  {
+    from: "packages/desktop-ui/src/shared/i18n/locales",
+    to: "electron/i18n-locales",
+  },
+];
 const electronRuntimeEntryPoints = {
   "electron/main": "packages/desktop/electron/main.ts",
   ...(includeLocalUpdateVerification
@@ -105,10 +119,14 @@ const fingerprintFilePath = path.join(
  * because electron-main/preload import contracts and lib shims from there
  * (see e.g. `desktop/electron/preload.ts`). `runtime/home-seed/` is seed
  * data, never bundled, and excluded so seeding churn doesn't trigger builds.
+ * `desktop-ui/src/shared/i18n` is the renderer-owned locale set: electron-main
+ * imports `locales.ts` and copies the JSON catalogs out of it, so edits there
+ * must invalidate the fingerprint and retrigger the copy.
  */
 const bundleSourceRoots = [
   "packages/contracts",
   "packages/desktop/electron",
+  "packages/desktop-ui/src/shared/i18n",
   "packages/runtime",
 ];
 const bundleSourceExcludedPrefixes = ["packages/home-seed/"];
@@ -324,6 +342,26 @@ const copyRuntimeStaticAssets = async () => {
   );
 };
 
+const copyElectronStaticAssets = async () => {
+  await Promise.all(
+    electronStaticAssetCopies.map(async ({ from, to }) => {
+      const sourceDir = path.join(repoRootDir, from);
+      const targetDir = path.join(desktopDir, outdir, to);
+      try {
+        await fsPromises.rm(targetDir, { force: true, recursive: true });
+        await fsPromises.cp(sourceDir, targetDir, {
+          recursive: true,
+          force: true,
+        });
+      } catch (error) {
+        if (error?.code !== "ENOENT") {
+          throw error;
+        }
+      }
+    }),
+  );
+};
+
 /**
  * One-shot build of all four bundles. Outputs are produced with
  * `write: false` and written manually only when their bytes differ from
@@ -355,6 +393,7 @@ export const buildElectronBundles = async () => {
       }
     }
     await copyRuntimeStaticAssets();
+    await copyElectronStaticAssets();
     return changedOutputs;
   } finally {
     await stopEsbuildService();

@@ -5,6 +5,7 @@ import { Button } from "@/ui/button";
 import { TextField } from "@/ui/text-field";
 import { findApiKey, findOauthCredential, findOauthProvider, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
 import { PROVIDER_CREDENTIALS, isApiKeyOnlyPlaceholder, } from "@/global/settings/lib/llm-providers";
+import { useT } from "@/shared/i18n";
 import "./ProviderOnlyPicker.css";
 const STELLA_PROVIDER_KEY = "stella";
 /**
@@ -15,6 +16,7 @@ const STELLA_PROVIDER_KEY = "stella";
  * and we auto-select once credentials land.
  */
 export function ProviderOnlyPicker({ providers, value, onSelect, disabled = false, ariaLabel, }) {
+    const t = useT();
     const credentials = useLlmCredentials();
     const [expandedProvider, setExpandedProvider] = useState(null);
     const [draftKey, setDraftKey] = useState("");
@@ -56,12 +58,14 @@ export function ProviderOnlyPicker({ providers, value, onSelect, disabled = fals
             onSelect(key);
         }
         catch (caught) {
-            setAuthError(caught instanceof Error ? caught.message : "Failed to save API key.");
+            setAuthError(caught instanceof Error
+                ? caught.message
+                : t("settings.modelPicker.errors.saveApiKey"));
         }
         finally {
             setSavingProvider(null);
         }
-    }, [credentials, draftKey, onSelect]);
+    }, [credentials, draftKey, onSelect, t]);
     const handleLoginOAuth = useCallback(async (key) => {
         setOauthInFlight(key);
         setAuthError(null);
@@ -71,12 +75,14 @@ export function ProviderOnlyPicker({ providers, value, onSelect, disabled = fals
             onSelect(key);
         }
         catch (caught) {
-            setAuthError(caught instanceof Error ? caught.message : "OAuth login failed.");
+            setAuthError(caught instanceof Error
+                ? caught.message
+                : t("settings.modelPicker.errors.oauthLogin"));
         }
         finally {
             setOauthInFlight(null);
         }
-    }, [credentials, onSelect]);
+    }, [credentials, onSelect, t]);
     return (<div className="provider-only-picker" role="radiogroup" aria-label={ariaLabel} data-disabled={disabled || undefined}>
       {providers.map((provider) => {
             const llmEntry = PROVIDER_CREDENTIALS.find((entry) => entry.key === provider.key);
@@ -100,7 +106,9 @@ export function ProviderOnlyPicker({ providers, value, onSelect, disabled = fals
               </span>
               <span className="provider-only-row-meta">
                 {provider.key !== STELLA_PROVIDER_KEY ? (<span className="provider-only-row-status" data-on={connected || undefined}>
-                    {connected ? "Connected" : "Connect"}
+                    {connected
+                        ? t("settings.providerPicker.connected")
+                        : t("settings.providerPicker.connect")}
                   </span>) : null}
                 {selected ? (<Check size={13} className="provider-only-row-check"/>) : null}
               </span>
@@ -110,13 +118,13 @@ export function ProviderOnlyPicker({ providers, value, onSelect, disabled = fals
                     <LogIn size={13} aria-hidden/>
                     <Button type="button" variant="ghost" onClick={() => void handleLoginOAuth(provider.key)} disabled={oauthInFlight !== null || disabled}>
                       {oauthInFlight === provider.key
-                            ? "Opening…"
-                            : `Sign in with ${provider.label}`}
+                            ? t("settings.providerPicker.opening")
+                            : t("settings.modelPicker.signInWith", { provider: provider.label })}
                     </Button>
                   </div>) : null}
                 {supportsApiKey ? (<div className="provider-only-row-auth-line">
                     <KeyRound size={13} aria-hidden/>
-                    <TextField label={`${provider.label} API key`} hideLabel type="password" placeholder={llmEntry?.placeholder ?? "API key"} value={draftKey} onChange={(event) => setDraftKey(event.target.value)} onKeyDown={(event) => {
+                    <TextField label={t("settings.modelPicker.apiKeyAriaLabel", { provider: provider.label })} hideLabel type="password" placeholder={llmEntry?.placeholder ?? t("settings.modelPicker.apiKeyPlaceholder")} value={draftKey} onChange={(event) => setDraftKey(event.target.value)} onKeyDown={(event) => {
                             if (event.key === "Enter") {
                                 void handleSaveKey(provider.key, provider.label);
                             }
@@ -124,7 +132,9 @@ export function ProviderOnlyPicker({ providers, value, onSelect, disabled = fals
                     <Button type="button" variant="primary" onClick={() => void handleSaveKey(provider.key, provider.label)} disabled={!draftKey.trim() ||
                             savingProvider === provider.key ||
                             disabled}>
-                      {savingProvider === provider.key ? "Saving…" : "Save"}
+                      {savingProvider === provider.key
+                        ? t("settings.modelPicker.saving")
+                        : t("common.save")}
                     </Button>
                   </div>) : null}
                 {authError ? (<p className="provider-only-row-auth-error" role="alert">

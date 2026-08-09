@@ -18,6 +18,7 @@ const VOICE_NEEDS_SETUP =
 
 export const resolveVoiceErrorToast = (
   errorMessage: string | undefined,
+  t: (key: string) => string,
 ): Parameters<typeof showToast>[0] | null => {
   const message = (errorMessage ?? "").trim();
   if (!message) return null;
@@ -25,7 +26,7 @@ export const resolveVoiceErrorToast = (
   // actionable fix for an unauthenticated user is signing in, not Settings.
   if (VOICE_NEEDS_SIGN_IN.test(message)) {
     return {
-      title: "Sign in to use voice",
+      title: t("features.voice.signInTitle"),
       description: message,
       variant: "error",
       duration: 8000,
@@ -34,7 +35,7 @@ export const resolveVoiceErrorToast = (
   }
   if (VOICE_NEEDS_SETUP.test(message)) {
     return {
-      title: "Voice needs setup",
+      title: t("features.voice.needsSetupTitle"),
       description: message,
       variant: "error",
       duration: 8000,

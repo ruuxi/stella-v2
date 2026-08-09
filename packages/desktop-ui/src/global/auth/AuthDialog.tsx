@@ -14,6 +14,7 @@ import { useAuthSessionState } from "./hooks/use-auth-session-state";
 import { refreshAuthSession } from "./services/auth-session";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
+import { useT } from "@/shared/i18n";
 import "./AuthDialog.css";
 
 interface AuthDialogProps {
@@ -49,7 +50,9 @@ const getConvexSiteUrl = () => {
   return url;
 };
 
-const startDesktopSocialAuth = async () => {
+type Translate = ReturnType<typeof useT>;
+
+const startDesktopSocialAuth = async (t: Translate) => {
   const convexSiteUrl = getConvexSiteUrl();
   const response = await fetch(`${convexSiteUrl}/api/auth/desktop-social/start`, {
     method: "POST",
@@ -62,7 +65,7 @@ const startDesktopSocialAuth = async () => {
     error?: string;
   } | null;
   if (!response.ok || !data?.requestId || !data.callbackURL) {
-    throw new Error(data?.error || "Google sign-in could not start.");
+    throw new Error(data?.error || t("global.auth.googleStartFailed"));
   }
   return {
     convexSiteUrl,
@@ -74,6 +77,7 @@ const startDesktopSocialAuth = async () => {
 const pollDesktopSocialAuth = async (
   convexSiteUrl: string,
   requestId: string,
+  t: Translate,
 ) => {
   const deadline = Date.now() + SOCIAL_AUTH_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -96,16 +100,17 @@ const pollDesktopSocialAuth = async (
       return;
     }
     if (data?.status === "completed") {
-      throw new Error("Google sign-in completed without a session.");
+      throw new Error(t("global.auth.googleNoSession"));
     }
     if (data?.status === "expired") {
-      throw new Error("Google sign-in expired. Please try again.");
+      throw new Error(t("global.auth.googleExpired"));
     }
   }
-  throw new Error("Google sign-in timed out. Please try again.");
+  throw new Error(t("global.auth.googleTimedOut"));
 };
 
 export const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
+  const t = useT();
   const { hasConnectedAccount } = useAuthSessionState();
 
   useEffect(() => {
@@ -118,43 +123,43 @@ export const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent fit className="auth-dialog-content">
         <VisuallyHidden asChild>
-          <DialogTitle>Welcome to Stella</DialogTitle>
+          <DialogTitle>{t("global.auth.welcomeTitle")}</DialogTitle>
         </VisuallyHidden>
         <VisuallyHidden asChild>
           <DialogDescription>
-            Sign in with your email to start using Stella.
+            {t("global.auth.welcomeDescription")}
           </DialogDescription>
         </VisuallyHidden>
         <DialogCloseButton className="auth-dialog-close" />
         <DialogBody className="auth-dialog-body">
           <div className="auth-dialog-hero">
-            <p className="auth-dialog-headline">Welcome to Stella</p>
-            <p className="auth-dialog-sub">
-              Use Google or your email to sign in. No password needed.
+            <p className="auth-dialog-headline">
+              {t("global.auth.welcomeTitle")}
             </p>
+            <p className="auth-dialog-sub">{t("global.auth.welcomeSub")}</p>
           </div>
           <GoogleAuthButton />
           <div className="auth-dialog-method-divider">
-            <span>or use email</span>
+            <span>{t("global.auth.orUseEmail")}</span>
           </div>
           <MagicLinkAuthFlow
             className="auth-dialog-flow"
             hideEmailLabel
             inputVariant="normal"
-            emailPlaceholder="you@example.com"
+            emailPlaceholder={t("global.auth.emailPlaceholder")}
             autoFocus
             formClassName="auth-dialog-form"
             inputClassName="auth-dialog-input"
             buttonClassName="pill-btn pill-btn--primary pill-btn--lg auth-dialog-cta"
             buttonVariant="primary"
             buttonSize="large"
-            submitLabel="Continue"
-            sendingLabel="Sending..."
-            resendLabel="Resend email"
+            submitLabel={t("common.continue")}
+            sendingLabel={t("global.auth.sending")}
+            resendLabel={t("global.auth.resendEmail")}
             extrasClassName="auth-dialog-extras"
             extrasInnerClassName="auth-dialog-extras-inner"
             sentClassName="auth-dialog-sent"
-            sentMessage="We sent a sign-in link. Open it on this device to finish."
+            sentMessage={t("global.auth.magicLinkSentDesktop")}
             openInboxClassName="pill-btn pill-btn--primary pill-btn--lg auth-dialog-open-inbox"
             errorClassName="auth-dialog-error"
           />
@@ -165,6 +170,7 @@ export const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
 };
 
 function GoogleAuthButton() {
+  const t = useT();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -174,7 +180,7 @@ function GoogleAuthButton() {
 
     try {
       const { convexSiteUrl, requestId, callbackURL } =
-        await startDesktopSocialAuth();
+        await startDesktopSocialAuth(t);
       const result = (await authClient.signIn.social({
         provider: "google",
         callbackURL,
@@ -186,21 +192,23 @@ function GoogleAuthButton() {
         setError(
           result?.error?.message ||
             result?.error?.statusText ||
-            "Google sign-in could not start.",
+            t("global.auth.googleStartFailed"),
         );
         return;
       }
 
       openExternalUrl(url);
-      await pollDesktopSocialAuth(convexSiteUrl, requestId);
+      await pollDesktopSocialAuth(convexSiteUrl, requestId, t);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Google sign-in could not start.",
+        err instanceof Error
+          ? err.message
+          : t("global.auth.googleStartFailed"),
       );
     } finally {
       setIsSigningIn(false);
     }
-  }, []);
+  }, [t]);
 
   return (
     <div className="auth-dialog-google-wrap">
@@ -211,7 +219,9 @@ function GoogleAuthButton() {
         disabled={isSigningIn}
       >
         <GoogleIcon />
-        {isSigningIn ? "Waiting for Google..." : "Continue with Google"}
+        {isSigningIn
+          ? t("global.auth.googleWaiting")
+          : t("global.auth.googleContinue")}
       </button>
       {error ? <div className="auth-dialog-error">{error}</div> : null}
     </div>

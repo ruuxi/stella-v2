@@ -27,6 +27,7 @@ import {
 } from "./media-store";
 import { markMediaJobMaterialized } from "./use-media-materializer";
 import { fileToDataUri } from "@/features/workspace-display/media-files";
+import { useT } from "@/shared/i18n";
 import "./media-studio.css";
 
 function FolderIcon() {
@@ -39,7 +40,7 @@ type Category = "image" | "audio" | "music" | "video" | "3d";
 
 type ExtraField = {
   key: string;
-  label: string;
+  labelKey: string;
   type: "number";
   default: number;
   min?: number;
@@ -48,44 +49,44 @@ type ExtraField = {
 
 type CapabilityDef = {
   id: string;
-  name: string;
-  description: string;
+  nameKey: string;
+  descriptionKey: string;
   category: Category;
   needsPrompt: boolean;
   needsSource: boolean;
   sourceAccept?: string;
-  sourceLabel?: string;
+  sourceLabelKey?: string;
   supportsAspectRatio: boolean;
   extraFields?: ExtraField[];
-  profiles?: { id: string; name: string }[];
+  profiles?: { id: string; nameKey: string }[];
 };
 
-const CATEGORIES: { id: Category; label: string }[] = [
-  { id: "image", label: "Image" },
-  { id: "audio", label: "Audio" },
-  { id: "music", label: "Music" },
-  { id: "video", label: "Video" },
-  { id: "3d", label: "3D" },
+const CATEGORIES: { id: Category; labelKey: string }[] = [
+  { id: "image", labelKey: "app.media.studio.categoryImage" },
+  { id: "audio", labelKey: "app.media.studio.categoryAudio" },
+  { id: "music", labelKey: "app.media.studio.categoryMusic" },
+  { id: "video", labelKey: "app.media.studio.categoryVideo" },
+  { id: "3d", labelKey: "app.media.studio.category3d" },
 ];
 
 const CAPABILITIES: CapabilityDef[] = [
   {
     id: "text_to_image",
-    name: "Text to Image",
-    description: "Generate images from a text prompt",
+    nameKey: "app.media.capability.textToImage.name",
+    descriptionKey: "app.media.capability.textToImage.description",
     category: "image",
     needsPrompt: true,
     needsSource: false,
     supportsAspectRatio: true,
     profiles: [
-      { id: "best", name: "Best" },
-      { id: "fast", name: "Fast" },
+      { id: "best", nameKey: "app.media.studio.profileBest" },
+      { id: "fast", nameKey: "app.media.studio.profileFast" },
     ],
   },
   {
     id: "icon",
-    name: "Icon Generator",
-    description: "Icons, logos, and thumbnails from a prompt",
+    nameKey: "app.media.capability.icon.name",
+    descriptionKey: "app.media.capability.icon.description",
     category: "image",
     needsPrompt: true,
     needsSource: false,
@@ -93,19 +94,19 @@ const CAPABILITIES: CapabilityDef[] = [
   },
   {
     id: "image_edit",
-    name: "Image Edit",
-    description: "Edit an existing image with text instructions",
+    nameKey: "app.media.capability.imageEdit.name",
+    descriptionKey: "app.media.capability.imageEdit.description",
     category: "image",
     needsPrompt: true,
     needsSource: true,
     sourceAccept: "image/*",
-    sourceLabel: "Source image",
+    sourceLabelKey: "app.media.studio.sourceImage",
     supportsAspectRatio: true,
   },
   {
     id: "audio_generation",
-    name: "Audio Generation",
-    description: "Speech, dialogue, sound effects, or ambient audio from text",
+    nameKey: "app.media.capability.audioGeneration.name",
+    descriptionKey: "app.media.capability.audioGeneration.description",
     category: "audio",
     needsPrompt: true,
     needsSource: false,
@@ -113,8 +114,8 @@ const CAPABILITIES: CapabilityDef[] = [
   },
   {
     id: "text_to_music",
-    name: "Text to Music",
-    description: "Generate a short music clip from a prompt",
+    nameKey: "app.media.capability.textToMusic.name",
+    descriptionKey: "app.media.capability.textToMusic.description",
     category: "music",
     needsPrompt: true,
     needsSource: false,
@@ -122,19 +123,19 @@ const CAPABILITIES: CapabilityDef[] = [
   },
   {
     id: "speech_to_text",
-    name: "Speech to Text",
-    description: "Transcribe spoken audio into text",
+    nameKey: "app.media.capability.speechToText.name",
+    descriptionKey: "app.media.capability.speechToText.description",
     category: "audio",
     needsPrompt: false,
     needsSource: true,
     sourceAccept: "audio/*",
-    sourceLabel: "Audio file",
+    sourceLabelKey: "app.media.studio.sourceAudio",
     supportsAspectRatio: false,
   },
   {
     id: "text_to_video",
-    name: "Text to Video",
-    description: "Generate a short video from a text prompt",
+    nameKey: "app.media.capability.textToVideo.name",
+    descriptionKey: "app.media.capability.textToVideo.description",
     category: "video",
     needsPrompt: true,
     needsSource: false,
@@ -142,42 +143,42 @@ const CAPABILITIES: CapabilityDef[] = [
   },
   {
     id: "image_to_video",
-    name: "Image to Video",
-    description: "Animate a still image into a short video",
+    nameKey: "app.media.capability.imageToVideo.name",
+    descriptionKey: "app.media.capability.imageToVideo.description",
     category: "video",
     needsPrompt: true,
     needsSource: true,
     sourceAccept: "image/*",
-    sourceLabel: "Source image",
+    sourceLabelKey: "app.media.studio.sourceImage",
     supportsAspectRatio: true,
   },
   {
     id: "video_extend",
-    name: "Video Extend",
-    description: "Continue or extend a video clip",
+    nameKey: "app.media.capability.videoExtend.name",
+    descriptionKey: "app.media.capability.videoExtend.description",
     category: "video",
     needsPrompt: true,
     needsSource: true,
     sourceAccept: "video/*",
-    sourceLabel: "Source video",
+    sourceLabelKey: "app.media.studio.sourceVideo",
     supportsAspectRatio: true,
   },
   {
     id: "video_to_video",
-    name: "Video to Video",
-    description: "Transform a video with text instructions",
+    nameKey: "app.media.capability.videoToVideo.name",
+    descriptionKey: "app.media.capability.videoToVideo.description",
     category: "video",
     needsPrompt: true,
     needsSource: true,
     sourceAccept: "video/*",
-    sourceLabel: "Source video",
+    sourceLabelKey: "app.media.studio.sourceVideo",
     supportsAspectRatio: true,
-    profiles: [{ id: "fast", name: "Fast" }],
+    profiles: [{ id: "fast", nameKey: "app.media.studio.profileFast" }],
   },
   {
     id: "text_to_3d",
-    name: "Text to 3D",
-    description: "Generate a 3D model from a text prompt",
+    nameKey: "app.media.capability.textTo3d.name",
+    descriptionKey: "app.media.capability.textTo3d.description",
     category: "3d",
     needsPrompt: true,
     needsSource: false,
@@ -229,6 +230,7 @@ async function generateMedia(
 /* ── Component ── */
 
 export default function MediaStudio() {
+  const t = useT();
   // Restore persisted state
   const [savedForm] = useState(loadFormState);
   const [history, setHistory] = useState(loadHistory);
@@ -333,11 +335,11 @@ export default function MediaStudio() {
       setHistory(
         updateHistoryEntry(activeJobId, {
           status: "failed",
-          error: jobError?.message ?? "Generation failed",
+          error: jobError?.message ?? t("app.media.studio.generationFailed"),
         }),
       );
     }
-  }, [activeJobId, jobStatus, jobOutput, jobError]);
+  }, [activeJobId, jobStatus, jobOutput, jobError, t]);
 
   // Persist form state on changes
   const persistForm = useCallback((patch: Partial<FormState>) => {
@@ -422,16 +424,19 @@ export default function MediaStudio() {
     [persistForm],
   );
 
-  const ingestFile = useCallback(async (file: File) => {
-    try {
-      const dataUri = await fileToDataUri(file);
-      setSourceUri(dataUri);
-      setSourceFileName(file.name);
-      setError(null);
-    } catch {
-      setError("Failed to read file");
-    }
-  }, []);
+  const ingestFile = useCallback(
+    async (file: File) => {
+      try {
+        const dataUri = await fileToDataUri(file);
+        setSourceUri(dataUri);
+        setSourceFileName(file.name);
+        setError(null);
+      } catch {
+        setError(t("app.media.studio.fileReadFailed"));
+      }
+    },
+    [t],
+  );
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -497,7 +502,7 @@ export default function MediaStudio() {
       const entry: HistoryEntry = {
         id: result.jobId,
         capability: capability.id,
-        capabilityName: capability.name,
+        capabilityName: t(capability.nameKey),
         prompt: prompt.trim() || undefined,
         timestamp: Date.now(),
         output: null,
@@ -515,11 +520,15 @@ export default function MediaStudio() {
         setHistory(addHistoryEntry(entry));
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Generation failed");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("app.media.studio.generationFailed"),
+      );
     } finally {
       setSubmitting(false);
     }
-  }, [capability, prompt, sourceUri, aspectRatio, profile, extraValues]);
+  }, [capability, prompt, sourceUri, aspectRatio, profile, extraValues, t]);
 
   const handleHistoryClick = useCallback((entry: HistoryEntry) => {
     setViewingEntry(entry);
@@ -619,7 +628,9 @@ export default function MediaStudio() {
     viewingEntry?.status === "failed";
   const showOutput = activeOutput && activeOutput.kind !== "unknown";
   const failMessage =
-    viewingEntry?.error ?? jobError?.message ?? "Generation failed";
+    viewingEntry?.error ??
+    jobError?.message ??
+    t("app.media.studio.generationFailed");
 
   return (
     <div
@@ -633,9 +644,9 @@ export default function MediaStudio() {
       <div className="ms-controls">
         <div className="ms-controls-header">
           <h1 className="ms-title">
-            <em>Media</em>
+            <em>{t("app.media.studio.title")}</em>
           </h1>
-          <p className="ms-lead">Create images, audio, music, video, and 3D.</p>
+          <p className="ms-lead">{t("app.media.studio.lead")}</p>
         </div>
 
         <nav className="ms-categories">
@@ -646,7 +657,7 @@ export default function MediaStudio() {
               className={`ms-category ${category === cat.id ? "ms-category--active" : ""}`}
               onClick={() => handleCategoryChange(cat.id)}
             >
-              {cat.label}
+              {t(cat.labelKey)}
             </button>
           ))}
         </nav>
@@ -661,8 +672,10 @@ export default function MediaStudio() {
                 className={`ms-capability ${capabilityId === cap.id ? "ms-capability--active" : ""}`}
                 onClick={() => handleCapabilitySelect(cap.id)}
               >
-                <span className="ms-capability-name">{cap.name}</span>
-                <span className="ms-capability-desc">{cap.description}</span>
+                <span className="ms-capability-name">{t(cap.nameKey)}</span>
+                <span className="ms-capability-desc">
+                  {t(cap.descriptionKey)}
+                </span>
               </button>
             ))}
           </div>
@@ -674,7 +687,9 @@ export default function MediaStudio() {
               <div className="ms-form">
                 {capability.profiles && capability.profiles.length > 1 && (
                   <div className="ms-field">
-                    <label className="ms-label">Quality</label>
+                    <label className="ms-label">
+                      {t("app.media.studio.quality")}
+                    </label>
                     <div className="ms-tags">
                       {capability.profiles.map((p) => (
                         <button
@@ -683,7 +698,7 @@ export default function MediaStudio() {
                           className={`ms-tag ${profile === p.id ? "ms-tag--active" : ""}`}
                           onClick={() => handleProfileChange(p.id)}
                         >
-                          {p.name}
+                          {t(p.nameKey)}
                         </button>
                       ))}
                     </div>
@@ -692,12 +707,14 @@ export default function MediaStudio() {
 
                 {capability.needsPrompt && (
                   <div className="ms-field">
-                    <label className="ms-label">Prompt</label>
+                    <label className="ms-label">
+                      {t("app.media.studio.prompt")}
+                    </label>
                     <textarea
                       className="ms-textarea"
                       value={prompt}
                       onChange={(e) => handlePromptChange(e.target.value)}
-                      placeholder="Describe what you'd like…"
+                      placeholder={t("app.media.studio.promptPlaceholder")}
                       rows={3}
                     />
                   </div>
@@ -706,7 +723,9 @@ export default function MediaStudio() {
                 {capability.needsSource && (
                   <div className="ms-field">
                     <label className="ms-label">
-                      {capability.sourceLabel ?? "Source file"}
+                      {capability.sourceLabelKey
+                        ? t(capability.sourceLabelKey)
+                        : t("app.media.studio.sourceFile")}
                     </label>
                     {sourceFileName && sourceCompatible ? (
                       <div className="ms-source-info">
@@ -733,8 +752,8 @@ export default function MediaStudio() {
                         onClick={() => fileInputRef.current?.click()}
                       >
                         {sourceFileName
-                          ? "Choose a different file"
-                          : "Choose file or drop anywhere"}
+                          ? t("app.media.studio.chooseDifferentFile")
+                          : t("app.media.studio.chooseFile")}
                       </button>
                     )}
                     <input
@@ -749,7 +768,9 @@ export default function MediaStudio() {
 
                 {capability.supportsAspectRatio && (
                   <div className="ms-field">
-                    <label className="ms-label">Aspect ratio</label>
+                    <label className="ms-label">
+                      {t("app.media.studio.aspectRatio")}
+                    </label>
                     <div className="ms-tags">
                       {ASPECT_RATIOS.map((ar) => (
                         <button
@@ -767,7 +788,7 @@ export default function MediaStudio() {
 
                 {capability.extraFields?.map((field) => (
                   <div key={field.key} className="ms-field">
-                    <label className="ms-label">{field.label}</label>
+                    <label className="ms-label">{t(field.labelKey)}</label>
                     <input
                       type="number"
                       className="ms-number-input"
@@ -792,7 +813,9 @@ export default function MediaStudio() {
                   disabled={!canSubmit}
                   onClick={handleGenerate}
                 >
-                  {submitting ? "Submitting…" : "Generate"}
+                  {submitting
+                    ? t("app.media.studio.submitting")
+                    : t("app.media.studio.generate")}
                 </button>
 
                 {error && <p className="ms-error">{error}</p>}
@@ -807,16 +830,19 @@ export default function MediaStudio() {
         <div className="ms-output-panel">
           {dragging && (
             <div className="ms-drop-overlay">
-              <div className="ms-drop-label">Drop file</div>
+              <div className="ms-drop-label">
+                {t("app.media.studio.dropFile")}
+              </div>
             </div>
           )}
 
           {!showPending && !showFailed && !showOutput && !dragging && (
             <div className="ms-empty">
-              <div className="ms-empty-title">Your creation</div>
+              <div className="ms-empty-title">
+                {t("app.media.studio.emptyTitle")}
+              </div>
               <div className="ms-empty-desc">
-                Pick a capability and generate — or drop a file anywhere to get
-                started.
+                {t("app.media.studio.emptyDescription")}
               </div>
             </div>
           )}
@@ -825,7 +851,9 @@ export default function MediaStudio() {
             <div className="ms-status">
               <span className="ms-status-dot" />
               <span className="ms-status-text">
-                {jobStatus === "queued" ? "Waiting in queue…" : "Generating…"}
+                {jobStatus === "queued"
+                  ? t("app.media.studio.queued")
+                  : t("app.media.studio.generating")}
               </span>
             </div>
           )}
@@ -846,7 +874,9 @@ export default function MediaStudio() {
                       >
                         <img
                           src={url}
-                          alt={`Generated ${i + 1}`}
+                          alt={t("app.media.studio.generatedAlt", {
+                            index: i + 1,
+                          })}
                           className="ms-output-image"
                         />
                       </button>
@@ -858,7 +888,7 @@ export default function MediaStudio() {
                       className="ms-action"
                       onClick={() => void handleCopyImage(activeOutput.urls[0])}
                     >
-                      Copy
+                      {t("app.media.studio.copy")}
                     </button>
                     <button
                       type="button"
@@ -867,7 +897,7 @@ export default function MediaStudio() {
                         handleSendTo("image_edit", activeOutput.urls[0])
                       }
                     >
-                      Edit
+                      {t("app.media.studio.edit")}
                     </button>
                     <button
                       type="button"
@@ -876,7 +906,7 @@ export default function MediaStudio() {
                         handleSendTo("image_to_video", activeOutput.urls[0])
                       }
                     >
-                      Animate
+                      {t("app.media.studio.animate")}
                     </button>
                   </div>
                 </>
@@ -896,7 +926,7 @@ export default function MediaStudio() {
                         handleSendTo("video_to_video", activeOutput.url)
                       }
                     >
-                      Transform video
+                      {t("app.media.studio.transformVideo")}
                     </button>
                     <button
                       type="button"
@@ -905,7 +935,7 @@ export default function MediaStudio() {
                         handleSendTo("video_extend", activeOutput.url)
                       }
                     >
-                      Extend video
+                      {t("app.media.studio.extendVideo")}
                     </button>
                   </div>
                 </>
@@ -990,7 +1020,7 @@ export default function MediaStudio() {
                 type="button"
                 className="ms-strip-folder"
                 onClick={() => void openOutputsFolder()}
-                title="Open outputs folder"
+                title={t("app.media.studio.openOutputsFolder")}
               >
                 <FolderIcon />
               </button>

@@ -12,6 +12,7 @@ import {
   useNewUserAppsHint,
 } from "@/app/apps/new-user-apps-hint";
 import { preloadNavSurfaceRoute } from "@/shell/topbar/nav-surface-preloads";
+import { useT } from "@/shared/i18n";
 import {
   getSnapshot as getAppRegistrySnapshot,
   subscribe as subscribeToAppRegistry,
@@ -39,6 +40,7 @@ const NavItem = ({
   showHintDot = false,
   onHintDismiss,
 }: NavItemProps) => {
+  const t = useT();
   const showBadge = badgeCount > 0;
   const badgeLabel = badgeCount > 99 ? "99+" : String(badgeCount);
   const showHint = showHintDot && !showBadge;
@@ -75,8 +77,22 @@ const NavItem = ({
       onClick={handleClick}
       onFocus={() => preloadNavSurfaceRoute(app.id)}
       onMouseEnter={() => preloadNavSurfaceRoute(app.id)}
-      title={showBadge ? `${app.label} (${badgeCount} unread)` : app.label}
-      aria-label={showBadge ? `${app.label}, ${badgeCount} unread` : app.label}
+      title={
+        showBadge
+          ? t("shell.sidebar.nav.unreadTitle", {
+              label: app.label,
+              count: badgeCount,
+            })
+          : app.label
+      }
+      aria-label={
+        showBadge
+          ? t("shell.sidebar.nav.unreadAriaLabel", {
+              label: app.label,
+              count: badgeCount,
+            })
+          : app.label
+      }
     >
       <span className="shell-topbar-nav-label">{app.label}</span>
       {showBadge && (
@@ -109,6 +125,7 @@ type ShellTopBarPrimaryNavProps = {
 export const ShellTopBarPrimaryNav = ({
   omitIds,
 }: ShellTopBarPrimaryNavProps = {}) => {
+  const t = useT();
   const allApps = useRegisteredApps();
   const navApps = useMemo(
     () =>
@@ -153,7 +170,7 @@ export const ShellTopBarPrimaryNav = ({
   );
 
   return (
-    <nav className="shell-topbar-nav" aria-label="Apps">
+    <nav className="shell-topbar-nav" aria-label={t("shell.sidebar.nav.apps")}>
       {navApps.map((app) => (
         <NavItem
           key={app.id}

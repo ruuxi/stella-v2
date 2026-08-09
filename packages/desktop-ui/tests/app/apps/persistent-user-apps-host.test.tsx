@@ -2,6 +2,7 @@
 
 import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ledger = vi.hoisted(() => ({
@@ -73,9 +74,11 @@ describe("PersistentUserAppsHost", () => {
   it("shares one start lease through StrictMode and stops only on real unmount", async () => {
     await act(async () => {
       root.render(
-        <StrictMode>
-          <PersistentUserAppsHost />
-        </StrictMode>,
+        withI18n(
+          <StrictMode>
+            <PersistentUserAppsHost />
+          </StrictMode>,
+        ),
       );
       await Promise.resolve();
       await Promise.resolve();

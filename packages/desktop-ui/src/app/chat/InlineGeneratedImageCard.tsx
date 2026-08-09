@@ -13,7 +13,8 @@ import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { useDisplayFileBlobs } from "@/shared/hooks/use-display-file-data";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { notifyAssistantScrollFollowLayoutChange } from "@/shell/chat-scroll-follow";
-import { friendlyImageGenerationFailure } from "@/app/media/media-error-copy";
+import { imageGenerationFailureKey } from "@/app/media/media-error-copy";
+import { useT } from "@/shared/i18n";
 import "./inline-generated-image-card.css";
 
 export type InlineGeneratedImagePayload = Extract<DisplayPayload, { kind: "media" }>;
@@ -184,6 +185,7 @@ export const InlineGeneratedImageStrip = ({
   payloads: InlineGeneratedImagePayload[];
   conversationId?: string | null;
 }) => {
+  const t = useT();
   const materializedByJobId = useMaterializedMediaPayloadSnapshot();
   const tiles = useMemo(
     () => buildStripTiles(payloads, materializedByJobId),
@@ -214,12 +216,14 @@ export const InlineGeneratedImageStrip = ({
             } as CSSProperties)
           : undefined
       }
-      aria-label={isStrip ? "Generated images" : undefined}
+      aria-label={
+        isStrip ? t("app.chat.generatedImage.stripLabel") : undefined
+      }
       aria-busy={isStripPending ? true : undefined}
     >
       {isStripPending ? (
         <span className="inline-generated-image-cards__pending-label">
-          Generating...
+          {t("app.chat.generatedImage.generating")}
         </span>
       ) : null}
       {tiles.map((tile) => (
@@ -300,6 +304,7 @@ export const InlineGeneratedImageCardFrame = ({
   job: MediaJobLookup | undefined;
   materializedPayload: DisplayPayload | null;
 }) => {
+  const t = useT();
   const effectivePayload = useMemo(() => {
     const merged =
       materializedPayload?.kind === "media" &&
@@ -329,7 +334,7 @@ export const InlineGeneratedImageCardFrame = ({
   const filePaths = isImage ? effectivePayload.asset.filePaths : [];
   const { files, error, loading } = useDisplayFileBlobs(
     filePaths,
-    "Image preview requires the Electron host runtime.",
+    t("app.chat.generatedImage.hostRequired"),
     conversationId,
   );
   const primaryFile = files[0] ?? null;
@@ -353,12 +358,12 @@ export const InlineGeneratedImageCardFrame = ({
   if (!isImage) return null;
 
   const placeholderLabel = error
-    ? "Could not load image"
+    ? t("app.chat.generatedImage.loadFailed")
     : jobFailed
-      ? friendlyImageGenerationFailure(job?.error)
+      ? t(imageGenerationFailureKey(job?.error))
       : loading || filePaths.length === 0
-        ? "Generating image..."
-        : "Image";
+        ? t("app.chat.generatedImage.generatingImage")
+        : t("app.chat.generatedImage.image");
   const buttonClassName = primaryFile
     ? "inline-generated-image-card inline-generated-image-card--image"
     : `inline-generated-image-card${
@@ -380,7 +385,11 @@ export const InlineGeneratedImageCardFrame = ({
       type="button"
       className={buttonClassName}
       onClick={handleClick}
-      title={jobFailed ? "Image generation failed" : "Open in panel"}
+      title={
+        jobFailed
+          ? t("app.chat.generatedImage.generationFailed")
+          : t("app.chat.generatedImage.openInPanel")
+      }
       aria-label={
         sharedStripPending
           ? undefined

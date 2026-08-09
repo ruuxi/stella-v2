@@ -19,6 +19,7 @@ import { type Colors } from "../src/theme/colors";
 import { useColors, useTheme } from "../src/theme/theme-context";
 import { fonts } from "../src/theme/fonts";
 import { fadeHex } from "../src/theme/oklch";
+import { useT } from "../src/i18n";
 
 const STEP_COUNT = 3;
 const SWAP_MS = 260;
@@ -29,6 +30,7 @@ const SWAP_MS = 260;
  */
 export default function OnboardingScreen() {
   const colors = useColors();
+  const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -96,18 +98,22 @@ export default function OnboardingScreen() {
             <Pressable
               onPress={() => finish("/chat")}
               hitSlop={10}
-              accessibilityLabel="Skip introduction"
+              accessibilityLabel={t("mobile.onboarding.skipLabel")}
               style={({ pressed }) => pressed && styles.pressed}
             >
-              <Text style={styles.skipText}>Skip</Text>
+              <Text style={styles.skipText}>{t("mobile.onboarding.skip")}</Text>
             </Pressable>
           ) : null}
         </View>
 
         <Animated.View style={[styles.stage, stepStyle]}>
-          {step === 0 ? <WelcomeStep styles={styles} /> : null}
-          {step === 1 ? <ThemeStep styles={styles} colors={colors} /> : null}
-          {step === 2 ? <ConnectStep styles={styles} guest={guest} /> : null}
+          {step === 0 ? <WelcomeStep styles={styles} t={t} /> : null}
+          {step === 1 ? (
+            <ThemeStep styles={styles} colors={colors} t={t} />
+          ) : null}
+          {step === 2 ? (
+            <ConnectStep styles={styles} guest={guest} t={t} />
+          ) : null}
         </Animated.View>
 
         <View style={styles.footer}>
@@ -122,33 +128,35 @@ export default function OnboardingScreen() {
           {step < STEP_COUNT - 1 ? (
             <Pressable
               onPress={() => goToStep(step + 1)}
-              accessibilityLabel="Continue"
+              accessibilityLabel={t("mobile.common.continue")}
               style={({ pressed }) => [
                 styles.primaryButton,
                 pressed && styles.primaryButtonPressed,
               ]}
             >
-              <Text style={styles.primaryButtonText}>Continue</Text>
+              <Text style={styles.primaryButtonText}>
+                {t("mobile.common.continue")}
+              </Text>
             </Pressable>
           ) : (
             <>
               {!guest ? (
                 <Pressable
                   onPress={() => finish("/computer")}
-                  accessibilityLabel="Pair my computer"
+                  accessibilityLabel={t("mobile.onboarding.pairComputer")}
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.primaryButtonPressed,
                   ]}
                 >
                   <Text style={styles.primaryButtonText}>
-                    Pair my computer
+                    {t("mobile.onboarding.pairComputer")}
                   </Text>
                 </Pressable>
               ) : null}
               <Pressable
                 onPress={() => finish("/chat")}
-                accessibilityLabel="Start chatting"
+                accessibilityLabel={t("mobile.onboarding.startChatting")}
                 style={({ pressed }) => [
                   guest ? styles.primaryButton : styles.secondaryButton,
                   pressed &&
@@ -160,7 +168,7 @@ export default function OnboardingScreen() {
                     guest ? styles.primaryButtonText : styles.secondaryText
                   }
                 >
-                  Start chatting
+                  {t("mobile.onboarding.startChatting")}
                 </Text>
               </Pressable>
             </>
@@ -171,7 +179,15 @@ export default function OnboardingScreen() {
   );
 }
 
-function WelcomeStep({ styles }: { styles: OnboardingStyles }) {
+type Translate = ReturnType<typeof useT>;
+
+function WelcomeStep({
+  styles,
+  t,
+}: {
+  styles: OnboardingStyles;
+  t: Translate;
+}) {
   return (
     <View style={styles.stepBody}>
       <View style={styles.creatureSlot}>
@@ -183,11 +199,8 @@ function WelcomeStep({ styles }: { styles: OnboardingStyles }) {
           frameSkip={1}
         />
       </View>
-      <Text style={styles.title}>Meet Stella</Text>
-      <Text style={styles.body}>
-        Ask anything, talk things through, or hand off real work — Stella
-        answers here and can act on your computer.
-      </Text>
+      <Text style={styles.title}>{t("mobile.onboarding.welcomeTitle")}</Text>
+      <Text style={styles.body}>{t("mobile.onboarding.welcomeBody")}</Text>
     </View>
   );
 }
@@ -195,17 +208,17 @@ function WelcomeStep({ styles }: { styles: OnboardingStyles }) {
 function ThemeStep({
   styles,
   colors,
+  t,
 }: {
   styles: OnboardingStyles;
   colors: Colors;
+  t: Translate;
 }) {
   const { theme: activeTheme, setThemeId, themes, isDark } = useTheme();
   return (
     <View style={styles.stepBody}>
-      <Text style={styles.title}>Make it yours</Text>
-      <Text style={styles.body}>
-        Pick a theme. You can change it any time in Settings.
-      </Text>
+      <Text style={styles.title}>{t("mobile.onboarding.themeTitle")}</Text>
+      <Text style={styles.body}>{t("mobile.onboarding.themeBody")}</Text>
       <View style={styles.themeDots}>
         {themes.map((th) => {
           const previewDark = th.forcedMode
@@ -220,7 +233,7 @@ function ThemeStep({
                 tapLight();
                 setThemeId(th.id);
               }}
-              accessibilityLabel={`Use ${th.name} theme`}
+              accessibilityLabel={t("mobile.settings.useThemeLabel", { name: th.name })}
               accessibilityState={{ selected: isActive }}
               style={[
                 styles.themeDotOuter,
@@ -255,18 +268,20 @@ function ThemeStep({
 function ConnectStep({
   styles,
   guest,
+  t,
 }: {
   styles: OnboardingStyles;
   guest: boolean;
+  t: Translate;
 }) {
   return (
     <View style={styles.stepBody}>
       <ConnectHeroAnimation />
-      <Text style={styles.title}>Your computer, anywhere</Text>
+      <Text style={styles.title}>{t("mobile.onboarding.connectTitle")}</Text>
       <Text style={styles.body}>
         {guest
-          ? "Sign in later to pair Stella on your computer — then ask your phone to browse, manage files, and run tasks at home."
-          : "Pair once with the Stella desktop app and your phone can ask it to browse, manage files, and run tasks — even from across town."}
+          ? t("mobile.onboarding.connectBodyGuest")
+          : t("mobile.onboarding.connectBodyPaired")}
       </Text>
     </View>
   );

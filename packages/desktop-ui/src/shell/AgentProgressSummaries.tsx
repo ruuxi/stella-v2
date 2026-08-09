@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "@/shared/i18n";
 import {
   useAgentProgressSummaries,
   useAgentProgressSummariesCollapsed,
@@ -24,6 +25,7 @@ export function AgentProgressSummaries({
    *  drop-out animation is skipped so the list never exceeds the cap. */
   max?: number;
 }) {
+  const t = useT();
   const summaries = useAgentProgressSummaries(agentId);
   const collapsed = useAgentProgressSummariesCollapsed(agentId);
 
@@ -75,7 +77,7 @@ export function AgentProgressSummaries({
     <ul
       className="chat-workspace-strip__task-progress"
       aria-live="polite"
-      aria-label="Recent progress"
+      aria-label={t("shell.agentProgress.recentProgress")}
     >
       {ordered.map((summary, index) => (
         <li

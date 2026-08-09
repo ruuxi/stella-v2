@@ -26,6 +26,10 @@ import {
   IPC_UI_STATE_KV_CLEAR,
   IPC_UI_STATE_KV_SNAPSHOT,
 } from "@stella/contracts/desktop/ipc-channels";
+import {
+  applyUiStateLocaleChanges,
+  bindUiStateLocale,
+} from "../services/i18n-service.js";
 
 export type UiStateKvHandlersOptions = {
   stellaDataDirPath: string;
@@ -44,11 +48,19 @@ export const registerUiStateKvHandlers = (
 ): UiStateStore => {
   const store = new UiStateStore(options.stellaDataDirPath);
 
+  // The renderer's language picker persists through this store, so it is also
+  // how main-process surfaces (tray menu, native dialogs, notifications) learn
+  // the active locale. Seed once, then track every applied batch below —
+  // `onExternalChange` alone would miss renderer-driven writes, which are
+  // applied locally rather than observed off the file watcher.
+  bindUiStateLocale(store);
+
   const broadcast = (
     changes: UiStateChanges,
     excludeWebContentsId?: number,
   ) => {
     if (Object.keys(changes).length === 0) return;
+    applyUiStateLocaleChanges(changes);
     for (const window of options.getAllWindows()) {
       if (window.isDestroyed()) continue;
       if (

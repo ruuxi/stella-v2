@@ -1,3 +1,5 @@
+import { useT } from "@/shared/i18n";
+
 /** Recent assistant text authored by an active background agent. */
 export function AgentAssistantUpdates({
   messages,
@@ -6,6 +8,7 @@ export function AgentAssistantUpdates({
   messages: readonly string[];
   max?: number;
 }) {
+  const t = useT();
   const newestFirst = [...messages].reverse();
   const visible =
     typeof max === "number" ? newestFirst.slice(0, max) : newestFirst;
@@ -15,7 +18,7 @@ export function AgentAssistantUpdates({
     <ul
       className="chat-workspace-strip__task-progress"
       aria-live="polite"
-      aria-label="Recent agent messages"
+      aria-label={t("shell.agentProgress.recentAgentMessages")}
     >
       {visible.map((message, index) => (
         <li

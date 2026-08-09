@@ -16,7 +16,8 @@
     "tryAgain": "重試",
     "language": "語言",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "copy": "複製"
   },
   "sidebar": {
     "signIn": "登入",
@@ -37,6 +38,11 @@
     "language": {
       "title": "語言",
       "description": "選擇 Stella 在應用程式中與回覆時使用的語言。"
+    },
+    "workingMode": {
+      "title": "協調器模式",
+      "directDescription": "Stella 會自行處理工作，只在有需要時才委派。",
+      "orchestratedDescription": "Stella 會協調一個 General 代理，將較大的工作拆分給子代理。"
     },
     "developerPreviews": {
       "title": "開發者檔案預覽",
@@ -312,6 +318,7 @@
       "descriptions": {
         "voice": "選擇 Stella 的說話風格和個性語音。",
         "permissions": "在 macOS 上授予輔助使用、螢幕錄製和麥克風存取權。",
+        "shortcuts": "變更聽寫與語音快速鍵。",
         "backup": "自動加密備份、還原點和隨需快照。",
         "account": "登出、刪除你的資料或永久刪除你的帳號。",
         "legal": "服務條款和隱私權政策。",
@@ -334,6 +341,9 @@
       "loadVoice": "載入語音設定失敗。",
       "saveVoice": "更新語音設定失敗。",
       "voiceUnavailable": "此視窗中無法使用語音設定。",
+      "loadWorkingMode": "載入協調器模式失敗。",
+      "saveWorkingMode": "更新協調器模式失敗。",
+      "workingModeUnavailable": "此視窗無法使用協調器模式。",
       "loadPermissions": "載入桌面權限狀態失敗。",
       "savePermission": "更新「{kind}」權限失敗。",
       "resetPermission": "重設「{kind}」權限失敗。",
@@ -341,6 +351,228 @@
       "microphoneDeniedReopen": "之前麥克風存取被拒絕。請在系統設定中開啟，然後重新開啟 Stella。",
       "microphoneStillOff": "麥克風存取仍處於關閉狀態。請在系統設定中開啟，然後重新開啟 Stella。",
       "restart": "重新啟動 Stella 失敗。"
+    },
+    "voiceCatalog": {
+      "label": "語音",
+      "familyAriaLabel": "語音系列",
+      "familyTitle": {
+        "openai": "OpenAI Realtime 語音（由 Stella 簽發權杖）",
+        "xai": "xAI Grok 語音（由 Stella 簽發權杖）",
+        "inworld": "Inworld 語音（由 Stella 代理 SDP 交換）"
+      },
+      "source": {
+        "openai": "OpenAI 語音",
+        "xai": "Grok 語音",
+        "inworld": "Inworld 語音"
+      },
+      "previousVoice": "上一個語音",
+      "nextVoice": "下一個語音",
+      "menuAriaLabel": "{source} 語音",
+      "speed": "語速",
+      "speedAriaLabel": "Inworld 語音語速",
+      "readAloud": {
+        "label": "朗讀",
+        "ariaLabel": "朗讀語音供應商",
+        "openaiTitle": "使用 OpenAI TTS 朗讀回覆",
+        "inworldTitle": "使用 Inworld TTS 朗讀回覆",
+        "description": "使用此供應商的語音朗讀回覆。"
+      }
+    },
+    "phoneAccess": {
+      "expired": "已過期",
+      "timeLeft": "剩餘 {time}",
+      "copy": "複製",
+      "preparing": "正在準備...",
+      "getCode": "取得代碼",
+      "deviceFallback": "手機",
+      "removing": "正在移除...",
+      "remove": "移除",
+      "signedOut": {
+        "headline": "登入即可開始",
+        "body": "登入你的 Stella 帳號以與行動 App 配對。"
+      },
+      "pairing": {
+        "headline": "掃描或輸入此代碼",
+        "body": "在手機上開啟 Stella App 並掃描 QR 碼，或輸入下方的代碼。此操作只需進行一次。",
+        "qrAlt": "掃描以配對你的手機"
+      },
+      "intro": {
+        "headline": "將手機連接到電腦"
+      },
+      "steps": {
+        "download": "下載 App",
+        "downloadQrAlt": "掃描以從 App Store 下載 Stella",
+        "connect": "連接你的手機"
+      },
+      "toasts": {
+        "codeCopied": "代碼已複製到剪貼簿",
+        "phoneRemoved": "已移除手機",
+        "removeFailed": "移除手機失敗"
+      },
+      "errors": {
+        "createPairing": "無法建立配對代碼。"
+      },
+      "pairedCount": {
+        "other": "已配對 {count} 支手機"
+      }
+    },
+    "modelPicker": {
+      "searchPlaceholder": "搜尋模型…",
+      "searchAriaLabel": "搜尋模型",
+      "closeSearch": "關閉搜尋",
+      "apiKeyPlaceholder": "API 金鑰",
+      "apiKeyAriaLabel": "{provider} API 金鑰",
+      "cancelSignIn": "取消登入",
+      "signInWith": "使用 {provider} 登入",
+      "saving": "正在儲存…",
+      "use": "使用",
+      "selected": "已選擇",
+      "refresh": "重新整理模型目錄",
+      "restrictedPlan": "{plan} 方案無法使用",
+      "reasoning": {
+        "label": "推理強度",
+        "default": "自動",
+        "minimal": "極低",
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "xhigh": "最高"
+      },
+      "authHint": {
+        "both": "登入或貼上 API 金鑰。憑證只會留在此裝置上。",
+        "oauth": "憑證只會留在此裝置上。",
+        "apiKey": "你的 API 金鑰只會留在此裝置上。"
+      },
+      "actions": {
+        "cancel": "取消",
+        "signIn": "登入",
+        "addKey": "新增金鑰",
+        "custom": "自訂"
+      },
+      "signOut": {
+        "ariaLabel": "登出 {provider}",
+        "confirmAriaLabel": "再次點擊以登出 {provider}",
+        "confirmTitle": "再次點擊以確認"
+      },
+      "local": {
+        "hint": "可使用任何本機 OpenAI 相容伺服器。Ollama 通常執行於下方的網址。",
+        "serverUrlAriaLabel": "本機伺服器網址",
+        "modelNameAriaLabel": "本機模型名稱"
+      },
+      "openRouter": {
+        "hintBefore": "OpenRouter 接受任何",
+        "hintAfter": "ID。輸入一個即可直接使用。",
+        "modelIdAriaLabel": "OpenRouter 模型 ID"
+      },
+      "empty": {
+        "none": "尚無可用的模型。",
+        "noMatch": "沒有相符的模型。"
+      },
+      "favorite": {
+        "remove": "取消收藏",
+        "add": "加入收藏",
+        "addTitle": "收藏 — 釘選到最上方"
+      },
+      "errors": {
+        "saveApiKey": "儲存 API 金鑰失敗。",
+        "oauthLogin": "OAuth 登入失敗。"
+      }
+    },
+    "providerPicker": {
+      "connected": "已連接",
+      "connect": "連接",
+      "opening": "正在開啟…"
+    },
+    "engineModels": {
+      "ariaLabel": "{engine} 模型",
+      "loading": "正在載入 {engine} 模型…",
+      "empty": "沒有可用的 {engine} 模型。"
+    },
+    "providerConnected": {
+      "title": "要為 Stella 使用 {provider} 嗎？",
+      "description": "{provider} 可以驅動 Stella 的多個部分。選擇你希望它接手的部分 — 其餘仍由 Stella 負責。",
+      "assistant": {
+        "label": "助理",
+        "description": "將 Stella 的聊天助理導向 {provider}。"
+      },
+      "image": {
+        "label": "圖片",
+        "description": "透過你的 {provider} 帳號產生圖片。"
+      },
+      "voice": {
+        "label": "語音",
+        "description": "使用 {provider} 進行即時語音對話。"
+      },
+      "skip": "略過",
+      "apply": "套用",
+      "applying": "正在套用…",
+      "errors": {
+        "apply": "套用供應商設定失敗。"
+      }
+    },
+    "compactModelList": {
+      "ariaLabel": "Stella 模型",
+      "recent": "最近使用",
+      "unavailable": "無法使用",
+      "unavailableTitle": "此模型已無法使用 — 請另選一個。",
+      "loading": "正在載入 Stella 模型…",
+      "loadFailed": "無法載入 Stella 模型。",
+      "empty": "沒有可用的 Stella 模型。",
+      "retry": "重試",
+      "restricted": "你的方案使用 Stella 的推薦選擇。",
+      "restrictedPlan": "{plan} 方案使用 Stella 的推薦選擇。",
+      "upgrade": "升級方案"
+    },
+    "reasoningEffort": {
+      "minimal": "極低",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "xhigh": "超高"
+    },
+    "agentModelPicker": {
+      "byokDescription": "使用你自己的 {provider} API 金鑰。",
+      "unavailableChooseAnother": "無法使用 — 請另選一個模型",
+      "chatGptRouted": "已導向 {model}（已儲存的模型無法使用）。",
+      "default": "預設",
+      "stellaDefault": "Stella 預設",
+      "surfaceAriaLabel": "使用場景",
+      "waitingForChatGpt": "正在等待 ChatGPT…",
+      "imageProviderAriaLabel": "圖片供應商",
+      "voiceProviderAriaLabel": "語音供應商",
+      "assistantPickerAriaLabel": "助理模型選擇器",
+      "verifyingChatGpt": "正在驗證 ChatGPT 模型…",
+      "noChatGptCodexModels": "目前沒有同時適用於 ChatGPT 和 Codex 的模型。",
+      "savedModelUnavailable": "已儲存的模型無法使用。請另選一個模型。",
+      "tabs": {
+        "assistant": "助理",
+        "assistantTitle": "Stella 的主要助理",
+        "image": "圖片",
+        "imageTitle": "圖片生成供應商",
+        "voice": "語音",
+        "voiceTitle": "即時語音供應商"
+      },
+      "errors": {
+        "loadPreferences": "載入模型設定失敗。",
+        "chatGptMigration": "ChatGPT 導向遷移失敗。",
+        "chatGptVerify": "無法驗證 ChatGPT 模型：{error}",
+        "chatGptVerifying": "請等待 ChatGPT 模型驗證完成。",
+        "chatGptNotConnected": "選擇前需要先連接 ChatGPT。",
+        "chatGptNoModels": "目前沒有可用的 ChatGPT 模型。",
+        "connectChatGpt": "連接 ChatGPT 失敗。",
+        "updateEngine": "更新引擎失敗。",
+        "updateTitle": "無法更新模型設定",
+        "refreshTitle": "無法重新整理模型",
+        "updateModel": "更新模型設定失敗。",
+        "updateImage": "更新圖片設定失敗。",
+        "updateVoice": "更新語音設定失敗。",
+        "updateInworldSpeed": "更新 Inworld 語速失敗。",
+        "updateVoiceFamily": "更新語音系列失敗。",
+        "updateReadAloud": "更新朗讀供應商失敗。",
+        "updateReasoning": "更新推理強度失敗。",
+        "updateChatGptSpeed": "更新 ChatGPT 速度失敗。",
+        "updateDirectRuntime": "更新直連 {runtime} 設定失敗。"
+      }
     }
   },
   "onboarding": {
@@ -357,6 +589,7 @@
       "secondary": "Stella 不屬於每一個人。Stella 屬於您。"
     },
     "stepTitles": {
+      "engine": "選擇驅動 Stella 的引擎。",
       "extension": "將 Stella 加入您的瀏覽器。",
       "browser": "讓 Stella 認識您。",
       "theme": "Stella 該長什麼樣子？",
@@ -372,19 +605,10 @@
       "ready": "就緒"
     },
     "discovery": {
-      "appsSystem": {
-        "label": "您的應用程式與電腦",
-        "description": "您最常用的應用程式、桌面如何組織，以及您的工作方式"
-      },
-      "messagesNotes": {
-        "label": "您的筆記與行事曆",
-        "description": "您正在進行的事、您的行程，以及您整理想法的方式"
-      },
       "devEnvironment": {
         "label": "您的開發環境",
         "description": "您使用的工具、進行中的專案，以及環境的配置方式"
-      },
-      "fdaNote": "部分選項需要完整磁碟存取權限"
+      }
     }
   },
   "billing": {
@@ -401,6 +625,11 @@
         "tagline": "適合進階使用者",
         "features": ["Go 的 3 倍使用量", "優先回應時間", "全部自動化功能"]
       }
+    },
+    "upgradeDialog": {
+      "title": "你正在使用 Stella {plan}。",
+      "description": "感謝升級。更高的優先權和更多用量現已生效 — 繼續使用吧。",
+      "cta": "開始使用"
     }
   },
   "chat": {
@@ -413,5 +642,1527 @@
     "rateLimited": "操作太快了，請稍候再試。",
     "networkUnavailable": "Stella 已離線。請重新連線後繼續。",
     "permissionDenied": "Stella 沒有執行此操作的權限。"
+  },
+  "app": {
+    "social": {
+      "newChat": {
+        "title": "新訊息",
+        "emptySubtitle": "先加一些好友才能開始對話。",
+        "description": "選擇一位好友，或開始新的群組對話。",
+        "subtitle": "選擇一位好友，或建立群組。",
+        "groupTitle": "新群組",
+        "groupSubtitle": "選擇要加入此群組的好友。",
+        "groupNameLabel": "群組名稱",
+        "groupNamePlaceholder": "群組名稱（選填）",
+        "members": "成員",
+        "back": "返回",
+        "creating": "正在建立...",
+        "createGroup": "建立群組",
+        "newGroup": "新群組",
+        "friends": "好友",
+        "opening": "正在開啟..."
+      },
+      "friends": {
+        "title": "好友",
+        "description": "分享你的好友代碼以建立連結，或輸入別人的代碼來送出邀請。",
+        "subtitle": "分享你的使用者名稱，或輸入好友的使用者名稱來建立連結。",
+        "requestSent": "已送出好友邀請！",
+        "usernameCopied": "已複製使用者名稱！",
+        "inviteLinkCopied": "已複製邀請連結 — 可傳送到任何地方。",
+        "yourUsername": "你的使用者名稱",
+        "copy": "複製",
+        "copyUsernameTitle": "複製你的使用者名稱",
+        "copyInviteLink": "複製邀請連結",
+        "copyInviteLinkTitle": "複製一個連結，它會開啟 Stella 並向你送出好友邀請 — 在 iMessage、Discord 等任何地方都能用",
+        "addLabel": "加好友",
+        "addPlaceholder": "輸入使用者名稱",
+        "add": "新增",
+        "adding": "正在新增...",
+        "requestsCount": "邀請（{count}）",
+        "accept": "接受",
+        "decline": "拒絕",
+        "sent": "已送出",
+        "waitingForResponse": "等待回覆",
+        "friendsCount": "好友（{count}）",
+        "empty": "還沒有好友。分享你的使用者名稱，或在上方輸入別人的使用者名稱來建立連結。",
+        "message": "傳訊息",
+        "opening": "正在開啟...",
+        "remove": "移除",
+        "removing": "正在移除...",
+        "errors": {
+          "sendRequest": "無法送出該好友邀請。請確認使用者名稱後再試一次。"
+        }
+      },
+      "communities": {
+        "title": "社群",
+        "description": "建立一個社群，或用邀請碼加入，然後和其中的所有人分享外掛。",
+        "subtitle": "用來分享的信任圈。社群中的每個人都能看到成員分享的內容。",
+        "defaultName": "社群",
+        "created": "已建立「{name}」！",
+        "joined": "你已加入！",
+        "createLabel": "建立社群",
+        "createPlaceholder": "為新社群命名",
+        "create": "建立",
+        "joinLabel": "使用邀請碼加入",
+        "joinPlaceholder": "輸入邀請碼",
+        "join": "加入",
+        "yourCommunities": "你的社群",
+        "yourCommunitiesCount": "你的社群（{count}）",
+        "empty": "還沒有社群。建立一個並分享邀請碼，或用別人傳給你的代碼加入。",
+        "createdByYouSuffix": " · 由你建立",
+        "open": "開啟",
+        "details": "詳細資料",
+        "back": "返回",
+        "nameLabel": "社群名稱",
+        "save": "儲存",
+        "cancel": "取消",
+        "createdByYou": "此社群由你建立。",
+        "memberOf": "你是此社群的成員。",
+        "inviteCode": "邀請碼",
+        "copied": "已複製！",
+        "copyCode": "複製代碼",
+        "copyInviteLink": "複製邀請連結",
+        "copyInviteLinkTitle": "複製一個連結，它會開啟 Stella 並加入此社群",
+        "inviteHint": "這個連結在任何地方都能用 — 貼到 Stella 聊天中，或透過 iMessage 或 Discord 傳送。任何拿到它的人都能加入，所以只分享給你信任的人。",
+        "membersCount": "成員（{count}）",
+        "roleCreator": "建立者",
+        "roleMember": "成員",
+        "youSuffix": " · 你",
+        "remove": "移除",
+        "removing": "正在移除...",
+        "confirmDelete": "確定要刪除此社群嗎？",
+        "delete": "刪除社群",
+        "confirmLeave": "確定要離開嗎？",
+        "leave": "離開社群",
+        "rename": "重新命名",
+        "openChat": "開啟聊天",
+        "errors": {
+          "create": "無法建立該社群。請再試一次。",
+          "join": "無法用該邀請碼加入。請確認代碼後再試一次。",
+          "rename": "無法重新命名該社群。請再試一次。",
+          "removeMember": "無法移除該成員。請再試一次。",
+          "delete": "無法刪除該社群。請再試一次。",
+          "leave": "無法離開該社群。請再試一次。"
+        },
+        "memberCount": {
+          "other": "{count} 位成員"
+        }
+      },
+      "view": {
+        "messages": "訊息",
+        "signIn": "登入",
+        "signInSubtitle": "登入後即可傳訊息給好友，並與 Stella 一起協作。",
+        "friends": "好友",
+        "communities": "社群",
+        "newMessage": "新訊息",
+        "noRooms": "還沒有對話。加好友或開始新訊息。",
+        "addFriends": "加好友",
+        "communityBadge": "社群",
+        "communityBadgeTitle": "與此社群的所有人共享",
+        "usernamePlaceholder": "your-username",
+        "editUsername": "編輯你的使用者名稱",
+        "copied": "已複製！",
+        "clickToCopyUsername": "點擊以複製你的使用者名稱",
+        "copyUsername": "複製使用者名稱",
+        "cancel": "取消",
+        "save": "儲存",
+        "saving": "正在儲存...",
+        "emptyTitle": "你的訊息",
+        "emptySubtitle": "從左側選擇一個對話，或與好友開始新的對話。",
+        "errors": {
+          "startConversation": "無法開始該對話。請再試一次。",
+          "createGroup": "無法建立該群組。請再試一次。"
+        },
+        "usernameErrors": {
+          "empty": "使用者名稱不能為空。",
+          "length": "使用者名稱必須為 3-32 個字元。",
+          "format": "請使用小寫字母、數字、_ 或 -。必須以字母或數字開頭和結尾。",
+          "update": "無法更新你的使用者名稱。請再試一次。"
+        },
+        "newRequestCount": {
+          "other": "{count} 則新邀請"
+        },
+        "friendsWithRequestsTitle": "好友（{countPhrase}）",
+        "friendsWithRequestsAria": "好友，{countPhrase}"
+      },
+      "chat": {
+        "stellaNoReply": "Stella 已結束，但沒有回覆。",
+        "stellaFailed": "Stella 無法完成該請求。",
+        "stellaThinking": "Stella 正在思考...",
+        "sharedStellaUnavailable": "共享 Stella 在此 App 工作階段中無法使用。",
+        "back": "返回",
+        "backToConversations": "返回對話列表",
+        "peopleCount": "{count} 人",
+        "startStella": "啟動 Stella",
+        "startStellaTitle": "把 Stella 加入此對話",
+        "starting": "正在啟動...",
+        "startAgain": "重新啟動",
+        "pause": "暫停",
+        "resume": "繼續",
+        "end": "結束",
+        "sayHello": "打聲招呼來開始對話",
+        "loadingOlder": "正在載入較舊的訊息…",
+        "armedOnTitle": "把下一則訊息傳給 Stella",
+        "armedOffTitle": "把下一則訊息當作一般聊天訊息傳送",
+        "tellStella": "告訴 Stella",
+        "tellingStella": "正在告訴 Stella",
+        "tellStellaPlaceholder": "告訴 Stella 你想要什麼...",
+        "messagePlaceholder": "傳訊息給 {name}",
+        "sessionBadge": {
+          "live": "Stella · 進行中",
+          "paused": "Stella · 已暫停",
+          "ended": "Stella · 已結束"
+        },
+        "sessionHint": {
+          "live": "這裡的任何人都可以告訴 Stella。",
+          "paused": "已暫停 — 繼續後可再次告訴 Stella。",
+          "ended": "此共享 Stella 空間已結束。"
+        },
+        "errors": {
+          "startStella": "無法在此啟動 Stella。請再試一次。",
+          "updateStella": "目前無法更新 Stella。請再試一次。",
+          "sendToStella": "無法把內容傳給 Stella。請再試一次。",
+          "sendMessage": "無法傳送你的訊息。請再試一次。"
+        }
+      },
+      "composer": {
+        "placeholder": "寫點什麼...",
+        "send": "傳送"
+      },
+      "inviteCard": {
+        "communityEyebrow": "社群邀請",
+        "friendEyebrow": "好友邀請",
+        "defaultCommunityName": "社群",
+        "defaultUserName": "Stella 使用者",
+        "friendDetail": "點一下以送出好友邀請",
+        "inviteUnavailable": "邀請無法使用",
+        "userNotFound": "找不到使用者",
+        "communityMissing": "此社群已不存在，或代碼已變更。",
+        "userMissing": "此邀請連結沒有對應到 Stella 使用者。",
+        "communityDetail": {
+          "other": "{countLabel} 位成員 · 點一下加入"
+        }
+      }
+    },
+    "usage": {
+      "desktopOnly": "本機用量可在 Stella 桌面 App 中查看。",
+      "intro": "儲存在此裝置上的供應商呼叫。費用為本機估算；以後端帳單為準。",
+      "refresh": "重新整理",
+      "refreshLabel": "重新整理用量",
+      "selectedThread": "所選執行緒",
+      "viewAllThreads": "查看所有執行緒",
+      "loading": "正在載入本機用量…",
+      "loadError": "無法載入本機用量",
+      "tryAgain": "重試",
+      "emptyTitle": "沒有符合這些篩選條件的模型呼叫。",
+      "emptyBody": "原生呼叫會在其供應商回傳最終用量資料後顯示在這裡。",
+      "truncatedWarning": "僅顯示此範圍內最近的 10,000 次呼叫。縮小時間範圍可取得準確總計。",
+      "filters": {
+        "label": "用量篩選",
+        "timeRange": "時間範圍",
+        "conversation": "對話",
+        "thread": "執行緒",
+        "agentType": "代理類型",
+        "model": "模型",
+        "allConversations": "所有對話",
+        "allThreads": "所有執行緒",
+        "allAgentTypes": "所有代理類型",
+        "allModels": "所有模型",
+        "range": {
+          "24h": "最近 24 小時",
+          "7d": "最近 7 天",
+          "30d": "最近 30 天",
+          "all": "所有時間"
+        }
+      },
+      "summary": {
+        "label": "用量摘要",
+        "estimatedCost": "估算費用",
+        "providerCalls": "{count} 次供應商呼叫",
+        "totalTokens": "總 token 數",
+        "uncachedInput": "{value} 未快取輸入",
+        "cacheRead": "快取讀取",
+        "cacheDetail": "讀取 {read} · 寫入 {written}",
+        "output": "輸出",
+        "reasoningTokens": "{value} 推理 token"
+      },
+      "timeline": {
+        "title": "時間軸",
+        "description": "每個時間區間的估算費用與總 token 數。",
+        "chartLabel": "估算模型費用與 token 用量的時間軸",
+        "series": {
+          "cost": "估算費用",
+          "tokens": "Token"
+        },
+        "tooltip": {
+          "estimated": "估算 {value}",
+          "tokens": "{value} 個 token",
+          "calls": "{count} 次模型呼叫"
+        }
+      },
+      "threads": {
+        "title": "執行緒",
+        "description": "協調器、代理與巢狀子代理。",
+        "columns": {
+          "execution": "執行",
+          "model": "模型",
+          "calls": "呼叫",
+          "tokens": "Token",
+          "cache": "快取",
+          "cost": "費用"
+        }
+      },
+      "calls": {
+        "title": "供應商呼叫",
+        "description": "若供應商將推理計入輸出，輸出中就會包含推理；單獨回報時也會分開顯示。",
+        "costBreakdown": "輸入 {input} · 快取讀取 {cacheRead} · 快取寫入 {cacheWrite} · 輸出 {output}",
+        "truncatedNote": "僅顯示最近 500 次相符的呼叫；摘要總計包含全部 {count} 次已載入的呼叫。",
+        "columns": {
+          "time": "時間",
+          "execution": "執行",
+          "providerModel": "供應商 / 模型",
+          "input": "輸入",
+          "cache": "快取 讀 / 寫",
+          "output": "輸出",
+          "reasoning": "推理",
+          "cost": "費用",
+          "stop": "停止"
+        }
+      }
+    },
+    "apps": {
+      "loading": "正在載入 App…",
+      "unsupportedTitle": "App 可在桌面版使用。",
+      "unsupportedBody": "在電腦上開啟 Stella 以使用本機安裝的 App。",
+      "errorTitle": "無法載入 App",
+      "errorBody": "Stella 無法讀取你的 App 資料夾。",
+      "tryAgain": "重試",
+      "heroTitleEmphasis": "你的",
+      "heroTitleRest": "App",
+      "staleWarning": "App 可能已過期。",
+      "searchPlaceholder": "搜尋 App",
+      "sortLabel": "排序",
+      "createApp": "建立 App",
+      "noMatchPrefix": "沒有相符的 App",
+      "noMatchSuffix": "。",
+      "emptyTitle": "這裡還沒有東西。",
+      "emptyBody": "請 Stella 做一個小 App，它就會出現在這裡。",
+      "emptyAction": "請 Stella 建立一個 App",
+      "createAppPrompt": "告訴我，你能幫我做哪些 Stella App？",
+      "sort": {
+        "recent": "最近使用",
+        "name": "名稱"
+      },
+      "frame": {
+        "startFailed": "該 App 啟動失敗。",
+        "timeout": "該 App 載入時間過長。",
+        "loadFailed": "無法載入該 App。",
+        "loading": "正在載入 {name}…",
+        "openFailed": "無法開啟 {name}"
+      }
+    },
+    "pets": {
+      "sort": {
+        "downloads": "最受歡迎",
+        "name": "依字母順序"
+      },
+      "animations": {
+        "idle": "閒置",
+        "runningRight": "向右跑",
+        "runningLeft": "向左跑",
+        "waving": "揮手",
+        "jumping": "跳躍",
+        "failed": "失敗",
+        "waiting": "等待中",
+        "running": "奔跑",
+        "review": "檢視"
+      },
+      "card": {
+        "by": "作者：{creator}",
+        "selections": "{count} 次選用",
+        "get": "取得",
+        "select": "選用",
+        "selected": "已選用",
+        "remove": "移除"
+      },
+      "details": {
+        "caption": "作者：{creator} · {downloads} 次選用",
+        "previewLabel": "{name} 預覽",
+        "animations": "動畫",
+        "animationStates": "動畫狀態"
+      }
+    },
+    "chat": {
+      "activityPill": {
+        "idle": "活動",
+        "openActivity": "{label} — 開啟活動",
+        "statusCanceled": "已停止",
+        "statusDone": "已完成",
+        "statusError": "無法完成",
+        "statusRunning": "工作進行中",
+        "tasksInProgress": {
+          "other": "{count} 項工作進行中"
+        }
+      },
+      "addMenu": {
+        "add": "新增",
+        "attachFiles": "附加檔案…",
+        "capture": "擷取",
+        "context": "情境",
+        "recent": "最近使用",
+        "selectArea": "選取區域"
+      },
+      "agentCompletion": {
+        "openNamedThread": "開啟 {title} 代理執行緒",
+        "openThread": "開啟代理執行緒",
+        "showLess": "顯示較少",
+        "showMore": {
+          "other": "+{count} 更多"
+        }
+      },
+      "agentModelIcon": {
+        "unavailable": "模型詳細資料無法取得"
+      },
+      "backgroundWork": {
+        "agentThread": "代理執行緒",
+        "followUp": "後續",
+        "openNamedThread": "開啟 {title} 代理執行緒",
+        "openThread": "開啟代理執行緒",
+        "taskCount": {
+          "other": "{count} 項工作"
+        },
+        "title": "背景工作"
+      },
+      "column": {
+        "scrollToBottom": "捲動到底部"
+      },
+      "composer": {
+        "add": "新增",
+        "dictationError": "聽寫：{error}",
+        "stop": "停止"
+      },
+      "connectorConnect": {
+        "cancel": "取消",
+        "connect": "連接",
+        "connectedApp": "已連接。Stella 正在繼續處理你的請求。",
+        "connectedExtension": "已偵測到擴充功能。Stella 正在繼續處理你的請求。",
+        "connectingApp": "請在瀏覽器中完成 {name} 的登入。核准後 Stella 就會繼續。",
+        "connectingExtension": "請在剛開啟的 Chrome 線上應用程式商店分頁中加入該擴充功能。安裝完成後 Stella 會自動繼續。",
+        "errorBody": "無法連接 {name}。",
+        "install": "安裝",
+        "notNow": "暫時不要",
+        "titleConnected": "{name} 已連接",
+        "titleError": "無法連接 {name}",
+        "titleOffer": "要連接 {name} 嗎？",
+        "titleOfferExtension": "要連接{name}嗎？",
+        "titleWaiting": "正在等待 {name}"
+      },
+      "contextChips": {
+        "activityFallback": "活動",
+        "fileClickToOpen": "{name} — 點擊以開啟",
+        "pastedTextLabel": "貼上的文字 · {stats}",
+        "pastedTextTitle": "貼上的文字 — {stats}",
+        "removeActivity": "移除活動情境",
+        "removeFile": "移除 {name}",
+        "removePastedText": "移除貼上的文字",
+        "removeScreenshot": "移除螢幕截圖 {index}",
+        "removeSelectedArea": "移除所選區域：{label}",
+        "removeSelectedText": "移除所選文字",
+        "removeWindow": "移除 {app} 視窗情境",
+        "screenshotAlt": "螢幕截圖 {index}",
+        "screenshotEnlargeTitle": "點擊以放大螢幕截圖",
+        "selectedAreaFallback": "所選區域",
+        "windowCapturing": "{label} — 正在擷取視窗…",
+        "windowClickToEnlarge": "{label} — 點擊以放大",
+        "windowPreviewAlt": "視窗內容預覽",
+        "windowScreenshotAlt": "{label} 視窗截圖"
+      },
+      "contextRow": {
+        "addActiveWindow": "將 {detail}（目前視窗）加入為情境",
+        "addContext": "將 {detail} 加入為情境"
+      },
+      "dropOverlay": {
+        "label": "把檔案拖放到這裡"
+      },
+      "endResource": {
+        "category": {
+          "audio": "音訊",
+          "canvas": "畫布",
+          "code": "程式碼",
+          "document": "文件",
+          "file": "檔案",
+          "image": "圖片",
+          "link": "連結",
+          "media": "媒體",
+          "model3d": "3D 模型",
+          "pdf": "PDF",
+          "slides": "簡報",
+          "spreadsheet": "試算表",
+          "table": "表格",
+          "text": "文字",
+          "trash": "垃圾桶",
+          "video": "影片"
+        },
+        "fileChangeCount": {
+          "other": "{count} 項檔案變更"
+        },
+        "imageCount": {
+          "other": "{count} 張圖片"
+        },
+        "openInPanel": "在面板中開啟",
+        "openPreview": "開啟預覽"
+      },
+      "fileCategory": {
+        "archive": "壓縮檔",
+        "audio": "音訊",
+        "code": "程式碼檔案",
+        "document": "文件",
+        "file": "檔案",
+        "pdf": "PDF",
+        "spreadsheet": "試算表",
+        "video": "影片"
+      },
+      "fileLink": {
+        "openFailed": "無法開啟 {filePath}"
+      },
+      "filePreview": {
+        "copy": "複製",
+        "save": "儲存"
+      },
+      "generatedImage": {
+        "generating": "正在生成...",
+        "generatingImage": "正在生成圖片...",
+        "generationFailed": "圖片生成失敗",
+        "hostRequired": "圖片預覽需要 Electron 主機執行環境。",
+        "image": "圖片",
+        "loadFailed": "無法載入圖片",
+        "openInPanel": "在面板中開啟",
+        "stripLabel": "生成的圖片"
+      },
+      "mapCard": {
+        "appleMapsLabel": "在 Apple 地圖中開啟",
+        "appleMapsTitle": "在 Apple 地圖中開啟以取得逐步導航",
+        "frameTitle": "地圖：{title}",
+        "modeCycling": "單車",
+        "modeDriving": "開車",
+        "modeTransit": "大眾運輸",
+        "modeWalking": "步行",
+        "placesCount": {
+          "other": "{count} 個地點"
+        },
+        "previewFailed": "無法載入地圖預覽。"
+      },
+      "messageActions": {
+        "copied": "已複製",
+        "copy": "複製",
+        "readAloud": "朗讀",
+        "stopReading": "停止朗讀"
+      },
+      "messageRow": {
+        "attachmentAlt": "附件",
+        "attachmentFallback": "附件 {index}",
+        "channelKind": {
+          "deleted": "已刪除",
+          "edited": "已編輯",
+          "message": "訊息",
+          "reaction": "回應",
+          "system": "系統"
+        },
+        "clickToEnlarge": "點擊以放大 {label}",
+        "pastedTextLabel": "貼上的文字",
+        "pastedTextTitle": "貼上的文字 — {stats}",
+        "reactionsSummary": "回應 {reactions}",
+        "showMoreChips": "再顯示 {count} 個",
+        "windowPreviewAlt": "視窗內容預覽"
+      },
+      "miniModelPicker": {
+        "loading": "載入中…",
+        "modelUpdateFailed": "更新模型設定失敗。",
+        "popoverLabel": "模型選項",
+        "reasoningEffortLabel": "推理強度",
+        "reasoningUpdateFailed": "更新推理強度失敗。",
+        "recent": "最近使用",
+        "triggerLabel": "模型：{model}",
+        "unavailable": "無法使用",
+        "updateFailedTitle": "無法更新模型設定"
+      },
+      "modelMention": {
+        "enginesLabel": "引擎",
+        "noMatch": "沒有相符的引擎"
+      },
+      "officePreview": {
+        "frameTitle": "Office 預覽：{title}",
+        "preparingBody": "Stella 正在為此文件準備即時預覽。",
+        "sessionError": "預覽工作階段回報了錯誤。",
+        "statusError": "預覽錯誤",
+        "statusPreparing": "正在準備預覽",
+        "statusReady": "即時預覽",
+        "statusStopped": "預覽已停止",
+        "updatedAt": "已更新 {time}"
+      },
+      "openWith": {
+        "loading": "載入中…",
+        "otherWaysLabel": "用其他方式開啟",
+        "otherWaysTitle": "用其他方式開啟…",
+        "triggerLabel": "開啟",
+        "triggerTitle": "開啟方式…"
+      },
+      "pdfViewer": {
+        "hostRequired": "PDF 檢視器需要 Electron 主機執行環境。",
+        "loadFailed": "載入 PDF 失敗。",
+        "loading": "正在載入 PDF…"
+      },
+      "queuedMessages": {
+        "cancel": "取消排入佇列的訊息",
+        "cancelAndEdit": "取消並編輯",
+        "cancelIndexed": "取消排入佇列的訊息 {index}",
+        "previewLabel": "{label}。預覽排入佇列的訊息",
+        "queuedCount": {
+          "other": "{count} 則訊息在佇列中"
+        }
+      },
+      "replyPeek": {
+        "dismiss": "關閉預覽",
+        "jumpToLatest": "跳到最新回覆"
+      },
+      "scheduleReceipt": {
+        "nextRun": "下次 {nextRun}",
+        "scheduleCount": {
+          "other": "{count} 個排程"
+        }
+      },
+      "screenshotPreview": {
+        "alt": "螢幕截圖預覽 {index}"
+      },
+      "timeline": {
+        "empty": "開始對話",
+        "loadingConversation": "正在載入對話"
+      },
+      "userMessage": {
+        "showLess": "顯示較少",
+        "showMore": "顯示更多"
+      },
+      "voiceSession": {
+        "label": "與 Stella 通話"
+      },
+      "webSearchResults": {
+        "caption": "來自網路的結果",
+        "listLabel": "網路搜尋結果"
+      }
+    },
+    "media": {
+      "capability": {
+        "audioGeneration": {
+          "description": "從文字生成語音、對白、音效或環境音",
+          "name": "音訊生成"
+        },
+        "icon": {
+          "description": "依提示生成圖示、標誌和縮圖",
+          "name": "圖示生成器"
+        },
+        "imageEdit": {
+          "description": "用文字指示編輯現有圖片",
+          "name": "圖片編輯"
+        },
+        "imageToVideo": {
+          "description": "把靜態圖片變成短影片",
+          "name": "圖片轉影片"
+        },
+        "speechToText": {
+          "description": "把語音音訊轉錄成文字",
+          "name": "語音轉文字"
+        },
+        "textTo3d": {
+          "description": "依文字提示生成 3D 模型",
+          "name": "文字轉 3D"
+        },
+        "textToImage": {
+          "description": "依文字提示生成圖片",
+          "name": "文字轉圖片"
+        },
+        "textToMusic": {
+          "description": "依提示生成一小段音樂",
+          "name": "文字轉音樂"
+        },
+        "textToVideo": {
+          "description": "依文字提示生成短影片",
+          "name": "文字轉影片"
+        },
+        "videoExtend": {
+          "description": "延續或延長一段影片",
+          "name": "影片延長"
+        },
+        "videoToVideo": {
+          "description": "用文字指示轉換影片",
+          "name": "影片轉影片"
+        }
+      },
+      "imageFailure": {
+        "blocked": "圖片請求遭到封鎖",
+        "canceled": "圖片生成已取消",
+        "generic": "圖片生成失敗",
+        "interrupted": "圖片生成被中斷",
+        "invalidRequest": "圖片請求無效",
+        "notConfigured": "圖片服務尚未設定",
+        "resultUnreadable": "無法讀取圖片結果",
+        "serviceBusy": "圖片服務忙碌中",
+        "temporaryError": "圖片服務遇到暫時性錯誤",
+        "tookTooLong": "圖片生成花費時間過久",
+        "tookTooLongToStart": "圖片生成啟動花費時間過久"
+      },
+      "studio": {
+        "animate": "製作動畫",
+        "aspectRatio": "長寬比",
+        "category3d": "3D",
+        "categoryAudio": "音訊",
+        "categoryImage": "圖片",
+        "categoryMusic": "音樂",
+        "categoryVideo": "影片",
+        "chooseDifferentFile": "選擇其他檔案",
+        "chooseFile": "選擇檔案，或拖放到任何地方",
+        "copy": "複製",
+        "dropFile": "拖放檔案",
+        "edit": "編輯",
+        "emptyDescription": "選一項功能並生成 — 或把檔案拖放到任何地方開始。",
+        "emptyTitle": "你的作品",
+        "extendVideo": "延長影片",
+        "fileReadFailed": "讀取檔案失敗",
+        "generate": "生成",
+        "generatedAlt": "生成結果 {index}",
+        "generating": "正在生成…",
+        "generationFailed": "生成失敗",
+        "lead": "創作圖片、音訊、音樂、影片和 3D。",
+        "openOutputsFolder": "開啟輸出資料夾",
+        "profileBest": "最佳",
+        "profileFast": "快速",
+        "prompt": "提示",
+        "promptPlaceholder": "描述你想要的內容…",
+        "quality": "品質",
+        "queued": "正在佇列中等待…",
+        "sourceAudio": "音訊檔案",
+        "sourceFile": "來源檔案",
+        "sourceImage": "來源圖片",
+        "sourceVideo": "來源影片",
+        "submitting": "正在送出…",
+        "title": "媒體",
+        "transformVideo": "轉換影片"
+      }
+    }
+  },
+  "desktop": {
+    "common": {
+      "continue": "繼續"
+    },
+    "tray": {
+      "tooltip": "Stella",
+      "openStella": "開啟 Stella",
+      "quitStella": "結束 Stella",
+      "balloon": {
+        "title": "Stella 仍在執行",
+        "content": "Stella 會留在系統列中。點擊圖示即可重新開啟。"
+      }
+    },
+    "dialog": {
+      "startupFailure": {
+        "title": "Stella",
+        "message": "Stella 無法完成啟動。",
+        "detail": "在 App 介面載入之前啟動就失敗了。\n\n{detail}",
+        "relaunch": "重新啟動",
+        "quit": "結束"
+      }
+    },
+    "security": {
+      "confirmationTitle": "Stella 安全性確認",
+      "allow": "允許",
+      "deny": "拒絕",
+      "rememberDecision": "在此裝置上記住這個決定",
+      "computerUse": {
+        "message": "要允許電腦操作使用 {app} 嗎？",
+        "detail": "電腦操作將能查看 {app} 並與其互動。",
+        "risk": "風險：{risk}"
+      }
+    },
+    "oauth": {
+      "xaiCodeMessage": "輸入此代碼以連接 xAI",
+      "expectedValue": "預期值：{value}"
+    },
+    "fashion": {
+      "pickBodyPhotoTitle": "選擇你的全身照",
+      "pickClothesTitle": "選擇服裝圖片",
+      "imageFilterName": "圖片"
+    }
+  },
+  "features": {
+    "browserBridge": {
+      "unavailableTitle": "瀏覽器擴充功能無法使用",
+      "unavailableBody": "Stella 無法連接到你的瀏覽器。如果情況持續，請重新啟動 App 或重新安裝 Stella。",
+      "connectionLostTitle": "瀏覽器連線中斷",
+      "disconnected": "Stella 瀏覽器橋接已中斷連線。",
+      "retryDelay": {
+        "other": "Stella 會在約 {count} 秒後繼續重試。"
+      }
+    },
+    "dictation": {
+      "cancel": "取消聽寫",
+      "stopAndTranscribe": "停止並轉錄",
+      "stopAndTranscribeLabel": "停止聽寫並轉錄",
+      "stopTranscribeSend": "停止、轉錄並傳送",
+      "stopTranscribeSendLabel": "停止聽寫、轉錄並傳送",
+      "localNotReadyTitle": "本機聽寫尚未就緒",
+      "localNotReadyBody": "下載語音功能以在此裝置上聽寫，或登入以使用雲端轉錄。",
+      "signInTitle": "登入以使用聽寫",
+      "signInBody": "當裝置端轉錄無法使用時，聽寫需要你登入 Stella。請登入以繼續。",
+      "failedTitle": "聽寫沒有成功",
+      "failedBody": "Stella 無法轉錄該內容。請再試一次。",
+      "partialTitle": "只轉錄了部分聽寫內容",
+      "partialBody": "部分錄音無法轉錄，因此插入的文字可能不完整。"
+    },
+    "voice": {
+      "signInTitle": "登入以使用語音",
+      "needsSetupTitle": "語音需要設定"
+    },
+    "store": {
+      "sidePanel": {
+        "emptyState": "在 Stella 為你做出變更之後，可從這裡分享給好友、社群或商店。"
+      },
+      "recentChanges": {
+        "rowSelectHint": "點擊以加入分享",
+        "rowDeselectHint": "點擊以取消選取",
+        "updated": "已更新 {time}",
+        "showOlder": "顯示較舊的",
+        "justNow": "剛剛",
+        "publishEmpty": "選擇要分享的變更",
+        "publishLabel": "分享 · {countPhrase}",
+        "selectedCount": {
+          "other": "已選取 {count} 項"
+        }
+      },
+      "shareCard": {
+        "eyebrow": "Stella 外掛",
+        "unavailableName": "外掛無法使用",
+        "unavailableDesc": "此外掛為私人，或已不再發布。",
+        "viewCta": "查看 →"
+      },
+      "creator": {
+        "loading": "正在載入創作者…",
+        "notFoundTitle": "找不到創作者",
+        "notFoundBodyPrefix": "還沒有人使用這個使用者名稱",
+        "notFoundBodySuffix": "。",
+        "noAddons": "{username} 還沒有分享任何外掛。",
+        "version": "版本 {version}",
+        "addonCount": {
+          "zero": "還沒有外掛",
+          "other": "{count} 個外掛"
+        }
+      },
+      "categories": {
+        "appsGames": "App 與遊戲",
+        "productivity": "生產力",
+        "customization": "個人化",
+        "skillsAgents": "技能與代理",
+        "integrations": "整合",
+        "other": "其他"
+      },
+      "shareDialog": {
+        "title": "分享",
+        "titleCircle": "分享給你的圈子",
+        "titleCircleUpdate": "分享一則更新",
+        "titleStore": "分享到 Store",
+        "titleStoreUpdate": "送出更新",
+        "destinationLede": "要分享到哪裡？分享會傳送可執行的程式碼，請選好你要的對象。",
+        "circleOptionName": "好友或社群",
+        "circleOptionDesc": "即時。以聊天中的分享卡片直接送給你信任的人 — 不需審核，也不會公開上架。",
+        "storeOptionName": "Stella Store",
+        "storeOptionDesc": "公開。先由 Stella 團隊審核，之後在商店中對所有人上線。",
+        "updateExisting": "更新現有外掛",
+        "existingAddon": "現有外掛",
+        "selectPlaceholder": "選擇…",
+        "nameLabel": "名稱",
+        "namePlaceholder": "範例模組",
+        "descriptionLabel": "說明",
+        "optionalHint": "（選填）",
+        "descriptionPlaceholderCircle": "為分享卡片寫一句簡短說明。",
+        "descriptionPlaceholderStore": "為商店項目寫一句簡短說明。",
+        "categoryLabel": "類別",
+        "categoryPlaceholder": "選一個類別…",
+        "sendTo": "傳送給",
+        "noRecipients": "還沒有好友或社群 — 請先在「訊息」頁面新增。",
+        "communityFallbackName": "社群",
+        "communityTag": "社群",
+        "circleNote": "分享會立刻以可安裝卡片的形式出現在每個聊天中。只有你挑選的人（以及那些社群中的人）能取得它。",
+        "storeNote": "Stella 團隊會先審核商店送出的內容，之後才會對所有人上線。",
+        "submitPending": "正在分享…",
+        "submitCircle": "立即分享",
+        "submitStore": "送出審核",
+        "noSourceChangesTitle": "沒有原始碼變更",
+        "noSourceChangesBody": "請先至少選擇一項近期有原始碼支援的變更。",
+        "pickRecipientTitle": "選擇分享對象",
+        "pickRecipientBody": "請至少選擇一位好友或一個社群。",
+        "pickAddonTitle": "選擇一個外掛",
+        "pickAddonBody": "選擇你想更新的外掛。",
+        "nameRequiredTitle": "需要名稱",
+        "nameRequiredBody": "分享前請為你的外掛取一個簡短的名稱。",
+        "badNameTitle": "請換一個名稱",
+        "badNameBody": "名稱請使用字母或數字，這樣我們才能建立 ID。",
+        "publishBackendMissing": "發布後端無法使用。",
+        "sharingTitle": "正在分享",
+        "submittingTitle": "正在送出",
+        "inProgressBody": "完成後 Stella 會通知你。",
+        "submittedTitle": "已送出審核",
+        "submittedBody": "{name} 已送給 Stella 團隊。通過核准後就會在商店上線。",
+        "sharedTitle": "已分享",
+        "shareFailedTitle": "分享失敗",
+        "submissionFailedTitle": "送出失敗",
+        "sharedBodyDelivered": {
+          "other": "{name} 正在送往 {count} 個聊天。"
+        },
+        "sharedBodyPartial": {
+          "other": "{name} 已送達 {count} 個聊天中的 {delivered} 個。開啟「訊息」以重試其餘的。"
+        }
+      }
+    }
+  },
+  "ui": {
+    "imageLightbox": {
+      "title": "圖片預覽",
+      "close": "關閉預覽"
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "最近的代理訊息",
+      "recentProgress": "最近進度"
+    },
+    "audioPlayer": {
+      "pause": "暫停",
+      "play": "播放",
+      "seek": "尋找位置"
+    },
+    "capture": {
+      "failedTitle": "無法擷取",
+      "failedDescription": "擷取螢幕截圖時出了問題。請再試一次。"
+    },
+    "chatSidebar": {
+      "add": "新增",
+      "dictationError": "聽寫：{error}",
+      "stop": "停止"
+    },
+    "displayPanel": {
+      "closePanel": "關閉面板",
+      "openPanel": "開啟面板"
+    },
+    "rightSidebar": {
+      "workspace": "工作區",
+      "resize": "調整顯示面板大小",
+      "resizeHint": "拖曳以調整大小 · 按兩下以重設"
+    },
+    "windowControls": {
+      "minimize": "縮到最小",
+      "restore": "還原",
+      "maximize": "放到最大"
+    },
+    "workspace": {
+      "activity": "活動",
+      "viewFiles": {
+        "other": "查看 {count} 個檔案"
+      }
+    },
+    "updatePill": {
+      "update": "更新",
+      "updateFallback": "更新",
+      "availableFallback": "可用",
+      "downloading": "正在下載 {percent}%",
+      "restartToUpdate": "重新啟動以更新",
+      "retryUpdate": "重試更新",
+      "restartTitle": "重新啟動 Stella 並安裝版本 {version}",
+      "retryTitle": "重試桌面版更新檢查",
+      "downloadTitle": "下載 Stella {version}",
+      "toasts": {
+        "downloadedTitle": "更新已下載",
+        "downloadedDescription": "重新啟動 Stella 以安裝版本 {version}。",
+        "checkingTitle": "正在檢查更新",
+        "checkingDescription": "Stella 正在檢查獨立的桌面版 v2 管道。",
+        "failedTitle": "桌面版更新失敗"
+      }
+    },
+    "display": {
+      "homeLauncher": {
+        "files": {
+          "label": "檔案",
+          "description": "頁面、圖片、影片和文件"
+        },
+        "store": {
+          "label": "Store",
+          "description": "外掛和你做過的東西"
+        },
+        "trash": {
+          "label": "垃圾桶",
+          "description": "你最近刪除的東西"
+        }
+      },
+      "trash": {
+        "title": "垃圾桶",
+        "empty": "目前這裡沒有東西。",
+        "refresh": "重新整理",
+        "emptying": "正在清空…",
+        "emptyTrash": "清空垃圾桶",
+        "trashedAgo": "{time}前移到垃圾桶",
+        "pendingPurge": "待清除",
+        "autoDeletesIn": "{time}後自動刪除",
+        "deleting": "正在刪除…",
+        "deleteNow": "立即刪除",
+        "itemsAutoDeleted": {
+          "other": "{count} 個項目 — 24 小時後自動刪除。"
+        }
+      },
+      "canvasShare": {
+        "share": "分享",
+        "links": "連結",
+        "sharedLinks": "已分享的連結",
+        "publishing": "正在發布畫布…",
+        "publishFailed": "無法發布此畫布。請再試一次。",
+        "live": "畫布已上線",
+        "publicLink": "畫布公開連結",
+        "copyLink": "複製連結",
+        "revoke": "撤銷分享",
+        "expires": "{date}到期",
+        "shared": "{date}分享",
+        "sharedWithExpiry": "{shared}分享 · {expires}到期",
+        "loadFailed": "無法載入你的分享。",
+        "empty": "尚無有效的分享。發布一個畫布即可取得公開連結。",
+        "untitled": "未命名畫布",
+        "toasts": {
+          "linkCopied": "已複製分享連結",
+          "copyFailed": "無法複製連結",
+          "revoked": "已撤銷分享",
+          "revokeFailed": "無法撤銷此分享"
+        }
+      },
+      "canvas": {
+        "loadFailed": "無法載入此畫布。",
+        "loading": "載入中"
+      },
+      "media": {
+        "save": "儲存",
+        "saved": "已儲存",
+        "saveFailed": "無法儲存",
+        "copy": "複製",
+        "copied": "已複製",
+        "copyFailed": "無法複製",
+        "delete": "刪除",
+        "deleteConfirm": "再次點擊以刪除",
+        "itemActions": "項目操作"
+      },
+      "url": {
+        "eyebrow": "即時預覽",
+        "reload": "重新載入",
+        "openInBrowser": "在瀏覽器中開啟"
+      },
+      "office": {
+        "preparing": "正在準備預覽...",
+        "kind": {
+          "spreadsheet": "試算表",
+          "presentation": "簡報",
+          "document": "文件"
+        },
+        "sheetCount": {
+          "other": "{count} 個工作表"
+        },
+        "slideCount": {
+          "other": "{count} 張投影片"
+        },
+        "loadFailed": "無法載入此預覽",
+        "sessionError": "預覽工作階段回報了錯誤。",
+        "zoomAriaLabel": "預覽縮放",
+        "revealInFinder": "在 Finder 中顯示",
+        "livePreview": "即時預覽",
+        "frameTitle": "{kind} 預覽：{title}"
+      },
+      "filePreview": {
+        "save": "儲存",
+        "copy": "複製",
+        "loading": "載入中..."
+      },
+      "spreadsheet": {
+        "eyebrow": "試算表",
+        "desktopRequired": "試算表預覽需要 Stella 桌面 App。",
+        "noRows": "找不到任何列。",
+        "column": "第 {index} 欄"
+      },
+      "markdown": {
+        "eyebrow": "Markdown",
+        "desktopRequired": "Markdown 預覽需要 Stella 桌面 App。",
+        "noContent": "找不到內容。"
+      },
+      "diff": {
+        "changes": "變更",
+        "codeChanges": "程式碼變更",
+        "noChanges": "找不到變更。",
+        "desktopRequired": "程式碼預覽需要 Stella 桌面 App。",
+        "empty": "還沒有檔案變更。當代理編輯程式碼時，變更會出現在這裡。"
+      },
+      "agentThread": {
+        "role": {
+          "user": "指示",
+          "assistant": "代理",
+          "lifecycle": "活動"
+        },
+        "status": {
+          "running": "工作中",
+          "completed": "已完成",
+          "error": "失敗",
+          "canceled": "已停止"
+        },
+        "newMessages": {
+          "other": "{count} 則新訊息。"
+        },
+        "newMessagesWithPreview": "{countPhrase} 最新 {role}：{preview}",
+        "unavailable": "無法取得代理執行緒的歷史記錄。",
+        "loadFailed": "無法載入此執行緒。",
+        "showingNewest": "正在顯示最新的訊息。",
+        "claudeAriaLabel": "Claude 子代理唯讀對話",
+        "claudeBadge": "唯讀 Claude 子代理",
+        "badge": "唯讀代理執行緒",
+        "retrying": "正在重試…",
+        "empty": "此執行緒中還沒有訊息。",
+        "newMessagesButton": {
+          "other": "{count} 則新訊息"
+        },
+        "showNewMessagesAria": "顯示{countPhrase}"
+      }
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}，{plan} 方案",
+        "signOutTitle": "要登出 Stella 嗎？",
+        "signOutDescription": "你確定嗎？"
+      },
+      "nav": {
+        "apps": "App",
+        "unreadTitle": "{label}（{count} 則未讀）",
+        "unreadAriaLabel": "{label}，{count} 則未讀"
+      },
+      "feedback": {
+        "title": {
+          "manual": "傳送回饋",
+          "auto": "Stella 用得如何？"
+        },
+        "description": {
+          "manual": "你的訊息會以匿名方式傳送 — 不會連結到你的帳號。",
+          "auto": "有什麼想讓我們知道的嗎？以匿名方式傳送 — 不會連結到你的帳號。"
+        },
+        "notNow": "暫時不要",
+        "fieldLabel": "回饋",
+        "placeholder": "告訴我們哪裡好用、哪裡不好用，或你希望看到什麼…",
+        "send": "傳送",
+        "sending": "正在傳送…",
+        "toasts": {
+          "sentTitle": "已傳送回饋",
+          "sentDescription": "謝謝 — 每一則訊息都幫助我們打造 Stella。",
+          "failedTitle": "無法傳送回饋"
+        }
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "newChat": "新對話",
+        "home": "首頁",
+        "history": "對話記錄",
+        "historyEmpty": "還沒有對話",
+        "historyRetry": "無法載入對話。請再試一次",
+        "openConversations": "開啟對話列表",
+        "openConversation": "開啟 {title}",
+        "closeConversation": "關閉 {title}",
+        "delete": "刪除 {title}",
+        "deleteConfirm": "再次點擊以確認",
+        "deleteConfirmFor": "再次點擊以刪除 {title}",
+        "deleteFailed": "無法刪除此對話",
+        "deleteFailedFor": "無法刪除 {title}"
+      }
+    }
+  },
+  "global": {
+    "auth": {
+      "welcomeTitle": "歡迎使用 Stella",
+      "welcomeDescription": "用你的電子郵件登入即可開始使用 Stella。",
+      "welcomeSub": "使用 Google 或你的電子郵件登入。不需要密碼。",
+      "orUseEmail": "或使用電子郵件",
+      "emailLabel": "電子郵件",
+      "emailPlaceholder": "you@example.com",
+      "sending": "正在傳送...",
+      "signingIn": "正在登入...",
+      "sendSignInEmail": "傳送登入郵件",
+      "checkInbox": "請查看收件匣中的登入連結。",
+      "magicLinkSentDesktop": "我們已傳送登入連結。請在此裝置上開啟以完成登入。",
+      "openInbox": "開啟 {provider}",
+      "resendIn": "{seconds} 秒後可重新傳送",
+      "resendEmail": "重新傳送郵件",
+      "skipForNow": "先略過",
+      "enterEmail": "請輸入電子郵件地址。",
+      "sendFailed": "傳送登入郵件失敗。",
+      "magicLinkFailed": "傳送魔法連結失敗。",
+      "finishFailed": "無法完成登入。請再試一次。",
+      "signInIncomplete": "登入未完成。請再試一次。",
+      "signInLinkExpired": "登入連結已過期。請再試一次。",
+      "tooManyRequests": {
+        "other": "請求太過頻繁。請在 {count} 秒後再試。"
+      },
+      "googleContinue": "使用 Google 繼續",
+      "googleWaiting": "正在等待 Google...",
+      "googleStartFailed": "無法開始 Google 登入。",
+      "googleNoSession": "Google 登入已完成，但沒有工作階段。",
+      "googleExpired": "Google 登入已過期。請再試一次。",
+      "googleTimedOut": "Google 登入逾時。請再試一次。",
+      "nicknameTitle": "我該怎麼稱呼你？",
+      "nicknameDescription": "選一個名字，Stella 會在整個 App 中使用它。",
+      "nicknameLabel": "暱稱",
+      "nicknamePlaceholder": "你的暱稱",
+      "notNow": "暫時不要"
+    },
+    "legal": {
+      "terms": {
+        "title": "服務條款",
+        "subtitle": "Stella 如何運作，以及你使用時所同意的內容。"
+      },
+      "privacy": {
+        "title": "隱私權政策",
+        "subtitle": "我們收集什麼、不收集什麼，以及我們如何保護它。"
+      }
+    },
+    "integrations": {
+      "heroTagline": "從你喜歡的任何平台傳訊息給 Stella — 自然地聊天，或請它直接在你的電腦上把事情做好。",
+      "signInToConnect": "登入 Stella 以連接",
+      "connectStellaApp": "連接到 Stella App",
+      "sectionTitle": "整合",
+      "connectTitle": "連接",
+      "backToConnections": "返回連線列表",
+      "connected": "已連接",
+      "connectProvider": "連接 {provider}",
+      "openProvider": "開啟 {provider}",
+      "listeningOn": "Stella 正在 {provider} 上待命。隨時可以在那裡傳訊息給她。",
+      "disconnect": "中斷連接",
+      "disconnecting": "正在中斷連接...",
+      "disconnected": "已與 {provider} 中斷連接",
+      "disconnectFailed": "無法與 {provider} 中斷連接",
+      "codeCopied": "代碼已複製到剪貼簿",
+      "generateCodeFailed": "產生代碼失敗",
+      "slackInstallUrlFailed": "準備 Slack 安裝連結失敗",
+      "signInHeadline": "登入即可開始",
+      "signInSub": "登入你的 Stella 帳號以連接 {provider}。",
+      "providers": {
+        "linq": {
+          "name": "傳簡訊給 Stella",
+          "instructions": "輸入你的手機號碼，我們會傳送一組驗證碼簡訊來連接。綁定後，你隨時可以透過 iMessage 或簡訊傳訊息給 Stella。"
+        },
+        "discord": {
+          "name": "Discord",
+          "instructions": "把 Stella App 安裝到你的 Discord 帳號，用代碼執行一次 /link，之後就能正常私訊 @Stella。"
+        },
+        "slack": {
+          "name": "Slack",
+          "instructions": "在你的工作區安裝 Stella App，然後用下方的代碼私訊 @Stella。"
+        },
+        "telegram": {
+          "name": "Telegram",
+          "instructions": "在 Telegram 中開啟 @StellaAppBot，然後傳送下方的代碼。"
+        }
+      },
+      "linq": {
+        "countryCode": "國碼",
+        "phonePlaceholder": "(555) 123-4567",
+        "sending": "正在傳送...",
+        "sendCode": "傳送驗證碼",
+        "sendCodeFailed": "傳送驗證碼失敗。請確認號碼後再試一次。",
+        "enterCodeTitle": "輸入你的驗證碼",
+        "enterCodeSub": "請查看手機 — 我們已傳送 6 位數驗證碼到 {phone}。",
+        "codePlaceholder": "ABC123",
+        "verify": "驗證",
+        "verifying": "正在驗證...",
+        "verifyCodeFailed": "驗證碼驗證失敗。",
+        "connected": "已連接！現在你可以傳簡訊給 Stella 了。",
+        "invalidCode": "驗證碼無效或已過期。請重新傳送一組。",
+        "genericError": "出了一點問題。請再試一次。",
+        "useDifferentNumber": "使用其他號碼"
+      },
+      "credential": {
+        "title": "連接 {provider}",
+        "description": "Stella 需要你的 {provider} API 金鑰才能連接。請貼到下方。它只會留在你的電腦上。",
+        "defaultLabel": "{provider} 金鑰",
+        "apiKeyLabel": "API 金鑰",
+        "apiKeyRequired": "API 金鑰為必填。",
+        "keyPlaceholder": "貼上你的金鑰",
+        "labelLabel": "標籤",
+        "labelDescription": "方便日後辨識這組金鑰的名稱。",
+        "saving": "正在儲存...",
+        "saveKey": "儲存金鑰",
+        "saveFailed": "儲存憑證失敗。"
+      }
+    },
+    "schedule": {
+      "dialogTitle": "排程",
+      "untitledTask": "排程工作",
+      "checkIn": "回報",
+      "paused": "已暫停",
+      "pause": "暫停",
+      "pausing": "正在暫停…",
+      "resume": "繼續",
+      "resuming": "正在繼續…",
+      "runNow": "立即執行",
+      "running": "執行中…",
+      "delete": "刪除",
+      "removing": "正在移除…",
+      "actionFailed": "操作失敗。",
+      "missing": "此排程已不存在。",
+      "scheduleCount": {
+        "other": "{count} 個排程"
+      }
+    },
+    "social": {
+      "dialogDescription": "在任何事情發生前，請先確認這則邀請。",
+      "signInToAccept": "登入 Stella 以接受這則邀請。",
+      "lookingUpInvite": "正在查詢邀請…",
+      "stellaAddOn": "Stella 外掛",
+      "stellaUser": "Stella 使用者",
+      "byAuthor": " · 來自 @{username}",
+      "alreadyIn": " · 你已加入",
+      "membersLabel": "成員",
+      "memberCount": {
+        "other": "{count} 位成員"
+      },
+      "working": "處理中…",
+      "alreadyJoined": "已加入",
+      "welcomeToCommunity": "歡迎來到 {community}！",
+      "joinedCommunity": "你已加入這個社群！",
+      "friendRequestSent": "已將好友邀請送給 @{username}。",
+      "joinFailed": "無法加入該社群。邀請可能已過期。",
+      "friendRequestFailed": "無法送出該好友邀請。請再試一次。",
+      "store": {
+        "title": "開啟外掛",
+        "confirmLabel": "在 Store 中查看",
+        "sub": "你開啟的連結指向一個 Stella 外掛。不會安裝任何東西，這只會開啟它的 Store 頁面。",
+        "missing": "此外掛為私人，或已不再發布。"
+      },
+      "join": {
+        "title": "加入社群",
+        "confirmLabel": "加入",
+        "sub": "有人邀請你加入一個社群：成員之間互相分享外掛的信任圈。",
+        "missing": "找不到與此邀請碼對應的社群。請索取新的連結。"
+      },
+      "friend": {
+        "title": "加好友",
+        "confirmLabel": "送出好友邀請",
+        "sub": "有人邀請你在 Stella 上建立連結。",
+        "missing": "找不到與此邀請連結對應的使用者。"
+      }
+    },
+    "websiteView": {
+      "storeTitle": "Store"
+    }
+  },
+  "mobile": {
+    "common": {
+      "back": "返回",
+      "backChevron": "‹ 返回",
+      "cancel": "取消",
+      "continue": "繼續",
+      "delete": "刪除",
+      "done": "完成",
+      "goBack": "返回",
+      "somethingWentWrong": "發生了一些問題。",
+      "tryAgain": "重試"
+    },
+    "boot": {
+      "crashTitle": "啟動時發生錯誤",
+      "missingConfigTitle": "新增行動版環境變數",
+      "missingConfigBody": "啟動應用程式前，請設定 EXPO_PUBLIC_CONVEX_URL，並視需要設定 EXPO_PUBLIC_CONVEX_SITE_URL。",
+      "checkingSessionTitle": "正在檢查您的工作階段",
+      "checkingSessionBody": "Stella 正在啟動，請稍候。"
+    },
+    "authCallback": {
+      "failedTitle": "無法為您登入",
+      "invalidLink": "登入連結無效。",
+      "linkExpired": "此登入連結已過期。請重新索取一個。",
+      "genericFailure": "目前無法為您登入。請再試一次。",
+      "backToSignIn": "返回登入",
+      "signingInTitle": "正在為您登入",
+      "signingInBody": "請稍候..."
+    },
+    "nav": {
+      "chat": "聊天",
+      "computer": "電腦",
+      "settings": "設定",
+      "openLabel": "開啟導覽",
+      "closeLabel": "關閉導覽"
+    },
+    "search": {
+      "placeholder": "搜尋訊息",
+      "openLabel": "搜尋訊息",
+      "clearLabel": "清除搜尋",
+      "cancelLabel": "取消搜尋"
+    },
+    "onboarding": {
+      "skip": "略過",
+      "skipLabel": "略過介紹",
+      "welcomeTitle": "認識 Stella",
+      "welcomeBody": "什麼都能問、慢慢聊，也能把實際的工作交給它 —— Stella 在這裡回答，還能在您的電腦上動手處理。",
+      "themeTitle": "打造專屬風格",
+      "themeBody": "選一個主題。您隨時可以在設定中更改。",
+      "connectTitle": "隨時隨地使用您的電腦",
+      "connectBodyGuest": "稍後登入即可與電腦上的 Stella 配對，之後就能用手機請家中的電腦瀏覽網頁、管理檔案和執行工作。",
+      "connectBodyPaired": "與 Stella 桌面應用程式配對一次，手機就能請它瀏覽網頁、管理檔案和執行工作 —— 即使您人在城市的另一頭。",
+      "pairComputer": "配對我的電腦",
+      "startChatting": "開始聊天"
+    },
+    "login": {
+      "heroTitle": "您的助理，\n口袋大小。",
+      "heroBody": "使用 Apple、Google，或您在電腦上使用的電子郵件。",
+      "continueWithApple": "使用 Apple 繼續",
+      "openingApple": "正在開啟 Apple...",
+      "continueWithGoogle": "使用 Google 繼續",
+      "openingGoogle": "正在開啟 Google...",
+      "orUseEmail": "或使用電子郵件",
+      "emailPlaceholder": "電子郵件",
+      "sending": "正在傳送...",
+      "signingIn": "正在登入...",
+      "checkInbox": "查看收件匣並點一下連結，即可自動登入。",
+      "useDifferentEmail": "改用其他電子郵件",
+      "resend": "重新傳送",
+      "resendLabel": "重新傳送登入郵件",
+      "enterEmail": "請輸入您的電子郵件。",
+      "sendFailed": "登入郵件傳送失敗。",
+      "googleStartFailed": "無法開始 Google 登入。",
+      "appleStartFailed": "無法開始 Apple 登入。",
+      "appleCompleteFailed": "無法完成 Apple 登入。",
+      "appleNoToken": "Apple 未回傳身分權杖。",
+      "finishFailed": "無法完成登入。請再試一次。",
+      "incomplete": "登入尚未完成。請再試一次。",
+      "linkExpired": "連結已過期。請再試一次。",
+      "legalPrefix": "繼續即表示您同意我們的",
+      "legalTerms": "服務條款",
+      "legalConjunction": "和",
+      "legalPrivacy": "隱私權政策",
+      "legalSuffix": "。",
+      "continueAsGuest": "不登入繼續"
+    },
+    "chat": {
+      "emptyPrompt": "什麼都可以問 Stella",
+      "composerPlaceholder": "傳訊息給 Stella"
+    },
+    "computer": {
+      "guestHeroTitle": "您的電腦，隨手可用",
+      "guestHeroBody": "請 Stella 在您的電腦上做事 —— 瀏覽網頁、管理檔案、執行工作等等。",
+      "pairFirstTitle": "請先配對您的手機",
+      "pairFirstBody": "將這支手機與您的 Stella 桌面版配對，就能隨時隨地與它聊天。只需配對一次。",
+      "pairPhone": "配對手機",
+      "pairThisPhoneLabel": "配對這支手機",
+      "emptyPrompt": "什麼都可以問您的電腦",
+      "composerPlaceholder": "傳訊息給您的電腦",
+      "defaultDeviceLabel": "您的電腦",
+      "statusChecking": "檢查中…",
+      "statusWaking": "喚醒中…",
+      "statusConnected": "已連線",
+      "statusAsleep": "睡眠中",
+      "connectingLabel": "正在連線到您的電腦",
+      "connectedLabel": "電腦已連線",
+      "disconnectedLabel": "電腦已中斷連線",
+      "unreachableTitle": "無法連線到電腦",
+      "unreachableBody": "目前無法連線到您的電腦。已送出喚醒要求 —— 請幾秒後再試一次。",
+      "syncWaitingTitle": "等待同步",
+      "syncWaitingBody": "有一則訊息仍在傳送。傳送完成後就會立即同步。",
+      "syncFailedTitle": "同步失敗",
+      "syncFailedBody": "同步時您的電腦停止回應。請再試一次。"
+    },
+    "desktop": {
+      "pairTitle": "配對您的手機",
+      "guestBody": "在手機上直接檢視您的 Stella 桌面應用程式。配對後，手機會自動重新連線。",
+      "guestSignInPrompt": "登入即可開始。",
+      "connecting": "正在連線到桌面版",
+      "pairing": "正在配對這支手機",
+      "unreachable": "無法連線到您的桌面版",
+      "deviceUnreachable": "無法連線到您的 {platform}",
+      "repairNeeded": "這支手機需要重新與您的電腦配對。",
+      "enterCode": "請輸入電腦上顯示的代碼。",
+      "linkInterrupted": "與您電腦的連線已中斷。",
+      "unavailableBodyPaired": "請確認電腦上的 Stella 已開啟且已連上網際網路。連線成功後，桌面應用程式就會出現在您的手機上。",
+      "unavailableBodyUnpaired": "在手機上直接檢視您的 Stella 桌面應用程式。掃描電腦上 Stella 顯示的 QR Code 即可開始 —— 之後手機會自動重新連線。",
+      "pairAnother": "配對另一台電腦",
+      "startPairingLabel": "開始配對電腦",
+      "retryLabel": "重新嘗試連線",
+      "reconnecting": "正在重新連線...",
+      "limitedCapabilities": "有些事需要您的電腦"
+    },
+    "settings": {
+      "title": "設定",
+      "loadingSession": "正在載入工作階段…",
+      "signIn": "登入",
+      "signInTitle": "登入 Stella",
+      "showEmailLabel": "顯示電子郵件",
+      "hideEmailLabel": "隱藏電子郵件",
+      "appearanceSection": "外觀",
+      "appearance": {
+        "system": "系統",
+        "light": "淺色",
+        "dark": "深色"
+      },
+      "background": {
+        "soft": "柔和",
+        "flat": "純色"
+      },
+      "useAppearanceLabel": "使用{name}外觀",
+      "useBackgroundLabel": "使用{name}背景",
+      "useThemeLabel": "使用{name}主題",
+      "notificationsSection": "通知",
+      "pushToggleLabel": "允許推播通知",
+      "pushToggleSub": "電腦完成要求時通知您。",
+      "pushToggleA11y": "切換推播通知",
+      "voiceSection": "與 Stella 對話",
+      "voiceSectionHint": "免持語音（例如 CarPlay）會把您的訊息送到這裡。自動模式會在您上次停在電腦的聊天且電腦可連線時選擇電腦，否則選擇這支手機的聊天。",
+      "voiceTarget": {
+        "auto": "自動",
+        "phone": "手機",
+        "computer": "電腦"
+      },
+      "voiceTargetLabel": "將語音訊息傳送到{name}",
+      "pairedSection": "已配對的電腦",
+      "pairedEmpty": "尚未配對任何電腦。請從「電腦」分頁配對。",
+      "pairedOn": "配對於 {date}",
+      "paired": {
+        "unnamedComputer": "電腦 · {id}"
+      },
+      "forget": "忘記",
+      "forgetLabel": "忘記 {name}",
+      "forgetConfirmTitle": "要忘記 {name} 嗎？",
+      "forgetConfirmBody": "在您重新配對之前，這支手機將不再連線到那台電腦。",
+      "carPlayDiagnostics": "CarPlay 診斷",
+      "openCarPlayDiagnosticsLabel": "開啟 CarPlay 診斷",
+      "termsOfService": "服務條款",
+      "openTermsLabel": "開啟服務條款",
+      "privacyPolicy": "隱私權政策",
+      "openPrivacyLabel": "開啟隱私權政策",
+      "signOut": "登出",
+      "signingOut": "正在登出…",
+      "signOutLabel": "登出 Stella",
+      "deleteAccount": "刪除帳號",
+      "deletingAccount": "正在刪除帳號…",
+      "deleteAccountLabel": "刪除您的 Stella 帳號",
+      "deleteConfirmTitle": "刪除帳號",
+      "deleteConfirmBody": "此操作會永久刪除您的 Stella 帳號，並移除我們伺服器上與其相關的雲端資料。無法復原。",
+      "deleteFailedTitle": "無法刪除帳號"
+    },
+    "carPlayDiagnostics": {
+      "title": "CarPlay 診斷",
+      "subtitle": {
+        "other": "CarPlay 連線的紀錄（共 {count} 行，最新在前）。車上出現異常後，請複製並傳送這些內容。"
+      },
+      "copyAll": "全部複製",
+      "copyAllLabel": "複製全部診斷資訊",
+      "copied": "已複製 ✓",
+      "refresh": "重新整理",
+      "refreshLabel": "重新整理診斷資訊",
+      "clear": "清除",
+      "clearLabel": "清除診斷資訊",
+      "empty": "尚未記錄任何 CarPlay 診斷資訊。請先連線 CarPlay 一次，再回到這裡。",
+      "clipboardEmpty": "（未記錄 CarPlay 診斷資訊）"
+    }
   }
 }

@@ -1,0 +1,2206 @@
+{
+  "common": {
+    "appName": "Stella",
+    "continue": "Jatka",
+    "back": "Takaisin",
+    "next": "Seuraava",
+    "previous": "Edellinen",
+    "cancel": "Peruuta",
+    "save": "Tallenna",
+    "close": "Sulje",
+    "open": "Avaa",
+    "openPreferences": "Avaa asetukset",
+    "signIn": "Kirjaudu sisään",
+    "signOut": "Kirjaudu ulos",
+    "loading": "Ladataan…",
+    "tryAgain": "Yritä uudelleen",
+    "language": "Kieli",
+    "yes": "Kyllä",
+    "no": "Ei",
+    "copy": "Kopioi"
+  },
+  "sidebar": {
+    "signIn": "Kirjaudu sisään",
+    "account": "Tili",
+    "feedback": "Lähetä palautetta",
+    "upgrade": "Päivitä tilaus",
+    "newChat": "Uusi keskustelu"
+  },
+  "settings": {
+    "title": "Asetukset",
+    "tabs": {
+      "general": "Yleiset",
+      "shortcuts": "Pikanäppäimet",
+      "backup": "Varmuuskopiot",
+      "account": "Tili ja oikeudelliset",
+      "audio": "Ääni"
+    },
+    "language": {
+      "title": "Kieli",
+      "description": "Valitse kieli, jota Stella käyttää sovelluksessa ja vastauksissa."
+    },
+    "workingMode": {
+      "title": "Orkestraattoritila",
+      "directDescription": "Stella tekee tehtävät itse ja delegoi vain, kun siitä on hyötyä.",
+      "orchestratedDescription": "Stella koordinoi General-agenttia, joka voi jakaa suuremmat työt aliagenteille."
+    },
+    "developerPreviews": {
+      "title": "Kehittäjän tiedostojen esikatselut",
+      "description": "Näytä koodimuutokset chatissa ja avaa ne sivupaneelissa."
+    },
+    "nativeFontSmoothing": {
+      "title": "Natiivi fonttien pehmennys",
+      "description": "Piirtää tekstin kuten macOS-sovellukset, harmaasävyreunanpehmennyksellä."
+    },
+    "motion": {
+      "title": "Liike",
+      "reduceMotion": {
+        "label": "Vähennä liikettä",
+        "description": "Minimoi käyttöliittymän animaatiot.",
+        "system": "Järjestelmä",
+        "on": "Päällä",
+        "off": "Pois"
+      }
+    },
+    "voice": {
+      "title": "Ääni",
+      "personality": {
+        "label": "Persoonallisuus"
+      }
+    },
+    "notifications": {
+      "title": "Ääni-ilmoitukset",
+      "description": "Toistaa äänen, kun Stella saa agentin ajon valmiiksi."
+    },
+    "power": {
+      "title": "Pidä tietokone hereillä",
+      "description": "Estää tietokonetta siirtymästä lepotilaan, kun Stella on auki."
+    },
+    "lockedComputerUse": {
+      "title": "Käyttö lukitulla tietokoneella",
+      "description": "Antaa Stellan jatkaa tietokoneen käyttötehtäviä tämän Macin lukitsemisen jälkeen. Vaatii järjestelmänvalvojan vahvistuksen ja peittää näytön Stellan työskennellessä.",
+      "unsupported": "Käyttö lukitulla tietokoneella on saatavilla vain macOS:ssä."
+    },
+    "browserExtension": {
+      "title": "Stella Chromelle",
+      "description": "Antaa Stellan nähdä sivun, jolla olet, ja toimia selaimessasi.",
+      "action": "Hanki laajennus"
+    },
+    "permissions": {
+      "title": "Käyttöoikeudet",
+      "enable": "Ota käyttöön",
+      "granted": "Myönnetty",
+      "opening": "Avataan…",
+      "reset": "Nollaa",
+      "resetting": "Nollataan…",
+      "accessibility": {
+        "label": "Saavutettavuus",
+        "description": "Antaa Stellan lukea valitun tekstin ja avautua pikanäppäimellä ⌘+oikea napsautus missä tahansa tietokoneellasi."
+      },
+      "screen": {
+        "label": "Näytön tallennus",
+        "description": "Antaa Stellan nähdä näyttösi, jotta se voi auttaa siinä, mitä katsot. Saatat joutua sulkemaan ja avaamaan Stellan uudelleen tämän käyttöönoton jälkeen."
+      },
+      "microphone": {
+        "label": "Mikrofoni",
+        "description": "Käytetään ääneen ja saneluun. Nollaa, jos Stella estettiin aiemmin eikä macOS kysy enää."
+      },
+      "restart": {
+        "label": "Käynnistä Stella uudelleen",
+        "description": "Näytön tallennus otettiin juuri käyttöön. Sulje ja avaa Stella uudelleen viimeistelläksesi käyttöönoton.",
+        "action": "Käynnistä uudelleen",
+        "closing": "Suljetaan…"
+      }
+    },
+    "shortcuts": {
+      "title": "Pikanäppäimet",
+      "change": "Muuta",
+      "capturing": "Paina näppäimiä…",
+      "clear": "Tyhjennä",
+      "off": "Pois",
+      "actions": {
+        "dictation": "Sanelu",
+        "voice": "Ääniagentti"
+      },
+      "dictation": {
+        "description": "Pidä Option-näppäintä pohjassa sanellaksesi Stellaan tai käyttämääsi sovellukseen."
+      },
+      "voiceAgent": {
+        "description": "Käynnistää tai pysäyttää Stellan reaaliaikaisen ääniagentin."
+      },
+      "targets": {
+        "dictation": "sanelu",
+        "voice": "ääniagentti"
+      },
+      "toasts": {
+        "updatedTitle": "{action}-pikanäppäin päivitetty",
+        "clearedTitle": "{action}-pikanäppäin tyhjennetty",
+        "updatedDescription": "Paina {keys} aloittaaksesi: {target}.",
+        "clearedDescription": "{action} on poissa käytöstä, kunnes asetat uuden pikanäppäimen.",
+        "unavailableTitle": "Pikanäppäin ei käytettävissä",
+        "failedTitle": "Pikanäppäimen päivitys epäonnistui"
+      },
+      "errors": {
+        "load": "Pikanäppäimien lataaminen epäonnistui.",
+        "unavailable": "Pikanäppäimet eivät ole käytettävissä tässä ikkunassa.",
+        "unavailableShortcut": "Kyseinen pikanäppäin ei ole käytettävissä.",
+        "update": "Pikanäppäimen päivitys epäonnistui."
+      }
+    },
+    "backup": {
+      "title": "Varmuuskopiot",
+      "upgradeNotice": "Varmuuskopiot sisältyvät kaikkiin maksullisiin Stella-tilauksiin.",
+      "never": "Ei koskaan",
+      "automatic": {
+        "label": "Automaattiset varmuuskopiot",
+        "lastLocal": "Viimeisin paikallinen varmuuskopio: {time}",
+        "lastRemote": "Viimeisin etävarmuuskopio: {time}",
+        "remoteIssue": "Etävarmuuskopion ongelma: {error}",
+        "off": "Pois",
+        "hourly": "Automaattiset varmuuskopiot tunneittain",
+        "ariaLabel": "Varmuuskopiot"
+      },
+      "backupNow": {
+        "label": "Varmuuskopioi nyt",
+        "description": "Tallenna varmuuskopio heti. Se ladataan automaattisesti, kun olet kirjautuneena.",
+        "action": "Varmuuskopioi nyt",
+        "working": "Varmuuskopioidaan…"
+      },
+      "saved": {
+        "label": "Tallennetut varmuuskopiot",
+        "signedInDescription": "Valitse varmuuskopio palautettavaksi tällä laitteella.",
+        "signedOutDescription": "Kirjaudu sisään tallentaaksesi varmuuskopiot verkkoon ja palauttaaksesi ne millä tahansa laitteella.",
+        "empty": "Ei vielä etävarmuuskopioita.",
+        "latest": "Uusin",
+        "files": "{count} tiedostoa",
+        "from": "Lähde: {source}",
+        "restore": "Palauta",
+        "restoring": "Palautetaan…"
+      },
+      "toasts": {
+        "completedTitle": "Varmuuskopiointi valmis",
+        "queuedTitle": "Varmuuskopio jonossa",
+        "deferredTitle": "Varmuuskopio lykätty",
+        "noneNeededTitle": "Varmuuskopiota ei tarvita",
+        "failedTitle": "Varmuuskopiointi epäonnistui",
+        "restorePreparedTitle": "Palautus valmisteltu",
+        "restorePreparedDescription": "Stella käynnistyy uudelleen viimeistelläkseen tämän varmuuskopion käyttöönoton.",
+        "restoreFailedTitle": "Palautus epäonnistui"
+      },
+      "errors": {
+        "load": "Varmuuskopioasetusten lataaminen epäonnistui.",
+        "unavailable": "Varmuuskopioasetukset eivät ole käytettävissä tässä ikkunassa.",
+        "signInRequired": "Kirjaudu sisään ja valitse Stella-tilaus ottaaksesi varmuuskopiot käyttöön.",
+        "checkingPlan": "Tarkistetaan Stella-tilaustasi ennen varmuuskopioiden käyttöönottoa.",
+        "subscriptionRequired": "Varmuuskopiot vaativat aktiivisen Stella-tilauksen.",
+        "updateMode": "Varmuuskopiointitilan päivitys epäonnistui.",
+        "backupUnavailable": "Varmuuskopiointi ei ole käytettävissä tässä ikkunassa.",
+        "startBackup": "Varmuuskopioinnin aloitus epäonnistui.",
+        "restoreUnavailable": "Palautus ei ole käytettävissä tässä ikkunassa.",
+        "restore": "Varmuuskopion palautus epäonnistui."
+      }
+    },
+    "account": {
+      "title": "Tili",
+      "signOut": {
+        "label": "Kirjaudu ulos",
+        "description": "Kirjaudu ulos Stellasta tällä laitteella.",
+        "action": "Kirjaudu ulos"
+      },
+      "deleteData": {
+        "label": "Poista tiedot",
+        "description": "Poistaa kaikki keskustelut, muistin ja tallennetut Stella-asetukset.",
+        "action": "Poista",
+        "working": "Poistetaan…"
+      },
+      "deleteAccount": {
+        "label": "Poista tili",
+        "description": "Poistaa tilisi ja kaiken siihen liittyvän pysyvästi.",
+        "action": "Poista",
+        "working": "Poistetaan…"
+      },
+      "legal": {
+        "title": "Oikeudelliset tiedot",
+        "terms": "Käyttöehdot",
+        "privacy": "Tietosuojakäytäntö",
+        "view": "Näytä"
+      },
+      "dialog": {
+        "deleteDataTitle": "Poistetaanko Stella-tietosi?",
+        "deleteAccountTitle": "Poistetaanko Stella-tilisi?",
+        "deleteDataDescription": "Tämä poistaa keskustelusi, muistisi, asetuksesi ja paikallisen Stella-tilan. Tätä ei voi kumota.",
+        "deleteAccountDescription": "Tämä poistaa tilisi ja Stella-tietosi pysyvästi. Tätä ei voi kumota.",
+        "deleteDataButton": "Poista tiedot",
+        "deleteAccountButton": "Poista tili",
+        "working": "Poistetaan…"
+      },
+      "toasts": {
+        "dataDeleted": "Stella-tietosi poistettiin.",
+        "accountDeleted": "Stella-tilisi poistettiin.",
+        "deleteDataFailed": "Tietojasi ei voitu poistaa. Yritä uudelleen.",
+        "deleteAccountFailed": "Tiliäsi ei voitu poistaa. Yritä uudelleen.",
+        "signInBeforeDelete": "Kirjaudu sisään ennen tilisi poistamista."
+      }
+    },
+    "audio": {
+      "systemDefault": "Järjestelmän oletus",
+      "microphoneDeviceFallback": "Mikrofoni {index}",
+      "speakerDeviceFallback": "Kaiutin {index}",
+      "microphone": {
+        "title": "Mikrofoni",
+        "enableLabel": "Ota mikrofoni käyttöön",
+        "enableDescription": "Vaaditaan Stellan kanssa puhumiseen.",
+        "deviceLabel": "Mikrofoni",
+        "deviceDescription": "Mitä mikrofonia Stellan tulisi kuunnella?"
+      },
+      "recovery": {
+        "manageLabel": "Hallitse mikrofonin käyttöoikeutta",
+        "recoverLabel": "Palauta mikrofonin käyttöoikeus",
+        "manageDescription": "Jos mikrofonin käyttöoikeus jää jumiin, voit nollata sen ja pyytää macOS:ää kysymään uudelleen.",
+        "recoverDescription": "Kun olet kieltäytynyt, macOS ei kysy enää itsestään. Nollaa käyttöoikeus, sulje sitten Stella ja avaa se uudelleen.",
+        "openSettings": "Avaa Asetukset",
+        "reset": "Nollaa ja käynnistä uudelleen",
+        "closing": "Suljetaan…"
+      },
+      "wakeWord": {
+        "label": "Herätyssana ”Hey Stella”",
+        "description": "Kuuntelee ”Hey Stella” -sanaa taustalla ja aloittaa puhekeskustelun. Kun pois päältä, mikrofoni pysyy lepotilassa, kunnes painat sanelua."
+      },
+      "superFast": {
+        "label": "Supernopea sanelu",
+        "description": "Pitää mikrofonin valmiina, jotta sanelu alkaa pienemmällä viiveellä."
+      },
+      "dictationSounds": {
+        "label": "Sanelun äänet",
+        "description": "Toistaa äänen, kun sanelu alkaa ja pysähtyy."
+      },
+      "enhance": {
+        "label": "Paranna litterointia",
+        "description": "Siistii paikallisen sanelutekstin Mercuryllä ennen lisäämistä."
+      },
+      "localDictation": {
+        "label": "Laitteella tapahtuva litterointi",
+        "description": "Käyttää paikallista Parakeet-mallia Inworldin sijaan. Tämä voi käyttää enemmän muistia heikommissa Mac-tietokoneissa.",
+        "unavailableFallback": "Ei käytettävissä tässä Macissa."
+      },
+      "speaker": {
+        "title": "Kaiutin",
+        "outputLabel": "Lähtölaite",
+        "outputDescription": "Valitse käytettävä kaiutin tai kuulokkeet.",
+        "empty": "Kaiuttimia ei löytynyt.",
+        "emptyMicOff": "Ota mikrofoni käyttöön nähdäksesi kaiuttimesi."
+      },
+      "errors": {
+        "listDevices": "Äänilaitteita ei voi luetella.",
+        "micDeniedReset": "Mikrofonin käyttö evättiin aiemmin. Nollaa se ja käynnistä Stella uudelleen tai avaa Järjestelmäasetukset.",
+        "micDenied": "Mikrofonin käyttö evättiin. Salli se järjestelmäasetuksissasi."
+      }
+    },
+    "connectedProviders": {
+      "title": "Yhdistetyt palveluntarjoajat",
+      "empty": "Ei vielä yhdistettyjä palveluntarjoajia. Valitse yllä olevasta mallivalitsimesta muu kuin Stella lisätäksesi API-avaimen tai kirjautuaksesi sisään.",
+      "apiKey": "API-avain",
+      "signedIn": "Kirjautunut",
+      "removeKey": "Poista avain",
+      "removingKey": "Poistetaan…",
+      "signOut": "Kirjaudu ulos",
+      "signingOut": "Kirjaudutaan ulos…"
+    },
+    "search": {
+      "placeholder": "Hae asetuksista",
+      "clear": "Tyhjennä haku",
+      "noResultsTitle": "Mikään asetus ei vastaa hakua ”{query}”",
+      "noResultsBody": "Kokeile lyhyempää tai toista sanaa.",
+      "resultsOne": "{count} tulos haulle",
+      "resultsOther": "{count} tulosta haulle",
+      "resultsAriaOne": "{count} tulos",
+      "resultsAriaOther": "{count} tulosta",
+      "descriptions": {
+        "voice": "Valitse Stellan puhetyyli ja persoonallisuusääni.",
+        "permissions": "Myönnä macOS:ssä käyttöoikeudet saavutettavuuteen, näytön tallennukseen ja mikrofoniin.",
+        "shortcuts": "Muuta sanelun ja puheen pikanäppäimiä.",
+        "backup": "Automaattiset salatut varmuuskopiot, palautuspisteet ja pyynnöstä otettavat tilannevedokset.",
+        "account": "Kirjaudu ulos, poista tietosi tai poista tilisi pysyvästi.",
+        "legal": "Käyttöehdot ja tietosuojakäytäntö.",
+        "microphone": "Valitse syöttölaite ja ota käyttöön herätyssana, sanelun äänet ja laitteella tapahtuva litterointi.",
+        "speaker": "Valitse kaiutin tai kuulokkeet, joiden kautta Stellan ääni toistetaan.",
+        "wakeWord": "Kuuntelee ”Hey Stella” -sanaa ja aloittaa puhekeskustelun.",
+        "onDeviceTranscription": "Käyttää paikallista Parakeet-mallia pilvilitteroinnin sijaan."
+      }
+    },
+    "errors": {
+      "loadPower": "Virranhallinta-asetuksen lataaminen epäonnistui.",
+      "savePower": "Virranhallinta-asetuksen päivitys epäonnistui.",
+      "powerUnavailable": "Virranhallinta-asetukset eivät ole käytettävissä tässä ikkunassa.",
+      "loadLockedComputerUse": "Lukitulla tietokoneella käytön asetuksen lataaminen epäonnistui.",
+      "saveLockedComputerUse": "Lukitulla tietokoneella käytön päivitys epäonnistui.",
+      "lockedComputerUseUnavailable": "Käyttö lukitulla tietokoneella ei ole käytettävissä tässä ikkunassa.",
+      "loadSoundNotifications": "Ääni-ilmoitusasetuksen lataaminen epäonnistui.",
+      "saveSoundNotifications": "Ääni-ilmoitusasetuksen päivitys epäonnistui.",
+      "soundNotificationsUnavailable": "Ääni-ilmoitusasetukset eivät ole käytettävissä tässä ikkunassa.",
+      "loadVoice": "Ääniasetuksen lataaminen epäonnistui.",
+      "saveVoice": "Ääniasetuksen päivitys epäonnistui.",
+      "voiceUnavailable": "Ääniasetukset eivät ole käytettävissä tässä ikkunassa.",
+      "loadWorkingMode": "Orkestraattoritilan lataaminen epäonnistui.",
+      "saveWorkingMode": "Orkestraattoritilan päivittäminen epäonnistui.",
+      "workingModeUnavailable": "Orkestraattoritila ei ole käytettävissä tässä ikkunassa.",
+      "loadPermissions": "Työpöydän käyttöoikeustilan lataaminen epäonnistui.",
+      "savePermission": "Käyttöoikeuden {kind} päivitys epäonnistui.",
+      "resetPermission": "Käyttöoikeuden {kind} nollaus epäonnistui.",
+      "resetPermissionMaybeReopen": "Käyttöoikeutta {kind} ei voitu nollata. Stella on ehkä avattava uudelleen.",
+      "microphoneDeniedReopen": "Mikrofonin käyttö evättiin aiemmin. Ota se käyttöön Järjestelmäasetuksissa ja avaa Stella uudelleen.",
+      "microphoneStillOff": "Mikrofonin käyttö on edelleen pois päältä. Ota se käyttöön Järjestelmäasetuksissa ja avaa Stella uudelleen.",
+      "restart": "Stellan uudelleenkäynnistys epäonnistui."
+    },
+    "voiceCatalog": {
+      "label": "Ääni",
+      "familyAriaLabel": "Ääniperhe",
+      "familyTitle": {
+        "openai": "OpenAI Realtime -äänet (Stella luo tunnisteen)",
+        "xai": "xAI Grok -äänet (Stella luo tunnisteen)",
+        "inworld": "Inworld-äänet (Stella välittää SDP-vaihdon)"
+      },
+      "source": {
+        "openai": "OpenAI-äänet",
+        "xai": "Grok-äänet",
+        "inworld": "Inworld-äänet"
+      },
+      "previousVoice": "Edellinen ääni",
+      "nextVoice": "Seuraava ääni",
+      "menuAriaLabel": "Ääni: {source}",
+      "speed": "Nopeus",
+      "speedAriaLabel": "Inworld-äänen nopeus",
+      "readAloud": {
+        "label": "Lue ääneen",
+        "ariaLabel": "Ääneen lukemisen palveluntarjoaja",
+        "openaiTitle": "Lue vastaukset ääneen OpenAI TTS:llä",
+        "inworldTitle": "Lue vastaukset ääneen Inworld TTS:llä",
+        "description": "Puhuu vastaukset ääneen tämän palveluntarjoajan äänellä."
+      }
+    },
+    "phoneAccess": {
+      "expired": "Vanhentunut",
+      "timeLeft": "{time} jäljellä",
+      "copy": "Kopioi",
+      "preparing": "Valmistellaan...",
+      "getCode": "Hae koodi",
+      "deviceFallback": "Puhelin",
+      "removing": "Poistetaan...",
+      "remove": "Poista",
+      "signedOut": {
+        "headline": "Kirjaudu sisään aloittaaksesi",
+        "body": "Kirjaudu Stella-tilillesi paritellaksesi mobiilisovelluksen kanssa."
+      },
+      "pairing": {
+        "headline": "Skannaa tai syötä tämä koodi",
+        "body": "Avaa Stella-sovellus puhelimessasi ja skannaa QR-koodi tai kirjoita alla oleva koodi. Tämä tarvitsee tehdä vain kerran.",
+        "qrAlt": "Skannaa paritellaksesi puhelimesi"
+      },
+      "intro": {
+        "headline": "Yhdistä puhelimesi tietokoneeseesi"
+      },
+      "steps": {
+        "download": "Lataa sovellus",
+        "downloadQrAlt": "Skannaa ladataksesi Stellan App Storesta",
+        "connect": "Yhdistä puhelimesi"
+      },
+      "toasts": {
+        "codeCopied": "Koodi kopioitu leikepöydälle",
+        "phoneRemoved": "Puhelin poistettu",
+        "removeFailed": "Puhelimen poistaminen epäonnistui"
+      },
+      "errors": {
+        "createPairing": "Parituskoodia ei voitu luoda."
+      },
+      "pairedCount": {
+        "one": "{count} puhelin paritettu",
+        "other": "{count} puhelinta paritettu"
+      }
+    },
+    "modelPicker": {
+      "searchPlaceholder": "Hae malleja…",
+      "searchAriaLabel": "Hae malleja",
+      "closeSearch": "Sulje haku",
+      "apiKeyPlaceholder": "API-avain",
+      "apiKeyAriaLabel": "{provider} API-avain",
+      "cancelSignIn": "Peruuta kirjautuminen",
+      "signInWith": "Kirjaudu sisään: {provider}",
+      "saving": "Tallennetaan…",
+      "use": "Käytä",
+      "selected": "Valittu",
+      "refresh": "Päivitä malliluettelo",
+      "restrictedPlan": "Ei saatavilla tilauksessa {plan}",
+      "reasoning": {
+        "label": "Päättelyn taso",
+        "default": "Automaattinen",
+        "minimal": "Minimaalinen",
+        "low": "Matala",
+        "medium": "Keskitaso",
+        "high": "Korkea",
+        "xhigh": "Maksimi"
+      },
+      "authHint": {
+        "both": "Kirjaudu sisään tai liitä API-avain. Tunnistetiedot pysyvät tällä laitteella.",
+        "oauth": "Tunnistetiedot pysyvät tällä laitteella.",
+        "apiKey": "API-avaimesi pysyy tällä laitteella."
+      },
+      "actions": {
+        "cancel": "Peruuta",
+        "signIn": "Kirjaudu sisään",
+        "addKey": "Lisää avain",
+        "custom": "Mukautettu"
+      },
+      "signOut": {
+        "ariaLabel": "Kirjaudu ulos: {provider}",
+        "confirmAriaLabel": "Napsauta uudelleen kirjautuaksesi ulos: {provider}",
+        "confirmTitle": "Napsauta uudelleen vahvistaaksesi"
+      },
+      "local": {
+        "hint": "Käytä mitä tahansa paikallista OpenAI-yhteensopivaa palvelinta. Ollama toimii yleensä alla olevassa osoitteessa.",
+        "serverUrlAriaLabel": "Paikallisen palvelimen osoite",
+        "modelNameAriaLabel": "Paikallisen mallin nimi"
+      },
+      "openRouter": {
+        "hintBefore": "OpenRouter hyväksyy minkä tahansa",
+        "hintAfter": "-tunnuksen. Kirjoita sellainen käyttääksesi sitä suoraan.",
+        "modelIdAriaLabel": "OpenRouter-mallin tunnus"
+      },
+      "empty": {
+        "none": "Ei vielä saatavilla olevia malleja.",
+        "noMatch": "Yksikään malli ei vastaa hakua."
+      },
+      "favorite": {
+        "remove": "Poista suosikeista",
+        "add": "Lisää suosikkeihin",
+        "addTitle": "Suosikki — kiinnitä ylös"
+      },
+      "errors": {
+        "saveApiKey": "API-avaimen tallennus epäonnistui.",
+        "oauthLogin": "OAuth-kirjautuminen epäonnistui."
+      }
+    },
+    "providerPicker": {
+      "connected": "Yhdistetty",
+      "connect": "Yhdistä",
+      "opening": "Avataan…"
+    },
+    "engineModels": {
+      "ariaLabel": "Mallit: {engine}",
+      "loading": "Ladataan malleja: {engine}…",
+      "empty": "Malleja ei ole saatavilla: {engine}."
+    },
+    "providerConnected": {
+      "title": "Otetaanko {provider} käyttöön Stellassa?",
+      "description": "{provider} voi hoitaa useampaa Stellan osaa. Valitse, missä haluat sen ottavan ohjat — Stella hoitaa loput.",
+      "assistant": {
+        "label": "Avustaja",
+        "description": "Ohjaa Stellan chat-avustaja palvelun {provider} kautta."
+      },
+      "image": {
+        "label": "Kuva",
+        "description": "Luo kuvia {provider}-tilisi kautta."
+      },
+      "voice": {
+        "label": "Ääni",
+        "description": "Käytä {provider}-palvelua reaaliaikaisiin äänikeskusteluihin."
+      },
+      "skip": "Ohita",
+      "apply": "Ota käyttöön",
+      "applying": "Otetaan käyttöön…",
+      "errors": {
+        "apply": "Palveluntarjoajan asetusten käyttöönotto epäonnistui."
+      }
+    },
+    "compactModelList": {
+      "ariaLabel": "Stella-mallit",
+      "recent": "Viimeisimmät",
+      "unavailable": "Ei käytettävissä",
+      "unavailableTitle": "Tämä malli ei ole enää käytettävissä — valitse toinen.",
+      "loading": "Ladataan Stella-malleja…",
+      "loadFailed": "Stella-mallien lataaminen epäonnistui.",
+      "empty": "Ei saatavilla olevia Stella-malleja.",
+      "retry": "Yritä uudelleen",
+      "restricted": "Tilauksesi käyttää Stellan valintaa.",
+      "restrictedPlan": "Tilaus {plan} käyttää Stellan valintaa.",
+      "upgrade": "Päivitä tilaus"
+    },
+    "reasoningEffort": {
+      "minimal": "Minimaalinen",
+      "low": "Matala",
+      "medium": "Keskitaso",
+      "high": "Korkea",
+      "xhigh": "Erittäin korkea"
+    },
+    "agentModelPicker": {
+      "byokDescription": "Käytä omaa {provider}-API-avaintasi.",
+      "unavailableChooseAnother": "Ei käytettävissä — valitse toinen malli",
+      "chatGptRouted": "Ohjattu malliin: {model} (tallennettu malli ei käytettävissä).",
+      "default": "Oletus",
+      "stellaDefault": "Stellan oletus",
+      "surfaceAriaLabel": "Pinta",
+      "waitingForChatGpt": "Odotetaan ChatGPT:tä…",
+      "imageProviderAriaLabel": "Kuvien palveluntarjoaja",
+      "voiceProviderAriaLabel": "Äänen palveluntarjoaja",
+      "assistantPickerAriaLabel": "Avustajan mallivalitsin",
+      "verifyingChatGpt": "Vahvistetaan ChatGPT-malleja…",
+      "noChatGptCodexModels": "Yksikään malli ei ole tällä hetkellä käytettävissä sekä ChatGPT:ssä että Codexissa.",
+      "savedModelUnavailable": "Tallennettu malli ei ole käytettävissä. Valitse toinen malli.",
+      "tabs": {
+        "assistant": "Avustaja",
+        "assistantTitle": "Stellan pääavustaja",
+        "image": "Kuva",
+        "imageTitle": "Kuvien luonnin palveluntarjoaja",
+        "voice": "Ääni",
+        "voiceTitle": "Reaaliaikaisen äänen palveluntarjoaja"
+      },
+      "errors": {
+        "loadPreferences": "Malliasetusten lataaminen epäonnistui.",
+        "chatGptMigration": "ChatGPT-ohjauksen siirto epäonnistui.",
+        "chatGptVerify": "ChatGPT-malleja ei voitu vahvistaa: {error}",
+        "chatGptVerifying": "Odota, että ChatGPT-mallien vahvistus valmistuu.",
+        "chatGptNotConnected": "ChatGPT on yhdistettävä ennen valintaa.",
+        "chatGptNoModels": "Yhtään ChatGPT-mallia ei ole tällä hetkellä käytettävissä.",
+        "connectChatGpt": "ChatGPT:n yhdistäminen epäonnistui.",
+        "updateEngine": "Moottorin päivitys epäonnistui.",
+        "updateTitle": "Malliasetuksia ei voitu päivittää",
+        "refreshTitle": "Malleja ei voitu päivittää",
+        "updateModel": "Malliasetuksen päivitys epäonnistui.",
+        "updateImage": "Kuva-asetuksen päivitys epäonnistui.",
+        "updateVoice": "Ääniasetuksen päivitys epäonnistui.",
+        "updateInworldSpeed": "Inworld-nopeuden päivitys epäonnistui.",
+        "updateVoiceFamily": "Ääniperheen päivitys epäonnistui.",
+        "updateReadAloud": "Ääneen lukemisen palveluntarjoajan päivitys epäonnistui.",
+        "updateReasoning": "Päättelyn tason päivitys epäonnistui.",
+        "updateChatGptSpeed": "ChatGPT-nopeuden päivitys epäonnistui.",
+        "updateDirectRuntime": "Suoran {runtime}-asetuksen päivitys epäonnistui."
+      }
+    }
+  },
+  "onboarding": {
+    "ready": "Valmistellaan...",
+    "retryStart": "Yritä käynnistää Stella uudelleen",
+    "startStella": "Käynnistä Stella",
+    "legalFooter": "Käyttämällä Stellaa hyväksyt {terms} ja {privacy}.",
+    "termsOfService": "käyttöehtomme",
+    "privacyPolicy": "tietosuojakäytäntömme",
+    "previousStep": "Edellinen vaihe",
+    "nextStep": "Seuraava vaihe",
+    "intro": {
+      "primary": "Stella on tekoäly, joka toimii tietokoneellasi.",
+      "secondary": "Stella ei ole kaikille. Stella on sinulle."
+    },
+    "stepTitles": {
+      "engine": "Valitse, mikä käyttää Stellaa.",
+      "extension": "Lisää Stella selaimeesi.",
+      "browser": "Anna Stellan oppia tuntemaan sinut.",
+      "theme": "Miltä Stellan pitäisi näyttää?",
+      "personality": "Miten Stellan pitäisi puhua?",
+      "voice": "Puhu kirjoittamisen sijaan.",
+      "enter": "Stella on melkein valmis."
+    },
+    "acts": {
+      "discover": "Tutustu",
+      "personalize": "Tee siitä omasi",
+      "connect": "Yhdistä",
+      "flow": "Oma rytmisi",
+      "ready": "Valmis"
+    },
+    "discovery": {
+      "devEnvironment": {
+        "label": "Kehitysympäristö",
+        "description": "Käyttämäsi työkalut, projektisi ja ympäristön kokoonpano"
+      }
+    }
+  },
+  "billing": {
+    "plans": {
+      "free": {
+        "tagline": "Aloita Stellan kanssa",
+        "features": [
+          "Perusjuttelu ja apu",
+          "Rajallinen päivittäinen käyttö"
+        ]
+      },
+      "go": {
+        "tagline": "Päivittäiseen henkilökohtaiseen käyttöön",
+        "features": [
+          "Enemmän keskusteluja päivässä",
+          "Selaimen automaatio",
+          "Äänikeskustelut"
+        ]
+      },
+      "pro": {
+        "tagline": "Tehokäyttäjille",
+        "features": [
+          "3× Go:n käyttömäärä",
+          "Etusijavastausajat",
+          "Kaikki automaatiotoiminnot"
+        ]
+      }
+    },
+    "upgradeDialog": {
+      "title": "Käytössäsi on Stella {plan}.",
+      "description": "Kiitos päivityksestä. Korkeampi prioriteetti ja suurempi käyttömäärä ovat nyt aktiivisia — jatka vain.",
+      "cta": "Aloita"
+    }
+  },
+  "chat": {
+    "stoppedReply": "Stella ei pystynyt aloittamaan tätä vastausta",
+    "tryAgainHint": "Yritä uudelleen."
+  },
+  "errors": {
+    "generic": "Jotain meni pieleen",
+    "subscriptionRequired": "Varmuuskopiot vaativat aktiivisen Stella-tilauksen.",
+    "rateLimited": "Vähän liian nopeasti. Yritä hetken päästä uudelleen.",
+    "networkUnavailable": "Stella on offline. Yhdistä uudelleen jatkaaksesi.",
+    "permissionDenied": "Stellalla ei ole oikeuksia tähän."
+  },
+  "app": {
+    "social": {
+      "newChat": {
+        "title": "Uusi viesti",
+        "emptySubtitle": "Lisää ensin kavereita aloittaaksesi keskustelun.",
+        "description": "Valitse kaveri tai aloita uusi ryhmäkeskustelu.",
+        "subtitle": "Valitse kaveri tai aloita ryhmä.",
+        "groupTitle": "Uusi ryhmä",
+        "groupSubtitle": "Valitse kaverit, jotka lisätään tähän ryhmään.",
+        "groupNameLabel": "Ryhmän nimi",
+        "groupNamePlaceholder": "Ryhmän nimi (valinnainen)",
+        "members": "Jäsenet",
+        "back": "Takaisin",
+        "creating": "Luodaan...",
+        "createGroup": "Luo ryhmä",
+        "newGroup": "Uusi ryhmä",
+        "friends": "Kaverit",
+        "opening": "Avataan..."
+      },
+      "friends": {
+        "title": "Kaverit",
+        "description": "Jaa kaverikoodisi yhdistääksesi tai syötä jonkun toisen koodi lähettääksesi pyynnön.",
+        "subtitle": "Jaa käyttäjänimesi tai syötä kaverin nimi yhdistääksesi.",
+        "requestSent": "Kaveripyyntö lähetetty!",
+        "usernameCopied": "Käyttäjänimi kopioitu!",
+        "inviteLinkCopied": "Kutsulinkki kopioitu — lähetä se minne tahansa.",
+        "yourUsername": "Käyttäjänimesi",
+        "copy": "Kopioi",
+        "copyUsernameTitle": "Kopioi käyttäjänimesi",
+        "copyInviteLink": "Kopioi kutsulinkki",
+        "copyInviteLinkTitle": "Kopioi linkki, joka avaa Stellan ja lähettää sinulle kaveripyynnön — toimii iMessagessa, Discordissa, missä tahansa",
+        "addLabel": "Lisää kaveri",
+        "addPlaceholder": "Syötä käyttäjänimi",
+        "add": "Lisää",
+        "adding": "Lisätään...",
+        "requestsCount": "Pyynnöt ({count})",
+        "accept": "Hyväksy",
+        "decline": "Hylkää",
+        "sent": "Lähetetty",
+        "waitingForResponse": "Odotetaan vastausta",
+        "friendsCount": "Kaverit ({count})",
+        "empty": "Ei vielä kavereita. Jaa käyttäjänimesi tai syötä jonkun toisen nimi yllä yhdistääksesi.",
+        "message": "Viesti",
+        "opening": "Avataan...",
+        "remove": "Poista",
+        "removing": "Poistetaan...",
+        "errors": {
+          "sendRequest": "Kaveripyyntöä ei voitu lähettää. Tarkista käyttäjänimi ja yritä uudelleen."
+        }
+      },
+      "communities": {
+        "title": "Yhteisöt",
+        "description": "Luo yhteisö tai liity siihen kutsukoodilla ja jaa sitten lisäosia kaikkien sen jäsenten kanssa.",
+        "subtitle": "Luotettuja piirejä jakamiseen. Kaikki yhteisön jäsenet näkevät, mitä siellä jaetaan.",
+        "defaultName": "Yhteisö",
+        "created": "Luotiin ”{name}”!",
+        "joined": "Olet mukana!",
+        "createLabel": "Luo yhteisö",
+        "createPlaceholder": "Anna uudelle yhteisölle nimi",
+        "create": "Luo",
+        "joinLabel": "Liity kutsukoodilla",
+        "joinPlaceholder": "Syötä kutsukoodi",
+        "join": "Liity",
+        "yourCommunities": "Yhteisösi",
+        "yourCommunitiesCount": "Yhteisösi ({count})",
+        "empty": "Ei vielä yhteisöjä. Luo yhteisö ja jaa kutsukoodi tai liity koodilla, jonka joku lähetti sinulle.",
+        "createdByYouSuffix": " · sinun luomasi",
+        "open": "Avaa",
+        "details": "Tiedot",
+        "back": "Takaisin",
+        "nameLabel": "Yhteisön nimi",
+        "save": "Tallenna",
+        "cancel": "Peruuta",
+        "createdByYou": "Sinä loit tämän yhteisön.",
+        "memberOf": "Olet tämän yhteisön jäsen.",
+        "inviteCode": "Kutsukoodi",
+        "copied": "Kopioitu!",
+        "copyCode": "Kopioi koodi",
+        "copyInviteLink": "Kopioi kutsulinkki",
+        "copyInviteLinkTitle": "Kopioi linkki, joka avaa Stellan ja liittää tähän yhteisöön",
+        "inviteHint": "Linkki toimii missä tahansa — liitä se Stella-keskusteluun tai lähetä iMessagella tai Discordissa. Kuka tahansa sen saanut voi liittyä, joten jaa se vain luottamillesi ihmisille.",
+        "membersCount": "Jäsenet ({count})",
+        "roleCreator": "Luoja",
+        "roleMember": "Jäsen",
+        "youSuffix": " · sinä",
+        "remove": "Poista",
+        "removing": "Poistetaan...",
+        "confirmDelete": "Poistetaanko tämä yhteisö varmasti?",
+        "delete": "Poista yhteisö",
+        "confirmLeave": "Poistutaanko varmasti?",
+        "leave": "Poistu yhteisöstä",
+        "rename": "Nimeä uudelleen",
+        "openChat": "Avaa keskustelu",
+        "errors": {
+          "create": "Yhteisöä ei voitu luoda. Yritä uudelleen.",
+          "join": "Kyseisellä kutsukoodilla ei voitu liittyä. Tarkista koodi ja yritä uudelleen.",
+          "rename": "Yhteisön nimeäminen uudelleen epäonnistui. Yritä uudelleen.",
+          "removeMember": "Jäsentä ei voitu poistaa. Yritä uudelleen.",
+          "delete": "Yhteisöä ei voitu poistaa. Yritä uudelleen.",
+          "leave": "Yhteisöstä ei voitu poistua. Yritä uudelleen."
+        },
+        "memberCount": {
+          "one": "{count} jäsen",
+          "other": "{count} jäsentä"
+        }
+      },
+      "view": {
+        "messages": "Viestit",
+        "signIn": "Kirjaudu sisään",
+        "signInSubtitle": "Kirjaudu sisään lähettääksesi viestejä kavereille ja tehdäksesi yhteistyötä Stellan kanssa.",
+        "friends": "Kaverit",
+        "communities": "Yhteisöt",
+        "newMessage": "Uusi viesti",
+        "noRooms": "Ei vielä keskusteluja. Lisää kavereita tai aloita uusi viesti.",
+        "addFriends": "Lisää kavereita",
+        "communityBadge": "Yhteisö",
+        "communityBadgeTitle": "Jaettu kaikkien tämän yhteisön jäsenten kanssa",
+        "usernamePlaceholder": "kayttajanimesi",
+        "editUsername": "Muokkaa käyttäjänimeäsi",
+        "copied": "Kopioitu!",
+        "clickToCopyUsername": "Napsauta kopioidaksesi käyttäjänimesi",
+        "copyUsername": "Kopioi käyttäjänimi",
+        "cancel": "Peruuta",
+        "save": "Tallenna",
+        "saving": "Tallennetaan...",
+        "emptyTitle": "Viestisi",
+        "emptySubtitle": "Valitse keskustelu vasemmalta tai aloita uusi kaverin kanssa.",
+        "errors": {
+          "startConversation": "Keskustelua ei voitu aloittaa. Yritä uudelleen.",
+          "createGroup": "Ryhmää ei voitu luoda. Yritä uudelleen."
+        },
+        "usernameErrors": {
+          "empty": "Käyttäjänimi ei voi olla tyhjä.",
+          "length": "Käyttäjänimen tulee olla 3-32 merkkiä.",
+          "format": "Käytä pieniä kirjaimia, numeroita sekä merkkejä _ tai -. Alun ja lopun on oltava kirjain tai numero.",
+          "update": "Käyttäjänimeäsi ei voitu päivittää. Yritä uudelleen."
+        },
+        "newRequestCount": {
+          "one": "{count} uusi pyyntö",
+          "other": "{count} uutta pyyntöä"
+        },
+        "friendsWithRequestsTitle": "Kaverit ({countPhrase})",
+        "friendsWithRequestsAria": "Kaverit, {countPhrase}"
+      },
+      "chat": {
+        "stellaNoReply": "Stella lopetti ilman vastausta.",
+        "stellaFailed": "Stella ei saanut pyyntöä valmiiksi.",
+        "stellaThinking": "Stella miettii...",
+        "sharedStellaUnavailable": "Jaettu Stella ei ole käytettävissä tässä sovellusistunnossa.",
+        "back": "Takaisin",
+        "backToConversations": "Takaisin keskusteluihin",
+        "peopleCount": "{count} henkilöä",
+        "startStella": "Käynnistä Stella",
+        "startStellaTitle": "Tuo Stella mukaan tähän keskusteluun",
+        "starting": "Käynnistetään...",
+        "startAgain": "Käynnistä uudelleen",
+        "pause": "Keskeytä",
+        "resume": "Jatka",
+        "end": "Lopeta",
+        "sayHello": "Sano hei aloittaaksesi keskustelun",
+        "loadingOlder": "Ladataan vanhempia viestejä…",
+        "armedOnTitle": "Lähetä seuraava viesti Stellalle",
+        "armedOffTitle": "Lähetä seuraava viesti tavallisena chat-viestinä",
+        "tellStella": "Kerro Stellalle",
+        "tellingStella": "Kerrotaan Stellalle",
+        "tellStellaPlaceholder": "Kerro Stellalle, mitä haluat...",
+        "messagePlaceholder": "Viesti: {name}",
+        "sessionBadge": {
+          "live": "Stella · Käynnissä",
+          "paused": "Stella · Tauolla",
+          "ended": "Stella · Päättynyt"
+        },
+        "sessionHint": {
+          "live": "Kuka tahansa täällä voi kertoa Stellalle.",
+          "paused": "Tauolla — jatka kertoaksesi Stellalle uudelleen.",
+          "ended": "Tämä jaettu Stella-tila on päättynyt."
+        },
+        "errors": {
+          "startStella": "Stellaa ei voitu käynnistää täällä. Yritä uudelleen.",
+          "updateStella": "Stellaa ei voitu päivittää juuri nyt. Yritä uudelleen.",
+          "sendToStella": "Sitä ei voitu lähettää Stellalle. Yritä uudelleen.",
+          "sendMessage": "Viestiäsi ei voitu lähettää. Yritä uudelleen."
+        }
+      },
+      "composer": {
+        "placeholder": "Kirjoita viesti...",
+        "send": "Lähetä"
+      },
+      "inviteCard": {
+        "communityEyebrow": "Yhteisökutsu",
+        "friendEyebrow": "Kaverikutsu",
+        "defaultCommunityName": "Yhteisö",
+        "defaultUserName": "Stella-käyttäjä",
+        "friendDetail": "Napauta lähettääksesi kaveripyynnön",
+        "inviteUnavailable": "Kutsu ei käytettävissä",
+        "userNotFound": "Käyttäjää ei löytynyt",
+        "communityMissing": "Tätä yhteisöä ei ole enää olemassa tai koodi vaihtui.",
+        "userMissing": "Tämä kutsulinkki ei vastaa yhtään Stella-käyttäjää.",
+        "communityDetail": {
+          "one": "{countLabel} jäsen · napauta liittyäksesi",
+          "other": "{countLabel} jäsentä · napauta liittyäksesi"
+        }
+      }
+    },
+    "usage": {
+      "desktopOnly": "Paikallinen käyttö on saatavilla Stellan työpöytäsovelluksessa.",
+      "intro": "Tälle laitteelle tallennetut palveluntarjoajien kutsut. Kustannukset ovat paikallisia arvioita; taustajärjestelmän laskutus on ratkaiseva.",
+      "refresh": "Päivitä",
+      "refreshLabel": "Päivitä käyttötiedot",
+      "selectedThread": "Valittu säie",
+      "viewAllThreads": "Näytä kaikki säikeet",
+      "loading": "Ladataan paikallisia käyttötietoja…",
+      "loadError": "Paikallisia käyttötietoja ei voitu ladata",
+      "tryAgain": "Yritä uudelleen",
+      "emptyTitle": "Yksikään mallikutsu ei vastaa näitä suodattimia.",
+      "emptyBody": "Natiivikutsut näkyvät täällä, kun niiden palveluntarjoaja palauttaa lopullisen käyttötiedon.",
+      "truncatedWarning": "Näytetään tämän aikavälin 10 000 viimeisintä kutsua. Rajaa aikaväliä saadaksesi tarkat summat.",
+      "filters": {
+        "label": "Käytön suodattimet",
+        "timeRange": "Aikaväli",
+        "conversation": "Keskustelu",
+        "thread": "Säie",
+        "agentType": "Agenttityyppi",
+        "model": "Malli",
+        "allConversations": "Kaikki keskustelut",
+        "allThreads": "Kaikki säikeet",
+        "allAgentTypes": "Kaikki agenttityypit",
+        "allModels": "Kaikki mallit",
+        "range": {
+          "24h": "Viimeiset 24 tuntia",
+          "7d": "Viimeiset 7 päivää",
+          "30d": "Viimeiset 30 päivää",
+          "all": "Kaikki aika"
+        }
+      },
+      "summary": {
+        "label": "Käytön yhteenveto",
+        "estimatedCost": "Arvioitu kustannus",
+        "providerCalls": "{count} palvelukutsua",
+        "totalTokens": "Tokeneita yhteensä",
+        "uncachedInput": "{value} välimuistittamatonta syötettä",
+        "cacheRead": "Välimuistista luettu",
+        "cacheDetail": "{read} luettu · {written} kirjoitettu",
+        "output": "Tuloste",
+        "reasoningTokens": "{value} päättelytokenia"
+      },
+      "timeline": {
+        "title": "Aikajana",
+        "description": "Arvioitu kustannus ja tokenit yhteensä aikayksikköä kohden.",
+        "chartLabel": "Aikajana arvioidusta mallin kustannuksesta ja tokenien käytöstä",
+        "series": {
+          "cost": "Arvioitu kustannus",
+          "tokens": "Tokenit"
+        },
+        "tooltip": {
+          "estimated": "{value} arvioitu",
+          "tokens": "{value} tokenia",
+          "calls": "{count} mallikutsua"
+        }
+      },
+      "threads": {
+        "title": "Säikeet",
+        "description": "Orkestraattori, agentit ja sisäkkäiset aliagentit.",
+        "columns": {
+          "execution": "Suoritus",
+          "model": "Malli",
+          "calls": "Kutsut",
+          "tokens": "Tokenit",
+          "cache": "Välimuisti",
+          "cost": "Kustannus"
+        }
+      },
+      "calls": {
+        "title": "Palveluntarjoajan kutsut",
+        "description": "Tuloste sisältää päättelyn, jos palveluntarjoaja sisällyttää sen; päättely näytetään myös erikseen, kun se raportoidaan.",
+        "costBreakdown": "Syöte {input} · välimuistiluku {cacheRead} · välimuistikirjoitus {cacheWrite} · tuloste {output}",
+        "truncatedNote": "Näytetään 500 viimeisintä vastaavaa kutsua; yhteenvedon summat sisältävät kaikki {count} ladattua kutsua.",
+        "columns": {
+          "time": "Aika",
+          "execution": "Suoritus",
+          "providerModel": "Palveluntarjoaja / malli",
+          "input": "Syöte",
+          "cache": "Välimuisti L / K",
+          "output": "Tuloste",
+          "reasoning": "Päättely",
+          "cost": "Kustannus",
+          "stop": "Lopetus"
+        }
+      }
+    },
+    "apps": {
+      "loading": "Ladataan sovelluksia…",
+      "unsupportedTitle": "Sovellukset ovat käytettävissä työpöydällä.",
+      "unsupportedBody": "Avaa Stella tietokoneellasi käyttääksesi paikallisesti asennettuja sovelluksia.",
+      "errorTitle": "Sovelluksia ei voitu ladata",
+      "errorBody": "Stella ei voinut lukea sovelluskansiotasi.",
+      "tryAgain": "Yritä uudelleen",
+      "heroTitleEmphasis": "Sinun",
+      "heroTitleRest": "sovelluksesi",
+      "staleWarning": "Sovellukset voivat olla vanhentuneita.",
+      "searchPlaceholder": "Hae sovelluksia",
+      "sortLabel": "Järjestä",
+      "createApp": "Luo sovellus",
+      "noMatchPrefix": "Mikään sovellus ei vastaa hakua",
+      "noMatchSuffix": ".",
+      "emptyTitle": "Täällä ei ole vielä mitään.",
+      "emptyBody": "Pyydä Stellaa rakentamaan pieni sovellus. Se ilmestyy tänne.",
+      "emptyAction": "Pyydä Stellaa luomaan sovellus",
+      "createAppPrompt": "Kerro, mitä stella-sovelluksia voit tehdä minulle?",
+      "sort": {
+        "recent": "Viimeisimmät",
+        "name": "Nimi"
+      },
+      "frame": {
+        "startFailed": "Sovelluksen käynnistys epäonnistui.",
+        "timeout": "Sovelluksen lataus kesti liian kauan.",
+        "loadFailed": "Sovellusta ei voitu ladata.",
+        "loading": "Ladataan: {name}…",
+        "openFailed": "Ei voitu avata: {name}"
+      }
+    },
+    "pets": {
+      "sort": {
+        "downloads": "Suosituimmat",
+        "name": "Aakkosjärjestys"
+      },
+      "animations": {
+        "idle": "Paikallaan",
+        "runningRight": "Juokse oikealle",
+        "runningLeft": "Juokse vasemmalle",
+        "waving": "Vilkuttaa",
+        "jumping": "Hyppii",
+        "failed": "Epäonnistui",
+        "waiting": "Odottaa",
+        "running": "Juoksee",
+        "review": "Tarkistus"
+      },
+      "card": {
+        "by": "tekijä: {creator}",
+        "selections": "{count} valintaa",
+        "get": "Hanki",
+        "select": "Valitse",
+        "selected": "Valittu",
+        "remove": "Poista"
+      },
+      "details": {
+        "caption": "tekijä: {creator} · {downloads} valintaa",
+        "previewLabel": "Esikatselu: {name}",
+        "animations": "Animaatiot",
+        "animationStates": "Animaatiotilat"
+      }
+    },
+    "chat": {
+      "activityPill": {
+        "idle": "Toiminta",
+        "openActivity": "{label} — avaa toiminta",
+        "statusCanceled": "Pysäytetty",
+        "statusDone": "Valmis",
+        "statusError": "Ei voitu viimeistellä",
+        "statusRunning": "Tehtävä käynnissä",
+        "tasksInProgress": {
+          "one": "{count} tehtävä käynnissä",
+          "other": "{count} tehtävää käynnissä"
+        }
+      },
+      "addMenu": {
+        "add": "Lisää",
+        "attachFiles": "Liitä tiedostoja…",
+        "capture": "Kaappaa",
+        "context": "Konteksti",
+        "recent": "Viimeisimmät",
+        "selectArea": "Valitse alue"
+      },
+      "agentCompletion": {
+        "openNamedThread": "Avaa agenttisäie: {title}",
+        "openThread": "Avaa agenttisäie",
+        "showLess": "Näytä vähemmän",
+        "showMore": {
+          "one": "+{count} lisää",
+          "other": "+{count} lisää"
+        }
+      },
+      "agentModelIcon": {
+        "unavailable": "Mallin tiedot eivät ole saatavilla"
+      },
+      "backgroundWork": {
+        "agentThread": "Agenttisäie",
+        "followUp": "Jatkokysymys",
+        "openNamedThread": "Avaa agenttisäie: {title}",
+        "openThread": "Avaa agenttisäie",
+        "taskCount": {
+          "one": "{count} tehtävä",
+          "other": "{count} tehtävää"
+        },
+        "title": "Taustatyö"
+      },
+      "column": {
+        "scrollToBottom": "Vieritä alas"
+      },
+      "composer": {
+        "add": "Lisää",
+        "dictationError": "Sanelu: {error}",
+        "stop": "Pysäytä"
+      },
+      "connectorConnect": {
+        "cancel": "Peruuta",
+        "connect": "Yhdistä",
+        "connectedApp": "Yhdistetty. Stella jatkaa pyyntösi käsittelyä.",
+        "connectedExtension": "Laajennus havaittu. Stella jatkaa pyyntösi käsittelyä.",
+        "connectingApp": "Viimeistele kirjautuminen selaimessasi: {name}. Stella jatkaa, kun se on hyväksytty.",
+        "connectingExtension": "Lisää laajennus juuri avautuneesta Chrome Web Store -välilehdestä. Stella jatkaa automaattisesti, kun se on asennettu.",
+        "errorBody": "Yhdistäminen ei onnistunut: {name}.",
+        "install": "Asenna",
+        "notNow": "Ei nyt",
+        "titleConnected": "{name} yhdistetty",
+        "titleError": "Yhdistäminen epäonnistui: {name}",
+        "titleOffer": "Yhdistetäänkö {name}?",
+        "titleOfferExtension": "Yhdistetäänkö {name}?",
+        "titleWaiting": "Odotetaan: {name}"
+      },
+      "contextChips": {
+        "activityFallback": "Toiminta",
+        "fileClickToOpen": "{name} — avaa napsauttamalla",
+        "pastedTextLabel": "Liitetty teksti · {stats}",
+        "pastedTextTitle": "Liitetty teksti — {stats}",
+        "removeActivity": "Poista toimintakonteksti",
+        "removeFile": "Poista: {name}",
+        "removePastedText": "Poista liitetty teksti",
+        "removeScreenshot": "Poista kuvakaappaus {index}",
+        "removeSelectedArea": "Poista valittu alue: {label}",
+        "removeSelectedText": "Poista valittu teksti",
+        "removeWindow": "Poista {app}-ikkunan konteksti",
+        "screenshotAlt": "Kuvakaappaus {index}",
+        "screenshotEnlargeTitle": "Suurenna kuvakaappaus napsauttamalla",
+        "selectedAreaFallback": "Valittu alue",
+        "windowCapturing": "{label} — kaapataan ikkunaa…",
+        "windowClickToEnlarge": "{label} — suurenna napsauttamalla",
+        "windowPreviewAlt": "Ikkunan sisällön esikatselu",
+        "windowScreenshotAlt": "Ikkunan kuvakaappaus: {label}"
+      },
+      "contextRow": {
+        "addActiveWindow": "Lisää kontekstiksi: {detail} (nykyinen ikkuna)",
+        "addContext": "Lisää kontekstiksi: {detail}"
+      },
+      "dropOverlay": {
+        "label": "Pudota tiedostot tähän"
+      },
+      "endResource": {
+        "category": {
+          "audio": "Ääni",
+          "canvas": "Kanvas",
+          "code": "Koodi",
+          "document": "Asiakirja",
+          "file": "Tiedosto",
+          "image": "Kuva",
+          "link": "Linkki",
+          "media": "Media",
+          "model3d": "3D-malli",
+          "pdf": "PDF",
+          "slides": "Diat",
+          "spreadsheet": "Laskentataulukko",
+          "table": "Taulukko",
+          "text": "Teksti",
+          "trash": "Roskakori",
+          "video": "Video"
+        },
+        "fileChangeCount": {
+          "one": "{count} tiedostomuutos",
+          "other": "{count} tiedostomuutosta"
+        },
+        "imageCount": {
+          "one": "{count} kuva",
+          "other": "{count} kuvaa"
+        },
+        "openInPanel": "Avaa paneelissa",
+        "openPreview": "Avaa esikatselu"
+      },
+      "fileCategory": {
+        "archive": "Arkisto",
+        "audio": "Ääni",
+        "code": "Kooditiedosto",
+        "document": "Asiakirja",
+        "file": "Tiedosto",
+        "pdf": "PDF",
+        "spreadsheet": "Laskentataulukko",
+        "video": "Video"
+      },
+      "fileLink": {
+        "openFailed": "Ei voitu avata: {filePath}"
+      },
+      "filePreview": {
+        "copy": "Kopioi",
+        "save": "Tallenna"
+      },
+      "generatedImage": {
+        "generating": "Luodaan...",
+        "generatingImage": "Luodaan kuvaa...",
+        "generationFailed": "Kuvan luonti epäonnistui",
+        "hostRequired": "Kuvan esikatselu vaatii Electron-isäntäympäristön.",
+        "image": "Kuva",
+        "loadFailed": "Kuvaa ei voitu ladata",
+        "openInPanel": "Avaa paneelissa",
+        "stripLabel": "Luodut kuvat"
+      },
+      "mapCard": {
+        "appleMapsLabel": "Avaa Apple Mapsissa",
+        "appleMapsTitle": "Avaa Apple Mapsissa vaiheittaista navigointia varten",
+        "frameTitle": "Kartta: {title}",
+        "modeCycling": "Pyörä",
+        "modeDriving": "Auto",
+        "modeTransit": "Julkinen",
+        "modeWalking": "Kävely",
+        "placesCount": {
+          "one": "{count} paikka",
+          "other": "{count} paikkaa"
+        },
+        "previewFailed": "Kartan esikatselua ei voitu ladata."
+      },
+      "messageActions": {
+        "copied": "Kopioitu",
+        "copy": "Kopioi",
+        "readAloud": "Lue ääneen",
+        "stopReading": "Lopeta lukeminen"
+      },
+      "messageRow": {
+        "attachmentAlt": "Liite",
+        "attachmentFallback": "Liite {index}",
+        "channelKind": {
+          "deleted": "poistettu",
+          "edited": "muokattu",
+          "message": "viesti",
+          "reaction": "reaktio",
+          "system": "järjestelmä"
+        },
+        "clickToEnlarge": "Suurenna napsauttamalla: {label}",
+        "pastedTextLabel": "Liitetty teksti",
+        "pastedTextTitle": "Liitetty teksti — {stats}",
+        "reactionsSummary": "Reaktiot {reactions}",
+        "showMoreChips": "Näytä {count} lisää",
+        "windowPreviewAlt": "Ikkunan sisällön esikatselu"
+      },
+      "miniModelPicker": {
+        "loading": "Ladataan…",
+        "modelUpdateFailed": "Malliasetuksen päivitys epäonnistui.",
+        "popoverLabel": "Mallin asetukset",
+        "reasoningEffortLabel": "Päättelyn taso",
+        "reasoningUpdateFailed": "Päättelyn tason päivitys epäonnistui.",
+        "recent": "Viimeisimmät",
+        "triggerLabel": "Malli: {model}",
+        "unavailable": "Ei käytettävissä",
+        "updateFailedTitle": "Malliasetuksia ei voitu päivittää"
+      },
+      "modelMention": {
+        "enginesLabel": "Moottorit",
+        "noMatch": "Ei vastaavaa moottoria"
+      },
+      "officePreview": {
+        "frameTitle": "Office-esikatselu: {title}",
+        "preparingBody": "Stella valmistelee reaaliaikaista esikatselua tälle asiakirjalle.",
+        "sessionError": "Esikatseluistunto ilmoitti virheestä.",
+        "statusError": "Esikatseluvirhe",
+        "statusPreparing": "Valmistellaan esikatselua",
+        "statusReady": "Reaaliaikainen esikatselu",
+        "statusStopped": "Esikatselu pysäytetty",
+        "updatedAt": "Päivitetty {time}"
+      },
+      "openWith": {
+        "loading": "Ladataan…",
+        "otherWaysLabel": "Avaa muilla tavoin",
+        "otherWaysTitle": "Avaa muilla tavoin…",
+        "triggerLabel": "Avaa",
+        "triggerTitle": "Avaa sovelluksella…"
+      },
+      "pdfViewer": {
+        "hostRequired": "PDF-katselin vaatii Electron-isäntäympäristön.",
+        "loadFailed": "PDF:n lataus epäonnistui.",
+        "loading": "Ladataan PDF:ää…"
+      },
+      "queuedMessages": {
+        "cancel": "Peruuta jonossa oleva viesti",
+        "cancelAndEdit": "Peruuta ja muokkaa",
+        "cancelIndexed": "Peruuta jonossa oleva viesti {index}",
+        "previewLabel": "{label}. Esikatsele jonossa olevia viestejä",
+        "queuedCount": {
+          "one": "{count} viesti jonossa",
+          "other": "{count} viestiä jonossa"
+        }
+      },
+      "replyPeek": {
+        "dismiss": "Hylkää esikatselu",
+        "jumpToLatest": "Siirry uusimpaan vastaukseen"
+      },
+      "scheduleReceipt": {
+        "nextRun": "seuraava {nextRun}",
+        "scheduleCount": {
+          "one": "{count} ajastus",
+          "other": "{count} ajastusta"
+        }
+      },
+      "screenshotPreview": {
+        "alt": "Kuvakaappauksen esikatselu {index}"
+      },
+      "timeline": {
+        "empty": "Aloita keskustelu",
+        "loadingConversation": "Ladataan keskustelua"
+      },
+      "userMessage": {
+        "showLess": "Näytä vähemmän",
+        "showMore": "Näytä lisää"
+      },
+      "voiceSession": {
+        "label": "Puhuit Stellan kanssa"
+      },
+      "webSearchResults": {
+        "caption": "Tuloksia verkosta",
+        "listLabel": "Verkkohaun tulokset"
+      }
+    },
+    "media": {
+      "capability": {
+        "audioGeneration": {
+          "description": "Puhetta, dialogia, äänitehosteita tai taustaääntä tekstistä",
+          "name": "Äänen luonti"
+        },
+        "icon": {
+          "description": "Kuvakkeita, logoja ja pikkukuvia kehotteesta",
+          "name": "Kuvakegeneraattori"
+        },
+        "imageEdit": {
+          "description": "Muokkaa olemassa olevaa kuvaa tekstiohjeilla",
+          "name": "Kuvan muokkaus"
+        },
+        "imageToVideo": {
+          "description": "Animoi still-kuva lyhyeksi videoksi",
+          "name": "Kuvasta videoksi"
+        },
+        "speechToText": {
+          "description": "Litteroi puhuttu ääni tekstiksi",
+          "name": "Puheesta tekstiksi"
+        },
+        "textTo3d": {
+          "description": "Luo 3D-malli tekstikehotteesta",
+          "name": "Tekstistä 3D:ksi"
+        },
+        "textToImage": {
+          "description": "Luo kuvia tekstikehotteesta",
+          "name": "Tekstistä kuvaksi"
+        },
+        "textToMusic": {
+          "description": "Luo lyhyt musiikkipätkä kehotteesta",
+          "name": "Tekstistä musiikiksi"
+        },
+        "textToVideo": {
+          "description": "Luo lyhyt video tekstikehotteesta",
+          "name": "Tekstistä videoksi"
+        },
+        "videoExtend": {
+          "description": "Jatka tai pidennä videopätkää",
+          "name": "Videon jatkaminen"
+        },
+        "videoToVideo": {
+          "description": "Muunna video tekstiohjeilla",
+          "name": "Videosta videoksi"
+        }
+      },
+      "imageFailure": {
+        "blocked": "Kuvapyyntö estettiin",
+        "canceled": "Kuvan luonti peruutettiin",
+        "generic": "Kuvan luonti epäonnistui",
+        "interrupted": "Kuvan luonti keskeytyi",
+        "invalidRequest": "Kuvapyyntö oli virheellinen",
+        "notConfigured": "Kuvapalvelua ei ole määritetty",
+        "resultUnreadable": "Kuvatulosta ei voitu lukea",
+        "serviceBusy": "Kuvapalvelu on varattu",
+        "temporaryError": "Kuvapalvelussa tapahtui tilapäinen virhe",
+        "tookTooLong": "Kuvan luonti kesti liian kauan",
+        "tookTooLongToStart": "Kuvan luonnin käynnistyminen kesti liian kauan"
+      },
+      "studio": {
+        "animate": "Animoi",
+        "aspectRatio": "Kuvasuhde",
+        "category3d": "3D",
+        "categoryAudio": "Ääni",
+        "categoryImage": "Kuva",
+        "categoryMusic": "Musiikki",
+        "categoryVideo": "Video",
+        "chooseDifferentFile": "Valitse toinen tiedosto",
+        "chooseFile": "Valitse tiedosto tai pudota mihin tahansa",
+        "copy": "Kopioi",
+        "dropFile": "Pudota tiedosto",
+        "edit": "Muokkaa",
+        "emptyDescription": "Valitse toiminto ja luo — tai pudota tiedosto mihin tahansa aloittaaksesi.",
+        "emptyTitle": "Luomuksesi",
+        "extendVideo": "Jatka videota",
+        "fileReadFailed": "Tiedoston luku epäonnistui",
+        "generate": "Luo",
+        "generatedAlt": "Luotu {index}",
+        "generating": "Luodaan…",
+        "generationFailed": "Luonti epäonnistui",
+        "lead": "Luo kuvia, ääntä, musiikkia, videoita ja 3D:tä.",
+        "openOutputsFolder": "Avaa tuloskansio",
+        "profileBest": "Paras",
+        "profileFast": "Nopea",
+        "prompt": "Kehote",
+        "promptPlaceholder": "Kuvaile, mitä haluat…",
+        "quality": "Laatu",
+        "queued": "Odottaa jonossa…",
+        "sourceAudio": "Äänitiedosto",
+        "sourceFile": "Lähdetiedosto",
+        "sourceImage": "Lähdekuva",
+        "sourceVideo": "Lähdevideo",
+        "submitting": "Lähetetään…",
+        "title": "Media",
+        "transformVideo": "Muunna video"
+      }
+    }
+  },
+  "desktop": {
+    "common": {
+      "continue": "Jatka"
+    },
+    "tray": {
+      "tooltip": "Stella",
+      "openStella": "Avaa Stella",
+      "quitStella": "Lopeta Stella",
+      "balloon": {
+        "title": "Stella on edelleen käynnissä",
+        "content": "Stella pysyy ilmaisinalueella. Avaa se uudelleen napsauttamalla kuvaketta."
+      }
+    },
+    "dialog": {
+      "startupFailure": {
+        "title": "Stella",
+        "message": "Stella ei saanut käynnistystä valmiiksi.",
+        "detail": "Käynnistys epäonnistui ennen kuin sovelluksen käyttöliittymä ehti latautua.\n\n{detail}",
+        "relaunch": "Käynnistä uudelleen",
+        "quit": "Lopeta"
+      }
+    },
+    "security": {
+      "confirmationTitle": "Stellan turvallisuusvahvistus",
+      "allow": "Salli",
+      "deny": "Estä",
+      "rememberDecision": "Muista tämä päätös tällä laitteella",
+      "computerUse": {
+        "message": "Sallitaanko Computer Use -toiminnon käyttää sovellusta {app}?",
+        "detail": "Computer Use voi nähdä sovelluksen {app} ja toimia siinä.",
+        "risk": "Riski: {risk}"
+      }
+    },
+    "oauth": {
+      "xaiCodeMessage": "Syötä tämä koodi yhdistääksesi xAI:n",
+      "expectedValue": "Odotettu arvo: {value}"
+    },
+    "fashion": {
+      "pickBodyPhotoTitle": "Valitse vartalokuvasi",
+      "pickClothesTitle": "Valitse vaatekuvat",
+      "imageFilterName": "Kuva"
+    }
+  },
+  "features": {
+    "browserBridge": {
+      "unavailableTitle": "Selainlaajennus ei käytettävissä",
+      "unavailableBody": "Stella ei saanut yhteyttä selaimeesi. Käynnistä sovellus uudelleen tai asenna Stella uudelleen, jos tämä jatkuu.",
+      "connectionLostTitle": "Selainyhteys katkesi",
+      "disconnected": "Stellan selainsilta katkaisi yhteyden.",
+      "retryDelay": {
+        "one": "Stella yrittää uudelleen noin {count} sekunnin kuluttua.",
+        "other": "Stella yrittää uudelleen noin {count} sekunnin kuluttua."
+      }
+    },
+    "dictation": {
+      "cancel": "Peruuta sanelu",
+      "stopAndTranscribe": "Pysäytä ja litteroi",
+      "stopAndTranscribeLabel": "Pysäytä sanelu ja litteroi",
+      "stopTranscribeSend": "Pysäytä, litteroi ja lähetä",
+      "stopTranscribeSendLabel": "Pysäytä sanelu, litteroi ja lähetä",
+      "localNotReadyTitle": "Paikallinen sanelu ei ole valmis",
+      "localNotReadyBody": "Lataa ääniominaisuus sanellaksesi tällä laitteella tai kirjaudu sisään käyttääksesi pilvilitterointia.",
+      "signInTitle": "Kirjaudu sisään käyttääksesi sanelua",
+      "signInBody": "Sanelu vaatii kirjautumisen Stellaan, kun laitteella tapahtuva litterointi ei ole käytettävissä. Kirjaudu sisään jatkaaksesi.",
+      "failedTitle": "Sanelu ei toiminut",
+      "failedBody": "Stella ei pystynyt litteroimaan sitä. Yritä uudelleen.",
+      "partialTitle": "Osa sanelustasi litteroitiin",
+      "partialBody": "Osaa tallenteesta ei voitu litteroida, joten lisätty teksti voi olla puutteellinen."
+    },
+    "voice": {
+      "signInTitle": "Kirjaudu sisään käyttääksesi ääntä",
+      "needsSetupTitle": "Ääni vaatii määrityksen"
+    },
+    "store": {
+      "sidePanel": {
+        "emptyState": "Kun Stella tekee sinulle muutoksen, jaa se täältä ystäville, yhteisölle tai kauppaan."
+      },
+      "recentChanges": {
+        "rowSelectHint": "Sisällytä jakoon napsauttamalla",
+        "rowDeselectHint": "Poista valinnasta napsauttamalla",
+        "updated": "Päivitetty {time}",
+        "showOlder": "Näytä vanhemmat",
+        "justNow": "Juuri nyt",
+        "publishEmpty": "Valitse jaettavat muutokset",
+        "publishLabel": "Jaa · {countPhrase}",
+        "selectedCount": {
+          "one": "{count} valittu",
+          "other": "{count} valittu"
+        }
+      },
+      "shareCard": {
+        "eyebrow": "Stella-lisäosa",
+        "unavailableName": "Lisäosa ei käytettävissä",
+        "unavailableDesc": "Tämä lisäosa on yksityinen tai sitä ei enää julkaista.",
+        "viewCta": "Näytä →"
+      },
+      "creator": {
+        "loading": "Ladataan tekijää…",
+        "notFoundTitle": "Tekijää ei löytynyt",
+        "notFoundBodyPrefix": "Kukaan ei ole vielä varannut käyttäjänimeä",
+        "notFoundBodySuffix": ".",
+        "noAddons": "{username} ei ole vielä jakanut yhtään lisäosaa.",
+        "version": "Versio {version}",
+        "addonCount": {
+          "zero": "Ei vielä lisäosia",
+          "one": "{count} lisäosa",
+          "other": "{count} lisäosaa"
+        }
+      },
+      "categories": {
+        "appsGames": "Sovellukset ja pelit",
+        "productivity": "Tuottavuus",
+        "customization": "Mukautus",
+        "skillsAgents": "Taidot ja agentit",
+        "integrations": "Integraatiot",
+        "other": "Muut"
+      },
+      "shareDialog": {
+        "title": "Jaa",
+        "titleCircle": "Jaa piirillesi",
+        "titleCircleUpdate": "Jaa päivitys",
+        "titleStore": "Jaa Storeen",
+        "titleStoreUpdate": "Lähetä päivitys",
+        "destinationLede": "Minne tämä menee? Jakaminen lähettää suoritettavaa koodia, joten valitse yleisö tarkkaan.",
+        "circleOptionName": "Kaveri tai yhteisö",
+        "circleOptionDesc": "Heti. Menee suoraan luottamillesi ihmisille jakokorttina chatissa — ei tarkistusta, ei koskaan julkisesti listattuna.",
+        "storeOptionName": "Stella Store",
+        "storeOptionDesc": "Julkinen. Stella-tiimi tarkistaa ensin, minkä jälkeen se on kaikkien saatavilla Storessa.",
+        "updateExisting": "Päivitä olemassa oleva lisäosa",
+        "existingAddon": "Olemassa oleva lisäosa",
+        "selectPlaceholder": "Valitse…",
+        "nameLabel": "Nimi",
+        "namePlaceholder": "Esimerkkimodi",
+        "descriptionLabel": "Kuvaus",
+        "optionalHint": "(valinnainen)",
+        "descriptionPlaceholderCircle": "Lyhyt rivi jakokorttiin.",
+        "descriptionPlaceholderStore": "Lyhyt rivi Store-listaukseen.",
+        "categoryLabel": "Kategoria",
+        "categoryPlaceholder": "Valitse kategoria…",
+        "sendTo": "Vastaanottajat",
+        "noRecipients": "Ei vielä kavereita tai yhteisöjä — lisää niitä ensin Viestit-sivulta.",
+        "communityFallbackName": "Yhteisö",
+        "communityTag": "Yhteisö",
+        "circleNote": "Jaot ilmestyvät heti asennettavana korttina kuhunkin keskusteluun. Vain valitsemasi ihmiset (ja kyseisten yhteisöjen jäsenet) voivat ottaa sen käyttöön.",
+        "storeNote": "Stella-tiimi tarkistaa Storeen lähetetyt lisäosat ennen kuin ne julkaistaan kaikille.",
+        "submitPending": "Jaetaan…",
+        "submitCircle": "Jaa nyt",
+        "submitStore": "Lähetä tarkistettavaksi",
+        "noSourceChangesTitle": "Ei lähdekoodin muutoksia",
+        "noSourceChangesBody": "Valitse ensin vähintään yksi tuore lähdekoodiin perustuva muutos.",
+        "pickRecipientTitle": "Valitse, kenelle jaat",
+        "pickRecipientBody": "Valitse vähintään yksi kaveri tai yhteisö.",
+        "pickAddonTitle": "Valitse lisäosa",
+        "pickAddonBody": "Valitse lisäosa, jonka haluat päivittää.",
+        "nameRequiredTitle": "Nimi vaaditaan",
+        "nameRequiredBody": "Anna lisäosallesi lyhyt nimi ennen jakamista.",
+        "badNameTitle": "Valitse toinen nimi",
+        "badNameBody": "Käytä nimessä kirjaimia tai numeroita, jotta voimme muodostaa tunnisteen.",
+        "publishBackendMissing": "Julkaisupalvelu ei ole käytettävissä.",
+        "sharingTitle": "Jaetaan",
+        "submittingTitle": "Lähetetään",
+        "inProgressBody": "Stella ilmoittaa, kun se on valmis.",
+        "submittedTitle": "Lähetetty tarkistettavaksi",
+        "submittedBody": "{name} lähetettiin Stella-tiimille. Se julkaistaan Storessa, kun se on hyväksytty.",
+        "sharedTitle": "Jaettu",
+        "shareFailedTitle": "Jakaminen epäonnistui",
+        "submissionFailedTitle": "Lähetys epäonnistui",
+        "sharedBodyDelivered": {
+          "one": "{name} on matkalla {count} keskusteluun.",
+          "other": "{name} on matkalla {count} keskusteluun."
+        },
+        "sharedBodyPartial": {
+          "one": "{name} tavoitti {delivered}/{count} keskustelua. Avaa Viestit ja yritä loppuja uudelleen.",
+          "other": "{name} tavoitti {delivered}/{count} keskustelua. Avaa Viestit ja yritä loppuja uudelleen."
+        }
+      }
+    }
+  },
+  "ui": {
+    "imageLightbox": {
+      "title": "Kuvan esikatselu",
+      "close": "Sulje esikatselu"
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "Viimeisimmät agentin viestit",
+      "recentProgress": "Viimeisin edistyminen"
+    },
+    "audioPlayer": {
+      "pause": "Keskeytä",
+      "play": "Toista",
+      "seek": "Siirry"
+    },
+    "capture": {
+      "failedTitle": "Kuvakaappaus ei onnistunut",
+      "failedDescription": "Jokin meni pieleen kuvakaappausta otettaessa. Yritä uudelleen."
+    },
+    "chatSidebar": {
+      "add": "Lisää",
+      "dictationError": "Sanelu: {error}",
+      "stop": "Pysäytä"
+    },
+    "displayPanel": {
+      "closePanel": "Sulje paneeli",
+      "openPanel": "Avaa paneeli"
+    },
+    "rightSidebar": {
+      "workspace": "Työtila",
+      "resize": "Muuta näyttöpaneelin kokoa",
+      "resizeHint": "Vedä muuttaaksesi kokoa · kaksoisnapsautus palauttaa"
+    },
+    "windowControls": {
+      "minimize": "Pienennä",
+      "restore": "Palauta",
+      "maximize": "Suurenna"
+    },
+    "workspace": {
+      "activity": "Toiminta",
+      "viewFiles": {
+        "one": "Näytä {count} tiedosto",
+        "other": "Näytä {count} tiedostoa"
+      }
+    },
+    "updatePill": {
+      "update": "Päivitä",
+      "updateFallback": "päivitys",
+      "availableFallback": "saatavilla",
+      "downloading": "Ladataan {percent} %",
+      "restartToUpdate": "Käynnistä uudelleen päivittääksesi",
+      "retryUpdate": "Yritä päivitystä uudelleen",
+      "restartTitle": "Käynnistä Stella uudelleen ja asenna versio {version}",
+      "retryTitle": "Yritä työpöytäpäivityksen tarkistusta uudelleen",
+      "downloadTitle": "Lataa Stella {version}",
+      "toasts": {
+        "downloadedTitle": "Päivitys ladattu",
+        "downloadedDescription": "Käynnistä Stella uudelleen asentaaksesi version {version}.",
+        "checkingTitle": "Tarkistetaan päivityksiä",
+        "checkingDescription": "Stella tarkistaa eristettyä desktop v2 -kanavaa.",
+        "failedTitle": "Työpöytäpäivitys epäonnistui"
+      }
+    },
+    "display": {
+      "homeLauncher": {
+        "files": {
+          "label": "Tiedostot",
+          "description": "Sivut, kuvat, videot ja asiakirjat"
+        },
+        "store": {
+          "label": "Store",
+          "description": "Lisäosat ja tekemäsi asiat"
+        },
+        "trash": {
+          "label": "Roskakori",
+          "description": "Äskettäin poistamasi asiat"
+        }
+      },
+      "trash": {
+        "title": "Roskakori",
+        "empty": "Täällä ei ole nyt mitään.",
+        "refresh": "Päivitä",
+        "emptying": "Tyhjennetään…",
+        "emptyTrash": "Tyhjennä roskakori",
+        "trashedAgo": "Siirretty roskakoriin {time} sitten",
+        "pendingPurge": "Odottaa poistoa",
+        "autoDeletesIn": "Automaattinen poisto: {time}",
+        "deleting": "Poistetaan…",
+        "deleteNow": "Poista nyt",
+        "itemsAutoDeleted": {
+          "one": "{count} kohde — poistetaan automaattisesti 24 tunnin kuluttua.",
+          "other": "{count} kohdetta — poistetaan automaattisesti 24 tunnin kuluttua."
+        }
+      },
+      "canvasShare": {
+        "share": "Jaa",
+        "links": "Linkit",
+        "sharedLinks": "Jaetut linkit",
+        "publishing": "Julkaistaan kanvasta…",
+        "publishFailed": "Tätä kanvasta ei voitu julkaista. Yritä uudelleen.",
+        "live": "Kanvas on julkaistu",
+        "publicLink": "Julkinen kanvaslinkki",
+        "copyLink": "Kopioi linkki",
+        "revoke": "Peruuta jako",
+        "expires": "Vanhenee {date}",
+        "shared": "Jaettu {date}",
+        "sharedWithExpiry": "Jaettu {shared} · vanhenee {expires}",
+        "loadFailed": "Jakojasi ei voitu ladata.",
+        "empty": "Ei vielä aktiivisia jakoja. Julkaise kanvas saadaksesi julkisen linkin.",
+        "untitled": "Nimetön kanvas",
+        "toasts": {
+          "linkCopied": "Jakolinkki kopioitu",
+          "copyFailed": "Linkkiä ei voitu kopioida",
+          "revoked": "Jako peruutettu",
+          "revokeFailed": "Tätä jakoa ei voitu peruuttaa"
+        }
+      },
+      "canvas": {
+        "loadFailed": "Tätä kanvasta ei voitu ladata.",
+        "loading": "Ladataan"
+      },
+      "media": {
+        "save": "Tallenna",
+        "saved": "Tallennettu",
+        "saveFailed": "Ei voitu tallentaa",
+        "copy": "Kopioi",
+        "copied": "Kopioitu",
+        "copyFailed": "Ei voitu kopioida",
+        "delete": "Poista",
+        "deleteConfirm": "Napsauta uudelleen poistaaksesi",
+        "itemActions": "Kohteen toiminnot"
+      },
+      "url": {
+        "eyebrow": "Live-esikatselu",
+        "reload": "Lataa uudelleen",
+        "openInBrowser": "Avaa selaimessa"
+      },
+      "office": {
+        "preparing": "Valmistellaan esikatselua...",
+        "kind": {
+          "spreadsheet": "Taulukko",
+          "presentation": "Esitys",
+          "document": "Asiakirja"
+        },
+        "sheetCount": {
+          "one": "{count} taulukko",
+          "other": "{count} taulukkoa"
+        },
+        "slideCount": {
+          "one": "{count} dia",
+          "other": "{count} diaa"
+        },
+        "loadFailed": "Tätä esikatselua ei voitu ladata",
+        "sessionError": "Esikatseluistunto ilmoitti virheestä.",
+        "zoomAriaLabel": "Esikatselun zoomaus",
+        "revealInFinder": "Näytä Finderissa",
+        "livePreview": "Live-esikatselu",
+        "frameTitle": "{kind}-esikatselu: {title}"
+      },
+      "filePreview": {
+        "save": "Tallenna",
+        "copy": "Kopioi",
+        "loading": "Ladataan..."
+      },
+      "spreadsheet": {
+        "eyebrow": "Taulukko",
+        "desktopRequired": "Taulukon esikatselu vaatii Stellan työpöytäsovelluksen.",
+        "noRows": "Rivejä ei löytynyt.",
+        "column": "Sarake {index}"
+      },
+      "markdown": {
+        "eyebrow": "Markdown",
+        "desktopRequired": "Markdown-esikatselu vaatii Stellan työpöytäsovelluksen.",
+        "noContent": "Sisältöä ei löytynyt."
+      },
+      "diff": {
+        "changes": "Muutokset",
+        "codeChanges": "Koodimuutokset",
+        "noChanges": "Muutoksia ei löytynyt.",
+        "desktopRequired": "Koodin esikatselu vaatii Stellan työpöytäsovelluksen.",
+        "empty": "Ei vielä tiedostomuutoksia. Kun agentti muokkaa koodia, muutokset näkyvät tässä."
+      },
+      "agentThread": {
+        "role": {
+          "user": "Ohje",
+          "assistant": "Agentti",
+          "lifecycle": "Toiminta"
+        },
+        "status": {
+          "running": "Työskentelee",
+          "completed": "Valmis",
+          "error": "Epäonnistui",
+          "canceled": "Pysäytetty"
+        },
+        "newMessages": {
+          "one": "{count} uusi viesti.",
+          "other": "{count} uutta viestiä."
+        },
+        "newMessagesWithPreview": "{countPhrase} Viimeisin {role}: {preview}",
+        "unavailable": "Agenttisäikeen historia ei ole käytettävissä.",
+        "loadFailed": "Tätä säiettä ei voitu ladata.",
+        "showingNewest": "Näytetään uusin viesti.",
+        "claudeAriaLabel": "Claude-aliagentin keskustelu, vain luku",
+        "claudeBadge": "Claude-aliagentti, vain luku",
+        "badge": "Agenttisäie, vain luku",
+        "retrying": "Yritetään uudelleen…",
+        "empty": "Tässä säikeessä ei ole vielä viestejä.",
+        "newMessagesButton": {
+          "one": "{count} uusi viesti",
+          "other": "{count} uutta viestiä"
+        },
+        "showNewMessagesAria": "Näytä: {countPhrase}"
+      }
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, tilaus: {plan}",
+        "signOutTitle": "Kirjaudutaanko ulos Stellasta?",
+        "signOutDescription": "Oletko varma?"
+      },
+      "nav": {
+        "apps": "Sovellukset",
+        "unreadTitle": "{label} ({count} lukematonta)",
+        "unreadAriaLabel": "{label}, {count} lukematonta"
+      },
+      "feedback": {
+        "title": {
+          "manual": "Lähetä palautetta",
+          "auto": "Miten Stellan kanssa sujuu?"
+        },
+        "description": {
+          "manual": "Viestisi lähetetään nimettömänä — sitä ei yhdistetä tiliisi.",
+          "auto": "Onko jotain, mitä meidän pitäisi tietää? Lähetetään nimettömänä — ei yhdistetä tiliisi."
+        },
+        "notNow": "Ei nyt",
+        "fieldLabel": "Palaute",
+        "placeholder": "Kerro, mikä toimii, mikä ei tai mitä haluaisit nähdä…",
+        "send": "Lähetä",
+        "sending": "Lähetetään…",
+        "toasts": {
+          "sentTitle": "Palaute lähetetty",
+          "sentDescription": "Kiitos — jokainen viesti auttaa meitä kehittämään Stellaa.",
+          "failedTitle": "Palautetta ei voitu lähettää"
+        }
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "newChat": "Uusi keskustelu",
+        "home": "Etusivu",
+        "history": "Keskusteluhistoria",
+        "historyEmpty": "Ei vielä keskusteluja",
+        "historyRetry": "Keskusteluja ei voitu ladata. Yritä uudelleen",
+        "openConversations": "Avaa keskustelut",
+        "openConversation": "Avaa: {title}",
+        "closeConversation": "Sulje: {title}",
+        "delete": "Poista: {title}",
+        "deleteConfirm": "Napsauta uudelleen vahvistaaksesi",
+        "deleteConfirmFor": "Napsauta uudelleen poistaaksesi: {title}",
+        "deleteFailed": "Tätä keskustelua ei voitu poistaa",
+        "deleteFailedFor": "Ei voitu poistaa: {title}"
+      }
+    }
+  },
+  "global": {
+    "auth": {
+      "welcomeTitle": "Tervetuloa Stellaan",
+      "welcomeDescription": "Kirjaudu sisään sähköpostillasi aloittaaksesi Stellan käytön.",
+      "welcomeSub": "Kirjaudu sisään Googlella tai sähköpostillasi. Salasanaa ei tarvita.",
+      "orUseEmail": "tai käytä sähköpostia",
+      "emailLabel": "Sähköposti",
+      "emailPlaceholder": "sina@esimerkki.fi",
+      "sending": "Lähetetään...",
+      "signingIn": "Kirjaudutaan sisään...",
+      "sendSignInEmail": "Lähetä kirjautumisviesti",
+      "checkInbox": "Tarkista sähköpostistasi kirjautumislinkki.",
+      "magicLinkSentDesktop": "Lähetimme kirjautumislinkin. Avaa se tällä laitteella viimeistelläksesi.",
+      "openInbox": "Avaa {provider}",
+      "resendIn": "Lähetä uudelleen {seconds} s kuluttua",
+      "resendEmail": "Lähetä viesti uudelleen",
+      "skipForNow": "Ohita toistaiseksi",
+      "enterEmail": "Syötä sähköpostiosoite.",
+      "sendFailed": "Kirjautumisviestin lähetys epäonnistui.",
+      "magicLinkFailed": "Taikalinkin lähetys epäonnistui.",
+      "finishFailed": "Kirjautumista ei voitu viimeistellä. Yritä uudelleen.",
+      "signInIncomplete": "Kirjautuminen jäi kesken. Yritä uudelleen.",
+      "signInLinkExpired": "Kirjautumislinkki vanhentui. Yritä uudelleen.",
+      "tooManyRequests": {
+        "one": "Liikaa pyyntöjä. Yritä uudelleen {count} sekunnin kuluttua.",
+        "other": "Liikaa pyyntöjä. Yritä uudelleen {count} sekunnin kuluttua."
+      },
+      "googleContinue": "Jatka Googlella",
+      "googleWaiting": "Odotetaan Googlea...",
+      "googleStartFailed": "Google-kirjautumista ei voitu aloittaa.",
+      "googleNoSession": "Google-kirjautuminen valmistui ilman istuntoa.",
+      "googleExpired": "Google-kirjautuminen vanhentui. Yritä uudelleen.",
+      "googleTimedOut": "Google-kirjautuminen aikakatkaistiin. Yritä uudelleen.",
+      "nicknameTitle": "Miksi kutsun sinua?",
+      "nicknameDescription": "Valitse nimi, jota Stella käyttää kaikkialla sovelluksessa.",
+      "nicknameLabel": "Kutsumanimi",
+      "nicknamePlaceholder": "Kutsumanimesi",
+      "notNow": "Ei nyt"
+    },
+    "legal": {
+      "terms": {
+        "title": "Käyttöehdot",
+        "subtitle": "Miten Stella toimii ja mihin sitoudut sitä käyttäessäsi."
+      },
+      "privacy": {
+        "title": "Tietosuojakäytäntö",
+        "subtitle": "Mitä keräämme, mitä emme ja miten pidämme sen turvassa."
+      }
+    },
+    "integrations": {
+      "heroTagline": "Viestittele Stellan kanssa haluamallasi alustalla — juttele vapaasti tai pyydä sitä hoitamaan asioita suoraan tietokoneellasi.",
+      "signInToConnect": "Kirjaudu Stellaan yhdistääksesi",
+      "connectStellaApp": "Yhdistä Stella-sovellukseen",
+      "sectionTitle": "Integraatiot",
+      "connectTitle": "Yhdistä",
+      "backToConnections": "Takaisin yhteyksiin",
+      "connected": "Yhdistetty",
+      "connectProvider": "Yhdistä {provider}",
+      "openProvider": "Avaa {provider}",
+      "listeningOn": "Stella kuuntelee palvelussa {provider}. Voit viestiä hänelle siellä milloin tahansa.",
+      "disconnect": "Katkaise yhteys",
+      "disconnecting": "Katkaistaan yhteyttä...",
+      "disconnected": "Yhteys katkaistu: {provider}",
+      "disconnectFailed": "Yhteyden katkaisu epäonnistui: {provider}",
+      "codeCopied": "Koodi kopioitu leikepöydälle",
+      "generateCodeFailed": "Koodin luonti epäonnistui",
+      "slackInstallUrlFailed": "Slackin asennusosoitteen valmistelu epäonnistui",
+      "signInHeadline": "Kirjaudu sisään aloittaaksesi",
+      "signInSub": "Kirjaudu Stella-tiliisi yhdistääksesi: {provider}.",
+      "providers": {
+        "linq": {
+          "name": "Tekstaa Stellalle",
+          "instructions": "Syötä puhelinnumerosi, niin lähetämme sinulle koodin tekstiviestillä. Kun yhteys on luotu, voit viestiä Stellalle milloin tahansa iMessagella tai tekstiviestillä."
+        },
+        "discord": {
+          "name": "Discord",
+          "instructions": "Asenna Stella-sovellus Discord-tilillesi, suorita /link koodilla kerran ja lähetä sitten @Stellalle yksityisviestejä normaalisti."
+        },
+        "slack": {
+          "name": "Slack",
+          "instructions": "Asenna Stella-sovellus työtilaasi ja lähetä sitten @Stellalle yksityisviesti alla olevalla koodilla."
+        },
+        "telegram": {
+          "name": "Telegram",
+          "instructions": "Avaa @StellaAppBot Telegramissa ja lähetä sille alla oleva koodi."
+        }
+      },
+      "linq": {
+        "countryCode": "Maakoodi",
+        "phonePlaceholder": "(555) 123-4567",
+        "sending": "Lähetetään...",
+        "sendCode": "Lähetä koodi",
+        "sendCodeFailed": "Koodin lähetys epäonnistui. Tarkista numero ja yritä uudelleen.",
+        "enterCodeTitle": "Syötä koodisi",
+        "enterCodeSub": "Tarkista puhelimesi — lähetimme 6-numeroisen koodin numeroon {phone}.",
+        "codePlaceholder": "ABC123",
+        "verify": "Vahvista",
+        "verifying": "Vahvistetaan...",
+        "verifyCodeFailed": "Koodin vahvistus epäonnistui.",
+        "connected": "Yhdistetty! Voit nyt tekstata Stellalle.",
+        "invalidCode": "Virheellinen tai vanhentunut koodi. Kokeile lähettää uusi.",
+        "genericError": "Jokin meni pieleen. Yritä uudelleen.",
+        "useDifferentNumber": "Käytä toista numeroa"
+      },
+      "credential": {
+        "title": "Yhdistä {provider}",
+        "description": "Stella tarvitsee {provider}-API-avaimesi yhdistääkseen. Liitä se alle. Se pysyy tietokoneellasi.",
+        "defaultLabel": "{provider}-avain",
+        "apiKeyLabel": "API-avain",
+        "apiKeyRequired": "API-avain vaaditaan.",
+        "keyPlaceholder": "Liitä avaimesi",
+        "labelLabel": "Nimike",
+        "labelDescription": "Kuvaava nimi, josta tunnistat tämän avaimen myöhemmin.",
+        "saving": "Tallennetaan...",
+        "saveKey": "Tallenna avain",
+        "saveFailed": "Tunnistetietojen tallennus epäonnistui."
+      }
+    },
+    "schedule": {
+      "dialogTitle": "Ajastus",
+      "untitledTask": "Ajastettu tehtävä",
+      "checkIn": "Tarkistus",
+      "paused": "Keskeytetty",
+      "pause": "Keskeytä",
+      "pausing": "Keskeytetään…",
+      "resume": "Jatka",
+      "resuming": "Jatketaan…",
+      "runNow": "Suorita nyt",
+      "running": "Suoritetaan…",
+      "delete": "Poista",
+      "removing": "Poistetaan…",
+      "actionFailed": "Toiminto epäonnistui.",
+      "missing": "Tätä ajastusta ei ole enää olemassa.",
+      "scheduleCount": {
+        "one": "{count} ajastus",
+        "other": "{count} ajastusta"
+      }
+    },
+    "social": {
+      "dialogDescription": "Vahvista tämä kutsu ennen kuin mitään tapahtuu.",
+      "signInToAccept": "Kirjaudu Stellaan hyväksyäksesi tämän kutsun.",
+      "lookingUpInvite": "Haetaan kutsua…",
+      "stellaAddOn": "Stella-lisäosa",
+      "stellaUser": "Stella-käyttäjä",
+      "byAuthor": " · tekijä @{username}",
+      "alreadyIn": " · olet jo mukana",
+      "membersLabel": "jäsentä",
+      "memberCount": {
+        "one": "{count} jäsen",
+        "other": "{count} jäsentä"
+      },
+      "working": "Työskennellään…",
+      "alreadyJoined": "Olet jo liittynyt",
+      "welcomeToCommunity": "Tervetuloa yhteisöön {community}!",
+      "joinedCommunity": "Liityit yhteisöön!",
+      "friendRequestSent": "Kaveripyyntö lähetetty käyttäjälle @{username}.",
+      "joinFailed": "Yhteisöön ei voitu liittyä. Kutsu on ehkä vanhentunut.",
+      "friendRequestFailed": "Kaveripyyntöä ei voitu lähettää. Yritä uudelleen.",
+      "store": {
+        "title": "Avaa lisäosa",
+        "confirmLabel": "Näytä Storessa",
+        "sub": "Avaamasi linkki osoittaa Stella-lisäosaan. Mitään ei asenneta. Tämä vain avaa sen Store-sivun.",
+        "missing": "Tämä lisäosa on yksityinen tai sitä ei enää julkaista."
+      },
+      "join": {
+        "title": "Liity yhteisöön",
+        "confirmLabel": "Liity",
+        "sub": "Sinut kutsuttiin yhteisöön: luotettuun piiriin, jossa jäsenet jakavat lisäosia toisilleen.",
+        "missing": "Tälle kutsukoodille ei löytynyt yhteisöä. Pyydä uusi linkki."
+      },
+      "friend": {
+        "title": "Lisää kaveri",
+        "confirmLabel": "Lähetä kaveripyyntö",
+        "sub": "Sinut kutsuttiin verkostoitumaan Stellassa.",
+        "missing": "Tälle kutsulinkille ei löytynyt käyttäjää."
+      }
+    },
+    "websiteView": {
+      "storeTitle": "Store"
+    }
+  },
+  "mobile": {
+    "common": {
+      "back": "Takaisin",
+      "backChevron": "‹ Takaisin",
+      "cancel": "Peruuta",
+      "continue": "Jatka",
+      "delete": "Poista",
+      "done": "Valmis",
+      "goBack": "Palaa takaisin",
+      "somethingWentWrong": "Jokin meni pieleen.",
+      "tryAgain": "Yritä uudelleen"
+    },
+    "boot": {
+      "crashTitle": "Jokin meni pieleen käynnistyksessä",
+      "missingConfigTitle": "Lisää mobiilin ympäristömuuttujat",
+      "missingConfigBody": "Aseta EXPO_PUBLIC_CONVEX_URL ja halutessasi EXPO_PUBLIC_CONVEX_SITE_URL ennen sovelluksen käynnistämistä.",
+      "checkingSessionTitle": "Tarkistetaan istuntoasi",
+      "checkingSessionBody": "Hetki pieni, Stella herää."
+    },
+    "authCallback": {
+      "failedTitle": "Sisäänkirjautuminen ei onnistunut",
+      "invalidLink": "Virheellinen kirjautumislinkki.",
+      "linkExpired": "Tämä kirjautumislinkki on vanhentunut. Pyydä uusi.",
+      "genericFailure": "Emme voineet kirjata sinua sisään juuri nyt. Yritä uudelleen.",
+      "backToSignIn": "Takaisin kirjautumiseen",
+      "signingInTitle": "Kirjataan sinua sisään",
+      "signingInBody": "Hetki vain..."
+    },
+    "nav": {
+      "chat": "Keskustelu",
+      "computer": "Tietokone",
+      "settings": "Asetukset",
+      "openLabel": "Avaa navigointi",
+      "closeLabel": "Sulje navigointi"
+    },
+    "search": {
+      "placeholder": "Hae viesteistä",
+      "openLabel": "Hae viesteistä",
+      "clearLabel": "Tyhjennä haku",
+      "cancelLabel": "Peruuta haku"
+    },
+    "onboarding": {
+      "skip": "Ohita",
+      "skipLabel": "Ohita esittely",
+      "welcomeTitle": "Tässä on Stella",
+      "welcomeBody": "Kysy mitä tahansa, pohdi asioita ääneen tai anna oikeita töitä hoidettavaksi — Stella vastaa täällä ja voi toimia tietokoneellasi.",
+      "themeTitle": "Tee siitä omasi",
+      "themeBody": "Valitse teema. Voit vaihtaa sen milloin tahansa asetuksista.",
+      "connectTitle": "Tietokoneesi kaikkialla",
+      "connectBodyGuest": "Kirjaudu sisään myöhemmin ja pariliitä Stella tietokoneellasi — sitten voit pyytää puhelinta selaamaan verkkoa, hallitsemaan tiedostoja ja suorittamaan tehtäviä kotona.",
+      "connectBodyPaired": "Muodosta pariliitos Stellan työpöytäsovelluksen kanssa kerran, niin puhelimesi voi pyytää sitä selaamaan verkkoa, hallitsemaan tiedostoja ja suorittamaan tehtäviä — vaikka kaupungin toiselta laidalta.",
+      "pairComputer": "Pariliitä tietokoneeni",
+      "startChatting": "Aloita keskustelu"
+    },
+    "login": {
+      "heroTitle": "Avustajasi,\ntaskukokoisena.",
+      "heroBody": "Käytä Applea, Googlea tai sitä sähköpostia, jota käytät tietokoneellasi.",
+      "continueWithApple": "Jatka Applella",
+      "openingApple": "Avataan Applea...",
+      "continueWithGoogle": "Jatka Googlella",
+      "openingGoogle": "Avataan Googlea...",
+      "orUseEmail": "tai käytä sähköpostia",
+      "emailPlaceholder": "Sähköposti",
+      "sending": "Lähetetään...",
+      "signingIn": "Kirjaudutaan sisään...",
+      "checkInbox": "Tarkista sähköpostisi ja napauta linkkiä — sinut kirjataan sisään automaattisesti.",
+      "useDifferentEmail": "Käytä toista sähköpostiosoitetta",
+      "resend": "Lähetä uudelleen",
+      "resendLabel": "Lähetä kirjautumisviesti uudelleen",
+      "enterEmail": "Anna sähköpostiosoitteesi.",
+      "sendFailed": "Kirjautumisviestin lähetys epäonnistui.",
+      "googleStartFailed": "Google-kirjautumista ei voitu aloittaa.",
+      "appleStartFailed": "Apple-kirjautumista ei voitu aloittaa.",
+      "appleCompleteFailed": "Apple-kirjautumista ei voitu viimeistellä.",
+      "appleNoToken": "Apple ei palauttanut identiteettitunnistetta.",
+      "finishFailed": "Kirjautumista ei voitu viimeistellä. Yritä uudelleen.",
+      "incomplete": "Kirjautuminen jäi kesken. Yritä uudelleen.",
+      "linkExpired": "Linkki on vanhentunut. Yritä uudelleen.",
+      "legalPrefix": "Jatkamalla hyväksyt ",
+      "legalTerms": "käyttöehdot",
+      "legalConjunction": " ja ",
+      "legalPrivacy": "tietosuojakäytännön",
+      "legalSuffix": ".",
+      "continueAsGuest": "Jatka kirjautumatta sisään"
+    },
+    "chat": {
+      "emptyPrompt": "Kysy Stellalta mitä tahansa",
+      "composerPlaceholder": "Kirjoita Stellalle"
+    },
+    "computer": {
+      "guestHeroTitle": "Tietokoneesi sormenpäissäsi",
+      "guestHeroBody": "Pyydä Stellaa tekemään asioita tietokoneellasi — selaamaan verkkoa, hallitsemaan tiedostoja, suorittamaan tehtäviä ja paljon muuta.",
+      "pairFirstTitle": "Pariliitä puhelin ensin",
+      "pairFirstBody": "Pariliitä tämä puhelin Stellan työpöytäsovellukseen, niin voit keskustella sen kanssa mistä tahansa. Riittää, että teet sen kerran.",
+      "pairPhone": "Pariliitä puhelin",
+      "pairThisPhoneLabel": "Pariliitä tämä puhelin",
+      "emptyPrompt": "Kysy tietokoneeltasi mitä tahansa",
+      "composerPlaceholder": "Kirjoita tietokoneellesi",
+      "defaultDeviceLabel": "Tietokoneesi",
+      "statusChecking": "Tarkistetaan…",
+      "statusWaking": "Herätetään…",
+      "statusConnected": "Yhdistetty",
+      "statusAsleep": "Lepotilassa",
+      "connectingLabel": "Yhdistetään tietokoneeseesi",
+      "connectedLabel": "Tietokone yhdistetty",
+      "disconnectedLabel": "Tietokoneen yhteys katkaistu",
+      "unreachableTitle": "Tietokonetta ei tavoiteta",
+      "unreachableBody": "Tietokoneeseesi ei saada yhteyttä juuri nyt. Herätyspyyntö lähetettiin — yritä uudelleen muutaman sekunnin kuluttua.",
+      "syncWaitingTitle": "Synkronointi odottaa",
+      "syncWaitingBody": "Viestiä lähetetään yhä. Synkronointi käynnistyy heti, kun se on valmis.",
+      "syncFailedTitle": "Synkronointi epäonnistui",
+      "syncFailedBody": "Tietokoneesi lakkasi vastaamasta synkronoinnin aikana. Yritä uudelleen."
+    },
+    "desktop": {
+      "pairTitle": "Pariliitä puhelimesi",
+      "guestBody": "Näe Stellan työpöytäsovellus suoraan puhelimessasi. Pariliitoksen jälkeen puhelin yhdistää uudelleen automaattisesti.",
+      "guestSignInPrompt": "Kirjaudu sisään päästäksesi alkuun.",
+      "connecting": "Yhdistetään työpöytään",
+      "pairing": "Pariliitetään tätä puhelinta",
+      "unreachable": "Työpöytää ei tavoiteta",
+      "deviceUnreachable": "Laitetta {platform} ei tavoiteta",
+      "repairNeeded": "Tämä puhelin täytyy pariliittää tietokoneesi kanssa uudelleen.",
+      "enterCode": "Syötä tietokoneellasi näkyvä koodi.",
+      "linkInterrupted": "Yhteys tietokoneeseesi katkesi.",
+      "unavailableBodyPaired": "Varmista, että Stella on auki tietokoneellasi ja yhdistettynä internetiin. Kun yhteys on muodostettu, työpöytäsovellus näkyy suoraan tässä puhelimessasi.",
+      "unavailableBodyUnpaired": "Näe Stellan työpöytäsovellus suoraan puhelimessasi. Skannaa tietokoneellasi Stellassa näkyvä QR-koodi päästäksesi alkuun — sen jälkeen puhelin yhdistää uudelleen automaattisesti.",
+      "pairAnother": "Pariliitä toinen tietokone",
+      "startPairingLabel": "Aloita tietokoneen pariliitos",
+      "retryLabel": "Yritä yhdistää uudelleen",
+      "reconnecting": "Yhdistetään uudelleen...",
+      "limitedCapabilities": "Osa asioista vaatii tietokoneesi"
+    },
+    "settings": {
+      "title": "Asetukset",
+      "loadingSession": "Ladataan istuntoa…",
+      "signIn": "Kirjaudu sisään",
+      "signInTitle": "Kirjaudu Stellaan",
+      "showEmailLabel": "Näytä sähköposti",
+      "hideEmailLabel": "Piilota sähköposti",
+      "appearanceSection": "Ulkoasu",
+      "appearance": {
+        "system": "Järjestelmä",
+        "light": "Vaalea",
+        "dark": "Tumma"
+      },
+      "background": {
+        "soft": "Pehmeä",
+        "flat": "Tasainen"
+      },
+      "useAppearanceLabel": "Käytä ulkoasua {name}",
+      "useBackgroundLabel": "Käytä taustaa {name}",
+      "useThemeLabel": "Käytä teemaa {name}",
+      "notificationsSection": "Ilmoitukset",
+      "pushToggleLabel": "Salli push-ilmoitukset",
+      "pushToggleSub": "Saat ilmoituksen, kun tietokoneesi saa pyynnön valmiiksi.",
+      "pushToggleA11y": "Ota push-ilmoitukset käyttöön tai poista käytöstä",
+      "voiceSection": "Puhu Stellalle",
+      "voiceSectionHint": "Minne handsfree-puhe (kuten CarPlay) lähettää viestisi. Automaattinen valitsee tietokoneesi keskustelun, jos jäit siihen ja se on tavoitettavissa — muuten tämän puhelimen keskustelun.",
+      "voiceTarget": {
+        "auto": "Automaattinen",
+        "phone": "Puhelin",
+        "computer": "Tietokone"
+      },
+      "voiceTargetLabel": "Lähetä ääniviestit kohteeseen {name}",
+      "pairedSection": "Pariliitetyt tietokoneet",
+      "pairedEmpty": "Yhtään tietokonetta ei ole vielä pariliitetty. Tee pariliitos Tietokone-välilehdeltä.",
+      "pairedOn": "Pariliitetty {date}",
+      "paired": {
+        "unnamedComputer": "Tietokone · {id}"
+      },
+      "forget": "Unohda",
+      "forgetLabel": "Unohda laite {name}",
+      "forgetConfirmTitle": "Unohdetaanko laite {name}?",
+      "forgetConfirmBody": "Tämä puhelin lakkaa yhdistämästä kyseiseen tietokoneeseen, kunnes pariliität sen uudelleen.",
+      "carPlayDiagnostics": "CarPlay-diagnostiikka",
+      "openCarPlayDiagnosticsLabel": "Avaa CarPlay-diagnostiikka",
+      "termsOfService": "Käyttöehdot",
+      "openTermsLabel": "Avaa käyttöehdot",
+      "privacyPolicy": "Tietosuojakäytäntö",
+      "openPrivacyLabel": "Avaa tietosuojakäytäntö",
+      "signOut": "Kirjaudu ulos",
+      "signingOut": "Kirjaudutaan ulos…",
+      "signOutLabel": "Kirjaudu ulos Stellasta",
+      "deleteAccount": "Poista tili",
+      "deletingAccount": "Poistetaan tiliä…",
+      "deleteAccountLabel": "Poista Stella-tilisi",
+      "deleteConfirmTitle": "Poista tili",
+      "deleteConfirmBody": "Tämä poistaa Stella-tilisi pysyvästi ja poistaa siihen liittyvät pilvitiedot palvelimiltamme. Tätä ei voi kumota.",
+      "deleteFailedTitle": "Tiliä ei voitu poistaa"
+    },
+    "carPlayDiagnostics": {
+      "title": "CarPlay-diagnostiikka",
+      "subtitle": {
+        "one": "Merkintöjä CarPlay-yhteydestä ({count} rivi, uusin ensin). Kopioi ja lähetä nämä, jos autossa jokin toimii oudosti.",
+        "other": "Merkintöjä CarPlay-yhteydestä ({count} riviä, uusin ensin). Kopioi ja lähetä nämä, jos autossa jokin toimii oudosti."
+      },
+      "copyAll": "Kopioi kaikki",
+      "copyAllLabel": "Kopioi kaikki diagnostiikkatiedot",
+      "copied": "Kopioitu ✓",
+      "refresh": "Päivitä",
+      "refreshLabel": "Päivitä diagnostiikka",
+      "clear": "Tyhjennä",
+      "clearLabel": "Tyhjennä diagnostiikka",
+      "empty": "CarPlay-diagnostiikkaa ei ole vielä tallennettu. Yhdistä CarPlayhin kerran ja palaa sitten tänne.",
+      "clipboardEmpty": "(CarPlay-diagnostiikkaa ei ole tallennettu)"
+    }
+  }
+}

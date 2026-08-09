@@ -6,6 +6,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Pause, Play } from "@/ui/icons";
+import { useT } from "@/shared/i18n";
 
 const formatTime = (seconds: number): string => {
   if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
@@ -15,6 +16,7 @@ const formatTime = (seconds: number): string => {
 };
 
 export const AudioPlayer = ({ src }: { src: string | null }) => {
+  const t = useT();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -68,7 +70,9 @@ export const AudioPlayer = ({ src }: { src: string | null }) => {
         className="audio-player__play"
         onClick={toggle}
         disabled={disabled}
-        aria-label={playing ? "Pause" : "Play"}
+        aria-label={
+          playing ? t("shell.audioPlayer.pause") : t("shell.audioPlayer.play")
+        }
       >
         {playing ? (
           <Pause size={17} strokeWidth={0} fill="currentColor" />
@@ -82,7 +86,7 @@ export const AudioPlayer = ({ src }: { src: string | null }) => {
             scrubbing ? " audio-player__scrub--scrubbing" : ""
           }`}
           role="slider"
-          aria-label="Seek"
+          aria-label={t("shell.audioPlayer.seek")}
           aria-valuemin={0}
           aria-valuemax={Math.round(duration)}
           aria-valuenow={Math.round(current)}

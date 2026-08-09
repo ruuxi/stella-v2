@@ -16,7 +16,8 @@
     "tryAgain": "Prøv igjen",
     "language": "Språk",
     "yes": "Ja",
-    "no": "Nei"
+    "no": "Nei",
+    "copy": "Kopier"
   },
   "sidebar": {
     "signIn": "Logg inn",
@@ -37,6 +38,11 @@
     "language": {
       "title": "Språk",
       "description": "Velg språket Stella bruker i appen og når den svarer deg."
+    },
+    "workingMode": {
+      "title": "Orkestratormodus",
+      "directDescription": "Stella jobber med oppgaver selv og delegerer bare når det er nyttig.",
+      "orchestratedDescription": "Stella koordinerer en General-agent som kan fordele større arbeid på underagenter."
     },
     "developerPreviews": {
       "title": "Filforhåndsvisninger for utviklere",
@@ -312,6 +318,7 @@
       "descriptions": {
         "voice": "Velg Stellas talestil og personlighetsstemme.",
         "permissions": "Gi tilgang til tilgjengelighet, skjermopptak og mikrofon på macOS.",
+        "shortcuts": "Endre hurtigtaster for diktering og stemme.",
         "backup": "Automatiske krypterte sikkerhetskopier, gjenopprettingspunkter og øyeblikksbilder på forespørsel.",
         "account": "Logg av, slett dataene dine eller slett kontoen din permanent.",
         "legal": "Vilkår for bruk og personvernerklæring.",
@@ -334,6 +341,9 @@
       "loadVoice": "Kunne ikke laste inn stemmeinnstillingen.",
       "saveVoice": "Kunne ikke oppdatere stemmeinnstillingen.",
       "voiceUnavailable": "Stemmeinnstillinger er ikke tilgjengelige i dette vinduet.",
+      "loadWorkingMode": "Kunne ikke laste inn orkestratormodus.",
+      "saveWorkingMode": "Kunne ikke oppdatere orkestratormodus.",
+      "workingModeUnavailable": "Orkestratormodus er ikke tilgjengelig i dette vinduet.",
       "loadPermissions": "Kunne ikke laste inn tillatelsesstatus for skrivebordet.",
       "savePermission": "Kunne ikke oppdatere tillatelsen {kind}.",
       "resetPermission": "Kunne ikke tilbakestille tillatelsen {kind}.",
@@ -341,6 +351,229 @@
       "microphoneDeniedReopen": "Mikrofontilgang ble avvist tidligere. Slå den på i Systeminnstillinger, og åpne Stella på nytt.",
       "microphoneStillOff": "Mikrofontilgang er fortsatt av. Slå den på i Systeminnstillinger, og åpne Stella på nytt.",
       "restart": "Kunne ikke starte Stella på nytt."
+    },
+    "voiceCatalog": {
+      "label": "Stemme",
+      "familyAriaLabel": "Stemmefamilie",
+      "familyTitle": {
+        "openai": "OpenAI Realtime-stemmer (Stella utsteder tokenet)",
+        "xai": "xAI Grok-stemmer (Stella utsteder tokenet)",
+        "inworld": "Inworld-stemmer (Stella formidler SDP-utvekslingen)"
+      },
+      "source": {
+        "openai": "OpenAI-stemmer",
+        "xai": "Grok-stemmer",
+        "inworld": "Inworld-stemmer"
+      },
+      "previousVoice": "Forrige stemme",
+      "nextVoice": "Neste stemme",
+      "menuAriaLabel": "{source}-stemme",
+      "speed": "Hastighet",
+      "speedAriaLabel": "Hastighet for Inworld-stemme",
+      "readAloud": {
+        "label": "Les opp",
+        "ariaLabel": "Leverandør for opplesing",
+        "openaiTitle": "Les opp svar med OpenAI TTS",
+        "inworldTitle": "Les opp svar med Inworld TTS",
+        "description": "Leser svar høyt med stemmen til denne leverandøren."
+      }
+    },
+    "phoneAccess": {
+      "expired": "Utløpt",
+      "timeLeft": "{time} igjen",
+      "copy": "Kopier",
+      "preparing": "Klargjør...",
+      "getCode": "Hent kode",
+      "deviceFallback": "Telefon",
+      "removing": "Fjerner...",
+      "remove": "Fjern",
+      "signedOut": {
+        "headline": "Logg på for å komme i gang",
+        "body": "Logg på Stella-kontoen din for å pare med mobilappen."
+      },
+      "pairing": {
+        "headline": "Skann eller skriv inn denne koden",
+        "body": "Åpne Stella-appen på telefonen og skann QR-koden, eller skriv inn koden under. Dette trenger du bare å gjøre én gang.",
+        "qrAlt": "Skann for å pare telefonen"
+      },
+      "intro": {
+        "headline": "Koble telefonen til datamaskinen"
+      },
+      "steps": {
+        "download": "Last ned appen",
+        "downloadQrAlt": "Skann for å laste ned Stella fra App Store",
+        "connect": "Koble til telefonen"
+      },
+      "toasts": {
+        "codeCopied": "Koden ble kopiert til utklippstavlen",
+        "phoneRemoved": "Telefonen ble fjernet",
+        "removeFailed": "Kunne ikke fjerne telefonen"
+      },
+      "errors": {
+        "createPairing": "Kunne ikke opprette en paringskode."
+      },
+      "pairedCount": {
+        "one": "{count} telefon paret",
+        "other": "{count} telefoner paret"
+      }
+    },
+    "modelPicker": {
+      "searchPlaceholder": "Søk i modeller…",
+      "searchAriaLabel": "Søk i modeller",
+      "closeSearch": "Lukk søk",
+      "apiKeyPlaceholder": "API-nøkkel",
+      "apiKeyAriaLabel": "{provider}-API-nøkkel",
+      "cancelSignIn": "Avbryt pålogging",
+      "signInWith": "Logg på med {provider}",
+      "saving": "Lagrer…",
+      "use": "Bruk",
+      "selected": "Valgt",
+      "refresh": "Oppdater modellkatalogen",
+      "restrictedPlan": "Ikke tilgjengelig på {plan}-planen",
+      "reasoning": {
+        "label": "Resonneringsinnsats",
+        "default": "Auto",
+        "minimal": "Minimal",
+        "low": "Lav",
+        "medium": "Middels",
+        "high": "Høy",
+        "xhigh": "Maks"
+      },
+      "authHint": {
+        "both": "Logg på eller lim inn en API-nøkkel. Legitimasjonen blir værende på denne enheten.",
+        "oauth": "Legitimasjonen blir værende på denne enheten.",
+        "apiKey": "API-nøkkelen din blir værende på denne enheten."
+      },
+      "actions": {
+        "cancel": "Avbryt",
+        "signIn": "Logg på",
+        "addKey": "Legg til nøkkel",
+        "custom": "Egendefinert"
+      },
+      "signOut": {
+        "ariaLabel": "Logg av {provider}",
+        "confirmAriaLabel": "Klikk igjen for å logge av {provider}",
+        "confirmTitle": "Klikk igjen for å bekrefte"
+      },
+      "local": {
+        "hint": "Bruk hvilken som helst lokal OpenAI-kompatibel server. Ollama kjører vanligvis på URL-en under.",
+        "serverUrlAriaLabel": "URL til lokal server",
+        "modelNameAriaLabel": "Navn på lokal modell"
+      },
+      "openRouter": {
+        "hintBefore": "OpenRouter godtar hvilken som helst",
+        "hintAfter": "-id. Skriv en for å bruke den direkte.",
+        "modelIdAriaLabel": "OpenRouter-modell-id"
+      },
+      "empty": {
+        "none": "Ingen modeller tilgjengelig ennå.",
+        "noMatch": "Ingen modeller samsvarer."
+      },
+      "favorite": {
+        "remove": "Fjern favoritt",
+        "add": "Legg til favoritt",
+        "addTitle": "Favoritt — fest øverst"
+      },
+      "errors": {
+        "saveApiKey": "Kunne ikke lagre API-nøkkelen.",
+        "oauthLogin": "OAuth-pålogging mislyktes."
+      }
+    },
+    "providerPicker": {
+      "connected": "Tilkoblet",
+      "connect": "Koble til",
+      "opening": "Åpner…"
+    },
+    "engineModels": {
+      "ariaLabel": "{engine}-modeller",
+      "loading": "Laster {engine}-modeller…",
+      "empty": "Ingen {engine}-modeller er tilgjengelige."
+    },
+    "providerConnected": {
+      "title": "Bruke {provider} for Stella?",
+      "description": "{provider} kan drive mer enn én del av Stella. Velg hvor du vil at den skal ta over — Stella tar seg av resten.",
+      "assistant": {
+        "label": "Assistent",
+        "description": "Rut Stellas chatassistent gjennom {provider}."
+      },
+      "image": {
+        "label": "Bilde",
+        "description": "Generer bilder via {provider}-kontoen din."
+      },
+      "voice": {
+        "label": "Stemme",
+        "description": "Bruk {provider} til talesamtaler i sanntid."
+      },
+      "skip": "Hopp over",
+      "apply": "Bruk",
+      "applying": "Bruker…",
+      "errors": {
+        "apply": "Kunne ikke ta i bruk leverandørinnstillingene."
+      }
+    },
+    "compactModelList": {
+      "ariaLabel": "Stella-modeller",
+      "recent": "Nylige",
+      "unavailable": "Utilgjengelig",
+      "unavailableTitle": "Denne modellen er ikke lenger tilgjengelig — velg en annen.",
+      "loading": "Laster Stella-modeller…",
+      "loadFailed": "Kunne ikke laste Stella-modeller.",
+      "empty": "Ingen Stella-modeller tilgjengelig.",
+      "retry": "Prøv igjen",
+      "restricted": "Planen din bruker Stellas valg.",
+      "restrictedPlan": "{plan}-planen bruker Stellas valg.",
+      "upgrade": "Oppgrader"
+    },
+    "reasoningEffort": {
+      "minimal": "Minimal",
+      "low": "Lav",
+      "medium": "Middels",
+      "high": "Høy",
+      "xhigh": "Ekstra"
+    },
+    "agentModelPicker": {
+      "byokDescription": "Bruk din egen {provider}-API-nøkkel.",
+      "unavailableChooseAnother": "Utilgjengelig — velg en annen modell",
+      "chatGptRouted": "Rutet til {model} (lagret modell er utilgjengelig).",
+      "default": "Standard",
+      "stellaDefault": "Stella-standard",
+      "surfaceAriaLabel": "Flate",
+      "waitingForChatGpt": "Venter på ChatGPT…",
+      "imageProviderAriaLabel": "Bildeleverandør",
+      "voiceProviderAriaLabel": "Stemmeleverandør",
+      "assistantPickerAriaLabel": "Modellvelger for assistent",
+      "verifyingChatGpt": "Verifiserer ChatGPT-modeller…",
+      "noChatGptCodexModels": "Ingen modeller er for øyeblikket tilgjengelige for både ChatGPT og Codex.",
+      "savedModelUnavailable": "Den lagrede modellen er utilgjengelig. Velg en annen modell.",
+      "tabs": {
+        "assistant": "Assistent",
+        "assistantTitle": "Stellas hovedassistent",
+        "image": "Bilde",
+        "imageTitle": "Leverandør for bildegenerering",
+        "voice": "Stemme",
+        "voiceTitle": "Stemmeleverandør for sanntid"
+      },
+      "errors": {
+        "loadPreferences": "Kunne ikke laste inn modellinnstillingene.",
+        "chatGptMigration": "Migrering av ChatGPT-ruting mislyktes.",
+        "chatGptVerify": "ChatGPT-modellene kunne ikke verifiseres: {error}",
+        "chatGptVerifying": "Vent til ChatGPT-modellene er ferdig verifisert.",
+        "chatGptNotConnected": "ChatGPT må være tilkoblet før du kan velge.",
+        "chatGptNoModels": "Ingen ChatGPT-modeller er tilgjengelige for øyeblikket.",
+        "connectChatGpt": "Kunne ikke koble til ChatGPT.",
+        "updateEngine": "Kunne ikke oppdatere motoren.",
+        "updateTitle": "Kunne ikke oppdatere modellinnstillingene",
+        "refreshTitle": "Kunne ikke oppdatere modellene",
+        "updateModel": "Kunne ikke oppdatere modellinnstillingen.",
+        "updateImage": "Kunne ikke oppdatere bildeinnstillingen.",
+        "updateVoice": "Kunne ikke oppdatere stemmeinnstillingen.",
+        "updateInworldSpeed": "Kunne ikke oppdatere Inworld-hastigheten.",
+        "updateVoiceFamily": "Kunne ikke oppdatere stemmefamilien.",
+        "updateReadAloud": "Kunne ikke oppdatere leverandøren for opplesing.",
+        "updateReasoning": "Kunne ikke oppdatere resonneringsinnsatsen.",
+        "updateChatGptSpeed": "Kunne ikke oppdatere ChatGPT-hastigheten.",
+        "updateDirectRuntime": "Kunne ikke oppdatere direkte {runtime}-innstilling."
+      }
     }
   },
   "onboarding": {
@@ -357,6 +590,7 @@
       "secondary": "Stella er ikke for alle. Stella er for deg."
     },
     "stepTitles": {
+      "engine": "Velg hva som driver Stella.",
       "extension": "Legg til Stella i nettleseren.",
       "browser": "La Stella bli kjent med deg.",
       "theme": "Hvordan skal Stella se ut?",
@@ -372,19 +606,10 @@
       "ready": "Klar"
     },
     "discovery": {
-      "appsSystem": {
-        "label": "Apper og maskinen din",
-        "description": "Hvilke apper du bruker mest, hvordan skrivebordet er organisert og arbeidsflyten din"
-      },
-      "messagesNotes": {
-        "label": "Notater og kalender",
-        "description": "Hva du jobber med, planene dine og hvordan du strukturerer tankene"
-      },
       "devEnvironment": {
         "label": "Utviklingsmiljøet ditt",
         "description": "Verktøy du bruker, prosjekter du jobber med og hvordan miljøet er konfigurert"
-      },
-      "fdaNote": "Noen alternativer krever full disktilgang"
+      }
     }
   },
   "billing": {
@@ -409,6 +634,11 @@
           "Alle automatiseringsfunksjoner"
         ]
       }
+    },
+    "upgradeDialog": {
+      "title": "Du er på Stella {plan}.",
+      "description": "Takk for oppgraderingen. Høyere prioritet og økt bruk er aktivt nå — bare fortsett.",
+      "cta": "Kom i gang"
     }
   },
   "chat": {
@@ -421,5 +651,1553 @@
     "rateLimited": "Det går litt for fort. Prøv igjen om litt.",
     "networkUnavailable": "Stella er frakoblet. Koble til igjen for å fortsette.",
     "permissionDenied": "Stella har ikke tillatelse til dette."
+  },
+  "app": {
+    "social": {
+      "newChat": {
+        "title": "Ny melding",
+        "emptySubtitle": "Legg til noen venner først for å starte en samtale.",
+        "description": "Velg en venn eller start en ny gruppesamtale.",
+        "subtitle": "Velg en venn eller start en gruppe.",
+        "groupTitle": "Ny gruppe",
+        "groupSubtitle": "Velg venner du vil legge til i denne gruppen.",
+        "groupNameLabel": "Gruppenavn",
+        "groupNamePlaceholder": "Gruppenavn (valgfritt)",
+        "members": "Medlemmer",
+        "back": "Tilbake",
+        "creating": "Oppretter...",
+        "createGroup": "Opprett gruppe",
+        "newGroup": "Ny gruppe",
+        "friends": "Venner",
+        "opening": "Åpner..."
+      },
+      "friends": {
+        "title": "Venner",
+        "description": "Del vennekoden din for å koble til, eller skriv inn noen andres for å sende en forespørsel.",
+        "subtitle": "Del brukernavnet ditt, eller skriv inn en venns for å koble til.",
+        "requestSent": "Venneforespørsel sendt!",
+        "usernameCopied": "Brukernavn kopiert!",
+        "inviteLinkCopied": "Invitasjonslenke kopiert — send den hvor som helst.",
+        "yourUsername": "Brukernavnet ditt",
+        "copy": "Kopier",
+        "copyUsernameTitle": "Kopier brukernavnet ditt",
+        "copyInviteLink": "Kopier invitasjonslenke",
+        "copyInviteLinkTitle": "Kopier en lenke som åpner Stella og sender deg en venneforespørsel — fungerer i iMessage, Discord, hvor som helst",
+        "addLabel": "Legg til en venn",
+        "addPlaceholder": "Skriv inn brukernavn",
+        "add": "Legg til",
+        "adding": "Legger til...",
+        "requestsCount": "Forespørsler ({count})",
+        "accept": "Godta",
+        "decline": "Avslå",
+        "sent": "Sendt",
+        "waitingForResponse": "Venter på svar",
+        "friendsCount": "Venner ({count})",
+        "empty": "Ingen venner ennå. Del brukernavnet ditt eller skriv inn noen andres over for å koble til.",
+        "message": "Melding",
+        "opening": "Åpner...",
+        "remove": "Fjern",
+        "removing": "Fjerner...",
+        "errors": {
+          "sendRequest": "Kunne ikke sende den venneforespørselen. Sjekk brukernavnet og prøv igjen."
+        }
+      },
+      "communities": {
+        "title": "Fellesskap",
+        "description": "Opprett et fellesskap eller bli med i ett med en invitasjonskode, og del deretter tillegg med alle i det.",
+        "subtitle": "Betrodde kretser for deling. Alle i et fellesskap ser det medlemmene deler.",
+        "defaultName": "Fellesskap",
+        "created": "Opprettet «{name}»!",
+        "joined": "Du er med!",
+        "createLabel": "Opprett et fellesskap",
+        "createPlaceholder": "Gi et nytt fellesskap et navn",
+        "create": "Opprett",
+        "joinLabel": "Bli med med en invitasjonskode",
+        "joinPlaceholder": "Skriv inn en invitasjonskode",
+        "join": "Bli med",
+        "yourCommunities": "Fellesskapene dine",
+        "yourCommunitiesCount": "Fellesskapene dine ({count})",
+        "empty": "Ingen fellesskap ennå. Opprett ett og del invitasjonskoden, eller bli med med en kode noen har sendt deg.",
+        "createdByYouSuffix": " · opprettet av deg",
+        "open": "Åpne",
+        "details": "Detaljer",
+        "back": "Tilbake",
+        "nameLabel": "Navn på fellesskap",
+        "save": "Lagre",
+        "cancel": "Avbryt",
+        "createdByYou": "Du opprettet dette fellesskapet.",
+        "memberOf": "Du er medlem av dette fellesskapet.",
+        "inviteCode": "Invitasjonskode",
+        "copied": "Kopiert!",
+        "copyCode": "Kopier kode",
+        "copyInviteLink": "Kopier invitasjonslenke",
+        "copyInviteLinkTitle": "Kopier en lenke som åpner Stella og blir med i dette fellesskapet",
+        "inviteHint": "Lenken fungerer overalt — lim den inn i en Stella-chat eller send den via iMessage eller Discord. Alle som har den kan bli med, så del den bare med folk du stoler på.",
+        "membersCount": "Medlemmer ({count})",
+        "roleCreator": "Oppretter",
+        "roleMember": "Medlem",
+        "youSuffix": " · deg",
+        "remove": "Fjern",
+        "removing": "Fjerner...",
+        "confirmDelete": "Vil du virkelig slette dette fellesskapet?",
+        "delete": "Slett fellesskap",
+        "confirmLeave": "Vil du virkelig forlate?",
+        "leave": "Forlat fellesskap",
+        "rename": "Gi nytt navn",
+        "openChat": "Åpne chat",
+        "errors": {
+          "create": "Kunne ikke opprette det fellesskapet. Prøv igjen.",
+          "join": "Kunne ikke bli med med den invitasjonskoden. Sjekk koden og prøv igjen.",
+          "rename": "Kunne ikke gi fellesskapet nytt navn. Prøv igjen.",
+          "removeMember": "Kunne ikke fjerne det medlemmet. Prøv igjen.",
+          "delete": "Kunne ikke slette fellesskapet. Prøv igjen.",
+          "leave": "Kunne ikke forlate fellesskapet. Prøv igjen."
+        },
+        "memberCount": {
+          "one": "{count} medlem",
+          "other": "{count} medlemmer"
+        }
+      },
+      "view": {
+        "messages": "Meldinger",
+        "signIn": "Logg på",
+        "signInSubtitle": "Logg på for å sende meldinger til venner og samarbeide sammen med Stella.",
+        "friends": "Venner",
+        "communities": "Fellesskap",
+        "newMessage": "Ny melding",
+        "noRooms": "Ingen samtaler ennå. Legg til venner eller start en ny melding.",
+        "addFriends": "Legg til venner",
+        "communityBadge": "Fellesskap",
+        "communityBadgeTitle": "Delt med alle i dette fellesskapet",
+        "usernamePlaceholder": "brukernavnet-ditt",
+        "editUsername": "Rediger brukernavnet ditt",
+        "copied": "Kopiert!",
+        "clickToCopyUsername": "Klikk for å kopiere brukernavnet ditt",
+        "copyUsername": "Kopier brukernavn",
+        "cancel": "Avbryt",
+        "save": "Lagre",
+        "saving": "Lagrer...",
+        "emptyTitle": "Meldingene dine",
+        "emptySubtitle": "Velg en samtale fra venstre, eller start en ny med en venn.",
+        "errors": {
+          "startConversation": "Kunne ikke starte den samtalen. Prøv igjen.",
+          "createGroup": "Kunne ikke opprette gruppen. Prøv igjen."
+        },
+        "usernameErrors": {
+          "empty": "Brukernavnet kan ikke være tomt.",
+          "length": "Brukernavnet må være 3-32 tegn.",
+          "format": "Bruk små bokstaver, tall, _ eller -. Må starte og slutte med en bokstav eller et tall.",
+          "update": "Kunne ikke oppdatere brukernavnet ditt. Prøv igjen."
+        },
+        "newRequestCount": {
+          "one": "{count} ny forespørsel",
+          "other": "{count} nye forespørsler"
+        },
+        "friendsWithRequestsTitle": "Venner ({countPhrase})",
+        "friendsWithRequestsAria": "Venner, {countPhrase}"
+      },
+      "chat": {
+        "stellaNoReply": "Stella ble ferdig uten et svar.",
+        "stellaFailed": "Stella klarte ikke å fullføre den forespørselen.",
+        "stellaThinking": "Stella tenker...",
+        "sharedStellaUnavailable": "Delt Stella er ikke tilgjengelig i denne appøkten.",
+        "back": "Tilbake",
+        "backToConversations": "Tilbake til samtaler",
+        "peopleCount": "{count} personer",
+        "startStella": "Start Stella",
+        "startStellaTitle": "Ta Stella med i denne samtalen",
+        "starting": "Starter...",
+        "startAgain": "Start på nytt",
+        "pause": "Sett på pause",
+        "resume": "Fortsett",
+        "end": "Avslutt",
+        "sayHello": "Si hei for å starte samtalen",
+        "loadingOlder": "Laster eldre meldinger…",
+        "armedOnTitle": "Send neste melding til Stella",
+        "armedOffTitle": "Send neste melding som en vanlig chatmelding",
+        "tellStella": "Si fra til Stella",
+        "tellingStella": "Sier fra til Stella",
+        "tellStellaPlaceholder": "Si til Stella hva du vil ha...",
+        "messagePlaceholder": "Melding til {name}",
+        "sessionBadge": {
+          "live": "Stella · Direkte",
+          "paused": "Stella · På pause",
+          "ended": "Stella · Avsluttet"
+        },
+        "sessionHint": {
+          "live": "Alle her kan si fra til Stella.",
+          "paused": "På pause — fortsett for å si fra til Stella igjen.",
+          "ended": "Dette delte Stella-rommet er avsluttet."
+        },
+        "errors": {
+          "startStella": "Kunne ikke starte Stella her. Prøv igjen.",
+          "updateStella": "Kunne ikke oppdatere Stella akkurat nå. Prøv igjen.",
+          "sendToStella": "Kunne ikke sende det til Stella. Prøv igjen.",
+          "sendMessage": "Kunne ikke sende meldingen din. Prøv igjen."
+        }
+      },
+      "composer": {
+        "placeholder": "Skriv en melding...",
+        "send": "Send"
+      },
+      "inviteCard": {
+        "communityEyebrow": "Fellesskapsinvitasjon",
+        "friendEyebrow": "Venneinvitasjon",
+        "defaultCommunityName": "Fellesskap",
+        "defaultUserName": "Stella-bruker",
+        "friendDetail": "Trykk for å sende en venneforespørsel",
+        "inviteUnavailable": "Invitasjonen er utilgjengelig",
+        "userNotFound": "Fant ikke brukeren",
+        "communityMissing": "Dette fellesskapet finnes ikke lenger, eller koden er endret.",
+        "userMissing": "Denne invitasjonslenken samsvarer ikke med en Stella-bruker.",
+        "communityDetail": {
+          "one": "{countLabel} medlem · trykk for å bli med",
+          "other": "{countLabel} medlemmer · trykk for å bli med"
+        }
+      }
+    },
+    "usage": {
+      "desktopOnly": "Lokal bruk er tilgjengelig i Stella-skrivebordsappen.",
+      "intro": "Leverandørkall lagret på denne enheten. Kostnader er lokale estimater; fakturering i skyen er fasit.",
+      "refresh": "Oppdater",
+      "refreshLabel": "Oppdater bruk",
+      "selectedThread": "Valgt tråd",
+      "viewAllThreads": "Vis alle tråder",
+      "loading": "Laster lokal bruk…",
+      "loadError": "Kunne ikke laste lokal bruk",
+      "tryAgain": "Prøv igjen",
+      "emptyTitle": "Ingen modellkall samsvarer med disse filtrene.",
+      "emptyBody": "Innebygde kall vises her etter at leverandøren returnerer en endelig bruksrapport.",
+      "truncatedWarning": "Viser de siste 10 000 kallene i dette området. Snevre inn tidsrommet for nøyaktige totaler.",
+      "filters": {
+        "label": "Bruksfiltre",
+        "timeRange": "Tidsrom",
+        "conversation": "Samtale",
+        "thread": "Tråd",
+        "agentType": "Agenttype",
+        "model": "Modell",
+        "allConversations": "Alle samtaler",
+        "allThreads": "Alle tråder",
+        "allAgentTypes": "Alle agenttyper",
+        "allModels": "Alle modeller",
+        "range": {
+          "24h": "Siste 24 timer",
+          "7d": "Siste 7 dager",
+          "30d": "Siste 30 dager",
+          "all": "Hele tiden"
+        }
+      },
+      "summary": {
+        "label": "Bruksoppsummering",
+        "estimatedCost": "Estimert kostnad",
+        "providerCalls": "{count} leverandørkall",
+        "totalTokens": "Totale tokens",
+        "uncachedInput": "{value} ubufret inndata",
+        "cacheRead": "Bufferlesing",
+        "cacheDetail": "{read} lest · {written} skrevet",
+        "output": "Utdata",
+        "reasoningTokens": "{value} resonneringstokens"
+      },
+      "timeline": {
+        "title": "Tidslinje",
+        "description": "Estimert kostnad og totale tokens per tidsintervall.",
+        "chartLabel": "Tidslinje over estimert modellkostnad og tokenbruk",
+        "series": {
+          "cost": "Estimert kostnad",
+          "tokens": "Tokens"
+        },
+        "tooltip": {
+          "estimated": "{value} estimert",
+          "tokens": "{value} tokens",
+          "calls": "{count} modellkall"
+        }
+      },
+      "threads": {
+        "title": "Tråder",
+        "description": "Orkestrator, agenter og nestede underagenter.",
+        "columns": {
+          "execution": "Kjøring",
+          "model": "Modell",
+          "calls": "Kall",
+          "tokens": "Tokens",
+          "cache": "Buffer",
+          "cost": "Kostnad"
+        }
+      },
+      "calls": {
+        "title": "Leverandørkall",
+        "description": "Utdata inkluderer resonnering der leverandøren tar det med; resonnering vises også separat når det rapporteres.",
+        "costBreakdown": "Inndata {input} · bufferlesing {cacheRead} · bufferskriving {cacheWrite} · utdata {output}",
+        "truncatedNote": "Viser de 500 siste treffene; sammendraget inkluderer alle {count} innlastede kall.",
+        "columns": {
+          "time": "Tid",
+          "execution": "Kjøring",
+          "providerModel": "Leverandør / modell",
+          "input": "Inndata",
+          "cache": "Buffer L / S",
+          "output": "Utdata",
+          "reasoning": "Resonnering",
+          "cost": "Kostnad",
+          "stop": "Stopp"
+        }
+      }
+    },
+    "apps": {
+      "loading": "Laster inn apper…",
+      "unsupportedTitle": "Apper er tilgjengelige på skrivebordet.",
+      "unsupportedBody": "Åpne Stella på datamaskinen din for å bruke lokalt installerte apper.",
+      "errorTitle": "Kunne ikke laste inn apper",
+      "errorBody": "Stella kunne ikke lese appmappen din.",
+      "tryAgain": "Prøv igjen",
+      "heroTitleEmphasis": "Dine",
+      "heroTitleRest": "apper",
+      "staleWarning": "Appene kan være utdaterte.",
+      "searchPlaceholder": "Søk i apper",
+      "sortLabel": "Sorter",
+      "createApp": "Lag en app",
+      "noMatchPrefix": "Ingen apper samsvarer med",
+      "noMatchSuffix": ".",
+      "emptyTitle": "Ingenting her ennå.",
+      "emptyBody": "Be Stella lage en liten app. Den dukker opp her.",
+      "emptyAction": "Be Stella lage en app",
+      "createAppPrompt": "Fortell meg hvilke stella-apper du kan lage for meg?",
+      "sort": {
+        "recent": "Nylige",
+        "name": "Navn"
+      },
+      "frame": {
+        "startFailed": "Appen klarte ikke å starte.",
+        "timeout": "Appen brukte for lang tid på å laste inn.",
+        "loadFailed": "Appen kunne ikke lastes inn.",
+        "loading": "Laster inn {name}…",
+        "openFailed": "Kunne ikke åpne {name}"
+      }
+    },
+    "pets": {
+      "sort": {
+        "downloads": "Mest populære",
+        "name": "Alfabetisk"
+      },
+      "animations": {
+        "idle": "Inaktiv",
+        "runningRight": "Løp til høyre",
+        "runningLeft": "Løp til venstre",
+        "waving": "Vinker",
+        "jumping": "Hopper",
+        "failed": "Mislyktes",
+        "waiting": "Venter",
+        "running": "Løper",
+        "review": "Gjennomgang"
+      },
+      "card": {
+        "by": "av {creator}",
+        "selections": "{count} valg",
+        "get": "Hent",
+        "select": "Velg",
+        "selected": "Valgt",
+        "remove": "Fjern"
+      },
+      "details": {
+        "caption": "av {creator} · {downloads} valg",
+        "previewLabel": "Forhåndsvisning av {name}",
+        "animations": "Animasjoner",
+        "animationStates": "Animasjonstilstander"
+      }
+    },
+    "chat": {
+      "activityPill": {
+        "idle": "Aktivitet",
+        "openActivity": "{label} — åpne aktivitet",
+        "statusCanceled": "Stoppet",
+        "statusDone": "Fullført",
+        "statusError": "Kunne ikke fullføre",
+        "statusRunning": "Oppgave pågår",
+        "tasksInProgress": {
+          "one": "{count} oppgave pågår",
+          "other": "{count} oppgaver pågår"
+        }
+      },
+      "addMenu": {
+        "add": "Legg til",
+        "attachFiles": "Legg ved filer…",
+        "capture": "Ta opptak",
+        "context": "Kontekst",
+        "recent": "Nylige",
+        "selectArea": "Velg område"
+      },
+      "agentCompletion": {
+        "openNamedThread": "Åpne agenttråden {title}",
+        "openThread": "Åpne agenttråd",
+        "showLess": "Vis mindre",
+        "showMore": {
+          "one": "+{count} til",
+          "other": "+{count} til"
+        }
+      },
+      "agentModelIcon": {
+        "unavailable": "Modelldetaljer utilgjengelige"
+      },
+      "backgroundWork": {
+        "agentThread": "Agenttråd",
+        "followUp": "Oppfølging",
+        "openNamedThread": "Åpne agenttråden {title}",
+        "openThread": "Åpne agenttråd",
+        "taskCount": {
+          "one": "{count} oppgave",
+          "other": "{count} oppgaver"
+        },
+        "title": "Bakgrunnsarbeid"
+      },
+      "column": {
+        "scrollToBottom": "Rull til bunnen"
+      },
+      "composer": {
+        "add": "Legg til",
+        "dictationError": "Diktering: {error}",
+        "stop": "Stopp"
+      },
+      "connectorConnect": {
+        "cancel": "Avbryt",
+        "connect": "Koble til",
+        "connectedApp": "Tilkoblet. Stella fortsetter med forespørselen din.",
+        "connectedExtension": "Utvidelse oppdaget. Stella fortsetter med forespørselen din.",
+        "connectingApp": "Fullfør påloggingen til {name} i nettleseren. Stella fortsetter så snart det er godkjent.",
+        "connectingExtension": "Legg til utvidelsen fra Chrome Nettmarked-fanen som nettopp ble åpnet. Stella fortsetter automatisk når den er installert.",
+        "errorBody": "Kunne ikke koble til {name}.",
+        "install": "Installer",
+        "notNow": "Ikke nå",
+        "titleConnected": "{name} tilkoblet",
+        "titleError": "Kunne ikke koble til {name}",
+        "titleOffer": "Koble til {name}?",
+        "titleOfferExtension": "Koble til {name}?",
+        "titleWaiting": "Venter på {name}"
+      },
+      "contextChips": {
+        "activityFallback": "Aktivitet",
+        "fileClickToOpen": "{name} — klikk for å åpne",
+        "pastedTextLabel": "Innlimt tekst · {stats}",
+        "pastedTextTitle": "Innlimt tekst — {stats}",
+        "removeActivity": "Fjern aktivitetskontekst",
+        "removeFile": "Fjern {name}",
+        "removePastedText": "Fjern innlimt tekst",
+        "removeScreenshot": "Fjern skjermbilde {index}",
+        "removeSelectedArea": "Fjern valgt område: {label}",
+        "removeSelectedText": "Fjern markert tekst",
+        "removeWindow": "Fjern vinduskontekst for {app}",
+        "screenshotAlt": "Skjermbilde {index}",
+        "screenshotEnlargeTitle": "Klikk for å forstørre skjermbildet",
+        "selectedAreaFallback": "Valgt område",
+        "windowCapturing": "{label} — tar opptak av vinduet…",
+        "windowClickToEnlarge": "{label} — klikk for å forstørre",
+        "windowPreviewAlt": "Forhåndsvisning av vindusinnhold",
+        "windowScreenshotAlt": "Skjermbilde av vinduet {label}"
+      },
+      "contextRow": {
+        "addActiveWindow": "Legg til {detail} (gjeldende vindu) som kontekst",
+        "addContext": "Legg til {detail} som kontekst"
+      },
+      "dropOverlay": {
+        "label": "Slipp filer her"
+      },
+      "endResource": {
+        "category": {
+          "audio": "Lyd",
+          "canvas": "Lerret",
+          "code": "Kode",
+          "document": "Dokument",
+          "file": "Fil",
+          "image": "Bilde",
+          "link": "Lenke",
+          "media": "Medier",
+          "model3d": "3D-modell",
+          "pdf": "PDF",
+          "slides": "Lysbilder",
+          "spreadsheet": "Regneark",
+          "table": "Tabell",
+          "text": "Tekst",
+          "trash": "Papirkurv",
+          "video": "Video"
+        },
+        "fileChangeCount": {
+          "one": "{count} filendring",
+          "other": "{count} filendringer"
+        },
+        "imageCount": {
+          "one": "{count} bilde",
+          "other": "{count} bilder"
+        },
+        "openInPanel": "Åpne i panel",
+        "openPreview": "Åpne forhåndsvisning"
+      },
+      "fileCategory": {
+        "archive": "Arkiv",
+        "audio": "Lyd",
+        "code": "Kodefil",
+        "document": "Dokument",
+        "file": "Fil",
+        "pdf": "PDF",
+        "spreadsheet": "Regneark",
+        "video": "Video"
+      },
+      "fileLink": {
+        "openFailed": "Kunne ikke åpne {filePath}"
+      },
+      "filePreview": {
+        "copy": "Kopier",
+        "save": "Lagre"
+      },
+      "generatedImage": {
+        "generating": "Genererer...",
+        "generatingImage": "Genererer bilde...",
+        "generationFailed": "Bildegenerering mislyktes",
+        "hostRequired": "Forhåndsvisning av bilder krever Electron-vertsmiljøet.",
+        "image": "Bilde",
+        "loadFailed": "Kunne ikke laste inn bildet",
+        "openInPanel": "Åpne i panel",
+        "stripLabel": "Genererte bilder"
+      },
+      "mapCard": {
+        "appleMapsLabel": "Åpne i Apple Kart",
+        "appleMapsTitle": "Åpne i Apple Kart for veibeskrivelse",
+        "frameTitle": "Kart: {title}",
+        "modeCycling": "Sykkel",
+        "modeDriving": "Bil",
+        "modeTransit": "Kollektiv",
+        "modeWalking": "Gå",
+        "placesCount": {
+          "one": "{count} sted",
+          "other": "{count} steder"
+        },
+        "previewFailed": "Kartforhåndsvisningen kunne ikke lastes inn."
+      },
+      "messageActions": {
+        "copied": "Kopiert",
+        "copy": "Kopier",
+        "readAloud": "Les opp",
+        "stopReading": "Stopp opplesing"
+      },
+      "messageRow": {
+        "attachmentAlt": "Vedlegg",
+        "attachmentFallback": "Vedlegg {index}",
+        "channelKind": {
+          "deleted": "slettet",
+          "edited": "redigert",
+          "message": "melding",
+          "reaction": "reaksjon",
+          "system": "system"
+        },
+        "clickToEnlarge": "Klikk for å forstørre {label}",
+        "pastedTextLabel": "Innlimt tekst",
+        "pastedTextTitle": "Innlimt tekst — {stats}",
+        "reactionsSummary": "Reaksjoner {reactions}",
+        "showMoreChips": "Vis {count} til",
+        "windowPreviewAlt": "Forhåndsvisning av vindusinnhold"
+      },
+      "miniModelPicker": {
+        "loading": "Laster…",
+        "modelUpdateFailed": "Kunne ikke oppdatere modellinnstillingen.",
+        "popoverLabel": "Modellvalg",
+        "reasoningEffortLabel": "Resonneringsnivå",
+        "reasoningUpdateFailed": "Kunne ikke oppdatere resonneringsnivået.",
+        "recent": "Nylige",
+        "triggerLabel": "Modell: {model}",
+        "unavailable": "Utilgjengelig",
+        "updateFailedTitle": "Kunne ikke oppdatere modellinnstillingene"
+      },
+      "modelMention": {
+        "enginesLabel": "Motorer",
+        "noMatch": "Ingen samsvarende motor"
+      },
+      "officePreview": {
+        "frameTitle": "Office-forhåndsvisning: {title}",
+        "preparingBody": "Stella klargjør en direkte forhåndsvisning av dette dokumentet.",
+        "sessionError": "Forhåndsvisningsøkten rapporterte en feil.",
+        "statusError": "Feil i forhåndsvisning",
+        "statusPreparing": "Klargjør forhåndsvisning",
+        "statusReady": "Direkte forhåndsvisning",
+        "statusStopped": "Forhåndsvisning stoppet",
+        "updatedAt": "Oppdatert {time}"
+      },
+      "openWith": {
+        "loading": "Laster…",
+        "otherWaysLabel": "Åpne på andre måter",
+        "otherWaysTitle": "Åpne på andre måter…",
+        "triggerLabel": "Åpne",
+        "triggerTitle": "Åpne med…"
+      },
+      "pdfViewer": {
+        "hostRequired": "PDF-viseren krever Electron-vertsmiljøet.",
+        "loadFailed": "Kunne ikke laste inn PDF.",
+        "loading": "Laster inn PDF…"
+      },
+      "queuedMessages": {
+        "cancel": "Avbryt melding i kø",
+        "cancelAndEdit": "Avbryt og rediger",
+        "cancelIndexed": "Avbryt melding i kø {index}",
+        "previewLabel": "{label}. Forhåndsvis meldinger i kø",
+        "queuedCount": {
+          "one": "{count} melding i kø",
+          "other": "{count} meldinger i kø"
+        }
+      },
+      "replyPeek": {
+        "dismiss": "Lukk forhåndsvisning",
+        "jumpToLatest": "Gå til siste svar"
+      },
+      "scheduleReceipt": {
+        "nextRun": "neste {nextRun}",
+        "scheduleCount": {
+          "one": "{count} planlegging",
+          "other": "{count} planlegginger"
+        }
+      },
+      "screenshotPreview": {
+        "alt": "Forhåndsvisning av skjermbilde {index}"
+      },
+      "timeline": {
+        "empty": "Start en samtale",
+        "loadingConversation": "Laster inn samtale"
+      },
+      "userMessage": {
+        "showLess": "Vis mindre",
+        "showMore": "Vis mer"
+      },
+      "voiceSession": {
+        "label": "Snakket med Stella"
+      },
+      "webSearchResults": {
+        "caption": "Resultater fra nettet",
+        "listLabel": "Nettsøkresultater"
+      }
+    },
+    "media": {
+      "capability": {
+        "audioGeneration": {
+          "description": "Tale, dialog, lydeffekter eller bakgrunnslyd fra tekst",
+          "name": "Lydgenerering"
+        },
+        "icon": {
+          "description": "Ikoner, logoer og miniatyrbilder fra en ledetekst",
+          "name": "Ikongenerator"
+        },
+        "imageEdit": {
+          "description": "Rediger et eksisterende bilde med tekstinstruksjoner",
+          "name": "Bilderedigering"
+        },
+        "imageToVideo": {
+          "description": "Animer et stillbilde til en kort video",
+          "name": "Bilde til video"
+        },
+        "speechToText": {
+          "description": "Transkriber tale til tekst",
+          "name": "Tale til tekst"
+        },
+        "textTo3d": {
+          "description": "Generer en 3D-modell fra en tekstledetekst",
+          "name": "Tekst til 3D"
+        },
+        "textToImage": {
+          "description": "Generer bilder fra en tekstledetekst",
+          "name": "Tekst til bilde"
+        },
+        "textToMusic": {
+          "description": "Generer et kort musikkklipp fra en ledetekst",
+          "name": "Tekst til musikk"
+        },
+        "textToVideo": {
+          "description": "Generer en kort video fra en tekstledetekst",
+          "name": "Tekst til video"
+        },
+        "videoExtend": {
+          "description": "Fortsett eller forleng et videoklipp",
+          "name": "Forleng video"
+        },
+        "videoToVideo": {
+          "description": "Transformer en video med tekstinstruksjoner",
+          "name": "Video til video"
+        }
+      },
+      "imageFailure": {
+        "blocked": "Bildeforespørselen ble blokkert",
+        "canceled": "Bildegenereringen ble avbrutt",
+        "generic": "Bildegenerering mislyktes",
+        "interrupted": "Bildegenereringen ble avbrutt",
+        "invalidRequest": "Bildeforespørselen var ugyldig",
+        "notConfigured": "Bildetjenesten er ikke konfigurert",
+        "resultUnreadable": "Bilderesultatet kunne ikke leses",
+        "serviceBusy": "Bildetjenesten er opptatt",
+        "temporaryError": "Bildetjenesten fikk en midlertidig feil",
+        "tookTooLong": "Bildegenereringen tok for lang tid",
+        "tookTooLongToStart": "Bildegenereringen brukte for lang tid på å starte"
+      },
+      "studio": {
+        "animate": "Animer",
+        "aspectRatio": "Sideforhold",
+        "category3d": "3D",
+        "categoryAudio": "Lyd",
+        "categoryImage": "Bilde",
+        "categoryMusic": "Musikk",
+        "categoryVideo": "Video",
+        "chooseDifferentFile": "Velg en annen fil",
+        "chooseFile": "Velg fil eller slipp hvor som helst",
+        "copy": "Kopier",
+        "dropFile": "Slipp fil",
+        "edit": "Rediger",
+        "emptyDescription": "Velg en funksjon og generer – eller slipp en fil hvor som helst for å komme i gang.",
+        "emptyTitle": "Din kreasjon",
+        "extendVideo": "Forleng video",
+        "fileReadFailed": "Kunne ikke lese filen",
+        "generate": "Generer",
+        "generatedAlt": "Generert {index}",
+        "generating": "Genererer…",
+        "generationFailed": "Generering mislyktes",
+        "lead": "Lag bilder, lyd, musikk, video og 3D.",
+        "openOutputsFolder": "Åpne utdatamappen",
+        "profileBest": "Best",
+        "profileFast": "Rask",
+        "prompt": "Ledetekst",
+        "promptPlaceholder": "Beskriv hva du ønsker deg…",
+        "quality": "Kvalitet",
+        "queued": "Venter i kø…",
+        "sourceAudio": "Lydfil",
+        "sourceFile": "Kildefil",
+        "sourceImage": "Kildebilde",
+        "sourceVideo": "Kildevideo",
+        "submitting": "Sender inn…",
+        "title": "Medier",
+        "transformVideo": "Transformer video"
+      }
+    }
+  },
+  "desktop": {
+    "common": {
+      "continue": "Fortsett"
+    },
+    "tray": {
+      "tooltip": "Stella",
+      "openStella": "Åpne Stella",
+      "quitStella": "Avslutt Stella",
+      "balloon": {
+        "title": "Stella kjører fortsatt",
+        "content": "Stella blir liggende i systemkurven. Klikk på ikonet for å åpne den igjen."
+      }
+    },
+    "dialog": {
+      "startupFailure": {
+        "title": "Stella",
+        "message": "Stella kunne ikke fullføre oppstarten.",
+        "detail": "Oppstarten mislyktes før appgrensesnittet kunne lastes inn.\n\n{detail}",
+        "relaunch": "Start på nytt",
+        "quit": "Avslutt"
+      }
+    },
+    "security": {
+      "confirmationTitle": "Sikkerhetsbekreftelse for Stella",
+      "allow": "Tillat",
+      "deny": "Avslå",
+      "rememberDecision": "Husk dette valget på denne enheten",
+      "computerUse": {
+        "message": "Tillate at maskinbruk bruker {app}?",
+        "detail": "Maskinbruk vil kunne se og samhandle med {app}.",
+        "risk": "Risiko: {risk}"
+      }
+    },
+    "oauth": {
+      "xaiCodeMessage": "Skriv inn denne koden for å koble til xAI",
+      "expectedValue": "Forventet verdi: {value}"
+    },
+    "fashion": {
+      "pickBodyPhotoTitle": "Velg bildet av deg selv",
+      "pickClothesTitle": "Velg bilder av klær",
+      "imageFilterName": "Bilde"
+    }
+  },
+  "features": {
+    "browserBridge": {
+      "unavailableTitle": "Nettleserutvidelsen er utilgjengelig",
+      "unavailableBody": "Stella kunne ikke koble til nettleseren din. Start appen på nytt eller installer Stella på nytt hvis dette fortsetter.",
+      "connectionLostTitle": "Mistet nettlesertilkoblingen",
+      "disconnected": "Stellas nettleserbro ble frakoblet.",
+      "retryDelay": {
+        "one": "Stella prøver igjen om omtrent {count} sekund.",
+        "other": "Stella prøver igjen om omtrent {count} sekunder."
+      }
+    },
+    "dictation": {
+      "cancel": "Avbryt diktering",
+      "stopAndTranscribe": "Stopp og transkriber",
+      "stopAndTranscribeLabel": "Stopp dikteringen og transkriber",
+      "stopTranscribeSend": "Stopp, transkriber og send",
+      "stopTranscribeSendLabel": "Stopp dikteringen, transkriber og send",
+      "localNotReadyTitle": "Lokal diktering er ikke klar",
+      "localNotReadyBody": "Last ned stemmefunksjonen for å diktere på denne enheten, eller logg på for å bruke transkripsjon i skyen.",
+      "signInTitle": "Logg på for å bruke diktering",
+      "signInBody": "Diktering krever at du er pålogget Stella når transkripsjon på enheten ikke er tilgjengelig. Logg på for å fortsette.",
+      "failedTitle": "Dikteringen fungerte ikke",
+      "failedBody": "Stella klarte ikke å transkribere det. Prøv igjen.",
+      "partialTitle": "Deler av dikteringen ble transkribert",
+      "partialBody": "Deler av opptaket kunne ikke transkriberes, så den innsatte teksten kan være ufullstendig."
+    },
+    "voice": {
+      "signInTitle": "Logg på for å bruke stemme",
+      "needsSetupTitle": "Stemme må settes opp"
+    },
+    "store": {
+      "sidePanel": {
+        "emptyState": "Når Stella har gjort en endring for deg, kan du dele den med venner, et fellesskap eller butikken herfra."
+      },
+      "recentChanges": {
+        "rowSelectHint": "Klikk for å ta med i delingen",
+        "rowDeselectHint": "Klikk for å fjerne fra utvalget",
+        "updated": "Oppdatert {time}",
+        "showOlder": "Vis eldre",
+        "justNow": "Akkurat nå",
+        "publishEmpty": "Velg endringer å dele",
+        "publishLabel": "Del · {countPhrase}",
+        "selectedCount": {
+          "one": "{count} valgt",
+          "other": "{count} valgt"
+        }
+      },
+      "shareCard": {
+        "eyebrow": "Stella-tillegg",
+        "unavailableName": "Tillegget er utilgjengelig",
+        "unavailableDesc": "Dette tillegget er privat eller ikke lenger publisert.",
+        "viewCta": "Vis →"
+      },
+      "creator": {
+        "loading": "Laster inn skaper…",
+        "notFoundTitle": "Fant ikke skaperen",
+        "notFoundBodyPrefix": "Ingen har tatt brukernavnet",
+        "notFoundBodySuffix": "ennå.",
+        "noAddons": "{username} har ikke delt noen tillegg ennå.",
+        "version": "Versjon {version}",
+        "addonCount": {
+          "zero": "Ingen tillegg ennå",
+          "one": "{count} tillegg",
+          "other": "{count} tillegg"
+        }
+      },
+      "categories": {
+        "appsGames": "Apper og spill",
+        "productivity": "Produktivitet",
+        "customization": "Tilpasning",
+        "skillsAgents": "Ferdigheter og agenter",
+        "integrations": "Integrasjoner",
+        "other": "Annet"
+      },
+      "shareDialog": {
+        "title": "Del",
+        "titleCircle": "Del med kretsen din",
+        "titleCircleUpdate": "Del en oppdatering",
+        "titleStore": "Del i Store",
+        "titleStoreUpdate": "Send inn en oppdatering",
+        "destinationLede": "Hvor skal dette? Deling sender kjørbar kode, så velg publikummet du faktisk mener.",
+        "circleOptionName": "En venn eller et fellesskap",
+        "circleOptionDesc": "Umiddelbart. Går rett til folk du stoler på som et delekort i chatten – ingen gjennomgang, aldri offentlig oppført.",
+        "storeOptionName": "Stella Store",
+        "storeOptionDesc": "Offentlig. Gjennomgås først av Stella-teamet, deretter tilgjengelig i Store for alle.",
+        "updateExisting": "Oppdater et eksisterende tillegg",
+        "existingAddon": "Eksisterende tillegg",
+        "selectPlaceholder": "Velg…",
+        "nameLabel": "Navn",
+        "namePlaceholder": "Eksempelmod",
+        "descriptionLabel": "Beskrivelse",
+        "optionalHint": "(valgfritt)",
+        "descriptionPlaceholderCircle": "En kort linje til delekortet.",
+        "descriptionPlaceholderStore": "En kort linje til oppføringen i Store.",
+        "categoryLabel": "Kategori",
+        "categoryPlaceholder": "Velg en kategori…",
+        "sendTo": "Send til",
+        "noRecipients": "Ingen venner eller fellesskap ennå – legg til noen fra Meldinger-siden først.",
+        "communityFallbackName": "Fellesskap",
+        "communityTag": "Fellesskap",
+        "circleNote": "Delinger dukker opp umiddelbart som et installerbart kort i hver chat. Bare de du velger (og alle i disse fellesskapene) kan hente det.",
+        "storeNote": "Stella-teamet går gjennom innsendinger til Store før de blir tilgjengelige for alle.",
+        "submitPending": "Deler…",
+        "submitCircle": "Del nå",
+        "submitStore": "Send inn til gjennomgang",
+        "noSourceChangesTitle": "Ingen kildeendringer",
+        "noSourceChangesBody": "Velg minst én nylig kildebasert endring først.",
+        "pickRecipientTitle": "Velg noen å dele med",
+        "pickRecipientBody": "Velg minst én venn eller ett fellesskap.",
+        "pickAddonTitle": "Velg et tillegg",
+        "pickAddonBody": "Velg tillegget du vil oppdatere.",
+        "nameRequiredTitle": "Navn kreves",
+        "nameRequiredBody": "Gi tillegget ditt et kort navn før du deler.",
+        "badNameTitle": "Velg et annet navn",
+        "badNameBody": "Bruk bokstaver eller tall i navnet så vi kan lage en ID.",
+        "publishBackendMissing": "Publiseringstjenesten er ikke tilgjengelig.",
+        "sharingTitle": "Deler",
+        "submittingTitle": "Sender inn",
+        "inProgressBody": "Stella gir deg beskjed når det er ferdig.",
+        "submittedTitle": "Sendt inn til gjennomgang",
+        "submittedBody": "{name} ble sendt til Stella-teamet. Det blir tilgjengelig i Store når det er godkjent.",
+        "sharedTitle": "Delt",
+        "shareFailedTitle": "Deling mislyktes",
+        "submissionFailedTitle": "Innsending mislyktes",
+        "sharedBodyDelivered": {
+          "one": "{name} er på vei til {count} chat.",
+          "other": "{name} er på vei til {count} chatter."
+        },
+        "sharedBodyPartial": {
+          "one": "{name} nådde {delivered} av {count} chat. Åpne Meldinger for å prøve resten på nytt.",
+          "other": "{name} nådde {delivered} av {count} chatter. Åpne Meldinger for å prøve resten på nytt."
+        }
+      }
+    }
+  },
+  "ui": {
+    "imageLightbox": {
+      "title": "Forhåndsvisning av bilde",
+      "close": "Lukk forhåndsvisning"
+    }
+  },
+  "shell": {
+    "agentProgress": {
+      "recentAgentMessages": "Nylige agentmeldinger",
+      "recentProgress": "Nylig fremdrift"
+    },
+    "audioPlayer": {
+      "pause": "Pause",
+      "play": "Spill av",
+      "seek": "Spol"
+    },
+    "capture": {
+      "failedTitle": "Klarte ikke å ta det opp",
+      "failedDescription": "Noe gikk galt under skjermbildetakingen. Prøv igjen."
+    },
+    "chatSidebar": {
+      "add": "Legg til",
+      "dictationError": "Diktering: {error}",
+      "stop": "Stopp"
+    },
+    "displayPanel": {
+      "closePanel": "Lukk panel",
+      "openPanel": "Åpne panel"
+    },
+    "rightSidebar": {
+      "workspace": "Arbeidsområde",
+      "resize": "Endre størrelse på visningspanelet",
+      "resizeHint": "Dra for å endre størrelse · dobbeltklikk for å tilbakestille"
+    },
+    "windowControls": {
+      "minimize": "Minimer",
+      "restore": "Gjenopprett",
+      "maximize": "Maksimer"
+    },
+    "workspace": {
+      "activity": "Aktivitet",
+      "viewFiles": {
+        "one": "Vis {count} fil",
+        "other": "Vis {count} filer"
+      }
+    },
+    "updatePill": {
+      "update": "Oppdater",
+      "updateFallback": "oppdatering",
+      "availableFallback": "tilgjengelig",
+      "downloading": "Laster ned {percent} %",
+      "restartToUpdate": "Start på nytt for å oppdatere",
+      "retryUpdate": "Prøv oppdatering igjen",
+      "restartTitle": "Start Stella på nytt og installer versjon {version}",
+      "retryTitle": "Prøv oppdateringssjekken for skrivebordet igjen",
+      "downloadTitle": "Last ned Stella {version}",
+      "toasts": {
+        "downloadedTitle": "Oppdatering lastet ned",
+        "downloadedDescription": "Start Stella på nytt for å installere versjon {version}.",
+        "checkingTitle": "Ser etter oppdateringer",
+        "checkingDescription": "Stella sjekker den isolerte desktop v2-kanalen.",
+        "failedTitle": "Skrivebordsoppdatering mislyktes"
+      }
+    },
+    "display": {
+      "homeLauncher": {
+        "files": {
+          "label": "Filer",
+          "description": "Sider, bilder, video og dokumenter"
+        },
+        "store": {
+          "label": "Store",
+          "description": "Tillegg og ting du har laget"
+        },
+        "trash": {
+          "label": "Papirkurv",
+          "description": "Ting du nylig har slettet"
+        }
+      },
+      "trash": {
+        "title": "Papirkurv",
+        "empty": "Ingenting her akkurat nå.",
+        "refresh": "Oppdater",
+        "emptying": "Tømmer…",
+        "emptyTrash": "Tøm papirkurven",
+        "trashedAgo": "Kastet for {time} siden",
+        "pendingPurge": "Venter på sletting",
+        "autoDeletesIn": "Slettes automatisk om {time}",
+        "deleting": "Sletter…",
+        "deleteNow": "Slett nå",
+        "itemsAutoDeleted": {
+          "one": "{count} element — slettes automatisk om 24 timer.",
+          "other": "{count} elementer — slettes automatisk om 24 timer."
+        }
+      },
+      "canvasShare": {
+        "share": "Del",
+        "links": "Lenker",
+        "sharedLinks": "Delte lenker",
+        "publishing": "Publiserer canvas…",
+        "publishFailed": "Kunne ikke publisere dette canvaset. Prøv igjen.",
+        "live": "Canvaset er live",
+        "publicLink": "Offentlig canvas-lenke",
+        "copyLink": "Kopier lenke",
+        "revoke": "Opphev deling",
+        "expires": "Utløper {date}",
+        "shared": "Delt {date}",
+        "sharedWithExpiry": "Delt {shared} · utløper {expires}",
+        "loadFailed": "Kunne ikke laste inn delingene dine.",
+        "empty": "Ingen aktive delinger ennå. Publiser et canvas for å få en offentlig lenke.",
+        "untitled": "Canvas uten navn",
+        "toasts": {
+          "linkCopied": "Delingslenke kopiert",
+          "copyFailed": "Kunne ikke kopiere lenken",
+          "revoked": "Deling opphevet",
+          "revokeFailed": "Kunne ikke oppheve denne delingen"
+        }
+      },
+      "canvas": {
+        "loadFailed": "Kunne ikke laste inn dette canvaset.",
+        "loading": "Laster inn"
+      },
+      "media": {
+        "save": "Lagre",
+        "saved": "Lagret",
+        "saveFailed": "Kunne ikke lagre",
+        "copy": "Kopier",
+        "copied": "Kopiert",
+        "copyFailed": "Kunne ikke kopiere",
+        "delete": "Slett",
+        "deleteConfirm": "Klikk igjen for å slette",
+        "itemActions": "Elementhandlinger"
+      },
+      "url": {
+        "eyebrow": "Direkte forhåndsvisning",
+        "reload": "Last inn på nytt",
+        "openInBrowser": "Åpne i nettleser"
+      },
+      "office": {
+        "preparing": "Klargjør forhåndsvisning...",
+        "kind": {
+          "spreadsheet": "Regneark",
+          "presentation": "Presentasjon",
+          "document": "Dokument"
+        },
+        "sheetCount": {
+          "one": "{count} ark",
+          "other": "{count} ark"
+        },
+        "slideCount": {
+          "one": "{count} lysbilde",
+          "other": "{count} lysbilder"
+        },
+        "loadFailed": "Kunne ikke laste inn denne forhåndsvisningen",
+        "sessionError": "Forhåndsvisningsøkten meldte om en feil.",
+        "zoomAriaLabel": "Zoom i forhåndsvisning",
+        "revealInFinder": "Vis i Finder",
+        "livePreview": "Direkte forhåndsvisning",
+        "frameTitle": "{kind}-forhåndsvisning: {title}"
+      },
+      "filePreview": {
+        "save": "Lagre",
+        "copy": "Kopier",
+        "loading": "Laster inn..."
+      },
+      "spreadsheet": {
+        "eyebrow": "Regneark",
+        "desktopRequired": "Forhåndsvisning av regneark krever Stella-skrivebordsappen.",
+        "noRows": "Fant ingen rader.",
+        "column": "Kolonne {index}"
+      },
+      "markdown": {
+        "eyebrow": "Markdown",
+        "desktopRequired": "Forhåndsvisning av Markdown krever Stella-skrivebordsappen.",
+        "noContent": "Fant ikke noe innhold."
+      },
+      "diff": {
+        "changes": "Endringer",
+        "codeChanges": "Kodeendringer",
+        "noChanges": "Fant ingen endringer.",
+        "desktopRequired": "Forhåndsvisning av kode krever Stella-skrivebordsappen.",
+        "empty": "Ingen filendringer ennå. Når en agent endrer kode, vises endringene her."
+      },
+      "agentThread": {
+        "role": {
+          "user": "Instruksjon",
+          "assistant": "Agent",
+          "lifecycle": "Aktivitet"
+        },
+        "status": {
+          "running": "Jobber",
+          "completed": "Fullført",
+          "error": "Mislyktes",
+          "canceled": "Stoppet"
+        },
+        "newMessages": {
+          "one": "{count} ny melding.",
+          "other": "{count} nye meldinger."
+        },
+        "newMessagesWithPreview": "{countPhrase} Siste {role}: {preview}",
+        "unavailable": "Historikken for agenttråden er ikke tilgjengelig.",
+        "loadFailed": "Kunne ikke laste inn denne tråden.",
+        "showingNewest": "Viser den nyeste meldingen.",
+        "claudeAriaLabel": "Skrivebeskyttet samtale med Claude-underagent",
+        "claudeBadge": "Skrivebeskyttet Claude-underagent",
+        "badge": "Skrivebeskyttet agenttråd",
+        "retrying": "Prøver igjen…",
+        "empty": "Ingen meldinger i denne tråden ennå.",
+        "newMessagesButton": {
+          "one": "{count} ny melding",
+          "other": "{count} nye meldinger"
+        },
+        "showNewMessagesAria": "Vis {countPhrase}"
+      }
+    },
+    "sidebar": {
+      "account": {
+        "planAriaLabel": "{name}, {plan}-plan",
+        "signOutTitle": "Logge av Stella?",
+        "signOutDescription": "Er du sikker?"
+      },
+      "nav": {
+        "apps": "Apper",
+        "unreadTitle": "{label} ({count} uleste)",
+        "unreadAriaLabel": "{label}, {count} uleste"
+      },
+      "feedback": {
+        "title": {
+          "manual": "Send tilbakemelding",
+          "auto": "Hvordan går det med Stella?"
+        },
+        "description": {
+          "manual": "Meldingen din sendes anonymt – den knyttes ikke til kontoen din.",
+          "auto": "Er det noe vi bør vite? Sendes anonymt – ikke knyttet til kontoen din."
+        },
+        "notNow": "Ikke nå",
+        "fieldLabel": "Tilbakemelding",
+        "placeholder": "Fortell oss hva som fungerer, hva som ikke gjør det, eller hva du gjerne vil se…",
+        "send": "Send",
+        "sending": "Sender…",
+        "toasts": {
+          "sentTitle": "Tilbakemelding sendt",
+          "sentDescription": "Takk – hver eneste tilbakemelding hjelper oss å forme Stella.",
+          "failedTitle": "Kunne ikke sende tilbakemelding"
+        }
+      }
+    },
+    "topbar": {
+      "conversation": {
+        "newChat": "Ny samtale",
+        "home": "Hjem",
+        "history": "Samtalehistorikk",
+        "historyEmpty": "Ingen samtaler ennå",
+        "historyRetry": "Kunne ikke laste inn samtaler. Prøv igjen",
+        "openConversations": "Åpne samtaler",
+        "openConversation": "Åpne {title}",
+        "closeConversation": "Lukk {title}",
+        "delete": "Slett {title}",
+        "deleteConfirm": "Klikk igjen for å bekrefte",
+        "deleteConfirmFor": "Klikk igjen for å slette {title}",
+        "deleteFailed": "Kunne ikke slette denne samtalen",
+        "deleteFailedFor": "Kunne ikke slette {title}"
+      }
+    }
+  },
+  "global": {
+    "auth": {
+      "welcomeTitle": "Velkommen til Stella",
+      "welcomeDescription": "Logg på med e-posten din for å begynne å bruke Stella.",
+      "welcomeSub": "Bruk Google eller e-posten din for å logge på. Ingen passord nødvendig.",
+      "orUseEmail": "eller bruk e-post",
+      "emailLabel": "E-post",
+      "emailPlaceholder": "deg@eksempel.no",
+      "sending": "Sender...",
+      "signingIn": "Logger på...",
+      "sendSignInEmail": "Send påloggingse-post",
+      "checkInbox": "Sjekk innboksen din for påloggingslenken.",
+      "magicLinkSentDesktop": "Vi sendte en påloggingslenke. Åpne den på denne enheten for å fullføre.",
+      "openInbox": "Åpne {provider}",
+      "resendIn": "Send på nytt om {seconds} s",
+      "resendEmail": "Send e-posten på nytt",
+      "skipForNow": "Hopp over for nå",
+      "enterEmail": "Skriv inn en e-postadresse.",
+      "sendFailed": "Kunne ikke sende påloggingse-post.",
+      "magicLinkFailed": "Kunne ikke sende magisk lenke.",
+      "finishFailed": "Kunne ikke fullføre påloggingen. Prøv igjen.",
+      "signInIncomplete": "Påloggingen ble ikke fullført. Prøv igjen.",
+      "signInLinkExpired": "Påloggingslenken er utløpt. Prøv igjen.",
+      "tooManyRequests": {
+        "one": "For mange forespørsler. Prøv igjen om {count} sekund.",
+        "other": "For mange forespørsler. Prøv igjen om {count} sekunder."
+      },
+      "googleContinue": "Fortsett med Google",
+      "googleWaiting": "Venter på Google...",
+      "googleStartFailed": "Google-pålogging kunne ikke starte.",
+      "googleNoSession": "Google-pålogging ble fullført uten en økt.",
+      "googleExpired": "Google-påloggingen er utløpt. Prøv igjen.",
+      "googleTimedOut": "Google-påloggingen fikk tidsavbrudd. Prøv igjen.",
+      "nicknameTitle": "Hva skal jeg kalle deg?",
+      "nicknameDescription": "Velg et navn Stella kan bruke i hele appen.",
+      "nicknameLabel": "Kallenavn",
+      "nicknamePlaceholder": "Kallenavnet ditt",
+      "notNow": "Ikke nå"
+    },
+    "legal": {
+      "terms": {
+        "title": "Vilkår for bruk",
+        "subtitle": "Hvordan Stella fungerer, og hva du godtar når du bruker den."
+      },
+      "privacy": {
+        "title": "Personvernerklæring",
+        "subtitle": "Hva vi samler inn, hva vi ikke samler inn, og hvordan vi tar vare på det."
+      }
+    },
+    "integrations": {
+      "heroTagline": "Send meldinger til Stella fra hvilken plattform du vil – prat naturlig, eller be henne få ting gjort rett på datamaskinen din.",
+      "signInToConnect": "Logg på Stella for å koble til",
+      "connectStellaApp": "Koble til Stella-appen",
+      "sectionTitle": "Integrasjoner",
+      "connectTitle": "Koble til",
+      "backToConnections": "Tilbake til tilkoblinger",
+      "connected": "Tilkoblet",
+      "connectProvider": "Koble til {provider}",
+      "openProvider": "Åpne {provider}",
+      "listeningOn": "Stella lytter på {provider}. Send henne en melding der når som helst.",
+      "disconnect": "Koble fra",
+      "disconnecting": "Kobler fra...",
+      "disconnected": "Koblet fra {provider}",
+      "disconnectFailed": "Kunne ikke koble fra {provider}",
+      "codeCopied": "Koden er kopiert til utklippstavlen",
+      "generateCodeFailed": "Kunne ikke generere kode",
+      "slackInstallUrlFailed": "Kunne ikke klargjøre installasjons-URL for Slack",
+      "signInHeadline": "Logg på for å komme i gang",
+      "signInSub": "Logg på Stella-kontoen din for å koble til {provider}.",
+      "providers": {
+        "linq": {
+          "name": "Send SMS til Stella",
+          "instructions": "Skriv inn telefonnummeret ditt, så sender vi deg en kode på SMS for å koble til. Når det er koblet, kan du sende meldinger til Stella når som helst via iMessage eller SMS."
+        },
+        "discord": {
+          "name": "Discord",
+          "instructions": "Installer Stella-appen på Discord-kontoen din, kjør /link med koden én gang, og send deretter DM til @Stella som vanlig."
+        },
+        "slack": {
+          "name": "Slack",
+          "instructions": "Installer Stella-appen i arbeidsområdet ditt, og send deretter DM til @Stella med koden nedenfor."
+        },
+        "telegram": {
+          "name": "Telegram",
+          "instructions": "Åpne @StellaAppBot i Telegram, og send den koden nedenfor."
+        }
+      },
+      "linq": {
+        "countryCode": "Landkode",
+        "phonePlaceholder": "(555) 123-4567",
+        "sending": "Sender...",
+        "sendCode": "Send kode",
+        "sendCodeFailed": "Kunne ikke sende kode. Sjekk nummeret og prøv igjen.",
+        "enterCodeTitle": "Skriv inn koden din",
+        "enterCodeSub": "Sjekk telefonen din – vi sendte en sekssifret kode til {phone}.",
+        "codePlaceholder": "ABC123",
+        "verify": "Bekreft",
+        "verifying": "Bekrefter...",
+        "verifyCodeFailed": "Kunne ikke bekrefte koden.",
+        "connected": "Tilkoblet! Nå kan du sende SMS til Stella.",
+        "invalidCode": "Ugyldig eller utløpt kode. Prøv å sende en ny.",
+        "genericError": "Noe gikk galt. Prøv igjen.",
+        "useDifferentNumber": "Bruk et annet nummer"
+      },
+      "credential": {
+        "title": "Koble til {provider}",
+        "description": "Stella trenger API-nøkkelen din for {provider} for å koble til. Lim den inn nedenfor. Den blir værende på datamaskinen din.",
+        "defaultLabel": "{provider}-nøkkel",
+        "apiKeyLabel": "API-nøkkel",
+        "apiKeyRequired": "API-nøkkel er påkrevd.",
+        "keyPlaceholder": "Lim inn nøkkelen din",
+        "labelLabel": "Etikett",
+        "labelDescription": "Et gjenkjennelig navn så du finner nøkkelen igjen senere.",
+        "saving": "Lagrer...",
+        "saveKey": "Lagre nøkkel",
+        "saveFailed": "Kunne ikke lagre legitimasjonen."
+      }
+    },
+    "schedule": {
+      "dialogTitle": "Tidsplan",
+      "untitledTask": "Planlagt oppgave",
+      "checkIn": "Innsjekk",
+      "paused": "Satt på pause",
+      "pause": "Sett på pause",
+      "pausing": "Setter på pause…",
+      "resume": "Fortsett",
+      "resuming": "Fortsetter…",
+      "runNow": "Kjør nå",
+      "running": "Kjører…",
+      "delete": "Slett",
+      "removing": "Fjerner…",
+      "actionFailed": "Handlingen mislyktes.",
+      "missing": "Denne tidsplanen finnes ikke lenger.",
+      "scheduleCount": {
+        "one": "{count} tidsplan",
+        "other": "{count} tidsplaner"
+      }
+    },
+    "social": {
+      "dialogDescription": "Bekreft denne invitasjonen før noe skjer.",
+      "signInToAccept": "Logg på Stella for å godta denne invitasjonen.",
+      "lookingUpInvite": "Slår opp invitasjonen…",
+      "stellaAddOn": "Stella-tillegg",
+      "stellaUser": "Stella-bruker",
+      "byAuthor": " · av @{username}",
+      "alreadyIn": " · du er allerede med",
+      "membersLabel": "medlemmer",
+      "memberCount": {
+        "one": "{count} medlem",
+        "other": "{count} medlemmer"
+      },
+      "working": "Jobber…",
+      "alreadyJoined": "Allerede blitt med",
+      "welcomeToCommunity": "Velkommen til {community}!",
+      "joinedCommunity": "Du ble med i fellesskapet!",
+      "friendRequestSent": "Venneforespørsel sendt til @{username}.",
+      "joinFailed": "Kunne ikke bli med i det fellesskapet. Invitasjonen kan ha utløpt.",
+      "friendRequestFailed": "Kunne ikke sende den venneforespørselen. Prøv igjen.",
+      "store": {
+        "title": "Åpne tillegg",
+        "confirmLabel": "Vis i Store",
+        "sub": "En lenke du åpnet peker på et Stella-tillegg. Ingenting installeres. Dette åpner bare Store-siden for tillegget.",
+        "missing": "Dette tillegget er privat eller ikke lenger publisert."
+      },
+      "join": {
+        "title": "Bli med i fellesskap",
+        "confirmLabel": "Bli med",
+        "sub": "Du ble invitert til et fellesskap: en betrodd krets der medlemmene deler tillegg med hverandre.",
+        "missing": "Fant ingen fellesskap for denne invitasjonskoden. Be om en ny lenke."
+      },
+      "friend": {
+        "title": "Legg til venn",
+        "confirmLabel": "Send venneforespørsel",
+        "sub": "Du ble invitert til å koble deg til på Stella.",
+        "missing": "Fant ingen bruker for denne invitasjonslenken."
+      }
+    },
+    "websiteView": {
+      "storeTitle": "Store"
+    }
+  },
+  "mobile": {
+    "common": {
+      "back": "Tilbake",
+      "backChevron": "‹ Tilbake",
+      "cancel": "Avbryt",
+      "continue": "Fortsett",
+      "delete": "Slett",
+      "done": "Ferdig",
+      "goBack": "Gå tilbake",
+      "somethingWentWrong": "Noe gikk galt.",
+      "tryAgain": "Prøv igjen"
+    },
+    "boot": {
+      "crashTitle": "Noe gikk galt ved oppstart",
+      "missingConfigTitle": "Legg til miljøvariabler for mobil",
+      "missingConfigBody": "Angi EXPO_PUBLIC_CONVEX_URL og eventuelt EXPO_PUBLIC_CONVEX_SITE_URL før du starter appen.",
+      "checkingSessionTitle": "Sjekker økten din",
+      "checkingSessionBody": "Vent litt mens Stella våkner."
+    },
+    "authCallback": {
+      "failedTitle": "Kunne ikke logge deg inn",
+      "invalidLink": "Ugyldig innloggingslenke.",
+      "linkExpired": "Denne innloggingslenken er utløpt. Be om en ny.",
+      "genericFailure": "Vi kunne ikke logge deg inn nå. Prøv igjen.",
+      "backToSignIn": "Tilbake til innlogging",
+      "signingInTitle": "Logger deg inn",
+      "signingInBody": "Et øyeblikk..."
+    },
+    "nav": {
+      "chat": "Chat",
+      "computer": "Datamaskin",
+      "settings": "Innstillinger",
+      "openLabel": "Åpne navigasjon",
+      "closeLabel": "Lukk navigasjon"
+    },
+    "search": {
+      "placeholder": "Søk i meldinger",
+      "openLabel": "Søk i meldinger",
+      "clearLabel": "Tøm søket",
+      "cancelLabel": "Avbryt søket"
+    },
+    "onboarding": {
+      "skip": "Hopp over",
+      "skipLabel": "Hopp over introduksjonen",
+      "welcomeTitle": "Møt Stella",
+      "welcomeBody": "Spør om hva som helst, snakk gjennom ting eller gi fra deg ekte arbeid — Stella svarer her og kan handle på datamaskinen din.",
+      "themeTitle": "Gjør den til din",
+      "themeBody": "Velg et tema. Du kan endre det når som helst i Innstillinger.",
+      "connectTitle": "Datamaskinen din, overalt",
+      "connectBodyGuest": "Logg inn senere for å koble Stella til datamaskinen din — da kan du be telefonen surfe på nettet, håndtere filer og kjøre oppgaver hjemme.",
+      "connectBodyPaired": "Koble til Stella-skrivebordsappen én gang, så kan telefonen din be den surfe på nettet, håndtere filer og kjøre oppgaver — selv fra andre siden av byen.",
+      "pairComputer": "Koble til datamaskinen min",
+      "startChatting": "Begynn å chatte"
+    },
+    "login": {
+      "heroTitle": "Assistenten din,\ni lommeformat.",
+      "heroBody": "Bruk Apple, Google eller e-postadressen du bruker på datamaskinen.",
+      "continueWithApple": "Fortsett med Apple",
+      "openingApple": "Åpner Apple...",
+      "continueWithGoogle": "Fortsett med Google",
+      "openingGoogle": "Åpner Google...",
+      "orUseEmail": "eller bruk e-post",
+      "emailPlaceholder": "E-post",
+      "sending": "Sender...",
+      "signingIn": "Logger inn...",
+      "checkInbox": "Sjekk innboksen og trykk på lenken — du blir logget inn automatisk.",
+      "useDifferentEmail": "Bruk en annen e-postadresse",
+      "resend": "Send på nytt",
+      "resendLabel": "Send innloggings-e-posten på nytt",
+      "enterEmail": "Skriv inn e-postadressen din.",
+      "sendFailed": "Kunne ikke sende innloggings-e-post.",
+      "googleStartFailed": "Google-innlogging kunne ikke starte.",
+      "appleStartFailed": "Apple-innlogging kunne ikke starte.",
+      "appleCompleteFailed": "Apple-innlogging kunne ikke fullføres.",
+      "appleNoToken": "Apple returnerte ikke et identitetstoken.",
+      "finishFailed": "Kunne ikke fullføre innloggingen. Prøv igjen.",
+      "incomplete": "Innloggingen ble ikke fullført. Prøv igjen.",
+      "linkExpired": "Lenken er utløpt. Prøv igjen.",
+      "legalPrefix": "Ved å fortsette godtar du våre ",
+      "legalTerms": "Vilkår",
+      "legalConjunction": " og ",
+      "legalPrivacy": "Personvernerklæring",
+      "legalSuffix": ".",
+      "continueAsGuest": "Fortsett uten å logge inn"
+    },
+    "chat": {
+      "emptyPrompt": "Spør Stella om hva som helst",
+      "composerPlaceholder": "Skriv til Stella"
+    },
+    "computer": {
+      "guestHeroTitle": "Datamaskinen din, rett ved hånden",
+      "guestHeroBody": "Be Stella gjøre ting på datamaskinen din — surfe på nettet, håndtere filer, kjøre oppgaver og mer.",
+      "pairFirstTitle": "Koble til telefonen først",
+      "pairFirstBody": "Koble denne telefonen til Stella på datamaskinen, så kan du chatte med den hvor som helst. Du trenger bare å gjøre det én gang.",
+      "pairPhone": "Koble til telefon",
+      "pairThisPhoneLabel": "Koble til denne telefonen",
+      "emptyPrompt": "Spør datamaskinen din om hva som helst",
+      "composerPlaceholder": "Skriv til datamaskinen din",
+      "defaultDeviceLabel": "Datamaskinen din",
+      "statusChecking": "Sjekker…",
+      "statusWaking": "Vekker…",
+      "statusConnected": "Tilkoblet",
+      "statusAsleep": "Sover",
+      "connectingLabel": "Kobler til datamaskinen din",
+      "connectedLabel": "Datamaskin tilkoblet",
+      "disconnectedLabel": "Datamaskin frakoblet",
+      "unreachableTitle": "Får ikke kontakt med datamaskinen",
+      "unreachableBody": "Datamaskinen din er ikke tilgjengelig nå. En vekkeforespørsel er sendt — prøv igjen om noen sekunder.",
+      "syncWaitingTitle": "Synkronisering venter",
+      "syncWaitingBody": "En melding sendes fortsatt. Synkroniseringen kjøres så snart den er ferdig.",
+      "syncFailedTitle": "Synkroniseringen mislyktes",
+      "syncFailedBody": "Datamaskinen din sluttet å svare under synkroniseringen. Prøv igjen."
+    },
+    "desktop": {
+      "pairTitle": "Koble til telefonen din",
+      "guestBody": "Se Stella-skrivebordsappen rett på telefonen. Etter tilkoblingen kobler telefonen seg til automatisk.",
+      "guestSignInPrompt": "Logg inn for å komme i gang.",
+      "connecting": "Kobler til skrivebordet",
+      "pairing": "Kobler til denne telefonen",
+      "unreachable": "Får ikke kontakt med skrivebordet",
+      "deviceUnreachable": "Får ikke kontakt med {platform}",
+      "repairNeeded": "Denne telefonen må kobles til datamaskinen din på nytt.",
+      "enterCode": "Skriv inn koden som vises på datamaskinen.",
+      "linkInterrupted": "Forbindelsen til datamaskinen ble brutt.",
+      "unavailableBodyPaired": "Sørg for at Stella er åpen på datamaskinen og koblet til internett. Når den er tilkoblet, vises skrivebordsappen rett her på telefonen.",
+      "unavailableBodyUnpaired": "Se Stella-skrivebordsappen rett på telefonen. Skann QR-koden som vises i Stella på datamaskinen for å komme i gang — deretter kobler telefonen seg til automatisk.",
+      "pairAnother": "Koble til en annen datamaskin",
+      "startPairingLabel": "Start tilkobling av en datamaskin",
+      "retryLabel": "Prøv å koble til igjen",
+      "reconnecting": "Kobler til igjen...",
+      "limitedCapabilities": "Noe krever datamaskinen din"
+    },
+    "settings": {
+      "title": "Innstillinger",
+      "loadingSession": "Laster økt…",
+      "signIn": "Logg inn",
+      "signInTitle": "Logg inn på Stella",
+      "showEmailLabel": "Vis e-post",
+      "hideEmailLabel": "Skjul e-post",
+      "appearanceSection": "Utseende",
+      "appearance": {
+        "system": "System",
+        "light": "Lyst",
+        "dark": "Mørkt"
+      },
+      "background": {
+        "soft": "Mykt",
+        "flat": "Flatt"
+      },
+      "useAppearanceLabel": "Bruk utseendet {name}",
+      "useBackgroundLabel": "Bruk bakgrunnen {name}",
+      "useThemeLabel": "Bruk temaet {name}",
+      "notificationsSection": "Varsler",
+      "pushToggleLabel": "Tillat push-varsler",
+      "pushToggleSub": "Få varsel når datamaskinen din fullfører en forespørsel.",
+      "pushToggleA11y": "Slå push-varsler av eller på",
+      "voiceSection": "Snakk med Stella",
+      "voiceSectionHint": "Hvor håndfri tale (som CarPlay) sender meldingene dine. Auto velger chatten på datamaskinen din når det var der du slapp og den er tilgjengelig — ellers chatten på denne telefonen.",
+      "voiceTarget": {
+        "auto": "Auto",
+        "phone": "Telefon",
+        "computer": "Datamaskin"
+      },
+      "voiceTargetLabel": "Send talemeldinger til {name}",
+      "pairedSection": "Tilkoblede datamaskiner",
+      "pairedEmpty": "Ingen datamaskiner er koblet til ennå. Koble til fra Datamaskin-fanen.",
+      "pairedOn": "Tilkoblet {date}",
+      "paired": {
+        "unnamedComputer": "Datamaskin · {id}"
+      },
+      "forget": "Glem",
+      "forgetLabel": "Glem {name}",
+      "forgetConfirmTitle": "Glemme {name}?",
+      "forgetConfirmBody": "Denne telefonen vil slutte å koble seg til den datamaskinen til du kobler den til på nytt.",
+      "carPlayDiagnostics": "CarPlay-diagnostikk",
+      "openCarPlayDiagnosticsLabel": "Åpne CarPlay-diagnostikk",
+      "termsOfService": "Vilkår for bruk",
+      "openTermsLabel": "Åpne Vilkår for bruk",
+      "privacyPolicy": "Personvernerklæring",
+      "openPrivacyLabel": "Åpne personvernerklæringen",
+      "signOut": "Logg ut",
+      "signingOut": "Logger ut…",
+      "signOutLabel": "Logg ut av Stella",
+      "deleteAccount": "Slett konto",
+      "deletingAccount": "Sletter kontoen…",
+      "deleteAccountLabel": "Slett Stella-kontoen din",
+      "deleteConfirmTitle": "Slett konto",
+      "deleteConfirmBody": "Dette sletter Stella-kontoen din permanent og fjerner skydata knyttet til den på serverne våre. Dette kan ikke angres.",
+      "deleteFailedTitle": "Kunne ikke slette kontoen"
+    },
+    "carPlayDiagnostics": {
+      "title": "CarPlay-diagnostikk",
+      "subtitle": {
+        "one": "Spor fra CarPlay-tilkoblingen ({count} linje, nyeste først). Kopier og send disse hvis noe oppfører seg rart i bilen.",
+        "other": "Spor fra CarPlay-tilkoblingen ({count} linjer, nyeste først). Kopier og send disse hvis noe oppfører seg rart i bilen."
+      },
+      "copyAll": "Kopier alt",
+      "copyAllLabel": "Kopier all diagnostikk",
+      "copied": "Kopiert ✓",
+      "refresh": "Oppdater",
+      "refreshLabel": "Oppdater diagnostikken",
+      "clear": "Tøm",
+      "clearLabel": "Tøm diagnostikken",
+      "empty": "Ingen CarPlay-diagnostikk er registrert ennå. Koble til CarPlay én gang, og kom tilbake hit.",
+      "clipboardEmpty": "(ingen CarPlay-diagnostikk registrert)"
+    }
   }
 }

@@ -14,6 +14,7 @@ import { IntegrationGridCard, IntegrationDetailArea } from "./IntegrationCard";
 import { PhoneAccessConnectCard } from "@/global/settings/PhoneAccessCard";
 import { ConnectHeroAnimation } from "./ConnectHeroAnimation";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
+import { useT } from "@/shared/i18n";
 import "./ConnectDialog.css";
 
 interface ConnectDialogProps {
@@ -34,6 +35,7 @@ const ConnectSurfaceBody = ({
   selectedProvider,
   onSelectedProviderChange,
 }: ConnectSurfaceBodyProps) => {
+  const t = useT();
   const navigate = useNavigate();
   const { hasConnectedAccount } = useAuthSessionState();
   const isSignedIn = hasConnectedAccount;
@@ -69,8 +71,7 @@ const ConnectSurfaceBody = ({
       {!hasSelection && (
         <div className="connect-hero-section">
           <p className="connect-hero-tagline">
-            Message Stella from any platform you like — chat naturally, or ask
-            it to get things done right on your computer.
+            {t("global.integrations.heroTagline")}
           </p>
           <ConnectHeroAnimation />
           {!isSignedIn && (
@@ -79,7 +80,7 @@ const ConnectSurfaceBody = ({
               className="pill-btn pill-btn--primary connect-signin-pill"
               onClick={handleSignIn}
             >
-              Sign in to Stella to connect
+              {t("global.integrations.signInToConnect")}
             </button>
           )}
         </div>
@@ -103,10 +104,12 @@ const ConnectSurfaceBody = ({
             >
               <span className="connect-grid-card-icon">{PHONE_ICON}</span>
               <span className="connect-grid-card-name">
-                Connect to Stella App
+                {t("global.integrations.connectStellaApp")}
               </span>
             </button>
-            <p className="connect-section-title">Integrations</p>
+            <p className="connect-section-title">
+              {t("global.integrations.sectionTitle")}
+            </p>
             <div className="connect-grid">
               {allIntegrations.map((integration) => (
                 <IntegrationGridCard
@@ -126,6 +129,7 @@ const ConnectSurfaceBody = ({
 };
 
 export const ConnectPanel = () => {
+  const t = useT();
   const [selectedProvider, setSelectedProvider] = useState<string | undefined>(
     undefined,
   );
@@ -147,15 +151,17 @@ export const ConnectPanel = () => {
             type="button"
             className="connect-back-button"
             onClick={() => setSelectedProvider(undefined)}
-            aria-label="Back to connections"
-            title="Back to connections"
+            aria-label={t("global.integrations.backToConnections")}
+            title={t("global.integrations.backToConnections")}
           >
             <ArrowLeft size={16} />
           </button>
           <span className="connect-panel__detail-title">
             {isPhoneSelected
-              ? "Connect to Stella App"
-              : selectedIntegration?.displayName}
+              ? t("global.integrations.connectStellaApp")
+              : selectedIntegration
+                ? t(selectedIntegration.displayNameKey)
+                : undefined}
           </span>
         </header>
       ) : null}
@@ -170,6 +176,7 @@ export const ConnectPanel = () => {
 };
 
 export const ConnectDialog = ({ open, onOpenChange }: ConnectDialogProps) => {
+  const t = useT();
   const [selectedProvider, setSelectedProvider] = useState<string | undefined>(
     undefined,
   );
@@ -207,10 +214,10 @@ export const ConnectDialog = ({ open, onOpenChange }: ConnectDialogProps) => {
           ) : null}
           <DialogTitle>
             {isPhoneSelected
-              ? "Connect to Stella App"
+              ? t("global.integrations.connectStellaApp")
               : selectedIntegration
-                ? selectedIntegration.displayName
-                : "Connect"}
+                ? t(selectedIntegration.displayNameKey)
+                : t("global.integrations.connectTitle")}
           </DialogTitle>
           <DialogCloseButton />
         </DialogHeader>

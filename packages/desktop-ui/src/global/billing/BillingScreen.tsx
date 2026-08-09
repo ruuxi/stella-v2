@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/api";
+// Imported from the module rather than the `@/shared/i18n` barrel on
+// purpose: the barrel re-exports `RemoteI18nProvider`, which pulls in
+// `convex/react` and the auth provider. This component only needs the
+// active locale string, and the deep import keeps that dependency out.
+import { useLocale } from "@/shared/i18n/I18nProvider";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import "./BillingScreen.css";
@@ -109,35 +114,47 @@ const getPlanFeatures = (plan: BillingPlan): readonly string[] => {
   return features;
 };
 
-const currencyFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
-
-const usdFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "long",
-  day: "numeric",
-  year: "numeric",
-});
+/**
+ * Amounts are denominated in USD regardless of where the user is —
+ * that's a billing fact, not a display choice — but the *presentation*
+ * (digit grouping, decimal separator, symbol placement, calendar order)
+ * belongs to the reader's locale. So the currency stays "USD" while the
+ * formatter's locale tracks the active UI language: a German user sees
+ * `1.234,56 $` and `5. Januar 2026`, not `$1,234.56` and `January 5, 2026`.
+ */
+const useBillingFormatters = (locale: string) =>
+  useMemo(
+    () => ({
+      /** Whole-dollar plan prices. */
+      currency: new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      }),
+      /** Cent-precise balances and usage meters. */
+      usd: new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+      date: new Intl.DateTimeFormat(locale, {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      }),
+      percent: new Intl.NumberFormat(locale, {
+        style: "percent",
+        maximumFractionDigits: 0,
+      }),
+    }),
+    [locale],
+  );
 
 const toUsagePercent = (usedUsd: number, limitUsd: number) => {
   if (!Number.isFinite(limitUsd) || limitUsd <= 0) return 0;
   if (!Number.isFinite(usedUsd) || usedUsd <= 0) return 0;
   return Math.min(100, Math.max(0, (usedUsd / limitUsd) * 100));
-};
-
-const formatUsagePercent = (usedUsd: number, limitUsd: number) => {
-  const pct = toUsagePercent(usedUsd, limitUsd);
-  if (pct > 0 && pct < 1) return "<1%";
-  return `${Math.round(pct)}%`;
 };
 
 const getErrorMessage = (error: unknown, fallback: string) =>
@@ -175,6 +192,23 @@ const openSignInDialog = () => {
 
 export function BillingPanel() {
   const { hasConnectedAccount } = useAuthSessionState();
+  const locale = useLocale();
+  const formatters = useBillingFormatters(locale);
+
+  const formatUsagePercent = useCallback(
+    (usedUsd: number, limitUsd: number) => {
+      // Intl percent formatting takes a fraction, not 0-100.
+      const fraction = toUsagePercent(usedUsd, limitUsd) / 100;
+      // Any nonzero usage should read as "some", never as a rounded-down
+      // 0%. `<` is a math symbol, so it needs no translation and the bidi
+      // algorithm places it correctly under `dir="rtl"`.
+      if (fraction > 0 && fraction < 0.01) {
+        return `<${formatters.percent.format(0.01)}`;
+      }
+      return formatters.percent.format(fraction);
+    },
+    [formatters],
+  );
 
   // Bucketed clock for usage-window recomputation: refreshing every 60s
   // keeps the query cache stable between ticks (see getSubscriptionStatus).
@@ -311,13 +345,13 @@ export function BillingPanel() {
       if (amountCents < creditOptions.minAmountCents) {
         return {
           amountCents,
-          error: `Minimum is ${usdFormatter.format(creditOptions.minAmountCents / 100)}.`,
+          error: `Minimum is ${formatters.usd.format(creditOptions.minAmountCents / 100)}.`,
         };
       }
       if (amountCents > creditOptions.maxAmountCents) {
         return {
           amountCents,
-          error: `Maximum is ${usdFormatter.format(creditOptions.maxAmountCents / 100)}.`,
+          error: `Maximum is ${formatters.usd.format(creditOptions.maxAmountCents / 100)}.`,
         };
       }
       return { amountCents, error: null };
@@ -414,8 +448,8 @@ export function BillingPanel() {
     : "Next renewal";
   const renewalDetail = billingStatus?.currentPeriodEnd
     ? billingStatus.cancelAtPeriodEnd
-      ? `Access ends ${dateFormatter.format(new Date(billingStatus.currentPeriodEnd))}`
-      : `Renews ${dateFormatter.format(new Date(billingStatus.currentPeriodEnd))}`
+      ? `Access ends ${formatters.date.format(new Date(billingStatus.currentPeriodEnd))}`
+      : `Renews ${formatters.date.format(new Date(billingStatus.currentPeriodEnd))}`
     : "Managed by Stripe";
 
   return (
@@ -458,7 +492,7 @@ export function BillingPanel() {
               <div
                 key={meter.key}
                 className="billing-meter"
-                title={`${usdFormatter.format(meter.usedUsd)} of ${usdFormatter.format(meter.limitUsd)}`}
+                title={`${formatters.usd.format(meter.usedUsd)} of ${formatters.usd.format(meter.limitUsd)}`}
               >
                 <div className="billing-meter-label">
                   <span>{meter.label}</span>
@@ -551,11 +585,11 @@ export function BillingPanel() {
                 {introCents !== null ? (
                   <>
                     <strong>
-                      {currencyFormatter.format(introCents / 100)}
+                      {formatters.currency.format(introCents / 100)}
                     </strong>
                     <span> first month, then </span>
                     <strong>
-                      {currencyFormatter.format(
+                      {formatters.currency.format(
                         display.monthlyPriceCents / 100,
                       )}
                     </strong>
@@ -566,7 +600,7 @@ export function BillingPanel() {
                 ) : (
                   <>
                     <strong>
-                      {currencyFormatter.format(
+                      {formatters.currency.format(
                         display.monthlyPriceCents / 100,
                       )}
                     </strong>
@@ -608,7 +642,7 @@ export function BillingPanel() {
             <div className="billing-credit-balance">
               <span className="billing-label">Available</span>
               <span className="billing-credit-balance-value">
-                {usdFormatter.format(creditStatus.balanceUsd)}
+                {formatters.usd.format(creditStatus.balanceUsd)}
               </span>
             </div>
           ) : null}
@@ -633,7 +667,7 @@ export function BillingPanel() {
                   onClick={() => handleSelectCreditPreset(amountCents)}
                   disabled={startingCredit}
                 >
-                  {currencyFormatter.format(amountCents / 100)}
+                  {formatters.currency.format(amountCents / 100)}
                 </button>
               );
             })}

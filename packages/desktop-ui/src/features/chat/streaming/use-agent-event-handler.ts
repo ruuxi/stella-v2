@@ -218,6 +218,8 @@ export function useAgentEventHandler({
         (event.agentType ?? AGENT_IDS.ORCHESTRATOR) === AGENT_IDS.ORCHESTRATOR
       const activeRunForConversation =
         activeRunIdByConversationRef.current[conversationId] ?? null
+      const isActiveConversation =
+        conversationId === activeConversationIdRef.current
       const isPrimaryRun =
         Boolean(activeRunForConversation) &&
         activeRunForConversation === event.runId
@@ -337,10 +339,12 @@ export function useAgentEventHandler({
               conversationId,
               requestId: event.requestId,
             })
-            beginStreamingRun({
-              runId: event.runId,
-              userMessageId: event.userMessageId ?? null,
-            })
+            if (isActiveConversation) {
+              beginStreamingRun({
+                runId: event.runId,
+                userMessageId: event.userMessageId ?? null,
+              })
+            }
           }
           dispatch({
             type: 'run-status',
@@ -350,6 +354,7 @@ export function useAgentEventHandler({
           if (
             (isPrimaryRun || isReactivation) &&
             isOrchestratorEvent &&
+            isActiveConversation &&
             event.chunk
           ) {
             acceptStreamChunk({

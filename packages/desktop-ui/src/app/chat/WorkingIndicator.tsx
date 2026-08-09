@@ -1,6 +1,6 @@
 import { useWindowFocus } from "@/shared/hooks/use-window-focus";
 import { cn } from "@/shared/lib/utils";
-import { StellaAnimation } from "@/shell/ascii-creature/StellaAnimation";
+import { StellaAnimation } from "@/shell/aurora/StellaAnimation";
 import { SwapText } from "./SwapText";
 import { CHAT_ACTIVITY_SHIMMER_GROUP } from "./TextShimmer";
 import {
@@ -50,11 +50,16 @@ export function WorkingIndicator({
     <div className={cn("working-indicator", className)}>
       <div className="indicator-stella">
         <div className="indicator-stella-scale">
+          {/* 20×14.3 cells × the 5×7px cell metric → a square 250×250
+              canvas, which .indicator-stella-scale shrinks to exactly the
+              30px slot. The canvas must never overflow the slot: ancestor
+              containers in the chat layout clip overflow with hard edges. */}
           <StellaAnimation
             width={20}
-            height={20}
+            height={14.3}
             maxDpr={1}
             maxFps={15}
+            timeScale={2.2}
             paused={animationPaused}
             requireWindowFocus
           />

@@ -1,39 +1,39 @@
 import { initRenderer } from "./renderer";
 import {
-  resolveCreatureSpec,
-  type CreatureSpec,
-  type CreatureSpecOptions,
-} from "./creature-spec";
+  resolveAuroraSpec,
+  type AuroraSpec,
+  type AuroraSpecOptions,
+} from "./aurora-spec";
 
 /**
- * Persistent pool of WebGL creature renderers.
+ * Persistent pool of WebGL aurora renderers.
  *
  * Creating a renderer is expensive and synchronous on the main thread:
  * `getContext('webgl')` allocates a GPU context and `createProgram`
- * compiles + links the (large) creature shaders — profiled at ~16-20ms per
- * mount on an M4 (ANGLE/Metal), and ~200ms the very first time. The chat
- * working indicator mounts/unmounts that on every single message send, so
- * the cost lands as a dropped frame exactly when the indicator appears.
+ * compiles + links the shaders — profiled at ~16-20ms per mount on an M4
+ * (ANGLE/Metal), and ~200ms the very first time. The chat working
+ * indicator mounts/unmounts that on every single message send, so the
+ * cost lands as a dropped frame exactly when the indicator appears.
  *
  * This pool keeps the canvas + GL context + compiled program alive across
- * React mount/unmount cycles, keyed by `CreatureSpec.key` (font metrics +
- * backing size + grid). `StellaAnimation` borrows an entry on mount and
- * returns it on unmount instead of tearing the context down, so every
- * appearance after the first is effectively free. The component's
- * lifecycle, visuals, and animation are unchanged — only the GL spin-up is
+ * React mount/unmount cycles, keyed by `AuroraSpec.key` (cell metrics +
+ * backing size). `StellaAnimation` borrows an entry on mount and returns
+ * it on unmount instead of tearing the context down, so every appearance
+ * after the first is effectively free. The component's lifecycle,
+ * visuals, and animation are unchanged — only the GL spin-up is
  * amortized.
  */
 type GlRenderer = NonNullable<ReturnType<typeof initRenderer>>;
 
-export type PooledCreatureRenderer = {
+export type PooledAuroraRenderer = {
   key: string;
   canvas: HTMLCanvasElement;
   renderer: GlRenderer;
 };
 
-const idleByKey = new Map<string, PooledCreatureRenderer[]>();
+const idleByKey = new Map<string, PooledAuroraRenderer[]>();
 /** Keep at most this many warm renderers per key (covers a couple of
- *  surfaces showing the same-size creature at once). */
+ *  surfaces showing the same-size aurora at once). */
 const MAX_IDLE_PER_KEY = 2;
 
 /** Neutral colors for a pre-warmed renderer; real colors are applied via
@@ -47,7 +47,7 @@ function isContextLost(canvas: HTMLCanvasElement): boolean {
   return !gl || gl.isContextLost();
 }
 
-function disposeEntry(entry: PooledCreatureRenderer): void {
+function disposeEntry(entry: PooledAuroraRenderer): void {
   entry.renderer.destroy();
   (entry.canvas.getContext("webgl") as WebGLRenderingContext | null)
     ?.getExtension("WEBGL_lose_context")
@@ -55,26 +55,18 @@ function disposeEntry(entry: PooledCreatureRenderer): void {
 }
 
 function createEntry(
-  spec: CreatureSpec,
+  spec: AuroraSpec,
   colors: Float32Array,
   birth: number,
   flash: number,
-): PooledCreatureRenderer | null {
+): PooledAuroraRenderer | null {
   const canvas = document.createElement("canvas");
-  canvas.className = "ascii-canvas";
+  canvas.className = "aurora-canvas";
   canvas.style.width = `${spec.cssWidth}px`;
   canvas.style.height = `${spec.cssHeight}px`;
   canvas.width = spec.backingWidth;
   canvas.height = spec.backingHeight;
-  const renderer = initRenderer(
-    canvas,
-    spec.glyphAtlas,
-    spec.gridWidth,
-    spec.gridHeight,
-    colors,
-    birth,
-    flash,
-  );
+  const renderer = initRenderer(canvas, colors, birth, flash, spec.variant);
   if (!renderer) return null;
   return { key: spec.key, canvas, renderer };
 }
@@ -82,14 +74,14 @@ function createEntry(
 /**
  * Borrow a warm renderer for `spec` (reusing a pooled one when available,
  * else creating it). The caller owns attaching `entry.canvas` into the DOM
- * and must hand the entry back to `releaseCreatureRenderer` on unmount.
+ * and must hand the entry back to `releaseAuroraRenderer` on unmount.
  */
-export function acquireCreatureRenderer(
-  spec: CreatureSpec,
+export function acquireAuroraRenderer(
+  spec: AuroraSpec,
   colors: Float32Array,
   birth: number,
   flash: number,
-): PooledCreatureRenderer | null {
+): PooledAuroraRenderer | null {
   const pool = idleByKey.get(spec.key);
   while (pool && pool.length > 0) {
     const entry = pool.pop()!;
@@ -106,7 +98,7 @@ export function acquireCreatureRenderer(
 /** Return a renderer to the pool (warm) instead of destroying its GL
  *  context. Detaches the canvas; over the per-key cap the entry is fully
  *  disposed so idle GPU memory stays bounded. */
-export function releaseCreatureRenderer(entry: PooledCreatureRenderer): void {
+export function releaseAuroraRenderer(entry: PooledAuroraRenderer): void {
   entry.canvas.parentNode?.removeChild(entry.canvas);
   if (isContextLost(entry.canvas)) {
     entry.renderer.destroy();
@@ -123,7 +115,7 @@ export function releaseCreatureRenderer(entry: PooledCreatureRenderer): void {
 
 /** Create one warm renderer for `spec` ahead of first use (no-op if one is
  *  already pooled). */
-export function prewarmCreatureRenderer(spec: CreatureSpec): void {
+export function prewarmAuroraRenderer(spec: AuroraSpec): void {
   const existing = idleByKey.get(spec.key);
   if (existing && existing.length > 0) return;
   const entry = createEntry(spec, PREWARM_COLORS, 1, 0);
@@ -134,13 +126,13 @@ export function prewarmCreatureRenderer(spec: CreatureSpec): void {
 }
 
 /**
- * Best-effort idle pre-warm: measure the creature geometry for `options`
+ * Best-effort idle pre-warm: measure the aurora geometry for `options`
  * against a throwaway hidden container and build one pooled renderer, so
  * the first real mount (e.g. the working indicator on the first message
  * send) reuses it instead of paying the cold ~200ms GL spin-up on the
  * main thread. Safe to call repeatedly; never throws into the caller.
  */
-export function prewarmCreature(options: CreatureSpecOptions): void {
+export function prewarmAurora(options: AuroraSpecOptions): void {
   if (typeof document === "undefined" || !document.body) return;
   let container: HTMLDivElement | null = null;
   try {
@@ -150,8 +142,8 @@ export function prewarmCreature(options: CreatureSpecOptions): void {
     container.style.cssText =
       "position:absolute;left:-9999px;top:0;width:24px;height:24px;visibility:hidden;pointer-events:none";
     document.body.appendChild(container);
-    const spec = resolveCreatureSpec(container, options);
-    if (spec) prewarmCreatureRenderer(spec);
+    const spec = resolveAuroraSpec(container, options);
+    if (spec) prewarmAuroraRenderer(spec);
   } catch {
     // Pre-warming is a pure optimization — swallow any failure.
   } finally {

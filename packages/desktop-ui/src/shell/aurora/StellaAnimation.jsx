@@ -1,27 +1,22 @@
 import React, { useEffect, useImperativeHandle, useRef } from "react";
 import "./StellaAnimation.css";
-import { BIRTH_DURATION, FLASH_DURATION, parseColor } from "./glyph-atlas";
-import { resolveCreatureSpec } from "./creature-spec";
 import {
-  acquireCreatureRenderer,
-  releaseCreatureRenderer,
-} from "./renderer-pool";
+  BIRTH_DURATION,
+  FLASH_DURATION,
+  parseColor,
+  resolveAuroraSpec,
+} from "./aurora-spec";
+import { acquireAuroraRenderer, releaseAuroraRenderer } from "./renderer-pool";
 import { computeAnalyserEnergy } from "@/features/voice/services/audio-energy";
 import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
-import {
-  createDemandDrivenAnimationLoop,
-  type DemandDrivenAnimationLoop,
-} from "@/shared/lib/demand-driven-animation-loop";
-
+import { createDemandDrivenAnimationLoop } from "@/shared/lib/demand-driven-animation-loop";
 /** Reusable buffer for frequency data — avoids per-frame allocation. */
-let energyBuffer: Uint8Array | null = null;
-
-function computeEnergy(analyser: AnalyserNode): number {
+let energyBuffer = null;
+function computeEnergy(analyser) {
   const result = computeAnalyserEnergy(analyser, energyBuffer);
   energyBuffer = result.buffer;
   return result.energy;
 }
-
 const NOISE_FLOOR_FAST_RATE = 0.1;
 const NOISE_FLOOR_SLOW_RATE = 0.005;
 const NOISE_FLOOR_SPEECH_RATIO = 3;
@@ -34,38 +29,7 @@ const VOICE_ENERGY_ATTACK_RATE = 0.24;
 const VOICE_ENERGY_RELEASE_RATE = 0.08;
 /** Shader time units per second — 2x the original 0.008-per-frame-at-60fps rate. */
 const TIME_RATE = 0.96;
-
-export interface StellaAnimationHandle {
-  triggerFlash: () => void;
-  startBirth: () => void;
-  reset: (value?: number) => void;
-}
-
-export type VoiceMode = "idle" | "listening" | "speaking";
-
-interface StellaAnimationProps {
-  width?: number;
-  height?: number;
-  initialBirthProgress?: number;
-  paused?: boolean;
-  maxDpr?: number;
-  frameSkip?: number;
-  maxFps?: number;
-  requireWindowFocus?: boolean;
-  voiceMode?: VoiceMode;
-  isUserSpeaking?: boolean;
-  analyserRef?: React.RefObject<AnalyserNode | null>;
-  outputAnalyserRef?: React.RefObject<AnalyserNode | null>;
-  micLevel?: number;
-  outputLevel?: number;
-  micLevelRef?: React.RefObject<number | undefined>;
-  outputLevelRef?: React.RefObject<number | undefined>;
-}
-
-export const StellaAnimation = React.forwardRef<
-  StellaAnimationHandle,
-  StellaAnimationProps
->(
+export const StellaAnimation = React.forwardRef(
   (
     {
       width = 80,
@@ -76,6 +40,8 @@ export const StellaAnimation = React.forwardRef<
       frameSkip = 0,
       maxFps,
       requireWindowFocus = false,
+      timeScale = 1,
+      variant = "orb",
       voiceMode = "idle",
       isUserSpeaking = false,
       analyserRef: externalAnalyserRef,
@@ -87,48 +53,41 @@ export const StellaAnimation = React.forwardRef<
     },
     ref,
   ) => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const darkRef = useRef<HTMLSpanElement>(null);
-    const mediumDarkRef = useRef<HTMLSpanElement>(null);
-    const mediumRef = useRef<HTMLSpanElement>(null);
-    const brightRef = useRef<HTMLSpanElement>(null);
-    const brightestRef = useRef<HTMLSpanElement>(null);
+    const containerRef = useRef(null);
+    const stop1Ref = useRef(null);
+    const stop2Ref = useRef(null);
+    const stop3Ref = useRef(null);
+    const stop4Ref = useRef(null);
+    const stop5Ref = useRef(null);
     const animationGateOpen = useContinuousAnimationGate({
       active: !paused,
       elementRef: containerRef,
       requireWindowFocus,
     });
     const effectivePaused = paused || !animationGateOpen;
-    const loopRef = useRef<DemandDrivenAnimationLoop | null>(null);
-    const renderStaticRef = useRef<(() => void) | null>(null);
+    const loopRef = useRef(null);
+    const renderStaticRef = useRef(null);
     const pausedRef = useRef(effectivePaused);
-    const timeRef = useRef<number>(0);
-    const lastFrameTimeRef = useRef<number>(0);
-    const birthRef = useRef<number>(initialBirthProgress);
-    const flashRef = useRef<number>(0);
-    const birthAnimationRef = useRef<{
-      startTime: number;
-      startValue: number;
-      duration: number;
-    } | null>(null);
-    const flashAnimationRef = useRef<{
-      startTime: number;
-      duration: number;
-    } | null>(null);
+    const timeRef = useRef(0);
+    const lastFrameTimeRef = useRef(0);
+    const birthRef = useRef(initialBirthProgress);
+    const flashRef = useRef(0);
+    const birthAnimationRef = useRef(null);
+    const flashAnimationRef = useRef(null);
     const listeningRef = useRef(0);
     const speakingRef = useRef(0);
     const voiceEnergyRef = useRef(0);
     const noiseFloorRef = useRef(0);
-    const voiceModeRef = useRef<VoiceMode>(voiceMode);
+    const voiceModeRef = useRef(voiceMode);
     const isUserSpeakingRef = useRef(isUserSpeaking);
-    const externalMicLevelValueRef = useRef<number | undefined>(
-      externalMicLevel,
-    );
-    const externalOutputLevelValueRef = useRef<number | undefined>(
-      externalOutputLevel,
-    );
+    const externalMicLevelValueRef = useRef(externalMicLevel);
+    const externalOutputLevelValueRef = useRef(externalOutputLevel);
+    // Read via ref inside the frame loop so changing it never re-acquires
+    // the pooled renderer. Surfaces that render the aurora very small (the
+    // chat working indicator) raise it — the noise drift that carries the
+    // motion at full size is sub-pixel when miniaturized.
+    const timeScaleRef = useRef(timeScale);
     const resolvedMaxFps = maxFps ?? 60 / (Math.max(0, frameSkip) + 1);
-
     useImperativeHandle(
       ref,
       () => ({
@@ -156,29 +115,26 @@ export const StellaAnimation = React.forwardRef<
       }),
       [initialBirthProgress],
     );
-
     useEffect(() => {
       if (!birthAnimationRef.current) {
         birthRef.current = initialBirthProgress;
       }
     }, [initialBirthProgress]);
-
+    useEffect(() => {
+      timeScaleRef.current = timeScale;
+    }, [timeScale]);
     useEffect(() => {
       voiceModeRef.current = voiceMode;
     }, [voiceMode]);
-
     useEffect(() => {
       isUserSpeakingRef.current = isUserSpeaking;
     }, [isUserSpeaking]);
-
     useEffect(() => {
       externalMicLevelValueRef.current = externalMicLevel;
     }, [externalMicLevel]);
-
     useEffect(() => {
       externalOutputLevelValueRef.current = externalOutputLevel;
     }, [externalOutputLevel]);
-
     useEffect(() => {
       pausedRef.current = effectivePaused;
       if (effectivePaused) {
@@ -189,33 +145,33 @@ export const StellaAnimation = React.forwardRef<
       }
       loopRef.current?.start();
     }, [effectivePaused]);
-
     useEffect(() => {
       const container = containerRef.current;
       if (!container) return;
-
       const readColors = () => {
         const swatches = [
-          darkRef.current,
-          mediumDarkRef.current,
-          mediumRef.current,
-          brightRef.current,
-          brightestRef.current,
+          stop1Ref.current,
+          stop2Ref.current,
+          stop3Ref.current,
+          stop4Ref.current,
+          stop5Ref.current,
         ];
         const parsed = swatches.map((el) =>
           parseColor(getComputedStyle(el || container).color),
         );
         return new Float32Array(parsed.flat());
       };
-
-      const spec = resolveCreatureSpec(container, { width, height, maxDpr });
-      if (!spec) return;
-
+      const spec = resolveAuroraSpec(container, {
+        width,
+        height,
+        maxDpr,
+        variant,
+      });
       // Borrow a warm GL context + compiled program from the pool (or create
       // one on the very first appearance for this size). This is what keeps
       // every subsequent mount — i.e. every message send's working
       // indicator — off the ~16-20ms main-thread GL spin-up.
-      const pooled = acquireCreatureRenderer(
+      const pooled = acquireAuroraRenderer(
         spec,
         readColors(),
         birthRef.current,
@@ -224,8 +180,7 @@ export const StellaAnimation = React.forwardRef<
       if (!pooled) return;
       container.appendChild(pooled.canvas);
       const mainRenderer = pooled.renderer;
-
-      const animate = (now: number) => {
+      const animate = (now) => {
         if (pausedRef.current) {
           lastFrameTimeRef.current = 0;
           return;
@@ -235,8 +190,7 @@ export const StellaAnimation = React.forwardRef<
             ? Math.min(now - lastFrameTimeRef.current, 100)
             : 16.667;
         lastFrameTimeRef.current = now;
-        timeRef.current += (dt / 1000) * TIME_RATE;
-
+        timeRef.current += (dt / 1000) * TIME_RATE * timeScaleRef.current;
         const birthAnimation = birthAnimationRef.current;
         if (birthAnimation) {
           const elapsed = now - birthAnimation.startTime;
@@ -246,7 +200,6 @@ export const StellaAnimation = React.forwardRef<
             birthAnimation.startValue + (1 - birthAnimation.startValue) * eased;
           if (t >= 1) birthAnimationRef.current = null;
         }
-
         const flashAnimation = flashAnimationRef.current;
         if (flashAnimation) {
           const elapsed = now - flashAnimation.startTime;
@@ -257,7 +210,6 @@ export const StellaAnimation = React.forwardRef<
             flashAnimationRef.current = null;
           }
         }
-
         // Read analyser refs directly from props (stable ref objects, .current changes)
         const outputAnalyser = externalOutputAnalyserRef?.current ?? null;
         const micAnalyser = externalAnalyserRef?.current ?? null;
@@ -279,9 +231,7 @@ export const StellaAnimation = React.forwardRef<
               : micAnalyser
                 ? computeEnergy(micAnalyser)
                 : 0;
-
         const isVoiceActive = voiceModeRef.current !== "idle";
-
         // Adaptive noise floor: tracks ambient mic level so the listening
         // animation only triggers on actual speech, not background noise.
         if (!isVoiceActive) {
@@ -305,7 +255,6 @@ export const StellaAnimation = React.forwardRef<
           noiseFloorRef.current * NOISE_FLOOR_SPEECH_RATIO,
           NOISE_FLOOR_MIN_THRESHOLD,
         );
-
         // Prefer voiceMode prop (driven by server events) for speaking detection;
         // fall back to energy threshold for non-RTC or when voiceMode is "listening".
         const isSpeakingNow =
@@ -315,7 +264,6 @@ export const StellaAnimation = React.forwardRef<
           isVoiceActive &&
           !isSpeakingNow &&
           (isUserSpeakingRef.current || micEnergy > speechThreshold);
-
         // Smoothly interpolate listening/speaking (0→1)
         const targetListening = isListeningNow ? 1 : 0;
         const targetSpeaking = isSpeakingNow ? 1 : 0;
@@ -331,7 +279,6 @@ export const StellaAnimation = React.forwardRef<
           (targetListening - listeningRef.current) * listeningLerp;
         speakingRef.current +=
           (targetSpeaking - speakingRef.current) * speakingLerp;
-
         // Voice energy: use output energy when speaking, mic energy when listening
         const rawEnergy = isSpeakingNow
           ? Math.min(outputEnergy * 2.5, 1)
@@ -342,16 +289,14 @@ export const StellaAnimation = React.forwardRef<
             : VOICE_ENERGY_RELEASE_RATE;
         voiceEnergyRef.current +=
           (rawEnergy - voiceEnergyRef.current) * energyRate;
-
         // Snap tiny residuals to 0 so the shader's `> 0.01` short-circuits
-        // skip the squeezed/expanded computePhases work entirely.
+        // skip the listening/speaking overlay work entirely.
         if (targetListening === 0 && listeningRef.current < 0.005)
           listeningRef.current = 0;
         if (targetSpeaking === 0 && speakingRef.current < 0.005)
           speakingRef.current = 0;
         if (rawEnergy === 0 && voiceEnergyRef.current < 0.005)
           voiceEnergyRef.current = 0;
-
         mainRenderer.render(
           timeRef.current,
           birthRef.current,
@@ -361,7 +306,6 @@ export const StellaAnimation = React.forwardRef<
           voiceEnergyRef.current,
         );
       };
-
       const renderStatic = () =>
         mainRenderer.render(
           timeRef.current,
@@ -382,7 +326,6 @@ export const StellaAnimation = React.forwardRef<
       if (!pausedRef.current) {
         loop.start();
       }
-
       const observer = new MutationObserver(() => {
         mainRenderer.setColors(readColors());
       });
@@ -390,7 +333,6 @@ export const StellaAnimation = React.forwardRef<
         attributes: true,
         attributeFilter: ["class", "style", "data-theme"],
       });
-
       return () => {
         loop.stop();
         if (loopRef.current === loop) loopRef.current = null;
@@ -401,7 +343,7 @@ export const StellaAnimation = React.forwardRef<
         // Hand the GL context back to the pool (kept warm) rather than
         // tearing it down — the next mount reuses it instead of re-spinning
         // a context + recompiling shaders.
-        releaseCreatureRenderer(pooled);
+        releaseAuroraRenderer(pooled);
       };
     }, [
       width,
@@ -413,8 +355,8 @@ export const StellaAnimation = React.forwardRef<
       maxDpr,
       requireWindowFocus,
       resolvedMaxFps,
+      variant,
     ]);
-
     return (
       <div
         ref={containerRef}
@@ -425,28 +367,28 @@ export const StellaAnimation = React.forwardRef<
         }
       >
         <span
-          ref={darkRef}
-          className="ascii-color-swatch char-dark"
+          ref={stop1Ref}
+          className="aurora-color-swatch aurora-stop-1"
           aria-hidden="true"
         />
         <span
-          ref={mediumDarkRef}
-          className="ascii-color-swatch char-medium-dark"
+          ref={stop2Ref}
+          className="aurora-color-swatch aurora-stop-2"
           aria-hidden="true"
         />
         <span
-          ref={mediumRef}
-          className="ascii-color-swatch char-medium"
+          ref={stop3Ref}
+          className="aurora-color-swatch aurora-stop-3"
           aria-hidden="true"
         />
         <span
-          ref={brightRef}
-          className="ascii-color-swatch char-bright"
+          ref={stop4Ref}
+          className="aurora-color-swatch aurora-stop-4"
           aria-hidden="true"
         />
         <span
-          ref={brightestRef}
-          className="ascii-color-swatch char-brightest"
+          ref={stop5Ref}
+          className="aurora-color-swatch aurora-stop-5"
           aria-hidden="true"
         />
       </div>

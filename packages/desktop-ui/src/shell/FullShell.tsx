@@ -20,7 +20,7 @@ import "./full-shell.layout.css";
 import "./mobile.css";
 
 /* Onboarding is loaded as a dynamic chunk that contains the whole flow:
- * every phase component, the StellaAnimation creature, the legal dialog,
+ * every phase component, the StellaAnimation aurora, the legal dialog,
  * and all onboarding CSS.
  *
  * Returning users (`appReady === true` at first paint) never fetch this
@@ -93,16 +93,14 @@ function OnboardingExperience({
     [onboarding],
   );
 
-  // Once the split flow starts, the creature is decorative beside controls.
-  // Leave its last frame visible but stop the continuous WebGL loop so form
-  // interactions and demos always own the renderer thread. Hidden phases
-  // are paused as well through `stellaHiddenByPhase`.
-  const stellaPausedBySplitPhase = onboarding.splitMode;
-
+  // Once the split flow starts, the aurora is decorative beside controls.
+  // Keep it alive — a frozen aurora frame reads as a rendering glitch, unlike
+  // the old dot creature — but OnboardingOverlay drops its frame budget in
+  // split mode (and pauses it entirely on low-power machines) so form
+  // interactions and demos still own the renderer thread. Hidden phases
+  // are paused through `stellaHiddenByPhase`.
   const pauseStellaAnimation =
-    onboarding.onboardingExiting ||
-    stellaHiddenByPhase ||
-    stellaPausedBySplitPhase;
+    onboarding.onboardingExiting || stellaHiddenByPhase;
 
   useEffect(() => {
     if (!onboarding.onboardingDone) return;

@@ -185,20 +185,24 @@
   }
 }
 
-/* Inline Stella — compact circle */
+/* Inline Stella — an unclipped aurora wisp. The old circular
+   overflow-crop turned the animation into a filled disc; now the orb
+   shader's own noise-carved silhouette is the indicator's shape. The
+   square 250px canvas (see WorkingIndicator) is scaled to sit exactly
+   inside the 30px slot — chat-layout ancestors clip overflow with hard
+   edges, so the canvas must never extend past the slot; the shader's own
+   frame fade keeps the wisp's fringes soft at the canvas bounds. */
 .indicator-stella {
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   position: relative;
-  overflow: hidden;
-  border-radius: 50%;
 }
 
 .indicator-stella-scale {
   width: 200%;
   height: 200%;
-  transform: scale(0.2);
+  transform: scale(0.12);
   transform-origin: center center;
   display: flex;
   align-items: center;

@@ -10,13 +10,18 @@ import { fileChange } from "@stella/contracts/file-changes";
 import {
   expandHomePath,
   readFileSafe,
-  formatWithLineNumbers,
   detectLineEnding,
   fuzzyFindText,
   normalizeToLF,
   restoreLineEndings,
   stripBom,
 } from "./utils.js";
+import {
+  applyAnchoredEdit,
+  formatWithHashLines,
+  parseAnchor,
+  type AnchoredEditResult,
+} from "./hashline.js";
 import { isBlockedPath } from "./command-safety.js";
 import { sanitizeToolVisibleText } from "./safety.js";
 import { withFileWriteLock, writeFileWithNulGuard } from "./file-write-lock.js";
@@ -279,6 +284,60 @@ export const replaceTextInFile = async (
   });
 };
 
+export const applyAnchoredEditToFile = async (
+  args: {
+    filePath: unknown;
+    anchor: unknown;
+    endAnchor?: unknown;
+    newText: string;
+    insertAfter?: boolean;
+  },
+  context?: ToolContext,
+): Promise<{ path: string } & AnchoredEditResult> => {
+  const filePath = resolveFilePath(args.filePath, context);
+  const pathBlock = isBlockedPath(filePath, context);
+  if (pathBlock) {
+    throw new Error(pathBlock);
+  }
+
+  const anchor = parseAnchor(args.anchor);
+  const endAnchor =
+    args.endAnchor === undefined || args.endAnchor === null || args.endAnchor === ""
+      ? undefined
+      : parseAnchor(args.endAnchor);
+
+  // Same atomicity contract as replaceTextInFile: anchors resolve against
+  // the file as it exists inside the lock, so sibling edits that shifted
+  // lines are absorbed by hash relocation instead of clobbered.
+  return withFileWriteLock(filePath, async () => {
+    let rawContent: string;
+    try {
+      rawContent = await fs.readFile(filePath, "utf-8");
+    } catch (error) {
+      throw new Error(`Error reading file: ${(error as Error).message}`);
+    }
+
+    const { bom, text } = stripBom(rawContent);
+    const originalEnding = detectLineEnding(text);
+    const normalizedContent = normalizeToLF(text);
+
+    const applied = applyAnchoredEdit(normalizedContent, {
+      anchor,
+      newText: args.newText,
+      ...(endAnchor ? { endAnchor } : {}),
+      ...(args.insertAfter ? { insertAfter: true } : {}),
+    });
+
+    if (applied.content === normalizedContent) {
+      return { path: filePath, ...applied };
+    }
+
+    const final = bom + restoreLineEndings(applied.content, originalEnding);
+    await writeFileWithNulGuard(filePath, final);
+    return { path: filePath, ...applied };
+  });
+};
+
 export const handleRead = async (
   args: Record<string, unknown>,
   context?: ToolContext,
@@ -329,11 +388,13 @@ export const handleRead = async (
     );
     const offset = Number(args.offset ?? 1);
     const limit = Number(args.limit ?? 2000);
-    const formatted = formatWithLineNumbers(
+    // Hashes come from the raw LF-normalized lines (what Edit verifies
+    // against at apply time); the displayed text stays sanitized.
+    const rawLines = normalizeToLF(content).split("\n");
+    const displayLines = normalizeToLF(
       sanitizeToolVisibleText(content, { codeFile: true }),
-      offset,
-      limit,
-    );
+    ).split("\n");
+    const formatted = formatWithHashLines(rawLines, displayLines, offset, limit);
     const totalLines = content.split("\n").length;
     const startLine = Math.max(1, Number.isFinite(offset) ? offset : 1);
     const safeLimit = Math.max(0, Number.isFinite(limit) ? limit : 2000);
@@ -382,6 +443,30 @@ export const handleEdit = async (
   context?: ToolContext,
 ): Promise<ToolResult> => {
   try {
+    const hasAnchor =
+      args.anchor !== undefined && args.anchor !== null && args.anchor !== "";
+    if (hasAnchor) {
+      const { path: filePath, ...applied } = await applyAnchoredEditToFile(
+        {
+          filePath: args.file_path,
+          anchor: args.anchor,
+          endAnchor: args.end_anchor,
+          newText: String(args.new_string ?? ""),
+          insertAfter: Boolean(args.insert_after ?? false),
+        },
+        context,
+      );
+      const range =
+        applied.startLine === applied.endLine
+          ? `line ${applied.startLine}`
+          : `lines ${applied.startLine}-${applied.endLine}`;
+      const action = applied.linesRemoved === 0 ? "Inserted after" : "Replaced";
+      return {
+        result: `${action} ${range} in ${filePath} (-${applied.linesRemoved}/+${applied.linesAdded} lines)`,
+        fileChanges: [fileChange(filePath, { type: "update" })],
+      };
+    }
+
     const {
       path: filePath,
       replacements,

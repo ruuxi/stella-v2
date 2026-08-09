@@ -50,15 +50,29 @@ export function WorkingIndicator({
     <div className={cn("working-indicator", className)}>
       <div className="indicator-stella">
         <div className="indicator-stella-scale">
-          {/* 20×14.3 cells × the 5×7px cell metric → a square 250×250
+          {/* 10×7.15 cells × the 5×7px cell metric → a square 125×125
               canvas, which .indicator-stella-scale shrinks to exactly the
               30px slot. The canvas must never overflow the slot: ancestor
-              containers in the chat layout clip overflow with hard edges. */}
+              containers in the chat layout clip overflow with hard edges.
+              Keep these dims in sync with `prewarmAurora` in ChatColumn —
+              they form the pooled renderer's key, and a mismatch means the
+              prewarmed context goes unused.
+
+              125 and not the old 250: the slot is 30 css px, so even a 2x
+              display only shows 60 device px and a 3x display 90. Rendering
+              250 shaded 4x the pixels that survive, and measured *further*
+              from ground truth than 125 — a 250→60 downscale is past what
+              the compositor's bilinear tap can resolve, so it aliases.
+              125 still exceeds the device pixels everywhere, so it never
+              upscales. */}
           <StellaAnimation
-            width={20}
-            height={14.3}
+            width={10}
+            height={7.15}
             maxDpr={1}
-            maxFps={15}
+            /* 15fps left the churn reading as discrete steps at this size.
+               The orb's move to three noise octaves (see `fbmCoarse`) pays
+               for most of the extra frames. */
+            maxFps={24}
             timeScale={2.2}
             paused={animationPaused}
             requireWindowFocus

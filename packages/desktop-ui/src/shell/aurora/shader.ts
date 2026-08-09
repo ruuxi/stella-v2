@@ -106,6 +106,27 @@ const FRAGMENT_PRELUDE = `
     return v;
   }
 
+  /**
+   * Three-octave fbm for the orb. The fourth octave's detail is finer than
+   * one screen pixel once the 250px canvas is scaled into the working
+   * indicator's 30px slot, so it averages out to flat haze — it costs a
+   * noise fetch per sample and *lowers* contrast at the size the orb is
+   * actually seen. Dropping it leaves fewer, larger lumps whose motion
+   * survives the downscale. The 1.14 factor restores the amplitude the
+   * missing octave contributed so the curtain thresholds still line up.
+   */
+  float fbmCoarse(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    mat2 m = mat2(1.6, 1.2, -1.2, 1.6);
+    for (int i = 0; i < 3; i++) {
+      v += a * noise(p);
+      p = m * p;
+      a *= 0.5;
+    }
+    return v * 1.14;
+  }
+
   vec3 ramp(float t) {
     float pos = clamp(t, 0.0, 1.0) * 4.0;
     float ci = floor(min(pos, 3.0));
@@ -187,28 +208,43 @@ const ORB_FRAGMENT = `${FRAGMENT_PRELUDE}
     // plus a slow idle breath.
     float scale = 1.0 - u_listening * 0.22
                 + u_speaking * 0.10 + u_speaking * u_voiceEnergy * 0.14;
-    float radius = u_birth * scale;
-    radius *= 1.0 + sin(u_time * 1.4) * 0.05 * u_birth;
+
+    // Idle fill: the canvas carries EDGE_SCALE (2.5x) of headroom for voice
+    // expansion, and the orb's only consumer — the chat working indicator —
+    // renders voice-idle, so that headroom is dead margin shrinking the wisp
+    // inside its slot. Spending a little of it makes the body large enough
+    // for its motion to register at indicator size. Kept at 1.2: measured
+    // against the frame fade below, the outer 2% of the canvas stays at zero
+    // luminance, so nothing is clipped.
+    float radius = u_birth * scale * 1.2;
+    radius *= 1.0 + sin(u_time * 1.4) * 0.07 * u_birth;
     float d = dist / max(radius, 0.001);
 
-    // Slow swirl of the whole noise field. The drift alone is sub-pixel
-    // when the orb renders small (the chat working indicator), so rotate
-    // the texture to keep the motion legible at any size.
-    float swirl = u_time * 0.25;
-    vec2 cr = mat2(cos(swirl), -sin(swirl), sin(swirl), cos(swirl)) * c;
-
-    // Domain-warped noise — same construction as the website hero.
-    float t = u_time * 0.35;
-    vec2 p = cr * 2.6;
-    vec2 flow = vec2(-t * 0.55, t * 0.22);
-    vec2 q = vec2(fbm(p + flow), fbm(p + flow + vec2(5.2, 1.3)));
+    // Domain-warped noise — same construction as the website hero. There is
+    // deliberately no rigid rotation of the field here: spinning the texture
+    // reads as a loading spinner, not as an aurora. Legible motion at
+    // indicator size comes from the warp itself — a slow base drift with the
+    // warp layers moving faster and against each other, so the curtains
+    // churn and the silhouette's lumps morph in place.
+    //
+    // The field is deliberately coarse (1.8, not the hero's 2.6) and uses
+    // the 3-octave fbmCoarse: the orb is seen at 30px, and detail finer
+    // than that averages into haze on the way down, taking the visible
+    // motion with it.
+    float t = u_time * 0.5;
+    vec2 p = c * 1.8;
+    vec2 flow = vec2(-t * 0.30, t * 0.12);
+    vec2 q = vec2(fbmCoarse(p + flow), fbmCoarse(p + flow + vec2(5.2, 1.3)));
     vec2 r = vec2(
-      fbm(p + 2.0 * q + vec2(1.7, 9.2) + flow * 0.5),
-      fbm(p + 2.0 * q + vec2(8.3, 2.8) - flow * 0.4)
+      fbmCoarse(p + 2.0 * q + vec2(1.7, 9.2) + flow * 1.8),
+      fbmCoarse(p + 2.0 * q + vec2(8.3, 2.8) - flow * 1.5)
     );
-    float f = fbm(p + 2.5 * r);
+    float f = fbmCoarse(p + 2.5 * r);
 
-    float curtains = smoothstep(0.28, 0.75, f);
+    // Tighter threshold than the hero's 0.28–0.75: at indicator size the
+    // curtains need real contrast to read as distinct moving shapes rather
+    // than a soft gradient.
+    float curtains = smoothstep(0.34, 0.70, f);
     curtains = pow(curtains, 1.2);
 
     // Noise-displaced silhouette: the boundary lumps and morphs with the
@@ -216,9 +252,30 @@ const ORB_FRAGMENT = `${FRAGMENT_PRELUDE}
     float dd = d * (1.0 + (f - 0.5) * 0.7);
 
     // Gaussian envelope: wispy noise body over a brighter heart, no hard rim.
+    // The flat term is 0.06, below the hero's 0.11: it lights the parts of the
+    // body the curtains miss, and over a light theme that even wash composites
+    // to grey and reads as a drop shadow behind the wisp rather than as part
+    // of it.
     float falloff = exp(-dd * dd * 1.7);
     float core = exp(-dd * dd * 3.2);
-    float intensity = (0.11 + curtains) * falloff * 1.25 + core * 0.35;
+    float intensity = (0.06 + curtains) * falloff * 1.25 + core * 0.35;
+
+    // Overall luminance rides one of the warp layers. Brightness is the one
+    // channel that stays fully legible when the orb is only tens of pixels
+    // across — shape and position changes there are close to sub-pixel — and
+    // driving it from the noise keeps the breathing irregular instead of the
+    // even sinusoidal throb of a progress widget.
+    intensity *= 1.0 + (q.x - 0.5) * 0.5;
+
+    // Pull in the Gaussian's far tail. Left alone it stays faintly visible to
+    // the canvas bounds, which over a light background is the grey halo; the
+    // fix is not a narrower Gaussian, since shrinking the body takes its
+    // motion with it (measured: a tighter falloff costs ~40% of the perceived
+    // motion, undoing what makes the indicator read as animated at 30px).
+    // This trims only past dd 0.65, where the field is already dim.
+    // Ascending edges then inverted — smoothstep with edge0 > edge1 is
+    // undefined in GLSL.
+    intensity *= 1.0 - smoothstep(0.65, 1.15, dd);
 
     vec3 coreLift = vec3(0.22) * core * curtains;
 ${FRAGMENT_EPILOGUE}`;

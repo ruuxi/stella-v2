@@ -75,8 +75,16 @@ export const PHASE_ACTS: Partial<Record<Phase, OnboardingAct>> = {
  * Phases whose demo surfaces own the full stage; the Stella creature
  * fades out for these (it stays mounted — see OnboardingView) and fades
  * back in for the form-like phases between them.
+ *
+ * Membership here is also what pauses the aurora's render loop, so every
+ * phase that hides the creature must be listed. `capabilities` hides it
+ * through CSS either way (it is absent from the reveal rules in
+ * full-shell.layout.css), and before it was listed here the aurora kept
+ * shading its 875x682 canvas at 12fps behind `opacity: 0` for the whole
+ * demo — the longest phase in the flow.
  */
 export const CREATURE_HIDDEN_PHASES = new Set<Phase>([
+  "capabilities",
   "voice",
   "enter",
 ]);

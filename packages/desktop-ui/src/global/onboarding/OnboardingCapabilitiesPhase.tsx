@@ -209,7 +209,16 @@ function WorkflowChapter({
 
   return (
     <DemoShell>
-      <DemoChat>
+      <DemoChat
+        started={has("send")}
+        composer={
+          <DemoComposer
+            value={has("send") ? "" : typed.value}
+            typing={typed.typing && !has("send")}
+            sending={has("send") && !has("working")}
+          />
+        }
+      >
         <DemoBubble role="user" visible={has("send")}>
           {spec.prompt}
         </DemoBubble>
@@ -233,11 +242,6 @@ function WorkflowChapter({
         <DemoBubble role="assistant" visible={has("reply")}>
           {spec.reply}
         </DemoBubble>
-        <DemoComposer
-          value={has("send") ? "" : typed.value}
-          typing={typed.typing && !has("send")}
-          sending={has("send") && !has("working")}
-        />
       </DemoChat>
     </DemoShell>
   );
@@ -286,7 +290,7 @@ function PhoneChapter({ active, playNonce, onDone }: ChapterContentProps) {
 
       <div className="onboarding-cap-phone-desktop">
         <DemoShell>
-          <DemoChat>
+          <DemoChat started={has("link")} composer={<DemoComposer value="" />}>
             <DemoWorking
               visible={has("link") && !has("work-1")}
               label="Picking this up…"
@@ -305,7 +309,6 @@ function PhoneChapter({ active, playNonce, onDone }: ChapterContentProps) {
             >
               Texted you the details
             </DemoWorkCard>
-            <DemoComposer value="" />
           </DemoChat>
         </DemoShell>
       </div>

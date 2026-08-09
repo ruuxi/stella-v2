@@ -900,10 +900,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             setPendingAgent(null);
         }
     }, [pendingAgent, preferences, setPreferences, t]);
-    // These persisted handlers remain part of the current implementation even
-    // though their controls are temporarily absent from this surface.
     void handleCodexServiceTierSelect;
-    void handleNativeRuntimeChange;
     const ready = preferences !== null &&
         (activeProviderSetting || modelDefaults !== undefined);
     const imagePreferences = preferences?.imageGeneration ?? DEFAULT_IMAGE_GENERATION;
@@ -1082,9 +1079,20 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     label: "Claude Code",
                     brandKey: "anthropic",
                     selected: committedEngine === "claude_code_local",
-                    content: () => (<EngineScopedModelList engineLabel="Claude Code" hideHead selectedRowExtra={reasoningControl} models={claudeCodeModelsWithCurrent} value={committedEngine === "claude_code_local"
-                            ? selectedClaudeCodeModel
-                            : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>),
+                    content: () => (<>
+                        <EngineScopedModelList engineLabel="Claude Code" hideHead selectedRowExtra={reasoningControl} models={claudeCodeModelsWithCurrent} value={committedEngine === "claude_code_local"
+                                ? selectedClaudeCodeModel
+                                : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>
+                        <label className="agent-model-picker-native-runtime-option">
+                          <input type="checkbox" checked={preferences?.useNativeClaudeCodeRuntime === true} disabled={!preferences || pendingAgent !== null} onChange={(event) => void handleNativeRuntimeChange("useNativeClaudeCodeRuntime", event.target.checked)}/>
+                          <span className="agent-model-picker-native-runtime-copy">
+                            <span>Use Claude Code instead</span>
+                            <span className="agent-model-picker-native-runtime-helper">
+                              Uses your installed Claude Code configuration, skills, and MCP servers instead of Stella&apos;s harness.
+                            </span>
+                          </span>
+                        </label>
+                      </>),
                 },
                 {
                     key: CHATGPT_SECTION_KEY,
@@ -1105,6 +1113,15 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                         <EngineScopedModelList engineLabel="ChatGPT" hideHead selectedRowExtra={reasoningControl} models={chatGptDisplayModels} value={committedEngine === "codex_cli" ? selectedChatGptModel : ""} onSelect={(modelId) => void handleEngineModelSelect("codex_cli", modelId)} emptyMessage={null} disabled={!preferences ||
                             pendingAgent !== null ||
                             codexCatalog.loading}/>
+                        <label className="agent-model-picker-native-runtime-option">
+                          <input type="checkbox" checked={preferences?.useNativeCodexRuntime === true} disabled={!preferences || pendingAgent !== null} onChange={(event) => void handleNativeRuntimeChange("useNativeCodexRuntime", event.target.checked)}/>
+                          <span className="agent-model-picker-native-runtime-copy">
+                            <span>Use Codex instead</span>
+                            <span className="agent-model-picker-native-runtime-helper">
+                              Uses Codex app-server with your native Codex configuration and tools instead of Stella&apos;s harness.
+                            </span>
+                          </span>
+                        </label>
                       </>),
                 },
             ]}/>

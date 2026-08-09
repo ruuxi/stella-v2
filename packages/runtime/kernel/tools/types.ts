@@ -254,6 +254,8 @@ export type ToolHostOptions = {
   captureSpawnModelConfig?: (args: {
     agentType: string;
     spawnEngine: SpawnEngineSelection;
+    /** Omitted/default model selection samples the configured General engine. */
+    useConfiguredEngine?: boolean;
     model?: string;
     spawnReasoningEffort?: SpawnReasoningEffort;
   }) => Promise<AgentModelConfigSnapshot | undefined>;

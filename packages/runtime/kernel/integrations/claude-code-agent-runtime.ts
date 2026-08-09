@@ -185,6 +185,8 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
   sessionKey?: string;
   abortSignal?: AbortSignal;
   stellaModel?: string;
+  /** Engine-native model pin for automatic utility work; never persisted. */
+  modelOverride?: string;
   /** Internal utility passes may pin effort independently of user agent prefs. */
   effortLevel?: string;
   /**
@@ -206,6 +208,7 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
     args.stellaAppDir,
     args.stellaModel,
     args.agentType,
+    args.modelOverride,
   );
   const effortLevel =
     args.effortLevel ?? getClaudeCodeRuntimeEffortLevel(args.stellaAppDir);

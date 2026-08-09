@@ -207,6 +207,11 @@ type ExternalEngineSessionKind =
 
 type ExternalOrchestratorEngine = "claude_code_local";
 
+/** Legacy snapshots omit the field and therefore remain on native runtimes. */
+export const usesManagedSubscriptionHarness = (
+  snapshot: { subscriptionHarnessEnabled?: boolean } | undefined,
+): boolean => snapshot?.subscriptionHarnessEnabled === true;
+
 const shouldUseClaudeCodeRuntime = (opts: BaseRunOptions): boolean => {
   const primaryModelId = opts.agentContext.model ?? opts.resolvedLlm.model.id;
   return shouldUseClaudeCodeAgentRuntime({
@@ -542,13 +547,19 @@ const runClaudeHostedTurn = async (args: {
     agentType: args.opts.agentType,
     stellaAppDir: args.opts.stellaAppDir,
   });
-  // Per-spawn claude-code selection (spawn_agent `model: claude-code[/...]`)
-  // runs vanilla Claude Code: CC keeps its own tools and config — no Stella
-  // tool bridge, no system-prompt override (the headless flags and hook
-  // settings still apply). The global engine preference keeps the full
-  // takeover behavior (spawnEngine is never set on that path).
+  // General Claude runs are role-split at this boundary. A newly sampled
+  // durable snapshot selects Stella's harness by default; false or a legacy
+  // absent field selects vanilla Claude Code. The root Orchestrator retains
+  // the existing takeover integration.
   const spawnEngine = args.opts.agentContext.spawnEngine;
-  const vanilla = spawnEngine?.engine === "claude_code_local";
+  const usesSubscriptionHarness =
+    args.session.kind === "subagent" &&
+    usesManagedSubscriptionHarness(args.opts.agentContext.modelConfigSnapshot);
+  const vanilla =
+    args.session.kind === "subagent" &&
+    !usesSubscriptionHarness &&
+    (spawnEngine?.engine === "claude_code_local" ||
+      args.opts.agentType === AGENT_IDS.GENERAL);
   const baseSessionKey = args.opts.agentContext.activeThreadId
     ? `${args.opts.conversationId}:${args.opts.agentContext.activeThreadId}`
     : `${args.opts.conversationId}:run:${runId}`;
@@ -1353,10 +1364,12 @@ export const runExternalSubagentTurn = async (
   opts: SubagentRunOptions,
 ): Promise<SubagentRunResult | null> => {
   if (!shouldUseClaudeCodeRuntime(opts)) {
-    const useCodex = shouldUseCodexAgentRuntime({
-      agentType: opts.agentType,
-      agentEngine: opts.agentContext.agentEngine,
-    });
+    const useCodex =
+      !usesManagedSubscriptionHarness(opts.agentContext.modelConfigSnapshot) &&
+      shouldUseCodexAgentRuntime({
+        agentType: opts.agentType,
+        agentEngine: opts.agentContext.agentEngine,
+      });
     if (!useCodex) {
       return null;
     }

@@ -9,6 +9,7 @@
 import type { UiState } from "./ui";
 import type { Theme } from "@/shared/theme/themes/types";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
+import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
@@ -540,6 +541,7 @@ export type ElectronAgentApi = {
     model?: string;
     reasoningEffort?: "none" | "low" | "medium" | "high";
     utility?: boolean;
+    modelConfigSnapshot?: AgentModelConfigSnapshot;
     sessionKey?: string;
     closeSession?: boolean;
     sessionIdleTtlMs?: number;

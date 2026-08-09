@@ -194,6 +194,8 @@ export type ProviderStreamOptions = StreamOptions & Record<string, unknown>;
 // Unified options with reasoning passed to streamSimple() and completeSimple()
 export interface SimpleStreamOptions extends StreamOptions {
   reasoning?: ThinkingLevel;
+  /** Request no reasoning when the selected provider/model supports it. */
+  disableReasoning?: boolean;
   /** Custom token budgets for thinking levels (token-based providers only) */
   thinkingBudgets?: ThinkingBudgets;
 }

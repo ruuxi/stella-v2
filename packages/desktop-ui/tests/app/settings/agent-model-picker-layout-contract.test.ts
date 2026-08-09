@@ -71,6 +71,15 @@ describe("full-area agent model picker layout", () => {
     expect(picker).not.toContain("agent-model-picker-footer");
     expect(picker).toContain("oauthPendingProvider");
     expect(picker).toContain("cancelPendingOAuth");
+    expect(picker).toContain("Use Codex instead");
+    expect(picker).toContain("Use Claude Code instead");
+    expect(picker).toContain(
+      'handleNativeRuntimeChange("useNativeCodexRuntime"',
+    );
+    expect(picker).toContain(
+      'handleNativeRuntimeChange("useNativeClaudeCodeRuntime"',
+    );
+    expect(styles).toContain(".agent-model-picker-native-runtime-option {");
 
     expect(styles).not.toContain(".agent-model-picker-brand-header {");
     expect(styles).not.toContain(".agent-model-picker-brands {");

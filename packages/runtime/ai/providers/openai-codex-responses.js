@@ -8,7 +8,7 @@ if (typeof process !== "undefined" && (process.versions?.node || process.version
     });
 }
 import { getEnvApiKey } from "../env-api-keys.js";
-import { clampThinkingLevel } from "../models.js";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "../models.js";
 import { registerSessionResourceCleanup } from "../session-resources.js";
 import { appendAssistantMessageDiagnostic, createAssistantMessageDiagnostic, formatThrownValue, } from "../utils/diagnostics.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
@@ -87,7 +87,7 @@ export const streamOpenAICodexResponses = (model, context, options) => {
                 throw new Error(`No API key for provider: ${model.provider}`);
             }
             const accountId = extractAccountId(apiKey);
-            let body = buildRequestBody(model, context, options);
+            let body = buildOpenAICodexRequestBody(model, context, options);
             const nextBody = await options?.onPayload?.(body, model);
             if (nextBody !== undefined) {
                 body = nextBody;
@@ -218,17 +218,24 @@ export const streamSimpleOpenAICodexResponses = (model, context, options) => {
         throw new Error(`No API key for provider: ${model.provider}`);
     }
     const base = buildBaseOptions(model, options, apiKey);
-    const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
-    const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
+    const reasoningEffort = resolveOpenAICodexReasoningEffort(model, options?.disableReasoning ? "off" : options?.reasoning);
     return streamOpenAICodexResponses(model, context, {
         ...base,
         reasoningEffort,
     });
 };
+export const resolveOpenAICodexReasoningEffort = (model, requested) => {
+    if (!requested)
+        return undefined;
+    const supported = getSupportedThinkingLevels(model);
+    const effectiveRequest = requested === "off" && !supported.includes("off") ? "low" : requested;
+    const clamped = clampThinkingLevel(model, effectiveRequest);
+    return clamped === "off" ? "none" : clamped;
+};
 // ============================================================================
 // Request Building
 // ============================================================================
-function buildRequestBody(model, context, options) {
+export function buildOpenAICodexRequestBody(model, context, options) {
     const messages = convertResponsesMessages(model, context, CODEX_TOOL_CALL_PROVIDERS, {
         includeSystemPrompt: false,
     });

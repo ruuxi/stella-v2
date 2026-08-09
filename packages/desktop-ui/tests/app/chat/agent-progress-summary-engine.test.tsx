@@ -17,7 +17,13 @@ const task = (reasoningText: string): TaskItem => ({
   id: "agent-summary-rate-limit",
   description: "Inspect Authorization: Bearer description-secret",
   agentType: "general",
+  source: "stella",
+  readOnly: false,
   status: "running",
+  modelConfigSnapshot: {
+    engine: "default",
+    routeModel: "stella/openai/gpt-5.6-sol",
+  },
   statusText: "Cookie: session=status-secret",
   reasoningText,
   toolActivity: {
@@ -107,6 +113,12 @@ describe("agent progress summary engine", () => {
     expect(oneShotCompletion.mock.calls[0]?.[0].userText).not.toContain(
       "first-secret",
     );
+    expect(oneShotCompletion.mock.calls[0]?.[0].reasoningEffort).toBe("none");
+    expect(oneShotCompletion.mock.calls[0]?.[0].temperature).toBe(1.0);
+    expect(oneShotCompletion.mock.calls[0]?.[0].modelConfigSnapshot).toEqual({
+      engine: "default",
+      routeModel: "stella/openai/gpt-5.6-sol",
+    });
 
     await act(async () => {
       root.render(<SummaryEngineHarness tasks={[task("second state")]} />);

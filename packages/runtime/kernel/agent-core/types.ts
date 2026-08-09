@@ -11,6 +11,7 @@ import type {
 	ToolResultMessage,
 } from "../../ai/types.js";
 import type { streamSimple } from "../../ai/stream.js";
+import type { StreamRule } from "./stream-rules.js";
 import { StringEnum } from "../../ai/utils/typebox-helpers.js";
 import type { Static, TSchema } from "@sinclair/typebox";
 
@@ -211,6 +212,16 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * Default: 30 minutes.
 	 */
 	toolInactivityTimeoutMs?: number;
+
+	/**
+	 * Stream rules watched over text/tool-call deltas while the model
+	 * responds. When one fires, the attempt is aborted mid-stream, the
+	 * partial output is discarded, and the call retries with an ephemeral
+	 * correction message (never persisted to history).
+	 *
+	 * `undefined` applies the built-in defaults; `[]` disables monitoring.
+	 */
+	streamRules?: StreamRule[];
 
 	/**
 	 * Called before a tool is executed, after arguments have been validated.

@@ -38,10 +38,6 @@ vi.mock("../../../src/shell/display/tab-content.tsx", () => ({
 const { payloadToTabSpec } = await import(
   "../../../src/shell/display/payload-to-tab-spec"
 );
-const { getSelectedCanvasHtmlId } = await import(
-  "../../../src/shell/display/canvas-tab/canvas-items"
-);
-
 describe("payloadToTabSpec", () => {
   it("keeps docx office previews as office-document tabs", () => {
     const payload: DisplayPayload = {
@@ -148,7 +144,9 @@ describe("payloadToTabSpec", () => {
     expect(second.id).toBe("source-diff");
   });
 
-  it("merges generated images into one stable gallery tab", () => {
+  // Generated media and canvases get one tab per file; the shared item
+  // stores are what merge a multi-image job, not a singleton gallery tab.
+  it("gives each generated image its own tab id from the shared store", () => {
     const first = payloadToTabSpec({
       kind: "media",
       asset: { kind: "image", filePaths: ["/out/a.png"] },
@@ -160,21 +158,12 @@ describe("payloadToTabSpec", () => {
       createdAt: 2,
     });
 
-    expect(first.id).toBe("media:generated");
-    expect(second.id).toBe("media:generated");
-    expect(second.metadata?.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          asset: { kind: "image", filePaths: ["/out/a.png"] },
-        }),
-        expect.objectContaining({
-          asset: { kind: "image", filePaths: ["/out/b.png"] },
-        }),
-      ]),
-    );
+    expect(first.id).toBe("image:/out/a.png");
+    expect(second.id).toBe("image:/out/b.png");
+    expect(second.kind).toBe(first.kind);
   });
 
-  it("passes the clicked canvas id to the singleton Canvas tab", () => {
+  it("gives each canvas its own tab id keyed by file path", () => {
     const spec = payloadToTabSpec({
       kind: "canvas-html",
       filePath: "/tmp/flow.html",
@@ -182,21 +171,8 @@ describe("payloadToTabSpec", () => {
       createdAt: 3,
     });
 
-    const element = spec.render() as { props: { selectedItemId?: string } };
-    expect(spec.id).toBe("canvas:html");
-    expect(element.props.selectedItemId).toBe("/tmp/flow.html");
-    expect(getSelectedCanvasHtmlId()).toBe("/tmp/flow.html");
-  });
-
-  it("passes the clicked media id to the singleton Media tab", () => {
-    const spec = payloadToTabSpec({
-      kind: "media",
-      asset: { kind: "image", filePaths: ["/out/selected.png"] },
-      createdAt: 3,
-    });
-
-    const element = spec.render() as { props: { selectedItemId?: string } };
-    expect(spec.id).toBe("media:generated");
-    expect(element.props.selectedItemId).toBe("image:/out/selected.png");
+    expect(spec.id).toBe("canvas:/tmp/flow.html");
+    expect(spec.kind).toBe("canvas");
+    expect(spec.title).toBe("Flow");
   });
 });

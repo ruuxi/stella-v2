@@ -5,13 +5,9 @@ import {
   fallbackTaskDescription,
   isActivityFeedTask,
   extractStepsFromEvents,
-  getTaskGroupStatusText,
   getTaskHierarchyStatusText,
   groupActivityTasks,
-  pruneGroupExpandOverrides,
   selectFreshActivityTasks,
-  shouldShowTaskReasoningSummaries,
-  updateSeenRunningGroupKeys,
   updateSeenRunningTaskIds,
   type EventRecord,
   type TaskItem,
@@ -37,9 +33,10 @@ const event = (
 });
 
 describe("internal helper agent exclusion", () => {
-  it("keeps delegated agents and managers in the activity feed", () => {
+  it("keeps delegated General agents in the activity feed", () => {
     expect(isActivityFeedTask({ agentType: "general" })).toBe(true);
-    expect(isActivityFeedTask({ agentType: "manager" })).toBe(true);
+    // The Manager agent type is retired; its rows read as machinery.
+    expect(isActivityFeedTask({ agentType: "manager" })).toBe(false);
     expect(isActivityFeedTask({ agentType: "schedule" })).toBe(false);
     expect(isActivityFeedTask({ agentType: "dream" })).toBe(false);
     expect(isActivityFeedTask({ agentType: "orchestrator" })).toBe(false);
@@ -55,7 +52,6 @@ describe("fallbackTaskDescription", () => {
 
   it("keeps 'Task' for ordinal/namespace/opaque ids with no real words", () => {
     expect(fallbackTaskDescription("task-7")).toBe("Task");
-    expect(fallbackTaskDescription("grp-abc123")).toBe("Task");
     expect(fallbackTaskDescription(undefined)).toBe("Task");
     expect(fallbackTaskDescription("1234-5678")).toBe("Task");
     expect(fallbackTaskDescription("a1")).toBe("Task");
@@ -79,129 +75,6 @@ describe("fallbackTaskDescription", () => {
 
   it("still de-slugs meaningful single-word ids", () => {
     expect(fallbackTaskDescription("research")).toBe("Research");
-  });
-});
-
-describe("work-group folding", () => {
-  const task = (overrides: Partial<TaskItem> & { id: string }): TaskItem => ({
-    description: "Task",
-    agentType: "general",
-    status: "running",
-    startedAtMs: 100,
-    lastUpdatedAtMs: 100,
-    ...overrides,
-  });
-
-  it("collapses two members of one group into a single header row", () => {
-    const rows = groupActivityTasks([
-      task({ id: "task-1", groupKey: "grp-1", groupLabel: "Plan the trip" }),
-      task({
-        id: "task-2",
-        groupKey: "grp-1",
-        groupLabel: "Plan the trip",
-        startedAtMs: 150,
-        lastUpdatedAtMs: 150,
-      }),
-      task({ id: "task-3", description: "Unrelated" }),
-    ]);
-
-    expect(rows.map((row) => row.kind)).toEqual(["group", "task"]);
-    const group = rows[0]!.kind === "group" ? rows[0].group : undefined;
-    expect(group?.label).toBe("Plan the trip");
-    expect(group?.members.map((member) => member.id)).toEqual([
-      "task-1",
-      "task-2",
-    ]);
-  });
-
-  it("leaves legacy rows without group fields untouched", () => {
-    const tasks = [
-      task({ id: "task-1", description: "Old task" }),
-      task({ id: "task-2", description: "Older task", status: "completed" }),
-    ];
-
-    const rows = groupActivityTasks(tasks);
-    expect(rows).toEqual([
-      { kind: "task", task: tasks[0] },
-      { kind: "task", task: tasks[1] },
-    ]);
-  });
-
-  it("renders a singleton group as a plain task row", () => {
-    const tasks = [
-      task({ id: "task-1", groupKey: "grp-1", groupLabel: "Plan the trip" }),
-    ];
-
-    expect(groupActivityTasks(tasks)).toEqual([
-      { kind: "task", task: tasks[0] },
-    ]);
-  });
-
-  it("shows a stable {N} tasks count on the header, not child narration", () => {
-    const running = groupActivityTasks([
-      task({
-        id: "task-1",
-        groupKey: "grp-1",
-        status: "completed",
-        completedAtMs: 200,
-        lastUpdatedAtMs: 200,
-      }),
-      task({
-        id: "task-2",
-        groupKey: "grp-1",
-        statusText: "Comparing 12 flight options",
-        lastUpdatedAtMs: 300,
-      }),
-      task({ id: "task-3", groupKey: "grp-1", lastUpdatedAtMs: 250 }),
-    ]);
-    expect(running[0]!.kind).toBe("group");
-    const runningGroup =
-      running[0]!.kind === "group" ? running[0].group : undefined;
-    expect(runningGroup?.status).toBe("running");
-    // Never surface an individual member's narration on the group row —
-    // that made the header flicker between siblings. Show a stable count.
-    expect(getTaskGroupStatusText(runningGroup!)).toBe("3 tasks");
-
-    const done = groupActivityTasks([
-      task({
-        id: "task-1",
-        groupKey: "grp-1",
-        status: "completed",
-        completedAtMs: 200,
-        lastUpdatedAtMs: 200,
-      }),
-      task({
-        id: "task-2",
-        groupKey: "grp-1",
-        status: "completed",
-        completedAtMs: 300,
-        lastUpdatedAtMs: 300,
-      }),
-    ]);
-    const doneGroup = done[0]!.kind === "group" ? done[0].group : undefined;
-    expect(doneGroup?.status).toBe("completed");
-    expect(getTaskGroupStatusText(doneGroup!)).toBe("2 tasks");
-
-    const failed = groupActivityTasks([
-      task({
-        id: "task-1",
-        groupKey: "grp-1",
-        status: "completed",
-        completedAtMs: 200,
-        lastUpdatedAtMs: 200,
-      }),
-      task({
-        id: "task-2",
-        groupKey: "grp-1",
-        status: "error",
-        completedAtMs: 300,
-        lastUpdatedAtMs: 300,
-      }),
-    ]);
-    const failedGroup =
-      failed[0]!.kind === "group" ? failed[0].group : undefined;
-    expect(failedGroup?.status).toBe("error");
-    expect(getTaskGroupStatusText(failedGroup!)).toBe("2 tasks");
   });
 });
 
@@ -346,58 +219,6 @@ describe("extractStepsFromEvents", () => {
     ]);
 
     expect(steps.map((step) => step.status)).toEqual(["running", "running"]);
-  });
-});
-
-describe("pruneGroupExpandOverrides", () => {
-  const member = (id: string, groupKey?: string): TaskItem => ({
-    id,
-    description: id,
-    agentType: "general",
-    status: "running",
-    startedAtMs: 1,
-    lastUpdatedAtMs: 1,
-    ...(groupKey ? { groupKey, groupLabel: "Research" } : {}),
-  });
-
-  it("keeps an override while the group is shrunk to a single member, so it still applies after a regrow", () => {
-    const overrides: ReadonlyMap<string, boolean> = new Map([
-      ["grp-research", false],
-    ]);
-
-    // Shrunk to one member: renders as a plain task row, but the group is
-    // still alive — the user's explicit collapse must not be pruned.
-    const shrunk = pruneGroupExpandOverrides(overrides, [
-      member("a", "grp-research"),
-    ]);
-    expect(shrunk.get("grp-research")).toBe(false);
-
-    // Regrown to a group row: the collapse choice still applies.
-    const regrown = pruneGroupExpandOverrides(shrunk, [
-      member("a", "grp-research"),
-      member("b", "grp-research"),
-    ]);
-    expect(regrown.get("grp-research")).toBe(false);
-  });
-
-  it("drops an override once no member of the group remains", () => {
-    const overrides: ReadonlyMap<string, boolean> = new Map([
-      ["grp-research", true],
-    ]);
-    const pruned = pruneGroupExpandOverrides(overrides, [member("solo")]);
-    expect(pruned.has("grp-research")).toBe(false);
-    expect(pruned.size).toBe(0);
-  });
-
-  it("returns the same map reference when nothing is stale", () => {
-    const overrides: ReadonlyMap<string, boolean> = new Map([
-      ["grp-research", true],
-    ]);
-    expect(
-      pruneGroupExpandOverrides(overrides, [member("a", "grp-research")]),
-    ).toBe(overrides);
-    const empty: ReadonlyMap<string, boolean> = new Map();
-    expect(pruneGroupExpandOverrides(empty, [member("solo")])).toBe(empty);
   });
 });
 
@@ -569,30 +390,6 @@ describe("getInlineWorkingIndicatorExitDelayMs", () => {
   });
 });
 
-describe("shouldShowTaskReasoningSummaries", () => {
-  it("shows summaries only while a non-manager agent is actively running", () => {
-    expect(
-      shouldShowTaskReasoningSummaries({
-        status: "running",
-        agentType: "general",
-      }),
-    ).toBe(true);
-    expect(
-      shouldShowTaskReasoningSummaries({
-        status: "running",
-        agentType: "manager",
-      }),
-    ).toBe(false);
-    // Once the agent stops, the summaries section collapses away — the row
-    // stays expanded with its files, but live-narration phrases hide.
-    for (const status of ["completed", "error", "canceled"] as const) {
-      expect(
-        shouldShowTaskReasoningSummaries({ status, agentType: "general" }),
-      ).toBe(false);
-    }
-  });
-});
-
 describe("seen-running expansion stickiness", () => {
   const task = (overrides: Partial<TaskItem> & { id: string }): TaskItem => ({
     description: "Task",
@@ -643,30 +440,6 @@ describe("seen-running expansion stickiness", () => {
       task({ id: "a1", status: "completed" }),
     ]);
     expect(seen.has("a1")).toBe(true);
-  });
-
-  it("tracks group keys while any member runs and keeps them after all finish", () => {
-    const whileRunning = updateSeenRunningGroupKeys(new Set(), [
-      task({ id: "a1", groupKey: "g1" }),
-      task({ id: "a2", groupKey: "g1", status: "completed" }),
-    ]);
-    expect(whileRunning.has("g1")).toBe(true);
-    const done = updateSeenRunningGroupKeys(whileRunning, [
-      task({ id: "a1", groupKey: "g1", status: "completed" }),
-      task({ id: "a2", groupKey: "g1", status: "completed" }),
-    ]);
-    expect(done.has("g1")).toBe(true);
-    // Group keeps its key even when it shrinks to a single member (renders
-    // as a plain task row), mirroring pruneGroupExpandOverrides.
-    const shrunk = updateSeenRunningGroupKeys(done, [
-      task({ id: "a1", groupKey: "g1", status: "completed" }),
-    ]);
-    expect(shrunk.has("g1")).toBe(true);
-    // ...and prunes once no member remains.
-    const gone = updateSeenRunningGroupKeys(shrunk, [
-      task({ id: "b1", status: "completed" }),
-    ]);
-    expect(gone.has("g1")).toBe(false);
   });
 });
 
@@ -754,30 +527,29 @@ describe("buildActivityTasks", () => {
     expect(tasks.map((task) => task.id)).toEqual(["research-flights"]);
   });
 
-  it("includes managers and preserves persisted ownership fields", () => {
+  // Retired `manager` rows are machinery now, so they drop out of the feed
+  // while the ownership edge on their surviving children is preserved.
+  it("drops retired manager rows but keeps persisted ownership on children", () => {
     const tasks = buildActivityTasks([
       record({
-        threadId: "manager",
-        agentType: "manager",
+        threadId: "parent",
         description: "Coordinate work",
       }),
       record({
+        threadId: "retired",
+        agentType: "manager",
+        description: "Old manager",
+      }),
+      record({
         threadId: "child",
-        parentAgentId: "manager",
-        groupKey: "legacy-group",
-        groupLabel: "Legacy group",
+        parentAgentId: "parent",
       }),
     ]);
 
-    expect(tasks.find((task) => task.id === "manager")).toMatchObject({
-      id: "manager",
-      agentType: "manager",
-    });
+    expect(tasks.map((task) => task.id)).toEqual(["child", "parent"]);
     expect(tasks.find((task) => task.id === "child")).toMatchObject({
       id: "child",
-      parentAgentId: "manager",
-      groupKey: "legacy-group",
-      groupLabel: "Legacy group",
+      parentAgentId: "parent",
     });
   });
 
@@ -815,6 +587,9 @@ describe("selectFreshActivityTasks", () => {
     id: "t",
     description: "Task",
     agentType: "general",
+    // Presence surfaces only count rows Stella owns; claude-native rows are
+    // observability, so the selector requires an explicit `stella` source.
+    source: "stella",
     status: "running",
     startedAtMs: 0,
     lastUpdatedAtMs: 0,

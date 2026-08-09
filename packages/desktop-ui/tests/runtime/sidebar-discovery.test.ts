@@ -26,7 +26,9 @@ describe("sidebar app discovery", () => {
   const appDirs = listAppDirs();
 
   it("finds at least the four built-in apps", () => {
-    for (const id of ["chat", "social", "settings", "store"]) {
+    // `store` still has a route, but it left the sidebar when it dropped its
+    // `metadata.ts`; `apps` took the fourth slot.
+    for (const id of ["chat", "social", "settings", "apps"]) {
       expect(appDirs).toContain(id);
     }
   });

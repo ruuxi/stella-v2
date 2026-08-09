@@ -302,8 +302,8 @@ export function isGenericTaskDescription(
  * Best-effort display name for a task whose spawn description is missing
  * (e.g. a resumed legacy thread rebuilt from reasoning-only events). Thread
  * ids are slugs of the original spawn description (`compare-flight-prices`),
- * so de-slugging the id recovers a meaningful label. Ordinal/namespace ids
- * (`task-7`, `grp-…`) carry no words, so they fall back to plain "Task".
+ * so de-slugging the id recovers a meaningful label. Ordinal ids
+ * (`task-7`, `legacy-…`) carry no words, so they fall back to plain "Task".
  */
 // Spawn-thread ids are minted by `slugify()` (runtime/kernel/shared/slug.ts):
 // lowercase a-z0-9 words joined by single dashes, no leading/trailing dash,
@@ -865,6 +865,13 @@ const countActivityTasks = (rows: readonly ActivityRow[]): number =>
     if (row.kind === 'task') return total + 1
     return total + 1 + row.hierarchy.descendantCount
   }, 0)
+
+/** Descendant count as the meta line for a collapsed hierarchy row. */
+export function getTaskHierarchyStatusText(hierarchy: TaskHierarchy): string {
+  return hierarchy.descendantCount === 1
+    ? '1 agent'
+    : `${hierarchy.descendantCount} agents`
+}
 
 /** Agent-authored prose for Activity rows, active or completed. */
 export function getTaskAgentUpdates(

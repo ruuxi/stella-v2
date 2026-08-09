@@ -23,7 +23,7 @@ import { useMemo, useState } from "react";
 import { Search, X } from "@/ui/icons";
 import { LegendList, } from "@legendapp/list/react";
 import { Dialog } from "@/ui/dialog";
-import { getTaskDisplayText, getTaskGroupStatusText, getTaskHierarchyStatusText, } from "@/features/chat/lib/event-transforms";
+import { getTaskDisplayText, getTaskHierarchyStatusText, } from "@/features/chat/lib/event-transforms";
 import { buildCompletedActivityList, } from "./activity-history-model";
 import { formatNextRun } from "@/global/schedule/format-schedule";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
@@ -127,20 +127,6 @@ export function ActivityHistoryDialog({ open, onOpenChange, section, tasks, file
           </button>
         </div>);
         }
-        if (item.kind === "doneGroup") {
-            const { group } = item;
-            const nestedStyle = item.depth > 0
-                ? { "--activity-depth": item.depth }
-                : undefined;
-            return (<div className={`activity-history-dialog__row activity-history-dialog__row--group${item.depth > 0 ? " activity-history-dialog__row--grouped" : ""}`} data-status={group.status} style={nestedStyle}>
-          <span className="activity-history-dialog__row-text">
-            {group.label.trim()}
-          </span>
-          <span className="activity-history-dialog__row-meta">
-            {getTaskGroupStatusText(group)}
-          </span>
-        </div>);
-        }
         if (item.kind === "doneHierarchy") {
             const { hierarchy } = item;
             const owner = hierarchy.owner;
@@ -224,8 +210,6 @@ const keyExtractor = (item) => {
     switch (item.kind) {
         case "done":
             return `done:${item.task.id}`;
-        case "doneGroup":
-            return `done-group:${item.depth}:${item.group.groupKey}`;
         case "doneHierarchy":
             return `done-hierarchy:${item.hierarchy.owner.id}`;
         case "upNext":

@@ -162,6 +162,32 @@ describe("connector-availability reminder hook", () => {
     );
   });
 
+  it("injects the connect.addMcp hint when the user mentions MCP", async () => {
+    const root = makeRoot();
+    await writeCachedServerCatalog(root, [notionEntry]);
+    const hook = makeHook(root);
+    const result = await hook.handler(
+      basePayload("can you add the linear mcp server for me?"),
+    );
+    const message = result?.prependMessages?.[0];
+    expect(message).toBeDefined();
+    expect(message?.uiVisibility).toBe("hidden");
+    expect(message?.text).toContain("connect.addMcp(");
+    expect(message?.text).toContain("connect.remove(id)");
+    // Deduped through the same once-per-active-window gate.
+    const second = await hook.handler(basePayload("what about that MCP?"));
+    expect(second).toBeUndefined();
+  });
+
+  it("does not fire the MCP hint on unrelated words containing mcp", async () => {
+    const root = makeRoot();
+    await writeCachedServerCatalog(root, [notionEntry]);
+    const hook = makeHook(root);
+    expect(
+      await hook.handler(basePayload("open the amcpx report for me")),
+    ).toBeUndefined();
+  });
+
   it("ignores subagent prompt builds and empty prompts", async () => {
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);

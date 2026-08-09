@@ -10,6 +10,7 @@ import {
 import { withStellaModelCatalogMetadata } from "../stella-model-catalog.js";
 import {
   createImageDescriptionService,
+  IMAGE_DESCRIPTION_AGENT_TYPE,
   IMAGE_DESCRIPTION_MODEL_ID,
 } from "../agent-runtime/image-description.js";
 import type { RunnerContext } from "./types.js";
@@ -88,7 +89,7 @@ export const createRunnerImageDescriptionService = (
     resolveRoute: () =>
       resolveRunnerLlmRouteWithMetadata(
         context,
-        AGENT_IDS.GENERAL,
+        IMAGE_DESCRIPTION_AGENT_TYPE,
         imageDescriptionModelReferenceForRoute(primaryRoute),
       ),
   });

@@ -4,6 +4,7 @@ import {
   createImageDescriptionService,
   enrichImageContentForTextOnlyModel,
   formatImageDescription,
+  IMAGE_DESCRIPTION_AGENT_TYPE,
   IMAGE_DESCRIPTION_MODEL_ID,
 } from "@stella/runtime/kernel/agent-runtime/image-description";
 import { imageDescriptionModelReferenceForRoute } from "@stella/runtime/kernel/runner/model-selection";
@@ -64,6 +65,7 @@ describe("image description service", () => {
     await describeImages([image]);
 
     expect(IMAGE_DESCRIPTION_MODEL_ID).toBe("google/gemini-3.1-flash-lite");
+    expect(IMAGE_DESCRIPTION_AGENT_TYPE).toBe("image_description");
     expect(resolveRoute).toHaveBeenCalledOnce();
     expect(completeSimple).toHaveBeenCalledWith(
       imageModel,

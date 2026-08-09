@@ -6,6 +6,40 @@ import {
 } from "../convex/lib/models_dev";
 
 describe("managed model price entries", () => {
+  it("resolves Gemini 3.1 Flash Lite directly from Google's catalog", () => {
+    const model = "google/gemini-3.1-flash-lite";
+    const result = buildManagedModelPriceEntries({
+      data: {
+        google: {
+          models: {
+            "gemini-3.1-flash-lite": {
+              id: "gemini-3.1-flash-lite",
+              cost: { input: 0.25, output: 1.5, cache_read: 0.025 },
+              modalities: { input: ["text", "image"], output: ["text"] },
+              last_updated: "2026-05-07",
+            },
+          },
+        },
+      },
+      modelIds: [model],
+      syncedAt: 123,
+    });
+
+    expect(result.missingModels).toEqual([]);
+    expect(result.entries).toEqual([
+      expect.objectContaining({
+        model,
+        source: "models.dev",
+        sourceProvider: "google",
+        sourceModelId: "gemini-3.1-flash-lite",
+        inputPerMillionUsd: 0.25,
+        outputPerMillionUsd: 1.5,
+        cacheReadPerMillionUsd: 0.025,
+        modalitiesInput: ["text", "image"],
+      }),
+    ]);
+  });
+
   it("fills Muse Spark from static overrides when models.dev is empty", () => {
     const { entries, missingModels } = buildManagedModelPriceEntries({
       data: {},

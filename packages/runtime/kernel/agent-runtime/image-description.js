@@ -2,6 +2,7 @@ import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import { getResolvedLlmApiKey, } from "../model-routing.js";
 import { createRuntimeLogger } from "../debug.js";
 export const IMAGE_DESCRIPTION_MODEL_ID = "google/gemini-3.1-flash-lite";
+export const IMAGE_DESCRIPTION_AGENT_TYPE = "image_description";
 export const IMAGE_DESCRIPTION_CUSTOM_TYPE = "vision.image_description";
 const logger = createRuntimeLogger("agent-runtime.image-description");
 const IMAGE_DESCRIPTION_SYSTEM_PROMPT = `Describe the supplied image or images for another assistant that cannot inspect them directly.

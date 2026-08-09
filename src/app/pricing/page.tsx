@@ -10,7 +10,7 @@ import "./pricing.css";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Stella pricing — start free, upgrade when you need more. Monthly plans; Go starts at $5 for your first month.",
+    "Stella pricing — start free, upgrade when you need more. Monthly plans; Go starts at $1 for your first month.",
   alternates: { canonical: "/pricing" },
 };
 
@@ -26,8 +26,6 @@ const BASE_FEATURES = [
   "Voice features",
   "Image, video, audio and 3D generation",
 ];
-const PRIORITY_FEATURE = "Higher priority, increased speeds";
-
 const plans: {
   name: string;
   price: number;
@@ -45,17 +43,17 @@ const plans: {
   },
   {
     name: "Go",
-    price: 10,
-    introFirstMonthPriceUsd: 5,
+    price: 5,
+    introFirstMonthPriceUsd: 1,
     tagline: "Baseline monthly usage",
     features: [...BASE_FEATURES],
   },
   {
     name: "Pro",
-    price: 60,
+    price: 15,
     tagline: "3x the usage of Go",
     featured: true,
-    features: [PRIORITY_FEATURE, ...BASE_FEATURES],
+    features: [...BASE_FEATURES],
   },
 ];
 

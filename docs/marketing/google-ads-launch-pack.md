@@ -13,8 +13,8 @@ OpenCode's current copy is deliberately narrow and concrete:
 - "Use with any agent."
 
 The pattern is strong: category, price, audience, then proof. Stella should keep
-that clarity without pretending its recurring managed plan is cheaper. Stella's
-advantage is a wider job boundary:
+that clarity and lead with its wider job boundary rather than relying only on
+the lower recurring price:
 
 > One agent for more than code.
 
@@ -23,11 +23,12 @@ local-first desktop app. It can work across code, research, documents, browser,
 files, and desktop apps. The offer is:
 
 - Start free with supported bring-your-own-model options.
-- Stella managed AI is $5 for the first month, then $10/month.
+- Stella managed AI is $1 for the first month, then $5/month.
 - Open source, local first, Mac and Windows.
 
-Do not claim that Stella is cheaper than OpenCode. Do not imply affiliation with
-OpenCode, Cursor, Claude, or any other competitor.
+Do not make comparative-price claims without rechecking the competitor's live
+offer. Do not imply affiliation with OpenCode, Cursor, Claude, or any other
+competitor.
 
 ## Launch structure
 
@@ -103,7 +104,7 @@ Recommended sitelinks:
 
 | Sitelink | URL | Description 1 | Description 2 |
 | --- | --- | --- | --- |
-| Pricing | `/pricing` | Start free with Stella | Go is $5 the first month |
+| Pricing | `/pricing` | Start free with Stella | Go is $1 the first month |
 | How Stella Works | `/learn-more` | See what Stella can do | Browser, files, apps and more |
 | Coding and Agents | `/go#work` | Build, debug and research | Keep background work moving |
 | Open Source | `https://github.com/ruuxi/stella-v2` | Read Stella's source | Local-first desktop assistant |
@@ -111,7 +112,7 @@ Recommended sitelinks:
 Callouts:
 
 - Start Free
-- $5 First Month
+- $1 First Month
 - Open Source
 - Local First
 - Bring Your Own Models
@@ -143,7 +144,7 @@ but do not negate high-intent comparison terms such as "alternative," "vs," or
   pirated, or unrelated to desktop AI.
 - Do not judge a responsive-search-ad asset from a handful of impressions.
 - Once paid-plan attribution works, set a target CAC from gross margin and
-  retention—not from the $5 intro payment.
+  retention—not from the $1 intro payment.
 - Expand to Canada, the United Kingdom, and Australia as separate campaigns
   only after the US test produces a stable cost per activated user.
 

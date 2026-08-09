@@ -281,7 +281,7 @@ export function SocialChatPane({
             <div className="social-message-sender">
               {isStella ? (
                 <span className="social-message-sender-avatar social-message-sender-avatar--stella">
-                  <img src="stella-logo.svg" alt="" />
+                  <img src="stella-logo.png" alt="" />
                 </span>
               ) : (
                 <Avatar
@@ -511,7 +511,7 @@ export function SocialChatPane({
             title={t("app.social.chat.startStellaTitle")}
           >
             <img
-              src="stella-logo.svg"
+              src="stella-logo.png"
               alt=""
               className="social-stella-pill-logo"
             />
@@ -528,7 +528,7 @@ export function SocialChatPane({
         <div className="social-session-bar" data-state={activeSession.status}>
           <div className="social-session-bar-info">
             <img
-              src="stella-logo.svg"
+              src="stella-logo.png"
               alt=""
               className="social-session-header-logo"
             />
@@ -653,7 +653,7 @@ export function SocialChatPane({
             }
           >
             <img
-              src="stella-logo.svg"
+              src="stella-logo.png"
               alt=""
               className="social-stella-arm-button-logo"
             />

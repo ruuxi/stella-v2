@@ -83,7 +83,7 @@ const getEmailLogoSrc = (siteUrl: string) => {
   if (custom) {
     return custom;
   }
-  return `${siteUrl.replace(/\/+$/, "")}/stella-logo.svg`;
+  return `${siteUrl.replace(/\/+$/, "")}/stella-logo.png`;
 };
 
 const extraTrustedOrigins = [

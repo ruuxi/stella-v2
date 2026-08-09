@@ -60,6 +60,7 @@
 /* Section divider — provider name on the left, hairline filling the rest,
  * connect/sign-out affordance pinned to the right. */
 .model-picker-group-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -80,7 +81,12 @@
 }
 
 .model-picker-group-label {
-  flex-shrink: 0;
+  /* Shrinks and ellipsizes rather than overflowing. A long provider name
+   * ("Kimi (Moonshot AI)", "Vercel AI Gateway") used to push the chevron
+   * past the toggle's right edge, breaking the shared chevron column. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.06em;
@@ -93,6 +99,29 @@
   flex-shrink: 0;
   font-size: var(--font-size-2xs);
   color: var(--text-weak);
+}
+
+/* Provider actions ride *over* the row rather than taking a column in it.
+ * Out of flow, so every group's toggle spans the full width and its
+ * chevron stays pinned to the far right — one clean column, whether or
+ * not the provider has an action, and nothing shifts when one appears. */
+.model-picker-group-actions {
+  position: absolute;
+  top: 50%;
+  right: 32px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.model-picker-group:hover .model-picker-group-actions,
+.model-picker-group[data-open] .model-picker-group-actions,
+.model-picker-group-actions:focus-within {
+  opacity: 1;
 }
 
 .model-picker-group-connect,
@@ -121,6 +150,9 @@
   border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   font-size: var(--font-size-2xs);
   font-weight: var(--weight-medium);
+  /* Visibility belongs to the overlay container above; the pill only has
+   * to re-arm its own pointer events inside it. */
+  pointer-events: auto;
 }
 
 .model-picker-group-connect:hover:not(:disabled),
@@ -141,14 +173,6 @@
   width: 24px;
   height: 24px;
   border-radius: var(--radius-sm, 6px);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.model-picker-group:hover .model-picker-group-signout,
-.model-picker-group-signout:focus-visible,
-.model-picker-group-signout[data-armed] {
-  opacity: 1;
   pointer-events: auto;
 }
 
@@ -310,7 +334,8 @@
 
 /* When a sign-in button is present it is THE primary action; the inline
    key save drops to a quiet pill so the form carries one loud button. */
-.model-picker-connect:has(.model-picker-connect-oauth) .model-picker-connect-go {
+.model-picker-connect:has(.model-picker-connect-oauth)
+  .model-picker-connect-go {
   border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   background: transparent;
   color: var(--text-base);
@@ -378,6 +403,13 @@
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+}
+
+/* In the search row the sign-out icon has no overlay container to hide it,
+ * so it keeps its own hover reveal. */
+.model-picker-search-action .model-picker-group-signout {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .model-picker-search-row:hover .model-picker-group-signout,

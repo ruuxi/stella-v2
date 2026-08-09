@@ -635,7 +635,10 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
               </span>
               <span className="model-picker-group-label">{tab.label}</span>
             </>)}
-          {renderGroupActions(section)}
+          {/* Overlay, not a column: the actions are absolutely positioned
+              over the row's right end, so the toggle keeps the full width
+              and every group's chevron stays in one column. */}
+          <span className="model-picker-group-actions">{renderGroupActions(section)}</span>
         </div>) : null}
 
         {open && requiresAuth && expanded ? (<div className="model-picker-connect">

@@ -19,6 +19,7 @@ import {
   ComposerSubmitButton,
 } from "@/features/chat/ComposerPrimitives";
 import { useComposerModelPinned } from "@/features/chat/composer-model-pin-store";
+import { useOptimisticStop } from "@/features/chat/hooks/use-optimistic-stop";
 import {
   deriveComposerState,
   hasAttachedComposerChips,
@@ -97,6 +98,7 @@ function ComposerImpl({
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [modelMentionTrigger, setModelMentionTrigger] =
     useState<ComposerModelMentionTrigger | null>(null);
+  const { showStop, requestStop } = useOptimisticStop(isStreaming, onStop);
   const {
     screenshot: previewScreenshot,
     previewIndex: previewScreenshotIndex,
@@ -382,10 +384,10 @@ function ComposerImpl({
                         />
                       )}
                     </div>
-                    {isStreaming && (
+                    {showStop && (
                       <ComposerStopButton
                         className="composer-stop"
-                        onClick={onStop}
+                        onClick={requestStop}
                         title={t("app.chat.composer.stop")}
                         aria-label={t("app.chat.composer.stop")}
                       />

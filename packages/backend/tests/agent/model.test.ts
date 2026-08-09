@@ -17,6 +17,7 @@ import {
 const FLASH_MODEL = "accounts/fireworks/models/deepseek-v4-flash-0731";
 const FLASH_SELECTION = `stella/${FLASH_MODEL}`;
 const SYNTHESIS_MODEL = "google/gemini-3.6-flash";
+const IMAGE_DESCRIPTION_MODEL = "google/gemini-3.1-flash-lite";
 
 describe("managed model config", () => {
   it("routes every Stella mode to DeepSeek and keeps synthesis on Gemini", () => {
@@ -35,7 +36,11 @@ describe("managed model config", () => {
 
       for (const entry of listStellaDefaultSelections(audience)) {
         const expectedModel =
-          entry.agentType === "synthesis" ? SYNTHESIS_MODEL : FLASH_MODEL;
+          entry.agentType === "synthesis"
+            ? SYNTHESIS_MODEL
+            : entry.agentType === "image_description"
+              ? IMAGE_DESCRIPTION_MODEL
+              : FLASH_MODEL;
         expect(getModelConfig(entry.agentType, audience).model).toBe(
           expectedModel,
         );
@@ -51,6 +56,12 @@ describe("managed model config", () => {
         managedGatewayProvider: "google",
         fallbackManagedGatewayProvider: "fireworks",
         maxOutputTokens: 32768,
+        providerOptions: { gateway: { order: ["google"] } },
+      });
+      expect(getModelConfig("image_description", audience)).toMatchObject({
+        model: IMAGE_DESCRIPTION_MODEL,
+        managedGatewayProvider: "google",
+        maxOutputTokens: 4096,
         providerOptions: { gateway: { order: ["google"] } },
       });
     }
@@ -102,7 +113,11 @@ describe("managed model config", () => {
     );
   });
 
-  it("price-syncs the public model and internal synthesis model", () => {
-    expect(listManagedModelIds()).toEqual([FLASH_MODEL, SYNTHESIS_MODEL]);
+  it("price-syncs the public and internal utility models", () => {
+    expect(listManagedModelIds()).toEqual([
+      FLASH_MODEL,
+      IMAGE_DESCRIPTION_MODEL,
+      SYNTHESIS_MODEL,
+    ]);
   });
 });

@@ -256,6 +256,29 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.config.fallback).toBeUndefined();
   });
 
+  it("keeps image description on Gemini for every audience", () => {
+    for (const audience of [
+      "anonymous",
+      "free",
+      "go",
+      "pro",
+      "go_fallback",
+      "pro_fallback",
+    ] as const) {
+      const resolved = resolveRequestedStellaModel(
+        "image_description",
+        { model: "stella/google/gemini-3.1-flash-lite" },
+        audience,
+      );
+      expect(resolved.requestedModel).toBe("stella/default");
+      expect(resolved.resolvedModel).toBe(
+        "google/gemini-3.1-flash-lite",
+      );
+      expect(resolved.config.managedGatewayProvider).toBe("google");
+      expect(resolved.config.maxOutputTokens).toBe(4096);
+    }
+  });
+
   it("treats the explicit default sentinel like a missing model", () => {
     const defaultAlias = ["stella", "default"].join("/");
     const pro = resolveRequestedStellaModel(

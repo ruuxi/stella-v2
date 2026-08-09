@@ -125,7 +125,15 @@ const GEMINI_3_6_FLASH_SYNTHESIS_CONFIG: ModelConfig = {
   fallbackProviderOptions: DEEPSEEK_V4_FLASH_MODEL_CONFIG.providerOptions,
 };
 
+const GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG: ModelConfig = {
+  model: "google/gemini-3.1-flash-lite",
+  managedGatewayProvider: "google",
+  maxOutputTokens: 4096,
+  providerOptions: gatewayOptions("google"),
+};
+
 const INTERNAL_MODEL_CONFIGS = {
+  image_description: GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG,
   synthesis: GEMINI_3_6_FLASH_SYNTHESIS_CONFIG,
 } as const satisfies Record<string, ModelConfig>;
 
@@ -260,6 +268,10 @@ export const isStellaModelAllowedForAudience = (
  */
 export const LOCKED_AGENT_TYPES: ReadonlySet<string> = new Set<string>([
   "chronicle",
+  // Image descriptions must stay on a vision-capable Google route. Treating
+  // this utility pass as General lets restricted audiences coerce the model
+  // back to DeepSeek while the desktop still serializes a Google request.
+  "image_description",
   // Progress summaries tick every ~30s per active sub-agent purely to narrate
   // what's happening. Like chronicle, the wrong (expensive) model here burns
   // quota with no user benefit, so the client can't override it.
@@ -281,6 +293,7 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   dream: "light",
   chronicle: "light",
   progress_summary: "light",
+  image_description: "image_description",
   html_finish: "light",
 };
 

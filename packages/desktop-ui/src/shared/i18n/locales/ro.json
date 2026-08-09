@@ -586,10 +586,6 @@
     "privacyPolicy": "Politica de confidențialitate",
     "previousStep": "Pasul anterior",
     "nextStep": "Pasul următor",
-    "intro": {
-      "primary": "Stella este o IA care rulează pe computerul tău.",
-      "secondary": "Stella nu este pentru toată lumea. Stella este pentru tine."
-    },
     "stepTitles": {
       "engine": "Alege ce alimentează Stella.",
       "extension": "Adaugă Stella în browser.",

@@ -26,12 +26,10 @@ const advancePastSkipped = (
 
 const FADE_OUT_MS = 260;
 const FADE_GAP_MS = 120;
-const INTRO_CONTINUE_DELAY_MS = 1100;
 
 type UseOnboardingFlowArgs = {
   initialPhase: Phase;
   onComplete: () => void;
-  onEnterSplit?: () => void;
   onInteract?: () => void;
   onPhaseChange?: (phase: Phase) => void;
   skippedPhases?: ReadonlySet<Phase>;
@@ -40,7 +38,6 @@ type UseOnboardingFlowArgs = {
 export function useOnboardingFlow({
   initialPhase,
   onComplete,
-  onEnterSplit,
   onInteract,
   onPhaseChange,
   skippedPhases,
@@ -54,7 +51,6 @@ export function useOnboardingFlow({
 
   const [phase, setPhase] = useState<Phase>(initialPhase);
   const [leaving, setLeaving] = useState(false);
-  const [rippleActive, setRippleActive] = useState(initialPhase === "intro");
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [maxVisitedSplitStepIndex, setMaxVisitedSplitStepIndex] = useState(() =>
     Math.max(SPLIT_STEP_ORDER.indexOf(initialPhase), 0),
@@ -132,20 +128,6 @@ export function useOnboardingFlow({
     ],
   );
 
-  useEffect(() => {
-    if (phase !== "intro") {
-      return;
-    }
-
-    const timeoutId = setTimeout(() => {
-      setRippleActive(true);
-    }, INTRO_CONTINUE_DELAY_MS);
-
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  }, [phase]);
-
   const nextSplitStep = useCallback(() => {
     const index = SPLIT_STEP_ORDER.indexOf(phase);
     const nextIndex = advancePastSkipped(index + 1, 1, effectiveSkippedPhases);
@@ -168,12 +150,6 @@ export function useOnboardingFlow({
     }
   }, [effectiveSkippedPhases, onInteract, phase, transitionTo]);
 
-  const continueIntro = useCallback(() => {
-    onInteract?.();
-    onEnterSplit?.();
-    transitionTo("capabilities");
-  }, [onEnterSplit, onInteract, transitionTo]);
-
   // The steps the user will actually walk through — platform and
   // conditional skips removed. Drives the progress strip so a macOS
   // user and a Windows user each see an honest step count.
@@ -185,11 +161,9 @@ export function useOnboardingFlow({
   return {
     phase,
     leaving,
-    rippleActive,
     maxVisitedSplitStepIndex,
     visibleSteps,
     nextSplitStep,
     prevSplitStep,
-    continueIntro,
   };
 }

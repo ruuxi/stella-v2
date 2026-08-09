@@ -589,10 +589,6 @@
     "privacyPolicy": "سياسة الخصوصية",
     "previousStep": "الخطوة السابقة",
     "nextStep": "الخطوة التالية",
-    "intro": {
-      "primary": "‏Stella ذكاء اصطناعي يعمل على جهازك.",
-      "secondary": "‏Stella ليست للجميع. Stella من أجلك."
-    },
     "stepTitles": {
       "engine": "اختر ما يشغّل Stella.",
       "extension": "أضف Stella إلى متصفحك.",

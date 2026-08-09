@@ -584,10 +584,6 @@
     "privacyPolicy": "プライバシーポリシー",
     "previousStep": "前のステップ",
     "nextStep": "次のステップ",
-    "intro": {
-      "primary": "Stella はあなたのコンピューターで動く AI です。",
-      "secondary": "Stella はみんなのためのものではありません。あなたのためのものです。"
-    },
     "stepTitles": {
       "engine": "Stella を動かすエンジンを選択します。",
       "extension": "ブラウザに Stella を追加しましょう。",

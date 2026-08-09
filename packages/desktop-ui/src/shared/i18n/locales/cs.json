@@ -587,10 +587,6 @@
     "privacyPolicy": "Zásadami ochrany osobních údajů",
     "previousStep": "Předchozí krok",
     "nextStep": "Další krok",
-    "intro": {
-      "primary": "Stella je AI, která běží na vašem počítači.",
-      "secondary": "Stella není pro každého. Stella je pro vás."
-    },
     "stepTitles": {
       "engine": "Vyberte, co pohání Stellu.",
       "extension": "Přidejte Stellu do prohlížeče.",

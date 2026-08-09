@@ -586,10 +586,6 @@
     "privacyPolicy": "מדיניות הפרטיות",
     "previousStep": "שלב קודם",
     "nextStep": "שלב הבא",
-    "intro": {
-      "primary": "Stella היא בינה מלאכותית שרצה על המחשב שלכם.",
-      "secondary": "Stella לא בשביל כולם. Stella בשבילכם."
-    },
     "stepTitles": {
       "engine": "בחר מה מפעיל את Stella.",
       "extension": "הוסיפו את Stella לדפדפן שלכם.",

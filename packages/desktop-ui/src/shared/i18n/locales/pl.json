@@ -587,10 +587,6 @@
     "privacyPolicy": "Politykę prywatności",
     "previousStep": "Poprzedni krok",
     "nextStep": "Następny krok",
-    "intro": {
-      "primary": "Stella to AI działające na Twoim komputerze.",
-      "secondary": "Stella nie jest dla każdego. Stella jest dla Ciebie."
-    },
     "stepTitles": {
       "engine": "Wybierz, co napędza Stellę.",
       "extension": "Dodaj Stellę do przeglądarki.",

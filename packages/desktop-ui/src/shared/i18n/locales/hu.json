@@ -585,10 +585,6 @@
     "privacyPolicy": "Adatvédelmi szabályzat",
     "previousStep": "Előző lépés",
     "nextStep": "Következő lépés",
-    "intro": {
-      "primary": "A Stella egy MI, amely a számítógépeden fut.",
-      "secondary": "A Stella nem mindenkinek való. A Stella neked való."
-    },
     "stepTitles": {
       "engine": "Válaszd ki, mi hajtja a Stellát.",
       "extension": "Add hozzá a Stellát a böngésződhöz.",

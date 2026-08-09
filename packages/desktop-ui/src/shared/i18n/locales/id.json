@@ -584,10 +584,6 @@
     "privacyPolicy": "Kebijakan Privasi",
     "previousStep": "Langkah sebelumnya",
     "nextStep": "Langkah berikutnya",
-    "intro": {
-      "primary": "Stella adalah AI yang berjalan di komputer Anda.",
-      "secondary": "Stella tidak untuk semua orang. Stella untuk Anda."
-    },
     "stepTitles": {
       "engine": "Pilih apa yang menggerakkan Stella.",
       "extension": "Tambahkan Stella ke peramban Anda.",

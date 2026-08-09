@@ -1,7 +1,6 @@
 import type { DiscoveryCategory } from "@stella/contracts/discovery";
 
 export type Phase =
-  | "intro"
   | "capabilities"
   | "shapeshift"
   | "theme"

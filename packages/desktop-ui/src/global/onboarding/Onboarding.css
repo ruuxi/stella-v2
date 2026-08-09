@@ -1,11 +1,9 @@
 /* ===== Onboarding — 3-phase flow ===== */
-/* Phase 1: Center (start, intro) */
+/* Phase 1: Center (start) */
 /* Phase 2: Split (capabilities, theme, personality, permissions,
  *          browser, extension, engine, voice,
  *          memory, enter) */
 /* Phase 3: Complete */
-
-/* Ripple animation for reveal */
 
 /* The canvas has its own bounded renderer loop. Its global breathing keyframe
  * would otherwise force a style recalculation on every display frame for the
@@ -69,18 +67,6 @@
   width: 100%;
   height: 100%;
   padding: 0;
-}
-
-/* ═══ Shared text ═══ */
-
-.onboarding-text {
-  font-size: 28px;
-  font-weight: var(--weight-light);
-  letter-spacing: 0.06em;
-  color: var(--foreground);
-  opacity: 0.9;
-  text-align: center;
-  line-height: 1.4;
 }
 
 /* ═══ Moments (center phases) ═══ */
@@ -247,113 +233,6 @@
   outline: none;
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-sm);
-}
-
-/* ═══ Moment 2: Intro (ripple reveal) ═══ */
-
-.onboarding-text--fade-in {
-  opacity: 0;
-  animation: textFadeIn var(--onboarding-duration-text)
-    var(--onboarding-ease-standard) 160ms forwards;
-}
-
-.onboarding-text--fade-in-delayed {
-  margin-top: 12px;
-  opacity: 0;
-  animation: textFadeIn var(--onboarding-duration-text)
-    var(--onboarding-ease-standard)
-    calc(
-      160ms + var(--onboarding-reveal-index, 3) * var(--onboarding-stagger-step)
-    )
-    forwards;
-}
-
-@keyframes textFadeIn {
-  from {
-    opacity: 0;
-    transform: translate3d(0, var(--onboarding-reveal-text-translate), 0);
-    filter: blur(var(--onboarding-reveal-text-blur));
-  }
-  to {
-    opacity: 0.9;
-    transform: translate3d(0, 0, 0);
-    filter: blur(0);
-  }
-}
-
-/* Continue prompt below intro text */
-.onboarding-moment--ripple .onboarding-choices {
-  position: relative;
-  top: auto;
-  left: auto;
-  margin-top: 40px;
-  opacity: 0;
-  transform: translate3d(0, var(--onboarding-reveal-text-translate), 0);
-  filter: blur(var(--onboarding-reveal-text-blur));
-  transition:
-    opacity var(--onboarding-duration-text) var(--onboarding-ease-standard),
-    transform var(--onboarding-duration-text) var(--onboarding-ease-standard),
-    filter var(--onboarding-duration-text) var(--onboarding-ease-standard);
-  pointer-events: none;
-}
-
-.onboarding-moment--ripple .onboarding-choices[data-visible="true"] {
-  opacity: 1;
-  transform: translate3d(0, 0, 0);
-  filter: blur(0);
-  pointer-events: auto;
-}
-
-/* ═══ Choice button (reusable) ═══ */
-
-.onboarding-choice {
-  background: none;
-  border: none;
-  padding: 14px 0;
-  font-size: 22px;
-  font-weight: var(--weight-light);
-  letter-spacing: 0.1em;
-  color: var(--foreground);
-  opacity: 0.45;
-  cursor: default;
-  -webkit-app-region: no-drag;
-  transition:
-    opacity 0.3s ease,
-    transform 0.2s ease;
-  font-family: inherit;
-  position: relative;
-}
-
-.onboarding-choice::after {
-  content: "";
-  position: absolute;
-  bottom: 2px;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--foreground);
-  opacity: 0;
-  transform: scaleX(0);
-  transition:
-    opacity 0.3s ease,
-    transform 0.3s ease;
-}
-
-.onboarding-choice:hover,
-.onboarding-choice:focus-visible {
-  opacity: 1;
-  outline: none;
-  transform: translateY(-1px);
-}
-
-.onboarding-choice:hover::after,
-.onboarding-choice:focus-visible::after {
-  opacity: 0.4;
-  transform: scaleX(1);
-}
-
-.onboarding-choice:active {
-  transform: scale(0.97);
 }
 
 /* ═══ Confirm button ═══ */
@@ -1625,14 +1504,6 @@
     > .onboarding-discovery-row {
     animation: none;
     transform: none;
-  }
-
-  .onboarding-text--fade-in,
-  .onboarding-text--fade-in-delayed {
-    animation: none;
-    opacity: 0.9;
-    transform: none;
-    filter: none;
   }
 
   .onboarding-dialogue {

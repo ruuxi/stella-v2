@@ -131,7 +131,6 @@ function OnboardingExperience({
           triggerFlash={onboarding.triggerFlash}
           startOnboarding={onboarding.startOnboarding}
           completeOnboarding={onboarding.completeOnboarding}
-          handleEnterSplit={onboarding.handleEnterSplit}
           onDiscoveryConfirm={handleDiscoveryConfirm}
           onSelectionChange={onboarding.setHasDiscoverySelections}
           onPhaseChange={handleOnboardingPhaseChange}

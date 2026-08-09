@@ -585,10 +585,6 @@
     "privacyPolicy": "Privacybeleid",
     "previousStep": "Vorige stap",
     "nextStep": "Volgende stap",
-    "intro": {
-      "primary": "Stella is een AI die op je computer draait.",
-      "secondary": "Stella is niet voor iedereen. Stella is voor jou."
-    },
     "stepTitles": {
       "engine": "Kies wat Stella aandrijft.",
       "extension": "Voeg Stella toe aan je browser.",

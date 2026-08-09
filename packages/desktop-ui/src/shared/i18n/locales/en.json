@@ -592,10 +592,6 @@
     "privacyPolicy": "Privacy Policy",
     "previousStep": "Previous step",
     "nextStep": "Next step",
-    "intro": {
-      "primary": "Stella is an AI that runs on your computer.",
-      "secondary": "Stella isn't for everyone. Stella is for you."
-    },
     "stepTitles": {
       "engine": "Pick what powers Stella.",
       "extension": "Add Stella to your browser.",

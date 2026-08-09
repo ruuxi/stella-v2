@@ -584,10 +584,6 @@
     "privacyPolicy": "隐私政策",
     "previousStep": "上一步",
     "nextStep": "下一步",
-    "intro": {
-      "primary": "Stella 是一款运行在您电脑上的 AI。",
-      "secondary": "Stella 不属于所有人。Stella 属于您。"
-    },
     "stepTitles": {
       "engine": "选择驱动 Stella 的引擎。",
       "extension": "把 Stella 添加到浏览器。",

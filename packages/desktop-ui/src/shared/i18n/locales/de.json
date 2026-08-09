@@ -585,10 +585,6 @@
     "privacyPolicy": "Datenschutzerklärung",
     "previousStep": "Vorheriger Schritt",
     "nextStep": "Nächster Schritt",
-    "intro": {
-      "primary": "Stella ist eine KI, die auf deinem Computer läuft.",
-      "secondary": "Stella ist nicht für alle. Stella ist für dich."
-    },
     "stepTitles": {
       "engine": "Wähle, was Stella antreibt.",
       "extension": "Füge Stella zu deinem Browser hinzu.",

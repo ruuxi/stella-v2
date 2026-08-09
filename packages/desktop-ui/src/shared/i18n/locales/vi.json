@@ -584,10 +584,6 @@
     "privacyPolicy": "Chính sách bảo mật",
     "previousStep": "Bước trước",
     "nextStep": "Bước tiếp theo",
-    "intro": {
-      "primary": "Stella là một AI chạy trên máy tính của bạn.",
-      "secondary": "Stella không dành cho tất cả mọi người. Stella dành cho bạn."
-    },
     "stepTitles": {
       "engine": "Chọn thứ vận hành Stella.",
       "extension": "Thêm Stella vào trình duyệt của bạn.",

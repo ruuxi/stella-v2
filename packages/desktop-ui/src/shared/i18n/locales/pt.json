@@ -586,10 +586,6 @@
     "privacyPolicy": "Política de privacidade",
     "previousStep": "Passo anterior",
     "nextStep": "Próximo passo",
-    "intro": {
-      "primary": "Stella é uma IA que roda no seu computador.",
-      "secondary": "Stella não é para todo mundo. Stella é para você."
-    },
     "stepTitles": {
       "engine": "Escolha o que move a Stella.",
       "extension": "Adicione a Stella ao seu navegador.",

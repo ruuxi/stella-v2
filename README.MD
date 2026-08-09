@@ -59,12 +59,6 @@ If you want to bring your own keys, you can. Use your Claude Code subscription, 
 
 If you'd rather not set anything up, an optional Stella subscription covers media generation, text messaging, and voice. Nothing is gated behind it. The subscription only exists so you don't have to think about API keys.
 
-## Import from Hermes or OpenClaw
-
-Stella can import local data from [Hermes Agent](https://github.com/NousResearch/hermes-agent) and [OpenClaw](https://github.com/openclaw/openclaw). The import is one-time and read-only on the old install. Stella brings over memory, skills, sessions, personalities, model choices, and compatible schedules where possible, then writes a markdown report covering what came over and what needs review.
-
-Channel pairings are skipped because Stella channels are zero-setup. Re-enable them from Stella settings if you want them.
-
 ## Platforms
 
 macOS and Windows. Windows support is currently untested and experimental.

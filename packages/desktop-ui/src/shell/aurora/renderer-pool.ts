@@ -4,6 +4,7 @@ import {
   type AuroraSpec,
   type AuroraSpecOptions,
 } from "./aurora-spec";
+import type { AuroraVariant } from "./shader";
 
 /**
  * Persistent pool of WebGL aurora renderers.
@@ -27,6 +28,7 @@ type GlRenderer = NonNullable<ReturnType<typeof initRenderer>>;
 
 export type PooledAuroraRenderer = {
   key: string;
+  variant: AuroraVariant;
   canvas: HTMLCanvasElement;
   renderer: GlRenderer;
 };
@@ -68,7 +70,7 @@ function createEntry(
   canvas.height = spec.backingHeight;
   const renderer = initRenderer(canvas, colors, birth, flash, spec.variant);
   if (!renderer) return null;
-  return { key: spec.key, canvas, renderer };
+  return { key: spec.key, variant: spec.variant, canvas, renderer };
 }
 
 /**
@@ -111,6 +113,40 @@ export function releaseAuroraRenderer(entry: PooledAuroraRenderer): void {
   }
   pool.push(entry);
   idleByKey.set(entry.key, pool);
+}
+
+/**
+ * Drop idle renderers whose surface is gone for good, freeing the GL context
+ * and its backing store instead of holding them warm forever.
+ *
+ * Pooling pays for itself when a surface reappears — the chat working
+ * indicator remounts on every message send. It is pure loss for a surface
+ * that appears once per install: the onboarding creature's 875x682 canvas is
+ * the only `waves` consumer in the app, so once onboarding is over nothing
+ * can ever ask for that key again and its entry would sit in `idleByKey` for
+ * the lifetime of the process.
+ *
+ * Only idle entries are touched; anything currently borrowed is untouched and
+ * still returns through `releaseAuroraRenderer` as usual. Returns the number
+ * disposed.
+ */
+export function disposeIdleAuroraRenderers(filter?: {
+  variant?: AuroraVariant;
+}): number {
+  let disposed = 0;
+  for (const [key, pool] of idleByKey) {
+    const kept = filter?.variant
+      ? pool.filter((entry) => entry.variant !== filter.variant)
+      : [];
+    for (const entry of pool) {
+      if (kept.includes(entry)) continue;
+      disposeEntry(entry);
+      disposed += 1;
+    }
+    if (kept.length > 0) idleByKey.set(key, kept);
+    else idleByKey.delete(key);
+  }
+  return disposed;
 }
 
 /** Create one warm renderer for `spec` ahead of first use (no-op if one is

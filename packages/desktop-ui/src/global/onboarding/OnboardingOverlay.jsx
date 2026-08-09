@@ -13,9 +13,10 @@
  * importing this view tree into the main bundle. Returning users — for
  * whom `appReady === true` at first paint — never fetch this chunk.
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { OnboardingStep1 } from "@/global/onboarding/OnboardingStep1";
 import { StellaAnimation } from "@/shell/aurora/StellaAnimation";
+import { disposeIdleAuroraRenderers } from "@/shell/aurora/renderer-pool";
 import { LegalDialog } from "@/global/legal/LegalDialog";
 import { CREATURE_INITIAL_SIZE } from "@/global/onboarding/use-onboarding-overlay";
 import { shouldUseLowPowerEffects } from "@/shared/lib/device-perf";
@@ -99,6 +100,22 @@ export function OnboardingView({
   stellaAnimationHidden = false,
 }) {
   const [activeLegalDoc, setActiveLegalDoc] = useState(null);
+  // The creature is the app's only `waves` surface and it appears exactly
+  // once per install, so the renderer it hands back on unmount has no second
+  // customer — left pooled, its 875x682 GL context stays resident for the
+  // rest of the process. Note this deliberately does NOT run when the
+  // creature alone remounts (the split transition changes `maxFps`, which
+  // re-acquires): only the whole flow going away retires the variant.
+  //
+  // Deferred a macrotask because React's ordering between this cleanup and
+  // StellaAnimation's `releaseAuroraRenderer` is not something to depend on;
+  // by the next task the entry is certainly back in the idle pool.
+  useEffect(
+    () => () => {
+      setTimeout(() => disposeIdleAuroraRenderers({ variant: "waves" }), 0);
+    },
+    [],
+  );
   const t = useT();
   const { locale, setLocale, supportedLocales } = useI18n();
   // The creature is a hero visual, but onboarding is long-lived. Keep its

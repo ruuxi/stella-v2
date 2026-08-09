@@ -18,6 +18,26 @@ type GlRenderer = {
   destroy: () => void;
 };
 
+/**
+ * The aurora draws exactly one quad covering the whole canvas, so it has no
+ * polygon edges — but `antialias` defaults to true, which allocates a 4x
+ * multisampled color buffer and resolves it every frame for nothing. It is
+ * by far the most expensive thing about this renderer: measured on an M4 at
+ * the onboarding creature's 875x682, 0.49ms per frame with MSAA versus
+ * 0.016ms without, for byte-identical readPixels output.
+ *
+ * Depth and stencil are equally dead — `DEPTH_TEST` is disabled below and
+ * nothing ever clears or tests them — and each multisampled attachment is
+ * another ~9.5MB of GPU memory at that size.
+ */
+const CONTEXT_ATTRIBUTES: WebGLContextAttributes = {
+  alpha: true,
+  premultipliedAlpha: false,
+  antialias: false,
+  depth: false,
+  stencil: false,
+};
+
 export const initRenderer = (
   targetCanvas: HTMLCanvasElement,
   colors: Float32Array,
@@ -26,12 +46,13 @@ export const initRenderer = (
   variant: AuroraVariant = "orb",
 ): GlRenderer | null => {
   const gl =
-    (targetCanvas.getContext("webgl", {
-      alpha: true,
-      premultipliedAlpha: false,
-    }) as WebGLRenderingContext | null) ||
+    (targetCanvas.getContext(
+      "webgl",
+      CONTEXT_ATTRIBUTES,
+    ) as WebGLRenderingContext | null) ||
     (targetCanvas.getContext(
       "experimental-webgl",
+      CONTEXT_ATTRIBUTES,
     ) as WebGLRenderingContext | null);
   if (!gl) return null;
 

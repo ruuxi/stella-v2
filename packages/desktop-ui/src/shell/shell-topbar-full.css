@@ -147,6 +147,47 @@ body[data-display-expanding="true"] .shell-topbar-full,
     var(--shell-junction-border, var(--border-base));
 }
 
+/*
+ * The panel seam is one continuous line, but it is drawn by two elements:
+ * this header's left border across the topbar row, and the aside's resize
+ * handle below it. The handle can't reach up here — the aside starts at
+ * `margin-top: var(--shell-topbar-height)` and clips its overflow — so
+ * hovering the handle used to light only the part of the line below the
+ * topbar. This overlay mirrors the handle's 2px `--border-strong` bar and
+ * lights with it. It never takes pointer events: the drag target is still
+ * the handle alone, since this row is a window-drag region.
+ */
+.display-panel-topbar[data-display-open="true"][data-display-expanded="false"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--border-strong);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+:root:has(.right-sidebar--open .right-sidebar__resize-handle:hover)
+  .display-panel-topbar[data-display-open="true"][data-display-expanded="false"]::before,
+body[data-display-resizing="true"]
+  .display-panel-topbar[data-display-open="true"][data-display-expanded="false"]::before {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .display-panel-topbar[data-display-open="true"][data-display-expanded="false"]::before {
+    transition: none;
+  }
+}
+
+:root[data-reduce-motion="reduce"]
+  .display-panel-topbar[data-display-open="true"][data-display-expanded="false"]::before {
+  transition: none;
+}
+
 .display-panel-topbar[data-platform="win"] {
   right: 0;
   width: calc(

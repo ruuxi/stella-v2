@@ -19,9 +19,11 @@
   padding: 10px 12px 12px;
 }
 
-.pill-btn.work-models-pin-button[data-active] {
-  background: color-mix(in oklch, var(--foreground) 6%, transparent);
-  color: var(--text-strong);
+/* Composer pin — a plain label + switch, not a pill: it is a persistent
+   preference, not an action to press. */
+.work-models-pin-switch [data-slot="switch-label"] {
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
 }
 
 .pill-btn.work-models-button {
@@ -199,7 +201,6 @@
   box-shadow: var(--focus-ring);
 }
 
-
 /* Footer utility cluster: Theme, Phone, Connectors, Feedback triggers. */
 .work-utility-controls {
   display: flex;
@@ -247,7 +248,12 @@
 
 /* Models popover: hosts the agent model picker above the footer button. */
 .models-popover {
-  width: min(360px, 92vw);
+  /* `max-width` has to move with `width`: the shared popover surface caps
+     every popover at 320px, which silently clamped this one. The model
+     list carries provider names plus an action pill, so it needs the
+     extra room. */
+  width: min(380px, 92vw);
+  max-width: min(380px, 92vw);
   height: min(560px, 72vh);
   display: flex;
   flex-direction: column;
@@ -266,6 +272,15 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+/* The picker's own root is `flex-grow: 0` (it sizes to content in the
+   settings page, where it sits beside other blocks). Inside the popover it
+   is the only child and should own the full width, or widening the popover
+   just adds dead space on the right. */
+.models-popover__panel > * {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .models-popover__footer {

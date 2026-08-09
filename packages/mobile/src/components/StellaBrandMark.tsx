@@ -4,7 +4,7 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 
-/** Rasterized from `assets/stella-logo.svg` (same asset as desktop/launcher). */
+/** Rasterized from the canonical Stella brand master (same mark as desktop/launcher). */
 const STELLA_LOGO =
   PixelRatio.get() >= 3
     ? require("../../assets/stella-logo-84.png")

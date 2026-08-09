@@ -92,7 +92,7 @@ const SC_H = (1990 / MK_H) * 100;
 const SC_RX = (126 / 918) * 100;
 const SC_RY = (126 / 1990) * 100;
 
-const IMAGE_PATHS = ["/mockup.png", "/app-icon.png", "/splash-icon.png", "/stella-logo.svg"] as const;
+const IMAGE_PATHS = ["/mockup.png", "/app-icon.png", "/splash-icon.png", "/stella-logo.png"] as const;
 const imageCache: Record<string, string> = {};
 
 /** Marketing chrome outside the device frame (badges, floating cards, pills). */
@@ -1465,7 +1465,7 @@ function HeroSlide({ canvas, device, theme }: SlideRenderContext) {
     >
       {/* Large Stella logo — top left, bleeds off edge */}
       <img
-        src={img("/stella-logo.svg")}
+        src={img("/stella-logo.png")}
         alt=""
         draggable={false}
         style={{

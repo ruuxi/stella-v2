@@ -128,7 +128,7 @@ const jsonLd = {
       "@id": `${siteUrl.origin}/#organization`,
       name: "Stella",
       url: siteUrl.origin,
-      logo: new URL("/stella-logo.svg", siteUrl).href,
+      logo: new URL("/stella-logo.png", siteUrl).href,
       sameAs: ["https://x.com/stella", "https://github.com/ruuxi/stella-v2"],
     },
     {

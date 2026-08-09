@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import {
@@ -27,7 +27,7 @@ describe("ripgrep resolver", () => {
     clearRipgrepPathCacheForTests();
   });
 
-  it("copies bundled rg into Stella-private bin when system rg is absent", async () => {
+  it("uses bundled rg without copying it into Stella-private bin", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "stella-rg-root-"));
     const home = await mkdtemp(path.join(os.tmpdir(), "stella-rg-home-"));
     const source = path.join(root, "node_modules", ".bin", "rg");
@@ -46,8 +46,7 @@ describe("ripgrep resolver", () => {
     });
 
     const target = path.join(home, "bin", "rg");
-    expect(resolved).toBe(target);
-    expect((await stat(target)).mode & 0o111).not.toBe(0);
-    await expect(readFile(target, "utf8")).resolves.toContain("bundled-rg");
+    expect(resolved).toBe(source);
+    await expect(access(target)).rejects.toThrow();
   });
 });

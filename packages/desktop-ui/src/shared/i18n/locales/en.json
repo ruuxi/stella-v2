@@ -1802,6 +1802,7 @@
         "historyEmpty": "No conversations yet",
         "historyRetry": "Couldn’t load conversations. Try again",
         "openConversations": "Open conversations",
+        "unread": "Unread messages",
         "openConversation": "Open {title}",
         "closeConversation": "Close {title}",
         "delete": "Delete {title}",

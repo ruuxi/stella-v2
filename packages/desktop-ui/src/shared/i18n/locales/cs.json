@@ -1848,6 +1848,7 @@
         "historyEmpty": "Zatím žádné konverzace",
         "historyRetry": "Konverzace se nepodařilo načíst. Zkuste to znovu",
         "openConversations": "Otevřít konverzace",
+        "unread": "Nepřečtené zprávy",
         "openConversation": "Otevřít {title}",
         "closeConversation": "Zavřít {title}",
         "delete": "Smazat {title}",

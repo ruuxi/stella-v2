@@ -1825,6 +1825,7 @@
         "historyEmpty": "Nicio conversație deocamdată",
         "historyRetry": "Conversațiile nu au putut fi încărcate. Încearcă din nou",
         "openConversations": "Deschide conversațiile",
+        "unread": "Mesaje necitite",
         "openConversation": "Deschide {title}",
         "closeConversation": "Închide {title}",
         "delete": "Șterge {title}",

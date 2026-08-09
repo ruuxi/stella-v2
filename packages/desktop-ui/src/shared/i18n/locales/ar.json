@@ -1889,6 +1889,7 @@
         "historyEmpty": "لا محادثات بعد",
         "historyRetry": "تعذّر تحميل المحادثات. حاول مرة أخرى",
         "openConversations": "افتح المحادثات",
+        "unread": "رسائل غير مقروءة",
         "openConversation": "افتح {title}",
         "closeConversation": "أغلق {title}",
         "delete": "احذف {title}",

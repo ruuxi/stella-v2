@@ -12,6 +12,11 @@ export type ConversationTab = {
   title: string;
   latestMessageAt?: number;
   latestMessageId?: string;
+  /**
+   * A message landed on this conversation while the user was looking at a
+   * different tab. Persisted so a restart doesn't quietly drop the notice.
+   */
+  unread?: boolean;
 };
 
 export type ConversationTitleCursor = {
@@ -95,6 +100,7 @@ const readPersistedTabs = (): ConversationTab[] => {
         conversationId,
         title: normalizeConversationTabTitle(candidate?.title),
         ...(cursor ?? {}),
+        ...(candidate?.unread === true ? { unread: true } : {}),
       });
       if (tabs.length >= MAX_PERSISTED_TABS) break;
     }
@@ -223,6 +229,38 @@ export const conversationTabs = {
       return { ...tab, title, ...(cursor ?? {}) };
     });
     if (changed) emit(tabs);
+  },
+  /**
+   * Flag a background tab as having new activity. Only tabs that are open
+   * carry the notice — an update for a conversation with no tab is ignored
+   * rather than opening one.
+   */
+  markUnread(conversationIdInput: string): void {
+    const conversationId = normalizeId(conversationIdInput);
+    const index = findTabIndex(conversationId);
+    if (index < 0) return;
+    const current = snapshot.tabs[index];
+    if (!current || current.unread) return;
+    emit(
+      snapshot.tabs.map((tab, tabIndex) =>
+        tabIndex === index ? { ...tab, unread: true } : tab,
+      ),
+    );
+  },
+  markRead(conversationIdInput: string): void {
+    const conversationId = normalizeId(conversationIdInput);
+    const index = findTabIndex(conversationId);
+    if (index < 0) return;
+    const current = snapshot.tabs[index];
+    if (!current?.unread) return;
+    emit(
+      snapshot.tabs.map((tab, tabIndex) => {
+        if (tabIndex !== index) return tab;
+        const next: ConversationTab = { ...tab };
+        delete next.unread;
+        return next;
+      }),
+    );
   },
   closeConversation(
     conversationIdInput: string,

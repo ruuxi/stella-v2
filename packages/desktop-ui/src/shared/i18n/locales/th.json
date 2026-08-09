@@ -1779,6 +1779,7 @@
         "historyEmpty": "ยังไม่มีการสนทนา",
         "historyRetry": "โหลดการสนทนาไม่สำเร็จ ลองอีกครั้ง",
         "openConversations": "เปิดรายการสนทนา",
+        "unread": "ข้อความที่ยังไม่ได้อ่าน",
         "openConversation": "เปิด {title}",
         "closeConversation": "ปิด {title}",
         "delete": "ลบ {title}",

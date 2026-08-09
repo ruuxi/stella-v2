@@ -1775,6 +1775,7 @@
         "historyEmpty": "会話はまだありません",
         "historyRetry": "会話を読み込めませんでした。もう一度試す",
         "openConversations": "会話を開く",
+        "unread": "未読メッセージ",
         "openConversation": "{title} を開く",
         "closeConversation": "{title} を閉じる",
         "delete": "{title} を削除",

@@ -8,6 +8,7 @@ import {
   measureConversationTabOverflow,
   resolveHistoryDeleteActivation,
   resolveConversationTabShortcut,
+  shouldMarkConversationUnread,
   shouldRenderNewChatLabel,
   shouldRenderConversationHomeLauncher,
 } from "@/shell/topbar/ConversationTopBar";
@@ -159,6 +160,62 @@ describe("conversation top-bar contracts", () => {
         "only",
       ),
     ).toBeNull();
+  });
+
+  it("flags only background conversations with a persisted assistant reply", () => {
+    const update = (type: string, conversationId: string) => ({
+      conversationId,
+      event: { _id: "e1", timestamp: 1, type },
+    });
+
+    expect(
+      shouldMarkConversationUnread(
+        update("assistant_message", "first"),
+        "first",
+        "second",
+      ),
+    ).toBe(true);
+    expect(
+      shouldMarkConversationUnread(
+        update("assistant_message", "second"),
+        "second",
+        "second",
+      ),
+    ).toBe(false);
+    expect(
+      shouldMarkConversationUnread(
+        update("user_message", "first"),
+        "first",
+        "second",
+      ),
+    ).toBe(false);
+    expect(shouldMarkConversationUnread(null, "first", "second")).toBe(false);
+  });
+
+  it("renders the unread dot only on inactive tabs", () => {
+    const source = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
+      "utf8",
+    );
+    const css = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/topbar/conversation-topbar.css"),
+      "utf8",
+    );
+
+    expect(source).toContain("const unread = Boolean(tab.unread) && !active;");
+    expect(source).toContain('data-unread={unread ? "true" : undefined}');
+    expect(source).toContain("conversationTabs.markUnread");
+    expect(source).toContain("conversationTabs.markRead");
+    expect(englishFor("shell.topbar.conversation.unread")).toBe(
+      "Unread messages",
+    );
+    expect(css).toMatch(
+      /\.conversation-topbar__tab-unread\s*\{[^}]*width:\s*6px;[^}]*height:\s*6px;[^}]*border-radius:\s*50%;[^}]*background:\s*var\(--primary\);/,
+    );
+    // The dot and the close button share one slot, so hover must swap them.
+    expect(css).toMatch(
+      /\.conversation-topbar__tab:hover \.conversation-topbar__tab-unread,[\s\S]*?opacity:\s*0;/,
+    );
   });
 
   it("requires two activations on the same history row to delete", () => {

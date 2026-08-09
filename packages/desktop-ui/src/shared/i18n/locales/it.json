@@ -1825,6 +1825,7 @@
         "historyEmpty": "Ancora nessuna conversazione",
         "historyRetry": "Impossibile caricare le conversazioni. Riprova",
         "openConversations": "Apri le conversazioni",
+        "unread": "Messaggi non letti",
         "openConversation": "Apri {title}",
         "closeConversation": "Chiudi {title}",
         "delete": "Elimina {title}",

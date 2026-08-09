@@ -1802,6 +1802,7 @@
         "historyEmpty": "Nog geen gesprekken",
         "historyRetry": "Kon gesprekken niet laden. Probeer opnieuw",
         "openConversations": "Gesprekken openen",
+        "unread": "Ongelezen berichten",
         "openConversation": "{title} openen",
         "closeConversation": "{title} sluiten",
         "delete": "{title} verwijderen",

@@ -170,8 +170,7 @@
   border-bottom-right-radius: 6px;
 }
 
-.conversation-topbar__tab[data-active="true"]
-  + .conversation-topbar__tab {
+.conversation-topbar__tab[data-active="true"] + .conversation-topbar__tab {
   border-bottom-left-radius: 6px;
 }
 
@@ -275,6 +274,33 @@
 .conversation-topbar__tab:focus-within .conversation-topbar__tab-close,
 .conversation-topbar__tab[data-active="true"] .conversation-topbar__tab-close {
   opacity: 0.72;
+}
+
+/*
+ * Unread notice for background tabs. It shares the close button's slot:
+ * the dot is the resting state, the close button takes over on hover so the
+ * two never sit on top of each other.
+ */
+.conversation-topbar__tab-unread {
+  position: absolute;
+  right: 11px;
+  top: calc(50% + 2px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  transform: translateY(-50%);
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.conversation-topbar__tab[data-unread="true"] .conversation-topbar__tab-target {
+  padding-right: 24px;
+}
+
+.conversation-topbar__tab:hover .conversation-topbar__tab-unread,
+.conversation-topbar__tab:focus-within .conversation-topbar__tab-unread {
+  opacity: 0;
 }
 
 .conversation-topbar__tab-close:hover,
@@ -464,13 +490,30 @@
   .conversation-topbar__tab[data-active="true"] .conversation-topbar__tab-icon {
     opacity: 0;
   }
+
+  /* No title to sit beside, so the dot stands in for the tab icon. */
+  .conversation-topbar__tab[data-unread="true"]
+    .conversation-topbar__tab-target {
+    padding-right: 0;
+  }
+
+  .conversation-topbar__tab[data-unread="true"] .conversation-topbar__tab-icon {
+    opacity: 0;
+  }
+
+  .conversation-topbar__tab-unread {
+    right: auto;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .conversation-topbar__viewport::before,
   .conversation-topbar__viewport::after,
   .conversation-topbar__tab,
-  .conversation-topbar__tab-close {
+  .conversation-topbar__tab-close,
+  .conversation-topbar__tab-unread {
     transition: none;
   }
 }
@@ -478,6 +521,7 @@
 :root[data-reduce-motion="reduce"] .conversation-topbar__viewport::before,
 :root[data-reduce-motion="reduce"] .conversation-topbar__viewport::after,
 :root[data-reduce-motion="reduce"] .conversation-topbar__tab,
-:root[data-reduce-motion="reduce"] .conversation-topbar__tab-close {
+:root[data-reduce-motion="reduce"] .conversation-topbar__tab-close,
+:root[data-reduce-motion="reduce"] .conversation-topbar__tab-unread {
   transition: none;
 }

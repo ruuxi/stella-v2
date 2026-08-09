@@ -1848,6 +1848,7 @@
         "historyEmpty": "Brak jeszcze rozmów",
         "historyRetry": "Nie udało się wczytać rozmów. Spróbuj ponownie",
         "openConversations": "Otwórz rozmowy",
+        "unread": "Nieprzeczytane wiadomości",
         "openConversation": "Otwórz {title}",
         "closeConversation": "Zamknij {title}",
         "delete": "Usuń {title}",

@@ -1851,6 +1851,7 @@
         "historyEmpty": "Разговоров пока нет",
         "historyRetry": "Не удалось загрузить разговоры. Попробуйте ещё раз",
         "openConversations": "Открыть разговоры",
+        "unread": "Непрочитанные сообщения",
         "openConversation": "Открыть {title}",
         "closeConversation": "Закрыть {title}",
         "delete": "Удалить {title}",

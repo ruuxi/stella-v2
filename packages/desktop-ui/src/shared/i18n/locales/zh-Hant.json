@@ -1771,6 +1771,7 @@
         "historyEmpty": "還沒有對話",
         "historyRetry": "無法載入對話。請再試一次",
         "openConversations": "開啟對話列表",
+        "unread": "未讀訊息",
         "openConversation": "開啟 {title}",
         "closeConversation": "關閉 {title}",
         "delete": "刪除 {title}",

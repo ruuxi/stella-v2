@@ -1,9 +1,14 @@
 /**
  * Plan & usage — one dialog for everything money- and quota-shaped, opened
- * from the account menu. Billing (plan, meters, credit) on top; the local
- * usage analytics below it.
+ * from the account menu.
+ *
+ * Two tabs rather than one long scroll: "Plan" is a decision surface
+ * (what you're on, what else costs what) and "Usage" is an analytics
+ * surface (what you've spent locally). Stacking them made the second one
+ * feel like a footnote and buried the plan cards behind a scroll.
  */
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import {
   Dialog,
   DialogBody,
@@ -25,29 +30,65 @@ const UsagePanel = lazy(() =>
   })),
 );
 
+const TABS = [
+  { key: "plan", label: "Plan" },
+  { key: "usage", label: "Usage" },
+] as const;
+
+type PlanUsageTab = (typeof TABS)[number]["key"];
+
 type PlanUsageDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
 export function PlanUsageDialog({ open, onOpenChange }: PlanUsageDialogProps) {
+  const [tab, setTab] = useState<PlanUsageTab>("plan");
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl" className="plan-usage-dialog">
-        <DialogHeader>
-          <DialogTitle>Plan &amp; usage</DialogTitle>
+      <DialogContent
+        size="xl"
+        className="plan-usage-dialog"
+        aria-describedby={undefined}
+      >
+        {/* The tabs name the surface, so the title would only repeat them.
+            Keep it for the accessible name and give the row to the tabs. */}
+        <DialogHeader className="plan-usage-dialog__header">
+          <VisuallyHidden asChild>
+            <DialogTitle>Plan &amp; usage</DialogTitle>
+          </VisuallyHidden>
+          <nav
+            className="plan-usage-tabs"
+            role="tablist"
+            aria-label="Plan and usage"
+          >
+            {TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`plan-usage-tab-${key}`}
+                aria-selected={tab === key}
+                aria-controls={`plan-usage-panel-${key}`}
+                className="plan-usage-tabs__item"
+                data-active={tab === key || undefined}
+                onClick={() => setTab(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
           <DialogCloseButton />
         </DialogHeader>
-        <DialogBody className="plan-usage-dialog__body">
+        <DialogBody
+          className="plan-usage-dialog__body"
+          role="tabpanel"
+          id={`plan-usage-panel-${tab}`}
+          aria-labelledby={`plan-usage-tab-${tab}`}
+        >
           <Suspense fallback={null}>
-            <BillingPanel />
-            <section
-              className="plan-usage-dialog__usage"
-              aria-label="Local usage"
-            >
-              <h2 className="plan-usage-dialog__usage-title">Local usage</h2>
-              <UsagePanel />
-            </section>
+            {tab === "plan" ? <BillingPanel /> : <UsagePanel />}
           </Suspense>
         </DialogBody>
       </DialogContent>

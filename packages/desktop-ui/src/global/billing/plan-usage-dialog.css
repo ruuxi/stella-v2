@@ -1,8 +1,16 @@
 /* See settings-dialog.css: sizing has to go on the container's variables,
- * not the content. `size="xl"` sets the width; the extra height fits the
- * billing panel and the usage analytics stacked under it. */
+ * not the content. `size="xl"` sets the width; the height is set so the
+ * Plan tab lands whole.
+ *
+ * 640px did not: a subscriber's usage strip plus three plan cards plus
+ * the credit row overran it by ~90px, so the first thing the dialog
+ * showed a paying customer was a scrollbar and a half-cut button. The
+ * content was trimmed as far as it could go without crowding, and the
+ * container was then sized to what remained rather than the other way
+ * round. Still `min()`-clamped against the viewport, so short windows
+ * scroll instead of clipping. */
 [data-component="dialog"]:has(.plan-usage-dialog) {
-  --dialog-height: 760px;
+  --dialog-height: 700px;
 }
 
 .plan-usage-dialog {
@@ -10,22 +18,65 @@
   flex-direction: column;
 }
 
+/* One row: tabs left, close right. */
+.plan-usage-dialog__header {
+  align-items: center;
+  padding: 12px 16px 10px 20px;
+}
+
+/* Two tabs, one selection. The active tab carries the app's canonical
+   quiet "you are here" recipe -- the same `--select-surface-*` pair the
+   sidebar tab rail uses, and the same one the credit-amount segments
+   inside the Plan tab now use, so the dialog speaks with one voice.
+   Notably NOT a recessed track with a tinted thumb: a `foreground @ 7%`
+   track is a recess in light and a ridge in dark, which left the active
+   tab reading as a hole punched in the header. */
+.plan-usage-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.plan-usage-tabs__item {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 5px 14px;
+  /* Transparent until selected so the border never shifts the row. */
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-weak);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: default;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.plan-usage-tabs__item:hover:not([data-active]) {
+  color: var(--text-strong);
+}
+
+.plan-usage-tabs__item[data-active] {
+  background: var(--select-surface-bg);
+  border-color: var(--select-surface-border);
+  color: var(--text-strong);
+}
+
+.plan-usage-tabs__item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .plan-usage-dialog__body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 16px 20px;
-}
-
-.plan-usage-dialog__usage {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
-
-.plan-usage-dialog__usage-title {
-  margin: 0 0 4px;
-  color: var(--text-strong);
-  font-size: var(--font-size-base, 14px);
-  font-weight: var(--weight-medium);
+  padding: 0 20px 20px;
 }

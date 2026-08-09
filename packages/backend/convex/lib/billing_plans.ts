@@ -11,11 +11,11 @@
  *   STELLA_<PLAN>_PRICE_CENTS                — paid plans only
  *
  * Optional Go intro (first recurring invoice only — pair with Stripe):
- *   STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS — e.g. 500 ($5); shown on
+ *   STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS — e.g. 100 ($1); shown on
  *     marketing/billing UX; recurring price stays STELLA_GO_PRICE_CENTS
  *   STRIPE_COUPON_GO_FIRST_MONTH — Stripe Coupon id (`coupon_…`) created
  *     as duration=once so the discount applies only on the subscription’s
- *     first invoice (e.g. $5 off when the list price is $10 → pay $5,
+ *     first invoice (e.g. $4 off when the list price is $5 → pay $1,
  *     then full price on renewal). Set intro price env and coupon env
  *     together, or omit both — mismatched halves fail at startup.
  *

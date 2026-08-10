@@ -35,6 +35,7 @@ import { XaiWebSocketTransport } from "../transports/xai-websocket-transport";
 import { buildOpenAIRealtimeSessionConfig } from "./openai-provider";
 import type {
   ProviderModule,
+  ProviderTokenContext,
   RealtimeSessionTool,
   RealtimeTransportKind,
   VoiceSessionToken,
@@ -84,6 +85,23 @@ const readStellaVoicePrefs = async (): Promise<{
   }
 };
 
+export const buildStellaVoiceSessionRequest = (
+  ctx: Pick<ProviderTokenContext, "conversationId" | "instructions" | "tools">,
+  prefs: {
+    voiceProvider: "openai" | "xai" | "inworld";
+    voice?: string;
+  },
+): Record<string, unknown> => {
+  const convexConversationId = toConvexConversationId(ctx.conversationId);
+  return {
+    ...(convexConversationId ? { conversationId: convexConversationId } : {}),
+    instructions: ctx.instructions,
+    ...(ctx.tools?.length ? { tools: ctx.tools } : {}),
+    voiceProvider: prefs.voiceProvider,
+    ...(prefs.voice ? { voice: prefs.voice } : {}),
+  };
+};
+
 type StellaSessionResponse = {
   voiceProvider?: "openai" | "xai" | "inworld";
   transport?: RealtimeTransportKind;
@@ -126,15 +144,9 @@ const inferTransport = (
 
 export const stellaProvider: ProviderModule = {
   async fetchToken(ctx): Promise<VoiceSessionToken> {
-    const convexConversationId = toConvexConversationId(ctx.conversationId);
     const { voiceProvider, voice, inworldSpeed } = await readStellaVoicePrefs();
 
-    const body = {
-      ...(convexConversationId ? { conversationId: convexConversationId } : {}),
-      instructions: ctx.instructions,
-      voiceProvider,
-      ...(voice ? { voice } : {}),
-    };
+    const body = buildStellaVoiceSessionRequest(ctx, { voiceProvider, voice });
 
     const raw = await postServiceJson<StellaSessionResponse>(
       "/api/voice/session",
@@ -245,7 +257,7 @@ export const stellaProvider: ProviderModule = {
         "https://api.openai.com/v1/realtime/calls",
         token.clientSecret,
       ),
-      initialSessionConfig: buildOpenAIRealtimeSessionConfig(token, ctx),
+      initialSessionConfig: buildOpenAIRealtimeSessionConfig(ctx),
     });
   },
 };

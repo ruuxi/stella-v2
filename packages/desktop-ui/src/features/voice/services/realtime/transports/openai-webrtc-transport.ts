@@ -13,9 +13,9 @@
  *   - `sdpFetch`: takes the local SDP offer, returns the remote SDP
  *     answer. Provider chooses Bearer-against-public-endpoint vs
  *     Stella-proxied-with-Convex-auth.
- *   - `initialSessionConfig`: optional. Inworld requires session config
- *     to be set after the data channel opens via `session.update`;
- *     OpenAI sets it server-side at token mint, so it leaves this unset.
+ *   - `initialSessionConfig`: optional. When present, the transport applies
+ *     it after the data channel opens and waits for `session.updated` before
+ *     exposing the connection to the caller.
  *
  * The data channel name is "oai-events" — Inworld uses the same name on
  * purpose since their realtime API is OpenAI-Realtime-compatible.
@@ -40,6 +40,8 @@ const DEFAULT_RTC_CONFIGURATION: RTCConfiguration = {
 
 /** Hard cap on how long we'll wait for ICE gathering. */
 const ICE_GATHERING_TIMEOUT_MS = 4000;
+/** Hard cap on opening the event channel and applying initial session config. */
+const DATA_CHANNEL_READY_TIMEOUT_MS = 10_000;
 
 export interface OpenAIWebRTCTransportOptions {
   provider: RealtimeTransportProvider;
@@ -143,6 +145,9 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
   private destroyed = false;
 
   private events: RealtimeTransportEvents | null = null;
+  private pendingSessionUpdateEventId: string | null = null;
+  private resolveDataChannelReady: (() => void) | null = null;
+  private rejectDataChannelReady: ((error: Error) => void) | null = null;
 
   constructor(options: OpenAIWebRTCTransportOptions) {
     this.provider = options.provider;
@@ -156,6 +161,10 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
 
   async connect(events: RealtimeTransportEvents): Promise<void> {
     this.events = events;
+    const dataChannelReady = this.prepareDataChannelReady();
+    // The handshake can fail while SDP setup is still awaiting another step.
+    // Attach a handler immediately; the later await still observes the error.
+    void dataChannelReady.catch(() => undefined);
 
     this.pc = new RTCPeerConnection({
       ...DEFAULT_RTC_CONFIGURATION,
@@ -202,13 +211,18 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
     // ICE candidates; `offer.sdp` is the pre-gathering snapshot. Inworld
     // needs the post-gathering SDP. Fall back to `offer.sdp` for the
     // OpenAI path which skips gathering.
-    const sdpToSend =
-      this.pc.localDescription?.sdp ?? offer.sdp ?? "";
+    const sdpToSend = this.pc.localDescription?.sdp ?? offer.sdp ?? "";
 
     const answerSdp = await this.sdpFetch(sdpToSend);
     if (this.destroyed) return;
 
     await this.pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+    if (this.destroyed) return;
+
+    // Do not enable the mic or let callers send conversation context until the
+    // event channel is open and the provider has acknowledged session.update.
+    // Otherwise the first utterance can race against a stale tool catalog.
+    await dataChannelReady;
     if (this.destroyed) return;
 
     await this.syncMicState();
@@ -251,6 +265,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
   async disconnect(): Promise<void> {
     this.destroyed = true;
     this.events = null;
+    this.settleDataChannelReady();
 
     if (this.dc) {
       try {
@@ -309,19 +324,23 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
     if (!this.dc) return;
     this.dc.onopen = () => {
       if (this.destroyed) return;
-      // Providers that configure the session at runtime (Inworld) hand
-      // us an initialSessionConfig; OpenAI's path sets session config at
-      // token-mint time and leaves this undefined.
       if (this.initialSessionConfig) {
+        this.pendingSessionUpdateEventId = `voice_session_update_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 10)}`;
         this.send({
           type: "session.update",
+          event_id: this.pendingSessionUpdateEventId,
           session: this.initialSessionConfig,
         });
+      } else {
+        this.settleDataChannelReady();
       }
     };
     this.dc.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data) as Record<string, unknown>;
+        this.handleDataChannelHandshakeEvent(parsed);
         this.events?.onEvent(parsed);
       } catch (err) {
         console.debug(
@@ -332,8 +351,76 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
     };
     this.dc.onclose = () => {
       if (this.destroyed) return;
+      this.settleDataChannelReady(
+        new Error("Realtime voice data channel closed during setup."),
+      );
       this.events?.onClose("Data channel closed");
     };
+    this.dc.onerror = () => {
+      this.settleDataChannelReady(
+        new Error("Realtime voice data channel failed during setup."),
+      );
+    };
+  }
+
+  private prepareDataChannelReady(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.settleDataChannelReady(
+          new Error("Timed out while configuring the realtime voice session."),
+        );
+      }, DATA_CHANNEL_READY_TIMEOUT_MS);
+
+      this.resolveDataChannelReady = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      this.rejectDataChannelReady = (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      };
+    });
+  }
+
+  private settleDataChannelReady(error?: Error): void {
+    const resolve = this.resolveDataChannelReady;
+    const reject = this.rejectDataChannelReady;
+    this.resolveDataChannelReady = null;
+    this.rejectDataChannelReady = null;
+    this.pendingSessionUpdateEventId = null;
+    if (error) reject?.(error);
+    else resolve?.();
+  }
+
+  private handleDataChannelHandshakeEvent(
+    event: Record<string, unknown>,
+  ): void {
+    if (!this.resolveDataChannelReady || !this.pendingSessionUpdateEventId) {
+      return;
+    }
+    if (event.type === "session.updated") {
+      this.settleDataChannelReady();
+      return;
+    }
+    if (event.type !== "error") return;
+
+    const error =
+      typeof event.error === "object" && event.error !== null
+        ? (event.error as Record<string, unknown>)
+        : null;
+    const rejectedEventId =
+      typeof error?.event_id === "string" ? error.event_id : null;
+    if (
+      rejectedEventId &&
+      rejectedEventId !== this.pendingSessionUpdateEventId
+    ) {
+      return;
+    }
+    const message =
+      typeof error?.message === "string" && error.message.trim()
+        ? error.message.trim()
+        : "The realtime provider rejected the voice session configuration.";
+    this.settleDataChannelReady(new Error(message));
   }
 
   private setupAudioPlayback(stream: MediaStream): void {
@@ -344,9 +431,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
     this.audioElement.srcObject = stream;
     this.audioElement.autoplay = true;
 
-    const preferredSpeakerId = uiState.getItem(
-      "stella-preferred-speaker-id",
-    );
+    const preferredSpeakerId = uiState.getItem("stella-preferred-speaker-id");
     if (
       preferredSpeakerId &&
       typeof this.audioElement.setSinkId === "function"

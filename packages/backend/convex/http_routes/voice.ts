@@ -314,6 +314,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           conversationId?: string;
           voice?: string;
           model?: string;
+          tools?: unknown;
           turnDetection?: "semantic_vad" | "server_vad";
           turnEagerness?: "low" | "medium" | "high";
           instructions?: string;
@@ -607,11 +608,20 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           );
         }
 
-        const [{ getVoiceToolSchemas }] = await Promise.all([
-          import("../tools/voice_schemas"),
-        ]);
+        const [{ getVoiceToolSchemas, normalizeVoiceToolSchemas }] =
+          await Promise.all([import("../tools/voice_schemas")]);
 
-        const tools = getVoiceToolSchemas();
+        const tools =
+          body.tools === undefined
+            ? getVoiceToolSchemas()
+            : normalizeVoiceToolSchemas(body.tools);
+        if (!tools) {
+          return errorResponse(
+            400,
+            "tools must be a valid voice tool catalog",
+            origin,
+          );
+        }
         const model = body.model ?? "gpt-realtime-2.1";
         const voice = body.voice ?? "marin";
         const lease = (await ctx.runMutation(

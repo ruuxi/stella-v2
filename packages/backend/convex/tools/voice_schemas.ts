@@ -1,8 +1,9 @@
 /**
  * JSON Schema tool definitions for the OpenAI Realtime API voice session.
  *
- * The voice layer has a single tool — `perform_action` — which handles
- * all user requests that go beyond simple conversation.
+ * Current desktop clients send the exact runtime tool catalog resolved for
+ * the active orchestrator. The static list below is retained only as a
+ * compatibility fallback for older clients that do not send `tools` yet.
  */
 
 export type VoiceToolSchema = {
@@ -11,6 +12,93 @@ export type VoiceToolSchema = {
   description: string;
   parameters: Record<string, unknown>;
 };
+
+const MAX_VOICE_TOOLS = 128;
+const MAX_TOOL_NAME_CHARS = 128;
+const MAX_TOOL_DESCRIPTION_CHARS = 8_192;
+const MAX_TOOL_PARAMETERS_CHARS = 65_536;
+const UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS = [
+  "oneOf",
+  "anyOf",
+  "allOf",
+  "enum",
+  "const",
+  "not",
+] as const;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Validate and strip a renderer-supplied tool catalog before forwarding it to
+ * a Realtime provider. Returning null is intentionally distinct from the
+ * legacy fallback: malformed catalogs must fail loudly instead of silently
+ * advertising `perform_action`, which the current desktop runtime cannot run.
+ */
+export function normalizeVoiceToolSchemas(
+  value: unknown,
+): VoiceToolSchema[] | null {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > MAX_VOICE_TOOLS
+  ) {
+    return null;
+  }
+
+  const seen = new Set<string>();
+  const tools: VoiceToolSchema[] = [];
+  for (const candidate of value) {
+    if (!isRecord(candidate) || candidate.type !== "function") return null;
+
+    const name =
+      typeof candidate.name === "string" ? candidate.name.trim() : "";
+    const description =
+      typeof candidate.description === "string"
+        ? candidate.description.trim()
+        : "";
+    const parameters = candidate.parameters;
+    if (
+      !name ||
+      name.length > MAX_TOOL_NAME_CHARS ||
+      !description ||
+      description.length > MAX_TOOL_DESCRIPTION_CHARS ||
+      !isRecord(parameters) ||
+      parameters.type !== "object" ||
+      seen.has(name)
+    ) {
+      return null;
+    }
+
+    let parametersLength = 0;
+    try {
+      parametersLength = JSON.stringify(parameters).length;
+    } catch {
+      return null;
+    }
+    if (parametersLength > MAX_TOOL_PARAMETERS_CHARS) return null;
+
+    const providerParameters = { ...parameters };
+    for (const key of UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS) {
+      delete providerParameters[key];
+    }
+
+    seen.add(name);
+    tools.push({
+      type: "function",
+      name,
+      description,
+      parameters: {
+        ...providerParameters,
+        type: "object",
+        properties: isRecord(providerParameters.properties)
+          ? providerParameters.properties
+          : {},
+      },
+    });
+  }
+  return tools;
+}
 
 export function getVoiceToolSchemas(): VoiceToolSchema[] {
   return [
@@ -56,7 +144,8 @@ export function getVoiceToolSchemas(): VoiceToolSchema[] {
         properties: {
           query: {
             type: "string",
-            description: "What to look for on the screen, in the user's own words.",
+            description:
+              "What to look for on the screen, in the user's own words.",
           },
         },
         required: ["query"],
@@ -66,7 +155,7 @@ export function getVoiceToolSchemas(): VoiceToolSchema[] {
       type: "function",
       name: "no_response",
       description:
-        "Stay silent and wait for the user to finish. Call this when the user is still thinking — filler sounds like \"hmm,\" \"um,\" \"uh,\" half-finished sentences, trailing off, or any indication they haven't completed their thought yet. Also use for ambient noise or unclear audio that isn't a real utterance. Examples: \"I want to...\" / \"So maybe we could\" / \"Hmm\" / \"Let me think\" / \"What if we—\"",
+        'Stay silent and wait for the user to finish. Call this when the user is still thinking — filler sounds like "hmm," "um," "uh," half-finished sentences, trailing off, or any indication they haven\'t completed their thought yet. Also use for ambient noise or unclear audio that isn\'t a real utterance. Examples: "I want to..." / "So maybe we could" / "Hmm" / "Let me think" / "What if we—"',
       parameters: {
         type: "object",
         properties: {},

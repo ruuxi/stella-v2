@@ -96,6 +96,29 @@ export const INWORLD_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
 export const DEFAULT_INWORLD_REALTIME_MODEL = "xai/grok-4.3-latest";
 /** Default Inworld TTS model id. `inworld-tts-2` is their 8B higher-quality model. */
 export const DEFAULT_INWORLD_REALTIME_TTS_MODEL = "inworld-tts-2";
+
+/** xAI recommends short-lived browser tokens; Stella's leases are five minutes. */
+export const XAI_REALTIME_CLIENT_SECRET_TTL_SECONDS = 5 * 60;
+
+/**
+ * xAI's client-secret endpoint accepts expiry configuration only. Realtime
+ * session fields (voice, instructions, tools) are sent after the WebSocket
+ * opens via `session.update`.
+ */
+export const buildXaiRealtimeClientSecretRequest = (
+  expiresAfterSeconds = XAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+): { expires_after: { seconds: number } } => ({
+  expires_after: {
+    seconds: Math.max(
+      60,
+      Math.floor(
+        Number.isFinite(expiresAfterSeconds)
+          ? expiresAfterSeconds
+          : XAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
+      ),
+    ),
+  },
+});
 /**
  * Inworld TTS playback speed multiplier. 1.0 is real-time; >1 is faster.
  * Inworld accepts roughly 0.5–2.0 on `audio.output.speed`. 1.15 is a

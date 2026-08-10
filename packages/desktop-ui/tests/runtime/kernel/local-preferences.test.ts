@@ -9,6 +9,7 @@ import {
   resolveRealtimeVoiceId,
   updateLocalModelPreferences,
 } from "@stella/runtime/kernel/preferences/local-preferences";
+import { hasRealtimeVoiceSessionRouteChanged } from "@stella/contracts/local-preferences";
 import { createSyncTempDirTracker } from "../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();
@@ -419,6 +420,33 @@ describe("loadLocalPreferences", () => {
         stellaSubProvider: "garbage",
       }),
     ).toEqual({ provider: "stella" });
+  });
+
+  it("detects provider route changes that require a fresh warm session", () => {
+    expect(
+      hasRealtimeVoiceSessionRouteChanged(
+        { provider: "stella", stellaSubProvider: "openai" },
+        { provider: "stella", stellaSubProvider: "inworld" },
+      ),
+    ).toBe(true);
+    expect(
+      hasRealtimeVoiceSessionRouteChanged(
+        { provider: "stella", stellaSubProvider: "xai" },
+        { provider: "xai" },
+      ),
+    ).toBe(true);
+    expect(
+      hasRealtimeVoiceSessionRouteChanged(
+        { provider: "xai", stellaSubProvider: "openai" },
+        { provider: "xai", stellaSubProvider: "inworld" },
+      ),
+    ).toBe(false);
+    expect(
+      hasRealtimeVoiceSessionRouteChanged(
+        { provider: "stella", stellaSubProvider: "inworld" },
+        { provider: "stella", stellaSubProvider: "inworld" },
+      ),
+    ).toBe(false);
   });
 
   it("clamps and persists inworldSpeed", () => {

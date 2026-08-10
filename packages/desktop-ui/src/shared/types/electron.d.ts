@@ -467,6 +467,10 @@ export type ElectronVoiceApi = {
   reportSessionError: (message: string) => void;
   /** Subscribe to voice session error toasts routed to this window. */
   onSessionError: (callback: (message: string) => void) => () => void;
+  /** Realtime provider/auth route changed; recycle any warm session. */
+  onPreferencesChanged: (
+    callback: (preferences: RealtimeVoicePreferences) => void,
+  ) => () => void;
 };
 
 export type ElectronDictationApi = {

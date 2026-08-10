@@ -5,10 +5,12 @@ import {
   shouldPersistVoiceTranscriptToHistory,
   VoiceSessionManager,
 } from "@/features/voice/hooks/use-realtime-voice";
+import { RealtimeVoiceSession } from "@/features/voice/services/realtime-voice";
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("useRealtimeVoice transcript persistence", () => {
@@ -82,5 +84,44 @@ describe("useRealtimeVoice transcript persistence", () => {
       uiVisibility: "visible",
       voiceSession: { durationMs: 84_000 },
     });
+  });
+
+  it("disconnects and replaces the pre-warmed session when restarted", async () => {
+    const onUpdated = vi.fn(() => vi.fn());
+    vi.stubGlobal("window", {
+      electronAPI: {
+        localChat: {
+          onUpdated,
+        },
+      },
+    });
+    const connect = vi
+      .spyOn(RealtimeVoiceSession.prototype, "connect")
+      .mockResolvedValue(undefined);
+    const disconnect = vi
+      .spyOn(RealtimeVoiceSession.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+
+    const manager = new VoiceSessionManager({
+      conversationIdRef: { current: "conv-1" },
+      inputActiveRef: { current: false },
+      analyserRef: { current: null },
+      outputAnalyserRef: { current: null },
+      onStateChange: vi.fn(),
+      onSpeakingChange: vi.fn(),
+      onUserSpeakingChange: vi.fn(),
+    });
+
+    manager.start();
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+
+    manager.restart();
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(2));
+
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(onUpdated).toHaveBeenCalledTimes(2);
+
+    manager.stop();
+    await vi.waitFor(() => expect(disconnect).toHaveBeenCalledTimes(2));
   });
 });

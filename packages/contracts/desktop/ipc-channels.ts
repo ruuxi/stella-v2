@@ -141,6 +141,9 @@ export const IPC_VOICE_REPORT_SESSION_ERROR =
   "voice:reportSessionError" as const;
 /** Main → renderer (visible app window): show a voice session error toast. */
 export const IPC_VOICE_SESSION_ERROR = "voice:sessionError" as const;
+/** Main → renderer: the effective realtime provider route changed. */
+export const IPC_VOICE_PREFERENCES_CHANGED =
+  "voice:preferencesChanged" as const;
 
 // ── Dictation ───────────────────────────────────────────────────────────────
 

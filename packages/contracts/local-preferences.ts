@@ -89,6 +89,22 @@ export const resolveRealtimeUnderlyingProvider = (
 };
 
 /**
+ * Stable identity for the transport/auth route backing a realtime session.
+ * The top-level provider distinguishes managed Stella from BYOK even when
+ * both ultimately use the same underlying provider.
+ */
+export const getRealtimeVoiceSessionRouteKey = (
+  prefs: Pick<RealtimeVoicePreferences, "provider" | "stellaSubProvider">,
+): string => `${prefs.provider}:${resolveRealtimeUnderlyingProvider(prefs)}`;
+
+export const hasRealtimeVoiceSessionRouteChanged = (
+  previous: Pick<RealtimeVoicePreferences, "provider" | "stellaSubProvider">,
+  next: Pick<RealtimeVoicePreferences, "provider" | "stellaSubProvider">,
+): boolean =>
+  getRealtimeVoiceSessionRouteKey(previous) !==
+  getRealtimeVoiceSessionRouteKey(next);
+
+/**
  * Resolve the TTS family used by the Read-aloud feature. Independent
  * from the realtime voice agent's provider; defaults to Inworld.
  */

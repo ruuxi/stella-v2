@@ -2,6 +2,7 @@ export const STELLA_PROMPT_SCHEMA_VERSION = 2 as const;
 
 export const STELLA_PROMPT_IDS = [
   "agents/orchestrator.md",
+  "agents/orchestrator-orchestrated.md",
   "agents/general.md",
   "agents/schedule.md",
   "agents/fashion.md",
@@ -26,6 +27,7 @@ export const STELLA_PROMPT_IDS = [
  */
 export const STELLA_PROMPT_RETIRED_IDS = [
   "agents/manager.md",
+  "agents/install_update.md",
   "prompts/chronicle-summarizer.md",
 ] as const;
 
@@ -34,7 +36,15 @@ export const STELLA_PROMPT_RETIRED_ID_SET = new Set<string>(
 );
 export const STELLA_PROMPT_ID_SET = new Set<string>(STELLA_PROMPT_IDS);
 export const STELLA_PROMPT_COUNT = STELLA_PROMPT_IDS.length;
-export const STELLA_PROMPT_LEGACY_IDS = STELLA_PROMPT_IDS;
+/**
+ * Ids every accepted manifest must contain. Newly added prompt ids stay out of
+ * this list until the backend is known to publish them everywhere; otherwise a
+ * client that ships first would reject every manifest the deployed backend can
+ * currently produce.
+ */
+export const STELLA_PROMPT_LEGACY_IDS = STELLA_PROMPT_IDS.filter(
+  (id) => id !== "agents/orchestrator-orchestrated.md",
+);
 export const STELLA_PROMPT_LEGACY_COUNT = STELLA_PROMPT_LEGACY_IDS.length;
 export const STELLA_PROMPT_MAX_CONTENT_BYTES = 256 * 1024;
 export const STELLA_PROMPT_MAX_TOTAL_CONTENT_BYTES = 1024 * 1024;

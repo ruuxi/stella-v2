@@ -3,15 +3,14 @@ import { hashSha256Hex } from "./lib/crypto_utils";
 export const STELLA_PROMPT_SCHEMA_VERSION = 2 as const;
 export const STELLA_PROMPT_IDS = [
   "agents/orchestrator.md",
+  "agents/orchestrator-orchestrated.md",
   "agents/general.md",
   "agents/schedule.md",
   "agents/fashion.md",
   "agents/social_session.md",
   "agents/explore.md",
   "agents/dream.md",
-  "agents/install_update.md",
   "prompts/dream-scheduled.md",
-  "prompts/chronicle-summarizer.md",
   "prompts/memory-review.md",
   "prompts/thread-compaction.md",
   "prompts/fallback-orchestrator.md",

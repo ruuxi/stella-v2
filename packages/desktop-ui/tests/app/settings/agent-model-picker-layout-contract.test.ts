@@ -122,6 +122,26 @@ describe("full-area agent model picker layout", () => {
     expect(styles).toContain("padding: 5px 10px;");
   });
 
+  it("silently falls back when optional Codex model discovery is unavailable", () => {
+    const picker = readSource("global/settings/AgentModelPicker.tsx");
+    const visibleErrorStart = picker.indexOf("const visiblePickerError =");
+    const visibleErrorEnd = picker.indexOf(
+      "const visiblePickerErrorTitle =",
+      visibleErrorStart,
+    );
+
+    expect(visibleErrorStart).toBeGreaterThanOrEqual(0);
+    expect(visibleErrorEnd).toBeGreaterThan(visibleErrorStart);
+    expect(picker.slice(visibleErrorStart, visibleErrorEnd)).not.toContain(
+      "codexCatalog.error",
+    );
+    expect(picker).toMatch(
+      /useCodexModelCatalog\(\s*active\s*&&\s*\(chatGptSectionOpen\s*\|\|\s*committedEngine\s*===\s*"codex_cli"\)\s*\)/,
+    );
+    expect(picker).toContain("chatGptRegistryOptions");
+    expect(picker).toContain(": chatGptRegistryOptions");
+  });
+
   it("keeps native engine rows aligned with provider model rows", () => {
     const providerStyles = readSource(
       "global/settings/ProviderModelPicker.css",

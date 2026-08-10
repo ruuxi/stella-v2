@@ -30,10 +30,11 @@ import {
 import { getModelOverride } from "../preferences/local-preferences.js";
 import { resolveLocalCliCwd } from "./shared.js";
 import {
-  CLAUDE_CODE_LIGHT_MODEL,
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
+import { runCodexAgentTurn } from "../integrations/codex-agent-runtime.js";
+import { getAgentRuntimeEngine } from "../preferences/local-preferences.js";
 import {
   closeClaudeCodeSessionWhenIdle,
   scheduleClaudeCodeSessionCloseWhenIdle,
@@ -45,16 +46,6 @@ import type {
 } from "@stella/contracts/protocol";
 
 const logger = createRuntimeLogger("agent-runtime.one-shot-completion");
-const CODEX_UTILITY_OPENAI_MODEL = "openai-codex/gpt-5.6-luna";
-
-const isStellaModelReference = (model: string): boolean => {
-  const normalized = model.trim().toLowerCase();
-  return (
-    normalized.length === 0 ||
-    normalized === "stella" ||
-    normalized.startsWith("stella/")
-  );
-};
 
 export type OneShotCompletionRuntimeContext = {
   stellaAppDir: string;
@@ -99,113 +90,21 @@ export const runOneShotCompletion = async (args: {
     return { text: "" };
   }
 
-  const messages: Message[] = [
-    {
-      role: "user",
-      content: [{ type: "text", text: userText }],
-      timestamp: Date.now(),
+  const explicitModel = request.model?.trim() || undefined;
+  const fallbackModelName = resolveModelName(
+    runtime.stellaDataDir,
+    request.agentType,
+    request.fallbackAgentTypes,
+  );
+  const site = {
+    baseUrl: runtime.siteBaseUrl,
+    getAuthToken: () => runtime.getAuthToken()?.trim() ?? null,
+    hasConnectedAccount: () => runtime.hasConnectedAccount(),
+    refreshAuthToken: async () => {
+      const result = await runtime.requestRuntimeAuthRefresh?.();
+      return result?.authenticated ? result.token : null;
     },
-  ];
-  const context: Context = {
-    ...(request.systemPrompt ? { systemPrompt: request.systemPrompt } : {}),
-    messages,
   };
-
-  const isProgressSummaryUtility =
-    request.utility === true && request.agentType === "progress_summary";
-  const summaryModelConfig = isProgressSummaryUtility
-    ? request.modelConfigSnapshot
-    : undefined;
-  if (isProgressSummaryUtility && !summaryModelConfig) {
-    throw new Error(
-      "Progress summary routing requires the task's model configuration snapshot.",
-    );
-  }
-
-  // Automatic progress summaries inherit the task's immutable engine/provider
-  // rather than today's global preference. Claude stays on a scoped Haiku CLI
-  // session and never resolves a Stella route or reads Stella account state.
-  if (summaryModelConfig?.engine === "claude_code_local") {
-    try {
-      const text = await runClaudeCodeAgentTextCompletion({
-        stellaAppDir: runtime.stellaDataDir,
-        cwd: resolveLocalCliCwd({
-          agentType: request.agentType,
-          stellaAppDir: runtime.stellaAppDir,
-        }),
-        agentType: request.agentType,
-        modelOverride: CLAUDE_CODE_LIGHT_MODEL,
-        effortLevel:
-          request.reasoningEffort === "none" ? "low" : request.reasoningEffort,
-        ...(sessionKey ? { sessionKey } : {}),
-        stellaModel: summaryModelConfig.routeModel,
-        context,
-      });
-      if (sessionKey) {
-        scheduleClaudeCodeSessionCloseWhenIdle(
-          sessionKey,
-          Math.max(1_000, request.sessionIdleTtlMs ?? 60_000),
-        );
-      }
-      return { text: text.trim() };
-    } catch (error) {
-      logger.debug("one-shot.completion.failed", {
-        agentType: request.agentType,
-        provider: "claude-code",
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
-
-  // Codex summaries use one stateless Luna request rather than creating a
-  // coding-agent thread. Direct-provider summaries use their captured route.
-  // Both are strict: credential/transport failure is surfaced to the tick and
-  // never falls through to Stella or another configured provider.
-  const useDirectOpenAiCodexUtility =
-    summaryModelConfig?.engine === "codex_cli";
-  const strictProgressSummaryRoute = summaryModelConfig != null;
-  const summaryUsesManagedStella =
-    summaryModelConfig?.engine === "default" &&
-    isStellaModelReference(summaryModelConfig.routeModel);
-  const strictProgressSummaryModel = useDirectOpenAiCodexUtility
-    ? CODEX_UTILITY_OPENAI_MODEL
-    : summaryUsesManagedStella
-      ? "stella/light"
-      : summaryModelConfig?.routeModel.trim() || undefined;
-  const useLightUtilityModel =
-    request.utility === true && request.model?.trim() === "stella/light";
-  const explicitModel = strictProgressSummaryRoute
-    ? strictProgressSummaryModel
-    : request.model?.trim() || undefined;
-  const disableReasoning =
-    request.reasoningEffort === "none" && useDirectOpenAiCodexUtility;
-  const reasoningEffort =
-    request.reasoningEffort === "none" ? "low" : request.reasoningEffort;
-  const fallbackModelName = strictProgressSummaryRoute
-    ? undefined
-    : resolveModelName(
-        runtime.stellaDataDir,
-        request.agentType,
-        request.fallbackAgentTypes,
-      );
-  const site =
-    strictProgressSummaryRoute && !summaryUsesManagedStella
-      ? {
-          baseUrl: null,
-          getAuthToken: () => null,
-          hasConnectedAccount: () => false,
-          refreshAuthToken: async () => null,
-        }
-      : {
-          baseUrl: runtime.siteBaseUrl,
-          getAuthToken: () => runtime.getAuthToken()?.trim() ?? null,
-          hasConnectedAccount: () => runtime.hasConnectedAccount(),
-          refreshAuthToken: async () => {
-            const result = await runtime.requestRuntimeAuthRefresh?.();
-            return result?.authenticated ? result.token : null;
-          },
-        };
   const buildRoute = (modelName: string | undefined) =>
     resolveLlmRoute({
       stellaAppDir: runtime.stellaDataDir,
@@ -224,10 +123,11 @@ export const runOneShotCompletion = async (args: {
   // resolves but has no usable credential (e.g. a Stella alias while signed
   // out) likewise falls through.
   const candidateModelNames: (string | undefined)[] = [];
-  const candidates = strictProgressSummaryRoute
-    ? [explicitModel]
-    : [explicitModel ?? fallbackModelName, fallbackModelName, undefined];
-  for (const candidate of candidates) {
+  for (const candidate of [
+    explicitModel ?? fallbackModelName,
+    fallbackModelName,
+    undefined,
+  ]) {
     if (!candidateModelNames.includes(candidate)) {
       candidateModelNames.push(candidate);
     }
@@ -253,9 +153,6 @@ export const runOneShotCompletion = async (args: {
       if (
         !shouldUseClaudeCodeAgentRuntime({
           stellaAppDir: runtime.stellaDataDir,
-          ...(summaryModelConfig
-            ? { agentEngine: summaryModelConfig.engine }
-            : {}),
           modelId: candidate,
         })
       ) {
@@ -264,7 +161,6 @@ export const runOneShotCompletion = async (args: {
     }
     const candidateUsesClaudeCode = shouldUseClaudeCodeAgentRuntime({
       stellaAppDir: runtime.stellaDataDir,
-      ...(summaryModelConfig ? { agentEngine: summaryModelConfig.engine } : {}),
       modelId: candidateRoute?.model.id ?? candidate,
     });
     const candidateApiKey = candidateUsesClaudeCode
@@ -294,7 +190,40 @@ export const runOneShotCompletion = async (args: {
     );
   }
 
+  const messages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: userText }],
+      timestamp: Date.now(),
+    },
+  ];
+  const context: Context = {
+    ...(request.systemPrompt ? { systemPrompt: request.systemPrompt } : {}),
+    messages,
+  };
+
   try {
+    if (
+      request.utility === true &&
+      getAgentRuntimeEngine(runtime.stellaDataDir) === "codex_cli"
+    ) {
+      const result = await runCodexAgentTurn({
+        runId: `codex:${request.agentType}:${crypto.randomUUID()}`,
+        ...(sessionKey ? { sessionKey } : {}),
+        prompt: userText,
+        ...(request.systemPrompt ? { systemPrompt: request.systemPrompt } : {}),
+        cwd: resolveLocalCliCwd({
+          agentType: request.agentType,
+          stellaAppDir: runtime.stellaAppDir,
+        }),
+        stellaDataDir: runtime.stellaDataDir,
+        stellaAppDir: runtime.stellaAppDir,
+        utility: true,
+        reuseAppServer: true,
+        streamFinalAnswer: false,
+      });
+      return { text: result.text.trim() };
+    }
     if (useClaudeCode) {
       const text = await runClaudeCodeAgentTextCompletion({
         // Data dir, matching the other CC completion callers: preferences
@@ -307,10 +236,9 @@ export const runOneShotCompletion = async (args: {
           stellaAppDir: runtime.stellaAppDir,
         }),
         agentType: request.agentType,
-        ...(useLightUtilityModel
-          ? { modelOverride: CLAUDE_CODE_LIGHT_MODEL }
+        ...(request.reasoningEffort
+          ? { effortLevel: request.reasoningEffort }
           : {}),
-        ...(reasoningEffort ? { effortLevel: reasoningEffort } : {}),
         ...(sessionKey ? { sessionKey } : {}),
         ...((modelName ?? route?.model.id)
           ? { stellaModel: (modelName ?? route?.model.id) as string }
@@ -331,11 +259,9 @@ export const runOneShotCompletion = async (args: {
     }
     const response = await completeSimple(route.model, context, {
       apiKey,
-      ...(disableReasoning
-        ? { disableReasoning: true }
-        : reasoningEffort
-          ? { reasoning: reasoningEffort }
-          : {}),
+      ...(request.reasoningEffort
+        ? { reasoning: request.reasoningEffort }
+        : {}),
       ...(request.maxOutputTokens != null
         ? { maxTokens: request.maxOutputTokens }
         : {}),

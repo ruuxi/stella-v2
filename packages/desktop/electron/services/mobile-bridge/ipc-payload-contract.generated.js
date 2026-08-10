@@ -134,7 +134,6 @@ export const IPC_PAYLOAD_CONTRACT = {
     "localChat:listSyncMessages": { kind: "passthrough" },
     "localChat:listThreadActivity": { kind: "passthrough" },
     "localChat:persistDiscoveryWelcome": { kind: "passthrough" },
-    "localChat:publishReasoningSummaries": { kind: "passthrough" },
     "localChat:publishTaskDecoration": { kind: "passthrough" },
     "localChat:setActiveConversationId": { kind: "passthrough" },
     "localChat:setSyncCheckpoint": { kind: "passthrough" },

@@ -14,7 +14,10 @@ import type {
   SimpleStreamOptions,
   StreamOptions,
 } from "@stella/runtime/ai/types";
-import { maybeSpawnDreamRun } from "@stella/runtime/kernel/agent-runtime/dream-scheduler";
+import {
+  buildDreamSystemPrompt,
+  maybeSpawnDreamRun,
+} from "@stella/runtime/kernel/agent-runtime/dream-scheduler";
 import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 import type { RuntimeStore } from "@stella/runtime/kernel/storage/runtime-store";
 
@@ -100,7 +103,10 @@ const buildFakeRoute = (args: {
   };
 };
 
-const waitFor = async (predicate: () => boolean, timeoutMs = 1_000): Promise<void> => {
+const waitFor = async (
+  predicate: () => boolean,
+  timeoutMs = 1_000,
+): Promise<void> => {
   const startedAt = Date.now();
   while (!predicate()) {
     if (Date.now() - startedAt > timeoutMs) {
@@ -109,6 +115,19 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 1_000): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 };
+
+describe("buildDreamSystemPrompt", () => {
+  it("requires bounded, usage-aware, sensitive-data-safe index maintenance", () => {
+    const prompt = buildDreamSystemPrompt(createRoot());
+
+    expect(prompt).toContain("memory_index.md on every consolidation pass");
+    expect(prompt).toContain("at most 80 entries and 6000 characters");
+    expect(prompt).toContain("prune entries older than 90 days");
+    expect(prompt).toContain("higher usage_count or recent last_usage");
+    expect(prompt).toContain("Never put secrets, credentials, tokens");
+    expect(prompt).toContain("profile.md remains exclusively Remember-owned");
+  });
+});
 
 describe("maybeSpawnDreamRun", () => {
   it("allows credentialless direct-provider routes to execute the Dream pass", async () => {

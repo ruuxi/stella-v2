@@ -86,7 +86,7 @@ type LookupStore = Parameters<typeof buildContextLookupUserPrompt>[0]["store"];
 const makeLookupStore = (overrides: Partial<LookupStore> = {}): LookupStore =>
   ({
     listThreadsForRecallIndex: () => [],
-    listAgentProgressSummaries: () => [],
+    listAgentAssistantMessages: () => [],
     searchThreads: () => [],
     searchTranscripts: () => [],
     listTranscriptNeighbors: () => [],
@@ -307,7 +307,7 @@ describe("buildContextLookupUserPrompt", () => {
           agentStatus: "completed",
         },
       ],
-      listAgentProgressSummaries: (agentId: string) =>
+      listAgentAssistantMessages: (agentId: string) =>
         agentId === "still-running"
           ? [{ text: "running smoke tests", atMs: now - 30_000 }]
           : [{ text: "summing spreadsheet rows", atMs: now }],
@@ -324,7 +324,7 @@ describe("buildContextLookupUserPrompt", () => {
 
     const liveSection = prompt.slice(prompt.indexOf("# Live Thread Status"));
     expect(liveSection).toContain("- still-running (active, last active");
-    expect(liveSection).toContain("live progress (newest last):");
+    expect(liveSection).toContain("agent updates (newest last):");
     expect(liveSection).toMatch(/- \[[^\]]+\] running smoke tests/);
     // Paused threads never render as live status.
     expect(
@@ -387,7 +387,7 @@ describe("formatThreadSearchResults", () => {
         return threads;
       },
       listThreadResultExcerpts: () => excerpts,
-      listAgentProgressSummaries: (agentId: string, limit = 3) =>
+      listAgentAssistantMessages: (agentId: string, limit = 3) =>
         (summariesByAgentId[agentId] ?? []).slice(-limit),
     }) as unknown as Parameters<typeof formatThreadSearchResults>[0];
 
@@ -465,7 +465,7 @@ describe("formatThreadSearchResults", () => {
       "flights",
     );
     expect(out).toContain("(active, last active");
-    expect(out).toContain("live progress (newest last):");
+    expect(out).toContain("agent updates (newest last):");
     expect(out).toMatch(/- \[[^\]]+\] paging through fare results/);
   });
 
@@ -651,7 +651,7 @@ describe("runRecall", () => {
           agentStatus: "running",
         },
       ],
-      listAgentProgressSummaries: () => [],
+      listAgentAssistantMessages: () => [],
       searchThreads: () => [],
       searchTranscripts: () => [],
       listTranscriptNeighbors: () => [],
@@ -659,10 +659,15 @@ describe("runRecall", () => {
       ...storeOverrides,
     } as unknown as Parameters<typeof runRecall>[0]["store"],
     localEvents: [],
-    resolvedLlm: {
-      model: { id: "test-model" },
-      getApiKey: async () => "test-key",
-    } as unknown as Parameters<typeof runRecall>[0]["resolvedLlm"],
+    recallRoute: {
+      activeEngine: "default",
+      executionEngine: "native",
+      modelId: "test-provider/test-model",
+      resolvedLlm: {
+        model: { id: "test-model" },
+        getApiKey: async () => "test-key",
+      },
+    } as unknown as Parameters<typeof runRecall>[0]["recallRoute"],
   });
 
   it("advertises the native tools, executes a tool round, and returns the final text brief", async () => {
@@ -979,7 +984,16 @@ describe("runRecall", () => {
         },
       ]);
       return {
-        args: await makeRunArgs(rootPath, { searchTranscripts }),
+        args: {
+          ...(await makeRunArgs(rootPath, { searchTranscripts })),
+          stellaAppDir: path.join(rootPath, "repo-checkout"),
+          recallRoute: {
+            activeEngine: "claude_code_local" as const,
+            executionEngine: "claude-code" as const,
+            modelId: "claude-code/haiku",
+            claudeCodeModel: "haiku",
+          },
+        },
         searchTranscripts,
       };
     };

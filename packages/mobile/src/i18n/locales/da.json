@@ -44,6 +44,10 @@
       "directDescription": "Stella arbejder selv på opgaver og uddelegerer kun, når det er nyttigt.",
       "orchestratedDescription": "Stella koordinerer en General-agent, der kan fordele større arbejde på underagenter."
     },
+    "memory": {
+      "title": "Hukommelse",
+      "description": "Inkludér gemte erindringer og din profil i Stellas modelkontekst. Slår du dette fra, bliver hukommelsesfilerne på din enhed, men udelades fra fremtidige svar."
+    },
     "developerPreviews": {
       "title": "Filforhåndsvisninger for udviklere",
       "description": "Vis kodeændringer i chatten, og åbn dem i sidepanelet."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Orkestratortilstanden kunne ikke indlæses.",
       "saveWorkingMode": "Orkestratortilstanden kunne ikke opdateres.",
       "workingModeUnavailable": "Orkestratortilstand er ikke tilgængelig i dette vindue.",
+      "loadMemory": "Kunne ikke indlæse hukommelsesindstillingen.",
+      "saveMemory": "Kunne ikke opdatere hukommelsesindstillingen.",
+      "memoryUnavailable": "Hukommelsesindstillinger er ikke tilgængelige i dette vindue.",
       "loadPermissions": "Kunne ikke indlæse tilladelsesstatus for skrivebordet.",
       "savePermission": "Kunne ikke opdatere tilladelsen {kind}.",
       "resetPermission": "Kunne ikke nulstille tilladelsen {kind}.",
@@ -585,10 +592,6 @@
     "privacyPolicy": "Privatlivspolitik",
     "previousStep": "Forrige trin",
     "nextStep": "Næste trin",
-    "intro": {
-      "primary": "Stella er en AI, der kører på din computer.",
-      "secondary": "Stella er ikke for alle. Stella er til dig."
-    },
     "stepTitles": {
       "engine": "Vælg, hvad der driver Stella.",
       "extension": "Tilføj Stella til din browser.",
@@ -1805,6 +1808,7 @@
         "historyEmpty": "Ingen samtaler endnu",
         "historyRetry": "Kunne ikke indlæse samtaler. Prøv igen",
         "openConversations": "Åbn samtaler",
+        "unread": "Ulæste beskeder",
         "openConversation": "Åbn {title}",
         "closeConversation": "Luk {title}",
         "delete": "Slet {title}",
@@ -1868,8 +1872,10 @@
       "heroTagline": "Skriv til Stella fra den platform, du vil — chat naturligt, eller bed den om at få tingene gjort direkte på din computer.",
       "signInToConnect": "Log ind på Stella for at tilslutte",
       "connectStellaApp": "Tilslut til Stella-appen",
+      "connectStellaAppSub": "Par Stella-appen på din telefon med denne computer",
       "sectionTitle": "Integrationer",
       "connectTitle": "Tilslut",
+      "phoneTitle": "Din telefon",
       "backToConnections": "Tilbage til forbindelser",
       "connected": "Tilsluttet",
       "connectProvider": "Tilslut {provider}",

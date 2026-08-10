@@ -44,6 +44,10 @@
       "directDescription": "Stella tekee tehtävät itse ja delegoi vain, kun siitä on hyötyä.",
       "orchestratedDescription": "Stella koordinoi General-agenttia, joka voi jakaa suuremmat työt aliagenteille."
     },
+    "memory": {
+      "title": "Muisti",
+      "description": "Sisällytä tallennetut muistot ja profiilisi Stellan mallikontekstiin. Kun tämä on pois päältä, muistitiedostot säilyvät laitteellasi mutta jätetään pois tulevista vastauksista."
+    },
     "developerPreviews": {
       "title": "Kehittäjän tiedostojen esikatselut",
       "description": "Näytä koodimuutokset chatissa ja avaa ne sivupaneelissa."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Orkestraattoritilan lataaminen epäonnistui.",
       "saveWorkingMode": "Orkestraattoritilan päivittäminen epäonnistui.",
       "workingModeUnavailable": "Orkestraattoritila ei ole käytettävissä tässä ikkunassa.",
+      "loadMemory": "Muistiasetuksen lataaminen epäonnistui.",
+      "saveMemory": "Muistiasetuksen päivitys epäonnistui.",
+      "memoryUnavailable": "Muistiasetukset eivät ole käytettävissä tässä ikkunassa.",
       "loadPermissions": "Työpöydän käyttöoikeustilan lataaminen epäonnistui.",
       "savePermission": "Käyttöoikeuden {kind} päivitys epäonnistui.",
       "resetPermission": "Käyttöoikeuden {kind} nollaus epäonnistui.",
@@ -585,10 +592,6 @@
     "privacyPolicy": "tietosuojakäytäntömme",
     "previousStep": "Edellinen vaihe",
     "nextStep": "Seuraava vaihe",
-    "intro": {
-      "primary": "Stella on tekoäly, joka toimii tietokoneellasi.",
-      "secondary": "Stella ei ole kaikille. Stella on sinulle."
-    },
     "stepTitles": {
       "engine": "Valitse, mikä käyttää Stellaa.",
       "extension": "Lisää Stella selaimeesi.",
@@ -1805,6 +1808,7 @@
         "historyEmpty": "Ei vielä keskusteluja",
         "historyRetry": "Keskusteluja ei voitu ladata. Yritä uudelleen",
         "openConversations": "Avaa keskustelut",
+        "unread": "Lukemattomia viestejä",
         "openConversation": "Avaa: {title}",
         "closeConversation": "Sulje: {title}",
         "delete": "Poista: {title}",
@@ -1868,8 +1872,10 @@
       "heroTagline": "Viestittele Stellan kanssa haluamallasi alustalla — juttele vapaasti tai pyydä sitä hoitamaan asioita suoraan tietokoneellasi.",
       "signInToConnect": "Kirjaudu Stellaan yhdistääksesi",
       "connectStellaApp": "Yhdistä Stella-sovellukseen",
+      "connectStellaAppSub": "Paritä puhelimesi Stella-sovellus tämän tietokoneen kanssa",
       "sectionTitle": "Integraatiot",
       "connectTitle": "Yhdistä",
+      "phoneTitle": "Puhelimesi",
       "backToConnections": "Takaisin yhteyksiin",
       "connected": "Yhdistetty",
       "connectProvider": "Yhdistä {provider}",

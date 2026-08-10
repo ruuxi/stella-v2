@@ -12,8 +12,8 @@ import { parseThreadActivityTasks } from "../desktop-thread-activity";
 /**
  * The authoritative thread-activity overlay: desktop `runtime_agents` rows
  * override the synced-message fold's status/title, and the live decoration
- * snapshot supplies the mid-run statusText/reasoning that `agent-progress`
- * rows used to carry before they stopped being persisted.
+ * snapshot supplies ephemeral mid-run statusText. Authored agent messages are
+ * carried by the persisted task projection.
  */
 
 const task = (overrides: Partial<MobileTask> & { id: string }): MobileTask => ({
@@ -27,7 +27,6 @@ const decoration = (
   overrides: Partial<DesktopTaskDecoration>,
 ): DesktopTaskDecoration => ({
   statusTextByAgentId: {},
-  reasoningSummariesByAgentId: {},
   ...overrides,
 });
 
@@ -94,7 +93,7 @@ describe("overlayDesktopThreadTasks", () => {
     expect(merged[0]?.title).toBe("Follow-up instruction");
   });
 
-  test("decoration statusText/reasoning land on running tasks only", () => {
+  test("decoration statusText lands on running tasks only", () => {
     const folded = [
       task({ id: "run", statusText: "Spawn text" }),
       task({ id: "done", status: "completed" }),
@@ -104,13 +103,11 @@ describe("overlayDesktopThreadTasks", () => {
       null,
       decoration({
         statusTextByAgentId: { run: "Reading files", done: "Stale tick" },
-        reasoningSummariesByAgentId: { run: ["Comparing options"] },
       }),
     );
     const running = merged.find((entry) => entry.id === "run");
     const completed = merged.find((entry) => entry.id === "done");
     expect(running?.statusText).toBe("Reading files");
-    expect(running?.reasoningSummaries).toEqual(["Comparing options"]);
     expect(completed?.statusText).toBe(undefined);
   });
 
@@ -127,7 +124,10 @@ describe("overlayDesktopThreadTasks", () => {
   test("running tasks sort first, then newest", () => {
     const merged = overlayDesktopThreadTasks(
       [task({ id: "old-done", status: "completed", createdAt: 500 })],
-      [task({ id: "young", createdAt: 3_000 }), task({ id: "older", createdAt: 2_000 })],
+      [
+        task({ id: "young", createdAt: 3_000 }),
+        task({ id: "older", createdAt: 2_000 }),
+      ],
       null,
     );
     expect(merged.map((entry) => entry.id)).toEqual([

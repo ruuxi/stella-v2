@@ -44,6 +44,10 @@
       "directDescription": "تعمل Stella على المهام بنفسها ولا تفوّضها إلا عند الحاجة.",
       "orchestratedDescription": "تنسّق Stella وكيل General الذي يمكنه تقسيم الأعمال الكبيرة بين وكلاء فرعيين."
     },
+    "memory": {
+      "title": "الذاكرة",
+      "description": "تضمين الذكريات المحفوظة وملفك الشخصي في سياق نموذج Stella. إيقاف هذا يُبقي ملفات الذاكرة على جهازك لكنه يستبعدها من الأدوار المقبلة."
+    },
     "developerPreviews": {
       "title": "معاينات ملفات المطوّرين",
       "description": "إظهار تغييرات الكود في المحادثة وفتحها في اللوحة الجانبية."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "تعذّر تحميل وضع المنسّق.",
       "saveWorkingMode": "تعذّر تحديث وضع المنسّق.",
       "workingModeUnavailable": "وضع المنسّق غير متاح في هذه النافذة.",
+      "loadMemory": "تعذّر تحميل إعداد الذاكرة.",
+      "saveMemory": "تعذّر تحديث إعداد الذاكرة.",
+      "memoryUnavailable": "إعدادات الذاكرة غير متاحة في هذه النافذة.",
       "loadPermissions": "تعذّر تحميل حالة أذونات سطح المكتب.",
       "savePermission": "تعذّر تحديث إذن {kind}.",
       "resetPermission": "تعذّر إعادة تعيين إذن {kind}.",
@@ -589,10 +596,6 @@
     "privacyPolicy": "سياسة الخصوصية",
     "previousStep": "الخطوة السابقة",
     "nextStep": "الخطوة التالية",
-    "intro": {
-      "primary": "‏Stella ذكاء اصطناعي يعمل على جهازك.",
-      "secondary": "‏Stella ليست للجميع. Stella من أجلك."
-    },
     "stepTitles": {
       "engine": "اختر ما يشغّل Stella.",
       "extension": "أضف Stella إلى متصفحك.",
@@ -1896,6 +1899,7 @@
         "historyEmpty": "لا محادثات بعد",
         "historyRetry": "تعذّر تحميل المحادثات. حاول مرة أخرى",
         "openConversations": "افتح المحادثات",
+        "unread": "رسائل غير مقروءة",
         "openConversation": "افتح {title}",
         "closeConversation": "أغلق {title}",
         "delete": "احذف {title}",
@@ -1963,8 +1967,10 @@
       "heroTagline": "راسل Stella من أي منصة تحبها — تحدّث بشكل طبيعي، أو اطلب منها إنجاز الأمور مباشرة على حاسوبك.",
       "signInToConnect": "سجّل الدخول إلى Stella للاتصال",
       "connectStellaApp": "اتصل بتطبيق Stella",
+      "connectStellaAppSub": "اقرن تطبيق Stella على هاتفك بهذا الكمبيوتر",
       "sectionTitle": "التكاملات",
       "connectTitle": "اتصال",
+      "phoneTitle": "هاتفك",
       "backToConnections": "العودة إلى الاتصالات",
       "connected": "متصل",
       "connectProvider": "اتصل بـ {provider}",

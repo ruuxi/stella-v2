@@ -36,9 +36,10 @@ import { executeRuntimeAgentPrompt } from "./run-execution.js";
 import { executeWithContextOverflowRecovery } from "./context-overflow-recovery.js";
 import { enrichImageContentForTextOnlyModel } from "./image-description.js";
 import { buildRuntimeSystemPrompt } from "./run-preparation.js";
-import { createRunEventRecorder, } from "./run-events.js";
-import { createOrchestratorResponseTargetTracker, } from "./response-target.js";
+import { createRunEventRecorder } from "./run-events.js";
+import { createOrchestratorResponseTargetTracker } from "./response-target.js";
 import { PiSessionCore } from "./pi-session-core.js";
+import { AGENT_RUN_MAX_ATTEMPTS, executeAgentTurnWithRetry, formatAgentRunRetryStatus, hasAgentRunAttemptBudget, } from "./agent-run-retry.js";
 import { QUARANTINE_CUSTOM_TYPE, SAFETY_ABORT_FABLE_ATTEMPTS, safetyRetryStatusMessage, safetySwapStatusMessage, serializeQuarantineRecord, } from "./provider-abort-containment.js";
 import { buildOrchestratorPromptMessages, buildRunThreadKey, persistThreadCustomMessage, } from "./thread-memory.js";
 import { createPiTools } from "./tool-adapters.js";
@@ -259,13 +260,30 @@ export class OrchestratorSession extends PiSessionCore {
                 threadStore: opts.store,
                 threadKey: this.threadKey,
                 conversationId: opts.conversationId,
+                ...(typeof opts.agentContext.attemptGeneration === "number"
+                    ? { attemptGeneration: opts.agentContext.attemptGeneration }
+                    : {}),
                 ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
             };
-            let execution = await executeWithContextOverflowRecovery({
-                execute: (resume = false) => executeRuntimeAgentPrompt({
+            const retryState = { attemptsUsed: 0, retriesUsed: 0 };
+            const executeWithTransientRetry = (initialResume = false) => executeAgentTurnWithRetry({
+                state: retryState,
+                initialResume,
+                execute: (resume) => executeRuntimeAgentPrompt({
                     ...executionArgs,
                     ...(resume ? { resume: true } : {}),
                 }),
+                prepareRetry: (failure) => this.prepareAgentRunRetry(agent, {
+                    failure,
+                    logContext: { conversationId: this.conversationId, runId },
+                }),
+                ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
+                onRetry: (info) => {
+                    opts.callbacks?.onStatus?.(runEvents.recordStatus(formatAgentRunRetryStatus(info), "provider-retry"));
+                },
+            });
+            let execution = await executeWithContextOverflowRecovery({
+                execute: executeWithTransientRetry,
                 agent,
                 opts,
                 threadKey: this.threadKey,
@@ -280,6 +298,7 @@ export class OrchestratorSession extends PiSessionCore {
             let fableAttempts = 1;
             while (execution.errorMessage &&
                 !opts.abortSignal?.aborted &&
+                hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS) &&
                 fableAttempts < SAFETY_ABORT_FABLE_ATTEMPTS) {
                 const retry = this.prepareSafetySameModelRetry(agent, {
                     errorMessage: execution.errorMessage,
@@ -296,16 +315,15 @@ export class OrchestratorSession extends PiSessionCore {
                     modelId: retry.modelId,
                     attempt: fableAttempts,
                 }), "running"));
-                execution = await executeRuntimeAgentPrompt({
-                    ...executionArgs,
-                    resume: true,
-                });
+                execution = await executeWithTransientRetry(true);
             }
             // Safety model swap: after the fable attempts are exhausted, one retry
             // on opus-4.8 (same auth path, per-run only). `prepareSafetyModelSwap`
             // returns null for anything else, and this block runs at most once per
             // turn, so there is no swap ping-pong.
-            if (execution.errorMessage && !opts.abortSignal?.aborted) {
+            if (execution.errorMessage &&
+                !opts.abortSignal?.aborted &&
+                hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS)) {
                 const swap = this.prepareSafetyModelSwap(agent, {
                     errorMessage: execution.errorMessage,
                     logContext: { conversationId: this.conversationId, runId },
@@ -322,10 +340,7 @@ export class OrchestratorSession extends PiSessionCore {
                         customType: "containment.safety-model-swap",
                         content: [{ type: "text", text: statusText }],
                     });
-                    execution = await executeRuntimeAgentPrompt({
-                        ...executionArgs,
-                        resume: true,
-                    });
+                    execution = await executeWithTransientRetry(true);
                 }
             }
             const { finalText, errorMessage } = execution;

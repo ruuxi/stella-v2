@@ -105,7 +105,7 @@ describe("OrchestratorSession", () => {
 
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       seenAgents.push(agent);
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     await session.runTurn(createOptions({ runId: "run-1" }));
@@ -121,7 +121,7 @@ describe("OrchestratorSession", () => {
     const session = new OrchestratorSession("conversation-1");
     const describeImages = vi.fn(async () => "A terminal window.");
 
-    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "" });
+    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "done" });
 
     await session.runTurn(createOptions({ describeImages }));
 
@@ -150,7 +150,7 @@ describe("OrchestratorSession", () => {
           details: {},
         },
       });
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     await session.runTurn(createOptions({ describeImages }));
@@ -235,7 +235,7 @@ describe("OrchestratorSession", () => {
 
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       advertisedTools.push(agent.state.tools.map((tool) => tool.name));
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     await session.runTurn(
@@ -277,7 +277,7 @@ describe("OrchestratorSession", () => {
 
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       startMessages.push(textFromMessages(agent.state.messages));
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     await session.runTurn(createOptions({ runId: "run-1" }));
@@ -322,7 +322,7 @@ describe("SubagentSession", () => {
       "general",
     );
     const describeImages = vi.fn(async () => "A terminal window.");
-    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "" });
+    executeRuntimeAgentPrompt.mockResolvedValue({ finalText: "done" });
 
     await session.runTurn({
       runId: "image-run",
@@ -378,13 +378,11 @@ describe("SubagentSession", () => {
       )._afterToolCall?.({
         toolCall: { name: "Read" },
         result: {
-          content: [
-            { type: "image", mimeType: "image/png", data: "AAAA" },
-          ],
+          content: [{ type: "image", mimeType: "image/png", data: "AAAA" }],
           details: {},
         },
       });
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     await session.runTurn({
@@ -471,7 +469,7 @@ describe("SubagentSession", () => {
     let executionHistory: string[] = [];
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       executionHistory = textFromMessages(agent.state.messages);
-      return { finalText: "" };
+      return { finalText: "done" };
     });
 
     const turn = session.runTurn({

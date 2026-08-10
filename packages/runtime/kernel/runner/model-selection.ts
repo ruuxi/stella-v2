@@ -1,5 +1,14 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import { shouldUseClaudeCodeAgentRuntime } from "../integrations/claude-code-agent-runtime.js";
+import { getAgentRuntimeEngine } from "../preferences/local-preferences.js";
+import {
+  RECALL_CLAUDE_CODE_MODEL,
+  RECALL_CLAUDE_PROVIDER_MODEL,
+  RECALL_CODEX_PROVIDER_MODEL,
+  RECALL_STELLA_MODEL,
+  type RecallModelRoute,
+} from "../agent-runtime/recall-route.js";
 import {
   canResolveLlmRoute,
   resolveLlmRoute,
@@ -94,9 +103,68 @@ export const createRunnerImageDescriptionService = (
       ),
   });
 
+/** Resolve Recall's authoritative light tier from the active orchestrator engine. */
+export const resolveRunnerRecallLlmRoute = async (
+  context: RunnerContext,
+  agentType: string,
+  modelConfigSnapshot?: AgentModelConfigSnapshot,
+): Promise<RecallModelRoute> => {
+  const activeEngine =
+    modelConfigSnapshot?.engine ?? getAgentRuntimeEngine(context.stellaDataDir);
+  if (activeEngine === "claude_code_local") {
+    try {
+      const resolvedLlm = resolveRunnerLlmRoute(
+        context,
+        agentType,
+        RECALL_CLAUDE_PROVIDER_MODEL,
+      );
+      return {
+        activeEngine,
+        executionEngine: "native",
+        modelId: `${resolvedLlm.model.provider}/${resolvedLlm.model.id}`,
+        resolvedLlm,
+      };
+    } catch {
+      // Claude Code subscription auth belongs to the CLI and is not exposed
+      // as an Anthropic provider credential. Fall back to the authoritative
+      // Haiku CLI route when no independent provider credential is present.
+    }
+    return {
+      activeEngine,
+      executionEngine: "claude-code",
+      modelId: `claude-code/${RECALL_CLAUDE_CODE_MODEL}`,
+      claudeCodeModel: RECALL_CLAUDE_CODE_MODEL,
+    };
+  }
+  if (activeEngine === "codex_cli") {
+    const resolvedLlm = resolveRunnerLlmRoute(
+      context,
+      agentType,
+      RECALL_CODEX_PROVIDER_MODEL,
+    );
+    return {
+      activeEngine,
+      executionEngine: "native",
+      modelId: `${resolvedLlm.model.provider}/${resolvedLlm.model.id}`,
+      resolvedLlm,
+    };
+  }
+  const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
+    context,
+    agentType,
+    RECALL_STELLA_MODEL,
+  );
+  return {
+    activeEngine,
+    executionEngine: "native",
+    modelId: RECALL_STELLA_MODEL,
+    resolvedLlm,
+  };
+};
+
 /**
  * Cheap pinned model for internal utility passes (Recall). Same pin the
- * renderer's progress-summary engine uses (`stella/light` — DeepSeek V4
+ * lightweight one-shot helpers use (`stella/light` — DeepSeek V4
  * Flash via the managed relay; the Claude Code engine maps it to its own
  * light model downstream).
  */

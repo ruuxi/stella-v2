@@ -44,6 +44,10 @@
       "directDescription": "Stella bearbeitet Aufgaben selbst und delegiert nur, wenn es sinnvoll ist.",
       "orchestratedDescription": "Stella koordiniert einen General-Agenten, der größere Arbeiten auf Subagenten aufteilen kann."
     },
+    "memory": {
+      "title": "Erinnerung",
+      "description": "Gespeicherte Erinnerungen und dein Profil in Stellas Modellkontext einbeziehen. Wenn du das deaktivierst, bleiben die Erinnerungsdateien auf deinem Gerät, werden aber aus künftigen Antworten ausgeschlossen."
+    },
     "developerPreviews": {
       "title": "Entwickler-Dateivorschauen",
       "description": "Zeigt Code-Änderungen im Chat an und öffnet sie im Seitenpanel."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Orchestrator-Modus konnte nicht geladen werden.",
       "saveWorkingMode": "Orchestrator-Modus konnte nicht aktualisiert werden.",
       "workingModeUnavailable": "Der Orchestrator-Modus ist in diesem Fenster nicht verfügbar.",
+      "loadMemory": "Erinnerungseinstellung konnte nicht geladen werden.",
+      "saveMemory": "Erinnerungseinstellung konnte nicht aktualisiert werden.",
+      "memoryUnavailable": "Erinnerungseinstellungen sind in diesem Fenster nicht verfügbar.",
       "loadPermissions": "Berechtigungsstatus des Desktops konnte nicht geladen werden.",
       "savePermission": "Berechtigung „{kind}“ konnte nicht aktualisiert werden.",
       "resetPermission": "Berechtigung „{kind}“ konnte nicht zurückgesetzt werden.",
@@ -585,10 +592,6 @@
     "privacyPolicy": "Datenschutzerklärung",
     "previousStep": "Vorheriger Schritt",
     "nextStep": "Nächster Schritt",
-    "intro": {
-      "primary": "Stella ist eine KI, die auf deinem Computer läuft.",
-      "secondary": "Stella ist nicht für alle. Stella ist für dich."
-    },
     "stepTitles": {
       "engine": "Wähle, was Stella antreibt.",
       "extension": "Füge Stella zu deinem Browser hinzu.",
@@ -1805,6 +1808,7 @@
         "historyEmpty": "Noch keine Unterhaltungen",
         "historyRetry": "Unterhaltungen konnten nicht geladen werden. Erneut versuchen",
         "openConversations": "Unterhaltungen öffnen",
+        "unread": "Ungelesene Nachrichten",
         "openConversation": "{title} öffnen",
         "closeConversation": "{title} schließen",
         "delete": "{title} löschen",
@@ -1868,8 +1872,10 @@
       "heroTagline": "Schreib Stella von jeder Plattform, die dir gefällt — chatte ganz normal oder lass sie direkt auf deinem Computer Dinge erledigen.",
       "signInToConnect": "Melde dich bei Stella an, um zu verbinden",
       "connectStellaApp": "Mit der Stella-App verbinden",
+      "connectStellaAppSub": "Verbinde die Stella-App auf deinem Telefon mit diesem Computer",
       "sectionTitle": "Integrationen",
       "connectTitle": "Verbinden",
+      "phoneTitle": "Dein Telefon",
       "backToConnections": "Zurück zu den Verbindungen",
       "connected": "Verbunden",
       "connectProvider": "{provider} verbinden",

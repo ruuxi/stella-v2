@@ -34,9 +34,9 @@ export const getDesktopDatabasePath = (stellaDataDir: string) =>
  * - `porter unicode61` stems index and query terms alike, replacing the one
  *   thing the LIKE scan did better (substring matches: "drive" ~ "drives").
  * - Backfill is one-time, guarded by a settings flag, and transactional; a
- *   failed backfill drops the whole index so search degrades to the LIKE
- *   scan instead of silently missing older history. An SQLite build without
- *   FTS5 takes the same degradation path.
+ *   failed backfill drops the whole index so search surfaces a typed degraded
+ *   state instead of silently missing older history. An SQLite build without
+ *   FTS5 takes the same degradation path; LIKE requires an explicit opt-in.
  */
 const TRANSCRIPT_FTS_BACKFILL_FLAG = "transcript_fts_backfilled_v1";
 
@@ -64,8 +64,8 @@ const ensureTranscriptSearchIndex = (db: SqliteDatabase) => {
       );
     `);
   } catch {
-    // This SQLite build lacks FTS5 — searchTranscripts falls back to the
-    // LIKE scan. Nothing else to set up.
+    // This SQLite build lacks FTS5 — searchTranscripts will surface a typed
+    // degraded state. Nothing else to set up.
     return;
   }
 
@@ -150,7 +150,7 @@ const ensureTranscriptSearchIndex = (db: SqliteDatabase) => {
       // Not in a transaction — BEGIN itself failed.
     }
     // A half-built index silently loses older history; no index degrades
-    // loudly to the LIKE scan and retries the backfill on the next init.
+    // loudly and retries the backfill on the next init.
     dropTranscriptSearchIndex(db);
     throw error instanceof Error
       ? new TranscriptFtsBackfillError(error)
@@ -161,7 +161,8 @@ const ensureTranscriptSearchIndex = (db: SqliteDatabase) => {
 /**
  * Wraps a backfill failure so callers can tell it apart from init failures
  * that must abort startup: the transcript index is an optimization, so
- * `initializeDesktopDatabase` catches this and continues without it.
+ * `initializeDesktopDatabase` catches this and continues without it; Recall's
+ * FTS preflight and SessionStore then expose the degraded state.
  */
 class TranscriptFtsBackfillError extends Error {
   constructor(cause: Error) {
@@ -194,8 +195,8 @@ class TranscriptFtsBackfillError extends Error {
  *   write time, so orchestrator threads and implicit `::subagent::`
  *   transcript rows never enter the index at all.
  * - Backfill, degradation, and drop-on-failure follow the transcript index
- *   above: no FTS5 → skip; failed backfill → drop the whole index and fall
- *   back to the LIKE scan.
+ *   above: no FTS5 → skip; failed backfill → drop the whole index and expose
+ *   typed degradation unless a caller explicitly requests LIKE mode.
  */
 const THREAD_FTS_BACKFILL_FLAG = "thread_search_fts_backfilled_v2";
 
@@ -238,8 +239,8 @@ const ensureThreadSearchIndex = (db: SqliteDatabase) => {
       );
     `);
   } catch {
-    // This SQLite build lacks FTS5 — searchThreads falls back to the LIKE
-    // scan. Nothing else to set up.
+    // This SQLite build lacks FTS5 — searchThreads will surface a typed
+    // degraded state. Nothing else to set up.
     return;
   }
 
@@ -415,7 +416,7 @@ const ensureThreadSearchIndex = (db: SqliteDatabase) => {
       // Not in a transaction — BEGIN itself failed.
     }
     // A half-built index silently loses older threads; no index degrades
-    // loudly to the LIKE scan and retries the backfill on the next init.
+    // loudly and retries the backfill on the next init.
     dropThreadSearchIndex(db);
     throw error instanceof Error ? new ThreadFtsBackfillError(error) : error;
   }
@@ -424,7 +425,7 @@ const ensureThreadSearchIndex = (db: SqliteDatabase) => {
 /**
  * Same contract as `TranscriptFtsBackfillError`: the thread index is an
  * optimization, so `initializeDesktopDatabase` catches this and continues
- * without it.
+ * without it; callers then see the typed degraded state.
  */
 class ThreadFtsBackfillError extends Error {
   constructor(cause: Error) {
@@ -524,9 +525,11 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   try {
     ensureTranscriptSearchIndex(db);
   } catch (error) {
-    // The transcript index is an optimization — a failed backfill (e.g. a
-    // malformed legacy row) must not brick startup. The index was dropped,
-    // so search degrades to the LIKE scan.
+    // A failed backfill (e.g. a malformed legacy row) must not brick
+    // startup: the index is dropped and keyword search then fails loudly
+    // with FtsSearchUnavailableError ([stella:recall:fts-degraded]) until
+    // the index rebuilds. LIKE scans run only when a caller explicitly opts
+    // in via degradedMode: "like" — never as a silent fallback.
     if (!(error instanceof TranscriptFtsBackfillError)) throw error;
   }
 
@@ -613,27 +616,104 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     );
   `);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS runtime_thread_entries (
-      entry_id TEXT PRIMARY KEY,
-      thread_key TEXT NOT NULL,
-      session_id TEXT NOT NULL,
-      parent_entry_id TEXT,
-      entry_type TEXT NOT NULL,
-      timestamp_iso TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      data_json TEXT,
-      FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
-    );
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_created
-    ON runtime_thread_entries(thread_key, created_at, entry_id);
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_parent
-    ON runtime_thread_entries(thread_key, parent_entry_id, created_at, entry_id);
-  `);
+  // Keep the column backfill and trigger installation under one writer lock.
+  // Without it, an already-running process can insert NULL rows after the
+  // backfill but before the trigger exists, leaving a partially migrated DB.
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_thread_entries (
+        entry_id TEXT PRIMARY KEY,
+        thread_key TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        parent_entry_id TEXT,
+        entry_type TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        insertion_sequence INTEGER,
+        data_json TEXT,
+        FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
+      );
+    `);
+    try {
+      db.exec(
+        "ALTER TABLE runtime_thread_entries ADD COLUMN insertion_sequence INTEGER;",
+      );
+    } catch {
+      // Column already exists.
+    }
+    db.exec("DROP INDEX IF EXISTS idx_runtime_thread_entries_thread_append;");
+    // Timestamp-prefixed entry ids have a random suffix, so neither
+    // `(created_at, entry_id)` nor the timestamp alone records append order.
+    // Preserve the current SQLite insertion order for legacy rows once, then
+    // assign a durable ordinal to every future row. If an older migration was
+    // interrupted between its backfill and trigger creation, re-rank the whole
+    // table so its NULL rows regain their real positions without colliding with
+    // sequence values that later inserts already claimed.
+    const needsInsertionSequenceRepair = db
+      .prepare(
+        `SELECT 1
+         FROM runtime_thread_entries
+         WHERE insertion_sequence IS NULL
+         LIMIT 1`,
+      )
+      .get();
+    if (needsInsertionSequenceRepair) {
+      db.exec("DROP INDEX IF EXISTS idx_runtime_thread_entries_sequence;");
+      db.exec(`
+        WITH ranked_entries AS (
+          SELECT
+            rowid AS entry_rowid,
+            ROW_NUMBER() OVER (ORDER BY rowid) AS insertion_sequence
+          FROM runtime_thread_entries
+        )
+        UPDATE runtime_thread_entries
+        SET insertion_sequence = (
+          SELECT ranked_entries.insertion_sequence
+          FROM ranked_entries
+          WHERE ranked_entries.entry_rowid = runtime_thread_entries.rowid
+        );
+      `);
+    }
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_thread_entries_sequence
+      ON runtime_thread_entries(insertion_sequence)
+      WHERE insertion_sequence IS NOT NULL;
+    `);
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS trg_runtime_thread_entries_sequence
+      AFTER INSERT ON runtime_thread_entries
+      WHEN NEW.insertion_sequence IS NULL
+      BEGIN
+        UPDATE runtime_thread_entries
+        SET insertion_sequence = (
+          SELECT COALESCE(MAX(insertion_sequence), 0) + 1
+          FROM runtime_thread_entries
+        )
+        WHERE rowid = NEW.rowid;
+      END;
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_created
+      ON runtime_thread_entries(thread_key, created_at, entry_id);
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_sequence
+      ON runtime_thread_entries(thread_key, insertion_sequence);
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_parent
+      ON runtime_thread_entries(thread_key, parent_entry_id, created_at, entry_id);
+    `);
+    db.exec("COMMIT;");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK;");
+    } catch {
+      // Preserve the original migration failure.
+    }
+    throw error;
+  }
   // The usage ledger reads only assistant messages that carry a usage
   // object; this partial index keeps that projection a recency scan
   // instead of json_extract-ing every thread entry. Its WHERE terms must
@@ -714,16 +794,13 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     ensureThreadSearchIndex(db);
   } catch (error) {
     // Same degradation contract as the transcript index above: the thread
-    // index is an optimization, and searchThreads falls back to its LIKE
-    // scan once the failed index is dropped.
+    // index is an optimization, and its absence is surfaced to Recall once
+    // the failed index is dropped.
     if (!(error instanceof ThreadFtsBackfillError)) throw error;
   }
-  // Rolling per-agent progress-summary phrases ("searching documentation for
-  // rate limits"), generated by the renderer's progress-summary engine and
-  // mirrored here so runtime consumers (Recall) can report what a running
-  // agent is doing right now without interrupting it. Ring buffer per agent:
-  // each publish replaces that agent's rows wholesale (newest ≤5 phrases).
-  // `agent_id` is the runtime thread id (`runtime_agents.thread_id`).
+  // Legacy generated-summary table retained for schema compatibility with
+  // existing databases. New runtimes do not write or read these rows; live
+  // Activity updates come from persisted assistant-authored transcript text.
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_progress_summaries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -814,10 +891,27 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       UNIQUE (kind, source_key)
     );
   `);
-  try {
-    db.exec("ALTER TABLE dream_inbox ADD COLUMN conversation_id TEXT;");
-  } catch {
-    // Column already exists.
+  const dreamInboxColumns = new Set(
+    (
+      db.prepare("PRAGMA table_info(dream_inbox)").all() as Array<{
+        name?: string;
+      }>
+    )
+      .map((column) => column.name)
+      .filter((name): name is string => Boolean(name)),
+  );
+  for (const [name, definition] of [
+    ["conversation_id", "conversation_id TEXT"],
+    ["usage_count", "usage_count INTEGER NOT NULL DEFAULT 0"],
+    ["last_usage", "last_usage INTEGER"],
+  ] as const) {
+    if (!dreamInboxColumns.has(name)) {
+      // Additive migration: existing rows are preserved, usage_count is
+      // backfilled to zero by SQLite's DEFAULT, and real ALTER failures are
+      // allowed to abort startup instead of being mistaken for duplicates.
+      db.exec(`ALTER TABLE dream_inbox ADD COLUMN ${definition};`);
+      dreamInboxColumns.add(name);
+    }
   }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_dream_inbox_unprocessed

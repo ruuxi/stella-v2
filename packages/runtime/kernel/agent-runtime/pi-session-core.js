@@ -3,10 +3,7 @@ import { createRuntimeLogger } from "../debug.js";
 import { buildSafetyAbortSwapRoute, isProviderContentAbortMessage, parseQuarantineRecord, ProviderAbortContainment, QUARANTINE_CUSTOM_TYPE, } from "./provider-abort-containment.js";
 import { createRuntimeAgent, resolveAgentThinkingLevel } from "./shared.js";
 import { buildHistorySource } from "./thread-memory.js";
-import {
-    clearProviderContextWindow,
-    setProviderContextWindow,
-} from "./context-budget.js";
+import { clearProviderContextWindow, setProviderContextWindow, } from "./context-budget.js";
 const resolveCodexProviderServiceTier = (resolvedLlm, agentContext) => {
     const snapshot = agentContext.modelConfigSnapshot;
     if (snapshot?.engine !== "codex_cli" ||
@@ -204,6 +201,28 @@ export class PiSessionCore {
         return { modelId };
     }
     /**
+     * Prepare a transient run-level retry without appending another user turn.
+     * Only the failed (or clean-but-empty) assistant tail is removed. Any tool
+     * result immediately before it remains in context, so continuing resumes
+     * after completed side effects instead of executing them again.
+     */
+    prepareAgentRunRetry(agent, args) {
+        if (!args.failure.retryable)
+            return false;
+        if (!this.popErroredTailForResume(agent, {
+            allowEmpty: args.failure.category === "empty_response",
+        })) {
+            return false;
+        }
+        this.logger.warn("agent-run-retry", {
+            threadKey: this.threadKey,
+            category: args.failure.category,
+            providerError: args.failure.message,
+            ...args.logContext,
+        });
+        return true;
+    }
+    /**
      * Pop the errored assistant tail so `continue()` resumes from the prompt
      * instead of refusing on a trailing assistant message. Inspects the tail
      * WITHOUT mutating it first: only commits to the pop once the retry is
@@ -213,19 +232,24 @@ export class PiSessionCore {
      * shape is unexpected (e.g. failure mid-tool-loop) and resuming would
      * throw.
      */
-    popErroredTailForResume(agent) {
+    popErroredTailForResume(agent, options) {
         const messages = agent.state.messages;
         const last = messages[messages.length - 1];
         const popErroredTail = last?.role === "assistant" &&
             (last.stopReason === "error" || last.stopReason === "aborted");
-        const tailAfterPop = popErroredTail
+        const popEmptyTail = options?.allowEmpty === true &&
+            last?.role === "assistant" &&
+            !last.content.some((block) => block.type === "toolCall" ||
+                (block.type === "text" && block.text.trim().length > 0));
+        const popAssistantTail = popErroredTail || popEmptyTail;
+        const tailAfterPop = popAssistantTail
             ? messages[messages.length - 2]
             : last;
-        if (tailAfterPop?.role === "assistant") {
+        if (!tailAfterPop || tailAfterPop.role === "assistant") {
             return false;
         }
-        if (popErroredTail) {
-            // Drop the aborted stream's partial output.
+        if (popAssistantTail) {
+            // Drop the failed stream's partial output or clean-but-empty reply.
             messages.pop();
         }
         return true;

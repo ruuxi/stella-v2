@@ -342,7 +342,7 @@ describe("local chat mobile artifacts", () => {
     });
   });
 
-  it("bridges generated reasoning summaries onto the running task", () => {
+  it("bridges agent-authored messages onto the running task", () => {
     const now = Date.now();
     const rows = buildMobileSyncMessages(
       [
@@ -367,14 +367,18 @@ describe("local chat mobile artifacts", () => {
 
     const task = rows.find((row) => row.localMessageId === "a1")?.tasks?.[0];
     expect(task).toMatchObject({ id: "t1", status: "running" });
-    // Ordered oldest -> newest, exactly the phrases the desktop tray shows.
+    expect(task?.assistantMessages).toEqual([
+      "reading flight options",
+      "comparing fares",
+    ]);
+    // Legacy wire alias remains authored text for older mobile clients.
     expect(task?.reasoningSummaries).toEqual([
       "reading flight options",
       "comparing fares",
     ]);
   });
 
-  it("omits reasoningSummaries when no summaries are bridged", () => {
+  it("uses empty authored-message arrays when no updates are bridged", () => {
     const now = Date.now();
     const rows = buildMobileSyncMessages(
       [
@@ -397,7 +401,8 @@ describe("local chat mobile artifacts", () => {
 
     const task = rows.find((row) => row.localMessageId === "a1")?.tasks?.[0];
     expect(task).toMatchObject({ id: "t1", status: "running" });
-    expect(task?.reasoningSummaries).toBeUndefined();
+    expect(task?.assistantMessages).toEqual([]);
+    expect(task?.reasoningSummaries).toEqual([]);
   });
 
   it("bridges live decoration statusText onto the running task", () => {

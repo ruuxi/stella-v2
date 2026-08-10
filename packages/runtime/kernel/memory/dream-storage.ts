@@ -12,6 +12,10 @@ import path from "node:path";
 
 export const MEMORY_FILE = "MEMORY.md";
 export const MEMORY_SUMMARY_FILE = "memory_summary.md";
+export const MEMORY_INDEX_FILE = "memory_index.md";
+export const MEMORY_INDEX_MAX_CHARS = 6_000;
+export const MEMORY_INDEX_MAX_ENTRIES = 80;
+export const MEMORY_INDEX_STALE_DAYS = 90;
 
 const MEMORY_TEMPLATE = `# MEMORY
 
@@ -48,6 +52,21 @@ const MEMORY_SUMMARY_TEMPLATE = `# Memory summary
 <!-- DREAM:SUMMARY_END -->
 `;
 
+const MEMORY_INDEX_TEMPLATE = `# Memory routing index
+
+> Compact, discriminative routing map maintained by Dream. Keep task families,
+> aliases, repo names, paths, prior-decision hooks, and the best retrieval
+> source. Loaded on every Orchestrator turn and searched before deeper memory.
+> Maximum ${MEMORY_INDEX_MAX_ENTRIES} entries and ${MEMORY_INDEX_MAX_CHARS} characters. Each entry carries an
+> updated date; prune entries older than ${MEMORY_INDEX_STALE_DAYS} days unless recent usage shows they remain useful.
+> Never store secrets, credentials, tokens, private keys, auth headers, or
+> sensitive personal data here. This file contains routing metadata only.
+
+<!-- DREAM:INDEX_START -->
+- No routing entries recorded yet.
+<!-- DREAM:INDEX_END -->
+`;
+
 export const memoriesRoot = (stellaDataDir: string): string =>
   path.join(stellaDataDir, "memories");
 
@@ -57,7 +76,13 @@ export const memoryFilePath = (stellaDataDir: string): string =>
 export const memorySummaryPath = (stellaDataDir: string): string =>
   path.join(memoriesRoot(stellaDataDir), MEMORY_SUMMARY_FILE);
 
-const writeIfMissing = async (target: string, contents: string): Promise<void> => {
+export const memoryIndexPath = (stellaDataDir: string): string =>
+  path.join(memoriesRoot(stellaDataDir), MEMORY_INDEX_FILE);
+
+const writeIfMissing = async (
+  target: string,
+  contents: string,
+): Promise<void> => {
   try {
     await fs.access(target);
   } catch {
@@ -71,7 +96,11 @@ export const ensureDreamMemoryLayout = async (
   const root = memoriesRoot(stellaDataDir);
   await fs.mkdir(root, { recursive: true });
   await writeIfMissing(memoryFilePath(stellaDataDir), MEMORY_TEMPLATE);
-  await writeIfMissing(memorySummaryPath(stellaDataDir), MEMORY_SUMMARY_TEMPLATE);
+  await writeIfMissing(
+    memorySummaryPath(stellaDataDir),
+    MEMORY_SUMMARY_TEMPLATE,
+  );
+  await writeIfMissing(memoryIndexPath(stellaDataDir), MEMORY_INDEX_TEMPLATE);
 };
 
 export const readMemoryFile = async (
@@ -79,6 +108,16 @@ export const readMemoryFile = async (
 ): Promise<string | null> => {
   try {
     return await fs.readFile(memoryFilePath(stellaDataDir), "utf-8");
+  } catch {
+    return null;
+  }
+};
+
+export const readMemoryIndex = async (
+  stellaDataDir: string,
+): Promise<string | null> => {
+  try {
+    return await fs.readFile(memoryIndexPath(stellaDataDir), "utf-8");
   } catch {
     return null;
   }

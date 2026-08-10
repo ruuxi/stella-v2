@@ -40,7 +40,12 @@ import type {
   ToolCall,
   ToolResultMessage,
 } from "../../ai/types.js";
-import { ensureDreamMemoryLayout } from "../memory/dream-storage.js";
+import {
+  ensureDreamMemoryLayout,
+  MEMORY_INDEX_MAX_CHARS,
+  MEMORY_INDEX_MAX_ENTRIES,
+  MEMORY_INDEX_STALE_DAYS,
+} from "../memory/dream-storage.js";
 import {
   getResolvedLlmApiKey,
   resolvedLlmSupportsCredentiallessCalls,
@@ -156,7 +161,19 @@ const readDreamConfig = (stellaDataDir: string): DreamConfig => {
 };
 
 export const buildDreamSystemPrompt = (stellaDataDir: string): string =>
-  readHomePrompt(stellaDataDir, "dream-scheduled") ?? "";
+  [
+    readHomePrompt(stellaDataDir, "dream-scheduled") ?? "",
+    [
+      "Maintain ~/.stella/memories/memory_index.md on every consolidation pass.",
+      "Keep it a compact routing map: task families, aliases, repo names, paths, prior-decision hooks, and the best retrieval source (memory, threads, or transcripts).",
+      `Enforce a hard budget of at most ${MEMORY_INDEX_MAX_ENTRIES} entries and ${MEMORY_INDEX_MAX_CHARS} characters. Give entries an updated date and prune entries older than ${MEMORY_INDEX_STALE_DAYS} days unless recent usage proves they are still useful.`,
+      "Never put secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the routing index; store only the minimum routing metadata.",
+      "Use the DREAM:INDEX_START / DREAM:INDEX_END anchors and StrReplace. Prefer retaining and refreshing inbox entries with higher usage_count or recent last_usage.",
+      "profile.md remains exclusively Remember-owned; never edit it.",
+    ].join(" "),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
 const buildDreamTools = (): Tool[] =>
   [dreamTool, readTool, strReplaceTool].map((def) => ({

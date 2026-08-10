@@ -13,6 +13,7 @@ import {
 import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
 import { redactMemoryText } from "../memory/redaction.js";
+import { MEMORY_INDEX_MAX_CHARS } from "../memory/dream-storage.js";
 import { readHomePrompt } from "../prompts/home-prompts.js";
 import { boundParentAgentReport } from "./agent-report-bounds.js";
 
@@ -56,10 +57,21 @@ export const readCoreMemory = (stellaDataDir: string): string | undefined => {
   return undefined;
 };
 
-const readResidentMemoryDoc = (filePath: string): string | undefined => {
+const capResidentMemoryDoc = (content: string, maxChars?: number): string => {
+  if (!maxChars || content.length <= maxChars) return content;
+  const marker = "\n...[resident memory truncated]";
+  return `${content.slice(0, Math.max(0, maxChars - marker.length))}${marker}`;
+};
+
+const readResidentMemoryDoc = (
+  filePath: string,
+  maxChars?: number,
+): string | undefined => {
   try {
     const content = fs.readFileSync(filePath, "utf-8").trim();
-    return content ? redactMemoryText(content) : undefined;
+    return content
+      ? capResidentMemoryDoc(redactMemoryText(content), maxChars)
+      : undefined;
   } catch {
     return undefined;
   }
@@ -72,10 +84,16 @@ const readResidentMemoryDoc = (filePath: string): string | undefined => {
  */
 export const readMemorySummaryDoc = (
   stellaDataDir: string,
-): string | undefined =>
-  readResidentMemoryDoc(
+): string | undefined => {
+  const summary = readResidentMemoryDoc(
     path.join(stellaDataDir, "memories", "memory_summary.md"),
   );
+  const routingIndex = readResidentMemoryDoc(
+    path.join(stellaDataDir, "memories", "memory_index.md"),
+    MEMORY_INDEX_MAX_CHARS,
+  );
+  return [summary, routingIndex].filter(Boolean).join("\n\n") || undefined;
+};
 
 /**
  * The durable user-profile facts written by the `Remember` tool, read
@@ -133,7 +151,9 @@ export const buildAgentEventPrompt = (
     return null;
   }
   if (event.type === "agent-completed" && event.result) {
-    lines.push(`result: ${boundParentAgentReport(event.result, event.agentId)}`);
+    lines.push(
+      `result: ${boundParentAgentReport(event.result, event.agentId)}`,
+    );
   }
   if (event.type === "agent-completed" && event.fileChanges?.length) {
     lines.push("explicit file changes:");

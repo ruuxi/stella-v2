@@ -3,7 +3,6 @@ import { useFullShellChat } from "@/shell/use-full-shell-chat";
 import { ChatRuntimeContext } from "@/context/chat-runtime-context";
 import { ChatMessagesContext } from "@/context/chat-messages-context";
 import { usePetStatusBroadcast } from "@/shell/pet/use-pet-status-broadcast";
-import { AgentProgressSummaryController } from "@/features/chat/AgentProgressSummaryController";
 import { useTaskDecorationPublisher } from "@/features/chat/streaming/use-task-decoration-publisher";
 import { isTraceDiagnosticsEnabled } from "@/platform/diagnostics/trace-store";
 
@@ -57,7 +56,6 @@ export function ChatRuntimeProvider({
   return (
     <ChatRuntimeContext.Provider value={runtime}>
       <ChatMessagesContext.Provider value={messages}>
-        <AgentProgressSummaryController tasks={runtime.conversation.tasks} />
         {children}
       </ChatMessagesContext.Provider>
     </ChatRuntimeContext.Provider>

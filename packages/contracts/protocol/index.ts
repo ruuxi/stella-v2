@@ -13,7 +13,6 @@ import type {
   AgentRunFinishOutcome,
   TaskLifecycleStatus,
 } from "@stella/contracts/agent-runtime";
-import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type {
   FileChangeRecord,
   ProducedFileRecord,
@@ -535,12 +534,6 @@ export type RuntimeOneShotCompletionRequest = {
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
   /** Marks a non-user-facing automatic utility pass for engine policy. */
   utility?: boolean;
-  /**
-   * Immutable engine/provider selection of the task being summarized. When
-   * present, progress-summary routing is exact and never falls through to a
-   * different provider or the current global preference.
-   */
-  modelConfigSnapshot?: AgentModelConfigSnapshot;
   /** Stable key for a short-lived reusable utility session. */
   sessionKey?: string;
   /** Close a previously-created reusable utility session without a model call. */

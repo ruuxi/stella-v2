@@ -1,9 +1,6 @@
-// Recall model pin: the Recall tool's backing route must be pinned to the
-// cheap `stella/light` utility model instead of riding the orchestrator's
-// (typically expensive) configured model, while preserving the one-shot
-// completion candidate order for users who can't resolve a `stella/*` route:
-// explicit pin first, then the orchestrator's own pick (BYOK), and the exact
-// pre-pin failure modes when nothing is usable.
+// Recall's utility model is selected solely from the active orchestrator
+// engine. User model picks (including a saved Claude fable preference) must
+// never override the engine's light tier.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
@@ -20,15 +17,12 @@ vi.mock("@stella/runtime/kernel/storage/llm-credentials", () => ({
     credentials.get(provider) ?? null,
 }));
 
-vi.mock(
-  "@stella/runtime/kernel/storage/llm-oauth-credentials",
-  () => ({
-    hasLocalLlmOAuthCredential: (_stellaAppDir: string, provider: string) =>
-      oauthCredentials.has(provider),
-    getLocalLlmOAuthApiKey: async (_stellaAppDir: string, provider: string) =>
-      oauthCredentials.has(provider) ? `${provider}-oauth-token` : null,
-  }),
-);
+vi.mock("@stella/runtime/kernel/storage/llm-oauth-credentials", () => ({
+  hasLocalLlmOAuthCredential: (_stellaAppDir: string, provider: string) =>
+    oauthCredentials.has(provider),
+  getLocalLlmOAuthApiKey: async (_stellaAppDir: string, provider: string) =>
+    oauthCredentials.has(provider) ? `${provider}-oauth-token` : null,
+}));
 
 // Catalog metadata resolution is a network round-trip against the Stella
 // site; identity pass-through keeps the tests offline without changing the
@@ -61,14 +55,23 @@ const model = (
 vi.mock("@stella/runtime/ai/models", () => ({
   getAllModels: () => [
     model("anthropic", "claude-opus-4-8", "anthropic"),
+    model("anthropic", "claude-haiku-4-5", "anthropic"),
     model("openrouter", "openai/gpt-5.5"),
+    model("openai-codex", "gpt-5.6-luna", "openai-codex-responses"),
   ],
   getModels: (provider: string) => {
     switch (provider) {
       case "anthropic":
-        return [model("anthropic", "claude-opus-4-8", "anthropic")];
+        return [
+          model("anthropic", "claude-opus-4-8", "anthropic"),
+          model("anthropic", "claude-haiku-4-5", "anthropic"),
+        ];
       case "openrouter":
         return [model("openrouter", "openai/gpt-5.5")];
+      case "openai-codex":
+        return [
+          model("openai-codex", "gpt-5.6-luna", "openai-codex-responses"),
+        ];
       default:
         return [];
     }
@@ -77,15 +80,14 @@ vi.mock("@stella/runtime/ai/models", () => ({
 
 const tempDirs = createSyncTempDirTracker();
 
-const EXPENSIVE_ORCHESTRATOR_MODEL = "anthropic/claude-opus-4-8";
-
 const makeContext = (args: {
   stellaDataDir: string;
   signedIn: boolean;
+  stellaAppDir?: string;
 }): RunnerContext =>
   ({
     deviceId: "test-device",
-    stellaAppDir: "/nonexistent/app-dir",
+    stellaAppDir: args.stellaAppDir ?? "/nonexistent/app-dir",
     stellaDataDir: args.stellaDataDir,
     state: {
       convexSiteUrl: args.signedIn ? "https://stella.example.test" : null,
@@ -109,106 +111,169 @@ afterEach(() => {
 const loadModule = async () =>
   await import("@stella/runtime/kernel/runner/model-selection");
 
-describe("resolveRunnerUtilityLlmRoute (Recall pin)", () => {
-  it("pins signed-in users to stella/light regardless of the orchestrator model", async () => {
-    const { resolveRunnerUtilityLlmRoute, RUNNER_UTILITY_PINNED_MODEL } =
-      await loadModule();
+describe("resolveRunnerRecallLlmRoute", () => {
+  it("uses DeepSeek V4 Flash for the Stella engine", async () => {
+    const { resolveRunnerRecallLlmRoute } = await loadModule();
     const context = makeContext({
       stellaDataDir: tempDirs.create("recall-pin-"),
       signedIn: true,
     });
 
-    const route = await resolveRunnerUtilityLlmRoute(
-      context,
-      "orchestrator",
-      EXPENSIVE_ORCHESTRATOR_MODEL,
-    );
+    const route = await resolveRunnerRecallLlmRoute(context, "orchestrator");
 
-    expect(route.route).toBe("stella");
-    expect(route.model.id).toBe(RUNNER_UTILITY_PINNED_MODEL);
-  });
-
-  it("falls back to the orchestrator's BYOK pick when no stella route resolves", async () => {
-    credentials.set("anthropic", "sk-anthropic-test");
-    const { resolveRunnerUtilityLlmRoute } = await loadModule();
-    const context = makeContext({
-      stellaDataDir: tempDirs.create("recall-byok-"),
-      signedIn: false,
+    expect(route).toMatchObject({
+      activeEngine: "default",
+      executionEngine: "native",
+      modelId: "stella/deepseek/deepseek-v4-flash",
+      resolvedLlm: { route: "stella" },
     });
-
-    const route = await resolveRunnerUtilityLlmRoute(
-      context,
-      "orchestrator",
-      EXPENSIVE_ORCHESTRATOR_MODEL,
-    );
-
-    expect(route.route).toBe("direct-provider");
-    expect(route.model.id).toBe("claude-opus-4-8");
-    expect(await route.getApiKey()).toBe("sk-anthropic-test");
+    expect(catalogMetadataCalls.count).toBe(1);
   });
 
-  it("prefers the stella/light pin over an available BYOK key when signed in", async () => {
-    credentials.set("anthropic", "sk-anthropic-test");
-    const { resolveRunnerUtilityLlmRoute, RUNNER_UTILITY_PINNED_MODEL } =
-      await loadModule();
-    const context = makeContext({
-      stellaDataDir: tempDirs.create("recall-prefer-pin-"),
-      signedIn: true,
-    });
-
-    const route = await resolveRunnerUtilityLlmRoute(
-      context,
-      "orchestrator",
-      EXPENSIVE_ORCHESTRATOR_MODEL,
-    );
-
-    expect(route.route).toBe("stella");
-    expect(route.model.id).toBe(RUNNER_UTILITY_PINNED_MODEL);
-  });
-
-  it("keeps the pinned route usable without a key on the Claude Code engine", async () => {
-    const { resolveRunnerUtilityLlmRoute, RUNNER_UTILITY_PINNED_MODEL } =
-      await loadModule();
+  it("uses Haiku even when the data-dir preference says fable", async () => {
+    const { resolveRunnerRecallLlmRoute } = await loadModule();
     const stellaDataDir = tempDirs.create("recall-claude-code-");
+    writeFileSync(
+      path.join(stellaDataDir, "preferences.json"),
+      JSON.stringify({
+        agentRuntimeEngine: "claude_code_local",
+        claudeCodeModel: "fable",
+      }),
+    );
+    const context = makeContext({ stellaDataDir, signedIn: true });
+
+    const route = await resolveRunnerRecallLlmRoute(context, "orchestrator");
+
+    expect(route).toEqual({
+      activeEngine: "claude_code_local",
+      executionEngine: "claude-code",
+      modelId: "claude-code/haiku",
+      claudeCodeModel: "haiku",
+    });
+    expect(catalogMetadataCalls.count).toBe(0);
+  });
+
+  it("uses the captured run engine when preferences change mid-turn", async () => {
+    const { resolveRunnerRecallLlmRoute } = await loadModule();
+    const stellaDataDir = tempDirs.create("recall-captured-engine-");
+    writeFileSync(
+      path.join(stellaDataDir, "preferences.json"),
+      JSON.stringify({ agentRuntimeEngine: "default" }),
+    );
+    const context = makeContext({ stellaDataDir, signedIn: true });
+
+    const route = await resolveRunnerRecallLlmRoute(context, "orchestrator", {
+      engine: "claude_code_local",
+      routeModel: "stella/saved-at-run-start",
+      engineModel: "fable",
+    });
+
+    expect(route).toEqual({
+      activeEngine: "claude_code_local",
+      executionEngine: "claude-code",
+      modelId: "claude-code/haiku",
+      claudeCodeModel: "haiku",
+    });
+    expect(catalogMetadataCalls.count).toBe(0);
+  });
+
+  it("uses the CLI Haiku route when no independent Anthropic credential exists", async () => {
+    const { resolveRunnerRecallLlmRoute } = await loadModule();
+    const stellaDataDir = tempDirs.create("recall-claude-no-credential-");
     writeFileSync(
       path.join(stellaDataDir, "preferences.json"),
       JSON.stringify({ agentRuntimeEngine: "claude_code_local" }),
     );
     const context = makeContext({ stellaDataDir, signedIn: true });
 
-    const route = await resolveRunnerUtilityLlmRoute(
-      context,
-      "orchestrator",
-      EXPENSIVE_ORCHESTRATOR_MODEL,
-    );
+    const route = await resolveRunnerRecallLlmRoute(context, "orchestrator");
 
-    // The engine maps `stella/light` to its own light model downstream
-    // (`getClaudeCodeAgentModelId`); the route itself stays on the pin so
-    // `runRecall` sees the raw alias.
-    expect(route.model.id).toBe(RUNNER_UTILITY_PINNED_MODEL);
-    // And the engine path must never touch the catalog: metadata resolution
-    // is a network round-trip whose result the CC engine discards. A stalled
-    // catalog fetch here once hung Recall (and its orchestrator turn) even
-    // though the engine never talks to the stella provider.
+    expect(route).toEqual({
+      activeEngine: "claude_code_local",
+      executionEngine: "claude-code",
+      modelId: "claude-code/haiku",
+      claudeCodeModel: "haiku",
+    });
     expect(catalogMetadataCalls.count).toBe(0);
   });
 
-  it("preserves the pre-pin failure mode when no candidate is usable", async () => {
-    const { resolveRunnerUtilityLlmRoute } = await loadModule();
+  it("uses the direct Anthropic provider when an independent credential exists", async () => {
+    credentials.set("anthropic", "anthropic-test-key");
+    const { resolveRunnerRecallLlmRoute } = await loadModule();
+    const stellaDataDir = tempDirs.create("recall-claude-direct-");
+    writeFileSync(
+      path.join(stellaDataDir, "preferences.json"),
+      JSON.stringify({ agentRuntimeEngine: "claude_code_local" }),
+    );
+    const context = makeContext({ stellaDataDir, signedIn: true });
+
+    const route = await resolveRunnerRecallLlmRoute(context, "orchestrator");
+
+    expect(route).toMatchObject({
+      activeEngine: "claude_code_local",
+      executionEngine: "native",
+      modelId: "anthropic/claude-haiku-4-5",
+      resolvedLlm: {
+        route: "direct-provider",
+        model: { provider: "anthropic", id: "claude-haiku-4-5" },
+      },
+    });
+    expect(JSON.stringify(route)).not.toContain("anthropic-test-key");
+  });
+
+  it("uses Luna through the direct OpenAI provider for the Codex engine", async () => {
+    oauthCredentials.add("openai-codex");
+    const { resolveRunnerRecallLlmRoute } = await loadModule();
+    const stellaDataDir = tempDirs.create("recall-codex-");
+    writeFileSync(
+      path.join(stellaDataDir, "preferences.json"),
+      JSON.stringify({ agentRuntimeEngine: "codex_cli" }),
+    );
+    const context = makeContext({ stellaDataDir, signedIn: true });
+
+    const route = await resolveRunnerRecallLlmRoute(context, "orchestrator");
+
+    expect(route).toMatchObject({
+      activeEngine: "codex_cli",
+      executionEngine: "native",
+      modelId: "openai-codex/gpt-5.6-luna",
+      resolvedLlm: {
+        route: "direct-provider",
+        model: {
+          provider: "openai-codex",
+          id: "gpt-5.6-luna",
+          api: "openai-codex-responses",
+        },
+      },
+    });
+    expect(catalogMetadataCalls.count).toBe(0);
+  });
+
+  it("reads engine preferences from the data dir, never the repo path", async () => {
+    const { resolveRunnerRecallLlmRoute } = await loadModule();
+    const stellaDataDir = tempDirs.create("recall-data-dir-");
+    const stellaAppDir = tempDirs.create("recall-repo-path-");
+    writeFileSync(
+      path.join(stellaDataDir, "preferences.json"),
+      JSON.stringify({ agentRuntimeEngine: "claude_code_local" }),
+    );
+    writeFileSync(
+      path.join(stellaAppDir, "preferences.json"),
+      JSON.stringify({ agentRuntimeEngine: "codex_cli" }),
+    );
     const context = makeContext({
-      stellaDataDir: tempDirs.create("recall-unusable-"),
-      signedIn: false,
+      stellaDataDir,
+      stellaAppDir,
+      signedIn: true,
     });
 
-    // Signed out, no local anthropic credential: the pin can't resolve and the
-    // fallback resolves credential-less, so the resolver rethrows exactly what
-    // the fallback model would have produced before the pin existed.
-    await expect(
-      resolveRunnerUtilityLlmRoute(
-        context,
-        "orchestrator",
-        EXPENSIVE_ORCHESTRATOR_MODEL,
-      ),
-    ).rejects.toThrow(/anthropic/i);
+    const route = await resolveRunnerRecallLlmRoute(context, "orchestrator");
+
+    expect(route).toEqual({
+      activeEngine: "claude_code_local",
+      executionEngine: "claude-code",
+      modelId: "claude-code/haiku",
+      claudeCodeModel: "haiku",
+    });
   });
 });

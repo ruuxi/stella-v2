@@ -44,6 +44,10 @@
       "directDescription": "Stella 自行处理任务，仅在有需要时才进行委派。",
       "orchestratedDescription": "Stella 会协调一个 General 智能体，将较大的工作拆分给子智能体。"
     },
+    "memory": {
+      "title": "记忆",
+      "description": "将已保存的记忆和你的个人资料纳入 Stella 的模型上下文。关闭后，记忆文件仍保留在你的设备上，但不会用于后续对话。"
+    },
     "developerPreviews": {
       "title": "开发者文件预览",
       "description": "在聊天中显示代码更改，并在侧边面板中打开它们。"
@@ -344,6 +348,9 @@
       "loadWorkingMode": "加载编排器模式失败。",
       "saveWorkingMode": "更新编排器模式失败。",
       "workingModeUnavailable": "此窗口中无法使用编排器模式。",
+      "loadMemory": "加载记忆设置失败。",
+      "saveMemory": "更新记忆设置失败。",
+      "memoryUnavailable": "此窗口中无法使用记忆设置。",
       "loadPermissions": "加载桌面权限状态失败。",
       "savePermission": "更新「{kind}」权限失败。",
       "resetPermission": "重置「{kind}」权限失败。",
@@ -584,10 +591,6 @@
     "privacyPolicy": "隐私政策",
     "previousStep": "上一步",
     "nextStep": "下一步",
-    "intro": {
-      "primary": "Stella 是一款运行在您电脑上的 AI。",
-      "secondary": "Stella 不属于所有人。Stella 属于您。"
-    },
     "stepTitles": {
       "engine": "选择驱动 Stella 的引擎。",
       "extension": "把 Stella 添加到浏览器。",
@@ -1782,6 +1785,7 @@
         "historyEmpty": "还没有对话",
         "historyRetry": "无法加载对话。请重试",
         "openConversations": "打开对话列表",
+        "unread": "未读消息",
         "openConversation": "打开 {title}",
         "closeConversation": "关闭 {title}",
         "delete": "删除 {title}",
@@ -1844,8 +1848,10 @@
       "heroTagline": "从你喜欢的任何平台给 Stella 发消息 — 自然地聊天，或让它直接在你的电脑上把事情办好。",
       "signInToConnect": "登录 Stella 以连接",
       "connectStellaApp": "连接到 Stella 应用",
+      "connectStellaAppSub": "将手机上的 Stella 应用与这台电脑配对",
       "sectionTitle": "集成",
       "connectTitle": "连接",
+      "phoneTitle": "你的手机",
       "backToConnections": "返回连接列表",
       "connected": "已连接",
       "connectProvider": "连接 {provider}",

@@ -960,6 +960,6 @@ describe("remote prompt startup sync", () => {
       "prompts/dream-scheduled.md": "remote dream prompt",
     });
     await reconcileRemotePromptManifest(remote, home, bundled);
-    expect(buildDreamSystemPrompt(home)).toBe("remote dream prompt");
+    expect(buildDreamSystemPrompt(home)).toContain("remote dream prompt");
   });
 });

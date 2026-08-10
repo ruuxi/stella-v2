@@ -24,7 +24,11 @@ import {
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { useT } from "@/shared/i18n";
 import type { LockedComputerUseStatus } from "@/shared/types/electron";
-import type { AssistantWorkingMode } from "@stella/contracts/local-preferences";
+import {
+  coerceAssistantWorkingMode,
+  DEFAULT_ASSISTANT_WORKING_MODE,
+  type AssistantWorkingMode,
+} from "@stella/contracts/local-preferences";
 import {
   DEFAULT_PERSONALITY_ID,
   PERSONALITY_OPTIONS,
@@ -95,7 +99,7 @@ export function GeneralTab() {
     message: string;
   } | null>(null);
   const [assistantWorkingMode, setAssistantWorkingMode] =
-    useState<AssistantWorkingMode>("direct");
+    useState<AssistantWorkingMode>(DEFAULT_ASSISTANT_WORKING_MODE);
   const [assistantWorkingModeLoaded, setAssistantWorkingModeLoaded] =
     useState(false);
   const [isSavingAssistantWorkingMode, setIsSavingAssistantWorkingMode] =
@@ -130,9 +134,7 @@ export function GeneralTab() {
         const preferences = await preferencesApi.getLocalModelPreferences();
         if (!cancelled) {
           setAssistantWorkingMode(
-            preferences?.assistantWorkingMode === "orchestrated"
-              ? "orchestrated"
-              : "direct",
+            coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
           );
           setMemoryEnabled(preferences?.memoryEnabled !== false);
           setAssistantWorkingModeError(null);
@@ -437,9 +439,10 @@ export function GeneralTab() {
           assistantWorkingMode: nextMode,
         });
         setAssistantWorkingMode(
-          preferences?.assistantWorkingMode === "orchestrated"
-            ? "orchestrated"
-            : "direct",
+          coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
+        );
+        window.dispatchEvent(
+          new CustomEvent("stella:local-model-preferences-changed"),
         );
       } catch (error) {
         setAssistantWorkingMode(previous);

@@ -96,7 +96,10 @@ import {
   type AgentRunFinishOutcome,
   type AgentStreamEventType,
 } from "@stella/contracts/agent-runtime";
-import type { AssistantWorkingMode } from "@stella/contracts/local-preferences";
+import {
+  DEFAULT_ASSISTANT_WORKING_MODE,
+  type AssistantWorkingMode,
+} from "@stella/contracts/local-preferences";
 import { fileChange } from "@stella/contracts/file-changes";
 import { prepareStoredLocalChatPayload } from "../kernel/storage/local-chat-payload.js";
 import { getAssistantWorkingMode } from "../kernel/preferences/local-preferences.js";
@@ -1468,7 +1471,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       const payload = params as RuntimeChatPayload;
       const assistantWorkingMode: AssistantWorkingMode = state.init
         ? getAssistantWorkingMode(state.init.stellaDataDirPath)
-        : "direct";
+        : DEFAULT_ASSISTANT_WORKING_MODE;
       const requestId =
         asTrimmedString(
           (payload as RuntimeChatPayload & { requestId?: string }).requestId,

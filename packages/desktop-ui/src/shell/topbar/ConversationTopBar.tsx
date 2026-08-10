@@ -18,6 +18,11 @@ import type {
   LocalChatUpdatedPayload,
 } from "@stella/contracts/local-chat";
 import {
+  coerceAssistantWorkingMode,
+  DEFAULT_ASSISTANT_WORKING_MODE,
+  type AssistantWorkingMode,
+} from "@stella/contracts/local-preferences";
+import {
   compareConversationTitleCursors,
   conversationTabs,
   type ConversationTitleCursor,
@@ -76,6 +81,10 @@ export const shouldRenderConversationHomeLauncher = (tabCount: number) =>
   tabCount === 1;
 
 export const shouldRenderNewChatLabel = (tabCount: number) => tabCount <= 1;
+
+export const shouldRenderNewChatControl = (
+  workingMode: AssistantWorkingMode,
+): boolean => workingMode === "direct";
 
 export const resolveHistoryDeleteActivation = (
   armedConversationId: string | null,
@@ -143,6 +152,7 @@ export const resolveConversationTabShortcut = (
   event: ConversationTabShortcutEvent,
   tabs: readonly { conversationId: string }[],
   activeConversationId: string | null,
+  allowNewConversation = true,
 ): ConversationTabShortcut | null => {
   if (isEditableConversationTabShortcutTarget(event.target) || event.altKey) {
     return null;
@@ -164,7 +174,7 @@ export const resolveConversationTabShortcut = (
 
   const mod = event.metaKey || event.ctrlKey;
   if (!mod || event.shiftKey) return null;
-  if (key === "t") return { type: "new" };
+  if (key === "t") return allowNewConversation ? { type: "new" } : null;
   if (key === "w") {
     return tabs.length > 1 &&
       activeConversationId &&
@@ -192,7 +202,11 @@ export function ConversationTopBar() {
   const t = useT();
   const router = useRouter();
   const { tabs } = useConversationTabs();
-  const showNewChatLabel = shouldRenderNewChatLabel(tabs.length);
+  const [assistantWorkingMode, setAssistantWorkingMode] =
+    useState<AssistantWorkingMode>(DEFAULT_ASSISTANT_WORKING_MODE);
+  const showNewChatControl = shouldRenderNewChatControl(assistantWorkingMode);
+  const showNewChatLabel =
+    showNewChatControl && shouldRenderNewChatLabel(tabs.length);
   const activeConversationId = useRouterState({
     select: (state) =>
       state.location.pathname === "/chat"
@@ -234,6 +248,38 @@ export function ConversationTopBar() {
   const [overflowingTitleIds, setOverflowingTitleIds] = useState<
     ReadonlySet<string>
   >(new Set());
+
+  useEffect(() => {
+    let disposed = false;
+    const loadWorkingMode = async () => {
+      try {
+        const preferences =
+          await window.electronAPI?.system?.getLocalModelPreferences?.();
+        if (!disposed) {
+          setAssistantWorkingMode(
+            coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
+          );
+        }
+      } catch {
+        // Keep the product default when preferences are temporarily unavailable.
+      }
+    };
+    const handlePreferencesChanged = () => {
+      void loadWorkingMode();
+    };
+    void loadWorkingMode();
+    window.addEventListener(
+      "stella:local-model-preferences-changed",
+      handlePreferencesChanged,
+    );
+    return () => {
+      disposed = true;
+      window.removeEventListener(
+        "stella:local-model-preferences-changed",
+        handlePreferencesChanged,
+      );
+    };
+  }, []);
 
   const navigateToConversation = useCallback(
     (
@@ -560,6 +606,7 @@ export function ConversationTopBar() {
         event,
         tabs,
         activeConversationId,
+        showNewChatControl,
       );
       if (!action) return;
       event.preventDefault();
@@ -583,6 +630,7 @@ export function ConversationTopBar() {
     closeConversation,
     createConversation,
     navigateToConversation,
+    showNewChatControl,
     tabs,
   ]);
 
@@ -1046,26 +1094,28 @@ export function ConversationTopBar() {
         </div>
       )}
 
-      <button
-        type="button"
-        className="shell-topbar-icon-btn conversation-topbar__plus"
-        data-compact={!showNewChatLabel ? "true" : undefined}
-        onClick={() => void createConversation()}
-        aria-label={t("shell.topbar.conversation.newChat")}
-        title={t("shell.topbar.conversation.newChat")}
-      >
-        <Plus
-          className="conversation-topbar__control-icon"
-          size={16}
-          strokeWidth={1.85}
-          aria-hidden="true"
-        />
-        {showNewChatLabel ? (
-          <span className="conversation-topbar__new-label">
-            {t("shell.topbar.conversation.newChat")}
-          </span>
-        ) : null}
-      </button>
+      {showNewChatControl ? (
+        <button
+          type="button"
+          className="shell-topbar-icon-btn conversation-topbar__plus"
+          data-compact={!showNewChatLabel ? "true" : undefined}
+          onClick={() => void createConversation()}
+          aria-label={t("shell.topbar.conversation.newChat")}
+          title={t("shell.topbar.conversation.newChat")}
+        >
+          <Plus
+            className="conversation-topbar__control-icon"
+            size={16}
+            strokeWidth={1.85}
+            aria-hidden="true"
+          />
+          {showNewChatLabel ? (
+            <span className="conversation-topbar__new-label">
+              {t("shell.topbar.conversation.newChat")}
+            </span>
+          ) : null}
+        </button>
+      ) : null}
     </div>
   );
 }

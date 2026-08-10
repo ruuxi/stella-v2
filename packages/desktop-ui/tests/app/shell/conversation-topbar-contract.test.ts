@@ -9,6 +9,7 @@ import {
   resolveHistoryDeleteActivation,
   resolveConversationTabShortcut,
   shouldMarkConversationUnread,
+  shouldRenderNewChatControl,
   shouldRenderNewChatLabel,
   shouldRenderConversationHomeLauncher,
 } from "@/shell/topbar/ConversationTopBar";
@@ -74,6 +75,35 @@ describe("conversation top-bar contracts", () => {
     expect(shouldRenderNewChatLabel(1)).toBe(true);
     expect(shouldRenderNewChatLabel(2)).toBe(false);
     expect(shouldRenderNewChatLabel(12)).toBe(false);
+  });
+
+  it("offers New chat only in direct mode", () => {
+    const source = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
+      "utf8",
+    );
+
+    expect(shouldRenderNewChatControl("orchestrated")).toBe(false);
+    expect(shouldRenderNewChatControl("direct")).toBe(true);
+    expect(source).toContain("{showNewChatControl ? (");
+    expect(source).toMatch(
+      /resolveConversationTabShortcut\(\s*event,\s*tabs,\s*activeConversationId,\s*showNewChatControl,/,
+    );
+    expect(
+      resolveConversationTabShortcut(
+        {
+          key: "t",
+          altKey: false,
+          ctrlKey: false,
+          metaKey: true,
+          shiftKey: false,
+          target: document.body,
+        },
+        tabs,
+        "second",
+        false,
+      ),
+    ).toBeNull();
   });
 
   it("maps the OpenCode tab shortcuts and wraps cycling", () => {

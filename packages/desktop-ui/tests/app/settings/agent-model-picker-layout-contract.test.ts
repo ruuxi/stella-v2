@@ -68,6 +68,10 @@ describe("full-area agent model picker layout", () => {
     expect(picker).toContain('role="radiogroup"');
     // Reasoning effort rides under the selected row, not a footer.
     expect(picker).toContain("selectedRowExtra={reasoningControl}");
+    expect(picker).toContain(
+      "selectedRowExtra={claudeCodeSelectionControls}",
+    );
+    expect(picker).toContain("selectedRowExtra={chatGptSelectionControls}");
     expect(picker).not.toContain("agent-model-picker-footer");
     expect(picker).toContain("oauthPendingProvider");
     expect(picker).toContain("cancelPendingOAuth");
@@ -79,7 +83,12 @@ describe("full-area agent model picker layout", () => {
     expect(picker).toContain(
       'handleNativeRuntimeChange("useNativeClaudeCodeRuntime"',
     );
-    expect(styles).toContain(".agent-model-picker-native-runtime-option {");
+    expect(picker).toContain('label="Fast"');
+    expect(picker).toContain("selectedChatGptSupportsFast ?");
+    expect(picker).toContain("handleCodexServiceTierSelect(");
+    expect(picker).not.toContain("void handleCodexServiceTierSelect;");
+    expect(styles).toContain(".agent-model-picker-engine-options {");
+    expect(styles).toContain(".agent-model-picker-selected-controls {");
 
     expect(styles).not.toContain(".agent-model-picker-brand-header {");
     expect(styles).not.toContain(".agent-model-picker-brands {");

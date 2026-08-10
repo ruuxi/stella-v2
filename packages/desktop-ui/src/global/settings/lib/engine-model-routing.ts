@@ -218,6 +218,27 @@ export function buildEngineRoutingPatch(
 type ModelSelectionPreferences = EngineRoutingPreferences &
   EngineReasoningPreferences;
 
+export type RecentEngineModelSelection = {
+  engine: Exclude<ModelPickerEngine, "default">;
+  modelId: string;
+};
+
+/** Decode the engine-prefixed ids persisted by the shared recent-model list. */
+export function parseRecentEngineModelId(
+  modelId: string,
+): RecentEngineModelSelection | null {
+  const routes = [
+    ["codex-cli/", "codex_cli"],
+    ["claude-code/", "claude_code_local"],
+  ] as const;
+  for (const [prefix, engine] of routes) {
+    if (!modelId.startsWith(prefix)) continue;
+    const selectedModel = modelId.slice(prefix.length).trim();
+    return selectedModel ? { engine, modelId: selectedModel } : null;
+  }
+  return null;
+}
+
 type ModelSelectionTarget =
   | { assistant: true; configurableAgentKeys: readonly string[] }
   | { assistant?: false; agentKey: string };
@@ -324,6 +345,40 @@ export function buildModelSelectionPatch(
         assistantPropagatedAgents: nextPropagated,
         stellaConversationModelOverrides: nextStellaConversationModelOverrides,
     };
+}
+
+type RecentModelSelectionPreferences = ModelSelectionPreferences & {
+  codexModelExplicit?: boolean;
+};
+
+/**
+ * Apply a shared recent-model id, including engine-prefixed Codex and Claude
+ * Code rows. Keeping this beside the routing builders prevents compact picker
+ * surfaces from accidentally treating engine aliases as provider overrides.
+ */
+export function buildRecentModelSelectionPatch(
+  preferences: RecentModelSelectionPreferences,
+  modelId: string,
+  target: ModelSelectionTarget,
+): Partial<RecentModelSelectionPreferences> {
+  const engineSelection = parseRecentEngineModelId(modelId);
+  if (!engineSelection) {
+    return buildModelSelectionPatch(preferences, modelId, target);
+  }
+  return {
+    ...buildEngineRoutingPatch(
+      preferences,
+      engineSelection.engine,
+      engineSelection.modelId,
+    ),
+    ...buildEngineTransitionReasoningPatch(
+      preferences,
+      engineSelection.engine,
+    ),
+    ...(engineSelection.engine === "codex_cli"
+      ? { codexModelExplicit: true }
+      : {}),
+  };
 }
 
 export function buildEngineReasoningPatch(

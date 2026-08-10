@@ -60,41 +60,35 @@
   flex: 0 0 auto;
 }
 
-.agent-model-picker-native-runtime-option {
+.agent-model-picker-selected-controls {
   display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  margin: 0 14px 14px;
-  color: var(--text-base);
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-medium);
-  line-height: 1.35;
-  cursor: default;
-}
-
-.agent-model-picker-native-runtime-option input {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  margin: 1px 0 0;
-  accent-color: var(--interactive, var(--primary));
-}
-
-.agent-model-picker-native-runtime-option:has(input:disabled) {
-  opacity: 0.55;
-}
-
-.agent-model-picker-native-runtime-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex: 1 1 auto;
   min-width: 0;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.agent-model-picker-native-runtime-helper {
+.agent-model-picker-engine-options {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  min-height: 24px;
+  padding: 0 2px;
+}
+
+.agent-model-picker-engine-option {
+  gap: 7px;
+}
+
+.agent-model-picker-engine-option [data-slot="switch-label"] {
   color: var(--text-weak);
-  font-size: var(--font-size-2xs);
-  font-weight: var(--weight-regular);
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+}
+
+.agent-model-picker-engine-option:has([data-disabled]) {
+  opacity: 0.55;
 }
 
 .agent-model-picker-reasoning {
@@ -212,4 +206,3 @@
   flex: 1 1 auto;
   min-height: 0;
 }
-

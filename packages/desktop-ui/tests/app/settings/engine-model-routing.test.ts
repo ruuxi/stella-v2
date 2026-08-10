@@ -4,9 +4,11 @@ import {
   buildEngineReasoningPatch,
   buildEngineRoutingPatch,
   buildEngineTransitionReasoningPatch,
+  buildRecentModelSelectionPatch,
   DEFAULT_CHATGPT_MODEL,
   intersectChatGptModels,
   listChatGptCatalogModels,
+  parseRecentEngineModelId,
   resolveChatGptEngineModel,
   resolveChatGptModelSelection,
 } from "../../../src/global/settings/lib/engine-model-routing";
@@ -35,6 +37,57 @@ const preferences = {
 };
 
 describe("engine model routing", () => {
+  it("decodes selectable engine models stored in recents", () => {
+    expect(parseRecentEngineModelId("codex-cli/gpt-5.6-sol")).toEqual({
+      engine: "codex_cli",
+      modelId: "gpt-5.6-sol",
+    });
+    expect(parseRecentEngineModelId("claude-code/opus")).toEqual({
+      engine: "claude_code_local",
+      modelId: "opus",
+    });
+    expect(parseRecentEngineModelId("openrouter/qwen-3")).toBeNull();
+    expect(parseRecentEngineModelId("codex-cli/   ")).toBeNull();
+  });
+
+  it("selects Codex and Claude Code recents as engine routes", () => {
+    const recentPreferences = {
+      ...preferences,
+      reasoningEfforts: { orchestrator: "low" as const },
+      stellaConversationReasoningEfforts: {},
+      codexReasoningEffort: "high" as const,
+      claudeCodeReasoningEffort: "xhigh" as const,
+    };
+
+    expect(
+      buildRecentModelSelectionPatch(
+        recentPreferences,
+        "codex-cli/gpt-5.6-sol",
+        { assistant: true, configurableAgentKeys: [] },
+      ),
+    ).toMatchObject({
+      agentRuntimeEngine: "codex_cli",
+      codexModel: "gpt-5.6-sol",
+      codexModelExplicit: true,
+      reasoningEfforts: { orchestrator: "high" },
+      modelOverrides: {
+        orchestrator: "openai-codex/gpt-5.6-sol",
+        general: "openai-codex/gpt-5.6-sol",
+      },
+    });
+    expect(
+      buildRecentModelSelectionPatch(
+        recentPreferences,
+        "claude-code/opus",
+        { assistant: true, configurableAgentKeys: [] },
+      ),
+    ).toMatchObject({
+      agentRuntimeEngine: "claude_code_local",
+      claudeCodeModel: "opus",
+      reasoningEfforts: {},
+    });
+  });
+
   it("uses the runtime contract as the single ChatGPT default", () => {
     expect(DEFAULT_CHATGPT_MODEL).toBe(DEFAULT_CODEX_MODEL);
   });

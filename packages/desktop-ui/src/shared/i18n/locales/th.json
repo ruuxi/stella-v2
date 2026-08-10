@@ -1200,10 +1200,11 @@
       "miniModelPicker": {
         "loading": "กำลังโหลด…",
         "modelUpdateFailed": "อัปเดตการตั้งค่าโมเดลไม่สำเร็จ",
+        "modelsLabel": "โมเดลล่าสุด",
+        "moreModels": "โมเดลเพิ่มเติม…",
         "popoverLabel": "ตัวเลือกโมเดล",
         "reasoningEffortLabel": "ระดับการให้เหตุผล",
         "reasoningUpdateFailed": "อัปเดตระดับการให้เหตุผลไม่สำเร็จ",
-        "recent": "ล่าสุด",
         "triggerLabel": "โมเดล: {model}",
         "unavailable": "ไม่พร้อมใช้งาน",
         "updateFailedTitle": "อัปเดตการตั้งค่าโมเดลไม่สำเร็จ"

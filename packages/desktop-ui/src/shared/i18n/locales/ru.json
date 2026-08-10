@@ -1230,10 +1230,11 @@
       "miniModelPicker": {
         "loading": "Загрузка…",
         "modelUpdateFailed": "Не удалось обновить настройку модели.",
+        "modelsLabel": "Недавние модели",
+        "moreModels": "Другие модели…",
         "popoverLabel": "Параметры модели",
         "reasoningEffortLabel": "Глубина рассуждений",
         "reasoningUpdateFailed": "Не удалось обновить глубину рассуждений.",
-        "recent": "Недавние",
         "triggerLabel": "Модель: {model}",
         "unavailable": "Недоступно",
         "updateFailedTitle": "Не удалось обновить настройки моделей"

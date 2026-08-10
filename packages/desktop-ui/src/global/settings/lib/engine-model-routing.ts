@@ -223,13 +223,18 @@ export type RecentEngineModelSelection = {
   modelId: string;
 };
 
+const RECENT_ENGINE_PREFIXES = {
+  codex_cli: "codex-cli/",
+  claude_code_local: "claude-code/",
+} as const satisfies Record<Exclude<ModelPickerEngine, "default">, string>;
+
 /** Decode the engine-prefixed ids persisted by the shared recent-model list. */
 export function parseRecentEngineModelId(
   modelId: string,
 ): RecentEngineModelSelection | null {
   const routes = [
-    ["codex-cli/", "codex_cli"],
-    ["claude-code/", "claude_code_local"],
+    [RECENT_ENGINE_PREFIXES.codex_cli, "codex_cli"],
+    [RECENT_ENGINE_PREFIXES.claude_code_local, "claude_code_local"],
   ] as const;
   for (const [prefix, engine] of routes) {
     if (!modelId.startsWith(prefix)) continue;
@@ -237,6 +242,23 @@ export function parseRecentEngineModelId(
     return selectedModel ? { engine, modelId: selectedModel } : null;
   }
   return null;
+}
+
+/**
+ * Inverse of `parseRecentEngineModelId`. Engine panels commit through
+ * `buildEngineRoutingPatch` rather than the catalog select path, so they have
+ * to encode their pick themselves to land in the shared recent-model list —
+ * without this, switching between Claude Code / ChatGPT models never grows the
+ * recents and the compact pickers look stuck at one row per engine.
+ */
+export function formatRecentEngineModelId(
+  engine: ModelPickerEngine,
+  modelId: string | undefined,
+): string | null {
+  if (engine === "default") return null;
+  const trimmed = modelId?.trim();
+  if (!trimmed) return null;
+  return `${RECENT_ENGINE_PREFIXES[engine]}${trimmed}`;
 }
 
 type ModelSelectionTarget =

@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "Laden…",
         "modelUpdateFailed": "Modelinstelling bijwerken mislukt.",
+        "modelsLabel": "Recente modellen",
+        "moreModels": "Meer modellen…",
         "popoverLabel": "Modelopties",
         "reasoningEffortLabel": "Redeneerinspanning",
         "reasoningUpdateFailed": "Redeneerinspanning bijwerken mislukt.",
-        "recent": "Recent",
         "triggerLabel": "Model: {model}",
         "unavailable": "Niet beschikbaar",
         "updateFailedTitle": "Kon modelinstellingen niet bijwerken"

@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "Ladataan…",
         "modelUpdateFailed": "Malliasetuksen päivitys epäonnistui.",
+        "modelsLabel": "Viimeksi käytetyt mallit",
+        "moreModels": "Lisää malleja…",
         "popoverLabel": "Mallin asetukset",
         "reasoningEffortLabel": "Päättelyn taso",
         "reasoningUpdateFailed": "Päättelyn tason päivitys epäonnistui.",
-        "recent": "Viimeisimmät",
         "triggerLabel": "Malli: {model}",
         "unavailable": "Ei käytettävissä",
         "updateFailedTitle": "Malliasetuksia ei voitu päivittää"

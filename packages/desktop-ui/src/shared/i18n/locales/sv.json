@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "Laddar…",
         "modelUpdateFailed": "Det gick inte att uppdatera modellinställningen.",
+        "modelsLabel": "Senaste modeller",
+        "moreModels": "Fler modeller…",
         "popoverLabel": "Modellalternativ",
         "reasoningEffortLabel": "Resonemangsnivå",
         "reasoningUpdateFailed": "Det gick inte att uppdatera resonemangsnivån.",
-        "recent": "Senaste",
         "triggerLabel": "Modell: {model}",
         "unavailable": "Otillgänglig",
         "updateFailedTitle": "Det gick inte att uppdatera modellinställningarna"

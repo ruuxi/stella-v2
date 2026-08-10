@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "Laster…",
         "modelUpdateFailed": "Kunne ikke oppdatere modellinnstillingen.",
+        "modelsLabel": "Nylige modeller",
+        "moreModels": "Flere modeller…",
         "popoverLabel": "Modellvalg",
         "reasoningEffortLabel": "Resonneringsnivå",
         "reasoningUpdateFailed": "Kunne ikke oppdatere resonneringsnivået.",
-        "recent": "Nylige",
         "triggerLabel": "Modell: {model}",
         "unavailable": "Utilgjengelig",
         "updateFailedTitle": "Kunne ikke oppdatere modellinnstillingene"

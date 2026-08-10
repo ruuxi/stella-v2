@@ -1200,10 +1200,11 @@
       "miniModelPicker": {
         "loading": "Memuat…",
         "modelUpdateFailed": "Gagal memperbarui pengaturan model.",
+        "modelsLabel": "Model terbaru",
+        "moreModels": "Model lainnya…",
         "popoverLabel": "Opsi model",
         "reasoningEffortLabel": "Upaya penalaran",
         "reasoningUpdateFailed": "Gagal memperbarui upaya penalaran.",
-        "recent": "Terbaru",
         "triggerLabel": "Model: {model}",
         "unavailable": "Tidak tersedia",
         "updateFailedTitle": "Tidak dapat memperbarui pengaturan model"

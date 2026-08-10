@@ -70,6 +70,7 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
 
 /**

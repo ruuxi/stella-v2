@@ -104,6 +104,29 @@
   height: 1px;
 }
 
+/* Recency groups (Today / Yesterday / …). The group is itself a list item, so
+   it carries no row chrome of its own — only the heading and its nested rows. */
+.files-list__group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.files-list__group + .files-list__group {
+  margin-top: 10px;
+}
+
+.files-list__group-heading {
+  margin: 0;
+  padding: 4px 6px;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-weak);
+}
+
 .files-list__item {
   display: flex;
   align-items: center;

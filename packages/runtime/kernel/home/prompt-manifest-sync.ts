@@ -781,7 +781,7 @@ export const resolvePromptManifest = async (args: {
 const readAgentMetadata = async (
   agentMetadataDir: string,
   id: string,
-): Promise<{ frontmatter: string; bundledPrompt?: string }> => {
+): Promise<{ frontmatter: string }> => {
   const raw = await fs.readFile(
     path.join(agentMetadataDir, `${id}.md`),
     "utf-8",
@@ -790,15 +790,7 @@ const readAgentMetadata = async (
   if (!match) {
     throw new Error(`Agent metadata ${id} is missing valid frontmatter`);
   }
-  const bundledPrompt =
-    /^promptSource\s*:\s*bundled\s*$/m.test(match[0]) &&
-    raw.slice(match[0].length).trim()
-      ? raw.slice(match[0].length).trim()
-      : undefined;
-  return {
-    frontmatter: match[0],
-    ...(bundledPrompt ? { bundledPrompt } : {}),
-  };
+  return { frontmatter: match[0] };
 };
 
 const resolveReconciledPrompts = async (
@@ -818,8 +810,11 @@ const resolveReconciledPrompts = async (
     const id = prompt.id.slice(area.length + 1, -3);
     let content = prompt.content;
     if (area === "agents") {
+      // The published body is authoritative. A bundled body in agent-metadata
+      // (promptSource: bundled) is only the registration fallback for the
+      // no-home-file case — offline first boot — and never wins over remote.
       const metadata = await readAgentMetadata(agentMetadataDir, id);
-      content = `${metadata.frontmatter}${metadata.bundledPrompt ?? prompt.content}`;
+      content = `${metadata.frontmatter}${prompt.content}`;
     }
     byArea.get(area)!.set(id, {
       ...prompt,

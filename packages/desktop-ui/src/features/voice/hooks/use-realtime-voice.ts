@@ -82,6 +82,8 @@ export class VoiceSessionManager {
   private userSpeaking = false;
   private aborted = false;
   private startInFlight = false;
+  private restartRequested = false;
+  private restartInFlight = false;
   private activeVoiceStartedAt: number | null = null;
 
   constructor(deps: VoiceSessionManagerDeps) {
@@ -101,6 +103,7 @@ export class VoiceSessionManager {
   stop(): void {
     this.aborted = true;
     this.startInFlight = false;
+    this.restartRequested = false;
     this.endVisibleVoiceSession();
     this.deps.analyserRef.current = null;
     this.deps.outputAnalyserRef.current = null;
@@ -128,6 +131,13 @@ export class VoiceSessionManager {
     ) {
       this.scheduleRotate(0);
     }
+  }
+
+  /** Close the current warm/live connection and recreate it from fresh prefs. */
+  restart(): void {
+    if (this.aborted) return;
+    this.restartRequested = true;
+    void this.runRequestedRestart();
   }
 
   getAnalyser(): AnalyserNode | null {
@@ -171,6 +181,31 @@ export class VoiceSessionManager {
           (err as Error).message,
         );
       });
+    }
+  }
+
+  private async runRequestedRestart(): Promise<void> {
+    if (
+      this.aborted ||
+      !this.restartRequested ||
+      this.restartInFlight ||
+      this.startInFlight
+    ) {
+      return;
+    }
+
+    this.restartInFlight = true;
+    this.restartRequested = false;
+    try {
+      await this.teardownSession();
+      if (!this.aborted) {
+        await this.startSession();
+      }
+    } finally {
+      this.restartInFlight = false;
+      if (this.restartRequested && !this.aborted) {
+        void this.runRequestedRestart();
+      }
     }
   }
 
@@ -434,6 +469,9 @@ export class VoiceSessionManager {
       this.scheduleRetry();
     } finally {
       this.startInFlight = false;
+      if (this.restartRequested && !this.restartInFlight && !this.aborted) {
+        void this.runRequestedRestart();
+      }
     }
   }
 }

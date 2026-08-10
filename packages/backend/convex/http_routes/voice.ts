@@ -14,6 +14,7 @@ import {
 import { requireSignedInAccountAction } from "../http_shared/auth";
 import { requireCapabilityAction } from "../http_shared/capability";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
+import { buildXaiRealtimeClientSecretRequest } from "../http_shared/xai_realtime";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -410,20 +411,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                   Authorization: `Bearer ${xaiApiKey}`,
                   "Content-Type": "application/json",
                 },
-                body: JSON.stringify({
-                  expires_after: {
-                    seconds: Math.max(
-                      60,
-                      Math.floor(lease.leaseDurationMs / 1000),
-                    ),
-                  },
-                  session: {
-                    type: "realtime",
-                    model: xaiModel,
-                    instructions,
-                    voice: xaiVoice,
-                  },
-                }),
+                body: JSON.stringify(
+                  buildXaiRealtimeClientSecretRequest(
+                    lease.leaseDurationMs / 1000,
+                  ),
+                ),
               },
             );
             const xaiText = await xaiResponse.text();

@@ -129,6 +129,7 @@ import {
   IPC_VOICE_ORCHESTRATOR_CONFIG,
   IPC_VOICE_CREATE_XAI_SESSION,
   IPC_VOICE_CREATE_INWORLD_SESSION,
+  IPC_VOICE_PREFERENCES_CHANGED,
   IPC_VOICE_REPORT_SESSION_ERROR,
   IPC_VOICE_SESSION_ERROR,
 } from "@stella/contracts/desktop/ipc-channels";
@@ -701,6 +702,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     reportSessionError: (message: string) =>
       ipcRenderer.send(IPC_VOICE_REPORT_SESSION_ERROR, message),
     onSessionError: onIpc<string>(IPC_VOICE_SESSION_ERROR),
+    onPreferencesChanged: onIpc<RealtimeVoicePreferences>(
+      IPC_VOICE_PREFERENCES_CHANGED,
+    ),
   },
 
   dictation: {

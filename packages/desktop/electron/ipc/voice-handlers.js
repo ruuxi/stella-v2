@@ -4,7 +4,7 @@ import { ipcMain } from "electron";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 import { applyShortcutRegistration } from "./shortcut-registration.js";
 import { getRealtimeVoicePreferences, loadLocalPreferences, resolveRealtimeVoiceId, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { DEFAULT_INWORLD_REALTIME_MODEL, DEFAULT_INWORLD_REALTIME_VOICE, DEFAULT_OPENAI_REALTIME_VOICE, DEFAULT_XAI_REALTIME_VOICE, } from "@stella/contracts/realtime-voice-catalog";
+import { DEFAULT_INWORLD_REALTIME_MODEL, DEFAULT_INWORLD_REALTIME_VOICE, DEFAULT_OPENAI_REALTIME_VOICE, DEFAULT_XAI_REALTIME_VOICE, buildXaiRealtimeClientSecretRequest, } from "@stella/contracts/realtime-voice-catalog";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
@@ -269,7 +269,7 @@ export const registerVoiceHandlers = (options) => {
             sessionId: typeof data.session?.id === "string" ? data.session.id : undefined,
         };
     });
-    ipcMain.handle(IPC_VOICE_CREATE_XAI_SESSION, async (_event, payload) => {
+    ipcMain.handle(IPC_VOICE_CREATE_XAI_SESSION, async (_event, _payload) => {
         const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
         if (preferences.provider !== "xai") {
             throw new Error("xAI is not selected for voice.");
@@ -283,66 +283,38 @@ export const registerVoiceHandlers = (options) => {
             ? preferences.model.slice("xai/".length)
             : preferences.model || DEFAULT_XAI_REALTIME_MODEL;
         const voice = resolveRealtimeVoiceId(preferences, "xai", DEFAULT_XAI_REALTIME_VOICE);
-        const instructions = typeof payload?.instructions === "string"
-            ? payload.instructions
-            : undefined;
-        // Try minting a true ephemeral token first. xAI's Voice Agent API
-        // is OpenAI-Realtime-compatible, so we target the analogous
-        // /v1/realtime/client_secrets endpoint. If xAI hasn't shipped that
-        // (or returns a 404/405), fall back to using the API key as the
-        // subprotocol token directly — xAI accepts long-lived auth on the
-        // WebSocket too. Either way the renderer treats the response shape
-        // identically.
+        // The browser WebSocket cannot attach an Authorization header, so it
+        // must use an ephemeral token. Voice/instructions/tools are configured
+        // after connection via session.update; xAI rejects them on this
+        // client-secret endpoint.
         let clientSecret = null;
         let expiresAt;
-        try {
-            const response = await fetch("https://api.x.ai/v1/realtime/client_secrets", {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    session: {
-                        type: "realtime",
-                        model,
-                        instructions,
-                        ...(payload?.tools?.length
-                            ? { tools: payload.tools, tool_choice: "auto" }
-                            : {}),
-                        voice,
-                    },
-                }),
-            });
-            if (response.ok) {
-                const data = (await response.json());
-                if (typeof data.value === "string") {
-                    clientSecret = data.value;
-                }
-                else if (typeof data.client_secret?.value === "string") {
-                    clientSecret = data.client_secret.value;
-                }
-                if (typeof data.expires_at === "number") {
-                    expiresAt = data.expires_at;
-                }
-                else if (typeof data.client_secret?.expires_at === "number") {
-                    expiresAt = data.client_secret.expires_at;
-                }
-            }
-            else if (response.status !== 404 && response.status !== 405) {
-                // Non-fallback HTTP error — surface it so the user can fix.
-                throw new Error(`Failed to create xAI voice session: ${response.status} ${await response.text()}`);
-            }
+        const response = await fetch("https://api.x.ai/v1/realtime/client_secrets", {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(buildXaiRealtimeClientSecretRequest()),
+        });
+        if (!response.ok) {
+            throw new Error(`Failed to create xAI voice session: ${response.status} ${await response.text()}`);
         }
-        catch (err) {
-            if (err instanceof Error && err.message.startsWith("Failed to")) {
-                throw err;
-            }
-            // Network/parse error — fall through to direct-key fallback.
-            console.debug("[voice] xAI ephemeral token mint failed, falling back to API key:", err.message);
+        const data = (await response.json());
+        if (typeof data.value === "string") {
+            clientSecret = data.value;
+        }
+        else if (typeof data.client_secret?.value === "string") {
+            clientSecret = data.client_secret.value;
+        }
+        if (typeof data.expires_at === "number") {
+            expiresAt = data.expires_at;
+        }
+        else if (typeof data.client_secret?.expires_at === "number") {
+            expiresAt = data.client_secret.expires_at;
         }
         if (!clientSecret) {
-            clientSecret = apiKey;
+            throw new Error("xAI voice session response did not include a client secret.");
         }
         return {
             provider: "xai",

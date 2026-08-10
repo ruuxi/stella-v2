@@ -189,6 +189,12 @@ export function VoiceRuntimeRoot() {
     };
   }, []);
 
+  useEffect(() => {
+    return window.electronAPI?.voice.onPreferencesChanged?.(() => {
+      managerRef.current?.restart();
+    });
+  }, []);
+
   // The wake-word IPC isn't broadcast on toggle today — re-read the
   // setting whenever the window regains focus. That's enough to pick
   // up settings-panel changes without adding a dedicated push channel.

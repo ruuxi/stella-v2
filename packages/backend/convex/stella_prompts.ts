@@ -70,8 +70,11 @@ export const publish = internalMutation({
     const existingRows = [];
     for await (const row of ctx.db.query("prompts")) {
       existingRows.push(row);
-      if (existingRows.length > STELLA_PROMPT_COUNT) {
-        throw new Error(`Prompt table exceeds ${STELLA_PROMPT_COUNT} rows`);
+      // Sanity bound against a runaway table only. The table may legitimately
+      // hold more rows than the current roster right before a publish that
+      // shrinks it, so this must not be the exact roster count.
+      if (existingRows.length > 256) {
+        throw new Error("Prompt table exceeds 256 rows");
       }
     }
     const existingById = new Map(

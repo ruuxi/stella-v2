@@ -3,7 +3,60 @@ import { describe, expect, it } from "bun:test";
 import {
   computeRealtimeUsageCostMicroCents,
   computeTtsUsageCostMicroCents,
+  computeUsageCostMicroCents,
 } from "../convex/lib/billing_money";
+
+describe("computeUsageCostMicroCents", () => {
+  const price = {
+    inputPerMillionUsd: 1,
+    outputPerMillionUsd: 10,
+    cacheReadPerMillionUsd: 0.1,
+    cacheWritePerMillionUsd: 1.25,
+  };
+
+  it("bills reasoning at the output rate when no reasoning rate is published", () => {
+    // models.dev omits `cost.reasoning` for most models, so a stored 0 means
+    // "unpublished" and must not zero out a reasoning-heavy completion.
+    const cost = computeUsageCostMicroCents({
+      model: "test",
+      inputTokens: 0,
+      outputTokens: 1_000_000,
+      reasoningTokens: 900_000,
+      price: { ...price, reasoningPerMillionUsd: 0 },
+    });
+
+    // 100k visible + 900k reasoning, all at $10/M => $10.
+    expect(cost).toBe(1_000_000_000);
+  });
+
+  it("honors an explicit reasoning rate above the output rate", () => {
+    const cost = computeUsageCostMicroCents({
+      model: "test",
+      inputTokens: 0,
+      outputTokens: 1_000_000,
+      reasoningTokens: 500_000,
+      price: { ...price, reasoningPerMillionUsd: 20 },
+    });
+
+    // 500k output at $10/M + 500k reasoning at $20/M => $15.
+    expect(cost).toBe(1_500_000_000);
+  });
+
+  it("bills uncached input once when cache buckets are present", () => {
+    // Callers pass gross input; the uncached remainder is 500k.
+    const cost = computeUsageCostMicroCents({
+      model: "test",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      cachedInputTokens: 400_000,
+      cacheWriteInputTokens: 100_000,
+      price,
+    });
+
+    // 500k @ $1/M + 400k @ $0.10/M + 100k @ $1.25/M => $0.665.
+    expect(cost).toBe(66_500_000);
+  });
+});
 
 describe("billing money", () => {
   it("prices gpt-realtime-2 text, audio, and image modalities", () => {

@@ -301,9 +301,30 @@ export const dollarsToMicroCents = (dollars: number) =>
 export const microCentsToDollars = (microCents: number) =>
   microCents / (MICRO_CENTS_PER_CENT * CENTS_PER_DOLLAR);
 
+/**
+ * Price one managed completion.
+ *
+ * Token conventions — every caller must normalize to these before calling,
+ * because this function derives the billable buckets by subtraction:
+ *
+ * - `inputTokens` is GROSS: it includes `cachedInputTokens` and
+ *   `cacheWriteInputTokens`. Providers disagree here (OpenAI's
+ *   `prompt_tokens` and Google's `promptTokenCount` are gross, Anthropic's
+ *   `input_tokens` is already net of both cache buckets), so the parsers
+ *   are responsible for adding cache counts back in.
+ * - `outputTokens` is GROSS: it includes `reasoningTokens`. Again providers
+ *   disagree (OpenAI's `output_tokens` includes reasoning, Google's
+ *   `candidatesTokenCount` excludes `thoughtsTokenCount`), so the parsers
+ *   normalize to the inclusive form.
+ *
+ * Passing already-net counts double-discounts them and can silently bill a
+ * request at zero.
+ */
 export const computeUsageCostMicroCents = (args: {
   model: string;
+  /** Gross prompt tokens, including cached reads and cache writes. */
   inputTokens: number;
+  /** Gross completion tokens, including reasoning tokens. */
   outputTokens: number;
   cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
@@ -329,9 +350,13 @@ export const computeUsageCostMicroCents = (args: {
   const cacheWriteUsd =
     (cacheWriteInputTokens / 1_000_000) * (price.cacheWritePerMillionUsd ?? 0);
   const outputUsd = (textOutputTokens / 1_000_000) * price.outputPerMillionUsd;
+  // A zero reasoning rate means "not published", not "free" — models.dev
+  // omits `cost.reasoning` for most models and the sync stores 0. No provider
+  // bills reasoning below its output rate, so fall back to it rather than
+  // handing out reasoning-heavy completions for nothing.
   const reasoningUsd =
     (reasoningTokens / 1_000_000) *
-    (price.reasoningPerMillionUsd ?? price.outputPerMillionUsd);
+    (price.reasoningPerMillionUsd || price.outputPerMillionUsd);
 
   return dollarsToMicroCents(
     inputUsd + cachedInputUsd + cacheWriteUsd + outputUsd + reasoningUsd,

@@ -40,6 +40,46 @@ describe("managed model price entries", () => {
     ]);
   });
 
+  it("falls back to the output rate when models.dev omits cost.reasoning", () => {
+    const model = "google/gemini-3.1-flash-lite";
+    const { entries } = buildManagedModelPriceEntries({
+      data: {
+        google: {
+          models: {
+            "gemini-3.1-flash-lite": {
+              id: "gemini-3.1-flash-lite",
+              cost: { input: 0.25, output: 1.5 },
+            },
+          },
+        },
+      },
+      modelIds: [model],
+      syncedAt: 1,
+    });
+
+    expect(entries[0]?.reasoningPerMillionUsd).toBe(1.5);
+  });
+
+  it("keeps an explicitly published reasoning rate", () => {
+    const model = "google/gemini-3.1-flash-lite";
+    const { entries } = buildManagedModelPriceEntries({
+      data: {
+        google: {
+          models: {
+            "gemini-3.1-flash-lite": {
+              id: "gemini-3.1-flash-lite",
+              cost: { input: 0.25, output: 1.5, reasoning: 3 },
+            },
+          },
+        },
+      },
+      modelIds: [model],
+      syncedAt: 1,
+    });
+
+    expect(entries[0]?.reasoningPerMillionUsd).toBe(3);
+  });
+
   it("fills Muse Spark from static overrides when models.dev is empty", () => {
     const { entries, missingModels } = buildManagedModelPriceEntries({
       data: {},

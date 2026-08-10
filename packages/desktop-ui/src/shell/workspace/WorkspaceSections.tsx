@@ -56,20 +56,18 @@ import {
   activityExpansionStore,
 } from "@/shell/activity-expansion-store";
 import {
-  EMPTY_FIRST_SEEN_ORDER,
   activityRowKey,
+  compareActivityRowsByLifecycleStart,
   flattenActivityTasks,
   getCompactActivityStatusText,
   getActivityRowCompletedAtMs,
   getActivityRowSearchText,
   getActivityRowStatus,
   groupActivityTasks,
-  orderByFirstSeen,
   getTaskAgentUpdates,
   summarizeCompactActivity,
   updateSeenRunningTaskIds,
   type ActivityRow,
-  type FirstSeenOrder,
   type TaskItem,
 } from "@/features/chat/lib/event-transforms";
 import {
@@ -900,38 +898,14 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [groupedRows, matchingActivityKeys],
   );
 
-  // Running agents are no longer filtered out — they list alongside finished
-  // ones, newest at the top. Each row is pinned to a frozen index captured
-  // the first time it showed up as running, then rendered newest-first
-  // (descending index): a newly-started agent prepends at the top while the
-  // existing running rows keep their relative order and shift down by one.
-  // Sorting by a live field like `startedAtMs` instead re-shuffled the list,
-  // because that value drifts forward once an agent's original `agent-started`
-  // event ages out of the rolling activity window — so a still-running row
-  // would climb on every streamed update. A row only leaves this list — and
-  // moves into the done section — when it finishes or errors out.
-  //
-  // First-seen indices are assigned over the *unfiltered* running population
-  // (`groupedRows`) and the sidebar search `query` is applied afterward, for
-  // display only. Ordering the already-filtered `activityRows` instead pruned
-  // running rows that didn't match the query from the frozen order map, so
-  // clearing the search re-admitted them as newly-seen — reshuffling the
-  // running list and jumping previously-hidden rows to the top.
-  const runningOrderRef = useRef<FirstSeenOrder>(EMPTY_FIRST_SEEN_ORDER);
+  // Running rows use durable lifecycle identity only: immutable thread start
+  // time plus a stable row-key tie breaker. Stream activity, async discovery,
+  // search filtering, refetches, and remounts therefore cannot reshuffle the
+  // active population. A row moves only when its lifecycle becomes terminal.
   const runningRows = useMemo(() => {
-    const running = groupedRows.filter(
-      (row) => getActivityRowStatus(row) === "running",
-    );
-    const { ordered, state } = orderByFirstSeen(
-      running,
-      activityRowKey,
-      runningOrderRef.current,
-      true,
-    );
-    // Safe to mutate the ref inside useMemo: orderByFirstSeen is idempotent
-    // for unchanged input, so a repeat run (e.g. StrictMode) yields the same
-    // frozen indices.
-    runningOrderRef.current = state;
+    const ordered = [...groupedRows]
+      .filter((row) => getActivityRowStatus(row) === "running")
+      .sort(compareActivityRowsByLifecycleStart);
     const visible = matchingActivityKeys
       ? ordered.filter((row) => matchingActivityKeys.has(activityRowKey(row)))
       : ordered;

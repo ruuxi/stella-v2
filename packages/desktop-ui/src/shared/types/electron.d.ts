@@ -1137,6 +1137,14 @@ export type ElectronBrowserApi = {
 export type BrowserViewState = {
   connection: "checking" | "disconnected" | "connected";
   profileName?: string;
+  visibleOwnerId: string;
+  owners: Array<{
+    id: string;
+    kind: "manual" | "agent";
+    tabCount: number;
+    activeTabId?: string;
+    latest: boolean;
+  }>;
   tabs: Array<{
     id: string;
     url: string;
@@ -1162,18 +1170,35 @@ export type ElectronBrowserViewApi = {
     profileId?: string;
   }) => Promise<BrowserViewState>;
   show: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
+  setVisibleOwner: (payload: { ownerId: string }) => Promise<BrowserViewState>;
   setLayout: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
   hide: () => Promise<BrowserViewState>;
   createTab: (payload?: { url?: string }) => Promise<BrowserViewState>;
-  selectTab: (payload: { tabId: string }) => Promise<BrowserViewState>;
-  closeTab: (payload: { tabId: string }) => Promise<BrowserViewState>;
+  selectTab: (payload: {
+    tabId: string;
+    ownerId?: string;
+  }) => Promise<BrowserViewState>;
+  closeTab: (payload: {
+    tabId: string;
+    ownerId?: string;
+  }) => Promise<BrowserViewState>;
   navigate: (payload: {
     tabId: string;
     url: string;
+    ownerId?: string;
   }) => Promise<BrowserViewState>;
-  goBack: (payload: { tabId: string }) => Promise<BrowserViewState>;
-  goForward: (payload: { tabId: string }) => Promise<BrowserViewState>;
-  reload: (payload: { tabId: string }) => Promise<BrowserViewState>;
+  goBack: (payload: {
+    tabId: string;
+    ownerId?: string;
+  }) => Promise<BrowserViewState>;
+  goForward: (payload: {
+    tabId: string;
+    ownerId?: string;
+  }) => Promise<BrowserViewState>;
+  reload: (payload: {
+    tabId: string;
+    ownerId?: string;
+  }) => Promise<BrowserViewState>;
   requestExtensionConnect: () => Promise<BrowserViewState>;
   onState: (callback: (state: BrowserViewState) => void) => () => void;
 };
@@ -1389,8 +1414,22 @@ export type ElectronLocalChatApi = {
     Array<{
       entryId?: string;
       timestamp: number;
-      role: "user" | "assistant" | "lifecycle";
+      role:
+        | "user"
+        | "assistant"
+        | "reasoning"
+        | "tool"
+        | "checkpoint"
+        | "lifecycle";
       content: string;
+      toolActivity?: {
+        toolCallId: string;
+        toolName: string;
+        status: "running" | "completed" | "error";
+        input?: string;
+        output?: string;
+        completedAt?: number;
+      };
       lifecycleEvent?: EventRecord;
       source?: string;
     }>

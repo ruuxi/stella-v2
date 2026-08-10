@@ -10,6 +10,7 @@ export const IN_APP_BROWSER_CHANNELS = {
   getState: "browserView:getState",
   connect: "browserView:connect",
   show: "browserView:show",
+  setVisibleOwner: "browserView:setVisibleOwner",
   setLayout: "browserView:setLayout",
   hide: "browserView:hide",
   createTab: "browserView:createTab",
@@ -67,9 +68,12 @@ const connectPayloadSchema = z
   })
   .catch({});
 
-const createTabPayloadSchema = z
-  .object({ url: optionalStringField })
-  .catch({});
+const createTabPayloadSchema = z.object({ url: optionalStringField }).catch({});
+
+const ownerField = (record: Record<string, unknown>) =>
+  record.ownerId === undefined
+    ? {}
+    : { ownerId: requireString(record.ownerId, "ownerId") };
 
 const boundsSchema = z.looseObject({
   x: z.number().finite(),
@@ -87,7 +91,9 @@ const parseLayout = (value: unknown): BrowserViewLayout => {
       if (!issue || issue.path.length === 0) {
         throw new Error(`${label} is required.`);
       }
-      throw new Error(`${label}.${String(issue.path[0])} must be a finite number.`);
+      throw new Error(
+        `${label}.${String(issue.path[0])} must be a finite number.`,
+      );
     }
     const { x, y, width, height } = parsed.data;
     return { x, y, width, height };
@@ -133,6 +139,12 @@ export const registerInAppBrowserHandlers = (
   register(IN_APP_BROWSER_CHANNELS.show, (payload) =>
     options.service.show(parseLayout(payload)),
   );
+  register(IN_APP_BROWSER_CHANNELS.setVisibleOwner, (payload) => {
+    const record = requireObject(payload, "Browser owner");
+    return options.service.setVisibleOwner(
+      requireString(record.ownerId, "ownerId"),
+    );
+  });
   register(IN_APP_BROWSER_CHANNELS.setLayout, (payload) =>
     options.service.setLayout(parseLayout(payload)),
   );
@@ -147,12 +159,14 @@ export const registerInAppBrowserHandlers = (
     const record = requireObject(payload, "Browser tab");
     return options.service.selectTab({
       tabId: requireString(record.tabId, "tabId"),
+      ...ownerField(record),
     });
   });
   register(IN_APP_BROWSER_CHANNELS.closeTab, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.closeTab({
       tabId: requireString(record.tabId, "tabId"),
+      ...ownerField(record),
     });
   });
   register(IN_APP_BROWSER_CHANNELS.navigate, (payload) => {
@@ -160,24 +174,28 @@ export const registerInAppBrowserHandlers = (
     return options.service.navigate({
       tabId: requireString(record.tabId, "tabId"),
       url: requireString(record.url, "url"),
+      ...ownerField(record),
     });
   });
   register(IN_APP_BROWSER_CHANNELS.goBack, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.goBack({
       tabId: requireString(record.tabId, "tabId"),
+      ...ownerField(record),
     });
   });
   register(IN_APP_BROWSER_CHANNELS.goForward, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.goForward({
       tabId: requireString(record.tabId, "tabId"),
+      ...ownerField(record),
     });
   });
   register(IN_APP_BROWSER_CHANNELS.reload, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.reload({
       tabId: requireString(record.tabId, "tabId"),
+      ...ownerField(record),
     });
   });
   register(IN_APP_BROWSER_CHANNELS.requestExtensionConnect, () =>

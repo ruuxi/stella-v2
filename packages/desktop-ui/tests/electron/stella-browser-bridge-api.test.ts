@@ -249,6 +249,147 @@ describe("StellaBrowserBridgeService browser bootstrap API", () => {
     ).rejects.toThrow("newer browser session already owns");
   });
 
+  it("keeps the owner lease high-water after an agent backend exits", async () => {
+    const service = createService();
+    const process = { exitCode: null, killed: false };
+    vi.spyOn(
+      service as unknown as {
+        spawnAgentBackend: (input: Record<string, unknown>) => Promise<unknown>;
+      },
+      "spawnAgentBackend",
+    ).mockImplementation(async (input) => ({
+      ...input,
+      bridgeSessionId: "agent-random-session",
+      capabilityExpiresAt: Date.now() + 60_000,
+      controlToken: "control-token",
+      process,
+    }));
+    const current = {
+      ownerId: "agent-thread-1",
+      turnId: "turn-2",
+      ownerLeaseId: "lease-2",
+      ownerLeaseIssuedAt: 2_000,
+    };
+    await service.connectAgentCdp(current, "ws://127.0.0.1:9000/current");
+
+    // Agent daemon exit/error handlers remove only the process record. The
+    // durable lease high-water must continue fencing stale workers.
+    (
+      service as unknown as {
+        agentBackends: Map<string, unknown>;
+      }
+    ).agentBackends.clear();
+
+    await expect(
+      service.connectAgentCdp(
+        {
+          ...current,
+          turnId: "turn-old",
+          ownerLeaseId: "lease-old",
+          ownerLeaseIssuedAt: 1_000,
+        },
+        "ws://127.0.0.1:9000/stale",
+      ),
+    ).rejects.toThrow("newer browser session already owns");
+    await expect(
+      service.connectAgentCdp(
+        {
+          ...current,
+          turnId: "turn-same-ms-newer",
+          ownerLeaseId: "lease-3",
+        },
+        "ws://127.0.0.1:9000/same-ms-newer",
+      ),
+    ).resolves.toMatchObject({ bridgeSessionId: "agent-random-session" });
+    await expect(
+      service.connectAgentCdp(
+        {
+          ...current,
+          turnId: "turn-same-ms-stale",
+          ownerLeaseId: "lease-1",
+        },
+        "ws://127.0.0.1:9000/same-ms-stale",
+      ),
+    ).rejects.toThrow("newer browser session already owns");
+    await expect(
+      service.connectAgentCdp(
+        {
+          ...current,
+          turnId: "turn-conflict",
+          ownerLeaseId: "lease-3",
+        },
+        "ws://127.0.0.1:9000/conflict",
+      ),
+    ).rejects.toThrow("conflicting browser lease");
+  });
+
+  it("does not publish a backend superseded while it was spawning", async () => {
+    const service = createService();
+    let releaseFirst!: (backend: unknown) => void;
+    const spawnAgentBackend = vi
+      .spyOn(
+        service as unknown as {
+          spawnAgentBackend: (
+            input: Record<string, unknown>,
+          ) => Promise<unknown>;
+        },
+        "spawnAgentBackend",
+      )
+      .mockImplementationOnce(
+        (input) =>
+          new Promise((resolve) => {
+            releaseFirst = (backend) => resolve({ ...input, ...backend });
+          }),
+      )
+      .mockImplementationOnce(async (input) => ({
+        ...input,
+        bridgeSessionId: "agent-new-session",
+        capabilityExpiresAt: Date.now() + 60_000,
+        controlToken: "new-control-token",
+        process: { exitCode: null, killed: false },
+      }));
+    const stopAgentBackend = vi
+      .spyOn(
+        service as unknown as {
+          stopAgentBackend: (backend: unknown) => Promise<void>;
+        },
+        "stopAgentBackend",
+      )
+      .mockResolvedValue();
+    const first = service.connectAgentCdp(
+      {
+        ownerId: "agent-thread-1",
+        turnId: "turn-1",
+        ownerLeaseId: "lease-1",
+        ownerLeaseIssuedAt: 1_000,
+      },
+      "ws://127.0.0.1:9000/first",
+    );
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf("function"));
+    const second = service.connectAgentCdp(
+      {
+        ownerId: "agent-thread-1",
+        turnId: "turn-2",
+        ownerLeaseId: "lease-2",
+        ownerLeaseIssuedAt: 1_000,
+      },
+      "ws://127.0.0.1:9000/second",
+    );
+    releaseFirst({
+      bridgeSessionId: "agent-old-session",
+      capabilityExpiresAt: Date.now() + 60_000,
+      controlToken: "old-control-token",
+      process: { exitCode: null, killed: false },
+    });
+
+    await expect(first).rejects.toThrow("superseded");
+    await expect(second).resolves.toMatchObject({
+      bridgeSessionId: "agent-new-session",
+    });
+    expect(spawnAgentBackend).toHaveBeenCalledTimes(2);
+    expect(stopAgentBackend).toHaveBeenCalledOnce();
+  });
+
   it("invalidates an in-flight agent backend when the service stops", async () => {
     const service = createService();
     let releaseSpawn!: (backend: unknown) => void;

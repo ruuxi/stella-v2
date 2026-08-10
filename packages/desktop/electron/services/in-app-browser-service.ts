@@ -30,9 +30,19 @@ export type BrowserViewTabState = {
   canGoForward: boolean;
 };
 
+export type BrowserViewOwnerState = {
+  id: string;
+  kind: "manual" | "agent";
+  tabCount: number;
+  activeTabId?: string;
+  latest: boolean;
+};
+
 export type BrowserViewState = {
   connection: BrowserViewConnection;
   profileName?: string;
+  visibleOwnerId: string;
+  owners: BrowserViewOwnerState[];
   tabs: BrowserViewTabState[];
   activeTabId?: string;
   error?: string;
@@ -126,6 +136,7 @@ const DEFAULT_CONNECTION_POLL_MS = 250;
 
 const cloneState = (state: BrowserViewState): BrowserViewState => ({
   ...state,
+  owners: state.owners.map((owner) => ({ ...owner })),
   tabs: state.tabs.map((tab) => ({ ...tab })),
 });
 
@@ -199,6 +210,7 @@ export class InAppBrowserService {
   private readonly options: InAppBrowserServiceOptions;
   private readonly tabs = new Map<string, ManagedTab>();
   private readonly owners = new Map<string, OwnerTabRegistry>();
+  private readonly errorsByOwner = new Map<string, string>();
   private readonly drawableLeases = new Map<string, DrawableLease>();
   private readonly debuggerListeners = new Set<
     (event: InAppBrowserDebuggerEvent) => void
@@ -207,6 +219,15 @@ export class InAppBrowserService {
 
   private state: BrowserViewState = {
     connection: "checking",
+    visibleOwnerId: MANUAL_OWNER_ID,
+    owners: [
+      {
+        id: MANUAL_OWNER_ID,
+        kind: "manual",
+        tabCount: 0,
+        latest: false,
+      },
+    ],
     tabs: [],
   };
   private browserSession: Session | null = null;
@@ -223,6 +244,7 @@ export class InAppBrowserService {
   private disposed = false;
   private seeded = false;
   private pendingPartitionedCookies: StellaBrowserExportedCookie[] = [];
+  private connectionError: string | undefined;
 
   constructor(options: InAppBrowserServiceOptions) {
     this.options = options;
@@ -232,7 +254,10 @@ export class InAppBrowserService {
   }
 
   async getState(ownerId?: string): Promise<BrowserViewState> {
-    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    const resolvedOwnerId =
+      ownerId === undefined
+        ? this.visibleOwnerId
+        : this.resolveOwnerId(ownerId);
     if (this.disposed) return this.snapshot(resolvedOwnerId);
     if (this.seeded) {
       this.updateConnection("connected");
@@ -360,7 +385,14 @@ export class InAppBrowserService {
   }
 
   setVisibleOwner(ownerId?: string): BrowserViewState {
-    this.visibleOwnerId = this.resolveOwnerId(ownerId);
+    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    if (
+      resolvedOwnerId !== MANUAL_OWNER_ID &&
+      !this.owners.has(resolvedOwnerId)
+    ) {
+      throw new Error(`Browser owner not found: ${resolvedOwnerId}`);
+    }
+    this.visibleOwnerId = resolvedOwnerId;
     this.syncState();
     this.attachActiveView();
     return this.snapshot(this.visibleOwnerId);
@@ -463,6 +495,7 @@ export class InAppBrowserService {
   }): Promise<BrowserViewState> {
     const ownerId = this.resolveOwnerId(options.ownerId);
     const tab = this.requireTab(options.tabId, ownerId);
+    this.clearOwnerError(ownerId);
     await tab.view.webContents.loadURL(normalizeWebUrl(options.url));
     this.syncState();
     return this.snapshot(ownerId);
@@ -497,6 +530,7 @@ export class InAppBrowserService {
     ownerId?: string;
   }): Promise<BrowserViewState> {
     const ownerId = this.resolveOwnerId(options.ownerId);
+    this.clearOwnerError(ownerId);
     this.requireTab(options.tabId, ownerId).view.webContents.reload();
     this.syncState();
     return this.snapshot(ownerId);
@@ -602,6 +636,7 @@ export class InAppBrowserService {
       if (this.tabs.has(tabId)) this.closeTabInternal(tabId, resolvedOwnerId);
     }
     this.owners.delete(resolvedOwnerId);
+    this.errorsByOwner.delete(resolvedOwnerId);
     if (wasVisibleOwner) {
       this.syncState();
       this.attachActiveView();
@@ -781,6 +816,7 @@ export class InAppBrowserService {
     const refresh = () => this.syncState();
     contents.on("did-start-loading", () => {
       tab.loading = true;
+      this.clearOwnerError(tab.ownerId, false);
       refresh();
     });
     contents.on("did-stop-loading", () => {
@@ -821,7 +857,18 @@ export class InAppBrowserService {
       if (owner?.activeTabId === tab.id) {
         owner.activeTabId = [...owner.tabIds].at(-1);
       }
-      if (owner && owner.tabIds.size === 0) this.owners.delete(tab.ownerId);
+      if (owner && owner.tabIds.size === 0) {
+        this.owners.delete(tab.ownerId);
+        this.errorsByOwner.delete(tab.ownerId);
+        if (this.latestOwnerId === tab.ownerId) {
+          this.latestOwnerId = [...this.owners.keys()]
+            .filter((candidate) => candidate !== MANUAL_OWNER_ID)
+            .at(-1);
+        }
+        if (this.visibleOwnerId === tab.ownerId) {
+          this.visibleOwnerId = MANUAL_OWNER_ID;
+        }
+      }
       this.syncState();
       this.attachActiveView();
     });
@@ -873,7 +920,18 @@ export class InAppBrowserService {
       owner.activeTabId =
         orderedIds[closedIndex + 1] ?? orderedIds[closedIndex - 1];
     }
-    if (owner && owner.tabIds.size === 0) this.owners.delete(ownerId);
+    if (owner && owner.tabIds.size === 0) {
+      this.owners.delete(ownerId);
+      this.errorsByOwner.delete(ownerId);
+      if (this.latestOwnerId === ownerId) {
+        this.latestOwnerId = [...this.owners.keys()]
+          .filter((candidate) => candidate !== MANUAL_OWNER_ID)
+          .at(-1);
+      }
+      if (this.visibleOwnerId === ownerId) {
+        this.visibleOwnerId = MANUAL_OWNER_ID;
+      }
+    }
     const tabDebugger = tab.view.webContents.debugger;
     if (tabDebugger.isAttached()) tabDebugger.detach();
     tab.view.webContents.close();
@@ -904,6 +962,8 @@ export class InAppBrowserService {
 
   private syncState() {
     const owner = this.owners.get(this.visibleOwnerId);
+    this.state.visibleOwnerId = this.visibleOwnerId;
+    this.state.owners = this.ownerStates();
     this.state.tabs = owner
       ? [...owner.tabIds].flatMap((tabId) => {
           const tab = this.tabs.get(tabId);
@@ -913,30 +973,58 @@ export class InAppBrowserService {
         })
       : [];
     this.state.activeTabId = owner?.activeTabId;
+    this.syncErrorState();
     this.emitState();
   }
 
   private updateConnection(connection: BrowserViewConnection, error?: string) {
     this.state.connection = connection;
-    if (error) this.state.error = error;
-    else delete this.state.error;
+    this.connectionError = error;
+    this.syncErrorState();
     this.emitState();
   }
 
   private setError(error: string, ownerId = this.visibleOwnerId) {
+    this.errorsByOwner.set(ownerId, error);
     if (ownerId !== this.visibleOwnerId) return;
-    this.state.error = error;
+    this.syncErrorState();
     this.emitState();
+  }
+
+  private clearOwnerError(ownerId: string, emit = true) {
+    if (
+      !this.errorsByOwner.delete(ownerId) ||
+      ownerId !== this.visibleOwnerId
+    ) {
+      return;
+    }
+    this.syncErrorState();
+    if (emit) this.emitState();
+  }
+
+  private errorForOwner(ownerId: string) {
+    return this.state.connection === "connected"
+      ? this.errorsByOwner.get(ownerId)
+      : this.connectionError;
+  }
+
+  private syncErrorState() {
+    const error = this.errorForOwner(this.visibleOwnerId);
+    if (error) this.state.error = error;
+    else delete this.state.error;
   }
 
   private snapshot(ownerId = this.visibleOwnerId) {
     if (ownerId === this.visibleOwnerId) return cloneState(this.state);
     const owner = this.owners.get(ownerId);
+    const error = this.errorForOwner(ownerId);
     return cloneState({
       connection: this.state.connection,
       ...(this.state.profileName
         ? { profileName: this.state.profileName }
         : {}),
+      visibleOwnerId: this.visibleOwnerId,
+      owners: this.ownerStates(),
       tabs: owner
         ? [...owner.tabIds].flatMap((tabId) => {
             const tab = this.tabs.get(tabId);
@@ -946,6 +1034,7 @@ export class InAppBrowserService {
           })
         : [],
       ...(owner?.activeTabId ? { activeTabId: owner.activeTabId } : {}),
+      ...(error ? { error } : {}),
     });
   }
 
@@ -1032,6 +1121,9 @@ export class InAppBrowserService {
   private resolveShowOwnerId(ownerId?: string) {
     const normalized = ownerId?.trim();
     if (normalized) return normalized;
+    if ((this.owners.get(this.visibleOwnerId)?.tabIds.size ?? 0) > 0) {
+      return this.visibleOwnerId;
+    }
     if ((this.owners.get(MANUAL_OWNER_ID)?.tabIds.size ?? 0) > 0) {
       return MANUAL_OWNER_ID;
     }
@@ -1039,6 +1131,30 @@ export class InAppBrowserService {
       return this.latestOwnerId;
     }
     return MANUAL_OWNER_ID;
+  }
+
+  private ownerStates(): BrowserViewOwnerState[] {
+    const manual = this.owners.get(MANUAL_OWNER_ID);
+    const result: BrowserViewOwnerState[] = [
+      {
+        id: MANUAL_OWNER_ID,
+        kind: "manual",
+        tabCount: manual?.tabIds.size ?? 0,
+        ...(manual?.activeTabId ? { activeTabId: manual.activeTabId } : {}),
+        latest: false,
+      },
+    ];
+    for (const [ownerId, owner] of this.owners) {
+      if (ownerId === MANUAL_OWNER_ID || owner.tabIds.size === 0) continue;
+      result.push({
+        id: ownerId,
+        kind: "agent",
+        tabCount: owner.tabIds.size,
+        ...(owner.activeTabId ? { activeTabId: owner.activeTabId } : {}),
+        latest: ownerId === this.latestOwnerId,
+      });
+    }
+    return result;
   }
 
   private getOrCreateOwner(ownerId: string) {

@@ -259,7 +259,10 @@ export class DesktopUpdater {
     if (this.snapshot.status !== "downloaded") {
       throw new Error("Download the Stella desktop update before restarting.");
     }
-    setImmediate(() => this.client.quitAndInstall(false, true));
+    // Windows uses the first argument to decide whether to show the NSIS
+    // installer UI. Updates should apply silently, then relaunch Stella.
+    // MacUpdater ignores both arguments and keeps its native update flow.
+    setImmediate(() => this.client.quitAndInstall(true, true));
     return { accepted: true };
   }
 

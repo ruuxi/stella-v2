@@ -8,7 +8,7 @@
  * the gear keeps a hidden, absolutely-positioned trigger for each — the menu
  * item only flips the popover's controlled `open`.
  */
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { usePostOnboardingHint } from "@/global/onboarding/post-onboarding-hints";
 import { ConnectorsPopover } from "@/shell/sidebar-sections/ConnectorsPopover";
 import { feedbackDialog } from "@/shell/sidebar-sections/feedback-dialog-store";
@@ -43,11 +43,6 @@ const openPhoneDialog = () => {
   });
 };
 
-/** The menu owns focus until it is fully closed; opening a popover from a
- *  selection has to wait for that hand-back or Radix pulls focus straight
- *  back to the gear. */
-const afterMenuCloses = (run) => setTimeout(run, 0);
-
 const HiddenAnchor = (props) => (
   <button
     type="button"
@@ -64,7 +59,21 @@ export function SettingsMenuButton({ className, showActiveState = false }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const pendingPopoverRef = useRef(null);
   const active = settingsOpen || menuOpen;
+
+  const openPendingPopover = (event) => {
+    const pendingPopover = pendingPopoverRef.current;
+    if (!pendingPopover) return;
+
+    // The dropdown otherwise restores focus to the gear while the next
+    // Radix layer is mounting. That focus-out dismisses the new popover as
+    // soon as it opens.
+    event.preventDefault();
+    pendingPopoverRef.current = null;
+    if (pendingPopover === "theme") setThemeOpen(true);
+    else setConnectorsOpen(true);
+  };
 
   const destinations = [
     {
@@ -77,7 +86,9 @@ export function SettingsMenuButton({ className, showActiveState = false }) {
       id: "theme",
       label: "Theme",
       Icon: Palette,
-      onSelect: () => afterMenuCloses(() => setThemeOpen(true)),
+      onSelect: () => {
+        pendingPopoverRef.current = "theme";
+      },
     },
     {
       id: "connect",
@@ -92,7 +103,9 @@ export function SettingsMenuButton({ className, showActiveState = false }) {
       id: "connectors",
       label: "Connectors",
       Icon: Plug,
-      onSelect: () => afterMenuCloses(() => setConnectorsOpen(true)),
+      onSelect: () => {
+        pendingPopoverRef.current = "connectors";
+      },
     },
     {
       id: "feedback",
@@ -128,6 +141,7 @@ export function SettingsMenuButton({ className, showActiveState = false }) {
           align="end"
           sideOffset={8}
           aria-label="Settings destinations"
+          onCloseAutoFocus={openPendingPopover}
         >
           {destinations.map(({ id, label, Icon, onSelect }) => (
             <DropdownMenuItem key={id} onSelect={onSelect}>

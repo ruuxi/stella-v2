@@ -34,18 +34,6 @@ export const devicesSchema = {
     deviceId: v.string(),
     /** The anonymous trial allowance. This count is what gates access. */
     requestCount: v.number(),
-    /**
-     * RETIRED — awaiting removal. These two recorded what anonymous requests
-     * cost, to help size the allowance; the allowance is a single request, so
-     * there was nothing to size. Nothing reads or writes them anymore.
-     *
-     * They stay declared only because Convex validates live documents against
-     * this schema, and production rows still carry the fields. Drop both lines
-     * once `anon_usage_migrations:clearAnonymousUsageCost` has run on prod
-     * with `{"dryRun": false}`, and delete that migration with them.
-     */
-    usageMicroCents: v.optional(v.number()),
-    bucket: v.optional(v.union(v.literal("device"), v.literal("ip"))),
     firstRequestAt: v.number(),
     lastRequestAt: v.number(),
   })

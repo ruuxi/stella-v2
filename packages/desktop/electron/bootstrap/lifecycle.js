@@ -6,11 +6,8 @@ import { t } from "../services/i18n-service.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
 import { initializeBootstrapApplication } from "./runtime.js";
 export const initializeBootstrapSingleInstance = (context) => {
-    if (!context.services.authService.enforceSingleInstanceLock()) {
-        return false;
-    }
+    context.services.authService.bindSingleInstanceHandler();
     context.services.authService.bindOpenUrlHandler();
-    return true;
 };
 export const registerBootstrapLifecycle = (context) => {
     let quitAfterCleanup = false;

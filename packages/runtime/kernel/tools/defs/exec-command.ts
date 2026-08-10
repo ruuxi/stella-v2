@@ -1,5 +1,5 @@
 /**
- * `exec_command` tool — PTY shell execution for Stella agents.
+ * `exec_command` tool — pipe-backed shell execution for Stella agents.
  *
  * Returns immediate output, or a `session_id` when the process is still
  * running so the model can poll / interact via `write_stdin`.
@@ -28,7 +28,7 @@ export const createExecCommandTool = (
 ): ToolDefinition => ({
   name: "exec_command",
   description:
-    "Run a shell command in a PTY. Returns immediate output, or a session_id if the process is still running so you can poll/interact via write_stdin. Required: cmd. Node.js and Stella CLIs (stella-browser, stella-office, stella-computer, stella-media, stella-x-api) are auto-injected into PATH.",
+    "Run a command in a pipe-backed shell process. Pseudo-terminal allocation is unavailable, and tty: true is rejected. Returns immediate output, or a session_id if the process is still running so you can poll/interact via write_stdin. Required: cmd. Node.js and Stella CLIs (stella-browser, stella-office, stella-computer, stella-media, stella-x-api) are auto-injected into PATH.",
   promptSnippet:
     "Execute shell commands (git, build, package managers, file scripts)",
   parameters: {
@@ -48,7 +48,7 @@ export const createExecCommandTool = (
       tty: {
         type: "boolean",
         description:
-          "Whether to allocate a TTY for the command. Defaults to false (plain pipes); set to true to open a PTY.",
+          "TTY allocation is not available in this runtime. Omit this or pass false; true returns an actionable error instead of silently using pipes.",
       },
       yield_time_ms: {
         type: "number",
@@ -63,7 +63,7 @@ export const createExecCommandTool = (
       login: {
         type: "boolean",
         description:
-          "Whether to run the shell with -l/-i semantics. Defaults to true.",
+          "On Unix, true invokes the shell with -lc and false with -c. Defaults to true.",
       },
     },
     required: ["cmd"],

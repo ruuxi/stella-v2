@@ -1028,17 +1028,50 @@ const resolveUnixBash = (): string => {
   return "bash";
 };
 
+type ShellLaunchOptions = {
+  /** Explicit executable requested by exec_command. */
+  shell?: string;
+  /** Login-shell semantics are the default for compatibility with prior runs. */
+  login?: boolean;
+};
+
 const resolveShellLaunch = (
   command: string,
+  options: ShellLaunchOptions = {},
 ): { shell: string; args: string[] } | { error: string } => {
   if (process.platform !== "win32") {
-    return { shell: resolveUnixBash(), args: ["-lc", command] };
+    const requestedShell = options.shell?.trim();
+    return {
+      shell: requestedShell || resolveUnixBash(),
+      args: [options.login === false ? "-c" : "-lc", command],
+    };
   }
 
   return {
-    shell: process.env.ComSpec || process.env.COMSPEC || "cmd.exe",
+    shell:
+      options.shell?.trim() ||
+      process.env.ComSpec ||
+      process.env.COMSPEC ||
+      "cmd.exe",
     args: ["/d", "/s", "/c", command],
   };
+};
+
+const describeShellSpawnFailure = (
+  error: Error,
+  launch: { shell: string; args: string[] },
+  cwd: string,
+  options: ShellLaunchOptions,
+): string => {
+  const requestedShell = options.shell?.trim() || "platform-default";
+  const login = options.login !== false;
+  return [
+    "Failed to start exec_command shell.",
+    `runner=node:child_process.spawn namespace=runtime-worker platform=${process.platform} runtime_pid=${process.pid}`,
+    `executable=${JSON.stringify(launch.shell)} requested_shell=${JSON.stringify(requestedShell)} login=${login}`,
+    `cwd=${JSON.stringify(cwd)}`,
+    `cause=${error.name}: ${error.message}`,
+  ].join("\n");
 };
 
 type SpawnedShell = ReturnType<typeof spawn>;
@@ -1320,11 +1353,12 @@ export const startShell = (
   startSnapshot?: FileSnapshot | null,
   externalCandidateSnapshots?: ExternalCandidateSnapshot[],
   onActivity?: (record: ManagedShellRecord) => void,
+  launchOptions: ShellLaunchOptions = {},
 ) => {
   maybeSweepDeferredDeletes(state);
   const id = crypto.randomUUID();
   const shellCommand = buildShellCommand(command, state);
-  const launch = resolveShellLaunch(shellCommand);
+  const launch = resolveShellLaunch(shellCommand, launchOptions);
 
   if ("error" in launch) {
     const safeLaunchError = sanitizeToolVisibleText(launch.error);
@@ -1400,7 +1434,9 @@ export const startShell = (
     notifyShellActivity(record);
   });
   child.on("error", (error) => {
-    const safeMessage = sanitizeToolVisibleText(error.message);
+    const safeMessage = sanitizeToolVisibleText(
+      describeShellSpawnFailure(error, launch, cwd, launchOptions),
+    );
     appendShellOutput(record, safeMessage);
     record.running = false;
     record.exitCode = record.exitCode ?? 1;
@@ -1436,10 +1472,11 @@ export const runShell = async (
   cwd: string,
   timeoutMs: number,
   envOverrides?: Record<string, string>,
+  launchOptions: ShellLaunchOptions = {},
 ) => {
   maybeSweepDeferredDeletes(state);
   const shellCommand = buildShellCommand(command, state);
-  const launch = resolveShellLaunch(shellCommand);
+  const launch = resolveShellLaunch(shellCommand, launchOptions);
 
   if ("error" in launch) {
     return launch.error;
@@ -1489,7 +1526,7 @@ export const runShell = async (
       if (finished) return;
       finished = true;
       clearTimeout(timer);
-      resolve(`Failed to execute command: ${error.message}`);
+      resolve(describeShellSpawnFailure(error, launch, cwd, launchOptions));
     });
   });
 };
@@ -1502,6 +1539,7 @@ const resolveManagedShellCommand = (
   command: string;
   cwd: string;
   envOverrides: Record<string, string>;
+  launchOptions: ShellLaunchOptions;
 } => {
   let command = String(args.cmd ?? args.command ?? "");
   const cwd = String(
@@ -1554,7 +1592,19 @@ const resolveManagedShellCommand = (
     }
   }
 
-  return { command, cwd, envOverrides };
+  const requestedShell =
+    typeof args.shell === "string" && args.shell.trim()
+      ? args.shell.trim()
+      : undefined;
+  return {
+    command,
+    cwd,
+    envOverrides,
+    launchOptions: {
+      ...(requestedShell ? { shell: requestedShell } : {}),
+      login: args.login !== false,
+    },
+  };
 };
 
 const resolveExecYieldTime = (
@@ -1640,6 +1690,12 @@ export const handleExecCommand = async (
   if (!prepared.command.trim()) {
     return { error: "cmd is required." };
   }
+  if (args.tty === true) {
+    return {
+      error:
+        "exec_command does not provide a pseudo-terminal in this runtime. Retry with tty: false (or omit tty); stdin remains available through write_stdin for long-running commands.",
+    };
+  }
 
   const windowsDeleteResult = await maybeTrashNativeWindowsDeletes(
     state,
@@ -1683,6 +1739,7 @@ export const handleExecCommand = async (
     beforeSideEffects.rootSnapshot,
     beforeSideEffects.externalCandidateSnapshots,
     emitUpdate,
+    prepared.launchOptions,
   );
   setShellOwner(record, context);
   const observedVersion = record.outputVersion;

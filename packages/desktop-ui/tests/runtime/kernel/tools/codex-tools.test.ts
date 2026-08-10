@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import { createToolHost } from "@stella/runtime/kernel/tools/host";
+import { createExecCommandTool } from "@stella/runtime/kernel/tools/defs/exec-command";
 import {
   createShellState,
   handleExecCommand,
@@ -22,6 +23,22 @@ const createTempDir = async () => {
 };
 
 describe("general agent tools", () => {
+  it("exec_command advertises its pipe-backed, non-TTY contract", async () => {
+    const root = await createTempDir();
+    const definition = createExecCommandTool(createShellState(root));
+    const properties = definition.parameters.properties as Record<
+      string,
+      { description?: string }
+    >;
+
+    expect(definition.description).toContain("pipe-backed shell process");
+    expect(definition.description).toContain("tty: true is rejected");
+    expect(definition.description).not.toContain("in a PTY");
+    expect(properties.tty?.description).toContain("not available");
+    expect(properties.login?.description).toContain("-lc");
+    expect(properties.login?.description).toContain("-c");
+  });
+
   it("exec_command returns one-shot output inline", async () => {
     const root = await createTempDir();
     const shellState = createShellState(root);
@@ -47,6 +64,93 @@ describe("general agent tools", () => {
       exit_code: 0,
       output: "ready",
     });
+  });
+
+  it("exec_command honors an explicit shell and non-login mode", async () => {
+    if (process.platform === "win32") return;
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+
+    const result = await handleExecCommand(
+      shellState,
+      {
+        cmd: 'printf "%s|%s" "$0" "$-"',
+        shell: "/bin/sh",
+        login: false,
+        yield_time_ms: 500,
+      },
+      {
+        conversationId: "c-explicit-shell",
+        deviceId: "d-explicit-shell",
+        requestId: "r-explicit-shell",
+        stellaAppDir: root,
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toMatchObject({
+      session_id: null,
+      running: false,
+      exit_code: 0,
+    });
+    expect((result.result as { output: string }).output).toMatch(
+      /^\/bin\/sh\|/,
+    );
+    expect((result.result as { output: string }).output).not.toContain("l");
+  });
+
+  it("exec_command spawn failures identify the runner and resolved executable", async () => {
+    if (process.platform === "win32") return;
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+    const missingShell = path.join(root, "missing-shell");
+
+    const result = await handleExecCommand(
+      shellState,
+      {
+        cmd: "printf unreachable",
+        shell: missingShell,
+        login: false,
+        yield_time_ms: 500,
+      },
+      {
+        conversationId: "c-shell-failure",
+        deviceId: "d-shell-failure",
+        requestId: "r-shell-failure",
+        stellaAppDir: root,
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toMatchObject({
+      session_id: null,
+      running: false,
+      exit_code: 1,
+    });
+    const output = (result.result as { output: string }).output;
+    expect(output).toContain("Failed to start exec_command shell");
+    expect(output).toContain("runner=node:child_process.spawn");
+    expect(output).toContain("namespace=runtime-worker");
+    expect(output).toContain(`executable=${JSON.stringify(missingShell)}`);
+    expect(output).toContain("login=false");
+  });
+
+  it("exec_command rejects unsupported tty allocation instead of silently using pipes", async () => {
+    const root = await createTempDir();
+    const result = await handleExecCommand(
+      createShellState(root),
+      { cmd: "printf unreachable", tty: true },
+      {
+        conversationId: "c-tty",
+        deviceId: "d-tty",
+        requestId: "r-tty",
+        stellaAppDir: root,
+      },
+    );
+
+    expect(result.result).toBeUndefined();
+    expect(result.error).toContain("does not provide a pseudo-terminal");
+    expect(result.error).toContain("tty: false");
   });
 
   it("exec_command exposes the bundled Node.js runtime", async () => {

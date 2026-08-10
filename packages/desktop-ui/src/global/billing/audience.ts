@@ -9,6 +9,13 @@
  * wonder why their selection wasn't honored.
  */
 
+/**
+ * Collapsing a managed audience onto the four the capability matrix is
+ * keyed by is the contract's job, not ours — re-exported here so the
+ * audience vocabulary stays in one place for callers.
+ */
+export { toCapabilityAudience } from "@stella/contracts/capabilities";
+
 export type SubscriptionPlan = "free" | "go" | "pro";
 
 export type ManagedModelAudience =
@@ -67,9 +74,20 @@ const PLAN_LABELS: Record<ManagedModelAudience, string> = {
 export const getPlanLabel = (audience: ManagedModelAudience): string =>
   PLAN_LABELS[audience];
 
+/**
+ * A signed-out user can't upgrade anything — they have to sign in first.
+ * Everyone else is one Stripe checkout away. The same rule governs model
+ * restrictions and capability restrictions, so both read it from here
+ * rather than each growing its own copy.
+ */
+export const getRestrictionActionKind = (
+  audience: ManagedModelAudience,
+): "sign-in" | "upgrade" => (audience === "anonymous" ? "sign-in" : "upgrade");
+
 export const getModelRestrictionActionLabel = (
   audience: ManagedModelAudience,
-): string => (audience === "anonymous" ? "Sign in" : "Upgrade");
+): string =>
+  getRestrictionActionKind(audience) === "sign-in" ? "Sign in" : "Upgrade";
 
 export const getModelRestrictionDescription = (args: {
   audience: ManagedModelAudience;
@@ -95,6 +113,15 @@ type BillingUsage = {
   weeklyLimitUsd: number;
   monthlyUsedUsd: number;
   monthlyLimitUsd: number;
+  /**
+   * Cumulative managed-model spend, and the ceiling it is measured
+   * against. Only present on plans the backend gives a lifetime
+   * allowance (Free) — see `lifetimeLimitUsd` in
+   * `backend/convex/lib/billing_plans.ts`. Unlike the rolling / weekly /
+   * monthly windows this never refreshes.
+   */
+  lifetimeUsedUsd?: number;
+  lifetimeLimitUsd?: number | null;
 };
 
 type ResolvableBillingStatus = {
@@ -140,4 +167,38 @@ export const resolveBillingAudience = (args: {
   return isUsageExceeded(usage)
     ? (`${plan}_fallback` as ManagedModelAudience)
     : plan;
+};
+
+/**
+ * The Free plan's lifetime allowance: a fixed number of dollars that is
+ * spent once and never comes back. Returns `null` for every plan and
+ * every status shape that has no lifetime ceiling, so callers can treat
+ * a value here as "this account has a terminal budget".
+ */
+export type FreeAllowance = {
+  usedUsd: number;
+  limitUsd: number;
+  remainingUsd: number;
+  exhausted: boolean;
+};
+
+export const resolveFreeAllowance = (
+  billingStatus: ResolvableBillingStatus | null | undefined,
+): FreeAllowance | null => {
+  if (!billingStatus || billingStatus.plan !== "free") return null;
+  const usage = billingStatus.usage;
+  const limitUsd = usage?.lifetimeLimitUsd;
+  if (typeof limitUsd !== "number" || !Number.isFinite(limitUsd)) return null;
+  if (limitUsd <= 0) return null;
+  const rawUsed = usage?.lifetimeUsedUsd;
+  const usedUsd =
+    typeof rawUsed === "number" && Number.isFinite(rawUsed) && rawUsed > 0
+      ? rawUsed
+      : 0;
+  return {
+    usedUsd,
+    limitUsd,
+    remainingUsd: Math.max(0, limitUsd - usedUsd),
+    exhausted: usedUsd >= limitUsd,
+  };
 };

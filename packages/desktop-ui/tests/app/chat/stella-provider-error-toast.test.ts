@@ -180,3 +180,82 @@ describe("llm route failure → toast", () => {
     });
   });
 });
+
+// The reactive half of the capability gate: the backend refused
+// something the affordances could not pre-empt.
+describe("capability denials → toast", () => {
+  it("names the capability and the plan that unlocks it", () => {
+    const toast = resolveStellaProviderErrorToast(
+      "[capability/image_generation] capability_required",
+      { audience: "free" },
+    );
+
+    expect(toast.title).toContain("Image generation");
+    expect(toast.description).toContain("Pro");
+    expect(toast.action).toMatchObject({ label: "Upgrade" });
+  });
+
+  it("asks signed-out users to sign in instead", () => {
+    const toast = resolveStellaProviderErrorToast(
+      "[capability/three_d_generation] capability_required",
+      { audience: "anonymous" },
+    );
+
+    expect(toast.title).toContain("3D generation");
+    expect(toast.action).toMatchObject({ label: "Sign in" });
+  });
+
+  it("still offers an upgrade path when no capability is named", () => {
+    const toast = resolveStellaProviderErrorToast(
+      "PAID_PLAN_REQUIRED: this action requires a Stella subscription",
+      { audience: "pro" },
+    );
+
+    // A Pro account holds every capability, so a bare paid-plan
+    // rejection can't be attributed to one — fall back to the generic
+    // copy rather than telling a Pro user to buy Pro.
+    expect(toast.title).toBe("Not included on your plan");
+    expect(toast.action).toMatchObject({ label: "Upgrade" });
+  });
+
+  it("classifies the legacy paid-media prose as a capability denial", () => {
+    const toast = resolveStellaProviderErrorToast(
+      "Music generation requires a Stella subscription (audio_generation).",
+      { audience: "go" },
+    );
+
+    expect(toast.title).toContain("Voice and music generation");
+    expect(toast.action).toMatchObject({ label: "Upgrade" });
+  });
+
+  it("marks capability denials as limit/auth so cancelled runs still explain themselves", () => {
+    expect(
+      isStellaLimitOrAuthReason("[capability/video_generation] capability_required"),
+    ).toBe(true);
+  });
+});
+
+// The Free plan's $0.50 never refreshes, so its exhaustion must never be
+// phrased as something to wait out.
+describe("free allowance exhaustion → toast", () => {
+  const reason =
+    "free_allowance_exhausted: usage limit reached for this account.";
+
+  it("is a terminal upgrade prompt, not a wait", () => {
+    const toast = resolveStellaProviderErrorToast(reason);
+
+    expect(toast.title).toBe("Your free allowance is used up");
+    expect(toast.description).toContain("never resets");
+    expect(toast.description).not.toContain("wait");
+    expect(toast.description).not.toContain("try again");
+    expect(toast.action).toMatchObject({ label: "Upgrade" });
+  });
+
+  it("wins over the generic billing matcher it shares prose with", () => {
+    // "usage limit reached" alone still means the ordinary windowed cap.
+    expect(
+      resolveStellaProviderErrorToast("Usage limit reached.").title,
+    ).toBe("Stella needs more room");
+    expect(isStellaLimitOrAuthReason(reason)).toBe(true);
+  });
+});

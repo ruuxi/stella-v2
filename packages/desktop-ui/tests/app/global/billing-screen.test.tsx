@@ -158,7 +158,7 @@ describe("billing panel", () => {
     expect(findButton("Choose Pro")).not.toBeUndefined();
     // Free user has no subscription to manage.
     expect(findButton("Manage subscription")).toBeUndefined();
-    expect(container.textContent).toContain("Limited free use");
+    expect(container.textContent).toContain("A one-time allowance to try");
     expect(container.textContent).not.toContain("3x the usage");
     expect(container.textContent).not.toContain("Verified creator badge");
     expect(container.textContent).toContain("Extra usage credit");
@@ -184,17 +184,135 @@ describe("billing panel", () => {
       "Coding agent",
       "Research and knowledge work",
     ]);
-    expect(go).toEqual([
-      ...free,
-      "Voice, image and video generation",
-      "No ads",
+    expect(go).toEqual([...free, "No ads"]);
+    // Pro's extra rows are the enforced capabilities themselves, derived
+    // from CAPABILITY_MATRIX rather than written out here — that is what
+    // stops the copy drifting from what the app enforces. "Orchestrator
+    // mode" trails them as the one presentational-only row: it is open
+    // to every plan and merely listed on Pro, so it must never appear in
+    // the capability matrix.
+    expect(pro).toEqual([
+      ...go,
+      "Image generation",
+      "Video generation",
+      "Voice and music generation",
+      "3D generation",
+      "Orchestrator mode",
     ]);
-    expect(pro).toEqual(go);
 
     // The rows plans share stay in the same sequence in every column, so
     // a longer card reads as an extension of the one beside it.
     expect(go.slice(0, free.length)).toEqual(free);
     expect(pro.slice(0, go.length)).toEqual(go);
+  });
+
+  // The Free plan's allowance is spent once and never refreshes, so the
+  // screen must not present it through windows that visibly refill.
+  const freeWithAllowance = (usedUsd: number) => {
+    const status = subscriptionStatus();
+    return {
+      ...status,
+      usage: {
+        ...status.usage,
+        lifetimeUsedUsd: usedUsd,
+        lifetimeLimitUsd: 0.5,
+      },
+    };
+  };
+
+  it("replaces the rolling windows with a single lifetime meter on Free", async () => {
+    seedQueries(freeWithAllowance(0.2));
+    await render();
+
+    const meters = Array.from(container.querySelectorAll(".billing-meter"));
+    expect(meters).toHaveLength(1);
+    expect(meters[0]?.textContent).toContain("Free allowance");
+    expect(meters[0]?.textContent).toContain("$0.20");
+    expect(meters[0]?.textContent).toContain("$0.50");
+    expect(container.textContent).not.toContain("This week");
+    expect(container.textContent).not.toContain("This month");
+    expect(container.textContent).toContain("doesn't reset");
+    expect(container.textContent).toContain("$0.30 left");
+  });
+
+  it("shows a terminal upgrade state once the free allowance is spent", async () => {
+    seedQueries(freeWithAllowance(0.5));
+    mocks.startCheckout.mockResolvedValue({
+      url: "https://checkout.stripe.com/session",
+      sessionId: "cs_123",
+    });
+    await render();
+
+    expect(container.textContent).toContain("Your free allowance is used up");
+    // Never "try again later" — the allowance has no reset to wait for.
+    expect(container.textContent).toContain("never resets");
+    expect(container.textContent).not.toContain("try again");
+
+    await act(async () => {
+      findButton("Upgrade to Go")?.click();
+    });
+
+    expect(mocks.startCheckout).toHaveBeenCalledWith({
+      plan: "go",
+      returnUrl: "https://stella.sh/billing",
+    });
+  });
+
+  it("keeps the three usage windows on paid plans", async () => {
+    seedQueries(
+      subscriptionStatus({ plan: "go", subscriptionStatus: "active" }),
+    );
+    await render();
+
+    expect(container.querySelectorAll(".billing-meter")).toHaveLength(3);
+    expect(container.textContent).not.toContain("Free allowance");
+  });
+
+  // Cancelling is not a cut-off — Stripe keeps the plan live to the end of
+  // the paid period. What this surface owes the user is what happens
+  // *after* that date: the Free allowance is granted once, so a subscriber
+  // who already spent theirs has no usable tier to land on.
+  const cancelledPaidStatus = (lifetimeUsedUsd: number) => {
+    const status = subscriptionStatus({
+      plan: "pro",
+      subscriptionStatus: "active",
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: Date.UTC(2026, 8, 1),
+    });
+    return {
+      ...status,
+      usage: { ...status.usage, lifetimeUsedUsd, lifetimeLimitUsd: null },
+      plans: {
+        ...status.plans,
+        free: { ...status.plans.free, lifetimeLimitUsd: 0.5 },
+      },
+    };
+  };
+
+  it("warns a cancelling subscriber that access ends for good", async () => {
+    seedQueries(cancelledPaidStatus(4.2));
+    await render();
+
+    expect(container.textContent).toContain("Cancellation pending");
+    expect(container.textContent).toContain("Access ends");
+
+    const notice = container.querySelector(".billing-allowance--spent");
+    expect(notice?.textContent).toContain("Stella stops when your plan ends");
+    // Names the plan that is ending, so the sentence reads as theirs.
+    expect(notice?.textContent).toContain("Pro");
+  });
+
+  // The warning is gated on the real numbers, not on the fact of
+  // cancelling: someone still under the Free cap keeps a usable remainder,
+  // and telling them Stella stops would simply be false.
+  it("spares the warning when the free allowance is still usable", async () => {
+    seedQueries(cancelledPaidStatus(0.1));
+    await render();
+
+    expect(container.textContent).toContain("Cancellation pending");
+    expect(container.textContent).not.toContain(
+      "Stella stops when your plan ends",
+    );
   });
 
   // The Go discount is a Stripe coupon created `duration=once`: it comes

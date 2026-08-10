@@ -1,29 +1,28 @@
 /**
- * Shared toast for "media generation requires a Stella subscription"
- * rejections coming back from Stella-paid media surfaces (image/video
- * via `/api/media/v1/generate`, music via `/api/music/stream`, future
- * emoji-pack generation, …).
+ * Reactive capability toast for the Stella-paid media surfaces
+ * (image/video via `/api/media/v1/generate`, music via
+ * `/api/music/stream`, future emoji-pack generation, …).
  *
  * Backend marker: `lib/managed_billing.assertPaidMediaTier` and the
  * `isPaidMediaTier` checks in `http_routes/media.ts` +
  * `http_routes/music.ts`. Either path returns a 402 with this message
  * or throws a `PAID_PLAN_REQUIRED` ConvexError carrying it — both
- * surface to the renderer as a thrown Error whose message contains the
- * substring matched here.
+ * surface to the renderer as a thrown Error whose message the shared
+ * classifier reads.
+ *
+ * The classification and the copy both come from the one client-side
+ * capability gate (`./capabilities` over the shared matrix), so this
+ * module carries no plan knowledge of its own — only the HTTP-envelope
+ * unwrapping the media routes need.
  */
-import { router } from '@/router'
 import { showToast } from '@/ui/toast'
-import { BYOK_TOAST_ACTION } from './byok-action'
-
-const PAID_TIER_MATCHERS = [
-  'requires a stella subscription',
-  'paid_plan_required',
-] as const
-
-const matchesPaidTierError = (message: string): boolean => {
-  const normalized = message.toLowerCase()
-  return PAID_TIER_MATCHERS.some((matcher) => normalized.includes(matcher))
-}
+import { classifyStellaProviderError } from '@/features/chat/streaming/stella-provider-error-classifier'
+import {
+  buildCapabilityRestrictionToast,
+  readBillingAudience,
+  resolveDeniedCapability,
+  type Capability,
+} from './capabilities'
 
 const extractErrorMessage = (error: unknown): string => {
   if (!error) return ''
@@ -64,26 +63,25 @@ const readableMediaErrorMessage = (error: unknown): string => {
 }
 
 /**
- * If `error` looks like a Stella paid-tier rejection, fire the upgrade
- * toast and return true.
+ * If `error` is a capability rejection, fire the restriction toast and
+ * return true.
+ *
+ * `fallbackCapability` names what the caller was trying to do, for the
+ * older backend rejections that say "requires a Stella subscription"
+ * without naming a capability.
  */
-export const maybeShowPaidMediaTierToast = (error: unknown): boolean => {
+export const maybeShowPaidMediaTierToast = (
+  error: unknown,
+  fallbackCapability: Capability = 'image_generation',
+): boolean => {
   const message = readableMediaErrorMessage(error)
-  if (!message || !matchesPaidTierError(message)) return false
-  showToast({
-    title: 'Upgrade to use media generation',
-    description:
-      'Stella media generation (images, video, music) is included on paid plans.',
-    variant: 'error',
-    duration: 8000,
-    action: {
-      label: 'Upgrade',
-      onClick: () => {
-        void router.navigate({ to: '/billing' })
-      },
-    },
-    secondaryAction: BYOK_TOAST_ACTION,
-  })
+  if (!message) return false
+  const classification = classifyStellaProviderError(message)
+  if (classification.kind !== 'capability-required') return false
+  const capability = classification.capability ?? fallbackCapability
+  const restriction = resolveDeniedCapability(readBillingAudience(), capability)
+  if (!restriction) return false
+  showToast(buildCapabilityRestrictionToast(restriction))
   return true
 }
 

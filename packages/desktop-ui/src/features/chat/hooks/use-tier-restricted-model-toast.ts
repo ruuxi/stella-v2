@@ -13,49 +13,21 @@
  * Backend (`stella_provider/request.ts`) silently coerces the model in
  * either case — this is purely a UX notice.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/api";
-import { useDesktopAuthSession } from "@/global/auth/services/auth-session";
+import { useCallback, useEffect, useRef } from "react";
 import { router } from "@/router";
 import {
   getModelRestrictionActionLabel,
   getModelRestrictionDescription,
   isRestrictedModelOverrideAudience,
-  resolveBillingAudience,
   type ManagedModelAudience,
-  type SubscriptionPlan,
 } from "@/global/billing/audience";
+import { useCapabilityAccess } from "@/global/billing/use-capability-access";
 import { BYOK_TOAST_ACTION } from "@/global/billing/byok-action";
 import {
   resolveTierRestrictedModelNotice,
   type NoticeRuntimeEngine,
 } from "./tier-restricted-model-notice";
 import { showToast } from "@/ui/toast";
-
-type AuthSessionData =
-  | {
-      user?: {
-        id?: string | null;
-        email?: string | null;
-        isAnonymous?: boolean | null;
-      } | null;
-    }
-  | null
-  | undefined;
-
-type BillingStatusLite = {
-  plan: SubscriptionPlan;
-  usage: {
-    rollingUsedUsd: number;
-    rollingLimitUsd: number;
-    weeklyUsedUsd: number;
-    weeklyLimitUsd: number;
-    monthlyUsedUsd: number;
-    monthlyLimitUsd: number;
-  };
-  authenticated?: boolean;
-};
 
 type LocalModelPreferences = {
   modelOverrides?: Record<string, string>;
@@ -69,22 +41,11 @@ const buildToastDedupeKey = (
 ): string => `${audience}|${agent}|${model}`;
 
 export function useTierRestrictedModelToast() {
-  const session = useDesktopAuthSession();
-  const sessionData = session.data as AuthSessionData;
-  const user = sessionData?.user ?? null;
-  const hasConnectedAccount = Boolean(
-    sessionData && user?.isAnonymous !== true,
-  );
-
-  const billingStatus = useQuery(
-    api.billing.getSubscriptionStatus,
-    hasConnectedAccount ? {} : "skip",
-  ) as BillingStatusLite | undefined;
-
-  const audience = useMemo<ManagedModelAudience | null>(
-    () => resolveBillingAudience({ hasConnectedAccount, billingStatus }),
-    [billingStatus, hasConnectedAccount],
-  );
+  // Shares the app's single capability/billing subscription rather than
+  // opening a second one — and mounting it here is what keeps the
+  // audience snapshot fresh for the non-React streaming error path,
+  // since this hook is on every chat send.
+  const { audience } = useCapabilityAccess();
   const audienceRef = useRef<ManagedModelAudience | null>(audience);
   audienceRef.current = audience;
 

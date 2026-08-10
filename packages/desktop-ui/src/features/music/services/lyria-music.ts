@@ -379,7 +379,7 @@ export async function play(): Promise<void> {
       },
       "error",
     );
-    maybeShowPaidMediaTierToast(error);
+    maybeShowPaidMediaTierToast(error, "audio_generation");
     setState({
       status: "error",
       error: error instanceof Error ? error.message : "Failed to start music",

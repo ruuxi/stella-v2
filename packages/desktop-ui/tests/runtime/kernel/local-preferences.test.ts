@@ -60,25 +60,35 @@ describe("loadLocalPreferences", () => {
     expect(loadLocalPreferences(stellaDataDir).wakeWordEnabled).toBe(false);
   });
 
-  it("defaults to direct work and persists orchestrator mode", () => {
+  it("defaults to orchestrator mode and persists a direct-mode opt-out", () => {
     const stellaDataDir = makeStellaDataDir();
     writePreferences(stellaDataDir, {});
 
     expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
-      "direct",
+      "orchestrated",
     );
 
-    const saved = updateLocalModelPreferences(stellaDataDir, {
-      assistantWorkingMode: "orchestrated",
-    });
-    expect(saved.assistantWorkingMode).toBe("orchestrated");
+    writePreferences(stellaDataDir, { assistantWorkingMode: "direct" });
     expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
       "orchestrated",
     );
 
-    writePreferences(stellaDataDir, { assistantWorkingMode: "invalid" });
+    const saved = updateLocalModelPreferences(stellaDataDir, {
+      assistantWorkingMode: "direct",
+    });
+    expect(saved.assistantWorkingMode).toBe("direct");
     expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
       "direct",
+    );
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(stellaDataDir, "preferences.json"), "utf8"),
+      ).assistantWorkingModeDefaultVersion,
+    ).toBe(1);
+
+    writePreferences(stellaDataDir, { assistantWorkingMode: "invalid" });
+    expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
+      "orchestrated",
     );
   });
 

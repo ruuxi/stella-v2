@@ -7,7 +7,7 @@
 import fs from "fs";
 import path from "path";
 import { ensurePrivateDirSync, writePrivateFileSync, } from "../shared/private-fs.js";
-import { coerceAssistantWorkingMode, coerceRealtimeVoiceProvider } from "@stella/contracts/local-preferences";
+import { coerceAssistantWorkingMode, coerceRealtimeVoiceProvider, DEFAULT_ASSISTANT_WORKING_MODE } from "@stella/contracts/local-preferences";
 import { coerceAgentRuntimeEngine, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
 import { isKnownPersonalityId } from "@stella/contracts/personality";
 export { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
@@ -15,6 +15,7 @@ export const DEFAULT_CLAUDE_CODE_MODEL = "default";
 export { resolveRealtimeUnderlyingProvider, resolveReadAloudProvider } from "@stella/contracts/local-preferences";
 const DEFAULT_MAX_AGENT_CONCURRENCY = 24;
 const MAX_AGENT_CONCURRENCY_CEILING = 48;
+const ASSISTANT_WORKING_MODE_DEFAULT_VERSION = 1;
 const DEFAULT_PREFERENCES = {
     defaultModels: {},
     modelOverrides: {},
@@ -35,7 +36,8 @@ const DEFAULT_PREFERENCES = {
     maxAgentConcurrency: DEFAULT_MAX_AGENT_CONCURRENCY,
     imageGeneration: { provider: "stella" },
     realtimeVoice: { provider: "stella" },
-    assistantWorkingMode: "direct",
+    assistantWorkingMode: DEFAULT_ASSISTANT_WORKING_MODE,
+    assistantWorkingModeDefaultVersion: ASSISTANT_WORKING_MODE_DEFAULT_VERSION,
     memoryEnabled: true,
     syncMode: "off",
     dictationShortcut: "Alt",
@@ -101,7 +103,10 @@ export const loadLocalPreferences = (stellaDataDir) => {
             maxAgentConcurrency: normalizeConcurrency(parsed.maxAgentConcurrency),
             imageGeneration: normalizeImageGenerationPreferences(parsed.imageGeneration),
             realtimeVoice: normalizeRealtimeVoicePreferences(parsed.realtimeVoice),
-            assistantWorkingMode: coerceAssistantWorkingMode(parsed.assistantWorkingMode),
+            assistantWorkingMode: parsed.assistantWorkingModeDefaultVersion ===
+                ASSISTANT_WORKING_MODE_DEFAULT_VERSION
+                ? coerceAssistantWorkingMode(parsed.assistantWorkingMode)
+                : DEFAULT_ASSISTANT_WORKING_MODE,
             memoryEnabled: parsed.memoryEnabled !== false,
             syncMode: parsed.syncMode === "on" ? "on" : "off",
             dictationShortcut: typeof parsed.dictationShortcut === "string"

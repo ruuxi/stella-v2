@@ -217,6 +217,14 @@ const invokeBrowserFetch = async <T>(
 type BrowserViewState = {
   connection: "checking" | "disconnected" | "connected";
   profileName?: string;
+  visibleOwnerId: string;
+  owners: Array<{
+    id: string;
+    kind: "manual" | "agent";
+    tabCount: number;
+    activeTabId?: string;
+    latest: boolean;
+  }>;
   tabs: Array<{
     id: string;
     url: string;
@@ -1576,22 +1584,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
       invokeIpc<BrowserViewState>("browserView:connect", payload),
     show: (payload: BrowserViewLayout) =>
       invokeIpc<BrowserViewState>("browserView:show", payload),
+    setVisibleOwner: (payload: { ownerId: string }) =>
+      invokeIpc<BrowserViewState>("browserView:setVisibleOwner", payload),
     setLayout: (payload: BrowserViewLayout) =>
       invokeIpc<BrowserViewState>("browserView:setLayout", payload),
     hide: () => invokeIpc<BrowserViewState>("browserView:hide"),
     createTab: (payload: { url?: string } = {}) =>
       invokeIpc<BrowserViewState>("browserView:createTab", payload),
-    selectTab: (payload: { tabId: string }) =>
+    selectTab: (payload: { tabId: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:selectTab", payload),
-    closeTab: (payload: { tabId: string }) =>
+    closeTab: (payload: { tabId: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:closeTab", payload),
-    navigate: (payload: { tabId: string; url: string }) =>
+    navigate: (payload: { tabId: string; url: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:navigate", payload),
-    goBack: (payload: { tabId: string }) =>
+    goBack: (payload: { tabId: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:goBack", payload),
-    goForward: (payload: { tabId: string }) =>
+    goForward: (payload: { tabId: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:goForward", payload),
-    reload: (payload: { tabId: string }) =>
+    reload: (payload: { tabId: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:reload", payload),
     requestExtensionConnect: () =>
       invokeIpc<BrowserViewState>("browserView:requestExtensionConnect"),

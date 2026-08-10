@@ -308,9 +308,9 @@ describe("InAppBrowserService", () => {
     const harness = createHarness(status);
 
     const initial = await harness.service.getState();
-    expect(initial).toEqual({ connection: "disconnected", tabs: [] });
+    expect(initial).toMatchObject({ connection: "disconnected", tabs: [] });
     const automatic = await harness.service.connect();
-    expect(automatic).toEqual({ connection: "disconnected", tabs: [] });
+    expect(automatic).toMatchObject({ connection: "disconnected", tabs: [] });
     expect(harness.openExtensionStore).not.toHaveBeenCalled();
 
     const explicit = await harness.service.requestExtensionConnect();
@@ -386,6 +386,23 @@ describe("InAppBrowserService", () => {
     expect(harness.service.listDebuggerTargets("owner-b")).toEqual([
       expect.objectContaining({ id: ownerBTarget.id }),
     ]);
+    expect(await harness.service.getState()).toMatchObject({
+      visibleOwnerId: "stella:manual",
+      owners: [
+        expect.objectContaining({
+          id: "stella:manual",
+          kind: "manual",
+          tabCount: 1,
+        }),
+        expect.objectContaining({ id: "owner-a", kind: "agent", tabCount: 1 }),
+        expect.objectContaining({
+          id: "owner-b",
+          kind: "agent",
+          tabCount: 1,
+          latest: true,
+        }),
+      ],
+    });
     expect(harness.addChildView).toHaveBeenCalledTimes(1);
     expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[0]);
 
@@ -425,6 +442,7 @@ describe("InAppBrowserService", () => {
       pageBounds: { x: 0, y: 0, width: 800, height: 600 },
     });
     expect(shown.activeTabId).toBe(agent.id);
+    expect(shown.visibleOwnerId).toBe("owner-a");
     expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[0]);
 
     const manual = await harness.service.createTab({
@@ -432,6 +450,69 @@ describe("InAppBrowserService", () => {
     });
     expect(manual.activeTabId).toBe("tab-2");
     expect(harness.addChildView).toHaveBeenLastCalledWith(harness.views[1]);
+  });
+
+  it("keeps an explicitly selected agent owner visible across panel reopen", async () => {
+    const harness = createHarness(async () => true);
+    const ownerA = await harness.service.createDebuggerTarget(
+      "https://agent-a.example",
+      "owner-a",
+    );
+    await harness.service.createDebuggerTarget(
+      "https://agent-b.example",
+      "owner-b",
+    );
+    const layout = {
+      surfaceBounds: { x: 0, y: 0, width: 800, height: 600 },
+      pageBounds: { x: 0, y: 0, width: 800, height: 600 },
+    };
+    expect((await harness.service.show(layout)).visibleOwnerId).toBe("owner-b");
+
+    expect(harness.service.setVisibleOwner("owner-a")).toMatchObject({
+      visibleOwnerId: "owner-a",
+      activeTabId: ownerA.id,
+    });
+    await harness.service.hide();
+    expect(await harness.service.show(layout)).toMatchObject({
+      visibleOwnerId: "owner-a",
+      activeTabId: ownerA.id,
+    });
+  });
+
+  it("scopes page errors to their browser owner", async () => {
+    const harness = createHarness(async () => true);
+    await harness.service.connect();
+    await harness.service.createDebuggerTarget(
+      "https://agent-a.example",
+      "owner-a",
+    );
+    await harness.service.createDebuggerTarget(
+      "https://agent-b.example",
+      "owner-b",
+    );
+    harness.service.setVisibleOwner("owner-a");
+
+    harness.views[0]?.webContents.emit(
+      "render-process-gone",
+      {},
+      {
+        reason: "crashed",
+      },
+    );
+    expect(await harness.service.getState()).toMatchObject({
+      visibleOwnerId: "owner-a",
+      error: "Browser page stopped: crashed.",
+    });
+
+    const ownerB = harness.service.setVisibleOwner("owner-b");
+    expect(ownerB.visibleOwnerId).toBe("owner-b");
+    expect(ownerB.error).toBeUndefined();
+    expect(harness.service.setVisibleOwner("owner-a").error).toBe(
+      "Browser page stopped: crashed.",
+    );
+
+    harness.views[0]?.webContents.emit("did-start-loading");
+    expect((await harness.service.getState()).error).toBeUndefined();
   });
 
   it("reference-counts hidden drawable mounts and restores visible mounts safely", async () => {

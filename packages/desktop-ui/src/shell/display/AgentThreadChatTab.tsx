@@ -35,9 +35,126 @@ const roleLabelKey = (role: AgentThreadMessageRecord["role"]): string => {
       return "shell.display.agentThread.role.user";
     case "assistant":
       return "shell.display.agentThread.role.assistant";
+    case "reasoning":
+      return "shell.display.agentThread.role.reasoning";
+    case "tool":
+      return "shell.display.agentThread.role.tool";
+    case "checkpoint":
+      return "shell.display.agentThread.role.checkpoint";
     case "lifecycle":
       return "shell.display.agentThread.role.lifecycle";
   }
+};
+
+const compactPreview = (value: string, maxChars = 120): string => {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > maxChars
+    ? `${compact.slice(0, maxChars).trimEnd()}…`
+    : compact;
+};
+
+const ReasoningTranscriptItem = ({
+  message,
+  cacheKey,
+}: {
+  message: AgentThreadMessageRecord;
+  cacheKey: string;
+}) => {
+  const t = useT();
+  return (
+    <details className="agent-thread-chat__trace" data-trace-kind="reasoning">
+      <summary>
+        <span className="agent-thread-chat__trace-title">
+          {t("shell.display.agentThread.role.reasoning")}
+        </span>
+        <span className="agent-thread-chat__trace-preview">
+          {compactPreview(message.content)}
+        </span>
+      </summary>
+      <div className="agent-thread-chat__trace-body">
+        <Markdown
+          text={message.content}
+          cacheKey={cacheKey}
+          hideHorizontalRules
+        />
+      </div>
+    </details>
+  );
+};
+
+const ToolTranscriptItem = ({
+  message,
+}: {
+  message: AgentThreadMessageRecord;
+}) => {
+  const t = useT();
+  const activity = message.toolActivity;
+  if (!activity) return null;
+  const statusKey =
+    activity.status === "running"
+      ? "shell.display.agentThread.status.running"
+      : activity.status === "completed"
+        ? "shell.display.agentThread.status.completed"
+        : "shell.display.agentThread.status.error";
+  return (
+    <details
+      className="agent-thread-chat__trace"
+      data-trace-kind="tool"
+      data-tool-status={activity.status}
+    >
+      <summary>
+        <span className="agent-thread-chat__trace-title">
+          {activity.toolName}
+        </span>
+        <span className="agent-thread-chat__tool-status">{t(statusKey)}</span>
+      </summary>
+      <div className="agent-thread-chat__trace-body agent-thread-chat__tool-details">
+        {activity.input ? (
+          <section>
+            <span>{t("shell.display.agentThread.toolInput")}</span>
+            <pre>{activity.input}</pre>
+          </section>
+        ) : null}
+        {activity.output ? (
+          <section>
+            <span>{t("shell.display.agentThread.toolOutput")}</span>
+            <pre>{activity.output}</pre>
+          </section>
+        ) : activity.status === "running" ? (
+          <p>{t("shell.display.agentThread.toolRunning")}</p>
+        ) : null}
+      </div>
+    </details>
+  );
+};
+
+const CheckpointTranscriptItem = ({
+  message,
+  cacheKey,
+}: {
+  message: AgentThreadMessageRecord;
+  cacheKey: string;
+}) => {
+  const t = useT();
+  return (
+    <details className="agent-thread-chat__trace" data-trace-kind="checkpoint">
+      <summary>
+        <span className="agent-thread-chat__trace-title">
+          {t("shell.display.agentThread.role.checkpoint")}
+        </span>
+        <span className="agent-thread-chat__trace-preview">
+          {compactPreview(message.content)}
+        </span>
+      </summary>
+      <div className="agent-thread-chat__trace-body">
+        <Markdown
+          text={message.content}
+          cacheKey={cacheKey}
+          hideHorizontalRules
+        />
+      </div>
+    </details>
+  );
 };
 
 const ThreadLifecycleCard = ({
@@ -480,6 +597,18 @@ export function AgentThreadChatTab({
                     index={lifecycleIndex}
                     conversationId={conversationId}
                     modelConfigByThread={modelConfigByThread}
+                  />
+                ) : message.role === "reasoning" ? (
+                  <ReasoningTranscriptItem
+                    message={message}
+                    cacheKey={message.entryId ?? `${threadId}:${index}`}
+                  />
+                ) : message.role === "tool" ? (
+                  <ToolTranscriptItem message={message} />
+                ) : message.role === "checkpoint" ? (
+                  <CheckpointTranscriptItem
+                    message={message}
+                    cacheKey={message.entryId ?? `${threadId}:${index}`}
                   />
                 ) : (
                   <>

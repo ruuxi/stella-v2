@@ -11,6 +11,14 @@ import {
 type BrowserState = {
   connection: "checking" | "disconnected" | "connected";
   profileName?: string;
+  visibleOwnerId: string;
+  owners: Array<{
+    id: string;
+    kind: "manual" | "agent";
+    tabCount: number;
+    activeTabId?: string;
+    latest: boolean;
+  }>;
   tabs: Array<{
     id: string;
     url: string;
@@ -27,6 +35,11 @@ const mocks = vi.hoisted(() => ({
   activeSection: "browser",
   panelOpen: true,
   uiState: new Map<string, string>(),
+  tasks: [] as Array<{ id: string; description: string; agentType: string }>,
+}));
+
+vi.mock("@/context/use-chat-runtime", () => ({
+  useChatRuntime: () => ({ conversation: { tasks: mocks.tasks } }),
 }));
 
 vi.mock("@/features/workspace-display/sidebar-sections", () => ({
@@ -43,24 +56,51 @@ vi.mock("@/platform/ui-state", () => ({
   },
 }));
 
-const { BrowserSection } = await import(
-  "@/shell/sidebar-sections/BrowserSection"
-);
+const { BrowserSection } =
+  await import("@/shell/sidebar-sections/BrowserSection");
 
 const disconnectedState: BrowserState = {
   connection: "disconnected",
+  visibleOwnerId: "stella:manual",
+  owners: [
+    {
+      id: "stella:manual",
+      kind: "manual",
+      tabCount: 0,
+      latest: false,
+    },
+  ],
   tabs: [],
 };
 
 const connectedState: BrowserState = {
   connection: "connected",
   profileName: "Personal",
+  visibleOwnerId: "stella:manual",
+  owners: [
+    {
+      id: "stella:manual",
+      kind: "manual",
+      tabCount: 0,
+      latest: false,
+    },
+  ],
   tabs: [],
 };
 
 const activeState: BrowserState = {
   connection: "connected",
   profileName: "Personal",
+  visibleOwnerId: "stella:manual",
+  owners: [
+    {
+      id: "stella:manual",
+      kind: "manual",
+      tabCount: 1,
+      activeTabId: "tab-1",
+      latest: false,
+    },
+  ],
   activeTabId: "tab-1",
   tabs: [
     {
@@ -88,6 +128,7 @@ describe("BrowserSection", () => {
     mocks.activeSection = "browser";
     mocks.panelOpen = true;
     mocks.uiState.clear();
+    mocks.tasks = [];
     mocks.uiState.set(BROWSER_SELECTION_KEY, "brave");
     mocks.uiState.set(BROWSER_PROFILE_KEY, "profile-1");
     state = disconnectedState;
@@ -96,6 +137,7 @@ describe("BrowserSection", () => {
       getState: vi.fn(async () => state),
       connect: vi.fn(async () => state),
       show: vi.fn(async () => state),
+      setVisibleOwner: vi.fn(async () => state),
       setLayout: vi.fn(async () => state),
       hide: vi.fn(async () => state),
       createTab: vi.fn(async () => state),
@@ -185,12 +227,17 @@ describe("BrowserSection", () => {
     expect(api.connect).toHaveBeenCalledTimes(2);
   });
 
-  it("shows a quiet connected state until a browser tab exists", async () => {
+  it("offers a manual tab when the connected browser is empty", async () => {
     state = connectedState;
     await render();
 
     expect(container.textContent).toContain("Browser connected");
     expect(container.textContent).toContain("Personal");
+    const newTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Open a new tab"),
+    );
+    await act(async () => newTab?.click());
+    expect(api.createTab).toHaveBeenCalledWith({});
     expect(api.show).not.toHaveBeenCalled();
   });
 
@@ -217,8 +264,79 @@ describe("BrowserSection", () => {
         .querySelector<HTMLButtonElement>('button[aria-label="New tab"]')
         ?.click();
     });
-    expect(api.reload).toHaveBeenCalledWith({ tabId: "tab-1" });
+    expect(api.reload).toHaveBeenCalledWith({
+      tabId: "tab-1",
+      ownerId: "stella:manual",
+    });
     expect(api.createTab).toHaveBeenCalledWith({});
+  });
+
+  it("discovers the latest isolated agent browser and labels it from Activity", async () => {
+    const agentOwnerId = "general-task-agent-1";
+    mocks.tasks = [
+      {
+        id: "agent-1",
+        description: "Retry App Store preparation",
+        agentType: "general",
+      },
+    ];
+    const agentState: BrowserState = {
+      connection: "connected",
+      profileName: "Personal",
+      visibleOwnerId: agentOwnerId,
+      owners: [
+        {
+          id: "stella:manual",
+          kind: "manual",
+          tabCount: 0,
+          latest: false,
+        },
+        {
+          id: agentOwnerId,
+          kind: "agent",
+          tabCount: 1,
+          activeTabId: "agent-tab",
+          latest: true,
+        },
+      ],
+      activeTabId: "agent-tab",
+      tabs: [
+        {
+          id: "agent-tab",
+          url: "https://appstoreconnect.apple.com",
+          title: "App Store Connect",
+          loading: false,
+          canGoBack: false,
+          canGoForward: false,
+        },
+      ],
+    };
+    state = {
+      ...connectedState,
+      owners: agentState.owners,
+    };
+    api.setVisibleOwner.mockImplementation(async () => {
+      state = agentState;
+      return agentState;
+    });
+
+    await render();
+
+    expect(api.setVisibleOwner).toHaveBeenCalledWith({
+      ownerId: agentOwnerId,
+    });
+    expect(container.textContent).toContain("Retry App Store preparation (1)");
+    expect(container.textContent).toContain("App Store Connect");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Reload page"]')
+        ?.click();
+    });
+    expect(api.reload).toHaveBeenCalledWith({
+      tabId: "agent-tab",
+      ownerId: agentOwnerId,
+    });
   });
 
   it("uses the full page width when the resize handle is hidden", async () => {

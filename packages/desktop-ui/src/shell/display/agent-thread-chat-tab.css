@@ -137,6 +137,113 @@
   margin: 0 2px 4px 0;
 }
 
+.agent-thread-chat__trace {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--border) 84%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--card) 70%, transparent);
+}
+
+.agent-thread-chat__trace > summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--text-weak);
+  cursor: default;
+  font-size: var(--font-size-xs);
+  list-style: none;
+}
+
+.agent-thread-chat__trace > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-thread-chat__trace > summary::before {
+  content: "›";
+  color: var(--text-weak);
+  font-size: 15px;
+  line-height: 1;
+  transform-origin: center;
+}
+
+.agent-thread-chat__trace[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.agent-thread-chat__trace[open] > summary {
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 84%, transparent);
+}
+
+.agent-thread-chat__trace-title {
+  color: var(--text-base);
+  font-weight: 550;
+}
+
+.agent-thread-chat__trace-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-chat__trace-body {
+  max-height: 420px;
+  overflow: auto;
+  padding: 10px 12px;
+  color: var(--text-base);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.agent-thread-chat__tool-status {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-thread-chat__trace[data-tool-status="error"]
+  .agent-thread-chat__tool-status {
+  color: var(--destructive);
+}
+
+.agent-thread-chat__tool-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-thread-chat__tool-details section {
+  min-width: 0;
+}
+
+.agent-thread-chat__tool-details section > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+}
+
+.agent-thread-chat__tool-details pre {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  color: var(--text-base);
+  font: 11px/1.45 var(--font-mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-thread-chat__tool-details p {
+  margin: 0;
+  color: var(--text-weak);
+}
+
 .agent-thread-chat__state {
   min-height: 160px;
   display: flex;

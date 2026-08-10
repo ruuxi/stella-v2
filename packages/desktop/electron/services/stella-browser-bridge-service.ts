@@ -185,6 +185,25 @@ type AgentBackendRecord = StellaBrowserAgentCapability &
     process: ChildProcess;
   }>;
 
+type AgentOwnerLeaseOrder = Readonly<{
+  ownerLeaseIssuedAt: number;
+  ownerLeaseId: string;
+}>;
+
+const compareAgentOwnerLeaseOrder = (
+  left: AgentOwnerLeaseOrder,
+  right: AgentOwnerLeaseOrder,
+): number => {
+  if (left.ownerLeaseIssuedAt !== right.ownerLeaseIssuedAt) {
+    return left.ownerLeaseIssuedAt < right.ownerLeaseIssuedAt ? -1 : 1;
+  }
+  if (left.ownerLeaseId === right.ownerLeaseId) return 0;
+  return Buffer.compare(
+    Buffer.from(left.ownerLeaseId, "utf8"),
+    Buffer.from(right.ownerLeaseId, "utf8"),
+  );
+};
+
 type DaemonResponse = {
   success?: boolean;
   error?: string;
@@ -218,6 +237,14 @@ export class StellaBrowserBridgeService {
   private launchPromise: Promise<void> | null = null;
   private readonly controlToken = randomUUID();
   private readonly agentBackends = new Map<string, AgentBackendRecord>();
+  private readonly agentOwnerLeaseHighWater = new Map<
+    string,
+    Readonly<{
+      ownerLeaseIssuedAt: number;
+      ownerLeaseId: string;
+      turnId: string;
+    }>
+  >();
   private readonly agentBackendLaunches = new Map<
     string,
     Readonly<{
@@ -356,6 +383,32 @@ export class StellaBrowserBridgeService {
     if (!normalizedUrl) throw new Error("A CDP URL is required.");
     const backendGeneration = this.agentBackendGeneration;
 
+    // The process map is intentionally ephemeral: a daemon may exit after a
+    // transport error. Lease fencing must outlive that process record so an
+    // older worker cannot reclaim the durable owner's capability afterward.
+    const highWater = this.agentOwnerLeaseHighWater.get(ownerId);
+    if (highWater) {
+      const order = compareAgentOwnerLeaseOrder(
+        { ownerLeaseIssuedAt, ownerLeaseId },
+        highWater,
+      );
+      if (order < 0) {
+        throw new Error(
+          "A newer browser session already owns this agent backend.",
+        );
+      }
+      if (order === 0 && turnId !== highWater.turnId) {
+        throw new Error(
+          "A conflicting browser lease already owns this agent backend generation.",
+        );
+      }
+    }
+    this.agentOwnerLeaseHighWater.set(ownerId, {
+      ownerLeaseIssuedAt,
+      ownerLeaseId,
+      turnId,
+    });
+
     const inFlight = this.agentBackendLaunches.get(ownerId);
     if (
       inFlight?.ownerLeaseId === ownerLeaseId &&
@@ -380,7 +433,13 @@ export class StellaBrowserBridgeService {
       ) {
         return agentBackendResult(existing);
       }
-      if (existing && ownerLeaseIssuedAt < existing.ownerLeaseIssuedAt) {
+      if (
+        existing &&
+        compareAgentOwnerLeaseOrder(
+          { ownerLeaseIssuedAt, ownerLeaseId },
+          existing,
+        ) < 0
+      ) {
         throw new Error(
           "A newer browser session already owns this agent backend.",
         );
@@ -393,12 +452,23 @@ export class StellaBrowserBridgeService {
         ownerLeaseIssuedAt,
         cdpUrl: normalizedUrl,
       });
+      const latestLease = this.agentOwnerLeaseHighWater.get(ownerId);
       if (
-        this.stopped ||
-        this.agentBackendGeneration !== backendGeneration
+        !latestLease ||
+        latestLease.ownerLeaseIssuedAt !== ownerLeaseIssuedAt ||
+        latestLease.ownerLeaseId !== ownerLeaseId ||
+        latestLease.turnId !== turnId
       ) {
         await this.stopAgentBackend(next);
-        throw new Error("Browser bridge restarted during agent initialization.");
+        throw new Error(
+          "A newer browser session superseded this agent backend during initialization.",
+        );
+      }
+      if (this.stopped || this.agentBackendGeneration !== backendGeneration) {
+        await this.stopAgentBackend(next);
+        throw new Error(
+          "Browser bridge restarted during agent initialization.",
+        );
       }
       this.agentBackends.set(ownerId, next);
       return agentBackendResult(next);
@@ -445,21 +515,20 @@ export class StellaBrowserBridgeService {
     this.resetCdpRouting();
     this.agentBackendGeneration += 1;
 
-    await Promise.allSettled(
-      [
-        ...Array.from(this.agentBackends.values(), (backend) =>
-          this.stopAgentBackend(backend),
+    await Promise.allSettled([
+      ...Array.from(this.agentBackends.values(), (backend) =>
+        this.stopAgentBackend(backend),
+      ),
+      ...Array.from(this.agentBackendLaunches.values(), ({ promise }) =>
+        promise.then(
+          () => undefined,
+          () => undefined,
         ),
-        ...Array.from(this.agentBackendLaunches.values(), ({ promise }) =>
-          promise.then(
-            () => undefined,
-            () => undefined,
-          ),
-        ),
-      ],
-    );
+      ),
+    ]);
     this.agentBackends.clear();
     this.agentBackendLaunches.clear();
+    this.agentOwnerLeaseHighWater.clear();
 
     const closePromise = this.sendCommand({
       id: randomUUID(),
@@ -662,6 +731,11 @@ export class StellaBrowserBridgeService {
           action: "launch",
           cdpUrl: input.cdpUrl,
           controlToken,
+          ownerId: input.ownerId,
+          sessionId: input.ownerId,
+          turnId: input.turnId,
+          ownerLeaseId: input.ownerLeaseId,
+          ownerLeaseIssuedAt: input.ownerLeaseIssuedAt,
         },
         COMMAND_TIMEOUT_MS,
       );

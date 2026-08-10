@@ -32,7 +32,7 @@ import {
 } from "@/app/apps/user-app-library";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { useChatRuntime } from "@/context/use-chat-runtime";
-import { useT, useTPlural } from "@/shared/i18n";
+import { useTPlural } from "@/shared/i18n";
 import { useUiState } from "@/context/ui-state";
 import {
   useConversationSchedules,
@@ -70,7 +70,6 @@ import {
   type ActivityRow,
   type TaskItem,
 } from "@/features/chat/lib/event-transforms";
-import { bucketActivityRowsByRecency } from "@/features/chat/lib/activity-recency-buckets";
 import {
   deriveConversationFiles,
   type ConversationFileEntry,
@@ -708,7 +707,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
    *  dismiss itself. */
   onNavigate?: () => void;
 } = {}) {
-  const t = useT();
   const chat = useChatRuntime();
   const { state } = useUiState();
 
@@ -1038,20 +1036,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     },
     [caps.activity, quickSearch, runningRows, visibleDoneRows],
   );
-  // Finished rows are grouped under calendar headings (Today / Yesterday /
-  // This week / This month / Older) so a long history reads as dated runs
-  // instead of one flat column. Running rows stay pinned above every heading —
-  // they have no completion time to bucket by — and a search result set stays
-  // flat, since relevance ordering is what matters there.
-  // `nowMs` changes every render and would hand each list a fresh array (and
-  // defeat the memoized rows); bucket edges are calendar boundaries, so a
-  // minute-stable clock is more than precise enough.
-  const bucketNowMs = Math.floor(nowMs / 60_000) * 60_000;
-  const doneRowBuckets = useMemo(
-    () =>
-      searching ? [] : bucketActivityRowsByRecency(visibleDoneRows, bucketNowMs),
-    [bucketNowMs, searching, visibleDoneRows],
-  );
   const visibleFiles = useMemo(
     () => filteredFiles.slice(0, caps.files),
     [caps.files, filteredFiles],
@@ -1121,50 +1105,15 @@ export const WorkspaceSections = memo(function WorkspaceSections({
             sectionId="activity"
             hideHeader
           >
-            {searching ? (
-              <TasksList
-                rows={visibleActivityRows}
-                isTaskExpanded={isTaskExpanded}
-                isCompactTaskExpanded={isCompactTaskExpanded}
-                onToggleTask={toggleTask}
-                onSelectTask={handleSelectTask}
-                agentFiles={agentFiles}
-                onOpenFile={handleOpenFile}
-              />
-            ) : (
-              <>
-                {runningRows.length > 0 ? (
-                  <TasksList
-                    rows={runningRows}
-                    isTaskExpanded={isTaskExpanded}
-                    isCompactTaskExpanded={isCompactTaskExpanded}
-                    onToggleTask={toggleTask}
-                    onSelectTask={handleSelectTask}
-                    agentFiles={agentFiles}
-                    onOpenFile={handleOpenFile}
-                  />
-                ) : null}
-                {doneRowBuckets.map((bucket) => (
-                  <div
-                    key={bucket.id}
-                    className="chat-workspace-strip__recency-group"
-                  >
-                    <h3 className="chat-workspace-strip__recency-heading">
-                      {t(`shell.workspace.recency.${bucket.id}`)}
-                    </h3>
-                    <TasksList
-                      rows={bucket.rows}
-                      isTaskExpanded={isTaskExpanded}
-                      isCompactTaskExpanded={isCompactTaskExpanded}
-                      onToggleTask={toggleTask}
-                      onSelectTask={handleSelectTask}
-                      agentFiles={agentFiles}
-                      onOpenFile={handleOpenFile}
-                    />
-                  </div>
-                ))}
-              </>
-            )}
+            <TasksList
+              rows={visibleActivityRows}
+              isTaskExpanded={isTaskExpanded}
+              isCompactTaskExpanded={isCompactTaskExpanded}
+              onToggleTask={toggleTask}
+              onSelectTask={handleSelectTask}
+              agentFiles={agentFiles}
+              onOpenFile={handleOpenFile}
+            />
           </WorkspaceSection>
         )}
 

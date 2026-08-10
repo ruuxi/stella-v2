@@ -18,6 +18,9 @@ export type VoiceMode = "idle" | "listening" | "speaking";
 export interface StellaAnimationProps {
   width?: number;
   height?: number;
+  /** CSS footprint; backing resolution remains cell-derived for supersampling. */
+  displayWidth?: number;
+  displayHeight?: number;
   initialBirthProgress?: number;
   paused?: boolean;
   maxDpr?: number;

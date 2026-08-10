@@ -47,4 +47,16 @@ describe("chat scroll performance contract", () => {
     expect(compactChat).toContain("useDeferredChatMessages(");
     expect(compactChat).toContain("scroll.isUserScrolling,");
   });
+
+  it("keeps send and turn reframes on the same gentle path across platforms", () => {
+    const hook = readSource("src/shell/use-chat-scroll-management.ts");
+
+    expect(hook).not.toContain("prefersReducedMotion");
+    expect(hook).not.toContain('getAttribute("data-reduce-motion")');
+    expect(hook).toContain("const gentle = Boolean(options.gentle)");
+    expect(hook).toContain("if (followGentle)");
+    expect(hook).toContain(
+      "setTarget(target, { allowBackward: true, gentle: true })",
+    );
+  });
 });

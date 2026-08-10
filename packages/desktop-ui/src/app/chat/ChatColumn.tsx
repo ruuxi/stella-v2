@@ -181,8 +181,9 @@ export const ChatColumn = memo(function ChatColumn({
   // Pre-warm the working-indicator aurora's WebGL context during idle, so
   // the first message send doesn't pay the cold ~200ms GL spin-up (context +
   // shader compile) on the main thread. Matches the indicator's exact size
-  // (see WorkingIndicator: 10x7.15, maxDpr 1) so the pooled renderer's key
-  // lines up and the real mount reuses it. Runs once per chat surface.
+  // (see WorkingIndicator: 10x7.15 rendered into a 30x30 CSS footprint at
+  // maxDpr 1) so the pooled renderer's key lines up and the real mount reuses
+  // it. Runs once per chat surface.
   useEffect(() => {
     const scheduleIdle =
       window.requestIdleCallback ??
@@ -195,7 +196,13 @@ export const ChatColumn = memo(function ChatColumn({
       window.cancelIdleCallback ??
       ((handle: number) => window.clearTimeout(handle));
     const handle = scheduleIdle(() =>
-      prewarmAurora({ width: 10, height: 7.15, maxDpr: 1 }),
+      prewarmAurora({
+        width: 10,
+        height: 7.15,
+        displayWidth: 30,
+        displayHeight: 30,
+        maxDpr: 1,
+      }),
     );
     return () => cancelIdle(handle as number);
   }, []);

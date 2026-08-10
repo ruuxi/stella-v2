@@ -51,9 +51,11 @@ export function WorkingIndicator({
       <div className="indicator-stella">
         <div className="indicator-stella-scale">
           {/* 10×7.15 cells × the 5×7px cell metric → a square 125×125
-              canvas, which .indicator-stella-scale shrinks to exactly the
-              30px slot. The canvas must never overflow the slot: ancestor
-              containers in the chat layout clip overflow with hard edges.
+              backing buffer displayed in a native 30×30 CSS footprint.
+              Keeping the display size on the canvas itself avoids putting an
+              oversized, transformed WebGL layer into the Windows compositor.
+              The canvas must never overflow the slot: ancestor containers in
+              the chat layout clip overflow with hard edges.
               Keep these dims in sync with `prewarmAurora` in ChatColumn —
               they form the pooled renderer's key, and a mismatch means the
               prewarmed context goes unused.
@@ -68,6 +70,8 @@ export function WorkingIndicator({
           <StellaAnimation
             width={10}
             height={7.15}
+            displayWidth={30}
+            displayHeight={30}
             maxDpr={1}
             /* 15fps left the churn reading as discrete steps at this size.
                The orb's move to three noise octaves (see `fbmCoarse`) pays

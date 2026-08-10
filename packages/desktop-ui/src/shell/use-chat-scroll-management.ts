@@ -56,7 +56,6 @@ import {
   type HistoryScrollDirection,
 } from "@/shell/chat-history-pagination";
 
-
 const SCROLL_BUTTON_THRESHOLD = 180;
 const THUMB_MIN_HEIGHT = 24;
 const THUMB_FADE_MS = 1200;
@@ -137,23 +136,6 @@ const FOLLOW_REARM_EXTRA_PX = 24;
 /** Re-arm stream auto-follow after scroll-up within the footer stack below the last message. */
 const followRearmThresholdPx = (trailingRegionMinPx: number): number =>
   trailingRegionMinPx + FOLLOW_REARM_EXTRA_PX;
-
-/**
- * Resolved reduce-motion state. Prefer the `data-reduce-motion` attribute
- * written by `interface-preferences` (covers the in-app override as well as
- * the OS setting); fall back to the media query if the attribute hasn't
- * been applied yet. Gentle one-shot reframes land instantly under reduced
- * motion; the continuous stream-follow is position tracking, not a
- * decorative transition, so it is unaffected.
- */
-const prefersReducedMotion = (): boolean => {
-  if (typeof document === "undefined") return false;
-  const attr = document.documentElement.getAttribute("data-reduce-motion");
-  if (attr) return attr === "reduce";
-  return (
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
-  );
-};
 
 /**
  * Turn identity (`userMessageId`) embedded in an assistant scroll-follow
@@ -973,18 +955,10 @@ export function useChatScrollManagement({
           return;
         }
         const gentle = Boolean(options.gentle);
-        // Reduced motion: gentle one-shot reframes land instantly instead
-        // of easing (the animation is the point of `gentle`, so there is
-        // nothing slower to fall back to).
-        if (gentle && prefersReducedMotion()) {
-          attached.scrollTop = clamped;
-          followTarget = null;
-          followGentle = false;
-          followVel = 0;
-          lastFrameTime = 0;
-          turnStartGlide = false;
-          return;
-        }
+        // Scroll placement is functional continuity rather than decorative
+        // motion. Always use the same gentle send/turn reframe on every OS;
+        // letting Windows' system animation setting replace this with a direct
+        // scrollTop write made sends feel rigid compared with macOS.
         // Switching from a warm spring glide into a gentle one-shot (or
         // vice versa) shouldn't carry stale velocity between the two
         // motion profiles.

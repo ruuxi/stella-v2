@@ -34,6 +34,8 @@ export const StellaAnimation = React.forwardRef(
     {
       width = 80,
       height = 40,
+      displayWidth,
+      displayHeight,
       initialBirthProgress = 1,
       paused = false,
       maxDpr,
@@ -164,6 +166,8 @@ export const StellaAnimation = React.forwardRef(
       const spec = resolveAuroraSpec(container, {
         width,
         height,
+        displayWidth,
+        displayHeight,
         maxDpr,
         variant,
       });
@@ -348,6 +352,8 @@ export const StellaAnimation = React.forwardRef(
     }, [
       width,
       height,
+      displayWidth,
+      displayHeight,
       externalAnalyserRef,
       externalOutputAnalyserRef,
       externalMicLevelSourceRef,

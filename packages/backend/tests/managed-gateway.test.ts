@@ -21,6 +21,29 @@ describe("managed gateway", () => {
     expect(config.apiKeyEnvVar).toBe("XAI_API_KEY");
   });
 
+  it("infers deepseek from the deepseek/ model prefix", () => {
+    expect(
+      inferManagedGatewayProviderFromModel("deepseek/deepseek-v4-flash"),
+    ).toBe("deepseek");
+    expect(
+      resolveManagedGatewayProvider({ model: "deepseek/deepseek-v4-flash" }),
+    ).toBe("deepseek");
+    // The Fireworks-hosted spelling must still route to Fireworks so a
+    // rollback needs no other change.
+    expect(
+      inferManagedGatewayProviderFromModel(
+        "accounts/fireworks/models/deepseek-v4-flash-0731",
+      ),
+    ).toBe("fireworks");
+  });
+
+  it("points DeepSeek at its root base URL with DEEPSEEK_API_KEY", () => {
+    const config = getManagedGatewayConfig("deepseek");
+    // No `/v1`: DeepSeek serves `/responses` and `/chat/completions` off root.
+    expect(config.baseURL).toBe("https://api.deepseek.com");
+    expect(config.apiKeyEnvVar).toBe("DEEPSEEK_API_KEY");
+  });
+
   it("infers meta from the meta/ model prefix", () => {
     expect(inferManagedGatewayProviderFromModel("meta/muse-spark-1.1")).toBe(
       "meta",

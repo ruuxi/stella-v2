@@ -3,7 +3,7 @@
  * to verify prompt caching is taking effect. Reads keys from this shell's
  * env; pre-export them via `bunx convex env get …` before running.
  *
- *   for k in ANTHROPIC_API_KEY OPENAI_API_KEY FIREWORKS_API_KEY GOOGLE_AI_API_KEY OPENROUTER_API_KEY; do
+ *   for k in ANTHROPIC_API_KEY OPENAI_API_KEY FIREWORKS_API_KEY DEEPSEEK_API_KEY GOOGLE_AI_API_KEY OPENROUTER_API_KEY; do
  *     export $k="$(cd backend && bunx convex env get $k 2>/dev/null)";
  *   done
  *   bun backend/scripts/verify-prompt-cache.ts
@@ -183,7 +183,35 @@ async function main() {
     console.log("\n⚠️  FIREWORKS_API_KEY not set — skipping Fireworks");
   }
 
-  // 5. OpenRouter Anthropic (cache_control passthrough)
+  // 5. DeepSeek direct via Responses (automatic prefix cache)
+  if (process.env.DEEPSEEK_API_KEY) {
+    const model = makeModel({
+      api: "openai-responses",
+      id: "deepseek-v4-flash",
+      // No `/v1` — DeepSeek serves /responses off the root.
+      baseUrl: "https://api.deepseek.com",
+      provider: "deepseek",
+      reasoning: true,
+    });
+    const runner = makeRunner({
+      run: () =>
+        streamOpenAIResponses(model, baseContext, {
+          apiKey: process.env.DEEPSEEK_API_KEY,
+          maxTokens: 64,
+          sessionId,
+        }),
+    });
+    results.push([
+      "deepseek / deepseek-v4-flash (responses)",
+      // DeepSeek's cache is automatic and prefix-keyed from token 0 — there is
+      // no cache-control param, so this is purely a prefix-stability check.
+      await runScenario("DeepSeek Responses (automatic prefix cache)", runner),
+    ]);
+  } else {
+    console.log("\n⚠️  DEEPSEEK_API_KEY not set — skipping DeepSeek");
+  }
+
+  // 6. OpenRouter Anthropic (cache_control passthrough)
   if (process.env.OPENROUTER_API_KEY) {
     const model = makeModel({
       api: "openai-completions",
@@ -204,7 +232,7 @@ async function main() {
     console.log("\n⚠️  OPENROUTER_API_KEY not set — skipping OpenRouter");
   }
 
-  // 6. Google Gemini (implicit caching)
+  // 7. Google Gemini (implicit caching)
   if (process.env.GOOGLE_AI_API_KEY) {
     const model = makeModel({
       api: "google-generative-ai",

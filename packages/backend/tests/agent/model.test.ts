@@ -14,8 +14,12 @@ import {
   resolveStellaModelSelection,
 } from "../../convex/stella_models";
 
-const FLASH_MODEL = "accounts/fireworks/models/deepseek-v4-flash-0731";
+const FLASH_MODEL = "deepseek/deepseek-v4-flash";
 const FLASH_SELECTION = `stella/${FLASH_MODEL}`;
+/** Pre-DeepSeek-direct spelling; still accepted, always coerced to the above. */
+const LEGACY_FIREWORKS_MODEL =
+  "accounts/fireworks/models/deepseek-v4-flash-0731";
+const LEGACY_FIREWORKS_SELECTION = `stella/${LEGACY_FIREWORKS_MODEL}`;
 const SYNTHESIS_MODEL = "google/gemini-3.6-flash";
 const IMAGE_DESCRIPTION_MODEL = "google/gemini-3.1-flash-lite";
 
@@ -25,12 +29,15 @@ describe("managed model config", () => {
       for (const mode of MODEL_MODES) {
         expect(getModeConfig(mode, audience)).toMatchObject({
           model: FLASH_MODEL,
-          managedGatewayProvider: "fireworks",
+          managedGatewayProvider: "deepseek",
           providerOptions: {
             openai: { reasoningEffort: "medium" },
-            gateway: { order: ["fireworks"] },
           },
         });
+        // No `gateway.order` — DeepSeek is a direct upstream, not a router.
+        expect(
+          getModeConfig(mode, audience).providerOptions?.gateway,
+        ).toBeUndefined();
         expect(getModeConfig(mode, audience).fallback).toBeUndefined();
       }
 
@@ -54,7 +61,7 @@ describe("managed model config", () => {
         model: SYNTHESIS_MODEL,
         fallback: FLASH_MODEL,
         managedGatewayProvider: "google",
-        fallbackManagedGatewayProvider: "fireworks",
+        fallbackManagedGatewayProvider: "deepseek",
         maxOutputTokens: 32768,
         providerOptions: { gateway: { order: ["google"] } },
       });
@@ -72,7 +79,7 @@ describe("managed model config", () => {
       expect(listStellaCatalogModels(audience)).toEqual([
         {
           id: FLASH_SELECTION,
-          name: "DeepSeek V4 Flash 0731",
+          name: "DeepSeek V4 Flash",
           provider: "stella",
           upstreamModel: FLASH_MODEL,
           type: "language",
@@ -93,6 +100,14 @@ describe("managed model config", () => {
     expect(resolveStellaModelSelection(FLASH_SELECTION, "pro")).toBe(
       FLASH_MODEL,
     );
+    // A preference saved while V4 Flash was on Fireworks stays valid, but
+    // resolves onto the active DeepSeek route rather than reviving Fireworks.
+    expect(resolveStellaModelSelection(LEGACY_FIREWORKS_SELECTION, "pro")).toBe(
+      FLASH_MODEL,
+    );
+    expect(
+      resolveStellaModelSelection(LEGACY_FIREWORKS_SELECTION, "free"),
+    ).toBe(FLASH_MODEL);
     for (const retiredSelection of [
       "stella/standard",
       "stella/designer",

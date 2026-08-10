@@ -169,10 +169,21 @@ describe("Stella relay route shape", () => {
   });
 
   it("OpenRouter relay: baseUrl, api, provider", () => {
-    const route = makeRoute("stella/deepseek/deepseek-v4-flash");
+    const route = makeRoute("stella/moonshotai/kimi-k2");
     const model = route!.model;
     expect(model.api).toBe("openai-completions");
     expect(model.provider).toBe("openrouter");
+    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+  });
+
+  it("DeepSeek relay uses the Responses API against the deepseek provider", () => {
+    const route = makeRoute("stella/deepseek/deepseek-v4-flash");
+    const model = route!.model;
+    expect(model.api).toBe("openai-responses");
+    expect(model.provider).toBe("deepseek");
+    expect(
+      (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
+    ).toBe("deepseek-v4-flash");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
@@ -180,37 +191,56 @@ describe("Stella relay route shape", () => {
     const route = makeRoute("stella/designer");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
-    expect(model.provider).toBe("fireworks");
+    expect(model.provider).toBe("deepseek");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
-  it("Stella alias (light) resolves to Fireworks relay", () => {
+  it("Stella alias (light) resolves to the DeepSeek relay", () => {
     const route = makeRoute("stella/light");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
-    expect(model.provider).toBe("fireworks");
+    expect(model.provider).toBe("deepseek");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
-  it("Stella default resolves to V4 Flash with xhigh mapped to its native maximum", () => {
+  it("Stella default resolves to V4 Flash with the native effort ladder", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
-    expect(model.provider).toBe("fireworks");
+    expect(model.provider).toBe("deepseek");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("accounts/fireworks/models/deepseek-v4-flash-0731");
-    expect(model.thinkingLevelMap?.xhigh).toBe("high");
+    ).toBe("deepseek-v4-flash");
+    // V4 Flash only understands low | high | max.
+    expect(model.thinkingLevelMap).toMatchObject({
+      minimal: "low",
+      low: "low",
+      medium: "high",
+      high: "high",
+      xhigh: "max",
+      off: "none",
+    });
   });
 
   it("Stella standard compatibility alias resolves to V4 Flash", () => {
     const route = makeRoute("stella/standard");
     const model = route!.model;
     expect(model.api).toBe("openai-responses");
-    expect(model.provider).toBe("fireworks");
+    expect(model.provider).toBe("deepseek");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("accounts/fireworks/models/deepseek-v4-flash-0731");
+    ).toBe("deepseek-v4-flash");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+  });
+
+  it("the retained Fireworks spelling still routes to the Fireworks relay", () => {
+    // Rollback safety: flipping DEEPSEEK_V4_FLASH_ROUTE back must not need a
+    // client change, so the client still knows how to route this id.
+    const route = makeRoute(
+      "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+    );
+    const model = route!.model;
+    expect(model.api).toBe("openai-responses");
+    expect(model.provider).toBe("fireworks");
   });
 });
 

@@ -239,6 +239,22 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text", "image"],
     modalitiesOutput: ["text"],
   },
+  // DeepSeek V4 Flash first-party rates: $0.14 cache-miss input / $0.28
+  // output, cached reads at $0.0028. models.dev already publishes these under
+  // `deepseek/deepseek-v4-flash`; this is only a fill-in so a models.dev
+  // outage can't fail the sync and drop the catalog to DEFAULT_TOKEN_PRICE.
+  // DeepSeek charges nothing to write the cache.
+  "deepseek/deepseek-v4-flash": {
+    sourceProvider: "deepseek",
+    sourceModelId: "deepseek-v4-flash",
+    inputPerMillionUsd: 0.14,
+    outputPerMillionUsd: 0.28,
+    cacheReadPerMillionUsd: 0.0028,
+    cacheWritePerMillionUsd: 0,
+    reasoningPerMillionUsd: 0.28,
+    modalitiesInput: ["text"],
+    modalitiesOutput: ["text"],
+  },
   // Gemini 3.6 Flash GA rates: $1.50 / $7.50 per 1M tokens, with cached
   // input at $0.15. Keep a static fill-in while models.dev catches up.
   "google/gemini-3.6-flash": {

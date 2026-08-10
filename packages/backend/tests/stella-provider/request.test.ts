@@ -281,8 +281,22 @@ describe("estimateRequestTokens", () => {
 
   it("charges a flat estimate for image parts across shapes", () => {
     for (const body of [
-      { messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "data:…" } }] }] },
-      { input: [{ role: "user", content: [{ type: "input_image", image_url: "data:…" }] }] },
+      {
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "image_url", image_url: { url: "data:…" } }],
+          },
+        ],
+      },
+      {
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_image", image_url: "data:…" }],
+          },
+        ],
+      },
       { contents: [{ role: "user", parts: [{ inlineData: { data: "…" } }] }] },
     ]) {
       expect(estimateRequestTokens(body).inputTokens).toBe(128);
@@ -311,10 +325,8 @@ describe("resolveRequestedStellaModel", () => {
     ] as const) {
       const resolved = resolveRequestedStellaModel("general", {}, audience);
       expect(resolved.requestedModel).toBe("stella/default");
-      expect(resolved.resolvedModel).toBe(
-        "accounts/fireworks/models/deepseek-v4-flash-0731",
-      );
-      expect(resolved.config.managedGatewayProvider).toBe("fireworks");
+      expect(resolved.resolvedModel).toBe("deepseek/deepseek-v4-flash");
+      expect(resolved.config.managedGatewayProvider).toBe("deepseek");
     }
   });
 
@@ -324,7 +336,7 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.resolvedModel).toBe(
       getModelConfig("orchestrator", "pro").model,
     );
-    expect(resolved.config.managedGatewayProvider).toBe("fireworks");
+    expect(resolved.config.managedGatewayProvider).toBe("deepseek");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
@@ -334,7 +346,7 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.resolvedModel).toBe(
       getModelConfig("chronicle", "pro").model,
     );
-    expect(resolved.config.managedGatewayProvider).toBe("fireworks");
+    expect(resolved.config.managedGatewayProvider).toBe("deepseek");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
@@ -353,9 +365,7 @@ describe("resolveRequestedStellaModel", () => {
         audience,
       );
       expect(resolved.requestedModel).toBe("stella/default");
-      expect(resolved.resolvedModel).toBe(
-        "google/gemini-3.1-flash-lite",
-      );
+      expect(resolved.resolvedModel).toBe("google/gemini-3.1-flash-lite");
       expect(resolved.config.managedGatewayProvider).toBe("google");
       expect(resolved.config.maxOutputTokens).toBe(4096);
     }
@@ -399,10 +409,8 @@ describe("resolveRequestedStellaModel", () => {
       "pro",
     );
     expect(resolved.requestedModel).toBe("stella/default");
-    expect(resolved.resolvedModel).toBe(
-      "accounts/fireworks/models/deepseek-v4-flash-0731",
-    );
-    expect(resolved.config.managedGatewayProvider).toBe("fireworks");
+    expect(resolved.resolvedModel).toBe("deepseek/deepseek-v4-flash");
+    expect(resolved.config.managedGatewayProvider).toBe("deepseek");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
@@ -417,10 +425,8 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.requestedModel).toBe(
       "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
     );
-    expect(resolved.resolvedModel).toBe(
-      "accounts/fireworks/models/deepseek-v4-flash-0731",
-    );
-    expect(resolved.config.managedGatewayProvider).toBe("fireworks");
+    expect(resolved.resolvedModel).toBe("deepseek/deepseek-v4-flash");
+    expect(resolved.config.managedGatewayProvider).toBe("deepseek");
   });
 
   it("coerces an override to the backend default for restricted audiences", () => {
@@ -490,17 +496,11 @@ describe("resolveRequestedStellaModel", () => {
     ] as const) {
       const flash = resolveRequestedStellaModel(
         "orchestrator",
-        {
-          model: "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
-        },
+        { model: "stella/deepseek/deepseek-v4-flash" },
         audience,
       );
-      expect(flash.requestedModel).toBe(
-        "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
-      );
-      expect(flash.resolvedModel).toBe(
-        "accounts/fireworks/models/deepseek-v4-flash-0731",
-      );
+      expect(flash.requestedModel).toBe("stella/deepseek/deepseek-v4-flash");
+      expect(flash.resolvedModel).toBe("deepseek/deepseek-v4-flash");
 
       for (const blockedModel of [
         "stella/standard",

@@ -70,20 +70,6 @@ describe("Stella prompt defaults", () => {
     }
   });
 
-  it("keeps official desktop conflict handling Git-only", () => {
-    const installUpdate = STELLA_PROMPT_DEFAULTS.prompts.find(
-      (prompt) => prompt.id === "agents/install_update.md",
-    )?.content;
-    expect(installUpdate).toBeDefined();
-    expect(installUpdate).toContain(
-      "git fetch --filter=blob:none --no-tags origin master",
-    );
-    expect(installUpdate).toContain("git rev-parse origin/master");
-    expect(installUpdate).toContain("Never merge an unverified commit.");
-    expect(installUpdate).not.toContain("source-pack");
-    expect(installUpdate).not.toContain("source pack");
-  });
-
   it("preserves the primary agent's app, access, and briefing invariants", () => {
     const orchestrator = STELLA_PROMPT_DEFAULTS.prompts.find(
       (prompt) => prompt.id === "agents/orchestrator.md",

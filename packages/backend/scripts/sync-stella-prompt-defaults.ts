@@ -16,17 +16,16 @@ const generatedPath = path.join(
 );
 const agentIds = [
   "orchestrator",
+  "orchestrator-orchestrated",
   "general",
   "schedule",
   "fashion",
   "social_session",
   "explore",
   "dream",
-  "install_update",
 ] as const;
 const promptIds = [
   "dream-scheduled",
-  "chronicle-summarizer",
   "memory-review",
   "thread-compaction",
   "fallback-orchestrator",

@@ -1769,6 +1769,9 @@
         "role": {
           "user": "Instruction",
           "assistant": "Agent",
+          "reasoning": "Raisonnement",
+          "tool": "Outil",
+          "checkpoint": "Point de contrôle du fil",
           "lifecycle": "Activité"
         },
         "status": {
@@ -1791,6 +1794,9 @@
         "badge": "Fil d’agent en lecture seule",
         "retrying": "Nouvelle tentative…",
         "empty": "Aucun message dans ce fil pour l’instant.",
+        "toolInput": "Entrée",
+        "toolOutput": "Sortie",
+        "toolRunning": "En attente de la fin de cet outil…",
         "newMessagesButton": {
           "one": "{count} nouveau message",
           "many": "{count} nouveaux messages",

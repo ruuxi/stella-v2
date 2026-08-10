@@ -1748,6 +1748,9 @@
         "role": {
           "user": "Ohje",
           "assistant": "Agentti",
+          "reasoning": "Päättely",
+          "tool": "Työkalu",
+          "checkpoint": "Säikeen tarkistuspiste",
           "lifecycle": "Toiminta"
         },
         "status": {
@@ -1769,6 +1772,9 @@
         "badge": "Agenttisäie, vain luku",
         "retrying": "Yritetään uudelleen…",
         "empty": "Tässä säikeessä ei ole vielä viestejä.",
+        "toolInput": "Syöte",
+        "toolOutput": "Tuloste",
+        "toolRunning": "Odotetaan, että tämä työkalu valmistuu…",
         "newMessagesButton": {
           "one": "{count} uusi viesti",
           "other": "{count} uutta viestiä"

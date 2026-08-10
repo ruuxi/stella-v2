@@ -1769,6 +1769,9 @@
         "role": {
           "user": "Instrucción",
           "assistant": "Agente",
+          "reasoning": "Razonamiento",
+          "tool": "Herramienta",
+          "checkpoint": "Punto de control del hilo",
           "lifecycle": "Actividad"
         },
         "status": {
@@ -1791,6 +1794,9 @@
         "badge": "Hilo del agente de solo lectura",
         "retrying": "Reintentando…",
         "empty": "Aún no hay mensajes en este hilo.",
+        "toolInput": "Entrada",
+        "toolOutput": "Salida",
+        "toolRunning": "Esperando a que esta herramienta termine…",
         "newMessagesButton": {
           "one": "{count} mensaje nuevo",
           "many": "{count} mensajes nuevos",

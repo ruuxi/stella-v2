@@ -1769,6 +1769,9 @@
         "role": {
           "user": "Instrucțiune",
           "assistant": "Agent",
+          "reasoning": "Raționare",
+          "tool": "Instrument",
+          "checkpoint": "Punct de control al firului",
           "lifecycle": "Activitate"
         },
         "status": {
@@ -1791,6 +1794,9 @@
         "badge": "Fir de agent doar în citire",
         "retrying": "Se reîncearcă…",
         "empty": "Încă niciun mesaj în acest fir.",
+        "toolInput": "Intrare",
+        "toolOutput": "Ieșire",
+        "toolRunning": "Se așteaptă finalizarea acestui instrument…",
         "newMessagesButton": {
           "one": "{count} mesaj nou",
           "few": "{count} mesaje noi",

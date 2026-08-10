@@ -1727,6 +1727,9 @@
         "role": {
           "user": "Instruksi",
           "assistant": "Agen",
+          "reasoning": "Penalaran",
+          "tool": "Alat",
+          "checkpoint": "Titik pemeriksaan utas",
           "lifecycle": "Aktivitas"
         },
         "status": {
@@ -1747,6 +1750,9 @@
         "badge": "Utas agen hanya-baca",
         "retrying": "Mencoba lagi…",
         "empty": "Belum ada pesan di utas ini.",
+        "toolInput": "Masukan",
+        "toolOutput": "Keluaran",
+        "toolRunning": "Menunggu alat ini selesai…",
         "newMessagesButton": {
           "other": "{count} pesan baru"
         },

@@ -1748,6 +1748,9 @@
         "role": {
           "user": "Anweisung",
           "assistant": "Agent",
+          "reasoning": "Denkprozess",
+          "tool": "Werkzeug",
+          "checkpoint": "Thread-Prüfpunkt",
           "lifecycle": "Aktivität"
         },
         "status": {
@@ -1769,6 +1772,9 @@
         "badge": "Schreibgeschützter Agenten-Thread",
         "retrying": "Wird erneut versucht…",
         "empty": "Noch keine Nachrichten in diesem Thread.",
+        "toolInput": "Eingabe",
+        "toolOutput": "Ausgabe",
+        "toolRunning": "Warten auf den Abschluss dieses Werkzeugs…",
         "newMessagesButton": {
           "one": "{count} neue Nachricht",
           "other": "{count} neue Nachrichten"

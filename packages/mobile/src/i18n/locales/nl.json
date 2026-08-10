@@ -1748,6 +1748,9 @@
         "role": {
           "user": "Instructie",
           "assistant": "Agent",
+          "reasoning": "Redeneren",
+          "tool": "Tool",
+          "checkpoint": "Controlepunt in de thread",
           "lifecycle": "Activiteit"
         },
         "status": {
@@ -1769,6 +1772,9 @@
         "badge": "Alleen-lezen agent-thread",
         "retrying": "Opnieuw proberen…",
         "empty": "Nog geen berichten in deze thread.",
+        "toolInput": "Invoer",
+        "toolOutput": "Uitvoer",
+        "toolRunning": "Wachten tot deze tool klaar is…",
         "newMessagesButton": {
           "one": "{count} nieuw bericht",
           "other": "{count} nieuwe berichten"

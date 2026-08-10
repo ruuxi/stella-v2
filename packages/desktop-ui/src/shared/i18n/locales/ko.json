@@ -1727,6 +1727,9 @@
         "role": {
           "user": "지시",
           "assistant": "에이전트",
+          "reasoning": "추론",
+          "tool": "도구",
+          "checkpoint": "스레드 체크포인트",
           "lifecycle": "활동"
         },
         "status": {
@@ -1747,6 +1750,9 @@
         "badge": "읽기 전용 에이전트 스레드",
         "retrying": "다시 시도하는 중…",
         "empty": "이 스레드에는 아직 메시지가 없습니다.",
+        "toolInput": "입력",
+        "toolOutput": "출력",
+        "toolRunning": "이 도구가 끝나기를 기다리는 중…",
         "newMessagesButton": {
           "other": "새 메시지 {count}개"
         },

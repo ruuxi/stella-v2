@@ -1748,6 +1748,9 @@
         "role": {
           "user": "Talimat",
           "assistant": "Aracı",
+          "reasoning": "Akıl yürütme",
+          "tool": "Araç",
+          "checkpoint": "İş parçacığı kontrol noktası",
           "lifecycle": "Etkinlik"
         },
         "status": {
@@ -1769,6 +1772,9 @@
         "badge": "Salt okunur aracı iş parçacığı",
         "retrying": "Yeniden deneniyor…",
         "empty": "Bu iş parçacığında henüz mesaj yok.",
+        "toolInput": "Giriş",
+        "toolOutput": "Çıkış",
+        "toolRunning": "Bu aracın bitmesi bekleniyor…",
         "newMessagesButton": {
           "one": "{count} yeni mesaj",
           "other": "{count} yeni mesaj"

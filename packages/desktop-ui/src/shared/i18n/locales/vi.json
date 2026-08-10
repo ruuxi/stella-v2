@@ -1727,6 +1727,9 @@
         "role": {
           "user": "Chỉ dẫn",
           "assistant": "Tác nhân",
+          "reasoning": "Suy luận",
+          "tool": "Công cụ",
+          "checkpoint": "Điểm kiểm tra luồng",
           "lifecycle": "Hoạt động"
         },
         "status": {
@@ -1747,6 +1750,9 @@
         "badge": "Luồng tác nhân chỉ đọc",
         "retrying": "Đang thử lại…",
         "empty": "Chưa có tin nhắn nào trong luồng này.",
+        "toolInput": "Đầu vào",
+        "toolOutput": "Đầu ra",
+        "toolRunning": "Đang chờ công cụ này hoàn tất…",
         "newMessagesButton": {
           "other": "{count} tin nhắn mới"
         },

@@ -11,6 +11,23 @@ export type AgentModelPresentation = {
 
 type Translate = ReturnType<typeof useT>;
 
+const getAgentModelBrand = (
+  snapshot: AgentModelConfigSnapshot | undefined,
+): string => {
+  if (!snapshot) return "stella";
+  if (snapshot.engine === "codex_cli") return "openai";
+  if (snapshot.engine === "claude_code_local") return "anthropic";
+
+  const parts = snapshot.routeModel.trim().split("/").filter(Boolean);
+  return parts[0] === "stella" && parts.length > 2
+    ? parts[1]!
+    : (parts[0] ?? "stella");
+};
+
+export const shouldShowAgentModelIcon = (
+  snapshot: AgentModelConfigSnapshot | undefined,
+): boolean => getAgentModelBrand(snapshot) !== "stella";
+
 export const getAgentModelPresentation = (
   snapshot: AgentModelConfigSnapshot | undefined,
   t: Translate,
@@ -34,13 +51,8 @@ export const getAgentModelPresentation = (
   }
 
   const route = snapshot.routeModel.trim();
-  const parts = route.split("/").filter(Boolean);
-  const brand =
-    parts[0] === "stella" && parts.length > 2
-      ? parts[1]!
-      : (parts[0] ?? "stella");
   return {
-    brand,
+    brand: getAgentModelBrand(snapshot),
     model: route || t("app.chat.agentModelIcon.unavailable"),
   };
 };
@@ -54,6 +66,7 @@ export function AgentModelIcon({
 }) {
   const t = useT();
   const presentation = getAgentModelPresentation(snapshot, t);
+  if (!shouldShowAgentModelIcon(snapshot)) return null;
   return (
     <span
       className="agent-model-icon"

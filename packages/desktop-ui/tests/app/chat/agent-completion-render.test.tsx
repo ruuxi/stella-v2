@@ -165,4 +165,50 @@ describe("AgentCompletionCard fileless summary rendering", () => {
       artifactIds: "/tmp/report.md",
     });
   });
+
+  it("omits the provider affordance for Stella-native models", async () => {
+    await act(async () => {
+      root.render(
+        withI18n(
+          <AgentCompletionCard
+            conversationId="conversation-1"
+            sections={[filelessSection("Done.")]}
+            modelConfigByThread={{
+              a1: {
+                engine: "default",
+                routeModel: "stella/standard",
+              },
+            }}
+          />,
+        ),
+      );
+    });
+
+    expect(container.querySelector(".agent-completion-card__chat")).toBeNull();
+    expect(container.querySelector('[data-brand="stella"]')).toBeNull();
+  });
+
+  it("keeps the provider affordance for an upstream provider model", async () => {
+    await act(async () => {
+      root.render(
+        withI18n(
+          <AgentCompletionCard
+            conversationId="conversation-1"
+            sections={[filelessSection("Done.")]}
+            modelConfigByThread={{
+              a1: {
+                engine: "default",
+                routeModel: "stella/openai/gpt-5.6",
+              },
+            }}
+          />,
+        ),
+      );
+    });
+
+    expect(
+      container.querySelector(".agent-completion-card__chat"),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-brand="openai"]')).not.toBeNull();
+  });
 });

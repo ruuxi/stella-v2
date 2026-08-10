@@ -36,7 +36,7 @@ import {
 } from "@/features/chat/lib/agent-activity-presentation";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
-import { AgentModelIcon } from "./AgentModelIcon";
+import { AgentModelIcon, shouldShowAgentModelIcon } from "./AgentModelIcon";
 import { useT, useTPlural } from "@/shared/i18n";
 import "./background-work-card.css";
 
@@ -242,6 +242,12 @@ export function BackgroundWorkCard({
   const terminalEventIds = threadIds
     .map((id) => terminalEventIdsByThread?.[id])
     .filter(Boolean);
+  const visibleModelIcons = threadIds.flatMap((threadId) => {
+    const snapshot = threadActivity.find(
+      (record) => record.threadId === threadId,
+    )?.modelConfigSnapshot;
+    return shouldShowAgentModelIcon(snapshot) ? [{ threadId, snapshot }] : [];
+  });
 
   return (
     <div
@@ -279,37 +285,31 @@ export function BackgroundWorkCard({
       <span className="background-work-card__text">
         <span className="background-work-card__title">
           {working ? (
-            <TextShimmer
-              text={title}
-              durationMs={TITLE_SHIMMER_MS}
-            />
+            <TextShimmer text={title} durationMs={TITLE_SHIMMER_MS} />
           ) : (
             title
           )}
         </span>
         <span className="background-work-card__subtitle">{subtitle}</span>
       </span>
-      <span className="background-work-card__actions">
-        {threadIds.map((threadId) => (
-          <button
-            key={threadId}
-            type="button"
-            className="background-work-card__chat"
-            onClick={(event) => {
-              event.stopPropagation();
-              openThread(threadId);
-            }}
-            aria-label={t("app.chat.backgroundWork.openThread")}
-          >
-            <AgentModelIcon
-              snapshot={
-                threadActivity.find((record) => record.threadId === threadId)
-                  ?.modelConfigSnapshot
-              }
-            />
-          </button>
-        ))}
-      </span>
+      {visibleModelIcons.length > 0 ? (
+        <span className="background-work-card__actions">
+          {visibleModelIcons.map(({ threadId, snapshot }) => (
+            <button
+              key={threadId}
+              type="button"
+              className="background-work-card__chat"
+              onClick={(event) => {
+                event.stopPropagation();
+                openThread(threadId);
+              }}
+              aria-label={t("app.chat.backgroundWork.openThread")}
+            >
+              <AgentModelIcon snapshot={snapshot} />
+            </button>
+          ))}
+        </span>
+      ) : null}
     </div>
   );
 }

@@ -514,6 +514,35 @@ describe("buildActivityTasks", () => {
     expect(tasks[0]?.description).toBe("Search for the itinerary email");
   });
 
+  it("keeps the durable task description when a newer live attempt reports tool status", () => {
+    const tasks = buildActivityTasks(
+      [
+        record({
+          description: "Chrome Web Store Stella Browser fresh retry",
+          attemptGeneration: 1,
+          rootRunId: "run-1",
+        }),
+      ],
+      {
+        "research-flights": {
+          status: "running",
+          attemptGeneration: 2,
+          runId: "run-2",
+          startedAtMs: 2_000,
+          observedAtMs: 2_100,
+          statusText: "Running Node Repl",
+        },
+      },
+    );
+
+    expect(tasks[0]).toMatchObject({
+      description: "Chrome Web Store Stella Browser fresh retry",
+      statusText: "Running Node Repl",
+      attemptGeneration: 2,
+      runId: "run-2",
+    });
+  });
+
   it("falls back to the description as statusText for running rows without decoration", () => {
     const tasks = buildActivityTasks([record()]);
     expect(tasks[0]?.statusText).toBe("Research flights");

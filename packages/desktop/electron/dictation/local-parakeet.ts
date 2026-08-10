@@ -1,6 +1,7 @@
 import {
   execFile,
   spawn,
+  type ChildProcess,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -66,7 +67,10 @@ const HELPER_NAME_BY_ENGINE: Record<Engine, string> = {
 
 const TRANSCRIBE_TIMEOUT_MS = 120_000;
 const SERVICE_READY_TIMEOUT_MS = 120_000;
-const PROBE_TIMEOUT_MS = 10_000;
+// CoreML's own downloader allows 30 minutes per large request. Installation is
+// deliberately separate from service startup so the first-use 120 s readiness
+// watchdog can never kill a multi-hundred-MB model download again.
+const COREML_INSTALL_TIMEOUT_MS = 45 * 60_000;
 // Perf: stop an idle serve process after this long with no transcription so an
 // unused/warmed-but-untouched model doesn't stay resident. The next dictation
 // re-warms transparently because startService/warmLocalParakeet are idempotent.
@@ -97,6 +101,8 @@ let serviceReady: Promise<void> | null = null;
 let serviceBuffer = "";
 let idleEvictionTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingRequests = new Map<string, PendingRequest>();
+let coremlModelInstall: Promise<void> | null = null;
+let coremlInstallProcess: ChildProcess | null = null;
 
 // Perf: (re)arm the idle-eviction timer on each transcription. A serve process
 // the user warmed but never (or no longer) dictates with is torn down after
@@ -144,6 +150,21 @@ const modelDataRoot = (): string =>
   path.join(app.getPath("userData"), "models");
 
 const coremlCacheRoot = (): string => path.join(modelDataRoot(), "parakeet");
+
+// FluidAudio writes model files incrementally. A directory existing therefore
+// does not mean a model is usable (an interrupted first run can leave only a
+// few metadata files behind). Stella writes this marker only after the helper's
+// `--download` path has downloaded and successfully loaded the complete model.
+const coremlReadyMarkerPath = (): string =>
+  path.join(coremlCacheRoot(), `.${COREML_MODEL_ID}.ready`);
+
+const coremlModelIsReady = (): boolean => {
+  try {
+    return statSync(coremlReadyMarkerPath()).isFile();
+  } catch {
+    return false;
+  }
+};
 
 // ---------------------------------------------------------------------------
 // parakeet.cpp GGUF model — downloaded + cached under userData.
@@ -202,11 +223,6 @@ const ensureCppModel = (): Promise<string> => {
 // Engine-specific spawn arguments.
 // ---------------------------------------------------------------------------
 
-const probeArgs = (engine: Engine): string[] =>
-  engine === "coreml"
-    ? ["--probe", "--cache-root", coremlCacheRoot()]
-    : ["--probe"];
-
 const serveArgs = async (engine: Engine): Promise<string[]> => {
   if (engine === "coreml") {
     return ["--serve", "--cache-root", coremlCacheRoot()];
@@ -226,41 +242,56 @@ const serveArgs = async (engine: Engine): Promise<string[]> => {
 // Shared helper invocation + serve loop.
 // ---------------------------------------------------------------------------
 
-const runProbe = (engine: Engine): Promise<HelperResponse> => {
-  const helperPath = resolveNativeHelperPath(HELPER_NAME_BY_ENGINE[engine]);
+const installCoremlModel = (): Promise<void> => {
+  if (coremlModelIsReady()) return Promise.resolve();
+  if (coremlModelInstall) return coremlModelInstall;
+
+  const helperPath = resolveNativeHelperPath(COREML_HELPER_NAME);
   if (!helperPath) {
-    return Promise.resolve({
-      ok: false,
-      model: MODEL_ID_BY_ENGINE[engine],
-      error: "Local Parakeet helper is not installed.",
-    });
+    return Promise.reject(
+      new Error("Local Parakeet helper has not been built."),
+    );
   }
 
-  return new Promise((resolve) => {
-    execFile(
+  coremlModelInstall = new Promise<void>((resolve, reject) => {
+    coremlInstallProcess = execFile(
       helperPath,
-      probeArgs(engine),
+      ["--download", "--cache-root", coremlCacheRoot()],
       {
-        timeout: PROBE_TIMEOUT_MS,
+        timeout: COREML_INSTALL_TIMEOUT_MS,
         encoding: "utf8",
         maxBuffer: 1024 * 1024,
         windowsHide: true,
       },
       (error, stdout) => {
-        const raw = stdout.trim();
-        const parsed = parseHelperResponse(raw);
-        if (parsed) {
-          resolve(parsed);
+        coremlInstallProcess = null;
+        const parsed = parseHelperResponse(stdout.trim());
+        if (error || !parsed?.ok) {
+          reject(
+            new Error(
+              parsed?.error ||
+                error?.message ||
+                "Local Parakeet model installation failed.",
+            ),
+          );
           return;
         }
-        resolve({
-          ok: false,
-          model: MODEL_ID_BY_ENGINE[engine],
-          error: error?.message || raw || "Local Parakeet helper failed.",
-        });
+        void mkdir(coremlCacheRoot(), { recursive: true })
+          .then(() =>
+            writeFile(
+              coremlReadyMarkerPath(),
+              `${JSON.stringify({ model: COREML_MODEL_ID, verifiedAt: Date.now() })}\n`,
+              { mode: 0o600 },
+            ),
+          )
+          .then(() => resolve(), reject);
       },
     );
+  }).finally(() => {
+    coremlModelInstall = null;
   });
+
+  return coremlModelInstall;
 };
 
 const startService = async (engine: Engine): Promise<void> => {
@@ -310,6 +341,14 @@ const startService = async (engine: Engine): Promise<void> => {
         handleServiceLine(line, resolveReady, rejectReady);
         newlineIndex = serviceBuffer.indexOf("\n");
       }
+    });
+
+    // Always drain stderr. Native/CoreML libraries may emit diagnostics there;
+    // leaving the pipe unread can fill its buffer and deadlock startup.
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      const message = chunk.trim();
+      if (message) console.debug("[dictation] local helper:", message);
     });
 
     child.once("error", (error) => {
@@ -387,6 +426,12 @@ const stopService = () => {
 };
 
 export const stopLocalParakeet = (): void => {
+  try {
+    coremlInstallProcess?.kill();
+  } catch {
+    // Already stopped.
+  }
+  coremlInstallProcess = null;
   stopService();
 };
 
@@ -419,20 +464,6 @@ export const warmLocalParakeet = async (): Promise<LocalParakeetStatus> => {
   const engine = resolveEngine();
   if (!engine) return status;
 
-  // For the cpp engine, the model may still be downloading. Kick the download
-  // in the background and start the serve loop once it lands, but don't block
-  // the warm call (or report unavailable) just because the model isn't here
-  // yet — local becomes ready transparently on a later dictation.
-  if (engine === "cpp" && !cppModelIsReady()) {
-    void ensureCppModel()
-      .then(() => startService(engine))
-      // Perf: a pure warm (no transcription) is still subject to idle eviction
-      // so warming and walking away doesn't leave the model resident forever.
-      .then(armIdleEviction)
-      .catch(() => undefined);
-    return { available: true, model: status.model };
-  }
-
   try {
     await startService(engine);
     // Perf: arm idle eviction so a warmed-but-unused model gets reclaimed.
@@ -448,29 +479,40 @@ export const warmLocalParakeet = async (): Promise<LocalParakeetStatus> => {
 };
 
 /**
- * Install (when necessary) and fully warm the local dictation model.
- *
- * Unlike `warmLocalParakeet`, this waits for the parakeet.cpp GGUF download
- * to finish. The on-demand UI uses this stronger contract so its completion
- * toast means the next dictation can actually stay on-device.
+ * Install (when necessary) and verify the local dictation model without
+ * keeping it resident in memory. Startup invokes this in the background; until
+ * it completes, transcription fails fast into the renderer's cloud fallback.
  */
 export const downloadLocalParakeet = async (): Promise<LocalParakeetStatus> => {
-  const status = await getLocalParakeetStatus();
-  if (!status.available) return status;
   const engine = resolveEngine();
-  if (!engine) return status;
-
-  if (engine === "cpp") {
-    await ensureCppModel();
+  const model = engine ? MODEL_ID_BY_ENGINE[engine] : CPP_MODEL_ID;
+  if (!engine) {
+    return {
+      available: false,
+      model,
+      reason: "Local Parakeet dictation is not supported on this platform.",
+    };
   }
+  const helperPath = resolveNativeHelperPath(HELPER_NAME_BY_ENGINE[engine]);
+  if (!helperPath) {
+    return {
+      available: false,
+      model,
+      reason: "Local Parakeet helper has not been built.",
+    };
+  }
+
   try {
-    await startService(engine);
-    armIdleEviction();
-    return { available: true, model: status.model };
+    if (engine === "coreml") {
+      await installCoremlModel();
+    } else {
+      await ensureCppModel();
+    }
+    return { available: true, model };
   } catch (error) {
     return {
       available: false,
-      model: status.model,
+      model,
       reason: (error as Error).message,
     };
   }
@@ -495,11 +537,18 @@ export const getLocalParakeetStatus =
         reason: "Local Parakeet helper has not been built.",
       };
     }
-    const result = await runProbe(engine);
+    const ready =
+      engine === "coreml" ? coremlModelIsReady() : Boolean(cppModelIsReady());
     return {
-      available: result.ok,
+      available: ready,
       model: modelId,
-      reason: result.ok ? undefined : result.error,
+      reason: ready
+        ? undefined
+        : engine === "coreml" && coremlModelInstall
+          ? "Local Parakeet model is still downloading."
+          : engine === "cpp" && cppModelDownload
+            ? "Local Parakeet model is still downloading."
+            : "Local Parakeet model is not installed yet.",
     };
   };
 

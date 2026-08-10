@@ -29,6 +29,7 @@ import { registerUiStateKvHandlers } from "../ipc/ui-state-handlers.js";
 import { registerUpdatesHandlers } from "../ipc/updates-handlers.js";
 import { registerVoiceHandlers } from "../ipc/voice-handlers.js";
 import { registerDictationHandlers } from "../ipc/dictation-handlers.js";
+import { downloadLocalParakeet } from "../dictation/local-parakeet.js";
 import { startCapturingHandlers } from "../services/mobile-bridge/handler-registry.js";
 import { getAllWindows, getMobileBroadcast, } from "./context.js";
 import { startMobileBridge, startStellaBrowserBridge, stopMobileBridge, } from "./aux-runtime.js";
@@ -218,6 +219,19 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 setPreventComputerSleep(loadLocalPreferences(config.stellaDataDirPath).preventComputerSleep);
                 scheduleGlobalInputHooksAfterAppReady(context);
                 schedulePostReadyNativeServices();
+                // Install the platform-appropriate on-device dictation model in
+                // the background after first paint. Until this completes the
+                // renderer's local attempt fails fast and uses cloud STT, so a
+                // large first-run download never blocks or breaks dictation.
+                if (process.platform === "darwin" || process.platform === "win32") {
+                    void downloadLocalParakeet().then((status) => {
+                        if (!status.available) {
+                            console.warn("[dictation] background model installation unavailable:", status.reason);
+                        }
+                    }).catch((error) => {
+                        console.warn("[dictation] background model installation failed:", error);
+                    });
+                }
             }
         },
         deactivateVoiceModes: () => services.uiStateService.deactivateVoiceModes(),

@@ -8,6 +8,7 @@ import {
   saveLocalLlmCredential,
 } from "@stella/runtime/kernel/storage/llm-credentials";
 import {
+  downloadLocalParakeet,
   stopLocalParakeet,
   warmLocalParakeet,
 } from "./dictation/local-parakeet.js";
@@ -72,7 +73,12 @@ export const runLifecycleVerificationFromArgs = async (
       verificationProvider,
     );
     const parakeet = argv.includes(PARAKEET_ARG)
-      ? await warmLocalParakeet()
+      ? await (async () => {
+          const installed = await downloadLocalParakeet();
+          return installed.available
+            ? await warmLocalParakeet()
+            : installed;
+        })()
       : null;
     result = {
       ok: retrieved === secret && removed.removed,

@@ -16,6 +16,7 @@ import {
 } from "../lib/managed_billing";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import { requireSignedInAccountAction } from "../http_shared/auth";
+import { requireCapabilityAction } from "../http_shared/capability";
 
 const MUSIC_STREAM_PATH = "/api/music/stream";
 const MUSIC_KEY_PATH = "/api/music/api-key";
@@ -40,6 +41,16 @@ export const registerMusicRoutes = (http: HttpRouter) => {
         });
         if (!auth.ok) return auth.response;
         const ownerId = auth.ownerId;
+
+        // Music is generative audio — a Pro surface. Checked before the
+        // usage window so a plan mismatch never reads as "out of credit".
+        const capabilityCheck = await requireCapabilityAction(
+          ctx,
+          ownerId,
+          "audio_generation",
+          origin,
+        );
+        if (!capabilityCheck.ok) return capabilityCheck.response;
 
         const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId);
         if (!subscriptionCheck.allowed) {

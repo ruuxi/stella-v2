@@ -12,6 +12,7 @@ import {
   registerCorsOptions,
 } from "../http_shared/cors";
 import { requireSignedInAccountAction } from "../http_shared/auth";
+import { requireCapabilityAction } from "../http_shared/capability";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 
 // ---------------------------------------------------------------------------
@@ -336,6 +337,15 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
 
         // Resolve owner ID from identity
         const ownerId = auth.ownerId;
+        // Realtime voice synthesizes Stella's replies, so it is a
+        // generative-audio surface even though the user also speaks into it.
+        const capabilityCheck = await requireCapabilityAction(
+          ctx,
+          ownerId,
+          "audio_generation",
+          origin,
+        );
+        if (!capabilityCheck.ok) return capabilityCheck.response;
         const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId);
         if (!subscriptionCheck.allowed) {
           return errorResponse(429, subscriptionCheck.message, origin);
@@ -787,6 +797,14 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
 
+        const capabilityCheck = await requireCapabilityAction(
+          ctx,
+          auth.ownerId,
+          "audio_generation",
+          origin,
+        );
+        if (!capabilityCheck.ok) return capabilityCheck.response;
+
         const subscriptionCheck = await checkManagedUsageLimit(
           ctx,
           auth.ownerId,
@@ -905,6 +923,14 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!rateLimit.allowed) {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
+
+        const capabilityCheck = await requireCapabilityAction(
+          ctx,
+          auth.ownerId,
+          "audio_generation",
+          origin,
+        );
+        if (!capabilityCheck.ok) return capabilityCheck.response;
 
         const subscriptionCheck = await checkManagedUsageLimit(
           ctx,

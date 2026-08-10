@@ -14,7 +14,10 @@ import {
   getFalApiKey,
   submitFalRequest,
 } from "../media_fal_webhooks";
-import { checkManagedUsageLimit } from "../lib/managed_billing";
+import {
+  assertPaidMediaTier,
+  checkManagedUsageLimit,
+} from "../lib/managed_billing";
 import {
   RATE_STANDARD,
   enforceActionRateLimit,
@@ -317,6 +320,9 @@ export const generatePet = action({
   returns: user_pet_validator,
   handler: async (ctx, args): Promise<Doc<"user_pets">> => {
     const ownerId = await requireConnectedUserIdAction(ctx);
+    // Pet sprite sheets are fal image generations like any other, so they sit
+    // behind the same capability as the media pipeline.
+    await assertPaidMediaTier(ctx, ownerId, "image_generation");
     const usageLimit = await checkManagedUsageLimit(ctx, ownerId);
     if (!usageLimit.allowed) {
       throw new ConvexError({

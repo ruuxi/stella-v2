@@ -3,6 +3,14 @@ import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { ManagedModelAudience } from "../agent/model";
+import {
+  buildCapabilityDenial,
+  hasCapability,
+  toCapabilityAudience,
+  type Capability,
+  type CapabilityAudience,
+  type CapabilityDenial,
+} from "../capability_contract";
 import type { ManagedUsageSummary } from "./managed_usage";
 
 type BillingMutationCtx = {
@@ -98,6 +106,86 @@ export async function assertManagedUsageAllowed(
     });
   }
   return result;
+}
+
+/**
+ * Capability gating — "is this surface on your plan at all".
+ *
+ * Strictly layered on top of usage accounting, never a replacement for it:
+ * a denial here does not touch the per-user media cost tracking in
+ * `media_billing.ts`, and passing here says nothing about whether the
+ * caller is still inside their spend window. Routes run both checks.
+ */
+
+/**
+ * Fail closed on an audience we cannot place. `toCapabilityAudience`
+ * returns `null` only for a value outside the managed union, which means
+ * the audience vocabulary drifted — treat that as the weakest plan rather
+ * than handing out Pro surfaces on a typo.
+ */
+const capabilityAudienceFor = (
+  audience: ManagedModelAudience,
+): CapabilityAudience => toCapabilityAudience(audience) ?? "free";
+
+export type CapabilityAccess =
+  | { allowed: true; access: ManagedModelAccess; audience: CapabilityAudience }
+  | {
+      allowed: false;
+      access: ManagedModelAccess;
+      audience: CapabilityAudience;
+      denial: CapabilityDenial;
+    };
+
+export async function resolveCapabilityAccess(
+  ctx: BillingMutationCtx,
+  ownerId: string,
+  capability: Capability,
+  options?: {
+    isAnonymous?: boolean;
+  },
+): Promise<CapabilityAccess> {
+  const access = await resolveManagedModelAccess(ctx, ownerId, options);
+  const audience = capabilityAudienceFor(access.modelAudience);
+  if (hasCapability(audience, capability)) {
+    return { allowed: true, access, audience };
+  }
+  return {
+    allowed: false,
+    access,
+    audience,
+    denial: buildCapabilityDenial(capability, audience),
+  };
+}
+
+/**
+ * Throwing variant for Convex actions/mutations, which have no Response to
+ * return. The `ConvexError` data is the same payload the HTTP routes put in
+ * their 402 body, so the desktop parses one shape either way.
+ */
+export async function assertPaidMediaTier(
+  ctx: BillingMutationCtx,
+  ownerId: string,
+  capability: Capability,
+  options?: {
+    isAnonymous?: boolean;
+  },
+): Promise<ManagedModelAccess> {
+  const result = await resolveCapabilityAccess(
+    ctx,
+    ownerId,
+    capability,
+    options,
+  );
+  if (!result.allowed) {
+    throw new ConvexError({
+      code: result.denial.code,
+      message: result.denial.message,
+      capability: result.denial.capability,
+      audience: result.denial.audience,
+      minimumPlan: result.denial.minimumPlan,
+    });
+  }
+  return result.access;
 }
 
 export async function recordManagedUsage(

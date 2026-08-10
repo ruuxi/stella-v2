@@ -12,7 +12,10 @@ import {
   RATE_STANDARD,
   enforceActionRateLimit,
 } from "../lib/rate_limits";
-import { checkManagedUsageLimit } from "../lib/managed_billing";
+import {
+  assertPaidMediaTier,
+  checkManagedUsageLimit,
+} from "../lib/managed_billing";
 import { emoji_pack_validator, emoji_pack_visibility_validator } from "../schema/emoji_packs";
 import { requireBoundedString } from "../shared_validators";
 import { EMOJI_SHEETS, EMOJI_SHEET_GRID_SIZE } from "./emoji_pack_grid_constants";
@@ -174,6 +177,9 @@ export const generatePack = action({
   returns: emoji_pack_validator,
   handler: async (ctx, args): Promise<Doc<"emoji_packs">> => {
     const ownerId = await requireConnectedUserIdAction(ctx);
+    // Emoji packs are fal image generations like any other, so they sit
+    // behind the same capability as the media pipeline.
+    await assertPaidMediaTier(ctx, ownerId, "image_generation");
     const usageLimit = await checkManagedUsageLimit(ctx, ownerId);
     if (!usageLimit.allowed) {
       throw new ConvexError({

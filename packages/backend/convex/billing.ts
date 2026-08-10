@@ -46,9 +46,11 @@ import {
 import { enforceActionRateLimit, RATE_EXPENSIVE } from "./lib/rate_limits";
 import {
   ANON_DEVICE_USAGE_RETENTION_DAYS,
+  ANON_IP_BUCKET_DEVICE_ID,
   getMaxAnonRequests,
   getMaxAnonRequestsPerIp,
 } from "./lib/anonymous_usage";
+import { addDeviceUsageCost } from "./ai_proxy_data";
 
 const planValidator = v.union(
   v.literal("free"),
@@ -79,6 +81,13 @@ const voiceRealtimeLeaseEventValidator = v.union(
   v.literal("lost"),
 );
 
+/**
+ * `Retry-After` advertised once a lifetime allowance is spent. Nothing
+ * resets, so this is purely a "stop hammering the relay" hint — an upgrade
+ * (or a credit purchase) is what actually unblocks the account.
+ */
+const LIFETIME_LIMIT_RETRY_AFTER_MS = 24 * 60 * 60 * 1000;
+
 const VOICE_REALTIME_LEASE_DURATION_MS = 5 * 60 * 1000;
 const VOICE_REALTIME_LEASE_HEARTBEAT_GRACE_MS = 30 * 1000;
 const VOICE_REALTIME_LEASE_EXPIRY_GRACE_MS = 15 * 1000;
@@ -91,6 +100,7 @@ const planConfigShapeValidator = v.object({
   rollingWindowHours: v.number(),
   weeklyLimitUsd: v.number(),
   monthlyLimitUsd: v.number(),
+  lifetimeLimitUsd: v.optional(v.number()),
 });
 
 const subscriptionStatusReturnValidator = v.object({
@@ -108,6 +118,13 @@ const subscriptionStatusReturnValidator = v.object({
       weeklyLimitUsd: v.number(),
       monthlyUsedUsd: v.number(),
       monthlyLimitUsd: v.number(),
+      /**
+       * Cumulative spend that never resets, and the one-shot allowance it is
+       * checked against. `lifetimeLimitUsd` is null on plans without a
+       * lifetime cap, which is how the UI knows not to show the allowance.
+       */
+      lifetimeUsedUsd: v.number(),
+      lifetimeLimitUsd: v.union(v.number(), v.null()),
     }),
     v.null(),
   ),
@@ -328,6 +345,17 @@ type UsageSnapshot = {
     resetAt: number;
     exceeded: boolean;
   };
+  /**
+   * The Free plan's one-shot allowance. `null` on every plan that leaves
+   * `lifetimeLimitUsd` unset, so paid plans keep purely windowed limits and
+   * never pay for the extra check.
+   */
+  lifetime: {
+    used: number;
+    limit: number;
+    resetAt: number;
+    exceeded: boolean;
+  } | null;
   changed: boolean;
 };
 
@@ -342,6 +370,11 @@ const getIncludedUsageHeadroomMicroCents = (snapshot: UsageSnapshot) =>
       Math.max(0, snapshot.rolling.limit - snapshot.rolling.used),
       Math.max(0, snapshot.weekly.limit - snapshot.weekly.used),
       Math.max(0, snapshot.monthly.limit - snapshot.monthly.used),
+      // A spent lifetime allowance leaves no included headroom, so further
+      // spend draws on purchased credits exactly like an exhausted window.
+      snapshot.lifetime
+        ? Math.max(0, snapshot.lifetime.limit - snapshot.lifetime.used)
+        : Number.POSITIVE_INFINITY,
     ),
   );
 
@@ -390,6 +423,7 @@ const buildUsageSnapshot = (args: {
     weeklyWindowStartedAt: number;
     monthlyUsageMicroCents: number;
     monthlyWindowStartedAt: number;
+    totalUsageMicroCents: number;
   };
   plan: SubscriptionPlan;
   now: number;
@@ -439,6 +473,26 @@ const buildUsageSnapshot = (args: {
     : month.start.getTime();
   const monthlyResetAt = month.end.getTime();
 
+  // The lifetime allowance never refreshes, so there is no window to
+  // normalize and nothing to reset — `totalUsageMicroCents` already
+  // accumulates forever. `resetAt` exists only to keep the shared
+  // `Retry-After` math honest; it advertises a re-check horizon, not a
+  // moment when the allowance comes back.
+  const lifetimeLimitUsd = planConfig.lifetimeLimitUsd;
+  const lifetimeUsed = Math.max(0, args.usage.totalUsageMicroCents);
+  const lifetime =
+    lifetimeLimitUsd === undefined
+      ? null
+      : (() => {
+          const limit = dollarsToMicroCents(lifetimeLimitUsd);
+          return {
+            used: lifetimeUsed,
+            limit,
+            resetAt: args.now + LIFETIME_LIMIT_RETRY_AFTER_MS,
+            exceeded: lifetimeUsed >= limit,
+          };
+        })();
+
   const normalizedUsage = {
     rollingUsageMicroCents: rollingUsed,
     rollingWindowStartedAt: rollingStart,
@@ -482,11 +536,40 @@ const buildUsageSnapshot = (args: {
       resetAt: monthlyResetAt,
       exceeded: monthlyUsed >= monthlyLimitMicroCents,
     },
+    lifetime,
     changed,
   };
 };
 
-const buildLimitMessage = (plan: SubscriptionPlan) => {
+/**
+ * Picks the window that blocks a request, lifetime first: when the one-shot
+ * allowance is gone the shorter windows are irrelevant, and reporting the
+ * lifetime bucket is what makes the message say "upgrade" instead of
+ * "try again in five hours".
+ */
+const findExceededWindow = (
+  snapshot: UsageSnapshot,
+  isBlocked: (window: { used: number; limit: number }) => boolean = () => false,
+) => {
+  if (snapshot.lifetime && (snapshot.lifetime.exceeded || isBlocked(snapshot.lifetime))) {
+    return { window: snapshot.lifetime, lifetime: true as const };
+  }
+  const windowed = snapshot.rolling.exceeded || isBlocked(snapshot.rolling)
+    ? snapshot.rolling
+    : snapshot.weekly.exceeded || isBlocked(snapshot.weekly)
+      ? snapshot.weekly
+      : snapshot.monthly.exceeded || isBlocked(snapshot.monthly)
+        ? snapshot.monthly
+        : null;
+  return windowed ? { window: windowed, lifetime: false as const } : null;
+};
+
+const buildLimitMessage = (plan: SubscriptionPlan, lifetime = false) => {
+  if (lifetime) {
+    // Deliberately different from the windowed message: this one does not
+    // come back, and telling someone to wait would be a lie.
+    return "You've used your free Stella allowance. Upgrade to keep going.";
+  }
   if (plan === "free") {
     return "Free plan usage limit reached. Upgrade to continue.";
   }
@@ -515,6 +598,8 @@ const buildManagedModelAccessResult = (args: {
     | UsageSnapshot["weekly"]
     | UsageSnapshot["monthly"]
     | null;
+  /** The blocking bucket is the never-refreshing lifetime allowance. */
+  lifetimeExhausted?: boolean;
   now: number;
 }): ManagedModelAccessResult => {
   const { plan, exceededWindow, now } = args;
@@ -547,7 +632,7 @@ const buildManagedModelAccessResult = (args: {
         isAnonymous: args.isAnonymous,
       }),
       retryAfterMs,
-      message: buildLimitMessage(plan),
+      message: buildLimitMessage(plan, args.lifetimeExhausted === true),
     };
   }
 
@@ -581,6 +666,15 @@ export type ManagedUsageRecordArgs = {
   costMicroCents?: number;
   fallbackUsed?: boolean;
   toolCalls?: number;
+  /**
+   * Signed-out callers only. Records the measured cost against the anonymous
+   * device bucket (and the per-IP bucket when the address is known) in the
+   * same transaction that meters the request, so the count and the dollars it
+   * bought can never drift. Measurement only — the anonymous trial is gated
+   * on the request count, not on this figure.
+   */
+  anonDeviceId?: string;
+  anonClientAddressKey?: string;
 };
 
 const getManagedModelPriceRow = async (
@@ -691,8 +785,28 @@ export const persistManagedUsage = async (
       snapshot.normalizedUsage.monthlyUsageMicroCents + costMicroCents,
     monthlyWindowStartedAt: snapshot.normalizedUsage.monthlyWindowStartedAt,
     totalUsageMicroCents: usage.totalUsageMicroCents + costMicroCents,
+    totalRequestCount: toNonNegativeInt(usage.totalRequestCount) + 1,
     updatedAt: now,
   });
+
+  if (args.anonDeviceId) {
+    await addDeviceUsageCost(ctx, {
+      deviceId: args.anonDeviceId,
+      costMicroCents,
+      bucket: "device",
+      ...(args.anonClientAddressKey
+        ? { clientAddressKey: args.anonClientAddressKey }
+        : {}),
+    });
+    if (args.anonClientAddressKey) {
+      await addDeviceUsageCost(ctx, {
+        deviceId: ANON_IP_BUCKET_DEVICE_ID,
+        costMicroCents,
+        bucket: "ip",
+        clientAddressKey: args.anonClientAddressKey,
+      });
+    }
+  }
 
   if (creditToConsumeMicroCents > 0) {
     const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
@@ -1825,26 +1939,24 @@ export const resolveManagedModelAccess = internalMutation({
       });
     }
 
-    const firstExceeded = snapshot.rolling.exceeded
-      ? snapshot.rolling
-      : snapshot.weekly.exceeded
-        ? snapshot.weekly
-        : snapshot.monthly.exceeded
-          ? snapshot.monthly
-          : null;
+    const firstExceeded = findExceededWindow(snapshot);
     const credit = firstExceeded
       ? await getOwnerUsageCreditRow(ctx, args.ownerId)
       : null;
+    // Purchased credits unblock a spent lifetime allowance the same way they
+    // unblock a spent window — the allowance caps what is free, not what a
+    // paying account may use.
     const exceededWindow =
       firstExceeded && getUsageCreditBalanceMicroCents(credit) > 0
         ? null
-        : firstExceeded;
+        : (firstExceeded?.window ?? null);
 
     return buildManagedModelAccessResult({
       plan,
       isAnonymous: args.isAnonymous,
       unlimited,
       exceededWindow,
+      lifetimeExhausted: exceededWindow !== null && firstExceeded?.lifetime === true,
       now,
     });
   },
@@ -1895,14 +2007,7 @@ export const enforceManagedUsageLimit = internalMutation({
       minimumRemainingMicroCents > 0 &&
       Math.max(0, window.limit - window.used) <= minimumRemainingMicroCents;
 
-    const firstExceeded =
-      snapshot.rolling.exceeded || isBlockedByBuffer(snapshot.rolling)
-        ? snapshot.rolling
-        : snapshot.weekly.exceeded || isBlockedByBuffer(snapshot.weekly)
-          ? snapshot.weekly
-          : snapshot.monthly.exceeded || isBlockedByBuffer(snapshot.monthly)
-            ? snapshot.monthly
-            : null;
+    const firstExceeded = findExceededWindow(snapshot, isBlockedByBuffer);
 
     if (firstExceeded) {
       const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
@@ -1920,8 +2025,8 @@ export const enforceManagedUsageLimit = internalMutation({
       return {
         allowed: false,
         plan,
-        message: buildLimitMessage(plan),
-        retryAfterMs: Math.max(1_000, firstExceeded.resetAt - now),
+        message: buildLimitMessage(plan, firstExceeded.lifetime),
+        retryAfterMs: Math.max(1_000, firstExceeded.window.resetAt - now),
         unlimited: false,
       };
     }
@@ -1951,6 +2056,8 @@ export const logManagedUsage = internalMutation({
     cacheWriteInputTokens: v.optional(v.number()),
     reasoningTokens: v.optional(v.number()),
     costMicroCents: v.optional(v.number()),
+    anonDeviceId: v.optional(v.string()),
+    anonClientAddressKey: v.optional(v.string()),
   },
   handler: async (ctx, args) =>
     await persistManagedUsage(ctx, {
@@ -1967,6 +2074,8 @@ export const logManagedUsage = internalMutation({
       cacheWriteInputTokens: args.cacheWriteInputTokens,
       reasoningTokens: args.reasoningTokens,
       costMicroCents: args.costMicroCents,
+      anonDeviceId: args.anonDeviceId,
+      anonClientAddressKey: args.anonClientAddressKey,
     }),
 });
 
@@ -2178,6 +2287,12 @@ export const getSubscriptionStatus = query({
               weeklyLimitUsd: toCurrencyAmount(snapshot.weekly.limit),
               monthlyUsedUsd: toCurrencyAmount(snapshot.monthly.used),
               monthlyLimitUsd: toCurrencyAmount(snapshot.monthly.limit),
+              lifetimeUsedUsd: toCurrencyAmount(
+                normalizedUsage.totalUsageMicroCents,
+              ),
+              lifetimeLimitUsd: snapshot.lifetime
+                ? toCurrencyAmount(snapshot.lifetime.limit)
+                : null,
             };
           })()
         : {
@@ -2199,6 +2314,15 @@ export const getSubscriptionStatus = query({
             monthlyLimitUsd: toCurrencyAmount(
               dollarsToMicroCents(planConfig.monthlyLimitUsd),
             ),
+            lifetimeUsedUsd: toCurrencyAmount(
+              normalizedUsage.totalUsageMicroCents,
+            ),
+            lifetimeLimitUsd:
+              planConfig.lifetimeLimitUsd === undefined
+                ? null
+                : toCurrencyAmount(
+                    dollarsToMicroCents(planConfig.lifetimeLimitUsd),
+                  ),
           };
 
     return {

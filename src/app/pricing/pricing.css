@@ -213,7 +213,25 @@
   color: var(--page-accent);
 }
 
+/* Muted footnote under a card's checklist — states what the tier can't do. */
+.pr-card__note {
+  margin: 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(82, 104, 134, 0.14);
+  color: var(--page-muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
 /* ── Every plan includes ─────────────────────────── */
+
+.pr-note {
+  margin: 0 0 1.5rem;
+  max-width: 34rem;
+  color: var(--page-muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
 
 .pr-included {
   list-style: none;
@@ -290,13 +308,5 @@
 @media (min-width: 1024px) {
   .pr-article {
     grid-column: 2 / 5;
-  }
-}
-
-/* ── Responsive: 1200px+ (5-column plan grid) ────── */
-
-@media (min-width: 1200px) {
-  .pr-grid {
-    grid-template-columns: repeat(5, 1fr);
   }
 }

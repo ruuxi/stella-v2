@@ -6,7 +6,7 @@ import "./billing.css";
 export const metadata: Metadata = {
   title: "Billing",
   description:
-    "Choose a Stella plan. Every plan includes the full Stella experience; higher tiers increase monthly usage.",
+    "Choose a Stella plan. Go raises your usage limits; Pro adds image, video, 3D and voice generation plus orchestrator mode.",
   // In-app account page (also embedded in the desktop app). The public,
   // crawlable equivalent is /pricing, so keep this out of the index to avoid
   // thin/duplicate content while still allowing links to be followed.

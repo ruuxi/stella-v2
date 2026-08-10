@@ -123,16 +123,30 @@ const STATIC_PLAN_DISPLAY: Record<
   pro: { label: "Pro", monthlyPriceCents: 1_500 },
 };
 
+// Keep in sync with `plans` in `src/app/pricing/page.tsx` and `PRICING_MD`
+// in `src/lib/agent-pages.ts` so /billing, /pricing and /pricing.md always
+// describe the same plans.
 const PLAN_USAGE_TAGLINE: Record<BillingPlan, string> = {
-  free: "Light usage to try Stella",
-  go: "Baseline monthly usage",
-  pro: "3x the usage of Go",
+  free: "$0.50 of usage, once — it doesn't refresh",
+  go: "Room to actually work, every day",
+  pro: "Everything Stella can make, not just more of it",
 };
 
-const BASE_PLAN_FEATURES: readonly string[] = [
-  "Voice features",
-  "Image, video, audio and 3D generation",
-];
+// Free and Go are the same product at different volumes; Pro is a different
+// product — generation and orchestrator mode live there and nowhere else.
+const PLAN_FEATURES: Record<BillingPlan, readonly string[]> = {
+  free: ["Coding agent", "Personal assistant", "Research and knowledge work"],
+  go: [
+    "Everything in Free",
+    "Up to ~$12 of model usage per 5 hours",
+    "~$30 a week, ~$60 a month",
+  ],
+  pro: [
+    "Everything in Go",
+    "Image, video, 3D and voice generation",
+    "Orchestrator mode — many agents at once",
+  ],
+};
 
 // Every paid plan grants the verified author badge that surfaces next
 // to your username on Store posts. Free doesn't get it.
@@ -141,8 +155,7 @@ const VERIFIED_BADGE_FEATURE = "Verified creator badge on the Store";
 const PAID_PLANS = new Set<BillingPlan>(["go", "pro"]);
 
 const getPlanFeatures = (plan: BillingPlan): readonly string[] => {
-  const features: string[] = [];
-  features.push(...BASE_PLAN_FEATURES);
+  const features: string[] = [...PLAN_FEATURES[plan]];
   if (PAID_PLANS.has(plan)) features.push(VERIFIED_BADGE_FEATURE);
   return features;
 };
@@ -557,7 +570,7 @@ function BillingInteractive() {
                 Shared network cap: {anonymousUsagePolicy.perIpRequestLimit}
                 {" requests. "}Allowance resets after{" "}
                 {anonymousUsagePolicy.resetAfterInactivityDays} days without a
-                request. Sign in for cost-based Free usage.
+                request. Sign in to claim the one-time Free usage credit.
               </p>
             </div>
           ) : usageMeters ? (
@@ -721,8 +734,8 @@ function BillingInteractive() {
               <h2 className="billing-section-title">Extra usage credit</h2>
               <p className="billing-section-sub">
                 One-time top-up. Stella spends it automatically once your
-                included monthly usage is gone, then resumes from your plan
-                next month.
+                plan&apos;s included usage is gone. On Go and Pro your included
+                usage comes back next cycle; the Free credit does not.
               </p>
             </div>
             {creditStatus?.authenticated ? (

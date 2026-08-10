@@ -767,6 +767,24 @@ export const getActivityRowCompletedAtMs = (row: ActivityRow): number => {
   return entry.completedAtMs ?? entry.lastUpdatedAtMs ?? entry.startedAtMs
 }
 
+/**
+ * Immutable lifecycle ordering for top-level Activity rows. The durable
+ * thread start time is unaffected by progress, reasoning, tool activity, or
+ * refetch arrival order; the namespaced row key makes equal timestamps fully
+ * deterministic across mounts.
+ */
+export const compareActivityRowsByLifecycleStart = (
+  a: ActivityRow,
+  b: ActivityRow,
+): number => {
+  const aEntry = a.kind === 'task' ? a.task : a.hierarchy.owner
+  const bEntry = b.kind === 'task' ? b.task : b.hierarchy.owner
+  return (
+    bEntry.startedAtMs - aEntry.startedAtMs ||
+    activityRowKey(a).localeCompare(activityRowKey(b))
+  )
+}
+
 /** Search text for a whole visible row, including nested owned descendants. */
 export const getActivityRowSearchText = (row: ActivityRow): string => {
   if (row.kind === 'task') {
@@ -911,66 +929,4 @@ export function updateSeenRunningTaskIds(
     }
   }
   return changed ? next : seen
-}
-
-/** Persistent first-seen ordering state for {@link orderByFirstSeen}. */
-export type FirstSeenOrder = {
-  /** Frozen insertion index per item key. */
-  order: ReadonlyMap<string, number>
-  /** Next index to hand out to a newly-seen key. */
-  next: number
-}
-
-export const EMPTY_FIRST_SEEN_ORDER: FirstSeenOrder = {
-  order: new Map(),
-  next: 0,
-}
-
-/**
- * Order `items` by the sequence in which their keys were *first* seen and
- * pin them there for as long as they stay present. This gives running
- * activity rows a stable position that survives live updates: sorting them
- * by any recomputed field (e.g. `startedAtMs`, which drifts forward once an
- * agent's original `agent-started` event ages out of the rolling activity
- * window) would re-shuffle the list on every streamed delta.
- *
- * Keys that dropped out of `items` are pruned from the returned state, so a
- * later re-activation of the same key re-enters at the end rather than
- * reclaiming its old slot. Pure — the caller threads the returned state
- * back in (typically via a ref) on the next call.
- *
- * With `descending`, the newest-seen key sorts first: a freshly-seen key
- * prepends at the top while every already-seen key keeps its relative
- * order (shifting down by one). Frozen indices are unchanged either way,
- * so existing rows never reshuffle relative to each other.
- */
-export function orderByFirstSeen<T>(
-  items: readonly T[],
-  keyOf: (item: T) => string,
-  prev: FirstSeenOrder = EMPTY_FIRST_SEEN_ORDER,
-  descending = false,
-): { ordered: T[]; state: FirstSeenOrder } {
-  const order = new Map<string, number>()
-  let next = prev.next
-  for (const item of items) {
-    const key = keyOf(item)
-    if (order.has(key)) continue
-    const existing = prev.order.get(key)
-    if (existing === undefined) {
-      order.set(key, next)
-      next += 1
-    } else {
-      order.set(key, existing)
-    }
-  }
-  const ordered = [...items].sort((a, b) => {
-    const aKey = keyOf(a)
-    const bKey = keyOf(b)
-    const ai = order.get(aKey) ?? 0
-    const bi = order.get(bKey) ?? 0
-    return descending
-      ? bi - ai || bKey.localeCompare(aKey)
-      : ai - bi || aKey.localeCompare(bKey)
-  })
-  return { ordered, state: { order, next } }
 }

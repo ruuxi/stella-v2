@@ -38,12 +38,27 @@ export type AgentThreadMessageRecord = {
   sequence?: number;
   source?: string;
   timestamp: number;
-  role: "user" | "assistant" | "lifecycle";
+  role:
+    | "user"
+    | "assistant"
+    | "reasoning"
+    | "tool"
+    | "checkpoint"
+    | "lifecycle";
   content: string;
+  toolActivity?: {
+    toolCallId: string;
+    toolName: string;
+    status: "running" | "completed" | "error";
+    input?: string;
+    output?: string;
+    completedAt?: number;
+  };
   lifecycleEvent?: EventRecord;
 };
 
-export type DesktopThreadActivityUpdatedPayload = ThreadActivityUpdatedPayload & {
-  assistantUpdate?: ThreadActivityAssistantUpdate;
-  transcriptUpdate?: ThreadTranscriptUpdate;
-};
+export type DesktopThreadActivityUpdatedPayload =
+  ThreadActivityUpdatedPayload & {
+    assistantUpdate?: ThreadActivityAssistantUpdate;
+    transcriptUpdate?: ThreadTranscriptUpdate;
+  };

@@ -1,7 +1,8 @@
 /**
  * Home — the sidebar's default view: one recent, searchable index of agent
- * threads and files, with the utility surfaces (Models, Theme, Phone,
- * Connectors, Feedback) anchored as popovers/dialogs off the footer.
+ * threads and files, with the Models picker anchored as a popover off the
+ * footer. Theme, Phone, Connectors and Feedback live behind the top bar's
+ * settings gear menu instead.
  *
  * The persisted section id remains `files` so existing locations migrate
  * without churn. Its default view merges both sources by their latest
@@ -27,7 +28,6 @@ import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { ChevronLeft, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
 import { SidebarModelsControl } from "./SidebarModelsControl";
-import { SidebarUtilityControls } from "./SidebarUtilityControls";
 import "./files-section.css";
 /**
  * Keep the Work panel cheap to open even after a long-running conversation.
@@ -302,7 +302,6 @@ export function FilesSection() {
         </>)}
       </div>
       {showFooter ? (<div className="work-section__footer">
-          <SidebarUtilityControls />
           <SidebarModelsControl active={modelsActive}/>
         </div>) : null}
     </div>);

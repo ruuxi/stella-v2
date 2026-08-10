@@ -1,8 +1,11 @@
 /**
- * Connectors — a footer popover for browsing the native-connector catalog
- * (the Composio-backed integrations the runtime exposes through
+ * Connectors — a popover for browsing the native-connector catalog (the
+ * Composio-backed integrations the runtime exposes through
  * `nativeIntegrations.list`). Connectable entries can be switched on and
  * off in place; everything else just shows what the agent can reach.
+ *
+ * Open state can be controlled so the settings gear's destination menu can
+ * open it against a hidden anchor rather than a visible trigger of its own.
  */
 import {
   useCallback,
@@ -23,8 +26,22 @@ import "./connectors-popover.css";
 
 type Phase = "idle" | "loading" | "ready" | "error";
 
-export function ConnectorsPopover({ trigger }: { trigger: ReactElement }) {
-  const [open, setOpen] = useState(false);
+export function ConnectorsPopover({
+  trigger,
+  open: controlledOpen,
+  onOpenChange,
+  side = "top",
+  align = "end",
+}: {
+  trigger: ReactElement;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  side?: "top" | "bottom";
+  align?: "start" | "center" | "end";
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [phase, setPhase] = useState<Phase>("idle");
   const [connectors, setConnectors] = useState<ElectronNativeIntegration[]>([]);
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
@@ -96,8 +113,8 @@ export function ConnectorsPopover({ trigger }: { trigger: ReactElement }) {
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         className="connectors-popover"
-        side="top"
-        align="end"
+        side={side}
+        align={align}
         sideOffset={8}
         collisionPadding={8}
       >

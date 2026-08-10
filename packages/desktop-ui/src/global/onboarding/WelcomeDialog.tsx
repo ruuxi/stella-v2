@@ -11,7 +11,7 @@ import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { listLocalEvents } from "@/features/chat/services/local-chat-store";
 import { LogIn, SlidersHorizontal, Smartphone } from "@/ui/icons";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
-import { openEngineDisplayTab } from "@/features/workspace-display/default-tabs";
+import { openModelPicker } from "@/features/workspace-display/default-tabs";
 import { uiState } from "@/platform/ui-state";
 import "./welcome-dialog.css";
 
@@ -84,7 +84,7 @@ export function WelcomeDialog({
 
   const handleOpenModelPicker = useCallback(() => {
     handleClose();
-    openEngineDisplayTab();
+    openModelPicker();
   }, [handleClose]);
 
   if (!open) return null;

@@ -6,7 +6,7 @@
  */
 
 import { useEffect } from "react";
-import { openEngineDisplayTab } from "@/features/workspace-display/default-tabs";
+import { openModelPicker } from "@/features/workspace-display/default-tabs";
 import { WorkspaceSections } from "@/shell/workspace/WorkspaceSections";
 import "./home-search.css";
 
@@ -30,7 +30,7 @@ export function ActivityOverview({
 
 export function HomeSection() {
   useEffect(() => {
-    const handleOpenModelPicker = () => openEngineDisplayTab();
+    const handleOpenModelPicker = () => openModelPicker();
     window.addEventListener("stella:open-model-picker", handleOpenModelPicker);
     return () => {
       window.removeEventListener(

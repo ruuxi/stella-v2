@@ -251,8 +251,27 @@
     color 0.12s ease;
 }
 
+/* The gear's destination menu anchors its Theme and Connectors popovers to
+   hidden targets that sit exactly on top of the button. */
+.shell-settings-menu-anchor {
+  position: relative;
+  display: inline-flex;
+  -webkit-app-region: no-drag;
+}
+
+.shell-settings-menu-anchor__target {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .shell-topbar-account-settings:hover,
 .shell-topbar-account-settings:focus-visible,
+.shell-topbar-account-settings[data-state="open"],
 .shell-topbar-account-settings[data-active="true"] {
   background: color-mix(in oklch, var(--foreground) 8%, transparent);
   color: var(--text-strong);

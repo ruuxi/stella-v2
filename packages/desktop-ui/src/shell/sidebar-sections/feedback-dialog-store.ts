@@ -2,9 +2,9 @@
  * Global open/close state for the feedback dialog.
  *
  * A store (rather than local trigger state) because feedback is opened from
- * two places: the footer trigger in the Home section, and the periodic
- * auto-prompt in `ShellTopBarAccount`. The dialog itself is hosted by
- * `SidebarUtilityControls`, which stays mounted for the life of the panel.
+ * two places: the settings gear's destination menu (mounted in both top
+ * bars), and the periodic auto-prompt in `ShellTopBarAccount`. The dialog
+ * itself is hosted once in the root chrome by `FeedbackDialogHost`.
  */
 import { useSyncExternalStore } from "react";
 

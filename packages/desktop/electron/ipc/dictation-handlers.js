@@ -594,7 +594,6 @@ export const registerDictationHandlers = (options) => {
     ipcMain.handle("dictation:warmLocal", () => warmLocalParakeet());
     ipcMain.handle("dictation:localStatus", () => getLocalParakeetStatus());
     const downloadLocalDictation = createLocalDictationDownloader({
-        getStatus: getLocalParakeetStatus,
         downloadModel: downloadLocalParakeet,
     });
     ipcMain.handle("dictation:downloadLocalModel", (event) => {

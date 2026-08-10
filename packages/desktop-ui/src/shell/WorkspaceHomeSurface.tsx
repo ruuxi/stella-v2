@@ -4,6 +4,7 @@ import { useLayoutEffect, useState } from "react";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { HomeSection } from "@/shell/sidebar-sections/HomeSection";
 import { SidebarModelsControl } from "@/shell/sidebar-sections/SidebarModelsControl";
+import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import "./workspace-home-surface.css";
 
 type WorkspaceHomeSurfaceProps = {
@@ -25,6 +26,7 @@ export function WorkspaceHomeSurface({
   const t = useT();
   const chat = useChatRuntime();
   const hasActivity = chat.conversation.tasks.length > 0;
+  const modelsOpen = useEngineOverlayOpen();
   const [settledHasActivity, setSettledHasActivity] = useState(hasActivity);
   const activityAvailabilityChanging = settledHasActivity !== hasActivity;
 
@@ -35,7 +37,9 @@ export function WorkspaceHomeSurface({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activityAvailabilityChanging, hasActivity]);
-  const surfaceHidden = hidden || !hasActivity;
+  // With the panel closed this strip's footer is the Models popover's only
+  // anchor, so an empty activity list can't hide it while the picker is open.
+  const surfaceHidden = hidden || (!hasActivity && !modelsOpen);
   const resolvedPortalTarget =
     portalTarget ?? document.querySelector(".full-body") ?? document.body;
 

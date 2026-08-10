@@ -4,8 +4,8 @@
  * user can currently see.
  *
  * Open state lives in the engine-overlay store (not local trigger state)
- * because external flows also open the picker: `openEngineDisplayTab()` and
- * the `stella:open-model-picker` event flip the same store.
+ * because external flows also open the picker: `openModelPicker()` and the
+ * `stella:open-model-picker` event flip the same store.
  *
  * Both footers — Home's inside the panel and the workspace strip's when the
  * panel is closed — mount this control, and they share that one store. Only

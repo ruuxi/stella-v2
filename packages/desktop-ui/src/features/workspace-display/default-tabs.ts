@@ -11,7 +11,7 @@ type WorkspaceDefaultTabsAdapter = {
   ensureChatDisplayTab: () => void;
   openStoreDisplayTab: () => void;
   openTrashDisplayTab: () => void;
-  openEngineDisplayTab: () => void;
+  openModelPicker: () => void;
 };
 
 let adapter: WorkspaceDefaultTabsAdapter | null = null;
@@ -52,6 +52,6 @@ export function openTrashDisplayTab(): void {
   getAdapter().openTrashDisplayTab();
 }
 
-export function openEngineDisplayTab(): void {
-  getAdapter().openEngineDisplayTab();
+export function openModelPicker(): void {
+  getAdapter().openModelPicker();
 }

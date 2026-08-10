@@ -26,10 +26,10 @@ describe("sidebar Models control placement", () => {
     expect(home).toContain("<HomeSection />");
     expect(home).not.toContain("AgentModelPicker");
 
-    // The workspace strip (panel closed) carries Models alone — the rest of
-    // the utility cluster stays in the panel's Home footer — and its Models
-    // button opens the popover in place instead of opening the panel.
-    expect(home).not.toContain("<SidebarUtilityControls />");
+    // Both footers carry Models alone — Theme, Phone, Connectors and
+    // Feedback live behind the top bar's settings gear menu — and the
+    // Models button opens the popover in place instead of opening the panel.
+    expect(home).not.toContain("SidebarUtilityControls");
     expect(home).toMatch(
       /<SidebarModelsControl\s+active=\{!surfaceHidden\}\s*\/>/,
     );
@@ -39,14 +39,14 @@ describe("sidebar Models control placement", () => {
     // an inline models panel, and it stays visible when the picker is
     // opened externally while a viewer tab is showing.
     expect(work).toContain('className="work-section__footer"');
-    expect(work).toContain("<SidebarUtilityControls />");
+    expect(work).not.toContain("SidebarUtilityControls");
     expect(work).toContain("<SidebarModelsControl active={modelsActive}/>");
     expect(work).toContain("const showFooter = modelsOpen || !openTab;");
     expect(work).toContain("{showFooter ?");
     expect(work).not.toContain("AgentModelPicker");
 
     // The picker renders inside the control's popover, driven by the shared
-    // engine-overlay store so `openEngineDisplayTab()` and the
+    // engine-overlay store so `openModelPicker()` and the
     // `stella:open-model-picker` event keep working. The control itself
     // never moves the sidebar, and `active` decides which of the two
     // mounted footers anchors the shared popover.

@@ -7,7 +7,6 @@ import { TrashTabContent } from "./TrashTabContent";
 import { HomeLauncherTab } from "./HomeLauncherTab";
 import { displayTabs, useDisplayPanelExpanded } from "@/features/workspace-display/tab-store";
 import { engineOverlay } from "./engine-overlay-store";
-import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import {
   CHAT_DISPLAY_TAB_ID,
   HOME_DISPLAY_TAB_ID,
@@ -128,11 +127,11 @@ export function openTrashDisplayTab(): void {
 }
 
 /**
- * Open the right sidebar on Work and replace its body with Models.
+ * Open the Models picker. It is a footer popover now, anchored by whichever
+ * footer is on screen, so this only flips the shared store — it deliberately
+ * does not move or open the right sidebar.
  */
-export function openEngineDisplayTab(): void {
-  sidebarSections.setActiveSection("files");
-  displayTabs.setPanelOpen(true);
+export function openModelPicker(): void {
   engineOverlay.setOpen(true);
 }
 
@@ -143,5 +142,5 @@ registerWorkspaceDefaultTabs({
   ensureChatDisplayTab,
   openStoreDisplayTab,
   openTrashDisplayTab,
-  openEngineDisplayTab,
+  openModelPicker,
 });

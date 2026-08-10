@@ -192,15 +192,10 @@ export async function authorizeStellaRelayRequest(args: {
   const isAnonymous =
     (identity as Record<string, unknown>).isAnonymous === true;
   let modelAudience: ManagedModelAudience = isAnonymous ? "anonymous" : "free";
-  let anonymousUsage: AuthorizedStellaRequest["anonymousUsage"];
 
   if (isAnonymous) {
     const deviceId = `anon-jwt:${ownerId}`;
     const clientAddressKey = getClientAddressKey(request);
-    anonymousUsage = {
-      deviceId,
-      ...(clientAddressKey ? { clientAddressKey } : {}),
-    };
     // The per-IP counter is the durable backstop: deleting Stella data mints
     // a new anonymous identity (fresh `deviceId`), but the IP bucket persists,
     // so spam-resets from one network still hit a ceiling. Check it first so a
@@ -346,6 +341,5 @@ export async function authorizeStellaRelayRequest(args: {
     serviceTier: config.serviceTier,
     apiKey,
     tokenEstimate,
-    ...(anonymousUsage ? { anonymousUsage } : {}),
   };
 }

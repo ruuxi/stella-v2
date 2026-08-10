@@ -13,7 +13,6 @@ import {
   logMissingSaltOnce,
 } from "../http_shared/anon_device";
 import {
-  ANON_IP_BUCKET_DEVICE_ID,
   getMaxAnonRequests,
   getMaxAnonRequestsPerIp,
 } from "../lib/anonymous_usage";
@@ -35,10 +34,6 @@ export type TokenEstimate = {
  * data (a new anonymous identity is minted, so a fresh `deviceId`). It is
  * the per-person trial size, not an abuse backstop — see the per-IP cap
  * below for the durable ceiling.
- *
- * The dollars those requests cost are recorded alongside the count (see
- * `ai_proxy_data.addDeviceUsageCost`) so the cap can be judged against real
- * spend, but the count alone decides who gets served.
  */
 /**
  * Per-IP cap on anonymous Stella provider usage. IP is the one identifier
@@ -54,6 +49,12 @@ export type TokenEstimate = {
  * guarantees the invariant `ipCap >= deviceCap`, so a lone legitimate user
  * never trips the IP wall before exhausting their own device trial.
  */
+/**
+ * Constant `deviceId` for the per-IP counter. Hashing this with the client
+ * IP (`hash(salt, "anon-ip|addr:<IP>")`) yields a bucket keyed purely on
+ * the network address, with no resettable per-install component.
+ */
+const ANON_IP_BUCKET_DEVICE_ID = "anon-ip";
 export const DEFAULT_RETRY_AFTER_MS = 60_000;
 export const STELLA_MODELS_RATE_LIMIT = 60;
 export const STELLA_MODELS_RATE_WINDOW_MS = 60_000;
@@ -69,7 +70,6 @@ export async function consumeAnonymousRequestAllowance(
       {
         deviceId,
         maxRequests: getMaxAnonRequests(),
-        bucket: "device" as const,
         clientAddressKey: clientAddressKey ?? undefined,
       },
     );
@@ -100,7 +100,6 @@ export async function consumeAnonymousIpAllowance(
       {
         deviceId: ANON_IP_BUCKET_DEVICE_ID,
         maxRequests: getMaxAnonRequestsPerIp(),
-        bucket: "ip" as const,
         clientAddressKey,
       },
     );

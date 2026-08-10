@@ -689,22 +689,6 @@ export const bodyForUpstream = (
   return JSON.stringify(body);
 };
 
-/**
- * Anonymous callers are gated on a request count, but what those requests
- * cost is still worth knowing, so every usage log says which anonymous
- * buckets to record against. Signed-in callers spread `{}` here and are
- * metered against their plan windows alone.
- */
-const anonymousUsageAttribution = (authorized: AuthorizedStellaRequest) =>
-  authorized.anonymousUsage
-    ? {
-        anonDeviceId: authorized.anonymousUsage.deviceId,
-        ...(authorized.anonymousUsage.clientAddressKey
-          ? { anonClientAddressKey: authorized.anonymousUsage.clientAddressKey }
-          : {}),
-      }
-    : {};
-
 const safeUpstreamRequestId = (headers: Headers): string | undefined => {
   for (const name of [
     "x-request-id",
@@ -755,7 +739,6 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
         success: false,
         inputTokens: authorized.tokenEstimate.inputTokens,
         outputTokens: authorized.tokenEstimate.outputTokens,
-        ...anonymousUsageAttribution(authorized),
       });
       return stellaProviderErrorResponse(
         502,
@@ -821,7 +804,6 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
         success: upstreamResponse.ok,
         inputTokens: authorized.tokenEstimate.inputTokens,
         outputTokens: authorized.tokenEstimate.outputTokens,
-        ...anonymousUsageAttribution(authorized),
       });
       return new Response(null, {
         status: upstreamResponse.status,
@@ -881,7 +863,6 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               cachedInputTokens: usage?.cachedInputTokens,
               cacheWriteInputTokens: usage?.cacheWriteInputTokens,
               reasoningTokens: usage?.reasoningTokens,
-              ...anonymousUsageAttribution(authorized),
             });
           } catch (error) {
             console.error("[stella-provider] Relay stream failed:", error);
@@ -893,7 +874,6 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               success: false,
               inputTokens: authorized.tokenEstimate.inputTokens,
               outputTokens: authorized.tokenEstimate.outputTokens,
-              ...anonymousUsageAttribution(authorized),
             });
             if (downstreamOpen) {
               downstreamOpen = false;

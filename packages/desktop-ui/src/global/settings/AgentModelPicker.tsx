@@ -18,7 +18,7 @@ import { getPlanLabel, isRestrictedModelOverrideAudience, } from "@/global/billi
 import { useLlmCredentials } from "@/global/settings/hooks/use-llm-credentials";
 import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
-import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, fromOpenAiCodexModelId, intersectChatGptModels, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, type LiveCodexModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
+import { buildEngineReasoningPatch, buildEngineRoutingPatch, buildEngineTransitionReasoningPatch, buildModelSelectionPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, formatRecentEngineModelId, fromOpenAiCodexModelId, intersectChatGptModels, listChatGptCatalogModels, OPENAI_CODEX_PROVIDER, resolveChatGptEngineModel, type LiveCodexModel, type ModelPickerEngine, } from "@/global/settings/lib/engine-model-routing";
 import "./AgentModelPicker.css";
 
 type ImageGenerationProvider = "stella" | "openai" | "openrouter" | "fal";
@@ -605,6 +605,16 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             if (saved)
                 setPreferences(saved);
             window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
+            // Engine picks route through this path instead of `handleSelect`,
+            // so they have to feed the shared Recent list themselves —
+            // otherwise the compact pickers only ever show the one engine
+            // model that happens to be current.
+            const committed = saved ?? optimistic;
+            const recentEngineId = formatRecentEngineModelId(engine, engine === "codex_cli"
+                ? effectiveModelId || committed.codexModel
+                : effectiveModelId || committed.claudeCodeModel);
+            if (recentEngineId)
+                recordRecentModel(recentEngineId);
             return true;
         }
         catch (caught) {

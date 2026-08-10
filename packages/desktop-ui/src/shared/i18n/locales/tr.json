@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "Yükleniyor…",
         "modelUpdateFailed": "Model ayarı güncellenemedi.",
+        "modelsLabel": "Son modeller",
+        "moreModels": "Daha fazla model…",
         "popoverLabel": "Model seçenekleri",
         "reasoningEffortLabel": "Akıl yürütme düzeyi",
         "reasoningUpdateFailed": "Akıl yürütme düzeyi güncellenemedi.",
-        "recent": "Son kullanılanlar",
         "triggerLabel": "Model: {model}",
         "unavailable": "Kullanılamıyor",
         "updateFailedTitle": "Model ayarları güncellenemedi"

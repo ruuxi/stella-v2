@@ -1250,10 +1250,11 @@
       "miniModelPicker": {
         "loading": "جارٍ التحميل…",
         "modelUpdateFailed": "تعذّر تحديث إعداد النموذج.",
+        "modelsLabel": "النماذج الأخيرة",
+        "moreModels": "المزيد من النماذج…",
         "popoverLabel": "خيارات النموذج",
         "reasoningEffortLabel": "مستوى التفكير",
         "reasoningUpdateFailed": "تعذّر تحديث مستوى التفكير.",
-        "recent": "الأخيرة",
         "triggerLabel": "النموذج: {model}",
         "unavailable": "غير متاح",
         "updateFailedTitle": "تعذّر تحديث إعدادات النموذج"

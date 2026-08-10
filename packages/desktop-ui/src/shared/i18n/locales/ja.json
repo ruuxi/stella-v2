@@ -1200,10 +1200,11 @@
       "miniModelPicker": {
         "loading": "読み込み中…",
         "modelUpdateFailed": "モデル設定を更新できませんでした。",
+        "modelsLabel": "最近のモデル",
+        "moreModels": "他のモデル…",
         "popoverLabel": "モデルのオプション",
         "reasoningEffortLabel": "推論の強度",
         "reasoningUpdateFailed": "推論の強度を更新できませんでした。",
-        "recent": "最近",
         "triggerLabel": "モデル: {model}",
         "unavailable": "利用不可",
         "updateFailedTitle": "モデル設定を更新できませんでした"

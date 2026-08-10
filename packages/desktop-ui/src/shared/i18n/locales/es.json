@@ -1220,10 +1220,11 @@
       "miniModelPicker": {
         "loading": "Cargando…",
         "modelUpdateFailed": "No se pudo actualizar el ajuste del modelo.",
+        "modelsLabel": "Modelos recientes",
+        "moreModels": "Más modelos…",
         "popoverLabel": "Opciones del modelo",
         "reasoningEffortLabel": "Esfuerzo de razonamiento",
         "reasoningUpdateFailed": "No se pudo actualizar el esfuerzo de razonamiento.",
-        "recent": "Recientes",
         "triggerLabel": "Modelo: {model}",
         "unavailable": "No disponible",
         "updateFailedTitle": "No se pudo actualizar la configuración de modelos"

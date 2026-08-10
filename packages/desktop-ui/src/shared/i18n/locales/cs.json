@@ -1230,10 +1230,11 @@
       "miniModelPicker": {
         "loading": "Načítání…",
         "modelUpdateFailed": "Nepodařilo se aktualizovat nastavení modelu.",
+        "modelsLabel": "Nedávné modely",
+        "moreModels": "Další modely…",
         "popoverLabel": "Možnosti modelu",
         "reasoningEffortLabel": "Míra uvažování",
         "reasoningUpdateFailed": "Nepodařilo se aktualizovat míru uvažování.",
-        "recent": "Nedávné",
         "triggerLabel": "Model: {model}",
         "unavailable": "Nedostupné",
         "updateFailedTitle": "Nepodařilo se aktualizovat nastavení modelů"

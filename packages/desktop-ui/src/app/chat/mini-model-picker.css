@@ -1,15 +1,23 @@
 /* Pinned model control in the composer's expanded toolbar. The trigger is a
    pill showing the active model; the popover mirrors the sidebar picker's
-   reasoning + recent-models language in a compact footprint. */
+   reasoning + model-row language in a compact footprint — same hover fill,
+   same `--select-surface-*` selected recipe, so a row reads identically in
+   both surfaces. */
 
 .pill-btn.mini-model-picker-trigger {
-  max-width: 140px;
+  gap: 5px;
+  max-width: 180px;
   border: 1px solid transparent;
 }
 
 .pill-btn.mini-model-picker-trigger[data-active] {
   background: color-mix(in oklch, var(--foreground) 6%, transparent);
   color: var(--text-strong);
+}
+
+.mini-model-picker-trigger-brand {
+  flex: 0 0 auto;
+  opacity: 0.85;
 }
 
 .mini-model-picker-trigger-label {
@@ -20,8 +28,8 @@
 }
 
 .mini-model-picker-popover {
-  width: 260px;
-  padding: 8px;
+  width: 292px;
+  padding: 6px;
 }
 
 /* Reasoning row — same pills as the sidebar picker's selected-model extra. */
@@ -90,50 +98,74 @@
   opacity: 0.5;
 }
 
-.mini-model-picker-label {
-  padding: 8px 6px 2px;
-  color: var(--text-weaker);
-  font-size: var(--font-size-2xs);
-  font-weight: var(--weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
 .mini-model-picker-rows {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  margin-top: 4px;
+}
+
+/* The escape hatch to the full picker sits under a hairline so it reads as
+   navigation rather than one more model to pick. */
+.mini-model-picker-rows--more {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border-weak, var(--border-base));
 }
 
 .mini-model-picker-rows button {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
-  min-height: 30px;
-  padding: 4px 6px;
-  border: none;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm, 6px);
   background: transparent;
-  color: var(--text-strong);
+  color: var(--text-base);
   font-size: var(--font-size-xs);
   font-weight: var(--weight-medium);
   text-align: left;
   cursor: default;
+  transition:
+    background 80ms ease,
+    color 80ms ease;
 }
 
-.mini-model-picker-rows button:hover:not(:disabled),
+.mini-model-picker-rows button:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--text-strong);
+}
+
+/* The accent recipe rather than the sidebar's quiet one: this list is 2–5
+   rows deep over a glass popover, where a neutral tint is indistinguishable
+   from the hover fill sitting right beside it. */
 .mini-model-picker-rows button[data-selected] {
-  background: var(--surface-hover);
+  background: var(--select-fill);
+  border-color: var(--select-border);
+  color: var(--select-text);
 }
 
+/* An inset hairline, not the 4px `--focus-ring` — rows are 1px apart and a
+   halo would bleed over its neighbours. */
 .mini-model-picker-rows button:focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklch, var(--primary) 38%, transparent);
 }
 
 .mini-model-picker-rows button:disabled {
   opacity: 0.6;
+}
+
+.mini-model-picker-row-brand {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.mini-model-picker-rows button[data-selected] .mini-model-picker-row-brand {
+  opacity: 1;
 }
 
 .mini-model-picker-row-name {
@@ -150,7 +182,14 @@
   font-size: var(--font-size-2xs);
 }
 
-.mini-model-picker-row-check {
-  flex: 0 0 auto;
+.mini-model-picker-more {
+  color: var(--text-weak);
+}
+
+.mini-model-picker-more .mini-model-picker-row-brand {
+  color: var(--text-weaker);
+}
+
+.mini-model-picker-more:hover .mini-model-picker-row-brand {
   color: var(--text-weak);
 }

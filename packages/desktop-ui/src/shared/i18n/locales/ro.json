@@ -1220,10 +1220,11 @@
       "miniModelPicker": {
         "loading": "Se încarcă…",
         "modelUpdateFailed": "Actualizarea setării de model a eșuat.",
+        "modelsLabel": "Modele recente",
+        "moreModels": "Mai multe modele…",
         "popoverLabel": "Opțiuni de model",
         "reasoningEffortLabel": "Efort de raționare",
         "reasoningUpdateFailed": "Actualizarea efortului de raționare a eșuat.",
-        "recent": "Recente",
         "triggerLabel": "Model: {model}",
         "unavailable": "Indisponibil",
         "updateFailedTitle": "Nu s-au putut actualiza setările de model"

@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "Wird geladen…",
         "modelUpdateFailed": "Modelleinstellung konnte nicht aktualisiert werden.",
+        "modelsLabel": "Zuletzt verwendete Modelle",
+        "moreModels": "Weitere Modelle…",
         "popoverLabel": "Modelloptionen",
         "reasoningEffortLabel": "Denkaufwand",
         "reasoningUpdateFailed": "Denkaufwand konnte nicht aktualisiert werden.",
-        "recent": "Zuletzt verwendet",
         "triggerLabel": "Modell: {model}",
         "unavailable": "Nicht verfügbar",
         "updateFailedTitle": "Modelleinstellungen konnten nicht aktualisiert werden"

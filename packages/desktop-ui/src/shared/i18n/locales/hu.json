@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "Betöltés…",
         "modelUpdateFailed": "A modellbeállítás frissítése sikertelen.",
+        "modelsLabel": "Legutóbbi modellek",
+        "moreModels": "További modellek…",
         "popoverLabel": "Modellbeállítások",
         "reasoningEffortLabel": "Gondolkodási erőfeszítés",
         "reasoningUpdateFailed": "A gondolkodási erőfeszítés frissítése sikertelen.",
-        "recent": "Legutóbbi",
         "triggerLabel": "Modell: {model}",
         "unavailable": "Nem érhető el",
         "updateFailedTitle": "Nem sikerült frissíteni a modellbeállításokat"

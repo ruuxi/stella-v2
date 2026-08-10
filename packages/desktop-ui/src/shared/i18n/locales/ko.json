@@ -1200,10 +1200,11 @@
       "miniModelPicker": {
         "loading": "불러오는 중…",
         "modelUpdateFailed": "모델 설정을 업데이트하지 못했습니다.",
+        "modelsLabel": "최근 모델",
+        "moreModels": "더 많은 모델…",
         "popoverLabel": "모델 옵션",
         "reasoningEffortLabel": "추론 강도",
         "reasoningUpdateFailed": "추론 강도를 업데이트하지 못했습니다.",
-        "recent": "최근",
         "triggerLabel": "모델: {model}",
         "unavailable": "사용 불가",
         "updateFailedTitle": "모델 설정을 업데이트하지 못했습니다"

@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "Φόρτωση…",
         "modelUpdateFailed": "Αποτυχία ενημέρωσης της ρύθμισης μοντέλου.",
+        "modelsLabel": "Πρόσφατα μοντέλα",
+        "moreModels": "Περισσότερα μοντέλα…",
         "popoverLabel": "Επιλογές μοντέλου",
         "reasoningEffortLabel": "Προσπάθεια συλλογισμού",
         "reasoningUpdateFailed": "Αποτυχία ενημέρωσης της προσπάθειας συλλογισμού.",
-        "recent": "Πρόσφατα",
         "triggerLabel": "Μοντέλο: {model}",
         "unavailable": "Μη διαθέσιμο",
         "updateFailedTitle": "Δεν ήταν δυνατή η ενημέρωση των ρυθμίσεων μοντέλου"

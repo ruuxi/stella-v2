@@ -1200,10 +1200,11 @@
       "miniModelPicker": {
         "loading": "Đang tải…",
         "modelUpdateFailed": "Không cập nhật được cài đặt mô hình.",
+        "modelsLabel": "Mô hình gần đây",
+        "moreModels": "Thêm mô hình…",
         "popoverLabel": "Tùy chọn mô hình",
         "reasoningEffortLabel": "Mức độ suy luận",
         "reasoningUpdateFailed": "Không cập nhật được mức độ suy luận.",
-        "recent": "Gần đây",
         "triggerLabel": "Mô hình: {model}",
         "unavailable": "Không khả dụng",
         "updateFailedTitle": "Không cập nhật được cài đặt mô hình"

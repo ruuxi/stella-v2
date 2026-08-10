@@ -1207,10 +1207,11 @@
       "miniModelPicker": {
         "loading": "Loading…",
         "modelUpdateFailed": "Failed to update model setting.",
+        "modelsLabel": "Recent models",
+        "moreModels": "More models…",
         "popoverLabel": "Model options",
         "reasoningEffortLabel": "Reasoning effort",
         "reasoningUpdateFailed": "Failed to update reasoning effort.",
-        "recent": "Recent",
         "triggerLabel": "Model: {model}",
         "unavailable": "Unavailable",
         "updateFailedTitle": "Couldn't update model settings"

@@ -7,10 +7,16 @@
  * reasoning-effort pills and the freshest recent models. Selections apply
  * exactly like the sidebar picker's Assistant tab — same preference patch,
  * same `stella:local-model-preferences-changed` announcement.
+ *
+ * It deliberately stays a shortcut, not a second picker: anything beyond
+ * "switch back to a model I just used" hands off to the full picker
+ * through the last row.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Lightbulb } from "@/ui/icons";
+import { Lightbulb, SlidersHorizontal } from "@/ui/icons";
+import { BrandIcon } from "@/ui/brand-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
+import { openModelPicker } from "@/features/workspace-display/default-tabs";
 import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
@@ -25,6 +31,19 @@ import "./mini-model-picker.css";
 /** Mirrors the sidebar Assistant tab's dual orchestrator + general write. */
 const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"];
 const NO_EXCLUDED_IDS = new Set();
+/**
+ * Brand glyph for a row. Engine aliases carry the engine's vendor; catalog
+ * ids resolve through the merged catalog's provider key (the same key
+ * `BrandIcon` takes elsewhere), and anything unresolved falls back to the
+ * id's own namespace so BYOK/local rows still get a stable mark.
+ */
+const getModelBrandKey = (modelId, providersById) => {
+    if (modelId.startsWith("claude-code/"))
+        return "anthropic";
+    if (modelId.startsWith("codex-cli/"))
+        return "openai";
+    return (providersById.get(modelId) ?? modelId.split("/")[0] ?? "stella");
+};
 /**
  * Last-known local model preferences, so re-mounting the pinned control
  * (composer remounts on conversation switches) doesn't flash a loading
@@ -79,6 +98,15 @@ export function MiniModelPicker() {
             next.set(model.id, label);
             if (model.upstreamModel)
                 next.set(model.upstreamModel, label);
+        }
+        return next;
+    }, [allModels]);
+    const modelProvidersById = useMemo(() => {
+        const next = new Map();
+        for (const model of allModels) {
+            next.set(model.id, model.provider);
+            if (model.upstreamModel)
+                next.set(model.upstreamModel, model.provider);
         }
         return next;
     }, [allModels]);
@@ -193,9 +221,15 @@ export function MiniModelPicker() {
         setRecentIds(recordRecentModel(row.id));
         void applyPreferencesPatch(patch, t("app.chat.miniModelPicker.modelUpdateFailed"));
     }, [applyPreferencesPatch, configurableAgentKeys, currentId, preferences, t]);
+    const handleOpenFullPicker = useCallback(() => {
+        setOpen(false);
+        openModelPicker();
+    }, []);
+    const triggerBrand = getModelBrandKey(currentId || defaultModelId, modelProvidersById);
     return (<Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button type="button" className="pill-btn mini-model-picker-trigger" data-active={open || undefined} title={triggerLabel} aria-label={t("app.chat.miniModelPicker.triggerLabel", { model: triggerLabel })}>
+          <BrandIcon brand={triggerBrand} size={13} className="mini-model-picker-trigger-brand"/>
           <span className="mini-model-picker-trigger-label">{triggerLabel}</span>
         </button>
       </PopoverTrigger>
@@ -208,22 +242,28 @@ export function MiniModelPicker() {
               </button>))}
           </div>
         </div>
-        {recentRows.length > 0 ? (<>
-            <div className="mini-model-picker-label">{t("app.chat.miniModelPicker.recent")}</div>
-            <div className="mini-model-picker-rows">
-              {recentRows.map((row) => {
+        {recentRows.length > 0 ? (<div className="mini-model-picker-rows" role="listbox" aria-label={t("app.chat.miniModelPicker.modelsLabel")}>
+            {recentRows.map((row) => {
                 const selected = row.id === currentId;
-                return (<button key={row.id} type="button" aria-pressed={selected} aria-disabled={row.unavailable || undefined} data-selected={selected || undefined} disabled={pending || row.unavailable} onClick={() => handleRecentSelect(row)}>
-                    <span className="mini-model-picker-row-name">
-                      {getModelPickerDisplayLabel(row.id, modelNamesById)}
-                    </span>
-                    {row.unavailable ? (<span className="mini-model-picker-row-note">
-                        {t("app.chat.miniModelPicker.unavailable")}
-                      </span>) : selected ? (<Check size={13} className="mini-model-picker-row-check" aria-hidden/>) : null}
-                  </button>);
+                return (<button key={row.id} type="button" role="option" aria-selected={selected} aria-disabled={row.unavailable || undefined} data-selected={selected || undefined} disabled={pending || row.unavailable} onClick={() => handleRecentSelect(row)}>
+                <BrandIcon brand={getModelBrandKey(row.id, modelProvidersById)} size={14} className="mini-model-picker-row-brand"/>
+                <span className="mini-model-picker-row-name">
+                  {getModelPickerDisplayLabel(row.id, modelNamesById)}
+                </span>
+                {row.unavailable ? (<span className="mini-model-picker-row-note">
+                    {t("app.chat.miniModelPicker.unavailable")}
+                  </span>) : null}
+              </button>);
             })}
-            </div>
-          </>) : null}
+          </div>) : null}
+        <div className="mini-model-picker-rows mini-model-picker-rows--more">
+          <button type="button" className="mini-model-picker-more" onClick={handleOpenFullPicker}>
+            <SlidersHorizontal size={14} strokeWidth={1.75} className="mini-model-picker-row-brand" aria-hidden/>
+            <span className="mini-model-picker-row-name">
+              {t("app.chat.miniModelPicker.moreModels")}
+            </span>
+          </button>
+        </div>
       </PopoverContent>
     </Popover>);
 }

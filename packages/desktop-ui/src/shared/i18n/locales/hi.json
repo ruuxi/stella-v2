@@ -1210,10 +1210,11 @@
       "miniModelPicker": {
         "loading": "लोड हो रहा है…",
         "modelUpdateFailed": "मॉडल सेटिंग अपडेट करने में विफल।",
+        "modelsLabel": "हाल के मॉडल",
+        "moreModels": "और मॉडल…",
         "popoverLabel": "मॉडल विकल्प",
         "reasoningEffortLabel": "तर्क प्रयास",
         "reasoningUpdateFailed": "तर्क प्रयास अपडेट करने में विफल।",
-        "recent": "हाल के",
         "triggerLabel": "मॉडल: {model}",
         "unavailable": "अनुपलब्ध",
         "updateFailedTitle": "मॉडल सेटिंग्स अपडेट नहीं हो सकीं"

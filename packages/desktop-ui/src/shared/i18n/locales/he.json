@@ -1220,10 +1220,11 @@
       "miniModelPicker": {
         "loading": "טוען…",
         "modelUpdateFailed": "עדכון הגדרת המודל נכשל.",
+        "modelsLabel": "מודלים אחרונים",
+        "moreModels": "עוד מודלים…",
         "popoverLabel": "אפשרויות מודל",
         "reasoningEffortLabel": "עומק חשיבה",
         "reasoningUpdateFailed": "עדכון עומק החשיבה נכשל.",
-        "recent": "אחרונים",
         "triggerLabel": "מודל: {model}",
         "unavailable": "לא זמין",
         "updateFailedTitle": "לא ניתן היה לעדכן את הגדרות המודל"

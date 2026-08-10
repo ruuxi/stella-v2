@@ -6,6 +6,7 @@ import {
   buildEngineTransitionReasoningPatch,
   buildRecentModelSelectionPatch,
   DEFAULT_CHATGPT_MODEL,
+  formatRecentEngineModelId,
   intersectChatGptModels,
   listChatGptCatalogModels,
   parseRecentEngineModelId,
@@ -50,6 +51,30 @@ describe("engine model routing", () => {
     expect(parseRecentEngineModelId("codex-cli/   ")).toBeNull();
   });
 
+  it("encodes engine picks so they round-trip through the recents list", () => {
+    // Engine panels commit outside the catalog select path; without this the
+    // compact pickers only ever show the one engine model that is current.
+    expect(formatRecentEngineModelId("codex_cli", "gpt-5.6-sol")).toBe(
+      "codex-cli/gpt-5.6-sol",
+    );
+    expect(formatRecentEngineModelId("claude_code_local", " opus ")).toBe(
+      "claude-code/opus",
+    );
+    expect(formatRecentEngineModelId("default", "stella/light")).toBeNull();
+    expect(formatRecentEngineModelId("codex_cli", "  ")).toBeNull();
+    expect(
+      formatRecentEngineModelId("claude_code_local", undefined),
+    ).toBeNull();
+
+    for (const engine of ["codex_cli", "claude_code_local"] as const) {
+      const encoded = formatRecentEngineModelId(engine, "some-model");
+      expect(parseRecentEngineModelId(encoded!)).toEqual({
+        engine,
+        modelId: "some-model",
+      });
+    }
+  });
+
   it("selects Codex and Claude Code recents as engine routes", () => {
     const recentPreferences = {
       ...preferences,
@@ -76,11 +101,10 @@ describe("engine model routing", () => {
       },
     });
     expect(
-      buildRecentModelSelectionPatch(
-        recentPreferences,
-        "claude-code/opus",
-        { assistant: true, configurableAgentKeys: [] },
-      ),
+      buildRecentModelSelectionPatch(recentPreferences, "claude-code/opus", {
+        assistant: true,
+        configurableAgentKeys: [],
+      }),
     ).toMatchObject({
       agentRuntimeEngine: "claude_code_local",
       claudeCodeModel: "opus",

@@ -48,7 +48,7 @@ You can use Stella for normal assistant work: research, writing, spreadsheets, P
 
 Most agent products make you choose a mode, start a new thread, pick a specialist, then remember where everything went. Stella is built around one continuous chat. You keep talking in the same place.
 
-Behind the scenes, Stella can split work into smaller jobs, run specialized agents, keep track of active threads, and bring the result back into the conversation. The point is simple: you should not have to become a project manager for your assistant.
+Behind the scenes, Stella can split work into smaller jobs, run specialized agents, keep track of active threads, and bring the result back into the conversation. The point is simple: you should not have to become a project manager for your assistant. Running that crew in parallel is orchestrator mode, which comes with the Pro plan.
 
 ### What Stella Can Do
 
@@ -58,9 +58,9 @@ Behind the scenes, Stella can split work into smaller jobs, run specialized agen
 
 **Work with files.** Stella can read, write, organize, summarize, and transform local files, including documents, spreadsheets, PDFs, presentations, images, and generated outputs.
 
-**Create media.** Stella can help make images, videos, audio, 3D assets, small apps, games, mockups, and visual artifacts. Generated work opens in the display sidebar instead of cluttering the chat.
+**Create media.** Stella can help make images, videos, audio, 3D assets, small apps, games, mockups, and visual artifacts. Generated work opens in the display sidebar instead of cluttering the chat. Image, video, 3D, and voice generation come with the Pro plan.
 
-**Listen and speak.** Stella supports in-app dictation, OS-wide dictation, read-aloud, and realtime voice. Wake-word style voice activation is optional, not a requirement.
+**Listen and speak.** Stella supports in-app dictation, OS-wide dictation, read-aloud, and realtime voice. Wake-word style voice activation is optional, not a requirement. Dictation and wake word are available on every tier; read-aloud and realtime voice come with the Pro plan.
 
 **Run routines.** Stella can create reminders, recurring check-ins, scheduled work, and local automations from plain English.
 

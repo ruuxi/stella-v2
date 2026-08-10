@@ -108,6 +108,20 @@
   line-height: 1.72;
 }
 
+/* Plan-boundary footnote — smaller and quieter than the section body. */
+.copy p.planNote {
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(82, 104, 134, 0.16);
+  font-size: clamp(0.86rem, 1vw, 0.95rem);
+  line-height: 1.6;
+}
+
+.copy p.planNote a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 /* ── Visual panel (grid-paper) ───────────────────────── */
 
 .visual {

@@ -27,11 +27,11 @@ const capabilities = [
   },
   {
     title: "Create media",
-    body: "Help make images, video, audio, 3D assets, small apps, games, mockups, and visual artifacts.",
+    body: "Help make images, video, audio, 3D assets, small apps, games, mockups, and visual artifacts. Image, video, 3D, and voice generation come with the Pro plan.",
   },
   {
     title: "Listen and speak",
-    body: "Use in-app dictation, OS-wide dictation, read-aloud, and realtime voice. Wake-word activation is optional.",
+    body: "Use in-app dictation, OS-wide dictation, read-aloud, and realtime voice. Wake-word activation is optional. Dictation and wake word are on every tier; read-aloud and realtime voice come with the Pro plan.",
   },
   {
     title: "Run routines",
@@ -202,7 +202,9 @@ export default function LearnMore() {
               <p>
                 Stella can split work into smaller jobs, run specialized agents,
                 and bring their progress back into the chat. You stay in control
-                without becoming the project manager for your assistant.
+                without becoming the project manager for your assistant. Running
+                that crew in parallel is orchestrator mode, which comes with the
+                Pro plan.
               </p>
             </div>
           </section>

@@ -244,6 +244,11 @@ export default function VoicePage() {
                 time, answers out loud, and can even take a look at your screen
                 when you ask her to.
               </p>
+              <p className={styles.planNote}>
+                Live conversation and having Stella read her replies aloud come
+                with the <Link href="/pricing">Pro plan</Link>. Dictation and
+                &quot;Hey Stella&quot; are on every tier, including Free.
+              </p>
             </div>
 
             <div className={styles.visual} aria-hidden="true">

@@ -123,14 +123,16 @@ Out of the box, Stella runs on her own models. No keys, no accounts, no setup �
 just open the app and go. Prefer something else? Plug in Claude, Codex, Cursor,
 or your own key and Stella runs on that instead.
 
-## Pictures, voice, and more — included
-Ask Stella to make an image, a video, a song, or read something aloud, and she
-just does it. You can talk to her out loud, too. It all works on the house
-models, with nothing extra to wire up.
+## Pictures, voice, and more — on Pro
+Ask Stella to make an image, a video, a song, or a spoken reading, and she just
+does it. It runs on the house models with nothing extra to wire up, and it
+comes with the Pro plan.
 
 ## Ask once. Let the team handle the rest
 You get the simplicity of a single assistant with the muscle of a whole crew
-working in the background — on your models or hers.
+working in the background — on your models or hers. Orchestrator mode, where
+Stella runs that crew in parallel, comes with Pro; Free and Go run a single
+agent. See ${abs("/pricing.md")}.
 `;
 
 /* ------------------------------------------------------------------ */
@@ -163,6 +165,10 @@ and steps back the moment you say "bye."
 ## Have a real conversation
 Talk back and forth like a phone call. Stella hears you in real time, answers
 out loud, and can even take a look at your screen when you ask her to.
+
+Live conversation and having Stella read her replies aloud come with the Pro
+plan. Dictation and "Hey Stella" are on every tier, including Free — turning
+your speech into text is never gated. See ${abs("/pricing.md")}.
 `;
 
 /* ------------------------------------------------------------------ */
@@ -213,18 +219,25 @@ whenever you want.
 const PRICING_MD = `${header(
   "Pricing — simple, transparent pricing",
   "/pricing",
-  "Every plan includes the full Stella experience. The only thing that changes between tiers is how much you can use each month.",
+  "Free is a taste. Go is where the usage gets generous. Pro is a different product — the tier that can generate image, video, 3D, and voice, and run a whole team of agents at once.",
 )}
 ## Plans
-- **Free** — $0/mo. Light usage to try Stella. Includes voice features and image, video, audio, and 3D generation.
-- **Go** — $1 first month, then $5/mo. Baseline monthly usage. Includes voice features and image, video, audio, and 3D generation.
-- **Pro** — $15/mo (most popular). 3x the usage of Go, plus everything in the base plan.
+- **Free** — $0. A one-time $0.50 of usage, not a monthly allowance: it does not refresh, and once it is used it is used. Includes the coding agent, personal assistant, and research/knowledge work, plus dictation. Text output only — no image, video, 3D, or voice generation, and no orchestrator mode.
+- **Go** — $1 first month, then $5/mo. Everything in Free with dramatically higher limits: up to roughly $12 of model usage per 5 hours, ~$30 a week, and ~$60 a month, refreshing with your billing cycle. Still text output only (dictation included) — generation and orchestrator mode are on Pro.
+- **Pro** — $15/mo (most popular). Everything in Go, plus image, video, 3D, and voice generation, and orchestrator mode, where Stella runs many agents at once. This is the only tier that can create media or work in parallel. Note that dictation and speech-to-text are on every tier — what Pro adds is spoken replies (read-aloud) and live voice conversation.
 
 ## Every plan includes
+You are not paying for an API key. Every tier comes with the whole desktop app
+— the assistant, research, the browser, your files — and usage limits that hold
+their own at the price.
+
 - Runs on your computer
 - Private by default
+- Coding, assistant, and research in one app
+- Dictation and wake word on every tier
 - Customizable interface
 - Desktop and mobile access
+- Bring your own models and keys
 
 ## Start with Stella for free
 No credit card required. Download Stella and try it today.
@@ -258,14 +271,15 @@ and modes.
 ## Keep every project in its place
 Open a chat for a project, switch instantly when your focus changes, and return
 without losing your place. Stella can split work into smaller jobs, run
-specialized agents, and bring their progress back into the chat.
+specialized agents, and bring their progress back into the chat. Running that
+crew in parallel is orchestrator mode, which comes with the Pro plan.
 
 ## What Stella can do
 - **Use your computer** — Inspect the screen, click, type, open apps, navigate windows, and work with what is actually in front of you.
 - **Use the web** — Browse, search, read pages, fill forms, and use browser context when it helps.
 - **Work with files** — Read, write, organize, summarize, and transform documents, spreadsheets, PDFs, presentations, images, and generated outputs.
-- **Create media** — Help make images, video, audio, 3D assets, small apps, games, mockups, and visual artifacts.
-- **Listen and speak** — Use in-app dictation, OS-wide dictation, read-aloud, and realtime voice. Wake-word activation is optional.
+- **Create media** — Help make images, video, audio, 3D assets, small apps, games, mockups, and visual artifacts. Image, video, 3D, and voice generation come with the Pro plan.
+- **Listen and speak** — Use in-app dictation, OS-wide dictation, read-aloud, and realtime voice. Wake-word activation is optional. Dictation and wake word are on every tier; read-aloud and realtime voice come with the Pro plan.
 - **Run routines** — Create reminders, recurring check-ins, scheduled work, and local automations from plain English.
 - **Connect apps** — Use supported services and messaging apps, including mobile, Discord, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.
 - **Choose your model** — Use Stella's managed provider, bring your own keys, use local models, pick OpenRouter-style options where supported, or select Claude Code as the engine.

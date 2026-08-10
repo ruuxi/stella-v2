@@ -231,11 +231,12 @@ export default function AgentsPage() {
                 <ImageIcon size={14} strokeWidth={1.9} aria-hidden="true" />
                 Built in
               </span>
-              <h2>Pictures, voice, and more — included.</h2>
+              <h2>Pictures, voice, and more — on Pro.</h2>
               <p>
-                Ask Stella to make an image, a video, a song, or read something
-                aloud, and she just does it. You can talk to her out loud, too.
-                It all works on the house models, with nothing extra to wire up.
+                Ask Stella to make an image, a video, a song, or a spoken
+                reading, and she just does it. It runs on the house models with
+                nothing extra to wire up, and it comes with the{" "}
+                <Link href="/pricing">Pro plan</Link>.
               </p>
             </div>
 
@@ -263,7 +264,7 @@ export default function AgentsPage() {
                 </span>
                 <span className={styles.chip}>
                   <Mic size={14} />
-                  Talk to her
+                  Live voice
                 </span>
               </div>
             </div>
@@ -281,6 +282,9 @@ export default function AgentsPage() {
             <p>
               You get the simplicity of a single assistant with the muscle of a
               whole crew working in the background — on your models or hers.
+              Orchestrator mode, where Stella runs that crew in parallel, comes
+              with <Link href="/pricing">Pro</Link>; Free and Go run a single
+              agent.
             </p>
             <div className={styles.closingCta}>
               <DownloadButton />

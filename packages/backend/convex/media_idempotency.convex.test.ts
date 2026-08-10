@@ -10,17 +10,29 @@ import { MAX_PRIVATE_MEDIA_PAYLOAD_CHARS } from "./media_image_limits";
 
 const modules = import.meta.glob("./**/*.ts");
 
-const createTest = () => {
+const MEDIA_OWNER_ID = "https://issuer.test|media-owner";
+
+/**
+ * Every fixture here runs on Pro because image/video/audio/3D generation
+ * are Pro capabilities (`capability_contract.ts`). This file is about
+ * idempotency, reservation, and cancellation — the entitlement gate itself
+ * is covered by `media_capability_gate.convex.test.ts`.
+ */
+const createTest = async () => {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
+  await t.mutation(internal.billing.setAdminBillingPlan, {
+    ownerId: MEDIA_OWNER_ID,
+    plan: "pro",
+  });
   return t;
 };
 
-const asOwner = (t: ReturnType<typeof createTest>) =>
+const asOwner = (t: Awaited<ReturnType<typeof createTest>>) =>
   t.withIdentity({
     issuer: "https://issuer.test",
     subject: "media-owner",
-    tokenIdentifier: "https://issuer.test|media-owner",
+    tokenIdentifier: MEDIA_OWNER_ID,
   });
 
 const ensureMediaEnv = () => {
@@ -58,7 +70,7 @@ afterEach(() => {
 describe("managed media idempotency and cancellation", () => {
   it("rejects an over-count managed image request before reservation or provider POST", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     const providerFetch = vi.spyOn(globalThis, "fetch");
     const response = await asOwner(t).fetch("/api/media/v1/generate", {
       method: "POST",
@@ -86,7 +98,7 @@ describe("managed media idempotency and cancellation", () => {
   });
 
   it("retains and retries the private-blob outbox across repeated deletion failures", async () => {
-    const t = createTest();
+    const t = await createTest();
     const storageId = await t.run(async (ctx) =>
       ctx.storage.store(new Blob(["encrypted-private-reference"])),
     );
@@ -131,7 +143,7 @@ describe("managed media idempotency and cancellation", () => {
   });
 
   it("tracks and purges a crash after every private payload persistence step", async () => {
-    const t = createTest();
+    const t = await createTest();
     for (
       let crashAfterChunks = 0;
       crashAfterChunks <= 3;
@@ -209,7 +221,7 @@ describe("managed media idempotency and cancellation", () => {
   });
 
   it("leaves no private chunks when account purge races manifest creation", async () => {
-    const t = createTest();
+    const t = await createTest();
     const ownerId = "concurrent-manifest-purge-owner";
     const manifestId = "concurrent-manifest-purge";
     const [created] = await Promise.all([
@@ -258,7 +270,7 @@ describe("managed media idempotency and cancellation", () => {
   });
 
   it("rejects unregistered or incomplete chunks without creating an unowned payload", async () => {
-    const t = createTest();
+    const t = await createTest();
     await expect(
       t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
         ownerId: "missing-manifest-owner",
@@ -318,7 +330,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("terminalizes and cleans an oversized legacy file-storage payload without dispatch", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     const storageId = await t.run(async (ctx) =>
       ctx.storage.store(new Blob(["legacy-encrypted-payload"])),
     );
@@ -365,7 +377,7 @@ describe("managed media idempotency and cancellation", () => {
   });
 
   it("retries manifest cleanup after a crash between chunk deletion and manifest deletion", async () => {
-    const t = createTest();
+    const t = await createTest();
     await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
       ownerId: "cleanup-crash-owner",
       manifestId: "cleanup-crash-manifest",
@@ -415,7 +427,7 @@ describe("managed media idempotency and cancellation", () => {
   });
 
   it("purges a complete manifest atomically attached to an account job", async () => {
-    const t = createTest();
+    const t = await createTest();
     const ownerId = "attached-manifest-owner";
     const manifestId = "attached-manifest";
     const jobId = "attached-manifest-job";
@@ -484,7 +496,7 @@ describe("managed media idempotency and cancellation", () => {
   });
 
   it("atomically gates reservation and pending dispatch once media purge begins", async () => {
-    const t = createTest();
+    const t = await createTest();
     await t.mutation(internal.media_jobs.beginOwnerMediaPurge, {
       ownerId: "purged-media-owner",
       startedAt: Date.now(),
@@ -528,7 +540,7 @@ describe("managed media idempotency and cancellation", () => {
     ensureMediaEnv();
     vi.useFakeTimers();
     try {
-      const t = createTest();
+      const t = await createTest();
       const [pendingStorageId, dispatchingStorageId] = await t.run(
         async (ctx) =>
           await Promise.all([
@@ -668,7 +680,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("uses a late purge webhook only to reconcile provider cancellation", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     await t.mutation(internal.media_jobs.createJob, {
       ownerId: "purge-webhook-owner",
       jobId: "purge-webhook-job",
@@ -735,7 +747,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("purges an ambiguous canceled claim after the provider reconciliation envelope", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     const claimedAt = Date.now() - (3 * 60 * 60_000 + 16 * 60_000);
     await t.run(async (ctx) => {
       await ctx.db.insert("media_jobs", {
@@ -783,7 +795,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("reattaches a repeated POST without a second upstream submission", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     let upstreamSubmissions = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       if (String(input).includes("queue.fal.run") && init?.method === "POST") {
@@ -820,7 +832,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("does not resubmit after an ambiguous upstream response loss", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     let upstreamSubmissions = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       upstreamSubmissions += 1;
@@ -864,7 +876,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("rejects key reuse with a different request body", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     let upstreamSubmissions = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       upstreamSubmissions += 1;
@@ -890,7 +902,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("lets a cancellation tombstone win before POST reservation", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const owner = asOwner(t);
     const canceled = await owner.fetch("/api/media/v1/job", {
@@ -907,7 +919,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("cancels upstream once and ignores a late completion webhook", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     let submissions = 0;
     let cancellations = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -959,7 +971,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("atomically reserves one job and one provider POST under concurrent requests", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     let submissions = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       if (String(input).includes("queue.fal.run") && init?.method === "POST") {
@@ -984,7 +996,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("keeps a pre-dispatch crash recoverable but never reclaims a durable claim", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     const storageId = await t.run(
       async (ctx) => await ctx.storage.store(new Blob(["encrypted"])),
     );
@@ -1045,7 +1057,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("abandons and cleans an encrypted payload only after the pending retention window", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     const storageId = await t.run(
       async (ctx) =>
         await ctx.storage.store(new Blob(["encrypted-private-reference"])),
@@ -1094,7 +1106,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("makes success immutable against a later failure webhook", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     await t.mutation(internal.media_jobs.createJob, {
       ownerId: "terminal-owner",
       jobId: "terminal-success",
@@ -1132,7 +1144,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("makes failure and stale timeout immutable against late success", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     for (const jobId of ["terminal-failure", "terminal-timeout"]) {
       await t.mutation(internal.media_jobs.createJob, {
         ownerId: "terminal-owner",
@@ -1175,7 +1187,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("reconciles an accepted request by owner key and exact request hash", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     vi.spyOn(globalThis, "fetch").mockImplementation(
       async () =>
         new Response(
@@ -1208,7 +1220,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("rolls webhook dedup back on a crash and bills only the retried allowed transition", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     await t.mutation(internal.media_jobs.createJob, {
       ownerId: "billing-owner",
       jobId: "webhook-atomic-job",
@@ -1267,7 +1279,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("never bills late success after cancel or terminal unknown", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     for (const jobId of ["late-canceled", "late-unknown"]) {
       await t.mutation(internal.media_jobs.createJob, {
         ownerId: "late-billing-owner",
@@ -1322,7 +1334,7 @@ describe("managed media idempotency and cancellation", () => {
 
   it("retries and terminally accounts for restart-stuck image connector delivery", async () => {
     ensureMediaEnv();
-    const t = createTest();
+    const t = await createTest();
     await t.mutation(internal.media_jobs.createJob, {
       ownerId: "connector-owner",
       jobId: "connector-image-job",

@@ -48,8 +48,10 @@ import {
   parseMusicStreamRequest,
 } from "../media_lyria";
 import { checkManagedUsageLimit } from "../lib/managed_billing";
+import { capabilityForMediaCapabilityId } from "../capability_contract";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import { requireSignedInAccountAction } from "../http_shared/auth";
+import { requireCapabilityAction } from "../http_shared/capability";
 import { encryptSecret } from "../data/secrets_crypto";
 import {
   MAX_MANAGED_IMAGE_REQUEST_BYTES,
@@ -790,6 +792,25 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           // Reattachments above bypass admission and rate limiting: they do
           // not allocate new provider work or usage. Only a fresh reservation
           // consumes the media-generation rate budget.
+          //
+          // Entitlement first, then budget: a Go user asking for video should
+          // be told video is a Pro surface, not that they are out of credit.
+          // `capabilityForMediaCapabilityId` returns null for the non-
+          // generative entries (speech-to-text, stem separation), which stay
+          // open to every plan.
+          const requiredCapability = capabilityForMediaCapabilityId(
+            resolved.capability.id,
+          );
+          if (requiredCapability) {
+            const capabilityCheck = await requireCapabilityAction(
+              ctx,
+              ownerId,
+              requiredCapability,
+              origin,
+              { docsUrl: MEDIA_DOCS_URL },
+            );
+            if (!capabilityCheck.ok) return capabilityCheck.response;
+          }
           const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId, {
             minimumRemainingMicroCents: MEDIA_DENY_BUFFER_MICRO_CENTS,
           });

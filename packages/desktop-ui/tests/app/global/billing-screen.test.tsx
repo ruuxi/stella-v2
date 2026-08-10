@@ -324,7 +324,7 @@ describe("billing panel", () => {
       ...status,
       plans: {
         ...status.plans,
-        go: { ...status.plans.go, introFirstMonthPriceCents: 100 },
+        go: { ...status.plans.go, introFirstMonthPriceCents: 300 },
       },
     };
   };
@@ -341,7 +341,7 @@ describe("billing panel", () => {
     const price = goPriceBlock();
     // The charged price is the headline; the standard rate is demoted.
     expect(price?.querySelector(".billing-plan-amount")?.textContent).toBe(
-      "$1",
+      "$3",
     );
     expect(price?.querySelector(".billing-plan-list-price")?.textContent).toBe(
       "$5",

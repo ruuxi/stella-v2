@@ -90,6 +90,14 @@
       "description": "Stella가 현재 보고 있는 페이지를 확인하고 브라우저에서 작업을 수행할 수 있게 합니다.",
       "action": "확장 프로그램 받기"
     },
+    "resetCustomizations": {
+      "title": "Stella 기본값 사용",
+      "description": "프롬프트와 스킬 사용자 지정을 제거하고 Stella 기본 설정을 적용합니다. 제거된 항목은 ~/.stella/.trash에 보관되어 언제든 되찾을 수 있습니다.",
+      "action": "기본값 복원",
+      "done": "기본값을 복원했습니다. 이전 사용자 지정은 ~/.stella/.trash로 이동되었습니다.",
+      "none": "이미 Stella 기본값을 사용하고 있습니다.",
+      "error": "기본값을 복원하지 못했습니다."
+    },
     "permissions": {
       "title": "권한",
       "enable": "사용",
@@ -618,15 +626,26 @@
     "plans": {
       "free": {
         "tagline": "Stella 시작하기",
-        "features": ["기본 채팅 및 도움말", "하루 사용량 제한"]
+        "features": [
+          "기본 채팅 및 도움말",
+          "하루 사용량 제한"
+        ]
       },
       "go": {
         "tagline": "일상적인 개인 사용을 위해",
-        "features": ["하루 더 많은 대화", "브라우저 자동화", "음성 대화"]
+        "features": [
+          "하루 더 많은 대화",
+          "브라우저 자동화",
+          "음성 대화"
+        ]
       },
       "pro": {
         "tagline": "헤비 유저를 위해",
-        "features": ["Go의 3배 사용량", "우선 응답 속도", "모든 자동화 기능"]
+        "features": [
+          "Go의 3배 사용량",
+          "우선 응답 속도",
+          "모든 자동화 기능"
+        ]
       }
     },
     "upgradeDialog": {

@@ -26,8 +26,17 @@ export type SkillCatalogRenderOptions = {
 };
 
 const SKILLS_DIR_NAME = "skills";
+const SYSTEM_DIR_NAME = "system";
 const SKILL_FILENAME = "SKILL.md";
 const PROGRAM_FILENAME = path.join("scripts", "program.ts");
+
+/**
+ * Skills resolve from two roots: shipped skills mirrored under
+ * `~/.stella/system/skills/` and user skills under `~/.stella/skills/`. A
+ * user skill with the same id shadows the shipped one — that's the fork
+ * mechanism for customizing a shipped skill.
+ */
+type SkillLocation = { id: string; dir: string; displayPath: string };
 
 const asNonEmptyString = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -58,27 +67,67 @@ const parseLooseHeader = (
   return out;
 };
 
-const listSkillDirectoryIds = async (stellaAppDir: string): Promise<string[]> => {
-  const skillsRoot = path.join(stellaAppDir, SKILLS_DIR_NAME);
+const listDirectoryNames = async (root: string): Promise<string[]> => {
   let entries;
   try {
-    entries = await fs.readdir(skillsRoot, { withFileTypes: true });
+    entries = await fs.readdir(root, { withFileTypes: true });
   } catch {
     return [];
   }
   return entries
     .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b));
+    .map((entry) => entry.name);
 };
 
-const filterSkillDirectoryIds = (
-  skillIds: readonly string[],
+const listSkillLocations = async (
+  stellaAppDir: string,
+): Promise<SkillLocation[]> => {
+  const userRoot = path.join(stellaAppDir, SKILLS_DIR_NAME);
+  const systemRoot = path.join(
+    stellaAppDir,
+    SYSTEM_DIR_NAME,
+    SKILLS_DIR_NAME,
+  );
+  const [userIds, systemIds] = await Promise.all([
+    listDirectoryNames(userRoot),
+    listDirectoryNames(systemRoot),
+  ]);
+  const byId = new Map<string, SkillLocation>();
+  for (const id of systemIds) {
+    byId.set(id, {
+      id,
+      dir: path.join(systemRoot, id),
+      displayPath: path.posix.join(
+        "~/.stella",
+        SYSTEM_DIR_NAME,
+        SKILLS_DIR_NAME,
+        id,
+        SKILL_FILENAME,
+      ),
+    });
+  }
+  for (const id of userIds) {
+    byId.set(id, {
+      id,
+      dir: path.join(userRoot, id),
+      displayPath: path.posix.join(
+        "~/.stella",
+        SKILLS_DIR_NAME,
+        id,
+        SKILL_FILENAME,
+      ),
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+};
+
+const filterSkillLocations = (
+  locations: readonly SkillLocation[],
   options: SkillCatalogRenderOptions = {},
-): string[] => {
+): SkillLocation[] => {
   const omitted = new Set(options.omitSkillIds ?? []);
-  if (omitted.size === 0) return [...skillIds];
-  return skillIds.filter((skillId) => !omitted.has(skillId));
+  if (omitted.size === 0) return [...locations];
+  return locations.filter((location) => !omitted.has(location.id));
 };
 
 // Per-SKILL.md cache so an unchanged skill is never re-read or re-parsed on a
@@ -92,12 +141,11 @@ const skillEntryCache = new Map<
 >();
 
 const readSkillCatalogEntry = async (
-  skillsRoot: string,
-  skillId: string,
+  location: SkillLocation,
 ): Promise<SkillCatalogEntry> => {
-  const skillDir = path.join(skillsRoot, skillId);
-  const skillPath = path.join(skillDir, SKILL_FILENAME);
-  const programPath = path.join(skillDir, PROGRAM_FILENAME);
+  const skillId = location.id;
+  const skillPath = path.join(location.dir, SKILL_FILENAME);
+  const programPath = path.join(location.dir, PROGRAM_FILENAME);
 
   const [skillSig, hasProgram] = await Promise.all([
     statSignature(skillPath),
@@ -133,7 +181,7 @@ const readSkillCatalogEntry = async (
     id: skillId,
     name,
     description,
-    path: path.posix.join("~/.stella", SKILLS_DIR_NAME, skillId, SKILL_FILENAME),
+    path: location.displayPath,
     hasProgram,
   };
   skillEntryCache.set(skillPath, { sig, entry });
@@ -144,21 +192,18 @@ export const listSkillCatalogEntries = async (
   stellaAppDir: string,
   options: SkillCatalogRenderOptions = {},
 ): Promise<SkillCatalogEntry[]> => {
-  const skillsRoot = path.join(stellaAppDir, SKILLS_DIR_NAME);
-  const skillIds = filterSkillDirectoryIds(
-    await listSkillDirectoryIds(stellaAppDir),
+  const locations = filterSkillLocations(
+    await listSkillLocations(stellaAppDir),
     options,
   );
-  return await Promise.all(
-    skillIds.map((skillId) => readSkillCatalogEntry(skillsRoot, skillId)),
-  );
+  return await Promise.all(locations.map(readSkillCatalogEntry));
 };
 
 export const shouldUseAutomaticSkillExplore = async (
   stellaAppDir: string,
 ): Promise<boolean> => {
-  const skillIds = await listSkillDirectoryIds(stellaAppDir);
-  return skillIds.length > INLINE_SKILL_CATALOG_THRESHOLD;
+  const locations = await listSkillLocations(stellaAppDir);
+  return locations.length > INLINE_SKILL_CATALOG_THRESHOLD;
 };
 
 const renderInlineSkillCatalogBlock = (
@@ -214,20 +259,20 @@ export const buildSkillCatalogPromptState = async (
   stellaAppDir: string,
   options: SkillCatalogRenderOptions = {},
 ): Promise<SkillCatalogPromptState> => {
-  const skillIds = filterSkillDirectoryIds(
-    await listSkillDirectoryIds(stellaAppDir),
+  const locations = filterSkillLocations(
+    await listSkillLocations(stellaAppDir),
     options,
   );
-  if (skillIds.length > INLINE_SKILL_CATALOG_THRESHOLD) {
+  if (locations.length > INLINE_SKILL_CATALOG_THRESHOLD) {
     return {
       mode: "placeholder",
-      totalSkills: skillIds.length,
+      totalSkills: locations.length,
       entries: [],
-      block: renderPlaceholderSkillCatalogBlock(skillIds.length),
+      block: renderPlaceholderSkillCatalogBlock(locations.length),
     };
   }
 
-  const entries = await listSkillCatalogEntries(stellaAppDir, options);
+  const entries = await Promise.all(locations.map(readSkillCatalogEntry));
   return {
     mode: "inline",
     totalSkills: entries.length,

@@ -90,6 +90,14 @@
       "description": "Lets Stella see the page you're on and take actions in your browser.",
       "action": "Get extension"
     },
+    "resetCustomizations": {
+      "title": "Use Stella's defaults",
+      "description": "Remove your prompt and skill customizations so Stella's shipped defaults apply. Anything removed is kept in ~/.stella/.trash in case you want it back.",
+      "action": "Restore defaults",
+      "done": "Defaults restored. Your previous customizations were moved to ~/.stella/.trash.",
+      "none": "You're already using Stella's defaults.",
+      "error": "Could not restore defaults."
+    },
     "permissions": {
       "title": "Permissions",
       "enable": "Enable",
@@ -619,7 +627,10 @@
     "plans": {
       "free": {
         "tagline": "Get started with Stella",
-        "features": ["Basic chat & assistance", "Limited daily usage"]
+        "features": [
+          "Basic chat & assistance",
+          "Limited daily usage"
+        ]
       },
       "go": {
         "tagline": "For everyday personal use",

@@ -17,8 +17,19 @@ const bundledAgentMetadataDir = () =>
   resolveRuntimeSourceAsset("extensions", "stella-runtime", "agent-metadata");
 
 /**
- * Keep shipped capability metadata authoritative without overwriting a user's
- * customized prompt body under `~/.stella/agents/`.
+ * Register agents from the system mirror (shipped bodies) merged with bundled
+ * capability metadata, plus any standalone user-defined agents.
+ *
+ * - `~/.stella/system/agents/<id>.md` provides the shipped prompt body;
+ *   capability metadata (tools, model, maxAgentDepth) always comes from the
+ *   bundled `agent-metadata/<id>.md` so a body update can never change an
+ *   agent's tool surface.
+ * - User customizations under `~/.stella/agents/` are NOT registered as
+ *   agents for ids the system already ships — they are overlays/replacements
+ *   composed per turn by `loadHomeAgentSystemPrompt`. Only ids with no system
+ *   counterpart register as standalone user agents.
+ * - `promptSource: bundled` metadata registers wholesale when the system
+ *   mirror has no file for it yet (offline first boot before any sync).
  */
 export const loadStellaRuntimeAgents = (
   stellaDataDir: string,
@@ -28,32 +39,42 @@ export const loadStellaRuntimeAgents = (
   const metadataById = new Map(
     metadataAgents.map((agent) => [agent.id, agent]),
   );
-  const homeAgents = loadParsedAgentsFromDir(path.join(stellaDataDir, "agents"));
-  const homeIds = new Set(homeAgents.map((agent) => agent.id));
-  const reconciled = homeAgents.map(
-    (homeAgent) => {
-      const metadata = metadataById.get(homeAgent.id);
-      if (!metadata) return homeAgent;
-      return {
-        id: metadata.id,
-        name: metadata.name,
-        description: metadata.description,
-        systemPrompt: homeAgent.systemPrompt,
-        agentTypes: metadata.agentTypes,
-        ...(metadata.toolsAllowlist
-          ? { toolsAllowlist: metadata.toolsAllowlist }
-          : {}),
-        ...(metadata.model ? { model: metadata.model } : {}),
-        ...(typeof metadata.maxAgentDepth === "number"
-          ? { maxAgentDepth: metadata.maxAgentDepth }
-          : {}),
-      };
-    },
+  const systemAgents = loadParsedAgentsFromDir(
+    path.join(stellaDataDir, "system", "agents"),
   );
+  const registeredIds = new Set(systemAgents.map((agent) => agent.id));
+  const reconciled = systemAgents.map((systemAgent) => {
+    const metadata = metadataById.get(systemAgent.id);
+    if (!metadata) return systemAgent;
+    return {
+      id: metadata.id,
+      name: metadata.name,
+      description: metadata.description,
+      systemPrompt: systemAgent.systemPrompt,
+      agentTypes: metadata.agentTypes,
+      ...(metadata.toolsAllowlist
+        ? { toolsAllowlist: metadata.toolsAllowlist }
+        : {}),
+      ...(metadata.model ? { model: metadata.model } : {}),
+      ...(typeof metadata.maxAgentDepth === "number"
+        ? { maxAgentDepth: metadata.maxAgentDepth }
+        : {}),
+    };
+  });
   for (const metadata of metadataAgents) {
-    if (metadata.promptSource === "bundled" && !homeIds.has(metadata.id)) {
+    if (metadata.promptSource === "bundled" && !registeredIds.has(metadata.id)) {
       reconciled.push(metadata);
+      registeredIds.add(metadata.id);
     }
+  }
+  for (const userAgent of loadParsedAgentsFromDir(
+    path.join(stellaDataDir, "agents"),
+  )) {
+    if (registeredIds.has(userAgent.id)) continue;
+    if (userAgent.id.endsWith(".replace")) continue;
+    if (metadataById.has(userAgent.id)) continue;
+    reconciled.push(userAgent);
+    registeredIds.add(userAgent.id);
   }
   return reconciled;
 };

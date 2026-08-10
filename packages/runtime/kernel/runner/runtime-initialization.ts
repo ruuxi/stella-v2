@@ -256,14 +256,18 @@ export const createRuntimeInitialization = (
     // (tools / model / maxAgentDepth) — so prompt edits apply without a
     // restart, mirroring pi's watch→reload model.
     const watchPaths = [
-      context.paths.extensionsPath,
-      path.join(context.stellaDataDir, "agents"),
+      { path: context.paths.extensionsPath, recursive: true },
+      { path: path.join(context.stellaDataDir, "agents"), recursive: true },
+      // The system mirror is replaced by an atomic directory swap, which a
+      // recursive watcher on the old inode would miss — watch the data dir
+      // itself (non-recursive) so the `system` entry rename triggers a reload.
+      { path: context.stellaDataDir, recursive: false },
     ];
-    for (const watchPath of watchPaths) {
+    for (const { path: watchPath, recursive } of watchPaths) {
       try {
         const watcher = fsWatch(
           watchPath,
-          { recursive: true },
+          { recursive },
           (_eventType, filename) => {
             // Ignore renames into the directory of dotfiles / build
             // artifacts. The loader filters by suffix anyway, but

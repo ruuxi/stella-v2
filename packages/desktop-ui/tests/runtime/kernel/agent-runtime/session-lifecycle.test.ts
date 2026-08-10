@@ -174,17 +174,17 @@ describe("OrchestratorSession", () => {
     const tempRoot = await mkdtemp(
       path.join(os.tmpdir(), "stella-tool-refresh-"),
     );
-    const homeAgentsDir = path.join(tempRoot, "agents");
+    const systemAgentsDir = path.join(tempRoot, "system", "agents");
     const oldMetadataDir = path.join(tempRoot, "old-agent-metadata");
-    await mkdir(homeAgentsDir, { recursive: true });
+    await mkdir(systemAgentsDir, { recursive: true });
     await mkdir(oldMetadataDir, { recursive: true });
     const oldTools = ["spawn_agent", "send_input", "pause_agent"];
     await writeFile(
-      path.join(homeAgentsDir, "orchestrator.md"),
+      path.join(systemAgentsDir, "orchestrator.md"),
       [
         "---",
-        "name: Customized Orchestrator",
-        "description: User-customized prompt",
+        "name: Mirrored Orchestrator",
+        "description: Mirrored prompt",
         `tools: ${oldTools.join(", ")}`,
         "maxAgentDepth: 1",
         "---",

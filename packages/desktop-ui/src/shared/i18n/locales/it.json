@@ -90,6 +90,14 @@
       "description": "Consente a Stella di vedere la pagina su cui ti trovi e di agire nel tuo browser.",
       "action": "Ottieni estensione"
     },
+    "resetCustomizations": {
+      "title": "Usa le impostazioni predefinite di Stella",
+      "description": "Rimuove le tue personalizzazioni di prompt e skill per applicare le impostazioni predefinite di Stella. Ciò che viene rimosso resta in ~/.stella/.trash nel caso tu voglia recuperarlo.",
+      "action": "Ripristina predefinite",
+      "done": "Impostazioni predefinite ripristinate. Le tue personalizzazioni precedenti sono state spostate in ~/.stella/.trash.",
+      "none": "Stai già usando le impostazioni predefinite di Stella.",
+      "error": "Impossibile ripristinare le impostazioni predefinite."
+    },
     "permissions": {
       "title": "Autorizzazioni",
       "enable": "Abilita",
@@ -620,7 +628,10 @@
     "plans": {
       "free": {
         "tagline": "Inizia con Stella",
-        "features": ["Chat e assistenza di base", "Uso giornaliero limitato"]
+        "features": [
+          "Chat e assistenza di base",
+          "Uso giornaliero limitato"
+        ]
       },
       "go": {
         "tagline": "Per l'uso personale quotidiano",

@@ -90,6 +90,14 @@
       "description": "Låter Stella se sidan du är på och utföra åtgärder i din webbläsare.",
       "action": "Hämta tillägg"
     },
+    "resetCustomizations": {
+      "title": "Använd Stellas standardinställningar",
+      "description": "Tar bort dina anpassningar av promptar och färdigheter så att Stellas standarder gäller. Det som tas bort sparas i ~/.stella/.trash om du vill ha tillbaka det.",
+      "action": "Återställ standarder",
+      "done": "Standarder återställda. Dina tidigare anpassningar flyttades till ~/.stella/.trash.",
+      "none": "Du använder redan Stellas standardinställningar.",
+      "error": "Kunde inte återställa standarderna."
+    },
     "permissions": {
       "title": "Behörigheter",
       "enable": "Aktivera",
@@ -626,7 +634,11 @@
       },
       "go": {
         "tagline": "För dagligt personligt bruk",
-        "features": ["Fler samtal per dag", "Webbläsarautomation", "Röstsamtal"]
+        "features": [
+          "Fler samtal per dag",
+          "Webbläsarautomation",
+          "Röstsamtal"
+        ]
       },
       "pro": {
         "tagline": "För avancerade användare",

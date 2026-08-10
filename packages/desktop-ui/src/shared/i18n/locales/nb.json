@@ -90,6 +90,14 @@
       "description": "Lar Stella se siden du er på og utføre handlinger i nettleseren din.",
       "action": "Hent utvidelse"
     },
+    "resetCustomizations": {
+      "title": "Bruk Stellas standardinnstillinger",
+      "description": "Fjerner tilpasningene dine av prompter og ferdigheter slik at Stellas standarder gjelder. Det som fjernes beholdes i ~/.stella/.trash i tilfelle du vil ha det tilbake.",
+      "action": "Gjenopprett standarder",
+      "done": "Standarder gjenopprettet. Dine tidligere tilpasninger ble flyttet til ~/.stella/.trash.",
+      "none": "Du bruker allerede Stellas standardinnstillinger.",
+      "error": "Kunne ikke gjenopprette standardene."
+    },
     "permissions": {
       "title": "Tillatelser",
       "enable": "Aktiver",
@@ -619,7 +627,10 @@
     "plans": {
       "free": {
         "tagline": "Kom i gang med Stella",
-        "features": ["Grunnleggende chat og hjelp", "Begrenset daglig bruk"]
+        "features": [
+          "Grunnleggende chat og hjelp",
+          "Begrenset daglig bruk"
+        ]
       },
       "go": {
         "tagline": "For daglig personlig bruk",

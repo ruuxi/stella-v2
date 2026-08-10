@@ -762,6 +762,12 @@ export type ElectronSystemApi = {
   setPersonalityVoice: (
     voiceId: string,
   ) => Promise<{ ok: boolean; voiceId: string }>;
+  resetCustomizations: () => Promise<{
+    ok: boolean;
+    movedEntries: string[];
+    trashDir?: string | null;
+    error?: string;
+  }>;
   getBackupStatus: () => Promise<BackupStatusSnapshot>;
   backUpNow: () => Promise<BackupNowResult>;
   listBackups: (limit?: number) => Promise<BackupSummary[]>;

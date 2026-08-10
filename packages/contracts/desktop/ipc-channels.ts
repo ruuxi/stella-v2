@@ -266,6 +266,7 @@ export const IPC_PREFERENCES_GET_PERSONALITY_VOICE =
   "preferences:getPersonalityVoice" as const;
 export const IPC_PREFERENCES_SET_PERSONALITY_VOICE =
   "preferences:setPersonalityVoice" as const;
+export const IPC_CUSTOMIZATIONS_RESET = "customizations:reset" as const;
 export const IPC_PREFERENCES_GET_WAKE_WORD = "preferences:getWakeWord" as const;
 export const IPC_PREFERENCES_SET_WAKE_WORD = "preferences:setWakeWord" as const;
 export const IPC_PET_REQUEST_DICTATION = "pet:requestDictation" as const;

@@ -272,10 +272,6 @@ export const LOCKED_AGENT_TYPES: ReadonlySet<string> = new Set<string>([
   // this utility pass as General lets restricted audiences coerce the model
   // back to DeepSeek while the desktop still serializes a Google request.
   "image_description",
-  // Progress summaries tick every ~30s per active sub-agent purely to narrate
-  // what's happening. Like chronicle, the wrong (expensive) model here burns
-  // quota with no user benefit, so the client can't override it.
-  "progress_summary",
 ]);
 
 export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
@@ -292,7 +288,6 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   store_asset_metadata: "light",
   dream: "light",
   chronicle: "light",
-  progress_summary: "light",
   image_description: "image_description",
   html_finish: "light",
 };

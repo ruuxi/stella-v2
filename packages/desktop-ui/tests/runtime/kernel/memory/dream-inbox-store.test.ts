@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import { DreamInboxStore } from "@stella/runtime/kernel/memory/dream-inbox-store";
+import { initializeDesktopDatabase } from "@stella/runtime/kernel/storage/database-init";
+import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import { createSqliteTestContextFactory } from "../../../helpers/sqlite-test-context.js";
 
 const testContexts = createSqliteTestContextFactory(
@@ -11,6 +14,61 @@ const createTestContext = testContexts.create;
 afterEach(() => testContexts.cleanup());
 
 describe("DreamInboxStore", () => {
+  it("upgrades a legacy inbox without usage columns and preserves its rows", () => {
+    const db = new DatabaseSync(":memory:") as unknown as SqliteDatabase;
+    try {
+      db.exec(`
+        CREATE TABLE dream_inbox (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          kind TEXT NOT NULL,
+          source_key TEXT NOT NULL,
+          thread_id TEXT,
+          run_id TEXT,
+          agent_type TEXT,
+          title TEXT,
+          content TEXT NOT NULL,
+          metadata TEXT,
+          source_updated_at INTEGER NOT NULL,
+          processed_by_dream_at INTEGER,
+          UNIQUE (kind, source_key)
+        );
+        INSERT INTO dream_inbox (
+          kind, source_key, thread_id, run_id, agent_type, title,
+          content, source_updated_at
+        ) VALUES (
+          'thread_summary', 'legacy-thread:legacy-run', 'legacy-thread',
+          'legacy-run', 'general', 'Legacy work', 'Preserved summary', 1234
+        );
+      `);
+
+      expect(() => initializeDesktopDatabase(db)).not.toThrow();
+      expect(() => initializeDesktopDatabase(db)).not.toThrow();
+      const columns = db
+        .prepare("PRAGMA table_info(dream_inbox)")
+        .all() as Array<{
+        name?: string;
+      }>;
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining([
+          "conversation_id",
+          "usage_count",
+          "last_usage",
+        ]),
+      );
+      expect(new DreamInboxStore(db).listUnprocessed()).toEqual([
+        expect.objectContaining({
+          threadId: "legacy-thread",
+          runId: "legacy-run",
+          content: "Preserved summary",
+          usageCount: 0,
+          lastUsage: null,
+        }),
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("promotes only the matching unprocessed thread summary to its reporting conversation", () => {
     const { db, store } = createTestContext();
     store.recordThreadSummary({
@@ -108,6 +166,115 @@ describe("DreamInboxStore", () => {
     const after = store.listUnprocessed();
     expect(after).toHaveLength(1);
     expect(after[0]?.content).toBe("Updated output");
+  });
+
+  it("requeues surfaced evidence and prioritizes it by usage", () => {
+    const { store } = createTestContext();
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      store.recordThreadSummary({
+        threadId: "thread-other",
+        runId: "run-other",
+        agentType: "general",
+        rolloutSummary: "Other work",
+      });
+      vi.setSystemTime(2_000);
+      store.recordThreadSummary({
+        threadId: "thread-used",
+        runId: "run-used",
+        agentType: "general",
+        rolloutSummary: "Frequently recalled work",
+      });
+      const recalled = store
+        .listUnprocessed()
+        .find((row) => row.threadId === "thread-used");
+      store.markProcessed({ ids: [recalled!.id] });
+
+      store.recordUsage("thread-used", "run-used");
+
+      const queue = store.listUnprocessed();
+      expect(queue.map((row) => row.threadId)).toEqual([
+        "thread-used",
+        "thread-other",
+      ]);
+      expect(queue[0]).toMatchObject({
+        threadId: "thread-used",
+        runId: "run-used",
+        usageCount: 1,
+      });
+      expect(queue[1]).toMatchObject({
+        threadId: "thread-other",
+        usageCount: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resolves surfaced thread ids directly even when they are older than 200 rows", () => {
+    const { store } = createTestContext();
+    store.recordThreadSummary({
+      threadId: "thread-old-target",
+      runId: "run-old-target",
+      agentType: "general",
+      rolloutSummary: "Old but relevant work",
+    });
+    for (let index = 0; index < 205; index += 1) {
+      store.recordThreadSummary({
+        threadId: `thread-new-${index}`,
+        runId: `run-new-${index}`,
+        agentType: "general",
+        rolloutSummary: `Newer work ${index}`,
+      });
+    }
+
+    expect(store.listRecentThreadSummaries({ limit: 200 })).not.toContainEqual(
+      expect.objectContaining({ threadId: "thread-old-target" }),
+    );
+    expect(store.findThreadSummariesByThreadIds(["thread-old-target"])).toEqual(
+      [
+        expect.objectContaining({
+          threadId: "thread-old-target",
+          runId: "run-old-target",
+        }),
+      ],
+    );
+  });
+
+  it("debounces usage-driven Dream requeues while retaining usage counts", () => {
+    const { store } = createTestContext();
+    store.recordThreadSummary({
+      threadId: "thread-used",
+      runId: "run-used",
+      agentType: "general",
+      rolloutSummary: "Frequently recalled work",
+    });
+    const [initial] = store.listUnprocessed();
+    store.markProcessed({ ids: [initial!.id], processedAt: 9_000 });
+
+    store.recordUsage("thread-used", "run-used", {
+      nowMs: 10_000,
+      requeueDebounceMs: 1_000,
+    });
+    expect(store.countUnprocessed()).toBe(1);
+    store.markProcessed({ ids: [initial!.id], processedAt: 10_100 });
+
+    store.recordUsage("thread-used", "run-used", {
+      nowMs: 10_500,
+      requeueDebounceMs: 1_000,
+    });
+    expect(store.countUnprocessed()).toBe(0);
+    expect(
+      store.findThreadSummariesByThreadIds(["thread-used"])[0],
+    ).toMatchObject({ usageCount: 2, lastUsage: 10_500 });
+
+    store.recordUsage("thread-used", "run-used", {
+      nowMs: 12_000,
+      requeueDebounceMs: 1_000,
+    });
+    expect(store.countUnprocessed()).toBe(1);
+    expect(store.listUnprocessed()[0]).toMatchObject({ usageCount: 3 });
   });
 
   it("redacts secrets before content enters the inbox", () => {

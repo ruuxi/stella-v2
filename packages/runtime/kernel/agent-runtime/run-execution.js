@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { subscribeRuntimeAgentEvents, } from "./run-events.js";
+import { subscribeRuntimeAgentEvents } from "./run-events.js";
 import { createRuntimePromptAgentMessage, prepareRuntimeAttachments, } from "./run-preparation.js";
 import { enrichImageContentForTextOnlyModel, IMAGE_DESCRIPTION_CUSTOM_TYPE, } from "./image-description.js";
 import { getAgentCompletion, now } from "./shared.js";
@@ -35,7 +35,11 @@ const materializeRemoteImageAttachment = async (attachment) => {
         if (bytes.byteLength > MAX_REMOTE_IMAGE_BYTES)
             return attachment;
         const mimeType = attachmentMimeType(attachment) ||
-            response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ||
+            response.headers
+                .get("content-type")
+                ?.split(";")[0]
+                ?.trim()
+                .toLowerCase() ||
             "";
         if (!mimeType.startsWith("image/"))
             return attachment;
@@ -127,6 +131,9 @@ export const executeRuntimeAgentPrompt = async (args) => {
         threadKey: args.threadKey,
         ...(args.conversationId ? { conversationId: args.conversationId } : {}),
         ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
+        ...(typeof args.attemptGeneration === "number"
+            ? { attemptGeneration: args.attemptGeneration }
+            : {}),
     });
     try {
         if (args.resume) {

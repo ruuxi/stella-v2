@@ -11,6 +11,12 @@ import {
   serializeQuarantineRecord,
 } from "@stella/runtime/kernel/agent-runtime/provider-abort-containment";
 import { executeRuntimeAgentPrompt } from "@stella/runtime/kernel/agent-runtime/run-execution";
+import {
+  AGENT_RUN_MAX_ATTEMPTS,
+  executeAgentTurnWithRetry,
+  type AgentRunFailure,
+  type AgentRunRetryState,
+} from "@stella/runtime/kernel/agent-runtime/agent-run-retry";
 import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 import { providerAbortedStopMessage } from "@stella/runtime/ai/utils/provider-stop";
 import type { Api, Model, StopReason } from "@stella/runtime/ai/types";
@@ -26,7 +32,10 @@ const usage = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-const userMessage = (timestamp: number, text = "do the thing"): AgentMessage => ({
+const userMessage = (
+  timestamp: number,
+  text = "do the thing",
+): AgentMessage => ({
   role: "user",
   content: text,
   timestamp,
@@ -91,6 +100,13 @@ class TestSession extends PiSessionCore {
   retrySameModel(agent: Agent, errorMessage: string) {
     return this.prepareSafetySameModelRetry(agent, {
       errorMessage,
+      logContext: {},
+    });
+  }
+
+  retryRun(agent: Agent, failure: AgentRunFailure) {
+    return this.prepareAgentRunRetry(agent, {
+      failure,
       logContext: {},
     });
   }
@@ -283,6 +299,132 @@ describe("swap-resume flow (end to end)", () => {
   });
 });
 
+describe("transient run retry resume flow", () => {
+  it("shares the four-attempt budget across transient and safety stages", async () => {
+    const route = fableStellaRoute();
+    const session = new TestSession();
+    session.setRoute(route);
+
+    const messages: AgentMessage[] = [];
+    const agent = fakeAgent(messages, route);
+    agent.prompt.mockImplementation(async (prompted: AgentMessage[]) => {
+      messages.push(...prompted);
+      messages.push(
+        assistantMessage(100, "error", { errorMessage: "500 Server Error" }),
+      );
+    });
+    agent.continue
+      .mockImplementationOnce(async () => {
+        messages.push(
+          assistantMessage(200, "error", { errorMessage: "500 Server Error" }),
+        );
+      })
+      .mockImplementationOnce(async () => {
+        messages.push(
+          assistantMessage(300, "error", {
+            errorMessage: SAFETY_ABORT_MESSAGE,
+          }),
+        );
+      })
+      .mockImplementationOnce(async () => {
+        messages.push(
+          assistantMessage(400, "error", {
+            errorMessage: "429 provider rate limit exceeded",
+          }),
+        );
+      });
+
+    const state: AgentRunRetryState = { attemptsUsed: 0, retriesUsed: 0 };
+    const executionArgs = {
+      agent,
+      promptMessages: [{ text: "stay within the turn budget" }],
+      runId: "run-shared-budget",
+      agentType: "general",
+      userMessageId: "msg-shared-budget",
+      recorder: {} as never,
+    };
+    const executeWithRetry = (initialResume = false) =>
+      executeAgentTurnWithRetry({
+        state,
+        initialResume,
+        execute: (resume) =>
+          executeRuntimeAgentPrompt({
+            ...executionArgs,
+            ...(resume ? { resume: true } : {}),
+          }),
+        prepareRetry: (failure) => session.retryRun(agent, failure),
+        random: () => 0.5,
+        sleep: async () => undefined,
+      });
+
+    let execution = await executeWithRetry();
+    expect(execution.errorMessage).toBe(SAFETY_ABORT_MESSAGE);
+    expect(
+      session.retrySameModel(agent, execution.errorMessage!),
+    ).not.toBeNull();
+
+    execution = await executeWithRetry(true);
+
+    expect(state.attemptsUsed).toBe(AGENT_RUN_MAX_ATTEMPTS);
+    expect(execution.attempts).toBe(AGENT_RUN_MAX_ATTEMPTS);
+    expect(execution.errorMessage).toContain(
+      "Automatic recovery exhausted after 4 attempts (rate_limit)",
+    );
+    expect(agent.prompt).toHaveBeenCalledOnce();
+    expect(agent.continue).toHaveBeenCalledTimes(3);
+  });
+
+  it("resumes after a completed tool result without replaying its side effect", async () => {
+    const route = fableStellaRoute();
+    const session = new TestSession();
+    session.setRoute(route);
+
+    const messages: AgentMessage[] = [];
+    const agent = fakeAgent(messages, route);
+    const sideEffect = vi.fn();
+    agent.prompt.mockImplementation(async (prompted: AgentMessage[]) => {
+      messages.push(...prompted);
+      sideEffect();
+      messages.push({
+        role: "toolResult",
+        toolCallId: "call-write",
+        toolName: "apply_patch",
+        content: [{ type: "text", text: "write completed" }],
+        isError: false,
+        timestamp: 50,
+      });
+      messages.push(
+        assistantMessage(100, "error", { errorMessage: "unexpected EOF" }),
+      );
+    });
+    agent.continue.mockImplementation(async () => {
+      expect(messages.at(-1)?.role).toBe("toolResult");
+      messages.push(assistantMessage(200, "stop", { text: "recovered" }));
+    });
+
+    const result = await executeAgentTurnWithRetry({
+      execute: (resume) =>
+        executeRuntimeAgentPrompt({
+          agent,
+          promptMessages: [{ text: "make one durable change" }],
+          runId: "run-transient-tool",
+          agentType: "general",
+          userMessageId: "msg-transient-tool",
+          recorder: {} as never,
+          ...(resume ? { resume: true } : {}),
+        }),
+      prepareRetry: (failure) => session.retryRun(agent, failure),
+      random: () => 0.5,
+      sleep: async () => undefined,
+    });
+
+    expect(result).toMatchObject({ finalText: "recovered", attempts: 2 });
+    expect(sideEffect).toHaveBeenCalledOnce();
+    expect(agent.prompt).toHaveBeenCalledOnce();
+    expect(agent.continue).toHaveBeenCalledOnce();
+  });
+});
+
 describe("quarantine restart re-seeding through the session", () => {
   it("re-masks persisted quarantine records on a fresh session", () => {
     const route = fableStellaRoute();
@@ -298,7 +440,10 @@ describe("quarantine restart re-seeding through the session", () => {
           customMessage: {
             customType: QUARANTINE_CUSTOM_TYPE,
             content: [
-              { type: "text" as const, text: serializeQuarantineRecord(record) },
+              {
+                type: "text" as const,
+                text: serializeQuarantineRecord(record),
+              },
             ],
             display: false,
           },

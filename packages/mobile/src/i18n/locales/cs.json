@@ -44,6 +44,10 @@
       "directDescription": "Stella pracuje na úkolech sama a deleguje jen tehdy, když je to užitečné.",
       "orchestratedDescription": "Stella koordinuje agenta General, který dokáže rozdělit větší práci mezi subagenty."
     },
+    "memory": {
+      "title": "Paměť",
+      "description": "Zahrnout uložené vzpomínky a váš profil do kontextu modelu Stelly. Po vypnutí zůstanou soubory paměti ve vašem zařízení, ale nebudou se používat v dalších odpovědích."
+    },
     "developerPreviews": {
       "title": "Náhledy souborů pro vývojáře",
       "description": "Zobrazí změny kódu v chatu a otevře je v bočním panelu."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Nepodařilo se načíst režim orchestrátoru.",
       "saveWorkingMode": "Nepodařilo se aktualizovat režim orchestrátoru.",
       "workingModeUnavailable": "Režim orchestrátoru není v tomto okně k dispozici.",
+      "loadMemory": "Nepodařilo se načíst nastavení paměti.",
+      "saveMemory": "Nepodařilo se aktualizovat nastavení paměti.",
+      "memoryUnavailable": "Nastavení paměti nejsou v tomto okně dostupná.",
       "loadPermissions": "Nepodařilo se načíst stav oprávnění plochy.",
       "savePermission": "Nepodařilo se aktualizovat oprávnění {kind}.",
       "resetPermission": "Nepodařilo se obnovit oprávnění {kind}.",
@@ -587,10 +594,6 @@
     "privacyPolicy": "Zásadami ochrany osobních údajů",
     "previousStep": "Předchozí krok",
     "nextStep": "Další krok",
-    "intro": {
-      "primary": "Stella je AI, která běží na vašem počítači.",
-      "secondary": "Stella není pro každého. Stella je pro vás."
-    },
     "stepTitles": {
       "engine": "Vyberte, co pohání Stellu.",
       "extension": "Přidejte Stellu do prohlížeče.",
@@ -1851,6 +1854,7 @@
         "historyEmpty": "Zatím žádné konverzace",
         "historyRetry": "Konverzace se nepodařilo načíst. Zkuste to znovu",
         "openConversations": "Otevřít konverzace",
+        "unread": "Nepřečtené zprávy",
         "openConversation": "Otevřít {title}",
         "closeConversation": "Zavřít {title}",
         "delete": "Smazat {title}",
@@ -1916,8 +1920,10 @@
       "heroTagline": "Pište Stelle z jakékoli platformy, která vám vyhovuje — povídejte si přirozeně, nebo ji požádejte, ať věci vyřídí přímo ve vašem počítači.",
       "signInToConnect": "Pro připojení se přihlaste ke Stelle",
       "connectStellaApp": "Připojit k aplikaci Stella",
+      "connectStellaAppSub": "Spárujte aplikaci Stella v telefonu s tímto počítačem",
       "sectionTitle": "Integrace",
       "connectTitle": "Připojit",
+      "phoneTitle": "Váš telefon",
       "backToConnections": "Zpět na připojení",
       "connected": "Připojeno",
       "connectProvider": "Připojit {provider}",

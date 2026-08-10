@@ -87,8 +87,10 @@ export const getClaudeCodeAgentModelId = (
       ? preferredModel
       : undefined;
   const model =
-    userSelectedModel ??
+    // A caller explicitly selecting Stella Light is authoritative. The old
+    // order let a saved `claudeCodeModel: fable` silently replace Haiku.
     lightDefault ??
+    userSelectedModel ??
     preferredModel ??
     DEFAULT_CLAUDE_CODE_MODEL;
   return `claude-code/${model || DEFAULT_CLAUDE_CODE_MODEL}`;
@@ -185,7 +187,7 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
   sessionKey?: string;
   abortSignal?: AbortSignal;
   stellaModel?: string;
-  /** Engine-native model pin for automatic utility work; never persisted. */
+  /** Engine-native utility pin that wins over saved preferences; never persisted. */
   modelOverride?: string;
   /** Internal utility passes may pin effort independently of user agent prefs. */
   effortLevel?: string;
@@ -201,6 +203,8 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
     toolArgs: Record<string, unknown>,
     signal?: AbortSignal,
   ) => Promise<ToolResult>;
+  /** Diagnostic boundary forwarded from finalized Claude assistant events. */
+  onModelRound?: (args: { messageId?: string; toolCallCount: number }) => void;
 }): Promise<string> => {
   const runId =
     args.runId ?? `claude-code:${args.agentType}:${crypto.randomUUID()}`;
@@ -229,6 +233,7 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
         }),
       tools: toolsToMetadata(args.context.tools),
       abortSignal: args.abortSignal,
+      ...(args.onModelRound ? { onModelRound: args.onModelRound } : {}),
       executeTool: async (toolCallId, toolName, toolArgs, signal) => {
         if (!args.executeTool) {
           return { error: `Tool ${toolName} is not available in this run.` };

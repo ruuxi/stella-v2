@@ -1,5 +1,6 @@
 import type { OfficePreviewRef } from "./office-preview.js";
 import type { FileChangeRecord, ProducedFileRecord } from "./file-changes.js";
+import type { AgentModelConfigSnapshot } from "./agent-engine.js";
 
 export type EventRecord = {
   _id: string;
@@ -83,35 +84,66 @@ export type LocalModelUsagePage = {
  * cards, but never drive thread state.
  */
 export type ThreadActivityRecord = {
+  /** Execution authority for this row. Native Claude rows are passive. */
+  source: "stella" | "claude-native";
   threadId: string;
   conversationId: string;
   agentType: string;
   description: string;
   status: "running" | "completed" | "error" | "canceled";
+  /** Durable attempt epoch for reused threads. */
+  attemptGeneration?: number;
   /** Root run that owns the thread's latest lifecycle. */
   rootRunId?: string;
+  /** Exact engine/model configuration captured for this thread's run. */
+  modelConfigSnapshot?: AgentModelConfigSnapshot;
   parentAgentId?: string;
+  /** Native projections are inspectable but are not Stella-controlled. */
+  readOnly?: boolean;
   startedAt: number;
   completedAt?: number;
   result?: string;
   error?: string;
+  /** Recent persisted prose authored by this agent, oldest to newest. */
+  assistantMessages?: string[];
+  assistantMessagesUpdatedAt?: number;
+  assistantMessagesUpdatedSequence?: number;
   updatedAt: number;
+};
+
+/** Bounded current-attempt assistant prose for incremental Activity updates. */
+export type ThreadActivityAssistantUpdate = {
+  threadId: string;
+  assistantMessages: string[];
+  /** Legacy mobile alias. Contains authored prose, never generated summaries. */
+  reasoningSummaries: string[];
+  latestMessage: string;
+  atMs: number;
+  atSequence?: number;
+  attemptGeneration: number;
+  rootRunId?: string;
+};
+
+export type ThreadTranscriptUpdate = {
+  source?: "stella" | "claude-native";
+  threadId: string;
+  entryId: string;
+  atMs: number;
 };
 
 export type ThreadActivityUpdatedPayload = {
   conversationId: string;
+  assistantUpdate?: ThreadActivityAssistantUpdate;
+  transcriptUpdate?: ThreadTranscriptUpdate;
 };
 
 /**
- * Snapshot of the renderer's ephemeral per-thread decoration, mirrored to the
- * mobile bridge so the phone's activity pill gets the same mid-run statusText
- * ticks and reasoning phrases the desktop tray shows. Replaced wholesale on
- * every publish; only currently-running threads are present. Never persisted —
- * a reconnecting client gets the current snapshot attached to its sync page.
+ * Snapshot of the renderer's ephemeral per-thread status decoration, mirrored
+ * to the mobile bridge. Authored assistant updates travel through the durable
+ * thread projection instead of this renderer-owned channel.
  */
 export type TaskDecorationUpdatedPayload = {
   statusTextByAgentId: Record<string, string>;
-  reasoningSummariesByAgentId: Record<string, string[]>;
 };
 
 export type ToolRequestPayload = {

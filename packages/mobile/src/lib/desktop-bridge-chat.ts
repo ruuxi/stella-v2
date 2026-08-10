@@ -1098,14 +1098,12 @@ export async function fetchDesktopBridgeThreadTasks(
 }
 
 /**
- * The desktop renderer's ephemeral per-thread decoration snapshot, broadcast
- * as `localChat:taskDecorationUpdated`: mid-run statusText ticks plus the
- * generated reasoning phrases, keyed by agent/thread id. Present only for
- * running threads; replaced wholesale per broadcast.
+ * The desktop renderer's ephemeral per-thread status decoration snapshot,
+ * broadcast as `localChat:taskDecorationUpdated`. Agent-authored updates are
+ * durable thread activity and do not travel through this renderer channel.
  */
 export type DesktopTaskDecoration = {
   statusTextByAgentId: Record<string, string>;
-  reasoningSummariesByAgentId: Record<string, string[]>;
 };
 
 export function parseDesktopTaskDecoration(
@@ -1120,18 +1118,7 @@ export function parseDesktopTaskDecoration(
     const text = typeof rawText === "string" ? rawText.trim() : "";
     if (id && text) statusTextByAgentId[id] = text;
   }
-  const reasoningSummariesByAgentId: Record<string, string[]> = {};
-  for (const [rawId, rawList] of Object.entries(
-    asRecord(record?.reasoningSummariesByAgentId) ?? {},
-  )) {
-    const id = rawId.trim();
-    if (!id || !Array.isArray(rawList)) continue;
-    const cleaned = rawList
-      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-      .filter((entry) => entry.length > 0);
-    if (cleaned.length > 0) reasoningSummariesByAgentId[id] = cleaned;
-  }
-  return { statusTextByAgentId, reasoningSummariesByAgentId };
+  return { statusTextByAgentId };
 }
 
 function parseDesktopBridgeMessageRows(
@@ -1895,8 +1882,7 @@ export async function sendDesktopBridgeChat({
     if (event.type === "agent-started") {
       const agentId = asString(event.agentId).trim();
       if (agentId) {
-        const title =
-          asString(event.description).trim() || "Background work";
+        const title = asString(event.description).trim() || "Background work";
         mergeArtifacts([
           {
             id: agentWorkArtifactId([agentId]),

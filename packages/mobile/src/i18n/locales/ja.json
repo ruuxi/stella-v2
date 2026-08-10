@@ -44,6 +44,10 @@
       "directDescription": "Stella がタスクを自分で処理し、必要な場合にのみ委任します。",
       "orchestratedDescription": "Stella が General エージェントを調整し、大きな作業をサブエージェントに分割できます。"
     },
+    "memory": {
+      "title": "メモリ",
+      "description": "保存されたメモリとプロフィールを Stella のモデルコンテキストに含めます。オフにすると、メモリファイルはデバイスに残りますが、以降のやり取りでは使用されません。"
+    },
     "developerPreviews": {
       "title": "開発者向けファイルプレビュー",
       "description": "コードの変更をチャットに表示し、サイドパネルで開きます。"
@@ -344,6 +348,9 @@
       "loadWorkingMode": "オーケストレーターモードを読み込めませんでした。",
       "saveWorkingMode": "オーケストレーターモードを更新できませんでした。",
       "workingModeUnavailable": "このウィンドウではオーケストレーターモードを利用できません。",
+      "loadMemory": "メモリ設定を読み込めませんでした。",
+      "saveMemory": "メモリ設定を更新できませんでした。",
+      "memoryUnavailable": "このウィンドウではメモリ設定を利用できません。",
       "loadPermissions": "デスクトップのアクセス権の状態を読み込めませんでした。",
       "savePermission": "{kind} のアクセス権を更新できませんでした。",
       "resetPermission": "{kind} のアクセス権をリセットできませんでした。",
@@ -584,10 +591,6 @@
     "privacyPolicy": "プライバシーポリシー",
     "previousStep": "前のステップ",
     "nextStep": "次のステップ",
-    "intro": {
-      "primary": "Stella はあなたのコンピューターで動く AI です。",
-      "secondary": "Stella はみんなのためのものではありません。あなたのためのものです。"
-    },
     "stepTitles": {
       "engine": "Stella を動かすエンジンを選択します。",
       "extension": "ブラウザに Stella を追加しましょう。",
@@ -1782,6 +1785,7 @@
         "historyEmpty": "会話はまだありません",
         "historyRetry": "会話を読み込めませんでした。もう一度試す",
         "openConversations": "会話を開く",
+        "unread": "未読メッセージ",
         "openConversation": "{title} を開く",
         "closeConversation": "{title} を閉じる",
         "delete": "{title} を削除",
@@ -1844,8 +1848,10 @@
       "heroTagline": "好きなプラットフォームから Stella にメッセージを送れます — 自然に会話したり、コンピュータ上で作業を任せたりできます。",
       "signInToConnect": "接続するには Stella にサインインしてください",
       "connectStellaApp": "Stella アプリに接続",
+      "connectStellaAppSub": "スマートフォンの Stella アプリをこのコンピュータとペアリングします",
       "sectionTitle": "連携",
       "connectTitle": "接続",
+      "phoneTitle": "あなたのスマートフォン",
       "backToConnections": "接続一覧に戻る",
       "connected": "接続済み",
       "connectProvider": "{provider} を接続",

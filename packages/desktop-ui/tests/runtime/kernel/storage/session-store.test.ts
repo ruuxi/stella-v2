@@ -18,6 +18,27 @@ type TestContext = {
 
 const activeContexts = new Set<TestContext>();
 
+const appendUserThreadMessages = (
+  store: SessionStore,
+  threadId: string,
+  count: number,
+) => {
+  for (let index = 0; index < count; index += 1) {
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 8_500 + index,
+      role: "user",
+      content: `Graph message ${index}`,
+      payload: {
+        role: "user",
+        content: `Graph message ${index}`,
+        timestamp: 8_500 + index,
+      },
+    });
+  }
+  return store.loadThreadMessages(threadId);
+};
+
 const createTestContext = (): TestContext => {
   const rootPath = path.join(
     os.tmpdir(),
@@ -46,6 +67,132 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
+  it("migrates v1 append-sequence rows to the canonical insertion sequence", async () => {
+    const rootPath = path.join(
+      os.tmpdir(),
+      `stella-session-store-v1-thread-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    await mkdir(rootPath, { recursive: true });
+    const db = new DatabaseSync(getDesktopDatabasePath(rootPath), {
+      timeout: 5000,
+    }) as unknown as SqliteDatabase;
+    db.exec(`
+      CREATE TABLE runtime_thread_entries (
+        entry_id TEXT PRIMARY KEY,
+        thread_key TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        parent_entry_id TEXT,
+        entry_type TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        append_seq INTEGER,
+        data_json TEXT
+      );
+      CREATE INDEX idx_runtime_thread_entries_thread_append
+      ON runtime_thread_entries(thread_key, append_seq);
+    `);
+    const insertLegacy = db.prepare(`
+      INSERT INTO runtime_thread_entries (
+        entry_id, thread_key, session_id, parent_entry_id, entry_type,
+        timestamp_iso, created_at, append_seq, data_json
+      ) VALUES (?, 'legacy-thread', 'legacy-session', ?, ?, ?, ?, ?, ?)
+    `);
+    const timestamp = 1_700_000_000_000;
+    insertLegacy.run(
+      "legacy-random-z",
+      null,
+      "message",
+      new Date(timestamp).toISOString(),
+      timestamp,
+      1,
+      JSON.stringify({
+        message: { role: "user", content: "Legacy first", timestamp },
+      }),
+    );
+    insertLegacy.run(
+      "legacy-random-a",
+      "legacy-random-z",
+      "custom_message",
+      new Date(timestamp).toISOString(),
+      timestamp,
+      2,
+      JSON.stringify({
+        customType: "managed-child-terminal",
+        content: "Legacy sibling event",
+        display: false,
+        eventId: "legacy-child-event",
+      }),
+    );
+    insertLegacy.run(
+      "legacy-random-m",
+      "legacy-random-z",
+      "message",
+      new Date(timestamp).toISOString(),
+      timestamp,
+      3,
+      JSON.stringify({
+        message: { role: "user", content: "Legacy second", timestamp },
+      }),
+    );
+
+    initializeDesktopDatabase(db);
+    const context = { rootPath, db, store: new SessionStore(db) };
+    activeContexts.add(context);
+
+    expect(
+      context.store
+        .loadThreadMessages("legacy-thread")
+        .map((message) => message.content),
+    ).toEqual(["Legacy first", "Legacy sibling event", "Legacy second"]);
+    expect(
+      db
+        .prepare(
+          `SELECT insertion_sequence AS insertionSequence
+           FROM runtime_thread_entries
+           WHERE thread_key = 'legacy-thread'
+           ORDER BY insertion_sequence`,
+        )
+        .all(),
+    ).toEqual([
+      { insertionSequence: 1 },
+      { insertionSequence: 2 },
+      { insertionSequence: 3 },
+    ]);
+    expect(
+      db
+        .prepare(
+          `SELECT 1 FROM sqlite_schema
+           WHERE type = 'index'
+             AND name = 'idx_runtime_thread_entries_thread_append'`,
+        )
+        .get(),
+    ).toBeUndefined();
+
+    db.prepare(
+      `INSERT INTO runtime_thread_entries (
+         entry_id, thread_key, session_id, parent_entry_id, entry_type,
+         timestamp_iso, created_at, data_json
+       ) VALUES (?, 'legacy-thread', 'legacy-session', ?, 'message', ?, ?, ?)`,
+    ).run(
+      "legacy-random-new",
+      "legacy-random-m",
+      new Date(timestamp).toISOString(),
+      timestamp,
+      JSON.stringify({
+        message: { role: "user", content: "Imported later", timestamp },
+      }),
+    );
+    expect(
+      db
+        .prepare(
+          `SELECT insertion_sequence AS insertionSequence
+           FROM runtime_thread_entries
+           WHERE entry_id = 'legacy-random-new'`,
+        )
+        .get(),
+    ).toMatchObject({ insertionSequence: 4 });
+  });
+
   it("projects durable provider usage by conversation and agent thread", () => {
     const { store } = createTestContext();
     const conversationId = "conversation-usage";
@@ -1377,6 +1524,287 @@ describe("session-store", () => {
       )
       .get(threadId) as { count: number };
     expect(threadRows.count).toBe(2);
+  });
+
+  it("keeps equal-timestamp thread entries linear and complete across a full reload", () => {
+    const context = createTestContext();
+    const { rootPath, db, store } = context;
+    const frozenAt = 7_000;
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-frozen-agent",
+      agentType: "general",
+    });
+    const messageCount = 80;
+    for (let index = 0; index < messageCount; index += 1) {
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: frozenAt,
+        role: "user",
+        content: `Frozen message ${index}`,
+        payload: {
+          role: "user",
+          content: `Frozen message ${index}`,
+          timestamp: frozenAt,
+        },
+      });
+    }
+
+    const entryRows = db
+      .prepare(
+        `SELECT
+           entry_id AS entryId,
+           parent_entry_id AS parentEntryId,
+           insertion_sequence AS insertionSequence
+         FROM runtime_thread_entries
+         WHERE thread_key = ?
+         ORDER BY insertion_sequence ASC`,
+      )
+      .all(threadId) as Array<{
+      entryId: string;
+      parentEntryId: string | null;
+      insertionSequence: number;
+    }>;
+    expect(entryRows).toHaveLength(messageCount);
+    expect(new Set(entryRows.map((row) => row.insertionSequence)).size).toBe(
+      messageCount,
+    );
+    for (let index = 1; index < entryRows.length; index += 1) {
+      expect(entryRows[index]?.parentEntryId).toBe(
+        entryRows[index - 1]?.entryId,
+      );
+    }
+
+    db.close();
+    activeContexts.delete(context);
+    const reopenedDb = new DatabaseSync(getDesktopDatabasePath(rootPath), {
+      timeout: 5000,
+    }) as unknown as SqliteDatabase;
+    initializeDesktopDatabase(reopenedDb);
+    const reopened = {
+      rootPath,
+      db: reopenedDb,
+      store: new SessionStore(reopenedDb),
+    };
+    activeContexts.add(reopened);
+
+    expect(
+      reopened.store.loadThreadMessages(threadId).map((entry) => entry.content),
+    ).toEqual(
+      Array.from(
+        { length: messageCount },
+        (_, index) => `Frozen message ${index}`,
+      ),
+    );
+    expect(reopened.store.loadThreadMessages(threadId, 25)[0]?.content).toBe(
+      "Frozen message 55",
+    );
+  });
+
+  it("orders legacy branches by durable insertion sequence", () => {
+    const { db, store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-imported-thread",
+      agentType: "general",
+    });
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 8_000,
+      role: "user",
+      content: "Imported base",
+      payload: { role: "user", content: "Imported base", timestamp: 8_000 },
+    });
+    const base = db
+      .prepare(
+        `SELECT entry_id AS entryId, session_id AS sessionId
+         FROM runtime_thread_entries WHERE thread_key = ? LIMIT 1`,
+      )
+      .get(threadId) as { entryId: string; sessionId: string };
+    const insertLegacy = db.prepare(`
+      INSERT INTO runtime_thread_entries (
+        entry_id, thread_key, session_id, parent_entry_id, entry_type,
+        timestamp_iso, created_at, data_json
+      ) VALUES (?, ?, ?, ?, 'message', ?, ?, ?)
+    `);
+    insertLegacy.run(
+      "legacy-random-z",
+      threadId,
+      base.sessionId,
+      base.entryId,
+      new Date(8_000).toISOString(),
+      8_000,
+      JSON.stringify({
+        message: { role: "user", content: "Imported second", timestamp: 8_000 },
+      }),
+    );
+    insertLegacy.run(
+      "legacy-random-a",
+      threadId,
+      base.sessionId,
+      base.entryId,
+      new Date(8_000).toISOString(),
+      8_000,
+      JSON.stringify({
+        message: { role: "user", content: "Imported third", timestamp: 8_000 },
+      }),
+    );
+
+    expect(
+      store.loadThreadMessages(threadId).map((entry) => entry.content),
+    ).toEqual(["Imported base", "Imported second", "Imported third"]);
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 8_000,
+      role: "user",
+      content: "Appended after import",
+      payload: {
+        role: "user",
+        content: "Appended after import",
+        timestamp: 8_000,
+      },
+    });
+    expect(
+      store.loadThreadMessages(threadId).map((entry) => entry.content),
+    ).toEqual([
+      "Imported base",
+      "Imported second",
+      "Imported third",
+      "Appended after import",
+    ]);
+  });
+
+  it("repairs rows inserted during the insertion-sequence migration window", () => {
+    const { db, store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-partial-sequence-migration",
+      agentType: "general",
+    });
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 8_000,
+      role: "user",
+      content: "Before migration window",
+      payload: {
+        role: "user",
+        content: "Before migration window",
+        timestamp: 8_000,
+      },
+    });
+    const base = db
+      .prepare(
+        `SELECT entry_id AS entryId, session_id AS sessionId
+         FROM runtime_thread_entries WHERE thread_key = ? LIMIT 1`,
+      )
+      .get(threadId) as { entryId: string; sessionId: string };
+    const insertMessage = db.prepare(`
+      INSERT INTO runtime_thread_entries (
+        entry_id, thread_key, session_id, parent_entry_id, entry_type,
+        timestamp_iso, created_at, data_json
+      ) VALUES (?, ?, ?, ?, 'message', ?, ?, ?)
+    `);
+
+    db.exec("DROP TRIGGER trg_runtime_thread_entries_sequence;");
+    insertMessage.run(
+      "partial-migration-null",
+      threadId,
+      base.sessionId,
+      base.entryId,
+      new Date(8_001).toISOString(),
+      8_001,
+      JSON.stringify({
+        message: {
+          role: "user",
+          content: "Inside migration window",
+          timestamp: 8_001,
+        },
+      }),
+    );
+    db.exec(`
+      CREATE TRIGGER trg_runtime_thread_entries_sequence
+      AFTER INSERT ON runtime_thread_entries
+      WHEN NEW.insertion_sequence IS NULL
+      BEGIN
+        UPDATE runtime_thread_entries
+        SET insertion_sequence = (
+          SELECT COALESCE(MAX(insertion_sequence), 0) + 1
+          FROM runtime_thread_entries
+        )
+        WHERE rowid = NEW.rowid;
+      END;
+    `);
+    insertMessage.run(
+      "partial-migration-assigned",
+      threadId,
+      base.sessionId,
+      "partial-migration-null",
+      new Date(8_002).toISOString(),
+      8_002,
+      JSON.stringify({
+        message: {
+          role: "user",
+          content: "After migration window",
+          timestamp: 8_002,
+        },
+      }),
+    );
+
+    expect(() => initializeDesktopDatabase(db)).not.toThrow();
+    expect(
+      db
+        .prepare(
+          `SELECT insertion_sequence AS insertionSequence
+           FROM runtime_thread_entries
+           WHERE thread_key = ?
+           ORDER BY rowid`,
+        )
+        .all(threadId),
+    ).toEqual([
+      { insertionSequence: 1 },
+      { insertionSequence: 2 },
+      { insertionSequence: 3 },
+    ]);
+    expect(
+      store.loadThreadMessages(threadId).map((entry) => entry.content),
+    ).toEqual([
+      "Before migration window",
+      "Inside migration window",
+      "After migration window",
+    ]);
+  });
+
+  it("recovers malformed imported parent graphs without losing entries", () => {
+    const { db, store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-malformed-graph",
+      agentType: "general",
+    });
+    const messages = appendUserThreadMessages(store, threadId, 4);
+    const previousId = messages[2]!.entryId!;
+    const newestId = messages[3]!.entryId!;
+    const updateParent = db.prepare(
+      `UPDATE runtime_thread_entries SET parent_entry_id = ? WHERE entry_id = ?`,
+    );
+    updateParent.run(newestId, previousId);
+    updateParent.run(previousId, newestId);
+
+    expect(
+      store.loadThreadMessages(threadId).map((entry) => entry.content),
+    ).toEqual([
+      "Graph message 0",
+      "Graph message 1",
+      "Graph message 2",
+      "Graph message 3",
+    ]);
+
+    updateParent.run("missing-imported-parent", messages[1]!.entryId!);
+    updateParent.run(messages[1]!.entryId!, previousId);
+    expect(
+      store.loadThreadMessages(threadId).map((entry) => entry.content),
+    ).toEqual([
+      "Graph message 0",
+      "Graph message 1",
+      "Graph message 2",
+      "Graph message 3",
+    ]);
   });
 
   it("preserves assistant thinking blocks in persisted thread payloads", () => {

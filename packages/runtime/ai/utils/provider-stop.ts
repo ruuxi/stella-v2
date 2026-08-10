@@ -29,24 +29,24 @@
  * and Bedrock (`guardrail_intervened`/`content_filtered`).
  */
 const SAFETY_STOP_REASONS = new Set([
-	"refusal",
-	"sensitive",
-	"safety",
-	"image_safety",
-	"prohibited_content",
-	"image_prohibited_content",
-	"blocklist",
-	"spii",
-	"recitation",
-	"image_recitation",
-	"content_filter",
-	"content_filtered",
-	"guardrail_intervened",
+  "refusal",
+  "sensitive",
+  "safety",
+  "image_safety",
+  "prohibited_content",
+  "image_prohibited_content",
+  "blocklist",
+  "spii",
+  "recitation",
+  "image_recitation",
+  "content_filter",
+  "content_filtered",
+  "guardrail_intervened",
 ]);
 
 /** True when the raw stop reason is a refusal/safety/content-filter stop. */
 export function isSafetyStopReason(rawStopReason: string): boolean {
-	return SAFETY_STOP_REASONS.has(rawStopReason.trim().toLowerCase());
+  return SAFETY_STOP_REASONS.has(rawStopReason.trim().toLowerCase());
 }
 
 /**
@@ -59,13 +59,36 @@ export function isSafetyStopReason(rawStopReason: string): boolean {
  * terminal failures are never mistaken for content aborts.
  */
 export function providerAbortedStopMessage(rawStopReason: string): string {
-	if (isSafetyStopReason(rawStopReason)) {
-		return (
-			`Provider aborted the response (stop reason: "${rawStopReason}"). ` +
-			"This is a provider-side refusal/safety/content-filter stop triggered by something in the request content."
-		);
-	}
-	return `Provider ended the stream abnormally (stop reason: "${rawStopReason}") without a completed response.`;
+  if (isSafetyStopReason(rawStopReason)) {
+    return (
+      `Provider aborted the response (stop reason: "${rawStopReason}"). ` +
+      "This is a provider-side refusal/safety/content-filter stop triggered by something in the request content."
+    );
+  }
+  return `Provider ended the stream abnormally (stop reason: "${rawStopReason}") without a completed response.`;
+}
+
+/**
+ * Fingerprints of stream-anomaly errors that are presumptively transient.
+ * Safety/content-block wordings are deliberately excluded because those are
+ * deterministic aborts owned by provider-abort containment.
+ */
+const TRANSIENT_STREAM_ANOMALY_PATTERNS: RegExp[] = [
+  /\bprovider stream ended with stopreason "/i,
+  /\bprovider ended the stream abnormally \(stop reason:/i,
+  /\bprovider paused the turn \(stop reason: "pause_turn"\)/i,
+  /\bstream ended before message_stop\b/i,
+];
+
+/** True when a stream anomaly should be retried as a transport failure. */
+export function isTransientProviderStreamAnomalyMessage(
+  message: string | undefined,
+): boolean {
+  const trimmed = message?.trim();
+  if (!trimmed) return false;
+  return TRANSIENT_STREAM_ANOMALY_PATTERNS.some((pattern) =>
+    pattern.test(trimmed),
+  );
 }
 
 /**
@@ -74,14 +97,14 @@ export function providerAbortedStopMessage(rawStopReason: string): string {
  * stop reason) over a generic fallback.
  */
 export function anomalousStreamStopError(output: {
-	stopReason: string;
-	errorMessage?: string;
+  stopReason: string;
+  errorMessage?: string;
 }): Error {
-	const detail = output.errorMessage?.trim();
-	if (detail) {
-		return new Error(detail);
-	}
-	return new Error(
-		`Provider stream ended with stopReason "${output.stopReason}" but the provider supplied no error detail.`,
-	);
+  const detail = output.errorMessage?.trim();
+  if (detail) {
+    return new Error(detail);
+  }
+  return new Error(
+    `Provider stream ended with stopReason "${output.stopReason}" but the provider supplied no error detail.`,
+  );
 }

@@ -137,6 +137,10 @@ import { createDesktopDatabase } from "../kernel/storage/database.js";
 import { ChatStore } from "../kernel/storage/chat-store.js";
 import { RuntimeStore } from "../kernel/storage/runtime-store.js";
 import { RunEventLog } from "../kernel/storage/run-event-log.js";
+import {
+  listTranscriptNeighborsBatch,
+  readRecallFtsHealth,
+} from "../kernel/storage/recall-read-queries.js";
 import type {
   LocalChatEventRecord,
   SqliteDatabase,
@@ -815,7 +819,17 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     state.init = init;
 
     const db = createDesktopDatabase(init.stellaDataDirPath);
-    const chatStore = new ChatStore(db);
+    const chatStore = new ChatStore(db, {
+      onThreadActivityUpdate: (payload: unknown) => {
+        peer.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
+      },
+      onThreadAssistantUpdate: (payload: unknown) => {
+        peer.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
+      },
+      onThreadTranscriptUpdate: (payload: unknown) => {
+        peer.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
+      },
+    });
     const runtimeStore = chatStore as RuntimeStore;
     const socialSessionStore = new SocialSessionStore(db);
     const runEventLog = new RunEventLog(db);
@@ -1028,6 +1042,11 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         )) as HostAppBrowserContextSnapshot,
       listLocalChatEvents: (conversationId, maxItems) =>
         chatStore.listEvents(conversationId, maxItems),
+      recallReadQueries: {
+        getFtsHealth: () => readRecallFtsHealth(db),
+        listTranscriptNeighborsBatch: (targets, options) =>
+          listTranscriptNeighborsBatch(db, targets, options),
+      },
       appendLocalChatEvent: (args) => {
         const event = chatStore.appendEvent(args);
         notifyLocalChatUpdated(peer, args.conversationId, event);

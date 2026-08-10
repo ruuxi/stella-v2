@@ -152,9 +152,8 @@ export const collectConversationTasks = (
  * durable history so the tray doesn't balloon with rows from before the
  * loaded message window.
  *
- * Decoration owns the ephemeral extras for running tasks — mid-run statusText
- * ticks and reasoning phrases that are never persisted — falling back to the
- * fold's last-synced copies when absent (older desktop, or no tick yet).
+ * Decoration owns only ephemeral mid-run statusText. Agent-authored messages
+ * arrive through the authoritative persisted task projection.
  */
 export const overlayDesktopThreadTasks = (
   folded: MobileTask[],
@@ -187,12 +186,10 @@ export const overlayDesktopThreadTasks = (
     for (const [id, task] of byId) {
       if (task.status !== "running") continue;
       const statusText = decoration.statusTextByAgentId[id];
-      const reasoningSummaries = decoration.reasoningSummariesByAgentId[id];
-      if (!statusText && !reasoningSummaries?.length) continue;
+      if (!statusText) continue;
       byId.set(id, {
         ...task,
-        ...(statusText ? { statusText } : {}),
-        ...(reasoningSummaries?.length ? { reasoningSummaries } : {}),
+        statusText,
       });
     }
   }

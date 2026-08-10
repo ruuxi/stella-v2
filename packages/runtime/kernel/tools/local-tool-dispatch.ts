@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
+  memoryIndexPath,
   memoryFilePath,
   memorySummaryPath,
 } from "../memory/dream-storage.js";
@@ -73,12 +74,13 @@ const ensureDreamWritePath = async (
   const allowedFiles = await Promise.all([
     normalizePath(memoryFilePath(dream.stellaDataDir)),
     normalizePath(memorySummaryPath(dream.stellaDataDir)),
+    normalizePath(memoryIndexPath(dream.stellaDataDir)),
   ]);
   if (allowedFiles.includes(resolved)) {
     return resolved;
   }
   throw new Error(
-    "Dream StrReplace may only edit MEMORY.md and memory_summary.md.",
+    "Dream StrReplace may only edit MEMORY.md, memory_summary.md, and memory_index.md.",
   );
 };
 
@@ -270,6 +272,8 @@ export async function dispatchLocalTool(
             content: redactMemoryText(row.content),
             ...(row.metadata ? { metadata: row.metadata } : {}),
             sourceUpdatedAt: row.sourceUpdatedAt,
+            usage_count: row.usageCount,
+            ...(row.lastUsage !== null ? { last_usage: row.lastUsage } : {}),
           })),
         }),
       };

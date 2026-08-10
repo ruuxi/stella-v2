@@ -12,7 +12,7 @@ import type { ToolDefinition } from "../types.js";
 export const dreamTool: ToolDefinition = {
   name: "Dream",
   description:
-    'Background memory consolidator IO. action="list" returns unprocessed Dream-inbox rows (thread summaries and memory notes); action="markProcessed" stamps rows as consumed by id.',
+    'Background memory consolidator IO. action="list" returns usage-prioritized unprocessed Dream-inbox rows (thread summaries, memory notes, chronicle digests), including usage_count/last_usage retention signals; action="markProcessed" stamps rows as consumed by id.',
   parameters: {
     type: "object",
     properties: {
@@ -20,7 +20,7 @@ export const dreamTool: ToolDefinition = {
         type: "string",
         enum: ["list", "markProcessed"],
         description:
-          "list = fetch unprocessed inbox rows, oldest first. markProcessed = stamp the given row ids as consumed.",
+          "list = fetch unprocessed inbox rows, highest usage/recent usage first and then oldest first. markProcessed = stamp the given row ids as consumed.",
       },
       limit: {
         type: "number",

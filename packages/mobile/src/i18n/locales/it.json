@@ -44,6 +44,10 @@
       "directDescription": "Stella svolge le attività da sola e delega solo quando è utile.",
       "orchestratedDescription": "Stella coordina un agente Generale che può suddividere i lavori più grandi tra i subagenti."
     },
+    "memory": {
+      "title": "Memoria",
+      "description": "Includi i ricordi salvati e il tuo profilo nel contesto del modello di Stella. Disattivandolo, i file di memoria restano sul tuo dispositivo ma vengono esclusi dai turni successivi."
+    },
     "developerPreviews": {
       "title": "Anteprime file per sviluppatori",
       "description": "Mostra le modifiche al codice nella chat e aprile nel pannello laterale."
@@ -344,6 +348,9 @@
       "loadWorkingMode": "Impossibile caricare la modalità orchestratore.",
       "saveWorkingMode": "Impossibile aggiornare la modalità orchestratore.",
       "workingModeUnavailable": "La modalità orchestratore non è disponibile in questa finestra.",
+      "loadMemory": "Impossibile caricare l'impostazione di memoria.",
+      "saveMemory": "Impossibile aggiornare l'impostazione di memoria.",
+      "memoryUnavailable": "Le impostazioni di memoria non sono disponibili in questa finestra.",
       "loadPermissions": "Impossibile caricare lo stato delle autorizzazioni del desktop.",
       "savePermission": "Impossibile aggiornare l'autorizzazione {kind}.",
       "resetPermission": "Impossibile reimpostare l'autorizzazione {kind}.",
@@ -586,10 +593,6 @@
     "privacyPolicy": "Informativa sulla privacy",
     "previousStep": "Passaggio precedente",
     "nextStep": "Passaggio successivo",
-    "intro": {
-      "primary": "Stella è un'IA che gira sul tuo computer.",
-      "secondary": "Stella non è per tutti. Stella è per te."
-    },
     "stepTitles": {
       "engine": "Scegli cosa alimenta Stella.",
       "extension": "Aggiungi Stella al tuo browser.",
@@ -1828,6 +1831,7 @@
         "historyEmpty": "Ancora nessuna conversazione",
         "historyRetry": "Impossibile caricare le conversazioni. Riprova",
         "openConversations": "Apri le conversazioni",
+        "unread": "Messaggi non letti",
         "openConversation": "Apri {title}",
         "closeConversation": "Chiudi {title}",
         "delete": "Elimina {title}",
@@ -1892,8 +1896,10 @@
       "heroTagline": "Scrivi a Stella dalla piattaforma che preferisci: chiacchiera in modo naturale, o chiedile di fare le cose direttamente sul tuo computer.",
       "signInToConnect": "Accedi a Stella per connettere",
       "connectStellaApp": "Connetti all'app Stella",
+      "connectStellaAppSub": "Abbina l'app Stella del tuo telefono a questo computer",
       "sectionTitle": "Integrazioni",
       "connectTitle": "Connetti",
+      "phoneTitle": "Il tuo telefono",
       "backToConnections": "Torna alle connessioni",
       "connected": "Connesso",
       "connectProvider": "Connetti {provider}",

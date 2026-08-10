@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Lightbulb } from "@/ui/icons";
+import { Switch } from "@/ui/switch";
 import { ProviderModelPanel } from "@/global/settings/ProviderModelPanel";
 import { EngineScopedModelList } from "@/global/settings/EngineScopedModelList";
 import { ProviderOnlyPicker, type ProviderOption, } from "@/global/settings/ProviderOnlyPicker";
@@ -900,7 +901,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             setPendingAgent(null);
         }
     }, [pendingAgent, preferences, setPreferences, t]);
-    void handleCodexServiceTierSelect;
     const ready = preferences !== null &&
         (activeProviderSetting || modelDefaults !== undefined);
     const imagePreferences = preferences?.imageGeneration ?? DEFAULT_IMAGE_GENERATION;
@@ -999,6 +999,19 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             </button>))}
         </div>
       </div>);
+    const claudeCodeSelectionControls = (<div className="agent-model-picker-selected-controls">
+        {reasoningControl}
+        <div className="agent-model-picker-engine-options">
+          <Switch className="agent-model-picker-engine-option" label="Use Claude Code instead" title="Uses your installed Claude Code configuration, skills, and MCP servers instead of Stella's harness." checked={preferences?.useNativeClaudeCodeRuntime === true} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleNativeRuntimeChange("useNativeClaudeCodeRuntime", checked)}/>
+        </div>
+      </div>);
+    const chatGptSelectionControls = (<div className="agent-model-picker-selected-controls">
+        {reasoningControl}
+        <div className="agent-model-picker-engine-options">
+          {selectedChatGptSupportsFast ? (<Switch className="agent-model-picker-engine-option" label="Fast" title="Uses more ChatGPT credits for faster responses." checked={preferences?.codexServiceTier === "fast"} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleCodexServiceTierSelect(checked ? "fast" : "standard")}/>) : null}
+          <Switch className="agent-model-picker-engine-option" label="Use Codex instead" title="Uses Codex app-server with your native Codex configuration and tools instead of Stella's harness." checked={preferences?.useNativeCodexRuntime === true} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleNativeRuntimeChange("useNativeCodexRuntime", checked)}/>
+        </div>
+      </div>);
     /**
      * ChatGPT and Claude Code are engines, not catalog providers. They render
      * as their own collapsible sections beside the OpenAI / Anthropic API
@@ -1080,18 +1093,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     brandKey: "anthropic",
                     selected: committedEngine === "claude_code_local",
                     content: () => (<>
-                        <EngineScopedModelList engineLabel="Claude Code" hideHead selectedRowExtra={reasoningControl} models={claudeCodeModelsWithCurrent} value={committedEngine === "claude_code_local"
+                        <EngineScopedModelList engineLabel="Claude Code" hideHead selectedRowExtra={claudeCodeSelectionControls} models={claudeCodeModelsWithCurrent} value={committedEngine === "claude_code_local"
                                 ? selectedClaudeCodeModel
                                 : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>
-                        <label className="agent-model-picker-native-runtime-option">
-                          <input type="checkbox" checked={preferences?.useNativeClaudeCodeRuntime === true} disabled={!preferences || pendingAgent !== null} onChange={(event) => void handleNativeRuntimeChange("useNativeClaudeCodeRuntime", event.target.checked)}/>
-                          <span className="agent-model-picker-native-runtime-copy">
-                            <span>Use Claude Code instead</span>
-                            <span className="agent-model-picker-native-runtime-helper">
-                              Uses your installed Claude Code configuration, skills, and MCP servers instead of Stella&apos;s harness.
-                            </span>
-                          </span>
-                        </label>
                       </>),
                 },
                 {
@@ -1110,18 +1114,9 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                           </p>) : chatGptRoutedNotice ? (<p className="agent-model-picker-connection" role="status">
                             {chatGptRoutedNotice}
                           </p>) : null}
-                        <EngineScopedModelList engineLabel="ChatGPT" hideHead selectedRowExtra={reasoningControl} models={chatGptDisplayModels} value={committedEngine === "codex_cli" ? selectedChatGptModel : ""} onSelect={(modelId) => void handleEngineModelSelect("codex_cli", modelId)} emptyMessage={null} disabled={!preferences ||
+                        <EngineScopedModelList engineLabel="ChatGPT" hideHead selectedRowExtra={chatGptSelectionControls} models={chatGptDisplayModels} value={committedEngine === "codex_cli" ? selectedChatGptModel : ""} onSelect={(modelId) => void handleEngineModelSelect("codex_cli", modelId)} emptyMessage={null} disabled={!preferences ||
                             pendingAgent !== null ||
                             codexCatalog.loading}/>
-                        <label className="agent-model-picker-native-runtime-option">
-                          <input type="checkbox" checked={preferences?.useNativeCodexRuntime === true} disabled={!preferences || pendingAgent !== null} onChange={(event) => void handleNativeRuntimeChange("useNativeCodexRuntime", event.target.checked)}/>
-                          <span className="agent-model-picker-native-runtime-copy">
-                            <span>Use Codex instead</span>
-                            <span className="agent-model-picker-native-runtime-helper">
-                              Uses Codex app-server with your native Codex configuration and tools instead of Stella&apos;s harness.
-                            </span>
-                          </span>
-                        </label>
                       </>),
                 },
             ]}/>

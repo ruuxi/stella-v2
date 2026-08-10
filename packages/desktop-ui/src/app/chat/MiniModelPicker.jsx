@@ -16,7 +16,7 @@ import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
 import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getLocalModelDefaults, getModelPickerDisplayLabel, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
-import { buildEngineReasoningPatch, buildModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, } from "@/global/settings/lib/engine-model-routing";
+import { buildEngineReasoningPatch, buildRecentModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, } from "@/global/settings/lib/engine-model-routing";
 import { listReasoningEffortOptions } from "@/global/settings/lib/reasoning-effort-options";
 import { buildRecentModelRows, createKnownModelIdPredicate, readRecentModels, recordRecentModel, } from "@/global/settings/lib/recent-models";
 import { showToast } from "@/ui/toast";
@@ -186,13 +186,7 @@ export function MiniModelPicker() {
         setOpen(false);
         if (row.id === currentId || row.unavailable)
             return;
-        // Engine routes (claude-code/…, codex-cli/…) only ever appear here
-        // as the pinned current selection, so a non-current pick is always a
-        // catalog override id — never a silent engine commit.
-        if (row.id.startsWith("claude-code/") || row.id.startsWith("codex-cli/")) {
-            return;
-        }
-        const patch = buildModelSelectionPatch(preferences, row.id, {
+        const patch = buildRecentModelSelectionPatch(preferences, row.id, {
             assistant: true,
             configurableAgentKeys,
         });

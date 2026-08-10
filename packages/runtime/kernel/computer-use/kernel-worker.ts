@@ -570,7 +570,7 @@ const nodeReplWorkerMain = async (
             const renderedError = outputBuffer.trim();
             const uncaught = new Error(renderedError);
             if (
-              !/^Uncaught\s+(?:SyntaxError|ReferenceError|TypeError|RangeError):/.test(
+              !/^Uncaught\s+(?:(?:Error\s+\[)?(?:SyntaxError|ReferenceError|TypeError|RangeError|BrowserSessionCommandError|BrowserSessionDisposedError)\]?):/.test(
                 renderedError,
               )
             ) {

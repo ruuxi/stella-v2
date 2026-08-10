@@ -2931,6 +2931,7 @@ export class SessionStore {
     }
     const timestamp = asFiniteNumber(args.timestamp) ?? Date.now();
     const conversationId = this.getThreadConversationId(threadKey);
+    let entryId = "";
     this.withImmediateTransaction(() => {
       const path = buildThreadPathEntries(
         this.loadThreadSessionEntries(threadKey),
@@ -2944,7 +2945,7 @@ export class SessionStore {
         conversationId,
         timestamp,
       );
-      this.appendThreadSessionEntry({
+      entryId = this.appendThreadSessionEntry({
         threadKey,
         sessionId: threadSession.sessionId,
         entryType: "compaction",
@@ -2965,6 +2966,17 @@ export class SessionStore {
       });
       this.touchThread(threadKey);
     });
+    if (entryId) {
+      this.options.onThreadTranscriptUpdate?.({
+        conversationId,
+        transcriptUpdate: {
+          source: "stella",
+          threadId: threadKey,
+          entryId,
+          atMs: timestamp,
+        },
+      });
+    }
   }
   recordRunEvent(event) {
     const messageId = `run:${event.runId}:${event.seq ?? generateLocalId()}`;

@@ -8,6 +8,7 @@ import {
   type ComputerUseSessionFactory,
   type ComputerUseSessionFactoryOptions,
 } from "@stella/runtime/kernel/computer-use/kernel";
+import { BrowserSessionCommandError } from "@stella/runtime/kernel/browser-use/client";
 import type {
   BrowserSessionClient,
   BrowserSessionOptions,
@@ -400,6 +401,66 @@ describe("persistent Node REPL kernels", () => {
       await registry.dispose();
     }
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the same REPL bindings after BrowserSessionCommandError", async () => {
+    const browserSessionFactory = vi.fn(() => {
+      const command = vi.fn(async (action: string) => {
+        if (action === "title") {
+          throw new BrowserSessionCommandError(
+            "command_failed",
+            "Element is covered by another element",
+            { requestId: "browser-request-1", action },
+          );
+        }
+        return {
+          sessionId: "recoverable-browser-owner",
+          bridgeSessionId: "bridge",
+          requestId: "browser-request-2",
+          action,
+          params: {},
+          result: { id: "response", success: true as const, data: {} },
+          attempts: 1,
+          durationMs: 1,
+        };
+      });
+      return {
+        command,
+        chain: vi.fn(),
+        dispose: vi.fn(async () => undefined),
+      } as unknown as BrowserSessionClient;
+    });
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory,
+    });
+
+    try {
+      await expect(
+        registry.evaluate(
+          "const bindingBeforeBrowserFailure = 73",
+          context("recoverable-browser-owner"),
+        ),
+      ).resolves.toBe("");
+      await expect(
+        registry.evaluate(
+          "await browser.tabs.get(7).title()",
+          context("recoverable-browser-owner"),
+        ),
+      ).rejects.toThrow("Element is covered by another element");
+      await expect(
+        registry.evaluate(
+          "bindingBeforeBrowserFailure",
+          context("recoverable-browser-owner"),
+        ),
+      ).resolves.toBe("73");
+      expect(browserSessionFactory).toHaveBeenCalledOnce();
+      const browserClient = browserSessionFactory.mock.results[0]?.value;
+      expect(browserClient?.dispose).not.toHaveBeenCalled();
+    } finally {
+      await registry.dispose();
+    }
   });
 
   it("offers extension connection once and retries the direct browser call", async () => {

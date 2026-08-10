@@ -2,7 +2,7 @@ import { mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
@@ -1887,7 +1887,9 @@ describe("session-store", () => {
   });
 
   it("compacts thread history using append-only session entries", () => {
-    const { db, store } = createTestContext();
+    const { db } = createTestContext();
+    const onThreadTranscriptUpdate = vi.fn();
+    const store = new SessionStore(db, { onThreadTranscriptUpdate });
     const conversationId = "conv-compact";
     const { threadId } = store.resolveOrCreateActiveThread({
       conversationId,
@@ -1948,6 +1950,7 @@ describe("session-store", () => {
 
     const beforeCompaction = store.loadThreadMessages(threadId);
     expect(beforeCompaction).toHaveLength(3);
+    onThreadTranscriptUpdate.mockClear();
 
     store.compactThread({
       threadKey: threadId,
@@ -1980,6 +1983,16 @@ describe("session-store", () => {
       )
       .get(threadId) as { count: number };
     expect(compactionRows.count).toBe(1);
+    expect(onThreadTranscriptUpdate).toHaveBeenCalledOnce();
+    expect(onThreadTranscriptUpdate).toHaveBeenCalledWith({
+      conversationId,
+      transcriptUpdate: {
+        source: "stella",
+        threadId,
+        entryId: afterCompaction[0]!.entryId,
+        atMs: 4_100,
+      },
+    });
   });
 
   it("applies later compaction overlays over the same raw message range", () => {

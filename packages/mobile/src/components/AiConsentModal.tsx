@@ -63,8 +63,9 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
             <Text style={styles.body}>
               Your data may be routed through the Stella Provider service to{" "}
               <Text style={styles.bold}>OpenRouter</Text> or{" "}
-              <Text style={styles.bold}>Fireworks</Text> as managed AI
-              gateways, and then to upstream AI model providers such as{" "}
+              <Text style={styles.bold}>Fireworks</Text> as managed AI gateways,
+              and then to upstream AI model providers such as{" "}
+              <Text style={styles.bold}>DeepSeek</Text>,{" "}
               <Text style={styles.bold}>Anthropic</Text>,{" "}
               <Text style={styles.bold}>OpenAI</Text>, or{" "}
               <Text style={styles.bold}>Google</Text>. Voice recordings are
@@ -89,9 +90,7 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
             Read our full{" "}
             <Text
               style={styles.link}
-              onPress={() =>
-                void Linking.openURL("https://stella.sh/privacy")
-              }
+              onPress={() => void Linking.openURL("https://stella.sh/privacy")}
             >
               Privacy Policy
             </Text>

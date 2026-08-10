@@ -1,8 +1,8 @@
 /**
  * Tracks whether the user has explicitly agreed to share data with the
- * third-party AI providers Stella routes through (OpenRouter / Fireworks
- * gateways → Anthropic / OpenAI / Google for text; Mistral Voxtral for
- * voice transcription; OpenAI for live realtime audio).
+ * third-party AI providers Stella routes through (DeepSeek directly, plus
+ * OpenRouter / Fireworks gateways → Anthropic / OpenAI / Google for text;
+ * Mistral Voxtral for voice transcription; OpenAI for live realtime audio).
  *
  * Required by App Store Review Guideline 5.1.1(i) / 5.1.2(i): we must
  * disclose what is sent, who it is sent to, and get the user's permission

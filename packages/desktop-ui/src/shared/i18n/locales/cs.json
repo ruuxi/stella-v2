@@ -1790,6 +1790,9 @@
         "role": {
           "user": "Pokyn",
           "assistant": "Agent",
+          "reasoning": "Uvažování",
+          "tool": "Nástroj",
+          "checkpoint": "Kontrolní bod vlákna",
           "lifecycle": "Aktivita"
         },
         "status": {
@@ -1813,6 +1816,9 @@
         "badge": "Vlákno agenta jen pro čtení",
         "retrying": "Opakování…",
         "empty": "V tomto vlákně zatím nejsou žádné zprávy.",
+        "toolInput": "Vstup",
+        "toolOutput": "Výstup",
+        "toolRunning": "Čeká se na dokončení tohoto nástroje…",
         "newMessagesButton": {
           "one": "{count} nová zpráva",
           "few": "{count} nové zprávy",

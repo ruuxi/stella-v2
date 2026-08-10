@@ -1727,6 +1727,9 @@
         "role": {
           "user": "指令",
           "assistant": "智能体",
+          "reasoning": "推理",
+          "tool": "工具",
+          "checkpoint": "线程检查点",
           "lifecycle": "活动"
         },
         "status": {
@@ -1747,6 +1750,9 @@
         "badge": "只读智能体线程",
         "retrying": "正在重试…",
         "empty": "此线程中还没有消息。",
+        "toolInput": "输入",
+        "toolOutput": "输出",
+        "toolRunning": "正在等待此工具完成…",
         "newMessagesButton": {
           "other": "{count} 条新消息"
         },

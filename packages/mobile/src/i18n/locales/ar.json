@@ -1831,6 +1831,9 @@
         "role": {
           "user": "تعليمات",
           "assistant": "الوكيل",
+          "reasoning": "التفكير",
+          "tool": "أداة",
+          "checkpoint": "نقطة تحقّق في المسار",
           "lifecycle": "النشاط"
         },
         "status": {
@@ -1856,6 +1859,9 @@
         "badge": "مسار وكيل للقراءة فقط",
         "retrying": "جارٍ إعادة المحاولة…",
         "empty": "لا رسائل في هذا المسار بعد.",
+        "toolInput": "الإدخال",
+        "toolOutput": "الإخراج",
+        "toolRunning": "في انتظار انتهاء هذه الأداة…",
         "newMessagesButton": {
           "zero": "{count} رسالة جديدة",
           "one": "{count} رسالة جديدة",

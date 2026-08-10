@@ -1769,6 +1769,9 @@
         "role": {
           "user": "הוראה",
           "assistant": "סוכן",
+          "reasoning": "חשיבה",
+          "tool": "כלי",
+          "checkpoint": "נקודת שמירה בשרשור",
           "lifecycle": "פעילות"
         },
         "status": {
@@ -1791,6 +1794,9 @@
         "badge": "שרשור סוכן לקריאה בלבד",
         "retrying": "מנסה שוב…",
         "empty": "אין עדיין הודעות בשרשור הזה.",
+        "toolInput": "קלט",
+        "toolOutput": "פלט",
+        "toolRunning": "ממתין לסיום הכלי הזה…",
         "newMessagesButton": {
           "one": "הודעה חדשה {count}",
           "two": "{count} הודעות חדשות",

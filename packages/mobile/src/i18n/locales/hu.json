@@ -1748,6 +1748,9 @@
         "role": {
           "user": "Utasítás",
           "assistant": "Ügynök",
+          "reasoning": "Gondolkodás",
+          "tool": "Eszköz",
+          "checkpoint": "A szál ellenőrzőpontja",
           "lifecycle": "Tevékenység"
         },
         "status": {
@@ -1769,6 +1772,9 @@
         "badge": "Csak olvasható ügynökszál",
         "retrying": "Újrapróbálkozás…",
         "empty": "Még nincs üzenet ebben a szálban.",
+        "toolInput": "Bemenet",
+        "toolOutput": "Kimenet",
+        "toolRunning": "Várakozás az eszköz befejezésére…",
         "newMessagesButton": {
           "one": "{count} új üzenet",
           "other": "{count} új üzenet"

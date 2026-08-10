@@ -1727,6 +1727,9 @@
         "role": {
           "user": "指示",
           "assistant": "代理",
+          "reasoning": "推理",
+          "tool": "工具",
+          "checkpoint": "執行緒檢查點",
           "lifecycle": "活動"
         },
         "status": {
@@ -1747,6 +1750,9 @@
         "badge": "唯讀代理執行緒",
         "retrying": "正在重試…",
         "empty": "此執行緒中還沒有訊息。",
+        "toolInput": "輸入",
+        "toolOutput": "輸出",
+        "toolRunning": "正在等待這個工具完成…",
         "newMessagesButton": {
           "other": "{count} 則新訊息"
         },

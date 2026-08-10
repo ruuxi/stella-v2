@@ -627,10 +627,7 @@
     "plans": {
       "free": {
         "tagline": "Get started with Stella",
-        "features": [
-          "Basic chat & assistance",
-          "Limited daily usage"
-        ]
+        "features": ["Basic chat & assistance", "Limited daily usage"]
       },
       "go": {
         "tagline": "For everyday personal use",
@@ -1748,6 +1745,9 @@
         "role": {
           "user": "Instruction",
           "assistant": "Agent",
+          "reasoning": "Reasoning",
+          "tool": "Tool",
+          "checkpoint": "Thread checkpoint",
           "lifecycle": "Activity"
         },
         "status": {
@@ -1769,6 +1769,9 @@
         "badge": "Read-only agent thread",
         "retrying": "Retrying…",
         "empty": "No messages in this thread yet.",
+        "toolInput": "Input",
+        "toolOutput": "Output",
+        "toolRunning": "Waiting for this tool to finish…",
         "newMessagesButton": {
           "one": "{count} new message",
           "other": "{count} new messages"

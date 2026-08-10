@@ -1748,6 +1748,9 @@
         "role": {
           "user": "Instruksjon",
           "assistant": "Agent",
+          "reasoning": "Resonnering",
+          "tool": "Verktøy",
+          "checkpoint": "Kontrollpunkt i tråden",
           "lifecycle": "Aktivitet"
         },
         "status": {
@@ -1769,6 +1772,9 @@
         "badge": "Skrivebeskyttet agenttråd",
         "retrying": "Prøver igjen…",
         "empty": "Ingen meldinger i denne tråden ennå.",
+        "toolInput": "Inndata",
+        "toolOutput": "Utdata",
+        "toolRunning": "Venter på at dette verktøyet skal bli ferdig…",
         "newMessagesButton": {
           "one": "{count} ny melding",
           "other": "{count} nye meldinger"

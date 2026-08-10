@@ -1748,6 +1748,9 @@
         "role": {
           "user": "निर्देश",
           "assistant": "एजेंट",
+          "reasoning": "तर्क",
+          "tool": "टूल",
+          "checkpoint": "थ्रेड चेकपॉइंट",
           "lifecycle": "गतिविधि"
         },
         "status": {
@@ -1769,6 +1772,9 @@
         "badge": "केवल-पढ़ने योग्य एजेंट थ्रेड",
         "retrying": "फिर कोशिश हो रही है…",
         "empty": "इस थ्रेड में अभी कोई संदेश नहीं है।",
+        "toolInput": "इनपुट",
+        "toolOutput": "आउटपुट",
+        "toolRunning": "इस टूल के पूरा होने की प्रतीक्षा हो रही है…",
         "newMessagesButton": {
           "one": "{count} नया संदेश",
           "other": "{count} नए संदेश"

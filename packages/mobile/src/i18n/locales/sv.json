@@ -1748,6 +1748,9 @@
         "role": {
           "user": "Instruktion",
           "assistant": "Agent",
+          "reasoning": "Resonemang",
+          "tool": "Verktyg",
+          "checkpoint": "Kontrollpunkt i tråden",
           "lifecycle": "Aktivitet"
         },
         "status": {
@@ -1769,6 +1772,9 @@
         "badge": "Skrivskyddad agenttråd",
         "retrying": "Försöker igen…",
         "empty": "Inga meddelanden i den här tråden ännu.",
+        "toolInput": "Indata",
+        "toolOutput": "Utdata",
+        "toolRunning": "Väntar på att det här verktyget ska bli klart…",
         "newMessagesButton": {
           "one": "{count} nytt meddelande",
           "other": "{count} nya meddelanden"

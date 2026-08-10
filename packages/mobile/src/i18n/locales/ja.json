@@ -1727,6 +1727,9 @@
         "role": {
           "user": "指示",
           "assistant": "エージェント",
+          "reasoning": "推論",
+          "tool": "ツール",
+          "checkpoint": "スレッドのチェックポイント",
           "lifecycle": "アクティビティ"
         },
         "status": {
@@ -1747,6 +1750,9 @@
         "badge": "読み取り専用のエージェントスレッド",
         "retrying": "再試行中…",
         "empty": "このスレッドにはまだメッセージがありません。",
+        "toolInput": "入力",
+        "toolOutput": "出力",
+        "toolRunning": "このツールの完了を待っています…",
         "newMessagesButton": {
           "other": "{count} 件の新しいメッセージ"
         },

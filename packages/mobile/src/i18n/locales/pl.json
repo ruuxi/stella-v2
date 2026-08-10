@@ -1790,6 +1790,9 @@
         "role": {
           "user": "Instrukcja",
           "assistant": "Agent",
+          "reasoning": "Rozumowanie",
+          "tool": "Narzędzie",
+          "checkpoint": "Punkt kontrolny wątku",
           "lifecycle": "Aktywność"
         },
         "status": {
@@ -1813,6 +1816,9 @@
         "badge": "Wątek agenta tylko do odczytu",
         "retrying": "Ponawianie…",
         "empty": "Brak jeszcze wiadomości w tym wątku.",
+        "toolInput": "Wejście",
+        "toolOutput": "Wyjście",
+        "toolRunning": "Czekanie na zakończenie tego narzędzia…",
         "newMessagesButton": {
           "one": "{count} nowa wiadomość",
           "few": "{count} nowe wiadomości",

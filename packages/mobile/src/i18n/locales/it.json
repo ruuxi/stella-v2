@@ -1769,6 +1769,9 @@
         "role": {
           "user": "Istruzione",
           "assistant": "Agente",
+          "reasoning": "Ragionamento",
+          "tool": "Strumento",
+          "checkpoint": "Checkpoint del thread",
           "lifecycle": "Attività"
         },
         "status": {
@@ -1791,6 +1794,9 @@
         "badge": "Thread dell'agente in sola lettura",
         "retrying": "Nuovo tentativo…",
         "empty": "Ancora nessun messaggio in questo thread.",
+        "toolInput": "Input",
+        "toolOutput": "Output",
+        "toolRunning": "In attesa che questo strumento termini…",
         "newMessagesButton": {
           "one": "{count} nuovo messaggio",
           "many": "{count} nuovi messaggi",

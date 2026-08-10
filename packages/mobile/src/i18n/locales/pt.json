@@ -1769,6 +1769,9 @@
         "role": {
           "user": "Instrução",
           "assistant": "Agente",
+          "reasoning": "Raciocínio",
+          "tool": "Ferramenta",
+          "checkpoint": "Ponto de verificação da thread",
           "lifecycle": "Atividade"
         },
         "status": {
@@ -1791,6 +1794,9 @@
         "badge": "Thread do agente somente leitura",
         "retrying": "Tentando de novo…",
         "empty": "Ainda não há mensagens nesta thread.",
+        "toolInput": "Entrada",
+        "toolOutput": "Saída",
+        "toolRunning": "Aguardando esta ferramenta terminar…",
         "newMessagesButton": {
           "one": "{count} mensagem nova",
           "many": "{count} mensagens novas",

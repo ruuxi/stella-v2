@@ -20,7 +20,7 @@ import "./go.css";
 export const metadata: Metadata = {
   title: "AI coding agent and personal assistant",
   description:
-    "Stella is an open-source AI agent for coding, research, documents, browsers, files, and desktop apps. Start free or use managed AI for $3 the first month.",
+    "Stella is an open-source AI agent for coding, research, documents, browsers, files, and desktop apps. Start free or use managed AI for $5/month.",
   alternates: { canonical: "/go" },
 };
 
@@ -76,8 +76,8 @@ export default function GoPage() {
               </Link>
             </div>
             <p className="go-offer">
-              Free comes with a one-time $0.50 of usage. Managed AI is $3 for
-              your first month, then $5/month.
+              Free comes with a one-time $0.50 of usage. Managed AI is
+              $5/month.
             </p>
           </div>
 
@@ -152,7 +152,7 @@ export default function GoPage() {
             <article>
               <Bot aria-hidden="true" />
               <strong>Stella managed AI</strong>
-              <span>Go: $3 first month, then $5/month</span>
+              <span>Go: $5/month</span>
             </article>
           </div>
         </section>

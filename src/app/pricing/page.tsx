@@ -47,7 +47,6 @@ const plans: {
   {
     name: "Go",
     price: 5,
-    introFirstMonthPriceUsd: 3,
     tagline: "Room to actually work, every day",
     features: [
       "Everything in Free",

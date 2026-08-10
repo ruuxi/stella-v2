@@ -117,7 +117,7 @@ describe("working orchestrator surface", () => {
     expect(orchestrator?.promptSource).toBe("bundled");
     expect(orchestrator?.maxAgentDepth).toBe(1);
     expect(orchestrator?.systemPrompt).toContain(
-      "You are a working agent, not a coordinator",
+      "Complete requests directly with your own tools.",
     );
     expect(orchestrator?.toolsAllowlist).toEqual(
       expect.arrayContaining([
@@ -144,7 +144,7 @@ describe("working orchestrator surface", () => {
     expect(orchestrated?.promptSource).toBe("bundled");
     expect(orchestrated?.maxAgentDepth).toBe(2);
     expect(orchestrated?.systemPrompt).toContain(
-      "Execution happens through background General agents",
+      "Execution happens through background agents",
     );
     expect(orchestrated?.toolsAllowlist).toEqual(
       expect.arrayContaining([
@@ -168,18 +168,11 @@ describe("working orchestrator surface", () => {
     );
 
     expect(
-      resolveAgentForWorkingMode(
-        agents,
-        AGENT_IDS.ORCHESTRATOR,
-        "direct",
-      )?.id,
+      resolveAgentForWorkingMode(agents, AGENT_IDS.ORCHESTRATOR, "direct")?.id,
     ).toBe(AGENT_IDS.ORCHESTRATOR);
     expect(
-      resolveAgentForWorkingMode(
-        agents,
-        AGENT_IDS.ORCHESTRATOR,
-        "orchestrated",
-      )?.id,
+      resolveAgentForWorkingMode(agents, AGENT_IDS.ORCHESTRATOR, "orchestrated")
+        ?.id,
     ).toBe(ORCHESTRATED_ORCHESTRATOR_ID);
   });
 
@@ -189,12 +182,13 @@ describe("working orchestrator surface", () => {
     expect(
       offlineAgents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)
         ?.systemPrompt,
-    ).toContain("You are Stella, the user's primary AI assistant.");
+    ).toContain(
+      "You are Stella, the World's best Personal AI Assistant and Secretary.",
+    );
     expect(
-      offlineAgents.find(
-        (agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID,
-      )?.systemPrompt,
-    ).toContain("Execution happens through background General agents");
+      offlineAgents.find((agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID)
+        ?.systemPrompt,
+    ).toContain("Execution happens through background agents");
 
     const agentsDir = path.join(rootPath, "agents");
     await mkdir(agentsDir, { recursive: true });
@@ -370,9 +364,7 @@ describe("working orchestrator surface", () => {
     ]);
     const catalog = host.getToolCatalog(AGENT_IDS.ORCHESTRATOR);
     expect(catalog.some((tool) => tool.name === "$evil")).toBe(false);
-    const demotedExt = catalog.find(
-      (tool) => tool.name === "ext_demoted_tool",
-    );
+    const demotedExt = catalog.find((tool) => tool.name === "ext_demoted_tool");
     expect(demotedExt?.demoted).toEqual({ searchTerms: ["ext"] });
   });
 
@@ -403,6 +395,7 @@ describe("working orchestrator surface", () => {
       {
         agentType: AGENT_IDS.GENERAL,
         spawnEngine: { engine: "default" },
+        useConfiguredEngine: true,
       },
     ]);
     expect(createdTasks[0]?.modelConfigSnapshot).toEqual({

@@ -127,7 +127,7 @@ describe("Stella prompt defaults", () => {
     )?.content;
     expect(orchestrator).toBeDefined();
     expect(orchestrator).not.toContain("spawn_manager");
-    expect(orchestrator).toMatch(/a General agent can run its own subagents/);
+    expect(orchestrator).toMatch(/an agent can run its own subagents/);
     expect(orchestrator).toMatch(/subagents' reports route to it, not to you/);
     for (const prompt of STELLA_PROMPT_DEFAULTS.prompts) {
       expect(prompt.content).not.toContain("spawn_manager");

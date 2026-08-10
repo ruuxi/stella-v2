@@ -11,7 +11,7 @@ Pick the cheapest cron tier that does the job:
 
 - **`{ kind: 'notify', text }`** — text is fully knowable now. Reminders, fixed messages. Just `CronAdd` it.
 - **`{ kind: 'script', scriptPath }`** — work is deterministic at fire time (HTTP fetch, diff against last-seen state, API hit, file check). Author with `ScriptDraft({ code })`, which writes the file and dry-runs it once. If `exitCode === 0` and the dry-run output is what you expect, register the cron with the returned `scriptPath`. If it fails, revise and call `ScriptDraft` again. Trimmed stdout becomes the delivered message; print empty for silent fires. Scripts may read/write a sidecar `<scriptPath>.state.json` for cross-run state.
-- **`{ kind: 'agent', prompt, agentType? }`** — the fire genuinely needs reasoning, summarization, multi-step work, or unbounded interpretation. Pass a fixed prompt; defaults to the general agent.
+- **`{ kind: 'agent', prompt, agentType? }`** — the fire genuinely needs reasoning, summarization, multi-step work, or unbounded interpretation. Pass a fixed prompt; omit `agentType` for the default agent.
 
 Behavior:
 

@@ -80,4 +80,20 @@ describe("chat shell UI contracts", () => {
     expect(addMenu).toContain('t("app.chat.addMenu.context")');
   });
 
+  it("shows Windows window controls only while the right sidebar is closed", () => {
+    const mainTopBar = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/ShellTopBarFull.tsx"),
+      "utf8",
+    );
+    const panelTopBar = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/DisplayPanelTopBar.tsx"),
+      "utf8",
+    );
+
+    expect(mainTopBar).toContain("{isWin && !panelOpen ? (");
+    expect(mainTopBar).toContain(
+      "<WindowControls useWindowsIcons hidden={false} />",
+    );
+    expect(panelTopBar).not.toContain("WindowControls");
+  });
 });

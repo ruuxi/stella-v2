@@ -7,7 +7,6 @@ import { displaySearchStore } from "@/features/workspace-display/display-search-
 import { getPlatform } from "@/platform/electron/platform";
 import { SidebarTabRail } from "@/shell/sidebar-sections/SidebarTabRail";
 import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
-import { WindowControls } from "@/shell/WindowControls";
 import { PanelRight } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
 
@@ -56,7 +55,6 @@ export function DisplayPanelTopBar() {
       >
         <PanelRight size={16} strokeWidth={1.75} />
       </button>
-      {isWin ? <WindowControls useWindowsIcons hidden={false} /> : null}
     </header>
   );
 }

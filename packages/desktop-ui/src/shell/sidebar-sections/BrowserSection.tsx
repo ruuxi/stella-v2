@@ -102,6 +102,25 @@ const boundsKey = (layout: BrowserLayout) =>
 const LAYOUT_SETTLE_MS = 900;
 const LAYOUT_SETTLE_FRAMES = 3;
 
+/* WebContentsView is composited above the renderer, so any part of it that
+   overlaps the DOM resize handle wins hit-testing. Keep the native page clear
+   of the handle's full hit target; the browser chrome remains renderer-owned
+   and does not need this inset. Keep this in sync with
+   `.right-sidebar__resize-handle` in right-sidebar.css. */
+const SIDEBAR_RESIZE_HANDLE_WIDTH = 12;
+
+const browserPageBounds = (rect: DOMRect): BrowserBounds => {
+  const bounds = toBounds(rect);
+  const inset = document.documentElement.dataset.displayPanelTakeover
+    ? 0
+    : Math.min(SIDEBAR_RESIZE_HANDLE_WIDTH, bounds.width);
+  return {
+    ...bounds,
+    x: bounds.x + inset,
+    width: bounds.width - inset,
+  };
+};
+
 const normalizeAddress = (raw: string): string | null => {
   const value = raw.trim();
   if (!value) return null;
@@ -349,7 +368,7 @@ export function BrowserSection() {
     const syncLayout = () => {
       frame = 0;
       const layout = {
-        pageBounds: toBounds(page.getBoundingClientRect()),
+        pageBounds: browserPageBounds(page.getBoundingClientRect()),
         surfaceBounds: toBounds(surface.getBoundingClientRect()),
       };
       const collapsed =

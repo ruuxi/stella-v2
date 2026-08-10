@@ -90,6 +90,14 @@
       "description": "Pozwala Stelli widzieć stronę, na której jesteś, i wykonywać działania w przeglądarce.",
       "action": "Pobierz rozszerzenie"
     },
+    "resetCustomizations": {
+      "title": "Użyj domyślnych ustawień Stelli",
+      "description": "Usuwa Twoje modyfikacje promptów i umiejętności, aby obowiązywały domyślne ustawienia Stelli. Usunięte elementy trafiają do ~/.stella/.trash, gdybyś chciał je odzyskać.",
+      "action": "Przywróć domyślne",
+      "done": "Przywrócono ustawienia domyślne. Twoje wcześniejsze modyfikacje przeniesiono do ~/.stella/.trash.",
+      "none": "Już korzystasz z domyślnych ustawień Stelli.",
+      "error": "Nie udało się przywrócić ustawień domyślnych."
+    },
     "permissions": {
       "title": "Uprawnienia",
       "enable": "Włącz",

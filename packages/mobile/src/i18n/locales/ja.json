@@ -90,6 +90,14 @@
       "description": "開いているページを Stella が確認し、ブラウザ内で操作できるようにします。",
       "action": "拡張機能を入手"
     },
+    "resetCustomizations": {
+      "title": "Stella のデフォルトを使用",
+      "description": "プロンプトとスキルのカスタマイズを削除し、Stella の標準設定を適用します。削除したものは ~/.stella/.trash に保管され、後から戻せます。",
+      "action": "デフォルトに戻す",
+      "done": "デフォルトに戻しました。以前のカスタマイズは ~/.stella/.trash に移動されました。",
+      "none": "すでに Stella のデフォルトを使用しています。",
+      "error": "デフォルトに戻せませんでした。"
+    },
     "permissions": {
       "title": "アクセス権",
       "enable": "有効にする",

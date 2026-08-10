@@ -344,13 +344,14 @@ describe("remote prompt startup sync", () => {
     });
   });
 
-  it("uses an explicitly bundled agent prompt instead of the remote body", async () => {
+  it("prefers the remote body over an explicitly bundled prompt", async () => {
     const home = await tempDir();
     const bundled = await createBundledAgents();
-    const bundledPrompt = `${agentFrontmatter("orchestrator").replace(
+    const frontmatter = agentFrontmatter("orchestrator").replace(
       "---\n",
       "---\npromptSource: bundled\n",
-    )}bundled working prompt\n`;
+    );
+    const bundledPrompt = `${frontmatter}bundled working prompt\n`;
     await writeFile(
       path.join(bundled, "orchestrator.md"),
       bundledPrompt,
@@ -363,7 +364,7 @@ describe("remote prompt startup sync", () => {
     await reconcileRemotePromptManifest(first, home, bundled);
     await expect(
       readFile(path.join(home, "agents/orchestrator.md"), "utf-8"),
-    ).resolves.toBe(bundledPrompt.trimEnd());
+    ).resolves.toBe(`${frontmatter}remote coordinator prompt\n`);
 
     const localEdit = bundledPrompt.replace(
       "bundled working prompt",

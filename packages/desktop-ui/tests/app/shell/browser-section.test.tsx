@@ -155,6 +155,7 @@ describe("BrowserSection", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    delete document.documentElement.dataset.displayPanelTakeover;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -204,7 +205,7 @@ describe("BrowserSection", () => {
       )?.value,
     ).toBe("https://example.com");
     expect(api.show).toHaveBeenCalledWith({
-      pageBounds: { x: 20, y: 76, width: 500, height: 400 },
+      pageBounds: { x: 32, y: 76, width: 488, height: 400 },
       surfaceBounds: { x: 10, y: 40, width: 520, height: 446 },
     });
 
@@ -218,6 +219,17 @@ describe("BrowserSection", () => {
     });
     expect(api.reload).toHaveBeenCalledWith({ tabId: "tab-1" });
     expect(api.createTab).toHaveBeenCalledWith({});
+  });
+
+  it("uses the full page width when the resize handle is hidden", async () => {
+    document.documentElement.dataset.displayPanelTakeover = "true";
+    state = activeState;
+    await render();
+
+    expect(api.show).toHaveBeenCalledWith({
+      pageBounds: { x: 20, y: 76, width: 500, height: 400 },
+      surfaceBounds: { x: 10, y: 40, width: 520, height: 446 },
+    });
   });
 
   it("reacts to main-process state and hides the native surface when inactive", async () => {

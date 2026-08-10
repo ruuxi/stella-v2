@@ -34,7 +34,7 @@ import {
 import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
-import { AgentModelIcon } from "./AgentModelIcon";
+import { AgentModelIcon, shouldShowAgentModelIcon } from "./AgentModelIcon";
 import { Markdown } from "./Markdown";
 import { OpenWithMenu } from "./OpenWithMenu";
 import { useT, useTPlural } from "@/shared/i18n";
@@ -215,6 +215,7 @@ const ThreadChatButton = ({
   modelConfigSnapshot?: AgentModelConfigSnapshot;
 }) => {
   const t = useT();
+  if (!shouldShowAgentModelIcon(modelConfigSnapshot)) return null;
   return (
     <button
       type="button"

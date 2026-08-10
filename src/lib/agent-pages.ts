@@ -223,7 +223,7 @@ const PRICING_MD = `${header(
 )}
 ## Plans
 - **Free** — $0. A one-time $0.50 of usage, not a monthly allowance: it does not refresh, and once it is used it is used. Includes the coding agent, personal assistant, and research/knowledge work, plus dictation. Text output only — no image, video, 3D, or voice generation, and no orchestrator mode.
-- **Go** — $1 first month, then $5/mo. Everything in Free with dramatically higher limits: up to roughly $12 of model usage per 5 hours, ~$30 a week, and ~$60 a month, refreshing with your billing cycle. Still text output only (dictation included) — generation and orchestrator mode are on Pro.
+- **Go** — $3 first month, then $5/mo. Everything in Free with dramatically higher limits: up to roughly $12 of model usage per 5 hours, ~$30 a week, and ~$60 a month, refreshing with your billing cycle. Still text output only (dictation included) — generation and orchestrator mode are on Pro.
 - **Pro** — $15/mo (most popular). Everything in Go, plus image, video, 3D, and voice generation, and orchestrator mode, where Stella runs many agents at once. This is the only tier that can create media or work in parallel. Note that dictation and speech-to-text are on every tier — what Pro adds is spoken replies (read-aloud) and live voice conversation.
 
 ## Every plan includes

@@ -12,6 +12,126 @@ import type { RunnerContext } from "./types.js";
 
 const logger = createRuntimeLogger("runtime-init");
 
+type ExtensionReloadResult = {
+  status: "reloaded" | "busy" | "not-initialized" | "load-failed";
+  reason?: string;
+};
+
+export type ExtensionWatchScope = "resource-tree" | "data-dir";
+
+/**
+ * The non-recursive data-directory watcher exists only to observe the atomic
+ * replacement of the `system` mirror. SQLite databases and their WAL/SHM
+ * files live beside it, so treating every sibling write as an extension edit
+ * creates a permanent reload loop while agents are active.
+ */
+export const isExtensionWatchChangeRelevant = (
+  scope: ExtensionWatchScope,
+  filename: string | Buffer | null,
+): boolean => {
+  if (scope === "data-dir") {
+    return filename !== null && path.basename(String(filename)) === "system";
+  }
+  if (filename === null) return true;
+  const basename = path.basename(String(filename));
+  return !basename.startsWith(".") && !basename.endsWith("~");
+};
+
+/**
+ * Coalesce filesystem bursts into one reload. A busy runtime is retried, but
+ * only the first busy result in a pending reload cycle is allowed to log;
+ * silent retries keep the runtime log useful during long-running agents.
+ */
+export const createExtensionReloadScheduler = (
+  reload: (options: { logBusy: boolean }) => Promise<ExtensionReloadResult>,
+  options: { debounceMs?: number; busyRetryMs?: number } = {},
+) => {
+  const debounceMs = options.debounceMs ?? 500;
+  const busyRetryMs = options.busyRetryMs ?? 2_000;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let generation = 0;
+  let pending = false;
+  let inFlight = false;
+  let busyLogged = false;
+
+  const queueAttempt = (delayMs: number) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      void attemptReload();
+    }, delayMs);
+  };
+
+  const attemptReload = async (): Promise<void> => {
+    if (!pending || inFlight) return;
+    inFlight = true;
+    const attemptedGeneration = generation;
+    let result: ExtensionReloadResult | undefined;
+    let failed = false;
+    let failure: unknown;
+    try {
+      result = await reload({ logBusy: !busyLogged });
+    } catch (error) {
+      failed = true;
+      failure = error;
+    } finally {
+      // A rejected reload must never leave the scheduler permanently busy.
+      // Future filesystem changes need to be able to start a fresh cycle.
+      inFlight = false;
+    }
+    if (!pending) return;
+
+    if (failed) {
+      logger.warn("extensions.reload.unexpected-failure", {
+        error: failure instanceof Error ? failure.message : String(failure),
+      });
+      if (generation !== attemptedGeneration) {
+        // A real change arrived while the failed attempt was in flight. Its
+        // debounce timer may already have fired and observed `inFlight`, so
+        // explicitly preserve that newer generation without auto-retrying the
+        // failed one forever.
+        queueAttempt(debounceMs);
+      } else {
+        pending = false;
+        busyLogged = false;
+      }
+      return;
+    }
+
+    if (result?.status === "busy") {
+      busyLogged = true;
+      queueAttempt(
+        generation === attemptedGeneration ? busyRetryMs : debounceMs,
+      );
+      return;
+    }
+    if (generation !== attemptedGeneration) {
+      queueAttempt(debounceMs);
+      return;
+    }
+    pending = false;
+    busyLogged = false;
+  };
+
+  return {
+    schedule: () => {
+      generation += 1;
+      if (!pending) {
+        pending = true;
+        busyLogged = false;
+      }
+      queueAttempt(debounceMs);
+    },
+    cancel: () => {
+      generation += 1;
+      pending = false;
+      busyLogged = false;
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
+  };
+};
+
 export const createRuntimeInitialization = (
   context: RunnerContext,
   deps: {
@@ -164,16 +284,17 @@ export const createRuntimeInitialization = (
    *                       so callers (UI, IPC) can surface it instead of
    *                       silently treating it as a successful reload.
    */
-  const reloadUserExtensions = async (): Promise<{
-    status: "reloaded" | "busy" | "not-initialized" | "load-failed";
-    reason?: string;
-  }> => {
+  const reloadUserExtensions = async (
+    options: { logBusy?: boolean } = {},
+  ): Promise<ExtensionReloadResult> => {
     if (!context.state.isInitialized) {
       return { status: "not-initialized" };
     }
     const busyReason = computeBusyReason();
     if (busyReason) {
-      logger.info("extensions.reload.deferred", { reason: busyReason });
+      if (options.logBusy !== false) {
+        logger.info("extensions.reload.deferred", { reason: busyReason });
+      }
       return { status: "busy", reason: busyReason };
     }
     logger.info("extensions.reload.start");
@@ -223,30 +344,16 @@ export const createRuntimeInitialization = (
    */
   let resourceWatchers: FSWatcher[] = [];
   let modelConfigWatcher: FSWatcher | null = null;
-  let extensionDebounce: NodeJS.Timeout | null = null;
-  let extensionRetry: NodeJS.Timeout | null = null;
   let modelConfigDebounce: NodeJS.Timeout | null = null;
   const FILE_WATCH_DEBOUNCE_MS = 500;
   const RELOAD_BUSY_RETRY_MS = 2_000;
-
-  const scheduleExtensionReload = () => {
-    if (extensionDebounce) {
-      clearTimeout(extensionDebounce);
-    }
-    extensionDebounce = setTimeout(() => {
-      extensionDebounce = null;
-      void (async () => {
-        const result = await reloadUserExtensions();
-        if (result.status === "busy") {
-          if (extensionRetry) clearTimeout(extensionRetry);
-          extensionRetry = setTimeout(() => {
-            extensionRetry = null;
-            scheduleExtensionReload();
-          }, RELOAD_BUSY_RETRY_MS);
-        }
-      })();
-    }, FILE_WATCH_DEBOUNCE_MS);
-  };
+  const extensionReloadScheduler = createExtensionReloadScheduler(
+    ({ logBusy }) => reloadUserExtensions({ logBusy }),
+    {
+      debounceMs: FILE_WATCH_DEBOUNCE_MS,
+      busyRetryMs: RELOAD_BUSY_RETRY_MS,
+    },
+  );
 
   const startExtensionWatcher = () => {
     if (resourceWatchers.length > 0) return;
@@ -256,29 +363,33 @@ export const createRuntimeInitialization = (
     // (tools / model / maxAgentDepth) — so prompt edits apply without a
     // restart, mirroring pi's watch→reload model.
     const watchPaths = [
-      { path: context.paths.extensionsPath, recursive: true },
-      { path: path.join(context.stellaDataDir, "agents"), recursive: true },
+      {
+        path: context.paths.extensionsPath,
+        recursive: true,
+        scope: "resource-tree" as const,
+      },
+      {
+        path: path.join(context.stellaDataDir, "agents"),
+        recursive: true,
+        scope: "resource-tree" as const,
+      },
       // The system mirror is replaced by an atomic directory swap, which a
       // recursive watcher on the old inode would miss — watch the data dir
       // itself (non-recursive) so the `system` entry rename triggers a reload.
-      { path: context.stellaDataDir, recursive: false },
+      {
+        path: context.stellaDataDir,
+        recursive: false,
+        scope: "data-dir" as const,
+      },
     ];
-    for (const { path: watchPath, recursive } of watchPaths) {
+    for (const { path: watchPath, recursive, scope } of watchPaths) {
       try {
         const watcher = fsWatch(
           watchPath,
           { recursive },
           (_eventType, filename) => {
-            // Ignore renames into the directory of dotfiles / build
-            // artifacts. The loader filters by suffix anyway, but
-            // skipping early reduces wakeups.
-            if (
-              filename &&
-              (filename.startsWith(".") || filename.endsWith("~"))
-            ) {
-              return;
-            }
-            scheduleExtensionReload();
+            if (!isExtensionWatchChangeRelevant(scope, filename)) return;
+            extensionReloadScheduler.schedule();
           },
         );
         watcher.on("error", (error) => {
@@ -350,14 +461,7 @@ export const createRuntimeInitialization = (
   };
 
   const stopExtensionWatcher = () => {
-    if (extensionDebounce) {
-      clearTimeout(extensionDebounce);
-      extensionDebounce = null;
-    }
-    if (extensionRetry) {
-      clearTimeout(extensionRetry);
-      extensionRetry = null;
-    }
+    extensionReloadScheduler.cancel();
     if (modelConfigDebounce) {
       clearTimeout(modelConfigDebounce);
       modelConfigDebounce = null;

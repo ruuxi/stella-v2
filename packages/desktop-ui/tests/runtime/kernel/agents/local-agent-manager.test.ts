@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   AGENT_ORPHANED_RESTART_CANCEL_REASON,
@@ -42,6 +42,68 @@ describe("task tool activity sanitization", () => {
     expect(hint).not.toContain("url-secret");
     expect(hint).not.toContain("debug");
     expect(hint).not.toContain("hidden");
+  });
+});
+
+describe("LocalAgentManager lifecycle observability", () => {
+  it("emits lifecycle events without unconditional stderr traces", async () => {
+    const stderrWrite = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const events: AgentLifecycleEvent[] = [];
+    try {
+      const manager = new LocalAgentManager({
+        maxConcurrent: 1,
+        fetchAgentContext: async () => ({
+          systemPrompt: "",
+          dynamicContext: "",
+          maxAgentDepth: 3,
+        }),
+        runSubagent: async (args) => {
+          args.onToolStart?.({
+            runId: args.runId,
+            seq: 1,
+            toolCallId: "call-1",
+            toolName: "node_repl",
+            statusText: "Running Node Repl",
+          });
+          args.onToolEnd?.({
+            runId: args.runId,
+            seq: 2,
+            toolCallId: "call-1",
+            toolName: "node_repl",
+            resultPreview: "ok",
+          });
+          return { runId: args.runId, result: "done" };
+        },
+        toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
+        createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
+        completeCloudAgentRecord: async () => undefined,
+        getCloudAgentRecord: async () => null,
+        cancelCloudAgentRecord: async () => ({ canceled: false }),
+        onAgentEvent: (event) => events.push(event),
+      });
+
+      const created = await manager.createAgent({
+        conversationId: "conv-observability",
+        description: "trace-free task",
+        prompt: "run a tool",
+        agentType: AGENT_IDS.GENERAL,
+        storageMode: "local",
+      });
+      await waitForAgentSettled(manager, created.threadId);
+
+      expect(events.map((event) => event.type)).toEqual(
+        expect.arrayContaining([
+          "agent-started",
+          "agent-progress",
+          "agent-completed",
+        ]),
+      );
+      expect(stderrWrite).not.toHaveBeenCalled();
+    } finally {
+      stderrWrite.mockRestore();
+    }
   });
 });
 

@@ -222,9 +222,6 @@ export const AGENT_ORPHANED_RESTART_CANCEL_REASON = "Canceled because Stella res
 // otherwise replace the user-facing reply with an empty silence.
 export const AGENT_PAUSE_CANCEL_REASON = "Paused by orchestrator.";
 export const DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS = 5_000;
-const logWorkingIndicatorTrace = (label, payload) => {
-    process.stderr.write(`${JSON.stringify({ label, ...payload })}\n`);
-};
 export class LocalAgentManager {
     defaultMaxConcurrent;
     opts;
@@ -912,13 +909,6 @@ export class LocalAgentManager {
                 ...(startStatusText ? { statusText: startStatusText } : {}),
                 ...(startIsFollowUp ? { isFollowUp: true } : {}),
             });
-            logWorkingIndicatorTrace("[stella:working-indicator:agent-started]", {
-                threadId: task.threadId,
-                conversationId: task.conversationId,
-                rootRunId: task.rootRunId,
-                description: task.description,
-                statusText: startStatusText,
-            });
             const execution = this.executeTask(task, {
                 generation,
                 controller,
@@ -1106,13 +1096,6 @@ export class LocalAgentManager {
                         attemptGeneration: attempt.generation,
                         statusText,
                         toolActivity,
-                    });
-                    logWorkingIndicatorTrace("[stella:working-indicator:agent-progress]", {
-                        threadId: task.threadId,
-                        conversationId: task.conversationId,
-                        rootRunId: task.rootRunId,
-                        description: task.description,
-                        statusText,
                     });
                 },
                 onToolEnd: (ev) => {
@@ -1398,14 +1381,6 @@ export class LocalAgentManager {
             terminalEventEmitted: false,
             attemptGeneration: 0,
         };
-        logWorkingIndicatorTrace("[stella:working-indicator:create-agent]", {
-            threadId,
-            conversationId: request.conversationId,
-            rootRunId: request.rootRunId,
-            description: request.description,
-            agentType: request.agentType,
-            parentAgentId: request.parentAgentId,
-        });
         // Re-check immediately before publication. Today the setup above is
         // synchronous, but keeping the invariant at the commit point closes the
         // spawn-during-pause race if thread/cloud setup later gains an await.
@@ -1950,15 +1925,6 @@ export class LocalAgentManager {
                             attemptGeneration: task.attemptGeneration,
                             statusText: updateStatusText,
                             isFollowUp: true,
-                        });
-                        logWorkingIndicatorTrace("[stella:working-indicator:agent-started]", {
-                            threadId: task.threadId,
-                            conversationId: task.conversationId,
-                            rootRunId: task.rootRunId,
-                            description: task.description,
-                            statusText: updateStatusText,
-                            isFollowUp: true,
-                            steered: true,
                         });
                     }
                 }

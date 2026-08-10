@@ -90,6 +90,14 @@
       "description": "Permet à Stella de voir la page sur laquelle vous êtes et d'agir dans votre navigateur.",
       "action": "Obtenir l'extension"
     },
+    "resetCustomizations": {
+      "title": "Utiliser les réglages par défaut de Stella",
+      "description": "Supprime vos personnalisations de prompts et de compétences pour appliquer les réglages par défaut de Stella. Les éléments supprimés sont conservés dans ~/.stella/.trash au cas où.",
+      "action": "Restaurer les réglages par défaut",
+      "done": "Réglages par défaut restaurés. Vos personnalisations précédentes ont été déplacées vers ~/.stella/.trash.",
+      "none": "Vous utilisez déjà les réglages par défaut de Stella.",
+      "error": "Impossible de restaurer les réglages par défaut."
+    },
     "permissions": {
       "title": "Autorisations",
       "enable": "Activer",

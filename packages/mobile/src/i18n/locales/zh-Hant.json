@@ -90,6 +90,14 @@
       "description": "讓 Stella 查看你所在的頁面並在瀏覽器中執行操作。",
       "action": "取得擴充功能"
     },
+    "resetCustomizations": {
+      "title": "使用 Stella 預設設定",
+      "description": "移除你的提示詞與技能自訂內容，套用 Stella 內建的預設設定。被移除的內容會保存在 ~/.stella/.trash，以便隨時取回。",
+      "action": "還原預設",
+      "done": "已還原預設設定。你先前的自訂內容已移至 ~/.stella/.trash。",
+      "none": "你已經在使用 Stella 的預設設定。",
+      "error": "無法還原預設設定。"
+    },
     "permissions": {
       "title": "權限",
       "enable": "啟用",

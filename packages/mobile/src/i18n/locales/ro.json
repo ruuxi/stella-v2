@@ -90,6 +90,14 @@
       "description": "Permite Stellei să vadă pagina pe care te afli și să efectueze acțiuni în browserul tău.",
       "action": "Obține extensia"
     },
+    "resetCustomizations": {
+      "title": "Folosește setările implicite Stella",
+      "description": "Elimină personalizările tale de prompturi și abilități pentru a aplica setările implicite Stella. Ce este eliminat rămâne în ~/.stella/.trash în caz că vrei să îl recuperezi.",
+      "action": "Restaurează implicite",
+      "done": "Setările implicite au fost restaurate. Personalizările anterioare au fost mutate în ~/.stella/.trash.",
+      "none": "Folosești deja setările implicite Stella.",
+      "error": "Setările implicite nu au putut fi restaurate."
+    },
     "permissions": {
       "title": "Permisiuni",
       "enable": "Activează",

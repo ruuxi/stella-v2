@@ -90,6 +90,14 @@
       "description": "Lader Stella se den side, du er på, og udføre handlinger i din browser.",
       "action": "Hent udvidelse"
     },
+    "resetCustomizations": {
+      "title": "Brug Stellas standardindstillinger",
+      "description": "Fjerner dine tilpasninger af prompts og færdigheder, så Stellas standarder gælder. Det fjernede gemmes i ~/.stella/.trash, hvis du vil have det tilbage.",
+      "action": "Gendan standarder",
+      "done": "Standarder gendannet. Dine tidligere tilpasninger blev flyttet til ~/.stella/.trash.",
+      "none": "Du bruger allerede Stellas standardindstillinger.",
+      "error": "Kunne ikke gendanne standarderne."
+    },
     "permissions": {
       "title": "Tilladelser",
       "enable": "Aktivér",

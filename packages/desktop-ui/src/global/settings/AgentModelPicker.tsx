@@ -169,18 +169,21 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const [preferences, setPreferencesRaw] = useState<LocalModelPreferences | null>(() => cachedLocalPreferences);
     const [pendingAgent, setPendingAgent] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // Engine catalogs are optional enhancements. Only probe their local CLIs
+    // while the matching section is open (or already selected), and keep a
+    // missing CLI out of the picker's global error/toast path.
+    const [chatGptSectionOpen, setChatGptSectionOpen] = useState(false);
+    const [claudeCodeSectionOpen, setClaudeCodeSectionOpen] = useState(false);
+    const committedEngine = preferences?.agentRuntimeEngine ?? "default";
     const credentials = useLlmCredentials();
     const cancelOAuth = credentials.cancelOAuth;
     const validateOAuth = credentials.validateOAuth;
-    const codexCatalog = useCodexModelCatalog(active);
+    const codexCatalog = useCodexModelCatalog(active &&
+        (chatGptSectionOpen || committedEngine === "codex_cli"));
     const [chatGptConnection, setChatGptConnection] = useState<"checking" | "connected" | "disconnected" | "needs-reauth">("checking");
     // Soft status shown when a genuinely-gone saved ChatGPT model was rerouted
     // to an available one, so the switch is never silent.
     const [chatGptRoutedNotice, setChatGptRoutedNotice] = useState<string | null>(null);
-    // Engine sections report their expansion so the (IPC-backed) engine
-    // catalogs only start loading once the user actually opens them.
-    const [chatGptSectionOpen, setChatGptSectionOpen] = useState(false);
-    const [claudeCodeSectionOpen, setClaudeCodeSectionOpen] = useState(false);
     // Mirror state writes into the module-level cache so re-mounting the
     // picker (Radix unmounts popover content on close) shows the last
     // selection immediately instead of flashing "Loading…".
@@ -293,7 +296,6 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         ? chatGptModelsWithCurrent
         : chatGptRegistryOptions;
     const selectedClaudeCodeModel = preferences?.claudeCodeModel || DEFAULT_CLAUDE_CODE_MODEL;
-    const committedEngine = preferences?.agentRuntimeEngine ?? "default";
     const [oauthPendingProvider, setOauthPendingProvider] = useState<string | null>(null);
     const oauthAttemptRef = useRef<{ provider: string; cancelled: boolean } | null>(null);
     const migrationAttemptedRef = useRef<string | null>(null);
@@ -417,13 +419,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const claudeCodeModelsLoading = claudeCodeCatalog.loading;
     const visiblePickerError = error ??
         claudeCodeCatalog.error ??
-        catalogError ??
-        ((chatGptSectionOpen || committedEngine === "codex_cli") &&
-            codexCatalog.error
-            ? t("settings.agentModelPicker.errors.chatGptVerify", {
-                error: codexCatalog.error,
-            })
-            : null);
+        catalogError;
     const visiblePickerErrorTitle = error
         ? t("settings.agentModelPicker.errors.updateTitle")
         : t("settings.agentModelPicker.errors.refreshTitle");

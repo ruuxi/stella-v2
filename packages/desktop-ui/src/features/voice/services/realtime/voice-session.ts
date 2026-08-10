@@ -31,9 +31,7 @@
 import { z } from "zod";
 import { postServiceJson } from "@/platform/http/service-request";
 import { getVoiceSessionPromptConfig } from "@/prompts";
-import {
-  formatRealtimeSystemMessage,
-} from "@stella/contracts/system-reminders";
+import { formatRealtimeSystemMessage } from "@stella/contracts/system-reminders";
 import type {
   RuntimeVoiceHistoryItem,
   RuntimeVoiceToolMetadata,
@@ -41,6 +39,7 @@ import type {
 import { computeAnalyserEnergy } from "@/features/voice/services/audio-energy";
 import type { EventRecord } from "@stella/contracts/local-chat";
 import { createRealtimeTransport } from "./providers/provider-registry";
+import { toRealtimeProviderTool } from "./providers/tool-schema";
 import type { RealtimeProviderKey, VoiceSessionToken } from "./providers/types";
 import type { RealtimeTransport } from "./transports/types";
 
@@ -196,7 +195,7 @@ const mergeVoiceSessionTools = (
   for (const tool of [...(tools ?? []), ...VOICE_SESSION_CONTROL_TOOLS]) {
     if (seen.has(tool.name)) continue;
     seen.add(tool.name);
-    out.push(tool);
+    out.push(toRealtimeProviderTool(tool));
   }
   return out;
 };
@@ -307,6 +306,7 @@ export class RealtimeVoiceSession {
   private unsubscribeLocalChatUpdated: (() => void) | null = null;
   private syncedLocalEventIds = new Set<string>();
   private localChatSyncPromise: Promise<void> = Promise.resolve();
+  private handledFunctionCallIds = new Set<string>();
   private leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private leaseExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private leaseTerminalReported = false;
@@ -380,20 +380,20 @@ export class RealtimeVoiceSession {
     if (this._state !== "idle") {
       throw new Error(`Cannot connect in state: ${this._state}`);
     }
+    this.handledFunctionCallIds.clear();
     this.conversationId = conversationId;
     this.setState("connecting");
 
     try {
-      const orchestratorConfig =
-        await window.electronAPI?.voice
-          .getOrchestratorConfig?.({ conversationId })
-          .catch((err) => {
-            console.debug(
-              "[realtime-voice] Failed to load orchestrator config:",
-              (err as Error).message,
-            );
-            return null;
-          });
+      const orchestratorConfig = await window.electronAPI?.voice
+        .getOrchestratorConfig?.({ conversationId })
+        .catch((err) => {
+          console.debug(
+            "[realtime-voice] Failed to load orchestrator config:",
+            (err as Error).message,
+          );
+          return null;
+        });
       const tools = mergeVoiceSessionTools(orchestratorConfig?.tools);
       const instructions = await buildVoiceSessionInstructions(
         orchestratorConfig?.instructions,
@@ -656,7 +656,14 @@ export class RealtimeVoiceSession {
         ],
       },
     });
-    if (mapped.announce && !options?.suppressAnnouncement) {
+    // Warm Realtime sessions remain connected after voice mode is turned off.
+    // Keep the event in context, but only ask for spoken output during an
+    // active voice turn.
+    if (
+      mapped.announce &&
+      this.inputActive &&
+      !options?.suppressAnnouncement
+    ) {
       this.sendEvent({ type: "response.create" });
     }
   }
@@ -943,8 +950,15 @@ export class RealtimeVoiceSession {
         break;
       }
 
-      case "error":
+      case "error": {
+        const error = isEventRecord(event.error) ? event.error : null;
+        const message =
+          typeof error?.message === "string" && error.message.trim()
+            ? error.message.trim()
+            : "Unknown realtime voice provider error";
+        console.error("[realtime-voice] Provider error:", message);
         break;
+      }
 
       default:
         break;
@@ -975,9 +989,31 @@ export class RealtimeVoiceSession {
   }
 
   private async handleFunctionCall(item: Record<string, unknown>) {
-    const name = item.name as string;
-    const callId = item.call_id as string;
+    if (this.destroyed) return;
+
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    const callId =
+      typeof item.call_id === "string" ? item.call_id.trim() : "";
     const argsStr = item.arguments as string;
+
+    if (!name || !callId) {
+      console.debug(
+        "[realtime-voice] Ignoring function call without name or call_id",
+      );
+      return;
+    }
+    // OpenAI-compatible providers may report the same completed call through
+    // both response.function_call_arguments.done and response.output_item.done.
+    // Claim the provider call ID synchronously, before the first await, so
+    // concurrent lifecycle events cannot execute or continue the call twice.
+    if (this.handledFunctionCallIds.has(callId)) {
+      console.debug(
+        "[realtime-voice] Ignoring duplicate function call:",
+        callId,
+      );
+      return;
+    }
+    this.handledFunctionCallIds.add(callId);
 
     let args: Record<string, unknown>;
     try {
@@ -1070,6 +1106,7 @@ export class RealtimeVoiceSession {
     this.unsubscribeLocalChatUpdated?.();
     this.unsubscribeLocalChatUpdated = null;
     this.syncedLocalEventIds.clear();
+    this.handledFunctionCallIds.clear();
 
     if (this.transport) {
       try {

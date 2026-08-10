@@ -17,18 +17,11 @@ import type {
 const OPENAI_SDP_ENDPOINT = "https://api.openai.com/v1/realtime/calls";
 
 export const buildOpenAIRealtimeSessionConfig = (
-  token: Pick<VoiceSessionToken, "model" | "voice">,
   ctx: ProviderTokenContext,
 ): Record<string, unknown> => ({
   type: "realtime",
-  model: token.model,
   instructions: ctx.instructions,
   ...(ctx.tools?.length ? { tools: ctx.tools, tool_choice: "auto" } : {}),
-  audio: {
-    output: {
-      voice: token.voice,
-    },
-  },
 });
 
 export const openaiProvider: ProviderModule = {
@@ -57,7 +50,7 @@ export const openaiProvider: ProviderModule = {
       provider: "openai",
       model: token.model,
       sdpFetch: bearerSdpFetcher(OPENAI_SDP_ENDPOINT, token.clientSecret),
-      initialSessionConfig: buildOpenAIRealtimeSessionConfig(token, ctx),
+      initialSessionConfig: buildOpenAIRealtimeSessionConfig(ctx),
     });
   },
 };

@@ -2,12 +2,15 @@
   "$comment": "Single source of truth for the Stella Browser CDP daemon command vocabulary. Every layer that names an action — the Rust daemon (is_known_action / is_chain_allowed_action / dispatch_action in packages/stella-browser/cli/src/native/actions.rs), the JS client allowlists (BROWSER_CHAIN_ACTIONS / BROWSER_PROTOCOL_ACTIONS in packages/runtime/kernel/browser-use/client.ts), and the agent-facing worker API (SAFE_ACTION_KEYS and the method surface in packages/runtime/kernel/browser-use/worker-api.ts) — is checked against this file by contract tests: contract_tests.rs (cargo) and action-contract.test.ts (vitest). Adding, removing, or renaming an action in any layer fails those tests until this manifest and every layer agree. The extension transport's vocabulary (extension/background.js) is legacy/credential-seeding only and is deliberately out of scope.",
   "version": 1,
   "globalParams": {
-    "$comment": "Accepted on every command in addition to the per-action params below. tabId addresses the target tab (resolved before dispatch; tab_list/tab_new take none, tab_switch/tab_close resolve their own).",
+    "$comment": "Accepted on every command in addition to the per-action params below. tabId plus tabGeneration form a stable handle for the target tab (resolved before dispatch; tab_list/tab_new take none, tab_switch/tab_close resolve their own).",
     "params": [
       "id",
       "action",
       "tabId",
+      "tabGeneration",
       "ownerId",
+      "sessionId",
+      "turnId",
       "ownerLeaseId",
       "ownerLeaseIssuedAt"
     ]
@@ -100,6 +103,7 @@
       "chain": false,
       "params": [
         "steps",
+        "timeout",
         "waitForSelector",
         "waitTimeout",
         "abortOnError",

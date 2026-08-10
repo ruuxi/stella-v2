@@ -109,13 +109,65 @@ export async function handleFill(command) {
   if (!selector) throw new Error('Selector is required for fill');
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  await injectScript(tab.id, resolved, `
+  const outcome = await injectScript(
+    tab.id,
+    resolved,
+    `
     el.focus();
-    el.value = ${JSON.stringify(value)};
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  `);
+    const nextValue = ${JSON.stringify(String(value))};
+    const tag = (el.tagName || '').toLowerCase();
+    const inputType = tag === 'input' ? String(el.type || 'text').toLowerCase() : null;
+    const editable = el.isContentEditable;
+    let setter = null;
+    if (tag === 'input' && typeof HTMLInputElement !== 'undefined') {
+      setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set || null;
+    } else if (tag === 'textarea' && typeof HTMLTextAreaElement !== 'undefined') {
+      setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set || null;
+    }
+    if (!setter && !editable && !('value' in el)) {
+      return { ok: false, reason: 'not-editable', tag, inputType, actualLength: 0 };
+    }
+    const dispatchInput = (type, init) => {
+      try { return el.dispatchEvent(new InputEvent(type, init)); }
+      catch (_) { return el.dispatchEvent(new Event(type, init)); }
+    };
+    dispatchInput('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      data: nextValue,
+      inputType: 'insertReplacementText',
+    });
+    if (editable) el.textContent = nextValue;
+    else if (setter) setter.call(el, nextValue);
+    else el.value = nextValue;
+    dispatchInput('input', {
+      bubbles: true,
+      composed: true,
+      data: nextValue,
+      inputType: 'insertReplacementText',
+    });
+    el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    return Promise.resolve().then(() => {
+      const actual = String(editable ? (el.textContent || '') : (el.value ?? ''));
+      return {
+        ok: actual === nextValue,
+        reason: actual === nextValue ? null : 'value-mismatch',
+        tag,
+        inputType,
+        actualLength: [...actual].length,
+      };
+    });
+  `,
+  );
+
+  if (!outcome?.ok) {
+    throw new Error(
+      `Fill did not replace the element value (reason=${outcome?.reason || 'unknown'}, ` +
+        `tag=${outcome?.tag || 'unknown'}, input_type=${outcome?.inputType || 'n/a'}, ` +
+        `expected_chars=${[...String(value)].length}, actual_chars=${outcome?.actualLength ?? 'unknown'}): ${selector}`,
+    );
+  }
 
   return { id: command.id, success: true, data: { filled: true } };
 }

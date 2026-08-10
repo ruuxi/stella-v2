@@ -104,6 +104,7 @@ export interface BrowserWorkerKeyboard {
 
 export interface BrowserWorkerTab {
   readonly id: number;
+  readonly generation: string;
   readonly playwright: BrowserWorkerPlaywright;
   readonly keyboard: BrowserWorkerKeyboard;
   press(key: string): Promise<unknown>;
@@ -299,6 +300,41 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     }
     return new Error(String(value ?? "Browser command failed."));
   };
+  const currentTabGeneration = new Map<number, string>();
+  const isLegacyTabGeneration = (generation: string): boolean =>
+    generation.startsWith("legacy:");
+  const tabGenerationParams = (
+    generation: string,
+  ): Readonly<{ tabGeneration?: string }> =>
+    isLegacyTabGeneration(generation) ? {} : { tabGeneration: generation };
+  const assertCurrentTabGeneration = (
+    tabId: number,
+    generation: string,
+  ): void => {
+    const current = currentTabGeneration.get(tabId);
+    if (current !== undefined && current !== generation) {
+      throw new Error(
+        `Stale browser tab handle ${tabId} generation ${generation}; the numeric tab id now refers to generation ${current}. Call browser.tabs.list() and use the current handle.`,
+      );
+    }
+  };
+  const stampTabGeneration = (
+    params: Record<string, unknown>,
+  ): Record<string, unknown> => {
+    const tabId = params.tabId;
+    if (
+      params.tabGeneration !== undefined ||
+      !Number.isSafeInteger(tabId) ||
+      (tabId as number) <= 0
+    ) {
+      return params;
+    }
+    const generation = currentTabGeneration.get(tabId as number);
+    if (generation === undefined || isLegacyTabGeneration(generation)) {
+      return params;
+    }
+    return { ...params, tabGeneration: generation };
+  };
   const unwrapResponse = (value: unknown): unknown => {
     let envelope = value;
     if (
@@ -330,7 +366,9 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     action: string,
     params: Record<string, unknown>,
   ): Promise<unknown> =>
-    unwrapResponse(await callBrowser("command", [action, params]));
+    unwrapResponse(
+      await callBrowser("command", [action, stampTabGeneration(params)]),
+    );
   const sendChain = async (
     steps: readonly BrowserWorkerChainStep[],
     chainOptions: BrowserWorkerChainOptions,
@@ -547,6 +585,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
 
   type LocatorState = {
     tabId: number;
+    tabGeneration: string;
     selector: string;
     index?: number | "last";
     textFilters: readonly Readonly<{
@@ -558,22 +597,27 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   };
   type TabState = {
     id: number;
+    generation: string;
     url: string;
     title: string;
     active: boolean;
     playwright?: BrowserWorkerPlaywright;
     keyboard?: BrowserWorkerKeyboard;
   };
+  const currentTabId = (state: TabState): number => {
+    assertCurrentTabGeneration(state.id, state.generation);
+    return state.id;
+  };
 
   const tabState = new WeakMap<object, TabState>();
   const locatorState = new WeakMap<object, LocatorState>();
-  const tabCache = new Map<number, WeakRef<BrowserWorkerTab>>();
+  const tabCache = new Map<string, WeakRef<BrowserWorkerTab>>();
   const locatorCache = new Map<string, WeakRef<BrowserWorkerLocator>>();
   const tabFinalizer = new FinalizationRegistry<{
-    id: number;
+    key: string;
     reference: WeakRef<BrowserWorkerTab>;
-  }>(({ id, reference }) => {
-    if (tabCache.get(id) === reference) tabCache.delete(id);
+  }>(({ key, reference }) => {
+    if (tabCache.get(key) === reference) tabCache.delete(key);
   });
   const locatorFinalizer = new FinalizationRegistry<{
     key: string;
@@ -585,10 +629,18 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
 
   const locatorKey = (
     tabId: number,
+    tabGeneration: string,
     selector: string,
     index: number | "last" | undefined,
     textFilters: LocatorState["textFilters"],
-  ): string => JSON.stringify([tabId, selector, index ?? null, textFilters]);
+  ): string =>
+    JSON.stringify([
+      tabId,
+      tabGeneration,
+      selector,
+      index ?? null,
+      textFilters,
+    ]);
 
   const queryExpression = (state: LocatorState): string => {
     const descriptor = JSON.stringify({
@@ -793,12 +845,17 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         [
           Object.freeze({
             action: "evaluate",
-            params: Object.freeze({ tabId: state.tabId, script }),
+            params: Object.freeze({
+              tabId: state.tabId,
+              ...tabGenerationParams(state.tabGeneration),
+              script,
+            }),
           }),
           Object.freeze({
             action,
             params: Object.freeze({
               tabId: state.tabId,
+              ...tabGenerationParams(state.tabGeneration),
               selector: markerSelector,
               ...extra,
             }),
@@ -815,6 +872,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       try {
         await command("evaluate", {
           tabId: state.tabId,
+          ...tabGenerationParams(state.tabGeneration),
           script: cleanupScript,
         });
       } catch (cleanupError) {
@@ -831,6 +889,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   // unchanged) before the instance is frozen.
   const TAB_PUBLIC_API = Object.freeze([
     "id",
+    "generation",
     "playwright",
     "keyboard",
     "press",
@@ -915,6 +974,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     private state(): LocatorState {
       const state = locatorState.get(this);
       if (!state) throw new Error("Invalid Locator object.");
+      assertCurrentTabGeneration(state.tabId, state.tabGeneration);
       return state;
     }
 
@@ -932,6 +992,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       }
       return getLocator({
         tabId: state.tabId,
+        tabGeneration: state.tabGeneration,
         selector: `${state.selector} ${child}`,
         textFilters: Object.freeze([]),
       });
@@ -967,7 +1028,11 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       ] as const) {
         if (filterOptions[key] === undefined) continue;
         const nested = locatorState.get(filterOptions[key] as object);
-        if (!nested || nested.tabId !== state.tabId) {
+        if (
+          !nested ||
+          nested.tabId !== state.tabId ||
+          nested.tabGeneration !== state.tabGeneration
+        ) {
           throw new TypeError(`${key} must be a Locator from the same tab.`);
         }
         if (
@@ -984,6 +1049,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       }
       return getLocator({
         tabId: state.tabId,
+        tabGeneration: state.tabGeneration,
         selector,
         index: state.index,
         textFilters: Object.freeze(textFilters),
@@ -996,6 +1062,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       const semantic = parseSemanticSelector(state.selector);
       return getLocator({
         tabId: state.tabId,
+        tabGeneration: state.tabGeneration,
         selector: semantic
           ? semanticWithNth(state.selector, nth)
           : state.selector,
@@ -1012,6 +1079,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       const state = this.state();
       return getLocator({
         tabId: state.tabId,
+        tabGeneration: state.tabGeneration,
         selector: state.selector,
         index: "last",
         textFilters: state.textFilters,
@@ -1289,6 +1357,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   ): BrowserWorkerLocator => {
     const key = locatorKey(
       state.tabId,
+      state.tabGeneration,
       state.selector,
       state.index,
       state.textFilters,
@@ -1305,28 +1374,53 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     return locator;
   };
 
-  const locatorFor = (tabId: number, selector: string): BrowserWorkerLocator =>
+  const locatorFor = (
+    tabId: number,
+    tabGeneration: string,
+    selector: string,
+  ): BrowserWorkerLocator =>
     getLocator({
       tabId,
+      tabGeneration,
       selector: requireSelectorText(selector, "selector"),
       textFilters: Object.freeze([]),
     });
 
-  const locatorBuilders = (tabId: number) => ({
-    locator: (selector: string) => locatorFor(tabId, selector),
+  const locatorBuilders = (tabId: number, tabGeneration: string) => ({
+    locator: (selector: string) => locatorFor(tabId, tabGeneration, selector),
     getByRole: (role: string, locatorOptions?: Record<string, unknown>) =>
-      locatorFor(tabId, semanticSelector("role", role, locatorOptions)),
+      locatorFor(
+        tabId,
+        tabGeneration,
+        semanticSelector("role", role, locatorOptions),
+      ),
     getByText: (text: string, locatorOptions?: Record<string, unknown>) =>
-      locatorFor(tabId, semanticSelector("text", text, locatorOptions)),
+      locatorFor(
+        tabId,
+        tabGeneration,
+        semanticSelector("text", text, locatorOptions),
+      ),
     getByLabel: (text: string, locatorOptions?: Record<string, unknown>) =>
-      locatorFor(tabId, semanticSelector("label", text, locatorOptions)),
+      locatorFor(
+        tabId,
+        tabGeneration,
+        semanticSelector("label", text, locatorOptions),
+      ),
     getByPlaceholder: (
       text: string,
       locatorOptions?: Record<string, unknown>,
     ) =>
-      locatorFor(tabId, semanticSelector("placeholder", text, locatorOptions)),
+      locatorFor(
+        tabId,
+        tabGeneration,
+        semanticSelector("placeholder", text, locatorOptions),
+      ),
     getByTestId: (testId: string, locatorOptions?: Record<string, unknown>) =>
-      locatorFor(tabId, semanticSelector("testid", testId, locatorOptions)),
+      locatorFor(
+        tabId,
+        tabGeneration,
+        semanticSelector("testid", testId, locatorOptions),
+      ),
   });
 
   type NormalizedTabList = {
@@ -1356,25 +1450,46 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       typeof value === "string" && value.trim() !== "" ? Number(value) : value;
     return requirePositiveInteger(numeric, name);
   };
+  const normalizeTabGeneration = (
+    value: unknown,
+    tabId: number,
+    name: string,
+  ): string => {
+    if (value === undefined || value === null) {
+      return currentTabGeneration.get(tabId) ?? `legacy:${tabId}`;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new TypeError(`${name} must be a non-empty string.`);
+    }
+    return value.trim();
+  };
   const getTab = (
     idValue: unknown,
     metadata: Record<string, unknown> = {},
   ): BrowserWorkerTab => {
     const id = normalizeTabId(idValue, "tab id");
-    const existing = tabCache.get(id)?.deref();
+    const generation = normalizeTabGeneration(
+      metadata.tabGeneration,
+      id,
+      "tab generation",
+    );
+    currentTabGeneration.set(id, generation);
+    const key = `${id}:${generation}`;
+    const existing = tabCache.get(key)?.deref();
     if (existing) {
       updateTabMetadata(existing, metadata);
       return existing;
     }
     const tab = new Tab({
       id,
+      generation,
       url: typeof metadata.url === "string" ? metadata.url : "",
       title: typeof metadata.title === "string" ? metadata.title : "",
       active: metadata.active === true,
     });
     const reference = new WeakRef(tab);
-    tabCache.set(id, reference);
-    tabFinalizer.register(tab, { id, reference });
+    tabCache.set(key, reference);
+    tabFinalizer.register(tab, { key, reference });
     return tab;
   };
 
@@ -1395,7 +1510,9 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     for (let index = 0; index < rawTabs.length; index += 1) {
       const item = rawTabs[index];
       if (!isPlainObject(item)) {
-        throw browserProtocolMismatch(`tab_list tabs[${index}] is not an object`);
+        throw browserProtocolMismatch(
+          `tab_list tabs[${index}] is not an object`,
+        );
       }
       const rawId = item.tabId ?? item.id;
       try {
@@ -1437,12 +1554,16 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       expectNewTabLimit as number,
     );
     const before = await listTabsInternal();
-    const previousIds = new Set(before.tabs.map((tab) => tab.id));
+    const previousHandles = new Set(
+      before.tabs.map((tab) => `${tab.id}:${tab.generation}`),
+    );
     await action();
     const startedAt = Date.now();
     while (Date.now() - startedAt <= timeoutMs) {
       const current = await listTabsInternal();
-      const added = current.tabs.filter((tab) => !previousIds.has(tab.id));
+      const added = current.tabs.filter(
+        (tab) => !previousHandles.has(`${tab.id}:${tab.generation}`),
+      );
       if (added.length === 1) return added[0]!;
       if (added.length > 1) {
         throw new Error(
@@ -1466,6 +1587,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     private state(): TabState {
       const state = tabState.get(this);
       if (!state) throw new Error("Invalid Tab object.");
+      assertCurrentTabGeneration(state.id, state.generation);
       return state;
     }
 
@@ -1473,15 +1595,19 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       return this.state().id;
     }
 
+    get generation(): string {
+      return this.state().generation;
+    }
+
     get playwright(): BrowserWorkerPlaywright {
       const state = this.state();
       if (state.playwright) return state.playwright;
-      const builders = locatorBuilders(state.id);
+      const builders = locatorBuilders(currentTabId(state), state.generation);
       state.playwright = Object.freeze({
         domSnapshot: async (rawOptions?: Record<string, unknown>) => {
           const data = await command(
             "snapshot",
-            snapshotParams(state.id, rawOptions),
+            snapshotParams(currentTabId(state), rawOptions),
           );
           return fieldOrSelf(data, "snapshot");
         },
@@ -1494,7 +1620,11 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             arg,
             arguments.length >= 2,
           );
-          const data = await command("evaluate", { tabId: state.id, script });
+          const data = await command("evaluate", {
+            tabId: currentTabId(state),
+            ...tabGenerationParams(state.generation),
+            script,
+          });
           return fieldOrSelf(data, "result");
         },
         ...builders,
@@ -1505,7 +1635,8 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
           const value = requireOptions(rawOptions, "waitForURL options");
           assertKnownKeys(value, ["timeout"], "waitForURL options");
           const params: Record<string, unknown> = {
-            tabId: state.id,
+            tabId: currentTabId(state),
+            ...tabGenerationParams(state.generation),
             url: requireSelectorText(url, "url"),
           };
           if (value.timeout !== undefined) {
@@ -1516,7 +1647,8 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         },
         waitForTimeout: async (ms: number) => {
           await command("wait", {
-            tabId: state.id,
+            tabId: currentTabId(state),
+            ...tabGenerationParams(state.generation),
             timeout: timeoutParam(ms, "ms"),
           });
         },
@@ -1533,14 +1665,16 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         // focus, or the document. Supports combos like "Control+a".
         press: async (key: string) =>
           await command("press", {
-            tabId: state.id,
+            tabId: currentTabId(state),
+            ...tabGenerationParams(state.generation),
             key: requireString(key, "key", { maxLength: 64 }),
           }),
         // Raw text insertion at the current focus (Input.insertText): no
         // per-character key events, works for emoji/CJK.
         type: async (text: string) =>
           await command("inserttext", {
-            tabId: state.id,
+            tabId: currentTabId(state),
+            ...tabGenerationParams(state.generation),
             text: requireString(text, "text", { allowEmpty: true }),
           }),
       });
@@ -1799,16 +1933,32 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       );
     }
     const params = requireOptions(value.params, `steps[${index}].params`);
-    assertKnownKeys(params, allowed, `steps[${index}].params`);
+    assertKnownKeys(
+      params,
+      [...allowed, "tabGeneration"],
+      `steps[${index}].params`,
+    );
     const clean = safeJsonValue(params, `steps[${index}].params`) as Record<
       string,
       unknown
     >;
     if (!NON_TAB_ACTIONS.has(action)) {
-      clean.tabId = requirePositiveInteger(
+      const tabId = requirePositiveInteger(
         clean.tabId,
         `steps[${index}].params.tabId`,
       );
+      clean.tabId = tabId;
+      const generation = normalizeTabGeneration(
+        clean.tabGeneration,
+        tabId,
+        `steps[${index}].params.tabGeneration`,
+      );
+      assertCurrentTabGeneration(tabId, generation);
+      if (!isLegacyTabGeneration(generation)) {
+        clean.tabGeneration = generation;
+      } else {
+        delete clean.tabGeneration;
+      }
     }
     return Object.freeze({ action, params: Object.freeze(clean) });
   };
@@ -1886,6 +2036,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         throw browserProtocolMismatch(detail);
       }
       return getTab(rawId, {
+        tabGeneration: field(data, "tabGeneration"),
         url: typeof url === "string" ? url : "about:blank",
         active: true,
       });
@@ -1929,6 +2080,31 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         }
         return Object.freeze({
           tabId: normalizeTabId(tabId, `finalize entry ${index} tabId`),
+          ...(() => {
+            const stateGeneration =
+              directState ??
+              (isPlainObject(entry) &&
+              entry.tab &&
+              typeof entry.tab === "object"
+                ? tabState.get(entry.tab as object)
+                : undefined);
+            const rawGeneration =
+              stateGeneration?.generation ??
+              (isPlainObject(entry) ? entry.tabGeneration : undefined);
+            const normalizedTabId = normalizeTabId(
+              tabId,
+              `finalize entry ${index} tabId`,
+            );
+            const generation = normalizeTabGeneration(
+              rawGeneration,
+              normalizedTabId,
+              `finalize entry ${index} tabGeneration`,
+            );
+            assertCurrentTabGeneration(normalizedTabId, generation);
+            return isLegacyTabGeneration(generation)
+              ? {}
+              : { tabGeneration: generation };
+          })(),
           status,
         });
       });

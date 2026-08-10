@@ -459,8 +459,31 @@ fn semantic_match_expression(selector: &SemanticSelector, return_statement: &str
           ? actualValue === expectedValue
           : actualValue.toLocaleLowerCase().includes(expectedValue.toLocaleLowerCase());
       }};
-      const isVisible = el =>
-        el.tagName === 'BODY' || el.getClientRects().length > 0;
+      const composedParent = el => {{
+        if (el.parentElement) return el.parentElement;
+        const root = el.getRootNode ? el.getRootNode() : null;
+        if (root && root.host) return root.host;
+        try {{ return root && root.defaultView ? root.defaultView.frameElement : null; }}
+        catch (_) {{ return null; }}
+      }};
+      const isVisible = el => {{
+        if (!el || !el.isConnected) return false;
+        if (el.tagName !== 'BODY' && el.getClientRects().length === 0) return false;
+        for (let node = el, depth = 0; node && depth < 64; node = composedParent(node), depth += 1) {{
+          if (node.hidden || node.inert || node.getAttribute?.('aria-hidden')?.toLowerCase() === 'true') {{
+            return false;
+          }}
+          const nodeWin = node.ownerDocument && node.ownerDocument.defaultView;
+          const style = nodeWin && nodeWin.getComputedStyle(node);
+          if (style && (
+            style.display === 'none' ||
+            style.visibility === 'hidden' ||
+            style.visibility === 'collapse' ||
+            parseFloat(style.opacity) === 0
+          )) return false;
+        }}
+        return true;
+      }};
       const uniqueVisible = elements =>
         [...new Set(elements)].filter(isVisible);
       const labelledText = el => {{
@@ -563,6 +586,12 @@ pub fn resolve_one_expression(selector: &SemanticSelector) -> String {
       const resolved = {result};
       const matches = resolved.matches;
       if (matches.length === 0) return {not_found}{blocked_note};
+      const hasExplicitIndex = {has_explicit_index};
+      if (!hasExplicitIndex && matches.length > 1) {{
+        const description = {description};
+        return 'Strict mode violation: ' + description + ' matched ' + matches.length +
+          ' visible elements; refine the locator or use nth()/first()/last()';
+      }}
       const index = {nth};
       if (index >= matches.length) {{
         return 'Element index ' + index + ' out of range, found ' + matches.length + ' matches';
@@ -572,6 +601,8 @@ pub fn resolve_one_expression(selector: &SemanticSelector) -> String {
         result = match_result_expression(selector),
         not_found = not_found,
         blocked_note = BLOCKED_FRAMES_NOTE_JS,
+        has_explicit_index = selector.nth.is_some(),
+        description = json_quote(&selector.describe()),
         nth = selector.nth.unwrap_or(0),
     )
 }
@@ -870,6 +901,19 @@ mod tests {
     }
 
     #[test]
+    fn test_semantic_matcher_excludes_hidden_portal_trees() {
+        let sel = SemanticSelector::by_role("dialog", None, false).unwrap();
+        let js = match_all_expression(&sel);
+        assert!(js.contains("node.hidden"));
+        assert!(js.contains("node.inert"));
+        assert!(js.contains("getAttribute?.('aria-hidden')"));
+        assert!(js.contains("style.visibility === 'hidden'"));
+        assert!(js.contains("parseFloat(style.opacity) === 0"));
+        assert!(js.contains("root && root.host"));
+        assert!(js.contains("root.defaultView.frameElement"));
+    }
+
+    #[test]
     fn test_match_all_expression_escapes_hostile_values() {
         // A value that would break out of a naive string splice must stay
         // inside the JSON literal.
@@ -893,6 +937,16 @@ mod tests {
         assert!(js.contains("const index = 4;"));
         assert!(js.contains(r#"No element found with placeholder=\"Email\""#));
         assert!(js.contains("out of range"));
+    }
+
+    #[test]
+    fn test_resolve_one_requires_explicit_disambiguation() {
+        let sel = SemanticSelector::by_value(SemanticKind::Text, "Continue", false).unwrap();
+        let js = resolve_one_expression(&sel);
+        assert!(js.contains("const hasExplicitIndex = false"));
+        assert!(js.contains(r#"const description = "text=\"Continue\"""#));
+        assert!(js.contains("Strict mode violation:"));
+        assert!(js.contains("refine the locator or use nth()/first()/last()"));
     }
 
     #[test]

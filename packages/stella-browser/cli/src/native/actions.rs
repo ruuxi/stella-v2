@@ -1,6 +1,8 @@
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
@@ -360,17 +362,31 @@ struct OwnerLease {
     issued_at: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct OwnerLeaseOrder {
+    issued_at: u64,
+    lease_id: String,
+}
+
+impl OwnerLease {
+    fn order(&self) -> OwnerLeaseOrder {
+        OwnerLeaseOrder {
+            issued_at: self.issued_at,
+            lease_id: self.lease_id.clone(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct OwnerLeaseClaim {
     owner_id: String,
     lease: OwnerLease,
-    supersedes_current: bool,
 }
 
 #[derive(Default)]
 struct OwnerLeaseRegistry {
     current_by_owner: HashMap<String, OwnerLease>,
-    issued_at_high_water: HashMap<String, u64>,
+    order_high_water: HashMap<String, OwnerLeaseOrder>,
 }
 
 impl OwnerLeaseRegistry {
@@ -416,7 +432,6 @@ impl OwnerLeaseRegistry {
             return Ok(Some(OwnerLeaseClaim {
                 owner_id: owner_id.to_string(),
                 lease,
-                supersedes_current: false,
             }));
         }
         if current.is_some_and(|current| current.lease_id == lease.lease_id) {
@@ -425,13 +440,15 @@ impl OwnerLeaseRegistry {
                 owner_id
             ));
         }
+        let order = lease.order();
         let high_water = self
-            .issued_at_high_water
+            .order_high_water
             .get(owner_id)
-            .copied()
-            .unwrap_or(0)
-            .max(current.map(|lease| lease.issued_at).unwrap_or(0));
-        if issued_at <= high_water {
+            .cloned()
+            .into_iter()
+            .chain(current.map(OwnerLease::order))
+            .max();
+        if high_water.as_ref().is_some_and(|high_water| order <= *high_water) {
             return Err(format!(
                 "Stale browser owner lease rejected for owner \"{}\"; a newer turn already owns this browser session",
                 owner_id
@@ -440,19 +457,19 @@ impl OwnerLeaseRegistry {
         Ok(Some(OwnerLeaseClaim {
             owner_id: owner_id.to_string(),
             lease,
-            supersedes_current: current.is_some(),
         }))
     }
 
     fn commit(&mut self, claim: &OwnerLeaseClaim) {
-        self.issued_at_high_water.insert(
-            claim.owner_id.clone(),
-            self.issued_at_high_water
-                .get(&claim.owner_id)
-                .copied()
-                .unwrap_or(0)
-                .max(claim.lease.issued_at),
-        );
+        let order = claim.lease.order();
+        self.order_high_water
+            .entry(claim.owner_id.clone())
+            .and_modify(|high_water| {
+                if order > *high_water {
+                    *high_water = order.clone();
+                }
+            })
+            .or_insert(order);
         self.current_by_owner
             .insert(claim.owner_id.clone(), claim.lease.clone());
     }
@@ -469,36 +486,89 @@ impl OwnerLeaseRegistry {
     }
 }
 
-async fn close_superseded_owner_tabs(
-    state: &mut DaemonState,
-    owner_id: &str,
-) -> Result<(), String> {
-    let mut closed_any = false;
-    if let Some(ref mut mgr) = state.browser {
-        for tab_id in mgr.owner_tab_ids(owner_id) {
-            closed_any |= mgr.close_tab_by_id(tab_id).await?;
-        }
+fn lease_fingerprint(lease_id: &str) -> String {
+    if lease_id == "unscoped" {
+        return lease_id.to_string();
     }
-    if closed_any {
-        state.ref_map.clear();
-    }
-    Ok(())
+    let digest = Sha256::digest(lease_id.as_bytes());
+    digest[..6]
+        .iter()
+        .map(|byte| format!("{:02x}", byte))
+        .collect()
+}
+
+fn browser_error_provenance(cmd: &Value, tab_id: u64, generation: &str) -> String {
+    let owner_id = command_owner_id(cmd).unwrap_or("unscoped");
+    let turn_id = cmd
+        .get("turnId")
+        .and_then(Value::as_str)
+        .unwrap_or("unscoped");
+    let lease_id = cmd
+        .get("ownerLeaseId")
+        .and_then(Value::as_str)
+        .unwrap_or("unscoped");
+    format!(
+        "browser provenance: owner={} turn={} lease#={} tab={} generation={}",
+        owner_id,
+        turn_id,
+        lease_fingerprint(lease_id),
+        tab_id,
+        generation
+    )
 }
 
 /// Rejects an owner-scoped command unless the addressed tab is recorded for
 /// that exact owner. Commands without `ownerId` retain unrestricted manual/UI
 /// behavior.
 fn validate_tab_ownership(cmd: &Value, mgr: &BrowserManager, tab_id: u64) -> Result<(), String> {
+    let requested_generation = match cmd.get("tabGeneration") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or("'tabGeneration' must be a non-empty string")?,
+        ),
+    };
+    let current_generation = mgr.tab_generation_by_id(tab_id);
+    let provenance = |generation: &str| browser_error_provenance(cmd, tab_id, generation);
+
+    let Some(current_generation) = current_generation else {
+        return Err(format!(
+            "Tab {} was released or closed; the handle is no longer usable [{}]",
+            tab_id,
+            provenance(requested_generation.unwrap_or("unknown"))
+        ));
+    };
+    if let Some(requested_generation) = requested_generation {
+        if requested_generation != current_generation {
+            return Err(format!(
+                "Tab {} handle generation \"{}\" was replaced by generation \"{}\"; the numeric tab id was reused [{}]",
+                tab_id,
+                requested_generation,
+                current_generation,
+                provenance(requested_generation)
+            ));
+        }
+    }
+
     let Some(owner_id) = command_owner_id(cmd) else {
         return Ok(());
     };
-    if mgr.can_owner_access_tab(Some(owner_id), tab_id) {
-        Ok(())
-    } else {
-        Err(format!(
-            "Tab {} is not owned by browser owner \"{}\"; it belongs to another browser owner or has been released",
-            tab_id, owner_id
-        ))
+    match mgr.owner_of_tab(tab_id).as_deref() {
+        Some(actual_owner) if actual_owner == owner_id => Ok(()),
+        Some(_) => Err(format!(
+            "Tab {} was transferred to a different browser owner [{}]",
+            tab_id,
+            provenance(current_generation)
+        )),
+        None => Err(format!(
+            "Tab {} was released from browser owner \"{}\" [{}]",
+            tab_id,
+            owner_id,
+            provenance(current_generation)
+        )),
     }
 }
 
@@ -524,7 +594,10 @@ fn validate_owner_finalization(cmd: &Value, action: &str) -> Result<(), String> 
             let entry = entry
                 .as_object()
                 .ok_or_else(|| format!("finalize_tabs keep entry {} must be an object", index))?;
-            if entry.keys().any(|key| key != "tabId" && key != "status") {
+            if entry
+                .keys()
+                .any(|key| key != "tabId" && key != "tabGeneration" && key != "status")
+            {
                 return Err(format!(
                     "finalize_tabs keep entry {} has unknown fields",
                     index
@@ -545,6 +618,19 @@ fn validate_owner_finalization(cmd: &Value, action: &str) -> Result<(), String> 
                     "finalize_tabs keep contains duplicate tabId {}",
                     tab_id
                 ));
+            }
+            if let Some(generation) = entry.get("tabGeneration") {
+                if generation
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_none()
+                {
+                    return Err(format!(
+                        "finalize_tabs keep entry {} tabGeneration must be a non-empty string",
+                        index
+                    ));
+                }
             }
             match entry.get("status").and_then(Value::as_str) {
                 Some("handoff" | "deliverable") => {}
@@ -1140,14 +1226,10 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         Err(error) => return error_response(&id, &error),
     };
     if let Some(ref claim) = owner_lease_claim {
-        if claim.supersedes_current {
-            if let Err(error) = close_superseded_owner_tabs(state, &claim.owner_id).await {
-                return error_response(
-                    &id,
-                    &format!("Failed to clean up the superseded browser lease: {}", error),
-                );
-            }
-        }
+        // Lease rotation fences stale callers but deliberately preserves the
+        // durable task's tabs. A replacement worker/REPL generation reclaims
+        // them; only an explicit end-of-task finalize/close_owner destroys
+        // targets.
         state.owner_leases.commit(claim);
     }
 
@@ -1159,6 +1241,11 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
     } else {
         Vec::new()
     };
+    if action == "chain" {
+        if let Err(error) = chain_runtime_budget_ms(cmd) {
+            return error_response(&id, &error);
+        }
+    }
     let actions_to_authorize: Vec<&str> = std::iter::once(action)
         .chain(chain_actions.iter().copied())
         .collect();
@@ -1220,7 +1307,8 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
                 let tab_id = mgr.add_page(super::browser::PageInfo {
                     target_id: te.target_info.target_id.clone(),
                     session_id: attach.session_id,
-                    tab_id: 0, // assigned by add_page
+                    tab_id: 0,                     // assigned by add_page
+                    tab_generation: String::new(), // assigned by add_page
                     url: te.target_info.url.clone(),
                     title: te.target_info.title.clone(),
                     target_type: te.target_info.target_type.clone(),
@@ -1679,13 +1767,100 @@ async fn dispatch_action(
 // Chain execution
 // ---------------------------------------------------------------------------
 
-/// Total execution budget for one chain, mirroring the extension executor
-/// (MAX_CHAIN_RUNTIME_MS in extension/commands/chain.js).
-const MAX_CHAIN_RUNTIME_MS: u64 = 45_000;
+const DEFAULT_CHAIN_COMMAND_TIMEOUT_MS: u64 = 30_000;
+const MIN_CHAIN_RUNTIME_MS: u64 = 3 * 60_000;
+/// Must stay aligned with MAX_BROWSER_CHAIN_TIMEOUT_MS in the runtime client.
+const MAX_CHAIN_RUNTIME_MS: u64 = 4 * 60_000;
+const CHAIN_STEP_BUDGET_MS: u64 = 1_000;
 /// Default implicit selector wait per step, mirroring the extension executor.
 const DEFAULT_CHAIN_WAIT_TIMEOUT_MS: u64 = 10_000;
 /// Poll interval for the implicit selector-existence wait.
 const CHAIN_SELECTOR_POLL_MS: u64 = 200;
+
+async fn within_chain_deadline<T, F>(
+    deadline: tokio::time::Instant,
+    chain_budget_ms: u64,
+    context: &str,
+    operation: F,
+) -> Result<T, String>
+where
+    F: Future<Output = T>,
+{
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    tokio::time::timeout(remaining, operation)
+        .await
+        .map_err(|_| {
+            format!(
+                "Chain exceeded its {}ms execution budget {}",
+                chain_budget_ms, context
+            )
+        })
+}
+
+fn chain_runtime_budget_ms(cmd: &Value) -> Result<u64, String> {
+    if let Some(value) = cmd.get("timeout") {
+        return value
+            .as_u64()
+            .filter(|timeout| *timeout > 0 && *timeout <= MAX_CHAIN_RUNTIME_MS)
+            .ok_or_else(|| {
+                format!(
+                    "Chain timeout must be a positive integer no greater than {}ms",
+                    MAX_CHAIN_RUNTIME_MS
+                )
+            });
+    }
+
+    let steps = cmd
+        .get("steps")
+        .and_then(Value::as_array)
+        .ok_or("Chain steps must be an array")?;
+    let should_wait = cmd
+        .get("waitForSelector")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let selector_wait_steps = if should_wait {
+        steps
+            .iter()
+            .filter(|step| step.get("selector").is_some() || step.get("ref").is_some())
+            .count() as u64
+    } else {
+        0
+    };
+    let wait_timeout_ms = cmd
+        .get("waitTimeout")
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_CHAIN_WAIT_TIMEOUT_MS);
+    let max_delay_ms = cmd
+        .get("delay")
+        .and_then(Value::as_object)
+        .and_then(|delay| delay.get("max"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let delay_count = steps.len().saturating_sub(1) as u64;
+    let requested = DEFAULT_CHAIN_COMMAND_TIMEOUT_MS
+        .saturating_add((steps.len() as u64).saturating_mul(CHAIN_STEP_BUDGET_MS))
+        .saturating_add(selector_wait_steps.saturating_mul(wait_timeout_ms))
+        .saturating_add(delay_count.saturating_mul(max_delay_ms))
+        .saturating_add(if cmd
+            .get("returnSnapshot")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            DEFAULT_CHAIN_COMMAND_TIMEOUT_MS
+        } else {
+            0
+        })
+        .saturating_add(if cmd
+            .get("returnScreenshot")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            DEFAULT_CHAIN_COMMAND_TIMEOUT_MS
+        } else {
+            0
+        });
+    Ok(requested.clamp(MIN_CHAIN_RUNTIME_MS, MAX_CHAIN_RUNTIME_MS))
+}
 
 fn chain_step_failure(index: usize, action: &str, error: String, duration_ms: u64) -> Value {
     json!({
@@ -1761,6 +1936,26 @@ async fn chain_select_tab(state: &mut DaemonState, tab_id: Option<u64>) {
     }
 }
 
+async fn dispatch_chain_output_with_deadline(
+    action: &str,
+    cmd: &Value,
+    state: &mut DaemonState,
+    tab_id: Option<u64>,
+    deadline: tokio::time::Instant,
+    chain_budget_ms: u64,
+) -> Result<Value, String> {
+    within_chain_deadline(
+        deadline,
+        chain_budget_ms,
+        &format!("while capturing {}", action),
+        async {
+            chain_select_tab(state, tab_id).await;
+            dispatch_action(action, cmd, state).await
+        },
+    )
+    .await?
+}
+
 /// Executes a validated `chain` command: runs each step through the shared
 /// per-action dispatch with implicit selector waits, optional inter-step
 /// delays, and stop-on-first-error semantics, then returns the extension
@@ -1811,9 +2006,13 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
         let max = config.get("max").and_then(Value::as_u64).unwrap_or(1_200);
         (min, max.max(min))
     });
+    let chain_budget_ms = match chain_runtime_budget_ms(cmd) {
+        Ok(timeout) => timeout,
+        Err(error) => return error_response(id, &error),
+    };
 
     let chain_start = tokio::time::Instant::now();
-    let deadline = chain_start + tokio::time::Duration::from_millis(MAX_CHAIN_RUNTIME_MS);
+    let deadline = chain_start + tokio::time::Duration::from_millis(chain_budget_ms);
     let mut results: Vec<Value> = Vec::new();
 
     for (index, step) in steps.iter().enumerate() {
@@ -1826,7 +2025,7 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                 action,
                 format!(
                     "Chain exceeded its {}ms execution budget",
-                    MAX_CHAIN_RUNTIME_MS
+                    chain_budget_ms
                 ),
                 0,
             ));
@@ -1902,8 +2101,10 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                     Some(tab_id) => {
                         let mut switch_error = None;
                         if let Some(ref mut mgr) = state.browser {
-                            match mgr.select_tab_by_id(tab_id).await {
-                                Ok(switched) => {
+                            let remaining = deadline
+                                .saturating_duration_since(tokio::time::Instant::now());
+                            match tokio::time::timeout(remaining, mgr.select_tab_by_id(tab_id)).await {
+                                Ok(Ok(switched)) => {
                                     if let Some(owner_id) = command_owner_id(&step_cmd) {
                                         mgr.mark_owner_tab_active(owner_id, tab_id);
                                     }
@@ -1911,7 +2112,13 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                                         state.ref_map.clear();
                                     }
                                 }
-                                Err(error) => switch_error = Some(error),
+                                Ok(Err(error)) => switch_error = Some(error),
+                                Err(_) => {
+                                    switch_error = Some(format!(
+                                        "Chain exceeded its {}ms execution budget while selecting the step tab",
+                                        chain_budget_ms
+                                    ))
+                                }
                             }
                         }
                         if let Some(error) = switch_error {
@@ -1921,7 +2128,7 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                                 error,
                                 step_start.elapsed().as_millis() as u64,
                             ));
-                            if abort_on_error {
+                            if abort_on_error || tokio::time::Instant::now() >= deadline {
                                 break;
                             }
                             continue;
@@ -1961,14 +2168,24 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                     .saturating_duration_since(tokio::time::Instant::now())
                     .as_millis() as u64;
                 let budget = wait_timeout_ms.min(remaining);
-                if budget == 0 || !wait_for_chain_step_selector(state, selector, budget).await {
+                let found = if budget == 0 {
+                    false
+                } else {
+                    tokio::time::timeout(
+                        tokio::time::Duration::from_millis(budget),
+                        wait_for_chain_step_selector(state, selector, budget),
+                    )
+                    .await
+                    .unwrap_or(false)
+                };
+                if !found {
                     results.push(chain_step_failure(
                         index,
                         action,
                         format!("Timeout waiting for selector: {}", selector),
                         step_start.elapsed().as_millis() as u64,
                     ));
-                    if abort_on_error {
+                    if abort_on_error || tokio::time::Instant::now() >= deadline {
                         break;
                     }
                     continue;
@@ -1976,8 +2193,15 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
             }
         }
 
-        match dispatch_action(action, &step_cmd, state).await {
-            Ok(data) => {
+        let dispatched = within_chain_deadline(
+            deadline,
+            chain_budget_ms,
+            "during this step",
+            dispatch_action(action, &step_cmd, state),
+        )
+        .await;
+        match dispatched {
+            Ok(Ok(data)) => {
                 results.push(json!({
                     "step": index,
                     "action": action,
@@ -1986,7 +2210,7 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                     "durationMs": step_start.elapsed().as_millis() as u64,
                 }));
             }
-            Err(error) => {
+            Ok(Err(error)) => {
                 results.push(chain_step_failure(
                     index,
                     action,
@@ -1996,6 +2220,15 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                 if abort_on_error {
                     break;
                 }
+            }
+            Err(error) => {
+                results.push(chain_step_failure(
+                    index,
+                    action,
+                    error,
+                    step_start.elapsed().as_millis() as u64,
+                ));
+                break;
             }
         }
 
@@ -2053,7 +2286,6 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        chain_select_tab(state, chain_tab_id).await;
         let mut snapshot_cmd = json!({
             "id": format!("{}_snap", id),
             "action": "snapshot",
@@ -2063,7 +2295,16 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
         if let Some(tab_id) = chain_tab_id {
             snapshot_cmd["tabId"] = json!(tab_id);
         }
-        match dispatch_action("snapshot", &snapshot_cmd, state).await {
+        match dispatch_chain_output_with_deadline(
+            "snapshot",
+            &snapshot_cmd,
+            state,
+            chain_tab_id,
+            deadline,
+            chain_budget_ms,
+        )
+        .await
+        {
             Ok(snapshot_data) => match snapshot_data.get("snapshot") {
                 Some(snapshot) => {
                     data["snapshot"] = snapshot.clone();
@@ -2087,7 +2328,6 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
-        chain_select_tab(state, chain_tab_id).await;
         let mut screenshot_cmd = json!({
             "id": format!("{}_shot", id),
             "action": "screenshot",
@@ -2095,7 +2335,16 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
         if let Some(tab_id) = chain_tab_id {
             screenshot_cmd["tabId"] = json!(tab_id);
         }
-        match dispatch_action("screenshot", &screenshot_cmd, state).await {
+        match dispatch_chain_output_with_deadline(
+            "screenshot",
+            &screenshot_cmd,
+            state,
+            chain_tab_id,
+            deadline,
+            chain_budget_ms,
+        )
+        .await
+        {
             Ok(shot) => {
                 let format = shot
                     .get("format")
@@ -2514,6 +2763,9 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
 
     if let Some(url) = cdp_url {
         state.browser = Some(BrowserManager::connect_cdp(url).await?);
+        if let (Some(owner_id), Some(browser)) = (command_owner_id(cmd), state.browser.as_mut()) {
+            browser.adopt_all_tabs_for_owner(owner_id);
+        }
         state.backend_type = BackendType::Cdp;
         state.subscribe_to_browser_events();
         state.update_stream_client().await;
@@ -2522,6 +2774,9 @@ async fn handle_launch(cmd: &Value, state: &mut DaemonState) -> Result<Value, St
 
     if let Some(port) = cdp_port {
         state.browser = Some(BrowserManager::connect_cdp(&port.to_string()).await?);
+        if let (Some(owner_id), Some(browser)) = (command_owner_id(cmd), state.browser.as_mut()) {
+            browser.adopt_all_tabs_for_owner(owner_id);
+        }
         state.backend_type = BackendType::Cdp;
         state.subscribe_to_browser_events();
         state.update_stream_client().await;
@@ -3615,7 +3870,14 @@ async fn wait_for_selector(
             "detached" | "hidden" => format!("({}) === 0", count),
             _ => format!("({}) > 0", count),
         };
-        return poll_until_true(client, session_id, &check_fn, timeout_ms).await;
+        return poll_until_true(
+            client,
+            session_id,
+            &check_fn,
+            timeout_ms,
+            &format!("selector {:?} to become {}", selector, state),
+        )
+        .await;
     }
 
     // Plain CSS: match across every reachable document (top document,
@@ -3648,7 +3910,14 @@ async fn wait_for_selector(
         ),
     };
 
-    poll_until_true(client, session_id, &check_fn, timeout_ms).await
+    poll_until_true(
+        client,
+        session_id,
+        &check_fn,
+        timeout_ms,
+        &format!("selector {:?} to become {}", selector, state),
+    )
+    .await
 }
 
 async fn wait_for_url(
@@ -3661,7 +3930,14 @@ async fn wait_for_url(
         "location.href.includes({})",
         serde_json::to_string(pattern).unwrap_or_default()
     );
-    poll_until_true(client, session_id, &check_fn, timeout_ms).await
+    poll_until_true(
+        client,
+        session_id,
+        &check_fn,
+        timeout_ms,
+        &format!("URL containing {:?}", pattern),
+    )
+    .await
 }
 
 async fn wait_for_text(
@@ -3674,7 +3950,14 @@ async fn wait_for_text(
         "(document.body.innerText || '').includes({})",
         serde_json::to_string(text).unwrap_or_default()
     );
-    poll_until_true(client, session_id, &check_fn, timeout_ms).await
+    poll_until_true(
+        client,
+        session_id,
+        &check_fn,
+        timeout_ms,
+        &format!("page text containing {:?}", text),
+    )
+    .await
 }
 
 async fn wait_for_function(
@@ -3684,7 +3967,70 @@ async fn wait_for_function(
     timeout_ms: u64,
 ) -> Result<(), String> {
     let check_fn = format!("!!({})", fn_str);
-    poll_until_true(client, session_id, &check_fn, timeout_ms).await
+    poll_until_true(
+        client,
+        session_id,
+        &check_fn,
+        timeout_ms,
+        "page function to return true",
+    )
+    .await
+}
+
+fn wait_observation_expression(expression: &str) -> String {
+    format!(
+        r#"(() => {{
+            let matched = false;
+            let evaluationError = null;
+            try {{ matched = !!({expression}); }}
+            catch (error) {{ evaluationError = String(error && (error.stack || error.message) || error).slice(0, 500); }}
+            const frameEls = Array.from(document.querySelectorAll('iframe,frame'));
+            const frames = frameEls.slice(0, 8).map((frame, index) => {{
+                const rect = frame.getBoundingClientRect();
+                return {{
+                    index,
+                    name: String(frame.name || frame.id || '').slice(0, 120),
+                    title: String(frame.title || '').slice(0, 120),
+                    src: String(frame.src || '').slice(0, 300),
+                    visible: rect.width > 0 && rect.height > 0,
+                }};
+            }});
+            return {{
+                matched,
+                url: String(location.href).slice(0, 500),
+                readyState: document.readyState,
+                frameCount: frameEls.length,
+                frames,
+                bodyTextSample: String(document.body && document.body.innerText || '')
+                    .replace(/\s+/g, ' ').trim().slice(0, 500),
+                evaluationError,
+            }};
+        }})()"#,
+        expression = expression,
+    )
+}
+
+fn wait_timeout_message(
+    timeout_ms: u64,
+    expectation: &str,
+    last_observation: Option<&Value>,
+    last_transport_error: Option<&str>,
+) -> String {
+    let mut message = format!(
+        "Wait timed out after {}ms waiting for {}.",
+        timeout_ms, expectation
+    );
+    if let Some(observation) = last_observation {
+        let encoded =
+            serde_json::to_string(observation).unwrap_or_else(|_| "unavailable".to_string());
+        message.push_str(" Last observed page/frame state: ");
+        message.push_str(&encoded);
+    }
+    if let Some(error) = last_transport_error {
+        message.push_str(" Last observation error: ");
+        message.push_str(error);
+    }
+    message
 }
 
 async fn poll_until_true(
@@ -3692,34 +4038,55 @@ async fn poll_until_true(
     session_id: &str,
     expression: &str,
     timeout_ms: u64,
+    expectation: &str,
 ) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+    let probe_expression = wait_observation_expression(expression);
+    let mut last_observation: Option<Value> = None;
+    let mut last_transport_error: Option<String>;
 
     loop {
-        let result: super::cdp::types::EvaluateResult = client
+        let result: Result<super::cdp::types::EvaluateResult, String> = client
             .send_command_typed(
                 "Runtime.evaluate",
                 &super::cdp::types::EvaluateParams {
-                    expression: expression.to_string(),
+                    expression: probe_expression.clone(),
                     return_by_value: Some(true),
                     await_promise: Some(true),
                 },
                 Some(session_id),
             )
-            .await?;
+            .await;
 
-        if result
-            .result
-            .value
-            .as_ref()
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            return Ok(());
+        match result {
+            Ok(result) => {
+                let result: super::cdp::types::EvaluateResult = result;
+                let observation = result.result.value.unwrap_or(Value::Null);
+                if observation
+                    .get("matched")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    return Ok(());
+                }
+                last_observation = Some(observation);
+                last_transport_error = None;
+            }
+            Err(error) => {
+                // Navigations can invalidate an execution context between two
+                // polls. Keep waiting within the caller's deadline and report
+                // the final transport failure if the condition never settles.
+                last_transport_error = Some(error);
+            }
         }
 
         if tokio::time::Instant::now() >= deadline {
-            return Err(format!("Wait timed out after {}ms", timeout_ms));
+            return Err(wait_timeout_message(
+                timeout_ms,
+                expectation,
+                last_observation.as_ref(),
+                last_transport_error.as_deref(),
+            ));
         }
 
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -4177,7 +4544,7 @@ async fn handle_finalize_tabs(
 
     // `close_owner` always closes everything; `finalize_tabs` may keep tabs.
     // Entries were validated by validate_owner_finalization before dispatch.
-    let keep_entries: Vec<(u64, String)> = if action == "finalize_tabs" {
+    let keep_entries: Vec<(u64, Option<String>, String)> = if action == "finalize_tabs" {
         cmd.get("keep")
             .and_then(Value::as_array)
             .map(|entries| {
@@ -4185,12 +4552,16 @@ async fn handle_finalize_tabs(
                     .iter()
                     .filter_map(|entry| {
                         let tab_id = entry.get("tabId").and_then(Value::as_u64)?;
+                        let tab_generation = entry
+                            .get("tabGeneration")
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
                         let status = entry
                             .get("status")
                             .and_then(Value::as_str)
                             .unwrap_or("deliverable")
                             .to_string();
-                        Some((tab_id, status))
+                        Some((tab_id, tab_generation, status))
                     })
                     .collect()
             })
@@ -4199,11 +4570,24 @@ async fn handle_finalize_tabs(
         Vec::new()
     };
     let keep_ids: std::collections::HashSet<u64> =
-        keep_entries.iter().map(|(tab_id, _)| *tab_id).collect();
+        keep_entries.iter().map(|(tab_id, _, _)| *tab_id).collect();
 
     let mut closed_tab_ids: Vec<u64> = Vec::new();
     let mut released_tab_ids: Vec<u64> = Vec::new();
     if let Some(ref mut mgr) = state.browser {
+        // Validate every retained handle before mutating ownership or closing
+        // any tab. A stale generation must fail atomically rather than keep a
+        // newly reused numeric id while closing the rest of the task's tabs.
+        for (tab_id, tab_generation, _) in &keep_entries {
+            let mut handle_cmd = cmd.clone();
+            if let Some(object) = handle_cmd.as_object_mut() {
+                object.insert("tabId".to_string(), json!(tab_id));
+                if let Some(tab_generation) = tab_generation {
+                    object.insert("tabGeneration".to_string(), json!(tab_generation));
+                }
+            }
+            validate_tab_ownership(&handle_cmd, mgr, *tab_id)?;
+        }
         for tab_id in mgr.owner_tab_ids(&owner_id) {
             if keep_ids.contains(&tab_id) {
                 mgr.release_owner_tab(&owner_id, tab_id);
@@ -4223,7 +4607,16 @@ async fn handle_finalize_tabs(
 
     let kept: Vec<Value> = keep_entries
         .iter()
-        .map(|(tab_id, status)| json!({ "tabId": tab_id, "status": status }))
+        .map(|(tab_id, tab_generation, status)| {
+            let mut entry = json!({
+                "tabId": tab_id,
+                "status": status,
+            });
+            if let (Some(tab_generation), Some(object)) = (tab_generation, entry.as_object_mut()) {
+                object.insert("tabGeneration".to_string(), json!(tab_generation));
+            }
+            entry
+        })
         .collect();
     Ok(json!({
         "closedTabIds": closed_tab_ids,
@@ -4481,7 +4874,8 @@ async fn handle_recording_start(cmd: &Value, state: &mut DaemonState) -> Result<
         let recording_tab_id = mgr.add_page(super::browser::PageInfo {
             target_id: create_result.target_id,
             session_id: new_session_id.clone(),
-            tab_id: 0, // assigned by add_page
+            tab_id: 0,                     // assigned by add_page
+            tab_generation: String::new(), // assigned by add_page
             url: nav_url.clone(),
             title: String::new(),
             target_type: "page".to_string(),
@@ -6034,7 +6428,8 @@ async fn handle_window_new(cmd: &Value, state: &mut DaemonState) -> Result<Value
     let tab_id = mgr.add_page(super::browser::PageInfo {
         target_id: create_result.target_id,
         session_id: attach.session_id,
-        tab_id: 0, // assigned by add_page
+        tab_id: 0,                     // assigned by add_page
+        tab_generation: String::new(), // assigned by add_page
         url: "about:blank".to_string(),
         title: String::new(),
         target_type: "page".to_string(),
@@ -7491,6 +7886,82 @@ mod tests {
     use super::*;
     use crate::test_utils::EnvGuard;
 
+    #[test]
+    fn chain_budget_is_derived_without_the_legacy_45_second_cap() {
+        let default = json!({ "action": "chain", "steps": [{ "action": "healthcheck" }] });
+        assert_eq!(chain_runtime_budget_ms(&default).unwrap(), MIN_CHAIN_RUNTIME_MS);
+        let maximum = json!({
+            "action": "chain",
+            "timeout": MAX_CHAIN_RUNTIME_MS,
+            "steps": [{ "action": "healthcheck" }]
+        });
+        assert_eq!(chain_runtime_budget_ms(&maximum).unwrap(), MAX_CHAIN_RUNTIME_MS);
+        let invalid = json!({
+            "action": "chain",
+            "timeout": MAX_CHAIN_RUNTIME_MS + 1,
+            "steps": [{ "action": "healthcheck" }]
+        });
+        assert!(chain_runtime_budget_ms(&invalid).is_err());
+    }
+
+    #[tokio::test]
+    async fn chain_deadline_cancels_a_step_at_the_remaining_budget() {
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(5);
+        let error = within_chain_deadline(deadline, 5, "during test step", async {
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        })
+        .await
+        .unwrap_err();
+        assert!(error.contains("5ms execution budget during test step"));
+    }
+
+    #[test]
+    fn browser_provenance_fingerprints_the_bearer_lease() {
+        let raw_lease = "raw-owner-lease-bearer-secret";
+        let cmd = json!({
+            "ownerId": "worker-1",
+            "turnId": "turn-1",
+            "ownerLeaseId": raw_lease,
+        });
+        let provenance = browser_error_provenance(&cmd, 7, "generation-1");
+        assert!(!provenance.contains(raw_lease));
+        assert!(provenance.contains("lease#="));
+        assert!(provenance.contains(&lease_fingerprint(raw_lease)));
+    }
+
+    #[test]
+    fn wait_probe_captures_bounded_page_and_frame_state() {
+        let expression = wait_observation_expression("document.querySelector('#ready') !== null");
+        assert!(expression.contains("matched = !!(document.querySelector('#ready') !== null)"));
+        assert!(expression.contains("document.readyState"));
+        assert!(expression.contains("querySelectorAll('iframe,frame')"));
+        assert!(expression.contains("slice(0, 8)"));
+        assert!(expression.contains("bodyTextSample"));
+        assert!(expression.contains("slice(0, 500)"));
+    }
+
+    #[test]
+    fn wait_timeout_reports_the_last_observed_page_state_and_transport_error() {
+        let observed = json!({
+            "matched": false,
+            "url": "https://example.test/builds",
+            "readyState": "complete",
+            "frameCount": 1,
+            "frames": [{ "name": "build-list", "visible": true }],
+            "bodyTextSample": "Build 121 Ready to Submit"
+        });
+        let message = wait_timeout_message(
+            60_000,
+            "selector \"text=Build 121\" to become visible",
+            Some(&observed),
+            Some("execution context was destroyed"),
+        );
+        assert!(message.contains("Wait timed out after 60000ms"));
+        assert!(message.contains("Build 121 Ready to Submit"));
+        assert!(message.contains("build-list"));
+        assert!(message.contains("execution context was destroyed"));
+    }
+
     fn with_owner_lease(
         mut command: Value,
         owner_id: &str,
@@ -7904,6 +8375,31 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Stale browser owner lease"));
+
+        let stale_release = with_owner_lease(
+            json!({ "id": "stale-release", "action": "release_owner_lease" }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            100,
+        );
+        let response = execute_command(&stale_release, &mut state).await;
+        assert_eq!(response["success"], true, "response: {}", response);
+        assert_eq!(response["data"]["released"], false);
+
+        // The stale release did not remove the current lease: the exact
+        // newer capability remains valid without another lease rotation.
+        let still_current = with_owner_lease(
+            json!({ "id": "still-current", "action": "healthcheck" }),
+            "worker-1",
+            "turn-2",
+            "lease-2",
+            200,
+        );
+        assert_eq!(
+            execute_command(&still_current, &mut state).await["success"],
+            true
+        );
     }
 
     #[test]
@@ -7930,6 +8426,42 @@ mod tests {
             .validate_claim(&changed_turn)
             .unwrap_err()
             .contains("lease identity does not match"));
+    }
+
+    #[test]
+    fn test_equal_millisecond_leases_use_deterministic_lease_id_order() {
+        let mut registry = OwnerLeaseRegistry::default();
+        let first = with_owner_lease(
+            json!({ "action": "healthcheck" }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            100,
+        );
+        let claim = registry.validate_claim(&first).unwrap().unwrap();
+        registry.commit(&claim);
+
+        let higher = with_owner_lease(
+            json!({ "action": "healthcheck" }),
+            "worker-1",
+            "turn-2",
+            "lease-2",
+            100,
+        );
+        let claim = registry.validate_claim(&higher).unwrap().unwrap();
+        registry.commit(&claim);
+
+        let lower = with_owner_lease(
+            json!({ "action": "healthcheck" }),
+            "worker-1",
+            "turn-stale",
+            "lease-0",
+            100,
+        );
+        assert!(registry
+            .validate_claim(&lower)
+            .unwrap_err()
+            .contains("Stale browser owner lease"));
     }
 
     #[tokio::test]

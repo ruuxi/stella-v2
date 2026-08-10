@@ -99,6 +99,58 @@ describe("browser worker API", () => {
     });
   });
 
+  it("fences a stale handle when a numeric tab id is reused", async () => {
+    const calls: RecordedCall[] = [];
+    let generation = "11111111-1111-4111-8111-111111111111";
+    const browser = installBrowserWorkerApi(async (method, args) => {
+      calls.push({ method, args });
+      if (method === "command" && args[0] === "tab_list") {
+        return {
+          success: true,
+          data: {
+            tabs: [{ tabId: 7, tabGeneration: generation, active: true }],
+            activeTabId: 7,
+          },
+        };
+      }
+      if (method === "command" && args[0] === "title") {
+        return { success: true, data: { title: "Current" } };
+      }
+      return { success: true, data: {} };
+    });
+
+    const [oldHandle] = await browser.tabs.list();
+    const oldLocator = oldHandle!.playwright.getByText("Old");
+    const cachedPlaywright = oldHandle!.playwright;
+    expect(oldHandle!.generation).toBe(generation);
+
+    generation = "22222222-2222-4222-8222-222222222222";
+    const [currentHandle] = await browser.tabs.list();
+
+    expect(Object.is(currentHandle, oldHandle)).toBe(false);
+    expect(currentHandle!.generation).toBe(generation);
+    await expect(oldHandle!.title()).rejects.toThrow(
+      "Stale browser tab handle",
+    );
+    await expect(oldLocator.count()).rejects.toThrow(
+      "Stale browser tab handle",
+    );
+    await expect(cachedPlaywright.evaluate("() => true")).rejects.toThrow(
+      "Stale browser tab handle",
+    );
+    await expect(currentHandle!.title()).resolves.toBe("Current");
+    expect(calls.at(-1)).toEqual({
+      method: "command",
+      args: [
+        "title",
+        {
+          tabId: 7,
+          tabGeneration: "22222222-2222-4222-8222-222222222222",
+        },
+      ],
+    });
+  });
+
   it("fails loudly when a legacy backend returns index-only tab payloads", async () => {
     const browser = installBrowserWorkerApi(async (method, args) => {
       if (method === "command" && args[0] === "tab_list") {
@@ -319,12 +371,10 @@ describe("browser worker API", () => {
 
     // Invalid inputs are rejected before transport.
     await expect(tab.press("")).rejects.toThrow(TypeError);
-    await expect(
-      tab.press("x".repeat(65)),
-    ).rejects.toThrow(RangeError);
-    await expect(
-      tab.keyboard.type(42 as unknown as string),
-    ).rejects.toThrow(TypeError);
+    await expect(tab.press("x".repeat(65))).rejects.toThrow(RangeError);
+    await expect(tab.keyboard.type(42 as unknown as string)).rejects.toThrow(
+      TypeError,
+    );
     expect(calls).toHaveLength(5);
 
     // The agent-facing documentation advertises the page-level keyboard.
@@ -423,9 +473,9 @@ describe("browser worker API", () => {
     ).rejects.toThrow(TypeError);
     expect(calls).toHaveLength(3);
 
-    expect(
-      installBrowserWorkerApi(callBrowser).documentation(),
-    ).toContain("setInputFiles");
+    expect(installBrowserWorkerApi(callBrowser).documentation()).toContain(
+      "setInputFiles",
+    );
   });
 
   it("scrolls the page and elements through tab.scroll", async () => {
@@ -452,12 +502,10 @@ describe("browser worker API", () => {
       },
     ]);
 
-    await expect(
-      tab.scroll({ direction: "diagonal" }),
-    ).rejects.toThrow(TypeError);
-    await expect(
-      tab.scroll({ y: Number.NaN }),
-    ).rejects.toThrow(TypeError);
+    await expect(tab.scroll({ direction: "diagonal" })).rejects.toThrow(
+      TypeError,
+    );
+    await expect(tab.scroll({ y: Number.NaN })).rejects.toThrow(TypeError);
     await expect(
       tab.scroll({ velocity: 3 } as Record<string, unknown>),
     ).rejects.toThrow(TypeError);
@@ -598,7 +646,10 @@ describe("browser worker API", () => {
             }),
           }),
         ]),
-        expect.objectContaining({ abortOnError: false, waitForSelector: false }),
+        expect.objectContaining({
+          abortOnError: false,
+          waitForSelector: false,
+        }),
       ]),
     );
     expect(callBrowser).toHaveBeenLastCalledWith("command", [

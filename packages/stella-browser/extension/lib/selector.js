@@ -317,8 +317,31 @@ export function buildRoleMatcherAllScript(role, name) {
           ? actualValue === expectedValue
           : actualValue.toLocaleLowerCase().includes(expectedValue.toLocaleLowerCase());
       };
-      const isVisible = el =>
-        el.tagName === 'BODY' || el.getClientRects().length > 0;
+      const composedParent = el => {
+        if (el.parentElement) return el.parentElement;
+        const root = el.getRootNode ? el.getRootNode() : null;
+        if (root && root.host) return root.host;
+        try { return root && root.defaultView ? root.defaultView.frameElement : null; }
+        catch (_) { return null; }
+      };
+      const isVisible = el => {
+        if (!el || !el.isConnected) return false;
+        if (el.tagName !== 'BODY' && el.getClientRects().length === 0) return false;
+        for (let node = el, depth = 0; node && depth < 64; node = composedParent(node), depth += 1) {
+          if (node.hidden || node.inert || node.getAttribute?.('aria-hidden')?.toLowerCase() === 'true') {
+            return false;
+          }
+          const nodeWin = node.ownerDocument && node.ownerDocument.defaultView;
+          const style = nodeWin && nodeWin.getComputedStyle(node);
+          if (style && (
+            style.display === 'none' ||
+            style.visibility === 'hidden' ||
+            style.visibility === 'collapse' ||
+            parseFloat(style.opacity) === 0
+          )) return false;
+        }
+        return true;
+      };
       const uniqueVisible = elements =>
         [...new Set(elements)].filter(isVisible);
       const labelledText = el => {
@@ -400,6 +423,13 @@ export function buildRoleMatcherScript(role, name, nth) {
       const matches = ${allMatches.trim()};
       if (matches.length === 0) {
         throw new Error(${JSON.stringify(`No element found with ${description}`)});
+      }
+      const hasExplicitIndex = ${matcher.nth !== undefined};
+      if (!hasExplicitIndex && matches.length > 1) {
+        throw new Error(
+          'Strict mode violation: ${description} matched ' + matches.length +
+          ' visible elements; refine the locator or use nth()/first()/last()',
+        );
       }
       const index = ${matcher.nth ?? 0};
       if (index >= matches.length) {

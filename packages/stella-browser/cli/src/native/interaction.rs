@@ -22,6 +22,79 @@ const ACTIONABILITY_TIMEOUT_MS: u64 = 2500;
 /// Poll interval while waiting.
 const ACTIONABILITY_POLL_MS: u64 = 150;
 
+/// Replace an editable element's contents with browser-native setter
+/// semantics. Using `Input.insertText` after firing an empty input event can
+/// race controlled inputs: their framework restores the old value between
+/// the clear and insert, turning fill("1.0.27") into an append. This performs
+/// one replacement, emits the events real applications observe, and returns
+/// the resulting value so the native side can verify the action.
+const FILL_REPLACE_JS: &str = r#"async function(nextValue) {
+    const el = this;
+    el.focus();
+
+    const tag = (el.tagName || '').toLowerCase();
+    const inputType = tag === 'input' ? String(el.type || 'text').toLowerCase() : null;
+    const editable = el.isContentEditable;
+    let setter = null;
+    if (tag === 'input' && typeof HTMLInputElement !== 'undefined') {
+        setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set || null;
+    } else if (tag === 'textarea' && typeof HTMLTextAreaElement !== 'undefined') {
+        setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set || null;
+    }
+    if (!setter && !editable && !('value' in el)) {
+        return { ok: false, reason: 'not-editable', tag, inputType };
+    }
+
+    const dispatchInput = (type, init) => {
+        try {
+            return el.dispatchEvent(new InputEvent(type, init));
+        } catch (_) {
+            return el.dispatchEvent(new Event(type, {
+                bubbles: init && init.bubbles,
+                cancelable: init && init.cancelable,
+            }));
+        }
+    };
+
+    // beforeinput is informative for frameworks, but automation still applies
+    // the requested replacement if a listener cancels it (Playwright parity).
+    dispatchInput('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        data: nextValue,
+        inputType: 'insertReplacementText',
+    });
+
+    if (editable) {
+        el.textContent = nextValue;
+    } else if (setter) {
+        setter.call(el, nextValue);
+    } else {
+        el.value = nextValue;
+    }
+
+    dispatchInput('input', {
+        bubbles: true,
+        cancelable: false,
+        composed: true,
+        data: nextValue,
+        inputType: 'insertReplacementText',
+    });
+    el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+    // Let synchronous framework handlers and their queued microtasks settle
+    // before verifying what the page actually retained.
+    await Promise.resolve();
+    const actual = String(editable ? (el.textContent || '') : (el.value ?? ''));
+    return {
+        ok: actual === String(nextValue),
+        actualLength: [...actual].length,
+        tag,
+        inputType,
+    };
+}"#;
+
 /// Page-side actionability probe. Runs against the resolved element
 /// (`this`) and returns a JSON status object:
 ///   { status: 'ok', x, y }          — actionable; (x, y) is the click point
@@ -53,25 +126,105 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     const doc = el.ownerDocument;
     const win = doc && doc.defaultView;
     if (!win) return { status: 'detached' };
+    const round = value => Number.isFinite(value) ? Math.round(value * 10) / 10 : null;
+    const describeNode = node => {
+        if (!node) return 'unknown';
+        const parts = [node.tagName ? node.tagName.toLowerCase() : 'unknown'];
+        if (node.id) parts.push('#' + node.id);
+        const cls = typeof node.className === 'string'
+            ? node.className.trim().split(/\s+/).filter(Boolean).slice(0, 3)
+            : [];
+        if (cls.length) parts.push('.' + cls.join('.'));
+        return parts.join('');
+    };
+    const composedParent = node => {
+        if (!node) return null;
+        if (node.parentElement) return node.parentElement;
+        const root = node.getRootNode ? node.getRootNode() : null;
+        if (root && root.host) return root.host;
+        try { return root && root.defaultView ? root.defaultView.frameElement : null; }
+        catch (_) { return null; }
+    };
+    const scrollableAncestor = () => {
+        let node = composedParent(el);
+        for (let depth = 0; node && depth < 32; depth += 1, node = composedParent(node)) {
+            const nodeWin = node.ownerDocument && node.ownerDocument.defaultView;
+            if (!nodeWin) continue;
+            const s = nodeWin.getComputedStyle(node);
+            const overflowY = s.overflowY || s.overflow;
+            const overflowX = s.overflowX || s.overflow;
+            if ((/(auto|scroll|overlay)/.test(overflowY) && node.scrollHeight > node.clientHeight) ||
+                (/(auto|scroll|overlay)/.test(overflowX) && node.scrollWidth > node.clientWidth)) {
+                return node;
+            }
+        }
+        return null;
+    };
+    const scrollNestedContainers = () => {
+        const chain = [];
+        let node = composedParent(el);
+        for (let depth = 0; node && depth < 32; depth += 1, node = composedParent(node)) {
+            const nodeWin = node.ownerDocument && node.ownerDocument.defaultView;
+            if (!nodeWin) continue;
+            const s = nodeWin.getComputedStyle(node);
+            const overflowY = s.overflowY || s.overflow;
+            const overflowX = s.overflowX || s.overflow;
+            if ((/(auto|scroll|overlay)/.test(overflowY) && node.scrollHeight > node.clientHeight) ||
+                (/(auto|scroll|overlay)/.test(overflowX) && node.scrollWidth > node.clientWidth)) {
+                chain.push(node);
+            }
+        }
+        for (const container of chain) {
+            const er = el.getBoundingClientRect();
+            const cr = container.getBoundingClientRect();
+            if (er.top < cr.top) container.scrollTop -= cr.top - er.top;
+            else if (er.bottom > cr.bottom) container.scrollTop += er.bottom - cr.bottom;
+            if (er.left < cr.left) container.scrollLeft -= cr.left - er.left;
+            else if (er.right > cr.right) container.scrollLeft += er.right - cr.right;
+        }
+    };
+    const diagnostics = () => {
+        const r = el.getBoundingClientRect();
+        const scroll = scrollableAncestor();
+        return {
+            rect: { x: round(r.x), y: round(r.y), width: round(r.width), height: round(r.height) },
+            viewport: {
+                width: win.innerWidth || doc.documentElement.clientWidth,
+                height: win.innerHeight || doc.documentElement.clientHeight,
+            },
+            scrollContainer: scroll ? {
+                node: describeNode(scroll),
+                scrollTop: round(scroll.scrollTop),
+                scrollLeft: round(scroll.scrollLeft),
+                clientWidth: scroll.clientWidth,
+                clientHeight: scroll.clientHeight,
+                scrollWidth: scroll.scrollWidth,
+                scrollHeight: scroll.scrollHeight,
+            } : null,
+        };
+    };
+    const fail = (status, extra = {}) => ({ status, ...diagnostics(), ...extra });
     const style = win.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
-        return { status: 'hidden' };
+        return fail('hidden');
     }
-    if (parseFloat(style.opacity) === 0) return { status: 'transparent' };
+    if (parseFloat(style.opacity) === 0) return fail('transparent');
     let rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return { status: 'zero-size' };
+    if (rect.width <= 0 || rect.height <= 0) return fail('zero-size');
     const vw = win.innerWidth || doc.documentElement.clientWidth;
     const vh = win.innerHeight || doc.documentElement.clientHeight;
     // Minimal scroll if any part is outside the frame viewport (no-op when
     // fully visible).
     if (rect.top < 0 || rect.left < 0 || rect.bottom > vh || rect.right > vw) {
         el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        scrollNestedContainers();
         rect = el.getBoundingClientRect();
     }
     let cx = rect.left + rect.width / 2;
     let cy = rect.top + rect.height / 2;
     if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) {
         el.scrollIntoView({ block: 'center', inline: 'center' });
+        scrollNestedContainers();
     }
     // Click point: center of the visible (frame-viewport-clipped) part.
     const localPoint = () => {
@@ -102,11 +255,12 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     let lp = localPoint();
     if (!lp) {
         el.scrollIntoView({ block: 'center', inline: 'center' });
+        scrollNestedContainers();
         lp = localPoint();
     }
-    if (!lp) return { status: 'offscreen' };
+    if (!lp) return fail('offscreen');
     let point = toTop(lp.x, lp.y);
-    if (!point) return { status: 'cross-origin-frame' };
+    if (!point) return fail('cross-origin-frame');
     const inTopViewport = p => {
         const tw = p.win.innerWidth || p.win.document.documentElement.clientWidth;
         const th = p.win.innerHeight || p.win.document.documentElement.clientHeight;
@@ -116,22 +270,21 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     // scrolled out of the top viewport: center once and re-measure.
     if (win !== point.win && !inTopViewport(point)) {
         el.scrollIntoView({ block: 'center', inline: 'center' });
+        scrollNestedContainers();
         lp = localPoint();
-        if (!lp) return { status: 'offscreen' };
+        if (!lp) return fail('offscreen');
         point = toTop(lp.x, lp.y);
-        if (!point) return { status: 'cross-origin-frame' };
-        if (!inTopViewport(point)) return { status: 'offscreen' };
+        if (!point) return fail('cross-origin-frame');
+        if (!inTopViewport(point)) return fail('offscreen', {
+            point: { x: round(point.x), y: round(point.y) },
+            topViewport: {
+                width: point.win.innerWidth || point.win.document.documentElement.clientWidth,
+                height: point.win.innerHeight || point.win.document.documentElement.clientHeight,
+            },
+        });
     }
     if (!requireHit) return { status: 'ok', x: point.x, y: point.y };
-    const describeHit = hit => {
-        const parts = [hit.tagName ? hit.tagName.toLowerCase() : 'unknown'];
-        if (hit.id) parts.push('#' + hit.id);
-        const cls = typeof hit.className === 'string'
-            ? hit.className.trim().split(/\s+/).filter(Boolean).slice(0, 3)
-            : [];
-        if (cls.length) parts.push('.' + cls.join('.'));
-        return parts.join('');
-    };
+    const describeHit = describeNode;
     let hit = doc.elementFromPoint(lp.x, lp.y);
     // Descend through open shadow roots to the deepest hit target.
     while (hit && hit.shadowRoot) {
@@ -139,7 +292,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
         if (!inner || inner === hit) break;
         hit = inner;
     }
-    if (!hit) return { status: 'covered', by: 'unknown element' };
+    if (!hit) return fail('covered', { by: 'unknown element', x: round(point.x), y: round(point.y) });
     let related = false;
     let node = hit;
     while (node) {
@@ -156,7 +309,11 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
         const ownLabel = el.closest ? el.closest('label') : null;
         if (ownLabel && (ownLabel === hit || ownLabel.contains(hit))) related = true;
     }
-    if (!related) return { status: 'covered', by: describeHit(hit), x: point.x, y: point.y };
+    if (!related) return fail('covered', {
+        by: describeHit(hit),
+        x: round(point.x),
+        y: round(point.y),
+    });
     // Ancestor-frame occlusion: at each frame boundary the translated point
     // must hit the frame element itself (or a wrapper), not an overlay drawn
     // in the parent document.
@@ -166,29 +323,88 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     for (let depth = 0; depth < 16 && w && w !== w.parent; depth += 1) {
         let frame = null;
         try { frame = w.frameElement; } catch (e) { frame = null; }
-        if (!frame) return { status: 'cross-origin-frame' };
+        if (!frame) return fail('cross-origin-frame');
         const fr = frame.getBoundingClientRect();
         px += fr.left + frame.clientLeft;
         py += fr.top + frame.clientTop;
         const parentDoc = frame.ownerDocument;
-        if (!parentDoc) return { status: 'cross-origin-frame' };
+        if (!parentDoc) return fail('cross-origin-frame');
         let parentHit = parentDoc.elementFromPoint(px, py);
         while (parentHit && parentHit.shadowRoot) {
             const inner = parentHit.shadowRoot.elementFromPoint(px, py);
             if (!inner || inner === parentHit) break;
             parentHit = inner;
         }
-        if (!parentHit) return { status: 'offscreen' };
+        if (!parentHit) return fail('offscreen', { x: round(point.x), y: round(point.y) });
         if (parentHit !== frame && !parentHit.contains(frame) && !frame.contains(parentHit)) {
-            return { status: 'covered', by: describeHit(parentHit), x: point.x, y: point.y };
+            return fail('covered', {
+                by: describeHit(parentHit),
+                x: round(point.x),
+                y: round(point.y),
+            });
         }
         w = parentDoc.defaultView;
     }
     return { status: 'ok', x: point.x, y: point.y };
 }"#;
 
-fn actionability_failure_message(status: &str, by: Option<&str>, selector: &str) -> String {
-    match status {
+fn actionability_diagnostic_suffix(details: Option<&Value>) -> String {
+    let Some(details) = details else {
+        return String::new();
+    };
+    let mut fields = Vec::new();
+    if let Some(rect) = details.get("rect") {
+        fields.push(format!(
+            "rect=({},{} {}x{})",
+            rect.get("x").unwrap_or(&Value::Null),
+            rect.get("y").unwrap_or(&Value::Null),
+            rect.get("width").unwrap_or(&Value::Null),
+            rect.get("height").unwrap_or(&Value::Null),
+        ));
+    }
+    if let Some(viewport) = details.get("viewport") {
+        fields.push(format!(
+            "viewport={}x{}",
+            viewport.get("width").unwrap_or(&Value::Null),
+            viewport.get("height").unwrap_or(&Value::Null),
+        ));
+    }
+    if let Some(point_x) = details.get("x") {
+        fields.push(format!(
+            "click_point=({}, {})",
+            point_x,
+            details.get("y").unwrap_or(&Value::Null),
+        ));
+    }
+    if let Some(scroll) = details.get("scrollContainer").filter(|v| !v.is_null()) {
+        fields.push(format!(
+            "scroll_container={} offset=({}, {}) client={}x{} scroll={}x{}",
+            scroll
+                .get("node")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown"),
+            scroll.get("scrollLeft").unwrap_or(&Value::Null),
+            scroll.get("scrollTop").unwrap_or(&Value::Null),
+            scroll.get("clientWidth").unwrap_or(&Value::Null),
+            scroll.get("clientHeight").unwrap_or(&Value::Null),
+            scroll.get("scrollWidth").unwrap_or(&Value::Null),
+            scroll.get("scrollHeight").unwrap_or(&Value::Null),
+        ));
+    }
+    if fields.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", fields.join("; "))
+    }
+}
+
+fn actionability_failure_message(
+    status: &str,
+    by: Option<&str>,
+    selector: &str,
+    details: Option<&Value>,
+) -> String {
+    let base = match status {
         "detached" => format!("Element is no longer attached to the DOM: {}", selector),
         "hidden" => format!(
             "Element found but not visible (display: none or visibility: hidden): {}",
@@ -210,7 +426,8 @@ fn actionability_failure_message(status: &str, by: Option<&str>, selector: &str)
             selector
         ),
         other => format!("Element is not actionable ({}): {}", other, selector),
-    }
+    };
+    format!("{}{}", base, actionability_diagnostic_suffix(details))
 }
 
 /// Run one actionability probe against a freshly-resolved element.
@@ -260,6 +477,7 @@ async fn actionability_check_once(
         status,
         by,
         selector_or_ref,
+        Some(&value),
     )))
 }
 
@@ -368,51 +586,52 @@ pub async fn fill(
         wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
     let object_id = point.object_id;
 
-    // Focus the element
-    client
-        .send_command_typed::<_, Value>(
+    let result: EvaluateResult = client
+        .send_command_typed(
             "Runtime.callFunctionOn",
             &CallFunctionOnParams {
-                function_declaration: "function() { this.focus(); }".to_string(),
-                object_id: Some(object_id.clone()),
-                arguments: None,
-                return_by_value: Some(true),
-                await_promise: Some(false),
-            },
-            Some(session_id),
-        )
-        .await?;
-
-    // Select all + delete to clear
-    client
-        .send_command_typed::<_, Value>(
-            "Runtime.callFunctionOn",
-            &CallFunctionOnParams {
-                function_declaration: r#"function() {
-                    this.select && this.select();
-                    this.value = '';
-                    this.dispatchEvent(new Event('input', { bubbles: true }));
-                }"#
-                .to_string(),
+                function_declaration: FILL_REPLACE_JS.to_string(),
                 object_id: Some(object_id),
-                arguments: None,
+                arguments: Some(vec![CallArgument {
+                    value: Some(Value::String(value.to_string())),
+                    object_id: None,
+                }]),
                 return_by_value: Some(true),
-                await_promise: Some(false),
+                await_promise: Some(true),
             },
             Some(session_id),
         )
         .await?;
 
-    // Insert text
-    client
-        .send_command_typed::<_, Value>(
-            "Input.insertText",
-            &InsertTextParams {
-                text: value.to_string(),
-            },
-            Some(session_id),
-        )
-        .await?;
+    let outcome = result.result.value.unwrap_or(Value::Null);
+    if !outcome.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+        let reason = outcome
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("value-mismatch");
+        let tag = outcome
+            .get("tag")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let input_type = outcome
+            .get("inputType")
+            .and_then(Value::as_str)
+            .unwrap_or("n/a");
+        let actual_length = outcome
+            .get("actualLength")
+            .and_then(Value::as_u64)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        return Err(format!(
+            "Fill did not replace the element value (reason={}, tag={}, input_type={}, expected_chars={}, actual_chars={}): {}",
+            reason,
+            tag,
+            input_type,
+            value.chars().count(),
+            actual_length,
+            selector_or_ref
+        ));
+    }
 
     Ok(())
 }
@@ -1530,41 +1749,73 @@ mod tests {
     #[test]
     fn test_actionability_failure_messages() {
         assert_eq!(
-            actionability_failure_message("zero-size", None, "#a"),
+            actionability_failure_message("zero-size", None, "#a", None),
             "Element found but has zero size: #a"
         );
         assert_eq!(
-            actionability_failure_message("hidden", None, "#a"),
+            actionability_failure_message("hidden", None, "#a", None),
             "Element found but not visible (display: none or visibility: hidden): #a"
         );
         assert_eq!(
-            actionability_failure_message("transparent", None, "#a"),
+            actionability_failure_message("transparent", None, "#a", None),
             "Element found but not visible (opacity: 0): #a"
         );
         assert_eq!(
-            actionability_failure_message("covered", Some("div.overlay"), "#a"),
+            actionability_failure_message("covered", Some("div.overlay"), "#a", None),
             "Element found but covered by <div.overlay> at its click point: #a"
         );
         assert_eq!(
-            actionability_failure_message("covered", None, "#a"),
+            actionability_failure_message("covered", None, "#a", None),
             "Element found but covered by <unknown element> at its click point: #a"
         );
         assert_eq!(
-            actionability_failure_message("detached", None, "@e3"),
+            actionability_failure_message("detached", None, "@e3", None),
             "Element is no longer attached to the DOM: @e3"
         );
         assert_eq!(
-            actionability_failure_message("offscreen", None, "#a"),
+            actionability_failure_message("offscreen", None, "#a", None),
             "Element found but could not be scrolled into the viewport: #a"
         );
         assert_eq!(
-            actionability_failure_message("cross-origin-frame", None, "#a"),
+            actionability_failure_message("cross-origin-frame", None, "#a", None),
             "Element is inside a cross-origin iframe; its coordinates cannot be translated to the top viewport: #a"
         );
         assert_eq!(
-            actionability_failure_message("weird", None, "#a"),
+            actionability_failure_message("weird", None, "#a", None),
             "Element is not actionable (weird): #a"
         );
+    }
+
+    #[test]
+    fn test_actionability_failure_includes_geometry_and_scroll_context() {
+        let details = serde_json::json!({
+            "rect": { "x": 12, "y": 940, "width": 220, "height": 40 },
+            "viewport": { "width": 1280, "height": 720 },
+            "x": 122,
+            "y": 700,
+            "scrollContainer": {
+                "node": "div.virtual-table",
+                "scrollLeft": 0,
+                "scrollTop": 480,
+                "clientWidth": 900,
+                "clientHeight": 520,
+                "scrollWidth": 900,
+                "scrollHeight": 3200
+            }
+        });
+        let message = actionability_failure_message(
+            "covered",
+            Some("div.sticky-header"),
+            "@e12",
+            Some(&details),
+        );
+        assert!(message.contains("covered by <div.sticky-header>"));
+        assert!(message.contains("rect=(12,940 220x40)"));
+        assert!(message.contains("viewport=1280x720"));
+        assert!(message.contains("click_point=(122, 700)"));
+        assert!(message.contains("scroll_container=div.virtual-table"));
+        assert!(message.contains("client=900x520"));
+        assert!(message.contains("scroll=900x3200"));
     }
 
     /// The injected probe must include every stage of the shared pre-action
@@ -1574,6 +1825,8 @@ mod tests {
     fn test_actionability_check_js_structure() {
         assert!(ACTIONABILITY_CHECK_JS.starts_with("function(requireHit)"));
         assert!(ACTIONABILITY_CHECK_JS.contains("scrollIntoView"));
+        assert!(ACTIONABILITY_CHECK_JS.contains("scrollNestedContainers"));
+        assert!(ACTIONABILITY_CHECK_JS.contains("scrollContainer"));
         assert!(ACTIONABILITY_CHECK_JS.contains("getBoundingClientRect"));
         assert!(ACTIONABILITY_CHECK_JS.contains("elementFromPoint"));
         assert!(ACTIONABILITY_CHECK_JS.contains("getComputedStyle"));
@@ -1595,6 +1848,20 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_fill_uses_atomic_native_setter_and_verifies_the_result() {
+        assert!(FILL_REPLACE_JS.starts_with("async function(nextValue)"));
+        assert!(FILL_REPLACE_JS.contains("HTMLInputElement.prototype"));
+        assert!(FILL_REPLACE_JS.contains("HTMLTextAreaElement.prototype"));
+        assert!(FILL_REPLACE_JS.contains("insertReplacementText"));
+        assert!(FILL_REPLACE_JS.contains("beforeinput"));
+        assert!(FILL_REPLACE_JS.contains("new InputEvent"));
+        assert!(FILL_REPLACE_JS.contains("new Event('change'"));
+        assert!(FILL_REPLACE_JS.contains("actual === String(nextValue)"));
+        assert!(FILL_REPLACE_JS.contains("actualLength: [...actual].length"));
+        assert!(!FILL_REPLACE_JS.contains("actual,"));
+    }
+
     /// The probe must be frame-aware: geometry measured in the element's own
     /// document, coordinates translated across ancestor iframes (rect +
     /// clientLeft/clientTop border offset), and occlusion checked in every
@@ -1604,6 +1871,7 @@ mod tests {
     fn test_actionability_check_js_is_frame_aware() {
         assert!(ACTIONABILITY_CHECK_JS.contains("el.ownerDocument"));
         assert!(ACTIONABILITY_CHECK_JS.contains("frameElement"));
+        assert!(ACTIONABILITY_CHECK_JS.contains("root.defaultView"));
         assert!(ACTIONABILITY_CHECK_JS.contains("clientLeft"));
         assert!(ACTIONABILITY_CHECK_JS.contains("clientTop"));
         // Local measurements must use the element's window, never the top

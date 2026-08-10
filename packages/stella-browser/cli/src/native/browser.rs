@@ -130,6 +130,10 @@ pub struct PageInfo {
     /// index. Always assigned by `BrowserManager`; caller-provided values are
     /// overwritten by `add_page`.
     pub tab_id: u64,
+    /// Opaque generation paired with `tab_id`. Numeric ids are scoped to one
+    /// BrowserManager and may be reused after a daemon reconnect; this UUID
+    /// lets clients detect a stale handle instead of driving a different tab.
+    pub tab_generation: String,
     pub url: String,
     pub title: String,
     pub target_type: String, // "page" or "webview"
@@ -184,6 +188,7 @@ pub struct BrowserManager {
     /// `tabId`. Never pruned for the life of the manager so a target keeps the
     /// same id across detach/re-attach cycles and list calls.
     target_tab_ids: HashMap<String, u64>,
+    target_tab_generations: HashMap<String, String>,
     next_tab_id: u64,
     /// Which stable tab ids each command owner created. Lives and dies with
     /// the manager, matching the lifetime of the tabs themselves, so a
@@ -375,6 +380,7 @@ impl BrowserManager {
                 active_page_index: 0,
                 default_timeout_ms: 25_000,
                 target_tab_ids: HashMap::new(),
+                target_tab_generations: HashMap::new(),
                 next_tab_id: 1,
                 owner_tabs: OwnerTabRegistry::default(),
             };
@@ -442,6 +448,7 @@ impl BrowserManager {
             active_page_index: 0,
             default_timeout_ms: 10_000,
             target_tab_ids: HashMap::new(),
+            target_tab_generations: HashMap::new(),
             next_tab_id: 1,
             owner_tabs: OwnerTabRegistry::default(),
         };
@@ -502,10 +509,12 @@ impl BrowserManager {
                     .await?;
 
                 let tab_id = self.tab_id_for_target(&target.target_id);
+                let tab_generation = self.tab_generation_for_target(&target.target_id);
                 self.pages.push(PageInfo {
                     target_id: target.target_id.clone(),
                     session_id: attach_result.session_id.clone(),
                     tab_id,
+                    tab_generation,
                     url: target.url.clone(),
                     title: target.title.clone(),
                     target_type: target.target_type.clone(),
@@ -783,10 +792,12 @@ impl BrowserManager {
             .await?;
 
         let tab_id = self.tab_id_for_target(&result.target_id);
+        let tab_generation = self.tab_generation_for_target(&result.target_id);
         self.pages.push(PageInfo {
             target_id: result.target_id,
             session_id: attach_result.session_id.clone(),
             tab_id,
+            tab_generation: tab_generation.clone(),
             url: "about:blank".to_string(),
             title: String::new(),
             target_type: "page".to_string(),
@@ -827,6 +838,16 @@ impl BrowserManager {
         id
     }
 
+    fn tab_generation_for_target(&mut self, target_id: &str) -> String {
+        if let Some(generation) = self.target_tab_generations.get(target_id) {
+            return generation.clone();
+        }
+        let generation = uuid::Uuid::new_v4().to_string();
+        self.target_tab_generations
+            .insert(target_id.to_string(), generation.clone());
+        generation
+    }
+
     /// Stable `tabId` of the currently active page, if any.
     pub fn active_tab_id(&self) -> Option<u64> {
         self.pages.get(self.active_page_index).map(|p| p.tab_id)
@@ -860,10 +881,28 @@ impl BrowserManager {
         self.target_tab_ids.get(target_id).copied()
     }
 
+    pub fn tab_generation_by_id(&self, tab_id: u64) -> Option<&str> {
+        self.pages
+            .iter()
+            .find(|page| page.tab_id == tab_id)
+            .map(|page| page.tab_generation.as_str())
+    }
+
     /// Records that a command owner created (or forced into existence) the
     /// given tab, so `finalize_tabs`/`close_owner` can reap it later.
     pub fn record_owner_tab(&mut self, owner_id: &str, tab_id: u64) {
         self.owner_tabs.record(owner_id, tab_id);
+    }
+
+    /// A protected per-owner CDP route exposes only that durable task's tabs.
+    /// When a replacement daemon/client generation reconnects, reclaim every
+    /// discovered target for the same owner instead of manufacturing a fresh
+    /// tab and orphaning the existing ones.
+    pub fn adopt_all_tabs_for_owner(&mut self, owner_id: &str) {
+        let tab_ids: Vec<u64> = self.pages.iter().map(|page| page.tab_id).collect();
+        for tab_id in tab_ids {
+            self.owner_tabs.record(owner_id, tab_id);
+        }
     }
 
     /// Tab ids currently recorded for an owner, in creation order.
@@ -931,6 +970,7 @@ impl BrowserManager {
             .map(|(i, p)| {
                 json!({
                     "tabId": p.tab_id,
+                    "tabGeneration": p.tab_generation,
                     "index": i,
                     "title": p.title,
                     "url": p.url,
@@ -1000,17 +1040,21 @@ impl BrowserManager {
 
         let index = self.pages.len();
         let tab_id = self.tab_id_for_target(&result.target_id);
+        let tab_generation = self.tab_generation_for_target(&result.target_id);
         self.pages.push(PageInfo {
             target_id: result.target_id,
             session_id: attach.session_id,
             tab_id,
+            tab_generation: tab_generation.clone(),
             url: target_url.to_string(),
             title: String::new(),
             target_type: "page".to_string(),
         });
         self.active_page_index = index;
 
-        Ok(json!({ "tabId": tab_id, "index": index, "url": target_url }))
+        Ok(
+            json!({ "tabId": tab_id, "tabGeneration": tab_generation, "index": index, "url": target_url }),
+        )
     }
 
     pub async fn tab_switch(&mut self, index: usize) -> Result<Value, String> {
@@ -1041,7 +1085,10 @@ impl BrowserManager {
         }
 
         let tab_id = self.pages.get(index).map(|p| p.tab_id);
-        Ok(json!({ "tabId": tab_id, "index": index, "url": url, "title": title }))
+        let tab_generation = self.pages.get(index).map(|p| p.tab_generation.clone());
+        Ok(
+            json!({ "tabId": tab_id, "tabGeneration": tab_generation, "index": index, "url": url, "title": title }),
+        )
     }
 
     pub async fn tab_close(&mut self, index: Option<usize>) -> Result<Value, String> {
@@ -1078,6 +1125,7 @@ impl BrowserManager {
         Ok(json!({
             "closed": target_index,
             "closedTabId": page.tab_id,
+            "closedTabGeneration": page.tab_generation,
             "activeIndex": self.active_page_index,
             "activeTabId": self.active_tab_id(),
         }))
@@ -1321,6 +1369,7 @@ impl BrowserManager {
     /// `page.tab_id` is ignored.
     pub fn add_page(&mut self, mut page: PageInfo) -> u64 {
         page.tab_id = self.tab_id_for_target(&page.target_id);
+        page.tab_generation = self.tab_generation_for_target(&page.target_id);
         let tab_id = page.tab_id;
         let index = self.pages.len();
         self.pages.push(page);
@@ -1495,6 +1544,7 @@ async fn initialize_lightpanda_manager(
             active_page_index: 0,
             default_timeout_ms: 25_000,
             target_tab_ids: HashMap::new(),
+            target_tab_generations: HashMap::new(),
             next_tab_id: 1,
             owner_tabs: OwnerTabRegistry::default(),
         };

@@ -414,7 +414,12 @@ describe("BrowserSession direct daemon client", () => {
       const pending = client.command("wait", {}, { signal: controller.signal });
       await sawWait.promise;
       controller.abort(reason);
-      await expect(pending).rejects.toBe(reason);
+      await expect(pending).rejects.toMatchObject({
+        code: "execution_failed",
+        message: expect.stringMatching(
+          /stop browser command.*browser provenance: owner=node-repl-session-1.*action=wait/,
+        ),
+      });
 
       await expect(client.command("url")).resolves.toMatchObject({
         result: { success: true },
@@ -463,6 +468,51 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
+  it("honors an action timeout beyond the historical 30-second client cap", async () => {
+    const daemon = createTestDaemon(async (request) => {
+      if (request.action === "wait") {
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      }
+      return { id: request.id, success: true, data: { waited: true } };
+    });
+    await daemon.start();
+    const client = createClient(daemon, { commandTimeoutMs: 20 });
+
+    try {
+      await expect(
+        client.command("wait", { timeout: 100 }),
+      ).resolves.toMatchObject({
+        result: { success: true, data: { waited: true } },
+      });
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("fingerprints lease provenance without exposing the bearer lease id", async () => {
+    const daemon = createTestDaemon(() => undefined);
+    await daemon.start();
+    const rawLeaseId = "raw-owner-lease-bearer-secret";
+    const client = createClient(daemon, {
+      commandTimeoutMs: 20,
+      ownerLeaseId: rawLeaseId,
+      ownerLeaseIssuedAt: 9_000,
+    });
+
+    try {
+      const error = await client
+        .command("url")
+        .catch((cause: unknown) => cause);
+      expect(error).toBeInstanceOf(BrowserSessionCommandError);
+      expect((error as Error).message).toMatch(/lease#=[a-f0-9]{12}/);
+      expect((error as Error).message).not.toContain(rawLeaseId);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
   it("encodes chain as one raw protocol request and validates it before I/O", async () => {
     const daemon = createTestDaemon((request) => ({
       id: request.id,
@@ -500,6 +550,7 @@ describe("BrowserSession direct daemon client", () => {
         ownerId: "node-repl-session-1",
         abortOnError: false,
         delay: { min: 10, max: 20 },
+        timeout: 180_000,
         waitForSelector: true,
         waitTimeout: 500,
         returnSnapshot: true,
@@ -676,7 +727,7 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
-  it("disposal closes only the client socket and rejects later work", async () => {
+  it("disposal releases only its exact lease and preserves tabs for reclaim", async () => {
     const socketClosed = deferred();
     const daemon = createTestDaemon((request, { socket }) => {
       socket.once("close", () => socketClosed.resolve());
@@ -692,7 +743,6 @@ describe("BrowserSession direct daemon client", () => {
 
       expect(daemon.requests.map((request) => request.action)).toEqual([
         "url",
-        "finalize_tabs",
         "release_owner_lease",
       ]);
       expect(client.isDisposed).toBe(true);
@@ -725,15 +775,6 @@ describe("BrowserSession direct daemon client", () => {
       expect(daemon.requests).toEqual([
         expect.objectContaining({
           action: "url",
-          ownerId: "node-repl-session-1",
-          sessionId: "node-repl-session-1",
-          turnId: "test-turn-1",
-          ownerLeaseId: "kernel-lease-2",
-          ownerLeaseIssuedAt: 2_000,
-        }),
-        expect.objectContaining({
-          action: "finalize_tabs",
-          keep: [],
           ownerId: "node-repl-session-1",
           sessionId: "node-repl-session-1",
           turnId: "test-turn-1",

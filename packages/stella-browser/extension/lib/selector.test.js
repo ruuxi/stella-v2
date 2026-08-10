@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
 
 import {
   buildRoleMatcherAllScript,
@@ -56,6 +57,63 @@ test('single semantic matcher applies nth after resolving all matches', () => {
   assert.match(script, /const matches =/);
   assert.match(script, /const index = 2/);
   assert.match(script, /return matches\[index\]/);
+});
+
+test('single semantic matcher requires explicit disambiguation for visible duplicates', () => {
+  const selector = encodeSemanticSelector({
+    kind: 'text',
+    value: 'Continue',
+  });
+  const resolved = resolveSelector(selector, 'owner-a', 17);
+  const script = buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth);
+
+  assert.match(script, /const hasExplicitIndex = false/);
+  assert.match(script, /Strict mode violation/);
+  assert.match(script, /refine the locator or use nth\(\)\/first\(\)\/last\(\)/);
+});
+
+test('semantic matchers exclude hidden, aria-hidden, and inert portal trees', () => {
+  const script = buildRoleMatcherAllScript('dialog');
+
+  assert.match(script, /node\.hidden/);
+  assert.match(script, /node\.inert/);
+  assert.match(script, /getAttribute\?\.\('aria-hidden'\)/);
+  assert.match(script, /style\.visibility === 'hidden'/);
+  assert.match(script, /parseFloat\(style\.opacity\) === 0/);
+  assert.match(script, /root && root\.host/);
+  assert.match(script, /root\.defaultView\.frameElement/);
+});
+
+test('role matching ignores aria-hidden portal dialogs and keeps the visible dialog', () => {
+  const dom = new JSDOM(`
+    <main>
+      <section aria-hidden="true"><div role="dialog" aria-label="Publish">stale</div></section>
+      <div role="dialog" aria-label="Publish">current</div>
+    </main>
+  `, { runScripts: 'outside-only' });
+  dom.window.Element.prototype.getClientRects = function getClientRects() {
+    return [{ x: 0, y: 0, width: 100, height: 20 }];
+  };
+
+  const script = buildRoleMatcherAllScript('dialog', 'Publish');
+  const matches = dom.window.eval(script);
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].textContent, 'current');
+});
+
+test('single role matching fails closed when multiple visible dialogs remain', () => {
+  const dom = new JSDOM(`
+    <div role="dialog" aria-label="Publish">one</div>
+    <div role="dialog" aria-label="Publish">two</div>
+  `, { runScripts: 'outside-only' });
+  dom.window.Element.prototype.getClientRects = function getClientRects() {
+    return [{ x: 0, y: 0, width: 100, height: 20 }];
+  };
+
+  assert.throws(
+    () => dom.window.eval(buildRoleMatcherScript('dialog', 'Publish')),
+    /Strict mode violation.*matched 2 visible elements/,
+  );
 });
 
 test('semantic selector parsing rejects malformed and unsafe payloads', () => {

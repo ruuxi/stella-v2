@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import os from "node:os";
@@ -24,6 +24,7 @@ const BROWSER_CHAIN_STEP_BUDGET_MS = 1_000;
 const MIN_BROWSER_CHAIN_TIMEOUT_MS = 3 * 60_000;
 const MAX_BROWSER_CHAIN_TIMEOUT_MS = 4 * 60_000;
 const MAX_BROWSER_TURN_CLEANUP_TIMEOUT_MS = 2_000;
+const BROWSER_COMMAND_TIMEOUT_GRACE_MS = 5_000;
 let lastBrowserOwnerLeaseIssuedAt = Date.now();
 
 // Contract-checked against packages/stella-browser/protocol/actions.json
@@ -860,6 +861,32 @@ const getChainTimeoutMs = (
   );
 };
 
+const leaseFingerprint = (leaseId: string): string =>
+  createHash("sha256").update(leaseId).digest("hex").slice(0, 12);
+
+const getCommandTimeoutMs = (
+  commandTimeoutMs: number,
+  params: BrowserCommandParams,
+): number => {
+  const requestedTimeout = params.timeout;
+  if (
+    typeof requestedTimeout !== "number" ||
+    !Number.isSafeInteger(requestedTimeout) ||
+    requestedTimeout < 0
+  ) {
+    return commandTimeoutMs;
+  }
+
+  // The daemon/action timeout is an inner deadline. Leave a small transport
+  // grace period so a caller asking waitForURL(..., { timeout: 120_000 }) does
+  // not get cut off by the client's historical 30-second default (or race the
+  // response at exactly 120 seconds).
+  return Math.max(
+    commandTimeoutMs,
+    requestedTimeout + BROWSER_COMMAND_TIMEOUT_GRACE_MS,
+  );
+};
+
 export class BrowserSession implements BrowserSessionClient {
   readonly sessionId: string;
   readonly cwd: string;
@@ -1010,6 +1037,7 @@ export class BrowserSession implements BrowserSessionClient {
         validatedAction,
         validatedParams,
         combineSignals(this.signal, validatedOptions.signal),
+        getCommandTimeoutMs(this.commandTimeoutMs, validatedParams),
       ),
     );
   }
@@ -1032,8 +1060,14 @@ export class BrowserSession implements BrowserSessionClient {
           max: validatedOptions.delay.maxMs ?? 1_200,
         }
       : undefined;
+    const chainTimeoutMs = getChainTimeoutMs(
+      this.commandTimeoutMs,
+      validatedSteps,
+      validatedOptions,
+    );
     const params = validateParams({
       steps: protocolSteps,
+      timeout: chainTimeoutMs,
       ...(validatedOptions.abortOnError === undefined
         ? {}
         : { abortOnError: validatedOptions.abortOnError }),
@@ -1057,11 +1091,7 @@ export class BrowserSession implements BrowserSessionClient {
         "chain",
         params,
         combineSignals(this.signal, validatedOptions.signal),
-        getChainTimeoutMs(
-          this.commandTimeoutMs,
-          validatedSteps,
-          validatedOptions,
-        ),
+        chainTimeoutMs + BROWSER_COMMAND_TIMEOUT_GRACE_MS,
       ),
     );
   }
@@ -1074,7 +1104,12 @@ export class BrowserSession implements BrowserSessionClient {
       const releaseLease = this.enqueue(async () => {
         if (!turn) return;
         try {
-          await this.cleanupTurn(turn, true);
+          // A kernel/worker generation can disappear after an ordinary command
+          // rejection or transport timeout. Releasing only this exact lease
+          // lets a replacement generation for the same durable task reclaim
+          // the tabs. End-of-task cleanup still runs through endTurn(), which
+          // explicitly finalizes the task's tabs.
+          await this.cleanupTurn(turn, true, false);
         } catch {
           // Stale disposal and unavailable transports are best-effort. Rust
           // lease fencing prevents this cleanup from touching a newer turn.
@@ -1134,6 +1169,7 @@ export class BrowserSession implements BrowserSessionClient {
       ownerLeaseIssuedAt: number;
     }>,
     allowDisposed: boolean,
+    finalizeTabs = true,
   ): Promise<void> {
     const timeoutMs = Math.min(
       this.commandTimeoutMs,
@@ -1163,6 +1199,10 @@ export class BrowserSession implements BrowserSessionClient {
         allowDisposed,
       );
     };
+    if (!finalizeTabs) {
+      await send("release_owner_lease");
+      return;
+    }
     try {
       await send("finalize_tabs");
     } finally {
@@ -1339,16 +1379,25 @@ export class BrowserSession implements BrowserSessionClient {
       }
     } catch (cause) {
       this.assertOpen();
-      throwIfAborted(signal);
       const message =
         cause instanceof Error
           ? cause.message
           : `Browser daemon request failed: ${String(cause)}`;
-      throw new BrowserSessionCommandError("execution_failed", message, {
-        requestId,
-        action,
-        cause,
-      });
+      const abortSource = signal?.aborted
+        ? signal.reason instanceof Error
+          ? `${signal.reason.name}: ${signal.reason.message}`
+          : String(signal.reason ?? "AbortSignal")
+        : undefined;
+      const provenance = `owner=${this.sessionId} turn=${turn.turnId} lease#=${leaseFingerprint(turn.ownerLeaseId)} request=${requestId} action=${action}`;
+      throw new BrowserSessionCommandError(
+        "execution_failed",
+        `${message}${abortSource ? ` (abort source: ${abortSource})` : ""} [browser provenance: ${provenance}]`,
+        {
+          requestId,
+          action,
+          cause,
+        },
+      );
     }
 
     const receipt: BrowserCommandAttemptReceipt<TData> = Object.freeze({

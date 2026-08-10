@@ -557,14 +557,16 @@ describe("managed model billing", () => {
     const staticRow = await t.run(async (ctx) =>
       ctx.db
         .query("billing_model_prices")
-        .withIndex("by_model", (q) => q.eq("model", "openai/gpt-5.6-luna"))
+        .withIndex("by_model", (q) =>
+          q.eq("model", "deepseek/deepseek-v4-flash"),
+        )
         .unique(),
     );
     expect(staticRow).toMatchObject({
-      model: "openai/gpt-5.6-luna",
+      model: "deepseek/deepseek-v4-flash",
       source: "static",
-      inputPerMillionUsd: 1,
-      outputPerMillionUsd: 6,
+      inputPerMillionUsd: 0.14,
+      outputPerMillionUsd: 0.28,
     });
   });
 });

@@ -418,7 +418,7 @@ describe("direct DeepSeek relay", () => {
       effort: "low",
     });
     // Older desktop builds still send "medium", which is not in DeepSeek's
-    // ladder; "high" is DeepSeek's own default and matches the Fireworks era.
+    // ladder.
     expect(effortFor({ reasoning: { effort: "medium" } }).reasoning).toEqual({
       effort: "high",
     });
@@ -428,7 +428,13 @@ describe("direct DeepSeek relay", () => {
     expect(effortFor({ reasoning: { effort: "off" } }).reasoning).toEqual({
       effort: "none",
     });
-    expect(effortFor({}).reasoning).toEqual({ effort: "high" });
+    // Stella runs this model at max unless the caller asked for less, so an
+    // absent or unrecognized effort lands there rather than DeepSeek's own
+    // `high` default.
+    expect(effortFor({ reasoning: { effort: "high" } }).reasoning).toEqual({
+      effort: "max",
+    });
+    expect(effortFor({}).reasoning).toEqual({ effort: "max" });
   });
 
   it("uses DeepSeek's thinking object on the chat-completions path", () => {

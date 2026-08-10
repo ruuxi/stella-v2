@@ -1,4 +1,5 @@
 import { isTransientProviderStreamAnomalyMessage } from "../../ai/utils/provider-stop.js";
+import { readRetryAfterMs } from "../../ai/utils/retry.js";
 
 const isLocalContextPreflight = (message: string): boolean =>
   message.includes(
@@ -7,6 +8,23 @@ const isLocalContextPreflight = (message: string): boolean =>
 
 export const AGENT_RUN_MAX_ATTEMPTS = 4;
 export const AGENT_RUN_RETRY_DELAYS_MS = [1_000, 2_500, 6_000] as const;
+/**
+ * Rate limits need a different curve from dropped connections. A 429 usually
+ * means a provider-side capacity window has to drain (DeepSeek, for one, counts
+ * a request as concurrent until its response completes), and the transport
+ * schedule above exhausts its whole budget in under ten seconds — fast enough
+ * to burn all four attempts against a limit that was never going to clear that
+ * quickly. A provider-supplied `Retry-After` overrides this entirely.
+ */
+export const AGENT_RUN_RATE_LIMIT_RETRY_DELAYS_MS = [
+  5_000, 15_000, 30_000,
+] as const;
+/**
+ * Ceiling on an honored `Retry-After`. Providers occasionally return very long
+ * windows (or an HTTP-date far in the future); waiting that out would look like
+ * a hang, so we cap, retry anyway, and let the attempt budget end the run.
+ */
+export const AGENT_RUN_MAX_RETRY_AFTER_MS = 60_000;
 export const AGENT_RUN_RETRY_JITTER_RATIO = 0.1;
 
 export const EMPTY_AGENT_RUN_ERROR =
@@ -26,11 +44,19 @@ export type AgentRunFailure = {
   category: AgentRunFailureCategory;
   message: string;
   retryable: boolean;
+  /** Provider-requested backoff, when the failing response carried one. */
+  retryAfterMs?: number;
 };
 
 export type AgentTurnExecution = {
   finalText: string;
   errorMessage?: string;
+  /**
+   * Set by `getAgentCompletion` from the assistant message the provider
+   * adapter annotated. Present only when the upstream response actually
+   * carried a `Retry-After` / `retry-after-ms` header.
+   */
+  retryAfterMs?: number;
 };
 
 export type AgentRunRetryState = {
@@ -44,12 +70,31 @@ export type AgentRunRetryInfo = AgentRunFailure & {
   delayMs: number;
 };
 
+/**
+ * Lead-in for the retry status the user sees. "Connection interrupted" was
+ * shown for every category, which reads as a local network problem when the
+ * real cause is the provider throttling or erroring — actively misleading
+ * during a rate limit, since nothing about the user's connection is wrong.
+ */
+const RETRY_STATUS_REASONS: Record<AgentRunFailureCategory, string> = {
+  rate_limit: "Rate limited by the model provider.",
+  http_5xx: "The model provider returned an error.",
+  transport: "Connection interrupted.",
+  empty_response: "The model returned an empty reply.",
+  auth: "Authentication failed.",
+  invalid_model_or_route: "Invalid model or route.",
+  canceled: "Canceled.",
+  non_retryable: "Connection interrupted.",
+};
+
 export const formatAgentRunRetryStatus = (info: AgentRunRetryInfo): string => {
   const seconds = Math.max(0.1, info.delayMs / 1_000);
   const formattedSeconds = Number.isInteger(seconds)
     ? String(seconds)
     : seconds.toFixed(1).replace(/\.0$/, "");
-  return `Connection interrupted. Retrying in ${formattedSeconds}s (attempt ${info.attempt} of ${info.maxAttempts})`;
+  const reason =
+    RETRY_STATUS_REASONS[info.category] ?? RETRY_STATUS_REASONS.non_retryable;
+  return `${reason} Retrying in ${formattedSeconds}s (attempt ${info.attempt} of ${info.maxAttempts})`;
 };
 
 const errorMessage = (error: unknown): string => {
@@ -133,11 +178,19 @@ const isTransportFailure = (message: string, code?: string): boolean =>
 
 export const classifyAgentRunFailure = (
   error: unknown,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; retryAfterMs?: number },
 ): AgentRunFailure => {
   const message = errorMessage(error).trim() || "Agent run failed";
   const status = numericStatus(error);
   const code = errorCode(error);
+  // Prefer the caller's value (parsed by the provider adapter before the error
+  // was flattened to a string); fall back to the live error object, which still
+  // has headers when the failure was thrown rather than streamed.
+  const retryAfterMs = options?.retryAfterMs ?? readRetryAfterMs(error);
+  const withRetryAfter = <T extends AgentRunFailure>(failure: T): T =>
+    typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs)
+      ? { ...failure, retryAfterMs }
+      : failure;
 
   if (options?.signal?.aborted || isExplicitCancellation(message)) {
     return { category: "canceled", message, retryable: false };
@@ -152,10 +205,10 @@ export const classifyAgentRunFailure = (
     return { category: "empty_response", message, retryable: true };
   }
   if (isRateLimit(message, status)) {
-    return { category: "rate_limit", message, retryable: true };
+    return withRetryAfter({ category: "rate_limit", message, retryable: true });
   }
   if (isHttp5xx(message, status)) {
-    return { category: "http_5xx", message, retryable: true };
+    return withRetryAfter({ category: "http_5xx", message, retryable: true });
   }
   if (
     isTransportFailure(message, code) ||
@@ -171,7 +224,14 @@ const classifyExecution = (
   signal?: AbortSignal,
 ): AgentRunFailure | null => {
   if (execution.errorMessage?.trim()) {
-    return classifyAgentRunFailure(execution.errorMessage, { signal });
+    // `errorMessage` is a bare string by this point, so the header-derived
+    // backoff has to be passed alongside it rather than read back off it.
+    return classifyAgentRunFailure(execution.errorMessage, {
+      signal,
+      ...(execution.retryAfterMs !== undefined
+        ? { retryAfterMs: execution.retryAfterMs }
+        : {}),
+    });
   }
   if (!execution.finalText.trim()) {
     return {
@@ -186,11 +246,25 @@ const classifyExecution = (
 export const agentRunRetryDelayMs = (
   retryIndex: number,
   random: () => number = Math.random,
+  failure?: Pick<AgentRunFailure, "category" | "retryAfterMs">,
 ): number => {
-  const base =
-    AGENT_RUN_RETRY_DELAYS_MS[
-      Math.min(Math.max(0, retryIndex), AGENT_RUN_RETRY_DELAYS_MS.length - 1)
-    ];
+  // An explicit Retry-After is the provider telling us exactly when it will
+  // serve us again; guessing a shorter delay just wastes an attempt, and a
+  // longer one wastes the user's time. Honor it verbatim, without jitter —
+  // jitter exists to de-synchronize blind retries, and this one isn't blind.
+  const retryAfterMs = failure?.retryAfterMs;
+  if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs)) {
+    return Math.min(
+      Math.max(0, Math.round(retryAfterMs)),
+      AGENT_RUN_MAX_RETRY_AFTER_MS,
+    );
+  }
+
+  const schedule =
+    failure?.category === "rate_limit"
+      ? AGENT_RUN_RATE_LIMIT_RETRY_DELAYS_MS
+      : AGENT_RUN_RETRY_DELAYS_MS;
+  const base = schedule[Math.min(Math.max(0, retryIndex), schedule.length - 1)];
   const jitter = 1 + (random() * 2 - 1) * AGENT_RUN_RETRY_JITTER_RATIO;
   return Math.max(0, Math.round(base * jitter));
 };
@@ -296,7 +370,11 @@ export const executeAgentTurnWithRetry = async (args: {
       };
     }
 
-    const delayMs = agentRunRetryDelayMs(state.retriesUsed, args.random);
+    const delayMs = agentRunRetryDelayMs(
+      state.retriesUsed,
+      args.random,
+      failure,
+    );
     const nextAttempt = state.attemptsUsed + 1;
     state.retriesUsed += 1;
     try {

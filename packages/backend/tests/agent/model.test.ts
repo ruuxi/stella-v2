@@ -31,7 +31,7 @@ describe("managed model config", () => {
           model: FLASH_MODEL,
           managedGatewayProvider: "deepseek",
           providerOptions: {
-            openai: { reasoningEffort: "medium" },
+            openai: { reasoningEffort: "xhigh" },
           },
         });
         // No `gateway.order` — DeepSeek is a direct upstream, not a router.

@@ -30,10 +30,10 @@ export const EDGE_SCALE = 2.5;
 
 /**
  * Fully-resolved, context-independent description of an aurora canvas:
- * its pixel/backing geometry and a `key` that uniquely identifies a
- * reusable GL renderer. Two `StellaAnimation` mounts that resolve to the
- * same `key` (same cell metrics + size + dpr) can share — and therefore
- * pool — a single WebGL context + program.
+ * its CSS/backing geometry and a `key` that uniquely identifies a reusable
+ * GL renderer. Two `StellaAnimation` mounts that resolve to the same `key`
+ * (same cell metrics + backing/display sizes) can share — and therefore pool
+ * — a single WebGL context + program.
  */
 export type AuroraSpec = {
   key: string;
@@ -47,6 +47,13 @@ export type AuroraSpec = {
 export type AuroraSpecOptions = {
   width: number;
   height: number;
+  /**
+   * Optional on-screen canvas size. The shader still renders at the natural
+   * cell-derived resolution so small surfaces can supersample without putting
+   * a transformed WebGL layer into the compositor.
+   */
+  displayWidth?: number;
+  displayHeight?: number;
   maxDpr?: number;
   variant?: AuroraVariant;
 };
@@ -60,7 +67,14 @@ export type AuroraSpecOptions = {
  */
 export function resolveAuroraSpec(
   container: HTMLElement,
-  { width, height, maxDpr, variant = "orb" }: AuroraSpecOptions,
+  {
+    width,
+    height,
+    displayWidth,
+    displayHeight,
+    maxDpr,
+    variant = "orb",
+  }: AuroraSpecOptions,
 ): AuroraSpec {
   const styles = getComputedStyle(container);
   const cellWidth = getCssNumber(
@@ -72,13 +86,18 @@ export function resolveAuroraSpec(
     7,
   );
 
-  const cssWidth = Math.max(1, Math.floor(width * cellWidth * EDGE_SCALE));
-  const cssHeight = Math.max(1, Math.floor(height * cellHeight * EDGE_SCALE));
+  const renderWidth = Math.max(1, Math.floor(width * cellWidth * EDGE_SCALE));
+  const renderHeight = Math.max(
+    1,
+    Math.floor(height * cellHeight * EDGE_SCALE),
+  );
+  const cssWidth = Math.max(1, displayWidth ?? renderWidth);
+  const cssHeight = Math.max(1, displayHeight ?? renderHeight);
   const dpr = Math.min(window.devicePixelRatio || 1, maxDpr ?? Infinity);
-  const backingWidth = Math.floor(cssWidth * dpr);
-  const backingHeight = Math.floor(cssHeight * dpr);
+  const backingWidth = Math.floor(renderWidth * dpr);
+  const backingHeight = Math.floor(renderHeight * dpr);
 
-  const key = `${variant}|${cellWidth}x${cellHeight}|${backingWidth}x${backingHeight}`;
+  const key = `${variant}|${cellWidth}x${cellHeight}|${backingWidth}x${backingHeight}|${cssWidth}x${cssHeight}`;
 
   return {
     key,

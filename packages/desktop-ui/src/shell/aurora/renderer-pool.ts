@@ -18,11 +18,10 @@ import type { AuroraVariant } from "./shader";
  *
  * This pool keeps the canvas + GL context + compiled program alive across
  * React mount/unmount cycles, keyed by `AuroraSpec.key` (cell metrics +
- * backing size). `StellaAnimation` borrows an entry on mount and returns
- * it on unmount instead of tearing the context down, so every appearance
- * after the first is effectively free. The component's lifecycle,
- * visuals, and animation are unchanged — only the GL spin-up is
- * amortized.
+ * backing/display sizes). `StellaAnimation` borrows an entry on mount and
+ * returns it on unmount instead of tearing the context down, so every
+ * appearance after the first is effectively free. The component's lifecycle,
+ * visuals, and animation are unchanged — only the GL spin-up is amortized.
  */
 type GlRenderer = NonNullable<ReturnType<typeof initRenderer>>;
 

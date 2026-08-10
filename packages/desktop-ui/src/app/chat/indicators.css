@@ -188,12 +188,12 @@
 /* Inline Stella — an unclipped aurora wisp. The old circular
    overflow-crop turned the animation into a filled disc; now the orb
    shader's own noise-carved silhouette is the indicator's shape. The
-   square 125px canvas (see WorkingIndicator) is scaled to sit exactly
-   inside the 30px slot — chat-layout ancestors clip overflow with hard
-   edges, so the canvas must never extend past the slot; the shader's own
-   frame fade keeps the wisp's fringes soft at the canvas bounds. The
-   `scale` below is that slot size over the canvas's 125px, so the two
-   only ever change together. */
+   square 125px backing buffer (see WorkingIndicator) is displayed through a
+   native 30px canvas footprint — not a compositor transform — so Windows
+   cannot expose the supersampled WebGL layer outside this slot. Chat-layout
+   ancestors clip overflow with hard edges, so the canvas must never extend
+   past the slot; the shader's own frame fade keeps the wisp's fringes soft at
+   the canvas bounds. */
 .indicator-stella {
   width: 30px;
   height: 30px;
@@ -202,17 +202,13 @@
 }
 
 .indicator-stella-scale {
-  width: 200%;
-  height: 200%;
-  transform: scale(0.24);
-  transform-origin: center center;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   position: absolute;
-  top: 50%;
-  left: 50%;
-  translate: -50% -50%;
+  inset: 0;
 }
 
 /* The WebGL scene already supplies the working motion. Avoid stacking the

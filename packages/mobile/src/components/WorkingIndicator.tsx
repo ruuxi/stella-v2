@@ -21,14 +21,11 @@ const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
 
 /**
- * Reserved vertical space above the composer. Intentionally smaller than the
- * creature viewport — the row is `overflow: visible`, so the creature extends
- * a few pt above and below the slot, letting us claim less layout space while
- * keeping Stella at her chosen size.
+ * Reserved vertical space above the composer — the creature viewport, which
+ * already carries slack around the canvas (see `layout.ts`), so nothing ever
+ * needs to overflow this row to render in full.
  */
-export const WORKING_INDICATOR_SLOT_HEIGHT = Math.round(
-  indicatorLayout.viewport * 0.6,
-);
+export const WORKING_INDICATOR_SLOT_HEIGHT = indicatorLayout.viewport;
 
 interface WorkingIndicatorProps {
   /** When true, the indicator is visible and the creature animates. */
@@ -305,7 +302,6 @@ const makeStyles = (colors: Colors) =>
     slot: {
       height: WORKING_INDICATOR_SLOT_HEIGHT,
       flexShrink: 0,
-      overflow: "visible",
     },
     // Inline at the chat tail the slot must take no space once the indicator
     // has fully left, otherwise it leaves a permanent gap above the composer.
@@ -318,7 +314,6 @@ const makeStyles = (colors: Colors) =>
       gap: 8,
       height: WORKING_INDICATOR_SLOT_HEIGHT,
       justifyContent: "flex-start",
-      overflow: "visible",
       paddingBottom: INDICATOR_PAD_BOTTOM,
       // Inline at the chat tail this row already inherits the list's horizontal
       // inset, so its creature must hug the left to line up with the assistant
@@ -332,8 +327,10 @@ const makeStyles = (colors: Colors) =>
     // and clipping it to a circle turns the aurora into a filled disc (the
     // same mistake desktop's `.indicator-stella` removed). The shader's frame
     // fade keeps the wisp's fringes soft at the canvas bounds instead.
+    // Centered so the viewport's slack sits evenly on all four sides.
     viewport: {
-      overflow: "visible",
+      alignItems: "center",
+      justifyContent: "center",
       position: "relative",
     },
     canvasSlot: {

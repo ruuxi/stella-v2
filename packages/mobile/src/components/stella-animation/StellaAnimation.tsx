@@ -60,8 +60,9 @@ export interface StellaAnimationProps {
   height?: number;
   /**
    * GLView layout width in pt. Defaults to the full supersampled canvas size
-   * (`width × 7 × 2.5`). Pass `WORKING_INDICATOR_DISPLAY_PT` (70) for the
-   * inline indicator instead of using CSS `transform: scale(0.2)`.
+   * (`width × 7 × 2.5`). Pass `WORKING_INDICATOR_DISPLAY_PT` for the inline
+   * indicator — RN GLView breaks inside `transform: scale`, so the surface is
+   * sized natively rather than rendered large and scaled down.
    */
   displayWidth?: number;
   /** GLView layout height in pt. */
@@ -487,7 +488,6 @@ export {
   STELLA_GLYPH_PX,
   WORKING_INDICATOR_DISPLAY_PT,
   WORKING_INDICATOR_GRID,
-  WORKING_INDICATOR_RENDER_SCALE,
   WORKING_INDICATOR_VIEWPORT_PT,
   getStellaRenderLayout,
   getWorkingIndicatorLayout,

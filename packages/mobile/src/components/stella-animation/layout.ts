@@ -19,17 +19,27 @@ export const STELLA_GLYPH_PX = 7;
  */
 export const WORKING_INDICATOR_GRID = 10;
 
-/** Desktop `.indicator-stella-scale { transform: scale(0.2) }`. */
-export const WORKING_INDICATOR_RENDER_SCALE = 0.2;
+/**
+ * GLView footprint for the inline indicator, in pt.
+ *
+ * Matches desktop's 30px `.indicator-stella` slot, which is the size the orb
+ * shader was retuned for (coarse field, 3-octave fbm — see `aurora-shader.ts`).
+ */
+export const WORKING_INDICATOR_DISPLAY_PT = 30;
 
 /**
- * Visible clip diameter after supersampling (350 × 0.2 ≈ 70 on desktop).
- * We render at this size directly — RN GLView breaks inside `transform: scale`.
+ * Breathing room between the canvas and its layout box, so the aurora cannot
+ * be clipped. The GL surface is a native view that Android clips to its
+ * container whatever `overflow` says, and the shader fills its canvas out to
+ * the frame fade at ~92% — with no dead margin to absorb a crop, a container
+ * merely *equal* to the canvas is one rounded fractional pt from shaving an
+ * edge. Cheap insurance: it costs a few pt of row height and no orb size.
  */
-export const WORKING_INDICATOR_DISPLAY_PT = 52;
+export const WORKING_INDICATOR_VIEWPORT_SLACK_PT = 4;
 
-/** Circular mask diameter — matches display so GLView stays fully on-screen. */
-export const WORKING_INDICATOR_VIEWPORT_PT = WORKING_INDICATOR_DISPLAY_PT;
+/** Layout box around the canvas — deliberately larger than it. */
+export const WORKING_INDICATOR_VIEWPORT_PT =
+  WORKING_INDICATOR_DISPLAY_PT + WORKING_INDICATOR_VIEWPORT_SLACK_PT;
 
 export type StellaRenderLayout = {
   gridCharsW: number;

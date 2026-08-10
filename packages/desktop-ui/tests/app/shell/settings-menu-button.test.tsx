@@ -40,6 +40,11 @@ vi.mock("@/global/settings/SettingsView", () => ({
   ),
 }));
 
+vi.mock("@/global/settings/ThemePicker", () => ({
+  ThemePicker: ({ open }: { open?: boolean }) =>
+    open ? <div data-testid="theme-picker" /> : null,
+}));
+
 import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
 import { SettingsDialogHost } from "@/shell/SettingsDialogHost";
 import { settingsDialog } from "@/shell/settings-dialog-store";
@@ -138,6 +143,20 @@ describe("settings gear menu", () => {
     });
 
     expect(mocks.openFeedback).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the theme picker open after the destination menu closes", async () => {
+    await openMenu();
+
+    await act(async () => {
+      menuItem("Theme")?.click();
+    });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(
+      container.querySelector('[data-testid="theme-picker"]'),
+    ).not.toBeNull();
   });
 
   it("dismisses the connect hint when the phone destination is chosen", async () => {

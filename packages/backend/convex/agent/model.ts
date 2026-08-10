@@ -102,8 +102,23 @@ const gatewayOptions = (
   },
 });
 
-const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig = {
-  model: "accounts/fireworks/models/deepseek-v4-flash-0731",
+/**
+ * Which upstream serves DeepSeek V4 Flash. Flip to `"fireworks"` to route the
+ * whole catalog back through the Fireworks gateway — every mode, the synthesis
+ * fallback and the legacy-id alias below follow this constant, so no other
+ * edit is needed. The inactive gateway stays fully registered but idle.
+ */
+type DeepSeekV4FlashRoute = "deepseek" | "fireworks";
+const DEEPSEEK_V4_FLASH_ROUTE: DeepSeekV4FlashRoute = "deepseek";
+
+/** Fireworks-hosted V4 Flash. Retained as the one-constant rollback target. */
+export const DEEPSEEK_V4_FLASH_FIREWORKS_MODEL =
+  "accounts/fireworks/models/deepseek-v4-flash-0731";
+/** DeepSeek first-party V4 Flash. DeepSeek rejects the dated `-0731` suffix. */
+export const DEEPSEEK_V4_FLASH_DIRECT_MODEL = "deepseek/deepseek-v4-flash";
+
+const DEEPSEEK_V4_FLASH_FIREWORKS_CONFIG: ModeConfig = {
+  model: DEEPSEEK_V4_FLASH_FIREWORKS_MODEL,
   managedGatewayProvider: "fireworks",
   temperature: 1.0,
   providerOptions: {
@@ -113,6 +128,27 @@ const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig = {
     ...gatewayOptions("fireworks"),
   },
 };
+
+const DEEPSEEK_V4_FLASH_DIRECT_CONFIG: ModeConfig = {
+  model: DEEPSEEK_V4_FLASH_DIRECT_MODEL,
+  managedGatewayProvider: "deepseek",
+  // DeepSeek's own default. Thinking mode ignores sampling params entirely, so
+  // this only matters if reasoning is ever turned off.
+  temperature: 1.0,
+  providerOptions: {
+    openai: {
+      reasoningEffort: "medium",
+    },
+  },
+};
+
+const DEEPSEEK_V4_FLASH_CONFIGS = {
+  fireworks: DEEPSEEK_V4_FLASH_FIREWORKS_CONFIG,
+  deepseek: DEEPSEEK_V4_FLASH_DIRECT_CONFIG,
+} satisfies Record<DeepSeekV4FlashRoute, ModeConfig>;
+
+const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig =
+  DEEPSEEK_V4_FLASH_CONFIGS[DEEPSEEK_V4_FLASH_ROUTE];
 
 const GEMINI_3_6_FLASH_SYNTHESIS_CONFIG: ModelConfig = {
   model: "google/gemini-3.6-flash",
@@ -226,6 +262,11 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
  * public catalog row; `stella/light` remains as a compatibility alias for
  * existing preferences and older clients.
  *
+ * Both V4 Flash spellings stay accepted so a client that saved the Fireworks
+ * id before the switch (or after a rollback) never 400s. Only one of them is
+ * ever *live* — `resolveManagedModelRouteAlias` coerces the inactive spelling
+ * onto whichever route `DEEPSEEK_V4_FLASH_ROUTE` selects.
+ *
  * Single source of truth for both the request-time coercion in
  * `stella_provider/request.ts` and the `allowedForAudience` flag the
  * `/api/models` endpoint exposes to the desktop picker.
@@ -233,8 +274,20 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
   new Set<string>([
     "stella/light",
-    "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+    `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`,
+    `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`,
   ]);
+
+/**
+ * Collapse the two V4 Flash spellings onto the active route. Keeping both ids
+ * pinnable would otherwise split traffic across two upstreams — and bill the
+ * idle one at a price row nothing keeps warm.
+ */
+export const resolveManagedModelRouteAlias = (model: string): string =>
+  model === DEEPSEEK_V4_FLASH_FIREWORKS_MODEL ||
+  model === DEEPSEEK_V4_FLASH_DIRECT_MODEL
+    ? DEEPSEEK_V4_FLASH_MODEL_CONFIG.model
+    : model;
 
 export const isStellaModelAllowedForAudience = (
   modelId: string,

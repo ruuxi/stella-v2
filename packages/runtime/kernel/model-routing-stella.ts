@@ -53,6 +53,7 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["openai/", "openai"],
   ["anthropic/", "anthropic"],
   ["google/", "google"],
+  ["deepseek/", "deepseek"],
 ] as const satisfies readonly (readonly [string, ManagedGatewayProvider])[];
 
 export const inferManagedGatewayProviderFromModel = (
@@ -81,6 +82,7 @@ export const resolveManagedStellaRegistryMatches = (
       case "openai":
       case "anthropic":
       case "google":
+      case "deepseek":
       case "openrouter":
         return [`${registryProvider}/${model.id}`];
       case "fireworks":
@@ -169,7 +171,8 @@ const providerNativeModelId = (
   if (
     (provider === "openai" ||
       provider === "anthropic" ||
-      provider === "google") &&
+      provider === "google" ||
+      provider === "deepseek") &&
     resolvedModelId.startsWith(`${provider}/`)
   ) {
     return resolvedModelId.slice(provider.length + 1);
@@ -190,6 +193,7 @@ const apiForRelay = (
     case "google":
       return "google-generative-ai";
     case "fireworks":
+    case "deepseek":
       return "openai-responses";
     case "openrouter":
       return "openai-completions";
@@ -259,9 +263,17 @@ const createRelayModel = (args: {
       ? {
           thinkingLevelMap: {
             ...registryModel?.thinkingLevelMap,
-            // V4 Flash calls its maximum native effort "high". Preserve
-            // Stella's xhigh setting while mapping it to that wire value.
-            xhigh: "high",
+            // V4 Flash's native ladder is low | high | max (default high), so
+            // Stella's five levels collapse onto three. `medium -> high`
+            // keeps the effort the Fireworks route was already getting. The
+            // relay clamps this again for older builds that don't have this
+            // map compiled in.
+            minimal: "low",
+            low: "low",
+            medium: "high",
+            high: "high",
+            xhigh: "max",
+            off: "none",
           },
         }
       : {}),

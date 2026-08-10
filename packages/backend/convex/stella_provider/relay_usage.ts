@@ -47,7 +47,13 @@ const parseOpenAIUsage = (usage: unknown): RelayUsage => {
     inputTokens: toInt(record.prompt_tokens ?? record.input_tokens),
     outputTokens: toInt(record.completion_tokens ?? record.output_tokens),
     totalTokens: toInt(record.total_tokens),
-    cachedInputTokens: toInt(promptDetails?.cached_tokens),
+    // DeepSeek reports cache hits at the top level as `prompt_cache_hit_tokens`
+    // (with `prompt_tokens` already gross) instead of inside
+    // `prompt_tokens_details`. Without this the chat-completions path would
+    // bill every cached read at the full uncached rate.
+    cachedInputTokens:
+      toInt(promptDetails?.cached_tokens) ??
+      toInt(record.prompt_cache_hit_tokens),
     cacheWriteInputTokens: toInt(promptDetails?.cache_write_tokens),
     reasoningTokens: toInt(completionDetails?.reasoning_tokens),
   };
@@ -211,6 +217,30 @@ export function createRelayUsageParser(
         typeof event.modelVersion === "string" ? event.modelVersion : undefined,
       ...parseGoogleUsage(event.usageMetadata),
     }));
+  }
+
+  if (provider === "deepseek") {
+    // DeepSeek serves both APIs, so the wire shape isn't fixed by the
+    // provider. Streaming Responses events nest usage under `response`;
+    // non-streaming Responses bodies carry it at the top level with the same
+    // `input_tokens` field names; chat completions use `prompt_tokens`.
+    // Choose the parser from the usage payload itself rather than the
+    // envelope, so a non-streamed Responses reply still reports cache hits.
+    return createSseParser((event) => {
+      const response = asRecord(event.response);
+      const usage = asRecord(response?.usage ?? event.usage);
+      return {
+        model:
+          typeof response?.model === "string"
+            ? response.model
+            : typeof event.model === "string"
+              ? event.model
+              : undefined,
+        ...(usage?.input_tokens !== undefined
+          ? parseResponsesUsage(usage)
+          : parseOpenAIUsage(usage)),
+      };
+    });
   }
 
   if (provider === "openai" || provider === "fireworks") {

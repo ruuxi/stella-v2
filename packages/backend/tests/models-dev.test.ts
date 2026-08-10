@@ -40,6 +40,62 @@ describe("managed model price entries", () => {
     ]);
   });
 
+  it("resolves DeepSeek V4 Flash from DeepSeek's own namespace", () => {
+    const model = "deepseek/deepseek-v4-flash";
+    const result = buildManagedModelPriceEntries({
+      data: {
+        deepseek: {
+          models: {
+            "deepseek-v4-flash": {
+              id: "deepseek-v4-flash",
+              cost: { input: 0.14, output: 0.28, cache_read: 0.0028 },
+              modalities: { input: ["text"], output: ["text"] },
+              last_updated: "2026-07-31",
+            },
+          },
+        },
+      },
+      modelIds: [model],
+      syncedAt: 123,
+    });
+
+    expect(result.missingModels).toEqual([]);
+    expect(result.entries).toEqual([
+      expect.objectContaining({
+        model,
+        source: "models.dev",
+        sourceProvider: "deepseek",
+        sourceModelId: "deepseek-v4-flash",
+        inputPerMillionUsd: 0.14,
+        outputPerMillionUsd: 0.28,
+        cacheReadPerMillionUsd: 0.0028,
+        // DeepSeek never charges to populate the cache.
+        cacheWritePerMillionUsd: 0,
+      }),
+    ]);
+  });
+
+  it("fills DeepSeek V4 Flash from static overrides when models.dev is empty", () => {
+    const model = "deepseek/deepseek-v4-flash";
+    const result = buildManagedModelPriceEntries({
+      data: {},
+      modelIds: [model],
+      syncedAt: 123,
+    });
+
+    expect(result.missingModels).toEqual([]);
+    expect(result.entries).toEqual([
+      expect.objectContaining({
+        model,
+        source: "static",
+        inputPerMillionUsd: 0.14,
+        outputPerMillionUsd: 0.28,
+        cacheReadPerMillionUsd: 0.0028,
+        reasoningPerMillionUsd: 0.28,
+      }),
+    ]);
+  });
+
   it("falls back to the output rate when models.dev omits cost.reasoning", () => {
     const model = "google/gemini-3.1-flash-lite";
     const { entries } = buildManagedModelPriceEntries({

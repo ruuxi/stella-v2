@@ -2,7 +2,10 @@ import { describe, expect, it } from "bun:test";
 
 import { createRelayUsageParser } from "../../convex/stella_provider/relay_usage";
 
-const feed = (parser: ReturnType<typeof createRelayUsageParser>, chunks: string[]) => {
+const feed = (
+  parser: ReturnType<typeof createRelayUsageParser>,
+  chunks: string[],
+) => {
   for (const chunk of chunks) {
     parser.pushText(chunk);
   }
@@ -171,6 +174,94 @@ describe("createRelayUsageParser", () => {
         totalTokens: 33,
         cachedInputTokens: 5,
         reasoningTokens: 9,
+      });
+    });
+  });
+
+  describe("deepseek", () => {
+    it("reads cached_tokens off a streamed Responses event", () => {
+      const parser = createRelayUsageParser("deepseek");
+      const usage = feed(parser, [
+        `data: ${JSON.stringify({
+          type: "response.completed",
+          response: {
+            model: "deepseek-v4-flash",
+            usage: {
+              input_tokens: 4096,
+              output_tokens: 120,
+              total_tokens: 4216,
+              input_tokens_details: { cached_tokens: 3968 },
+              output_tokens_details: { reasoning_tokens: 80 },
+            },
+          },
+        })}\n\n`,
+      ]);
+
+      expect(usage).toEqual({
+        model: "deepseek-v4-flash",
+        inputTokens: 4096,
+        outputTokens: 120,
+        totalTokens: 4216,
+        cachedInputTokens: 3968,
+        reasoningTokens: 80,
+      });
+    });
+
+    it("reads cached_tokens off a non-streamed Responses body", () => {
+      // Plain JSON, so usage sits at the top level with no `response`
+      // envelope — the parser has to pick its shape from the usage fields.
+      const parser = createRelayUsageParser("deepseek");
+      const usage = feed(parser, [
+        JSON.stringify({
+          id: "resp_1",
+          object: "response",
+          model: "deepseek-v4-flash",
+          usage: {
+            input_tokens: 200,
+            output_tokens: 30,
+            total_tokens: 230,
+            input_tokens_details: { cached_tokens: 128 },
+          },
+        }),
+      ]);
+
+      expect(usage).toEqual({
+        model: "deepseek-v4-flash",
+        inputTokens: 200,
+        outputTokens: 30,
+        totalTokens: 230,
+        cachedInputTokens: 128,
+        cacheWriteInputTokens: undefined,
+        reasoningTokens: undefined,
+      });
+    });
+
+    it("reads prompt_cache_hit_tokens off chat completions", () => {
+      // DeepSeek reports chat-completions cache hits at the top level rather
+      // than under prompt_tokens_details, and `prompt_tokens` is already
+      // gross (hit + miss). Missing this bills every cached read at full rate.
+      const parser = createRelayUsageParser("deepseek");
+      const usage = feed(parser, [
+        `data: ${JSON.stringify({
+          model: "deepseek-v4-flash",
+          usage: {
+            prompt_tokens: 1000,
+            completion_tokens: 40,
+            total_tokens: 1040,
+            prompt_cache_hit_tokens: 960,
+            prompt_cache_miss_tokens: 40,
+            completion_tokens_details: { reasoning_tokens: 25 },
+          },
+        })}\n\n`,
+      ]);
+
+      expect(usage).toMatchObject({
+        model: "deepseek-v4-flash",
+        inputTokens: 1000,
+        outputTokens: 40,
+        totalTokens: 1040,
+        cachedInputTokens: 960,
+        reasoningTokens: 25,
       });
     });
   });

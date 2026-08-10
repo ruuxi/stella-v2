@@ -194,9 +194,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("does not let an unauthenticated extension bypass provider login", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasManagedAuth = vi
       .spyOn(modelRuntime, "hasRuntimeManagedAuth")
       .mockReturnValue(false);
@@ -233,9 +231,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("routes an origin-verified custom local proxy without credentials", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasManagedAuth = vi
       .spyOn(modelRuntime, "hasRuntimeManagedAuth")
       .mockReturnValue(false);
@@ -271,9 +267,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("does not send an empty key for a configured authHeader requirement", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasOrigin = vi
       .spyOn(modelRuntime, "hasRuntimeProviderOrigin")
       .mockReturnValue(true);
@@ -303,9 +297,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("prefers a credentialless models.json Moonshot origin over the legacy alias", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasOrigin = vi
       .spyOn(modelRuntime, "hasRuntimeProviderOrigin")
       .mockReturnValue(true);
@@ -335,9 +327,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("prefers an authenticated Moonshot extension origin over the legacy alias", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasOrigin = vi
       .spyOn(modelRuntime, "hasRuntimeProviderOrigin")
       .mockReturnValue(true);
@@ -374,9 +364,7 @@ describe("resolveLlmRoute", () => {
 
   it("keeps the legacy Moonshot-to-Kimi alias when no direct origin exists", async () => {
     credentials.set("kimi-coding", "legacy-kimi-token");
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasOrigin = vi
       .spyOn(modelRuntime, "hasRuntimeProviderOrigin")
       .mockReturnValue(false);
@@ -402,9 +390,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("does not resolve configured command auth until the request asks for it", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasConfigured = vi
       .spyOn(modelRuntime, "hasRuntimeManagedAuth")
       .mockReturnValue(true);
@@ -453,9 +439,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("supports a header-only Responses provider without an API key", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasManagedAuth = vi
       .spyOn(modelRuntime, "hasRuntimeManagedAuth")
       .mockReturnValue(true);
@@ -480,9 +464,7 @@ describe("resolveLlmRoute", () => {
       expect(configuredHeaders).not.toHaveBeenCalled();
       await expect(resolved.getApiKey()).resolves.toBeUndefined();
       expect(configuredHeaders).toHaveBeenCalledTimes(1);
-      expect(resolved.model.headers?.Authorization).toBe(
-        "Bearer header-token",
-      );
+      expect(resolved.model.headers?.Authorization).toBe("Bearer header-token");
     } finally {
       hasManagedAuth.mockRestore();
       resolveManagedAuth.mockRestore();
@@ -491,9 +473,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("defers an unresolved configured key and never routes it as empty", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasConfigured = vi
       .spyOn(modelRuntime, "hasRuntimeManagedAuth")
       .mockReturnValue(true);
@@ -527,9 +507,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("routes a known provider whose extension owns authentication", async () => {
-    const { modelRuntime } = await import(
-      "@stella/runtime/ai/model-runtime"
-    );
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasManagedAuth = vi
       .spyOn(modelRuntime, "hasRuntimeManagedAuth")
       .mockReturnValue(true);
@@ -571,7 +549,7 @@ describe("resolveLlmRoute", () => {
     expect(resolved.route).toBe("stella");
     expect(resolved.model.id).toBe("stella/default");
     expect(resolved.model.api).toBe("openai-responses");
-    expect(resolved.model.provider).toBe("fireworks");
+    expect(resolved.model.provider).toBe("deepseek");
   });
 
   it("routes explicit `stella/<provider>/<model>` ids through Stella unchanged", async () => {

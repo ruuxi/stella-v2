@@ -31,6 +31,8 @@ import { createRelayUsageParser } from "./stella_provider/relay_usage";
 import {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
+  STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH,
+  STELLA_DEEPSEEK_RESPONSES_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
   STELLA_GOOGLE_MODELS_PATH_PREFIX,
   STELLA_MODELS_PATH,
@@ -48,6 +50,8 @@ import {
 export {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
+  STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH,
+  STELLA_DEEPSEEK_RESPONSES_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
   STELLA_GOOGLE_MODELS_PATH_PREFIX,
   STELLA_MODELS_PATH,
@@ -202,6 +206,13 @@ export const upstreamUrl = (
     }
     case "fireworks":
       return `${base}/responses`;
+    case "deepseek":
+      // DeepSeek serves both APIs off the root. Honor whichever the client
+      // asked for: desktop builds that predate the `deepseek/` prefix infer
+      // `openrouter` and post chat completions, and they must keep working.
+      return requestUrl.pathname.endsWith("/chat/completions")
+        ? `${base}/chat/completions`
+        : `${base}/responses`;
     case "xai":
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
@@ -228,6 +239,7 @@ const isResponsesRequest = (
   if (
     provider !== "openai" &&
     provider !== "fireworks" &&
+    provider !== "deepseek" &&
     provider !== "xai" &&
     provider !== "meta"
   ) {
@@ -481,6 +493,86 @@ const normalizeChatReasoning = (
   }
 };
 
+/**
+ * Params DeepSeek documents as silently ignored. They cost nothing upstream,
+ * but `store: true` in particular is a lie — the Responses API is stateless,
+ * so `previous_response_id` continuations would fail. Dropping them keeps the
+ * relayed body an honest description of what DeepSeek will actually do.
+ */
+const DEEPSEEK_IGNORED_PARAMS = [
+  "store",
+  "include",
+  "prompt_cache_key",
+  "prompt_cache_retention",
+  "previous_response_id",
+  "conversation",
+  "service_tier",
+  "background",
+  "metadata",
+  "parallel_tool_calls",
+] as const;
+
+/**
+ * DeepSeek V4 Flash's native effort ladder is `low | high | max` (default
+ * `high`), so Stella's wider set has to be clamped. This runs on the relay
+ * rather than only in the client's `thinkingLevelMap` because already-shipped
+ * desktop builds still send `"medium"`, which is not in DeepSeek's ladder.
+ */
+const deepSeekReasoningEffort = (raw: unknown): string => {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  switch (value) {
+    case "none":
+    case "off":
+      return "none";
+    case "minimal":
+    case "low":
+      return "low";
+    case "xhigh":
+    case "max":
+      return "max";
+    default:
+      // Covers "medium", "high" and anything unrecognized. `high` is
+      // DeepSeek's own default, so this preserves the Fireworks-era behavior.
+      return "high";
+  }
+};
+
+const normalizeDeepSeekBody = (
+  body: Record<string, unknown>,
+  isResponses: boolean,
+): void => {
+  for (const key of DEEPSEEK_IGNORED_PARAMS) {
+    delete body[key];
+  }
+
+  const reasoning =
+    body.reasoning &&
+    typeof body.reasoning === "object" &&
+    !Array.isArray(body.reasoning)
+      ? (body.reasoning as Record<string, unknown>)
+      : null;
+  const effort = deepSeekReasoningEffort(
+    reasoning?.effort ?? body.reasoning_effort,
+  );
+
+  if (isResponses) {
+    // `summary` is accepted but never generated; sending it is noise.
+    body.reasoning = { effort };
+    delete body.reasoning_effort;
+    return;
+  }
+
+  // Chat completions use DeepSeek's own `thinking` object plus a top-level
+  // `reasoning_effort`; the nested Responses-style object is not understood.
+  body.thinking = { type: effort === "none" ? "disabled" : "enabled" };
+  delete body.reasoning;
+  if (effort === "none") {
+    delete body.reasoning_effort;
+  } else {
+    body.reasoning_effort = effort;
+  }
+};
+
 const normalizeChatCompletionsBody = (
   body: Record<string, unknown>,
   resolvedModel: string,
@@ -542,15 +634,23 @@ export const bodyForUpstream = (
   }
   if (isResponsesRequest(provider, request)) {
     normalizeResponsesBody(body);
-    // Keep provider-side response state available for Responses continuations.
-    body.store = true;
+    if (provider !== "deepseek") {
+      // Keep provider-side response state available for Responses
+      // continuations. DeepSeek is stateless and ignores `store` entirely.
+      body.store = true;
+    }
   }
 
   const pathIsChatCompletions = new URL(request.url).pathname.endsWith(
     "/chat/completions",
   );
   const isChatCompletions = provider === "openrouter" || pathIsChatCompletions;
-  if (
+  if (provider === "deepseek") {
+    if (pathIsChatCompletions) {
+      normalizeChatCompletionsBody(body, authorized.resolvedModel);
+    }
+    normalizeDeepSeekBody(body, !pathIsChatCompletions);
+  } else if (
     provider === "openrouter" ||
     ((provider === "meta" || provider === "xai") && pathIsChatCompletions)
   ) {

@@ -22,10 +22,8 @@ describe("resolveModelConfig single-model enforcement", () => {
         undefined,
         { audience },
       );
-      expect(resolved.model).toBe(
-        "accounts/fireworks/models/deepseek-v4-flash-0731",
-      );
-      expect(resolved.managedGatewayProvider).toBe("fireworks");
+      expect(resolved.model).toBe("deepseek/deepseek-v4-flash");
+      expect(resolved.managedGatewayProvider).toBe("deepseek");
     }
   });
 
@@ -39,10 +37,8 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe(
-      "accounts/fireworks/models/deepseek-v4-flash-0731",
-    );
-    expect(resolved.managedGatewayProvider).toBe("fireworks");
+    expect(resolved.model).toBe("deepseek/deepseek-v4-flash");
+    expect(resolved.managedGatewayProvider).toBe("deepseek");
   });
 
   it("rejects a retired explicit upstream override even for Pro", async () => {
@@ -55,15 +51,13 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe(
-      "accounts/fireworks/models/deepseek-v4-flash-0731",
-    );
-    expect(resolved.managedGatewayProvider).toBe("fireworks");
+    expect(resolved.model).toBe("deepseek/deepseek-v4-flash");
+    expect(resolved.managedGatewayProvider).toBe("deepseek");
   });
 
   it("ignores a mode override a restricted tier may not pick", async () => {
     // free can't override designer → falls back to the primary agent's
-    // backend default (DeepSeek V4 Flash on Fireworks).
+    // backend default (DeepSeek V4 Flash, direct).
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,
@@ -73,9 +67,7 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "free",
       },
     );
-    expect(resolved.model).toBe(
-      "accounts/fireworks/models/deepseek-v4-flash-0731",
-    );
-    expect(resolved.managedGatewayProvider).toBe("fireworks");
+    expect(resolved.model).toBe("deepseek/deepseek-v4-flash");
+    expect(resolved.managedGatewayProvider).toBe("deepseek");
   });
 });

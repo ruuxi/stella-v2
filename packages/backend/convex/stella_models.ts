@@ -6,6 +6,7 @@ import {
   isStellaModelAllowedForAudience,
   listManagedModelIds,
   LOCKED_AGENT_TYPES,
+  resolveManagedModelRouteAlias,
   type ManagedModelAudience,
   type ModelConfig,
   type ModelMode,
@@ -25,7 +26,7 @@ export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 9, 1, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 9, 18, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -51,6 +52,7 @@ export type StellaDefaultEntry = {
 
 const DISPLAY_NAMES: Record<string, string> = {
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
+  "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",
 };
 
 const titleCase = (value: string): string =>
@@ -156,7 +158,7 @@ export const resolveStellaModelSelection = (
   }
   const parsed = parseStellaModelSelection(selection);
   if (parsed?.kind === "upstream") {
-    return parsed.model;
+    return resolveManagedModelRouteAlias(parsed.model);
   }
   if (parsed?.kind === "mode") {
     return getModeConfig(parsed.mode, audience).model;
@@ -201,13 +203,14 @@ export const resolveStellaModelConfigForSelection = (
     return { config: getModeConfig(parsed.mode, audience), applied: true };
   }
   if (allowed && parsed?.kind === "upstream") {
+    // Aliased first so a pinned legacy spelling lands on the active route's
+    // gateway rather than reviving the idle one.
+    const model = resolveManagedModelRouteAlias(parsed.model);
     return {
       config: {
         ...getModelConfig(agentType, audience),
-        model: parsed.model,
-        managedGatewayProvider: inferManagedGatewayProviderFromModel(
-          parsed.model,
-        ),
+        model,
+        managedGatewayProvider: inferManagedGatewayProviderFromModel(model),
       },
       applied: true,
     };

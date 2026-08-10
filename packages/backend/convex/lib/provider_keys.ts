@@ -55,7 +55,11 @@ export async function resolveByokApiKey(
   }
 
   // 2. OpenRouter fallback
-  const openrouterKey = await getUserProviderKey(ctx, ownerId, "llm:openrouter");
+  const openrouterKey = await getUserProviderKey(
+    ctx,
+    ownerId,
+    "llm:openrouter",
+  );
   if (openrouterKey) return { apiKey: openrouterKey, source: "openrouter" };
 
   return null;
@@ -87,6 +91,7 @@ export const PROVIDER_ENV_KEY_MAP: Record<string, string> = {
   inception: "INCEPTION_API_KEY",
   baseten: "BASETEN_API_KEY",
   fireworks: "FIREWORKS_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
   meta: "META_MODEL_API_KEY",
 };
 

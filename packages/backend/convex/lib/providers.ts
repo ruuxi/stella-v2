@@ -2,7 +2,13 @@
  * Backend-local provider registry for model resolution and BYOK lookup.
  */
 
-export type SdkType = "anthropic" | "openai" | "amazon-bedrock" | "google" | "gitlab" | "baseten";
+export type SdkType =
+  | "anthropic"
+  | "openai"
+  | "amazon-bedrock"
+  | "google"
+  | "gitlab"
+  | "baseten";
 
 /**
  * Maps provider strings to their AI SDK constructor type.
@@ -33,6 +39,7 @@ export const PROVIDER_SDK_MAP: Record<string, SdkType> = {
   zai: "openai",
   inception: "openai",
   fireworks: "openai",
+  deepseek: "openai",
   meta: "openai",
 
   // Baseten (native SDK)
@@ -89,6 +96,7 @@ export const PROVIDER_SECRET_KEYS: Record<string, string> = {
   inception: "llm:inception",
   baseten: "llm:baseten",
   fireworks: "llm:fireworks",
+  deepseek: "llm:deepseek",
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

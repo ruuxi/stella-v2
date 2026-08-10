@@ -7,6 +7,7 @@ import type { ManagedGatewayProvider } from "../../convex/lib/managed_gateway";
 const RESOLVED_MODELS: Record<ManagedGatewayProvider, string> = {
   anthropic: "anthropic/claude-opus-5",
   fireworks: "accounts/fireworks/models/kimi-k2p6",
+  deepseek: "deepseek/deepseek-v4-flash",
   google: "google/gemini-3.6-flash",
   meta: "meta/muse-spark-1.1",
   openai: "openai/gpt-5.5",
@@ -17,6 +18,7 @@ const RESOLVED_MODELS: Record<ManagedGatewayProvider, string> = {
 const UPSTREAM_MODELS: Record<ManagedGatewayProvider, string> = {
   anthropic: "claude-opus-5",
   fireworks: "accounts/fireworks/models/kimi-k2p6",
+  deepseek: "deepseek-v4-flash",
   google: "gemini-3.6-flash",
   meta: "muse-spark-1.1",
   openai: "gpt-5.5",
@@ -346,6 +348,135 @@ describe("direct xAI Grok relay", () => {
     expect(body.reasoning_effort).toBeUndefined();
     expect(body.reasoning).toEqual({ effort: "high" });
     expect(body.store).toBe(true);
+  });
+});
+
+describe("direct DeepSeek relay", () => {
+  it("routes both DeepSeek APIs off api.deepseek.com's root", () => {
+    expect(
+      upstreamUrl(
+        "deepseek",
+        requestFor("/api/stella/deepseek/v1/responses"),
+        "deepseek-v4-flash",
+      ),
+    ).toBe("https://api.deepseek.com/responses");
+    expect(
+      upstreamUrl(
+        "deepseek",
+        requestFor("/api/stella/deepseek/v1/chat/completions"),
+        "deepseek-v4-flash",
+      ),
+    ).toBe("https://api.deepseek.com/chat/completions");
+  });
+
+  it("strips the deepseek/ prefix and the params DeepSeek ignores", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("deepseek", {
+          model: "stella/default",
+          input: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "medium", summary: "auto" },
+          prompt_cache_key: "session-1",
+          prompt_cache_retention: "24h",
+          include: ["reasoning.encrypted_content"],
+          service_tier: "priority",
+          stream: true,
+        }),
+        "deepseek",
+        requestFor("/api/stella/deepseek/v1/responses"),
+      ),
+    );
+
+    expect(body.model).toBe("deepseek-v4-flash");
+    // DeepSeek's Responses API is stateless — claiming otherwise would make a
+    // `previous_response_id` continuation look supported when it isn't.
+    expect(body.store).toBeUndefined();
+    expect(body.prompt_cache_key).toBeUndefined();
+    expect(body.prompt_cache_retention).toBeUndefined();
+    expect(body.include).toBeUndefined();
+    expect(body.service_tier).toBeUndefined();
+  });
+
+  it("clamps Stella's effort ladder onto DeepSeek's low/high/max", () => {
+    const effortFor = (
+      requested: Record<string, unknown>,
+      path = "/api/stella/deepseek/v1/responses",
+    ) =>
+      JSON.parse(
+        bodyForUpstream(
+          makeAuthorized("deepseek", {
+            model: "stella/default",
+            input: [{ role: "user", content: "hi" }],
+            ...requested,
+          }),
+          "deepseek",
+          requestFor(path),
+        ),
+      );
+
+    expect(effortFor({ reasoning: { effort: "minimal" } }).reasoning).toEqual({
+      effort: "low",
+    });
+    // Older desktop builds still send "medium", which is not in DeepSeek's
+    // ladder; "high" is DeepSeek's own default and matches the Fireworks era.
+    expect(effortFor({ reasoning: { effort: "medium" } }).reasoning).toEqual({
+      effort: "high",
+    });
+    expect(effortFor({ reasoning_effort: "xhigh" }).reasoning).toEqual({
+      effort: "max",
+    });
+    expect(effortFor({ reasoning: { effort: "off" } }).reasoning).toEqual({
+      effort: "none",
+    });
+    expect(effortFor({}).reasoning).toEqual({ effort: "high" });
+  });
+
+  it("uses DeepSeek's thinking object on the chat-completions path", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("deepseek", {
+          model: "stella/default",
+          messages: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "medium" },
+          stream: true,
+        }),
+        "deepseek",
+        requestFor("/api/stella/deepseek/v1/chat/completions"),
+      ),
+    );
+
+    expect(body.model).toBe("deepseek-v4-flash");
+    expect(body.thinking).toEqual({ type: "enabled" });
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.reasoning).toBeUndefined();
+    expect(body.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("converts a stale Responses body for the chat-completions path", () => {
+    // Desktop builds that predate the `deepseek/` prefix infer `openrouter`
+    // and post chat completions; the reverse can happen mid-rollout too.
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("deepseek", {
+          model: "stella/default",
+          input: [
+            { role: "user", content: [{ type: "input_text", text: "hi" }] },
+          ],
+          max_output_tokens: 256,
+          reasoning: { effort: "off" },
+        }),
+        "deepseek",
+        requestFor("/api/stella/relay/chat/completions"),
+      ),
+    );
+
+    expect(body.input).toBeUndefined();
+    expect(body.messages).toEqual([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+    expect(body.max_completion_tokens).toBe(256);
+    expect(body.thinking).toEqual({ type: "disabled" });
+    expect(body.reasoning_effort).toBeUndefined();
   });
 });
 

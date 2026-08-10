@@ -88,10 +88,10 @@ const STELLA_PRESET_FALLBACK_DEFS: ReadonlyArray<{
   upstreamModel: string;
 }> = [
   {
-    id: "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
-    modelId: "accounts/fireworks/models/deepseek-v4-flash-0731",
-    name: "DeepSeek V4 Flash 0731",
-    upstreamModel: "accounts/fireworks/models/deepseek-v4-flash-0731",
+    id: "stella/deepseek/deepseek-v4-flash",
+    modelId: "deepseek/deepseek-v4-flash",
+    name: "DeepSeek V4 Flash",
+    upstreamModel: "deepseek/deepseek-v4-flash",
   },
 ];
 
@@ -319,6 +319,7 @@ export function getStellaSubtitle(model: CatalogModel): string | null {
 }
 
 const STELLA_UPSTREAM_MODEL_NAMES = new Map<string, string>([
+  ["deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"],
   [
     "accounts/fireworks/models/deepseek-v4-flash-0731",
     "DeepSeek V4 Flash 0731",

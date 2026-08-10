@@ -1,6 +1,7 @@
 export const MANAGED_GATEWAY_PROVIDERS = [
   "openrouter",
   "fireworks",
+  "deepseek",
   "xai",
   "openai",
   "anthropic",
@@ -40,6 +41,13 @@ const MANAGED_GATEWAY_CONFIGS: Record<
     baseURL: "https://api.fireworks.ai/inference/v1",
     apiKeyEnvVar: "FIREWORKS_API_KEY",
   },
+  // DeepSeek first-party API. Both `/responses` and `/chat/completions` hang
+  // off the root — there is no `/v1` segment for the Responses endpoint.
+  deepseek: {
+    provider: "deepseek",
+    baseURL: "https://api.deepseek.com",
+    apiKeyEnvVar: "DEEPSEEK_API_KEY",
+  },
   xai: {
     provider: "xai",
     baseURL: "https://api.x.ai/v1",
@@ -77,6 +85,7 @@ const FIREWORKS_MODEL_PREFIXES = [
 ] as const;
 
 const DIRECT_MODEL_PROVIDER_PREFIXES = [
+  ["deepseek/", "deepseek"],
   ["x-ai/", "xai"],
   ["xai/", "xai"],
   ["openai/", "openai"],

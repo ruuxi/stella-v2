@@ -176,6 +176,9 @@ function providerFromBaseUrl(baseUrl: string): string {
   if (baseUrl.includes("api.fireworks.ai")) {
     return "fireworks";
   }
+  if (baseUrl.includes("api.deepseek.com")) {
+    return "deepseek";
+  }
   if (baseUrl.includes("api.x.ai")) {
     return "xai";
   }
@@ -198,6 +201,9 @@ function providerFromBaseUrl(baseUrl: string): string {
 }
 
 function modelIdForGateway(model: string, provider: string): string {
+  if (provider === "deepseek" && model.startsWith("deepseek/")) {
+    return model.slice("deepseek/".length);
+  }
   if (provider === "xai" && model.startsWith("x-ai/")) {
     return model.slice("x-ai/".length);
   }
@@ -223,6 +229,7 @@ function resolveManagedProtocol(args: {
   });
   if (
     gateway.provider === "fireworks" ||
+    gateway.provider === "deepseek" ||
     gateway.provider === "xai" ||
     gateway.provider === "openai"
   ) {

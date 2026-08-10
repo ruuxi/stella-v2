@@ -229,12 +229,14 @@ export function buildActivityTasks(
         latestAttempt,
       )
       const recordOwnsAttempt = !latestAttemptOwns
-      const observedDescription = latestAttemptOwns
-        ? normalizeTaskDisplayStatusText(candidateDecoration?.statusText)
-        : undefined
       return {
         id: record.threadId,
-        description: observedDescription ?? record.description,
+        // The row title identifies the delegated task and must stay stable.
+        // A newer live attempt may temporarily own lifecycle presentation
+        // while the durable row catches up, but its statusText is ephemeral
+        // tool/progress activity (for example, "Running Node Repl"), not a
+        // replacement description.
+        description: record.description,
         agentType: record.agentType,
         source: record.source,
         readOnly: record.source === 'claude-native' || record.readOnly === true,

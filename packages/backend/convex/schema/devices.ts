@@ -35,18 +35,16 @@ export const devicesSchema = {
     /** The anonymous trial allowance. This count is what gates access. */
     requestCount: v.number(),
     /**
-     * Measured managed-model cost those requests incurred since
-     * `firstRequestAt`. Measurement only — it never gates; pairing it with
-     * `requestCount` is what answers "what is an anonymous request worth?".
-     * Optional because rows predate the counter; readers default to 0.
+     * RETIRED — awaiting removal. These two recorded what anonymous requests
+     * cost, to help size the allowance; the allowance is a single request, so
+     * there was nothing to size. Nothing reads or writes them anymore.
+     *
+     * They stay declared only because Convex validates live documents against
+     * this schema, and production rows still carry the fields. Drop both lines
+     * once `anon_usage_migrations:clearAnonymousUsageCost` has run on prod
+     * with `{"dryRun": false}`, and delete that migration with them.
      */
     usageMicroCents: v.optional(v.number()),
-    /**
-     * Which counter this row is: the per-install trial (`device`) or the
-     * durable per-IP ceiling (`ip`). Both are stored as opaque hashes, so
-     * without this the measurement query cannot tell one person's trial from
-     * a whole network's. Optional for rows written before the field existed.
-     */
     bucket: v.optional(v.union(v.literal("device"), v.literal("ip"))),
     firstRequestAt: v.number(),
     lastRequestAt: v.number(),

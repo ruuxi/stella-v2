@@ -46,11 +46,9 @@ import {
 import { enforceActionRateLimit, RATE_EXPENSIVE } from "./lib/rate_limits";
 import {
   ANON_DEVICE_USAGE_RETENTION_DAYS,
-  ANON_IP_BUCKET_DEVICE_ID,
   getMaxAnonRequests,
   getMaxAnonRequestsPerIp,
 } from "./lib/anonymous_usage";
-import { addDeviceUsageCost } from "./ai_proxy_data";
 
 const planValidator = v.union(
   v.literal("free"),
@@ -666,15 +664,6 @@ export type ManagedUsageRecordArgs = {
   costMicroCents?: number;
   fallbackUsed?: boolean;
   toolCalls?: number;
-  /**
-   * Signed-out callers only. Records the measured cost against the anonymous
-   * device bucket (and the per-IP bucket when the address is known) in the
-   * same transaction that meters the request, so the count and the dollars it
-   * bought can never drift. Measurement only — the anonymous trial is gated
-   * on the request count, not on this figure.
-   */
-  anonDeviceId?: string;
-  anonClientAddressKey?: string;
 };
 
 const getManagedModelPriceRow = async (
@@ -788,25 +777,6 @@ export const persistManagedUsage = async (
     totalRequestCount: toNonNegativeInt(usage.totalRequestCount) + 1,
     updatedAt: now,
   });
-
-  if (args.anonDeviceId) {
-    await addDeviceUsageCost(ctx, {
-      deviceId: args.anonDeviceId,
-      costMicroCents,
-      bucket: "device",
-      ...(args.anonClientAddressKey
-        ? { clientAddressKey: args.anonClientAddressKey }
-        : {}),
-    });
-    if (args.anonClientAddressKey) {
-      await addDeviceUsageCost(ctx, {
-        deviceId: ANON_IP_BUCKET_DEVICE_ID,
-        costMicroCents,
-        bucket: "ip",
-        clientAddressKey: args.anonClientAddressKey,
-      });
-    }
-  }
 
   if (creditToConsumeMicroCents > 0) {
     const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
@@ -2056,8 +2026,6 @@ export const logManagedUsage = internalMutation({
     cacheWriteInputTokens: v.optional(v.number()),
     reasoningTokens: v.optional(v.number()),
     costMicroCents: v.optional(v.number()),
-    anonDeviceId: v.optional(v.string()),
-    anonClientAddressKey: v.optional(v.string()),
   },
   handler: async (ctx, args) =>
     await persistManagedUsage(ctx, {
@@ -2074,8 +2042,6 @@ export const logManagedUsage = internalMutation({
       cacheWriteInputTokens: args.cacheWriteInputTokens,
       reasoningTokens: args.reasoningTokens,
       costMicroCents: args.costMicroCents,
-      anonDeviceId: args.anonDeviceId,
-      anonClientAddressKey: args.anonClientAddressKey,
     }),
 });
 

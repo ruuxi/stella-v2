@@ -282,13 +282,12 @@ describe("free lifetime allowance", () => {
 });
 
 describe("anonymous request allowance", () => {
-  it("gates on the request count, not on what the requests cost", async () => {
+  it("allows the capped number of requests and then stops", async () => {
     const t = convexTest(schema, modules);
     const consume = () =>
       t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
         deviceId: "anon-jwt:device-a",
         maxRequests: ANON_MAX_REQUESTS,
-        bucket: "device" as const,
       });
 
     const first = await consume();
@@ -298,85 +297,37 @@ describe("anonymous request allowance", () => {
     expect(second).toMatchObject({ allowed: false, requestCount: 2 });
   });
 
-  it("keeps serving while under the cap even after expensive requests", async () => {
+  it("keeps a separate, larger allowance for the per-IP bucket", async () => {
     const t = convexTest(schema, modules);
-    const deviceId = "anon-jwt:device-generous";
-    const consume = () =>
+    const clientAddressKey = "203.0.113.7";
+    const consumeIp = () =>
       t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
-        deviceId,
-        // A cap above 1, to prove cost is not what closes the door.
-        maxRequests: 3,
-        bucket: "device" as const,
+        deviceId: "anon-ip",
+        maxRequests: ANON_MAX_REQUESTS * 10,
+        clientAddressKey,
       });
 
-    await consume();
-    // Far more spend than any dollar budget would have tolerated.
-    await t.mutation(internal.ai_proxy_data.recordDeviceUsageCost, {
-      deviceId,
-      costMicroCents: dollarsToMicroCents(5),
-      bucket: "device" as const,
-    });
-
-    const afterExpensiveRequest = await consume();
-    expect(afterExpensiveRequest).toMatchObject({
-      allowed: true,
-      requestCount: 2,
-      usageMicroCents: dollarsToMicroCents(5),
-    });
-  });
-
-  it("records relay cost against both the device and the per-IP bucket", async () => {
-    const t = convexTest(schema, modules);
-    const deviceId = "anon-jwt:https://issuer.test|anon-user";
-    const clientAddressKey = "203.0.113.7";
-
-    await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
-      deviceId,
-      maxRequests: ANON_MAX_REQUESTS,
-      bucket: "device" as const,
-      clientAddressKey,
-    });
-    await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
-      deviceId: "anon-ip",
-      maxRequests: ANON_MAX_REQUESTS * 10,
-      bucket: "ip" as const,
-      clientAddressKey,
-    });
-
-    await t.mutation(internal.billing.logManagedUsage, {
-      ownerId: "https://issuer.test|anon-user",
-      agentType: "orchestrator",
-      model: "deepseek/deepseek-v4-flash",
-      durationMs: 10,
-      success: true,
-      costMicroCents: dollarsToMicroCents(0.04),
-      anonDeviceId: deviceId,
-      anonClientAddressKey: clientAddressKey,
-    });
-
-    const rows = await t.run(async (ctx) =>
-      ctx.db.query("anon_device_usage").collect(),
-    );
-    expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      expect(row.usageMicroCents).toBe(dollarsToMicroCents(0.04));
+    // The device cap is 1, but the network ceiling must outlast it so a
+    // shared address is not starved by one install's trial.
+    for (let i = 0; i < ANON_MAX_REQUESTS * 10; i += 1) {
+      expect((await consumeIp()).allowed).toBe(true);
     }
-    expect(rows.map((row) => row.bucket).sort()).toEqual(["device", "ip"]);
+    expect((await consumeIp()).allowed).toBe(false);
   });
 
-  it("resets the count and the recorded cost after the inactivity window", async () => {
+  it("resets the count after the inactivity window", async () => {
     const t = convexTest(schema, modules);
     const deviceId = "anon-jwt:device-stale";
     await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
       deviceId,
       maxRequests: ANON_MAX_REQUESTS,
-      bucket: "device" as const,
     });
-    await t.mutation(internal.ai_proxy_data.recordDeviceUsageCost, {
-      deviceId,
-      costMicroCents: dollarsToMicroCents(0.02),
-      bucket: "device" as const,
-    });
+    expect(
+      await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
+        deviceId,
+        maxRequests: ANON_MAX_REQUESTS,
+      }),
+    ).toMatchObject({ allowed: false });
 
     // Backdate past the 7-day retention window.
     await t.run(async (ctx) => {
@@ -386,19 +337,128 @@ describe("anonymous request allowance", () => {
       });
     });
 
-    const afterReset = await t.mutation(
-      internal.ai_proxy_data.consumeDeviceAllowance,
-      {
+    expect(
+      await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
         deviceId,
         maxRequests: ANON_MAX_REQUESTS,
-        bucket: "device" as const,
-      },
-    );
-    expect(afterReset).toMatchObject({
-      allowed: true,
-      requestCount: 1,
-      usageMicroCents: 0,
+      }),
+    ).toMatchObject({ allowed: true, requestCount: 1 });
+  });
+
+  it("records no cost against anonymous rows", async () => {
+    const t = convexTest(schema, modules);
+    const deviceId = "anon-jwt:https://issuer.test|anon-user";
+
+    await t.mutation(internal.ai_proxy_data.consumeDeviceAllowance, {
+      deviceId,
+      maxRequests: ANON_MAX_REQUESTS,
     });
+    await t.mutation(internal.billing.logManagedUsage, {
+      ownerId: "https://issuer.test|anon-user",
+      agentType: "orchestrator",
+      model: "deepseek/deepseek-v4-flash",
+      durationMs: 10,
+      success: true,
+      costMicroCents: dollarsToMicroCents(0.04),
+    });
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("anon_device_usage").collect(),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ requestCount: 1 });
+    expect(rows[0]!.usageMicroCents).toBeUndefined();
+    expect(rows[0]!.bucket).toBeUndefined();
+  });
+});
+
+describe("anonymous usage cost migration", () => {
+  const seedLegacyRows = async (t: ReturnType<typeof convexTest>) => {
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("anon_device_usage", {
+        deviceId: "sha256:legacy-device",
+        requestCount: 1,
+        usageMicroCents: dollarsToMicroCents(0.02),
+        bucket: "device",
+        firstRequestAt: now,
+        lastRequestAt: now,
+      });
+      await ctx.db.insert("anon_device_usage", {
+        deviceId: "sha256:legacy-ip",
+        requestCount: 4,
+        usageMicroCents: dollarsToMicroCents(0.08),
+        bucket: "ip",
+        firstRequestAt: now,
+        lastRequestAt: now,
+      });
+      await ctx.db.insert("anon_device_usage", {
+        deviceId: "sha256:already-clear",
+        requestCount: 1,
+        firstRequestAt: now,
+        lastRequestAt: now,
+      });
+    });
+  };
+
+  it("reports what it would clear without writing on a dry run", async () => {
+    const t = convexTest(schema, modules);
+    await seedLegacyRows(t);
+
+    const result = await t.mutation(
+      internal.anon_usage_migrations.clearAnonymousUsageCost,
+      {},
+    );
+    expect(result).toMatchObject({
+      dryRun: true,
+      scanned: 3,
+      truncated: false,
+      rowsCleared: 2,
+      rowsAlreadyClear: 1,
+      clearedUsd: 0.1,
+    });
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("anon_device_usage").collect(),
+    );
+    expect(
+      rows.filter((row) => row.usageMicroCents !== undefined),
+    ).toHaveLength(2);
+  });
+
+  it("removes both fields while leaving the live allowance intact", async () => {
+    const t = convexTest(schema, modules);
+    await seedLegacyRows(t);
+
+    const result = await t.mutation(
+      internal.anon_usage_migrations.clearAnonymousUsageCost,
+      { dryRun: false },
+    );
+    expect(result).toMatchObject({ dryRun: false, rowsCleared: 2 });
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db.query("anon_device_usage").collect(),
+    );
+    for (const row of rows) {
+      expect(row.usageMicroCents).toBeUndefined();
+      expect(row.bucket).toBeUndefined();
+    }
+    // The request counts and timestamps behind the 7-day reset survive.
+    expect(
+      rows.map((row) => row.requestCount).sort((a, b) => a - b),
+    ).toEqual([1, 1, 4]);
+    for (const row of rows) {
+      expect(row.firstRequestAt).toBeGreaterThan(0);
+      expect(row.lastRequestAt).toBeGreaterThan(0);
+    }
+
+    // Idempotent: a second pass finds nothing left to do.
+    expect(
+      await t.mutation(
+        internal.anon_usage_migrations.clearAnonymousUsageCost,
+        { dryRun: false },
+      ),
+    ).toMatchObject({ rowsCleared: 0, rowsAlreadyClear: 3 });
   });
 });
 
@@ -435,66 +495,6 @@ describe("trial budget measurement", () => {
       exhaustedCount: 1,
       exhaustedPct: 50,
       medianRequestsBeforeExhaustion: 20,
-    });
-  });
-
-  it("reports observed cost per anonymous request and per device", async () => {
-    const t = convexTest(schema, modules);
-
-    await t.run(async (ctx) => {
-      const now = Date.now();
-      // Two devices at different rates: $0.001/request and $0.003/request.
-      await ctx.db.insert("anon_device_usage", {
-        deviceId: "sha256:device-cheap",
-        requestCount: 4,
-        usageMicroCents: dollarsToMicroCents(0.004),
-        bucket: "device",
-        firstRequestAt: now,
-        lastRequestAt: now,
-      });
-      await ctx.db.insert("anon_device_usage", {
-        deviceId: "sha256:device-pricey",
-        requestCount: 2,
-        usageMicroCents: dollarsToMicroCents(0.006),
-        bucket: "device",
-        firstRequestAt: now,
-        lastRequestAt: now,
-      });
-      // An IP bucket, which aggregates a whole network and must be excluded
-      // from the per-person distribution.
-      await ctx.db.insert("anon_device_usage", {
-        deviceId: "sha256:ip-1",
-        requestCount: 500,
-        usageMicroCents: dollarsToMicroCents(0.9),
-        bucket: "ip",
-        firstRequestAt: now,
-        lastRequestAt: now,
-      });
-    });
-
-    const report = await t.query(
-      internal.billing_measurement.getTrialBudgetDistribution,
-      {},
-    );
-
-    expect(report.anonymousDevices).toMatchObject({
-      requestCap: ANON_MAX_REQUESTS,
-      perIpRequestCap: ANON_MAX_REQUESTS * 10,
-      sampleSize: 2,
-      activeSampleSize: 2,
-      totalRequests: 6,
-      totalUsd: 0.01,
-      // Pooled: $0.010 over 6 requests.
-      usdPerRequest: 0.001667,
-      // Per-device rates are $0.001 and $0.003; nearest-rank median is the
-      // lower of the two, and p90 the upper.
-      medianUsdPerRequest: 0.001,
-      p90UsdPerRequest: 0.003,
-      medianUsdPerDevice: 0.004,
-      p90UsdPerDevice: 0.006,
-      // What the configured cap is worth per device at those rates.
-      projectedUsdAtRequestCap: 0.001 * ANON_MAX_REQUESTS,
-      projectedP90UsdAtRequestCap: 0.003 * ANON_MAX_REQUESTS,
     });
   });
 });

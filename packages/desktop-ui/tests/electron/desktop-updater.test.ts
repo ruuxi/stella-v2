@@ -114,7 +114,7 @@ describe("DesktopUpdater", () => {
     );
   });
 
-  it("checks, downloads, reports progress, and delegates restart-and-install", async () => {
+  it("checks, downloads, reports progress, and silently restarts-and-installs", async () => {
     const client = new FakeUpdater();
     const states: string[] = [];
     const updater = new DesktopUpdater({
@@ -153,7 +153,7 @@ describe("DesktopUpdater", () => {
 
     expect(updater.restartAndInstall()).toEqual({ accepted: true });
     await new Promise((resolve) => setImmediate(resolve));
-    expect(client.quitAndInstall).toHaveBeenCalledWith(false, true);
+    expect(client.quitAndInstall).toHaveBeenCalledWith(true, true);
     updater.dispose();
   });
 

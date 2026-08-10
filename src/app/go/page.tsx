@@ -116,9 +116,9 @@ export default function GoPage() {
             <p className="go-eyebrow">Coding is only the start</p>
             <h2>Keep one assistant for the whole job.</h2>
             <p>
-              Use a focused chat for each project. Stella can take action in the
-              tools already on your computer and keep background work moving
-              while you switch to something else.
+              Keep one conversation for the whole job. Stella can take action in
+              the tools already on your computer while background agents keep
+              independent work moving.
             </p>
           </header>
 

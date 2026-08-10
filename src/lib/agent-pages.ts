@@ -52,13 +52,13 @@ const HOME_MD = `${header(
   "/",
   "Give Stella a task and keep moving. It can work with your computer, browser, files, and apps while your work stays local.",
 )}
-Stella is your personal AI assistant that lives on your computer. It can work
-with your files, browser, apps, and media, and it keeps separate projects in
-focused chats you can return to at any time.
+Stella is your personal AI assistant that lives on your computer. One ongoing
+chat handles your computer, files, browser, apps, and media while Stella routes
+the work to the right agents and tools.
 
-## One assistant, separate chats
-Keep related work together, open a new chat when the context changes, and let
-background tasks keep running while you move on.
+## One chat for everything
+No more juggling threads. Fire off a plan, a file, a message, and a background
+task at once — they all flow into the same conversation and come back together.
 
 ## Stella can drive your computer
 Keep working in one window while Stella moves through another — clicking,
@@ -251,10 +251,11 @@ const LEARN_MORE_MD = `${header(
   "Learn More — Stella, in detail",
   "/learn-more",
 )}
-A private, open-source personal assistant for your computer. Ask Stella to work
-with an app, file, browser, model, or tool, then keep moving while the work
-runs. Chats keep different projects focused, while background agents can handle
-independent work and report progress inline.
+A private, open-source desktop app that gives you one ongoing chat for your
+computer. Ask once, keep talking, and Stella figures out which agent, app, file,
+browser, model, or tool should handle the work. Background agents can handle
+independent work and report progress inline without making you manage separate
+threads.
 
 Source: https://github.com/ruuxi/stella-v2
 
@@ -264,15 +265,16 @@ with the real work on your machine instead of only answering questions in a web
 tab. You can use Stella for research, writing, spreadsheets, PDFs, Word
 documents, browser tasks, computer control, image generation, video and 3D
 workflows, media prompts, scheduling, reminders, dictation, realtime voice, and
-connected apps. Those capabilities belong in one personal desktop app, with
-focused chats and a consistent interface instead of a maze of separate tools
-and modes.
+connected apps. Those capabilities belong in one personal desktop app, one
+chat, and a consistent interface instead of a maze of separate tools and modes.
 
-## Keep every project in its place
-Open a chat for a project, switch instantly when your focus changes, and return
-without losing your place. Stella can split work into smaller jobs, run
-specialized agents, and bring their progress back into the chat. Running that
-crew in parallel is orchestrator mode, which comes with the Pro plan.
+## You keep talking in the same place
+Most agent products make you choose a mode, start a new thread, pick a
+specialist, then remember where everything went. Stella keeps the top-level
+experience continuous. Behind the scenes, it can split work into smaller jobs,
+run specialized agents, keep track of active threads, and bring the result back
+into the conversation. Orchestrator mode is the default, so you stay in one
+conversation instead of becoming the project manager for your assistant.
 
 ## What Stella can do
 - **Use your computer** — Inspect the screen, click, type, open apps, navigate windows, and work with what is actually in front of you.
@@ -477,8 +479,8 @@ export function renderLlmsTxt(): string {
   const lines = [
     "# Stella",
     "",
-    "> Stella is a private, open-source desktop AI assistant. Focused chats",
-    "> organize work across your computer, files, browser, apps, and media.",
+    "> Stella is a private, open-source desktop AI assistant. One ongoing chat",
+    "> coordinates work across your computer, files, browser, apps, and media.",
     "> Everything stays on your machine by",
     "> default. Each page below has a clean markdown version for agents.",
     "",

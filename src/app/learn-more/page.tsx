@@ -145,13 +145,14 @@ export default function LearnMore() {
                 Stella, <span className="learn-hero__accent">in detail</span>.
               </h1>
               <p>
-                A private, open-source personal assistant for your computer.
-                Ask Stella to work with an app, file, browser, model, or tool,
-                then keep moving while the work runs.
+                A private, open-source desktop app that gives you one ongoing
+                chat for your computer. Ask once, keep talking, and Stella
+                figures out which agent, app, file, browser, model, or tool
+                should handle the work.
               </p>
               <p>
-                Chats keep different projects focused, while background agents
-                can handle independent work and report progress inline.
+                Background agents can handle independent work and report
+                progress inline without making you manage separate threads.
               </p>
               <div className="learn-hero__actions">
                 <DownloadButton />
@@ -184,27 +185,28 @@ export default function LearnMore() {
                 reminders, dictation, realtime voice, and connected apps.
               </p>
               <p>
-                Those capabilities belong in one personal desktop app, with
-                focused chats and a consistent interface instead of a maze of
-                separate tools and modes.
+                Those capabilities belong in one personal desktop app, one chat,
+                and a consistent interface instead of a maze of separate tools
+                and modes.
               </p>
             </div>
           </section>
 
           <section id="one-chat" className="learn-section section-border">
-            <SectionHeader eyebrow="Chats" title="Keep every project in its place">
+            <SectionHeader eyebrow="One chat" title="You keep talking in the same place">
               <p>
-                Open a chat for a project, switch instantly when your focus
-                changes, and return without losing your place.
+                Most agent products make you choose a mode, start a new thread,
+                pick a specialist, then remember where everything went. Stella
+                keeps the top-level experience continuous.
               </p>
             </SectionHeader>
             <div className="learn-prose">
               <p>
-                Stella can split work into smaller jobs, run specialized agents,
-                and bring their progress back into the chat. You stay in control
-                without becoming the project manager for your assistant. Running
-                that crew in parallel is orchestrator mode, which comes with the
-                Pro plan.
+                Behind the scenes, Stella can split work into smaller jobs, run
+                specialized agents, keep track of active threads, and bring the
+                result back into the conversation. Orchestrator mode is the
+                default, so you stay in one conversation instead of becoming the
+                project manager for your assistant.
               </p>
             </div>
           </section>

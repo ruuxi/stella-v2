@@ -82,7 +82,6 @@ export function OnboardingView({
   isAuthenticated,
   splitMode,
   splitEntering = false,
-  hasDiscoverySelections,
   hasStarted,
   stellaAnimationRef,
   onboardingKey,
@@ -92,7 +91,6 @@ export function OnboardingView({
   startOnboarding,
   completeOnboarding,
   onDiscoveryConfirm,
-  onSelectionChange,
   onPhaseChange,
   discoveryWelcomeExpected = false,
   discoveryWelcomeReady = false,
@@ -118,9 +116,10 @@ export function OnboardingView({
   );
   const t = useT();
   const { locale, setLocale, supportedLocales } = useI18n();
-  // The creature is a hero visual, but onboarding is long-lived. Keep its
-  // canvas at a deliberately small render budget even on fast machines so
-  // it never competes with onboarding controls for the renderer thread.
+  // The creature is the hero visual of onboarding, so let it run at full
+  // display rate. The reduced tiers use 30 (not 24/15/12) because caps that
+  // don't divide 60Hz land frames on an uneven 33ms/50ms cadence — the
+  // resulting judder reads far choppier than the raw rate suggests.
   const lowPowerCreature = shouldUseLowPowerEffects();
   // The language switch is only relevant on the very first screen —
   // once the user starts, every other phase has its own layout and
@@ -164,7 +163,6 @@ export function OnboardingView({
         data-expanded={hasExpanded ? "true" : "false"}
         data-split={splitMode}
         data-split-entering={splitEntering || undefined}
-        data-has-selections={hasDiscoverySelections || undefined}
         data-hidden={stellaAnimationHidden || undefined}
         title="Click to sparkle"
       >
@@ -174,7 +172,7 @@ export function OnboardingView({
           width={70}
           height={39}
           maxDpr={1}
-          maxFps={splitMode ? 12 : lowPowerCreature ? 15 : 24}
+          maxFps={splitMode || lowPowerCreature ? 30 : 60}
           requireWindowFocus
           initialBirthProgress={
             creatureInitialBirth ?? (onboardingDone ? 1 : CREATURE_INITIAL_SIZE)
@@ -194,7 +192,6 @@ export function OnboardingView({
             onComplete={completeOnboarding}
             onInteract={triggerFlash}
             onDiscoveryConfirm={onDiscoveryConfirm}
-            onSelectionChange={onSelectionChange}
             onPhaseChange={onPhaseChange}
             isAuthenticated={isAuthenticated}
             discoveryWelcomeExpected={discoveryWelcomeExpected}

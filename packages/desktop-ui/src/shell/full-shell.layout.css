@@ -763,9 +763,7 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
 
 /* Split mode: parked at the smaller left-hand position. Opacity is
  * controlled per-phase below — transform/size animate smoothly so any
- * later shift (e.g. discovery selections moving the creature up, or
- * returning to the parked position afterwards) glides instead of
- * jumping. */
+ * later shift glides instead of jumping. */
 .onboarding-stella-animation[data-split="true"] {
   --stella-shift-x: clamp(-350px, -25vw, 0px);
   --stella-shift-y: min(10vh, 95px);
@@ -814,11 +812,6 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
 .onboarding-stella-animation[data-hidden] {
   opacity: 0 !important;
   pointer-events: none;
-}
-
-/* With selections: shift animation up to make room for mock windows */
-.onboarding-stella-animation[data-split="true"][data-has-selections] {
-  --stella-shift-y: clamp(-162px, -17vh, 0px);
 }
 
 /* Instantly hide Stella during exit — no transition so it can't flash back */

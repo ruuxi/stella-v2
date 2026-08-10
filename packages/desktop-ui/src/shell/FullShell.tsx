@@ -120,7 +120,6 @@ function OnboardingExperience({
           isAuthenticated={onboarding.isAuthenticated}
           splitMode={onboarding.splitMode}
           splitEntering={onboarding.splitEntering}
-          hasDiscoverySelections={onboarding.hasDiscoverySelections}
           hasStarted={onboarding.hasStarted}
           stellaAnimationRef={onboarding.stellaAnimationRef}
           stellaAnimationPaused={pauseStellaAnimation}
@@ -132,7 +131,6 @@ function OnboardingExperience({
           startOnboarding={onboarding.startOnboarding}
           completeOnboarding={onboarding.completeOnboarding}
           onDiscoveryConfirm={handleDiscoveryConfirm}
-          onSelectionChange={onboarding.setHasDiscoverySelections}
           onPhaseChange={handleOnboardingPhaseChange}
           discoveryWelcomeExpected={discoveryWelcomeExpected}
           discoveryWelcomeReady={discoveryWelcomeReady}

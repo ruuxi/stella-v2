@@ -25,6 +25,7 @@ import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toa
 import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/canvas-tab/canvas-items";
 import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
+import { bucketByRecency } from "@/shared/lib/recency-buckets";
 import { ChevronLeft, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
 import { SidebarModelsControl } from "./SidebarModelsControl";
@@ -51,6 +52,14 @@ const forgetEntry = (entry) => {
 };
 const workItemLabel = (item) => item.kind === "agent" ? item.task.description : item.entry.title;
 const taskTimestamp = (task) => task.lastUpdatedAtMs || task.completedAtMs || task.startedAtMs;
+/** Headings for the recency groups the list is broken into. */
+const RECENCY_LABELS = {
+    today: "Today",
+    yesterday: "Yesterday",
+    thisWeek: "This week",
+    thisMonth: "This month",
+    older: "Older",
+};
 function WorkList() {
     const chat = useChatRuntime();
     const { state } = useUiState();
@@ -126,6 +135,14 @@ function WorkList() {
     }, [chat.conversation.tasks, entries, query]);
     const visibleItems = useMemo(() => items.slice(0, visibleItemCount), [items, visibleItemCount]);
     const hasOlderItems = visibleItemCount < items.length;
+    // Break the (already newest-first) page into calendar groups so a long
+    // history reads as dated runs instead of one undifferentiated column.
+    // Bucketing the visible slice, not the full list, keeps this proportional
+    // to what is actually rendered; the next page re-groups when it arrives.
+    // The clock is truncated to the minute so paging in more rows doesn't
+    // rebuild the groups against a different `now` each time.
+    const bucketNowMs = Math.floor(Date.now() / 60000) * 60000;
+    const itemGroups = useMemo(() => bucketByRecency(visibleItems, (item) => item.timestamp, bucketNowMs), [bucketNowMs, visibleItems]);
     useEffect(() => {
         setVisibleItemCount(WORK_PAGE_SIZE);
     }, [deferredQuery, searchOpen, state.conversationId]);
@@ -226,7 +243,12 @@ function WorkList() {
           </p>
         </div>) : (<div ref={scrollRef} className="sidebar-section__scroll">
           <ul className="files-list__items">
-            {visibleItems.map((item) => item.kind === "agent" ? (<li key={item.id} className="files-list__item">
+            {itemGroups.map((group) => (<li key={group.id} className="files-list__group">
+                <h3 className="files-list__group-heading">
+                  {RECENCY_LABELS[group.id]}
+                </h3>
+                <ul className="files-list__items files-list__group-items">
+                  {group.items.map((item) => item.kind === "agent" ? (<li key={item.id} className="files-list__item">
                   <button type="button" className="files-list__open" onClick={() => state.conversationId
                     ? openAgentThreadTab({
                         threadId: item.task.id,
@@ -266,6 +288,8 @@ function WorkList() {
                     <X size={12} strokeWidth={2.2} aria-hidden="true"/>
                   </button>
                 </li>))}
+                </ul>
+              </li>))}
           </ul>
           {hasOlderItems ? (<div key={visibleItemCount} ref={pageEndRef} className="files-list__page-end" aria-hidden="true"/>) : null}
         </div>)}

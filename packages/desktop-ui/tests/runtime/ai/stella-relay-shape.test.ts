@@ -215,7 +215,7 @@ describe("Stella relay route shape", () => {
       minimal: "low",
       low: "low",
       medium: "high",
-      high: "high",
+      high: "max",
       xhigh: "max",
       off: "none",
     });

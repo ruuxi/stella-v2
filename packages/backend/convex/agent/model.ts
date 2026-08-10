@@ -137,7 +137,8 @@ const DEEPSEEK_V4_FLASH_DIRECT_CONFIG: ModeConfig = {
   temperature: 1.0,
   providerOptions: {
     openai: {
-      reasoningEffort: "medium",
+      // Stella's top rung, which maps to DeepSeek's native `max` effort.
+      reasoningEffort: "xhigh",
     },
   },
 };

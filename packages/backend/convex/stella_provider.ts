@@ -513,10 +513,14 @@ const DEEPSEEK_IGNORED_PARAMS = [
 ] as const;
 
 /**
- * DeepSeek V4 Flash's native effort ladder is `low | high | max` (default
- * `high`), so Stella's wider set has to be clamped. This runs on the relay
- * rather than only in the client's `thinkingLevelMap` because already-shipped
- * desktop builds still send `"medium"`, which is not in DeepSeek's ladder.
+ * DeepSeek V4 Flash's native effort ladder is `low | high | max`, so Stella's
+ * wider set has to be clamped. This runs on the relay rather than only in the
+ * client's `thinkingLevelMap` because already-shipped desktop builds send
+ * efforts (`"medium"`, `"xhigh"`) that are not in DeepSeek's ladder.
+ *
+ * Stella runs this model at `max` unless the caller asked for something
+ * cheaper, so anything unspecified or unrecognized lands there rather than on
+ * DeepSeek's own `high` default.
  */
 const deepSeekReasoningEffort = (raw: unknown): string => {
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
@@ -527,13 +531,11 @@ const deepSeekReasoningEffort = (raw: unknown): string => {
     case "minimal":
     case "low":
       return "low";
-    case "xhigh":
-    case "max":
-      return "max";
-    default:
-      // Covers "medium", "high" and anything unrecognized. `high` is
-      // DeepSeek's own default, so this preserves the Fireworks-era behavior.
+    case "medium":
       return "high";
+    default:
+      // "high", "xhigh", "max", and anything unrecognized or absent.
+      return "max";
   }
 };
 

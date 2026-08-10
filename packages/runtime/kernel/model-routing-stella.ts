@@ -263,15 +263,14 @@ const createRelayModel = (args: {
       ? {
           thinkingLevelMap: {
             ...registryModel?.thinkingLevelMap,
-            // V4 Flash's native ladder is low | high | max (default high), so
-            // Stella's five levels collapse onto three. `medium -> high`
-            // keeps the effort the Fireworks route was already getting. The
-            // relay clamps this again for older builds that don't have this
-            // map compiled in.
+            // V4 Flash's native ladder is low | high | max, so Stella's five
+            // levels collapse onto three. Stella runs this model at `max`
+            // unless the user asked for something cheaper. The relay applies
+            // the same clamp for older builds without this map compiled in.
             minimal: "low",
             low: "low",
             medium: "high",
-            high: "high",
+            high: "max",
             xhigh: "max",
             off: "none",
           },

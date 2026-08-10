@@ -627,33 +627,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Empieza con Stella",
-        "features": [
-          "Chat y asistencia básicos",
-          "Uso diario limitado"
-        ]
+        "tagline": "Un saldo único para probar Stella"
       },
       "go": {
-        "tagline": "Para uso personal cotidiano",
-        "features": [
-          "Más conversaciones al día",
-          "Automatización del navegador",
-          "Conversaciones por voz"
-        ]
+        "tagline": "Uso generoso para el trabajo del día a día"
       },
       "pro": {
-        "tagline": "Para usuarios avanzados",
-        "features": [
-          "3 veces el uso del plan Go",
-          "Tiempos de respuesta prioritarios",
-          "Todas las funciones de automatización"
-        ]
+        "tagline": "Todo lo de Go, más generación"
       }
+    },
+    "features": {
+      "assistant": "Asistente personal",
+      "codingAgent": "Agente de programación",
+      "research": "Investigación y trabajo con información",
+      "noAds": "Sin anuncios",
+      "orchestrator": "Modo orquestador"
+    },
+    "capability": {
+      "image_generation": "Generación de imágenes",
+      "video_generation": "Generación de vídeo",
+      "audio_generation": "Generación de voz y música",
+      "three_d_generation": "Generación 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} no está en tu plan",
+      "signIn": "{capability} se incluye con Stella {plan}. Inicia sesión para mejorar tu plan y desbloquear esta función.",
+      "upgrade": "{capability} se incluye con Stella {plan}. Mejora tu plan para desbloquear esta función.",
+      "unavailable": "{capability} no está disponible en ningún plan por ahora.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "No disponible",
+      "genericTitle": "No se incluye en tu plan",
+      "genericDescription": "Esta función se incluye con Stella Pro. Mejora tu plan para desbloquearla."
+    },
+    "freeAllowance": {
+      "label": "Saldo gratuito",
+      "caption": "Es único — no se renueva.",
+      "remaining": "Te quedan {amount}. Cuando se acabe, no vuelve.",
+      "exhaustedTitle": "Has agotado tu saldo gratuito",
+      "exhaustedDescription": "El plan Free incluye un saldo único que nunca se renueva. Mejora tu plan a Go para seguir usando Stella.",
+      "exhaustedCta": "Mejorar a Go"
     },
     "upgradeDialog": {
       "title": "Tienes Stella {plan}.",
       "description": "Gracias por mejorar el plan. Ya tienes más prioridad y más uso: sigue adelante.",
       "cta": "Empezar"
+    },
+    "renewal": {
+      "nextLabel": "Próxima renovación",
+      "pendingLabel": "Cancelación pendiente",
+      "renews": "Se renueva el {date}",
+      "accessEnds": "El acceso termina el {date}",
+      "lapseTitle": "Stella se detendrá cuando acabe tu plan",
+      "lapseDescription": "Tu plan {plan} sigue activo hasta el {date}. Después, Stella se detiene: el saldo del plan Free es único y el tuyo ya está agotado."
     }
   },
   "chat": {
@@ -1220,10 +1245,11 @@
       "miniModelPicker": {
         "loading": "Cargando…",
         "modelUpdateFailed": "No se pudo actualizar el ajuste del modelo.",
+        "modelsLabel": "Modelos recientes",
+        "moreModels": "Más modelos…",
         "popoverLabel": "Opciones del modelo",
         "reasoningEffortLabel": "Esfuerzo de razonamiento",
         "reasoningUpdateFailed": "No se pudo actualizar el esfuerzo de razonamiento.",
-        "recent": "Recientes",
         "triggerLabel": "Modelo: {model}",
         "unavailable": "No disponible",
         "updateFailedTitle": "No se pudo actualizar la configuración de modelos"

@@ -625,33 +625,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Mulai dengan Stella",
-        "features": [
-          "Obrolan dan bantuan dasar",
-          "Penggunaan harian terbatas"
-        ]
+        "tagline": "Kuota sekali pakai untuk mencoba Stella"
       },
       "go": {
-        "tagline": "Untuk penggunaan pribadi sehari-hari",
-        "features": [
-          "Lebih banyak percakapan per hari",
-          "Otomatisasi peramban",
-          "Percakapan suara"
-        ]
+        "tagline": "Penggunaan berlimpah untuk kerja sehari-hari"
       },
       "pro": {
-        "tagline": "Untuk pengguna berat",
-        "features": [
-          "3× penggunaan Go",
-          "Waktu respons prioritas",
-          "Semua fitur otomatisasi"
-        ]
+        "tagline": "Semua yang ada di Go, plus pembuatan konten"
       }
+    },
+    "features": {
+      "assistant": "Asisten pribadi",
+      "codingAgent": "Agen pemrograman",
+      "research": "Riset dan kerja pengetahuan",
+      "noAds": "Tanpa iklan",
+      "orchestrator": "Mode orkestrator"
+    },
+    "capability": {
+      "image_generation": "Pembuatan gambar",
+      "video_generation": "Pembuatan video",
+      "audio_generation": "Pembuatan suara dan musik",
+      "three_d_generation": "Pembuatan 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} tidak ada di paket Anda",
+      "signIn": "{capability} termasuk dalam Stella {plan}. Masuk untuk meningkatkan paket dan membuka fitur ini.",
+      "upgrade": "{capability} termasuk dalam Stella {plan}. Tingkatkan paket untuk membuka fitur ini.",
+      "unavailable": "{capability} belum tersedia di paket mana pun saat ini.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Tidak tersedia",
+      "genericTitle": "Tidak termasuk dalam paket Anda",
+      "genericDescription": "Fitur ini termasuk dalam Stella Pro. Tingkatkan paket untuk membukanya."
+    },
+    "freeAllowance": {
+      "label": "Kuota gratis",
+      "caption": "Sekali pakai — tidak diatur ulang.",
+      "remaining": "Sisa {amount}. Setelah habis, tidak kembali lagi.",
+      "exhaustedTitle": "Kuota gratis Anda sudah habis",
+      "exhaustedDescription": "Paket Free mencakup kuota sekali pakai yang tidak pernah diatur ulang. Tingkatkan ke Go untuk terus menggunakan Stella.",
+      "exhaustedCta": "Tingkatkan ke Go"
     },
     "upgradeDialog": {
       "title": "Anda menggunakan Stella {plan}.",
       "description": "Terima kasih sudah meningkatkan paket. Prioritas lebih tinggi dan kuota penggunaan lebih besar sudah aktif — lanjutkan.",
       "cta": "Mulai"
+    },
+    "renewal": {
+      "nextLabel": "Perpanjangan berikutnya",
+      "pendingLabel": "Menunggu pembatalan",
+      "renews": "Diperpanjang {date}",
+      "accessEnds": "Akses berakhir {date}",
+      "lapseTitle": "Stella berhenti saat paket Anda berakhir",
+      "lapseDescription": "Paket {plan} Anda berlaku sampai {date}. Setelah itu Stella berhenti — kuota paket Free hanya diberikan sekali dan milik Anda sudah terpakai."
     }
   },
   "chat": {
@@ -1200,10 +1225,11 @@
       "miniModelPicker": {
         "loading": "Memuat…",
         "modelUpdateFailed": "Gagal memperbarui pengaturan model.",
+        "modelsLabel": "Model terbaru",
+        "moreModels": "Model lainnya…",
         "popoverLabel": "Opsi model",
         "reasoningEffortLabel": "Upaya penalaran",
         "reasoningUpdateFailed": "Gagal memperbarui upaya penalaran.",
-        "recent": "Terbaru",
         "triggerLabel": "Model: {model}",
         "unavailable": "Tidak tersedia",
         "updateFailedTitle": "Tidak dapat memperbarui pengaturan model"

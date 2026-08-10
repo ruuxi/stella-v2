@@ -625,33 +625,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Bắt đầu với Stella",
-        "features": [
-          "Trò chuyện và hỗ trợ cơ bản",
-          "Mức dùng hằng ngày giới hạn"
-        ]
+        "tagline": "Hạn mức dùng một lần để trải nghiệm Stella"
       },
       "go": {
-        "tagline": "Cho việc dùng cá nhân hằng ngày",
-        "features": [
-          "Nhiều cuộc trò chuyện hơn mỗi ngày",
-          "Tự động hóa trình duyệt",
-          "Trò chuyện bằng giọng nói"
-        ]
+        "tagline": "Hạn mức rộng rãi cho công việc hằng ngày"
       },
       "pro": {
-        "tagline": "Cho người dùng nâng cao",
-        "features": [
-          "Mức dùng gấp 3 lần Go",
-          "Thời gian phản hồi ưu tiên",
-          "Tất cả tính năng tự động hóa"
-        ]
+        "tagline": "Mọi thứ trong Go, cộng thêm khả năng tạo nội dung"
       }
+    },
+    "features": {
+      "assistant": "Trợ lý cá nhân",
+      "codingAgent": "Tác nhân lập trình",
+      "research": "Nghiên cứu và công việc tri thức",
+      "noAds": "Không quảng cáo",
+      "orchestrator": "Chế độ điều phối"
+    },
+    "capability": {
+      "image_generation": "Tạo hình ảnh",
+      "video_generation": "Tạo video",
+      "audio_generation": "Tạo giọng nói và âm nhạc",
+      "three_d_generation": "Tạo 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} không có trong gói của bạn",
+      "signIn": "{capability} có trong Stella {plan}. Đăng nhập để nâng cấp và mở khóa tính năng này.",
+      "upgrade": "{capability} có trong Stella {plan}. Nâng cấp để mở khóa tính năng này.",
+      "unavailable": "{capability} hiện không có trong bất kỳ gói nào.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Không khả dụng",
+      "genericTitle": "Không có trong gói của bạn",
+      "genericDescription": "Tính năng này có trong Stella Pro. Nâng cấp để mở khóa."
+    },
+    "freeAllowance": {
+      "label": "Hạn mức miễn phí",
+      "caption": "Dùng một lần — không đặt lại.",
+      "remaining": "Còn {amount}. Dùng hết là không có lại.",
+      "exhaustedTitle": "Bạn đã dùng hết hạn mức miễn phí",
+      "exhaustedDescription": "Gói Free có hạn mức dùng một lần và không bao giờ đặt lại. Nâng cấp lên Go để tiếp tục dùng Stella.",
+      "exhaustedCta": "Nâng cấp lên Go"
     },
     "upgradeDialog": {
       "title": "Bạn đang dùng Stella {plan}.",
       "description": "Cảm ơn bạn đã nâng cấp. Mức ưu tiên cao hơn và hạn mức sử dụng lớn hơn đã được kích hoạt — hãy tiếp tục.",
       "cta": "Bắt đầu"
+    },
+    "renewal": {
+      "nextLabel": "Lần gia hạn tiếp theo",
+      "pendingLabel": "Đang chờ hủy",
+      "renews": "Gia hạn vào {date}",
+      "accessEnds": "Kết thúc truy cập vào {date}",
+      "lapseTitle": "Stella sẽ dừng khi gói của bạn kết thúc",
+      "lapseDescription": "Gói {plan} của bạn còn hiệu lực đến {date}. Sau đó Stella sẽ dừng — hạn mức của gói Free chỉ được cấp một lần và bạn đã dùng hết."
     }
   },
   "chat": {

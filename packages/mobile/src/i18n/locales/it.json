@@ -627,33 +627,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Inizia con Stella",
-        "features": [
-          "Chat e assistenza di base",
-          "Uso giornaliero limitato"
-        ]
+        "tagline": "Un credito una tantum per provare Stella"
       },
       "go": {
-        "tagline": "Per l'uso personale quotidiano",
-        "features": [
-          "Più conversazioni al giorno",
-          "Automazione del browser",
-          "Conversazioni vocali"
-        ]
+        "tagline": "Utilizzo generoso per il lavoro di ogni giorno"
       },
       "pro": {
-        "tagline": "Per utenti esperti",
-        "features": [
-          "3 volte l'utilizzo di Go",
-          "Risposte prioritarie",
-          "Tutte le funzioni di automazione"
-        ]
+        "tagline": "Tutto quello che c'è in Go, più la generazione"
       }
+    },
+    "features": {
+      "assistant": "Assistente personale",
+      "codingAgent": "Agente di programmazione",
+      "research": "Ricerca e lavoro sulla conoscenza",
+      "noAds": "Nessuna pubblicità",
+      "orchestrator": "Modalità orchestratore"
+    },
+    "capability": {
+      "image_generation": "Generazione di immagini",
+      "video_generation": "Generazione di video",
+      "audio_generation": "Generazione di voce e musica",
+      "three_d_generation": "Generazione 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} non è nel tuo piano",
+      "signIn": "{capability} fa parte di Stella {plan}. Accedi per aggiornare il piano e sbloccare questa funzione.",
+      "upgrade": "{capability} fa parte di Stella {plan}. Aggiorna il piano per sbloccare questa funzione.",
+      "unavailable": "{capability} al momento non è disponibile in nessun piano.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Non disponibile",
+      "genericTitle": "Non inclusa nel tuo piano",
+      "genericDescription": "Questa funzione fa parte di Stella Pro. Aggiorna il piano per sbloccarla."
+    },
+    "freeAllowance": {
+      "label": "Credito gratuito",
+      "caption": "Una tantum — non si rinnova.",
+      "remaining": "Restano {amount}. Una volta esaurito non torna.",
+      "exhaustedTitle": "Il tuo credito gratuito è esaurito",
+      "exhaustedDescription": "Il piano Free include un credito una tantum che non si rinnova mai. Aggiorna a Go per continuare a usare Stella.",
+      "exhaustedCta": "Aggiorna a Go"
     },
     "upgradeDialog": {
       "title": "Hai Stella {plan}.",
       "description": "Grazie per l'aggiornamento. Priorità più alta e utilizzo maggiore sono già attivi: continua pure.",
       "cta": "Inizia"
+    },
+    "renewal": {
+      "nextLabel": "Prossimo rinnovo",
+      "pendingLabel": "Disdetta in corso",
+      "renews": "Si rinnova il {date}",
+      "accessEnds": "L'accesso termina il {date}",
+      "lapseTitle": "Stella si ferma quando finisce il tuo piano",
+      "lapseDescription": "Il tuo piano {plan} resta attivo fino al {date}. Dopo, Stella si ferma: il credito del piano Free è una tantum e il tuo è già esaurito."
     }
   },
   "chat": {
@@ -1220,10 +1245,11 @@
       "miniModelPicker": {
         "loading": "Caricamento…",
         "modelUpdateFailed": "Aggiornamento dell'impostazione del modello non riuscito.",
+        "modelsLabel": "Modelli recenti",
+        "moreModels": "Altri modelli…",
         "popoverLabel": "Opzioni del modello",
         "reasoningEffortLabel": "Impegno di ragionamento",
         "reasoningUpdateFailed": "Aggiornamento dell'impegno di ragionamento non riuscito.",
-        "recent": "Recenti",
         "triggerLabel": "Modello: {model}",
         "unavailable": "Non disponibile",
         "updateFailedTitle": "Impossibile aggiornare le impostazioni dei modelli"

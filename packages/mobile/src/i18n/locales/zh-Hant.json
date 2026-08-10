@@ -625,33 +625,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "開始使用 Stella",
-        "features": [
-          "基礎聊天與協助",
-          "每日使用量有限"
-        ]
+        "tagline": "一次性額度，用來體驗 Stella"
       },
       "go": {
-        "tagline": "適合日常個人使用",
-        "features": [
-          "每日更多對話",
-          "瀏覽器自動化",
-          "語音對話"
-        ]
+        "tagline": "日常工作足夠的充裕用量"
       },
       "pro": {
-        "tagline": "適合進階使用者",
-        "features": [
-          "Go 的 3 倍使用量",
-          "優先回應時間",
-          "全部自動化功能"
-        ]
+        "tagline": "包含 Go 的全部功能，再加上生成能力"
       }
+    },
+    "features": {
+      "assistant": "個人助理",
+      "codingAgent": "程式設計代理",
+      "research": "研究與知識工作",
+      "noAds": "無廣告",
+      "orchestrator": "協調器模式"
+    },
+    "capability": {
+      "image_generation": "圖片生成",
+      "video_generation": "影片生成",
+      "audio_generation": "語音與音樂生成",
+      "three_d_generation": "3D 生成"
+    },
+    "capabilityRestriction": {
+      "title": "你的方案不包含{capability}",
+      "signIn": "{capability}包含在 Stella {plan} 方案中。登入並升級方案即可解鎖。",
+      "upgrade": "{capability}包含在 Stella {plan} 方案中。升級方案即可解鎖。",
+      "unavailable": "目前沒有任何方案提供{capability}。",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "無法使用",
+      "genericTitle": "你的方案不包含此功能",
+      "genericDescription": "此功能包含在 Stella Pro 方案中。升級方案即可解鎖。"
+    },
+    "freeAllowance": {
+      "label": "免費額度",
+      "caption": "一次性額度，用完不會重設。",
+      "remaining": "還剩 {amount}。用完就沒有了。",
+      "exhaustedTitle": "你的免費額度已用完",
+      "exhaustedDescription": "Free 方案包含一次性額度，永不重設。升級到 Go 即可繼續使用 Stella。",
+      "exhaustedCta": "升級到 Go"
     },
     "upgradeDialog": {
       "title": "你正在使用 Stella {plan}。",
       "description": "感謝升級。更高的優先權和更多用量現已生效 — 繼續使用吧。",
       "cta": "開始使用"
+    },
+    "renewal": {
+      "nextLabel": "下次續訂",
+      "pendingLabel": "已申請取消",
+      "renews": "{date} 續訂",
+      "accessEnds": "{date} 結束使用",
+      "lapseTitle": "方案到期後 Stella 將停止服務",
+      "lapseDescription": "你的 {plan} 方案可用到 {date}。之後 Stella 將停止服務 — Free 方案的額度只發放一次，你的已經用完了。"
     }
   },
   "chat": {
@@ -1200,10 +1225,11 @@
       "miniModelPicker": {
         "loading": "載入中…",
         "modelUpdateFailed": "更新模型設定失敗。",
+        "modelsLabel": "最近使用的模型",
+        "moreModels": "更多模型…",
         "popoverLabel": "模型選項",
         "reasoningEffortLabel": "推理強度",
         "reasoningUpdateFailed": "更新推理強度失敗。",
-        "recent": "最近使用",
         "triggerLabel": "模型：{model}",
         "unavailable": "無法使用",
         "updateFailedTitle": "無法更新模型設定"

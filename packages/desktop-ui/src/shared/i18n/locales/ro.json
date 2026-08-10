@@ -627,33 +627,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Începe cu Stella",
-        "features": [
-          "Chat și asistență de bază",
-          "Utilizare zilnică limitată"
-        ]
+        "tagline": "Un credit unic pentru a încerca Stella"
       },
       "go": {
-        "tagline": "Pentru uz personal zilnic",
-        "features": [
-          "Mai multe conversații pe zi",
-          "Automatizarea browserului",
-          "Conversații vocale"
-        ]
+        "tagline": "Utilizare generoasă pentru munca de zi cu zi"
       },
       "pro": {
-        "tagline": "Pentru utilizatori avansați",
-        "features": [
-          "De 3× utilizarea Go",
-          "Timpi de răspuns prioritari",
-          "Toate funcțiile de automatizare"
-        ]
+        "tagline": "Tot ce are Go, plus generarea"
       }
+    },
+    "features": {
+      "assistant": "Asistent personal",
+      "codingAgent": "Agent de programare",
+      "research": "Cercetare și lucru cu informații",
+      "noAds": "Fără reclame",
+      "orchestrator": "Mod orchestrator"
+    },
+    "capability": {
+      "image_generation": "Generare de imagini",
+      "video_generation": "Generare de videoclipuri",
+      "audio_generation": "Generare de voce și muzică",
+      "three_d_generation": "Generare 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} nu este în planul tău",
+      "signIn": "{capability} face parte din Stella {plan}. Conectează-te și fă upgrade pentru a debloca funcția.",
+      "upgrade": "{capability} face parte din Stella {plan}. Fă upgrade pentru a debloca funcția.",
+      "unavailable": "Momentan, {capability} nu se găsește în niciun plan.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Indisponibil",
+      "genericTitle": "Nu este inclus în planul tău",
+      "genericDescription": "Această funcție face parte din Stella Pro. Fă upgrade pentru a o debloca."
+    },
+    "freeAllowance": {
+      "label": "Credit gratuit",
+      "caption": "Unic — nu se resetează.",
+      "remaining": "Au mai rămas {amount}. Odată consumat, nu revine.",
+      "exhaustedTitle": "Creditul tău gratuit s-a epuizat",
+      "exhaustedDescription": "Planul Free include un credit unic care nu se resetează niciodată. Fă upgrade la Go pentru a folosi Stella în continuare.",
+      "exhaustedCta": "Upgrade la Go"
     },
     "upgradeDialog": {
       "title": "Ești pe Stella {plan}.",
       "description": "Mulțumim pentru upgrade. Prioritatea mai mare și utilizarea crescută sunt active acum — continuă.",
       "cta": "Începe"
+    },
+    "renewal": {
+      "nextLabel": "Următoarea reînnoire",
+      "pendingLabel": "Anulare în curs",
+      "renews": "Se reînnoiește pe {date}",
+      "accessEnds": "Accesul se încheie pe {date}",
+      "lapseTitle": "Stella se oprește când se termină planul tău",
+      "lapseDescription": "Planul tău {plan} este activ până pe {date}. După aceea Stella se oprește — creditul planului Free se acordă o singură dată, iar al tău a fost deja folosit."
     }
   },
   "chat": {

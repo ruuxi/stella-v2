@@ -626,33 +626,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Kom igång med Stella",
-        "features": [
-          "Grundläggande chatt och hjälp",
-          "Begränsad daglig användning"
-        ]
+        "tagline": "Ett engångssaldo för att testa Stella"
       },
       "go": {
-        "tagline": "För dagligt personligt bruk",
-        "features": [
-          "Fler samtal per dag",
-          "Webbläsarautomation",
-          "Röstsamtal"
-        ]
+        "tagline": "Generös användning för vardagens arbete"
       },
       "pro": {
-        "tagline": "För avancerade användare",
-        "features": [
-          "3× användningen i Go",
-          "Prioriterade svarstider",
-          "Alla automationsfunktioner"
-        ]
+        "tagline": "Allt i Go, plus generering"
       }
+    },
+    "features": {
+      "assistant": "Personlig assistent",
+      "codingAgent": "Kodagent",
+      "research": "Research och kunskapsarbete",
+      "noAds": "Inga annonser",
+      "orchestrator": "Orkestratorläge"
+    },
+    "capability": {
+      "image_generation": "Bildgenerering",
+      "video_generation": "Videogenerering",
+      "audio_generation": "Röst- och musikgenerering",
+      "three_d_generation": "3D-generering"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} ingår inte i din plan",
+      "signIn": "{capability} ingår i Stella {plan}. Logga in och uppgradera för att låsa upp funktionen.",
+      "upgrade": "{capability} ingår i Stella {plan}. Uppgradera för att låsa upp funktionen.",
+      "unavailable": "{capability} är inte tillgänglig i någon plan just nu.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Otillgänglig",
+      "genericTitle": "Ingår inte i din plan",
+      "genericDescription": "Den här funktionen ingår i Stella Pro. Uppgradera för att låsa upp den."
+    },
+    "freeAllowance": {
+      "label": "Gratissaldo",
+      "caption": "Engångs — det nollställs inte.",
+      "remaining": "{amount} kvar. När det är slut kommer det inte tillbaka.",
+      "exhaustedTitle": "Ditt gratissaldo är slut",
+      "exhaustedDescription": "Free-planen innehåller ett engångssaldo som aldrig nollställs. Uppgradera till Go för att fortsätta använda Stella.",
+      "exhaustedCta": "Uppgradera till Go"
     },
     "upgradeDialog": {
       "title": "Du har Stella {plan}.",
       "description": "Tack för uppgraderingen. Högre prioritet och ökad användning är aktiva nu — kör vidare.",
       "cta": "Kom igång"
+    },
+    "renewal": {
+      "nextLabel": "Nästa förnyelse",
+      "pendingLabel": "Uppsägning väntar",
+      "renews": "Förnyas {date}",
+      "accessEnds": "Åtkomsten slutar {date}",
+      "lapseTitle": "Stella stannar när din plan tar slut",
+      "lapseDescription": "Din {plan}-plan gäller till {date}. Efter det stannar Stella — Free-planens saldo ges bara en gång och ditt är redan förbrukat."
     }
   },
   "chat": {
@@ -1210,10 +1235,11 @@
       "miniModelPicker": {
         "loading": "Laddar…",
         "modelUpdateFailed": "Det gick inte att uppdatera modellinställningen.",
+        "modelsLabel": "Senaste modeller",
+        "moreModels": "Fler modeller…",
         "popoverLabel": "Modellalternativ",
         "reasoningEffortLabel": "Resonemangsnivå",
         "reasoningUpdateFailed": "Det gick inte att uppdatera resonemangsnivån.",
-        "recent": "Senaste",
         "triggerLabel": "Modell: {model}",
         "unavailable": "Otillgänglig",
         "updateFailedTitle": "Det gick inte att uppdatera modellinställningarna"

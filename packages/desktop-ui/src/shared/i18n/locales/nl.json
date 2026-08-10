@@ -626,33 +626,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Begin met Stella",
-        "features": [
-          "Basischat en hulp",
-          "Beperkt dagelijks gebruik"
-        ]
+        "tagline": "Een eenmalig tegoed om Stella te proberen"
       },
       "go": {
-        "tagline": "Voor dagelijks persoonlijk gebruik",
-        "features": [
-          "Meer gesprekken per dag",
-          "Browserautomatisering",
-          "Spraakgesprekken"
-        ]
+        "tagline": "Ruim gebruik voor dagelijks werk"
       },
       "pro": {
-        "tagline": "Voor veeleisende gebruikers",
-        "features": [
-          "3× het gebruik van Go",
-          "Voorrang bij antwoorden",
-          "Alle automatiseringsfuncties"
-        ]
+        "tagline": "Alles uit Go, plus generatie"
       }
+    },
+    "features": {
+      "assistant": "Persoonlijke assistent",
+      "codingAgent": "Code-agent",
+      "research": "Onderzoek en kenniswerk",
+      "noAds": "Geen advertenties",
+      "orchestrator": "Orkestratormodus"
+    },
+    "capability": {
+      "image_generation": "Afbeeldingen genereren",
+      "video_generation": "Video genereren",
+      "audio_generation": "Stem en muziek genereren",
+      "three_d_generation": "3D genereren"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} zit niet in je abonnement",
+      "signIn": "{capability} hoort bij Stella {plan}. Log in en upgrade om deze functie te ontgrendelen.",
+      "upgrade": "{capability} hoort bij Stella {plan}. Upgrade om deze functie te ontgrendelen.",
+      "unavailable": "{capability} is momenteel in geen enkel abonnement beschikbaar.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Niet beschikbaar",
+      "genericTitle": "Zit niet in je abonnement",
+      "genericDescription": "Deze functie hoort bij Stella Pro. Upgrade om hem te ontgrendelen."
+    },
+    "freeAllowance": {
+      "label": "Gratis tegoed",
+      "caption": "Eenmalig — dit wordt niet vernieuwd.",
+      "remaining": "Nog {amount} over. Als het op is, komt het niet terug.",
+      "exhaustedTitle": "Je gratis tegoed is op",
+      "exhaustedDescription": "Het Free-abonnement bevat een eenmalig tegoed dat nooit wordt vernieuwd. Upgrade naar Go om Stella te blijven gebruiken.",
+      "exhaustedCta": "Upgraden naar Go"
     },
     "upgradeDialog": {
       "title": "Je gebruikt Stella {plan}.",
       "description": "Bedankt voor de upgrade. Hogere prioriteit en meer gebruik zijn nu actief — ga vooral door.",
       "cta": "Aan de slag"
+    },
+    "renewal": {
+      "nextLabel": "Volgende verlenging",
+      "pendingLabel": "Opzegging in behandeling",
+      "renews": "Verlengt op {date}",
+      "accessEnds": "Toegang stopt op {date}",
+      "lapseTitle": "Stella stopt zodra je abonnement afloopt",
+      "lapseDescription": "Je {plan}-abonnement loopt tot {date}. Daarna stopt Stella — het tegoed van het Free-abonnement krijg je maar één keer en dat van jou is al op."
     }
   },
   "chat": {

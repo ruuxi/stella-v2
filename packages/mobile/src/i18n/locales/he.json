@@ -627,33 +627,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "להתחיל עם Stella",
-        "features": [
-          "צ'אט וסיוע בסיסיים",
-          "שימוש יומי מוגבל"
-        ]
+        "tagline": "מכסה חד-פעמית להתנסות ב-Stella"
       },
       "go": {
-        "tagline": "לשימוש אישי יומיומי",
-        "features": [
-          "יותר שיחות ביום",
-          "אוטומציה של הדפדפן",
-          "שיחות קוליות"
-        ]
+        "tagline": "מכסה נדיבה לעבודה יומיומית"
       },
       "pro": {
-        "tagline": "למשתמשים מתקדמים",
-        "features": [
-          "פי 3 שימוש מ-Go",
-          "זמני תגובה בעדיפות",
-          "כל יכולות האוטומציה"
-        ]
+        "tagline": "כל מה שיש ב-Go, ובנוסף יצירת תוכן"
       }
+    },
+    "features": {
+      "assistant": "עוזר אישי",
+      "codingAgent": "סוכן קוד",
+      "research": "מחקר ועבודת ידע",
+      "noAds": "בלי פרסומות",
+      "orchestrator": "מצב תזמור"
+    },
+    "capability": {
+      "image_generation": "יצירת תמונות",
+      "video_generation": "יצירת וידאו",
+      "audio_generation": "יצירת קול ומוזיקה",
+      "three_d_generation": "יצירת תלת-ממד"
+    },
+    "capabilityRestriction": {
+      "title": "התכונה {capability} לא כלולה בתוכנית שלך",
+      "signIn": "התכונה {capability} כלולה ב-Stella {plan}. התחבר כדי לשדרג ולפתוח אותה.",
+      "upgrade": "התכונה {capability} כלולה ב-Stella {plan}. שדרג כדי לפתוח אותה.",
+      "unavailable": "התכונה {capability} לא זמינה באף תוכנית כרגע.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "לא זמין",
+      "genericTitle": "לא כלול בתוכנית שלך",
+      "genericDescription": "התכונה הזו כלולה ב-Stella Pro. שדרג כדי לפתוח אותה."
+    },
+    "freeAllowance": {
+      "label": "מכסה חינם",
+      "caption": "חד-פעמית — היא לא מתאפסת.",
+      "remaining": "נותרו {amount}. אחרי שייגמר, הוא לא חוזר.",
+      "exhaustedTitle": "המכסה החינמית שלך נגמרה",
+      "exhaustedDescription": "תוכנית Free כוללת מכסה חד-פעמית שלא מתאפסת לעולם. שדרג ל-Go כדי להמשיך להשתמש ב-Stella.",
+      "exhaustedCta": "שדרוג ל-Go"
     },
     "upgradeDialog": {
       "title": "אתה בתוכנית Stella {plan}.",
       "description": "תודה על השדרוג. עדיפות גבוהה יותר ושימוש מוגדל פעילים כעת — אפשר להמשיך.",
       "cta": "בוא נתחיל"
+    },
+    "renewal": {
+      "nextLabel": "החידוש הבא",
+      "pendingLabel": "ביטול ממתין",
+      "renews": "מתחדש ב-{date}",
+      "accessEnds": "הגישה מסתיימת ב-{date}",
+      "lapseTitle": "Stella תפסיק לפעול כשהתוכנית שלך תסתיים",
+      "lapseDescription": "תוכנית {plan} שלך פעילה עד {date}. אחרי כן Stella תפסיק לפעול — המכסה של תוכנית Free ניתנת פעם אחת, ואת שלך כבר ניצלת."
     }
   },
   "chat": {
@@ -1220,10 +1245,11 @@
       "miniModelPicker": {
         "loading": "טוען…",
         "modelUpdateFailed": "עדכון הגדרת המודל נכשל.",
+        "modelsLabel": "מודלים אחרונים",
+        "moreModels": "עוד מודלים…",
         "popoverLabel": "אפשרויות מודל",
         "reasoningEffortLabel": "עומק חשיבה",
         "reasoningUpdateFailed": "עדכון עומק החשיבה נכשל.",
-        "recent": "אחרונים",
         "triggerLabel": "מודל: {model}",
         "unavailable": "לא זמין",
         "updateFailedTitle": "לא ניתן היה לעדכן את הגדרות המודל"

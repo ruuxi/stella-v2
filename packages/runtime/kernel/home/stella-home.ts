@@ -3,19 +3,16 @@ import { promises as fs } from "fs";
 import type { App } from "electron";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import {
-  reconcileBundledSkills,
-  summarizeSkillsSync,
-  type SkillsSyncReport,
-} from "./skills-sync.js";
-import { type BundledSyncReport } from "./bundled-sync.js";
-import {
-  StalePromptManifestError,
-  applyPromptManifestIfCurrent,
-  reconcileRemotePromptManifest,
   resolvePromptManifest,
   type PromptManifestResolution,
 } from "./prompt-manifest-sync.js";
-import { reconcileSelectedPersonality } from "./personality-sync.js";
+import {
+  buildSystemSnapshot,
+  cleanupAbandonedSystemDirs,
+  mirrorSystemDir,
+  readSystemRevision,
+} from "./system-mirror.js";
+import { migrateLegacyHomeLayout } from "./legacy-migration.js";
 import {
   resolveBundledAgentMetadataDir,
   resolveDefaultStellaDataDir,
@@ -74,22 +71,52 @@ const copyPathIfMissing = async (sourcePath: string, targetPath: string) => {
   await fs.copyFile(sourcePath, targetPath);
 };
 
-// `skills/` is intentionally NOT a one-shot seed entry — it goes through
-// hash-history reconciliation in `skills-sync.ts` so shipped skill updates
-// reach existing users without trampling local edits.
+// One-shot copies into the user's space. Everything shipped-and-updatable
+// lives in `system/` via the mirror instead.
 const STELLA_DATA_SEED_ENTRIES = [
   "DREAM.md",
   path.join("outputs", "README.md"),
 ] as const;
+
+/**
+ * Mirror the newest available shipped content into `~/.stella/system/`.
+ *
+ * With a manifest (fresh or cached) the mirror carries the published prompts
+ * plus the bundled skills. Without one, an existing system dir is left alone
+ * and a missing one is seeded offline from the app bundle so the runtime has
+ * real prompts before the first successful fetch.
+ */
+const mirrorSystemContent = async (
+  stellaAppDir: string,
+  stellaDataDir: string,
+  resolution: PromptManifestResolution,
+): Promise<{ applied: boolean }> => {
+  await cleanupAbandonedSystemDirs(stellaDataDir);
+  if (!resolution.manifest) {
+    const existing = await readSystemRevision(stellaDataDir);
+    if (existing) return { applied: false };
+  }
+  const snapshot = await buildSystemSnapshot({
+    manifest: resolution.manifest,
+    agentMetadataDir: resolveBundledAgentMetadataDir(stellaAppDir),
+    seedSkillsDir: path.join(resolveStellaDataSeedDir(stellaAppDir), "skills"),
+  });
+  const result = await mirrorSystemDir(stellaDataDir, snapshot);
+  if (result.applied) {
+    console.log(
+      `[stella-home] system mirror applied (${snapshot.revision === "offline" ? "offline seed" : `revision ${snapshot.revision.slice(0, 12)}`})`,
+    );
+  }
+  return result;
+};
 
 export const ensureStellaDataDirSeeded = async (
   stellaAppDir: string,
   stellaDataDir: string,
   options: { promptSiteUrl?: string | null } = {},
 ): Promise<{
-  skillsSync: SkillsSyncReport;
-  personalitySync: BundledSyncReport;
   promptResolution: PromptManifestResolution["source"];
+  mirrored: boolean;
 }> => {
   await ensureDir(stellaDataDir);
   const seedPath = resolveStellaDataSeedDir(stellaAppDir);
@@ -101,62 +128,28 @@ export const ensureStellaDataDirSeeded = async (
     await copyPathIfMissing(sourcePath, path.join(stellaDataDir, entry));
   }
 
-  const bundledSkillsDir = path.join(seedPath, "skills");
-  const homeSkillsDir = path.join(stellaDataDir, "skills");
-  const skillsSync = await reconcileBundledSkills(
-    bundledSkillsDir,
-    homeSkillsDir,
-  );
-  const summary = summarizeSkillsSync(skillsSync);
-  if (summary !== "no-op") {
-    console.log(`[stella-home] skills sync: ${summary}`);
-  }
+  await migrateLegacyHomeLayout(stellaDataDir);
 
   const promptResolution = await resolvePromptManifest({
     stellaDataDir,
     siteUrl: options.promptSiteUrl,
   });
-  let personalitySync: BundledSyncReport | null = null;
-  if (promptResolution.manifest) {
-    if (!promptResolution.endpoint) {
-      throw new Error("Resolved prompt manifest is missing its endpoint");
-    }
-    try {
-      await applyPromptManifestIfCurrent({
-        stellaDataDir,
-        endpoint: promptResolution.endpoint,
-        manifest: promptResolution.manifest,
-        reconcile: async () => {
-          await reconcileRemotePromptManifest(
-            promptResolution.manifest!,
-            stellaDataDir,
-            resolveBundledAgentMetadataDir(stellaAppDir),
-          );
-          personalitySync = await reconcileSelectedPersonality(
-            stellaDataDir,
-            promptResolution.manifest!.revision,
-          );
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof StalePromptManifestError)) throw error;
-      personalitySync = { actions: [] };
-    }
-  }
-
-  personalitySync ??= { actions: [] };
+  const { applied } = await mirrorSystemContent(
+    stellaAppDir,
+    stellaDataDir,
+    promptResolution,
+  );
 
   return {
-    skillsSync,
-    personalitySync,
     promptResolution: promptResolution.source,
+    mirrored: applied,
   };
 };
 
 /**
- * Re-run only the remote prompt portion after the renderer supplies a site URL
- * later than main-process startup. Agent bodies are live-read per turn and the
- * extension watcher observes the atomic replacements.
+ * Re-run only the remote portion after the renderer supplies a site URL later
+ * than main-process startup. Agent bodies are live-read per turn and the
+ * extension watcher observes the atomic system swap.
  */
 export const syncStellaPromptSnapshot = async (
   stellaAppDir: string,
@@ -167,31 +160,7 @@ export const syncStellaPromptSnapshot = async (
     stellaDataDir,
     siteUrl: promptSiteUrl,
   });
-  if (resolution.manifest) {
-    if (!resolution.endpoint) {
-      throw new Error("Resolved prompt manifest is missing its endpoint");
-    }
-    try {
-      await applyPromptManifestIfCurrent({
-        stellaDataDir,
-        endpoint: resolution.endpoint,
-        manifest: resolution.manifest,
-        reconcile: async () => {
-          await reconcileRemotePromptManifest(
-            resolution.manifest!,
-            stellaDataDir,
-            resolveBundledAgentMetadataDir(stellaAppDir),
-          );
-          await reconcileSelectedPersonality(
-            stellaDataDir,
-            resolution.manifest!.revision,
-          );
-        },
-      });
-    } catch (error) {
-      if (!(error instanceof StalePromptManifestError)) throw error;
-    }
-  }
+  await mirrorSystemContent(stellaAppDir, stellaDataDir, resolution);
   return resolution;
 };
 
@@ -223,14 +192,12 @@ export const resolveStellaDataDir = async (
   process.env.STELLA_APP_DIR = stellaAppDir;
   process.env.STELLA_DATA_DIR = statePath;
 
-  // NOTE: `ensureStellaDataDirSeeded` (skills/agents hash-history reconciliation)
-  // is intentionally NOT invoked here. It does ~100 awaited fs ops + sha256 over
-  // hundreds of KB across ~17 skill dirs + ~8 agent files, and nothing on the
-  // first-paint path consumes the seeded dirs — only the deferred runtime worker
-  // does. It is now awaited in `initializeStellaHostRunner` (host-runner.ts),
-  // off the pre-window path, before the worker that reads those dirs connects.
-  // `resolveStellaDataDir` keeps only the cheap path resolution + env + dir
-  // ensures that the rest of bootstrap depends on synchronously.
+  // NOTE: `ensureStellaDataDirSeeded` (migration + system mirror) is
+  // intentionally NOT invoked here — nothing on the first-paint path consumes
+  // the mirrored dirs, only the deferred runtime worker does. It is awaited in
+  // `initializeStellaHostRunner` (host-runner.ts), off the pre-window path,
+  // before the worker that reads those dirs connects. `resolveStellaDataDir`
+  // keeps only the cheap path resolution + env + dir ensures.
   await ensureDir(workspacePath);
   await ensureDir(workspaceAppsPath);
 

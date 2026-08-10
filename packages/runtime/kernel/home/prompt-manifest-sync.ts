@@ -1,16 +1,27 @@
-import { createHash, randomUUID } from "node:crypto";
+/**
+ * Remote prompt manifest fetch + validation + cache.
+ *
+ * This module only answers "what is the newest trustworthy published
+ * snapshot?" — applying it to disk is `system-mirror.ts`'s mirror swap, and
+ * the currently-applied publication is whatever `system/revision.json` says.
+ *
+ * Guarantees:
+ * - Strict validation: every prompt's sha256 must match its content and the
+ *   recomputed revision must match the declared one.
+ * - Forward tolerance: ids this app version doesn't recognize are accepted
+ *   (they're skipped at mirror time), so a newer or older backend can never
+ *   invalidate the whole manifest.
+ * - Rollback protection: a manifest older than the applied system revision or
+ *   the on-disk cache is refused.
+ * - Offline: falls back to the on-disk cache, else reports `unavailable`.
+ */
+
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { z } from "zod";
-
-import type { SqliteDatabase } from "../storage/shared.js";
-
 import {
   STELLA_PROMPT_COUNT,
-  STELLA_PROMPT_ID_SET,
-  STELLA_PROMPT_RETIRED_IDS,
-  STELLA_PROMPT_RETIRED_ID_SET,
   STELLA_PROMPT_LEGACY_COUNT,
   STELLA_PROMPT_LEGACY_IDS,
   STELLA_PROMPT_MAX_CONTENT_BYTES,
@@ -19,26 +30,15 @@ import {
   STELLA_PROMPT_REVISION_PATTERN,
   STELLA_PROMPT_SCHEMA_VERSION,
 } from "@stella/contracts/stella-prompts";
-import {
-  STELLA_PROMPTS_PATH,
-  stellaPromptEndpointFromSiteUrl,
-} from "@stella/contracts/stella-api";
+import { stellaPromptEndpointFromSiteUrl } from "@stella/contracts/stella-api";
 import { ensurePrivateDir } from "../shared/private-fs.js";
-import {
-  createFileEntryAdapter,
-  reconcileBundledEntries,
-  type BundledEntryAdapter,
-  type BundledSyncReport,
-} from "./bundled-sync.js";
+import { readSystemRevision } from "./system-mirror.js";
 
 const PROMPT_CACHE_FILE = "prompt-manifest.json";
-const PROMPT_APPLIED_STATE_FILE = "prompt-applied-state.json";
-const PROMPT_APPLIED_STATE_DIR = "prompt-applied-state";
-const PROMPT_LEGACY_APPLIED_STATE_MAX_BYTES = 256 * 1024;
-const PROMPT_APPLIED_STATE_RECORD_MAX_BYTES = 4 * 1024;
-const PROMPT_APPLIED_STATE_RECOVERY_RECORDS = 4;
-const PROMPT_APPLY_LOCK_TIMEOUT_MS = 30_000;
 const FETCH_TIMEOUT_MS = 3_000;
+// Generous ceiling for manifests from newer backends carrying ids this app
+// doesn't know; total content bytes stay bounded separately.
+const MAX_MANIFEST_PROMPTS = STELLA_PROMPT_COUNT + 48;
 
 export type RemotePrompt = { id: string; sha256: string; content: string };
 export type RemotePromptManifest = {
@@ -54,56 +54,10 @@ type CachedPromptManifest = {
   manifest: RemotePromptManifest;
 };
 
-export type AppliedPromptState = {
-  endpoint: string;
-  publishedAt: number;
-  revision: string;
-};
-
-type AppliedPromptStateFile = {
-  version: 1;
-  entries: Record<string, Pick<AppliedPromptState, "publishedAt" | "revision">>;
-};
-
-type ReconciledPrompt = RemotePrompt;
-
 export type PromptManifestResolution = {
   source: "fresh-remote" | "cached-remote" | "unavailable";
   manifest: RemotePromptManifest | null;
   endpoint?: string;
-};
-
-const appliedStateMemory = new Map<string, AppliedPromptState>();
-const promptApplyQueueTails = new Map<string, Promise<void>>();
-
-type SqliteDatabaseCtor = new (path: string) => SqliteDatabase;
-
-const dynamicImport = (specifier: string): Promise<Record<string, unknown>> =>
-  import(/* @vite-ignore */ specifier) as Promise<Record<string, unknown>>;
-
-/**
- * The prompt sync runs in both Electron/Node tests and Stella's detached Bun
- * worker. A static `node:sqlite` import makes the lazily loaded runner chunk
- * fail before it can initialize under Bun, so resolve the native database
- * implementation for the current host at runtime instead.
- */
-const loadSqliteDatabaseCtor = async (): Promise<SqliteDatabaseCtor> => {
-  try {
-    const nodeSqlite = await dynamicImport("node:sqlite");
-    if (typeof nodeSqlite.DatabaseSync === "function") {
-      return nodeSqlite.DatabaseSync as SqliteDatabaseCtor;
-    }
-  } catch {}
-
-  const bunSqlite = await dynamicImport("bun:sqlite");
-  if (typeof bunSqlite.Database === "function") {
-    return bunSqlite.Database as SqliteDatabaseCtor;
-  }
-  throw new Error("No compatible SQLite runtime is available.");
-};
-
-export const resetPromptAppliedStateMemoryForTests = (): void => {
-  appliedStateMemory.clear();
 };
 
 const sha256 = (content: string): string =>
@@ -124,6 +78,8 @@ const publicationEtag = (
   manifest: Pick<RemotePromptManifest, "publishedAt" | "revision">,
 ): string => `"${manifest.publishedAt}-${manifest.revision}"`;
 
+const PROMPT_ID_PATTERN = /^(agents|prompts)\/[a-z0-9_-]+\.md$/;
+
 export const parseRemotePromptManifest = (
   value: unknown,
 ): RemotePromptManifest | null => {
@@ -138,8 +94,7 @@ export const parseRemotePromptManifest = (
     candidate.publishedAt < 0 ||
     !Array.isArray(candidate.prompts) ||
     candidate.prompts.length < STELLA_PROMPT_LEGACY_COUNT ||
-    candidate.prompts.length >
-      STELLA_PROMPT_COUNT + STELLA_PROMPT_RETIRED_IDS.length
+    candidate.prompts.length > MAX_MANIFEST_PROMPTS
   ) {
     return null;
   }
@@ -149,10 +104,7 @@ export const parseRemotePromptManifest = (
     if (
       !prompt ||
       typeof prompt.id !== "string" ||
-      !(
-        STELLA_PROMPT_ID_SET.has(prompt.id) ||
-        STELLA_PROMPT_RETIRED_ID_SET.has(prompt.id)
-      ) ||
+      !PROMPT_ID_PATTERN.test(prompt.id) ||
       ids.has(prompt.id) ||
       typeof prompt.content !== "string" ||
       prompt.content.length === 0 ||
@@ -175,472 +127,32 @@ export const parseRemotePromptManifest = (
   ) {
     return null;
   }
-  // The manifest is kept exactly as published — retired entries included — so
-  // `revision` keeps describing the prompt list it was computed over. Stripping
-  // here instead would make this parser non-idempotent: the stripped value gets
-  // written to the on-disk cache and re-parsed on the next boot, where the
-  // revision would no longer match and the cache would be discarded forever.
-  // Retired ids are skipped at reconciliation instead.
+  // The manifest is kept exactly as published — unknown/retired entries
+  // included — so `revision` keeps describing the prompt list it was computed
+  // over and the cache round-trips. Non-active ids are skipped at mirror time.
   return candidate as RemotePromptManifest;
 };
 
 const cachePath = (stellaDataDir: string): string =>
   path.join(stellaDataDir, "cache", PROMPT_CACHE_FILE);
 
-const appliedStatePath = (stellaDataDir: string): string =>
-  path.join(stellaDataDir, "cache", PROMPT_APPLIED_STATE_FILE);
-
-const appliedStateDir = (stellaDataDir: string): string =>
-  path.join(stellaDataDir, "cache", PROMPT_APPLIED_STATE_DIR);
-
-const appliedStateEndpointDir = (
-  stellaDataDir: string,
-  endpoint: string,
-): string => path.join(appliedStateDir(stellaDataDir), sha256(endpoint));
-
-const promptApplyLockDatabasePath = (stellaDataDir: string): string =>
-  path.join(stellaDataDir, "cache", "prompt-apply-lock.sqlite");
-
-const appliedStateKey = (stellaDataDir: string, endpoint: string): string =>
-  `${path.resolve(stellaDataDir)}\0${endpoint}`;
-
-const isHttpEndpoint = (value: string): boolean => {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "https:" || parsed.protocol === "http:";
-  } catch {
-    return false;
-  }
-};
-
-const canonicalPromptEndpoint = (value: string): string | null => {
-  try {
-    const parsed = new URL(value);
-    if (
-      (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
-      parsed.search ||
-      parsed.hash ||
-      !parsed.pathname.endsWith(STELLA_PROMPTS_PATH)
-    ) {
-      return null;
-    }
-    const sitePath = parsed.pathname.slice(0, -STELLA_PROMPTS_PATH.length);
-    return stellaPromptEndpointFromSiteUrl(`${parsed.origin}${sitePath}`);
-  } catch {
-    return null;
-  }
-};
-
 const readCache = async (
   stellaDataDir: string,
-  expectedEndpoint?: string,
+  endpoint: string | undefined,
 ): Promise<CachedPromptManifest | null> => {
   try {
-    const raw = await fs.readFile(cachePath(stellaDataDir), "utf-8");
-    if (utf8Bytes(raw) > STELLA_PROMPT_MAX_MANIFEST_BYTES) return null;
-    const parsed = JSON.parse(raw) as Partial<CachedPromptManifest>;
+    const parsed = JSON.parse(
+      await fs.readFile(cachePath(stellaDataDir), "utf-8"),
+    ) as Partial<CachedPromptManifest>;
+    if (typeof parsed.endpoint !== "string") return null;
+    if (endpoint && parsed.endpoint !== endpoint) return null;
     const manifest = parseRemotePromptManifest(parsed.manifest);
-    if (
-      typeof parsed.endpoint !== "string" ||
-      !isHttpEndpoint(parsed.endpoint) ||
-      (expectedEndpoint !== undefined &&
-        parsed.endpoint !== expectedEndpoint) ||
-      !manifest
-    ) {
-      return null;
-    }
-    return {
-      endpoint: parsed.endpoint,
-      ...(typeof parsed.etag === "string" ? { etag: parsed.etag } : {}),
-      manifest,
-    };
+    if (!manifest) return null;
+    return { endpoint: parsed.endpoint, manifest };
   } catch {
     return null;
   }
 };
-
-const appliedPromptStateSchema = z.object({
-  endpoint: z
-    .string()
-    .refine((entry) => canonicalPromptEndpoint(entry) === entry),
-  publishedAt: z
-    .number()
-    .refine((entry) => Number.isSafeInteger(entry) && entry >= 0),
-  revision: z
-    .string()
-    .refine((entry) => STELLA_PROMPT_REVISION_PATTERN.test(entry)),
-});
-
-const isValidAppliedState = (value: unknown): value is AppliedPromptState =>
-  appliedPromptStateSchema.safeParse(value).success;
-
-const parseAppliedStateFile = (
-  value: unknown,
-): Map<string, AppliedPromptState> | null => {
-  if (isValidAppliedState(value)) {
-    return new Map([[value.endpoint, value]]);
-  }
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Partial<AppliedPromptStateFile>;
-  if (
-    candidate.version !== 1 ||
-    !candidate.entries ||
-    typeof candidate.entries !== "object" ||
-    Array.isArray(candidate.entries)
-  ) {
-    return null;
-  }
-  const rawEntries = Object.entries(candidate.entries);
-  const entries = new Map<string, AppliedPromptState>();
-  for (const [endpoint, raw] of rawEntries) {
-    if (
-      !raw ||
-      typeof raw !== "object" ||
-      Array.isArray(raw) ||
-      Object.keys(raw).sort().join(",") !== "publishedAt,revision"
-    ) {
-      return null;
-    }
-    const state = { ...(raw as object), endpoint };
-    if (!isValidAppliedState(state)) return null;
-    entries.set(endpoint, state);
-  }
-  return entries;
-};
-
-const readLegacyAppliedStateFile = async (
-  stellaDataDir: string,
-): Promise<Map<string, AppliedPromptState>> => {
-  try {
-    const raw = await fs.readFile(appliedStatePath(stellaDataDir), "utf-8");
-    if (utf8Bytes(raw) > PROMPT_LEGACY_APPLIED_STATE_MAX_BYTES) {
-      return new Map();
-    }
-    return parseAppliedStateFile(JSON.parse(raw)) ?? new Map();
-  } catch {
-    return new Map();
-  }
-};
-
-const readAppliedStateRecord = async (
-  filePath: string,
-): Promise<AppliedPromptState | null> => {
-  try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    if (utf8Bytes(raw) > PROMPT_APPLIED_STATE_RECORD_MAX_BYTES) return null;
-    const parsed = JSON.parse(raw);
-    return isValidAppliedState(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-};
-
-type AppliedStateRecord = { filePath: string; state: AppliedPromptState };
-
-const listAppliedStateRecords = async (
-  stellaDataDir: string,
-  endpoint: string,
-): Promise<AppliedStateRecord[]> => {
-  const endpointDir = appliedStateEndpointDir(stellaDataDir, endpoint);
-  const files = await fs.readdir(endpointDir).catch(() => []);
-  const records: AppliedStateRecord[] = [];
-  for (const file of files) {
-    if (!file.endsWith(".json")) continue;
-    const filePath = path.join(endpointDir, file);
-    const state = await readAppliedStateRecord(filePath);
-    if (state?.endpoint === endpoint) records.push({ filePath, state });
-  }
-  return records;
-};
-
-const newerAppliedState = (
-  left: AppliedPromptState | null,
-  right: AppliedPromptState | null,
-): AppliedPromptState | null => {
-  if (!left) return right;
-  if (!right) return left;
-  if (left.publishedAt !== right.publishedAt) {
-    return left.publishedAt > right.publishedAt ? left : right;
-  }
-  return left.revision.localeCompare(right.revision) >= 0 ? left : right;
-};
-
-const readAppliedStateRecords = async (
-  stellaDataDir: string,
-  expectedEndpoint?: string,
-): Promise<AppliedPromptState | null> => {
-  const endpointDirs = expectedEndpoint
-    ? [appliedStateEndpointDir(stellaDataDir, expectedEndpoint)]
-    : await fs
-        .readdir(appliedStateDir(stellaDataDir), { withFileTypes: true })
-        .then((entries) =>
-          entries
-            .filter((entry) => entry.isDirectory())
-            .map((entry) =>
-              path.join(appliedStateDir(stellaDataDir), entry.name),
-            ),
-        )
-        .catch(() => []);
-  let latest: AppliedPromptState | null = null;
-  for (const endpointDir of endpointDirs) {
-    const files = await fs.readdir(endpointDir).catch(() => []);
-    for (const file of files) {
-      if (!file.endsWith(".json")) continue;
-      const state = await readAppliedStateRecord(path.join(endpointDir, file));
-      if (state && (!expectedEndpoint || state.endpoint === expectedEndpoint)) {
-        latest = newerAppliedState(latest, state);
-      }
-    }
-  }
-  return latest;
-};
-
-const syncDirectory = async (dirPath: string): Promise<void> => {
-  const handle = await fs.open(dirPath, "r");
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-};
-
-const ensureDurableAppliedStateDirs = async (
-  stellaDataDir: string,
-  endpoint: string,
-): Promise<string> => {
-  const cacheDir = path.join(stellaDataDir, "cache");
-  const stateDir = appliedStateDir(stellaDataDir);
-  const endpointDir = appliedStateEndpointDir(stellaDataDir, endpoint);
-  await ensurePrivateDir(stellaDataDir);
-  await ensurePrivateDir(cacheDir);
-  await syncDirectory(stellaDataDir);
-  await ensurePrivateDir(stateDir);
-  await syncDirectory(cacheDir);
-  await ensurePrivateDir(endpointDir);
-  await syncDirectory(stateDir);
-  return endpointDir;
-};
-
-const readDurableAppliedState = async (
-  stellaDataDir: string,
-  expectedEndpoint?: string,
-): Promise<AppliedPromptState | null> => {
-  const legacyEntries = await readLegacyAppliedStateFile(stellaDataDir);
-  const legacy = expectedEndpoint
-    ? (legacyEntries.get(expectedEndpoint) ?? null)
-    : ([...legacyEntries.values()].reduce(newerAppliedState, null) ?? null);
-  const records = await readAppliedStateRecords(
-    stellaDataDir,
-    expectedEndpoint,
-  );
-  return newerAppliedState(legacy, records);
-};
-
-const readAppliedState = async (
-  stellaDataDir: string,
-  expectedEndpoint?: string,
-): Promise<AppliedPromptState | null> => {
-  const disk = await readDurableAppliedState(stellaDataDir, expectedEndpoint);
-  const endpoint = expectedEndpoint ?? disk?.endpoint;
-  const memory = endpoint
-    ? (appliedStateMemory.get(appliedStateKey(stellaDataDir, endpoint)) ?? null)
-    : null;
-  return newerAppliedState(disk, memory);
-};
-
-const writeAppliedStateAtomic = async (
-  stellaDataDir: string,
-  state: AppliedPromptState,
-): Promise<void> => {
-  const endpointDir = await ensureDurableAppliedStateDirs(
-    stellaDataDir,
-    state.endpoint,
-  );
-  const filePath = path.join(
-    endpointDir,
-    `${state.publishedAt}-${state.revision}.json`,
-  );
-  const content = `${JSON.stringify(state, null, 2)}\n`;
-  if (utf8Bytes(content) > PROMPT_APPLIED_STATE_RECORD_MAX_BYTES) {
-    throw new Error("Prompt applied-state record exceeds the size limit");
-  }
-  const existing = await readAppliedStateRecord(filePath);
-  if (existing) {
-    if (
-      existing.endpoint !== state.endpoint ||
-      existing.publishedAt !== state.publishedAt ||
-      existing.revision !== state.revision
-    ) {
-      throw new Error("Prompt applied-state record collision");
-    }
-    const fileHandle = await fs.open(filePath, "r");
-    try {
-      await fileHandle.sync();
-    } finally {
-      await fileHandle.close();
-    }
-    await syncDirectory(endpointDir);
-    return;
-  }
-  const tempPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
-  let tempHandle: Awaited<ReturnType<typeof fs.open>> | null = null;
-  try {
-    tempHandle = await fs.open(tempPath, "wx", 0o600);
-    await tempHandle.writeFile(content, "utf-8");
-    await tempHandle.sync();
-    await tempHandle.close();
-    tempHandle = null;
-    await fs.rename(tempPath, filePath);
-    await syncDirectory(endpointDir);
-  } catch (error) {
-    await tempHandle?.close().catch(() => {});
-    await fs.rm(tempPath, { force: true }).catch(() => {});
-    throw error;
-  }
-};
-
-export const compactAppliedStateRecords = async (
-  stellaDataDir: string,
-  endpoint: string,
-  options: { onDurableDelete?: (filePath: string) => Promise<void> } = {},
-): Promise<void> => {
-  const records = await listAppliedStateRecords(stellaDataDir, endpoint);
-  records.sort((left, right) => {
-    if (left.state.publishedAt !== right.state.publishedAt) {
-      return right.state.publishedAt - left.state.publishedAt;
-    }
-    return right.state.revision.localeCompare(left.state.revision);
-  });
-  const obsolete = records.slice(PROMPT_APPLIED_STATE_RECOVERY_RECORDS);
-  for (const record of obsolete) {
-    await fs.rm(record.filePath);
-    await syncDirectory(appliedStateEndpointDir(stellaDataDir, endpoint));
-    await options.onDurableDelete?.(record.filePath);
-  }
-};
-
-const acquirePromptApplyDatabaseLock = async (
-  stellaDataDir: string,
-  endpoint: string,
-): Promise<SqliteDatabase> => {
-  await ensureDurableAppliedStateDirs(stellaDataDir, endpoint);
-  const Database = await loadSqliteDatabaseCtor();
-  const database = new Database(promptApplyLockDatabasePath(stellaDataDir));
-  try {
-    database.exec(`PRAGMA busy_timeout = ${PROMPT_APPLY_LOCK_TIMEOUT_MS}`);
-    database.exec("BEGIN IMMEDIATE");
-    return database;
-  } catch (error) {
-    database.close();
-    throw error;
-  }
-};
-
-const releasePromptApplyDatabaseLock = (database: SqliteDatabase): void => {
-  try {
-    database.exec("ROLLBACK");
-  } catch {
-    // A killed or compromised connection already released its kernel lock.
-  } finally {
-    database.close();
-  }
-};
-
-const withPromptApplyLock = async <T>(
-  stellaDataDir: string,
-  endpoint: string,
-  operation: () => Promise<T>,
-): Promise<T> => {
-  // SQLite serializes every writer to this data directory, so the in-process
-  // queue must use the same scope. Otherwise a second synchronous BEGIN could
-  // block the event loop while the first holder awaits reconciliation.
-  const key = path.resolve(stellaDataDir);
-  const previous = promptApplyQueueTails.get(key) ?? Promise.resolve();
-  let releaseTurn!: () => void;
-  const turn = new Promise<void>((resolve) => {
-    releaseTurn = resolve;
-  });
-  promptApplyQueueTails.set(key, turn);
-  await previous;
-  let database: SqliteDatabase | null = null;
-  try {
-    database = await acquirePromptApplyDatabaseLock(stellaDataDir, endpoint);
-    return await operation();
-  } finally {
-    if (database) releasePromptApplyDatabaseLock(database);
-    releaseTurn();
-    if (promptApplyQueueTails.get(key) === turn) {
-      promptApplyQueueTails.delete(key);
-    }
-  }
-};
-
-export class StalePromptManifestError extends Error {
-  constructor(
-    readonly candidate: AppliedPromptState,
-    readonly winner: AppliedPromptState,
-  ) {
-    super(
-      `Prompt publication ${candidate.publishedAt}/${candidate.revision} is stale; durable maximum is ${winner.publishedAt}/${winner.revision}`,
-    );
-    this.name = "StalePromptManifestError";
-  }
-}
-
-const recordAppliedPromptManifestLocked = async (args: {
-  stellaDataDir: string;
-  endpoint: string;
-  manifest: RemotePromptManifest;
-  writeStateImpl?: typeof writeAppliedStateAtomic;
-}): Promise<AppliedPromptState> => {
-  const candidate: AppliedPromptState = {
-    endpoint: args.endpoint,
-    publishedAt: args.manifest.publishedAt,
-    revision: args.manifest.revision,
-  };
-  await (args.writeStateImpl ?? writeAppliedStateAtomic)(
-    args.stellaDataDir,
-    candidate,
-  );
-  const winner = await readDurableAppliedState(
-    args.stellaDataDir,
-    args.endpoint,
-  );
-  if (!winner) throw new Error("Applied prompt state vanished after write");
-  appliedStateMemory.set(
-    appliedStateKey(args.stellaDataDir, args.endpoint),
-    winner,
-  );
-  await compactAppliedStateRecords(args.stellaDataDir, args.endpoint);
-  if (
-    winner.publishedAt !== candidate.publishedAt ||
-    winner.revision !== candidate.revision
-  ) {
-    throw new StalePromptManifestError(candidate, winner);
-  }
-  return winner;
-};
-
-export const recordAppliedPromptManifest = async (args: {
-  stellaDataDir: string;
-  endpoint: string;
-  manifest: RemotePromptManifest;
-  writeStateImpl?: typeof writeAppliedStateAtomic;
-}): Promise<AppliedPromptState> =>
-  withPromptApplyLock(args.stellaDataDir, args.endpoint, () =>
-    recordAppliedPromptManifestLocked(args),
-  );
-
-export const applyPromptManifestIfCurrent = async <T>(args: {
-  stellaDataDir: string;
-  endpoint: string;
-  manifest: RemotePromptManifest;
-  reconcile: () => Promise<T>;
-}): Promise<T> =>
-  withPromptApplyLock(args.stellaDataDir, args.endpoint, async () => {
-    await recordAppliedPromptManifestLocked(args);
-    return await args.reconcile();
-  });
 
 const writeCacheAtomic = async (
   stellaDataDir: string,
@@ -679,23 +191,12 @@ const readBoundedJsonResponse = async (
 };
 
 const isRollback = (
-  fresh: RemotePromptManifest,
+  fresh: Pick<RemotePromptManifest, "publishedAt" | "revision">,
   highWater: Pick<RemotePromptManifest, "publishedAt" | "revision">,
 ): boolean =>
   fresh.publishedAt < highWater.publishedAt ||
   (fresh.publishedAt === highWater.publishedAt &&
     fresh.revision !== highWater.revision);
-
-const highestKnownState = (
-  cached: CachedPromptManifest | null,
-  applied: AppliedPromptState | null,
-): Pick<RemotePromptManifest, "publishedAt" | "revision"> | null => {
-  if (!cached) return applied;
-  if (!applied) return cached.manifest;
-  return cached.manifest.publishedAt > applied.publishedAt
-    ? cached.manifest
-    : applied;
-};
 
 export const resolvePromptManifest = async (args: {
   stellaDataDir: string;
@@ -708,22 +209,26 @@ export const resolvePromptManifest = async (args: {
     ? stellaPromptEndpointFromSiteUrl(siteUrl)
     : undefined;
   const cached = await readCache(args.stellaDataDir, configuredEndpoint);
-  const initialApplied = await readAppliedState(
-    args.stellaDataDir,
-    configuredEndpoint,
-  );
-  const endpoint =
-    configuredEndpoint ?? cached?.endpoint ?? initialApplied?.endpoint;
+  const endpoint = configuredEndpoint ?? cached?.endpoint;
   if (!endpoint) {
     return { source: "unavailable", manifest: null };
   }
-  const applied =
-    initialApplied?.endpoint === endpoint
-      ? initialApplied
-      : await readAppliedState(args.stellaDataDir, endpoint);
-  const highWater = highestKnownState(cached, applied);
+  const applied = await readSystemRevision(args.stellaDataDir);
+  // An offline-seeded system dir (revision "offline", publishedAt 0) never
+  // blocks a real publication.
+  const appliedHighWater =
+    applied && STELLA_PROMPT_REVISION_PATTERN.test(applied.revision)
+      ? { publishedAt: applied.publishedAt, revision: applied.revision }
+      : null;
+  const highWater =
+    cached &&
+    (!appliedHighWater ||
+      cached.manifest.publishedAt > appliedHighWater.publishedAt)
+      ? cached.manifest
+      : appliedHighWater;
   const safeCached =
-    cached && (!applied || !isRollback(cached.manifest, applied))
+    cached &&
+    (!appliedHighWater || !isRollback(cached.manifest, appliedHighWater))
       ? cached
       : null;
 
@@ -776,121 +281,4 @@ export const resolvePromptManifest = async (args: {
   } finally {
     clearTimeout(timeout);
   }
-};
-
-const readAgentMetadata = async (
-  agentMetadataDir: string,
-  id: string,
-): Promise<{ frontmatter: string }> => {
-  const raw = await fs.readFile(
-    path.join(agentMetadataDir, `${id}.md`),
-    "utf-8",
-  );
-  const match = raw.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
-  if (!match) {
-    throw new Error(`Agent metadata ${id} is missing valid frontmatter`);
-  }
-  return { frontmatter: match[0] };
-};
-
-const resolveReconciledPrompts = async (
-  manifest: RemotePromptManifest,
-  agentMetadataDir: string,
-): Promise<Map<"agents" | "prompts", Map<string, ReconciledPrompt>>> => {
-  const byArea = new Map<"agents" | "prompts", Map<string, ReconciledPrompt>>([
-    ["agents", new Map()],
-    ["prompts", new Map()],
-  ]);
-  for (const prompt of manifest.prompts) {
-    // A prompt this app has retired has no bundled agent metadata to prepend,
-    // so it is skipped rather than installed. It stays in the manifest for
-    // revision integrity; it just never becomes a file in home.
-    if (STELLA_PROMPT_RETIRED_ID_SET.has(prompt.id)) continue;
-    const area = prompt.id.startsWith("agents/") ? "agents" : "prompts";
-    const id = prompt.id.slice(area.length + 1, -3);
-    let content = prompt.content;
-    if (area === "agents") {
-      // The published body is authoritative. A bundled body in agent-metadata
-      // (promptSource: bundled) is only the registration fallback for the
-      // no-home-file case — offline first boot — and never wins over remote.
-      const metadata = await readAgentMetadata(agentMetadataDir, id);
-      content = `${metadata.frontmatter}${prompt.content}`;
-    }
-    byArea.get(area)!.set(id, {
-      ...prompt,
-      content,
-      sha256: sha256(content),
-    });
-  }
-  return byArea;
-};
-
-const createRemoteAdapter = (
-  sourceKey: string,
-  prompts: Map<string, ReconciledPrompt>,
-): BundledEntryAdapter => ({
-  listIds: async (dir) => {
-    if (dir === sourceKey) return [...prompts.keys()].sort();
-    try {
-      return (await fs.readdir(dir, { withFileTypes: true }))
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-        .map((entry) => entry.name.slice(0, -3))
-        .sort();
-    } catch {
-      return [];
-    }
-  },
-  hash: async (dir, id) => {
-    if (dir === sourceKey) return prompts.get(id)?.sha256 ?? null;
-    try {
-      return sha256(await fs.readFile(path.join(dir, `${id}.md`), "utf-8"));
-    } catch {
-      return null;
-    }
-  },
-  copy: async (_src, dest, id) => {
-    const prompt = prompts.get(id);
-    if (!prompt) return;
-    await ensurePrivateDir(dest);
-    const target = path.join(dest, `${id}.md`);
-    const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
-    try {
-      await fs.writeFile(temp, prompt.content, {
-        encoding: "utf-8",
-        mode: 0o600,
-      });
-      await fs.rename(temp, target);
-    } catch (error) {
-      await fs.rm(temp, { force: true }).catch(() => {});
-      throw error;
-    }
-  },
-  remove: async (dir, id) => {
-    await fs.rm(path.join(dir, `${id}.md`), { force: true });
-  },
-});
-
-export const reconcileRemotePromptManifest = async (
-  manifest: RemotePromptManifest,
-  stellaDataDir: string,
-  agentMetadataDir: string,
-): Promise<BundledSyncReport[]> => {
-  const reports: BundledSyncReport[] = [];
-  const byArea = await resolveReconciledPrompts(manifest, agentMetadataDir);
-  for (const area of ["agents", "prompts"] as const) {
-    const entries = byArea.get(area)!;
-    const sourceKey = `remote:${area}:${manifest.revision}`;
-    reports.push(
-      await reconcileBundledEntries(
-        sourceKey,
-        path.join(stellaDataDir, area),
-        createRemoteAdapter(sourceKey, entries),
-        {
-          sourceRevision: manifest.revision,
-          removeObsolete: false,
-        },
-      ),
-    );
-  }
-  return reports;
 };

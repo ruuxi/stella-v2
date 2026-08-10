@@ -176,7 +176,7 @@ describe("working orchestrator surface", () => {
     ).toBe(ORCHESTRATED_ORCHESTRATOR_ID);
   });
 
-  it("registers the bundled prompt offline and still preserves a customized home body", async () => {
+  it("registers the bundled prompt offline and the system body once mirrored", async () => {
     const { rootPath } = await createTestHost();
     const offlineAgents = loadStellaRuntimeAgents(rootPath, metadataDir);
     expect(
@@ -190,27 +190,43 @@ describe("working orchestrator surface", () => {
         ?.systemPrompt,
     ).toContain("Execution happens through background agents");
 
-    const agentsDir = path.join(rootPath, "agents");
-    await mkdir(agentsDir, { recursive: true });
+    // Once the mirror has a body, it wins over the bundled fallback — with
+    // capability metadata still coming from the bundle, so a stale mirrored
+    // frontmatter can never change the tool surface.
+    const systemAgentsDir = path.join(rootPath, "system", "agents");
+    await mkdir(systemAgentsDir, { recursive: true });
     await writeFile(
-      path.join(agentsDir, "orchestrator.md"),
+      path.join(systemAgentsDir, "orchestrator.md"),
       [
         "---",
-        "name: Customized Orchestrator",
+        "name: Mirrored Orchestrator",
         "description: stale metadata",
         "tools: spawn_agent",
         "maxAgentDepth: 9",
         "---",
-        "My customized working prompt.",
+        "Mirrored working prompt.",
       ].join("\n"),
     );
 
-    const customized = loadStellaRuntimeAgents(rootPath, metadataDir).find(
+    const mirrored = loadStellaRuntimeAgents(rootPath, metadataDir).find(
       (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
     );
-    expect(customized?.systemPrompt).toBe("My customized working prompt.");
-    expect(customized?.maxAgentDepth).toBe(1);
-    expect(customized?.toolsAllowlist).toContain("node_repl");
+    expect(mirrored?.systemPrompt).toBe("Mirrored working prompt.");
+    expect(mirrored?.maxAgentDepth).toBe(1);
+    expect(mirrored?.toolsAllowlist).toContain("node_repl");
+
+    // A user overlay for a shipped agent is per-turn composition, not a
+    // second registered agent.
+    const agentsDir = path.join(rootPath, "agents");
+    await mkdir(agentsDir, { recursive: true });
+    await writeFile(path.join(agentsDir, "orchestrator.md"), "my overlay\n");
+    const agents = loadStellaRuntimeAgents(rootPath, metadataDir);
+    expect(
+      agents.filter((agent) => agent.id === AGENT_IDS.ORCHESTRATOR),
+    ).toHaveLength(1);
+    expect(
+      agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)?.systemPrompt,
+    ).toBe("Mirrored working prompt.");
   });
 
   it("offers direct execution plus personal tools and keeps child agents one level deep", async () => {

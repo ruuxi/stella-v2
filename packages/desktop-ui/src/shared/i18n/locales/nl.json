@@ -90,6 +90,14 @@
       "description": "Laat Stella de pagina zien waar je bent en acties uitvoeren in je browser.",
       "action": "Extensie ophalen"
     },
+    "resetCustomizations": {
+      "title": "Stella's standaardinstellingen gebruiken",
+      "description": "Verwijdert je prompt- en skill-aanpassingen zodat Stella's standaarden gelden. Verwijderde items blijven bewaard in ~/.stella/.trash voor het geval je ze terug wilt.",
+      "action": "Standaarden herstellen",
+      "done": "Standaarden hersteld. Je eerdere aanpassingen zijn verplaatst naar ~/.stella/.trash.",
+      "none": "Je gebruikt al Stella's standaardinstellingen.",
+      "error": "Kon de standaarden niet herstellen."
+    },
     "permissions": {
       "title": "Machtigingen",
       "enable": "Inschakelen",
@@ -619,7 +627,10 @@
     "plans": {
       "free": {
         "tagline": "Begin met Stella",
-        "features": ["Basischat en hulp", "Beperkt dagelijks gebruik"]
+        "features": [
+          "Basischat en hulp",
+          "Beperkt dagelijks gebruik"
+        ]
       },
       "go": {
         "tagline": "Voor dagelijks persoonlijk gebruik",

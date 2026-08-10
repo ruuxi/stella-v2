@@ -1,20 +1,18 @@
 /**
- * `~/.stella/PERSONALITY.md` — Stella's selected voice/register, injected as a
- * hidden startup doc on the first orchestrator turn (the same path core memory
- * takes) rather than into the system prompt every turn.
+ * Stella's selected voice/register, injected as a hidden startup doc on the
+ * first orchestrator turn.
  *
- * Lifecycle:
- * - Seeded on first read from the selected preset (or the Stella default when
- *   no preference is set).
- * - Overwritten when the user picks a preset in onboarding or settings.
- * - Read into the agent context at turn start; injected as a startup doc on the
- *   conversation's first turn, then replayed from persisted history. A new
- *   preset (or hand edit) therefore takes effect on the next fresh
- *   conversation, not mid-thread.
+ * Composition is live and mirrors the agent-prompt customization model:
  *
- * The file is plain markdown so power users can edit it freely. On each read we
- * use whatever is on disk verbatim — never re-compose from a preset if the file
- * already exists.
+ * - `~/.stella/PERSONALITY.md`, when present, is the user's replacement and is
+ *   used verbatim — hand edits always win.
+ * - Otherwise the content comes straight from the selected preset under
+ *   `~/.stella/system/prompts/personality-<id>.md` (via `readHomePrompt`), so
+ *   shipped preset updates apply automatically with no reconciliation.
+ *
+ * Picking a preset in onboarding or settings just updates the preference and
+ * clears any replacement file. A new preset (or hand edit) takes effect on the
+ * next fresh conversation, not mid-thread.
  */
 
 import fs from "node:fs";
@@ -24,60 +22,56 @@ import {
   type PersonalityId,
 } from "@stella/contracts/personality";
 import { getPersonalityVoiceId } from "../preferences/local-preferences.js";
-import {
-  resolvePersonalityPresetContent,
-  writePersonalityTransaction,
-} from "../home/personality-sync.js";
+import { readHomePrompt } from "../prompts/home-prompts.js";
 
 const PERSONALITY_FILE_RELATIVE = "PERSONALITY.md";
 
 const personalityFilePath = (stellaDataDir: string): string =>
   path.join(stellaDataDir, PERSONALITY_FILE_RELATIVE);
 
-const composePersonalityContent = (
+export const resolvePersonalityPresetContent = (
   stellaDataDir: string,
   id: PersonalityId,
-): string => resolvePersonalityPresetContent(stellaDataDir, id);
+): string => {
+  const content = readHomePrompt(stellaDataDir, `personality-${id}`);
+  return content ? `${content.trim()}\n` : "";
+};
 
 /**
- * Read the persisted personality file, seeding it on first access from the
- * backend-synchronized preset selected by the user. If prompt sync has not
- * produced that preset yet, leave the file absent.
+ * Read the personality: the user's `PERSONALITY.md` when present, else the
+ * selected preset composed live from the system mirror.
  */
 export const readOrSeedPersonality = (stellaDataDir: string): string => {
-  const filePath = personalityFilePath(stellaDataDir);
   try {
-    const existing = fs.readFileSync(filePath, "utf-8").trim();
+    const existing = fs
+      .readFileSync(personalityFilePath(stellaDataDir), "utf-8")
+      .trim();
     if (existing.length > 0) {
       return existing;
     }
   } catch {
-    // Fall through to seed.
+    // No replacement file; fall through to the preset.
   }
 
   const selectedId = coercePersonalityId(getPersonalityVoiceId(stellaDataDir));
-  const seeded = composePersonalityContent(stellaDataDir, selectedId);
-  if (!seeded) return "";
-  try {
-    writePersonalityTransaction(stellaDataDir, selectedId, seeded);
-  } catch {
-    // Seeding is best-effort; the live string is still returned below.
-  }
-  return seeded.trim();
+  return resolvePersonalityPresetContent(stellaDataDir, selectedId).trim();
 };
 
 /**
- * Overwrite `~/.stella/PERSONALITY.md` with the given preset. Used when the
- * user picks a personality in onboarding or settings.
+ * Apply a preset pick from onboarding or settings: the preset becomes live
+ * immediately by clearing any user replacement file. (The preference itself is
+ * persisted by the caller alongside this.)
  */
 export const writePersonality = (
   stellaDataDir: string,
   id: PersonalityId,
 ): string => {
-  const content = composePersonalityContent(stellaDataDir, id);
-  if (!content) return "";
-  writePersonalityTransaction(stellaDataDir, id, content);
-  return content.trim();
+  try {
+    fs.rmSync(personalityFilePath(stellaDataDir), { force: true });
+  } catch {
+    // Removal is best-effort; the preset content below is still returned.
+  }
+  return resolvePersonalityPresetContent(stellaDataDir, id).trim();
 };
 
 export const getPersonalityFilePath = (stellaDataDir: string): string =>

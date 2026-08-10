@@ -90,6 +90,14 @@
       "description": "Lehetővé teszi a Stellának, hogy lássa az oldalt, amelyen vagy, és műveleteket végezzen a böngésződben.",
       "action": "Bővítmény beszerzése"
     },
+    "resetCustomizations": {
+      "title": "A Stella alapértelmezéseinek használata",
+      "description": "Eltávolítja a prompt- és készség-testreszabásaidat, hogy a Stella alapértelmezései érvényesüljenek. Az eltávolítottak a ~/.stella/.trash mappában maradnak, ha vissza szeretnéd őket.",
+      "action": "Alapértelmezések visszaállítása",
+      "done": "Alapértelmezések visszaállítva. Korábbi testreszabásaid a ~/.stella/.trash mappába kerültek.",
+      "none": "Már a Stella alapértelmezéseit használod.",
+      "error": "Nem sikerült visszaállítani az alapértelmezéseket."
+    },
     "permissions": {
       "title": "Engedélyek",
       "enable": "Engedélyezés",
@@ -619,7 +627,10 @@
     "plans": {
       "free": {
         "tagline": "Indítsd el a Stellát",
-        "features": ["Alap chat és segítség", "Korlátozott napi használat"]
+        "features": [
+          "Alap chat és segítség",
+          "Korlátozott napi használat"
+        ]
       },
       "go": {
         "tagline": "Mindennapi személyes használatra",

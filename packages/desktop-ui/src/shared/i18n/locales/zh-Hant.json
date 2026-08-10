@@ -90,6 +90,14 @@
       "description": "讓 Stella 查看你所在的頁面並在瀏覽器中執行操作。",
       "action": "取得擴充功能"
     },
+    "resetCustomizations": {
+      "title": "使用 Stella 預設設定",
+      "description": "移除你的提示詞與技能自訂內容，套用 Stella 內建的預設設定。被移除的內容會保存在 ~/.stella/.trash，以便隨時取回。",
+      "action": "還原預設",
+      "done": "已還原預設設定。你先前的自訂內容已移至 ~/.stella/.trash。",
+      "none": "你已經在使用 Stella 的預設設定。",
+      "error": "無法還原預設設定。"
+    },
     "permissions": {
       "title": "權限",
       "enable": "啟用",
@@ -618,15 +626,26 @@
     "plans": {
       "free": {
         "tagline": "開始使用 Stella",
-        "features": ["基礎聊天與協助", "每日使用量有限"]
+        "features": [
+          "基礎聊天與協助",
+          "每日使用量有限"
+        ]
       },
       "go": {
         "tagline": "適合日常個人使用",
-        "features": ["每日更多對話", "瀏覽器自動化", "語音對話"]
+        "features": [
+          "每日更多對話",
+          "瀏覽器自動化",
+          "語音對話"
+        ]
       },
       "pro": {
         "tagline": "適合進階使用者",
-        "features": ["Go 的 3 倍使用量", "優先回應時間", "全部自動化功能"]
+        "features": [
+          "Go 的 3 倍使用量",
+          "優先回應時間",
+          "全部自動化功能"
+        ]
       }
     },
     "upgradeDialog": {

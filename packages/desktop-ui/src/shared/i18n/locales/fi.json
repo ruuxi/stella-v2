@@ -90,6 +90,14 @@
       "description": "Antaa Stellan nähdä sivun, jolla olet, ja toimia selaimessasi.",
       "action": "Hanki laajennus"
     },
+    "resetCustomizations": {
+      "title": "Käytä Stellan oletuksia",
+      "description": "Poistaa kehote- ja taitomuokkauksesi, jotta Stellan oletusasetukset tulevat käyttöön. Poistetut tallennetaan kansioon ~/.stella/.trash siltä varalta, että haluat ne takaisin.",
+      "action": "Palauta oletukset",
+      "done": "Oletukset palautettu. Aiemmat muokkauksesi siirrettiin kansioon ~/.stella/.trash.",
+      "none": "Käytät jo Stellan oletuksia.",
+      "error": "Oletuksia ei voitu palauttaa."
+    },
     "permissions": {
       "title": "Käyttöoikeudet",
       "enable": "Ota käyttöön",
@@ -619,7 +627,10 @@
     "plans": {
       "free": {
         "tagline": "Aloita Stellan kanssa",
-        "features": ["Perusjuttelu ja apu", "Rajallinen päivittäinen käyttö"]
+        "features": [
+          "Perusjuttelu ja apu",
+          "Rajallinen päivittäinen käyttö"
+        ]
       },
       "go": {
         "tagline": "Päivittäiseen henkilökohtaiseen käyttöön",

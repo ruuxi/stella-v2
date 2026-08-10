@@ -88,6 +88,12 @@ export function GeneralTab() {
   const [personalityVoiceError, setPersonalityVoiceError] = useState<
     string | null
   >(null);
+  const [isResettingCustomizations, setIsResettingCustomizations] =
+    useState(false);
+  const [resetCustomizationsStatus, setResetCustomizationsStatus] = useState<{
+    kind: "done" | "none" | "error";
+    message: string;
+  } | null>(null);
   const [assistantWorkingMode, setAssistantWorkingMode] =
     useState<AssistantWorkingMode>("direct");
   const [assistantWorkingModeLoaded, setAssistantWorkingModeLoaded] =
@@ -367,6 +373,48 @@ export function GeneralTab() {
     },
     [personalityVoiceId, t],
   );
+
+  const handleResetCustomizations = useCallback(async () => {
+    const systemApi = window.electronAPI?.system;
+    if (!systemApi?.resetCustomizations) {
+      setResetCustomizationsStatus({
+        kind: "error",
+        message: t("settings.resetCustomizations.error"),
+      });
+      return;
+    }
+    setIsResettingCustomizations(true);
+    setResetCustomizationsStatus(null);
+    try {
+      const result = await systemApi.resetCustomizations();
+      if (!result.ok) {
+        setResetCustomizationsStatus({
+          kind: "error",
+          message: result.error ?? t("settings.resetCustomizations.error"),
+        });
+      } else if (result.movedEntries.length === 0) {
+        setResetCustomizationsStatus({
+          kind: "none",
+          message: t("settings.resetCustomizations.none"),
+        });
+      } else {
+        setResetCustomizationsStatus({
+          kind: "done",
+          message: t("settings.resetCustomizations.done"),
+        });
+      }
+    } catch (error) {
+      setResetCustomizationsStatus({
+        kind: "error",
+        message: getSettingsErrorMessage(
+          error,
+          t("settings.resetCustomizations.error"),
+        ),
+      });
+    } finally {
+      setIsResettingCustomizations(false);
+    }
+  }, [t]);
 
   const handleAssistantWorkingModeChange = useCallback(
     async (enabled: boolean) => {
@@ -976,6 +1024,35 @@ export function GeneralTab() {
               />
             </div>
           </div>
+        </div>
+        <div className="settings-card">
+          <div className="settings-card-header">
+            <h3 className="settings-card-title">
+              {t("settings.resetCustomizations.title")}
+            </h3>
+            <Button
+              type="button"
+              variant="ghost"
+              className="pill-btn"
+              disabled={isResettingCustomizations}
+              onClick={() => void handleResetCustomizations()}
+            >
+              {t("settings.resetCustomizations.action")}
+            </Button>
+          </div>
+          <p
+            className={
+              resetCustomizationsStatus?.kind === "error"
+                ? "settings-card-desc settings-card-desc--error"
+                : "settings-card-desc"
+            }
+            role={
+              resetCustomizationsStatus?.kind === "error" ? "alert" : undefined
+            }
+          >
+            {resetCustomizationsStatus?.message ??
+              t("settings.resetCustomizations.description")}
+          </p>
         </div>
         <div className="settings-card">
           <div className="settings-card-header">

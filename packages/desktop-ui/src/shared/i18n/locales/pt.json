@@ -90,6 +90,14 @@
       "description": "Permite que a Stella veja a página em que você está e realize ações no seu navegador.",
       "action": "Obter extensão"
     },
+    "resetCustomizations": {
+      "title": "Usar os padrões da Stella",
+      "description": "Remove suas personalizações de prompts e habilidades para aplicar os padrões da Stella. O que for removido fica em ~/.stella/.trash caso queira recuperar.",
+      "action": "Restaurar padrões",
+      "done": "Padrões restaurados. Suas personalizações anteriores foram movidas para ~/.stella/.trash.",
+      "none": "Você já está usando os padrões da Stella.",
+      "error": "Não foi possível restaurar os padrões."
+    },
     "permissions": {
       "title": "Permissões",
       "enable": "Ativar",
@@ -620,7 +628,10 @@
     "plans": {
       "free": {
         "tagline": "Comece com a Stella",
-        "features": ["Chat e assistência básicos", "Uso diário limitado"]
+        "features": [
+          "Chat e assistência básicos",
+          "Uso diário limitado"
+        ]
       },
       "go": {
         "tagline": "Para uso pessoal no dia a dia",

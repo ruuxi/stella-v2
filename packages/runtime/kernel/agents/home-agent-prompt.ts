@@ -1,18 +1,22 @@
 /**
- * Live read of a user-editable agent system prompt from `~/.stella/agents/`.
+ * Live, per-turn composition of an agent's system prompt from the system
+ * mirror plus the user's customization files.
  *
- * Backend prompts are reconciled into `${stellaDataDir}/agents/<id>.md` at
- * startup and that's what the extension loader registers.
- * But the registered prompt is captured once at load time, so a later edit to
- * the markdown wouldn't take effect until a reload. `buildAgentContext` calls
- * this per turn to pick up edits live — gated by an mtime+size signature so an
- * unchanged file is never re-read or re-parsed (the body is served from a
- * module-level cache). Returns `undefined` when there's no home prompt for the
- * agent type.
+ * Resolution order for agent `<id>`:
  *
- * Only the prompt *body* is read live. Frontmatter (tools, model,
- * maxAgentDepth) still comes from the registered agent and takes effect on the
- * next extension reload — the prompt text is the thing users iterate on.
+ *   1. `~/.stella/agents/<id>.replace.md` — full replacement. The user (or an
+ *      agent acting for them) owns the whole prompt; shipped updates to this
+ *      agent no longer apply until the file is removed.
+ *   2. `~/.stella/system/agents/<id>.md` — the shipped base body, plus
+ *      `~/.stella/agents/<id>.md` appended under a "# User customizations"
+ *      heading when present. This is the default, always-update-safe route.
+ *   3. `~/.stella/agents/<id>.md` alone — a user-defined agent with no shipped
+ *      counterpart.
+ *
+ * Every file is read live, gated by an mtime+size signature so unchanged
+ * files are never re-read. Frontmatter in any of these files is stripped —
+ * capability metadata (tools, model, maxAgentDepth) always comes from the
+ * registered agent.
  */
 
 import { promises as fs } from "node:fs";
@@ -22,42 +26,80 @@ import { extractFrontmatter } from "../frontmatter.js";
 import { statSignature } from "../shared/fs-signature.js";
 
 const AGENTS_DIR_NAME = "agents";
+const SYSTEM_DIR_NAME = "system";
 const AGENT_PROMPT_EXTENSION = ".md";
+const REPLACE_EXTENSION = ".replace.md";
+const OVERLAY_HEADING = "# User customizations";
 
 type CachedPrompt = { sig: string; body: string | undefined };
 
 const promptCache = new Map<string, CachedPrompt>();
 
+const readBody = async (filePath: string): Promise<string | undefined> => {
+  try {
+    const raw = await fs.readFile(filePath, "utf-8");
+    const parsed = extractFrontmatter(raw).body.trim();
+    return parsed.length > 0 ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export const loadHomeAgentSystemPrompt = async (
   stellaDataDir: string,
   agentType: string,
 ): Promise<string | undefined> => {
-  const filePath = path.join(
+  const replacePath = path.join(
+    stellaDataDir,
+    AGENTS_DIR_NAME,
+    `${agentType}${REPLACE_EXTENSION}`,
+  );
+  const basePath = path.join(
+    stellaDataDir,
+    SYSTEM_DIR_NAME,
+    AGENTS_DIR_NAME,
+    `${agentType}${AGENT_PROMPT_EXTENSION}`,
+  );
+  const overlayPath = path.join(
     stellaDataDir,
     AGENTS_DIR_NAME,
     `${agentType}${AGENT_PROMPT_EXTENSION}`,
   );
 
-  const sig = await statSignature(filePath);
-  if (sig === null) {
-    promptCache.delete(filePath);
+  const [replaceSig, baseSig, overlaySig] = await Promise.all([
+    statSignature(replacePath),
+    statSignature(basePath),
+    statSignature(overlayPath),
+  ]);
+  const sig = `${replaceSig ?? "-"}|${baseSig ?? "-"}|${overlaySig ?? "-"}`;
+  const cacheKey = `${stellaDataDir}\0${agentType}`;
+
+  if (replaceSig === null && baseSig === null && overlaySig === null) {
+    promptCache.delete(cacheKey);
     return undefined;
   }
 
-  const cached = promptCache.get(filePath);
+  const cached = promptCache.get(cacheKey);
   if (cached && cached.sig === sig) {
     return cached.body;
   }
 
   let body: string | undefined;
-  try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    const parsed = extractFrontmatter(raw).body.trim();
-    body = parsed.length > 0 ? parsed : undefined;
-  } catch {
-    body = undefined;
+  if (replaceSig !== null) {
+    body = await readBody(replacePath);
+  }
+  if (body === undefined) {
+    const [base, overlay] = await Promise.all([
+      baseSig !== null ? readBody(basePath) : undefined,
+      overlaySig !== null ? readBody(overlayPath) : undefined,
+    ]);
+    if (base && overlay) {
+      body = `${base}\n\n${OVERLAY_HEADING}\n\n${overlay}`;
+    } else {
+      body = base ?? overlay;
+    }
   }
 
-  promptCache.set(filePath, { sig, body });
+  promptCache.set(cacheKey, { sig, body });
   return body;
 };

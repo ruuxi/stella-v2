@@ -1,0 +1,102 @@
+/**
+ * "Use Stella's defaults" — one action that clears every prompt/skill
+ * customization so the mirrored system content is what runs.
+ *
+ * Nothing is destroyed: everything moves into a timestamped folder under
+ * `~/.stella/.trash/` for one level of manual undo.
+ *
+ * Cleared:
+ * - `agents/*.md` and `agents/*.replace.md` (overlays, replacements, and
+ *   user-defined agents)
+ * - `prompts/*.md` (user prompt replacements)
+ * - `PERSONALITY.md` (hand-edited personality)
+ * - `skills/<id>/` only where `<id>` also exists in `system/skills/` (forks
+ *   that shadow a shipped skill). Purely user-created skills are kept.
+ */
+
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
+import { ensurePrivateDir } from "../shared/private-fs.js";
+import { SYSTEM_DIR_NAME } from "./system-mirror.js";
+
+export type ResetCustomizationsResult = {
+  movedEntries: string[];
+  trashDir: string | null;
+};
+
+const listMarkdownFiles = async (dir: string): Promise<string[]> => {
+  try {
+    return (await fs.readdir(dir, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+};
+
+const listDirectories = async (dir: string): Promise<string[]> => {
+  try {
+    return (await fs.readdir(dir, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+};
+
+export const resetStellaCustomizations = async (
+  stellaDataDir: string,
+): Promise<ResetCustomizationsResult> => {
+  const candidates: string[] = [];
+
+  for (const area of ["agents", "prompts"] as const) {
+    for (const name of await listMarkdownFiles(
+      path.join(stellaDataDir, area),
+    )) {
+      candidates.push(path.join(area, name));
+    }
+  }
+
+  try {
+    await fs.access(path.join(stellaDataDir, "PERSONALITY.md"));
+    candidates.push("PERSONALITY.md");
+  } catch {}
+
+  const systemSkillIds = new Set(
+    await listDirectories(path.join(stellaDataDir, SYSTEM_DIR_NAME, "skills")),
+  );
+  for (const id of await listDirectories(path.join(stellaDataDir, "skills"))) {
+    if (systemSkillIds.has(id)) {
+      candidates.push(path.join("skills", id));
+    }
+  }
+
+  if (candidates.length === 0) {
+    return { movedEntries: [], trashDir: null };
+  }
+
+  const trashDir = path.join(
+    stellaDataDir,
+    ".trash",
+    new Date().toISOString().replace(/[:.]/g, "-"),
+  );
+  const moved: string[] = [];
+  for (const relPath of candidates) {
+    const source = path.join(stellaDataDir, relPath);
+    const target = path.join(trashDir, relPath);
+    try {
+      await ensurePrivateDir(path.dirname(target));
+      await fs.rename(source, target);
+      moved.push(relPath);
+    } catch {
+      // Cross-device or racing removals: fall back to copy+delete.
+      try {
+        await fs.cp(source, target, { recursive: true });
+        await fs.rm(source, { recursive: true, force: true });
+        moved.push(relPath);
+      } catch {}
+    }
+  }
+  return { movedEntries: moved, trashDir: moved.length > 0 ? trashDir : null };
+};

@@ -90,6 +90,14 @@
       "description": "Stella'nın bulunduğunuz sayfayı görmesine ve tarayıcınızda işlem yapmasına olanak tanır.",
       "action": "Uzantıyı al"
     },
+    "resetCustomizations": {
+      "title": "Stella'nın varsayılanlarını kullan",
+      "description": "Prompt ve beceri özelleştirmelerinizi kaldırarak Stella'nın varsayılan ayarlarını uygular. Kaldırılanlar, geri istemeniz ihtimaline karşı ~/.stella/.trash içinde saklanır.",
+      "action": "Varsayılanları geri yükle",
+      "done": "Varsayılanlar geri yüklendi. Önceki özelleştirmeleriniz ~/.stella/.trash klasörüne taşındı.",
+      "none": "Zaten Stella'nın varsayılanlarını kullanıyorsunuz.",
+      "error": "Varsayılanlar geri yüklenemedi."
+    },
     "permissions": {
       "title": "İzinler",
       "enable": "Etkinleştir",
@@ -619,7 +627,10 @@
     "plans": {
       "free": {
         "tagline": "Stella ile başlayın",
-        "features": ["Temel sohbet ve yardım", "Sınırlı günlük kullanım"]
+        "features": [
+          "Temel sohbet ve yardım",
+          "Sınırlı günlük kullanım"
+        ]
       },
       "go": {
         "tagline": "Günlük kişisel kullanım için",

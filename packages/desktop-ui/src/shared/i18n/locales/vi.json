@@ -90,6 +90,14 @@
       "description": "Cho phép Stella xem trang bạn đang ở và thực hiện thao tác trong trình duyệt của bạn.",
       "action": "Tải tiện ích"
     },
+    "resetCustomizations": {
+      "title": "Dùng mặc định của Stella",
+      "description": "Xóa các tùy chỉnh prompt và kỹ năng của bạn để áp dụng thiết lập mặc định của Stella. Những gì bị xóa được giữ trong ~/.stella/.trash phòng khi bạn muốn lấy lại.",
+      "action": "Khôi phục mặc định",
+      "done": "Đã khôi phục mặc định. Các tùy chỉnh trước đây của bạn đã được chuyển vào ~/.stella/.trash.",
+      "none": "Bạn đang dùng mặc định của Stella rồi.",
+      "error": "Không thể khôi phục mặc định."
+    },
     "permissions": {
       "title": "Quyền",
       "enable": "Bật",

@@ -24,6 +24,61 @@ export type ChangelogEntry = {
 
 export const changelogEntries: ChangelogEntry[] = [
   {
+    release: "v0.1.21 – v0.1.24",
+    date: "August 10, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "Dictation now sets up its local speech model quietly in the background, with cloud transcription ready while the download finishes.",
+      "Home groups conversations by when you used them — Today, Yesterday, the previous week, the previous month, and older.",
+      "Local chats and settings now live in Stella's durable home folder, separate from replaceable app and browser-session data.",
+    ],
+    more: [
+      "Realtime voice recovers more reliably around interruptions, tool use, and longer conversations.",
+      "Agent cards are calmer and less repetitive, with cleaner identity treatment.",
+      "External agent engines load their agent roster reliably in packaged builds.",
+    ],
+  },
+  {
+    release: "v0.1.13 – v0.1.20",
+    date: "August 9, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "A new aurora crescent-S identity now carries across the desktop, mobile app, browser extension, and animated shell.",
+      "Helper-agent work can open in its own chat tab, so you can inspect the full conversation and browser activity behind a task.",
+      "Plans and usage were rebuilt around what each plan can do, with a one-time Free allowance and clearer media access.",
+    ],
+    more: [
+      "Browser and computer-control sessions are isolated by task, with stale tabs fenced off before they can receive actions.",
+      "Settings and Plan & usage now open as focused dialogs, while the compact model picker stays close to the composer.",
+      "Background conversation tabs show an unread dot when new work arrives.",
+      "Connectors are searchable, and advanced users can add or remove MCP connections from Stella's local runtime.",
+      "Memory context can be switched off when you want a conversation to start without recalled history.",
+      "Stopping a task feels immediate while Stella finishes the shutdown safely behind the scenes.",
+      "Model routing, reasoning, and rate-limit recovery are steadier, including direct DeepSeek V4 Flash support.",
+      { text: "More of the desktop and mobile experience is translated, including new billing, agent-tab, and working-state copy.", product: "Mobile" },
+    ],
+  },
+  {
+    release: "v0.1.0 – v0.1.12",
+    date: "August 6, 2026",
+    tags: ["New"],
+    highlights: [
+      "Stella v2 is the new local-first desktop foundation: the agent runtime, conversations, apps, and workspace state run from your computer while cloud models remain available when needed.",
+      "Start a live voice conversation straight from the composer and keep talking while Stella works with tools.",
+      "Conversation tabs and history make it easy to keep several chats open and move between them without losing your place.",
+    ],
+    more: [
+      "Apps Stella builds run as real local projects, stay alive while you use them, and show their current status.",
+      "The in-app browser can start from the Stella browser extension and act inside frames with more dependable tab tracking.",
+      "The model picker was rebuilt around a clear provider list, direct sign-in, Stella modes, and the model actually in use.",
+      "Stella can switch orchestration modes and preserve nested helper-agent history across restarts.",
+      "Images can be described for text-only agents, so visual context still reaches the right part of a task.",
+      "Connected apps execute through Stella's local runtime with stricter schema checks and safer browser-session handling.",
+      "Packaged macOS and Windows builds gained bundled runtimes plus a long pass of startup, signing, extraction, and update fixes.",
+      { text: "On-demand dictation and voice tools arrived on mobile, alongside more dependable desktop bridging.", product: "Mobile" },
+    ],
+  },
+  {
     release: "v0.0.447 – v0.0.448",
     date: "July 28, 2026",
     tags: ["New", "Polish"],

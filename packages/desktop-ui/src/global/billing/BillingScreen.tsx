@@ -5,10 +5,12 @@ import { api } from "@/convex/api";
 // purpose: the barrel re-exports `RemoteI18nProvider`, which pulls in
 // `convex/react` and the auth provider. This component only needs the
 // active locale string, and the deep import keeps that dependency out.
-import { useLocale } from "@/shared/i18n/I18nProvider";
+import { useLocale, useT } from "@/shared/i18n/I18nProvider";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { Check } from "@/ui/icons";
+import { CAPABILITIES, hasCapability } from "./capabilities";
+import { resolveFreeAllowance } from "./audience";
 import "./BillingScreen.css";
 
 /**
@@ -33,6 +35,7 @@ type BillingPlanConfig = {
   rollingWindowHours: number;
   weeklyLimitUsd: number;
   monthlyLimitUsd: number;
+  lifetimeLimitUsd?: number;
 };
 
 type BillingUsage = {
@@ -42,6 +45,9 @@ type BillingUsage = {
   weeklyLimitUsd: number;
   monthlyUsedUsd: number;
   monthlyLimitUsd: number;
+  /** Cumulative spend and the one-shot Free allowance it counts against. */
+  lifetimeUsedUsd: number;
+  lifetimeLimitUsd: number | null;
 };
 
 type BillingStatus = {
@@ -90,10 +96,11 @@ const STATIC_PLAN_DISPLAY: Record<
   pro: { label: "Pro", monthlyPriceCents: 1_500 },
 };
 
-const PLAN_USAGE_TAGLINE: Record<BillingPlan, string> = {
-  free: "Limited free use",
-  go: "More included usage",
-  pro: "Highest included usage",
+type UsageMeter = {
+  key: string;
+  label: string;
+  usedUsd: number;
+  limitUsd: number;
 };
 
 /**
@@ -106,18 +113,72 @@ const PLAN_USAGE_TAGLINE: Record<BillingPlan, string> = {
  * plans have in common land in the same sequence in every column, so a
  * card that includes more simply runs longer than the one beside it.
  */
-type PlanFeature = { text: string; plans: readonly BillingPlan[] };
+type PlanFeature = { key: string; plans: readonly BillingPlan[] };
 
 const ALL_PLANS: readonly BillingPlan[] = ["free", "go", "pro"];
 const PAID_PLANS: readonly BillingPlan[] = ["go", "pro"];
 
-const PLAN_FEATURE_MATRIX: readonly PlanFeature[] = [
-  { text: "Personal assistant", plans: ALL_PLANS },
-  { text: "Coding agent", plans: ALL_PLANS },
-  { text: "Research and knowledge work", plans: ALL_PLANS },
-  { text: "Voice, image and video generation", plans: PAID_PLANS },
-  { text: "No ads", plans: PAID_PLANS },
+/** Rows the capability matrix doesn't model — the text-only baseline. */
+const BASE_PLAN_FEATURES: readonly PlanFeature[] = [
+  { key: "billing.features.assistant", plans: ALL_PLANS },
+  { key: "billing.features.codingAgent", plans: ALL_PLANS },
+  { key: "billing.features.research", plans: ALL_PLANS },
+  { key: "billing.features.noAds", plans: PAID_PLANS },
 ];
+
+/**
+ * Capability rows are *derived* from the shared matrix, so the copy on
+ * this screen cannot drift from what the app enforces: a capability
+ * appears on exactly the cards whose plan the matrix grants it to. This
+ * is why Pro reads as "more things", not "more tokens" — the rows that
+ * only Pro carries are the capabilities themselves.
+ */
+const CAPABILITY_PLAN_FEATURES: readonly PlanFeature[] = CAPABILITIES.map(
+  (capability) => ({
+    key: `billing.capability.${capability}`,
+    plans: PLAN_ORDER.filter((plan) => hasCapability(plan, capability)),
+  }),
+).filter((feature) => feature.plans.length > 0);
+
+/**
+ * ⚠️ PRESENTATIONAL ONLY — NOT ENFORCED. ⚠️
+ *
+ * These rows are marketing placement, nothing more. Every other row on
+ * this screen is either a baseline everyone gets or a capability the
+ * gate actually enforces; a row listed here is available to every plan
+ * and merely *appears* on a paid card.
+ *
+ * Orchestrator mode is the case this exists for: any audience may turn
+ * it on in Settings, but it burns several times the model usage of a
+ * single agent, so it is only practical at Pro allowances and is
+ * presented there.
+ *
+ * Never wire an entry from this list into `capabilities.ts`,
+ * `useCapabilityAccess`, or any `restrictionFor(...)` call. If a feature
+ * here should actually be restricted, it belongs in
+ * `CAPABILITY_MATRIX` in `@stella/contracts/capabilities` instead — that
+ * is the only list the app enforces.
+ */
+const PRESENTATIONAL_PLAN_FEATURES: readonly PlanFeature[] = [
+  { key: "billing.features.orchestrator", plans: ["pro"] },
+];
+
+/**
+ * Widest reach first (stable within a tier). That single rule is what
+ * keeps the columns nested — every row a cheaper plan has appears above
+ * every row it doesn't — no matter how the matrix is later re-cut.
+ */
+const PLAN_FEATURE_MATRIX: readonly PlanFeature[] = [
+  ...BASE_PLAN_FEATURES,
+  ...CAPABILITY_PLAN_FEATURES,
+  ...PRESENTATIONAL_PLAN_FEATURES,
+]
+  .map((feature, index) => ({ feature, index }))
+  .sort(
+    (a, b) =>
+      b.feature.plans.length - a.feature.plans.length || a.index - b.index,
+  )
+  .map(({ feature }) => feature);
 
 /**
  * Amounts are denominated in USD regardless of where the user is —
@@ -198,6 +259,7 @@ const openSignInDialog = () => {
 export function BillingPanel() {
   const { hasConnectedAccount } = useAuthSessionState();
   const locale = useLocale();
+  const t = useT();
   const formatters = useBillingFormatters(locale);
 
   const formatUsagePercent = useCallback(
@@ -258,8 +320,8 @@ export function BillingPanel() {
   const usage = billingStatus?.usage;
   const hasAccount = Boolean(
     hasConnectedAccount &&
-      billingStatus?.authenticated &&
-      !billingStatus.isAnonymous,
+    billingStatus?.authenticated &&
+    !billingStatus.isAnonymous,
   );
   const isLoadingStatus = hasConnectedAccount && billingStatus === undefined;
   // Active paid subscribers change/cancel plans through the Stripe portal —
@@ -428,38 +490,82 @@ export function BillingPanel() {
   const currentPlanCatalogEntry = planCatalog?.[currentPlan];
   const rollingWindowHours = currentPlanCatalogEntry?.rollingWindowHours ?? 5;
 
-  const usageMeters =
+  /**
+   * The Free plan's allowance is a lifetime budget, so it must not be
+   * shown through the rolling / weekly / monthly windows: three bars
+   * that visibly refill would promise a reset that never comes. When an
+   * allowance is present it replaces the windows entirely with a single
+   * meter that only ever fills.
+   */
+  const freeAllowance = usage
+    ? resolveFreeAllowance({ plan: currentPlan, usage })
+    : null;
+
+  const usageMeters: UsageMeter[] | null =
     usage && billingStatus?.usagePolicy.kind === "managed_cost"
-      ? ([
-          {
-            key: "rolling",
-            label: `Last ${rollingWindowHours}h`,
-            usedUsd: usage.rollingUsedUsd,
-            limitUsd: usage.rollingLimitUsd,
-          },
-          {
-            key: "weekly",
-            label: "This week",
-            usedUsd: usage.weeklyUsedUsd,
-            limitUsd: usage.weeklyLimitUsd,
-          },
-          {
-            key: "monthly",
-            label: "This month",
-            usedUsd: usage.monthlyUsedUsd,
-            limitUsd: usage.monthlyLimitUsd,
-          },
-        ] as const)
+      ? freeAllowance
+        ? [
+            {
+              key: "lifetime",
+              label: t("billing.freeAllowance.label"),
+              usedUsd: freeAllowance.usedUsd,
+              limitUsd: freeAllowance.limitUsd,
+            },
+          ]
+        : [
+            {
+              key: "rolling",
+              label: `Last ${rollingWindowHours}h`,
+              usedUsd: usage.rollingUsedUsd,
+              limitUsd: usage.rollingLimitUsd,
+            },
+            {
+              key: "weekly",
+              label: "This week",
+              usedUsd: usage.weeklyUsedUsd,
+              limitUsd: usage.weeklyLimitUsd,
+            },
+            {
+              key: "monthly",
+              label: "This month",
+              usedUsd: usage.monthlyUsedUsd,
+              limitUsd: usage.monthlyLimitUsd,
+            },
+          ]
       : null;
 
-  const renewalLabel = billingStatus?.cancelAtPeriodEnd
-    ? "Cancellation pending"
-    : "Next renewal";
-  const renewalDetail = billingStatus?.currentPeriodEnd
-    ? billingStatus.cancelAtPeriodEnd
-      ? `Access ends ${formatters.date.format(new Date(billingStatus.currentPeriodEnd))}`
-      : `Renews ${formatters.date.format(new Date(billingStatus.currentPeriodEnd))}`
+  const periodEndLabel = billingStatus?.currentPeriodEnd
+    ? formatters.date.format(new Date(billingStatus.currentPeriodEnd))
     : null;
+
+  const renewalLabel = billingStatus?.cancelAtPeriodEnd
+    ? t("billing.renewal.pendingLabel")
+    : t("billing.renewal.nextLabel");
+  const renewalDetail = periodEndLabel
+    ? billingStatus?.cancelAtPeriodEnd
+      ? t("billing.renewal.accessEnds", { date: periodEndLabel })
+      : t("billing.renewal.renews", { date: periodEndLabel })
+    : null;
+
+  /**
+   * Cancelling does not cut access — Stripe keeps the plan live to the
+   * end of the paid period. What happens *after* is the part worth
+   * saying out loud: the Free allowance is granted once, so a subscriber
+   * whose cumulative spend already passed it lands on a plan with
+   * nothing left in it and Stella simply stops. Better read here, while
+   * the plan is still running, than discovered the morning it lapses.
+   *
+   * Gated on the actual numbers rather than assumed: a subscriber still
+   * under the Free cap really does keep a usable remainder, and telling
+   * them otherwise would be wrong.
+   */
+  const freeLifetimeCapUsd = billingStatus?.plans.free.lifetimeLimitUsd ?? null;
+  const lapseEndsAccess =
+    billingStatus?.cancelAtPeriodEnd === true &&
+    periodEndLabel !== null &&
+    usage != null &&
+    freeLifetimeCapUsd !== null &&
+    usage.lifetimeUsedUsd >= freeLifetimeCapUsd;
 
   return (
     <div className="billing-panel">
@@ -536,6 +642,62 @@ export function BillingPanel() {
                 </div>
               );
             })}
+          </div>
+        ) : null}
+
+        {/* A spent lifetime allowance is a terminal state, not a wait.
+            Say so plainly and point at the only thing that resolves it —
+            "try again later" would be a lie about a quota with no
+            reset. */}
+        {freeAllowance ? (
+          freeAllowance.exhausted ? (
+            <div
+              className="billing-allowance billing-allowance--spent"
+              role="status"
+            >
+              <div className="billing-allowance-copy">
+                <strong>{t("billing.freeAllowance.exhaustedTitle")}</strong>
+                <span>{t("billing.freeAllowance.exhaustedDescription")}</span>
+              </div>
+              <button
+                type="button"
+                className="pill-btn pill-btn--lg pill-btn--primary"
+                onClick={() => {
+                  if (isActivePaidSubscriber) {
+                    void handleOpenPortal();
+                    return;
+                  }
+                  void handleStartCheckout("go");
+                }}
+                disabled={startingPlan !== null}
+              >
+                {t("billing.freeAllowance.exhaustedCta")}
+              </button>
+            </div>
+          ) : (
+            <p className="billing-allowance-caption">
+              {t("billing.freeAllowance.caption")}{" "}
+              {t("billing.freeAllowance.remaining", {
+                amount: formatters.usd.format(freeAllowance.remainingUsd),
+              })}
+            </p>
+          )
+        ) : null}
+
+        {lapseEndsAccess && periodEndLabel ? (
+          <div
+            className="billing-allowance billing-allowance--spent"
+            role="status"
+          >
+            <div className="billing-allowance-copy">
+              <strong>{t("billing.renewal.lapseTitle")}</strong>
+              <span>
+                {t("billing.renewal.lapseDescription", {
+                  plan: getPlanDisplay(currentPlan).label,
+                  date: periodEndLabel,
+                })}
+              </span>
+            </div>
           </div>
         ) : null}
       </section>
@@ -667,20 +829,22 @@ export function BillingPanel() {
                 ) : null}
               </div>
 
-              <p className="billing-plan-tagline">{PLAN_USAGE_TAGLINE[plan]}</p>
+              <p className="billing-plan-tagline">
+                {t(`billing.plans.${plan}.tagline`)}
+              </p>
 
               <ul className="billing-plan-features">
                 {PLAN_FEATURE_MATRIX.filter((feature) =>
                   feature.plans.includes(plan),
                 ).map((feature) => (
-                  <li key={feature.text}>
+                  <li key={feature.key}>
                     <Check
                       className="billing-plan-feature-icon"
                       size={13}
                       strokeWidth={2.2}
                       aria-hidden="true"
                     />
-                    <span>{feature.text}</span>
+                    <span>{t(feature.key)}</span>
                   </li>
                 ))}
               </ul>

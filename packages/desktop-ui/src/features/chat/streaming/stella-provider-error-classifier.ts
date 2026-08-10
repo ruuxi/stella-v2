@@ -1,10 +1,21 @@
+// Imported from the contract rather than from `global/billing/capabilities`
+// on purpose: this module must stay a pure classifier, free of the toast
+// and router graph that the capability entry point pulls in.
+import {
+  CAPABILITIES,
+  CAPABILITY_DENIED_CODE,
+  type Capability,
+} from '@stella/contracts/capabilities'
+
 export type StellaProviderErrorKind =
   | 'account-auth'
   | 'billing'
+  | 'capability-required'
   | 'chatgpt-usage-limit'
   | 'claude-code-login'
   | 'content-blocked'
   | 'context-limit'
+  | 'free-allowance-exhausted'
   | 'malformed-request'
   | 'model-restriction'
   | 'network'
@@ -19,9 +30,61 @@ export type StellaProviderErrorClassification = {
   kind: StellaProviderErrorKind
   message: string
   detail?: string
+  /**
+   * Set on `capability-required` when the backend names which capability
+   * was denied, so the toast can say what the user actually lost and
+   * which plan returns it.
+   */
+  capability?: Capability
 }
 
 const signInRequiredMatchers = ['sign in required'] as const
+
+/**
+ * The Free plan's $0.50 is a lifetime budget, not a window — once it is
+ * gone it never comes back. It has to be classified separately from the
+ * ordinary `billing` limit or the user gets told to "wait until usage
+ * resets" about a quota that has no reset.
+ *
+ * Checked before `billingMatchers` because the backend's exhaustion
+ * error may also carry the generic "usage limit reached" prose.
+ */
+const freeAllowanceMatchers = [
+  'free_allowance_exhausted',
+  'lifetime_limit_reached',
+  'free allowance',
+  'lifetime allowance',
+  'lifetime usage limit',
+] as const
+
+/**
+ * Structured capability denial. The authoritative signals are the
+ * contract's `CAPABILITY_REQUIRED` code and the `[capability/<id>]`
+ * marker it appends to the prose (see `buildCapabilityDenial`); the
+ * remaining matchers cover the older paid-media rejections
+ * (`assertPaidMediaTier` and the `PAID_PLAN_REQUIRED` ConvexError) that
+ * predate the matrix.
+ */
+const capabilityRequiredMatchers = [
+  CAPABILITY_DENIED_CODE.toLowerCase(),
+  'capability_not_available',
+  'capability_denied',
+  'paid_plan_required',
+  'requires a stella subscription',
+] as const
+
+const capabilityMarkerPattern = /\[capability\/([a-z0-9_]+)\]/
+
+const extractCapability = (normalized: string): Capability | null => {
+  const marked = normalized.match(capabilityMarkerPattern)?.[1]
+  if (marked) {
+    const match = CAPABILITIES.find((capability) => capability === marked)
+    if (match) return match
+  }
+  return (
+    CAPABILITIES.find((capability) => normalized.includes(capability)) ?? null
+  )
+}
 
 const billingMatchers = [
   'usage limit reached',
@@ -241,6 +304,20 @@ export const classifyStellaProviderError = (
   if (normalized.includes(chatGptUsageLimitMatcher)) {
     return { kind: 'chatgpt-usage-limit', message }
   }
+  if (includesAny(normalized, freeAllowanceMatchers)) {
+    return { kind: 'free-allowance-exhausted', message }
+  }
+  if (
+    capabilityMarkerPattern.test(normalized) ||
+    includesAny(normalized, capabilityRequiredMatchers)
+  ) {
+    const capability = extractCapability(normalized)
+    return {
+      kind: 'capability-required',
+      message,
+      ...(capability ? { capability } : {}),
+    }
+  }
   if (includesAny(normalized, billingMatchers)) {
     return { kind: 'billing', message }
   }
@@ -299,8 +376,10 @@ export const classifyStellaProviderError = (
 const LIMIT_OR_AUTH_KINDS = new Set<StellaProviderErrorKind>([
   'account-auth',
   'billing',
+  'capability-required',
   'chatgpt-usage-limit',
   'claude-code-login',
+  'free-allowance-exhausted',
   'provider-access',
   'rate-limit',
   'sign-in-required',

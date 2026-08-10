@@ -2,12 +2,34 @@ import {
   BYOK_TOAST_ACTION,
   OPEN_MODEL_PICKER_EVENT,
 } from '@/global/billing/byok-action'
+import type { ManagedModelAudience } from '@/global/billing/audience'
+import {
+  buildCapabilityRestrictionToast,
+  readBillingAudience,
+  resolveDeniedCapability,
+  type Capability,
+} from '@/global/billing/capabilities'
+import { i18nFallback } from '@/shared/i18n/I18nProvider'
 import type { ToastOptions } from '@/ui/toast'
 import { detectLlmRouteFailureKind } from "@stella/contracts/llm-route-failure"
 import {
   classifyStellaProviderError,
   isStellaLimitOrAuthClassification,
 } from './stella-provider-error-classifier'
+
+type Translate = (
+  key: string,
+  params?: Record<string, string | number>,
+) => string
+
+export type StellaProviderErrorToastOptions = {
+  /**
+   * Overrides the audience snapshot published by `useCapabilityAccess`.
+   * Only tests and callers that already hold billing state need this.
+   */
+  audience?: ManagedModelAudience | null
+  t?: Translate
+}
 
 const openBilling = () => {
   void import('@/router').then(({ router }) => {
@@ -55,9 +77,29 @@ export const isStellaLimitOrAuthReason = (
 ): boolean =>
   isStellaLimitOrAuthClassification(classifyStellaProviderError(reason))
 
+/**
+ * Reactive half of the capability gate: the backend refused a request
+ * the affordances did not (or could not) pre-empt. Falls back to the
+ * generic media capability when the error names none, so the user still
+ * gets an upgrade path rather than a raw provider string.
+ */
+const resolveCapabilityToast = (
+  capability: Capability | undefined,
+  options: StellaProviderErrorToastOptions,
+): ToastOptions | null => {
+  if (!capability) return null
+  const audience =
+    options.audience === undefined ? readBillingAudience() : options.audience
+  const restriction = resolveDeniedCapability(audience, capability)
+  if (!restriction) return null
+  return buildCapabilityRestrictionToast(restriction, options.t)
+}
+
 export const resolveStellaProviderErrorToast = (
   reason: string | null | undefined,
+  options: StellaProviderErrorToastOptions = {},
 ): ToastOptions => {
+  const t = options.t ?? ((key, params) => i18nFallback.t(key, params))
   const classification = classifyStellaProviderError(reason)
   const message = classification.message
 
@@ -127,6 +169,31 @@ export const resolveStellaProviderErrorToast = (
         variant: 'error',
         duration: 10000,
         action: chooseModelAction,
+        secondaryAction: BYOK_TOAST_ACTION,
+      }
+    case 'capability-required': {
+      // Prefer the precise "Image generation is on Pro" copy when the
+      // backend named the capability; otherwise fall back to the plan
+      // -shaped generic so there is still somewhere to go.
+      const precise = resolveCapabilityToast(classification.capability, options)
+      if (precise) return precise
+      return {
+        title: t('billing.capabilityRestriction.genericTitle'),
+        description: t('billing.capabilityRestriction.genericDescription'),
+        variant: 'error',
+        duration: 8000,
+        action: upgradeAction,
+      }
+    }
+    case 'free-allowance-exhausted':
+      // Terminal by design: the Free allowance is spent once and never
+      // refreshes, so this must never read like "try again later".
+      return {
+        title: t('billing.freeAllowance.exhaustedTitle'),
+        description: t('billing.freeAllowance.exhaustedDescription'),
+        variant: 'error',
+        duration: 10000,
+        action: upgradeAction,
         secondaryAction: BYOK_TOAST_ACTION,
       }
     case 'billing':

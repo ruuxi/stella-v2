@@ -858,6 +858,9 @@ export function GeneralTab() {
             <h3 className="settings-card-title">
               {t("settings.workingMode.title")}
             </h3>
+            {/* Open to every plan. Orchestrator mode costs more usage
+                than a single agent, which is why the Pro card lists it,
+                but it is not gated and must not be nagged about here. */}
             <Switch
               checked={assistantWorkingMode === "orchestrated"}
               disabled={

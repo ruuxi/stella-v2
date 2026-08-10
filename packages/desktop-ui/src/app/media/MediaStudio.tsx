@@ -11,6 +11,14 @@ import { Folder } from "@/ui/icons";
 import { api } from "@/convex/api";
 import { createServiceRequest } from "@/platform/http/service-request";
 import { maybeShowPaidMediaTierToast } from "@/global/billing/paid-media-tier-toast";
+import { useCapabilityAccess } from "@/global/billing/use-capability-access";
+import {
+  buildCapabilityRestrictionToast,
+  getCapabilityLockLabel,
+  getCapabilityRestrictionDescription,
+  type Capability as PlanCapability,
+} from "@/global/billing/capabilities";
+import { showToast } from "@/ui/toast";
 import {
   type FormState,
   type HistoryEntry,
@@ -68,6 +76,24 @@ const CATEGORIES: { id: Category; labelKey: string }[] = [
   { id: "video", labelKey: "app.media.studio.categoryVideo" },
   { id: "3d", labelKey: "app.media.studio.category3d" },
 ];
+
+/**
+ * The plan capability each studio category needs. This map is the only
+ * plan knowledge in the studio — the lock state, the badge and the copy
+ * all come from the shared matrix via `useCapabilityAccess`, so flipping
+ * a boolean there re-opens these tabs without touching this file.
+ *
+ * (Note the two senses of "capability" in this file: `CapabilityDef` is
+ * a generator in the studio's own catalog; `PlanCapability` is an
+ * entitlement on the user's plan.)
+ */
+const CATEGORY_PLAN_CAPABILITY: Record<Category, PlanCapability> = {
+  image: "image_generation",
+  audio: "audio_generation",
+  music: "audio_generation",
+  video: "video_generation",
+  "3d": "three_d_generation",
+};
 
 const CAPABILITIES: CapabilityDef[] = [
   {
@@ -199,6 +225,7 @@ type GenerateResponse = {
 
 async function generateMedia(
   body: Record<string, unknown>,
+  planCapability: PlanCapability,
 ): Promise<GenerateResponse> {
   const { endpoint, headers } = await createServiceRequest(
     "/api/media/v1/generate",
@@ -221,7 +248,7 @@ async function generateMedia(
       if (text) message = text;
     }
     const error = new Error(message);
-    maybeShowPaidMediaTierToast(error);
+    maybeShowPaidMediaTierToast(error, planCapability);
     throw error;
   }
   return res.json() as Promise<GenerateResponse>;
@@ -231,6 +258,7 @@ async function generateMedia(
 
 export default function MediaStudio() {
   const t = useT();
+  const { restrictionFor } = useCapabilityAccess();
   // Restore persisted state
   const [savedForm] = useState(loadFormState);
   const [history, setHistory] = useState(loadHistory);
@@ -350,6 +378,13 @@ export default function MediaStudio() {
 
   const handleCategoryChange = useCallback(
     (cat: Category) => {
+      // Pre-emptive gate: a locked tab never opens onto a form whose
+      // only possible outcome is a 402.
+      const restriction = restrictionFor(CATEGORY_PLAN_CAPABILITY[cat]);
+      if (restriction) {
+        showToast(buildCapabilityRestrictionToast(restriction, t));
+        return;
+      }
       startTransition(() => {
         setCategory(cat);
         setCapabilityId(null);
@@ -368,7 +403,7 @@ export default function MediaStudio() {
         });
       });
     },
-    [persistForm],
+    [persistForm, restrictionFor, t],
   );
 
   const handleCapabilitySelect = useCallback(
@@ -482,6 +517,16 @@ export default function MediaStudio() {
   const handleGenerate = useCallback(async () => {
     if (!capability) return;
 
+    // Restored form state can point at a category the plan no longer
+    // covers, so the gate is re-checked here rather than trusting the
+    // tab that was open when the state was saved.
+    const planCapability = CATEGORY_PLAN_CAPABILITY[capability.category];
+    const restriction = restrictionFor(planCapability);
+    if (restriction) {
+      showToast(buildCapabilityRestrictionToast(restriction, t));
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
     setActiveJobId(null);
@@ -497,7 +542,7 @@ export default function MediaStudio() {
       if (aspectRatio) body.aspectRatio = aspectRatio;
       if (profile) body.profile = profile;
 
-      const result = await generateMedia(body);
+      const result = await generateMedia(body, planCapability);
 
       const entry: HistoryEntry = {
         id: result.jobId,
@@ -528,7 +573,16 @@ export default function MediaStudio() {
     } finally {
       setSubmitting(false);
     }
-  }, [capability, prompt, sourceUri, aspectRatio, profile, extraValues, t]);
+  }, [
+    capability,
+    prompt,
+    sourceUri,
+    aspectRatio,
+    profile,
+    extraValues,
+    restrictionFor,
+    t,
+  ]);
 
   const handleHistoryClick = useCallback((entry: HistoryEntry) => {
     setViewingEntry(entry);
@@ -650,16 +704,37 @@ export default function MediaStudio() {
         </div>
 
         <nav className="ms-categories">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              className={`ms-category ${category === cat.id ? "ms-category--active" : ""}`}
-              onClick={() => handleCategoryChange(cat.id)}
-            >
-              {t(cat.labelKey)}
-            </button>
-          ))}
+          {CATEGORIES.map((cat) => {
+            // Annotated rather than removed: a locked tab still tells
+            // the user the feature exists and which plan carries it.
+            // `aria-disabled` over `disabled` keeps it focusable, so the
+            // explanation is reachable from the keyboard too.
+            const restriction = restrictionFor(
+              CATEGORY_PLAN_CAPABILITY[cat.id],
+            );
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                className={`ms-category ${category === cat.id ? "ms-category--active" : ""}`}
+                data-locked={restriction ? "" : undefined}
+                aria-disabled={restriction ? true : undefined}
+                title={
+                  restriction
+                    ? getCapabilityRestrictionDescription(restriction, t)
+                    : undefined
+                }
+                onClick={() => handleCategoryChange(cat.id)}
+              >
+                {t(cat.labelKey)}
+                {restriction ? (
+                  <span className="ms-category-lock">
+                    {getCapabilityLockLabel(restriction, t)}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="ms-controls-body">

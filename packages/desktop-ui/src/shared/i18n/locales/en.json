@@ -626,30 +626,59 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Get started with Stella",
-        "features": ["Basic chat & assistance", "Limited daily usage"]
+        "tagline": "A one-time allowance to try Stella"
       },
       "go": {
-        "tagline": "For everyday personal use",
-        "features": [
-          "More conversations per day",
-          "Browser automation",
-          "Voice conversations"
-        ]
+        "tagline": "Generous usage for everyday work"
       },
       "pro": {
-        "tagline": "For power users",
-        "features": [
-          "3x the usage of Go",
-          "Priority response times",
-          "All automation features"
-        ]
+        "tagline": "Everything in Go, plus generation"
       }
+    },
+    "features": {
+      "assistant": "Personal assistant",
+      "codingAgent": "Coding agent",
+      "research": "Research and knowledge work",
+      "noAds": "No ads",
+      "orchestrator": "Orchestrator mode"
+    },
+    "capability": {
+      "image_generation": "Image generation",
+      "video_generation": "Video generation",
+      "audio_generation": "Voice and music generation",
+      "three_d_generation": "3D generation"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} isn't on your plan",
+      "signIn": "{capability} is included with Stella {plan}. Sign in to upgrade and unlock it.",
+      "upgrade": "{capability} is included with Stella {plan}. Upgrade to unlock it.",
+      "unavailable": "{capability} isn't available on any plan right now.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Unavailable",
+      "genericTitle": "Not included on your plan",
+      "genericDescription": "This feature is included with Stella Pro. Upgrade to unlock it."
+    },
+    "freeAllowance": {
+      "label": "Free allowance",
+      "caption": "One-time — this doesn't reset.",
+      "remaining": "{amount} left. Once it's gone it doesn't come back.",
+      "spent": "Fully used. This allowance doesn't reset.",
+      "exhaustedTitle": "Your free allowance is used up",
+      "exhaustedDescription": "The Free plan includes a one-time allowance that never resets. Upgrade to Go to keep using Stella.",
+      "exhaustedCta": "Upgrade to Go"
     },
     "upgradeDialog": {
       "title": "You're on Stella {plan}.",
       "description": "Thanks for the upgrade. Higher priority and increased usage are active now — keep going.",
       "cta": "Get started"
+    },
+    "renewal": {
+      "nextLabel": "Next renewal",
+      "pendingLabel": "Cancellation pending",
+      "renews": "Renews {date}",
+      "accessEnds": "Access ends {date}",
+      "lapseTitle": "Stella stops when your plan ends",
+      "lapseDescription": "Your {plan} plan runs until {date}. After that Stella stops — the Free plan's allowance is one-time and you've already used yours."
     }
   },
   "chat": {

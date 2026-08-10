@@ -82,6 +82,20 @@
 .ms-category:hover { color: var(--text-strong); }
 .ms-category--active { color: var(--text-strong); }
 
+/* Locked by plan: dimmed, with the unlocking plan named beside it. The
+   tab still responds to clicks — that is what raises the upgrade toast. */
+.ms-category[data-locked] { opacity: 0.55; }
+.ms-category[data-locked]:hover { color: var(--text-weak); }
+
+.ms-category-lock {
+  margin-inline-start: 0.35em;
+  padding: 0.05em 0.3em;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
 .ms-category:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);

@@ -177,6 +177,47 @@
   margin-top: 12px;
 }
 
+/* A lifetime allowance is one meter, not three windows — let it take
+   the full width rather than sitting in a third of a grid built for a
+   trio of bars. */
+.billing-account-meters:has(> :only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.billing-allowance-caption {
+  margin: 10px 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-weak);
+}
+
+.billing-allowance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.billing-allowance--spent {
+  border-color: var(--destructive);
+}
+
+.billing-allowance-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.billing-allowance-copy span {
+  font-size: var(--font-size-xs);
+  color: var(--text-weak);
+}
+
 .billing-meter-head {
   display: flex;
   align-items: baseline;

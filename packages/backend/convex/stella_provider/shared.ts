@@ -32,6 +32,15 @@ export type AuthorizedStellaRequest = {
   serviceTier?: string;
   apiKey: string;
   tokenEstimate: import("./billing").TokenEstimate;
+  /**
+   * Present only for signed-out callers. Carries the bucket keys the relay
+   * needs to record measured cost against the anonymous device/IP counters
+   * once the completion's real token usage is known.
+   */
+  anonymousUsage?: {
+    deviceId: string;
+    clientAddressKey?: string;
+  };
 };
 
 export const STELLA_API_BASE_PATH = "/api/stella";

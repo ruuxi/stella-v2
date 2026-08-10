@@ -29,6 +29,7 @@ import type * as automation_index from "../automation/index.js";
 import type * as automation_runner from "../automation/runner.js";
 import type * as backups from "../backups.js";
 import type * as billing from "../billing.js";
+import type * as billing_measurement from "../billing_measurement.js";
 import type * as channels_connector_auth from "../channels/connector_auth.js";
 import type * as channels_connector_constants from "../channels/connector_constants.js";
 import type * as channels_connector_delivery from "../channels/connector_delivery.js";
@@ -265,6 +266,7 @@ declare const fullApi: ApiFromModules<{
   "automation/runner": typeof automation_runner;
   backups: typeof backups;
   billing: typeof billing;
+  billing_measurement: typeof billing_measurement;
   "channels/connector_auth": typeof channels_connector_auth;
   "channels/connector_constants": typeof channels_connector_constants;
   "channels/connector_delivery": typeof channels_connector_delivery;

@@ -32,7 +32,22 @@ export const devicesSchema = {
 
   anon_device_usage: defineTable({
     deviceId: v.string(),
+    /** The anonymous trial allowance. This count is what gates access. */
     requestCount: v.number(),
+    /**
+     * Measured managed-model cost those requests incurred since
+     * `firstRequestAt`. Measurement only — it never gates; pairing it with
+     * `requestCount` is what answers "what is an anonymous request worth?".
+     * Optional because rows predate the counter; readers default to 0.
+     */
+    usageMicroCents: v.optional(v.number()),
+    /**
+     * Which counter this row is: the per-install trial (`device`) or the
+     * durable per-IP ceiling (`ip`). Both are stored as opaque hashes, so
+     * without this the measurement query cannot tell one person's trial from
+     * a whole network's. Optional for rows written before the field existed.
+     */
+    bucket: v.optional(v.union(v.literal("device"), v.literal("ip"))),
     firstRequestAt: v.number(),
     lastRequestAt: v.number(),
   })

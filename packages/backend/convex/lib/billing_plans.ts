@@ -30,6 +30,18 @@
  * Free plan has no PRICE_CENTS (always 0). Its four limit/window envs
  * are required (no formula derives from a $0 price).
  *
+ * Optional lifetime allowance (Free only in practice — it is enforced
+ * only for plans that set it, so Go/Pro stay windowed):
+ *   STELLA_FREE_LIFETIME_LIMIT_USD — total measured managed-model cost a
+ *     Free account may ever spend. Unlike the rolling/weekly/monthly
+ *     windows this never refreshes: once cumulative spend reaches it the
+ *     account is done until it upgrades (or buys usage credits). Leave
+ *     unset to keep Free purely windowed. Recommended: 0.5.
+ *
+ * Anonymous (signed-out) access is capped by request count, not dollars —
+ * see `lib/anonymous_usage.ts` for STELLA_ANON_MAX_REQUESTS and
+ * STELLA_ANON_MAX_REQUESTS_PER_IP.
+ *
  * `<PLAN>` ∈ { FREE, GO, PRO }.
  */
 export const SUBSCRIPTION_PLANS = ["free", "go", "pro"] as const;
@@ -45,6 +57,12 @@ export type PlanConfig = {
   rollingWindowHours: number;
   weeklyLimitUsd: number;
   monthlyLimitUsd: number;
+  /**
+   * Cumulative managed-model spend allowed for the lifetime of the
+   * account. Absent on every plan that should stay purely windowed —
+   * enforcement is skipped entirely when this is undefined.
+   */
+  lifetimeLimitUsd?: number;
 };
 
 export type PlanCatalog = Record<SubscriptionPlan, PlanConfig>;
@@ -117,14 +135,20 @@ const roundUsd = (value: number): number =>
 const toMonthlyPriceUsd = (monthlyPriceCents: number): number =>
   Math.max(0, monthlyPriceCents) / 100;
 
-const buildFreePlanConfig = (): PlanConfig => ({
-  label: PLAN_LABELS.free,
-  monthlyPriceCents: 0,
-  rollingLimitUsd: requireNumberEnv("STELLA_FREE_ROLLING_LIMIT_USD"),
-  rollingWindowHours: requireNumberEnv("STELLA_FREE_ROLLING_WINDOW_HOURS"),
-  weeklyLimitUsd: requireNumberEnv("STELLA_FREE_WEEKLY_LIMIT_USD"),
-  monthlyLimitUsd: requireNumberEnv("STELLA_FREE_MONTHLY_LIMIT_USD"),
-});
+const buildFreePlanConfig = (): PlanConfig => {
+  // The lifetime allowance is a one-shot grant: it is deliberately not
+  // derived from the windows, since it never refreshes alongside them.
+  const lifetimeLimitUsd = optionalNumberEnv("STELLA_FREE_LIFETIME_LIMIT_USD");
+  return {
+    label: PLAN_LABELS.free,
+    monthlyPriceCents: 0,
+    rollingLimitUsd: requireNumberEnv("STELLA_FREE_ROLLING_LIMIT_USD"),
+    rollingWindowHours: requireNumberEnv("STELLA_FREE_ROLLING_WINDOW_HOURS"),
+    weeklyLimitUsd: requireNumberEnv("STELLA_FREE_WEEKLY_LIMIT_USD"),
+    monthlyLimitUsd: requireNumberEnv("STELLA_FREE_MONTHLY_LIMIT_USD"),
+    ...(lifetimeLimitUsd !== undefined ? { lifetimeLimitUsd } : {}),
+  };
+};
 
 const buildPaidPlanConfig = (
   plan: Exclude<SubscriptionPlan, "free">,

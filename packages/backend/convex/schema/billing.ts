@@ -43,7 +43,18 @@ export const billingSchema = {
     weeklyWindowStartedAt: v.number(),
     monthlyUsageMicroCents: v.number(),
     monthlyWindowStartedAt: v.number(),
+    /**
+     * Cumulative managed-model spend that never resets. Doubles as the
+     * counter the Free plan's lifetime allowance
+     * (`STELLA_FREE_LIFETIME_LIMIT_USD`) is checked against.
+     */
     totalUsageMicroCents: v.number(),
+    /**
+     * Cumulative billed requests, never reset. Measurement only — pairing it
+     * with `totalUsageMicroCents` is what makes requests-per-dollar
+     * answerable. Optional because rows predate the counter.
+     */
+    totalRequestCount: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_ownerId", ["ownerId"]),

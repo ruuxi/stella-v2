@@ -2,7 +2,19 @@
  * Anonymous managed-model trial policy shared by relay enforcement and
  * subscription-status reporting. Keeping the env-backed limits here prevents
  * the public status contract from drifting away from the actual counters.
+ *
+ * The trial is gated on a request count, not on measured cost. Cost is still
+ * recorded per anonymous bucket (`anon_device_usage.usageMicroCents`) so the
+ * measurement query can answer what a single anonymous request is actually
+ * worth — but it never gates.
  */
+
+/**
+ * Constant `deviceId` for the per-IP counter. Hashing this with the client
+ * IP (`hash(salt, "anon-ip|addr:<IP>")`) yields a bucket keyed purely on the
+ * network address, with no resettable per-install component.
+ */
+export const ANON_IP_BUCKET_DEVICE_ID = "anon-ip";
 
 export const ANON_DEVICE_USAGE_RETENTION_DAYS = 7;
 export const ANON_DEVICE_USAGE_RETENTION_MS =

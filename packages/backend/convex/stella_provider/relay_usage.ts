@@ -1,5 +1,11 @@
 import type { ManagedGatewayProvider } from "../lib/managed_gateway";
 
+/**
+ * Normalized relay usage. `inputTokens` is gross (includes cached reads and
+ * cache writes) and `outputTokens` is gross (includes reasoning tokens),
+ * matching the contract `computeUsageCostMicroCents` expects. Providers
+ * report these differently, so each parser converts into this shape.
+ */
 export type RelayUsage = {
   inputTokens?: number;
   outputTokens?: number;
@@ -62,6 +68,14 @@ const parseResponsesUsage = (usage: unknown): RelayUsage => {
   };
 };
 
+/**
+ * Anthropic reports `input_tokens` net of both cache buckets. Left as-is it
+ * gets discounted a second time by `computeUsageCostMicroCents` — clamping to
+ * zero on any cached conversation — so `grossAnthropicInput` folds the cache
+ * counts back in once the stream's fields have merged. Extended thinking is
+ * already inside `output_tokens` and is never broken out, so there is no
+ * reasoning bucket to report.
+ */
 const parseAnthropicUsage = (usage: unknown): RelayUsage => {
   const record = asRecord(usage);
   if (!record) return {};
@@ -73,20 +87,44 @@ const parseAnthropicUsage = (usage: unknown): RelayUsage => {
   };
 };
 
+/**
+ * Applied after merging, not per event: `message_start` carries the cache
+ * counts while `message_delta` may repeat `input_tokens` without them, so
+ * converting per event could drop the cache half of the sum.
+ */
+const grossAnthropicInput = (usage: RelayUsage): RelayUsage =>
+  usage.inputTokens === undefined
+    ? usage
+    : {
+        ...usage,
+        inputTokens:
+          usage.inputTokens +
+          (usage.cachedInputTokens ?? 0) +
+          (usage.cacheWriteInputTokens ?? 0),
+      };
+
 const parseGoogleUsage = (usage: unknown): RelayUsage => {
   const record = asRecord(usage);
   if (!record) return {};
   const input = toInt(record.promptTokenCount);
-  const output = toInt(record.candidatesTokenCount);
+  const candidates = toInt(record.candidatesTokenCount);
   const reasoning = toInt(record.thoughtsTokenCount);
+  // Gemini reports `candidatesTokenCount` exclusive of `thoughtsTokenCount`
+  // (totalTokenCount sums the two). Roll thinking back into the output count
+  // so the calculator's `output - reasoning` yields the visible completion
+  // rather than clamping to zero and billing the whole response at nothing.
+  const output =
+    candidates === undefined && reasoning === undefined
+      ? undefined
+      : (candidates ?? 0) + (reasoning ?? 0);
   return {
     inputTokens: input,
     outputTokens: output,
-    totalTokens: toInt(record.totalTokenCount) ?? (
-      input !== undefined || output !== undefined || reasoning !== undefined
-        ? (input ?? 0) + (output ?? 0) + (reasoning ?? 0)
-        : undefined
-    ),
+    totalTokens:
+      toInt(record.totalTokenCount) ??
+      (input !== undefined || output !== undefined
+        ? (input ?? 0) + (output ?? 0)
+        : undefined),
     cachedInputTokens: toInt(record.cachedContentTokenCount),
     reasoningTokens: reasoning,
   };
@@ -145,7 +183,7 @@ export function createRelayUsageParser(
   provider: ManagedGatewayProvider,
 ): UsageParser {
   if (provider === "anthropic") {
-    return createSseParser((event) => {
+    const parser = createSseParser((event) => {
       const message = asRecord(event.message);
       const delta = asRecord(event.delta);
       return {
@@ -158,6 +196,13 @@ export function createRelayUsageParser(
         ...parseAnthropicUsage(event.usage ?? message?.usage ?? delta?.usage),
       };
     });
+    return {
+      pushText: (text) => parser.pushText(text),
+      finish: () => {
+        const usage = parser.finish();
+        return usage ? grossAnthropicInput(usage) : usage;
+      },
+    };
   }
 
   if (provider === "google") {

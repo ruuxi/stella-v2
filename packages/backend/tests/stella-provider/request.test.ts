@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   downgradeUnsupportedRequestImages,
+  estimateRequestTokens,
   requestedModelFromGooglePath,
   resolveRequestedStellaModel,
 } from "../../convex/stella_provider/request";
@@ -216,6 +217,87 @@ describe("downgradeUnsupportedRequestImages", () => {
         "accounts/fireworks/models/kimi-k3",
       ),
     ).toBe(body);
+  });
+});
+
+describe("estimateRequestTokens", () => {
+  const prompt = "x".repeat(40_000);
+
+  it("reads Chat Completions messages and max_tokens", () => {
+    expect(
+      estimateRequestTokens({
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 8_000,
+      }),
+    ).toEqual({ inputTokens: 10_000, outputTokens: 8_000 });
+  });
+
+  it("reads Responses input and max_output_tokens", () => {
+    // The relay authorizes before `bodyForUpstream` normalizes, so the
+    // Responses wire shape has to be understood as-is or the reservation
+    // collapses to the 1-token / 1024-token floor.
+    expect(
+      estimateRequestTokens({
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: prompt }],
+          },
+        ],
+        max_output_tokens: 32_000,
+      }),
+    ).toEqual({ inputTokens: 10_000, outputTokens: 32_000 });
+  });
+
+  it("reads Google contents and generationConfig.maxOutputTokens", () => {
+    expect(
+      estimateRequestTokens({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: "y".repeat(400) }] },
+        generationConfig: { maxOutputTokens: 12_000 },
+      }),
+    ).toEqual({ inputTokens: 10_100, outputTokens: 12_000 });
+  });
+
+  it("counts Anthropic system blocks and nested tool-result content", () => {
+    expect(
+      estimateRequestTokens({
+        system: [{ type: "text", text: "s".repeat(400) }],
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                content: [{ type: "text", text: prompt }],
+              },
+            ],
+          },
+        ],
+        max_tokens: 1_000,
+      }),
+    ).toEqual({ inputTokens: 10_100, outputTokens: 1_000 });
+  });
+
+  it("charges a flat estimate for image parts across shapes", () => {
+    for (const body of [
+      { messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "data:…" } }] }] },
+      { input: [{ role: "user", content: [{ type: "input_image", image_url: "data:…" }] }] },
+      { contents: [{ role: "user", parts: [{ inlineData: { data: "…" } }] }] },
+    ]) {
+      expect(estimateRequestTokens(body).inputTokens).toBe(128);
+    }
+  });
+
+  it("clamps an unbounded requested completion size", () => {
+    expect(
+      estimateRequestTokens({ messages: [], max_tokens: 10_000_000 })
+        .outputTokens,
+    ).toBe(64_000);
+  });
+
+  it("falls back to a default completion size when none is requested", () => {
+    expect(estimateRequestTokens({ input: [] }).outputTokens).toBe(1024);
   });
 });
 

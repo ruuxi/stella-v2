@@ -29,12 +29,58 @@ describe("createRelayUsageParser", () => {
         })}\n\n`,
       ]);
 
+      // Anthropic's `input_tokens` excludes the cache buckets; the parser
+      // reports gross input (100 + 40) so billing's subtraction lands on the
+      // 100 uncached tokens instead of clamping to zero.
       expect(usage).toEqual({
         model: "claude-opus-5",
-        inputTokens: 100,
+        inputTokens: 140,
         outputTokens: 50,
         cachedInputTokens: 40,
       });
+    });
+
+    it("folds cache writes into gross input", () => {
+      const parser = createRelayUsageParser("anthropic");
+      const usage = feed(parser, [
+        `event: message_start\ndata: ${JSON.stringify({
+          type: "message_start",
+          message: {
+            model: "claude-opus-5",
+            usage: {
+              input_tokens: 200,
+              cache_read_input_tokens: 5_000,
+              cache_creation_input_tokens: 1_200,
+            },
+          },
+        })}\n\n`,
+      ]);
+
+      expect(usage?.inputTokens).toBe(6_400);
+      expect(usage?.cachedInputTokens).toBe(5_000);
+      expect(usage?.cacheWriteInputTokens).toBe(1_200);
+    });
+
+    it("keeps gross input correct when message_delta repeats input_tokens alone", () => {
+      // Cache counts arrive only on message_start, so the gross conversion has
+      // to run after the stream's fields merge, not per event.
+      const parser = createRelayUsageParser("anthropic");
+      const usage = feed(parser, [
+        `event: message_start\ndata: ${JSON.stringify({
+          type: "message_start",
+          message: {
+            model: "claude-opus-5",
+            usage: { input_tokens: 100, cache_read_input_tokens: 40 },
+          },
+        })}\n\n`,
+        `event: message_delta\ndata: ${JSON.stringify({
+          type: "message_delta",
+          usage: { input_tokens: 100, output_tokens: 50 },
+        })}\n\n`,
+      ]);
+
+      expect(usage?.inputTokens).toBe(140);
+      expect(usage?.outputTokens).toBe(50);
     });
 
     it("survives a usage chunk split across pushText calls", () => {
@@ -199,14 +245,33 @@ describe("createRelayUsageParser", () => {
         })}\n\n`,
       ]);
 
+      // `candidatesTokenCount` excludes thinking, so output is reported as
+      // 20 + 5 to keep it inclusive of `reasoningTokens`.
       expect(usage).toEqual({
         model: "gemini-3.6-flash",
         inputTokens: 10,
-        outputTokens: 20,
+        outputTokens: 25,
         reasoningTokens: 5,
         cachedInputTokens: 3,
         totalTokens: 35,
       });
+    });
+
+    it("keeps output above reasoning when thinking dominates the response", () => {
+      const parser = createRelayUsageParser("google");
+      const usage = feed(parser, [
+        `data: ${JSON.stringify({
+          modelVersion: "gemini-3.6-flash",
+          usageMetadata: {
+            promptTokenCount: 100,
+            candidatesTokenCount: 300,
+            thoughtsTokenCount: 4_000,
+          },
+        })}\n\n`,
+      ]);
+
+      expect(usage?.outputTokens).toBe(4_300);
+      expect(usage?.reasoningTokens).toBe(4_000);
     });
   });
 

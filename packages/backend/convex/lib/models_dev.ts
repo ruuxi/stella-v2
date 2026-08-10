@@ -300,7 +300,12 @@ export const buildManagedModelPriceEntries = (args: {
       outputPerMillionUsd: toNumber(cost?.output),
       cacheReadPerMillionUsd: toNumber(cost?.cache_read),
       cacheWritePerMillionUsd: toNumber(cost?.cache_write),
-      reasoningPerMillionUsd: toNumber(cost?.reasoning),
+      // models.dev publishes `cost.reasoning` for only a handful of models.
+      // Storing the 0 that `toNumber` yields for the rest would bill every
+      // reasoning token at zero, so mirror the static-override branch above
+      // and fall back to the output rate.
+      reasoningPerMillionUsd:
+        toNumber(cost?.reasoning) || toNumber(cost?.output),
       modalitiesInput: sanitizeModalityList(resolved.entry.modalities?.input),
       modalitiesOutput: sanitizeModalityList(resolved.entry.modalities?.output),
       sourceUpdatedAt: resolved.entry.last_updated?.trim() ?? "",

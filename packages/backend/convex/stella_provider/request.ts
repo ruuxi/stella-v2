@@ -57,52 +57,123 @@ const withoutFallback = (config: ModelConfig): ModelConfig => ({
   fallbackProviderOptions: undefined,
 });
 
+/** Rough character budget charged for an attached image. */
+const IMAGE_ESTIMATE_CHARS = 512;
+
+/**
+ * Upper bound on the reserved completion size. Kept well above the old
+ * 16k ceiling because reasoning models routinely emit far more than that,
+ * and the reservation is what stops a near-exhausted account from firing
+ * one unbounded request.
+ */
+const MAX_ESTIMATED_OUTPUT_TOKENS = 64_000;
+const DEFAULT_ESTIMATED_OUTPUT_TOKENS = 1024;
+
+/** Guards against a pathological client body nesting content forever. */
+const MAX_ESTIMATE_DEPTH = 8;
+
+const isImagePart = (record: Record<string, unknown>): boolean =>
+  record.image_url !== undefined ||
+  record.inlineData !== undefined ||
+  record.inline_data !== undefined ||
+  record.fileData !== undefined ||
+  record.file_data !== undefined ||
+  // Anthropic image blocks: `{type: "image", source: {...}}`.
+  record.source !== undefined;
+
+/**
+ * Total prompt-text characters in any message container, across every wire
+ * shape. Handles strings, message/part arrays, and the nested `content`
+ * arrays that tool results use.
+ */
+const textLengthOf = (value: unknown, depth = 0): number => {
+  if (typeof value === "string") return value.length;
+  if (depth >= MAX_ESTIMATE_DEPTH || !value || typeof value !== "object") {
+    return 0;
+  }
+
+  if (Array.isArray(value)) {
+    let total = 0;
+    for (const item of value) total += textLengthOf(item, depth + 1);
+    return total;
+  }
+
+  const record = value as Record<string, unknown>;
+  let length = 0;
+  // `text` covers chat/Anthropic/Responses text parts and Google
+  // `parts[].text`; `output`/`arguments` cover Responses tool-call items,
+  // which are real prompt text on continuation turns.
+  for (const key of ["text", "output", "arguments"] as const) {
+    const field = record[key];
+    if (typeof field === "string") length += field.length;
+  }
+  // `content` is the chat/Anthropic/Responses field, `parts` the Google one.
+  for (const key of ["content", "parts"] as const) {
+    length += textLengthOf(record[key], depth + 1);
+  }
+  return length === 0 && isImagePart(record) ? IMAGE_ESTIMATE_CHARS : length;
+};
+
+const numberAt = (
+  container: unknown,
+  ...keys: string[]
+): number | undefined => {
+  const record =
+    container && typeof container === "object" && !Array.isArray(container)
+      ? (container as Record<string, unknown>)
+      : null;
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+};
+
+/**
+ * Estimate the tokens a relay request will consume, for the pre-flight
+ * budget reservation in `authorizeStellaRelayRequest`.
+ *
+ * This runs against the *raw client body*, before `bodyForUpstream`
+ * normalizes it, so it has to understand every wire shape a client may
+ * send: Chat Completions (`messages` / `max_tokens`), Responses
+ * (`input` / `max_output_tokens`), and Google (`contents` /
+ * `generationConfig.maxOutputTokens`). Missing a shape silently reserves
+ * ~nothing and lets an exhausted account through.
+ */
 export function estimateRequestTokens(
   requestBody: StellaRequestBody,
 ): TokenEstimate {
-  const messages = Array.isArray(requestBody.messages)
-    ? (requestBody.messages as Array<Record<string, unknown>>)
-    : [];
-
-  let inputTextLength = 0;
-  for (const message of messages) {
-    const content = message?.content;
-    if (typeof content === "string") {
-      inputTextLength += content.length;
-      continue;
-    }
-
-    if (!Array.isArray(content)) {
-      continue;
-    }
-
-    for (const part of content) {
-      if (!part || typeof part !== "object") {
-        continue;
-      }
-      const record = part as Record<string, unknown>;
-      if (typeof record.text === "string") {
-        inputTextLength += record.text.length;
-      } else if (typeof record.image_url === "object") {
-        inputTextLength += 512;
-      }
-    }
-  }
+  const inputTextLength = [
+    // Message lists, one per wire shape.
+    requestBody.messages,
+    requestBody.input,
+    requestBody.contents,
+    // Top-level preambles: Anthropic `system`, Responses `instructions`,
+    // Google `systemInstruction`.
+    requestBody.system,
+    requestBody.instructions,
+    requestBody.systemInstruction,
+    requestBody.system_instruction,
+  ].reduce<number>((total, value) => total + textLengthOf(value), 0);
 
   const maxCompletionTokens =
-    typeof requestBody.max_completion_tokens === "number"
-      ? requestBody.max_completion_tokens
-      : typeof requestBody.max_tokens === "number"
-        ? requestBody.max_tokens
-        : typeof requestBody.maxOutputTokens === "number"
-          ? requestBody.maxOutputTokens
-          : 1024;
+    numberAt(
+      requestBody,
+      "max_completion_tokens",
+      "max_tokens",
+      "max_output_tokens",
+      "maxOutputTokens",
+    ) ??
+    numberAt(requestBody.generationConfig, "maxOutputTokens") ??
+    numberAt(requestBody.generation_config, "max_output_tokens") ??
+    DEFAULT_ESTIMATED_OUTPUT_TOKENS;
 
   return {
     inputTokens: Math.max(1, Math.ceil(inputTextLength / 4)),
     outputTokens: Math.max(
       0,
-      Math.min(16_384, Math.floor(maxCompletionTokens)),
+      Math.min(MAX_ESTIMATED_OUTPUT_TOKENS, Math.floor(maxCompletionTokens)),
     ),
   };
 }

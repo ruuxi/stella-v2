@@ -5,7 +5,10 @@ import {
   buildContextFromChatMessages,
   completeManagedChat,
 } from "../runtime_ai/managed";
-import type { ManagedUsageSummary } from "../lib/managed_usage";
+import {
+  usageSummaryFromAssistant,
+  type ManagedUsageSummary,
+} from "../lib/managed_usage";
 import type { AssistantMessage } from "../runtime_ai/types";
 import type { ResolvedModelConfig } from "./model_resolver";
 import { withModelFailoverAsync } from "./model_failover";
@@ -82,14 +85,6 @@ export function usageSummaryFromFinish(
   totalUsage: MaybeUsageSummary,
 ): MaybeUsageSummary {
   return totalUsage;
-}
-
-export function usageSummaryFromResult(
-  result?: {
-    usage?: UsageSummary | null;
-  } | null,
-): MaybeUsageSummary {
-  return result?.usage ?? undefined;
 }
 
 export function mergeUsageSummaries(
@@ -256,16 +251,7 @@ async function runToolLoop(args: {
       },
     });
 
-    const usage = usageSummaryFromResult({
-      usage: {
-        inputTokens: assistantMessage.usage.input,
-        outputTokens: assistantMessage.usage.output,
-        totalTokens: assistantMessage.usage.totalTokens,
-        cachedInputTokens: assistantMessage.usage.cacheRead,
-        cacheWriteInputTokens: assistantMessage.usage.cacheWrite,
-        reasoningTokens: assistantMessage.usage.reasoningTokens,
-      },
-    });
+    const usage = usageSummaryFromAssistant(assistantMessage);
     totalUsage = mergeUsageSummaries(totalUsage, usage);
     usageByModel = mergeUsageSummaryByModel(usageByModel, assistantMessage.model, usage);
 
@@ -413,16 +399,7 @@ export async function generateTextWithFailover(args: {
 
     return {
       text: assistantText(message),
-      usage: usageSummaryFromResult({
-        usage: {
-          inputTokens: message.usage.input,
-          outputTokens: message.usage.output,
-          totalTokens: message.usage.totalTokens,
-          cachedInputTokens: message.usage.cacheRead,
-          cacheWriteInputTokens: message.usage.cacheWrite,
-          reasoningTokens: message.usage.reasoningTokens,
-        },
-      }),
+      usage: usageSummaryFromAssistant(message),
       executedModel: message.model,
     };
   };

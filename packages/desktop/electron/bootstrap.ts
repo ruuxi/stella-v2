@@ -45,14 +45,12 @@ const stellaAppDir = app.isPackaged
 const configuredStatePath = isDev
   ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
   : process.env.STELLA_DATA_DIR?.trim();
-// Development shares the packaged `~/.stella` home (see data-paths.ts) so the
-// bundled-skill reconciliation, the runtime worker, and prompt-facing skill
-// paths all agree on one tree. Electron's userData keeps its own dev-scoped
-// profile ("Stella Development") for Chromium state only.
+// Packaged and development builds share the durable `~/.stella` home (see
+// data-paths.ts) so SQLite, bundled-skill reconciliation, the runtime worker,
+// and prompt-facing paths all agree on one tree. Electron's userData remains a
+// separate platform app-data profile for Chromium/session/runtime state only.
 const stellaDataDirPath = resolveDesktopStellaDataDirPath({
-  isPackaged: app.isPackaged,
   configuredStatePath,
-  userDataPath: app.getPath("userData"),
 });
 const useDevServer = isDev;
 const installDevBrokenPipeGuards = () => {
@@ -84,6 +82,14 @@ const startLocalCrashReporter = () => {
 };
 
 export const bootstrapMainProcess = () => {
+  // Acquire Electron's process lock before bootstrap services are constructed.
+  // LocalChatHistoryService opens and initializes ~/.stella/stella.sqlite in
+  // its constructor, so another packaged instance must be rejected first.
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return;
+  }
+
   initMainProcessLogging(stellaAppDir);
   installDevBrokenPipeGuards();
   startLocalCrashReporter();
@@ -119,9 +125,6 @@ export const bootstrapMainProcess = () => {
     startupRuntimeWarmupDelayMs: STARTUP_RUNTIME_WARMUP_DELAY_MS,
   });
 
-  if (!initializeBootstrapSingleInstance(context)) {
-    return;
-  }
-
+  initializeBootstrapSingleInstance(context);
   registerBootstrapLifecycle(context);
 };

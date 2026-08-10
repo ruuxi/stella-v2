@@ -626,33 +626,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Stella के साथ शुरुआत करें",
-        "features": [
-          "बेसिक चैट और सहायता",
-          "सीमित दैनिक उपयोग"
-        ]
+        "tagline": "Stella आज़माने के लिए एक बार मिलने वाली सीमा"
       },
       "go": {
-        "tagline": "रोज़मर्रा के निजी उपयोग के लिए",
-        "features": [
-          "हर दिन ज़्यादा बातचीत",
-          "ब्राउज़र ऑटोमेशन",
-          "वॉइस बातचीत"
-        ]
+        "tagline": "रोज़मर्रा के काम के लिए भरपूर उपयोग"
       },
       "pro": {
-        "tagline": "एडवांस्ड यूज़र के लिए",
-        "features": [
-          "Go से 3× उपयोग",
-          "प्राथमिकता वाले प्रतिक्रिया समय",
-          "सभी ऑटोमेशन सुविधाएँ"
-        ]
+        "tagline": "Go की सभी सुविधाएँ, साथ में जनरेशन"
       }
+    },
+    "features": {
+      "assistant": "निजी सहायक",
+      "codingAgent": "कोडिंग एजेंट",
+      "research": "रिसर्च और नॉलेज वर्क",
+      "noAds": "कोई विज्ञापन नहीं",
+      "orchestrator": "ऑर्केस्ट्रेटर मोड"
+    },
+    "capability": {
+      "image_generation": "छवि निर्माण",
+      "video_generation": "वीडियो निर्माण",
+      "audio_generation": "आवाज़ और संगीत निर्माण",
+      "three_d_generation": "3D निर्माण"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} आपके प्लान में नहीं है",
+      "signIn": "{capability} Stella {plan} में शामिल है। इसे अनलॉक करने के लिए साइन इन करें और अपग्रेड करें।",
+      "upgrade": "{capability} Stella {plan} में शामिल है। इसे अनलॉक करने के लिए अपग्रेड करें।",
+      "unavailable": "{capability} फ़िलहाल किसी भी प्लान में उपलब्ध नहीं है।",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "अनुपलब्ध",
+      "genericTitle": "आपके प्लान में शामिल नहीं",
+      "genericDescription": "यह सुविधा Stella Pro में शामिल है। इसे अनलॉक करने के लिए अपग्रेड करें।"
+    },
+    "freeAllowance": {
+      "label": "मुफ़्त सीमा",
+      "caption": "एक बार मिलती है — यह रीसेट नहीं होती।",
+      "remaining": "{amount} बचा है। खत्म होने के बाद यह वापस नहीं आता।",
+      "exhaustedTitle": "आपकी मुफ़्त सीमा खत्म हो गई",
+      "exhaustedDescription": "Free प्लान में एक बार मिलने वाली सीमा शामिल है, जो कभी रीसेट नहीं होती। Stella का उपयोग जारी रखने के लिए Go में अपग्रेड करें।",
+      "exhaustedCta": "Go में अपग्रेड करें"
     },
     "upgradeDialog": {
       "title": "आप Stella {plan} पर हैं।",
       "description": "अपग्रेड के लिए धन्यवाद। उच्च प्राथमिकता और बढ़ा हुआ उपयोग अब सक्रिय है — आगे बढ़ें।",
       "cta": "शुरू करें"
+    },
+    "renewal": {
+      "nextLabel": "अगला नवीनीकरण",
+      "pendingLabel": "रद्दीकरण लंबित",
+      "renews": "{date} को नवीनीकरण",
+      "accessEnds": "{date} को एक्सेस खत्म",
+      "lapseTitle": "प्लान खत्म होने पर Stella बंद हो जाएगा",
+      "lapseDescription": "आपका {plan} प्लान {date} तक चलेगा। उसके बाद Stella बंद हो जाएगा — Free प्लान की सीमा एक ही बार मिलती है और आप अपनी सीमा पहले ही इस्तेमाल कर चुके हैं।"
     }
   },
   "chat": {

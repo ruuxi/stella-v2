@@ -627,33 +627,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Démarrer avec Stella",
-        "features": [
-          "Chat et assistance de base",
-          "Usage quotidien limité"
-        ]
+        "tagline": "Un crédit unique pour essayer Stella"
       },
       "go": {
-        "tagline": "Pour un usage personnel quotidien",
-        "features": [
-          "Plus de conversations par jour",
-          "Automatisation du navigateur",
-          "Conversations vocales"
-        ]
+        "tagline": "Un usage généreux pour le travail au quotidien"
       },
       "pro": {
-        "tagline": "Pour les utilisateurs avancés",
-        "features": [
-          "3× l'usage de Go",
-          "Réponses prioritaires",
-          "Toutes les fonctions d'automatisation"
-        ]
+        "tagline": "Tout ce que propose Go, plus la génération"
       }
+    },
+    "features": {
+      "assistant": "Assistant personnel",
+      "codingAgent": "Agent de code",
+      "research": "Recherche et travail documentaire",
+      "noAds": "Sans publicité",
+      "orchestrator": "Mode orchestrateur"
+    },
+    "capability": {
+      "image_generation": "Génération d'images",
+      "video_generation": "Génération de vidéos",
+      "audio_generation": "Génération de voix et de musique",
+      "three_d_generation": "Génération 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} n'est pas dans votre plan",
+      "signIn": "{capability} fait partie de Stella {plan}. Connectez-vous pour passer à un plan supérieur et débloquer cette fonctionnalité.",
+      "upgrade": "{capability} fait partie de Stella {plan}. Passez à un plan supérieur pour débloquer cette fonctionnalité.",
+      "unavailable": "{capability} n'est disponible dans aucun plan pour le moment.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Indisponible",
+      "genericTitle": "Non inclus dans votre plan",
+      "genericDescription": "Cette fonctionnalité fait partie de Stella Pro. Passez à un plan supérieur pour la débloquer."
+    },
+    "freeAllowance": {
+      "label": "Crédit gratuit",
+      "caption": "Unique — il ne se réinitialise pas.",
+      "remaining": "Il reste {amount}. Une fois épuisé, il ne revient pas.",
+      "exhaustedTitle": "Votre crédit gratuit est épuisé",
+      "exhaustedDescription": "Le plan Free comprend un crédit unique qui ne se réinitialise jamais. Passez à Go pour continuer à utiliser Stella.",
+      "exhaustedCta": "Passer à Go"
     },
     "upgradeDialog": {
       "title": "Vous êtes sur Stella {plan}.",
       "description": "Merci pour la mise à niveau. Priorité plus élevée et usage accru sont actifs dès maintenant — continuez.",
       "cta": "Commencer"
+    },
+    "renewal": {
+      "nextLabel": "Prochain renouvellement",
+      "pendingLabel": "Résiliation en attente",
+      "renews": "Renouvellement le {date}",
+      "accessEnds": "Fin de l'accès le {date}",
+      "lapseTitle": "Stella s'arrêtera à la fin de votre plan",
+      "lapseDescription": "Votre plan {plan} reste actif jusqu'au {date}. Ensuite, Stella s'arrête : le crédit du plan Free est unique et vous avez déjà utilisé le vôtre."
     }
   },
   "chat": {

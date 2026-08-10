@@ -662,7 +662,6 @@
       "label": "Free allowance",
       "caption": "One-time — this doesn't reset.",
       "remaining": "{amount} left. Once it's gone it doesn't come back.",
-      "spent": "Fully used. This allowance doesn't reset.",
       "exhaustedTitle": "Your free allowance is used up",
       "exhaustedDescription": "The Free plan includes a one-time allowance that never resets. Upgrade to Go to keep using Stella.",
       "exhaustedCta": "Upgrade to Go"

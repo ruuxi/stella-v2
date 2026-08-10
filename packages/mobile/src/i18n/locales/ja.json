@@ -625,33 +625,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Stella を始めよう",
-        "features": [
-          "基本的なチャットとサポート",
-          "1 日の利用量に制限あり"
-        ]
+        "tagline": "Stella を試すための一度きりの利用枠"
       },
       "go": {
-        "tagline": "毎日の個人利用に",
-        "features": [
-          "1 日あたりの会話数を増加",
-          "ブラウザ自動操作",
-          "音声会話"
-        ]
+        "tagline": "日々の仕事に十分な利用量"
       },
       "pro": {
-        "tagline": "パワーユーザーへ",
-        "features": [
-          "Go の 3 倍の利用量",
-          "優先的な応答時間",
-          "すべての自動化機能"
-        ]
+        "tagline": "Go のすべてに生成機能をプラス"
       }
+    },
+    "features": {
+      "assistant": "パーソナルアシスタント",
+      "codingAgent": "コーディングエージェント",
+      "research": "リサーチとナレッジワーク",
+      "noAds": "広告なし",
+      "orchestrator": "オーケストレーターモード"
+    },
+    "capability": {
+      "image_generation": "画像生成",
+      "video_generation": "動画生成",
+      "audio_generation": "音声と音楽の生成",
+      "three_d_generation": "3D 生成"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} は現在のプランに含まれていません",
+      "signIn": "{capability} は Stella {plan} に含まれています。サインインしてアップグレードすると利用できます。",
+      "upgrade": "{capability} は Stella {plan} に含まれています。アップグレードすると利用できます。",
+      "unavailable": "{capability} は現在どのプランでも利用できません。",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "利用不可",
+      "genericTitle": "現在のプランには含まれていません",
+      "genericDescription": "この機能は Stella Pro に含まれています。アップグレードすると利用できます。"
+    },
+    "freeAllowance": {
+      "label": "無料利用枠",
+      "caption": "一度きりで、リセットされません。",
+      "remaining": "残り {amount}。使い切ると元には戻りません。",
+      "exhaustedTitle": "無料利用枠を使い切りました",
+      "exhaustedDescription": "Free プランには、リセットされない一度きりの利用枠が含まれています。Stella を使い続けるには Go にアップグレードしてください。",
+      "exhaustedCta": "Go にアップグレード"
     },
     "upgradeDialog": {
       "title": "現在 Stella {plan} をご利用中です。",
       "description": "アップグレードありがとうございます。優先度の向上と利用量の増加がすでに有効です — そのまま続けましょう。",
       "cta": "始める"
+    },
+    "renewal": {
+      "nextLabel": "次回の更新",
+      "pendingLabel": "解約手続き中",
+      "renews": "{date} に更新",
+      "accessEnds": "{date} に利用終了",
+      "lapseTitle": "プランの終了とともに Stella は止まります",
+      "lapseDescription": "{plan} プランは {date} まで利用できます。その後は Stella が止まります — Free プランの利用枠は一度きりで、すでに使い切っています。"
     }
   },
   "chat": {
@@ -1200,10 +1225,11 @@
       "miniModelPicker": {
         "loading": "読み込み中…",
         "modelUpdateFailed": "モデル設定を更新できませんでした。",
+        "modelsLabel": "最近のモデル",
+        "moreModels": "他のモデル…",
         "popoverLabel": "モデルのオプション",
         "reasoningEffortLabel": "推論の強度",
         "reasoningUpdateFailed": "推論の強度を更新できませんでした。",
-        "recent": "最近",
         "triggerLabel": "モデル: {model}",
         "unavailable": "利用不可",
         "updateFailedTitle": "モデル設定を更新できませんでした"

@@ -627,33 +627,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Comece com a Stella",
-        "features": [
-          "Chat e assistência básicos",
-          "Uso diário limitado"
-        ]
+        "tagline": "Um saldo único para experimentar a Stella"
       },
       "go": {
-        "tagline": "Para uso pessoal no dia a dia",
-        "features": [
-          "Mais conversas por dia",
-          "Automação do navegador",
-          "Conversas por voz"
-        ]
+        "tagline": "Uso generoso para o trabalho do dia a dia"
       },
       "pro": {
-        "tagline": "Para usuários avançados",
-        "features": [
-          "3× o uso do Go",
-          "Tempos de resposta prioritários",
-          "Todos os recursos de automação"
-        ]
+        "tagline": "Tudo do Go, mais geração"
       }
+    },
+    "features": {
+      "assistant": "Assistente pessoal",
+      "codingAgent": "Agente de programação",
+      "research": "Pesquisa e trabalho com conhecimento",
+      "noAds": "Sem anúncios",
+      "orchestrator": "Modo orquestrador"
+    },
+    "capability": {
+      "image_generation": "Geração de imagens",
+      "video_generation": "Geração de vídeos",
+      "audio_generation": "Geração de voz e música",
+      "three_d_generation": "Geração 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} não está no seu plano",
+      "signIn": "{capability} faz parte do Stella {plan}. Entre para mudar de plano e liberar esse recurso.",
+      "upgrade": "{capability} faz parte do Stella {plan}. Mude de plano para liberar esse recurso.",
+      "unavailable": "{capability} não está disponível em nenhum plano no momento.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Indisponível",
+      "genericTitle": "Não incluído no seu plano",
+      "genericDescription": "Esse recurso faz parte do Stella Pro. Mude de plano para liberá-lo."
+    },
+    "freeAllowance": {
+      "label": "Saldo gratuito",
+      "caption": "É único — não é renovado.",
+      "remaining": "Restam {amount}. Quando acabar, não volta.",
+      "exhaustedTitle": "Seu saldo gratuito acabou",
+      "exhaustedDescription": "O plano Free inclui um saldo único que nunca é renovado. Mude para o Go para continuar usando a Stella.",
+      "exhaustedCta": "Mudar para o Go"
     },
     "upgradeDialog": {
       "title": "Você está no Stella {plan}.",
       "description": "Obrigado por mudar de plano. Mais prioridade e mais uso já estão ativos — pode seguir.",
       "cta": "Começar"
+    },
+    "renewal": {
+      "nextLabel": "Próxima renovação",
+      "pendingLabel": "Cancelamento pendente",
+      "renews": "Renova em {date}",
+      "accessEnds": "O acesso termina em {date}",
+      "lapseTitle": "A Stella para quando seu plano terminar",
+      "lapseDescription": "Seu plano {plan} vai até {date}. Depois disso a Stella para — o saldo do plano Free é único e o seu já foi usado."
     }
   },
   "chat": {

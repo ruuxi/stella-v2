@@ -626,33 +626,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Indítsd el a Stellát",
-        "features": [
-          "Alap chat és segítség",
-          "Korlátozott napi használat"
-        ]
+        "tagline": "Egyszeri keret a Stella kipróbálásához"
       },
       "go": {
-        "tagline": "Mindennapi személyes használatra",
-        "features": [
-          "Több beszélgetés naponta",
-          "Böngészőautomatizálás",
-          "Hangbeszélgetések"
-        ]
+        "tagline": "Bőséges használat a mindennapi munkához"
       },
       "pro": {
-        "tagline": "Igényes felhasználóknak",
-        "features": [
-          "3× a Go használatának",
-          "Elsőbbségi válaszidők",
-          "Minden automatizálási funkció"
-        ]
+        "tagline": "Minden, ami a Go-ban, plusz a generálás"
       }
+    },
+    "features": {
+      "assistant": "Személyes asszisztens",
+      "codingAgent": "Kódoló ügynök",
+      "research": "Kutatás és tudásmunka",
+      "noAds": "Nincsenek hirdetések",
+      "orchestrator": "Orkesztrátor mód"
+    },
+    "capability": {
+      "image_generation": "Képgenerálás",
+      "video_generation": "Videógenerálás",
+      "audio_generation": "Hang- és zenegenerálás",
+      "three_d_generation": "3D-generálás"
+    },
+    "capabilityRestriction": {
+      "title": "A(z) {capability} nincs benne a csomagodban",
+      "signIn": "A(z) {capability} a Stella {plan} csomag része. Jelentkezz be, és válts csomagot a feloldásához.",
+      "upgrade": "A(z) {capability} a Stella {plan} csomag része. Válts csomagot a feloldásához.",
+      "unavailable": "A(z) {capability} jelenleg egyik csomagban sem érhető el.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Nem érhető el",
+      "genericTitle": "Nincs benne a csomagodban",
+      "genericDescription": "Ez a funkció a Stella Pro csomag része. Válts csomagot a feloldásához."
+    },
+    "freeAllowance": {
+      "label": "Ingyenes keret",
+      "caption": "Egyszeri — nem áll vissza.",
+      "remaining": "Maradt {amount}. Ha elfogy, nem jön vissza.",
+      "exhaustedTitle": "Elfogyott az ingyenes kereted",
+      "exhaustedDescription": "A Free csomag egyszeri keretet tartalmaz, ami soha nem áll vissza. Válts a Go csomagra, hogy tovább használhasd a Stellát.",
+      "exhaustedCta": "Váltás a Go csomagra"
     },
     "upgradeDialog": {
       "title": "A csomagod: Stella {plan}.",
       "description": "Köszönjük a váltást. A magasabb prioritás és a megnövelt használat mostantól aktív — jó munkát.",
       "cta": "Kezdés"
+    },
+    "renewal": {
+      "nextLabel": "Következő megújítás",
+      "pendingLabel": "Lemondás folyamatban",
+      "renews": "Megújul: {date}",
+      "accessEnds": "A hozzáférés eddig tart: {date}",
+      "lapseTitle": "A Stella leáll, amikor a csomagod lejár",
+      "lapseDescription": "A(z) {plan} csomagod eddig tart: {date}. Utána a Stella leáll — a Free csomag kerete egyszeri, és a tiédet már elhasználtad."
     }
   },
   "chat": {

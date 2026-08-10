@@ -628,33 +628,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Začněte se Stellou",
-        "features": [
-          "Základní chat a pomoc",
-          "Omezené denní využití"
-        ]
+        "tagline": "Jednorázový kredit na vyzkoušení Stelly"
       },
       "go": {
-        "tagline": "Pro každodenní osobní použití",
-        "features": [
-          "Více konverzací denně",
-          "Automatizace prohlížeče",
-          "Hlasové konverzace"
-        ]
+        "tagline": "Štědré limity pro každodenní práci"
       },
       "pro": {
-        "tagline": "Pro náročné uživatele",
-        "features": [
-          "3× využití plánu Go",
-          "Prioritní časy odezvy",
-          "Všechny funkce automatizace"
-        ]
+        "tagline": "Vše z plánu Go a navíc generování"
       }
+    },
+    "features": {
+      "assistant": "Osobní asistent",
+      "codingAgent": "Programovací agent",
+      "research": "Rešerše a znalostní práce",
+      "noAds": "Žádné reklamy",
+      "orchestrator": "Režim orchestrátoru"
+    },
+    "capability": {
+      "image_generation": "Generování obrázků",
+      "video_generation": "Generování videa",
+      "audio_generation": "Generování hlasu a hudby",
+      "three_d_generation": "Generování 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} není ve vašem plánu",
+      "signIn": "{capability} je součástí plánu Stella {plan}. Přihlaste se a upgradujte plán, abyste tuto funkci odemkli.",
+      "upgrade": "{capability} je součástí plánu Stella {plan}. Upgradujte plán, abyste tuto funkci odemkli.",
+      "unavailable": "{capability} teď není dostupné v žádném plánu.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Nedostupné",
+      "genericTitle": "Není součástí vašeho plánu",
+      "genericDescription": "Tato funkce je součástí plánu Stella Pro. Upgradujte plán, abyste ji odemkli."
+    },
+    "freeAllowance": {
+      "label": "Kredit zdarma",
+      "caption": "Jednorázový — neobnovuje se.",
+      "remaining": "Zbývá {amount}. Až se vyčerpá, už se nevrátí.",
+      "exhaustedTitle": "Váš kredit zdarma je vyčerpaný",
+      "exhaustedDescription": "Plán Free zahrnuje jednorázový kredit, který se nikdy neobnovuje. Upgradujte na Go a používejte Stellu dál.",
+      "exhaustedCta": "Upgradovat na Go"
     },
     "upgradeDialog": {
       "title": "Máte Stellu {plan}.",
       "description": "Díky za upgrade. Vyšší priorita a větší limity už jsou aktivní — pokračujte.",
       "cta": "Začít"
+    },
+    "renewal": {
+      "nextLabel": "Příští obnovení",
+      "pendingLabel": "Čeká na zrušení",
+      "renews": "Obnoví se {date}",
+      "accessEnds": "Přístup končí {date}",
+      "lapseTitle": "Až plán skončí, Stella přestane fungovat",
+      "lapseDescription": "Váš plán {plan} běží do {date}. Poté Stella přestane fungovat — kredit plánu Free je jednorázový a ten svůj jste už vyčerpali."
     }
   },
   "chat": {

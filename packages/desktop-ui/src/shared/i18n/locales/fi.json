@@ -626,33 +626,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Aloita Stellan kanssa",
-        "features": [
-          "Perusjuttelu ja apu",
-          "Rajallinen päivittäinen käyttö"
-        ]
+        "tagline": "Kertaluonteinen krediitti Stellan kokeiluun"
       },
       "go": {
-        "tagline": "Päivittäiseen henkilökohtaiseen käyttöön",
-        "features": [
-          "Enemmän keskusteluja päivässä",
-          "Selaimen automaatio",
-          "Äänikeskustelut"
-        ]
+        "tagline": "Runsaasti käyttöä arjen työhön"
       },
       "pro": {
-        "tagline": "Tehokäyttäjille",
-        "features": [
-          "3× Go:n käyttömäärä",
-          "Etusijavastausajat",
-          "Kaikki automaatiotoiminnot"
-        ]
+        "tagline": "Kaikki Go:sta ja lisäksi sisällön luonti"
       }
+    },
+    "features": {
+      "assistant": "Henkilökohtainen avustaja",
+      "codingAgent": "Koodausagentti",
+      "research": "Tutkimus ja tietotyö",
+      "noAds": "Ei mainoksia",
+      "orchestrator": "Orkestraattoritila"
+    },
+    "capability": {
+      "image_generation": "Kuvien luonti",
+      "video_generation": "Videoiden luonti",
+      "audio_generation": "Puheen ja musiikin luonti",
+      "three_d_generation": "3D-luonti"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} ei sisälly tilaukseesi",
+      "signIn": "{capability} sisältyy Stella {plan} -tilaukseen. Kirjaudu sisään ja päivitä tilaus, niin saat ominaisuuden käyttöön.",
+      "upgrade": "{capability} sisältyy Stella {plan} -tilaukseen. Päivitä tilaus, niin saat ominaisuuden käyttöön.",
+      "unavailable": "{capability} ei ole tällä hetkellä saatavilla missään tilauksessa.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Ei käytettävissä",
+      "genericTitle": "Ei sisälly tilaukseesi",
+      "genericDescription": "Tämä ominaisuus sisältyy Stella Pro -tilaukseen. Päivitä tilaus, niin saat sen käyttöön."
+    },
+    "freeAllowance": {
+      "label": "Ilmainen krediitti",
+      "caption": "Kertaluonteinen — se ei nollaudu.",
+      "remaining": "Jäljellä {amount}. Kun se on käytetty, se ei palaa.",
+      "exhaustedTitle": "Ilmainen krediittisi on käytetty",
+      "exhaustedDescription": "Free-tilaus sisältää kertaluonteisen krediitin, joka ei koskaan nollaudu. Päivitä Go-tilaukseen ja jatka Stellan käyttöä.",
+      "exhaustedCta": "Päivitä Go-tilaukseen"
     },
     "upgradeDialog": {
       "title": "Käytössäsi on Stella {plan}.",
       "description": "Kiitos päivityksestä. Korkeampi prioriteetti ja suurempi käyttömäärä ovat nyt aktiivisia — jatka vain.",
       "cta": "Aloita"
+    },
+    "renewal": {
+      "nextLabel": "Seuraava uusiminen",
+      "pendingLabel": "Peruutus odottaa",
+      "renews": "Uusitaan {date}",
+      "accessEnds": "Käyttöoikeus päättyy {date}",
+      "lapseTitle": "Stella pysähtyy, kun tilauksesi päättyy",
+      "lapseDescription": "{plan}-tilauksesi on voimassa {date} asti. Sen jälkeen Stella pysähtyy — Free-tilauksen krediitti annetaan vain kerran, ja olet jo käyttänyt omasi."
     }
   },
   "chat": {

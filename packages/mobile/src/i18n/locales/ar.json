@@ -630,33 +630,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "ابدأ مع Stella",
-        "features": [
-          "محادثة ومساعدة أساسية",
-          "استخدام يومي محدود"
-        ]
+        "tagline": "رصيد لمرة واحدة لتجربة Stella"
       },
       "go": {
-        "tagline": "للاستخدام الشخصي اليومي",
-        "features": [
-          "محادثات أكثر يوميًا",
-          "أتمتة المتصفح",
-          "محادثات صوتية"
-        ]
+        "tagline": "استخدام سخي للعمل اليومي"
       },
       "pro": {
-        "tagline": "للمستخدمين المتمرسين",
-        "features": [
-          "ثلاثة أضعاف استخدام Go",
-          "أوقات استجابة ذات أولوية",
-          "جميع ميزات الأتمتة"
-        ]
+        "tagline": "كل ما في Go، بالإضافة إلى التوليد"
       }
+    },
+    "features": {
+      "assistant": "مساعد شخصي",
+      "codingAgent": "وكيل برمجة",
+      "research": "البحث والعمل المعرفي",
+      "noAds": "بدون إعلانات",
+      "orchestrator": "وضع المنسّق"
+    },
+    "capability": {
+      "image_generation": "توليد الصور",
+      "video_generation": "توليد الفيديو",
+      "audio_generation": "توليد الصوت والموسيقى",
+      "three_d_generation": "التوليد ثلاثي الأبعاد"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} غير متاح في خطتك",
+      "signIn": "{capability} مضمّن في Stella {plan}. سجّل الدخول لترقية خطتك وفتح هذه الميزة.",
+      "upgrade": "{capability} مضمّن في Stella {plan}. رقِّ خطتك لفتح هذه الميزة.",
+      "unavailable": "{capability} غير متاح في أي خطة حاليًا.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "غير متاح",
+      "genericTitle": "غير مضمّن في خطتك",
+      "genericDescription": "هذه الميزة مضمّنة في Stella Pro. رقِّ خطتك لفتحها."
+    },
+    "freeAllowance": {
+      "label": "الرصيد المجاني",
+      "caption": "لمرة واحدة — لا يتجدد.",
+      "remaining": "بقي {amount}. وبعد نفاده لا يعود.",
+      "exhaustedTitle": "نفد رصيدك المجاني",
+      "exhaustedDescription": "تتضمن خطة Free رصيدًا لمرة واحدة لا يتجدد أبدًا. رقِّ إلى Go لمواصلة استخدام Stella.",
+      "exhaustedCta": "الترقية إلى Go"
     },
     "upgradeDialog": {
       "title": "أنت الآن على Stella {plan}.",
       "description": "شكرًا على الترقية. الأولوية الأعلى والاستخدام الموسّع فعّالان الآن — تابع.",
       "cta": "ابدأ"
+    },
+    "renewal": {
+      "nextLabel": "التجديد التالي",
+      "pendingLabel": "الإلغاء قيد الانتظار",
+      "renews": "يتجدد في {date}",
+      "accessEnds": "ينتهي الوصول في {date}",
+      "lapseTitle": "سيتوقف Stella عند انتهاء خطتك",
+      "lapseDescription": "تستمر خطة {plan} حتى {date}. بعد ذلك يتوقف Stella — رصيد خطة Free يُمنح مرة واحدة، ورصيدك استُهلك بالفعل."
     }
   },
   "chat": {
@@ -1250,10 +1275,11 @@
       "miniModelPicker": {
         "loading": "جارٍ التحميل…",
         "modelUpdateFailed": "تعذّر تحديث إعداد النموذج.",
+        "modelsLabel": "النماذج الأخيرة",
+        "moreModels": "المزيد من النماذج…",
         "popoverLabel": "خيارات النموذج",
         "reasoningEffortLabel": "مستوى التفكير",
         "reasoningUpdateFailed": "تعذّر تحديث مستوى التفكير.",
-        "recent": "الأخيرة",
         "triggerLabel": "النموذج: {model}",
         "unavailable": "غير متاح",
         "updateFailedTitle": "تعذّر تحديث إعدادات النموذج"

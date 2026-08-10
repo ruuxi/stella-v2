@@ -626,33 +626,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Mit Stella starten",
-        "features": [
-          "Grundlegender Chat und Hilfe",
-          "Begrenzte tägliche Nutzung"
-        ]
+        "tagline": "Ein einmaliges Guthaben, um Stella auszuprobieren"
       },
       "go": {
-        "tagline": "Für den persönlichen Alltag",
-        "features": [
-          "Mehr Unterhaltungen pro Tag",
-          "Browser-Automatisierung",
-          "Sprachgespräche"
-        ]
+        "tagline": "Großzügige Nutzung für den Arbeitsalltag"
       },
       "pro": {
-        "tagline": "Für Power-User",
-        "features": [
-          "3× so viel Nutzung wie Go",
-          "Bevorzugte Antwortzeiten",
-          "Alle Automatisierungsfunktionen"
-        ]
+        "tagline": "Alles aus Go, plus Generierung"
       }
+    },
+    "features": {
+      "assistant": "Persönlicher Assistent",
+      "codingAgent": "Coding-Agent",
+      "research": "Recherche und Wissensarbeit",
+      "noAds": "Keine Werbung",
+      "orchestrator": "Orchestrator-Modus"
+    },
+    "capability": {
+      "image_generation": "Bildgenerierung",
+      "video_generation": "Videogenerierung",
+      "audio_generation": "Sprach- und Musikgenerierung",
+      "three_d_generation": "3D-Generierung"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} ist nicht in deinem Tarif enthalten",
+      "signIn": "{capability} ist in Stella {plan} enthalten. Melde dich an und mach ein Upgrade, um die Funktion freizuschalten.",
+      "upgrade": "{capability} ist in Stella {plan} enthalten. Mach ein Upgrade, um die Funktion freizuschalten.",
+      "unavailable": "{capability} ist derzeit in keinem Tarif verfügbar.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Nicht verfügbar",
+      "genericTitle": "Nicht in deinem Tarif enthalten",
+      "genericDescription": "Diese Funktion ist in Stella Pro enthalten. Mach ein Upgrade, um sie freizuschalten."
+    },
+    "freeAllowance": {
+      "label": "Kostenloses Guthaben",
+      "caption": "Einmalig — es wird nicht zurückgesetzt.",
+      "remaining": "{amount} übrig. Ist es aufgebraucht, kommt es nicht zurück.",
+      "exhaustedTitle": "Dein kostenloses Guthaben ist aufgebraucht",
+      "exhaustedDescription": "Der Tarif Free enthält ein einmaliges Guthaben, das nie zurückgesetzt wird. Mach ein Upgrade auf Go, um Stella weiter zu nutzen.",
+      "exhaustedCta": "Upgrade auf Go"
     },
     "upgradeDialog": {
       "title": "Du nutzt Stella {plan}.",
       "description": "Danke für das Upgrade. Höhere Priorität und mehr Nutzung sind jetzt aktiv — leg los.",
       "cta": "Loslegen"
+    },
+    "renewal": {
+      "nextLabel": "Nächste Verlängerung",
+      "pendingLabel": "Kündigung vorgemerkt",
+      "renews": "Verlängert sich am {date}",
+      "accessEnds": "Zugriff endet am {date}",
+      "lapseTitle": "Stella stoppt, wenn dein Tarif endet",
+      "lapseDescription": "Dein Tarif {plan} läuft noch bis {date}. Danach stoppt Stella — das Guthaben des Tarifs Free gibt es nur einmal, und deins ist schon aufgebraucht."
     }
   },
   "chat": {
@@ -1210,10 +1235,11 @@
       "miniModelPicker": {
         "loading": "Wird geladen…",
         "modelUpdateFailed": "Modelleinstellung konnte nicht aktualisiert werden.",
+        "modelsLabel": "Zuletzt verwendete Modelle",
+        "moreModels": "Weitere Modelle…",
         "popoverLabel": "Modelloptionen",
         "reasoningEffortLabel": "Denkaufwand",
         "reasoningUpdateFailed": "Denkaufwand konnte nicht aktualisiert werden.",
-        "recent": "Zuletzt verwendet",
         "triggerLabel": "Modell: {model}",
         "unavailable": "Nicht verfügbar",
         "updateFailedTitle": "Modelleinstellungen konnten nicht aktualisiert werden"

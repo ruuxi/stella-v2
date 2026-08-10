@@ -626,33 +626,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Kom i gang med Stella",
-        "features": [
-          "Grunnleggende chat og hjelp",
-          "Begrenset daglig bruk"
-        ]
+        "tagline": "En engangssaldo for å prøve Stella"
       },
       "go": {
-        "tagline": "For daglig personlig bruk",
-        "features": [
-          "Flere samtaler per dag",
-          "Nettleserautomatisering",
-          "Talesamtaler"
-        ]
+        "tagline": "Raus bruk til hverdagens arbeid"
       },
       "pro": {
-        "tagline": "For erfarne brukere",
-        "features": [
-          "3× bruken i Go",
-          "Prioriterte svartider",
-          "Alle automatiseringsfunksjoner"
-        ]
+        "tagline": "Alt i Go, pluss generering"
       }
+    },
+    "features": {
+      "assistant": "Personlig assistent",
+      "codingAgent": "Kodeagent",
+      "research": "Research og kunnskapsarbeid",
+      "noAds": "Ingen annonser",
+      "orchestrator": "Orkestratormodus"
+    },
+    "capability": {
+      "image_generation": "Bildegenerering",
+      "video_generation": "Videogenerering",
+      "audio_generation": "Stemme- og musikkgenerering",
+      "three_d_generation": "3D-generering"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} er ikke med i planen din",
+      "signIn": "{capability} er inkludert i Stella {plan}. Logg inn for å oppgradere og låse opp funksjonen.",
+      "upgrade": "{capability} er inkludert i Stella {plan}. Oppgrader for å låse opp funksjonen.",
+      "unavailable": "{capability} er ikke tilgjengelig i noen plan akkurat nå.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Utilgjengelig",
+      "genericTitle": "Ikke inkludert i planen din",
+      "genericDescription": "Denne funksjonen er inkludert i Stella Pro. Oppgrader for å låse den opp."
+    },
+    "freeAllowance": {
+      "label": "Gratis saldo",
+      "caption": "Engangs — den nullstilles ikke.",
+      "remaining": "{amount} igjen. Når den er brukt opp, kommer den ikke tilbake.",
+      "exhaustedTitle": "Den gratis saldoen din er brukt opp",
+      "exhaustedDescription": "Free-planen inkluderer en engangssaldo som aldri nullstilles. Oppgrader til Go for å fortsette å bruke Stella.",
+      "exhaustedCta": "Oppgrader til Go"
     },
     "upgradeDialog": {
       "title": "Du er på Stella {plan}.",
       "description": "Takk for oppgraderingen. Høyere prioritet og økt bruk er aktivt nå — bare fortsett.",
       "cta": "Kom i gang"
+    },
+    "renewal": {
+      "nextLabel": "Neste fornyelse",
+      "pendingLabel": "Oppsigelse venter",
+      "renews": "Fornyes {date}",
+      "accessEnds": "Tilgangen slutter {date}",
+      "lapseTitle": "Stella stopper når planen din utløper",
+      "lapseDescription": "{plan}-planen din varer til {date}. Etter det stopper Stella — Free-planens saldo gis bare én gang, og din er allerede brukt opp."
     }
   },
   "chat": {

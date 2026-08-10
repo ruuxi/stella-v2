@@ -628,33 +628,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Zacznij ze Stellą",
-        "features": [
-          "Podstawowy czat i pomoc",
-          "Ograniczone dzienne użycie"
-        ]
+        "tagline": "Jednorazowy limit na wypróbowanie Stelli"
       },
       "go": {
-        "tagline": "Do codziennego, osobistego użytku",
-        "features": [
-          "Więcej rozmów dziennie",
-          "Automatyzacja przeglądarki",
-          "Rozmowy głosowe"
-        ]
+        "tagline": "Hojny limit do codziennej pracy"
       },
       "pro": {
-        "tagline": "Dla zaawansowanych użytkowników",
-        "features": [
-          "3× większe użycie niż Go",
-          "Priorytetowe czasy odpowiedzi",
-          "Wszystkie funkcje automatyzacji"
-        ]
+        "tagline": "Wszystko z planu Go plus generowanie"
       }
+    },
+    "features": {
+      "assistant": "Osobisty asystent",
+      "codingAgent": "Agent programistyczny",
+      "research": "Badania i praca z wiedzą",
+      "noAds": "Bez reklam",
+      "orchestrator": "Tryb orkiestratora"
+    },
+    "capability": {
+      "image_generation": "Generowanie obrazów",
+      "video_generation": "Generowanie wideo",
+      "audio_generation": "Generowanie głosu i muzyki",
+      "three_d_generation": "Generowanie 3D"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} nie jest w Twoim planie",
+      "signIn": "{capability} jest częścią planu Stella {plan}. Zaloguj się i ulepsz plan, aby odblokować tę funkcję.",
+      "upgrade": "{capability} jest częścią planu Stella {plan}. Ulepsz plan, aby odblokować tę funkcję.",
+      "unavailable": "{capability} nie jest teraz dostępne w żadnym planie.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Niedostępne",
+      "genericTitle": "Nie jest częścią Twojego planu",
+      "genericDescription": "Ta funkcja jest częścią planu Stella Pro. Ulepsz plan, aby ją odblokować."
+    },
+    "freeAllowance": {
+      "label": "Darmowy limit",
+      "caption": "Jednorazowy — nie odnawia się.",
+      "remaining": "Zostało {amount}. Gdy się skończy, nie wróci.",
+      "exhaustedTitle": "Twój darmowy limit się skończył",
+      "exhaustedDescription": "Plan Free zawiera jednorazowy limit, który nigdy się nie odnawia. Ulepsz plan do Go, aby dalej korzystać ze Stelli.",
+      "exhaustedCta": "Ulepsz do Go"
     },
     "upgradeDialog": {
       "title": "Masz Stellę {plan}.",
       "description": "Dzięki za ulepszenie planu. Wyższy priorytet i większe limity działają już teraz — do dzieła.",
       "cta": "Zaczynajmy"
+    },
+    "renewal": {
+      "nextLabel": "Następne odnowienie",
+      "pendingLabel": "Anulowanie w toku",
+      "renews": "Odnawia się {date}",
+      "accessEnds": "Dostęp kończy się {date}",
+      "lapseTitle": "Stella przestanie działać, gdy skończy się Twój plan",
+      "lapseDescription": "Twój plan {plan} działa do {date}. Potem Stella przestanie działać — limit planu Free przyznawany jest raz, a Twój został już wykorzystany."
     }
   },
   "chat": {

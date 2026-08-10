@@ -626,33 +626,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Stella ile başlayın",
-        "features": [
-          "Temel sohbet ve yardım",
-          "Sınırlı günlük kullanım"
-        ]
+        "tagline": "Stella'yı denemek için tek seferlik kullanım hakkı"
       },
       "go": {
-        "tagline": "Günlük kişisel kullanım için",
-        "features": [
-          "Günde daha fazla konuşma",
-          "Tarayıcı otomasyonu",
-          "Sesli görüşmeler"
-        ]
+        "tagline": "Günlük iş için bol kullanım"
       },
       "pro": {
-        "tagline": "Yoğun kullanıcılar için",
-        "features": [
-          "Go'nun 3 katı kullanım",
-          "Öncelikli yanıt süreleri",
-          "Tüm otomasyon özellikleri"
-        ]
+        "tagline": "Go'daki her şey, üstüne üretim"
       }
+    },
+    "features": {
+      "assistant": "Kişisel asistan",
+      "codingAgent": "Kodlama ajanı",
+      "research": "Araştırma ve bilgi işi",
+      "noAds": "Reklam yok",
+      "orchestrator": "Orkestratör modu"
+    },
+    "capability": {
+      "image_generation": "Görsel oluşturma",
+      "video_generation": "Video oluşturma",
+      "audio_generation": "Ses ve müzik oluşturma",
+      "three_d_generation": "3B oluşturma"
+    },
+    "capabilityRestriction": {
+      "title": "{capability} planınızda yok",
+      "signIn": "{capability} Stella {plan} planına dahildir. Yükseltip kullanmak için giriş yapın.",
+      "upgrade": "{capability} Stella {plan} planına dahildir. Kullanmak için planınızı yükseltin.",
+      "unavailable": "{capability} şu anda hiçbir planda kullanılamıyor.",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "Kullanılamıyor",
+      "genericTitle": "Planınıza dahil değil",
+      "genericDescription": "Bu özellik Stella Pro'ya dahildir. Kullanmak için planınızı yükseltin."
+    },
+    "freeAllowance": {
+      "label": "Ücretsiz kullanım hakkı",
+      "caption": "Tek seferlik — sıfırlanmaz.",
+      "remaining": "{amount} kaldı. Bitince geri gelmez.",
+      "exhaustedTitle": "Ücretsiz kullanım hakkınız bitti",
+      "exhaustedDescription": "Free planı, hiç sıfırlanmayan tek seferlik bir kullanım hakkı içerir. Stella'yı kullanmaya devam etmek için Go'ya yükseltin.",
+      "exhaustedCta": "Go'ya yükselt"
     },
     "upgradeDialog": {
       "title": "Stella {plan} kullanıyorsunuz.",
       "description": "Yükseltme için teşekkürler. Daha yüksek öncelik ve artırılmış kullanım şimdi etkin — devam edin.",
       "cta": "Başlayın"
+    },
+    "renewal": {
+      "nextLabel": "Sonraki yenileme",
+      "pendingLabel": "İptal bekliyor",
+      "renews": "{date} tarihinde yenilenir",
+      "accessEnds": "Erişim {date} tarihinde sona erer",
+      "lapseTitle": "Planınız bitince Stella duracak",
+      "lapseDescription": "{plan} planınız {date} tarihine kadar geçerli. Sonrasında Stella durur — Free planının kullanım hakkı tek seferlik ve sizinki zaten kullanıldı."
     }
   },
   "chat": {

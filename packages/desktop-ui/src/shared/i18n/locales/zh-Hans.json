@@ -625,33 +625,58 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "开始使用 Stella",
-        "features": [
-          "基础聊天与协助",
-          "每日使用量有限"
-        ]
+        "tagline": "一次性额度，用来体验 Stella"
       },
       "go": {
-        "tagline": "适合日常个人使用",
-        "features": [
-          "每日更多对话",
-          "浏览器自动化",
-          "语音对话"
-        ]
+        "tagline": "日常工作够用的充裕用量"
       },
       "pro": {
-        "tagline": "适合重度用户",
-        "features": [
-          "Go 的 3 倍使用量",
-          "优先响应时间",
-          "全部自动化功能"
-        ]
+        "tagline": "包含 Go 的全部功能，另加生成能力"
       }
+    },
+    "features": {
+      "assistant": "个人助理",
+      "codingAgent": "编程智能体",
+      "research": "研究与知识工作",
+      "noAds": "无广告",
+      "orchestrator": "编排器模式"
+    },
+    "capability": {
+      "image_generation": "图像生成",
+      "video_generation": "视频生成",
+      "audio_generation": "语音与音乐生成",
+      "three_d_generation": "3D 生成"
+    },
+    "capabilityRestriction": {
+      "title": "你的套餐不包含{capability}",
+      "signIn": "{capability}包含在 Stella {plan} 套餐中。登录并升级即可解锁。",
+      "upgrade": "{capability}包含在 Stella {plan} 套餐中。升级即可解锁。",
+      "unavailable": "目前没有任何套餐提供{capability}。",
+      "lockedBadge": "{plan}",
+      "lockedBadgeGeneric": "不可用",
+      "genericTitle": "你的套餐不包含此功能",
+      "genericDescription": "此功能包含在 Stella Pro 套餐中。升级即可解锁。"
+    },
+    "freeAllowance": {
+      "label": "免费额度",
+      "caption": "一次性额度，用完不会重置。",
+      "remaining": "还剩 {amount}。用完就没有了。",
+      "exhaustedTitle": "你的免费额度已用完",
+      "exhaustedDescription": "Free 套餐包含一次性额度，永不重置。升级到 Go 即可继续使用 Stella。",
+      "exhaustedCta": "升级到 Go"
     },
     "upgradeDialog": {
       "title": "你正在使用 Stella {plan}。",
       "description": "感谢升级。更高优先级和更多用量现已生效 — 继续吧。",
       "cta": "开始使用"
+    },
+    "renewal": {
+      "nextLabel": "下次续订",
+      "pendingLabel": "已申请取消",
+      "renews": "{date} 续订",
+      "accessEnds": "{date} 结束使用",
+      "lapseTitle": "套餐到期后 Stella 将停止服务",
+      "lapseDescription": "你的 {plan} 套餐可用到 {date}。之后 Stella 将停止服务 — Free 套餐的额度只发放一次，你的已经用完了。"
     }
   },
   "chat": {

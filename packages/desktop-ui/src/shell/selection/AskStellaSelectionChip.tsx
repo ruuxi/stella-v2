@@ -20,6 +20,7 @@ import { Check, Copy } from "@/ui/icons";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { dispatchComposeText } from "@/shared/lib/stella-orb-chat";
 import "./ask-stella-selection-chip.css";
+import { StellaMark } from "@/ui/stella-mark";
 
 const PILL_HEIGHT = 28;
 const PILL_OFFSET = 8;
@@ -350,12 +351,7 @@ export function AskStellaSelectionChip() {
         onClick={handleClick}
         title="Ask Stella about this selection"
       >
-        <img
-          src="stella-logo.png"
-          alt=""
-          aria-hidden="true"
-          className="floating-selection-chip__logo ask-stella-selection-chip__logo"
-        />
+        <StellaMark className="floating-selection-chip__logo ask-stella-selection-chip__logo" />
         <span className="floating-selection-chip__label ask-stella-selection-chip__label">
           Ask Stella
         </span>

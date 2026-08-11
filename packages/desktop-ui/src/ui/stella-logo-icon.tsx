@@ -1,28 +1,22 @@
-import type { ImgHTMLAttributes } from "react";
+import { StellaMark, type StellaMarkProps } from "@/ui/stella-mark";
 
-type StellaLogoIconProps = Omit<
-  ImgHTMLAttributes<HTMLImageElement>,
-  "src" | "width" | "height"
-> & {
-  size?: number;
-};
+type StellaLogoIconProps = StellaMarkProps;
 
+/**
+ * Historic name for the brand mark, kept so existing call sites don't churn.
+ * Prefer importing {@link StellaMark} directly in new code.
+ */
 export function StellaLogoIcon({
   size = 16,
   style,
-  alt = "",
   ...props
 }: StellaLogoIconProps) {
   return (
-    <img
-      src="stella-logo.png"
-      alt={alt}
-      width={size}
-      height={size}
+    <StellaMark
+      size={size}
       style={{
         display: "inline-block",
         flex: "0 0 auto",
-        objectFit: "contain",
         verticalAlign: "middle",
         ...style,
       }}

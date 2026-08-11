@@ -24,6 +24,7 @@ import { ChevronLeft, MessageSquare } from "@/ui/icons";
 import { AddonShareCard } from "@/features/store/AddonShareCard";
 import { SocialInviteCard } from "./SocialInviteCard";
 import { parseSocialInviteLink } from "./invite-links";
+import { StellaMark } from "@/ui/stella-mark";
 
 type SocialChatPaneProps = {
   roomId: string;
@@ -281,7 +282,7 @@ export function SocialChatPane({
             <div className="social-message-sender">
               {isStella ? (
                 <span className="social-message-sender-avatar social-message-sender-avatar--stella">
-                  <img src="stella-logo.png" alt="" />
+                  <StellaMark />
                 </span>
               ) : (
                 <Avatar
@@ -510,11 +511,7 @@ export function SocialChatPane({
             disabled={isStartingSession}
             title={t("app.social.chat.startStellaTitle")}
           >
-            <img
-              src="stella-logo.png"
-              alt=""
-              className="social-stella-pill-logo"
-            />
+            <StellaMark className="social-stella-pill-logo" />
             <span>
               {isStartingSession
                 ? t("app.social.chat.starting")
@@ -527,11 +524,7 @@ export function SocialChatPane({
       {activeSession && (
         <div className="social-session-bar" data-state={activeSession.status}>
           <div className="social-session-bar-info">
-            <img
-              src="stella-logo.png"
-              alt=""
-              className="social-session-header-logo"
-            />
+            <StellaMark className="social-session-header-logo" />
             <span
               className="social-session-badge"
               data-status={activeSession.status}
@@ -652,11 +645,7 @@ export function SocialChatPane({
                 : t("app.social.chat.armedOnTitle")
             }
           >
-            <img
-              src="stella-logo.png"
-              alt=""
-              className="social-stella-arm-button-logo"
-            />
+            <StellaMark className="social-stella-arm-button-logo" />
             <span>
               {stellaArmed
                 ? t("app.social.chat.tellingStella")

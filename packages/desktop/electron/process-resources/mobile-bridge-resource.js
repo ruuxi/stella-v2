@@ -18,6 +18,7 @@ export const createMobileBridgeResource = (options) => {
             getAuthToken: options.getAuthToken,
             getConvexSiteUrl: options.getConvexSiteUrl,
             getDeviceId: options.getDeviceId,
+            getCloudflaredBinDir: options.getCloudflaredBinDir,
             onTunnelUrl: (url, readiness) => {
                 bridge?.setTunnelUrl(url, readiness);
             },

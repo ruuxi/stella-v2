@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import fs from "fs";
-import { bin, install } from "cloudflared";
+import path from "path";
+import { bin as bundledBin, install } from "cloudflared";
 import { stopChildProcessTree } from "../../process-runtime.js";
 import { probeBridgePublicHealth } from "./public-health.js";
 
@@ -29,6 +30,14 @@ export class CloudflareTunnelService {
       getAuthToken: () => Promise<string | null>;
       getConvexSiteUrl: () => string | null;
       getDeviceId: () => string | null;
+      /**
+       * Writable directory the cloudflared binary is installed into. Required
+       * in the packaged app: the `cloudflared` package resolves its default
+       * binary path relative to its own bundled location, which lands inside
+       * the read-only `app.asar`, so neither the existence check nor the
+       * download can ever succeed there.
+       */
+      getCloudflaredBinDir?: () => string | null;
       onTunnelUrl: (
         url: string | null,
         readiness?: TunnelPublicReadiness,
@@ -54,17 +63,14 @@ export class CloudflareTunnelService {
     try {
       const { tunnelToken, hostname } = await this.fetchTunnelToken();
 
-      if (!fs.existsSync(bin)) {
-        console.log("[cloudflare-tunnel] Installing cloudflared binary...");
-        await install(bin);
-      }
+      const cloudflaredBin = await this.ensureCloudflaredBinary();
 
       console.log(
         `[cloudflare-tunnel] Starting tunnel to localhost:${this.bridgePort}`,
       );
 
       this.process = spawn(
-        bin,
+        cloudflaredBin,
         [
           "tunnel",
           "run",
@@ -133,6 +139,47 @@ export class CloudflareTunnelService {
     }
     this.tunnelUrl = null;
     this.options.onTunnelUrl(null);
+  }
+
+  /**
+   * Resolve the cloudflared executable, downloading it on first use.
+   *
+   * The `cloudflared` package's default `bin` is computed from its own module
+   * location. Once bundled into `main.js` that resolves to
+   * `<app>/dist-electron/bin/cloudflared`, which in a packaged build lives
+   * inside `app.asar` — a read-only archive with no `bin` directory. So the
+   * default path can neither be found nor written, and every packaged desktop
+   * fails here before the tunnel ever starts. Installing into an app-data
+   * directory keeps the binary writable and lets it survive app updates.
+   */
+  private async ensureCloudflaredBinary(): Promise<string> {
+    const binDir = this.options.getCloudflaredBinDir?.()?.trim();
+    if (!binDir) {
+      // No writable location configured — fall back to the package default so
+      // unpackaged/dev runs keep working exactly as before.
+      if (!fs.existsSync(bundledBin)) {
+        console.log("[cloudflare-tunnel] Installing cloudflared binary...");
+        await install(bundledBin);
+      }
+      return bundledBin;
+    }
+
+    const target = path.join(
+      binDir,
+      process.platform === "win32" ? "cloudflared.exe" : "cloudflared",
+    );
+    if (fs.existsSync(target)) {
+      return target;
+    }
+
+    // `install` writes straight to the target path and does not create parents.
+    fs.mkdirSync(binDir, { recursive: true });
+    console.log(`[cloudflare-tunnel] Installing cloudflared to ${target}...`);
+    await install(target);
+    if (process.platform !== "win32") {
+      fs.chmodSync(target, 0o755);
+    }
+    return target;
   }
 
   /**

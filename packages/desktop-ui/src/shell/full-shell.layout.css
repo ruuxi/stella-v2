@@ -744,8 +744,13 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
     calc(-50% + var(--stella-shift-y))
   );
   z-index: 4;
-  width: min(420px, 34vw);
-  height: clamp(92px, 16vh, 160px);
+  /* Square, and sized to the creature's 420px canvas: the orb fills a round
+   * footprint, so a landscape box would leave the click target reaching well
+   * past the wisp on either side. The canvas itself is a fixed pixel size
+   * centered in here — these dimensions set the hit area and the transition,
+   * never the rendered size. */
+  width: 420px;
+  height: 420px;
   cursor: default;
   pointer-events: auto;
   -webkit-app-region: no-drag;
@@ -767,8 +772,8 @@ body[data-display-expanding="true"] .shell-topbar-tablist {
 .onboarding-stella-animation[data-split="true"] {
   --stella-shift-x: clamp(-350px, -25vw, 0px);
   --stella-shift-y: min(10vh, 95px);
-  width: min(190px, 17vw);
-  height: clamp(64px, 10vh, 104px);
+  width: 260px;
+  height: 260px;
   opacity: 0;
   pointer-events: none;
 }

@@ -16,7 +16,7 @@
 import React, { useEffect, useState } from "react";
 import { OnboardingStep1 } from "@/global/onboarding/OnboardingStep1";
 import { StellaAnimation } from "@/shell/aurora/StellaAnimation";
-import { disposeIdleAuroraRenderers } from "@/shell/aurora/renderer-pool";
+import { disposeIdleAuroraRenderersFor } from "@/shell/aurora/renderer-pool";
 import { LegalDialog } from "@/global/legal/LegalDialog";
 import { CREATURE_INITIAL_SIZE } from "@/global/onboarding/use-onboarding-overlay";
 import { shouldUseLowPowerEffects } from "@/shared/lib/device-perf";
@@ -75,6 +75,25 @@ function LegalFooter({
     </>
   );
 }
+/**
+ * The creature's geometry, shared between the mount and the retire effect
+ * below (both must resolve to the same pooled-renderer key).
+ *
+ * `star` — the star from the Stella mark, made of aurora, turning slowly at a
+ * constant rate. The staged turn — crawl, whip, landing — belongs to the chat
+ * working indicator instead: there it reads as effort, which is the whole point
+ * of it and means nothing on a welcome screen. Width and height are in aurora
+ * cells (5x7px at EDGE_SCALE
+ * 2.5), picked so the canvas lands on a square 420x420: the star's arms are laid
+ * out on a circular axis, so a square canvas is what keeps it from shearing.
+ */
+const CREATURE_AURORA = {
+  variant: "star",
+  width: 33.6,
+  height: 24,
+  maxDpr: 1,
+};
+
 export function OnboardingView({
   hasExpanded,
   onboardingDone,
@@ -98,19 +117,23 @@ export function OnboardingView({
   stellaAnimationHidden = false,
 }) {
   const [activeLegalDoc, setActiveLegalDoc] = useState(null);
-  // The creature is the app's only `waves` surface and it appears exactly
-  // once per install, so the renderer it hands back on unmount has no second
-  // customer — left pooled, its 875x682 GL context stays resident for the
-  // rest of the process. Note this deliberately does NOT run when the
-  // creature alone remounts (the split transition changes `maxFps`, which
-  // re-acquires): only the whole flow going away retires the variant.
+  // The creature appears exactly once per install, so the renderer it hands
+  // back on unmount has no second customer — left pooled, its 420x420 GL
+  // context stays resident for the rest of the process. Retired by geometry
+  // rather than by variant so this stays correct however the creature is
+  // skinned: the working indicator's pre-warmed context is a different size
+  // and is never touched.
+  //
+  // Note this deliberately does NOT run when the creature alone remounts (the
+  // split transition changes `maxFps`, which re-acquires): only the whole flow
+  // going away retires the surface.
   //
   // Deferred a macrotask because React's ordering between this cleanup and
   // StellaAnimation's `releaseAuroraRenderer` is not something to depend on;
   // by the next task the entry is certainly back in the idle pool.
   useEffect(
     () => () => {
-      setTimeout(() => disposeIdleAuroraRenderers({ variant: "waves" }), 0);
+      setTimeout(() => disposeIdleAuroraRenderersFor(CREATURE_AURORA), 0);
     },
     [],
   );
@@ -168,10 +191,7 @@ export function OnboardingView({
       >
         <StellaAnimation
           ref={stellaAnimationRef}
-          variant="waves"
-          width={70}
-          height={39}
-          maxDpr={1}
+          {...CREATURE_AURORA}
           maxFps={splitMode || lowPowerCreature ? 30 : 60}
           requireWindowFocus
           initialBirthProgress={

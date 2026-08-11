@@ -273,14 +273,20 @@ export const WorkingIndicator = memo(function WorkingIndicator({
               collapsable={false}
             >
               <StellaAnimation
-                variant="orb"
+                variant="star"
                 width={WORKING_INDICATOR_GRID}
                 height={WORKING_INDICATOR_GRID}
                 displayWidth={WORKING_INDICATOR_DISPLAY_PT}
                 displayHeight={WORKING_INDICATOR_DISPLAY_PT}
-                frameSkip={2}
-                // The orb's motion was tuned at the desktop indicator's rate.
-                timeScale={2.2}
+                /* 30fps at an unscaled clock, matching desktop, and both halves
+                   of that are load bearing. The star's motion blur smears each
+                   arm across 1/30s worth of shader time, so this is the pairing
+                   at which the smear covers exactly the ground the arms cover
+                   between frames; scaling the clock or dropping the rate leaves
+                   the whip's fastest pass under-smeared, which at this size
+                   shows up as strobing rather than as blur. The turn itself is
+                   staged in the shader (see starTurn), not here. */
+                frameSkip={1}
                 paused={!active}
               />
             </View>
@@ -323,10 +329,11 @@ const makeStyles = (colors: Colors) =>
       paddingRight: 18,
       paddingTop: INDICATOR_PAD_TOP,
     },
-    // No circular crop: the orb's silhouette is carved by its own noise field,
-    // and clipping it to a circle turns the aurora into a filled disc (the
-    // same mistake desktop's `.indicator-stella` removed). The shader's frame
-    // fade keeps the wisp's fringes soft at the canvas bounds instead.
+    // No circular crop: the star's points reach further than its body, so a
+    // circle sized to hold them clips nothing and a circle sized to the body
+    // takes the points off (the same mistake desktop's `.indicator-stella`
+    // removed). The shader's frame fade keeps the fringes soft at the canvas
+    // bounds instead.
     // Centered so the viewport's slack sits evenly on all four sides.
     viewport: {
       alignItems: "center",

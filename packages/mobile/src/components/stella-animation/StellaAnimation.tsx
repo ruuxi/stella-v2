@@ -27,6 +27,8 @@ import { initRenderer, type StellaRenderer } from "./renderer";
 import { initAuroraRenderer } from "./aurora-renderer";
 
 const TIME_RATE = 0.96;
+/** One display frame at 60Hz — the unit `frameSkip` counts in. */
+const FRAME_PERIOD_MS = 1000 / 60;
 const NOISE_FLOOR_FAST_RATE = 0.1;
 const NOISE_FLOOR_SLOW_RATE = 0.005;
 const NOISE_FLOOR_SPEECH_RATIO = 3;
@@ -48,10 +50,11 @@ export type VoiceMode = "idle" | "listening" | "speaking";
 
 /**
  * `"creature"` — the ascii/glyph creature.
- * `"orb"` — the aurora nebula orb, matching the desktop working indicator
- * (`desktop-ui/src/shell/aurora`, variant `"orb"`).
+ * `"star"` — the star from the brand mark, made of aurora and spun like a top,
+ * matching the desktop working indicator (`desktop-ui/src/shell/aurora`,
+ * variant `"star-spin"`).
  */
-export type StellaVariant = "creature" | "orb";
+export type StellaVariant = "creature" | "star";
 
 export interface StellaAnimationProps {
   /** Character-grid width — matches desktop `StellaAnimation` `width`. */
@@ -67,11 +70,17 @@ export interface StellaAnimationProps {
   displayWidth?: number;
   /** GLView layout height in pt. */
   displayHeight?: number;
-  /** Skip frames between draws (desktop indicator uses 2). */
+  /**
+   * Frames skipped between draws, counted in 60Hz display frames — 0 draws at
+   * 60fps, 1 at 30, 2 at 20. It sets the timer's period rather than filtering
+   * its callbacks, so a skipped frame costs no JS wake-up either.
+   */
   frameSkip?: number;
   /**
-   * Multiplier on shader time. The orb wants 2.2 to match the desktop working
-   * indicator's churn rate — its motion was tuned at that speed.
+   * Multiplier on shader time. The star wants 1 — its turn is staged inside the
+   * shader against an unscaled clock, and its motion blur is sized to one frame
+   * of that clock (see `starTurn` / `sweep` in the shader). Scaling time here
+   * desynchronises the smear from the ground the arms actually cover.
    */
   timeScale?: number;
   initialBirthProgress?: number;
@@ -100,7 +109,7 @@ const colorsToFloat = (c: Colors): Float32Array =>
   ]);
 
 /**
- * The orb's five aurora ramp stops. Desktop seeds these from the theme's
+ * The star's five aurora ramp stops. Desktop seeds these from the theme's
  * `interactive` + `accent`; the mobile `Colors` shape carries those same two
  * seeds as `accentHover` (= `Src.interactive`) and `decorative`
  * (= `Src.accent`) — see the `map()` in theme/themes.ts.
@@ -138,7 +147,7 @@ export const StellaAnimation = React.forwardRef<
   const { isDark } = useTheme();
   const shaderColors = useMemo(
     () =>
-      variant === "orb"
+      variant === "star"
         ? colorsToAurora(colors, isDark)
         : colorsToFloat(colors),
     [colors, isDark, variant],
@@ -164,12 +173,10 @@ export const StellaAnimation = React.forwardRef<
   );
 
   const rendererRef = useRef<StellaRenderer | null>(null);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickFnRef = useRef<(() => void) | null>(null);
   const pausedRef = useRef(paused);
-  const frameSkipRef = useRef(frameSkip);
   const timeRef = useRef(0);
   const lastFrameMsRef = useRef(0);
-  const frameCountRef = useRef(0);
   const birthRef = useRef(initialBirthProgress);
   const flashRef = useRef(0);
   const listeningRef = useRef(0);
@@ -189,10 +196,6 @@ export const StellaAnimation = React.forwardRef<
   const flashAnimRef = useRef<{ startMs: number; duration: number } | null>(
     null,
   );
-
-  useEffect(() => {
-    frameSkipRef.current = frameSkip;
-  }, [frameSkip]);
 
   useEffect(() => {
     voiceModeRef.current = voiceMode;
@@ -258,8 +261,8 @@ export const StellaAnimation = React.forwardRef<
   const onContextCreate = useCallback(
     (gl: ExpoWebGLRenderingContext) => {
       const buildRenderer = (): StellaRenderer | null => {
-        if (variantRef.current === "orb") {
-          // The orb is a plain screen-space quad — no glyph atlas or grid.
+        if (variantRef.current === "star") {
+          // The star is a plain screen-space quad — no glyph atlas or grid.
           return initAuroraRenderer(
             gl,
             shaderColorsRef.current,
@@ -288,7 +291,6 @@ export const StellaAnimation = React.forwardRef<
       const renderer = buildRenderer();
       if (!renderer) return;
       rendererRef.current = renderer;
-      frameCountRef.current = 0;
 
       renderer.render(
         timeRef.current,
@@ -303,11 +305,6 @@ export const StellaAnimation = React.forwardRef<
       const tick = () => {
         if (pausedRef.current) {
           lastFrameMsRef.current = 0;
-          return;
-        }
-
-        const skip = frameSkipRef.current;
-        if (skip > 0 && ++frameCountRef.current % (skip + 1) !== 0) {
           return;
         }
 
@@ -421,23 +418,30 @@ export const StellaAnimation = React.forwardRef<
         );
       };
 
-      // Use setInterval rather than rAF: on React Native, rAF is coalesced
-      // into the JS scheduler and goes idle if no React commits are queued,
-      // which freezes expo-gl after the first frame even when JS is free.
-      if (tickRef.current !== null) {
-        clearInterval(tickRef.current);
-      }
-      tickRef.current = setInterval(tick, 16);
+      tickFnRef.current = tick;
     },
     [shaderGridW, shaderGridH],
   );
 
+  // Use setInterval rather than rAF: on React Native, rAF is coalesced into the
+  // JS scheduler and goes idle if no React commits are queued, which freezes
+  // expo-gl after the first frame even when JS is free.
+  //
+  // The timer runs at the frame rate rather than at 60Hz with the extras thrown
+  // away: waking JS sixty times a second to skip two of every three wake-ups is
+  // pure battery on a phone, and there is nothing for the discarded ticks to do.
+  // A paused surface gets no timer at all — it used to keep waking to find out
+  // that it was still paused.
+  useEffect(() => {
+    if (paused) return;
+    const periodMs = Math.round(FRAME_PERIOD_MS * (Math.max(0, frameSkip) + 1));
+    const id = setInterval(() => tickFnRef.current?.(), periodMs);
+    return () => clearInterval(id);
+  }, [frameSkip, paused]);
+
   useEffect(() => {
     return () => {
-      if (tickRef.current !== null) {
-        clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
+      tickFnRef.current = null;
       const renderer = rendererRef.current;
       rendererRef.current = null;
       if (renderer) {
@@ -457,7 +461,19 @@ export const StellaAnimation = React.forwardRef<
 
   return (
     <View style={containerStyle} pointerEvents="none" collapsable={false}>
-      <GLView style={styles.gl} onContextCreate={onContextCreate} />
+      {/* Both surfaces here draw one quad covering the whole view, so there is
+          no polygon edge for multisampling to find: every sample in a pixel is
+          covered, the fragment shader runs once, and the resolve averages four
+          identical samples. iOS turns 4x MSAA on by default, which buys a
+          multisampled colour buffer and a resolve pass per frame for exactly
+          nothing — desktop measured the same trade at 0.49ms against 0.016ms
+          for byte-identical output. Every edge you can see in these shaders is
+          drawn by a smoothstep instead, which MSAA could never have helped. */}
+      <GLView
+        style={styles.gl}
+        msaaSamples={0}
+        onContextCreate={onContextCreate}
+      />
     </View>
   );
 });

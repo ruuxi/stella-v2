@@ -1,4 +1,4 @@
-import { app, dialog, globalShortcut } from "electron";
+import { app, autoUpdater, dialog, globalShortcut } from "electron";
 import { writeFileSync } from "node:fs";
 import { applyDockIcon } from "../app-icon.js";
 import { configurePackagedRuntimeEnvironment } from "../bundled-runtime-environment.js";
@@ -53,6 +53,13 @@ export const registerBootstrapLifecycle = (context) => {
     });
     app.on("activate", () => {
         context.state.windowManager?.onActivate();
+    });
+    // Electron's update restart closes every BrowserWindow before emitting the
+    // normal app `before-quit` event. Mark the process as quitting at the
+    // updater-specific boundary so auxiliary windows do not cancel that close
+    // sequence and strand the downloaded update in a hidden, still-live app.
+    autoUpdater.on("before-quit-for-update", () => {
+        context.state.isQuitting = true;
     });
     app
         .whenReady()

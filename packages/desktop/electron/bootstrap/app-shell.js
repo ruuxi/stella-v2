@@ -64,6 +64,7 @@ const initializeWindowShell = (context) => {
         electronDir: config.electronDir,
         isDev: config.useDevServer,
         getDevServerUrl,
+        isQuitting: () => state.isQuitting,
     });
     state.petController = new PetWindowController({
         preloadPath,
@@ -71,6 +72,7 @@ const initializeWindowShell = (context) => {
         electronDir: config.electronDir,
         isDev: config.useDevServer,
         getDevServerUrl,
+        isQuitting: () => state.isQuitting,
     });
     lifecycle.setWindowManager(new WindowManager({
         electronDir: config.electronDir,

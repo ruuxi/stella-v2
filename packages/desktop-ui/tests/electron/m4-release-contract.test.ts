@@ -65,4 +65,27 @@ describe("M4 desktop release contracts", () => {
       "Update downloaded",
     );
   });
+
+  it("allows macOS update restarts to close auxiliary windows", () => {
+    const lifecycle = read(
+      "packages/desktop/electron/bootstrap/lifecycle.js",
+    );
+    expect(lifecycle).toContain(
+      'autoUpdater.on("before-quit-for-update"',
+    );
+    expect(lifecycle).toContain("context.state.isQuitting = true");
+
+    const appShell = read(
+      "packages/desktop/electron/bootstrap/app-shell.js",
+    );
+    expect(appShell.match(/isQuitting: \(\) => state\.isQuitting/g)).toHaveLength(
+      3,
+    );
+
+    for (const auxiliaryWindow of ["overlay-window.js", "pet-window.js"]) {
+      expect(
+        read(`packages/desktop/electron/windows/${auxiliaryWindow}`),
+      ).toContain("if (this.options.isQuitting?.())");
+    }
+  });
 });

@@ -30,6 +30,24 @@ export const devicesSchema = {
     .index("by_ownerId", ["ownerId"])
     .index("by_online_and_lastSignedAtMs", ["online", "lastSignedAtMs"]),
 
+  // Maps a retired desktop device id to the identity that replaced it.
+  //
+  // A desktop mints a new `deviceId` whenever its local keypair stops being
+  // readable (the backend binds `deviceId -> devicePublicKey` permanently, so a
+  // key change can only ever surface as a new identity). Without a successor
+  // record every paired phone is stranded on the retired id: it keeps polling a
+  // device that will never register a bridge again, so the desktop reads as
+  // permanently offline and only re-pairing recovers it. Phones resolve through
+  // this table and adopt the current id.
+  device_identity_successors: defineTable({
+    ownerId: v.string(),
+    previousDeviceId: v.string(),
+    deviceId: v.string(),
+    rotatedAt: v.number(),
+  })
+    .index("by_ownerId_and_previousDeviceId", ["ownerId", "previousDeviceId"])
+    .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"]),
+
   anon_device_usage: defineTable({
     deviceId: v.string(),
     /** The anonymous trial allowance. This count is what gates access. */

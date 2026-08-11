@@ -7,6 +7,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { isAnonymousIdentity, requireSensitiveUserIdentity } from "./auth";
+import { resolveCurrentDeviceId } from "./device_identity";
 import { constantTimeEqual, hashSha256Hex } from "./lib/crypto_utils";
 import { requireBoundedString } from "./shared_validators";
 
@@ -438,10 +439,20 @@ export const getRegistrationForOwnerDevice = internalQuery({
   },
   returns: v.union(v.null(), bridgeRegistrationValidator),
   handler: async (ctx: QueryCtx, args) => {
+    // A phone pins the desktop id it paired with, but that id is retired
+    // whenever the desktop's keypair rotates. Resolve through succession so a
+    // phone holding a retired id still finds the live bridge (and learns the
+    // current id from the `deviceId` we return) instead of reading the desktop
+    // as permanently offline.
+    const deviceId = await resolveCurrentDeviceId(
+      ctx,
+      args.ownerId,
+      args.deviceId,
+    );
     const registration = await ctx.db
       .query("mobile_bridge_registrations")
       .withIndex("by_ownerId_and_deviceId", (q) =>
-        q.eq("ownerId", args.ownerId).eq("deviceId", args.deviceId),
+        q.eq("ownerId", args.ownerId).eq("deviceId", deviceId),
       )
       .unique();
     if (!registration) {

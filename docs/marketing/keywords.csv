@@ -1,20 +1,15 @@
 campaign,ad_group,keyword,match_type
-US | Search | Competitor | OpenCode,OpenCode,"opencode",exact
-US | Search | Competitor | OpenCode,OpenCode,"opencode ai",exact
-US | Search | Competitor | OpenCode,OpenCode,"opencode go",exact
-US | Search | Competitor | OpenCode,OpenCode,"opencode pricing",exact
-US | Search | Competitor | OpenCode,OpenCode,"opencode coding agent",exact
-US | Search | Competitor | OpenCode,OpenCode,"opencode alternative",phrase
-US | Search | Competitor | OpenCode,OpenCode,"alternatives to opencode",phrase
-US | Search | Coding Agent,Coding Agent,"ai coding agent",exact
-US | Search | Coding Agent,Coding Agent,"ai agent for coding",phrase
-US | Search | Coding Agent,Coding Agent,"coding agent",phrase
-US | Search | Coding Agent,Coding Agent,"open source coding agent",exact
-US | Search | Coding Agent,Coding Agent,"open source ai coding agent",phrase
-US | Search | Coding Agent,Coding Agent,"desktop coding agent",exact
-US | Search | Coding Agent,Coding Agent,"coding assistant for desktop",phrase
-US | Search | Coding Agent,Coding Agent,"claude code alternative",phrase
-US | Search | Coding Agent,Coding Agent,"cursor alternative",phrase
+US | Search | Competitor | Claude Cowork,Claude Cowork,"claude cowork",exact
+US | Search | Competitor | Claude Cowork,Claude Cowork,"claude cowork pricing",exact
+US | Search | Competitor | Claude Cowork,Claude Cowork,"claude cowork alternative",exact
+US | Search | Competitor | Claude Cowork,Claude Cowork,"claude cowork app",exact
+US | Search | Competitor | Claude Cowork,Claude Cowork,"claude cowork desktop",exact
+US | Search | Competitor | Claude Cowork,Claude Cowork,"claude cowork for windows",exact
+US | Search | Competitor | Claude Cowork,Claude Cowork,"claude cowork for mac",exact
+US | Search | Competitor | Claude Cowork,Claude Cowork,"alternative to claude cowork",phrase
+US | Search | Competitor | Claude Cowork,Claude Cowork,"ai coworker for computer",phrase
+US | Search | Competitor | Claude Cowork,Claude Cowork,"ai coworker for work",phrase
+US | Search | Competitor | Claude Cowork,Claude Cowork,"desktop ai coworker",phrase
 US | Search | Personal Work,Personal Work,"personal ai assistant",exact
 US | Search | Personal Work,Personal Work,"ai personal assistant",phrase
 US | Search | Personal Work,Personal Work,"ai assistant for computer",phrase

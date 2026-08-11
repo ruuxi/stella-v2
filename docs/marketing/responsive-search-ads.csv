@@ -1,97 +1,81 @@
 campaign,ad_group,final_url,asset_type,text,position
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Meet Stella Personal AI,1
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Stella Personal AI,
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,One Agent. More Than Code
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Coding Is Just the Start
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Your Personal AI Agent
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Start Free With Stella
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,$1 First Month
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Open Source. Local First.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Browser Files Apps and Code
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Work Across Your Computer
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,Bring Your Own AI Models
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,headline,AI Agent for Mac & Windows
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,description,Code. Research. Create files. Use your browser. One personal AI assistant.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,description,Start free. Managed AI is $1 for your first month and then $5 per month.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,description,Open source and local first. Bring your own model or use Stella's managed service.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa1,description,From codebases to spreadsheets Stella works across your computer while you keep moving.
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Meet Stella Personal AI,1
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Stella Personal AI,
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,AI Coding Agent $1 First Month
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Open-Source Coding Agent
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Code With Any AI Model
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Build and Debug With Stella
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Your Coding Agent and More
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Use Your Own AI Models
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Local-First AI for Coding
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,AI Agent for Mac & Windows
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Start Free With Stella
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,headline,Coding Is Just the Start
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,description,Read repos. Edit code. Run commands. Keep background work moving.
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,description,Start free or use managed AI for $1 the first month and then $5 per month.
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,description,Open source and local first. Bring supported provider keys and choose your models.
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa1,description,One desktop agent for code and research plus browser work and documents.
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,Meet Stella Personal AI,1
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,Your AI Coworker,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,AI Coworker for Your PC,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,One Agent for Real Work,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,Research Docs and Browser,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,Work Across Files and Apps,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,AI That Uses Your Computer,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,Local-First Personal AI,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,Start Free With Stella,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,$5 First Month,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,Open Source. Local First.,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,headline,Mac and Windows AI Agent,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,description,"Delegate research, documents, browser tasks and desktop work to one capable AI agent.",
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,description,Start free with your own models or use Stella managed AI for $5 the first month.,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,description,"Open source for Mac and Windows, with chats and work stored on your computer.",
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa1,description,Turn requests into finished files and actions across the tools you already use.,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,AI Coworker for Your Computer,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Personal AI That Takes Action,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Delegate Work to Stella,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Research Write and Build Files,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Use Your Browser and Apps,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Work Across Your Computer,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,One Assistant. More Done.,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Your Work Stays Local,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Bring Your Own AI Models,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Start Free With Stella,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,$5 First Month,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,headline,Stella for Mac and Windows,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,description,"A serious desktop AI assistant for research, documents, browser tasks, files and apps.",
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,description,Start free or use Stella managed AI for $5 the first month. No coding required.,
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,description,"Local-first and open source, with one focused chat for every project.",
+US | Search | Competitor | Claude Cowork,Claude Cowork,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content=rsa2,description,Ask for an outcome and let Stella work across the tools on your computer.,
 US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Meet Stella Personal AI,1
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Stella Personal AI,
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Your Personal AI Agent
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,AI for Your Whole Computer
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,One Agent for All Your Work
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Research Write and Build Files
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Make Docs Sheets and Slides
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Use Your Browser and Apps
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Start Free With Stella
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,$1 First Month
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Open Source. Local First.
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,AI Agent for Mac & Windows
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,description,Research. Create documents. Use your browser. Finish work across your computer.
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,description,Start free. Managed AI is $1 for your first month and then $5 per month.
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,description,Open source and local first. Chats files and app state remain on your device.
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,description,One personal assistant for coding and knowledge work plus browser tasks and apps.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Meet Stella Personal AI,1
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Stella Personal AI,
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Looking Beyond Coding?
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,An AI Agent for Real Work
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Stella Works Across Your PC
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Code Research and Create
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Personal Agent $1 First Month
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Open-Source AI Assistant
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Local First. Fully Capable.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Use Your Browser Files Apps
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,Download Stella Today
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,headline,One Assistant. More Done.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,description,Go beyond code with one agent for research documents browser tasks files and desktop apps.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,description,Try Stella free or start managed AI for $1 the first month and $5 per month after.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,description,Use supported provider keys or Stella managed AI in one open-source desktop app.
-US | Search | Competitor | OpenCode,OpenCode,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content=rsa2,description,Keep separate chats for each project while background work continues.
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Meet Stella Personal AI,1
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Stella Personal AI,
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Your Open-Source AI Agent
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,From Code to Finished Work
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Work Across Repos and Apps
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Run Commands and Fix Bugs
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Research While Agents Work
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Use Stella With Your Models
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Start Stella Free
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,$1 Managed AI First Month
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Local-First Desktop Agent
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,headline,Download for Mac or Windows
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,description,Work across repositories and commands plus research documents browsers files and apps.
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,description,Use supported provider keys for free or start managed AI for $1 the first month.
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,description,Keep a focused chat for every project and let background agents handle separate work.
-US | Search | Coding Agent,Coding Agent,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content=rsa2,description,Open source and local first. Download Stella for Mac or Windows today.
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Your Personal AI Agent,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,AI for Your Whole Computer,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,One Agent for All Your Work,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Research Write and Build Files,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Make Docs Sheets and Slides,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Use Your Browser and Apps,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Start Free With Stella,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,$5 First Month,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Open Source. Local First.,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,AI Agent for Mac and Windows,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,headline,Bring Your Own AI Models,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,description,"Research, create documents, use your browser and finish work across your computer.",
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,description,Start free or use Stella managed AI for $5 the first month and then $10 per month.,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,description,"Open source and local first, with chats, files and app state stored on your device.",
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa1,description,One personal assistant for knowledge work plus browser tasks and computer use.,
 US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Meet Stella Personal AI,1
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Stella Personal AI,
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,AI Assistant That Takes Action
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Work Across Browser and Apps
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Turn Research Into Files
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Create Docs Sheets and Slides
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,One Assistant. Separate Chats.
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Your Work Stays Local
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Bring Your Own AI Models
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Start Free With Stella
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,$1 First Month
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Open-Source Personal AI
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,description,Ask Stella to research create files use your browser and work across desktop apps.
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,description,Start free or use managed AI for $1 the first month and then $5 per month.
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,description,Your normal chats files and app state stay on your device in a local-first desktop app.
-US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,description,One assistant for knowledge work coding browser tasks documents and computer use.
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,AI Assistant That Takes Action,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Work Across Browser and Apps,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Turn Research Into Files,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Create Docs Sheets and Slides,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,One Assistant. Separate Chats.,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Your Work Stays Local,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Bring Your Own AI Models,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Start Free With Stella,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,$5 First Month,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,Open-Source Personal AI,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,headline,AI Coworker for Your Computer,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,description,"Ask Stella to research, create files, use your browser and work across desktop apps.",
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,description,Start free or use Stella managed AI for $5 the first month and then $10 per month.,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,description,Your chats and work stay on your device in a local-first desktop app.,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa2,description,One assistant for knowledge work plus browser tasks and computer use.,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Personal AI Assistant,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,AI Assistant for Your Computer,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,AI Agent for Everyday Work,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Research Write and Create,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Use Your Browser and Apps,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Turn Requests Into Work,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Your Local-First AI Agent,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Work Across Your Computer,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Start Free With Stella,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,$5 First Month,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Stella for Mac and Windows,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,headline,Open Source Personal AI,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,description,"A personal AI assistant for research, documents, browser tasks, files and apps.",
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,description,Start free or use Stella managed AI for $5 the first month and then $10 per month.,
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,description,"Local-first and open source, with your chats and work stored on your computer.",
+US | Search | Personal Work,Personal Work,https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content=rsa3,description,Ask for an outcome and let Stella work across the tools you already use.,

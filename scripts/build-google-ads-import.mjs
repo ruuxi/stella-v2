@@ -54,16 +54,10 @@ function csvCell(value) {
 
 const campaigns = [
   {
-    name: "US | Search | Competitor | OpenCode",
-    adGroup: "OpenCode",
+    name: "US | Search | Competitor | Claude Cowork",
+    adGroup: "Claude Cowork",
     dailyBudget: "41.12",
-    path1: "personal-ai",
-  },
-  {
-    name: "US | Search | Coding Agent",
-    adGroup: "Coding Agent",
-    dailyBudget: "65.79",
-    path1: "coding-agent",
+    path1: "ai-coworker",
   },
   {
     name: "US | Search | Personal Work",
@@ -167,8 +161,8 @@ const approvedDailyBudget = campaigns.reduce(
   (sum, campaign) => sum + Number(campaign.dailyBudget),
   0,
 );
-if (approvedDailyBudget !== 164.47) {
-  throw new Error(`Daily budgets total ${approvedDailyBudget}, expected 164.47.`);
+if (approvedDailyBudget !== 98.68) {
+  throw new Error(`Daily budgets total ${approvedDailyBudget}, expected 98.68.`);
 }
 
 for (const campaign of campaigns) {
@@ -189,7 +183,7 @@ for (const campaign of campaigns) {
   add({
     Campaign: campaign.name,
     "Ad Group": campaign.adGroup,
-    "Ad Group Status": "Paused",
+    "Ad Group Status": "Enabled",
     "Max CPC": "2.50",
   });
   addBulk({
@@ -211,7 +205,7 @@ for (const campaign of campaigns) {
   addBulk({
     "Row Type": "Ad group",
     Action: "Add",
-    "Ad group status": "Paused",
+    "Ad group status": "Enabled",
     Campaign: campaign.name,
     "Ad group": campaign.adGroup,
     "Ad group type": "Standard",
@@ -225,12 +219,12 @@ for (const keyword of keywords) {
     "Ad Group": keyword.ad_group,
     Keyword: keyword.keyword,
     Type: keyword.match_type,
-    Status: "Paused",
+    Status: "Enabled",
   });
   addBulk({
     "Row Type": "Keyword",
     Action: "Add",
-    "Keyword status": "Paused",
+    "Keyword status": "Enabled",
     Campaign: keyword.campaign,
     "Ad group": keyword.ad_group,
     Keyword: keyword.keyword,
@@ -257,7 +251,7 @@ for (const campaign of campaigns) {
     addBulk({
       "Row Type": "Negative keyword",
       Action: "Add",
-      "Keyword status": "Paused",
+      "Keyword status": "Enabled",
       Level: "Campaign",
       Campaign: campaign.name,
       "Negative keyword": negative.keyword,
@@ -305,7 +299,7 @@ for (const ad of ads.values()) {
   add({
     Campaign: ad.campaign,
     "Ad Group": ad.adGroup,
-    Status: "Paused",
+    Status: "Enabled",
     "Ad type": "Responsive search ad",
     ...Object.fromEntries(
       ad.headlines.flatMap((headline, index) => [
@@ -326,7 +320,7 @@ for (const ad of ads.values()) {
   addBulk({
     "Row Type": "Ad",
     Action: "Add",
-    "Ad status": "Paused",
+    "Ad status": "Enabled",
     Campaign: ad.campaign,
     "Ad group": ad.adGroup,
     "Ad type": "Responsive search ad",
@@ -349,9 +343,11 @@ for (const ad of ads.values()) {
 }
 
 const sitelinks = [
-  ["Pricing", "https://stella.sh/pricing", "Start free with Stella", "Go is $1 the first month"],
+  ["Pricing", "https://stella.sh/pricing", "Start free with Stella", "Go is $5 the first month"],
   ["How Stella Works", "https://stella.sh/learn-more", "See what Stella can do", "Browser, files, apps and more"],
-  ["Coding and Agents", "https://stella.sh/go#work", "Build, debug and research", "Keep background work moving"],
+  ["AI Agents", "https://stella.sh/agents", "Delegate complete tasks", "Keep background work moving"],
+  ["Voice", "https://stella.sh/voice", "Talk and dictate naturally", "Private on-device dictation"],
+  ["Private and Local", "https://stella.sh/storage", "Your work stays on device", "Local-first by design"],
   ["Open Source", "https://github.com/ruuxi/stella-v2", "Read Stella's source", "Local-first desktop assistant"],
 ];
 for (const [text, url, description1, description2] of sitelinks) {
@@ -370,7 +366,7 @@ for (const [text, url, description1, description2] of sitelinks) {
 
 for (const callout of [
   "Start Free",
-  "$1 First Month",
+  "$5 First Month",
   "Open Source",
   "Local First",
   "Bring Your Own Models",
@@ -404,6 +400,45 @@ const bulkOutput = [
 ].join("\n");
 
 writeFileSync(resolve(marketingDir, "google-ads-bulk-import.csv"), `${bulkOutput}\n`);
+
+const transitionNegativeKeywords = new Set([
+  "buzz block",
+  "opencode",
+  "claude code",
+  "coding agent",
+  "cursor",
+  "coworking space",
+  "coworking spaces",
+  "coworking office",
+  "office rental",
+  "shared office",
+  "desk rental",
+  "near me",
+  "wework",
+]);
+const transitionRows = bulkRows.filter((row) => {
+  if (row.Campaign === "US | Search | Competitor | Claude Cowork") {
+    return true;
+  }
+  if (row.Campaign !== "US | Search | Personal Work") {
+    return false;
+  }
+  return (
+    (row["Row Type"] === "Ad" && row["Final URL"]?.includes("utm_content=rsa3")) ||
+    (row["Row Type"] === "Negative keyword" &&
+      transitionNegativeKeywords.has(row["Negative keyword"]))
+  );
+});
+const transitionOutput = [
+  bulkHeaders.join(","),
+  ...transitionRows.map((row) =>
+    bulkHeaders.map((header) => csvCell(row[header])).join(","),
+  ),
+].join("\n");
+writeFileSync(
+  resolve(marketingDir, "google-ads-transition-claude-cowork.csv"),
+  `${transitionOutput}\n`,
+);
 console.log(
-  `Wrote ${rows.length} Google Ads Editor rows and ${bulkRows.length} Google Ads bulk-upload rows.`,
+  `Wrote ${rows.length} Google Ads Editor rows, ${bulkRows.length} full bulk-upload rows, and ${transitionRows.length} transition rows.`,
 );

@@ -1,118 +1,124 @@
 # Stella Google Search launch pack
 
-Prepared August 5, 2026 and updated August 6, 2026. This is the source of truth
-for the first paid-search test. The approved ceiling is $5,000 per month.
+Prepared August 5, 2026 and updated August 11, 2026. This is the source of
+truth for the current paid-search test. The approved ceiling remains $5,000 per
+month, but only $98.68/day is active while the new positioning is validated.
 
 ## Positioning
 
-OpenCode's current copy is deliberately narrow and concrete:
+Stella is a personal AI assistant and AI coworker that works across the user's
+computer: browser, files, documents, research, voice, and desktop apps. Coding
+is a supported use case, not the primary category.
 
-- "The open source AI coding agent."
-- "Low cost coding models for everyone."
-- "$5 first month, then $10/month."
-- "Use with any agent."
+The competitive intent is Claude Cowork. The message should be premium and
+capable, with affordability as supporting evidence rather than the identity of
+the product:
 
-The pattern is strong: category, price, audience, then proof. Stella should keep
-that clarity and lead with its wider job boundary rather than relying only on
-the lower recurring price:
+> Delegate real work to a personal AI that lives on your computer.
 
-> One agent for more than code.
+The introductory offer is $5 for the first month. Avoid words such as "cheap,"
+"budget," or "beginner." Do not imply affiliation with Anthropic or use the
+Claude trademark in visible ad copy. Competitor names may be used as search
+keywords where Google Ads policy permits.
 
-Stella is the personal assistant, knowledge-work agent, and coding agent in one
-local-first desktop app. It can work across code, research, documents, browser,
-files, and desktop apps. The offer is:
+OpenCode is no longer a strategic competitor. Coding-agent demand should not
+receive a dedicated budget unless later search-term evidence supports it.
 
-- Start free with supported bring-your-own-model options.
-- Stella managed AI is $1 for the first month, then $5/month.
-- Open source, local first, Mac and Windows.
+## Active structure
 
-Do not make comparative-price claims without rechecking the competitor's live
-offer. Do not imply affiliation with OpenCode, Cursor, Claude, or any other
-competitor.
+Search only. Search Partners and Display expansion remain off so search terms
+and spend are interpretable.
 
-## Launch structure
+### Campaign 1: `US | Search | Competitor | Claude Cowork`
 
-Start with Search only. Disable Display expansion and Search Partners for the
-first test so search terms remain interpretable.
+- Goal: reach people actively evaluating Claude Cowork or searching for an AI
+  coworker for personal and knowledge work.
+- Landing page: `https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_claude_cowork&utm_content={creative}`
+- Keywords: exact Claude Cowork terms plus tightly scoped phrase-match AI
+  coworker terms; see `keywords.csv`.
+- Visible copy: sell Stella as a personal AI coworker without using Claude in
+  ad text.
+- Budget: $41.12/day.
 
-### Campaign 1: `US | Search | Competitor | OpenCode`
+### Campaign 2: `US | Search | Personal Work`
 
-- Goal: capture people already evaluating OpenCode or OpenCode Go.
-- Landing page: `https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_opencode&utm_content={creative}`
-- Keywords: exact and phrase only; see `keywords.csv`.
-- Visible copy: never use the OpenCode name. Sell "more than code."
-
-### Campaign 2: `US | Search | Coding Agent`
-
-- Goal: compete for category demand without depending on competitor volume.
-- Landing page: `https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_coding&utm_content={creative}`
-- Keywords: exact and phrase only at launch.
-
-### Campaign 3: `US | Search | Personal Work`
-
-- Goal: reach the larger non-developer market Stella can serve.
+- Goal: reach broader non-developer demand for an AI assistant that can act on
+  a computer rather than only answer questions.
 - Landing page: `https://stella.sh/go?utm_source=google&utm_medium=cpc&utm_campaign=search_work&utm_content={creative}`
-- Keep these intents in one Personal Work ad group for the low-budget pilot.
-  Split them only after search-term volume justifies separate copy and budgets.
+- Keep tightly related personal-work intents in one ad group during the pilot.
+  Split only after search-term and conversion volume justify separate copy.
+- Budget: $57.56/day.
 
-## Initial controls
+### Paused historical campaigns
 
-- Location: United States, presence only (people in the location), English.
-- Devices: desktop first. Exclude or sharply reduce mobile until cross-device
-  install attribution exists.
-- Ages: 18+ for the first test.
+- `US | Search | Coding Agent` — paused; coding is no longer the lead category.
+- `US | Search | Competitor | OpenCode` — paused; preserve for history only.
+
+## Controls
+
+- Location: United States, presence only.
+- Language: English.
+- Devices: desktop only; mobile and tablet bid adjustments are `-100%`.
 - Networks: Google Search on; Search Partners and Display off.
-- Match types: exact and phrase. Do not enable broad match on a new account.
-- Bidding: Maximize Clicks with a maximum CPC cap until reliable conversions
-  exist. Suggested starting cap: $2.50; raise only if impression share is near
-  zero on high-intent exact terms.
-- Approved portfolio budget: $164.47/day, which is approximately $5,000 per
-  Google Ads' 30.4-day budgeting month. Allocate $41.12/day to competitor,
-  $65.79/day to coding, and $57.56/day to personal work.
-- Schedule: all day initially. Review by hour after enough data exists.
+- Match types: exact and phrase; broad match off.
+- Bidding: Maximize Clicks with a $2.50 maximum CPC.
+- Active budget: $98.68/day, approximately $3,000 per Google Ads' 30.4-day
+  budgeting month.
+- AI Max, final URL expansion, text customization, and automatically created
+  assets are off.
+- Schedule: all day initially; review by hour after enough conversion data.
 
 ## Conversion plan
 
-The website currently has no Google tag or Google Ads conversion event. Do not
-optimize toward "conversions" until these events are implemented and verified:
+Google Ads conversion action `Download Stella` is configured as the
+account-default Outbound click goal. It is a primary action, counts one
+conversion per ad interaction, uses a 30-day click-through window, and does not
+use enhanced conversions.
 
-1. `download_stella` — click on the platform download button. Initial primary.
-2. `first_successful_task` — the installed app completes a first useful turn.
-   This should become the primary product conversion once attribution can cross
-   from web to app.
-3. `start_paid_plan` — completed paid subscription, with the real transaction
-   value. Primary revenue conversion.
+The website implementation uses Google tag `AW-18375048850` and conversion
+destination `AW-18375048850/CrdSCMj5-d8cEJL987lE`. The tag loads only for a
+Google Ads referral (`gclid`, `gbraid`, or `wbraid`) or during its retained
+30-day attribution window. A download button click sends the conversion event
+before redirecting to the installer, with a timeout fallback so tracking can
+never block the download.
 
-Until product activation attribution exists, judge campaigns on cost per
-download, not raw clicks. Preserve `gclid`, `wbraid`, `gbraid`, and UTM values
-on the landing site and carry attribution into browser-based sign-in when
-possible.
+The conversion action will remain misconfigured/inactive in Google Ads until
+the website change is deployed and an attributed download is observed. Do not
+switch bidding to Maximize Conversions before the tag is verified and enough
+conversion volume exists.
 
-Adding Google advertising tags also requires updating the public privacy notice
-and deciding on consent behavior before production deployment. Stella's current
-policy says it does not use user data for targeted advertising; do not silently
-ship a remarketing setup that contradicts that promise.
+Future product events:
+
+1. `first_successful_task` — the installed app completes a first useful task.
+2. `start_paid_plan` — a completed paid subscription with transaction value.
+
+Once cross-device product attribution exists, optimize toward activated users
+or paid plans rather than raw downloads.
 
 ## Responsive search ads
 
-Use the assets in `responsive-search-ads.csv`. Every headline is at most 30
-characters and every description is at most 90 characters. Pin
-`Meet Stella Personal AI` to headline position 1 so every rendered ad names the
-software while the free desktop software certification is under review.
+Use the assets in `responsive-search-ads.csv`. The Claude Cowork campaign has
+two unbranded-to-competitor responsive ads, while Personal Work retains its
+current ads and adds one unpinned variant for combination learning. Every
+headline is at most 30 characters and every description is at most 90.
 
-Recommended sitelinks:
+The offer should be expressed as `$5 first month`; avoid cheap-product framing.
+
+Recommended account-level sitelinks:
 
 | Sitelink | URL | Description 1 | Description 2 |
 | --- | --- | --- | --- |
-| Pricing | `/pricing` | Start free with Stella | Go is $1 the first month |
+| Pricing | `/pricing` | Start free with Stella | Go is $5 the first month |
 | How Stella Works | `/learn-more` | See what Stella can do | Browser, files, apps and more |
-| Coding and Agents | `/go#work` | Build, debug and research | Keep background work moving |
+| AI Agents | `/agents` | Delegate complete tasks | Keep background work moving |
+| Voice | `/voice` | Talk and dictate naturally | Private on-device dictation |
+| Private and Local | `/storage` | Your work stays on device | Local-first by design |
 | Open Source | `https://github.com/ruuxi/stella-v2` | Read Stella's source | Local-first desktop assistant |
 
 Callouts:
 
 - Start Free
-- $1 First Month
+- $5 First Month
 - Open Source
 - Local First
 - Bring Your Own Models
@@ -122,71 +128,66 @@ Callouts:
 
 Structured snippet, `Features`:
 
-- Coding
 - Computer Use
 - Research
 - Documents
 - Browser Automation
 - Voice
+- Coding
 
 ## Negative-keyword discipline
 
-Apply `negative-keywords.csv` at the account or campaign level. Check the Search
-terms report every day for the first week. Add irrelevant terms immediately,
-but do not negate high-intent comparison terms such as "alternative," "vs," or
-"pricing."
+Apply `negative-keywords.csv` at the account or campaign level. The Personal
+Work campaign also excludes old coding-competitor demand and coworking-office
+intent. Check the Search terms report daily during the first week and add
+irrelevant terms immediately. Do not negate high-intent comparison terms such
+as `alternative`, `vs`, or `pricing`.
 
 ## Decision rules
 
-- Pause any keyword after 20 clicks with no download unless its search terms are
+- Pause a keyword after 20 clicks with no download unless its search terms are
   unusually high intent and the landing page is the more likely problem.
-- Pause any search term that is informational, employment-related, educational,
-  pirated, or unrelated to desktop AI.
-- Do not judge a responsive-search-ad asset from a handful of impressions.
-- Once paid-plan attribution works, set a target CAC from gross margin and
-  retention—not from the $1 intro payment.
-- Expand to Canada, the United Kingdom, and Australia as separate campaigns
-  only after the US test produces a stable cost per activated user.
+- Pause informational, employment, education, pirated, physical-office, and
+  unrelated search terms immediately.
+- Do not judge an RSA asset from a handful of impressions.
+- Keep Maximize Clicks until download measurement is live and statistically
+  useful; then test conversion bidding deliberately.
+- Once paid-plan attribution works, set target CAC from gross margin and
+  retention, not from the introductory payment.
+- Expand to Canada, the United Kingdom, and Australia only after the US test
+  produces a stable cost per activated user.
 
 ## Google Ads account status
 
 - Stella account: `439-929-3264` under `lolruuxi@gmail.com`.
-- Billing country: United States; time zone: Phoenix; currency: USD.
-- The new-advertiser offer is selected: spend $500 by October 5, 2026 to receive
-  $500 in Ads credit, subject to Google's terms.
-- Billing is active with a primary payment method.
-- Advertiser verification is complete under `FromYou, LLC`; the public payer is
-  `FromYou LLC`, and the disclosure location is the United States.
-- The 129-row web bulk import applied successfully. All three Search campaigns
-  are paused as of August 6, 2026, after $9.85 in total spend. The three ad
-  groups, 27 keywords, and six responsive search ads remain configured.
-- All six responsive search ads now pin `Meet Stella Personal AI` to headline
-  position 1. The free desktop software certification form is prepared with the
-  Stella and FromYou, LLC details but still requires the publisher's legal
-  attestations and submission.
-- The portfolio budget is $164.47/day (approximately $5,000/month), with a
-  $2.50 max CPC, Google Search only, United States presence-only targeting, and
-  mobile and tablet traffic excluded.
-- Account-level sitelinks, callouts, and a structured snippet are attached and
-  under review. A stray imported call asset was removed.
-- `Joyi 564-160-0625` was deliberately not reused because it contains $1,362.91
-  in historical spend and has its own failed payment state.
+- Billing: United States, Phoenix time zone, USD; advertiser verification is
+  complete under FromYou, LLC.
+- `US | Search | Personal Work` is active at $57.56/day.
+- `US | Search | Competitor | Claude Cowork` is active at $41.12/day and is in
+  learning.
+- Coding Agent and OpenCode are paused.
+- The transition upload applied 72 of 72 spreadsheet rows successfully.
+- The new campaign uses Google Search only, United States presence-only,
+  desktop-only traffic, exact/phrase match, and Maximize Clicks.
+- The six active account sitelinks cover Pricing, How Stella Works, AI Agents,
+  Voice, Private and Local, and Open Source. The older Coding and Agents asset
+  is paused.
+- Image and logo assets have not been uploaded. Generated concepts require
+  approval before account changes.
+- Download conversion tracking exists in Google Ads and is staged locally on
+  the website, but is not deployed.
 
-Run `bun run build-google-ads-import` to regenerate both the Google Ads Editor
-file and the web bulk-upload file. The account-level assets are intentionally
-managed in the Google Ads UI rather than duplicated by the web uploader.
+Run `bun run build-google-ads-import` to regenerate the Google Ads Editor file,
+the full web bulk-upload file, and the narrow Claude Cowork transition file.
+Account-level assets are managed in the Google Ads UI.
 
 ## Sources reviewed
 
-- OpenCode homepage: https://opencode.ai/
-- OpenCode Go: https://opencode.ai/go
-- Google responsive search ads:
-  https://support.google.com/google-ads/answer/7684791
-- Google keyword matching:
-  https://support.google.com/google-ads/answer/14996023
-- Google negative keywords:
-  https://support.google.com/google-ads/answer/2453972
-- Google tag conversion tracking:
-  https://support.google.com/google-ads/answer/7548399
-- Google Maximize Clicks:
-  https://support.google.com/google-ads/answer/6268626
+- Claude pricing: https://claude.com/pricing
+- Claude Cowork computer use: https://support.claude.com/en/articles/14128542-let-claude-use-your-computer-in-cowork
+- Google trademark policy: https://support.google.com/adspolicy/answer/6118
+- Google responsive search ads: https://support.google.com/google-ads/answer/7684791
+- Google keyword matching: https://support.google.com/google-ads/answer/14996023
+- Google negative keywords: https://support.google.com/google-ads/answer/2453972
+- Google tag conversion tracking: https://support.google.com/google-ads/answer/7548399
+- Google Maximize Clicks: https://support.google.com/google-ads/answer/6268626

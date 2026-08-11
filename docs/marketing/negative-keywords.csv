@@ -29,3 +29,16 @@ login,broad,Existing-user navigation
 sign in,phrase,Existing-user navigation
 api documentation,phrase,Developer API intent
 api docs,phrase,Developer API intent
+buzz block,phrase,Irrelevant search term observed in launch data
+opencode,broad,Retired competitor focus
+claude code,phrase,Retired coding-agent focus
+coding agent,phrase,Retired coding-agent focus
+cursor,broad,Retired coding-agent focus
+coworking space,phrase,Physical office-space intent
+coworking spaces,phrase,Physical office-space intent
+coworking office,phrase,Physical office-space intent
+office rental,phrase,Physical office-space intent
+shared office,phrase,Physical office-space intent
+desk rental,phrase,Physical office-space intent
+near me,phrase,Local office-space intent
+wework,broad,Physical office-space brand intent

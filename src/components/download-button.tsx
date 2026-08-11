@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { reportGoogleAdsDownload } from "@/components/google-ads-tag";
 
 function AppleIcon({ size = 18 }: { size?: number }) {
   return (
@@ -106,7 +107,7 @@ export function DownloadButton() {
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
-    window.location.href = DOWNLOADS[resolvedPlatform];
+    reportGoogleAdsDownload(DOWNLOADS[resolvedPlatform]);
   }
 
   const isMac = resolvedPlatform !== "windows";

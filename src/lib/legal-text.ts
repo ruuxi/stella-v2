@@ -6,6 +6,7 @@ export const LEGAL_TITLES: Record<LegalDocument, string> = {
 };
 
 export const LEGAL_LAST_UPDATED = "August 5, 2026";
+export const PRIVACY_LAST_UPDATED = "August 11, 2026";
 
 export const TERMS_OF_SERVICE = `Stella — FromYou LLC
 Last updated: ${LEGAL_LAST_UPDATED}
@@ -177,7 +178,7 @@ Newark, DE 19713
 Email: contact@fromyou.ai`;
 
 export const PRIVACY_POLICY = `Stella — FromYou LLC
-Last updated: ${LEGAL_LAST_UPDATED}
+Last updated: ${PRIVACY_LAST_UPDATED}
 
 This Privacy Policy describes how FromYou LLC ("FromYou," "we," "us," or "our") handles information when you use Stella, including the desktop application, mobile companion app, backend services, and related websites or APIs (collectively, the "Service").
 
@@ -278,17 +279,24 @@ When your desktop registers with our backend (for mobile bridge or connector fun
 If you use Stella without an account, we track: an anonymous device identifier (for rate limiting) and request count and timestamps (for enforcing fair-use limits). This data is not linked to any personal identity.
 
 
-10. Social Features
+10. Website Advertising Measurement
+
+If you arrive at the Stella website through a Google Ads click, we use the Google tag to measure whether that advertising visit leads to a Stella download. For those advertising referrals, Google may receive the ad click identifier (such as GCLID, GBRAID, or WBRAID), page and device information ordinarily sent by your browser, and a download conversion event. We retain a first-party attribution flag in your browser for up to 30 days so a later download can be associated with the advertising visit. The tag is not loaded for visitors who did not arrive through a Google Ads referral.
+
+We use this information only for aggregate advertising measurement and campaign optimization. We do not use enhanced conversions, do not send customer-provided data such as email addresses to Google for this purpose, and do not use this measurement for remarketing or targeted advertising. Google processes this information under its own privacy policy and data-processing terms. You can prevent or clear this measurement by blocking advertising cookies or clearing this site's local storage and cookies.
+
+
+11. Social Features
 
 If you use Stella's social features (friend system, chat rooms, collaborative sessions), the following is stored on our backend: social profile (username), friend relationships, chat room membership and messages, and collaborative session metadata and file operations. Social features are opt-in and require a signed-in account.
 
 
-11. Third-Party Services
+12. Third-Party Services
 
-Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, messaging platforms (Slack, Discord, Telegram, etc.) when using connector integrations, and Convex for backend infrastructure. When using BYOK (your own API keys), AI requests go directly from your device to the provider — our servers are not involved.
+Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, Anthropic, OpenAI, and Google) when processing AI requests, Google Ads when measuring advertising-referred downloads, Stripe when subscribing to a paid plan, fal.ai when using media generation features, messaging platforms (Slack, Discord, Telegram, etc.) when using connector integrations, and Convex for backend infrastructure. When using BYOK (your own API keys), AI requests go directly from your device to the provider — our servers are not involved.
 
 
-12. Data Retention
+13. Data Retention
 
 • Local device data — until you delete it; we have no access to it
 • Account information — until you delete your account
@@ -296,15 +304,16 @@ Stella integrates with third-party services. When your data reaches these servic
 • Usage metadata — rolling windows (5-hour, weekly, monthly); aggregates retained for billing reconciliation
 • Transient connector events — automatically deleted after a short TTL (minutes to hours)
 • Anonymous device usage — retained for rate-limiting purposes; periodically pruned
+• Google Ads attribution flag — stored in your browser for up to 30 days
 • Social data — until you delete your account or the relevant content
 
 
-13. Data Security
+14. Data Security
 
 We implement reasonable security measures to protect data that does reach our infrastructure: encryption in transit (all communication uses TLS/HTTPS), secret encryption (user-provided secrets stored on our backend are encrypted using AES-256-GCM with a versioned master key system), local encryption (API keys stored on your device are encrypted locally), device identity (devices authenticate using Ed25519 cryptographic keypairs), rate limiting (multi-layer rate limiting protects against abuse), and provider redaction (AI responses are scrubbed of upstream provider details before being returned to you).
 
 
-14. Your Rights and Choices
+15. Your Rights and Choices
 
 Access and Control — Because Stella stores data locally, you have direct access to and control over your data at all times. You can view, export, or delete your local data by accessing Stella's data directory, use the in-app reset function to clear all local data, revoke connected integrations at any time, and delete your account, which removes your account information, billing profile, social data, and published mods from our backend.
 
@@ -315,37 +324,37 @@ Anonymous Use — You can use Stella's core features without creating an account
 BYOK — You can provide your own AI provider API keys to avoid routing prompts through our infrastructure entirely.
 
 
-15. Children's Privacy
+16. Children's Privacy
 
 Stella is not directed to children under 13 years of age. We do not knowingly collect personal information from children under 13. If you believe we have inadvertently collected such information, please contact us and we will promptly delete it.
 
 
-16. International Users
+17. International Users
 
 Our backend infrastructure is hosted in the United States. If you access the Service from outside the United States, your information (to the extent it reaches our servers, as described in this policy) may be transferred to and processed in the United States.
 
 
-17. California Privacy Rights
+18. California Privacy Rights
 
 If you are a California resident, you may have additional rights under the California Consumer Privacy Act (CCPA). Given Stella's local-first architecture, the personal information we hold on our servers is minimal (account email, billing data, device identifiers). You may exercise your rights to know, delete, or opt out by contacting us. We do not sell your personal information. We do not use your data for targeted advertising.
 
 
-18. European Privacy Rights
+19. European Privacy Rights
 
 If you are in the European Economic Area (EEA) or United Kingdom, you may have rights under the GDPR including the right to access, rectify, erase, restrict processing, data portability, and objection. Given that the vast majority of your data is stored locally on your device and never reaches our servers, these rights primarily apply to account information and billing data. Contact us to exercise these rights. Where we do process personal data, we rely on: (a) contractual necessity; (b) legitimate interests (security, abuse prevention); and (c) your consent (optional features).
 
 
-19. Changes to This Policy
+20. Changes to This Policy
 
 We may update this Privacy Policy from time to time. We will indicate the date of the most recent revision at the top. For material changes, we will make reasonable efforts to notify you. Your continued use of the Service after changes constitutes acceptance of the updated policy.
 
 
-20. Open Source Transparency
+21. Open Source Transparency
 
 Stella's platform is open source. You can review exactly how data is handled by inspecting the source code. We believe this is the strongest form of privacy assurance — you don't have to take our word for it.
 
 
-21. Contact Us
+22. Contact Us
 
 If you have questions about this Privacy Policy or wish to exercise any of your rights, contact us at:
 

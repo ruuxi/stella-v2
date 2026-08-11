@@ -4,6 +4,7 @@ import { getSiteUrl } from "@/lib/site-url";
 import { SignInDialogHost } from "@/components/auth/sign-in-dialog-host";
 import { EmbeddedInitScript } from "@/components/embedded/embedded-init-script";
 import { EmbeddedThemeBridge } from "@/components/embedded/embedded-theme-bridge";
+import { GoogleAdsTag } from "@/components/google-ads-tag";
 import { PerfInitScript } from "@/components/perf-init-script";
 import { RevealOnScroll } from "@/components/reveal-on-scroll";
 import "./globals.css";
@@ -163,6 +164,7 @@ export default function RootLayout({
         <PerfInitScript />
       </head>
       <body className={`${sans.variable} ${display.variable} ${mono.variable}`}>
+        <GoogleAdsTag />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

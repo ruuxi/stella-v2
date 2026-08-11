@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Gunakan default Stella",
-      "description": "Menghapus kustomisasi prompt dan skill Anda agar default bawaan Stella berlaku. Yang dihapus disimpan di ~/.stella/.trash jika Anda ingin mengembalikannya.",
+      "description": "Menghapus kustomisasi skill dan pengeditan kepribadian Anda agar default bawaan Stella berlaku. Yang dihapus disimpan di ~/.stella/.trash jika Anda ingin mengembalikannya.",
       "action": "Pulihkan default",
       "done": "Default dipulihkan. Kustomisasi Anda sebelumnya dipindahkan ke ~/.stella/.trash.",
       "none": "Anda sudah menggunakan default Stella.",

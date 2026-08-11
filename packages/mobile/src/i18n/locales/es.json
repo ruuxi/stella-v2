@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Usar los valores predeterminados de Stella",
-      "description": "Elimina tus personalizaciones de prompts y habilidades para que se apliquen los valores predeterminados de Stella. Lo eliminado se guarda en ~/.stella/.trash por si quieres recuperarlo.",
+      "description": "Elimina tus personalizaciones de habilidades y ediciones de personalidad para que se apliquen los valores predeterminados de Stella. Lo eliminado se guarda en ~/.stella/.trash por si quieres recuperarlo.",
       "action": "Restaurar valores predeterminados",
       "done": "Valores predeterminados restaurados. Tus personalizaciones anteriores se movieron a ~/.stella/.trash.",
       "none": "Ya estás usando los valores predeterminados de Stella.",

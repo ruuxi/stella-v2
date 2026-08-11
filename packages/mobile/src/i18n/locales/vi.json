@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Dùng mặc định của Stella",
-      "description": "Xóa các tùy chỉnh prompt và kỹ năng của bạn để áp dụng thiết lập mặc định của Stella. Những gì bị xóa được giữ trong ~/.stella/.trash phòng khi bạn muốn lấy lại.",
+      "description": "Xóa các tùy chỉnh kỹ năng và chỉnh sửa tính cách của bạn để áp dụng thiết lập mặc định của Stella. Những gì bị xóa được giữ trong ~/.stella/.trash phòng khi bạn muốn lấy lại.",
       "action": "Khôi phục mặc định",
       "done": "Đã khôi phục mặc định. Các tùy chỉnh trước đây của bạn đã được chuyển vào ~/.stella/.trash.",
       "none": "Bạn đang dùng mặc định của Stella rồi.",

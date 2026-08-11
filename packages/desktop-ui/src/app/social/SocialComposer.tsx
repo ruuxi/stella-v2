@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { ArrowUp } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
+import { StellaMark } from "@/ui/stella-mark";
 
 type SocialComposerProps = {
   onSend: (body: string) => void;
@@ -40,11 +41,7 @@ export function SocialComposer({
       <div className="social-composer-input-wrap" data-armed={armed || undefined}>
         {armed && (
           <span className="social-composer-stella-chip">
-            <img
-              src="stella-logo.png"
-              alt=""
-              className="social-composer-stella-chip-logo"
-            />
+            <StellaMark className="social-composer-stella-chip-logo" />
             Stella
           </span>
         )}

@@ -666,7 +666,7 @@
   overflow: hidden;
 }
 
-.social-message-sender-avatar--stella > img {
+.social-message-sender-avatar--stella > svg {
   width: 18px;
   height: 18px;
   object-fit: cover;

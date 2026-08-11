@@ -1,6 +1,7 @@
 "use client";
 
 import { toPng } from "html-to-image";
+import { StellaMark } from "@/components/stella-mark";
 import {
   useCallback,
   useEffect,
@@ -92,7 +93,7 @@ const SC_H = (1990 / MK_H) * 100;
 const SC_RX = (126 / 918) * 100;
 const SC_RY = (126 / 1990) * 100;
 
-const IMAGE_PATHS = ["/mockup.png", "/app-icon.png", "/splash-icon.png", "/stella-logo.png"] as const;
+const IMAGE_PATHS = ["/mockup.png", "/app-icon.png", "/splash-icon.png"] as const;
 const imageCache: Record<string, string> = {};
 
 /** Marketing chrome outside the device frame (badges, floating cards, pills). */
@@ -1464,17 +1465,14 @@ function HeroSlide({ canvas, device, theme }: SlideRenderContext) {
         linear-gradient(180deg, ${theme.bg} 0%, ${theme.bgAlt} 60%, ${theme.bgDeep} 100%)`}
     >
       {/* Large Stella logo — top left, bleeds off edge */}
-      <img
-        src={img("/stella-logo.png")}
-        alt=""
-        draggable={false}
+      <StellaMark
+        color={theme.text}
         style={{
           position: "absolute",
           left: canvas.w * -0.1,
           top: canvas.h * -0.02,
           width: logoSize,
           height: logoSize,
-          objectFit: "contain",
           opacity: 0.6,
         }}
       />

@@ -1,14 +1,9 @@
 import { useMemo } from "react";
-import { Image, PixelRatio, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { type Colors } from "../theme/colors";
-import { useColors } from "../theme/theme-context";
+import { useTheme } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
-
-/** Rasterized from the canonical Stella brand master (same mark as desktop/launcher). */
-const STELLA_LOGO =
-  PixelRatio.get() >= 3
-    ? require("../../assets/stella-logo-84.png")
-    : require("../../assets/stella-logo-56.png");
+import { StellaMark } from "./StellaMark";
 
 type Props = {
   /** Drop the sidebar header padding for use in tight spots (e.g. the top bar). */
@@ -16,17 +11,12 @@ type Props = {
 };
 
 export function StellaBrandMark({ compact = false }: Props) {
-  const colors = useColors();
+  const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
     <View style={compact ? styles.rootCompact : styles.root}>
-      <Image
-        source={STELLA_LOGO}
-        style={compact ? styles.logoCompact : styles.logo}
-        resizeMode="contain"
-        accessibilityIgnoresInvertColors
-      />
+      <StellaMark size={compact ? 26 : 28} color={colors.text} />
       <Text style={compact ? styles.wordmarkCompact : styles.wordmark}>
         Stella
       </Text>
@@ -47,16 +37,6 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       flexDirection: "row",
       gap: 4,
-    },
-    logo: {
-      height: 28,
-      opacity: 1,
-      width: 28,
-    },
-    logoCompact: {
-      height: 26,
-      opacity: 1,
-      width: 26,
     },
     wordmark: {
       color: colors.text,

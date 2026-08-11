@@ -14,6 +14,20 @@ import { UserAppProjectService } from "@stella/runtime/worker/user-apps/project-
 
 const roots: string[] = [];
 
+/**
+ * On macOS `fs.watch` is backed by FSEvents, which does not deliver changes
+ * made in the window between the watcher being created and the stream actually
+ * running. A single write straight after `start()` can land in that window and
+ * be dropped outright — so the notification never arrives and no amount of
+ * waiting helps. That, not slowness, was this test's flakiness: it failed on
+ * roughly three runs in four under a loaded parallel suite.
+ *
+ * Re-writing until the change is observed removes the race without hiding a
+ * real regression: a watcher that never emits still exhausts the deadline.
+ */
+const CHANGE_NOTIFICATION_TIMEOUT_MS = 10_000;
+const CHANGE_NOTIFICATION_RETRY_MS = 250;
+
 const makeWorkspace = async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "stella-user-apps-"));
   roots.push(root);
@@ -343,26 +357,39 @@ describe("UserAppProjectService", () => {
       onChanged: resolveChanged,
     });
     await service.start();
-    await writeFile(
-      path.join(projectPath, "stella.app.json"),
-      JSON.stringify({
-        schemaVersion: 1,
-        slug: "watched-app",
-        name: "Updated name",
-        createdAt: "2026-08-05T00:00:00.000Z",
-      }),
-    );
-    await expect(
-      Promise.race([
-        changed,
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("change notification timed out")),
-            2_000,
+
+    const editManifest = (name: string) =>
+      writeFile(
+        path.join(projectPath, "stella.app.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          slug: "watched-app",
+          name,
+          createdAt: "2026-08-05T00:00:00.000Z",
+        }),
+      );
+
+    let edits = 0;
+    const retry = setInterval(() => {
+      void editManifest(`Updated name ${(edits += 1)}`).catch(() => undefined);
+    }, CHANGE_NOTIFICATION_RETRY_MS);
+    void editManifest("Updated name").catch(() => undefined);
+
+    try {
+      await expect(
+        Promise.race([
+          changed,
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("change notification timed out")),
+              CHANGE_NOTIFICATION_TIMEOUT_MS,
+            ),
           ),
-        ),
-      ]),
-    ).resolves.toBeUndefined();
+        ]),
+      ).resolves.toBeUndefined();
+    } finally {
+      clearInterval(retry);
+    }
     await service.shutdown();
-  });
+  }, CHANGE_NOTIFICATION_TIMEOUT_MS + 5_000);
 });

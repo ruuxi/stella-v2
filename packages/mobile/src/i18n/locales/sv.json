@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Använd Stellas standardinställningar",
-      "description": "Tar bort dina anpassningar av promptar och färdigheter så att Stellas standarder gäller. Det som tas bort sparas i ~/.stella/.trash om du vill ha tillbaka det.",
+      "description": "Tar bort dina anpassningar av färdigheter och personlighetsändringar så att Stellas standarder gäller. Det som tas bort sparas i ~/.stella/.trash om du vill ha tillbaka det.",
       "action": "Återställ standarder",
       "done": "Standarder återställda. Dina tidigare anpassningar flyttades till ~/.stella/.trash.",
       "none": "Du använder redan Stellas standardinställningar.",

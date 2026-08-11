@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Utiliser les réglages par défaut de Stella",
-      "description": "Supprime vos personnalisations de prompts et de compétences pour appliquer les réglages par défaut de Stella. Les éléments supprimés sont conservés dans ~/.stella/.trash au cas où.",
+      "description": "Supprime vos personnalisations de compétences et modifications de personnalité pour appliquer les réglages par défaut de Stella. Les éléments supprimés sont conservés dans ~/.stella/.trash au cas où.",
       "action": "Restaurer les réglages par défaut",
       "done": "Réglages par défaut restaurés. Vos personnalisations précédentes ont été déplacées vers ~/.stella/.trash.",
       "none": "Vous utilisez déjà les réglages par défaut de Stella.",

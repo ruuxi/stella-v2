@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Użyj domyślnych ustawień Stelli",
-      "description": "Usuwa Twoje modyfikacje promptów i umiejętności, aby obowiązywały domyślne ustawienia Stelli. Usunięte elementy trafiają do ~/.stella/.trash, gdybyś chciał je odzyskać.",
+      "description": "Usuwa Twoje modyfikacje umiejętności i zmiany osobowości, aby obowiązywały domyślne ustawienia Stelli. Usunięte elementy trafiają do ~/.stella/.trash, gdybyś chciał je odzyskać.",
       "action": "Przywróć domyślne",
       "done": "Przywrócono ustawienia domyślne. Twoje wcześniejsze modyfikacje przeniesiono do ~/.stella/.trash.",
       "none": "Już korzystasz z domyślnych ustawień Stelli.",

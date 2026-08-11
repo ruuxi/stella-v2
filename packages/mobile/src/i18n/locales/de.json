@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Stellas Standardeinstellungen verwenden",
-      "description": "Entfernt deine Prompt- und Skill-Anpassungen, damit Stellas mitgelieferte Standards gelten. Entferntes wird in ~/.stella/.trash aufbewahrt, falls du es zurückmöchtest.",
+      "description": "Entfernt deine Skill-Anpassungen und Persönlichkeits-Änderungen, damit Stellas mitgelieferte Standards gelten. Entferntes wird in ~/.stella/.trash aufbewahrt, falls du es zurückmöchtest.",
       "action": "Standards wiederherstellen",
       "done": "Standards wiederhergestellt. Deine bisherigen Anpassungen wurden nach ~/.stella/.trash verschoben.",
       "none": "Du verwendest bereits Stellas Standardeinstellungen.",

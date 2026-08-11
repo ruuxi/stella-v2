@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Stella 기본값 사용",
-      "description": "프롬프트와 스킬 사용자 지정을 제거하고 Stella 기본 설정을 적용합니다. 제거된 항목은 ~/.stella/.trash에 보관되어 언제든 되찾을 수 있습니다.",
+      "description": "스킬 사용자 지정과 성격 편집을 제거하고 Stella 기본 설정을 적용합니다. 제거된 항목은 ~/.stella/.trash에 보관되어 언제든 되찾을 수 있습니다.",
       "action": "기본값 복원",
       "done": "기본값을 복원했습니다. 이전 사용자 지정은 ~/.stella/.trash로 이동되었습니다.",
       "none": "이미 Stella 기본값을 사용하고 있습니다.",

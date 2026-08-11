@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Use Stella's defaults",
-      "description": "Remove your prompt and skill customizations so Stella's shipped defaults apply. Anything removed is kept in ~/.stella/.trash in case you want it back.",
+      "description": "Remove your skill customizations and personality edits so Stella's shipped defaults apply. Anything removed is kept in ~/.stella/.trash in case you want it back.",
       "action": "Restore defaults",
       "done": "Defaults restored. Your previous customizations were moved to ~/.stella/.trash.",
       "none": "You're already using Stella's defaults.",

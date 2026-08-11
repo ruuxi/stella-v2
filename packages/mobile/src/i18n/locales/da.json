@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Brug Stellas standardindstillinger",
-      "description": "Fjerner dine tilpasninger af prompts og færdigheder, så Stellas standarder gælder. Det fjernede gemmes i ~/.stella/.trash, hvis du vil have det tilbage.",
+      "description": "Fjerner dine tilpasninger af færdigheder og personlighedsændringer, så Stellas standarder gælder. Det fjernede gemmes i ~/.stella/.trash, hvis du vil have det tilbage.",
       "action": "Gendan standarder",
       "done": "Standarder gendannet. Dine tidligere tilpasninger blev flyttet til ~/.stella/.trash.",
       "none": "Du bruger allerede Stellas standardindstillinger.",

@@ -49,6 +49,7 @@ import {
   type WorkerToNodeReplParentMessage,
 } from "./protocol.js";
 import type { ReplConnectClient } from "../connectors/connect-service.js";
+import { resolveToolFallbackCwd } from "../tools/cwd.js";
 
 const DEFAULT_EVAL_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
@@ -1535,8 +1536,8 @@ export class NodeReplKernelRegistry {
           "node_repl computer use requires a typed ComputerUseSession factory.",
         );
       }
-      const cwd = path.resolve(
-        context.toolWorkspaceRoot ?? context.stellaAppDir ?? process.cwd(),
+      const cwd = resolveToolFallbackCwd(
+        context.toolWorkspaceRoot ?? context.stellaAppDir,
       );
       const ownerLeaseIssuedAt = Math.max(
         Date.now(),

@@ -137,6 +137,35 @@ const trimToolResult = (value: string): string =>
     ? value
     : `${value.slice(0, MAX_TOOL_RESULT_CHARS)}\n...[tool result truncated]`;
 
+const awaitWithAbort = async <T>(
+  pending: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> => {
+  if (signal.aborted) {
+    throw signal.reason ?? new Error("Tool call aborted");
+  }
+  return await new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () =>
+      finish(() => reject(signal.reason ?? new Error("Tool call aborted")));
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    void pending.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error)),
+    );
+  });
+};
+
 const toolResultToMcp = async (result: ToolResult): Promise<CallToolResult> => {
   const rawResult = stringifyUnknown(result.result);
   const { text: resolvedResult, images } = await extractAttachImageBlocks(
@@ -318,11 +347,14 @@ export const createClaudeCodeToolMcpHost = async (
         // is indistinguishable from a complete one by the time it lands here.
         // Refuse it loudly so the model resends whole arguments instead of
         // silently shipping half an instruction to an agent.
-        const truncation = await turn?.checkToolUseIntegrity?.(
+        const integrityCheck = turn?.checkToolUseIntegrity?.(
           request.params.name,
           request.params.arguments ?? {},
           extra.signal,
         );
+        const truncation = integrityCheck
+          ? await awaitWithAbort(integrityCheck, extra.signal)
+          : undefined;
         if (truncation) {
           throw new McpError(
             ErrorCode.InvalidParams,
@@ -346,10 +378,13 @@ export const createClaudeCodeToolMcpHost = async (
           .update(stableJson(request.params.arguments ?? {}))
           .digest("hex");
         const nativeToolUseId =
-          request.params.name === "image_gen"
-            ? await turn?.claimNativeToolUseId?.(
-                request.params.name,
-                request.params.arguments ?? {},
+          request.params.name === "image_gen" && turn?.claimNativeToolUseId
+            ? await awaitWithAbort(
+                turn.claimNativeToolUseId(
+                  request.params.name,
+                  request.params.arguments ?? {},
+                  extra.signal,
+                ),
                 extra.signal,
               )
             : undefined;
@@ -380,7 +415,7 @@ export const createClaudeCodeToolMcpHost = async (
         };
         const previous = callLedger.get(ledgerKey);
         if (previous) {
-          const result = await previous;
+          const result = await awaitWithAbort(previous, extra.signal);
           registerDeliveryAcknowledgement();
           return result;
         }
@@ -400,7 +435,7 @@ export const createClaudeCodeToolMcpHost = async (
 
           const callAbort = new AbortController();
           activeCalls.add(callAbort);
-          const forwardAbort = () => callAbort.abort();
+          const forwardAbort = () => callAbort.abort(extra.signal.reason);
           extra.signal.addEventListener("abort", forwardAbort, { once: true });
           if (extra.signal.aborted) forwardAbort();
 
@@ -428,19 +463,25 @@ export const createClaudeCodeToolMcpHost = async (
           };
 
           try {
-            const result = await turn.executeTool(
-              toolCallId,
-              request.params.name,
-              request.params.arguments ?? {},
+            const result = await awaitWithAbort(
+              turn.executeTool(
+                toolCallId,
+                request.params.name,
+                request.params.arguments ?? {},
+                callAbort.signal,
+                onUpdate,
+              ),
               callAbort.signal,
-              onUpdate,
             );
             turn.onToolResult?.({
               toolCallId,
               toolName: request.params.name,
               result,
             });
-            return await toolResultToMcp(result);
+            return await awaitWithAbort(
+              toolResultToMcp(result),
+              callAbort.signal,
+            );
           } catch (error) {
             // A client cancellation already has its own MCP lifecycle; do not turn
             // it into a misleading model-visible tool failure.

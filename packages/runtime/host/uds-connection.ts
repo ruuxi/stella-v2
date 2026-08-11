@@ -1,10 +1,16 @@
 import { EventEmitter } from "node:events";
+import { rm } from "node:fs/promises";
 import type { Socket } from "node:net";
 import { attachJsonRpcPeerToStreams } from "@stella/contracts/protocol/jsonl";
 import {
   startOrAttachWorker,
   stopRunningWorker,
 } from "../host/lifecycle.js";
+import {
+  probeRunningWorker,
+  removeStaleRuntimeArtifacts,
+} from "../worker/lifecycle-server.js";
+import { resolveRuntimePaths } from "../worker/runtime-paths.js";
 import type { WorkerConnection } from "./worker-lifecycle.js";
 
 /**
@@ -138,4 +144,28 @@ export const killDetachedWorker = async (
   stellaAppDir: string,
 ): Promise<void> => {
   await stopRunningWorker(stellaAppDir, { graceMs: 1_500 });
+};
+
+/**
+ * Permanently retire a worker identity that will no longer be addressed.
+ * Unlike a normal restart, migration must also remove the old hash-keyed
+ * control files so an `app.asar`-keyed worker cannot be left detached after
+ * packaged builds move to their directory-valued Resources root.
+ */
+export const retireDetachedWorkerRoot = async (
+  stellaAppDir: string,
+): Promise<{ stopped: boolean; pid: number | null }> => {
+  const result = await stopRunningWorker(stellaAppDir, { graceMs: 1_500 });
+  const remainingPid = await probeRunningWorker(stellaAppDir);
+  if (remainingPid != null) {
+    throw new Error(
+      `Runtime worker ${remainingPid} did not stop while retiring ${JSON.stringify(stellaAppDir)}.`,
+    );
+  }
+  await removeStaleRuntimeArtifacts(stellaAppDir);
+  await rm(resolveRuntimePaths(stellaAppDir).rootDir, {
+    recursive: true,
+    force: true,
+  });
+  return result;
 };

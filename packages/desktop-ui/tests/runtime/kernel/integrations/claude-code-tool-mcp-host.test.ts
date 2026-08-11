@@ -331,6 +331,46 @@ describe("claude-code-tool-mcp-host", () => {
     await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true));
   });
 
+  it("settles cancellation even when tool execution ignores its abort signal", async () => {
+    let announceStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      announceStarted = resolve;
+    });
+    const host = await createClaudeCodeToolMcpHost({
+      tools,
+      getActiveTurn: () => ({
+        executeTool: async () => {
+          announceStarted();
+          return await new Promise<never>(() => undefined);
+        },
+      }),
+    });
+    hosts.add(host);
+    const client = await connect(host);
+    clients.add(client);
+    const controller = new AbortController();
+
+    const pending = client.callTool(
+      { name: "get_weather", arguments: { city: "Paris" } },
+      undefined,
+      { signal: controller.signal },
+    );
+    await started;
+    controller.abort(new Error("client canceled ignored tool"));
+
+    await expect(
+      Promise.race([
+        pending,
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("MCP cancellation did not settle")),
+            500,
+          ),
+        ),
+      ]),
+    ).rejects.not.toThrow("MCP cancellation did not settle");
+  });
+
   it("aborts calls owned by a dying Claude process without closing the host", async () => {
     let immediate = false;
     let announceStarted!: () => void;

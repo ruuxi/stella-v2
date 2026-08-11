@@ -23,6 +23,8 @@ import type {
 } from "@stella/runtime/kernel/computer-use/session";
 import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
+const TEST_WORKSPACE_ROOT = process.cwd();
+
 const context = (agentId: string): ToolContext => ({
   conversationId: "conversation-1",
   deviceId: "device-1",
@@ -30,8 +32,8 @@ const context = (agentId: string): ToolContext => ({
   runId: "run-1",
   agentId,
   agentType: "general",
-  stellaAppDir: "/workspace",
-  toolWorkspaceRoot: "/workspace/project",
+  stellaAppDir: TEST_WORKSPACE_ROOT,
+  toolWorkspaceRoot: TEST_WORKSPACE_ROOT,
   storageMode: "local",
 });
 
@@ -319,7 +321,7 @@ describe("persistent Node REPL kernels", () => {
       expect(browserOptions).toHaveLength(1);
       expect(browserOptions[0]).toMatchObject({
         binaryPath: "/runtime/stella-browser.js",
-        cwd: "/workspace/project",
+        cwd: TEST_WORKSPACE_ROOT,
         ownerLeaseId: expect.any(String),
         ownerLeaseIssuedAt: expect.any(Number),
       });
@@ -649,7 +651,7 @@ describe("persistent Node REPL kernels", () => {
         ].join("; "),
         context("agent-a"),
       );
-      expect(output).toContain("/workspace/project");
+      expect(output).toContain(TEST_WORKSPACE_ROOT);
       expect(output).toContain("true true");
       expect(output).toContain(
         `[stella-attach-image] path=${JSON.stringify("/tmp/screen shot.png")}`,
@@ -787,7 +789,7 @@ describe("persistent Node REPL kernels", () => {
       expect(sessionFactory).toHaveBeenCalledTimes(1);
       expect(factoryOptions[0]).toMatchObject({
         sessionId: expect.stringContaining("agent-a"),
-        cwd: "/workspace/project",
+        cwd: TEST_WORKSPACE_ROOT,
         timeoutMs: 30_000,
         getSignal: expect.any(Function),
       });

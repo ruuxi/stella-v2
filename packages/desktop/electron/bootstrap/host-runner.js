@@ -18,6 +18,7 @@ import { requestMacPermission } from "../utils/macos-permissions.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
+import { retireDetachedWorkerRoot } from "@stella/runtime/host";
 // Module-level one-shot cache for the skills/agents home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
 // its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
@@ -320,6 +321,18 @@ export const initializeStellaHostRunner = async (context) => {
     const stellaDataDirPath = state.stellaDataDirPath;
     if (!stellaAppDir || !stellaDataDirPath || !state.stellaWorkspacePath) {
         throw new Error("Stella root is not initialized.");
+    }
+    if (app.isPackaged) {
+        const legacyStellaAppDir = app.getAppPath();
+        if (legacyStellaAppDir !== stellaAppDir) {
+            const retired = await retireDetachedWorkerRoot(legacyStellaAppDir);
+            if (retired.pid != null) {
+                getMainLogger()?.process("startup.host-runner.legacy-root-retired", {
+                    pid: retired.pid,
+                    stopped: retired.stopped,
+                });
+            }
+        }
     }
     // Reconcile bundled skills/agents into the home dir before the worker
     // (spawned by connectHostRunner -> runner.start()/ensureWorkerStarted) reads

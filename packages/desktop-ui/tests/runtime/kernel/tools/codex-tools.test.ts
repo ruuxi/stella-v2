@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -63,6 +64,44 @@ describe("general agent tools", () => {
       running: false,
       exit_code: 0,
       output: "ready",
+    });
+  });
+
+  it("exec_command defaults to the turn workspace and rejects poisoned runtime cwd fallbacks", async () => {
+    const root = await createTempDir();
+    const workspaceRoot = await createTempDir();
+    const appAsar = path.join(root, "app.asar");
+    await writeFile(appAsar, "packaged archive", "utf-8");
+
+    const workspaceResult = await handleExecCommand(
+      createShellState(root),
+      { cmd: "pwd", yield_time_ms: 500 },
+      {
+        conversationId: "c-workspace-cwd",
+        deviceId: "d-workspace-cwd",
+        requestId: "r-workspace-cwd",
+        stellaAppDir: root,
+        toolWorkspaceRoot: workspaceRoot,
+      },
+    );
+    expect(workspaceResult.result).toMatchObject({
+      cwd: workspaceRoot,
+      output: expect.stringContaining(path.basename(workspaceRoot)),
+    });
+
+    const fallbackResult = await handleExecCommand(
+      createShellState(root),
+      { cmd: "pwd", yield_time_ms: 500 },
+      {
+        conversationId: "c-fallback-cwd",
+        deviceId: "d-fallback-cwd",
+        requestId: "r-fallback-cwd",
+        stellaAppDir: appAsar,
+      },
+    );
+    expect(fallbackResult.result).toMatchObject({
+      cwd: os.homedir(),
+      output: expect.stringContaining(path.basename(os.homedir())),
     });
   });
 
@@ -133,6 +172,38 @@ describe("general agent tools", () => {
     expect(output).toContain("namespace=runtime-worker");
     expect(output).toContain(`executable=${JSON.stringify(missingShell)}`);
     expect(output).toContain("login=false");
+  });
+
+  it("exec_command diagnostics name an explicit file used as cwd", async () => {
+    const root = await createTempDir();
+    const cwdFile = path.join(root, "not-a-directory");
+    await writeFile(cwdFile, "file cwd", "utf-8");
+
+    const result = await handleExecCommand(
+      createShellState(root),
+      {
+        cmd: "printf unreachable",
+        workdir: cwdFile,
+        yield_time_ms: 500,
+      },
+      {
+        conversationId: "c-file-cwd",
+        deviceId: "d-file-cwd",
+        requestId: "r-file-cwd",
+        stellaAppDir: root,
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toMatchObject({
+      session_id: null,
+      running: false,
+      exit_code: 1,
+      cwd: cwdFile,
+    });
+    const output = (result.result as { output: string }).output;
+    expect(output).toContain("Failed to start exec_command shell");
+    expect(output).toContain(`cwd=${JSON.stringify(cwdFile)}`);
   });
 
   it("exec_command rejects unsupported tty allocation instead of silently using pipes", async () => {

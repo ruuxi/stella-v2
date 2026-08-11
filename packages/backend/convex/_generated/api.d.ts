@@ -81,6 +81,7 @@ import type * as data_threads from "../data/threads.js";
 import type * as data_user_pet_generation from "../data/user_pet_generation.js";
 import type * as data_user_pet_uploads from "../data/user_pet_uploads.js";
 import type * as data_user_pets from "../data/user_pets.js";
+import type * as device_identity from "../device_identity.js";
 import type * as events from "../events.js";
 import type * as feedback from "../feedback.js";
 import type * as http from "../http.js";
@@ -319,6 +320,7 @@ declare const fullApi: ApiFromModules<{
   "data/user_pet_generation": typeof data_user_pet_generation;
   "data/user_pet_uploads": typeof data_user_pet_uploads;
   "data/user_pets": typeof data_user_pets;
+  device_identity: typeof device_identity;
   events: typeof events;
   feedback: typeof feedback;
   http: typeof http;

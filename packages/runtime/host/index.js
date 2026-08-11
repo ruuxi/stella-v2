@@ -9,7 +9,7 @@ import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
 import { getFileLogger } from "../observability/file-logger.js";
 import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
-import { isConvexDeviceKeyMismatchError, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
+import { getConvexErrorCode, isConvexDeviceKeyMismatchError, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { resolveConnectorFollowupAction } from "./connector-followup.js";
@@ -712,6 +712,9 @@ export class StellaRuntimeHost {
             });
             this.hostDeviceRegistered = true;
             this.noteHostRemoteTurnAuthHealthy();
+            // A successful heartbeat proves this identity is registered, and it
+            // usually beats `registerHostDevice` to that state.
+            void this.claimDeviceIdentitySuccession();
         }
         catch (error) {
             if (isConvexDeviceKeyMismatchError(error)) {
@@ -751,6 +754,64 @@ export class StellaRuntimeHost {
             void this.sendHostHeartbeat();
         }, DEVICE_HEARTBEAT_INTERVAL_MS);
     }
+    /**
+     * Hand the backend this machine's retired device id so its paired phones,
+     * bridge registration and tunnel move onto the current identity.
+     *
+     * A rotation happens whenever the local keypair stops being readable, and
+     * every phone-facing record is keyed by the device id — without this, each
+     * rotation strands every paired phone on an id that will never register a
+     * bridge again, which reads on the phone as a permanently offline desktop.
+     *
+     * Best-effort and idempotent: the retired id stays on disk until the
+     * backend acknowledges, so a claim that fails while offline is retried on
+     * the next registration.
+     */
+    async claimDeviceIdentitySuccession() {
+        const previousDeviceId = this.deviceIdentity?.supersededDeviceId;
+        const deviceId = this.deviceIdentity?.deviceId;
+        if (!previousDeviceId || !deviceId || previousDeviceId === deviceId) {
+            return;
+        }
+        // Registration and the first heartbeat race each other, and either one
+        // can be the path that proves the device is registered. Both call this,
+        // so latch to keep it to a single in-flight claim.
+        if (this.deviceSuccessionClaimPromise) {
+            return await this.deviceSuccessionClaimPromise;
+        }
+        this.deviceSuccessionClaimPromise = this.runDeviceIdentitySuccessionClaim(previousDeviceId, deviceId);
+        try {
+            return await this.deviceSuccessionClaimPromise;
+        }
+        finally {
+            this.deviceSuccessionClaimPromise = null;
+        }
+    }
+    async runDeviceIdentitySuccessionClaim(previousDeviceId, deviceId) {
+        const client = this.ensureHostConvexClient();
+        if (!client) {
+            return;
+        }
+        try {
+            await client.mutation(anyApi.device_identity.adoptDeviceIdentitySuccession, {
+                previousDeviceId,
+                deviceId,
+            });
+        }
+        catch (error) {
+            // A CONFLICT means the retired id was already succeeded elsewhere;
+            // there is nothing left to claim, so stop retrying it.
+            const code = getConvexErrorCode(error);
+            if (code !== "CONFLICT" && code !== "INVALID_ARGUMENT") {
+                console.warn("[device-identity] Failed to claim device identity succession; will retry.", error);
+                return;
+            }
+        }
+        await this.options.hostHandlers.clearSupersededDeviceId?.().catch(() => undefined);
+        if (this.deviceIdentity) {
+            delete this.deviceIdentity.supersededDeviceId;
+        }
+    }
     async registerHostDevice(attempt = 0) {
         if (this.hostDeviceRegistered || this.hostDeviceRegistering) {
             return;
@@ -789,6 +850,9 @@ export class StellaRuntimeHost {
                 this.hostDeviceRegistered = true;
                 this.noteHostRemoteTurnAuthHealthy();
             }
+            // Only meaningful once the successor itself is registered, which the
+            // backend requires before it will move anything onto it.
+            await this.claimDeviceIdentitySuccession();
         }
         catch (error) {
             const authFailure = this.handleHostRemoteTurnAuthFailure("register", error);

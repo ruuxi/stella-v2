@@ -96,4 +96,115 @@ describe("runtime host device identity recovery", () => {
     vi.clearAllTimers();
     warn.mockRestore();
   });
+
+  it("claims succession on the heartbeat path, which usually wins the race", async () => {
+    // `registerHostDevice` waits before registering, so a successful heartbeat
+    // normally flips `hostDeviceRegistered` first and makes registration return
+    // early. A claim hung only off registration would therefore never fire, and
+    // every paired phone would stay stranded on the retired id.
+    const identity = {
+      deviceId: "new-device",
+      publicKey: "new-public",
+      supersededDeviceId: "old-device",
+    };
+    const clearSupersededDeviceId = vi.fn().mockResolvedValue(undefined);
+    const mutation = vi.fn(async () => null);
+
+    const host = new StellaRuntimeHost({
+      hostHandlers: {
+        getDeviceIdentity: async () => identity,
+        clearSupersededDeviceId,
+        signHeartbeatPayload: async () => ({
+          publicKey: identity.publicKey,
+          signature: "signature",
+        }),
+        requestCredential: async () => ({
+          secretId: "secret",
+          provider: "test",
+          label: "Test",
+        }),
+        displayUpdate: () => undefined,
+      },
+      initializeParams: {
+        clientName: "test-client",
+        clientVersion: "0.0.0",
+        isDev: false,
+        platform: process.platform,
+        stellaAppDir: "/tmp/stella-test",
+        stellaDataDirPath: "/tmp/stella-test-home",
+        stellaWorkspacePath: "/tmp/stella-test/workspace",
+      },
+    });
+    const anyHost = host as any;
+    anyHost.configCache = {
+      authToken: "token",
+      convexUrl: "https://example.convex.cloud",
+      hasConnectedAccount: true,
+    };
+    anyHost.deviceIdentity = identity;
+    anyHost.ensureHostConvexClient = vi.fn(() => ({ mutation }));
+    anyHost.noteHostRemoteTurnAuthHealthy = vi.fn();
+    anyHost.getHostDeviceName = vi.fn(() => "Mac");
+
+    await anyHost.sendHostHeartbeat();
+    // The heartbeat fires the claim without awaiting it, so let the microtask
+    // chain drain. Deliberately not calling the claim directly — that would
+    // pass even if the heartbeat never triggered it, which is the whole bug.
+    for (let i = 0; i < 8; i += 1) {
+      await Promise.resolve();
+    }
+
+    expect(mutation).toHaveBeenCalledWith(expect.anything(), {
+      previousDeviceId: "old-device",
+      deviceId: "new-device",
+    });
+    // Cleared only after the backend accepts, so an offline claim is retried.
+    expect(clearSupersededDeviceId).toHaveBeenCalledTimes(1);
+    expect(anyHost.deviceIdentity.supersededDeviceId).toBeUndefined();
+  });
+
+  it("keeps the retired id when the claim fails so it can be retried", async () => {
+    const identity = {
+      deviceId: "new-device",
+      publicKey: "new-public",
+      supersededDeviceId: "old-device",
+    };
+    const clearSupersededDeviceId = vi.fn().mockResolvedValue(undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const host = new StellaRuntimeHost({
+      hostHandlers: {
+        getDeviceIdentity: async () => identity,
+        clearSupersededDeviceId,
+        requestCredential: async () => ({
+          secretId: "secret",
+          provider: "test",
+          label: "Test",
+        }),
+        displayUpdate: () => undefined,
+      },
+      initializeParams: {
+        clientName: "test-client",
+        clientVersion: "0.0.0",
+        isDev: false,
+        platform: process.platform,
+        stellaAppDir: "/tmp/stella-test",
+        stellaDataDirPath: "/tmp/stella-test-home",
+        stellaWorkspacePath: "/tmp/stella-test/workspace",
+      },
+    });
+    const anyHost = host as any;
+    anyHost.deviceIdentity = identity;
+    anyHost.ensureHostConvexClient = vi.fn(() => ({
+      mutation: vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    }));
+
+    await anyHost.claimDeviceIdentitySuccession();
+
+    expect(clearSupersededDeviceId).not.toHaveBeenCalled();
+    expect(anyHost.deviceIdentity.supersededDeviceId).toBe("old-device");
+    warn.mockRestore();
+  });
 });

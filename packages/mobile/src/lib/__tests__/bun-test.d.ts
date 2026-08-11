@@ -27,4 +27,10 @@ declare module "bun:test" {
   export const describe: (name: string, fn: () => void) => void;
   export const test: (name: string, fn: () => void | Promise<void>) => void;
   export const expect: (value: unknown) => Matchers;
+  export const beforeEach: (fn: () => void | Promise<void>) => void;
+  export const afterEach: (fn: () => void | Promise<void>) => void;
+  /** Only `mock.module` is used here — to stand in for native Expo modules. */
+  export const mock: {
+    module: (specifier: string, factory: () => unknown) => void;
+  };
 }

@@ -1,9 +1,10 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clearSupersededDeviceId,
   getDeviceRecordPath,
   getOrCreateDeviceIdentity,
   resetDeviceIdentity,
@@ -33,6 +34,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const root of roots) {
     await rm(root, { recursive: true, force: true });
   }
@@ -84,5 +86,131 @@ describe("device identity", () => {
 
     expect(second.deviceId).not.toBe(first.deviceId);
     expect(second.publicKey).not.toBe(first.publicKey);
+  });
+});
+
+describe("device identity regeneration diagnostics", () => {
+  const captureWarnings = () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    return lines;
+  };
+
+  it("stays quiet on a genuine first run", async () => {
+    const root = await createTempDir();
+    const warnings = captureWarnings();
+
+    await getOrCreateDeviceIdentity(root);
+
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("names an undecryptable key as the reason", async () => {
+    const root = await createTempDir();
+    await writeFile(
+      getDeviceRecordPath(root),
+      JSON.stringify({
+        deviceId: "old-device",
+        publicKey: "old-public-key",
+        privateKeyProtected:
+          "stella-protected:device-private-key:v1:not-readable-here",
+      }),
+    );
+    const warnings = captureWarnings();
+
+    await getOrCreateDeviceIdentity(root);
+
+    expect(warnings.join("\n")).toContain("undecryptable-private-key");
+    expect(warnings.join("\n")).toContain("old-device");
+  });
+
+  it("distinguishes a malformed record from an undecryptable one", async () => {
+    const root = await createTempDir();
+    await writeFile(getDeviceRecordPath(root), "{ not json");
+    const warnings = captureWarnings();
+
+    await getOrCreateDeviceIdentity(root);
+
+    expect(warnings.join("\n")).toContain("malformed-record");
+    expect(warnings.join("\n")).not.toContain("undecryptable");
+  });
+
+  it("distinguishes a record that is missing fields", async () => {
+    const root = await createTempDir();
+    await writeFile(
+      getDeviceRecordPath(root),
+      JSON.stringify({ deviceId: "old-device" }),
+    );
+    const warnings = captureWarnings();
+
+    await getOrCreateDeviceIdentity(root);
+
+    expect(warnings.join("\n")).toContain("incomplete-record");
+  });
+});
+
+describe("device identity succession", () => {
+  const writeUnreadableRecord = async (root: string, deviceId: string) =>
+    await writeFile(
+      getDeviceRecordPath(root),
+      JSON.stringify({
+        deviceId,
+        publicKey: "old-public-key",
+        privateKeyProtected:
+          "stella-protected:device-private-key:v1:not-readable-here",
+      }),
+    );
+
+  it("remembers the id it replaced so paired phones can follow", async () => {
+    const root = await createTempDir();
+    await writeUnreadableRecord(root, "old-device");
+
+    const identity = await getOrCreateDeviceIdentity(root);
+
+    expect(identity.deviceId).not.toBe("old-device");
+    expect(identity.supersededDeviceId).toBe("old-device");
+  });
+
+  it("persists the retired id so a claim survives being offline", async () => {
+    const root = await createTempDir();
+    await writeUnreadableRecord(root, "old-device");
+
+    await getOrCreateDeviceIdentity(root);
+    // A later launch must still be able to claim the succession.
+    const reloaded = await getOrCreateDeviceIdentity(root);
+
+    expect(reloaded.supersededDeviceId).toBe("old-device");
+    expect((await readDeviceRecord(root)).supersededDeviceId).toBe(
+      "old-device",
+    );
+  });
+
+  it("clears the retired id once the claim is acknowledged", async () => {
+    const root = await createTempDir();
+    await writeUnreadableRecord(root, "old-device");
+    const identity = await getOrCreateDeviceIdentity(root);
+
+    await clearSupersededDeviceId(root);
+
+    const reloaded = await getOrCreateDeviceIdentity(root);
+    expect(reloaded.deviceId).toBe(identity.deviceId);
+    expect(reloaded.supersededDeviceId).toBeUndefined();
+  });
+
+  it("carries the identity forward only on an involuntary rotation", async () => {
+    const root = await createTempDir();
+    const first = await getOrCreateDeviceIdentity(root);
+
+    // A user-initiated reset is meant to cut ties, so pairings must not follow.
+    const deliberate = await resetDeviceIdentity(root);
+    expect(deliberate.supersededDeviceId).toBeUndefined();
+
+    const recovered = await resetDeviceIdentity(root, {
+      preservePairings: true,
+    });
+    expect(recovered.supersededDeviceId).toBe(deliberate.deviceId);
+    expect(recovered.supersededDeviceId).not.toBe(first.deviceId);
   });
 });

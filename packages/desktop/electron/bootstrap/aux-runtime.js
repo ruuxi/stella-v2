@@ -1,3 +1,4 @@
+import path from "path";
 import { getDevServerUrl } from "../renderer-location.js";
 import { buildMobileBridgeBootstrap } from "../services/mobile-bridge/bootstrap-payload.js";
 import { createStellaBrowserBridgeResource } from "../process-resources/browser-bridge-resource.js";
@@ -20,6 +21,11 @@ export const startMobileBridge = (context) => {
             getConvexUrl: () => context.services.authService.getPendingConvexUrl(),
             getConvexSiteUrl: () => context.services.authService.getConvexSiteUrl(),
             getDeviceId: () => context.state.deviceId,
+            // `~/.stella/bin` — writable and untouched by app updates, unlike
+            // the cloudflared package's own default path inside `app.asar`.
+            getCloudflaredBinDir: () => context.state.stellaDataDirPath
+                ? path.join(context.state.stellaDataDirPath, "bin")
+                : null,
             getDevServerUrl: () => getDevServerUrl() ?? "",
             getFullWindow: () => context.state.windowManager?.getFullWindow() ?? null,
             processRuntime: context.state.processRuntime,

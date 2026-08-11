@@ -24,6 +24,7 @@ import {
   resolveStellaMockThemeConfig,
   themeConfigToSamRootStyle,
 } from "./stella-mock-theme-tokens";
+import { StellaMark } from "@/components/stella-mark";
 
 type SectionPill = {
   key: SectionKey;
@@ -2539,7 +2540,7 @@ export function StellaAppMock({
                 matching `desktop/src/shell/sidebar/sidebar.css`. */}
             <div className="sam-sidebar-brand">
               <span className="sam-sidebar-brand-logo" aria-hidden="true">
-                <img src="/stella-logo-ui.png" alt="" />
+                <StellaMark />
               </span>
               <span className="sam-sidebar-brand-text">Stella</span>
             </div>

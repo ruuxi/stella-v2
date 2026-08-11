@@ -23,6 +23,7 @@ import {
   STELLA_ICON_STORE,
   STELLA_ICON_USERS,
 } from "./stella-shell";
+import { StellaMark } from "@/components/stella-mark";
 
 type Variant = "default" | "rail" | "tabs" | "dashboard" | "cozy";
 
@@ -130,7 +131,7 @@ function MiniSidebar({ variant }: { variant: Variant }) {
     <aside className="mini-sidebar">
       <div className="mini-sidebar__brand">
         <span className="mini-sidebar__brand-logo" aria-hidden="true">
-          <img src="/stella-logo-ui.png" alt="" />
+          <StellaMark />
         </span>
         <span className="mini-sidebar__brand-text">Stella</span>
       </div>

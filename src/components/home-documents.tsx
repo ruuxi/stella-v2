@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useCallback, useRef, useState } from "react";
 import { useSceneLoop } from "@/lib/use-scene-loop";
 import styles from "./home-documents.module.css";
+import { StellaMark } from "@/components/stella-mark";
 
 type Doc = {
   kind: "word" | "excel" | "pptx" | "pdf";
@@ -81,7 +82,7 @@ export function HomeDocuments() {
           >
             <div className={styles.request} aria-hidden="true">
               <span className={styles.requestMark}>
-                <Image src="/stella-logo-ui.png" alt="" width={13} height={13} />
+                <StellaMark size={13} />
               </span>
               <span className={styles.requestText}>
                 {shownTyped || "Ask for the files you need…"}

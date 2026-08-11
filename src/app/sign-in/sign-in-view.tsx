@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { ArrowRight, CheckCircle2, MailCheck } from "lucide-react";
@@ -11,6 +10,7 @@ import { useMagicLinkAuth } from "@/lib/use-magic-link-auth";
 import { isConvexConfigured } from "@/lib/convex-urls";
 import { SocialSignInButtons } from "@/components/auth/social-sign-in-buttons";
 import styles from "./sign-in.module.css";
+import { StellaMark } from "@/components/stella-mark";
 
 type SessionUser = {
   id?: string;
@@ -28,7 +28,7 @@ export function SignInView() {
         <div className={styles.shell}>
           <Link className={styles.brand} href="/">
             <span className={styles.brandLogo}>
-              <Image src="/stella-logo-ui.png" alt="" width={32} height={32} />
+              <StellaMark size={32} />
             </span>
             <span className={styles.brandText}>Stella</span>
           </Link>
@@ -82,7 +82,7 @@ function MagicLinkPanel() {
       <div className={styles.shell}>
         <Link className={styles.brand} href="/">
           <span className={styles.brandLogo}>
-            <Image src="/stella-logo-ui.png" alt="" width={32} height={32} />
+            <StellaMark size={32} />
           </span>
           <span className={styles.brandText}>Stella</span>
         </Link>
@@ -248,7 +248,7 @@ function SignedInPanel({ user }: { user: SessionUser }) {
       <div className={styles.shell}>
         <Link className={styles.brand} href="/">
           <span className={styles.brandLogo}>
-            <Image src="/stella-logo-ui.png" alt="" width={32} height={32} />
+            <StellaMark size={32} />
           </span>
           <span className={styles.brandText}>Stella</span>
         </Link>

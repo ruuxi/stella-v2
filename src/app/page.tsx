@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
@@ -6,6 +5,7 @@ import { HomeDesktopMock } from "@/components/home-desktop-mock";
 import { HomeDeferredSections } from "@/components/home-deferred-sections";
 import { HomeHero } from "@/components/home-hero";
 import { SiteHeader } from "@/components/site-header";
+import { StellaMark } from "@/components/stella-mark";
 
 export default function Home() {
   return (
@@ -21,7 +21,7 @@ export default function Home() {
       <footer className="grid-shell site-footer section-deferred-render section-border">
         <div className="footer-brand">
           <Link className="brand-mark brand-mark--footer" href="/">
-            <Image src="/stella-logo-ui.png" alt="Stella" width={42} height={42} />
+            <StellaMark size={42} />
             <span className="brand-text">Stella</span>
           </Link>
 

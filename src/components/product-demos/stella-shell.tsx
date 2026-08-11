@@ -5,6 +5,7 @@
  */
 
 import type { ReactNode } from "react";
+import { StellaMark } from "@/components/stella-mark";
 
 const stroke = (d: string, extra?: ReactNode, size = 18): ReactNode => (
   <svg
@@ -197,7 +198,7 @@ export function StellaSidebar({
         <div className="stella-sidebar__titlebar" />
         <div className="stella-sidebar__brand">
           <span className="stella-sidebar__brand-logo" aria-hidden="true">
-            <img src="/stella-logo-ui.png" alt="" />
+            <StellaMark />
           </span>
           <span className="stella-sidebar__brand-text">Stella</span>
         </div>

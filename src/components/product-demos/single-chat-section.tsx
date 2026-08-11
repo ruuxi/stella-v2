@@ -25,6 +25,7 @@ import {
   STELLA_ICON_USERS,
 } from "./stella-shell";
 import { StellaAnimation } from "@/components/stella-animation/stella-animation";
+import { StellaMark } from "@/components/stella-mark";
 
 type ChatMessage =
   | { id: string; role: "user"; text: string; justSent?: boolean }
@@ -371,7 +372,7 @@ function MiniSidebar() {
     <aside className="mini-sidebar">
       <div className="mini-sidebar__brand">
         <span className="mini-sidebar__brand-logo" aria-hidden="true">
-          <img src="/stella-logo-ui.png" alt="" />
+          <StellaMark />
         </span>
         <span className="mini-sidebar__brand-text">Stella</span>
       </div>

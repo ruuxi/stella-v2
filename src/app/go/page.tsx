@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -16,6 +15,7 @@ import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
 import "./go.css";
+import { StellaMark } from "@/components/stella-mark";
 
 export const metadata: Metadata = {
   title: "AI coding agent and personal assistant",
@@ -181,12 +181,7 @@ export default function GoPage() {
       <footer className="grid-shell site-footer section-border">
         <div className="footer-brand">
           <Link className="brand-mark brand-mark--footer" href="/">
-            <Image
-              src="/stella-logo-ui.png"
-              alt="Stella"
-              width={42}
-              height={42}
-            />
+            <StellaMark size={42} />
             <span className="brand-text">Stella</span>
           </Link>
           <FooterLegalLinks />

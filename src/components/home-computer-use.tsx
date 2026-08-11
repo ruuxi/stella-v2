@@ -1,10 +1,10 @@
 "use client";
 
 import { Monitor } from "lucide-react";
-import Image from "next/image";
 import { useCallback, useRef, useState } from "react";
 import { useSceneLoop } from "@/lib/use-scene-loop";
 import styles from "./home-computer-use.module.css";
+import { StellaMark } from "@/components/stella-mark";
 
 const MAIL_LINE =
   "Saturday's all set — I booked the 7:30 table at Luna Cucina and added it to the calendar. I'll bring the tickets.";
@@ -294,12 +294,7 @@ export function HomeComputerUse() {
                 {/* Live automation indicator */}
                 <div className={styles.automation}>
                   <span className={styles.automationMark}>
-                    <Image
-                      src="/stella-logo-ui.png"
-                      alt=""
-                      width={13}
-                      height={13}
-                    />
+                    <StellaMark size={13} />
                   </span>
                   <strong>stella-computer</strong>
                   <span className={styles.automationStep}>
@@ -322,12 +317,7 @@ export function HomeComputerUse() {
                   />
                   <span className={styles.cursorLabel}>
                     <span className={styles.cursorLabelMark}>
-                      <Image
-                        src="/stella-logo-ui.png"
-                        alt=""
-                        width={9}
-                        height={9}
-                      />
+                      <StellaMark size={9} />
                     </span>
                     Stella
                   </span>

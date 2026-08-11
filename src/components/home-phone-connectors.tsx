@@ -1,9 +1,9 @@
 "use client";
 
 import { Smartphone } from "lucide-react";
-import Image from "next/image";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import styles from "./home-phone-connectors.module.css";
+import { StellaMark } from "@/components/stella-mark";
 
 type Bubble = { from: "them" | "you"; text: string };
 
@@ -31,7 +31,7 @@ function platformDuration(platform: Platform) {
 /* Official brand marks (simple-icons paths); Stella uses its own logo. */
 function PlatformMark({ id }: { id: Platform["id"] }) {
   if (id === "stella") {
-    return <Image src="/stella-logo-ui.png" alt="" width={15} height={15} />;
+    return <StellaMark size={15} />;
   }
   if (id === "imessage") {
     return (
@@ -165,7 +165,7 @@ function IMessageSkin() {
         <header className={styles.imHeader}>
           <span className={styles.imBack}>‹</span>
           <span className={styles.imAvatar}>
-            <Image src="/stella-logo-ui.png" alt="" width={26} height={26} />
+            <StellaMark size={26} />
           </span>
           <strong>Stella</strong>
         </header>
@@ -211,7 +211,7 @@ function TelegramSkin() {
         <header className={styles.tgHeader}>
           <span className={styles.tgBack}>‹</span>
           <span className={styles.tgAvatar}>
-            <Image src="/stella-logo-ui.png" alt="" width={24} height={24} />
+            <StellaMark size={24} />
           </span>
           <div>
             <strong>Stella</strong>
@@ -289,7 +289,7 @@ function DiscordSkin() {
                 {m.you ? (
                   "Y"
                 ) : (
-                  <Image src="/stella-logo-ui.png" alt="" width={20} height={20} />
+                  <StellaMark size={20} />
                 )}
               </span>
               <div>
@@ -340,7 +340,7 @@ function StellaSkin() {
             <i />
           </span>
           <span className={styles.stBrand}>
-            <Image src="/stella-logo-ui.png" alt="" width={20} height={20} />
+            <StellaMark size={20} />
             Stella
           </span>
           <span className={styles.stModel}>4.5</span>

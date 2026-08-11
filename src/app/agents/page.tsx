@@ -21,6 +21,7 @@ import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
 import styles from "./agents.module.css";
+import { StellaMark } from "@/components/stella-mark";
 
 export const metadata: Metadata = {
   title: "Agents",
@@ -296,7 +297,7 @@ export default function AgentsPage() {
       <footer className="grid-shell site-footer section-border">
         <div className="footer-brand">
           <Link className="brand-mark brand-mark--footer" href="/">
-            <Image src="/stella-logo-ui.png" alt="Stella" width={42} height={42} />
+            <StellaMark size={42} />
             <span className="brand-text">Stella</span>
           </Link>
           <FooterLegalLinks />

@@ -7,8 +7,8 @@
  * carry as little chrome as possible: no decorative pills, no fake brand
  * wordmarks. The product is the type and the one thing on stage. */
 
-import Image from "next/image";
 import type { CSSProperties, ReactNode } from "react";
+import { StellaMark } from "@/components/stella-mark";
 
 /* ─── primitives ──────────────────────────────────────────────────── */
 
@@ -494,13 +494,7 @@ export function ExtensionSection() {
         <div className="ob-extension__stage">
         <div className="ob-extension__card">
           <span className="ob-extension__logo" aria-hidden="true">
-            <Image
-              src="/stella-logo-ui.png"
-              alt=""
-              width={48}
-              height={48}
-              priority={false}
-            />
+            <StellaMark size={48} />
           </span>
           <div className="ob-extension__meta">
             <span className="ob-extension__name">Stella for the browser</span>

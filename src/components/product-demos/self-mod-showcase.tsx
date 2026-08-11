@@ -13,6 +13,7 @@ import {
   STELLA_ICON_USERS,
 } from "./stella-shell";
 import type { SelfModLevel } from "./types";
+import { StellaMark } from "@/components/stella-mark";
 
 const ONBOARDING_MORPH_CSS_DURATION_MS = 800;
 const ONBOARDING_MORPH_SWAP_MS = Math.round(ONBOARDING_MORPH_CSS_DURATION_MS / 2);
@@ -391,11 +392,7 @@ export function SelfModShell({
               <div className="selfmod-shell__sidebar-header" />
               <div className="selfmod-shell__brand">
                 <span className="selfmod-shell__brand-logo" aria-hidden="true">
-                  <img
-                    src="/stella-logo-ui.png"
-                    alt=""
-                    className="selfmod-shell__brand-logo-art"
-                  />
+                  <StellaMark className="selfmod-shell__brand-logo-art" />
                 </span>
                 <span className="selfmod-shell__brand-text">Stella</span>
               </div>

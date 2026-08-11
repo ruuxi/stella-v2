@@ -1,6 +1,6 @@
-import Image from "next/image";
 import Link from "next/link";
 import { SiteNav } from "@/components/site-nav";
+import { StellaMark } from "@/components/stella-mark";
 
 export function SiteHeader() {
   return (
@@ -8,14 +8,7 @@ export function SiteHeader() {
       <div className="brand-wrap">
         <Link className="brand-mark" href="/">
           <span className="brand-mark__logo">
-            <Image
-              className="brand-mark__logo-img"
-              src="/stella-logo-ui.png"
-              alt=""
-              width={64}
-              height={64}
-              priority
-            />
+            <StellaMark className="brand-mark__logo-img" size={64} />
           </span>
           <span className="brand-text">Stella</span>
         </Link>

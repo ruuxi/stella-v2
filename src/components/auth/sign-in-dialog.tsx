@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import {
   createContext,
@@ -24,6 +23,7 @@ import {
   SIGN_IN_DIALOG_EVENT,
 } from "./sign-in-dialog-events";
 import styles from "./sign-in-dialog.module.css";
+import { StellaMark } from "@/components/stella-mark";
 
 const AUTH_TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
 
@@ -208,7 +208,7 @@ function DialogBody({ onClose }: { onClose: () => void }) {
     <>
       <Link className={styles.brand} href="/" onClick={onClose}>
         <span className={styles.brandLogo}>
-          <Image src="/stella-logo-ui.png" alt="" width={28} height={28} />
+          <StellaMark size={28} />
         </span>
         <span className={styles.brandText}>Stella</span>
       </Link>

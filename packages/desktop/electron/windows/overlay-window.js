@@ -194,6 +194,8 @@ class OverlayWindow {
             this.clearReloadTimer();
         });
         this.window.on('close', (e) => {
+            if (this.options.isQuitting?.())
+                return;
             e.preventDefault();
         });
         if (!this.displayListenersRegistered) {

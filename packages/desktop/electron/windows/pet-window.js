@@ -155,6 +155,8 @@ class PetWindow {
             this.closeHandler = null;
         };
         this.closeHandler = (event) => {
+            if (this.options.isQuitting?.())
+                return;
             event.preventDefault();
         };
         // The pet window is mostly transparent — the sprite, action arc, and

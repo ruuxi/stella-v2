@@ -5,6 +5,17 @@ import { Renderer, Triangle, Program, Mesh } from "ogl";
 import { shouldRunAuroraShader } from "@/lib/device-perf";
 
 const MAX_RENDER_DPR = 1;
+/**
+ * The CSS-pixel viewport height the aurora was composed at. The noise domain
+ * is expressed in units of this fixed virtual height rather than being
+ * normalized to whatever surface it lands on — so at any window size one
+ * curtain covers the same number of on-screen pixels, and a taller viewport
+ * sees MORE field instead of the same features stretched fat. CSS pixels on
+ * purpose: two displays at the same logical size render identically no matter
+ * their devicePixelRatio, and page zoom scales the art together with the rest
+ * of the page instead of re-compositing it.
+ */
+const VIRTUAL_HEIGHT = 900;
 const FRAME_INTERVAL_MS = 1000 / 30;
 
 const vertex = /* glsl */ `
@@ -24,6 +35,7 @@ const fragment = /* glsl */ `
   uniform float uTime;
   uniform float uAspect;
   uniform float uStrength;
+  uniform float uScale;
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 345.45));
@@ -78,8 +90,12 @@ const fragment = /* glsl */ `
 
     float t = uTime * 0.06;
 
-    vec2 p = vec2(uv.x * uAspect, uv.y) * vec2(1.7, 0.66);
-    vec2 flow = vec2(-t * 0.55, t * 0.22);
+    /* uScale = viewportHeight / VIRTUAL_HEIGHT: the domain reads in fixed
+     * virtual-height units, so curtain size is constant on screen at every
+     * window size. flow takes the same factor so the drift keeps a constant
+     * on-screen speed too. At uScale = 1.0 this line is exactly the original. */
+    vec2 p = vec2(uv.x * uAspect, uv.y) * vec2(1.7, 0.66) * uScale;
+    vec2 flow = vec2(-t * 0.55, t * 0.22) * uScale;
 
     vec2 q = vec2(
       fbm(p + flow),
@@ -155,6 +171,7 @@ export function AuroraCanvas({ className }: { className?: string }) {
         uTime: { value: 0 },
         uAspect: { value: 1 },
         uStrength: { value: 1 },
+        uScale: { value: 1 },
       },
     });
     const mesh = new Mesh(gl, { geometry: new Triangle(gl), program });
@@ -178,6 +195,7 @@ export function AuroraCanvas({ className }: { className?: string }) {
       canvas.style.height = `${h}px`;
       program.uniforms.uAspect.value = w / Math.max(h, 1);
       program.uniforms.uStrength.value = w < 640 ? 0.72 : 1.0;
+      program.uniforms.uScale.value = h / VIRTUAL_HEIGHT;
       if (reduceMotion.matches) renderer.render({ scene: mesh });
     };
     resize();

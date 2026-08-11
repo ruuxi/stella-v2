@@ -22,18 +22,20 @@ export const WORKING_INDICATOR_GRID = 10;
 /**
  * GLView footprint for the inline indicator, in pt.
  *
- * Matches desktop's 30px `.indicator-stella` slot, which is the size the orb
- * shader was retuned for (coarse field, 3-octave fbm — see `aurora-shader.ts`).
+ * Matches desktop's 30px `.indicator-stella` slot, which is the size the star
+ * shader was tuned for (arm girth, coarse field, 3-octave fbm — see
+ * `aurora-shader.ts`). Square, and that matters: the star's arms are laid out
+ * on a circular axis, so anything but a 1:1 canvas shears it.
  */
 export const WORKING_INDICATOR_DISPLAY_PT = 30;
 
 /**
  * Breathing room between the canvas and its layout box, so the aurora cannot
  * be clipped. The GL surface is a native view that Android clips to its
- * container whatever `overflow` says, and the shader fills its canvas out to
- * the frame fade at ~92% — with no dead margin to absorb a crop, a container
- * merely *equal* to the canvas is one rounded fractional pt from shaving an
- * edge. Cheap insurance: it costs a few pt of row height and no orb size.
+ * container whatever `overflow` says, and the star fills its canvas out to the
+ * frame fade at ~97% — with no dead margin to absorb a crop, a container merely
+ * *equal* to the canvas is one rounded fractional pt from shaving an arm off.
+ * Cheap insurance: it costs a few pt of row height and no star size.
  */
 export const WORKING_INDICATOR_VIEWPORT_SLACK_PT = 4;
 

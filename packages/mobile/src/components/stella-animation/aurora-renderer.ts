@@ -1,12 +1,12 @@
-// Renderer for the aurora orb variant — the mobile half of the working
+// Renderer for the aurora star variant — the mobile half of the working
 // indicator's animation. Mirrors `desktop-ui/src/shell/aurora/renderer.ts`.
 //
-// Kept separate from `renderer.ts` (the ascii creature) because the orb needs
+// Kept separate from `renderer.ts` (the ascii creature) because the star needs
 // no glyph atlas, character grid, or eye uniforms — just a screen-space quad
 // and the aurora's own uniforms.
 
 import type { ExpoWebGLRenderingContext } from "expo-gl";
-import { AURORA_ORB_FRAGMENT } from "./aurora-shader";
+import { AURORA_STAR_SPIN_FRAGMENT } from "./aurora-shader";
 import { VERTEX_SOURCE, createProgram } from "./shader";
 
 export type AuroraRenderer = {
@@ -28,7 +28,7 @@ export const initAuroraRenderer = (
   birthValue: number,
   flashValue: number,
 ): AuroraRenderer | null => {
-  const program = createProgram(gl, VERTEX_SOURCE, AURORA_ORB_FRAGMENT);
+  const program = createProgram(gl, VERTEX_SOURCE, AURORA_STAR_SPIN_FRAGMENT);
   if (!program) return null;
 
   const positionBuffer = gl.createBuffer();

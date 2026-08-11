@@ -43,7 +43,7 @@ export const initRenderer = (
   colors: Float32Array,
   birthValue: number,
   flashValue: number,
-  variant: AuroraVariant = "orb",
+  variant: AuroraVariant = "star",
 ): GlRenderer | null => {
   const gl =
     (targetCanvas.getContext(

@@ -56,9 +56,9 @@ export function WorkingIndicator({
               oversized, transformed WebGL layer into the Windows compositor.
               The canvas must never overflow the slot: ancestor containers in
               the chat layout clip overflow with hard edges.
-              Keep these dims in sync with `prewarmAurora` in ChatColumn —
-              they form the pooled renderer's key, and a mismatch means the
-              prewarmed context goes unused.
+              Keep these dims — and the variant — in sync with `prewarmAurora`
+              in ChatColumn: they form the pooled renderer's key, and a
+              mismatch means the prewarmed context goes unused.
 
               125 and not the old 250: the slot is 30 css px, so even a 2x
               display only shows 60 device px and a 3x display 90. Rendering
@@ -68,16 +68,21 @@ export function WorkingIndicator({
               125 still exceeds the device pixels everywhere, so it never
               upscales. */}
           <StellaAnimation
+            variant="star-spin"
             width={10}
             height={7.15}
             displayWidth={30}
             displayHeight={30}
             maxDpr={1}
-            /* 15fps left the churn reading as discrete steps at this size.
-               The orb's move to three noise octaves (see `fbmCoarse`) pays
-               for most of the extra frames. */
-            maxFps={24}
-            timeScale={2.2}
+            /* 30fps at an unscaled clock, and both halves of that are load
+               bearing. The star's motion blur smears each arm across
+               1/30s worth of shader time, so this is the pairing at which
+               the smear covers exactly the ground the arms cover between
+               frames; scaling the clock or dropping the rate leaves the
+               whip's fastest pass under-smeared, which at this size shows up
+               as strobing rather than as blur. The turn is staged in the
+               shader (see starTurn), so the cadence does not come from here. */
+            maxFps={30}
             paused={animationPaused}
             requireWindowFocus
           />

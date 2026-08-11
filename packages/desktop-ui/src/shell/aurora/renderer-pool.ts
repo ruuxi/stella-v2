@@ -115,37 +115,36 @@ export function releaseAuroraRenderer(entry: PooledAuroraRenderer): void {
 }
 
 /**
- * Drop idle renderers whose surface is gone for good, freeing the GL context
- * and its backing store instead of holding them warm forever.
+ * Drop the idle renderers for one surface geometry, freeing the GL context and
+ * its backing store instead of holding them warm forever.
  *
  * Pooling pays for itself when a surface reappears — the chat working
- * indicator remounts on every message send. It is pure loss for a surface
- * that appears once per install: the onboarding creature's 875x682 canvas is
- * the only `waves` consumer in the app, so once onboarding is over nothing
- * can ever ask for that key again and its entry would sit in `idleByKey` for
- * the lifetime of the process.
+ * indicator remounts on every message send. It is pure loss for a surface that
+ * appears once per install: the onboarding creature's canvas is far larger than
+ * any other, so once onboarding is over nothing can ever ask for that key again
+ * and its entry would sit in `idleByKey` for the lifetime of the process.
+ *
+ * Keying on geometry rather than on variant is what makes this safe to call
+ * from a surface whose variant another live consumer also renders — the
+ * working indicator's pre-warmed context would otherwise be collateral. Pass
+ * the same geometry props the retiring surface handed to `StellaAnimation`.
  *
  * Only idle entries are touched; anything currently borrowed is untouched and
  * still returns through `releaseAuroraRenderer` as usual. Returns the number
  * disposed.
  */
-export function disposeIdleAuroraRenderers(filter?: {
-  variant?: AuroraVariant;
-}): number {
-  let disposed = 0;
-  for (const [key, pool] of idleByKey) {
-    const kept = filter?.variant
-      ? pool.filter((entry) => entry.variant !== filter.variant)
-      : [];
-    for (const entry of pool) {
-      if (kept.includes(entry)) continue;
-      disposeEntry(entry);
-      disposed += 1;
-    }
-    if (kept.length > 0) idleByKey.set(key, kept);
-    else idleByKey.delete(key);
-  }
-  return disposed;
+export function disposeIdleAuroraRenderersFor(
+  options: AuroraSpecOptions,
+): number {
+  const spec = withDetachedContainer((container) =>
+    resolveAuroraSpec(container, options),
+  );
+  if (!spec) return 0;
+  const pool = idleByKey.get(spec.key);
+  if (!pool) return 0;
+  for (const entry of pool) disposeEntry(entry);
+  idleByKey.delete(spec.key);
+  return pool.length;
 }
 
 /** Create one warm renderer for `spec` ahead of first use (no-op if one is
@@ -161,14 +160,16 @@ export function prewarmAuroraRenderer(spec: AuroraSpec): void {
 }
 
 /**
- * Best-effort idle pre-warm: measure the aurora geometry for `options`
- * against a throwaway hidden container and build one pooled renderer, so
- * the first real mount (e.g. the working indicator on the first message
- * send) reuses it instead of paying the cold ~200ms GL spin-up on the
- * main thread. Safe to call repeatedly; never throws into the caller.
+ * Run `read` against a throwaway hidden `.stella-animation-container` so the
+ * aurora's cell metrics can be measured without a mounted surface. Callers
+ * outside React's lifecycle (pre-warm, retire) both need this — the cell
+ * metrics live in CSS custom properties, so a real element is the only way to
+ * resolve a spec. Returns null if the DOM is unavailable or measuring throws.
  */
-export function prewarmAurora(options: AuroraSpecOptions): void {
-  if (typeof document === "undefined" || !document.body) return;
+function withDetachedContainer<T>(
+  read: (container: HTMLElement) => T,
+): T | null {
+  if (typeof document === "undefined" || !document.body) return null;
   let container: HTMLDivElement | null = null;
   try {
     container = document.createElement("div");
@@ -177,11 +178,23 @@ export function prewarmAurora(options: AuroraSpecOptions): void {
     container.style.cssText =
       "position:absolute;left:-9999px;top:0;width:24px;height:24px;visibility:hidden;pointer-events:none";
     document.body.appendChild(container);
-    const spec = resolveAuroraSpec(container, options);
-    if (spec) prewarmAuroraRenderer(spec);
+    return read(container);
   } catch {
-    // Pre-warming is a pure optimization — swallow any failure.
+    return null;
   } finally {
     container?.parentNode?.removeChild(container);
   }
+}
+
+/**
+ * Best-effort idle pre-warm: measure the aurora geometry for `options`
+ * against a throwaway hidden container and build one pooled renderer, so
+ * the first real mount (e.g. the working indicator on the first message
+ * send) reuses it instead of paying the cold ~200ms GL spin-up on the
+ * main thread. Safe to call repeatedly; never throws into the caller.
+ */
+export function prewarmAurora(options: AuroraSpecOptions): void {
+  withDetachedContainer((container) => {
+    prewarmAuroraRenderer(resolveAuroraSpec(container, options));
+  });
 }

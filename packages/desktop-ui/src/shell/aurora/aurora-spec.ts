@@ -73,7 +73,7 @@ export function resolveAuroraSpec(
     displayWidth,
     displayHeight,
     maxDpr,
-    variant = "orb",
+    variant = "star",
   }: AuroraSpecOptions,
 ): AuroraSpec {
   const styles = getComputedStyle(container);

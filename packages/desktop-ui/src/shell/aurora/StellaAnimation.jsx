@@ -29,6 +29,25 @@ const VOICE_ENERGY_ATTACK_RATE = 0.24;
 const VOICE_ENERGY_RELEASE_RATE = 0.08;
 /** Shader time units per second — 2x the original 0.008-per-frame-at-60fps rate. */
 const TIME_RATE = 0.96;
+/** The aurora stops as they can be written on `:root`, e.g.
+ *  `--stella-aurora-3: #1a9ef5`. */
+const AURORA_STOP_DECLARATION = /--stella-aurora-\d\s*:[^;]*/g;
+/**
+ * Everything on `:root` that the aurora's five color stops can resolve from:
+ * the attributes themes are selected by, plus any inline overrides of the stops
+ * themselves. Compared as a string so an unrelated `:root` style write costs one
+ * attribute read instead of a forced style recalc — see the observer below.
+ */
+function readPaletteSignature() {
+  const root = document.documentElement;
+  const inline = root.getAttribute("style");
+  return [
+    root.getAttribute("class") ?? "",
+    root.getAttribute("data-theme") ?? "",
+    root.getAttribute("data-base-theme") ?? "",
+    inline ? (inline.match(AURORA_STOP_DECLARATION) ?? []).join(";") : "",
+  ].join("|");
+}
 export const StellaAnimation = React.forwardRef(
   (
     {
@@ -43,7 +62,7 @@ export const StellaAnimation = React.forwardRef(
       maxFps,
       requireWindowFocus = false,
       timeScale = 1,
-      variant = "orb",
+      variant = "star",
       voiceMode = "idle",
       isUserSpeaking = false,
       analyserRef: externalAnalyserRef,
@@ -330,12 +349,25 @@ export const StellaAnimation = React.forwardRef(
       if (!pausedRef.current) {
         loop.start();
       }
+      // The ramp is CSS-driven, so it has to be re-read whenever the theme
+      // changes — but `:root`'s style attribute is also where unrelated layout
+      // variables live, and some of those are written on every animation frame
+      // (the workspace panel's width during a sidebar slide). Re-reading on
+      // every mutation meant five `getComputedStyle` calls per frame during any
+      // such slide, each forcing a document-wide style recalc mid-frame, for
+      // colors that had not moved. The signature is a string compare against
+      // only the things the ramp can actually resolve from — the theme
+      // attributes, and the aurora custom properties if they are set inline.
+      let paletteSignature = readPaletteSignature();
       const observer = new MutationObserver(() => {
+        const next = readPaletteSignature();
+        if (next === paletteSignature) return;
+        paletteSignature = next;
         mainRenderer.setColors(readColors());
       });
       observer.observe(document.documentElement, {
         attributes: true,
-        attributeFilter: ["class", "style", "data-theme"],
+        attributeFilter: ["class", "style", "data-theme", "data-base-theme"],
       });
       return () => {
         loop.stop();

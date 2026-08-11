@@ -16,7 +16,7 @@ import { resolveConnectorFollowupAction } from "./connector-followup.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
 import { createRuntimeUnavailableError, } from "@stella/contracts/protocol/rpc-peer";
 import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
-import { buildUdsConnectionFactory, killDetachedWorker, } from "./uds-connection.js";
+import { buildUdsConnectionFactory, killDetachedWorker, retireDetachedWorkerRoot, } from "./uds-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
 import { computeRuntimeBuildStamp, RUNTIME_BUILD_STAMP_UNAVAILABLE, } from "../worker/runtime-build-stamp.js";
 const CONNECTOR_STREAM_FLUSH_INTERVAL_MS = 1_000;
@@ -24,6 +24,7 @@ const CONNECTOR_STREAM_BUFFER_THRESHOLD = 80;
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
 const DEVICE_HEARTBEAT_INTERVAL_MS = 30_000;
+export { retireDetachedWorkerRoot };
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = 1e10;
 const parseDisplayUpdateParams = (params) => {
     if (params && typeof params === "object") {

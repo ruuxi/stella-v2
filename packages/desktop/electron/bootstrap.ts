@@ -17,7 +17,10 @@ import {
   getTotalSystemMemoryMb,
   isLowMemoryWindowsDevice,
 } from "./resource-profile.js";
-import { resolveDesktopStellaDataDirPath } from "./data-paths.js";
+import {
+  resolveDesktopStellaDataDirPath,
+  resolvePackagedStellaAppDirPath,
+} from "./data-paths.js";
 import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,
@@ -39,7 +42,7 @@ if (isDev) {
 }
 
 const stellaAppDir = app.isPackaged
-  ? app.getAppPath()
+  ? resolvePackagedStellaAppDirPath(app.getAppPath())
   : path.resolve(__dirname, "..", "..", "..", "..");
 const configuredStatePath = isDev
   ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()

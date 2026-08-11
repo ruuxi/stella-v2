@@ -38,6 +38,7 @@ import {
   trashPathsForDeferredDelete,
 } from "./deferred-delete.js";
 import { extractNativeWindowsDeleteTargets } from "./deferred-delete-cli.js";
+import { resolveToolFallbackCwd } from "./cwd.js";
 
 export type ShellState = {
   shells: Map<string, ManagedShellRecord>;
@@ -135,6 +136,7 @@ type ManagedShellRecord = ShellRecord & {
   startSnapshot?: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
+  producedFilesCollection?: Promise<ProducedFileRecord[] | undefined>;
 };
 
 type FileSnapshotEntry = {
@@ -228,7 +230,10 @@ const shouldSkipSnapshotDir = (relativeDir: string): boolean => {
   );
 };
 
-const snapshotFiles = async (cwd: string): Promise<FileSnapshot | null> => {
+const snapshotFiles = async (
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<FileSnapshot | null> => {
   const root = normalizeSnapshotRoot(cwd);
   if (!root) return null;
 
@@ -236,7 +241,10 @@ const snapshotFiles = async (cwd: string): Promise<FileSnapshot | null> => {
   let complete = true;
 
   const walk = async (dir: string): Promise<void> => {
-    if (!complete) return;
+    if (!complete || signal?.aborted) {
+      complete = false;
+      return;
+    }
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -244,7 +252,10 @@ const snapshotFiles = async (cwd: string): Promise<FileSnapshot | null> => {
       return;
     }
     for (const entry of entries) {
-      if (!complete) return;
+      if (!complete || signal?.aborted) {
+        complete = false;
+        return;
+      }
       const fullPath = path.join(dir, entry.name);
       const relativePath = path.relative(root, fullPath);
       if (entry.isDirectory()) {
@@ -347,6 +358,7 @@ const diffFileSnapshots = (
 
 const snapshotExternalCandidate = async (
   candidatePath: string,
+  signal?: AbortSignal,
 ): Promise<ExternalCandidateSnapshot> => {
   try {
     const info = await stat(candidatePath);
@@ -354,7 +366,7 @@ const snapshotExternalCandidate = async (
       return {
         path: candidatePath,
         kind: "directory",
-        snapshot: await snapshotFiles(candidatePath),
+        snapshot: await snapshotFiles(candidatePath, signal),
       };
     }
     if (info.isFile()) {
@@ -377,6 +389,7 @@ const snapshotExternalCandidate = async (
 const snapshotExternalCandidates = async (
   candidatePaths: string[],
   snapshotRoot: string,
+  signal?: AbortSignal,
 ): Promise<ExternalCandidateSnapshot[] | undefined> => {
   const root = path.resolve(snapshotRoot);
   const paths = [
@@ -388,7 +401,7 @@ const snapshotExternalCandidates = async (
   );
   if (paths.length === 0) return undefined;
   return Promise.all(
-    paths.map((candidate) => snapshotExternalCandidate(candidate)),
+    paths.map((candidate) => snapshotExternalCandidate(candidate, signal)),
   );
 };
 
@@ -477,14 +490,16 @@ const snapshotShellSideEffects = async (
   args: Record<string, unknown>,
   snapshotRoot: string,
   context?: ToolContext,
+  signal?: AbortSignal,
 ): Promise<{
   rootSnapshot: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
 }> => {
-  const rootSnapshot = await snapshotFiles(snapshotRoot);
+  const rootSnapshot = await snapshotFiles(snapshotRoot, signal);
   const externalCandidateSnapshots = await snapshotExternalCandidates(
     inferShellMentionedPaths(args, context),
     snapshotRoot,
+    signal,
   );
   return { rootSnapshot, externalCandidateSnapshots };
 };
@@ -494,25 +509,47 @@ const shouldSnapshotShellSideEffects = (command: string): boolean =>
 
 const takeCompletedProducedFiles = async (
   record: ManagedShellRecord,
+  signal?: AbortSignal,
 ): Promise<ProducedFileRecord[] | undefined> => {
   if (record.running || record.producedFilesReported) return undefined;
+  if (
+    !record.startSnapshot &&
+    (!record.externalCandidateSnapshots ||
+      record.externalCandidateSnapshots.length === 0)
+  ) {
+    record.producedFilesReported = true;
+    record.child = undefined;
+    return undefined;
+  }
+  if (!record.producedFilesCollection) {
+    const startSnapshot = record.startSnapshot;
+    const externalCandidateSnapshots = record.externalCandidateSnapshots;
+    record.producedFilesCollection = (async () =>
+      mergeProducedFiles(
+        // A missing start snapshot can never produce a root diff. In
+        // particular, known-safe commands deliberately set it to null; do not
+        // turn their completion into an unconditional full-tree walk.
+        startSnapshot
+          ? diffFileSnapshots(
+              startSnapshot,
+              await snapshotFiles(startSnapshot.root),
+            )
+          : undefined,
+        await diffExternalCandidateSnapshots(externalCandidateSnapshots),
+      ))().finally(() => {
+      // The shell is terminated and collection no longer needs its snapshot
+      // maps or child-process handle. Keep the cached promise until a caller
+      // actually consumes it, which lets an exec deadline win without losing
+      // a later produced-file drain.
+      record.startSnapshot = null;
+      record.externalCandidateSnapshots = undefined;
+      record.child = undefined;
+    });
+  }
+  const produced = await record.producedFilesCollection;
+  if (signal?.aborted || record.producedFilesReported) return undefined;
   record.producedFilesReported = true;
-  const produced = mergeProducedFiles(
-    diffFileSnapshots(
-      record.startSnapshot ?? null,
-      await snapshotFiles(record.startSnapshot?.root ?? record.cwd),
-    ),
-    await diffExternalCandidateSnapshots(record.externalCandidateSnapshots),
-  );
-  // The shell is terminated and its produced files are now reported, so the
-  // snapshot data (a FileSnapshot Map of up to MAX_SNAPSHOT_FILES entries plus
-  // the external-candidate snapshots) and the child-process handle are fully
-  // consumed. Release them so completed records stop pinning that memory for
-  // the rest of the session. The record itself stays in state.shells so
-  // status/read paths keep working off the (capped) output buffers.
-  record.startSnapshot = null;
-  record.externalCandidateSnapshots = undefined;
-  record.child = undefined;
+  record.producedFilesCollection = undefined;
   return produced;
 };
 
@@ -1244,8 +1281,9 @@ const waitForShellActivity = async (
 const settleCompletedShell = async (
   record: ManagedShellRecord,
   signal?: AbortSignal,
+  hardDeadlineAt = Number.POSITIVE_INFINITY,
 ) => {
-  const deadline = Date.now() + 250;
+  const deadline = Math.min(Date.now() + 250, hardDeadlineAt);
   while (record.running && Date.now() < deadline) {
     const observedVersion = record.outputVersion;
     try {
@@ -1360,8 +1398,8 @@ export const startShell = (
   const shellCommand = buildShellCommand(command, state);
   const launch = resolveShellLaunch(shellCommand, launchOptions);
 
-  if ("error" in launch) {
-    const safeLaunchError = sanitizeToolVisibleText(launch.error);
+  const failedRecord = (message: string, exitCode: number) => {
+    const safeLaunchError = sanitizeToolVisibleText(message);
     const record: ManagedShellRecord = {
       id,
       command,
@@ -1369,7 +1407,7 @@ export const startShell = (
       output: safeLaunchError,
       outputBuffer: new HeadTailOutputBuffer(RAW_SHELL_OUTPUT_MAX_BYTES),
       running: false,
-      exitCode: 127,
+      exitCode,
       startedAt: Date.now(),
       completedAt: Date.now(),
       unreadOutput: safeLaunchError,
@@ -1386,14 +1424,31 @@ export const startShell = (
     record.unreadOutputBuffer.pushText(safeLaunchError);
     state.shells.set(id, record);
     return record;
+  };
+
+  if ("error" in launch) {
+    return failedRecord(launch.error, 127);
   }
 
-  const child = spawnShellProcess(
-    launch.shell,
-    launch.args,
-    cwd,
-    buildShellEnv(envOverrides, state),
-  );
+  let child: SpawnedShell;
+  try {
+    child = spawnShellProcess(
+      launch.shell,
+      launch.args,
+      cwd,
+      buildShellEnv(envOverrides, state),
+    );
+  } catch (error) {
+    return failedRecord(
+      describeShellSpawnFailure(
+        error instanceof Error ? error : new Error(String(error)),
+        launch,
+        cwd,
+        launchOptions,
+      ),
+      1,
+    );
+  }
 
   const record: ManagedShellRecord = {
     id,
@@ -1483,12 +1538,25 @@ export const runShell = async (
   }
 
   return new Promise<string>((resolve) => {
-    const child = spawnShellProcess(
-      launch.shell,
-      launch.args,
-      cwd,
-      buildShellEnv(envOverrides, state),
-    );
+    let child: SpawnedShell;
+    try {
+      child = spawnShellProcess(
+        launch.shell,
+        launch.args,
+        cwd,
+        buildShellEnv(envOverrides, state),
+      );
+    } catch (error) {
+      resolve(
+        describeShellSpawnFailure(
+          error instanceof Error ? error : new Error(String(error)),
+          launch,
+          cwd,
+          launchOptions,
+        ),
+      );
+      return;
+    }
 
     let output = "";
     let finished = false;
@@ -1541,13 +1609,14 @@ const resolveManagedShellCommand = (
   envOverrides: Record<string, string>;
   launchOptions: ShellLaunchOptions;
 } => {
-  let command = String(args.cmd ?? args.command ?? "");
-  const cwd = String(
-    args.workdir ??
-      args.working_directory ??
-      context?.stellaAppDir ??
-      process.cwd(),
-  );
+  const command = String(args.cmd ?? args.command ?? "");
+  const explicitCwd = args.workdir ?? args.working_directory;
+  const cwd =
+    explicitCwd !== undefined && explicitCwd !== null
+      ? String(explicitCwd)
+      : resolveToolFallbackCwd(
+          context?.toolWorkspaceRoot ?? context?.stellaAppDir,
+        );
   const envOverrides: Record<string, string> = {};
   const stellaComputerSessionId = getStellaComputerSessionId(context);
   const localBinPaths = [
@@ -1619,6 +1688,60 @@ const resolveExecYieldTime = (
   return Math.max(0, Math.min(raw, maxMs));
 };
 
+type ExecDeadlineOutcome<T> =
+  | { status: "completed"; value: T }
+  | { status: "failed"; error: unknown }
+  | { status: "deadline" }
+  | { status: "aborted"; error: unknown };
+
+const runUntilExecDeadline = async <T>(
+  operation: () => Promise<T>,
+  deadlineAt: number,
+  signal?: AbortSignal,
+): Promise<ExecDeadlineOutcome<T>> => {
+  if (signal?.aborted) {
+    return { status: "aborted", error: signal.reason ?? new Error("Aborted") };
+  }
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0) return { status: "deadline" };
+
+  return await new Promise<ExecDeadlineOutcome<T>>((resolve) => {
+    let settled = false;
+    const finish = (outcome: ExecDeadlineOutcome<T>) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(outcome);
+    };
+    const onAbort = () =>
+      finish({
+        status: "aborted",
+        error: signal?.reason ?? new Error("Aborted"),
+      });
+    const timer = setTimeout(() => finish({ status: "deadline" }), remainingMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    let pending: Promise<T>;
+    try {
+      pending = operation();
+    } catch (error) {
+      finish({ status: "failed", error });
+      return;
+    }
+    void pending.then(
+      (value) => finish({ status: "completed", value }),
+      (error) => finish({ status: "failed", error }),
+    );
+  });
+};
+
+const toolErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 const buildExecToolPayload = (
   record: ManagedShellRecord,
   drained: DrainedOutput,
@@ -1680,6 +1803,14 @@ export const handleExecCommand = async (
   onUpdate?: ToolUpdateCallback,
 ): Promise<ToolResult> => {
   const callStartedAt = Date.now();
+  const yieldTimeMs = resolveExecYieldTime(
+    args.yield_time_ms,
+    DEFAULT_EXEC_YIELD_MS,
+  );
+  const deadlineAt = callStartedAt + yieldTimeMs;
+  if (signal?.aborted) {
+    return { error: toolErrorMessage(signal.reason ?? new Error("Aborted")) };
+  }
   const prepared = resolveManagedShellCommand(state, args, context);
   const dangerReason = isDangerousCommand(prepared.command);
   if (dangerReason) {
@@ -1707,13 +1838,42 @@ export const handleExecCommand = async (
     return windowsDeleteResult;
   }
 
-  const beforeSideEffects = shouldSnapshotShellSideEffects(prepared.command)
-    ? await snapshotShellSideEffects(
-        { cmd: prepared.command, workdir: prepared.cwd },
-        resolveShellSnapshotRoot(prepared.cwd, context),
-        context,
-      )
-    : { rootSnapshot: null };
+  let beforeSideEffects: {
+    rootSnapshot: FileSnapshot | null;
+    externalCandidateSnapshots?: ExternalCandidateSnapshot[];
+  } = { rootSnapshot: null };
+  if (shouldSnapshotShellSideEffects(prepared.command)) {
+    const snapshotAbort = new AbortController();
+    const snapshotOutcome = await runUntilExecDeadline(
+      () =>
+        snapshotShellSideEffects(
+          { cmd: prepared.command, workdir: prepared.cwd },
+          resolveShellSnapshotRoot(prepared.cwd, context),
+          context,
+          snapshotAbort.signal,
+        ),
+      deadlineAt,
+      signal,
+    );
+    if (snapshotOutcome.status === "completed") {
+      beforeSideEffects = snapshotOutcome.value;
+    } else {
+      snapshotAbort.abort(
+        snapshotOutcome.status === "aborted"
+          ? snapshotOutcome.error
+          : new Error("exec_command pre-snapshot deadline reached"),
+      );
+      if (snapshotOutcome.status === "aborted") {
+        return { error: toolErrorMessage(snapshotOutcome.error) };
+      }
+      if (snapshotOutcome.status === "failed") {
+        throw snapshotOutcome.error;
+      }
+      // Produced-file tracking is best effort. Once its budget is exhausted,
+      // start the requested process immediately so the caller still receives
+      // a session id by the advertised yield deadline.
+    }
+  }
   let lastUpdateAt = 0;
   const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
   const emitUpdate = (record: ManagedShellRecord) => {
@@ -1747,7 +1907,7 @@ export const handleExecCommand = async (
     await waitForShellActivity(
       record,
       observedVersion,
-      resolveExecYieldTime(args.yield_time_ms, DEFAULT_EXEC_YIELD_MS),
+      Math.max(0, deadlineAt - Date.now()),
       signal,
     );
   } catch (error) {
@@ -1766,15 +1926,38 @@ export const handleExecCommand = async (
         // Best effort; the process may already be exiting.
       }
     }
-    return { error: (error as Error).message };
+    return { error: toolErrorMessage(error) };
   }
-  await settleCompletedShell(record, signal);
+  await settleCompletedShell(record, signal, deadlineAt);
 
   const drained = drainUnreadOutput(record);
   const payload = buildExecToolPayload(record, drained, callStartedAt);
-  const producedFiles = !record.running
-    ? await takeCompletedProducedFiles(record)
-    : undefined;
+  let producedFiles: ProducedFileRecord[] | undefined;
+  if (!record.running) {
+    const collectionDelivery = new AbortController();
+    const collectionOutcome = await runUntilExecDeadline(
+      () => takeCompletedProducedFiles(record, collectionDelivery.signal),
+      deadlineAt,
+      signal,
+    );
+    if (collectionOutcome.status === "completed") {
+      producedFiles = collectionOutcome.value;
+    } else {
+      collectionDelivery.abort(
+        collectionOutcome.status === "aborted"
+          ? collectionOutcome.error
+          : new Error("exec_command post-snapshot deadline reached"),
+      );
+      if (collectionOutcome.status === "aborted") {
+        return { error: toolErrorMessage(collectionOutcome.error) };
+      }
+      if (collectionOutcome.status === "failed") {
+        throw collectionOutcome.error;
+      }
+      // The cached collection continues without pinning this call. Because the
+      // delivery signal is aborted, it remains available to a later drain.
+    }
+  }
   return {
     result: payload,
     details: payload,
@@ -1851,7 +2034,7 @@ export const handleBash = async (
   _signal?: AbortSignal,
 ): Promise<ToolResult> => {
   const prepared = resolveManagedShellCommand(state, args, context);
-  let command = prepared.command;
+  const command = prepared.command;
 
   // Safety check: reject dangerous commands
   const dangerReason = isDangerousCommand(command);

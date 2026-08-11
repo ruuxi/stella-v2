@@ -1,3 +1,7 @@
+import os from "node:os";
+import path from "node:path";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -20,6 +24,27 @@ const context: ToolContext = {
 };
 
 describe("node_repl tool", () => {
+  it("falls back to home when its inherited cwd points at app.asar", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "stella-node-repl-cwd-"));
+    const appAsar = path.join(dir, "app.asar");
+    await writeFile(appAsar, "packaged archive", "utf-8");
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+    });
+    try {
+      await expect(
+        registry.evaluate("nodeRepl.write(nodeRepl.cwd)", {
+          ...context,
+          agentId: "agent-file-cwd",
+          stellaAppDir: appAsar,
+        }),
+      ).resolves.toBe(os.homedir());
+    } finally {
+      await registry.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("is available to working Orchestrator and General agents and retains state across tool calls", async () => {
     const registry = new NodeReplKernelRegistry({
       sessionFactory: () => ({

@@ -7,6 +7,8 @@ import {
 import type { ReplConnectClient } from "@stella/runtime/kernel/connectors/connect-service";
 import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
+const TEST_WORKSPACE_ROOT = process.cwd();
+
 const context = (agentId: string): ToolContext => ({
   conversationId: "conversation-1",
   deviceId: "device-1",
@@ -14,8 +16,8 @@ const context = (agentId: string): ToolContext => ({
   runId: "run-1",
   agentId,
   agentType: "general",
-  stellaAppDir: "/workspace",
-  toolWorkspaceRoot: "/workspace/project",
+  stellaAppDir: TEST_WORKSPACE_ROOT,
+  toolWorkspaceRoot: TEST_WORKSPACE_ROOT,
   storageMode: "local",
 });
 

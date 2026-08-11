@@ -2,6 +2,15 @@ import os from "node:os";
 import path from "node:path";
 
 /**
+ * Electron's packaged app path normally points at `app.asar`, which is a
+ * file. Runtime worker identities and child-process cwd fallbacks both require
+ * a real directory, so the stable packaged install root is its parent
+ * Resources directory.
+ */
+export const resolvePackagedStellaAppDirPath = (appPath: string): string =>
+  path.dirname(path.resolve(appPath));
+
+/**
  * Durable Stella data root for the desktop app.
  *
  * Packaged and development builds share `~/.stella`: the runtime worker's

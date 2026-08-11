@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
-import { readHomePrompt } from "./prompts/home-prompts.js";
+import { readRuntimePrompt } from "./prompts/home-prompts.js";
 import { isThreadCompactionForced } from "./agent-runtime/context-budget.js";
 import { loadLocalPreferences } from "./preferences/local-preferences.js";
 
@@ -18,11 +18,8 @@ const logger = createRuntimeLogger("thread-runtime");
 
 const THREAD_CHECKPOINT_MARKER = "[[THREAD_CHECKPOINT]]";
 export const resolveThreadCompactionSystemPrompt = (
-  stellaDataDir?: string,
-): string =>
-  stellaDataDir
-    ? (readHomePrompt(stellaDataDir, "thread-compaction") ?? "")
-    : "";
+  _stellaDataDir?: string,
+): string => readRuntimePrompt("thread-compaction") ?? "";
 const THREAD_COMPACTION_RESERVE_TOKENS = 16_384;
 /**
  * Fraction of the model's real context window at which the orchestrator

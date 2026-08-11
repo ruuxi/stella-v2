@@ -6,9 +6,9 @@
  *
  * - `~/.stella/PERSONALITY.md`, when present, is the user's replacement and is
  *   used verbatim — hand edits always win.
- * - Otherwise the content comes straight from the selected preset under
- *   `~/.stella/system/prompts/personality-<id>.md` (via `readHomePrompt`), so
- *   shipped preset updates apply automatically with no reconciliation.
+ * - Otherwise the content comes straight from the bundled preset under
+ *   `stella-runtime/prompts/personality-<id>.md` (via `readRuntimePrompt`),
+ *   so shipped preset updates apply automatically with no reconciliation.
  *
  * Picking a preset in onboarding or settings just updates the preference and
  * clears any replacement file. A new preset (or hand edit) takes effect on the
@@ -22,7 +22,7 @@ import {
   type PersonalityId,
 } from "@stella/contracts/personality";
 import { getPersonalityVoiceId } from "../preferences/local-preferences.js";
-import { readHomePrompt } from "../prompts/home-prompts.js";
+import { readRuntimePrompt } from "../prompts/home-prompts.js";
 
 const PERSONALITY_FILE_RELATIVE = "PERSONALITY.md";
 
@@ -33,7 +33,7 @@ export const resolvePersonalityPresetContent = (
   stellaDataDir: string,
   id: PersonalityId,
 ): string => {
-  const content = readHomePrompt(stellaDataDir, `personality-${id}`);
+  const content = readRuntimePrompt(`personality-${id}`);
   return content ? `${content.trim()}\n` : "";
 };
 

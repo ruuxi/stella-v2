@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Použít výchozí nastavení Stelly",
-      "description": "Odstraní vaše úpravy promptů a dovedností, aby platila výchozí nastavení Stelly. Odstraněné položky zůstávají v ~/.stella/.trash pro případ, že je budete chtít zpět.",
+      "description": "Odstraní vaše úpravy dovedností a změny osobnosti, aby platila výchozí nastavení Stelly. Odstraněné položky zůstávají v ~/.stella/.trash pro případ, že je budete chtít zpět.",
       "action": "Obnovit výchozí",
       "done": "Výchozí nastavení obnoveno. Vaše dřívější úpravy byly přesunuty do ~/.stella/.trash.",
       "none": "Už používáte výchozí nastavení Stelly.",

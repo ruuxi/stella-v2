@@ -278,7 +278,6 @@ const createBuildOptions = () => [
  */
 const workerBannedInputs = [
   "packages/runtime/kernel/home/stella-home.ts",
-  "packages/runtime/kernel/home/prompt-manifest-sync.ts",
   "packages/runtime/kernel/home/system-mirror.ts",
   "packages/runtime/kernel/home/legacy-migration.ts",
 ];

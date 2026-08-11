@@ -23,7 +23,15 @@ const tempDir = async () => {
   return dir;
 };
 
+/** Point the bundled-prompt lookup at a controlled directory. */
+const tempPromptsDir = async () => {
+  const dir = await tempDir();
+  process.env.STELLA_RUNTIME_PROMPTS_DIR = dir;
+  return dir;
+};
+
 afterEach(async () => {
+  delete process.env.STELLA_RUNTIME_PROMPTS_DIR;
   vi.restoreAllMocks();
   await Promise.all(
     [...roots].map((root) => rm(root, { recursive: true, force: true })),
@@ -31,75 +39,65 @@ afterEach(async () => {
   roots.clear();
 });
 
-const writeSystemPrompt = async (home: string, id: string, content: string) => {
-  await mkdir(path.join(home, "system", "prompts"), { recursive: true });
-  await writeFile(
-    path.join(home, "system", "prompts", `${id}.md`),
-    content,
-    "utf-8",
-  );
+const writePrompt = async (dir: string, id: string, content: string) => {
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, `${id}.md`), content, "utf-8");
 };
 
-const writeUserPrompt = async (home: string, id: string, content: string) => {
-  await mkdir(path.join(home, "prompts"), { recursive: true });
-  await writeFile(path.join(home, "prompts", `${id}.md`), content, "utf-8");
-};
-
-describe("home prompt consumers", () => {
-  it("resolves memory review from the system mirror, user replacement winning", async () => {
+describe("bundled prompt consumers", () => {
+  it("resolves memory review from the bundled prompts", async () => {
+    const prompts = await tempPromptsDir();
     const home = await tempDir();
     expect(buildMemoryReviewSystemPrompt()).toBe("");
     expect(buildMemoryReviewSystemPrompt(home)).toBe("");
-    await writeSystemPrompt(home, "memory-review", "shipped memory review");
+    await writePrompt(prompts, "memory-review", "shipped memory review");
     expect(buildMemoryReviewSystemPrompt(home)).toBe("shipped memory review");
-    await writeUserPrompt(home, "memory-review", "my memory review");
-    expect(buildMemoryReviewSystemPrompt(home)).toBe("my memory review");
   });
 
-  it("resolves thread compaction from the system mirror", async () => {
-    const home = await tempDir();
+  it("resolves thread compaction from the bundled prompts", async () => {
+    const prompts = await tempPromptsDir();
     expect(resolveThreadCompactionSystemPrompt()).toBe("");
-    expect(resolveThreadCompactionSystemPrompt(home)).toBe("");
-    await writeSystemPrompt(home, "thread-compaction", "shipped compaction");
-    expect(resolveThreadCompactionSystemPrompt(home)).toBe(
-      "shipped compaction",
-    );
+    await writePrompt(prompts, "thread-compaction", "shipped compaction");
+    expect(resolveThreadCompactionSystemPrompt()).toBe("shipped compaction");
   });
 
-  it("resolves generic fallback prompts from the system mirror", async () => {
-    const home = await tempDir();
+  it("resolves generic fallback prompts from the bundled prompts", async () => {
+    const prompts = await tempPromptsDir();
     expect(defaultPromptForAgentType(AGENT_IDS.ORCHESTRATOR)).toBe("");
-    expect(defaultPromptForAgentType(AGENT_IDS.ORCHESTRATOR, home)).toBe("");
-    await writeSystemPrompt(
-      home,
+    await writePrompt(
+      prompts,
       "fallback-orchestrator",
       "shipped orchestrator fallback",
     );
-    await writeSystemPrompt(
-      home,
+    await writePrompt(
+      prompts,
       "fallback-subagent",
       "shipped subagent fallback",
     );
-    expect(defaultPromptForAgentType(AGENT_IDS.ORCHESTRATOR, home)).toBe(
+    expect(defaultPromptForAgentType(AGENT_IDS.ORCHESTRATOR)).toBe(
       "shipped orchestrator fallback",
     );
-    expect(defaultPromptForAgentType("unknown-agent", home)).toBe(
+    expect(defaultPromptForAgentType("unknown-agent")).toBe(
       "shipped subagent fallback",
     );
+  });
+
+  it("ships the real bundled prompt set", () => {
+    // Without the env override, the repo's own bundle is the source.
+    expect(resolveThreadCompactionSystemPrompt()).not.toBe("");
+    expect(defaultPromptForAgentType(AGENT_IDS.ORCHESTRATOR)).not.toBe("");
+    expect(defaultPromptForAgentType("unknown-agent")).not.toBe("");
   });
 });
 
 describe("personality composition", () => {
-  it("composes live from the selected system preset", async () => {
+  it("composes live from the selected bundled preset", async () => {
+    const prompts = await tempPromptsDir();
     const home = await tempDir();
     expect(readOrSeedPersonality(home)).toBe("");
 
-    await writeSystemPrompt(home, "personality-stella", "Stella voice");
-    await writeSystemPrompt(
-      home,
-      "personality-professional",
-      "Professional voice",
-    );
+    await writePrompt(prompts, "personality-stella", "Stella voice");
+    await writePrompt(prompts, "personality-professional", "Professional voice");
 
     expect(resolvePersonalityPresetContent(home, "stella")).toBe(
       "Stella voice\n",
@@ -110,18 +108,15 @@ describe("personality composition", () => {
     await expect(
       readFile(path.join(home, "PERSONALITY.md"), "utf-8"),
     ).rejects.toThrow();
-    await writeSystemPrompt(home, "personality-stella", "Updated Stella voice");
+    await writePrompt(prompts, "personality-stella", "Updated Stella voice");
     expect(readOrSeedPersonality(home)).toBe("Updated Stella voice");
   });
 
   it("lets a hand-written PERSONALITY.md replace the preset until a new pick clears it", async () => {
+    const prompts = await tempPromptsDir();
     const home = await tempDir();
-    await writeSystemPrompt(home, "personality-stella", "Stella voice");
-    await writeSystemPrompt(
-      home,
-      "personality-professional",
-      "Professional voice",
-    );
+    await writePrompt(prompts, "personality-stella", "Stella voice");
+    await writePrompt(prompts, "personality-professional", "Professional voice");
 
     await writeFile(path.join(home, "PERSONALITY.md"), "my custom voice");
     expect(readOrSeedPersonality(home)).toBe("my custom voice");

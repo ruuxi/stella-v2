@@ -6,8 +6,7 @@ import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { getOrCreateDeviceIdentity, resetDeviceIdentity as resetStoredDeviceIdentity, signDeviceHeartbeat, } from "@stella/runtime/kernel/home/device";
 import { getSoundNotificationsEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 import { deleteConnectorAccessTokens, loadConnectorTokenPayload, saveConnectorTokenPayload, } from "@stella/runtime/kernel/connectors/oauth";
-import { ensureStellaDataDirSeeded, syncStellaPromptSnapshot, } from "@stella/runtime/kernel/home/stella-home";
-import { stellaPromptEndpointFromSiteUrl } from "@stella/contracts/stella-api";
+import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
 import { createStellaHostRunner, } from "../stella-host-runner.js";
 import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastUserAppsUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
@@ -30,20 +29,9 @@ import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/r
 // first call's promise means resets don't re-pay the reconciliation. This is
 // safe because resets do not change bundled skills or agents on disk.
 let stellaDataDirSeedingPromise = null;
-let configuredPromptSyncPromise = null;
-let lastConfiguredPromptEndpoint = null;
-const ensureStellaDataDirSeededOnce = (stellaAppDir, stellaDataDirPath, promptSiteUrl) => {
+const ensureStellaDataDirSeededOnce = (stellaAppDir, stellaDataDirPath) => {
     if (!stellaDataDirSeedingPromise) {
-        const promptEndpoint = promptSiteUrl
-            ? stellaPromptEndpointFromSiteUrl(promptSiteUrl)
-            : null;
-        const attempt = ensureStellaDataDirSeeded(stellaAppDir, stellaDataDirPath, {
-            promptSiteUrl,
-        }).then((result) => {
-            if (promptEndpoint && result.promptResolution !== "unavailable") {
-                lastConfiguredPromptEndpoint = promptEndpoint;
-            }
-        });
+        const attempt = ensureStellaDataDirSeeded(stellaAppDir, stellaDataDirPath);
         stellaDataDirSeedingPromise = attempt;
         void attempt.catch(() => {
             if (stellaDataDirSeedingPromise === attempt) {
@@ -52,36 +40,6 @@ const ensureStellaDataDirSeededOnce = (stellaAppDir, stellaDataDirPath, promptSi
         });
     }
     return stellaDataDirSeedingPromise;
-};
-export const syncConfiguredPromptSiteUrl = async (context, siteUrl) => {
-    const endpoint = stellaPromptEndpointFromSiteUrl(siteUrl);
-    if (endpoint === lastConfiguredPromptEndpoint)
-        return;
-    const previous = configuredPromptSyncPromise ?? Promise.resolve();
-    const attempt = previous
-        .catch(() => undefined)
-        .then(async () => {
-        if (endpoint === lastConfiguredPromptEndpoint)
-            return;
-        const stellaAppDir = context.state.stellaAppDir;
-        const stellaDataDirPath = context.state.stellaDataDirPath;
-        if (!stellaAppDir || !stellaDataDirPath)
-            return;
-        await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath, siteUrl);
-        if (endpoint === lastConfiguredPromptEndpoint)
-            return;
-        await syncStellaPromptSnapshot(stellaAppDir, stellaDataDirPath, siteUrl);
-        lastConfiguredPromptEndpoint = endpoint;
-    });
-    configuredPromptSyncPromise = attempt;
-    try {
-        await attempt;
-    }
-    finally {
-        if (configuredPromptSyncPromise === attempt) {
-            configuredPromptSyncPromise = null;
-        }
-    }
 };
 // macOS attributes TCC (Accessibility) checks to the "responsible process",
 // which is inherited at spawn time. The detached runtime worker outlives the
@@ -357,8 +315,7 @@ export const initializeStellaHostRunner = async (context) => {
     // Reconcile bundled skills/agents into the home dir before the worker
     // (spawned by connectHostRunner -> runner.start()/ensureWorkerStarted) reads
     // them. One-shot cached so host-runner resets don't re-pay it.
-    const promptSiteUrl = context.config.promptSiteUrl ?? services.authService.getConvexSiteUrl();
-    await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath, promptSiteUrl);
+    await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath);
     await services.securityPolicyService.loadPolicy();
     const loadDeviceIdentity = async () => await getOrCreateDeviceIdentity(stellaDataDirPath);
     const resetDeviceIdentity = async () => await resetStoredDeviceIdentity(stellaDataDirPath);

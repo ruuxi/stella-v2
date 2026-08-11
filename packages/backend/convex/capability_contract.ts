@@ -3,7 +3,7 @@
  *
  * Convex bundles only from `convex/`, so the shared capability matrix cannot
  * be imported here — it is duplicated instead, exactly as
- * `stella_prompt_contract.ts` duplicates `contracts/stella-prompts.ts`.
+ * it is duplicated instead.
  * `packages/backend/tests/capability-contract.test.ts` diffs the two and
  * fails if they drift, so the contract stays the single place a capability
  * is reshuffled between plans.

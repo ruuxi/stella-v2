@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Usar os padrões da Stella",
-      "description": "Remove suas personalizações de prompts e habilidades para aplicar os padrões da Stella. O que for removido fica em ~/.stella/.trash caso queira recuperar.",
+      "description": "Remove suas personalizações de habilidades e edições de personalidade para aplicar os padrões da Stella. O que for removido fica em ~/.stella/.trash caso queira recuperar.",
       "action": "Restaurar padrões",
       "done": "Padrões restaurados. Suas personalizações anteriores foram movidas para ~/.stella/.trash.",
       "none": "Você já está usando os padrões da Stella.",

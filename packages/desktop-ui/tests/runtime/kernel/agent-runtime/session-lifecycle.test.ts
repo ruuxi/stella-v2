@@ -174,23 +174,9 @@ describe("OrchestratorSession", () => {
     const tempRoot = await mkdtemp(
       path.join(os.tmpdir(), "stella-tool-refresh-"),
     );
-    const systemAgentsDir = path.join(tempRoot, "system", "agents");
     const oldMetadataDir = path.join(tempRoot, "old-agent-metadata");
-    await mkdir(systemAgentsDir, { recursive: true });
     await mkdir(oldMetadataDir, { recursive: true });
     const oldTools = ["spawn_agent", "send_input", "pause_agent"];
-    await writeFile(
-      path.join(systemAgentsDir, "orchestrator.md"),
-      [
-        "---",
-        "name: Mirrored Orchestrator",
-        "description: Mirrored prompt",
-        `tools: ${oldTools.join(", ")}`,
-        "maxAgentDepth: 1",
-        "---",
-        "Keep this customized prompt body.",
-      ].join("\n"),
-    );
     await writeFile(
       path.join(oldMetadataDir, "orchestrator.md"),
       [
@@ -217,10 +203,10 @@ describe("OrchestratorSession", () => {
     const afterReload = loadStellaRuntimeAgents(tempRoot, metadataDir).find(
       (agent) => agent.id === "orchestrator",
     );
-    expect(beforeReload?.systemPrompt).toBe(
-      "Keep this customized prompt body.",
+    expect(beforeReload?.systemPrompt).toBe("Legacy-compatible metadata body.");
+    expect(afterReload?.systemPrompt).toContain(
+      "World's best Personal AI Assistant",
     );
-    expect(afterReload?.systemPrompt).toBe("Keep this customized prompt body.");
     expect(beforeReload?.toolsAllowlist).not.toContain("exec_command");
     expect(afterReload?.toolsAllowlist).toContain("exec_command");
     expect(afterReload?.toolsAllowlist).toContain("node_repl");

@@ -62,7 +62,7 @@ import {
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { readHomePrompt } from "../prompts/home-prompts.js";
+import { readRuntimePrompt } from "../prompts/home-prompts.js";
 
 const logger = createRuntimeLogger("agent-runtime.dream-scheduler");
 
@@ -162,7 +162,7 @@ const readDreamConfig = (stellaDataDir: string): DreamConfig => {
 
 export const buildDreamSystemPrompt = (stellaDataDir: string): string =>
   [
-    readHomePrompt(stellaDataDir, "dream-scheduled") ?? "",
+    readRuntimePrompt("dream-scheduled") ?? "",
     [
       "Maintain ~/.stella/memories/memory_index.md on every consolidation pass.",
       "Keep it a compact routing map: task families, aliases, repo names, paths, prior-decision hooks, and the best retrieval source (memory, threads, or transcripts).",

@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Folosește setările implicite Stella",
-      "description": "Elimină personalizările tale de prompturi și abilități pentru a aplica setările implicite Stella. Ce este eliminat rămâne în ~/.stella/.trash în caz că vrei să îl recuperezi.",
+      "description": "Elimină personalizările tale de abilități și modificările de personalitate pentru a aplica setările implicite Stella. Ce este eliminat rămâne în ~/.stella/.trash în caz că vrei să îl recuperezi.",
       "action": "Restaurează implicite",
       "done": "Setările implicite au fost restaurate. Personalizările anterioare au fost mutate în ~/.stella/.trash.",
       "none": "Folosești deja setările implicite Stella.",

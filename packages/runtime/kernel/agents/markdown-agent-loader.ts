@@ -60,8 +60,6 @@ const normalizeAgent = (
       ? metadata.model.trim()
       : undefined;
   const maxAgentDepth = parseOptionalNumber(metadata.maxAgentDepth);
-  const promptSource =
-    metadata.promptSource === "bundled" ? "bundled" : undefined;
 
   return {
     id,
@@ -72,7 +70,6 @@ const normalizeAgent = (
     ...(toolsAllowlist ? { toolsAllowlist } : {}),
     ...(model ? { model } : {}),
     ...(typeof maxAgentDepth === "number" ? { maxAgentDepth } : {}),
-    ...(promptSource ? { promptSource } : {}),
   };
 };
 

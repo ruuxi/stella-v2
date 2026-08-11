@@ -32,7 +32,7 @@ import {
 } from "../runtime-threads.js";
 import { anyApi } from "convex/server";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
-import { loadHomeAgentSystemPrompt } from "../agents/home-agent-prompt.js";
+import { loadAgentSystemPrompt } from "../agents/home-agent-prompt.js";
 import { renderSkillCatalogBlock } from "../shared/skill-catalog.js";
 import type {
   RunnerContext,
@@ -1429,11 +1429,10 @@ export const buildAgentContext = async (
     // already-connected integrations via their skills; no standing
     // integration guidance is injected here.
   }
-  // Read the live prompt from `~/.stella/agents/` so edits take effect on the
-  // next turn (mtime-gated — unchanged files are not re-read). Falls back to
-  // the registered/bundled prompt when there's no home prompt for this type.
-  const homeSystemPrompt = await loadHomeAgentSystemPrompt(
-    context.stellaDataDir,
+  // Read the live prompt body from the bundled agent definition so dev edits
+  // take effect on the next turn (mtime-gated — unchanged files are not
+  // re-read). Falls back to the registered prompt for extension agents.
+  const bundledSystemPrompt = await loadAgentSystemPrompt(
     agent?.id ?? args.agentType,
   );
   const injectsCoreMemory = agentHasCapability(
@@ -1454,7 +1453,7 @@ export const buildAgentContext = async (
 
   return {
     systemPrompt:
-      homeSystemPrompt ??
+      bundledSystemPrompt ??
       agent?.systemPrompt ??
       defaultPromptForAgentType(args.agentType, context.stellaDataDir),
     dynamicContext: dynamicContextSections.join("\n\n"),

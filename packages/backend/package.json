@@ -11,8 +11,6 @@
     "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
     "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../contracts/convex-api.ts",
     "integrations:publish-composio": "node scripts/publish-composio-native-integrations.mjs",
-    "prompts:sync-defaults": "bun scripts/sync-stella-prompt-defaults.ts",
-    "prompts:publish": "bun scripts/sync-stella-prompt-defaults.ts && bun scripts/publish-stella-prompts.ts",
     "typecheck": "tsc --noEmit -p convex/tsconfig.json",
     "test": "bun test tests/",
     "test:convex": "vitest run --config vitest.config.ts"

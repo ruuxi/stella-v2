@@ -1,3 +1,4 @@
+import fs from "fs";
 import os from "os";
 import path from "path";
 import { Type } from "@sinclair/typebox";
@@ -53,11 +54,19 @@ const expandWorkingDirectory = (value, homeDirectory) => {
   }
   return value;
 };
+const isDirectory = (value) => {
+  try {
+    return fs.statSync(value).isDirectory();
+  } catch {
+    return false;
+  }
+};
 /**
  * Resolve the filesystem root an agent should operate from. The install root
  * remains a separate absolute path for bundled assets; it is only selected
- * here for the legacy `frontend` mode or as a last-resort fallback when the
- * platform does not expose a home directory.
+ * here for the legacy `frontend` mode when it is a real directory. Packaged
+ * Electron builds expose `app.asar` as the install root, but child-process
+ * `cwd` must be a directory, so those builds fall back to the user's home.
  */
 export const resolveLocalCliCwd = ({
   agentType,
@@ -71,13 +80,16 @@ export const resolveLocalCliCwd = ({
       expandWorkingDirectory(explicitWorkingDirectory, homeDirectory),
     );
   }
-  if (getLocalCliWorkingDirectory(agentType) !== "frontend" && homeDirectory) {
-    return path.resolve(homeDirectory);
-  }
   const normalizedStellaAppDir = stellaAppDir?.trim();
-  return normalizedStellaAppDir && normalizedStellaAppDir.length > 0
-    ? normalizedStellaAppDir
-    : undefined;
+  if (
+    getLocalCliWorkingDirectory(agentType) === "frontend" &&
+    normalizedStellaAppDir &&
+    isDirectory(normalizedStellaAppDir)
+  ) {
+    return normalizedStellaAppDir;
+  }
+  if (homeDirectory) return path.resolve(homeDirectory);
+  return undefined;
 };
 export const textFromUnknown = (value) => {
   if (typeof value === "string") return value;

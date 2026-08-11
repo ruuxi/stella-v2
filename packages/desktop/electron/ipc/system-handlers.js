@@ -592,7 +592,6 @@ export const registerSystemHandlers = (options) => {
                 convexSiteUrl,
             });
             if (convexSiteUrl) {
-                options.onPromptSiteUrlConfigured?.(convexSiteUrl);
             }
         }
         return { deviceId: options.getDeviceId() };

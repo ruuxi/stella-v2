@@ -35,7 +35,7 @@ import {
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
-import { readHomePrompt } from "../prompts/home-prompts.js";
+import { readRuntimePrompt } from "../prompts/home-prompts.js";
 
 const logger = createRuntimeLogger("agent-runtime.memory-review");
 
@@ -50,7 +50,7 @@ const MEMORY_REVIEW_USER_PROMPT_PREFIX =
 export const buildMemoryReviewSystemPrompt = (
   stellaDataDir?: string,
 ): string =>
-  stellaDataDir ? (readHomePrompt(stellaDataDir, "memory-review") ?? "") : "";
+  stellaDataDir ? (readRuntimePrompt("memory-review") ?? "") : "";
 
 const formatTextContent = (parts: AssistantMessage["content"]): string =>
   parts

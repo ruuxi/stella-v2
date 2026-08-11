@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "Usa le impostazioni predefinite di Stella",
-      "description": "Rimuove le tue personalizzazioni di prompt e skill per applicare le impostazioni predefinite di Stella. Ciò che viene rimosso resta in ~/.stella/.trash nel caso tu voglia recuperarlo.",
+      "description": "Rimuove le tue personalizzazioni delle skill e le modifiche alla personalità per applicare le impostazioni predefinite di Stella. Ciò che viene rimosso resta in ~/.stella/.trash nel caso tu voglia recuperarlo.",
       "action": "Ripristina predefinite",
       "done": "Impostazioni predefinite ripristinate. Le tue personalizzazioni precedenti sono state spostate in ~/.stella/.trash.",
       "none": "Stai già usando le impostazioni predefinite di Stella.",

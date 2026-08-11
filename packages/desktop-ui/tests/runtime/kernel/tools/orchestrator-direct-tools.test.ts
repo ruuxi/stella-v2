@@ -114,7 +114,6 @@ describe("working orchestrator surface", () => {
       (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
     );
 
-    expect(orchestrator?.promptSource).toBe("bundled");
     expect(orchestrator?.maxAgentDepth).toBe(1);
     expect(orchestrator?.systemPrompt).toContain(
       "Complete requests directly with your own tools.",
@@ -141,7 +140,6 @@ describe("working orchestrator surface", () => {
       (agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID,
     );
 
-    expect(orchestrated?.promptSource).toBe("bundled");
     expect(orchestrated?.maxAgentDepth).toBe(2);
     expect(orchestrated?.systemPrompt).toContain(
       "Execution happens through background agents",
@@ -176,57 +174,39 @@ describe("working orchestrator surface", () => {
     ).toBe(ORCHESTRATED_ORCHESTRATOR_ID);
   });
 
-  it("registers the bundled prompt offline and the system body once mirrored", async () => {
+  it("registers the full bundled agent set and ignores user data-dir files", async () => {
     const { rootPath } = await createTestHost();
-    const offlineAgents = loadStellaRuntimeAgents(rootPath, metadataDir);
+    const agents = loadStellaRuntimeAgents(rootPath, metadataDir);
     expect(
-      offlineAgents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)
+      agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)
         ?.systemPrompt,
     ).toContain(
       "You are Stella, the World's best Personal AI Assistant and Secretary.",
     );
     expect(
-      offlineAgents.find((agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID)
+      agents.find((agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID)
         ?.systemPrompt,
     ).toContain("Execution happens through background agents");
+    expect(
+      agents.find((agent) => agent.id === AGENT_IDS.GENERAL)?.systemPrompt,
+    ).toBeTruthy();
 
-    // Once the mirror has a body, it wins over the bundled fallback — with
-    // capability metadata still coming from the bundle, so a stale mirrored
-    // frontmatter can never change the tool surface.
-    const systemAgentsDir = path.join(rootPath, "system", "agents");
-    await mkdir(systemAgentsDir, { recursive: true });
-    await writeFile(
-      path.join(systemAgentsDir, "orchestrator.md"),
-      [
-        "---",
-        "name: Mirrored Orchestrator",
-        "description: stale metadata",
-        "tools: spawn_agent",
-        "maxAgentDepth: 9",
-        "---",
-        "Mirrored working prompt.",
-      ].join("\n"),
-    );
-
-    const mirrored = loadStellaRuntimeAgents(rootPath, metadataDir).find(
-      (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
-    );
-    expect(mirrored?.systemPrompt).toBe("Mirrored working prompt.");
-    expect(mirrored?.maxAgentDepth).toBe(1);
-    expect(mirrored?.toolsAllowlist).toContain("node_repl");
-
-    // A user overlay for a shipped agent is per-turn composition, not a
-    // second registered agent.
+    // System prompts are not user-customizable: files in the data dir never
+    // register or override anything.
     const agentsDir = path.join(rootPath, "agents");
     await mkdir(agentsDir, { recursive: true });
-    await writeFile(path.join(agentsDir, "orchestrator.md"), "my overlay\n");
-    const agents = loadStellaRuntimeAgents(rootPath, metadataDir);
+    await writeFile(
+      path.join(agentsDir, "orchestrator.md"),
+      "---\nname: Rogue\ntools: exec_command\n---\nrogue prompt\n",
+    );
+    const reloaded = loadStellaRuntimeAgents(rootPath, metadataDir);
     expect(
-      agents.filter((agent) => agent.id === AGENT_IDS.ORCHESTRATOR),
+      reloaded.filter((agent) => agent.id === AGENT_IDS.ORCHESTRATOR),
     ).toHaveLength(1);
     expect(
-      agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)?.systemPrompt,
-    ).toBe("Mirrored working prompt.");
+      reloaded.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)
+        ?.systemPrompt,
+    ).toContain("World's best Personal AI Assistant");
   });
 
   it("offers direct execution plus personal tools and keeps child agents one level deep", async () => {

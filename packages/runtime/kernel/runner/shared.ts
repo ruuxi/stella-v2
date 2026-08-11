@@ -14,7 +14,7 @@ import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
 import { redactMemoryText } from "../memory/redaction.js";
 import { MEMORY_INDEX_MAX_CHARS } from "../memory/dream-storage.js";
-import { readHomePrompt } from "../prompts/home-prompts.js";
+import { readRuntimePrompt } from "../prompts/home-prompts.js";
 import { boundParentAgentReport } from "./agent-report-bounds.js";
 
 export const DEFAULT_MAX_AGENT_DEPTH = 8;
@@ -28,16 +28,13 @@ export {
 
 export const defaultPromptForAgentType = (
   agentType: string,
-  stellaDataDir?: string,
+  _stellaDataDir?: string,
 ): string =>
-  stellaDataDir
-    ? (readHomePrompt(
-        stellaDataDir,
-        isOrchestratorAgentType(agentType)
-          ? "fallback-orchestrator"
-          : "fallback-subagent",
-      ) ?? "")
-    : "";
+  readRuntimePrompt(
+    isOrchestratorAgentType(agentType)
+      ? "fallback-orchestrator"
+      : "fallback-subagent",
+  ) ?? "";
 
 export const readCoreMemory = (stellaDataDir: string): string | undefined => {
   const candidatePaths = [

@@ -22,7 +22,6 @@ import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,
 } from "./bootstrap/lifecycle.js";
-import { resolvePackagedPromptSiteUrl } from "./prompt-site-config.js";
 const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
 // turn a signed build back into a Vite client.
@@ -115,7 +114,6 @@ export const bootstrapMainProcess = () => {
     electronDir: __dirname,
     stellaAppDir,
     stellaDataDirPath,
-    promptSiteUrl: resolvePackagedPromptSiteUrl(),
     hardResetMutableHomePaths: HARD_RESET_MUTABLE_HOME_PATHS,
     isDev,
     useDevServer,

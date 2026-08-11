@@ -2,11 +2,6 @@ import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
-import {
-  STELLA_PROMPT_REVISION_PATTERN,
-  readBoundedPromptPublishBody,
-  validateStellaPromptInputs,
-} from "../stella_prompt_contract";
 
 const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
@@ -30,11 +25,6 @@ type AdminBillingPlanBody = {
 type AdminPartnerBadgeBody = {
   ownerId?: string;
   granted?: boolean;
-};
-
-type AdminPromptsBody = {
-  revision?: string;
-  prompts?: Array<{ id?: string; content?: string }>;
 };
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -147,37 +137,6 @@ const readPartnerBadgeBody = async (
 };
 
 export const registerAdminRoutes = (http: HttpRouter) => {
-  http.route({
-    path: "/api/admin/stella/prompts",
-    method: "POST",
-    handler: httpAction(async (ctx, request) => {
-      const admin = requireAdminRequest(request);
-      if (!admin.ok) return admin.response;
-      const parsedBody = await readBoundedPromptPublishBody(request);
-      if (!parsedBody.ok) {
-        return jsonResponse(400, { error: parsedBody.error });
-      }
-      const body = parsedBody.value as AdminPromptsBody | null;
-      const revision =
-        typeof body?.revision === "string" ? body.revision.trim() : "";
-      if (!STELLA_PROMPT_REVISION_PATTERN.test(revision)) {
-        return jsonResponse(400, {
-          error: "revision must be a lowercase SHA-256 hex string",
-        });
-      }
-      const validated = validateStellaPromptInputs(body?.prompts);
-      if (!validated.ok) {
-        return jsonResponse(400, { error: validated.error });
-      }
-      return jsonResponse(
-        200,
-        await ctx.runMutation(internal.stella_prompts.publish, {
-          revision,
-          prompts: validated.prompts,
-        }),
-      );
-    }),
-  });
   http.route({
     path: ADMIN_BILLING_PLAN_PATH,
     method: "POST",

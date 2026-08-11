@@ -1,4 +1,3 @@
-import path from "node:path";
 import { loadParsedAgentsFromDir } from "../../kernel/agents/markdown-agent-loader.js";
 import type {
   ExtensionFactory,
@@ -17,67 +16,15 @@ const bundledAgentMetadataDir = () =>
   resolveRuntimeSourceAsset("extensions", "stella-runtime", "agent-metadata");
 
 /**
- * Register agents from the system mirror (shipped bodies) merged with bundled
- * capability metadata, plus any standalone user-defined agents.
- *
- * - `~/.stella/system/agents/<id>.md` provides the shipped prompt body;
- *   capability metadata (tools, model, maxAgentDepth) always comes from the
- *   bundled `agent-metadata/<id>.md` so a body update can never change an
- *   agent's tool surface.
- * - User customizations under `~/.stella/agents/` are NOT registered as
- *   agents for ids the system already ships — they are overlays/replacements
- *   composed per turn by `loadHomeAgentSystemPrompt`. Only ids with no system
- *   counterpart register as standalone user agents.
- * - `promptSource: bundled` metadata registers wholesale when the system
- *   mirror has no file for it yet (offline first boot before any sync).
+ * Register Stella's agents straight from the bundled definitions. The bundle
+ * is the single source of truth for system prompts — a product surface, not a
+ * user customization point. Prompt bodies are additionally live-read per turn
+ * (`loadAgentSystemPrompt`) so dev edits apply without a reload.
  */
 export const loadStellaRuntimeAgents = (
-  stellaDataDir: string,
+  _stellaDataDir: string,
   agentMetadataDir: string | URL = bundledAgentMetadataDir(),
-) => {
-  const metadataAgents = loadParsedAgentsFromDir(agentMetadataDir);
-  const metadataById = new Map(
-    metadataAgents.map((agent) => [agent.id, agent]),
-  );
-  const systemAgents = loadParsedAgentsFromDir(
-    path.join(stellaDataDir, "system", "agents"),
-  );
-  const registeredIds = new Set(systemAgents.map((agent) => agent.id));
-  const reconciled = systemAgents.map((systemAgent) => {
-    const metadata = metadataById.get(systemAgent.id);
-    if (!metadata) return systemAgent;
-    return {
-      id: metadata.id,
-      name: metadata.name,
-      description: metadata.description,
-      systemPrompt: systemAgent.systemPrompt,
-      agentTypes: metadata.agentTypes,
-      ...(metadata.toolsAllowlist
-        ? { toolsAllowlist: metadata.toolsAllowlist }
-        : {}),
-      ...(metadata.model ? { model: metadata.model } : {}),
-      ...(typeof metadata.maxAgentDepth === "number"
-        ? { maxAgentDepth: metadata.maxAgentDepth }
-        : {}),
-    };
-  });
-  for (const metadata of metadataAgents) {
-    if (metadata.promptSource === "bundled" && !registeredIds.has(metadata.id)) {
-      reconciled.push(metadata);
-      registeredIds.add(metadata.id);
-    }
-  }
-  for (const userAgent of loadParsedAgentsFromDir(
-    path.join(stellaDataDir, "agents"),
-  )) {
-    if (registeredIds.has(userAgent.id)) continue;
-    if (userAgent.id.endsWith(".replace")) continue;
-    if (metadataById.has(userAgent.id)) continue;
-    reconciled.push(userAgent);
-    registeredIds.add(userAgent.id);
-  }
-  return reconciled;
-};
+) => loadParsedAgentsFromDir(agentMetadataDir);
 
 /**
  * Stella's runtime extension.

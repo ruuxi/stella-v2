@@ -92,7 +92,7 @@
     },
     "resetCustomizations": {
       "title": "A Stella alapértelmezéseinek használata",
-      "description": "Eltávolítja a prompt- és készség-testreszabásaidat, hogy a Stella alapértelmezései érvényesüljenek. Az eltávolítottak a ~/.stella/.trash mappában maradnak, ha vissza szeretnéd őket.",
+      "description": "Eltávolítja a készség-testreszabásaidat és a személyiség-módosításaidat, hogy a Stella alapértelmezései érvényesüljenek. Az eltávolítottak a ~/.stella/.trash mappában maradnak, ha vissza szeretnéd őket.",
       "action": "Alapértelmezések visszaállítása",
       "done": "Alapértelmezések visszaállítva. Korábbi testreszabásaid a ~/.stella/.trash mappába kerültek.",
       "none": "Már a Stella alapértelmezéseit használod.",

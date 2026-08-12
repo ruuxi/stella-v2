@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowRight, ExternalLink, Smartphone } from "lucide-react";
+import { reportGoogleAdsSignup } from "@/components/google-ads-tag";
 import styles from "./view.module.css";
 
 type ClientKind = "desktop" | "mobile";
@@ -59,6 +60,17 @@ export function AuthCallbackView() {
     const params = new URLSearchParams(queryString);
     return buildDeepLink(alternateClient, params);
   }, [alternateClient, queryString]);
+
+  // Sign-up conversion: `done=true` means a website-initiated sign-in
+  // completed; an `ott` handoff means the user clicked their sign-in email
+  // for the desktop/mobile app — the closest website-observable moment of an
+  // in-app sign-up. Fired before the deep-link redirect below (navigating to
+  // a custom scheme does not unload this page).
+  useEffect(() => {
+    if (isDone || hasOtt) {
+      reportGoogleAdsSignup();
+    }
+  }, [isDone, hasOtt]);
 
   useEffect(() => {
     if (isDone || !queryString || !hasOtt) {

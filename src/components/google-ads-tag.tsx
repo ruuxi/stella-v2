@@ -1,14 +1,12 @@
 "use client";
 
 import Script from "next/script";
-import { useEffect, useSyncExternalStore } from "react";
 
 const GOOGLE_ADS_ID = "AW-18375048850";
 const DOWNLOAD_CONVERSION_DESTINATION =
   "AW-18375048850/CrdSCMj5-d8cEJL987lE";
-const ATTRIBUTION_KEY = "stella-google-ads-attribution";
-const ATTRIBUTION_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const GOOGLE_CLICK_IDS = ["gclid", "gbraid", "wbraid"] as const;
+const SIGNUP_CONVERSION_DESTINATION = "AW-18375048850/6cIuCJjxhuAcEJL987lE";
+const SIGNUP_REPORTED_KEY = "stella-google-ads-signup-reported";
 
 declare global {
   interface Window {
@@ -17,50 +15,14 @@ declare global {
   }
 }
 
-function hasGoogleAdsClickId() {
-  const params = new URLSearchParams(window.location.search);
-  return GOOGLE_CLICK_IDS.some((key) => params.has(key));
-}
-
-function hasCurrentAttribution() {
-  try {
-    const expiresAt = Number(window.localStorage.getItem(ATTRIBUTION_KEY));
-    return Number.isFinite(expiresAt) && expiresAt > Date.now();
-  } catch {
-    return false;
-  }
-}
-
-function subscribeNoop() {
-  return () => {};
-}
-
-function shouldEnableMeasurement() {
-  return hasGoogleAdsClickId() || hasCurrentAttribution();
-}
-
+/**
+ * Google tag (gtag.js) for the Google Ads account. Mounted once in the root
+ * layout so every page — including the /fix/* landing pages — carries it.
+ * Loading unconditionally (rather than only for ad-attributed visits) keeps
+ * the Ads-side tag health check green and lets conversions fire on pages the
+ * visitor reaches after the initial ad click.
+ */
 export function GoogleAdsTag() {
-  const enabled = useSyncExternalStore(
-    subscribeNoop,
-    shouldEnableMeasurement,
-    () => false,
-  );
-
-  useEffect(() => {
-    if (hasGoogleAdsClickId()) {
-      try {
-        window.localStorage.setItem(
-          ATTRIBUTION_KEY,
-          String(Date.now() + ATTRIBUTION_WINDOW_MS),
-        );
-      } catch {
-        // Measurement is optional; downloads must work when storage is blocked.
-      }
-    }
-  }, []);
-
-  if (!enabled) return null;
-
   return (
     <>
       <Script
@@ -79,6 +41,23 @@ export function GoogleAdsTag() {
       </Script>
     </>
   );
+}
+
+/**
+ * Call gtag even if gtag.js hasn't finished loading yet: install the standard
+ * queueing stub (gtag.js drains `dataLayer` entries pushed as Arguments
+ * objects) and dispatch through it.
+ */
+function gtagSafe(...args: unknown[]): void {
+  if (typeof window.gtag !== "function") {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function gtag() {
+      // gtag.js requires the real Arguments object, not an array.
+      // eslint-disable-next-line prefer-rest-params
+      window.dataLayer?.push(arguments);
+    };
+  }
+  window.gtag(...args);
 }
 
 export function reportGoogleAdsDownload(url: string) {
@@ -100,5 +79,29 @@ export function reportGoogleAdsDownload(url: string) {
   window.gtag("event", "conversion", {
     send_to: DOWNLOAD_CONVERSION_DESTINATION,
     event_callback: redirect,
+  });
+}
+
+/**
+ * Report the Google Ads "Sign-up" conversion. Called wherever a sign-in /
+ * sign-up observably completes on the website: the magic-link flow finishing,
+ * the social-OAuth return token verifying, and the /auth/callback page that
+ * email links land on. Deduped per browser so returning sign-ins don't
+ * re-count.
+ */
+export function reportGoogleAdsSignup() {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (window.localStorage.getItem(SIGNUP_REPORTED_KEY)) return;
+    window.localStorage.setItem(SIGNUP_REPORTED_KEY, String(Date.now()));
+  } catch {
+    // Storage blocked — still report; Google dedupes per ad click server-side.
+  }
+
+  gtagSafe("event", "conversion", {
+    send_to: SIGNUP_CONVERSION_DESTINATION,
+    value: 1.0,
+    currency: "USD",
   });
 }

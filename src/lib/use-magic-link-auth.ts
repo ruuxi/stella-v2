@@ -9,6 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import { getSetCookie } from "@convex-dev/better-auth/client/plugins";
+import { reportGoogleAdsSignup } from "@/components/google-ads-tag";
 import { authClient } from "./auth-client";
 import { tryReadConvexSiteUrl } from "./convex-urls";
 
@@ -134,6 +135,7 @@ export const useMagicLinkAuth = (): UseMagicLinkAuthResult => {
                 await authClient.getSession();
               }
               setStatus("complete");
+              reportGoogleAdsSignup();
             } catch {
               setStatus("error");
               setError("Could not finish sign-in. Please try again.");

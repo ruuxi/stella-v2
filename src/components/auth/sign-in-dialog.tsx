@@ -14,6 +14,7 @@ import {
 import { ArrowRight, CheckCircle2, MailCheck, X } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { clearCachedToken } from "@/lib/auth-token";
+import { reportGoogleAdsSignup } from "@/components/google-ads-tag";
 import { useMagicLinkAuth } from "@/lib/use-magic-link-auth";
 import { isConvexConfigured } from "@/lib/convex-urls";
 import formStyles from "@/app/sign-in/sign-in.module.css";
@@ -162,6 +163,7 @@ function useOAuthReturnToken() {
           }
         ).$store;
         store?.notify("$sessionSignal");
+        reportGoogleAdsSignup();
       } catch {
         if (cancelled) return;
         openSignInDialog();

@@ -11,7 +11,8 @@
  * compared byte-for-byte against git.
  *
  * Usage: bun scripts/verify-ota-export.ts [rev]   (default rev: HEAD)
- * Exits non-zero and lists every /src|/app file that differs from the rev.
+ * Exits non-zero and lists every packages/mobile/src|app file that differs
+ * from the rev.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
@@ -28,9 +29,11 @@ if (maps.length === 0) {
   process.exit(1);
 }
 
+const MOBILE_SOURCE_PREFIX = "/packages/mobile";
+
 const gitShow = (path: string): string | null => {
   try {
-    return execFileSync("git", ["show", `${rev}:mobile${path}`], {
+    return execFileSync("git", ["show", `${rev}:packages/mobile${path}`], {
       cwd: mobileRoot,
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
@@ -48,21 +51,35 @@ for (const mapFile of maps) {
     sourcesContent: (string | null)[];
   };
   map.sources.forEach((source, i) => {
+    if (!source.startsWith(`${MOBILE_SOURCE_PREFIX}/`)) return;
+    const mobileSource = source.slice(MOBILE_SOURCE_PREFIX.length);
     // Only first-party code; skip metro virtual modules (`/app?ctx=...`).
-    if (!/^\/(src|app)\//.test(source) && !/^\/(src|app)$/.test(source)) return;
-    if (source.includes("?")) return;
+    if (
+      !/^\/(src|app)\//.test(mobileSource) &&
+      !/^\/(src|app)$/.test(mobileSource)
+    ) {
+      return;
+    }
+    if (mobileSource.includes("?")) return;
     const content = map.sourcesContent[i];
     if (typeof content !== "string") return;
     // Binary assets (png etc.) ride the map with null/placeholder content.
-    if (/\.(png|jpg|jpeg|gif|webp|ttf|otf)$/.test(source)) return;
+    if (/\.(png|jpg|jpeg|gif|webp|ttf|otf)$/.test(mobileSource)) return;
     checked += 1;
-    const committed = gitShow(source);
+    const committed = gitShow(mobileSource);
     if (committed === null) {
-      mismatches.push(`${source} — not in ${rev}`);
+      mismatches.push(`${mobileSource} — not in ${rev}`);
     } else if (committed !== content) {
-      mismatches.push(`${source} — differs from ${rev}`);
+      mismatches.push(`${mobileSource} — differs from ${rev}`);
     }
   });
+}
+
+if (checked === 0) {
+  console.error(
+    "No bundled first-party files were verified — refusing to publish.",
+  );
+  process.exit(1);
 }
 
 if (mismatches.length > 0) {

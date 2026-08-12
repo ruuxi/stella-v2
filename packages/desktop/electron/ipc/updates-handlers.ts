@@ -29,6 +29,9 @@ type UpdatesHandlersOptions = {
     event: IpcMainInvokeEvent,
     channel: string,
   ) => boolean;
+  // Invoked synchronously on the main process when a restart-to-install is
+  // accepted, before the updater begins quitting. See DesktopUpdater.
+  onBeforeRestart?: () => void;
 };
 
 const assertTrusted = (
@@ -61,6 +64,7 @@ export const registerUpdatesHandlers = (
     currentVersion: app.getVersion(),
     enabled: app.isPackaged,
     onStateChanged: broadcast,
+    onBeforeRestart: options.onBeforeRestart,
     log: {
       info: (message) => logger?.process("desktop-updater.info", { message }),
       warn: (message) => logger?.warn("desktop-updater.warn", { message }),

@@ -405,6 +405,30 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     registerUpdatesHandlers({
         getAllWindows: () => getAllWindows(context),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
+        // Fires the instant a restart-to-install is accepted, before the
+        // updater starts quitting. electron-updater/Squirrel closes every
+        // window and then waits for this process to exit before it swaps the
+        // bundle in and relaunches. The always-on-top overlay and pet windows
+        // veto their own `close` (preventDefault) unless `isQuitting` is set,
+        // so if that sweep runs before `before-quit-for-update` lands they can
+        // strand a hidden, still-live app that never relaunches. Arm the quit
+        // flag and force-destroy those windows now — `destroy()` tears the
+        // BrowserWindow down without emitting `close`, so nothing can veto it.
+        onBeforeRestart: () => {
+            state.isQuitting = true;
+            try {
+                state.overlayController?.destroy();
+            }
+            catch (error) {
+                console.error("Failed to destroy overlay window for update restart.", error);
+            }
+            try {
+                state.petController?.destroy();
+            }
+            catch (error) {
+                console.error("Failed to destroy pet window for update restart.", error);
+            }
+        },
     });
     const togglePetVoiceImpl = () => togglePetVoice({
         uiStateService: services.uiStateService,

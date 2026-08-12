@@ -90,11 +90,66 @@ export interface BrowserWorkerPlaywright {
     url: string,
     options?: Readonly<{ timeout?: number }>,
   ): Promise<string>;
+  waitForFunction(
+    pageFunction: string | (() => unknown),
+    options?: Readonly<{ timeout?: number }>,
+  ): Promise<unknown>;
+  schedule(
+    pageFunction: string | ((arg?: unknown) => unknown),
+    arg?: unknown,
+  ): Promise<void>;
   waitForTimeout(ms: number): Promise<void>;
   expectNewTab(
     action: () => unknown | Promise<unknown>,
     options?: Readonly<{ timeoutMs?: number }>,
   ): Promise<BrowserWorkerTab>;
+}
+
+export interface BrowserWorkerNetwork {
+  requests(
+    options?: Readonly<{
+      filter?: string;
+      after?: number;
+      limit?: number;
+      clear?: boolean;
+    }>,
+  ): Promise<readonly unknown[]>;
+  waitForResponse(
+    url: string,
+    action?: () => unknown | Promise<unknown>,
+    options?: Readonly<{ timeout?: number }>,
+  ): Promise<unknown>;
+  rewriteRequest(
+    url: string,
+    options: Readonly<{
+      method?: string;
+      postData?: string;
+      jsonPatch?: Readonly<Record<string, unknown>>;
+      headers?: Readonly<Record<string, string>>;
+    }>,
+  ): Promise<unknown>;
+  clearRequestRewrite(url?: string): Promise<unknown>;
+  fetch(
+    url: string,
+    options?: Readonly<{
+      method?: string;
+      headers?: Readonly<Record<string, string>>;
+      body?: string;
+      timeout?: number;
+      maxBodyBytes?: number;
+    }>,
+  ): Promise<unknown>;
+  fetchAll(
+    requests: readonly Readonly<{
+      url: string;
+      method?: string;
+      headers?: Readonly<Record<string, string>>;
+      body?: string;
+      timeout?: number;
+      maxBodyBytes?: number;
+    }>[],
+    options?: Readonly<{ concurrency?: number; timeout?: number }>,
+  ): Promise<readonly unknown[]>;
 }
 
 export interface BrowserWorkerKeyboard {
@@ -107,6 +162,7 @@ export interface BrowserWorkerTab {
   readonly generation: string;
   readonly playwright: BrowserWorkerPlaywright;
   readonly keyboard: BrowserWorkerKeyboard;
+  readonly network: BrowserWorkerNetwork;
   press(key: string): Promise<unknown>;
   goto(url: string, options?: Record<string, unknown>): Promise<unknown>;
   back(options?: Record<string, unknown>): Promise<unknown>;
@@ -183,7 +239,9 @@ Run multiple awaited browser actions in one REPL cell. Keep the Tab and Locator 
 
 Tabs: browser.tabs.list()/new(url)/selected()/get(id). On a tab: goto, back, forward, reload, url(), title(), close(), snapshot(), screenshot(). tab.expectNewTab(() => action) awaits a click that opens a new tab and returns it.
 
-Locators: tab.playwright.locator(css) and getByRole/getByText/getByLabel/getByPlaceholder/getByTestId, refined with .filter/.nth/.first/.last. Selectors search the top document plus same-origin iframes and open shadow roots; cross-origin frames cannot be searched and not-found errors say how many were skipped. Actions: click, dblclick, fill, type, press, hover, focus, check, uncheck, setChecked, selectOption, setInputFiles (absolute file paths for <input type=file>), scrollIntoViewIfNeeded. Reads: innerText, textContent, inputValue, getAttribute, count, isVisible, isEnabled, isChecked, boundingBox, allTextContents, evaluate.
+Locators: tab.playwright.locator(css) and getByRole/getByText/getByLabel/getByPlaceholder/getByTestId, refined with .filter/.nth/.first/.last. Selectors search the top document plus same-origin iframes and open shadow roots; cross-origin frames cannot be searched and not-found errors say how many were skipped. Actions: click, dblclick, fill, type, press, hover, focus, check, uncheck, setChecked, selectOption, setInputFiles (absolute file paths for <input type=file>), scrollIntoViewIfNeeded. Reads: innerText, textContent, inputValue, getAttribute, count, isVisible, isEnabled, isChecked, boundingBox, allTextContents, evaluate. Use playwright.waitForFunction(fn, { timeout }) for minute-scale page waits; playwright.schedule(fn) starts page work without awaiting its promise.
+
+Network: tab.network.requests() returns a bounded protocol-level request/response history. waitForResponse(pattern, () => action, { timeout }) arms observation before the action and returns status, headers, and a bounded body. rewriteRequest(pattern, { jsonPatch }) merges fields into matching JSON request bodies at the CDP Fetch boundary; clearRequestRewrite() removes it. network.fetch(url, options) makes a same-origin request from the daemon with the tab's applicable cookies and never returns cookie values. fetchAll(requests, { concurrency: 1..4 }) runs true concurrent daemon HTTP work while preserving result order.
 
 Use the cheapest state check that answers the question: url(), title(), count(), isVisible(), isEnabled(), or isChecked(). Use snapshot/domSnapshot only when page structure is needed, and screenshots only when pixels matter.
 
@@ -603,6 +661,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     active: boolean;
     playwright?: BrowserWorkerPlaywright;
     keyboard?: BrowserWorkerKeyboard;
+    network?: BrowserWorkerNetwork;
   };
   const currentTabId = (state: TabState): number => {
     assertCurrentTabGeneration(state.id, state.generation);
@@ -892,6 +951,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     "generation",
     "playwright",
     "keyboard",
+    "network",
     "press",
     "goto",
     "back",
@@ -1645,6 +1705,39 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
           const data = await command("waitforurl", params);
           return stringField(data, "url", typeof data === "string" ? data : "");
         },
+        waitForFunction: async (
+          pageFunction: string | (() => unknown),
+          rawOptions: Readonly<{ timeout?: number }> = {},
+        ) => {
+          const value = requireOptions(rawOptions, "waitForFunction options");
+          assertKnownKeys(value, ["timeout"], "waitForFunction options");
+          const params: Record<string, unknown> = {
+            tabId: currentTabId(state),
+            ...tabGenerationParams(state.generation),
+            expression:
+              typeof pageFunction === "function"
+                ? `(${functionSource(pageFunction, "pageFunction")})()`
+                : functionSource(pageFunction, "pageFunction"),
+            timeout: timeoutParam(value.timeout ?? 30_000, "timeout", 600_000),
+          };
+          const data = await command("waitforfunction", params);
+          return fieldOrSelf(data, "result");
+        },
+        schedule: async function (
+          pageFunction: string | ((arg?: unknown) => unknown),
+          arg?: unknown,
+        ) {
+          const script = pageEvaluateScript(
+            pageFunction,
+            arg,
+            arguments.length >= 2,
+          );
+          await command("evaluate_detached", {
+            tabId: currentTabId(state),
+            ...tabGenerationParams(state.generation),
+            script,
+          });
+        },
         waitForTimeout: async (ms: number) => {
           await command("wait", {
             tabId: currentTabId(state),
@@ -1655,6 +1748,228 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         expectNewTab,
       });
       return state.playwright;
+    }
+
+    get network(): BrowserWorkerNetwork {
+      const state = this.state();
+      if (state.network) return state.network;
+      const tabParams = () => ({
+        tabId: currentTabId(state),
+        ...tabGenerationParams(state.generation),
+      });
+      state.network = Object.freeze({
+        requests: async (rawOptions: Record<string, unknown> = {}) => {
+          const value = requireOptions(rawOptions, "requests options");
+          assertKnownKeys(
+            value,
+            ["filter", "after", "limit", "clear"],
+            "requests options",
+          );
+          const params: Record<string, unknown> = tabParams();
+          if (value.filter !== undefined) {
+            params.filter = requireString(value.filter, "filter", {
+              maxLength: 8_192,
+            });
+          }
+          if (value.after !== undefined) {
+            params.after = requireNonNegativeInteger(value.after, "after");
+          }
+          if (value.limit !== undefined) {
+            const limit = requirePositiveInteger(value.limit, "limit");
+            if (limit > 256) throw new RangeError("limit must be at most 256.");
+            params.limit = limit;
+          }
+          if (value.clear !== undefined) {
+            if (typeof value.clear !== "boolean") {
+              throw new TypeError("clear must be a boolean.");
+            }
+            params.clear = value.clear;
+          }
+          const data = await command("requests", params);
+          const requests = field(data, "requests");
+          return Object.freeze(Array.isArray(requests) ? [...requests] : []);
+        },
+        waitForResponse: async (
+          url: string,
+          action?: () => unknown | Promise<unknown>,
+          rawOptions: Readonly<{ timeout?: number }> = {},
+        ) => {
+          if (action !== undefined && typeof action !== "function") {
+            throw new TypeError("waitForResponse action must be a function.");
+          }
+          const value = requireOptions(rawOptions, "waitForResponse options");
+          assertKnownKeys(value, ["timeout"], "waitForResponse options");
+          const timeout = timeoutParam(
+            value.timeout ?? 30_000,
+            "timeout",
+            600_000,
+          );
+          const pattern = requireString(url, "url", { maxLength: 16_384 });
+          await command("requests", { ...tabParams(), limit: 1 });
+          const after = Date.now();
+          if (action) await action();
+          return await command("responsebody", {
+            ...tabParams(),
+            url: pattern,
+            after,
+            timeout,
+          });
+        },
+        rewriteRequest: async (
+          url: string,
+          rawOptions: Record<string, unknown>,
+        ) => {
+          const value = requireOptions(rawOptions, "rewriteRequest options");
+          assertKnownKeys(
+            value,
+            ["method", "postData", "jsonPatch", "headers"],
+            "rewriteRequest options",
+          );
+          const params: Record<string, unknown> = {
+            ...tabParams(),
+            url: requireString(url, "url", { maxLength: 16_384 }),
+          };
+          if (value.method !== undefined) {
+            params.method = requireString(value.method, "method", {
+              maxLength: 64,
+            });
+          }
+          if (value.postData !== undefined) {
+            params.postData = requireString(value.postData, "postData", {
+              allowEmpty: true,
+              maxLength: 1024 * 1024,
+            });
+          }
+          if (value.jsonPatch !== undefined) {
+            if (!isPlainObject(value.jsonPatch)) {
+              throw new TypeError("jsonPatch must be an object.");
+            }
+            params.jsonPatch = safeJsonValue(value.jsonPatch, "jsonPatch");
+          }
+          if (value.headers !== undefined) {
+            if (!isPlainObject(value.headers)) {
+              throw new TypeError("headers must be an object.");
+            }
+            const headers: Record<string, string> = {};
+            for (const [name, headerValue] of Object.entries(value.headers)) {
+              headers[requireString(name, "header name", { maxLength: 256 })] =
+                requireString(headerValue, `headers.${name}`, {
+                  allowEmpty: true,
+                  maxLength: 8_192,
+                });
+            }
+            params.headers = headers;
+          }
+          return await command("rewrite_request", params);
+        },
+        clearRequestRewrite: async (url?: string) => {
+          const params: Record<string, unknown> = tabParams();
+          if (url !== undefined) {
+            params.url = requireString(url, "url", { maxLength: 16_384 });
+          }
+          return await command("unrewrite_request", params);
+        },
+        fetch: async (
+          url: string,
+          rawOptions: Record<string, unknown> = {},
+        ) => {
+          const value = requireOptions(rawOptions, "fetch options");
+          assertKnownKeys(
+            value,
+            ["method", "headers", "body", "timeout", "maxBodyBytes"],
+            "fetch options",
+          );
+          const params: Record<string, unknown> = {
+            ...tabParams(),
+            url: requireString(url, "url", { maxLength: 16_384 }),
+          };
+          if (value.method !== undefined) {
+            params.method = requireString(value.method, "method", {
+              maxLength: 64,
+            });
+          }
+          if (value.body !== undefined) {
+            params.body = requireString(value.body, "body", {
+              allowEmpty: true,
+              maxLength: 1024 * 1024,
+            });
+          }
+          if (value.timeout !== undefined) {
+            params.timeout = timeoutParam(value.timeout, "timeout", 600_000);
+          }
+          if (value.maxBodyBytes !== undefined) {
+            const maximum = requirePositiveInteger(
+              value.maxBodyBytes,
+              "maxBodyBytes",
+            );
+            if (maximum > 1024 * 1024) {
+              throw new RangeError("maxBodyBytes must be at most 1048576.");
+            }
+            params.maxBodyBytes = maximum;
+          }
+          if (value.headers !== undefined) {
+            if (!isPlainObject(value.headers)) {
+              throw new TypeError("headers must be an object.");
+            }
+            params.headers = safeJsonValue(value.headers, "headers");
+          }
+          return await command("authenticated_request", params);
+        },
+        fetchAll: async (
+          rawRequests: readonly Record<string, unknown>[],
+          rawOptions: Record<string, unknown> = {},
+        ) => {
+          if (!Array.isArray(rawRequests) || rawRequests.length === 0) {
+            throw new TypeError("fetchAll requests must be a non-empty array.");
+          }
+          if (rawRequests.length > 100) {
+            throw new RangeError("fetchAll accepts at most 100 requests.");
+          }
+          const value = requireOptions(rawOptions, "fetchAll options");
+          assertKnownKeys(
+            value,
+            ["concurrency", "timeout"],
+            "fetchAll options",
+          );
+          const concurrency = requirePositiveInteger(
+            value.concurrency ?? 4,
+            "concurrency",
+          );
+          if (concurrency > 4) {
+            throw new RangeError("concurrency must be from 1 to 4.");
+          }
+          const timeout = timeoutParam(
+            value.timeout ?? 30_000,
+            "timeout",
+            600_000,
+          );
+          const requests = rawRequests.map((request, index) => {
+            const options = requireOptions(request, `requests[${index}]`);
+            assertKnownKeys(
+              options,
+              ["url", "method", "headers", "body", "timeout", "maxBodyBytes"],
+              `requests[${index}]`,
+            );
+            const clean = safeJsonValue(
+              options,
+              `requests[${index}]`,
+            ) as Record<string, unknown>;
+            clean.url = requireString(clean.url, `requests[${index}].url`, {
+              maxLength: 16_384,
+            });
+            return clean;
+          });
+          const data = await command("authenticated_request_batch", {
+            ...tabParams(),
+            requests,
+            concurrency,
+            timeout,
+          });
+          const responses = field(data, "responses");
+          return Object.freeze(Array.isArray(responses) ? [...responses] : []);
+        },
+      });
+      return state.network;
     }
 
     get keyboard(): BrowserWorkerKeyboard {
@@ -1863,6 +2178,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     scrollintoview: ["tabId", "selector"],
     wait: ["tabId", "selector", "timeout"],
     waitforurl: ["tabId", "url", "timeout"],
+    waitforfunction: ["tabId", "expression", "timeout"],
     gettext: ["tabId", "selector"],
     innertext: ["tabId", "selector"],
     innerhtml: ["tabId", "selector"],
@@ -1879,8 +2195,8 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     // `route`/`unroute` (they rewrite responses) and `cookies_*` (raw session
     // secrets). Authenticated calls are made from the page's own origin with
     // `evaluate`, so no credential ever has to cross into the worker.
-    requests: ["tabId", "filter", "clear"],
-    responsebody: ["tabId", "url", "timeout"],
+    requests: ["tabId", "filter", "clear", "after", "limit"],
+    responsebody: ["tabId", "url", "timeout", "after"],
     har_start: ["tabId"],
     har_stop: ["tabId", "path"],
   });

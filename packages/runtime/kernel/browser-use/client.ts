@@ -69,6 +69,7 @@ export const BROWSER_CHAIN_ACTIONS = [
   "count",
   "styles",
   "waitforurl",
+  "waitforfunction",
   "bringtofront",
   "requests",
   "responsebody",
@@ -96,6 +97,11 @@ export const BROWSER_CHAIN_ACTIONS = [
 
 export const BROWSER_PROTOCOL_ACTIONS = [
   ...BROWSER_CHAIN_ACTIONS,
+  "authenticated_request",
+  "authenticated_request_batch",
+  "evaluate_detached",
+  "rewrite_request",
+  "unrewrite_request",
   "finalize_tabs",
   "close_owner",
   "release_owner_lease",
@@ -240,10 +246,7 @@ export interface BrowserSessionClient {
     options?: BrowserChainOptions,
   ): Promise<BrowserCommandReceipt<BrowserChainResult<TData>>>;
   beginTurn?(turnId: string): void;
-  endTurn?(
-    turnId: string,
-    behavior: BrowserTurnEndBehavior,
-  ): Promise<void>;
+  endTurn?(turnId: string, behavior: BrowserTurnEndBehavior): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -334,6 +337,35 @@ const BROWSER_OWNER_LIFECYCLE_ACTIONS = new Set<string>([
   "close_owner",
   "release_owner_lease",
 ]);
+// These requests can be repeated after a managed daemon is replaced without
+// changing page/browser state. Mutations and arbitrary evaluation are
+// deliberately absent: the old daemon may have executed them before its
+// response was lost, and replay protection is daemon-local.
+const BROWSER_REPLACEMENT_REPLAY_SAFE_ACTIONS = new Set<string>([
+  "healthcheck",
+  "url",
+  "title",
+  "wait",
+  "screenshot",
+  "snapshot",
+  "content",
+  "gettext",
+  "getattribute",
+  "innertext",
+  "innerhtml",
+  "inputvalue",
+  "boundingbox",
+  "isvisible",
+  "isenabled",
+  "ischecked",
+  "count",
+  "styles",
+  "waitforurl",
+  "requests",
+  "responsebody",
+  "tab_list",
+  "cookies_get",
+]);
 const RESERVED_PARAM_KEYS = new Set([
   "id",
   "action",
@@ -344,6 +376,28 @@ const RESERVED_PARAM_KEYS = new Set([
   "ownerLeaseIssuedAt",
 ]);
 const EMPTY_BUFFER = Buffer.alloc(0);
+
+const canReplayAfterManagedReplacement = (
+  action: string,
+  params: BrowserCommandParams,
+): boolean => {
+  if (action !== "chain") {
+    return BROWSER_REPLACEMENT_REPLAY_SAFE_ACTIONS.has(action);
+  }
+  const steps = params.steps;
+  return (
+    Array.isArray(steps) &&
+    steps.every(
+      (step) =>
+        typeof step === "object" &&
+        step !== null &&
+        !Array.isArray(step) &&
+        BROWSER_REPLACEMENT_REPLAY_SAFE_ACTIONS.has(
+          String((step as Readonly<Record<string, BrowserJsonValue>>).action),
+        ),
+    )
+  );
+};
 
 const requireNonEmptyString = (value: unknown, name: string): string => {
   if (typeof value !== "string" || value.trim() === "") {
@@ -1344,6 +1398,7 @@ export class BrowserSession implements BrowserSessionClient {
     const deadline = startedAt + timeoutMs;
     let response: BrowserCommandResult<TData>;
     let attempts = 0;
+    let requestDispatched = false;
 
     try {
       for (;;) {
@@ -1358,6 +1413,7 @@ export class BrowserSession implements BrowserSessionClient {
             );
           }
           await this.ensureConnected(signal, deadline, timeoutMs);
+          requestDispatched = true;
           response = (await this.roundTrip(
             request,
             requestId,
@@ -1370,6 +1426,21 @@ export class BrowserSession implements BrowserSessionClient {
           this.assertOpen();
           throwIfAborted(signal);
           this.markManagedCapabilityForRecovery(cause);
+          const managedBridge =
+            this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE ===
+            "1";
+          if (
+            managedBridge &&
+            requestDispatched &&
+            cause instanceof BrowserTransportError &&
+            !canReplayAfterManagedReplacement(action, params)
+          ) {
+            throw new BrowserTransportError(
+              cause.code,
+              `${cause.message} The '${action}' command may have completed before the managed browser backend disconnected, so Stella will not replay it automatically. Its outcome is unknown; inspect the current page and tab state before deciding whether to retry.`,
+              { cause },
+            );
+          }
           if (
             attempts >= 2 ||
             !(cause instanceof BrowserTransportError) ||

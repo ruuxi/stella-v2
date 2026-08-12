@@ -331,6 +331,13 @@
         "script"
       ]
     },
+    "evaluate_detached": {
+      "chain": false,
+      "params": [
+        "script"
+      ],
+      "note": "Schedules page work with Runtime.evaluate awaitPromise=false and returns immediately."
+    },
     "expose": {
       "chain": false,
       "params": [
@@ -745,22 +752,63 @@
     "requests": {
       "chain": true,
       "params": [
+        "after",
         "clear",
-        "filter"
+        "filter",
+        "limit"
       ]
     },
     "responsebody": {
       "chain": true,
       "params": [
+        "after",
         "timeout",
         "url"
       ]
+    },
+    "authenticated_request": {
+      "chain": false,
+      "params": [
+        "body",
+        "headers",
+        "maxBodyBytes",
+        "method",
+        "timeout",
+        "url"
+      ],
+      "note": "Runs a bounded same-origin fetch in the addressed tab so its authenticated browser session is used without exporting cookies."
+    },
+    "authenticated_request_batch": {
+      "chain": false,
+      "params": [
+        "concurrency",
+        "requests",
+        "timeout"
+      ],
+      "note": "Runs bounded same-origin authenticated requests concurrently in the daemon."
     },
     "route": {
       "chain": true,
       "params": [
         "abort",
         "response",
+        "url"
+      ]
+    },
+    "rewrite_request": {
+      "chain": false,
+      "params": [
+        "headers",
+        "jsonPatch",
+        "method",
+        "postData",
+        "url"
+      ],
+      "note": "Rewrites matching requests at the Fetch/CDP protocol boundary before they are sent."
+    },
+    "unrewrite_request": {
+      "chain": false,
+      "params": [
         "url"
       ]
     },
@@ -1070,7 +1118,7 @@
       "note": "Resolves with the real on-disk path when it can be verified from CDP download events; otherwise returns the requested path with verified: false."
     },
     "waitforfunction": {
-      "chain": false,
+      "chain": true,
       "params": [
         "expression",
         "timeout"

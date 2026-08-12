@@ -102,8 +102,10 @@ const WORKER_EMITTED_COMMANDS: Record<string, readonly string[]> = {
   screenshot: ["fullPage", "annotate", "selector", "format", "quality"],
   scroll: ["x", "y", "direction", "amount", "selector"], // tab.scroll
   evaluate: ["script"],
+  evaluate_detached: ["script"],
   wait: ["selector", "timeout"], // waitFor / waitForTimeout
   waitforurl: ["url", "timeout"],
+  waitforfunction: ["expression", "timeout"],
   press: ["key", "selector"], // tab.press / locator.press
   inserttext: ["text"], // tab.keyboard.type
   click: ["selector"],
@@ -126,6 +128,19 @@ const WORKER_EMITTED_COMMANDS: Record<string, readonly string[]> = {
   ischecked: ["selector"],
   boundingbox: ["selector"],
   count: ["selector"],
+  requests: ["filter", "after", "limit", "clear"],
+  responsebody: ["url", "after", "timeout"],
+  rewrite_request: ["url", "method", "postData", "jsonPatch", "headers"],
+  unrewrite_request: ["url"],
+  authenticated_request: [
+    "url",
+    "method",
+    "headers",
+    "body",
+    "timeout",
+    "maxBodyBytes",
+  ],
+  authenticated_request_batch: ["requests", "concurrency", "timeout"],
 };
 
 /**
@@ -159,8 +174,9 @@ const CHAIN_ACTIONS_NOT_OFFERED_TO_AGENTS: Record<string, string> = {
 describe("browser action contract (manifest <-> JS layers)", () => {
   it("client BROWSER_CHAIN_ACTIONS matches the manifest chain vocabulary exactly", () => {
     const client = new Set<string>(BROWSER_CHAIN_ACTIONS);
-    expect([...client].filter((action) => !manifestChainActions.has(action)))
-      .toEqual([]);
+    expect(
+      [...client].filter((action) => !manifestChainActions.has(action)),
+    ).toEqual([]);
     expect(
       [...manifestChainActions].filter((action) => !client.has(action)),
     ).toEqual([]);
@@ -172,13 +188,20 @@ describe("browser action contract (manifest <-> JS layers)", () => {
       (action) => !chainSet.has(action),
     );
     expect(protocolOnly.sort()).toEqual([
+      "authenticated_request",
+      "authenticated_request_batch",
       "close_owner",
+      "evaluate_detached",
       "finalize_tabs",
       "release_owner_lease",
+      "rewrite_request",
+      "unrewrite_request",
     ]);
     for (const action of protocolOnly) {
-      expect(manifestActions.has(action), `${action} missing from manifest`)
-        .toBe(true);
+      expect(
+        manifestActions.has(action),
+        `${action} missing from manifest`,
+      ).toBe(true);
       expect(
         manifest.actions[action]!.chain,
         `${action} must be top-level only`,
@@ -268,8 +291,9 @@ describe("browser action contract (manifest <-> JS layers)", () => {
       "site_mod_toggle",
     ]) {
       expect(manifestActions.has(action)).toBe(false);
-      expect((BROWSER_PROTOCOL_ACTIONS as readonly string[]).includes(action))
-        .toBe(false);
+      expect(
+        (BROWSER_PROTOCOL_ACTIONS as readonly string[]).includes(action),
+      ).toBe(false);
     }
     // finalize_tabs is top-level-only: offering it as a chain step would be
     // rejected by both the client and the daemon.

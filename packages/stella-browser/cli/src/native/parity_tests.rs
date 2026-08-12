@@ -548,11 +548,23 @@ async fn test_daemon_state_new_defaults() {
 async fn test_tracked_request_struct() {
     use super::actions::TrackedRequest;
     let tr = TrackedRequest {
+        request_id: "request-1".to_string(),
+        session_id: "session-1".to_string(),
         url: "https://example.com/api".to_string(),
         method: "GET".to_string(),
         headers: json!({"Accept": "text/html"}),
+        post_data: None,
+        post_data_truncated: false,
         timestamp: 12345,
         resource_type: "Document".to_string(),
+        status: Some(200),
+        response_headers: Some(json!({})),
+        mime_type: Some("text/html".to_string()),
+        body: Some("ok".to_string()),
+        body_base64: false,
+        body_truncated: false,
+        completed: true,
+        failure_text: None,
     };
     let serialized = serde_json::to_value(&tr).unwrap();
     assert_eq!(serialized["url"], "https://example.com/api");
@@ -568,18 +580,42 @@ async fn test_request_tracking_state() {
     assert!(state.tracked_requests.is_empty());
 
     state.tracked_requests.push(super::actions::TrackedRequest {
+        request_id: "request-1".to_string(),
+        session_id: "session-1".to_string(),
         url: "https://example.com".to_string(),
         method: "GET".to_string(),
         headers: json!({}),
+        post_data: None,
+        post_data_truncated: false,
         timestamp: 1,
         resource_type: "Document".to_string(),
+        status: None,
+        response_headers: None,
+        mime_type: None,
+        body: None,
+        body_base64: false,
+        body_truncated: false,
+        completed: false,
+        failure_text: None,
     });
     state.tracked_requests.push(super::actions::TrackedRequest {
+        request_id: "request-2".to_string(),
+        session_id: "session-1".to_string(),
         url: "https://other.com".to_string(),
         method: "POST".to_string(),
         headers: json!({}),
+        post_data: Some("{}".to_string()),
+        post_data_truncated: false,
         timestamp: 2,
         resource_type: "XHR".to_string(),
+        status: None,
+        response_headers: None,
+        mime_type: None,
+        body: None,
+        body_base64: false,
+        body_truncated: false,
+        completed: false,
+        failure_text: None,
     });
     assert_eq!(state.tracked_requests.len(), 2);
 

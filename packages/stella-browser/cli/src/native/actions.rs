@@ -60,6 +60,7 @@ fn is_known_action(action: &str) -> bool {
             | "title"
             | "content"
             | "evaluate"
+            | "evaluate_detached"
             | "close"
             | "snapshot"
             | "screenshot"
@@ -186,7 +187,11 @@ fn is_known_action(action: &str) -> bool {
             | "har_stop"
             | "route"
             | "unroute"
+            | "rewrite_request"
+            | "unrewrite_request"
             | "requests"
+            | "authenticated_request"
+            | "authenticated_request_batch"
             | "credentials"
             | "emulatemedia"
             | "auth_save"
@@ -262,6 +267,7 @@ fn is_chain_allowed_action(action: &str) -> bool {
             | "count"
             | "styles"
             | "waitforurl"
+            | "waitforfunction"
             | "bringtofront"
             | "requests"
             | "responsebody"
@@ -448,7 +454,10 @@ impl OwnerLeaseRegistry {
             .into_iter()
             .chain(current.map(OwnerLease::order))
             .max();
-        if high_water.as_ref().is_some_and(|high_water| order <= *high_water) {
+        if high_water
+            .as_ref()
+            .is_some_and(|high_water| order <= *high_water)
+        {
             return Err(format!(
                 "Stale browser owner lease rejected for owner \"{}\"; a newer turn already owns this browser session",
                 owner_id
@@ -694,14 +703,49 @@ pub struct RouteResponse {
     pub headers: Option<std::collections::HashMap<String, String>>,
 }
 
+pub struct RequestRewriteEntry {
+    pub session_id: String,
+    pub url_pattern: String,
+    pub method: Option<String>,
+    pub post_data: Option<String>,
+    pub json_patch: Option<Value>,
+    pub headers: HashMap<String, String>,
+}
+
 #[derive(Clone, serde::Serialize)]
 pub struct TrackedRequest {
+    #[serde(skip)]
+    pub request_id: String,
+    #[serde(skip)]
+    pub session_id: String,
     pub url: String,
     pub method: String,
     pub headers: Value,
+    #[serde(rename = "postData", skip_serializing_if = "Option::is_none")]
+    pub post_data: Option<String>,
+    #[serde(
+        rename = "postDataTruncated",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub post_data_truncated: bool,
     pub timestamp: u64,
     #[serde(rename = "resourceType")]
     pub resource_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<i64>,
+    #[serde(rename = "responseHeaders", skip_serializing_if = "Option::is_none")]
+    pub response_headers: Option<Value>,
+    #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(rename = "bodyBase64", skip_serializing_if = "std::ops::Not::not")]
+    pub body_base64: bool,
+    #[serde(rename = "bodyTruncated", skip_serializing_if = "std::ops::Not::not")]
+    pub body_truncated: bool,
+    pub completed: bool,
+    #[serde(rename = "failureText", skip_serializing_if = "Option::is_none")]
+    pub failure_text: Option<String>,
 }
 
 pub struct FetchPausedRequest {
@@ -709,6 +753,43 @@ pub struct FetchPausedRequest {
     pub url: String,
     pub resource_type: String,
     pub session_id: String,
+    pub method: String,
+    pub headers: Value,
+    pub post_data: Option<String>,
+}
+
+const MAX_TRACKED_REQUESTS: usize = 256;
+const MAX_TRACKED_BODY_BYTES: usize = 128 * 1024;
+const MAX_TRACKED_TOTAL_BODY_BYTES: usize = 2 * 1024 * 1024;
+const MAX_TRACKED_REQUEST_BODY_BYTES: usize = 128 * 1024;
+const MAX_TRACKED_HEADERS: usize = 128;
+const MAX_TRACKED_HEADER_VALUE_BYTES: usize = 8 * 1024;
+
+fn truncate_utf8(value: &str, max_bytes: usize) -> (String, bool) {
+    if value.len() <= max_bytes {
+        return (value.to_string(), false);
+    }
+    let mut end = max_bytes;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    (value[..end].to_string(), true)
+}
+
+fn bounded_header_object(headers: Option<&Value>) -> Value {
+    Value::Object(
+        headers
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .take(MAX_TRACKED_HEADERS)
+            .map(|(name, value)| {
+                let (text, _) =
+                    truncate_utf8(value.as_str().unwrap_or(""), MAX_TRACKED_HEADER_VALUE_BYTES);
+                (name.clone(), Value::String(text))
+            })
+            .collect(),
+    )
 }
 
 pub enum BackendType {
@@ -747,7 +828,10 @@ pub struct DaemonState {
     pub confirm_actions: Option<ConfirmActions>,
     pub inspect_server: Option<InspectServer>,
     pub routes: Vec<RouteEntry>,
+    pub request_rewrites: Vec<RequestRewriteEntry>,
     pub tracked_requests: Vec<TrackedRequest>,
+    pub tracked_pending_bodies: Vec<(String, String)>,
+    pub tracked_body_bytes: usize,
     pub request_tracking: bool,
     pub active_frame_id: Option<String>,
     /// Directory downloads are routed to, recorded when the `download` action
@@ -794,7 +878,10 @@ impl DaemonState {
             confirm_actions: ConfirmActions::from_env(),
             inspect_server: None,
             routes: Vec::new(),
+            request_rewrites: Vec::new(),
             tracked_requests: Vec::new(),
+            tracked_pending_bodies: Vec::new(),
+            tracked_body_bytes: 0,
             request_tracking: false,
             active_frame_id: None,
             download_dir: env::var("STELLA_BROWSER_DOWNLOAD_PATH")
@@ -932,7 +1019,19 @@ impl DaemonState {
                         false
                     };
 
-                    if !session_matches {
+                    // Network observation is tab-scoped, but events can arrive
+                    // after another owned tab becomes active. Preserve traffic
+                    // from every attached page session; non-network events keep
+                    // their historical active-tab-only behavior.
+                    let attached_network_session = event.method.starts_with("Network.")
+                        && self.browser.as_ref().is_some_and(|browser| {
+                            event
+                                .session_id
+                                .as_deref()
+                                .is_some_and(|session_id| browser.has_session_id(session_id))
+                        });
+
+                    if !session_matches && !attached_network_session {
                         continue;
                     }
 
@@ -1018,7 +1117,7 @@ impl DaemonState {
                                         .unwrap_or("Other")
                                         .to_string();
                                     self.har_entries.push(HarEntry {
-                                        request_id,
+                                        request_id: request_id.clone(),
                                         wall_time,
                                         method: method.clone(),
                                         url: url.clone(),
@@ -1041,8 +1140,7 @@ impl DaemonState {
                                     });
                                 }
                                 if self.request_tracking {
-                                    let headers =
-                                        request.get("headers").cloned().unwrap_or(json!({}));
+                                    let headers = bounded_header_object(request.get("headers"));
                                     let resource_type = event
                                         .params
                                         .get("type")
@@ -1053,17 +1151,49 @@ impl DaemonState {
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .map(|d| d.as_millis() as u64)
                                         .unwrap_or(0);
+                                    let (post_data, post_data_truncated) = request
+                                        .get("postData")
+                                        .and_then(Value::as_str)
+                                        .map(|post_data| {
+                                            let (body, truncated) = truncate_utf8(
+                                                post_data,
+                                                MAX_TRACKED_REQUEST_BODY_BYTES,
+                                            );
+                                            (Some(body), truncated)
+                                        })
+                                        .unwrap_or((None, false));
                                     self.tracked_requests.push(TrackedRequest {
+                                        request_id,
+                                        session_id: event.session_id.clone().unwrap_or_default(),
                                         url,
                                         method,
                                         headers,
+                                        post_data,
+                                        post_data_truncated,
                                         timestamp,
                                         resource_type,
+                                        status: None,
+                                        response_headers: None,
+                                        mime_type: None,
+                                        body: None,
+                                        body_base64: false,
+                                        body_truncated: false,
+                                        completed: false,
+                                        failure_text: None,
                                     });
+                                    while self.tracked_requests.len() > MAX_TRACKED_REQUESTS {
+                                        let evicted = self.tracked_requests.remove(0);
+                                        self.tracked_body_bytes =
+                                            self.tracked_body_bytes.saturating_sub(
+                                                evicted.body.as_ref().map_or(0, String::len),
+                                            );
+                                    }
                                 }
                             }
                         }
-                        "Network.responseReceived" if self.har_recording => {
+                        "Network.responseReceived"
+                            if self.har_recording || self.request_tracking =>
+                        {
                             if let Some(response) = event.params.get("response") {
                                 let request_id = event
                                     .params
@@ -1112,9 +1242,28 @@ impl DaemonState {
                                     entry.response_body_size = encoded_data_length;
                                     entry.cdp_timing = cdp_timing;
                                 }
+                                if self.request_tracking {
+                                    if let Some(entry) =
+                                        self.tracked_requests.iter_mut().rev().find(|entry| {
+                                            entry.request_id == request_id
+                                                && event.session_id.as_deref()
+                                                    == Some(entry.session_id.as_str())
+                                        })
+                                    {
+                                        entry.status = status;
+                                        entry.response_headers =
+                                            Some(bounded_header_object(response.get("headers")));
+                                        entry.mime_type = response
+                                            .get("mimeType")
+                                            .and_then(Value::as_str)
+                                            .map(String::from);
+                                    }
+                                }
                             }
                         }
-                        "Network.loadingFinished" if self.har_recording => {
+                        "Network.loadingFinished"
+                            if self.har_recording || self.request_tracking =>
+                        {
                             let request_id = event
                                 .params
                                 .get("requestId")
@@ -1143,6 +1292,40 @@ impl DaemonState {
                             }
                             if wants_body {
                                 self.har_pending_bodies.push(request_id.to_string());
+                            }
+                            if self.request_tracking {
+                                if let Some(entry) =
+                                    self.tracked_requests.iter_mut().rev().find(|entry| {
+                                        entry.request_id == request_id
+                                            && event.session_id.as_deref()
+                                                == Some(entry.session_id.as_str())
+                                    })
+                                {
+                                    entry.completed = true;
+                                    self.tracked_pending_bodies
+                                        .push((entry.session_id.clone(), request_id.to_string()));
+                                }
+                            }
+                        }
+                        "Network.loadingFailed" if self.request_tracking => {
+                            let request_id = event
+                                .params
+                                .get("requestId")
+                                .and_then(Value::as_str)
+                                .unwrap_or("");
+                            if let Some(entry) =
+                                self.tracked_requests.iter_mut().rev().find(|entry| {
+                                    entry.request_id == request_id
+                                        && event.session_id.as_deref()
+                                            == Some(entry.session_id.as_str())
+                                })
+                            {
+                                entry.completed = true;
+                                entry.failure_text = event
+                                    .params
+                                    .get("errorText")
+                                    .and_then(Value::as_str)
+                                    .map(String::from);
                             }
                         }
                         "Page.screencastFrame" => {
@@ -1178,12 +1361,26 @@ impl DaemonState {
                                 .unwrap_or("")
                                 .to_string();
                             let sid = event.session_id.clone().unwrap_or_default();
+                            let request = event.params.get("request");
 
                             fetch_paused.push(FetchPausedRequest {
                                 request_id,
                                 url: request_url,
                                 resource_type,
                                 session_id: sid,
+                                method: request
+                                    .and_then(|request| request.get("method"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("GET")
+                                    .to_string(),
+                                headers: request
+                                    .and_then(|request| request.get("headers"))
+                                    .cloned()
+                                    .unwrap_or_else(|| json!({})),
+                                post_data: request
+                                    .and_then(|request| request.get("postData"))
+                                    .and_then(Value::as_str)
+                                    .map(String::from),
                             });
                         }
                         _ => {}
@@ -1261,6 +1458,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
     // Bodies are read here rather than at har_stop because a navigation clears
     // the CDP buffer, which would silently drop every payload recorded before it.
     har_collect_pending_bodies(state).await;
+    tracked_collect_pending_bodies(state).await;
     if !pending_acks.is_empty() {
         if let Some(ref browser) = state.browser {
             if let Ok(session_id) = browser.active_session_id() {
@@ -1336,8 +1534,14 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
     // Handle Fetch.requestPaused events (route interception + domain filter)
     for paused in &fetch_paused {
         if let Some(ref browser) = state.browser {
-            resolve_fetch_paused(browser, state.domain_filter.as_ref(), &state.routes, paused)
-                .await;
+            resolve_fetch_paused(
+                browser,
+                state.domain_filter.as_ref(),
+                &state.routes,
+                &state.request_rewrites,
+                paused,
+            )
+            .await;
         }
     }
 
@@ -1605,6 +1809,7 @@ async fn dispatch_action(
         "title" => handle_title(state).await,
         "content" => handle_content(state).await,
         "evaluate" => handle_evaluate(cmd, state).await,
+        "evaluate_detached" => handle_evaluate_detached(cmd, state).await,
         "close" => handle_close(state).await,
         "snapshot" => handle_snapshot(cmd, state).await,
         "screenshot" => handle_screenshot(cmd, state).await,
@@ -1727,7 +1932,11 @@ async fn dispatch_action(
         "har_stop" => handle_har_stop(cmd, state).await,
         "route" => handle_route(cmd, state).await,
         "unroute" => handle_unroute(cmd, state).await,
+        "rewrite_request" => handle_rewrite_request(cmd, state).await,
+        "unrewrite_request" => handle_unrewrite_request(cmd, state).await,
         "requests" => handle_requests(cmd, state).await,
+        "authenticated_request" => handle_authenticated_request(cmd, state).await,
+        "authenticated_request_batch" => handle_authenticated_request_batch(cmd, state).await,
         "credentials" => handle_http_credentials(cmd, state).await,
         "emulatemedia" => handle_set_media(cmd, state).await,
         "auth_save" => handle_auth_save(cmd).await,
@@ -1841,24 +2050,28 @@ fn chain_runtime_budget_ms(cmd: &Value) -> Result<u64, String> {
         .saturating_add((steps.len() as u64).saturating_mul(CHAIN_STEP_BUDGET_MS))
         .saturating_add(selector_wait_steps.saturating_mul(wait_timeout_ms))
         .saturating_add(delay_count.saturating_mul(max_delay_ms))
-        .saturating_add(if cmd
-            .get("returnSnapshot")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            DEFAULT_CHAIN_COMMAND_TIMEOUT_MS
-        } else {
-            0
-        })
-        .saturating_add(if cmd
-            .get("returnScreenshot")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            DEFAULT_CHAIN_COMMAND_TIMEOUT_MS
-        } else {
-            0
-        });
+        .saturating_add(
+            if cmd
+                .get("returnSnapshot")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                DEFAULT_CHAIN_COMMAND_TIMEOUT_MS
+            } else {
+                0
+            },
+        )
+        .saturating_add(
+            if cmd
+                .get("returnScreenshot")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                DEFAULT_CHAIN_COMMAND_TIMEOUT_MS
+            } else {
+                0
+            },
+        );
     Ok(requested.clamp(MIN_CHAIN_RUNTIME_MS, MAX_CHAIN_RUNTIME_MS))
 }
 
@@ -2023,10 +2236,7 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
             results.push(chain_step_failure(
                 index,
                 action,
-                format!(
-                    "Chain exceeded its {}ms execution budget",
-                    chain_budget_ms
-                ),
+                format!("Chain exceeded its {}ms execution budget", chain_budget_ms),
                 0,
             ));
             break;
@@ -2101,8 +2311,8 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                     Some(tab_id) => {
                         let mut switch_error = None;
                         if let Some(ref mut mgr) = state.browser {
-                            let remaining = deadline
-                                .saturating_duration_since(tokio::time::Instant::now());
+                            let remaining =
+                                deadline.saturating_duration_since(tokio::time::Instant::now());
                             match tokio::time::timeout(remaining, mgr.select_tab_by_id(tab_id)).await {
                                 Ok(Ok(switched)) => {
                                     if let Some(owner_id) = command_owner_id(&step_cmd) {
@@ -3186,6 +3396,19 @@ async fn handle_evaluate(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
     // page evaluation turned one command into two independent hang points.
     let url = mgr.active_url_cached();
     Ok(json!({ "result": result, "origin": url }))
+}
+
+async fn handle_evaluate_detached(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
+    if state.browser.is_none() {
+        return Err("Detached evaluation requires the CDP browser backend".to_string());
+    }
+    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+    let script = cmd
+        .get("script")
+        .and_then(Value::as_str)
+        .ok_or("Missing 'script' parameter")?;
+    mgr.evaluate_detached(script).await?;
+    Ok(json!({ "scheduled": true, "origin": mgr.active_url_cached() }))
 }
 
 async fn handle_close(state: &mut DaemonState) -> Result<Value, String> {
@@ -6193,16 +6416,108 @@ async fn handle_multiselect(cmd: &Value, state: &DaemonState) -> Result<Value, S
     Ok(json!({ "selected": result }))
 }
 
-async fn handle_responsebody(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
-    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
-    let session_id = mgr.active_session_id()?.to_string();
+async fn handle_responsebody(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let (client, session_id) = {
+        let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+        (
+            Arc::clone(&mgr.client),
+            mgr.active_session_id()?.to_string(),
+        )
+    };
     let url_pattern = cmd
         .get("url")
         .and_then(|v| v.as_str())
         .ok_or("Missing 'url' parameter")?;
     let timeout_ms = cmd.get("timeout").and_then(|v| v.as_u64()).unwrap_or(30000);
+    let after = cmd.get("after").and_then(Value::as_u64).unwrap_or(0);
 
-    let mut rx = mgr.client.subscribe();
+    // The command entry drain captures responses that completed between an
+    // action and this wait. Prefer that bounded cache before subscribing for
+    // future traffic; this makes `waitForResponse(pattern, () => click())`
+    // race-free despite BrowserSession's serialized command transport.
+    if let Some(entry) = state
+        .tracked_requests
+        .iter()
+        .rev()
+        .find(|entry| tracked_response_matches(entry, &session_id, url_pattern, after))
+    {
+        return Ok(json!({
+            "url": entry.url,
+            "method": entry.method,
+            "status": entry.status.unwrap_or(0),
+            "headers": entry.response_headers.clone().unwrap_or_else(|| json!({})),
+            "body": entry.body.clone().unwrap_or_default(),
+            "base64Encoded": entry.body_base64,
+            "truncated": entry.body_truncated,
+            "completed": entry.completed,
+        }));
+    }
+
+    // Headers may have arrived during the command-entry drain while the body
+    // is still loading. Poll CDP for that exact request instead of waiting for
+    // another responseReceived event that will never be emitted.
+    let pending_cached = state.tracked_requests.iter().rev().find(|entry| {
+        entry.session_id == session_id
+            && entry.timestamp >= after
+            && entry.url.contains(url_pattern)
+            && entry.status.is_some()
+            && !entry.completed
+    });
+    if let Some(entry) = pending_cached {
+        let request_id = entry.request_id.clone();
+        let response_url = entry.url.clone();
+        let method = entry.method.clone();
+        let status = entry.status.unwrap_or(0);
+        let headers = entry.response_headers.clone().unwrap_or_else(|| json!({}));
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+        loop {
+            match client
+                .send_command(
+                    "Network.getResponseBody",
+                    Some(json!({ "requestId": request_id })),
+                    Some(&session_id),
+                )
+                .await
+            {
+                Ok(body_result) => {
+                    let body = body_result
+                        .get("body")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let (captured, truncated) = truncate_utf8(body, MAX_TRACKED_BODY_BYTES);
+                    return Ok(json!({
+                        "url": response_url,
+                        "method": method,
+                        "status": status,
+                        "headers": headers,
+                        "body": captured,
+                        "base64Encoded": body_result
+                            .get("base64Encoded")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        "truncated": truncated,
+                        "completed": true,
+                    }));
+                }
+                Err(_) if tokio::time::Instant::now() < deadline => {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                }
+                Err(_) => {
+                    return Err(format!(
+                        "Timeout waiting for response body matching '{}'",
+                        url_pattern
+                    ));
+                }
+            }
+        }
+    }
+
+    client
+        .send_command_no_params("Network.enable", Some(&session_id))
+        .await?;
+    state.request_tracking = true;
+
+    let mut rx = client.subscribe();
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
 
     loop {
@@ -6230,7 +6545,8 @@ async fn handle_responsebody(cmd: &Value, state: &DaemonState) -> Result<Value, 
                                 .params
                                 .get("requestId")
                                 .and_then(|v| v.as_str())
-                                .ok_or("No requestId in response event")?;
+                                .ok_or("No requestId in response event")?
+                                .to_string();
                             let status = event
                                 .params
                                 .get("response")
@@ -6244,8 +6560,59 @@ async fn handle_responsebody(cmd: &Value, state: &DaemonState) -> Result<Value, 
                                 .cloned()
                                 .unwrap_or(json!({}));
 
-                            let body_result = mgr
-                                .client
+                            loop {
+                                let remaining =
+                                    deadline.saturating_duration_since(tokio::time::Instant::now());
+                                if remaining.is_zero() {
+                                    return Err(format!(
+                                        "Timeout waiting for response body matching '{}'",
+                                        url_pattern
+                                    ));
+                                }
+                                match tokio::time::timeout(remaining, rx.recv()).await {
+                                    Ok(Ok(finished))
+                                        if finished.session_id.as_deref() == Some(&session_id)
+                                            && finished
+                                                .params
+                                                .get("requestId")
+                                                .and_then(Value::as_str)
+                                                == Some(request_id.as_str())
+                                            && finished.method == "Network.loadingFinished" =>
+                                    {
+                                        break;
+                                    }
+                                    Ok(Ok(failed))
+                                        if failed.session_id.as_deref() == Some(&session_id)
+                                            && failed
+                                                .params
+                                                .get("requestId")
+                                                .and_then(Value::as_str)
+                                                == Some(request_id.as_str())
+                                            && failed.method == "Network.loadingFailed" =>
+                                    {
+                                        return Err(format!(
+                                            "Response matching '{}' failed to load: {}",
+                                            url_pattern,
+                                            failed
+                                                .params
+                                                .get("errorText")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or("unknown network error")
+                                        ));
+                                    }
+                                    Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {
+                                    }
+                                    Ok(Err(_)) => return Err("Event stream closed".to_string()),
+                                    Err(_) => {
+                                        return Err(format!(
+                                            "Timeout waiting for response body matching '{}'",
+                                            url_pattern
+                                        ));
+                                    }
+                                }
+                            }
+
+                            let body_result = client
                                 .send_command(
                                     "Network.getResponseBody",
                                     Some(json!({ "requestId": request_id })),
@@ -6257,9 +6624,19 @@ async fn handle_responsebody(cmd: &Value, state: &DaemonState) -> Result<Value, 
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("");
 
-                            return Ok(
-                                json!({ "body": body, "status": status, "headers": headers }),
-                            );
+                            let (captured, truncated) = truncate_utf8(body, MAX_TRACKED_BODY_BYTES);
+                            return Ok(json!({
+                                "url": resp_url,
+                                "body": captured,
+                                "status": status,
+                                "headers": headers,
+                                "base64Encoded": body_result
+                                    .get("base64Encoded")
+                                    .and_then(Value::as_bool)
+                                    .unwrap_or(false),
+                                "truncated": truncated,
+                                "completed": true,
+                            }));
                         }
                     }
                 }
@@ -6274,6 +6651,231 @@ async fn handle_responsebody(cmd: &Value, state: &DaemonState) -> Result<Value, 
             }
         }
     }
+}
+
+fn tracked_response_matches(
+    entry: &TrackedRequest,
+    session_id: &str,
+    url_pattern: &str,
+    after: u64,
+) -> bool {
+    entry.session_id == session_id
+        && entry.timestamp >= after
+        && entry.url.contains(url_pattern)
+        && entry.status.is_some()
+        && entry.completed
+}
+
+async fn handle_authenticated_request(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
+    let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+    let requested_url = cmd
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or("Missing 'url' parameter")?;
+    let page_url = url::Url::parse(&mgr.active_url_protocol().await?)
+        .map_err(|_| "The active tab does not have an HTTP(S) origin".to_string())?;
+    let target_url = page_url
+        .join(requested_url)
+        .map_err(|_| "Authenticated request URL is invalid".to_string())?;
+    let origin = |url: &url::Url| {
+        (
+            url.scheme().to_ascii_lowercase(),
+            url.host_str().unwrap_or("").to_ascii_lowercase(),
+            url.port_or_known_default(),
+        )
+    };
+    if !matches!(target_url.scheme(), "http" | "https") || origin(&page_url) != origin(&target_url)
+    {
+        return Err(
+            "Authenticated browser requests must stay on the active tab's origin".to_string(),
+        );
+    }
+    let method = cmd
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("GET")
+        .to_ascii_uppercase();
+    if !method
+        .chars()
+        .all(|character| character.is_ascii_uppercase() || character == '-')
+    {
+        return Err("Request method contains unsupported characters".to_string());
+    }
+    let headers: HashMap<String, String> = match cmd.get("headers") {
+        None | Some(Value::Null) => HashMap::new(),
+        Some(Value::Object(headers)) => headers
+            .iter()
+            .map(|(name, value)| {
+                let lower = name.trim().to_ascii_lowercase();
+                if lower.is_empty()
+                    || matches!(lower.as_str(), "cookie" | "host" | "content-length")
+                {
+                    return Err(format!("Request header '{}' is not allowed", name));
+                }
+                value
+                    .as_str()
+                    .map(|value| (name.clone(), value.to_string()))
+                    .ok_or_else(|| "Request headers must contain only string values".to_string())
+            })
+            .collect::<Result<_, _>>()?,
+        _ => return Err("Request headers must be an object".to_string()),
+    };
+    let body = match cmd.get("body") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(body)) => Some(body.clone()),
+        _ => return Err("Request body must be a string".to_string()),
+    };
+    if (method == "GET" || method == "HEAD") && body.is_some() {
+        return Err(format!("{} requests cannot have a body", method));
+    }
+    let timeout_ms = cmd
+        .get("timeout")
+        .and_then(Value::as_u64)
+        .unwrap_or(30_000)
+        .clamp(1, 240_000);
+    let max_body_bytes = cmd
+        .get("maxBodyBytes")
+        .and_then(Value::as_u64)
+        .unwrap_or(MAX_TRACKED_BODY_BYTES as u64)
+        .clamp(1, 1024 * 1024) as usize;
+    let session_id = mgr.active_session_id()?.to_string();
+    let target = target_url.as_str().to_string();
+    let cookies =
+        cookies::get_cookies(&mgr.client, &session_id, Some(vec![target.clone()])).await?;
+    let cookie_header = cookies
+        .into_iter()
+        .map(|cookie| format!("{}={}", cookie.name, cookie.value))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(timeout_ms))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "Could not initialize authenticated request client".to_string())?;
+    let request_method = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|_| "Request method is invalid".to_string())?;
+    let mut request = client.request(request_method, &target);
+    if !cookie_header.is_empty() {
+        request = request.header(reqwest::header::COOKIE, cookie_header);
+    }
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    if let Some(body) = body {
+        request = request.body(body);
+    }
+    let mut response = request
+        .send()
+        .await
+        .map_err(|error| format!("Authenticated request failed: {}", error.without_url()))?;
+    let status = response.status();
+    let response_headers: HashMap<String, String> = response
+        .headers()
+        .iter()
+        .filter(|(name, _)| {
+            !matches!(
+                name.as_str().to_ascii_lowercase().as_str(),
+                "set-cookie" | "set-cookie2"
+            )
+        })
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.to_string(), value.to_string()))
+        })
+        .collect();
+    let redirect_location = if status.is_redirection() {
+        response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|location| target_url.join(location).ok())
+            .map(|redirect| {
+                if origin(&redirect) == origin(&target_url) {
+                    redirect.to_string()
+                } else {
+                    "cross-origin redirect blocked".to_string()
+                }
+            })
+    } else {
+        None
+    };
+    let mut bytes = Vec::new();
+    let mut truncated = false;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("Authenticated response failed: {}", error.without_url()))?
+    {
+        let remaining = max_body_bytes.saturating_sub(bytes.len());
+        if chunk.len() > remaining {
+            bytes.extend_from_slice(&chunk[..remaining]);
+            truncated = true;
+            break;
+        }
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() == max_body_bytes {
+            truncated = true;
+            break;
+        }
+    }
+    let body = String::from_utf8_lossy(&bytes).into_owned();
+    Ok(json!({
+        "url": target,
+        "status": status.as_u16(),
+        "ok": status.is_success(),
+        "headers": response_headers,
+        "body": body,
+        "truncated": truncated,
+        "redirect": redirect_location,
+        "redirectFollowed": false,
+    }))
+}
+
+async fn handle_authenticated_request_batch(
+    cmd: &Value,
+    state: &DaemonState,
+) -> Result<Value, String> {
+    use futures_util::{stream, StreamExt};
+
+    let requests = cmd
+        .get("requests")
+        .and_then(Value::as_array)
+        .ok_or("Authenticated request batch requires a requests array")?;
+    if requests.is_empty() || requests.len() > 100 {
+        return Err("Authenticated request batch must contain 1 to 100 requests".to_string());
+    }
+    let concurrency = cmd.get("concurrency").and_then(Value::as_u64).unwrap_or(4);
+    if !(1..=4).contains(&concurrency) {
+        return Err("Authenticated request batch concurrency must be from 1 to 4".to_string());
+    }
+    let default_timeout = cmd
+        .get("timeout")
+        .and_then(Value::as_u64)
+        .unwrap_or(30_000)
+        .clamp(1, 600_000);
+    let results = stream::iter(requests.iter().cloned().enumerate())
+        .map(|(index, mut request)| async move {
+            let request_object = request
+                .as_object_mut()
+                .ok_or_else(|| format!("requests[{}] must be an object", index))?;
+            request_object
+                .entry("timeout".to_string())
+                .or_insert(json!(default_timeout));
+            handle_authenticated_request(&request, state)
+                .await
+                .map_err(|error| format!("requests[{}]: {}", index, error))
+        })
+        .buffered(concurrency as usize)
+        .collect::<Vec<Result<Value, String>>>()
+        .await;
+
+    let mut successful = Vec::with_capacity(results.len());
+    for result in results {
+        successful.push(result?);
+    }
+    Ok(json!({ "responses": successful, "concurrency": concurrency }))
 }
 
 /// Waits for a download to complete and reports where it actually landed.
@@ -6786,11 +7388,7 @@ async fn har_collect_pending_bodies(state: &mut DaemonState) {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let mut text = body.to_string();
-        let truncated = text.len() > HAR_MAX_BODY_BYTES;
-        if truncated {
-            text.truncate(HAR_MAX_BODY_BYTES);
-        }
+        let (text, truncated) = truncate_utf8(body, HAR_MAX_BODY_BYTES);
         state.har_body_bytes += text.len();
 
         if let Some(entry) = state
@@ -6802,6 +7400,65 @@ async fn har_collect_pending_bodies(state: &mut DaemonState) {
             entry.response_body = Some(text);
             entry.response_body_base64 = base64_encoded;
             entry.response_body_truncated = truncated;
+        }
+    }
+}
+
+/// Pull completed observed response bodies while CDP still retains them.
+/// Observation is deliberately bounded both per response and across the
+/// daemon, so a tab that streams large assets cannot grow the bridge without
+/// limit.
+async fn tracked_collect_pending_bodies(state: &mut DaemonState) {
+    if state.tracked_pending_bodies.is_empty() {
+        return;
+    }
+    let pending = std::mem::take(&mut state.tracked_pending_bodies);
+    for (session_id, request_id) in pending {
+        if state.tracked_body_bytes >= MAX_TRACKED_TOTAL_BODY_BYTES {
+            break;
+        }
+        if state
+            .tracked_requests
+            .iter()
+            .rev()
+            .find(|entry| entry.request_id == request_id && entry.session_id == session_id)
+            .is_none_or(|entry| entry.body.is_some())
+        {
+            continue;
+        }
+        let Some(client) = state.browser.as_ref().map(|browser| &browser.client) else {
+            return;
+        };
+        let Ok(value) = client
+            .send_command(
+                "Network.getResponseBody",
+                Some(json!({ "requestId": request_id })),
+                Some(&session_id),
+            )
+            .await
+        else {
+            continue;
+        };
+        let Some(body) = value.get("body").and_then(Value::as_str) else {
+            continue;
+        };
+        let remaining = MAX_TRACKED_TOTAL_BODY_BYTES.saturating_sub(state.tracked_body_bytes);
+        let body_limit = MAX_TRACKED_BODY_BYTES.min(remaining);
+        let (text, truncated) = truncate_utf8(body, body_limit);
+        let captured = text.len();
+        if let Some(entry) = state
+            .tracked_requests
+            .iter_mut()
+            .rev()
+            .find(|entry| entry.request_id == request_id && entry.session_id == session_id)
+        {
+            entry.body = Some(text);
+            entry.body_base64 = value
+                .get("base64Encoded")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            entry.body_truncated = truncated;
+            state.tracked_body_bytes += captured;
         }
     }
 }
@@ -7021,6 +7678,7 @@ async fn resolve_fetch_paused(
     browser: &BrowserManager,
     domain_filter: Option<&DomainFilter>,
     routes: &[RouteEntry],
+    request_rewrites: &[RequestRewriteEntry],
     paused: &FetchPausedRequest,
 ) {
     let session_id = &paused.session_id;
@@ -7102,18 +7760,7 @@ async fn resolve_fetch_paused(
 
     // Route matching
     for route in routes {
-        let matches = if route.url_pattern == "*" {
-            true
-        } else if route.url_pattern.contains('*') {
-            let parts: Vec<&str> = route.url_pattern.split('*').collect();
-            if parts.len() == 2 {
-                paused.url.starts_with(parts[0]) && paused.url.ends_with(parts[1])
-            } else {
-                paused.url.contains(&route.url_pattern)
-            }
-        } else {
-            paused.url.contains(&route.url_pattern)
-        };
+        let matches = url_pattern_matches(&route.url_pattern, &paused.url);
 
         if matches {
             if route.abort {
@@ -7166,6 +7813,63 @@ async fn resolve_fetch_paused(
         }
     }
 
+    // Request rewriting stays entirely at the CDP Fetch boundary. No page
+    // global is patched, and rewrites are scoped to the exact attached tab
+    // session that registered them.
+    if let Some(rewrite) = request_rewrites.iter().rev().find(|rewrite| {
+        rewrite.session_id == paused.session_id
+            && url_pattern_matches(&rewrite.url_pattern, &paused.url)
+    }) {
+        let mut params = json!({ "requestId": paused.request_id });
+        if let Some(method) = &rewrite.method {
+            params["method"] = json!(method);
+        }
+        let rewritten_post_data = if let Some(json_patch) = &rewrite.json_patch {
+            paused
+                .post_data
+                .as_deref()
+                .and_then(|post_data| serde_json::from_str::<Value>(post_data).ok())
+                .map(|mut body| {
+                    merge_json_value(&mut body, json_patch);
+                    body.to_string()
+                })
+                .or_else(|| rewrite.post_data.clone())
+        } else {
+            rewrite.post_data.clone()
+        };
+        if let Some(post_data) = rewritten_post_data {
+            params["postData"] = json!(base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                post_data.as_bytes(),
+            ));
+        }
+        if !rewrite.headers.is_empty() {
+            let mut headers: HashMap<String, String> = paused
+                .headers
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(name, value)| {
+                    value
+                        .as_str()
+                        .map(|value| (name.clone(), value.to_string()))
+                })
+                .collect();
+            for (name, value) in &rewrite.headers {
+                headers.insert(name.clone(), value.clone());
+            }
+            params["headers"] = json!(headers
+                .into_iter()
+                .map(|(name, value)| json!({ "name": name, "value": value }))
+                .collect::<Vec<_>>());
+        }
+        let _ = browser
+            .client
+            .send_command("Fetch.continueRequest", Some(params), Some(session_id))
+            .await;
+        return;
+    }
+
     // No matching route -- continue the request
     let _ = browser
         .client
@@ -7175,6 +7879,53 @@ async fn resolve_fetch_paused(
             Some(session_id),
         )
         .await;
+}
+
+fn url_pattern_matches(pattern: &str, url: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if !pattern.contains('*') {
+        return url.contains(pattern);
+    }
+    let mut remainder = url;
+    let mut first = true;
+    for part in pattern.split('*').filter(|part| !part.is_empty()) {
+        let Some(index) = remainder.find(part) else {
+            return false;
+        };
+        if first && !pattern.starts_with('*') && index != 0 {
+            return false;
+        }
+        remainder = &remainder[index + part.len()..];
+        first = false;
+    }
+    pattern.ends_with('*') || remainder.is_empty()
+}
+
+/// RFC 7396-style JSON merge patch. Object keys recurse, null removes a key,
+/// and scalar/array values replace the original. This supports changing a
+/// nested request field while preserving every untouched field from the
+/// page's actual request body.
+fn merge_json_value(target: &mut Value, patch: &Value) {
+    let Value::Object(patch_object) = patch else {
+        *target = patch.clone();
+        return;
+    };
+    if !target.is_object() {
+        *target = json!({});
+    }
+    let target_object = target.as_object_mut().expect("target converted to object");
+    for (key, patch_value) in patch_object {
+        if patch_value.is_null() {
+            target_object.remove(key);
+            continue;
+        }
+        merge_json_value(
+            target_object.entry(key.clone()).or_insert(Value::Null),
+            patch_value,
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -7226,6 +7977,13 @@ async fn handle_route(cmd: &Value, state: &mut DaemonState) -> Result<Value, Str
         .iter()
         .map(|r| json!({ "urlPattern": r.url_pattern }))
         .collect();
+    patterns.extend(
+        state
+            .request_rewrites
+            .iter()
+            .filter(|rewrite| rewrite.session_id == session_id)
+            .map(|rewrite| json!({ "urlPattern": rewrite.url_pattern })),
+    );
     if state.domain_filter.is_some() && !patterns.iter().any(|p| p["urlPattern"] == "*") {
         patterns.push(json!({ "urlPattern": "*" }));
     }
@@ -7256,7 +8014,13 @@ async fn handle_unroute(cmd: &Value, state: &mut DaemonState) -> Result<Value, S
         }
     }
 
-    if state.routes.is_empty() {
+    let rewrite_patterns: Vec<Value> = state
+        .request_rewrites
+        .iter()
+        .filter(|rewrite| rewrite.session_id == session_id)
+        .map(|rewrite| json!({ "urlPattern": rewrite.url_pattern }))
+        .collect();
+    if state.routes.is_empty() && rewrite_patterns.is_empty() {
         if state.domain_filter.is_some() {
             // Domain filtering still needs Fetch interception; reset to wildcard
             mgr.client
@@ -7272,11 +8036,12 @@ async fn handle_unroute(cmd: &Value, state: &mut DaemonState) -> Result<Value, S
                 .await?;
         }
     } else {
-        let patterns: Vec<Value> = state
+        let mut patterns: Vec<Value> = state
             .routes
             .iter()
             .map(|r| json!({ "urlPattern": r.url_pattern }))
             .collect();
+        patterns.extend(rewrite_patterns);
         mgr.client
             .send_command(
                 "Fetch.enable",
@@ -7290,36 +8055,196 @@ async fn handle_unroute(cmd: &Value, state: &mut DaemonState) -> Result<Value, S
     Ok(json!({ "unrouted": label }))
 }
 
+async fn handle_rewrite_request(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let (client, session_id) = {
+        let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+        (
+            Arc::clone(&mgr.client),
+            mgr.active_session_id()?.to_string(),
+        )
+    };
+    let url_pattern = cmd
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|pattern| !pattern.is_empty())
+        .ok_or("Missing 'url' parameter")?
+        .to_string();
+    let method = cmd
+        .get("method")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|method| !method.is_empty())
+        .map(|method| method.to_ascii_uppercase());
+    if method.as_ref().is_some_and(|method| {
+        !method
+            .chars()
+            .all(|character| character.is_ascii_uppercase() || character == '-')
+    }) {
+        return Err("Rewrite method contains unsupported characters".to_string());
+    }
+    let post_data = match cmd.get("postData") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        _ => return Err("Rewrite postData must be a string".to_string()),
+    };
+    let json_patch = match cmd.get("jsonPatch") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(patch)) => Some(Value::Object(patch.clone())),
+        _ => return Err("Rewrite jsonPatch must be an object".to_string()),
+    };
+    let headers: HashMap<String, String> = match cmd.get("headers") {
+        None | Some(Value::Null) => HashMap::new(),
+        Some(Value::Object(headers)) => headers
+            .iter()
+            .map(|(name, value)| {
+                value
+                    .as_str()
+                    .map(|value| (name.clone(), value.to_string()))
+                    .ok_or_else(|| "Rewrite headers must contain only string values".to_string())
+            })
+            .collect::<Result<_, _>>()?,
+        _ => return Err("Rewrite headers must be an object".to_string()),
+    };
+    if method.is_none() && post_data.is_none() && json_patch.is_none() && headers.is_empty() {
+        return Err(
+            "A request rewrite must change method, postData, jsonPatch, or headers".to_string(),
+        );
+    }
+
+    state
+        .request_rewrites
+        .retain(|rewrite| rewrite.session_id != session_id || rewrite.url_pattern != url_pattern);
+    state.request_rewrites.push(RequestRewriteEntry {
+        session_id: session_id.clone(),
+        url_pattern: url_pattern.clone(),
+        method,
+        post_data,
+        json_patch,
+        headers,
+    });
+    let patterns: Vec<Value> = state
+        .routes
+        .iter()
+        .map(|route| json!({ "urlPattern": route.url_pattern }))
+        .chain(
+            state
+                .request_rewrites
+                .iter()
+                .filter(|rewrite| rewrite.session_id == session_id)
+                .map(|rewrite| json!({ "urlPattern": rewrite.url_pattern })),
+        )
+        .collect();
+    client
+        .send_command(
+            "Fetch.enable",
+            Some(json!({ "patterns": patterns })),
+            Some(&session_id),
+        )
+        .await?;
+    Ok(json!({ "rewritten": url_pattern }))
+}
+
+async fn handle_unrewrite_request(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let (client, session_id) = {
+        let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+        (
+            Arc::clone(&mgr.client),
+            mgr.active_session_id()?.to_string(),
+        )
+    };
+    let url_pattern = cmd.get("url").and_then(Value::as_str);
+    state.request_rewrites.retain(|rewrite| {
+        rewrite.session_id != session_id
+            || url_pattern.is_some_and(|pattern| rewrite.url_pattern != pattern)
+    });
+    let mut patterns: Vec<Value> = state
+        .routes
+        .iter()
+        .map(|route| json!({ "urlPattern": route.url_pattern }))
+        .chain(
+            state
+                .request_rewrites
+                .iter()
+                .filter(|rewrite| rewrite.session_id == session_id)
+                .map(|rewrite| json!({ "urlPattern": rewrite.url_pattern })),
+        )
+        .collect();
+    if state.domain_filter.is_some() && !patterns.iter().any(|pattern| pattern["urlPattern"] == "*")
+    {
+        patterns.push(json!({ "urlPattern": "*" }));
+    }
+    if patterns.is_empty() {
+        client
+            .send_command("Fetch.disable", None, Some(&session_id))
+            .await?;
+    } else {
+        client
+            .send_command(
+                "Fetch.enable",
+                Some(json!({ "patterns": patterns })),
+                Some(&session_id),
+            )
+            .await?;
+    }
+    Ok(json!({ "unrewritten": url_pattern.unwrap_or("all") }))
+}
+
 async fn handle_requests(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let (client, session_id) = {
+        let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+        (
+            Arc::clone(&mgr.client),
+            mgr.active_session_id()?.to_string(),
+        )
+    };
     if cmd.get("clear").and_then(|v| v.as_bool()).unwrap_or(false) {
-        state.tracked_requests.clear();
-        return Ok(json!({ "cleared": true }));
+        state
+            .tracked_requests
+            .retain(|entry| entry.session_id != session_id);
+        state
+            .tracked_pending_bodies
+            .retain(|(pending_session, _)| pending_session != &session_id);
+        state.tracked_body_bytes = state
+            .tracked_requests
+            .iter()
+            .filter_map(|entry| entry.body.as_ref())
+            .map(String::len)
+            .sum();
     }
 
     if !state.request_tracking {
         state.request_tracking = true;
-        if let Some(ref mgr) = state.browser {
-            if let Ok(session_id) = mgr.active_session_id() {
-                let _ = mgr
-                    .client
-                    .send_command_no_params("Network.enable", Some(session_id))
-                    .await;
-            }
-        }
     }
+    client
+        .send_command_no_params("Network.enable", Some(&session_id))
+        .await?;
 
     let filter = cmd.get("filter").and_then(|v| v.as_str());
-    let requests: Vec<&TrackedRequest> = if let Some(f) = filter {
-        state
-            .tracked_requests
-            .iter()
-            .filter(|r| r.url.contains(f))
-            .collect()
-    } else {
-        state.tracked_requests.iter().collect()
-    };
+    let after = cmd.get("after").and_then(Value::as_u64).unwrap_or(0);
+    let limit = cmd
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(MAX_TRACKED_REQUESTS as u64)
+        .clamp(1, MAX_TRACKED_REQUESTS as u64) as usize;
+    let mut requests: Vec<&TrackedRequest> = state
+        .tracked_requests
+        .iter()
+        .rev()
+        .filter(|request| {
+            request.session_id == session_id
+                && request.timestamp >= after
+                && filter.is_none_or(|filter| request.url.contains(filter))
+        })
+        .take(limit)
+        .collect();
+    requests.reverse();
 
-    Ok(json!({ "requests": requests }))
+    Ok(json!({
+        "requests": requests,
+        "capacity": MAX_TRACKED_REQUESTS,
+        "bodyCapacityBytes": MAX_TRACKED_TOTAL_BODY_BYTES,
+    }))
 }
 
 async fn handle_http_credentials(cmd: &Value, state: &DaemonState) -> Result<Value, String> {
@@ -7893,13 +8818,19 @@ mod tests {
     #[test]
     fn chain_budget_is_derived_without_the_legacy_45_second_cap() {
         let default = json!({ "action": "chain", "steps": [{ "action": "healthcheck" }] });
-        assert_eq!(chain_runtime_budget_ms(&default).unwrap(), MIN_CHAIN_RUNTIME_MS);
+        assert_eq!(
+            chain_runtime_budget_ms(&default).unwrap(),
+            MIN_CHAIN_RUNTIME_MS
+        );
         let maximum = json!({
             "action": "chain",
             "timeout": MAX_CHAIN_RUNTIME_MS,
             "steps": [{ "action": "healthcheck" }]
         });
-        assert_eq!(chain_runtime_budget_ms(&maximum).unwrap(), MAX_CHAIN_RUNTIME_MS);
+        assert_eq!(
+            chain_runtime_budget_ms(&maximum).unwrap(),
+            MAX_CHAIN_RUNTIME_MS
+        );
         let invalid = json!({
             "action": "chain",
             "timeout": MAX_CHAIN_RUNTIME_MS + 1,
@@ -8805,5 +9736,76 @@ mod tests {
         let result = execute_command(&cmd, &mut state).await;
         assert_eq!(result["success"], true);
         assert!(result["data"]["files"].is_array());
+    }
+
+    #[test]
+    fn request_rewrite_patterns_and_json_merge_preserve_unpatched_fields() {
+        assert!(url_pattern_matches(
+            "https://api.example/*/generate",
+            "https://api.example/v1/generate"
+        ));
+        assert!(!url_pattern_matches(
+            "https://api.example/*/generate",
+            "https://other.example/v1/generate"
+        ));
+
+        let mut body = json!({
+            "prompt": "keep me",
+            "parameters": {
+                "width": 1024,
+                "safety_tolerance": 1,
+                "remove": true
+            }
+        });
+        merge_json_value(
+            &mut body,
+            &json!({
+                "parameters": {
+                    "safety_tolerance": 3,
+                    "remove": null
+                }
+            }),
+        );
+        assert_eq!(body["prompt"], "keep me");
+        assert_eq!(body["parameters"]["width"], 1024);
+        assert_eq!(body["parameters"]["safety_tolerance"], 3);
+        assert!(body["parameters"].get("remove").is_none());
+    }
+
+    #[test]
+    fn wait_for_response_cache_requires_completed_loading() {
+        let mut entry = TrackedRequest {
+            request_id: "request-1".to_string(),
+            session_id: "session-1".to_string(),
+            url: "https://example.test/api/result".to_string(),
+            method: "POST".to_string(),
+            headers: json!({}),
+            post_data: None,
+            post_data_truncated: false,
+            timestamp: 10,
+            resource_type: "Fetch".to_string(),
+            status: Some(200),
+            response_headers: Some(json!({})),
+            mime_type: Some("application/json".to_string()),
+            body: None,
+            body_base64: false,
+            body_truncated: false,
+            completed: false,
+            failure_text: None,
+        };
+        assert!(!tracked_response_matches(
+            &entry,
+            "session-1",
+            "/api/result",
+            10
+        ));
+        entry.completed = true;
+        entry.body = Some(String::new());
+        assert!(tracked_response_matches(
+            &entry,
+            "session-1",
+            "/api/result",
+            10
+        ));
     }
 }

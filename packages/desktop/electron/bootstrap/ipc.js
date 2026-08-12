@@ -118,6 +118,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             turnId: capability.turnId,
             ownerLeaseId: capability.ownerLeaseId,
             ownerLeaseIssuedAt: capability.ownerLeaseIssuedAt,
+            ...(capability.recover ? { recover: true } : {}),
         }, route.cdpUrl);
     };
     const ensureInAppBrowserReady = async (capability) => {

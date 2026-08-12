@@ -103,6 +103,8 @@ const FILL_REPLACE_JS: &str = r#"async function(nextValue) {
 ///   { status: 'detached' }          — element no longer in the DOM
 ///   { status: 'hidden' }            — display:none / visibility:hidden
 ///   { status: 'transparent' }       — opacity: 0
+///   { status: 'disabled' }          — disabled or aria-disabled control
+///   { status: 'pointer-events-none'}— pointer input is disabled by CSS
 ///   { status: 'zero-size' }         — zero-width/height bounding rect
 ///   { status: 'offscreen' }         — could not be scrolled into the viewport
 ///   { status: 'covered', by: 'tag#id.class' } — another element wins the
@@ -209,6 +211,10 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
         return fail('hidden');
     }
     if (parseFloat(style.opacity) === 0) return fail('transparent');
+    if (requireHit && (el.disabled === true || el.getAttribute('aria-disabled') === 'true')) {
+        return fail('disabled');
+    }
+    if (requireHit && style.pointerEvents === 'none') return fail('pointer-events-none');
     let rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return fail('zero-size');
     const vw = win.innerWidth || doc.documentElement.clientWidth;
@@ -411,6 +417,11 @@ fn actionability_failure_message(
             selector
         ),
         "transparent" => format!("Element found but not visible (opacity: 0): {}", selector),
+        "disabled" => format!("Element found but disabled: {}", selector),
+        "pointer-events-none" => format!(
+            "Element found but cannot receive pointer input (pointer-events: none): {}",
+            selector
+        ),
         "zero-size" => format!("Element found but has zero size: {}", selector),
         "offscreen" => format!(
             "Element found but could not be scrolled into the viewport: {}",
@@ -500,8 +511,8 @@ pub async fn wait_for_actionable(
     selector_or_ref: &str,
     require_hit: bool,
 ) -> Result<ActionablePoint, String> {
-    let deadline = tokio::time::Instant::now()
-        + tokio::time::Duration::from_millis(ACTIONABILITY_TIMEOUT_MS);
+    let deadline =
+        tokio::time::Instant::now() + tokio::time::Duration::from_millis(ACTIONABILITY_TIMEOUT_MS);
     let mut last_error: String;
 
     loop {
@@ -531,8 +542,7 @@ pub async fn click(
     button: &str,
     click_count: i32,
 ) -> Result<(), String> {
-    let point =
-        wait_for_actionable(client, session_id, ref_map, selector_or_ref, true).await?;
+    let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, true).await?;
     dispatch_click(client, session_id, point.x, point.y, button, click_count).await
 }
 
@@ -551,8 +561,7 @@ pub async fn hover(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<(), String> {
-    let point =
-        wait_for_actionable(client, session_id, ref_map, selector_or_ref, true).await?;
+    let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, true).await?;
     client
         .send_command_typed::<_, Value>(
             "Input.dispatchMouseEvent",
@@ -582,8 +591,7 @@ pub async fn fill(
 ) -> Result<(), String> {
     // Actionability: visible + non-zero size (occlusion does not matter for
     // focus-based input, so require_hit is false).
-    let point =
-        wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
+    let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
     let object_id = point.object_id;
 
     let result: EvaluateResult = client
@@ -645,8 +653,7 @@ pub async fn type_text(
     clear: bool,
     delay_ms: Option<u64>,
 ) -> Result<(), String> {
-    let point =
-        wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
+    let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
     let object_id = point.object_id;
 
     // Focus
@@ -784,7 +791,11 @@ async fn dispatch_key_event(
     modifiers: i32,
     include_text: bool,
 ) -> Result<(), String> {
-    let text = if include_text { info.text.clone() } else { None };
+    let text = if include_text {
+        info.text.clone()
+    } else {
+        None
+    };
     client
         .send_command_typed::<_, Value>(
             "Input.dispatchKeyEvent",
@@ -815,8 +826,24 @@ async fn dispatch_key_combo(
         held |= bit;
         dispatch_key_event(client, session_id, "keyDown", info, held, false).await?;
     }
-    dispatch_key_event(client, session_id, "keyDown", &combo.key, combo.modifiers, true).await?;
-    dispatch_key_event(client, session_id, "keyUp", &combo.key, combo.modifiers, false).await?;
+    dispatch_key_event(
+        client,
+        session_id,
+        "keyDown",
+        &combo.key,
+        combo.modifiers,
+        true,
+    )
+    .await?;
+    dispatch_key_event(
+        client,
+        session_id,
+        "keyUp",
+        &combo.key,
+        combo.modifiers,
+        false,
+    )
+    .await?;
     for (info, bit) in combo.modifier_keys.iter().rev() {
         held &= !bit;
         dispatch_key_event(client, session_id, "keyUp", info, held, false).await?;
@@ -933,8 +960,7 @@ pub async fn select_option(
     selector_or_ref: &str,
     values: &[String],
 ) -> Result<(), String> {
-    let point =
-        wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
+    let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
     let object_id = point.object_id;
 
     let js = r#"function(vals) {
@@ -1103,8 +1129,7 @@ pub async fn focus(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<(), String> {
-    let point =
-        wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
+    let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
 
     client
         .send_command_typed::<_, Value>(
@@ -1295,8 +1320,7 @@ pub async fn tap_touch(
     ref_map: &RefMap,
     selector_or_ref: &str,
 ) -> Result<(), String> {
-    let point =
-        wait_for_actionable(client, session_id, ref_map, selector_or_ref, true).await?;
+    let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, true).await?;
     let (x, y) = (point.x, point.y);
 
     client
@@ -1761,6 +1785,14 @@ mod tests {
             "Element found but not visible (opacity: 0): #a"
         );
         assert_eq!(
+            actionability_failure_message("disabled", None, "#a", None),
+            "Element found but disabled: #a"
+        );
+        assert_eq!(
+            actionability_failure_message("pointer-events-none", None, "#a", None),
+            "Element found but cannot receive pointer input (pointer-events: none): #a"
+        );
+        assert_eq!(
             actionability_failure_message("covered", Some("div.overlay"), "#a", None),
             "Element found but covered by <div.overlay> at its click point: #a"
         );
@@ -1834,6 +1866,8 @@ mod tests {
             "'detached'",
             "'hidden'",
             "'transparent'",
+            "'disabled'",
+            "'pointer-events-none'",
             "'zero-size'",
             "'offscreen'",
             "'covered'",
@@ -2065,7 +2099,10 @@ mod tests {
     #[test]
     fn test_resolve_single_key_enrichment() {
         let a = resolve_single_key("a").unwrap();
-        assert_eq!((a.key.as_str(), a.code.as_str(), a.key_code), ("a", "KeyA", 65));
+        assert_eq!(
+            (a.key.as_str(), a.code.as_str(), a.key_code),
+            ("a", "KeyA", 65)
+        );
         assert_eq!(a.text.as_deref(), Some("a"));
 
         let enter = resolve_single_key("Enter").unwrap();
@@ -2074,7 +2111,10 @@ mod tests {
         assert_eq!(enter.text.as_deref(), Some("\r"));
 
         let f5 = resolve_single_key("F5").unwrap();
-        assert_eq!((f5.key.as_str(), f5.code.as_str(), f5.key_code), ("F5", "F5", 116));
+        assert_eq!(
+            (f5.key.as_str(), f5.code.as_str(), f5.key_code),
+            ("F5", "F5", 116)
+        );
 
         let shift = resolve_single_key("Shift").unwrap();
         assert_eq!(shift.code, "ShiftLeft");
@@ -2100,7 +2140,10 @@ mod tests {
             named_key_info("enter"),
             ("Enter".to_string(), "Enter".to_string(), 13)
         );
-        assert_eq!(named_key_info("c"), ("c".to_string(), "KeyC".to_string(), 67));
+        assert_eq!(
+            named_key_info("c"),
+            ("c".to_string(), "KeyC".to_string(), 67)
+        );
         // Unknown names keep the old passthrough shape.
         assert_eq!(
             named_key_info("Whatever"),

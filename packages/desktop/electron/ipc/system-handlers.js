@@ -52,8 +52,26 @@ const screenCapturePermissionsHasPrompted = (mod) => {
         return false;
     }
 };
+// System Settings corrupts its own view (it can render nearly blank, showing
+// only General/Spotlight) when the x-apple.systempreferences: URL is opened
+// repeatedly in quick succession. Coalesce rapid opens from every path (enable
+// button spam, request + settings fallback, the openSettings handler) behind a
+// single cooldown so one user click opens System Settings at most once.
+const PERMISSION_SETTINGS_OPEN_COOLDOWN_MS = 1500;
+let lastPermissionSettingsOpenAt = 0;
+const consumePermissionSettingsOpenSlot = () => {
+    const now = Date.now();
+    if (now - lastPermissionSettingsOpenAt < PERMISSION_SETTINGS_OPEN_COOLDOWN_MS) {
+        return false;
+    }
+    lastPermissionSettingsOpenAt = now;
+    return true;
+};
 const openScreenCaptureSystemPreferences = async (mod) => {
     if (!mod) {
+        return false;
+    }
+    if (!consumePermissionSettingsOpenSlot()) {
         return false;
     }
     try {
@@ -74,6 +92,9 @@ const openMacPermissionSettings = async (kind) => {
     const url = permissionSettingsUrlByKind[kind];
     if (!url) {
         return { opened: false, url: null };
+    }
+    if (!consumePermissionSettingsOpenSlot()) {
+        return { opened: false, url };
     }
     await shell.openExternal(url);
     return { opened: true, url };

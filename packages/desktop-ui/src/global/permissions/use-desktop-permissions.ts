@@ -16,6 +16,7 @@ export type DesktopPermissionStatus = Record<DesktopPermissionKind, boolean> & {
 type UseDesktopPermissionsOptions = {
   enabled?: boolean;
   pollMs: number;
+  cooldownMs?: number;
   initialStatus: DesktopPermissionStatus;
   restartKinds?: readonly DesktopPermissionKind[];
   normalizeStatus?: (
@@ -31,6 +32,7 @@ const defaultErrorMessage = (error: unknown) =>
 export const useDesktopPermissions = ({
   enabled = true,
   pollMs,
+  cooldownMs = 2000,
   initialStatus,
   restartKinds = [],
   normalizeStatus,
@@ -45,7 +47,24 @@ export const useDesktopPermissions = ({
   );
   const [restartRecommended, setRestartRecommended] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
+  // While a request is in flight or within its post-request cooldown we refuse
+  // to fire another open-settings call. cooldownAction drives the button label,
+  // while the refs let the guard read the live value without stale closures.
+  const [cooldownAction, setCooldownAction] =
+    useState<DesktopPermissionKind | null>(null);
+  const activeActionRef = useRef<DesktopPermissionKind | null>(null);
+  const cooldownRef = useRef(false);
+  const cooldownTimerRef = useRef<number | null>(null);
   const lastStatusRef = useRef<DesktopPermissionStatus | null>(null);
+
+  useEffect(
+    () => () => {
+      if (cooldownTimerRef.current !== null) {
+        window.clearTimeout(cooldownTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const isShallowEqual = (
     a: DesktopPermissionStatus,
@@ -144,7 +163,17 @@ export const useDesktopPermissions = ({
         stopPolling();
       }
     };
+    const handleFocus = () => {
+      // Returning from System Settings often doesn't fire a visibilitychange
+      // (the window was never occluded), so refresh on window focus too. This
+      // is what makes a freshly granted microphone flip to "granted" without a
+      // restart.
+      if (document.visibilityState === "hidden") return;
+      void load();
+      startPolling();
+    };
     document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
 
     void load().then((next) => {
       if (cancelled) return;
@@ -165,6 +194,7 @@ export const useDesktopPermissions = ({
       cancelled = true;
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
     };
   }, [enabled, errorMessage, pollMs, refresh]);
 
@@ -179,6 +209,15 @@ export const useDesktopPermissions = ({
         throw new Error("Desktop permissions are unavailable in this window.");
       }
 
+      // Debounce guard: while a request is in flight or within the post-request
+      // cooldown, ignore repeat clicks. Rapidly re-firing openExternal against
+      // the x-apple.systempreferences: URL relaunches System Settings and
+      // corrupts its view (it can render nearly blank), so one click is enough.
+      if (activeActionRef.current || cooldownRef.current) {
+        return lastStatusRef.current ?? initialStatus;
+      }
+
+      activeActionRef.current = kind;
       setActiveAction(kind);
       try {
         const result = await systemApi.requestPermission(kind);
@@ -194,10 +233,21 @@ export const useDesktopPermissions = ({
         }
         return nextStatus;
       } finally {
+        activeActionRef.current = null;
         setActiveAction(null);
+        cooldownRef.current = true;
+        setCooldownAction(kind);
+        if (cooldownTimerRef.current !== null) {
+          window.clearTimeout(cooldownTimerRef.current);
+        }
+        cooldownTimerRef.current = window.setTimeout(() => {
+          cooldownRef.current = false;
+          cooldownTimerRef.current = null;
+          setCooldownAction(null);
+        }, cooldownMs);
       }
     },
-    [refresh],
+    [cooldownMs, initialStatus, refresh],
   );
 
   const restart = useCallback(async () => {
@@ -227,6 +277,7 @@ export const useDesktopPermissions = ({
     setError,
     activeAction,
     setActiveAction,
+    cooldownAction,
     restartRecommended,
     setRestartRecommended,
     isRestarting,

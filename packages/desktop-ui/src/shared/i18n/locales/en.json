@@ -388,8 +388,8 @@
       "savePermission": "Failed to update {kind} permission.",
       "resetPermission": "Failed to reset {kind} permission.",
       "resetPermissionMaybeReopen": "Could not reset {kind} permission. Stella may need to be reopened.",
-      "microphoneDeniedReopen": "Microphone access was denied earlier. Turn it on in System Settings, then reopen Stella.",
-      "microphoneStillOff": "Microphone access is still off. Turn it on in System Settings, then reopen Stella.",
+      "microphoneDeniedReopen": "Microphone access was denied earlier. Turn it on in System Settings — Stella updates automatically.",
+      "microphoneStillOff": "Microphone access is still off. Turn it on in System Settings — Stella updates automatically.",
       "restart": "Failed to restart Stella."
     },
     "voiceCatalog": {

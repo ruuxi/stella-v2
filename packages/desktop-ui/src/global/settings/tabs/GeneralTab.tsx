@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/ui/button";
 import { Select } from "@/ui/select";
 import { Switch } from "@/ui/switch";
@@ -524,12 +524,27 @@ export function GeneralTab() {
       getSettingsErrorMessage(error, t("settings.errors.loadPermissions")),
     [t],
   );
+  // macOS reports Screen Capture as off in-process until Stella is relaunched.
+  // screenSettingsOpenedRef tracks that we sent the user to System Settings for
+  // it; screenRestartPendingRef records that they came back with it still off
+  // (so they almost certainly enabled it and just need a relaunch).
+  const screenSettingsOpenedRef = useRef(false);
+  const screenRestartPendingRef = useRef(false);
+  const normalizePermissionStatus = useCallback(
+    (result: DesktopPermissionStatus): DesktopPermissionStatus => ({
+      ...result,
+      screen: result.screen || screenRestartPendingRef.current,
+    }),
+    [],
+  );
+
   const {
     status: permissionStatus,
     loaded: permissionsLoaded,
     error: permissionsError,
     setError: setPermissionsError,
     activeAction: activePermissionAction,
+    cooldownAction: permissionCooldownAction,
     restartRecommended: screenRestartRecommended,
     isRestarting: isRestartingAfterPermissions,
     refresh: refreshPermissions,
@@ -540,13 +555,88 @@ export function GeneralTab() {
     pollMs: 1500,
     initialStatus: initialPermissionStatus,
     restartKinds: SETTINGS_PERMISSION_RESTART_KINDS,
+    normalizeStatus: normalizePermissionStatus,
     errorMessage: formatPermissionLoadError,
   });
 
+  // Returning from System Settings frequently does not fire a visibilitychange
+  // (the window was never occluded), so also listen for window focus. When the
+  // user comes back and Screen Capture still reads off, promote it to
+  // "pending restart" so the restart affordance appears instead of a row that
+  // is stuck at "Enable" forever.
+  useEffect(() => {
+    if (platform !== "darwin") return;
+
+    const markScreenPendingAfterSettingsReturn = () => {
+      if (
+        !screenSettingsOpenedRef.current ||
+        screenRestartPendingRef.current ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      void refreshPermissions().then((latestStatus) => {
+        if (!screenSettingsOpenedRef.current || latestStatus.screen) {
+          screenSettingsOpenedRef.current = false;
+          return;
+        }
+        screenRestartPendingRef.current = true;
+        screenSettingsOpenedRef.current = false;
+        void refreshPermissions();
+      });
+    };
+
+    window.addEventListener("focus", markScreenPendingAfterSettingsReturn);
+    document.addEventListener(
+      "visibilitychange",
+      markScreenPendingAfterSettingsReturn,
+    );
+    return () => {
+      window.removeEventListener("focus", markScreenPendingAfterSettingsReturn);
+      document.removeEventListener(
+        "visibilitychange",
+        markScreenPendingAfterSettingsReturn,
+      );
+    };
+  }, [platform, refreshPermissions]);
+
+  // Clear a stale "still off / turn it on in System Settings" banner the moment
+  // a live poll detects a permission flipping on, so the user is never told a
+  // permission is off after they have already enabled it.
+  const prevPermissionStatusRef = useRef(permissionStatus);
+  useEffect(() => {
+    const prev = prevPermissionStatusRef.current;
+    const newlyGranted =
+      (!prev.accessibility && permissionStatus.accessibility) ||
+      (!prev.screen && permissionStatus.screen) ||
+      (!prev.microphone && permissionStatus.microphone);
+    prevPermissionStatusRef.current = permissionStatus;
+    if (newlyGranted) {
+      setPermissionsError(null);
+    }
+  }, [permissionStatus, setPermissionsError]);
+
   const [requestingMicrophonePermission, setRequestingMicrophonePermission] =
     useState(false);
+  // Guard + cooldown so repeated clicks can't stack openExternal calls against
+  // the System Settings URL (which corrupts its view). The ref reads the live
+  // busy state without a stale closure; the button stays disabled until the
+  // cooldown clears.
+  const microphoneBusyRef = useRef(false);
+  const microphoneCooldownTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (microphoneCooldownTimerRef.current !== null) {
+        window.clearTimeout(microphoneCooldownTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const requestMicrophonePermission = useCallback(async () => {
+    if (microphoneBusyRef.current) return;
+    microphoneBusyRef.current = true;
     setRequestingMicrophonePermission(true);
     try {
       const latestStatus = await refreshPermissions();
@@ -564,7 +654,14 @@ export function GeneralTab() {
         throw new Error(t("settings.errors.microphoneStillOff"));
       }
     } finally {
-      setRequestingMicrophonePermission(false);
+      if (microphoneCooldownTimerRef.current !== null) {
+        window.clearTimeout(microphoneCooldownTimerRef.current);
+      }
+      microphoneCooldownTimerRef.current = window.setTimeout(() => {
+        microphoneBusyRef.current = false;
+        microphoneCooldownTimerRef.current = null;
+        setRequestingMicrophonePermission(false);
+      }, 2000);
     }
   }, [refreshPermissions, t]);
 
@@ -574,6 +671,14 @@ export function GeneralTab() {
       try {
         if (kind === "microphone") {
           await requestMicrophonePermission();
+        } else if (kind === "screen") {
+          const nextStatus = await requestWithSettingsFallback("screen");
+          // We've sent the user to System Settings for Screen Capture. Record
+          // that so the focus/visibility listener can promote it to "granted —
+          // restart to finish" when they return and macOS still reports it off.
+          if (!nextStatus.screen) {
+            screenSettingsOpenedRef.current = true;
+          }
         } else {
           await requestWithSettingsFallback(kind);
         }
@@ -725,13 +830,15 @@ export function GeneralTab() {
               disabled={
                 !permissionsLoaded ||
                 permissionStatus.accessibility ||
-                activePermissionAction === "accessibility"
+                activePermissionAction === "accessibility" ||
+                permissionCooldownAction === "accessibility"
               }
               onClick={() => void handlePermissionEnable("accessibility")}
             >
               {permissionStatusLabel(
                 permissionStatus.accessibility,
-                activePermissionAction === "accessibility",
+                activePermissionAction === "accessibility" ||
+                  permissionCooldownAction === "accessibility",
               )}
             </Button>
             <PermissionResetButton
@@ -764,13 +871,15 @@ export function GeneralTab() {
               disabled={
                 !permissionsLoaded ||
                 permissionStatus.screen ||
-                activePermissionAction === "screen"
+                activePermissionAction === "screen" ||
+                permissionCooldownAction === "screen"
               }
               onClick={() => void handlePermissionEnable("screen")}
             >
               {permissionStatusLabel(
                 permissionStatus.screen,
-                activePermissionAction === "screen",
+                activePermissionAction === "screen" ||
+                  permissionCooldownAction === "screen",
               )}
             </Button>
             <PermissionResetButton

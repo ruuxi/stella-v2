@@ -94,6 +94,13 @@
   pointer-events: none;
 }
 
+/* Armed "click again to rewind" confirm state — mirrors the top bar's
+   two-step confirm affordance (data-armed). */
+.message-actions__btn[data-armed="true"] {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
 .message-actions__spinner {
   animation: message-actions-spin 0.8s linear infinite;
 }

@@ -28,6 +28,12 @@ import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { useT } from "@/shared/i18n";
 import "./message-actions.css";
 const COPIED_RESET_MS = 1600;
+// Rewind is destructive (drops the message + everything after it), so it
+// takes two clicks: the first arms a "Click again to rewind" state, the
+// second within this window performs it. Mirrors the two-step confirm used
+// by the top bar's new-chat / delete-conversation controls
+// (HISTORY_*_CONFIRM_TIMEOUT_MS in ConversationTopBar).
+const REWIND_CONFIRM_TIMEOUT_MS = 3000;
 /**
  * @typedef {Object} MessageActionsProps
  * @property {string} text
@@ -45,10 +51,56 @@ function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "
     const [copied, setCopied] = useState(false);
     const copiedTimerRef = useRef(null);
     const readAloudStatus = useManualReadAloudStatus(messageKey);
+    // Two-step confirm state for the destructive Rewind action.
+    const [rewindArmed, setRewindArmed] = useState(false);
+    const rewindTimerRef = useRef(null);
     useEffect(() => () => {
         if (copiedTimerRef.current)
             clearTimeout(copiedTimerRef.current);
+        if (rewindTimerRef.current)
+            clearTimeout(rewindTimerRef.current);
     }, []);
+    const disarmRewind = useCallback(() => {
+        if (rewindTimerRef.current) {
+            clearTimeout(rewindTimerRef.current);
+            rewindTimerRef.current = null;
+        }
+        setRewindArmed(false);
+    }, []);
+    // First click arms + shows the confirm state (auto-resets after the
+    // timeout); second click within the window performs the rewind.
+    const handleRewindClick = useCallback(() => {
+        if (!onRewind)
+            return;
+        if (rewindTimerRef.current) {
+            clearTimeout(rewindTimerRef.current);
+            rewindTimerRef.current = null;
+        }
+        if (rewindArmed) {
+            setRewindArmed(false);
+            onRewind();
+            return;
+        }
+        setRewindArmed(true);
+        rewindTimerRef.current = setTimeout(() => {
+            rewindTimerRef.current = null;
+            setRewindArmed(false);
+        }, REWIND_CONFIRM_TIMEOUT_MS);
+    }, [onRewind, rewindArmed]);
+    // Reset the armed state when the turn becomes busy (the button also
+    // disables) or the window loses focus, matching "click away / lose
+    // focus / timeout" resets on the existing confirm controls.
+    useEffect(() => {
+        if (actionsDisabled)
+            disarmRewind();
+    }, [actionsDisabled, disarmRewind]);
+    useEffect(() => {
+        if (!rewindArmed)
+            return;
+        const onWindowBlur = () => disarmRewind();
+        window.addEventListener("blur", onWindowBlur);
+        return () => window.removeEventListener("blur", onWindowBlur);
+    }, [rewindArmed, disarmRewind]);
     const handleCopy = useCallback(async () => {
         const value = text.trim();
         if (!value)
@@ -67,7 +119,7 @@ function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "
         void toggleManualReadAloud(messageKey, text);
     }, [messageKey, text]);
     const isPlaying = readAloudStatus !== "idle";
-    return (<div className={`message-actions message-actions--${align}`} data-active={isPlaying ? "true" : undefined} data-streaming={streaming ? "true" : undefined}
+    return (<div className={`message-actions message-actions--${align}`} data-active={isPlaying ? "true" : undefined} data-streaming={streaming ? "true" : undefined} onMouseLeave={onRewind ? disarmRewind : undefined}
     // `inert` keeps the still-streaming (invisible) row out of the tab
     // order and the accessibility tree and blocks pointer interaction —
     // belt-and-suspenders with the CSS that holds it at opacity:0.
@@ -75,7 +127,7 @@ function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "
       <button type="button" className="message-actions__btn" onClick={handleCopy} aria-label={copied ? t("app.chat.messageActions.copied") : t("app.chat.messageActions.copy")} title={copied ? t("app.chat.messageActions.copied") : t("app.chat.messageActions.copy")}>
         {copied ? (<Check size={14} strokeWidth={2} aria-hidden="true"/>) : (<Copy size={14} strokeWidth={2} aria-hidden="true"/>)}
       </button>
-      {onRewind && (<button type="button" className="message-actions__btn" onClick={onRewind} disabled={actionsDisabled} aria-disabled={actionsDisabled || undefined} aria-label={t("app.chat.messageActions.rewind")} title={t("app.chat.messageActions.rewind")}>
+      {onRewind && (<button type="button" className="message-actions__btn" onClick={handleRewindClick} onBlur={disarmRewind} disabled={actionsDisabled} aria-disabled={actionsDisabled || undefined} data-armed={rewindArmed ? "true" : undefined} aria-label={rewindArmed ? t("app.chat.messageActions.rewindConfirm") : t("app.chat.messageActions.rewind")} title={rewindArmed ? t("app.chat.messageActions.rewindConfirm") : t("app.chat.messageActions.rewind")}>
         <RotateCcw size={14} strokeWidth={2} aria-hidden="true"/>
       </button>)}
       {onFork && (<button type="button" className="message-actions__btn" onClick={onFork} disabled={actionsDisabled} aria-disabled={actionsDisabled || undefined} aria-label={t("app.chat.messageActions.fork")} title={t("app.chat.messageActions.fork")}>

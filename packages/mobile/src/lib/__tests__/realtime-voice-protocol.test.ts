@@ -1,13 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildComputerVoiceInstructions,
+  buildMobileRealtimeSessionUpdate,
   buildNormalChatVoiceInstructions,
   findVoiceActionCompletion,
+  managedVoiceConversationId,
   mergeComputerVoiceTools,
   realtimeErrorMessage,
 } from "../realtime-voice-protocol";
 
 describe("realtime voice protocol", () => {
+  test("keeps local transcript keys out of managed voice requests", () => {
+    expect(managedVoiceConversationId("cloud")).toBe(undefined);
+    expect(managedVoiceConversationId("computer")).toBe(undefined);
+    expect(managedVoiceConversationId("carplay")).toBe(undefined);
+    expect(managedVoiceConversationId("carplay-computer")).toBe(undefined);
+    expect(managedVoiceConversationId("  jn7realconversationid  ")).toBe(
+      "jn7realconversationid",
+    );
+  });
+
   test("carries only the latest 16 attached normal-chat messages", () => {
     const instructions = buildNormalChatVoiceInstructions(
       Array.from({ length: 18 }, (_, index) => ({
@@ -48,6 +60,53 @@ describe("realtime voice protocol", () => {
         },
       ]).map((tool) => tool.name),
     ).toEqual(["web", "no_response", "goodbye"]);
+  });
+
+  test("normalizes Computer tools and avoids immutable session fields", () => {
+    const tools = mergeComputerVoiceTools([
+      {
+        type: "function",
+        name: "image_gen",
+        description: "Generate an image.",
+        parameters: {
+          type: "object",
+          properties: { prompt: { type: "string" } },
+          required: ["prompt"],
+          allOf: [{ not: { required: ["tooManyReferences"] } }],
+        },
+      },
+    ]);
+    expect(tools[0]?.parameters).toEqual({
+      type: "object",
+      properties: { prompt: { type: "string" } },
+      required: ["prompt"],
+    });
+
+    const update = buildMobileRealtimeSessionUpdate({
+      eventId: "mobile-session-update-1",
+      execution: "computer",
+      instructions: "Use the paired computer.",
+      tools,
+    });
+    expect(update).toEqual({
+      type: "session.update",
+      event_id: "mobile-session-update-1",
+      session: {
+        type: "realtime",
+        instructions: "Use the paired computer.",
+        tools,
+        tool_choice: "auto",
+        audio: {
+          input: {
+            turn_detection: {
+              type: "server_vad",
+              create_response: true,
+              interrupt_response: true,
+            },
+          },
+        },
+      },
+    });
   });
 
   test("extracts provider error messages", () => {

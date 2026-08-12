@@ -197,6 +197,46 @@ describe("media capability gating", () => {
     expect(providerFetch).not.toHaveBeenCalled();
   });
 
+  it("starts realtime voice without treating a mobile thread key as a Convex ID", async () => {
+    ensureEnv();
+    const t = createTest();
+    const owner = await onPlan(t, "pro");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          value: "ek_test_realtime_secret",
+          id: "sess_test_realtime",
+          expires_at: Math.floor(Date.now() / 1_000) + 60,
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    const response = await owner.fetch("/api/voice/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        conversationId: "cloud",
+        instructions: "Be helpful.",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      clientSecret: "ek_test_realtime_secret",
+      sessionId: "sess_test_realtime",
+      voiceProvider: "openai",
+    });
+    const leases = await t.run(
+      async (ctx) => await ctx.db.query("billing_voice_sessions").take(2),
+    );
+    expect(leases).toHaveLength(1);
+    expect(leases[0]?.conversationId).toBeUndefined();
+  });
+
   it("leaves dictation open to every plan", async () => {
     ensureEnv();
     const t = createTest();

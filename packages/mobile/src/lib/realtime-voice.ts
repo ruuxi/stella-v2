@@ -8,8 +8,10 @@ import type { StoredPhoneAccess } from "./phone-access";
 import { postJson } from "./http";
 import {
   buildComputerVoiceInstructions,
+  buildMobileRealtimeSessionUpdate,
   buildNormalChatVoiceInstructions,
   findVoiceActionCompletion,
+  managedVoiceConversationId,
   mergeComputerVoiceTools,
   realtimeErrorMessage,
   type RealtimeVoiceActionDispatch,
@@ -184,6 +186,7 @@ export class MobileRealtimeVoiceSession {
   private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
   private sdpAbortController: AbortController | null = null;
   private sessionUpdateWaiter: {
+    eventId: string;
     finish: (error?: Error) => void;
   } | null = null;
   private handledToolCalls = new Set<string>();
@@ -284,11 +287,17 @@ export class MobileRealtimeVoiceSession {
       } else {
         instructions = buildNormalChatVoiceInstructions(this.options.messages);
       }
+      const managedConversationId = managedVoiceConversationId(
+        this.options.conversationId,
+      );
       const raw = (await postJson(
         "/api/voice/session",
         {
-          conversationId: this.options.conversationId,
+          ...(managedConversationId
+            ? { conversationId: managedConversationId }
+            : {}),
           instructions,
+          ...(this.options.execution === "computer" ? { tools } : {}),
           voiceProvider: "openai",
         },
         { timeoutMs: 20_000 },
@@ -383,27 +392,16 @@ export class MobileRealtimeVoiceSession {
       // transcribes speech without letting Realtime answer independently.
       // Computer voice instead receives the connected desktop's exact runtime
       // tool catalog and follows the same direct-tool loop as desktop voice.
-      const sessionUpdated = this.waitForSessionUpdated();
-      this.send({
-        type: "session.update",
-        session: {
-          type: "realtime",
-          model,
+      const sessionUpdateEventId = `${this.requestId}:session-update`;
+      const sessionUpdated = this.waitForSessionUpdated(sessionUpdateEventId);
+      this.send(
+        buildMobileRealtimeSessionUpdate({
+          eventId: sessionUpdateEventId,
+          execution: this.options.execution,
           instructions,
           tools,
-          tool_choice: this.options.execution === "computer" ? "auto" : "none",
-          audio: {
-            input: {
-              turn_detection: {
-                type: "server_vad",
-                create_response: this.options.execution === "computer",
-                interrupt_response: this.options.execution === "computer",
-              },
-            },
-            output: { voice },
-          },
-        },
-      });
+        }),
+      );
       await sessionUpdated;
       if (this.stopped) return;
       track.enabled = true;
@@ -621,6 +619,20 @@ export class MobileRealtimeVoiceSession {
         return;
       }
       case "error":
+        if (this.sessionUpdateWaiter) {
+          const error = asRecord(event.error);
+          const rejectedEventId = asString(error?.event_id);
+          if (
+            rejectedEventId &&
+            rejectedEventId !== this.sessionUpdateWaiter.eventId
+          ) {
+            return;
+          }
+          this.sessionUpdateWaiter.finish(
+            new Error(realtimeErrorMessage(event)),
+          );
+          return;
+        }
         // Realtime emits recoverable protocol errors too (for example, a
         // response.create arriving while another response is finishing).
         // The peer/data-channel lifecycle remains the authoritative signal for
@@ -831,7 +843,7 @@ export class MobileRealtimeVoiceSession {
     this.requestResponse();
   }
 
-  private waitForSessionUpdated(): Promise<void> {
+  private waitForSessionUpdated(eventId: string): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
       const finish = (error?: Error) => {
@@ -851,7 +863,7 @@ export class MobileRealtimeVoiceSession {
           ),
         SESSION_UPDATE_TIMEOUT_MS,
       );
-      this.sessionUpdateWaiter = { finish };
+      this.sessionUpdateWaiter = { eventId, finish };
     });
   }
 

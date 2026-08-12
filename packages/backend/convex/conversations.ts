@@ -90,6 +90,12 @@ export const getById = internalQuery({
   },
 });
 
+export const normalizeId = internalQuery({
+  args: { id: v.string() },
+  returns: v.union(v.id("conversations"), v.null()),
+  handler: async (ctx, args) => ctx.db.normalizeId("conversations", args.id),
+});
+
 export const getOrCreateDefaultConversation = mutation({
   args: {
     title: v.optional(v.string()),
@@ -329,5 +335,4 @@ export const clearPendingDeviceSelection = internalMutation({
     return null;
   },
 });
-
 

@@ -6,7 +6,7 @@ import {
 } from "./lib/rate_limits";
 
 const FEEDBACK_MIN_LENGTH = 1;
-const FEEDBACK_MAX_LENGTH = 4000;
+export const FEEDBACK_MAX_LENGTH = 32_000;
 const APP_VERSION_MAX_LENGTH = 64;
 const PLATFORM_MAX_LENGTH = 64;
 

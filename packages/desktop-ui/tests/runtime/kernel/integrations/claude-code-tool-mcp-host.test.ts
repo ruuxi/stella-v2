@@ -124,6 +124,37 @@ describe("claude-code-tool-mcp-host", () => {
     expect(progress).toHaveBeenCalled();
   });
 
+  it("publishes root-combinator schemas as compatible object schemas", async () => {
+    const original = {
+      type: "object" as const,
+      properties: { prompt: { type: "string" } },
+      required: ["prompt"],
+      allOf: [{ not: { required: ["tooManyReferences"] } }],
+    };
+    const host = await createClaudeCodeToolMcpHost({
+      tools: [
+        {
+          name: "image_gen",
+          description: "Generate an image",
+          parameters: original,
+        },
+      ],
+      getActiveTurn: () => ({ executeTool: async () => ({ result: "ok" }) }),
+    });
+    hosts.add(host);
+    const client = await connect(host);
+    clients.add(client);
+
+    const catalog = await client.listTools();
+    expect(catalog.tools[0]?.inputSchema).toMatchObject({
+      type: "object",
+      properties: { prompt: { type: "string" } },
+      required: ["prompt"],
+    });
+    expect(catalog.tools[0]?.inputSchema).not.toHaveProperty("allOf");
+    expect(original).toHaveProperty("allOf");
+  });
+
   it("returns Stella tool errors and rejects unknown tools", async () => {
     const host = await createClaudeCodeToolMcpHost({
       tools,

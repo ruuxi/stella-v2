@@ -17,6 +17,7 @@ import { parseStreamingJson } from "./json_parse";
 import { calculateCost } from "./model_utils";
 import { sanitizeSurrogates } from "./sanitize_unicode";
 import { transformMessages } from "./transform_messages";
+import { normalizeProviderToolInputSchema } from "./tool_schema";
 import type {
   Api,
   AssistantMessage,
@@ -368,7 +369,7 @@ export function convertResponsesTools(tools: Tool[]): OpenAITool[] {
     type: "function",
     name: normalizeOpenAIFunctionName(tool.name),
     description: tool.description,
-    parameters: tool.parameters,
+    parameters: normalizeProviderToolInputSchema(tool.parameters),
     strict: tool.strict ?? false,
   }));
 }

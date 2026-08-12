@@ -7,6 +7,7 @@ import { headersToRecord } from "../utils/headers.js";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.js";
 import { anomalousStreamStopError, providerAbortedStopMessage } from "../utils/provider-stop.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
+import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 import { resolveCloudflareBaseUrl } from "./cloudflare.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
 import { requestWithAuthRefresh } from "./auth-refresh.js";
@@ -1345,22 +1346,13 @@ export function convertTools(tools, isOAuthToken, supportsEagerToolInputStreamin
     if (!tools)
         return [];
     return tools.map((tool, index) => {
-        const schema = structuredClone(tool.parameters);
-        // Anthropic requires every tool input schema to be a root object and
-        // rejects root combinators even when `type: "object"` is also present.
-        // Stella still validates the full original schema before execution.
-        delete schema.oneOf;
-        delete schema.allOf;
-        delete schema.anyOf;
+        const schema = normalizeProviderToolInputSchema(tool.parameters);
         return {
             name: isOAuthToken ? toClaudeCodeName(tool.name) : tool.name,
             description: tool.description,
             ...(supportsEagerToolInputStreaming ? { eager_input_streaming: true } : {}),
             input_schema: {
                 ...schema,
-                type: "object",
-                properties: schema.properties ?? {},
-                required: schema.required ?? [],
             },
             ...(cacheControl && index === tools.length - 1 ? { cache_control: cacheControl } : {}),
         };

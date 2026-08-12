@@ -98,6 +98,31 @@
       "none": "Você já está usando os padrões da Stella.",
       "error": "Não foi possível restaurar os padrões."
     },
+    "systemPrompt": {
+      "title": "Prompt do sistema",
+      "description": "O prompt padrão da Stella sempre é atualizado com o app. Salve o seu para usá-lo no lugar — ele fica guardado separadamente, então atualizações nunca o sobrescrevem.",
+      "agentLabel": "Prompt para",
+      "agentSublabel": "Escolha o prompt de qual agente alterar.",
+      "activeLabel": "Prompt ativo",
+      "defaultOption": "Padrão da Stella",
+      "usingDefault": "Usando o prompt padrão da Stella.",
+      "usingCustom": "Usando o seu prompt salvo.",
+      "newFromDefault": "Novo a partir do padrão",
+      "edit": "Editar",
+      "duplicate": "Duplicar",
+      "delete": "Excluir",
+      "save": "Salvar",
+      "cancel": "Cancelar",
+      "nameLabel": "Nome",
+      "newName": "Meu prompt",
+      "saved": "Prompt salvo.",
+      "deleted": "Prompt excluído.",
+      "error": "Algo deu errado.",
+      "agents": {
+        "assistant": "Assistente",
+        "worker": "Trabalhador"
+      }
+    },
     "permissions": {
       "title": "Permissões",
       "enable": "Ativar",

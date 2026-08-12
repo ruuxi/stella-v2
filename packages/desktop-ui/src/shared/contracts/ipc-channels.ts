@@ -248,6 +248,11 @@ export const IPC_PREFERENCES_GET_PERSONALITY_VOICE =
   "preferences:getPersonalityVoice" as const;
 export const IPC_PREFERENCES_SET_PERSONALITY_VOICE =
   "preferences:setPersonalityVoice" as const;
+export const IPC_PROMPT_PRESETS_LIST = "promptPresets:list" as const;
+export const IPC_PROMPT_PRESETS_READ = "promptPresets:read" as const;
+export const IPC_PROMPT_PRESETS_SAVE = "promptPresets:save" as const;
+export const IPC_PROMPT_PRESETS_DELETE = "promptPresets:delete" as const;
+export const IPC_PROMPT_PRESETS_SELECT = "promptPresets:select" as const;
 export const IPC_CUSTOMIZATIONS_RESET = "customizations:reset" as const;
 export const IPC_PREFERENCES_GET_WAKE_WORD = "preferences:getWakeWord" as const;
 export const IPC_PREFERENCES_SET_WAKE_WORD = "preferences:setWakeWord" as const;

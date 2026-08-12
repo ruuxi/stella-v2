@@ -98,6 +98,31 @@
       "none": "すでに Stella のデフォルトを使用しています。",
       "error": "デフォルトに戻せませんでした。"
     },
+    "systemPrompt": {
+      "title": "システムプロンプト",
+      "description": "Stella の既定プロンプトは常にアプリと一緒に更新されます。独自のプロンプトを保存すると、そちらが使われます。別ファイルで保管されるため、更新で上書きされることはありません。",
+      "agentLabel": "対象エージェント",
+      "agentSublabel": "どのエージェントのプロンプトを変更するか選びます。",
+      "activeLabel": "使用中のプロンプト",
+      "defaultOption": "Stella の既定",
+      "usingDefault": "Stella の既定プロンプトを使用中です。",
+      "usingCustom": "保存したプロンプトを使用中です。",
+      "newFromDefault": "既定から新規作成",
+      "edit": "編集",
+      "duplicate": "複製",
+      "delete": "削除",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "nameLabel": "名前",
+      "newName": "マイプロンプト",
+      "saved": "プロンプトを保存しました。",
+      "deleted": "プロンプトを削除しました。",
+      "error": "問題が発生しました。",
+      "agents": {
+        "assistant": "アシスタント",
+        "worker": "ワーカー"
+      }
+    },
     "permissions": {
       "title": "アクセス権",
       "enable": "有効にする",

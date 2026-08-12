@@ -98,6 +98,31 @@
       "none": "Du bruker allerede Stellas standardinnstillinger.",
       "error": "Kunne ikke gjenopprette standardene."
     },
+    "systemPrompt": {
+      "title": "Systemprompt",
+      "description": "Stellas standardprompt oppdateres alltid med appen. Lagre din egen for å bruke den i stedet – den lagres separat, så oppdateringer overskriver den aldri.",
+      "agentLabel": "Prompt for",
+      "agentSublabel": "Velg hvilken agents prompt du vil endre.",
+      "activeLabel": "Aktiv prompt",
+      "defaultOption": "Stellas standard",
+      "usingDefault": "Bruker Stellas standardprompt.",
+      "usingCustom": "Bruker din lagrede prompt.",
+      "newFromDefault": "Ny fra standard",
+      "edit": "Rediger",
+      "duplicate": "Dupliser",
+      "delete": "Slett",
+      "save": "Lagre",
+      "cancel": "Avbryt",
+      "nameLabel": "Navn",
+      "newName": "Min prompt",
+      "saved": "Prompten ble lagret.",
+      "deleted": "Prompten ble slettet.",
+      "error": "Noe gikk galt.",
+      "agents": {
+        "assistant": "Assistent",
+        "worker": "Arbeider"
+      }
+    },
     "permissions": {
       "title": "Tillatelser",
       "enable": "Aktiver",

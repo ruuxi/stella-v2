@@ -98,6 +98,31 @@
       "none": "Už používáte výchozí nastavení Stelly.",
       "error": "Výchozí nastavení se nepodařilo obnovit."
     },
+    "systemPrompt": {
+      "title": "Systémový prompt",
+      "description": "Výchozí prompt Stelly se vždy aktualizuje s aplikací. Uložte si vlastní a použije se místo něj – ukládá se zvlášť, takže ho aktualizace nikdy nepřepíšou.",
+      "agentLabel": "Prompt pro",
+      "agentSublabel": "Vyberte, kterému agentovi chcete změnit prompt.",
+      "activeLabel": "Aktivní prompt",
+      "defaultOption": "Výchozí Stelly",
+      "usingDefault": "Používá se výchozí prompt Stelly.",
+      "usingCustom": "Používá se váš uložený prompt.",
+      "newFromDefault": "Nový z výchozího",
+      "edit": "Upravit",
+      "duplicate": "Duplikovat",
+      "delete": "Smazat",
+      "save": "Uložit",
+      "cancel": "Zrušit",
+      "nameLabel": "Název",
+      "newName": "Můj prompt",
+      "saved": "Prompt uložen.",
+      "deleted": "Prompt smazán.",
+      "error": "Něco se pokazilo.",
+      "agents": {
+        "assistant": "Asistent",
+        "worker": "Pracovník"
+      }
+    },
     "permissions": {
       "title": "Oprávnění",
       "enable": "Povolit",

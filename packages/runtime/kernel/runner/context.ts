@@ -1429,11 +1429,12 @@ export const buildAgentContext = async (
     // already-connected integrations via their skills; no standing
     // integration guidance is injected here.
   }
-  // Read the live prompt body from the bundled agent definition so dev edits
-  // take effect on the next turn (mtime-gated — unchanged files are not
+  // Resolve the live prompt body: the user's selected prompt preset when set,
+  // else the shipped bundled body (mtime-gated — unchanged files are not
   // re-read). Falls back to the registered prompt for extension agents.
   const bundledSystemPrompt = await loadAgentSystemPrompt(
     agent?.id ?? args.agentType,
+    context.stellaDataDir,
   );
   const injectsCoreMemory = agentHasCapability(
     args.agentType,

@@ -26,7 +26,7 @@ import {
 
 const TARGET_SAMPLE_RATE = 16_000;
 const PCM_WORKLET_NAME = "stella-dictation-pcm-capture";
-const PCM_WORKLET_URL = "/dictation-pcm-worklet.js";
+const PCM_WORKLET_FILE = "dictation-pcm-worklet.js";
 const DICTATION_SUPER_FAST_KEY = "stella-dictation-super-fast";
 const DICTATION_ENHANCE_KEY = "stella-dictation-enhance";
 const DICTATION_LOCAL_KEY = "stella-dictation-local";
@@ -64,6 +64,9 @@ const SUPER_FAST_PRE_ROLL_MS = 450;
  *  whole recording in one pass, so it gets this budget scaled by the number
  *  of equivalent segments (see `transcribeCapturedAudio`). */
 const TRANSCRIBE_SEGMENT_TIMEOUT_MS = 90_000;
+
+export const resolveDictationPcmWorkletUrl = (rendererHref: string): string =>
+  new URL(PCM_WORKLET_FILE, rendererHref).href;
 
 export type DictationSessionState =
   | "idle"
@@ -209,7 +212,9 @@ class DictationWarmCapture {
     this.micLease = await acquireSharedMicrophone();
     const ctx = new AudioContext();
     this.audioContext = ctx;
-    await ctx.audioWorklet.addModule(PCM_WORKLET_URL);
+    await ctx.audioWorklet.addModule(
+      resolveDictationPcmWorkletUrl(window.location.href),
+    );
 
     const source = ctx.createMediaStreamSource(this.micLease.stream);
     this.sourceNode = source;
@@ -668,7 +673,9 @@ export class InworldDictationSession {
     const ctx = new AudioContext();
     this.audioContext = ctx;
 
-    await ctx.audioWorklet.addModule(PCM_WORKLET_URL);
+    await ctx.audioWorklet.addModule(
+      resolveDictationPcmWorkletUrl(window.location.href),
+    );
 
     const source = ctx.createMediaStreamSource(stream);
     this.sourceNode = source;

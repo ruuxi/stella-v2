@@ -98,6 +98,31 @@
       "none": "Stai già usando le impostazioni predefinite di Stella.",
       "error": "Impossibile ripristinare le impostazioni predefinite."
     },
+    "systemPrompt": {
+      "title": "Prompt di sistema",
+      "description": "Il prompt predefinito di Stella si aggiorna sempre con l'app. Salva il tuo per usarlo al suo posto: viene conservato separatamente, così gli aggiornamenti non lo sovrascrivono mai.",
+      "agentLabel": "Prompt per",
+      "agentSublabel": "Scegli di quale agente cambiare il prompt.",
+      "activeLabel": "Prompt attivo",
+      "defaultOption": "Predefinito di Stella",
+      "usingDefault": "Stai usando il prompt predefinito di Stella.",
+      "usingCustom": "Stai usando il tuo prompt salvato.",
+      "newFromDefault": "Nuovo dal predefinito",
+      "edit": "Modifica",
+      "duplicate": "Duplica",
+      "delete": "Elimina",
+      "save": "Salva",
+      "cancel": "Annulla",
+      "nameLabel": "Nome",
+      "newName": "Il mio prompt",
+      "saved": "Prompt salvato.",
+      "deleted": "Prompt eliminato.",
+      "error": "Qualcosa è andato storto.",
+      "agents": {
+        "assistant": "Assistente",
+        "worker": "Esecutore"
+      }
+    },
     "permissions": {
       "title": "Autorizzazioni",
       "enable": "Abilita",

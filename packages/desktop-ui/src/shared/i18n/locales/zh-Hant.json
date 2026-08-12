@@ -98,6 +98,31 @@
       "none": "你已經在使用 Stella 的預設設定。",
       "error": "無法還原預設設定。"
     },
+    "systemPrompt": {
+      "title": "系統提示詞",
+      "description": "Stella 的預設提示詞永遠隨應用程式更新。儲存你自己的提示詞即可改用它——它單獨存放，更新永遠不會覆蓋。",
+      "agentLabel": "提示詞對象",
+      "agentSublabel": "選擇要修改哪個代理的提示詞。",
+      "activeLabel": "目前提示詞",
+      "defaultOption": "Stella 預設",
+      "usingDefault": "正在使用 Stella 的預設提示詞。",
+      "usingCustom": "正在使用你儲存的提示詞。",
+      "newFromDefault": "從預設新建",
+      "edit": "編輯",
+      "duplicate": "複製",
+      "delete": "刪除",
+      "save": "儲存",
+      "cancel": "取消",
+      "nameLabel": "名稱",
+      "newName": "我的提示詞",
+      "saved": "提示詞已儲存。",
+      "deleted": "提示詞已刪除。",
+      "error": "發生了問題。",
+      "agents": {
+        "assistant": "助理",
+        "worker": "執行者"
+      }
+    },
     "permissions": {
       "title": "權限",
       "enable": "啟用",

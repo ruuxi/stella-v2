@@ -98,6 +98,31 @@
       "none": "Du verwendest bereits Stellas Standardeinstellungen.",
       "error": "Standards konnten nicht wiederhergestellt werden."
     },
+    "systemPrompt": {
+      "title": "System-Prompt",
+      "description": "Stellas Standard-Prompt wird immer mit der App aktualisiert. Speichere deinen eigenen, um ihn stattdessen zu verwenden – er wird separat abgelegt, sodass Updates ihn nie überschreiben.",
+      "agentLabel": "Prompt für",
+      "agentSublabel": "Wähle, wessen Prompt du ändern möchtest.",
+      "activeLabel": "Aktiver Prompt",
+      "defaultOption": "Stellas Standard",
+      "usingDefault": "Verwendet Stellas Standard-Prompt.",
+      "usingCustom": "Verwendet deinen gespeicherten Prompt.",
+      "newFromDefault": "Neu aus Standard",
+      "edit": "Bearbeiten",
+      "duplicate": "Duplizieren",
+      "delete": "Löschen",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "nameLabel": "Name",
+      "newName": "Mein Prompt",
+      "saved": "Prompt gespeichert.",
+      "deleted": "Prompt gelöscht.",
+      "error": "Etwas ist schiefgelaufen.",
+      "agents": {
+        "assistant": "Assistent",
+        "worker": "Worker"
+      }
+    },
     "permissions": {
       "title": "Berechtigungen",
       "enable": "Aktivieren",

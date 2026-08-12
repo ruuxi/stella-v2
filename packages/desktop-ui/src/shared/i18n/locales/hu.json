@@ -98,6 +98,31 @@
       "none": "Már a Stella alapértelmezéseit használod.",
       "error": "Nem sikerült visszaállítani az alapértelmezéseket."
     },
+    "systemPrompt": {
+      "title": "Rendszerprompt",
+      "description": "A Stella alapértelmezett promptja mindig frissül az alkalmazással. Mentsd el a sajátodat, hogy azt használja – külön tárolódik, így a frissítések soha nem írják felül.",
+      "agentLabel": "Prompt ehhez",
+      "agentSublabel": "Válaszd ki, melyik ügynök promptját módosítod.",
+      "activeLabel": "Aktív prompt",
+      "defaultOption": "Stella alapértelmezése",
+      "usingDefault": "A Stella alapértelmezett promptja van használatban.",
+      "usingCustom": "A mentett promptod van használatban.",
+      "newFromDefault": "Új az alapértelmezésből",
+      "edit": "Szerkesztés",
+      "duplicate": "Másolat",
+      "delete": "Törlés",
+      "save": "Mentés",
+      "cancel": "Mégse",
+      "nameLabel": "Név",
+      "newName": "Saját prompt",
+      "saved": "Prompt elmentve.",
+      "deleted": "Prompt törölve.",
+      "error": "Valami hiba történt.",
+      "agents": {
+        "assistant": "Asszisztens",
+        "worker": "Végrehajtó"
+      }
+    },
     "permissions": {
       "title": "Engedélyek",
       "enable": "Engedélyezés",

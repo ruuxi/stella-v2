@@ -98,6 +98,31 @@
       "none": "Już korzystasz z domyślnych ustawień Stelli.",
       "error": "Nie udało się przywrócić ustawień domyślnych."
     },
+    "systemPrompt": {
+      "title": "Prompt systemowy",
+      "description": "Domyślny prompt Stelli zawsze aktualizuje się wraz z aplikacją. Zapisz własny, aby go używać — jest przechowywany osobno, więc aktualizacje go nie nadpiszą.",
+      "agentLabel": "Prompt dla",
+      "agentSublabel": "Wybierz, którego agenta prompt zmienić.",
+      "activeLabel": "Aktywny prompt",
+      "defaultOption": "Domyślny Stelli",
+      "usingDefault": "Używasz domyślnego promptu Stelli.",
+      "usingCustom": "Używasz zapisanego promptu.",
+      "newFromDefault": "Nowy z domyślnego",
+      "edit": "Edytuj",
+      "duplicate": "Duplikuj",
+      "delete": "Usuń",
+      "save": "Zapisz",
+      "cancel": "Anuluj",
+      "nameLabel": "Nazwa",
+      "newName": "Mój prompt",
+      "saved": "Prompt zapisany.",
+      "deleted": "Prompt usunięty.",
+      "error": "Coś poszło nie tak.",
+      "agents": {
+        "assistant": "Asystent",
+        "worker": "Wykonawca"
+      }
+    },
     "permissions": {
       "title": "Uprawnienia",
       "enable": "Włącz",

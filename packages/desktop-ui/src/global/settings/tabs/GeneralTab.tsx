@@ -3,6 +3,7 @@ import { Button } from "@/ui/button";
 import { Select } from "@/ui/select";
 import { Switch } from "@/ui/switch";
 import { LanguageSettingsRow } from "@/global/settings/LanguageSettingsRow";
+import { PromptPresetCard } from "@/global/settings/PromptPresetCard";
 import {
   useDesktopPermissions,
   type DesktopPermissionStatus,
@@ -1031,6 +1032,7 @@ export function GeneralTab() {
             </div>
           </div>
         </div>
+        <PromptPresetCard />
         <div className="settings-card">
           <div className="settings-card-header">
             <h3 className="settings-card-title">

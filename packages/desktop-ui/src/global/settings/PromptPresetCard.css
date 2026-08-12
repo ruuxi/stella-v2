@@ -1,0 +1,56 @@
+.prompt-preset-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.prompt-preset-name-input,
+.prompt-preset-textarea {
+  width: 100%;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  background: var(--surface-inset, rgba(0, 0, 0, 0.16));
+  color: inherit;
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.prompt-preset-textarea {
+  min-height: 260px;
+  resize: vertical;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.prompt-preset-name-input:focus-visible,
+.prompt-preset-textarea:focus-visible {
+  outline: 2px solid var(--accent, #7aa2f7);
+  outline-offset: 1px;
+}
+
+.prompt-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.prompt-preset-actions-spacer {
+  flex: 1 1 auto;
+}
+
+.prompt-preset-status {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.prompt-preset-status--error {
+  color: var(--danger, #f7768e);
+  opacity: 1;
+}

@@ -766,6 +766,37 @@ export type ElectronSystemApi = {
   setPersonalityVoice: (
     voiceId: string,
   ) => Promise<{ ok: boolean; voiceId: string }>;
+  listPromptPresets: (agentId: string) => Promise<{
+    presets: Array<{ id: string; name: string; agentId: string }>;
+    selectedId: string;
+  }>;
+  readPromptPreset: (
+    agentId: string,
+    presetId: string,
+  ) => Promise<{
+    id: string;
+    name: string;
+    agentId: string;
+    content: string;
+  } | null>;
+  savePromptPreset: (payload: {
+    agentId: string;
+    id?: string;
+    name: string;
+    content: string;
+    select?: boolean;
+  }) => Promise<
+    | { ok: true; preset: { id: string; name: string; agentId: string } }
+    | { ok: false; error: string }
+  >;
+  deletePromptPreset: (
+    agentId: string,
+    presetId: string,
+  ) => Promise<{ ok: boolean; selectedId: string }>;
+  selectPromptPreset: (
+    agentId: string,
+    presetId: string,
+  ) => Promise<{ ok: boolean; selectedId: string }>;
   resetCustomizations: () => Promise<{
     ok: boolean;
     movedEntries: string[];

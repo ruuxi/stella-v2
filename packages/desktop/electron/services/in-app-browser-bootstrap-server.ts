@@ -26,6 +26,7 @@ export type InAppBrowserBootstrapCapability = Readonly<{
   turnId: string;
   ownerLeaseId: string;
   ownerLeaseIssuedAt: number;
+  recover?: boolean;
 }>;
 
 export type InAppBrowserBootstrapResult = Readonly<{
@@ -41,6 +42,7 @@ const ensureRequestSchema = z.strictObject({
   turnId: capabilityString,
   ownerLeaseId: capabilityString,
   ownerLeaseIssuedAt: z.number().int().positive(),
+  recover: z.boolean().optional(),
 });
 
 const sameToken = (received: unknown, expected: string) => {
@@ -174,6 +176,7 @@ export class InAppBrowserBootstrapServer {
         turnId: payload.data.turnId,
         ownerLeaseId: payload.data.ownerLeaseId,
         ownerLeaseIssuedAt: payload.data.ownerLeaseIssuedAt,
+        ...(payload.data.recover ? { recover: true } : {}),
       });
       this.reply(socket, true, undefined, result);
     } catch (error) {

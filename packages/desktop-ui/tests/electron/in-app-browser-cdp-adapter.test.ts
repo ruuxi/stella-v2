@@ -68,6 +68,7 @@ const createController = () => {
       ? { currentIndex: 0, entries: [] }
       : {},
   );
+  const recoverDebuggerTarget = vi.fn(async () => "terminated" as const);
   const controller: InAppBrowserDebuggerController = {
     listDebuggerTargets: (ownerId) => targetsFor(ownerId),
     createDebuggerTarget: (url, ownerId) => {
@@ -89,12 +90,18 @@ const createController = () => {
     },
     activateDebuggerTarget: vi.fn(),
     sendDebuggerCommand,
+    recoverDebuggerTarget,
     subscribeDebuggerEvents: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
   };
-  return { controller, sendDebuggerCommand, listeners };
+  return {
+    controller,
+    sendDebuggerCommand,
+    recoverDebuggerTarget,
+    listeners,
+  };
 };
 
 describe("InAppBrowserCdpAdapter", () => {
@@ -237,5 +244,91 @@ describe("InAppBrowserCdpAdapter", () => {
 
     socketA.close();
     socketB.close();
+  });
+
+  it("terminates a timed-out page evaluation without poisoning target control", async () => {
+    const { controller, sendDebuggerCommand, recoverDebuggerTarget } =
+      createController();
+    sendDebuggerCommand.mockImplementation(
+      async (_tabId: string, method: string) => {
+        if (method === "Runtime.evaluate") {
+          return await new Promise<never>(() => undefined);
+        }
+        return {};
+      },
+    );
+    const adapter = new InAppBrowserCdpAdapter(controller, {
+      commandTimeoutMs: 20,
+      bootstrapCommandTimeoutMs: 10,
+      recoveryTimeoutMs: 20,
+    });
+    adapters.push(adapter);
+    const socket = await connect(
+      (await adapter.createOwnerCapability("owner-test")).cdpUrl,
+    );
+    const attached = await request(socket, 1, "Target.attachToTarget", {
+      targetId: "tab-1",
+    });
+
+    await expect(
+      request(
+        socket,
+        2,
+        "Runtime.evaluate",
+        { expression: "while (true) {}", awaitPromise: true },
+        String(attached.sessionId),
+      ),
+    ).rejects.toThrow(
+      "CDP command Runtime.evaluate timed out after 20ms. Page execution was terminated.",
+    );
+    expect(recoverDebuggerTarget).toHaveBeenCalledWith("tab-1", "owner-test");
+    await expect(
+      request(socket, 3, "Target.getTargets"),
+    ).resolves.toMatchObject({
+      targetInfos: [expect.objectContaining({ targetId: "tab-1" })],
+    });
+    await expect(
+      request(socket, 4, "Target.createTarget", { url: "about:blank" }),
+    ).resolves.toEqual({ targetId: "owner-test-2" });
+
+    socket.close();
+  });
+
+  it("recovers and retries CDP domain bootstrap on a retained poisoned tab", async () => {
+    const { controller, sendDebuggerCommand, recoverDebuggerTarget } =
+      createController();
+    let runtimeEnableCalls = 0;
+    sendDebuggerCommand.mockImplementation(
+      async (_tabId: string, method: string) => {
+        if (method === "Runtime.enable" && runtimeEnableCalls++ === 0) {
+          return await new Promise<never>(() => undefined);
+        }
+        return {};
+      },
+    );
+    const adapter = new InAppBrowserCdpAdapter(controller, {
+      commandTimeoutMs: 40,
+      bootstrapCommandTimeoutMs: 20,
+      recoveryTimeoutMs: 20,
+    });
+    adapters.push(adapter);
+    const socket = await connect(
+      (await adapter.createOwnerCapability("owner-test")).cdpUrl,
+    );
+    const attached = await request(socket, 1, "Target.attachToTarget", {
+      targetId: "tab-1",
+    });
+
+    await expect(
+      request(socket, 2, "Runtime.enable", {}, String(attached.sessionId)),
+    ).resolves.toEqual({});
+    expect(recoverDebuggerTarget).toHaveBeenCalledWith("tab-1", "owner-test");
+    expect(
+      sendDebuggerCommand.mock.calls.filter(
+        (call) => call[1] === "Runtime.enable",
+      ),
+    ).toHaveLength(2);
+
+    socket.close();
   });
 });

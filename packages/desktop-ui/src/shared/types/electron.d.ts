@@ -1182,6 +1182,7 @@ export type BrowserViewState = {
   }>;
   tabs: Array<{
     id: string;
+    ownerId: string;
     url: string;
     title: string;
     faviconUrl?: string;
@@ -1206,12 +1207,20 @@ export type ElectronBrowserViewApi = {
   }) => Promise<BrowserViewState>;
   show: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
   setVisibleOwner: (payload: { ownerId: string }) => Promise<BrowserViewState>;
+  setOwnerScope: (payload?: {
+    ownerId?: string;
+  }) => Promise<BrowserViewState>;
   setLayout: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
   hide: () => Promise<BrowserViewState>;
-  createTab: (payload?: { url?: string }) => Promise<BrowserViewState>;
+  createTab: (payload?: {
+    url?: string;
+    ownerId?: string;
+    activate?: boolean;
+  }) => Promise<BrowserViewState>;
   selectTab: (payload: {
     tabId: string;
     ownerId?: string;
+    activate?: boolean;
   }) => Promise<BrowserViewState>;
   closeTab: (payload: {
     tabId: string;

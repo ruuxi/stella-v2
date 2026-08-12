@@ -24,6 +24,7 @@ import {
 } from "./in-app-browser-auth-policy.js";
 import type {
   InAppBrowserDebuggerEvent,
+  InAppBrowserDebuggerRecovery,
   InAppBrowserDebuggerTarget,
 } from "./in-app-browser-cdp-adapter.js";
 
@@ -31,6 +32,7 @@ export type BrowserViewConnection = "checking" | "disconnected" | "connected";
 
 export type BrowserViewTabState = {
   id: string;
+  ownerId: string;
   url: string;
   title: string;
   faviconUrl?: string;
@@ -126,6 +128,7 @@ type InAppBrowserServiceOptions = {
   createDrawableHost?: () => BrowserWindow;
   createId?: () => string;
   wait?: (delayMs: number) => Promise<void>;
+  debuggerRecoveryTimeoutMs?: number;
 };
 
 const DEFAULT_URL = "about:blank";
@@ -142,6 +145,7 @@ const DRAWABLE_CDP_METHODS = new Set([
 ]);
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECTION_POLL_MS = 250;
+const DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS = 1_000;
 
 const cloneState = (state: BrowserViewState): BrowserViewState => ({
   ...state,
@@ -244,6 +248,11 @@ export class InAppBrowserService {
   private initializePromise: Promise<void> | null = null;
   private connectPromise: Promise<BrowserViewState> | null = null;
   private visibleOwnerId = MANUAL_OWNER_ID;
+  /**
+   * `undefined` preserves the legacy single-owner view, `null` exposes every
+   * owner, and a string pins the view to one conversation/session owner.
+   */
+  private scopedOwnerId: string | null | undefined;
   private latestOwnerId: string | undefined;
   private visible = false;
   private layout: BrowserViewLayout | null = null;
@@ -264,9 +273,7 @@ export class InAppBrowserService {
 
   async getState(ownerId?: string): Promise<BrowserViewState> {
     const resolvedOwnerId =
-      ownerId === undefined
-        ? this.visibleOwnerId
-        : this.resolveOwnerId(ownerId);
+      ownerId === undefined ? undefined : this.resolveOwnerId(ownerId);
     if (this.disposed) return this.snapshot(resolvedOwnerId);
     if (this.seeded) {
       this.updateConnection("connected");
@@ -390,7 +397,7 @@ export class InAppBrowserService {
     this.setLayoutInternal(layout);
     this.syncState();
     this.attachActiveView();
-    return this.snapshot(this.visibleOwnerId);
+    return this.snapshot();
   }
 
   setVisibleOwner(ownerId?: string): BrowserViewState {
@@ -401,10 +408,22 @@ export class InAppBrowserService {
     ) {
       throw new Error(`Browser owner not found: ${resolvedOwnerId}`);
     }
+    this.scopedOwnerId = undefined;
     this.visibleOwnerId = resolvedOwnerId;
     this.syncState();
     this.attachActiveView();
-    return this.snapshot(this.visibleOwnerId);
+    return this.snapshot();
+  }
+
+  setOwnerScope(ownerId?: string): BrowserViewState {
+    const normalizedOwnerId = ownerId?.trim();
+    this.scopedOwnerId = normalizedOwnerId || null;
+    if (normalizedOwnerId) {
+      this.visibleOwnerId = normalizedOwnerId;
+    }
+    this.syncState();
+    this.attachActiveView();
+    return this.snapshot();
   }
 
   async setLayout(layout: BrowserViewLayout): Promise<BrowserViewState> {
@@ -420,7 +439,7 @@ export class InAppBrowserService {
   }
 
   async createTab(
-    options: { url?: string; ownerId?: string } = {},
+    options: { url?: string; ownerId?: string; activate?: boolean } = {},
   ): Promise<BrowserViewState> {
     await this.ensureSessionInitialized({});
     const browserSession = this.browserSession;
@@ -461,8 +480,8 @@ export class InAppBrowserService {
     owner.tabIds.add(id);
     owner.activeTabId = id;
     this.latestOwnerId = ownerId;
-    if (this.visible && ownerId === MANUAL_OWNER_ID) {
-      this.visibleOwnerId = MANUAL_OWNER_ID;
+    if (this.shouldActivateOwner(ownerId, options.activate)) {
+      this.visibleOwnerId = ownerId;
     }
     this.bindTab(tab);
     this.syncState();
@@ -482,13 +501,14 @@ export class InAppBrowserService {
   async selectTab(options: {
     tabId: string;
     ownerId?: string;
+    activate?: boolean;
   }): Promise<BrowserViewState> {
     const ownerId = this.resolveOwnerId(options.ownerId);
     this.requireTab(options.tabId, ownerId);
     this.getOrCreateOwner(ownerId).activeTabId = options.tabId;
     this.latestOwnerId = ownerId;
-    if (this.visible && ownerId === MANUAL_OWNER_ID) {
-      this.visibleOwnerId = MANUAL_OWNER_ID;
+    if (this.shouldActivateOwner(ownerId, options.activate)) {
+      this.visibleOwnerId = ownerId;
     }
     this.syncState();
     this.attachActiveView();
@@ -609,6 +629,48 @@ export class InAppBrowserService {
     } finally {
       lease.release();
     }
+  }
+
+  async recoverDebuggerTarget(
+    tabId: string,
+    ownerId?: string,
+  ): Promise<InAppBrowserDebuggerRecovery> {
+    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    const tab = this.requireTab(tabId, resolvedOwnerId);
+    const contents = tab.view.webContents;
+    const tabDebugger = contents.debugger;
+    const timeoutMs =
+      this.options.debuggerRecoveryTimeoutMs ??
+      DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS;
+    let timer: NodeJS.Timeout | undefined;
+    let terminated = false;
+
+    try {
+      if (!tabDebugger.isAttached()) tabDebugger.attach();
+      terminated = await Promise.race([
+        Promise.resolve(
+          tabDebugger.sendCommand("Runtime.terminateExecution"),
+        ).then(
+          () => true,
+          () => false,
+        ),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(false), timeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+    } catch {
+      terminated = false;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (terminated) return "terminated";
+    if (contents.isDestroyed()) {
+      throw new Error("Browser tab was destroyed during page recovery.");
+    }
+    contents.reload();
+    return "reloaded";
   }
 
   acquireDrawableHost(
@@ -1036,6 +1098,7 @@ export class InAppBrowserService {
     const history = tab.view.webContents.navigationHistory;
     return {
       id: tab.id,
+      ownerId: tab.ownerId,
       url: this.readTabUrl(tab),
       title: tab.title || tab.view.webContents.getTitle() || "New Tab",
       ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}),
@@ -1046,17 +1109,17 @@ export class InAppBrowserService {
   }
 
   private syncState() {
-    const owner = this.owners.get(this.visibleOwnerId);
+    const scopedOwnerId =
+      typeof this.scopedOwnerId === "string"
+        ? this.scopedOwnerId
+        : this.scopedOwnerId === null
+          ? this.resolveAvailableOwnerId(this.visibleOwnerId)
+          : this.visibleOwnerId;
+    this.visibleOwnerId = scopedOwnerId;
+    const owner = this.owners.get(scopedOwnerId);
     this.state.visibleOwnerId = this.visibleOwnerId;
     this.state.owners = this.ownerStates();
-    this.state.tabs = owner
-      ? [...owner.tabIds].flatMap((tabId) => {
-          const tab = this.tabs.get(tabId);
-          return tab && !tab.view.webContents.isDestroyed()
-            ? [this.tabState(tab)]
-            : [];
-        })
-      : [];
+    this.state.tabs = this.tabsForCurrentScope();
     this.state.activeTabId = owner?.activeTabId;
     this.syncErrorState();
     this.emitState();
@@ -1099,8 +1162,8 @@ export class InAppBrowserService {
     else delete this.state.error;
   }
 
-  private snapshot(ownerId = this.visibleOwnerId) {
-    if (ownerId === this.visibleOwnerId) return cloneState(this.state);
+  private snapshot(ownerId?: string) {
+    if (ownerId === undefined) return cloneState(this.state);
     const owner = this.owners.get(ownerId);
     const error = this.errorForOwner(ownerId);
     return cloneState({
@@ -1144,7 +1207,7 @@ export class InAppBrowserService {
   }
 
   private attachActiveView() {
-    const activeTabId = this.owners.get(this.visibleOwnerId)?.activeTabId;
+    const activeTabId = this.state.activeTabId;
     if (!this.visible || !this.layout || !activeTabId) {
       this.detachAttachedView();
       return;
@@ -1206,6 +1269,7 @@ export class InAppBrowserService {
   private resolveShowOwnerId(ownerId?: string) {
     const normalized = ownerId?.trim();
     if (normalized) return normalized;
+    if (typeof this.scopedOwnerId === "string") return this.scopedOwnerId;
     if ((this.owners.get(this.visibleOwnerId)?.tabIds.size ?? 0) > 0) {
       return this.visibleOwnerId;
     }
@@ -1216,6 +1280,52 @@ export class InAppBrowserService {
       return this.latestOwnerId;
     }
     return MANUAL_OWNER_ID;
+  }
+
+  private shouldActivateOwner(ownerId: string, requested?: boolean) {
+    if (requested) return true;
+    if (typeof this.scopedOwnerId === "string") {
+      return this.scopedOwnerId === ownerId;
+    }
+    return this.scopedOwnerId === undefined && ownerId === MANUAL_OWNER_ID;
+  }
+
+  private resolveAvailableOwnerId(preferredOwnerId: string) {
+    if ((this.owners.get(preferredOwnerId)?.tabIds.size ?? 0) > 0) {
+      return preferredOwnerId;
+    }
+    if (this.latestOwnerId && this.owners.has(this.latestOwnerId)) {
+      return this.latestOwnerId;
+    }
+    if ((this.owners.get(MANUAL_OWNER_ID)?.tabIds.size ?? 0) > 0) {
+      return MANUAL_OWNER_ID;
+    }
+    return (
+      [...this.owners.entries()].find(
+        ([, owner]) => owner.tabIds.size > 0,
+      )?.[0] ?? MANUAL_OWNER_ID
+    );
+  }
+
+  private tabsForCurrentScope(): BrowserViewTabState[] {
+    if (this.scopedOwnerId === null) {
+      return [...this.tabs.values()].flatMap((tab) =>
+        tab.view.webContents.isDestroyed() ? [] : [this.tabState(tab)],
+      );
+    }
+    const ownerId =
+      typeof this.scopedOwnerId === "string"
+        ? this.scopedOwnerId
+        : this.visibleOwnerId;
+    const owner = this.owners.get(ownerId);
+    return owner
+      ? [...owner.tabIds].flatMap((tabId) => {
+          const tab = this.tabs.get(tabId);
+          return tab && !tab.view.webContents.isDestroyed()
+            ? [this.tabState(tab)]
+            : [];
+        })
+      : [];
   }
 
   private ownerStates(): BrowserViewOwnerState[] {

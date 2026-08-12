@@ -106,7 +106,10 @@ afterEach(async () => {
   );
 });
 
-const createHarness = (status: () => Promise<boolean>) => {
+const createHarness = (
+  status: () => Promise<boolean>,
+  options: { debuggerRecoveryTimeoutMs?: number } = {},
+) => {
   const root = path.join(os.tmpdir(), `stella-browser-test-${Date.now()}`);
   const views: FakeView[] = [];
   const cookieSet = vi.fn(async () => undefined);
@@ -116,6 +119,7 @@ const createHarness = (status: () => Promise<boolean>) => {
       flushStore: vi.fn(async () => undefined),
     },
     flushStorageData: vi.fn(),
+    setUserAgent: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     setDevicePermissionHandler: vi.fn(),
@@ -207,6 +211,7 @@ const createHarness = (status: () => Promise<boolean>) => {
     connectionTimeoutMs: 50,
     connectionPollMs: 1,
     automaticConnectionTimeoutMs: 0,
+    debuggerRecoveryTimeoutMs: options.debuggerRecoveryTimeoutMs,
   });
   return {
     service,
@@ -431,6 +436,52 @@ describe("InAppBrowserService", () => {
     expect(harness.service.listDebuggerTargets("owner-b")).toHaveLength(1);
   });
 
+  it("aggregates every owner for orchestrator mode and pins direct mode to one owner", async () => {
+    const harness = createHarness(async () => true);
+    const manual = await harness.service.createTab({
+      url: "https://manual.example",
+    });
+    const ownerA = await harness.service.createDebuggerTarget(
+      "https://agent-a.example",
+      "owner-a",
+    );
+    const ownerB = await harness.service.createDebuggerTarget(
+      "https://agent-b.example",
+      "owner-b",
+    );
+
+    const allOwners = harness.service.setOwnerScope();
+    expect(allOwners.tabs).toEqual([
+      expect.objectContaining({
+        id: manual.activeTabId,
+        ownerId: "stella:manual",
+      }),
+      expect.objectContaining({ id: ownerA.id, ownerId: "owner-a" }),
+      expect.objectContaining({ id: ownerB.id, ownerId: "owner-b" }),
+    ]);
+    expect(allOwners.activeTabId).toBe(manual.activeTabId);
+
+    const selected = await harness.service.selectTab({
+      tabId: ownerB.id,
+      ownerId: "owner-b",
+      activate: true,
+    });
+    expect(selected).toMatchObject({
+      visibleOwnerId: "owner-b",
+      activeTabId: ownerB.id,
+    });
+    expect((await harness.service.getState()).tabs).toHaveLength(3);
+
+    const directOwner = harness.service.setOwnerScope("owner-a");
+    expect(directOwner).toMatchObject({
+      visibleOwnerId: "owner-a",
+      activeTabId: ownerA.id,
+    });
+    expect(directOwner.tabs).toEqual([
+      expect.objectContaining({ id: ownerA.id, ownerId: "owner-a" }),
+    ]);
+  });
+
   it("shows the latest agent owner only when the manual owner has no tabs", async () => {
     const harness = createHarness(async () => true);
     const agent = await harness.service.createDebuggerTarget(
@@ -602,6 +653,33 @@ describe("InAppBrowserService", () => {
     );
     harness.service.dispose();
     expect(replacementHost.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("terminates timed-out page execution and reloads only as a fallback", async () => {
+    const harness = createHarness(async () => true, {
+      debuggerRecoveryTimeoutMs: 10,
+    });
+    const target = await harness.service.createDebuggerTarget(
+      "https://recover.example",
+      "owner-a",
+    );
+    const contents = harness.views[0]!.webContents;
+
+    await expect(
+      harness.service.recoverDebuggerTarget(target.id, "owner-a"),
+    ).resolves.toBe("terminated");
+    expect(contents.debugger.sendCommand).toHaveBeenLastCalledWith(
+      "Runtime.terminateExecution",
+    );
+    expect(contents.reload).not.toHaveBeenCalled();
+
+    contents.debugger.sendCommand.mockImplementationOnce(
+      async () => await new Promise<never>(() => undefined),
+    );
+    await expect(
+      harness.service.recoverDebuggerTarget(target.id, "owner-a"),
+    ).resolves.toBe("reloaded");
+    expect(contents.reload).toHaveBeenCalledOnce();
   });
 });
 

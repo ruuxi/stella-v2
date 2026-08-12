@@ -4,6 +4,11 @@ import {
   BROWSER_PROFILE_KEY,
   BROWSER_SELECTION_KEY,
 } from "@stella/contracts/discovery";
+import {
+  coerceAssistantWorkingMode,
+  DEFAULT_ASSISTANT_WORKING_MODE,
+  type AssistantWorkingMode,
+} from "@stella/contracts/local-preferences";
 import { uiState } from "@/platform/ui-state";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
@@ -25,6 +30,7 @@ type BrowserConnection = "checking" | "disconnected" | "connected";
 
 type BrowserTab = {
   id: string;
+  ownerId: string;
   url: string;
   title: string;
   faviconUrl?: string;
@@ -70,11 +76,21 @@ type BrowserViewApi = {
     profileId?: string;
   }) => Promise<BrowserViewState | void>;
   show: (layout: BrowserLayout) => Promise<unknown> | unknown;
-  setVisibleOwner: (options: { ownerId: string }) => Promise<BrowserViewState>;
+  setOwnerScope: (options?: {
+    ownerId?: string;
+  }) => Promise<BrowserViewState>;
   setLayout: (layout: BrowserLayout) => Promise<unknown> | unknown;
   hide: () => Promise<unknown> | unknown;
-  createTab: (options: { url?: string }) => Promise<unknown>;
-  selectTab: (options: { tabId: string; ownerId?: string }) => Promise<unknown>;
+  createTab: (options: {
+    url?: string;
+    ownerId?: string;
+    activate?: boolean;
+  }) => Promise<unknown>;
+  selectTab: (options: {
+    tabId: string;
+    ownerId?: string;
+    activate?: boolean;
+  }) => Promise<unknown>;
   closeTab: (options: { tabId: string; ownerId?: string }) => Promise<unknown>;
   navigate: (options: {
     tabId: string;
@@ -180,10 +196,13 @@ const sanitizeOwnerSegment = (value: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 120);
 
-const taskOwnerId = (task: { id: string; agentType: string }) => {
-  const ownerSegment = sanitizeOwnerSegment(`task-${task.id}`);
-  const agentSegment = sanitizeOwnerSegment(task.agentType) || "agent";
-  return `${agentSegment}-${ownerSegment}`.slice(0, 120);
+const conversationOwnerId = (conversationId: string | null | undefined) => {
+  const ownerSegment = sanitizeOwnerSegment(
+    conversationId ? `conversation-${conversationId}` : "",
+  );
+  return ownerSegment
+    ? `orchestrator-${ownerSegment}`.slice(0, 120)
+    : MANUAL_OWNER_ID;
 };
 
 function BrowserStatus({
@@ -296,13 +315,20 @@ export function BrowserSection() {
   const [state, setState] = useState<BrowserViewState>(EMPTY_STATE);
   const [preparing, setPreparing] = useState(false);
   const [connectingExtension, setConnectingExtension] = useState(false);
+  const [assistantWorkingMode, setAssistantWorkingMode] =
+    useState<AssistantWorkingMode>(DEFAULT_ASSISTANT_WORKING_MODE);
+  const [assistantWorkingModeLoaded, setAssistantWorkingModeLoaded] =
+    useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [address, setAddress] = useState("");
   const surfaceRef = useRef<HTMLElement | null>(null);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const shownRef = useRef(false);
   const mountedRef = useRef(true);
-  const autoSelectedAgentOwnerRef = useRef(false);
+  const scopedOwnerId = useMemo(
+    () => conversationOwnerId(chat.conversation.conversationId),
+    [chat.conversation.conversationId],
+  );
 
   const activeTab = useMemo(
     () =>
@@ -312,23 +338,6 @@ export function BrowserSection() {
     [state.activeTabId, state.tabs],
   );
   const activeTabId = activeTab?.id ?? null;
-  const ownerLabels = useMemo(() => {
-    const labels = new Map<string, string>([[MANUAL_OWNER_ID, "My browser"]]);
-    for (const task of chat.conversation.tasks) {
-      labels.set(
-        taskOwnerId(task),
-        task.description.trim() || task.agentType || "Agent browser",
-      );
-    }
-    return labels;
-  }, [chat.conversation.tasks]);
-
-  const ownerLabel = useCallback(
-    (owner: BrowserOwner, index: number) =>
-      ownerLabels.get(owner.id) ??
-      (owner.kind === "manual" ? "My browser" : `Agent browser ${index}`),
-    [ownerLabels],
-  );
 
   useEffect(() => {
     setAddress(activeTab?.url ?? "");
@@ -371,6 +380,61 @@ export function BrowserSection() {
     };
   }, []);
 
+  useEffect(() => {
+    let disposed = false;
+    const loadWorkingMode = async () => {
+      try {
+        const preferences =
+          await window.electronAPI?.system?.getLocalModelPreferences?.();
+        if (!disposed) {
+          setAssistantWorkingMode(
+            coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
+          );
+        }
+      } catch {
+        // Keep the product default when preferences are unavailable.
+      } finally {
+        if (!disposed) setAssistantWorkingModeLoaded(true);
+      }
+    };
+    const handlePreferencesChanged = () => void loadWorkingMode();
+    void loadWorkingMode();
+    window.addEventListener(
+      "stella:local-model-preferences-changed",
+      handlePreferencesChanged,
+    );
+    return () => {
+      disposed = true;
+      window.removeEventListener(
+        "stella:local-model-preferences-changed",
+        handlePreferencesChanged,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!assistantWorkingModeLoaded) return;
+    const api = browserViewApi();
+    if (!api) return;
+    const scope =
+      assistantWorkingMode === "orchestrated"
+        ? {}
+        : { ownerId: scopedOwnerId };
+    void api
+      .setOwnerScope(scope)
+      .then((next) => {
+        if (mountedRef.current && isBrowserViewState(next)) setState(next);
+      })
+      .catch((error: unknown) => {
+        if (!mountedRef.current) return;
+        setLocalError(
+          error instanceof Error
+            ? error.message
+            : "Couldn’t select this chat’s browser tabs.",
+        );
+      });
+  }, [assistantWorkingMode, assistantWorkingModeLoaded, scopedOwnerId]);
+
   const connect = useCallback(async () => {
     const api = browserViewApi();
     if (!api) return;
@@ -398,51 +462,6 @@ export function BrowserSection() {
   useEffect(() => {
     if (visible) void connect();
   }, [connect, visible]);
-
-  useEffect(() => {
-    if (!visible) {
-      autoSelectedAgentOwnerRef.current = false;
-      return;
-    }
-    if (
-      autoSelectedAgentOwnerRef.current ||
-      state.connection !== "connected" ||
-      activeTab ||
-      state.visibleOwnerId !== MANUAL_OWNER_ID
-    ) {
-      return;
-    }
-    const agentOwner =
-      state.owners.find(
-        (owner) => owner.kind === "agent" && owner.latest && owner.tabCount > 0,
-      ) ??
-      state.owners.find(
-        (owner) => owner.kind === "agent" && owner.tabCount > 0,
-      );
-    if (!agentOwner) return;
-    autoSelectedAgentOwnerRef.current = true;
-    const api = browserViewApi();
-    if (!api) return;
-    void api
-      .setVisibleOwner({ ownerId: agentOwner.id })
-      .then((next) => {
-        if (mountedRef.current && isBrowserViewState(next)) setState(next);
-      })
-      .catch((error: unknown) => {
-        if (!mountedRef.current) return;
-        setLocalError(
-          error instanceof Error
-            ? error.message
-            : "Couldn’t show the agent browser.",
-        );
-      });
-  }, [
-    activeTab,
-    state.connection,
-    state.owners,
-    state.visibleOwnerId,
-    visible,
-  ]);
 
   useEffect(() => {
     const api = browserViewApi();
@@ -586,7 +605,7 @@ export function BrowserSection() {
       const api = browserViewApi();
       if (!api) return;
       setLocalError(null);
-      void action(api, activeTab.id, state.visibleOwnerId).catch(
+      void action(api, activeTab.id, activeTab.ownerId).catch(
         (error: unknown) => {
           if (mountedRef.current) {
             setLocalError(
@@ -596,15 +615,15 @@ export function BrowserSection() {
         },
       );
     },
-    [activeTab, state.visibleOwnerId],
+    [activeTab],
   );
 
-  const createManualTab = useCallback(() => {
+  const createConversationTab = useCallback(() => {
     const api = browserViewApi();
     if (!api) return;
     setLocalError(null);
     void api
-      .createTab({})
+      .createTab({ ownerId: scopedOwnerId, activate: true })
       .then((next) => {
         if (mountedRef.current && isBrowserViewState(next)) setState(next);
       })
@@ -614,27 +633,7 @@ export function BrowserSection() {
           error instanceof Error ? error.message : "Couldn’t create a tab.",
         );
       });
-  }, []);
-
-  const selectOwner = useCallback((ownerId: string) => {
-    const api = browserViewApi();
-    if (!api) return;
-    autoSelectedAgentOwnerRef.current = true;
-    setLocalError(null);
-    void api
-      .setVisibleOwner({ ownerId })
-      .then((next) => {
-        if (mountedRef.current && isBrowserViewState(next)) setState(next);
-      })
-      .catch((error: unknown) => {
-        if (!mountedRef.current) return;
-        setLocalError(
-          error instanceof Error
-            ? error.message
-            : "Couldn’t switch browser sessions.",
-        );
-      });
-  }, []);
+  }, [scopedOwnerId]);
 
   const navigate = (event: FormEvent) => {
     event.preventDefault();
@@ -663,23 +662,6 @@ export function BrowserSection() {
       data-connection={state.connection}
       aria-label="Browser"
     >
-      {state.connection === "connected" &&
-      state.owners.some((owner) => owner.kind === "agent") ? (
-        <label className="browser-section__owner-picker">
-          <span>Viewing</span>
-          <select
-            aria-label="Browser session"
-            value={state.visibleOwnerId}
-            onChange={(event) => selectOwner(event.currentTarget.value)}
-          >
-            {state.owners.map((owner, index) => (
-              <option key={owner.id} value={owner.id}>
-                {ownerLabel(owner, index)} ({owner.tabCount})
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
       {activeTab && !error ? (
         <>
           <div className="browser-section__chrome">
@@ -705,7 +687,8 @@ export function BrowserSection() {
                       onClick={() =>
                         void browserViewApi()?.selectTab({
                           tabId: tab.id,
-                          ownerId: state.visibleOwnerId,
+                          ownerId: tab.ownerId,
+                          activate: true,
                         })
                       }
                     >
@@ -731,7 +714,7 @@ export function BrowserSection() {
                       onClick={() =>
                         void browserViewApi()?.closeTab({
                           tabId: tab.id,
-                          ownerId: state.visibleOwnerId,
+                          ownerId: tab.ownerId,
                         })
                       }
                     >
@@ -745,7 +728,7 @@ export function BrowserSection() {
                 className="browser-section__chrome-button browser-section__new-tab"
                 aria-label="New tab"
                 title="New tab"
-                onClick={createManualTab}
+                onClick={createConversationTab}
               >
                 <Plus size={14} strokeWidth={1.8} />
               </button>
@@ -835,7 +818,7 @@ export function BrowserSection() {
           connectingExtension={connectingExtension}
           onConnect={() => void requestExtension()}
           onRetry={() => void connect()}
-          onCreateTab={createManualTab}
+          onCreateTab={createConversationTab}
         />
       )}
     </section>

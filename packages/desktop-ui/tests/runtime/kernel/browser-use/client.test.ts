@@ -280,6 +280,50 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
+  it("replaces a managed capability after one command wedges the daemon", async () => {
+    const daemon = createTestDaemon((request, { connection }) =>
+      connection === 1
+        ? undefined
+        : { id: request.id, success: true, data: { recovered: true } },
+    );
+    await daemon.start();
+    const initializeInAppBrowser = vi.fn(async () => ({
+      bridgeSessionId: daemon.sessionId,
+      capabilityExpiresAt: Date.now() + 30_000,
+    }));
+    const client = createClient(daemon, {
+      commandTimeoutMs: 40,
+      initializeInAppBrowser,
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_PROVIDER: "extension",
+        STELLA_BROWSER_SESSION: "bootstrap-session",
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+    });
+
+    try {
+      await expect(client.command("evaluate", { expression: "while(true){}" }))
+        .rejects.toMatchObject({
+          code: "execution_failed",
+          message: expect.stringContaining("timed out after 40ms"),
+        });
+
+      await expect(client.command("url")).resolves.toMatchObject({
+        result: { success: true, data: { recovered: true } },
+      });
+      expect(initializeInAppBrowser).toHaveBeenCalledTimes(2);
+      expect(initializeInAppBrowser).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ recover: true }),
+      );
+      expect(daemon.connections).toBe(2);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
   it("reuses one socket, serializes calls, and requires exact response IDs", async () => {
     const releaseFirst = deferred();
     const sawFirst = deferred();

@@ -170,6 +170,7 @@ export type StellaBrowserAgentCapability = Readonly<{
   turnId: string;
   ownerLeaseId: string;
   ownerLeaseIssuedAt: number;
+  recover?: boolean;
 }>;
 
 export type StellaBrowserAgentBackend = Readonly<{
@@ -411,6 +412,7 @@ export class StellaBrowserBridgeService {
 
     const inFlight = this.agentBackendLaunches.get(ownerId);
     if (
+      !capability.recover &&
       inFlight?.ownerLeaseId === ownerLeaseId &&
       inFlight.ownerLeaseIssuedAt === ownerLeaseIssuedAt &&
       inFlight.turnId === turnId
@@ -423,6 +425,7 @@ export class StellaBrowserBridgeService {
       await previousLaunch?.catch(() => undefined);
       const existing = this.agentBackends.get(ownerId);
       if (
+        !capability.recover &&
         existing?.ownerLeaseId === ownerLeaseId &&
         existing.ownerLeaseIssuedAt === ownerLeaseIssuedAt &&
         existing.turnId === turnId &&

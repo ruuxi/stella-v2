@@ -11,6 +11,7 @@ use tokio_tungstenite::tungstenite::Message;
 use super::types::{CdpCommand, CdpEvent, CdpMessage};
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<CdpMessage>>>>;
+const CDP_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Raw incoming CDP message (text) broadcast to all subscribers.
 /// Used by the inspect proxy to forward responses and events to DevTools.
@@ -157,17 +158,27 @@ impl CdpClient {
             pending.insert(id, tx);
         }
 
-        {
-            let mut ws_tx = self.ws_tx.lock().await;
-            ws_tx
-                .send(Message::Text(json))
-                .await
-                .map_err(|e| format!("Failed to send CDP command: {}", e))?;
-        }
-
-        let response = match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        // Bound the whole transport operation, including waiting for the sink
+        // lock and flushing the WebSocket frame. The previous timeout started
+        // only after `send()` returned, so a backpressured/dead adapter could
+        // hold the daemon-wide browser state lock forever.
+        let operation = async {
+            {
+                let mut ws_tx = self.ws_tx.lock().await;
+                ws_tx
+                    .send(Message::Text(json))
+                    .await
+                    .map_err(|e| format!("Failed to send CDP command: {}", e))?;
+            }
+            rx.await
+                .map_err(|_| "CDP response channel closed".to_string())
+        };
+        let response = match tokio::time::timeout(CDP_COMMAND_TIMEOUT, operation).await {
             Ok(Ok(resp)) => resp,
-            Ok(Err(_)) => return Err("CDP response channel closed".to_string()),
+            Ok(Err(error)) => {
+                self.pending.lock().await.remove(&id);
+                return Err(error);
+            }
             Err(_) => {
                 self.pending.lock().await.remove(&id);
                 return Err(format!("CDP command timed out: {}", method));

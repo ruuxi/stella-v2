@@ -11,6 +11,7 @@ export const IN_APP_BROWSER_CHANNELS = {
   connect: "browserView:connect",
   show: "browserView:show",
   setVisibleOwner: "browserView:setVisibleOwner",
+  setOwnerScope: "browserView:setOwnerScope",
   setLayout: "browserView:setLayout",
   hide: "browserView:hide",
   createTab: "browserView:createTab",
@@ -68,7 +69,17 @@ const connectPayloadSchema = z
   })
   .catch({});
 
-const createTabPayloadSchema = z.object({ url: optionalStringField }).catch({});
+const createTabPayloadSchema = z
+  .object({
+    url: optionalStringField,
+    ownerId: optionalStringField,
+    activate: z.boolean().optional().catch(undefined),
+  })
+  .catch({});
+
+const ownerScopePayloadSchema = z
+  .object({ ownerId: optionalStringField })
+  .catch({});
 
 const ownerField = (record: Record<string, unknown>) =>
   record.ownerId === undefined
@@ -145,21 +156,29 @@ export const registerInAppBrowserHandlers = (
       requireString(record.ownerId, "ownerId"),
     );
   });
+  register(IN_APP_BROWSER_CHANNELS.setOwnerScope, (payload) => {
+    const record = ownerScopePayloadSchema.parse(payload);
+    return options.service.setOwnerScope(record.ownerId);
+  });
   register(IN_APP_BROWSER_CHANNELS.setLayout, (payload) =>
     options.service.setLayout(parseLayout(payload)),
   );
   register(IN_APP_BROWSER_CHANNELS.hide, () => options.service.hide());
-  register(IN_APP_BROWSER_CHANNELS.createTab, (payload) => {
+  register(IN_APP_BROWSER_CHANNELS.createTab, async (payload) => {
     const record = createTabPayloadSchema.parse(payload);
-    return options.service.createTab({
+    await options.service.createTab({
       ...(record.url !== undefined ? { url: record.url } : {}),
+      ...(record.ownerId !== undefined ? { ownerId: record.ownerId } : {}),
+      ...(record.activate !== undefined ? { activate: record.activate } : {}),
     });
+    return await options.service.getState();
   });
   register(IN_APP_BROWSER_CHANNELS.selectTab, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.selectTab({
       tabId: requireString(record.tabId, "tabId"),
       ...ownerField(record),
+      ...(record.activate === true ? { activate: true } : {}),
     });
   });
   register(IN_APP_BROWSER_CHANNELS.closeTab, (payload) => {

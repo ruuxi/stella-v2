@@ -1411,6 +1411,168 @@ export class SessionStore {
     });
     return true;
   }
+  /**
+   * Ordering cursor `(created_at, id)` for one event within a conversation.
+   * Returns null when the event id is absent from the conversation.
+   */
+  getEventCursor(conversationIdInput, eventIdInput) {
+    const conversationId = this.sanitizeConversationId(conversationIdInput);
+    const eventId = asTrimmedString(eventIdInput);
+    if (!eventId) return null;
+    const row = this.db
+      .prepare(
+        `SELECT id AS _id, created_at AS timestamp
+           FROM message
+          WHERE session_id = ? AND id = ?
+          LIMIT 1`,
+      )
+      .get(conversationId, eventId);
+    if (!row) return null;
+    return { id: row._id, timestamp: row.timestamp };
+  }
+  /**
+   * Mint a fresh, empty conversation id WITHOUT touching the durable
+   * "active conversation" pointer or reusing an existing empty chat. Used
+   * by the desktop Fork action, which needs a brand-new destination that
+   * leaves the user's current chat (and the active pointer) untouched.
+   */
+  createConversation() {
+    const created = generateLocalId();
+    const createdAt = Date.now();
+    this.withTransaction(() => {
+      this.upsertSession(created, createdAt);
+    });
+    return created;
+  }
+  /**
+   * Truncate a conversation at a message: permanently remove the event
+   * identified by `eventId` AND every event at-or-after it in
+   * `(created_at, id)` order. Backs the desktop "Rewind here" action.
+   *
+   * Deleting `message` rows cascades to their `part` rows
+   * (FOREIGN KEY ... ON DELETE CASCADE) and refreshes the FTS mirror via
+   * triggers. Best-effort: any background agents this conversation spawned
+   * within the removed range (non-running only) are pruned too, so the
+   * Activity surface doesn't keep dangling task cards for turns that no
+   * longer exist. A running agent is left alone — the renderer stops the
+   * active stream before rewinding.
+   */
+  truncateConversationAtEvent(conversationIdInput, eventIdInput) {
+    const conversationId = this.sanitizeConversationId(conversationIdInput);
+    const cursor = this.getEventCursor(conversationId, eventIdInput);
+    if (!cursor) return { removed: 0 };
+    let removed = 0;
+    this.withImmediateTransaction(() => {
+      const cutoffCondition =
+        `session_id = ? AND (created_at > ? OR (created_at = ? AND id >= ?))`;
+      const removedRow = this.db
+        .prepare(`SELECT COUNT(*) AS n FROM message WHERE ${cutoffCondition}`)
+        .get(conversationId, cursor.timestamp, cursor.timestamp, cursor.id);
+      removed = removedRow?.n ?? 0;
+      this.db
+        .prepare(`DELETE FROM message WHERE ${cutoffCondition}`)
+        .run(conversationId, cursor.timestamp, cursor.timestamp, cursor.id);
+      const orphanThreadRows = this.db
+        .prepare(
+          `SELECT thread_id FROM runtime_agents
+             WHERE conversation_id = ?
+               AND status <> 'running'
+               AND prompt_created_at IS NOT NULL
+               AND prompt_created_at >= ?`,
+        )
+        .all(conversationId, cursor.timestamp);
+      const orphanThreadIds = orphanThreadRows
+        .map((row) => (typeof row.thread_id === "string" ? row.thread_id : ""))
+        .filter((id) => id.length > 0);
+      for (const threadId of orphanThreadIds) {
+        this.db
+          .prepare(`DELETE FROM agent_progress_summaries WHERE agent_id = ?`)
+          .run(threadId);
+        this.db
+          .prepare(`DELETE FROM runtime_threads WHERE thread_key = ?`)
+          .run(threadId);
+        this.db
+          .prepare(`DELETE FROM runtime_agents WHERE thread_id = ?`)
+          .run(threadId);
+      }
+    });
+    return { removed };
+  }
+  /**
+   * Fork a conversation: copy every user/assistant message BEFORE
+   * `eventId` (exclusive) into a brand-new conversation, preserving order
+   * and timestamps, and return the new conversation id. Backs the desktop
+   * "Fork to new chat" action; the source conversation is left untouched.
+   *
+   * Only `user_message` / `assistant_message` rows are copied — tool and
+   * agent-lifecycle events are intentionally dropped so the branch carries
+   * a clean transcript with no dangling agent/task references. Event ids
+   * are re-minted (they are a globally-unique primary key) and each
+   * assistant row's `userMessageId` back-reference is remapped onto the
+   * copied user id so streaming/overlay correlation stays sound if the
+   * fork is continued.
+   */
+  forkConversationBeforeEvent(conversationIdInput, eventIdInput) {
+    const conversationId = this.sanitizeConversationId(conversationIdInput);
+    const cursor = this.getEventCursor(conversationId, eventIdInput);
+    if (!cursor) return null;
+    const rows = this.db
+      .prepare(
+        `SELECT
+           source.id AS _id,
+           source.created_at AS timestamp,
+           source.type AS type,
+           source.device_id AS deviceId,
+           source.request_id AS requestId,
+           source.target_device_id AS targetDeviceId,
+           part.data_json AS payloadJson,
+           source.data_json AS channelEnvelopeJson
+         FROM message AS source
+         LEFT JOIN part
+           ON part.message_id = source.id AND part.ord = 0
+         WHERE source.session_id = ?
+           AND source.type IN ('user_message', 'assistant_message')
+           AND (source.created_at < ? OR (source.created_at = ? AND source.id < ?))
+         ORDER BY source.created_at ASC, source.id ASC`,
+      )
+      .all(conversationId, cursor.timestamp, cursor.timestamp, cursor.id);
+    const newConversationId = generateLocalId();
+    const createdAt = Date.now();
+    const idMap = new Map();
+    this.withImmediateTransaction(() => {
+      this.upsertSession(newConversationId, createdAt);
+      for (const row of rows) {
+        idMap.set(row._id, `local-${generateLocalId()}`);
+      }
+      for (const row of rows) {
+        const newId = idMap.get(row._id);
+        const meta = parseJsonRecord(row.channelEnvelopeJson);
+        const channelEnvelope = asObject(meta?.channelEnvelope) ?? undefined;
+        let payload = parseJsonRecord(row.payloadJson) ?? undefined;
+        if (payload && row.type === "assistant_message") {
+          const remappedUserId =
+            typeof payload.userMessageId === "string"
+              ? idMap.get(payload.userMessageId)
+              : undefined;
+          if (remappedUserId) {
+            payload = { ...payload, userMessageId: remappedUserId };
+          }
+        }
+        this.upsertEventMessage({
+          sessionId: newConversationId,
+          eventId: newId,
+          type: row.type,
+          timestamp: row.timestamp,
+          deviceId: asTrimmedString(row.deviceId) || undefined,
+          requestId: asTrimmedString(row.requestId) || undefined,
+          targetDeviceId: asTrimmedString(row.targetDeviceId) || undefined,
+          payload,
+          channelEnvelope,
+        });
+      }
+    });
+    return { conversationId: newConversationId };
+  }
   /** Cursor-paginated conversation history for the renderer's top bar. */
   listConversationSummaries(args = {}) {
     const requestedLimit = asFiniteNumber(args.limit);

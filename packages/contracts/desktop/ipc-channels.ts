@@ -393,6 +393,14 @@ export const IPC_LOCAL_CHAT_LIST_CONVERSATIONS =
   "localChat:listConversations" as const;
 export const IPC_LOCAL_CHAT_DELETE_CONVERSATION =
   "localChat:deleteConversation" as const;
+// Truncate a conversation at (and including) a user message — the desktop
+// "Rewind here" action. Removes the target event and every event after it.
+export const IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION =
+  "localChat:truncateConversation" as const;
+// Branch a conversation's prefix (everything BEFORE a user message) into a
+// brand-new conversation — the desktop "Fork to new chat" action.
+export const IPC_LOCAL_CHAT_FORK_CONVERSATION =
+  "localChat:forkConversation" as const;
 export const IPC_LOCAL_CHAT_LIST_EVENTS = "localChat:listEvents" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES = "localChat:listMessages" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES_BEFORE =

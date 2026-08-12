@@ -15,6 +15,9 @@ import { useChatScrollManagement } from "./use-chat-scroll-management";
 import { useChatHomeSurface } from "./use-chat-home-surface";
 import { useAgentInputRouting } from "./use-agent-input-routing";
 import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
+import { forkLocalConversation, truncateLocalConversation, } from "@/features/chat/services/local-chat-store";
+import { composerDraftFromUserRow } from "@/app/chat/message-composer-restore";
+import { coerceAssistantWorkingMode, DEFAULT_ASSISTANT_WORKING_MODE, } from "@stella/contracts/local-preferences";
 const MAX_RETAINED_TAB_STATE = 20;
 const setBoundedTabMemory = (memory, conversationId, value) => {
     memory.delete(conversationId);
@@ -26,7 +29,7 @@ const setBoundedTabMemory = (memory, conversationId, value) => {
         memory.delete(oldestConversationId);
     }
 };
-export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEnabled, }) {
+export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEnabled, navigateToConversation, }) {
     // Message state + always-current mirror ref, synced at WRITE time. The
     // dictate-and-submit commit is rAF-deferred and can fire before React
     // flushes the render that carries the appended transcript — a ref synced in
@@ -318,6 +321,121 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         conversationId: activeConversationId,
         requireConversationId: true,
     });
+    // Assistant working mode gates the Fork action: forking spawns a new
+    // conversation/tab, which only exists in the multi-tab (orchestrator-off)
+    // experience. In orchestrated mode there are no tabs, so Fork is omitted
+    // entirely (Rewind still shows). Mirrors the top bar's mode read.
+    const [assistantWorkingMode, setAssistantWorkingMode] = useState(DEFAULT_ASSISTANT_WORKING_MODE);
+    useEffect(() => {
+        let disposed = false;
+        const loadWorkingMode = async () => {
+            try {
+                const preferences = await window.electronAPI?.system?.getLocalModelPreferences?.();
+                if (!disposed) {
+                    setAssistantWorkingMode(coerceAssistantWorkingMode(preferences?.assistantWorkingMode));
+                }
+            }
+            catch {
+                // Keep the product default when preferences are unavailable.
+            }
+        };
+        const handlePreferencesChanged = () => { void loadWorkingMode(); };
+        void loadWorkingMode();
+        window.addEventListener("stella:local-model-preferences-changed", handlePreferencesChanged);
+        return () => {
+            disposed = true;
+            window.removeEventListener("stella:local-model-preferences-changed", handlePreferencesChanged);
+        };
+    }, []);
+    const isOrchestratedMode = assistantWorkingMode === "orchestrated";
+    // Per-user-message quick actions (Fork / Rewind) exposed to the deeply
+    // nested action row. The callbacks are stable and read live state
+    // through this ref, so every user row can consume them without
+    // re-rendering as conversation state churns.
+    const messageActionsStateRef = useRef(null);
+    messageActionsStateRef.current = {
+        activeConversationId,
+        isStreaming,
+        setMessage,
+        setChatContext,
+        setSelectedText,
+        navigateToConversation,
+        requestFocus: () => setComposerFocusRequestId((id) => id + 1),
+    };
+    // Rewind: destructively truncate THIS conversation at the target user
+    // message (removing it and everything after), then load its text +
+    // attachments back into the same chat's composer. The action row is
+    // disabled while a turn is busy, so this never fires mid-stream; the
+    // guard below is belt-and-suspenders and never interrupts in-flight work.
+    const rewindToUserMessage = useCallback((row) => {
+        const state = messageActionsStateRef.current;
+        if (!state)
+            return;
+        if (state.isStreaming)
+            return;
+        const conversationId = state.activeConversationId;
+        if (!conversationId || !row?.id)
+            return;
+        const draft = composerDraftFromUserRow(row);
+        void (async () => {
+            try {
+                await truncateLocalConversation(conversationId, row.id);
+            }
+            catch (error) {
+                console.warn("[fork-rewind] rewind truncate failed", error);
+                return;
+            }
+            state.setMessage(draft.message);
+            state.setChatContext(draft.chatContext);
+            state.setSelectedText(null);
+            state.requestFocus();
+        })();
+    }, []);
+    // Fork: non-destructively branch the history BEFORE the target user
+    // message into a brand-new conversation, drop the message into the new
+    // chat's composer, and navigate there. The original chat is untouched.
+    const forkToNewConversation = useCallback((row) => {
+        const state = messageActionsStateRef.current;
+        if (!state)
+            return;
+        if (state.isStreaming)
+            return;
+        const conversationId = state.activeConversationId;
+        if (!conversationId || !row?.id)
+            return;
+        // Never mint a branch we can't navigate to — that would strand the
+        // user on the original chat with an orphan conversation in the store.
+        if (!state.navigateToConversation)
+            return;
+        const draft = composerDraftFromUserRow(row);
+        void (async () => {
+            let newConversationId = null;
+            try {
+                newConversationId = await forkLocalConversation(conversationId, row.id);
+            }
+            catch (error) {
+                console.warn("[fork-rewind] fork failed", error);
+                return;
+            }
+            if (!newConversationId)
+                return;
+            // Open + navigate first so the destination tab exists, THEN seed
+            // its composer memory. The composer-restore effect reads this
+            // seed when `activeConversationId` flips to the fork on the next
+            // render, dropping the message + attachments into the new chat.
+            state.navigateToConversation?.(newConversationId);
+            setBoundedTabMemory(composerMemoryByConversationRef.current, newConversationId, {
+                message: draft.message,
+                chatContext: draft.chatContext,
+                selectedText: null,
+            });
+        })();
+    }, []);
+    // Fork is dropped entirely in orchestrated mode (no tabs to branch
+    // into); Rewind is always present, subject only to the busy disable.
+    const messageActions = useMemo(() => (isOrchestratedMode
+        ? { rewind: rewindToUserMessage }
+        : { rewind: rewindToUserMessage, fork: forkToNewConversation }), [isOrchestratedMode, rewindToUserMessage, forkToNewConversation]);
     // The single task list every activity surface renders: authoritative
     // thread rows overlaid with live stream decoration. No event folding.
     const tasks = useMemo(() => buildActivityTasks(threadActivityRecords, taskDecorations), [threadActivityRecords, taskDecorations]);
@@ -483,6 +601,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         composer,
         scroll: chatColumnScroll,
         annotation,
+        messageActions,
         showHomeContent,
         dismissHome,
         showHome,
@@ -491,6 +610,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         composer,
         chatColumnScroll,
         annotation,
+        messageActions,
         showHomeContent,
         dismissHome,
         showHome,

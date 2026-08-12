@@ -22,13 +22,25 @@
  * `message-actions.css`).
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, LoaderCircle, Square, Volume2 } from "@/ui/icons";
+import { Check, Copy, GitBranch, LoaderCircle, RotateCcw, Square, Volume2 } from "@/ui/icons";
 import { toggleManualReadAloud, useManualReadAloudStatus, } from "@/features/voice/services/read-aloud/manual-read-aloud";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { useT } from "@/shared/i18n";
 import "./message-actions.css";
 const COPIED_RESET_MS = 1600;
-function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "start", streaming = false, }) {
+/**
+ * @typedef {Object} MessageActionsProps
+ * @property {string} text
+ * @property {string} messageKey
+ * @property {boolean} [showReadAloud]
+ * @property {"start" | "end"} [align]
+ * @property {boolean} [streaming]
+ * @property {(() => void)} [onRewind] Rewind action (user rows only).
+ * @property {(() => void)} [onFork] Fork action (user rows only).
+ * @property {boolean} [actionsDisabled] Greys out Rewind/Fork while a turn is busy.
+ */
+/** @param {MessageActionsProps} props */
+function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "start", streaming = false, onRewind, onFork, actionsDisabled = false, }) {
     const t = useT();
     const [copied, setCopied] = useState(false);
     const copiedTimerRef = useRef(null);
@@ -63,6 +75,12 @@ function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "
       <button type="button" className="message-actions__btn" onClick={handleCopy} aria-label={copied ? t("app.chat.messageActions.copied") : t("app.chat.messageActions.copy")} title={copied ? t("app.chat.messageActions.copied") : t("app.chat.messageActions.copy")}>
         {copied ? (<Check size={14} strokeWidth={2} aria-hidden="true"/>) : (<Copy size={14} strokeWidth={2} aria-hidden="true"/>)}
       </button>
+      {onRewind && (<button type="button" className="message-actions__btn" onClick={onRewind} disabled={actionsDisabled} aria-disabled={actionsDisabled || undefined} aria-label={t("app.chat.messageActions.rewind")} title={t("app.chat.messageActions.rewind")}>
+        <RotateCcw size={14} strokeWidth={2} aria-hidden="true"/>
+      </button>)}
+      {onFork && (<button type="button" className="message-actions__btn" onClick={onFork} disabled={actionsDisabled} aria-disabled={actionsDisabled || undefined} aria-label={t("app.chat.messageActions.fork")} title={t("app.chat.messageActions.fork")}>
+        <GitBranch size={14} strokeWidth={2} aria-hidden="true"/>
+      </button>)}
       {showReadAloud && (<button type="button" className="message-actions__btn" onClick={handleReadAloud} aria-label={isPlaying ? t("app.chat.messageActions.stopReading") : t("app.chat.messageActions.readAloud")} title={isPlaying ? t("app.chat.messageActions.stopReading") : t("app.chat.messageActions.readAloud")} aria-pressed={isPlaying}>
           {readAloudStatus === "loading" ? (<LoaderCircle className="message-actions__spinner" size={14} strokeWidth={2} aria-hidden="true"/>) : readAloudStatus === "playing" ? (<Square size={12} strokeWidth={2} fill="currentColor" aria-hidden="true"/>) : (<Volume2 size={14} strokeWidth={2} aria-hidden="true"/>)}
         </button>)}

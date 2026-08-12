@@ -21,6 +21,7 @@ import { ChatColumn } from "@/app/chat/ChatColumn";
 import { ComposerAreaSelectOverlay } from "@/app/chat/ComposerAreaSelectOverlay";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
 import { setActiveLocalConversationId } from "@/features/chat/services/local-chat-store";
+import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { writeActiveConversationIdCache } from "@/features/chat/services/active-conversation-cache";
 import type { RightSidebarHandle } from "@/shell/RightSidebar";
 // The workspace panel is a ~410-line surface not needed for first
@@ -138,6 +139,20 @@ function RootLayout() {
     void setActiveLocalConversationId(routerConversationId);
   }, [routerConversationId]);
 
+  // Opens + navigates to a conversation (tab strip + router). Mirrors the
+  // top bar's new-chat navigation and is handed to the chat runtime so the
+  // Fork action can jump to the newly branched conversation.
+  const navigateToConversation = useCallback(
+    (targetConversationId: string, title?: string) => {
+      conversationTabs.openConversation(targetConversationId, title);
+      void router.navigate({
+        to: "/chat",
+        search: { c: targetConversationId },
+      });
+    },
+    [router],
+  );
+
   useLastLocationRestore(router);
   usePersistLastLocation(router);
 
@@ -146,6 +161,7 @@ function RootLayout() {
       <ChatRuntimeProvider
         activeConversationId={conversationId}
         isOnChatRoute={isOnChatRoute}
+        navigateToConversation={navigateToConversation}
       >
         <RootChrome />
       </ChatRuntimeProvider>

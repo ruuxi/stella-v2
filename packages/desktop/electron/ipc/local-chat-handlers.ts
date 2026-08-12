@@ -2,6 +2,8 @@ import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import type { ConversationSummaryCursor } from "@stella/contracts/local-chat";
 import {
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
+  IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
+  IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
   IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
 } from "@stella/contracts/desktop/ipc-channels";
@@ -91,6 +93,42 @@ export const registerLocalChatHandlers = (
         event,
         IPC_LOCAL_CHAT_DELETE_CONVERSATION,
         (client) => client.deleteConversation(payload?.conversationId ?? ""),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
+    async (
+      event,
+      payload: { conversationId?: string; eventId?: string },
+    ) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
+        (client) =>
+          client.truncateConversation({
+            conversationId: payload?.conversationId ?? "",
+            eventId: payload?.eventId ?? "",
+          }),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_FORK_CONVERSATION,
+    async (
+      event,
+      payload: { conversationId?: string; eventId?: string },
+    ) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_FORK_CONVERSATION,
+        (client) =>
+          client.forkConversation({
+            conversationId: payload?.conversationId ?? "",
+            eventId: payload?.eventId ?? "",
+          }),
       ),
   );
 

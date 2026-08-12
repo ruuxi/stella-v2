@@ -1237,7 +1237,9 @@
       "messageActions": {
         "copied": "Copied",
         "copy": "Copy",
+        "fork": "Fork to new chat",
         "readAloud": "Read aloud",
+        "rewind": "Rewind here",
         "stopReading": "Stop reading"
       },
       "messageRow": {

@@ -24,6 +24,8 @@ import {
   IPC_HOME_GET_ACTIVE_BROWSER_TAB,
   IPC_HOME_LIST_RECENT_APPS,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
+  IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
+  IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
   IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
   IPC_MEDIA_COPY_IMAGE,
@@ -1888,6 +1890,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_LOCAL_CHAT_LIST_CONVERSATIONS, payload),
     deleteConversation: (payload: { conversationId: string }) =>
       ipcRenderer.invoke(IPC_LOCAL_CHAT_DELETE_CONVERSATION, payload),
+    truncateConversation: (payload: {
+      conversationId: string;
+      eventId: string;
+    }): Promise<{ removed: number }> =>
+      ipcRenderer.invoke(IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION, payload),
+    forkConversation: (payload: {
+      conversationId: string;
+      eventId: string;
+    }): Promise<{ conversationId: string } | null> =>
+      ipcRenderer.invoke(IPC_LOCAL_CHAT_FORK_CONVERSATION, payload),
     listEvents: (payload: { conversationId: string; maxItems?: number }) =>
       ipcRenderer.invoke("localChat:listEvents", payload),
     listMessages: (payload: {

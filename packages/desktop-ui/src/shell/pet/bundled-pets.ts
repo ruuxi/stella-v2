@@ -1,5 +1,10 @@
 import type { BuiltInPet } from "./built-in-pets";
 
+export const resolveBundledPetAssetUrl = (
+  assetPath: string,
+  baseUrl = import.meta.env.BASE_URL,
+): string => `${baseUrl}${assetPath.replace(/^\/+/, "")}`;
+
 /**
  * Pets that ship inside the desktop app instead of being served from the
  * Convex catalog / R2 bucket. Their spritesheets are bundled under
@@ -19,7 +24,7 @@ export const BUNDLED_PETS: BuiltInPet[] = [
     kind: "creature",
     tags: ["cute", "default", "pixel"],
     ownerName: "Stella",
-    spritesheetUrl: "/pets/stella.webp",
+    spritesheetUrl: resolveBundledPetAssetUrl("pets/stella.webp"),
     sourceUrl: "",
     creator: "Stella",
     downloads: 0,

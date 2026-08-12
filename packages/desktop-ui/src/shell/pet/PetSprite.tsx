@@ -26,7 +26,7 @@ const usePrefersReducedMotion = (): boolean => {
 };
 
 export type PetSpriteProps = {
-  /** Spritesheet URL — usually `/pets/<id>.webp` from the built-in manifest. */
+  /** Spritesheet URL from the built-in manifest or remote pet catalog. */
   spritesheetUrl: string;
   /** Which animation row to play. Falls back to "idle". */
   state: PetAnimationState;

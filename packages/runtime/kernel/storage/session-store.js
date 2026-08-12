@@ -1465,13 +1465,14 @@ export class SessionStore {
     this.withImmediateTransaction(() => {
       const cutoffCondition =
         `session_id = ? AND (created_at > ? OR (created_at = ? AND id >= ?))`;
-      const removedRow = this.db
-        .prepare(`SELECT COUNT(*) AS n FROM message WHERE ${cutoffCondition}`)
-        .get(conversationId, cursor.timestamp, cursor.timestamp, cursor.id);
-      removed = removedRow?.n ?? 0;
-      this.db
+      // The DELETE's own `changes` count is the number of removed rows —
+      // no separate COUNT(*) pass over the same index range. (SQLite's
+      // changes() counts only the directly-deleted `message` rows, not the
+      // cascaded `part` rows, which is exactly the total we want.)
+      const deleteResult = this.db
         .prepare(`DELETE FROM message WHERE ${cutoffCondition}`)
         .run(conversationId, cursor.timestamp, cursor.timestamp, cursor.id);
+      removed = deleteResult?.changes ?? 0;
       const orphanThreadRows = this.db
         .prepare(
           `SELECT thread_id FROM runtime_agents

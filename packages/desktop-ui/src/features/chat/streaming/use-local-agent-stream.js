@@ -70,11 +70,16 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                     return next;
                 });
             },
-            onSwap: (previousSlotId, nextSlotId) => {
+            onSwap: (previousSlotId, nextSlotId, skippedSlotIds = []) => {
+                // The previous slot and every skipped intermediate segment are
+                // stale progress updates: hide them all so only the newest
+                // (nextSlotId) is revealed. "hidden" keeps each masking its
+                // persisted twin, so no discarded preamble text flashes in.
+                const hiddenSlotIds = new Set([previousSlotId, ...skippedSlotIds]);
                 commitStreamingAssistants((current) => {
                     let changed = false;
                     const next = current.map((slot) => {
-                        if (slot._id === previousSlotId && slot.textTransition !== "hidden") {
+                        if (hiddenSlotIds.has(slot._id) && slot.textTransition !== "hidden") {
                             changed = true;
                             return { ...slot, textTransition: "hidden" };
                         }
@@ -87,6 +92,12 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                     });
                     return changed ? next : current;
                 });
+                // Skipped segments never start animating, so drop their buffered
+                // chunks + awaiting-finish flags to keep the ephemeral queues tidy.
+                for (const skippedSlotId of skippedSlotIds) {
+                    queuedStreamChunksBySlotIdRef.current.delete(skippedSlotId);
+                    queuedSlotsAwaitingFinishRef.current.delete(skippedSlotId);
+                }
                 startQueuedSlotRef.current(nextSlotId);
             },
         });

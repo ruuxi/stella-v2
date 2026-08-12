@@ -2,6 +2,14 @@
  * Direct-mode assistant segments are transient status messages. Once the next
  * segment exists, keep the current one visible until its buffered text has
  * painted, dwell briefly, fade only that old text, then reveal the replacement.
+ *
+ * The replacement revealed is always the MOST RECENT queued segment, not the
+ * immediate next one: intermediate segments are ephemeral progress updates, so
+ * when a handoff finally fires we skip straight to the newest available segment
+ * and discard the ones that piled up behind it. This keeps the visible message
+ * caught up with the agent instead of lagging one dwell per queued segment. The
+ * newest segment is never skipped past — including, at run end, the final
+ * answer, which is always the terminal segment of its turn.
  */
 export const DIRECT_ASSISTANT_MESSAGE_DWELL_MS = 2_000;
 export const DIRECT_ASSISTANT_MESSAGE_FADE_MS = 180;
@@ -11,6 +19,17 @@ export type DirectAssistantHandoffScheduler = {
   setTimer: (callback: () => void, delayMs: number) => number;
   clearTimer: (timerId: number) => void;
 };
+
+/**
+ * The slot to reveal plus the intermediate slots skipped to reach it. Callers
+ * hide every `skippedSlotIds` entry alongside `previousSlotId` so the discarded
+ * segments never linger in the timeline.
+ */
+export type DirectAssistantSwap = (
+  previousSlotId: string,
+  nextSlotId: string,
+  skippedSlotIds: string[],
+) => void;
 
 type PendingHandoff = {
   nextSlotId: string;
@@ -28,14 +47,14 @@ const browserScheduler: DirectAssistantHandoffScheduler = {
 export class DirectAssistantHandoffController {
   private readonly scheduler: DirectAssistantHandoffScheduler;
   private readonly onFadeStart: (previousSlotId: string) => void;
-  private readonly onSwap: (previousSlotId: string, nextSlotId: string) => void;
+  private readonly onSwap: DirectAssistantSwap;
   private readonly paintedAtMsBySlotId = new Map<string, number>();
   private readonly pendingByPreviousSlotId = new Map<string, PendingHandoff>();
 
   constructor(options: {
     scheduler?: DirectAssistantHandoffScheduler;
     onFadeStart: (previousSlotId: string) => void;
-    onSwap: (previousSlotId: string, nextSlotId: string) => void;
+    onSwap: DirectAssistantSwap;
   }) {
     this.scheduler = options.scheduler ?? browserScheduler;
     this.onFadeStart = options.onFadeStart;
@@ -108,9 +127,39 @@ export class DirectAssistantHandoffController {
         if (this.pendingByPreviousSlotId.get(previousSlotId) !== pending)
           return;
         this.pendingByPreviousSlotId.delete(previousSlotId);
-        this.onSwap(previousSlotId, pending.nextSlotId);
+        const { newestSlotId, skippedSlotIds } = this.resolveNewestPendingSlot(
+          pending.nextSlotId,
+        );
+        this.onSwap(previousSlotId, newestSlotId, skippedSlotIds);
       }, DIRECT_ASSISTANT_MESSAGE_FADE_MS);
     }, remainingDwellMs);
+  }
+
+  /**
+   * Walk the queued chain from `firstNextSlotId` to its end, returning the
+   * newest (terminal) slot to reveal and the intermediate slots skipped to get
+   * there. A pending entry keyed by a slot means that slot has its OWN queued
+   * successor, i.e. it is itself stale and should be skipped. Their timers are
+   * cleared and their entries dropped as we pass them. The walk stops at the
+   * first slot with no successor, so the newest available segment is always the
+   * one revealed and never skipped past. Slot indices only ever increase, so
+   * the chain cannot cycle.
+   */
+  private resolveNewestPendingSlot(firstNextSlotId: string): {
+    newestSlotId: string;
+    skippedSlotIds: string[];
+  } {
+    const skippedSlotIds: string[] = [];
+    let newestSlotId = firstNextSlotId;
+    let successor = this.pendingByPreviousSlotId.get(newestSlotId);
+    while (successor) {
+      this.clearPending(successor);
+      this.pendingByPreviousSlotId.delete(newestSlotId);
+      skippedSlotIds.push(newestSlotId);
+      newestSlotId = successor.nextSlotId;
+      successor = this.pendingByPreviousSlotId.get(newestSlotId);
+    }
+    return { newestSlotId, skippedSlotIds };
   }
 
   private clearPending(pending: PendingHandoff): void {

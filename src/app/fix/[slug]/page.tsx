@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, Check } from "lucide-react";
+import { AuroraCanvas } from "@/components/aurora-canvas";
 import { DownloadButton } from "@/components/download-button";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
@@ -46,6 +47,7 @@ export default async function FixPage({
 
       <main>
         <section className="fix-hero section-border">
+          <AuroraCanvas className="fix-aurora" />
           <div className="fix-hero__copy">
             <p className="fix-eyebrow">{page.eyebrow}</p>
             <h1>

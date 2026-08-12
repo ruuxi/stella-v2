@@ -24,6 +24,7 @@ import {
   persistDesktopRealtimeVoiceTranscript,
   type DesktopRealtimeVoice,
 } from "./desktop-realtime-voice";
+import { REALTIME_VOICE_AUDIO_MODE } from "./realtime-voice-audio";
 
 const OPENAI_REALTIME_SDP_URL = "https://api.openai.com/v1/realtime/calls";
 const DATA_CHANNEL_OPEN_TIMEOUT_MS = 15_000;
@@ -247,11 +248,7 @@ export class MobileRealtimeVoiceSession {
       if (!permission.granted) throw new RealtimeVoicePermissionError();
 
       this.audioGeneration = ++audioSessionGeneration;
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-        shouldRouteThroughEarpiece: false,
-      });
+      await setAudioModeAsync(REALTIME_VOICE_AUDIO_MODE);
       // Keep the native module lazy so an older binary receiving the JS bundle
       // can still launch and show a useful upgrade error instead of crashing
       // when ChatPane is imported.
@@ -405,6 +402,10 @@ export class MobileRealtimeVoiceSession {
       await sessionUpdated;
       if (this.stopped) return;
       track.enabled = true;
+      // WebRTC activates its own call-style iOS audio session after the first
+      // configuration above. Reassert Stella's assistant-style loudspeaker
+      // route after the peer and microphone are both live.
+      await this.ensureLoudspeakerRoute();
       this.connectedAt = Date.now();
       this.publish({
         phase: "listening",
@@ -531,6 +532,9 @@ export class MobileRealtimeVoiceSession {
         return;
       case "output_audio_buffer.started":
       case "output_audio.started":
+        // iOS can reapply WebRTC's receiver route when remote audio starts.
+        // Correct it at the exact playback boundary as well as during setup.
+        void this.ensureLoudspeakerRoute();
         if (this.goodbyeTimer) clearTimeout(this.goodbyeTimer);
         this.goodbyeTimer = null;
         this.assistantTranscriptBuffer = "";
@@ -865,6 +869,19 @@ export class MobileRealtimeVoiceSession {
       );
       this.sessionUpdateWaiter = { eventId, finish };
     });
+  }
+
+  private async ensureLoudspeakerRoute(): Promise<void> {
+    try {
+      await setAudioModeAsync(REALTIME_VOICE_AUDIO_MODE);
+    } catch (error) {
+      // A transient OS route failure should not tear down an otherwise healthy
+      // Realtime session; the next assistant response retries the route.
+      console.debug(
+        "[realtime-voice] Could not route output through the loudspeaker:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   private finishGoodbye() {

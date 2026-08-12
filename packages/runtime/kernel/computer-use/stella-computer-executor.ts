@@ -3295,6 +3295,7 @@ export type StellaComputerExecutionOptions = ComputerExecutionContextOptions & {
 const macForbiddenBundleIdentifiers = new Set([
   "com.stella.desktop",
   "com.stella.app",
+  "com.stella.app.dev",
   "com.stella.runtime",
   "com.apple.systempreferences",
   "com.apple.systemsettings",

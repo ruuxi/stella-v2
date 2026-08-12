@@ -923,6 +923,7 @@ let baseForbiddenBundleIdentifiers: Set<String> = [
     // Stella's own surfaces (defense-in-depth).
     "com.stella.desktop",
     "com.stella.app",
+    "com.stella.app.dev",
     "com.stella.runtime",
     // System security / privacy surfaces.
     "com.apple.systempreferences",

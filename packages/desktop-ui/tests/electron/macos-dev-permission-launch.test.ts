@@ -32,7 +32,7 @@ describe("macOS development permission identity", () => {
 
     expect(identity).toContain('"CFBundleExecutable"');
     expect(identity).toContain("path.basename(electronBinary)");
-    expect(identity).toContain('const DEV_BUNDLE_ID = "com.stella.app"');
+    expect(identity).toContain('const DEV_BUNDLE_ID = "com.stella.app.dev"');
     expect(responsibilityLauncher).toContain(
       '"responsibility_spawnattrs_setdisclaim"',
     );

@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "नई चैट",
+        "newChatConfirm": "Click again to confirm",
         "home": "होम",
         "history": "वार्तालाप इतिहास",
         "historyEmpty": "अभी तक कोई वार्तालाप नहीं",

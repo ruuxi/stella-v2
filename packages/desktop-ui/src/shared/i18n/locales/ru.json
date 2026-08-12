@@ -1916,6 +1916,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Новый чат",
+        "newChatConfirm": "Click again to confirm",
         "home": "Главная",
         "history": "История разговоров",
         "historyEmpty": "Разговоров пока нет",

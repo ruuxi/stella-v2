@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Νέα συνομιλία",
+        "newChatConfirm": "Click again to confirm",
         "home": "Αρχική",
         "history": "Ιστορικό συνομιλιών",
         "historyEmpty": "Δεν υπάρχουν ακόμη συνομιλίες",

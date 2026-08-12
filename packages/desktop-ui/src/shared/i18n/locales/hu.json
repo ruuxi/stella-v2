@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Új beszélgetés",
+        "newChatConfirm": "Click again to confirm",
         "home": "Kezdőlap",
         "history": "Beszélgetési előzmények",
         "historyEmpty": "Még nincsenek beszélgetések",

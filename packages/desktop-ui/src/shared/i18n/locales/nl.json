@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Nieuwe chat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Start",
         "history": "Gespreksgeschiedenis",
         "historyEmpty": "Nog geen gesprekken",

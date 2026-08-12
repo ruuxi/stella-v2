@@ -104,9 +104,9 @@ const gatewayOptions = (
 
 /**
  * Which upstream serves DeepSeek V4 Flash. Flip to `"fireworks"` to route the
- * whole catalog back through the Fireworks gateway — every mode, the synthesis
- * fallback and the legacy-id alias below follow this constant, so no other
- * edit is needed. The inactive gateway stays fully registered but idle.
+ * whole catalog back through the Fireworks gateway — every public mode and the
+ * legacy-id alias below follow this constant, so no other edit is needed. The
+ * inactive gateway stays fully registered but idle.
  */
 type DeepSeekV4FlashRoute = "deepseek" | "fireworks";
 const DEEPSEEK_V4_FLASH_ROUTE: DeepSeekV4FlashRoute = "deepseek";
@@ -151,15 +151,19 @@ const DEEPSEEK_V4_FLASH_CONFIGS = {
 const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig =
   DEEPSEEK_V4_FLASH_CONFIGS[DEEPSEEK_V4_FLASH_ROUTE];
 
-const GEMINI_3_6_FLASH_SYNTHESIS_CONFIG: ModelConfig = {
-  model: "google/gemini-3.6-flash",
-  fallback: DEEPSEEK_V4_FLASH_MODEL_CONFIG.model,
-  managedGatewayProvider: "google",
-  fallbackManagedGatewayProvider:
-    DEEPSEEK_V4_FLASH_MODEL_CONFIG.managedGatewayProvider,
+const KIMI_K2_6_SYNTHESIS_CONFIG: ModelConfig = {
+  model: "moonshotai/kimi-k2.6",
+  managedGatewayProvider: "openrouter",
   maxOutputTokens: 32768,
-  providerOptions: gatewayOptions("google"),
-  fallbackProviderOptions: DEEPSEEK_V4_FLASH_MODEL_CONFIG.providerOptions,
+  providerOptions: {
+    openai: {
+      reasoningEffort: "low",
+    },
+    gateway: {
+      only: ["coreweave"],
+      allow_fallbacks: false,
+    },
+  },
 };
 
 const GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG: ModelConfig = {
@@ -171,7 +175,7 @@ const GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG: ModelConfig = {
 
 const INTERNAL_MODEL_CONFIGS = {
   image_description: GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG,
-  synthesis: GEMINI_3_6_FLASH_SYNTHESIS_CONFIG,
+  synthesis: KIMI_K2_6_SYNTHESIS_CONFIG,
 } as const satisfies Record<string, ModelConfig>;
 
 type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;

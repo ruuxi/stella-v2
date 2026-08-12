@@ -20,11 +20,12 @@ const FLASH_SELECTION = `stella/${FLASH_MODEL}`;
 const LEGACY_FIREWORKS_MODEL =
   "accounts/fireworks/models/deepseek-v4-flash-0731";
 const LEGACY_FIREWORKS_SELECTION = `stella/${LEGACY_FIREWORKS_MODEL}`;
-const SYNTHESIS_MODEL = "google/gemini-3.6-flash";
+const SYNTHESIS_MODEL = "moonshotai/kimi-k2.6";
+const SYNTHESIS_SELECTION = `openrouter/${SYNTHESIS_MODEL}`;
 const IMAGE_DESCRIPTION_MODEL = "google/gemini-3.1-flash-lite";
 
 describe("managed model config", () => {
-  it("routes every Stella mode to DeepSeek and keeps synthesis on Gemini", () => {
+  it("routes every Stella mode to DeepSeek and synthesis to CoreWeave Kimi", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       for (const mode of MODEL_MODES) {
         expect(getModeConfig(mode, audience)).toMatchObject({
@@ -53,18 +54,26 @@ describe("managed model config", () => {
         );
         expect(entry).toMatchObject({
           model: "stella/default",
-          resolvedModel: expectedModel,
+          resolvedModel:
+            entry.agentType === "synthesis"
+              ? SYNTHESIS_SELECTION
+              : expectedModel,
         });
       }
 
       expect(getModelConfig("synthesis", audience)).toMatchObject({
         model: SYNTHESIS_MODEL,
-        fallback: FLASH_MODEL,
-        managedGatewayProvider: "google",
-        fallbackManagedGatewayProvider: "deepseek",
+        managedGatewayProvider: "openrouter",
         maxOutputTokens: 32768,
-        providerOptions: { gateway: { order: ["google"] } },
+        providerOptions: {
+          openai: { reasoningEffort: "low" },
+          gateway: {
+            only: ["coreweave"],
+            allow_fallbacks: false,
+          },
+        },
       });
+      expect(getModelConfig("synthesis", audience).fallback).toBeUndefined();
       expect(getModelConfig("image_description", audience)).toMatchObject({
         model: IMAGE_DESCRIPTION_MODEL,
         managedGatewayProvider: "google",

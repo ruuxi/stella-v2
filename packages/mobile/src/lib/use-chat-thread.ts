@@ -152,8 +152,13 @@ const createId = () => {
   return `mobile:${String(lastLocalIdOrder).padStart(16, "0")}:${random}`;
 };
 
+// Run-level connection status shown before the desktop starts streaming.
+// `connecting` deliberately carries no copy: desktop has no "reaching" state,
+// so mobile lets the indicator fall through to the same baseline
+// "Thinking"/reasoning label desktop shows (see working-indicator-status).
+// Only a genuine cold wake surfaces its own line.
 const WAKE_STATUS_COPY: Record<DesktopBridgeSendStatus, string | undefined> = {
-  connecting: "Reaching your computer",
+  connecting: undefined,
   waking: "Waking your computer",
   running: undefined,
 };

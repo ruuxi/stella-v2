@@ -1,5 +1,5 @@
 import type { HttpRouter } from "convex/server";
-import { httpAction } from "../_generated/server";
+import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { requireConversationOwnerAction } from "../auth";
@@ -27,13 +27,16 @@ const VOICE_SESSION_RATE_WINDOW_MS = 60_000;
 // Helpers
 // ---------------------------------------------------------------------------
 
-const CONVEX_CONVERSATION_ID_PATTERN = /^[a-z][a-z0-9]+$/;
-
-const asConvexConversationId = (value: unknown): Id<"conversations"> | null => {
+const normalizeConversationId = async (
+  ctx: ActionCtx,
+  value: unknown,
+): Promise<Id<"conversations"> | null> => {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
-  if (!CONVEX_CONVERSATION_ID_PATTERN.test(normalized)) return null;
-  return normalized as Id<"conversations">;
+  if (!normalized) return null;
+  return await ctx.runQuery(internal.conversations.normalizeId, {
+    id: normalized,
+  });
 };
 
 type VoiceUsageBody = {
@@ -230,7 +233,11 @@ const parseVoiceUsageBody = (body: VoiceUsageBody | null) => {
       body.stellaSessionId.trim().length > 0
         ? body.stellaSessionId.trim()
         : undefined,
-    conversationId: asConvexConversationId(body?.conversationId),
+    conversationId:
+      typeof body?.conversationId === "string" &&
+      body.conversationId.trim().length > 0
+        ? body.conversationId.trim()
+        : undefined,
     inputTokens,
     outputTokens,
     totalTokens,
@@ -360,6 +367,10 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               ? "inworld"
               : "openai";
         const stellaSessionId = createVoiceSessionId(voiceProvider);
+        const conversationId = await normalizeConversationId(
+          ctx,
+          body?.conversationId,
+        );
 
         if (voiceProvider === "xai") {
           // ── xAI Grok Voice Agent path ────────────────────────────────
@@ -385,13 +396,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               model: xaiModel,
               voice: xaiVoice,
               stellaSessionId,
-              ...(asConvexConversationId(body?.conversationId)
-                ? {
-                    conversationId: asConvexConversationId(
-                      body?.conversationId,
-                    )!,
-                  }
-                : {}),
+              ...(conversationId ? { conversationId } : {}),
             },
           )) as PreparedVoiceLease;
           if (!lease.allowed) {
@@ -514,13 +519,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               model: inworldModel,
               voice: inworldVoice,
               stellaSessionId,
-              ...(asConvexConversationId(body?.conversationId)
-                ? {
-                    conversationId: asConvexConversationId(
-                      body?.conversationId,
-                    )!,
-                  }
-                : {}),
+              ...(conversationId ? { conversationId } : {}),
             },
           )) as PreparedVoiceLease;
           if (!lease.allowed) {
@@ -624,11 +623,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             model,
             voice,
             stellaSessionId,
-            ...(asConvexConversationId(body?.conversationId)
-              ? {
-                  conversationId: asConvexConversationId(body?.conversationId)!,
-                }
-              : {}),
+            ...(conversationId ? { conversationId } : {}),
           },
         )) as PreparedVoiceLease;
         if (!lease.allowed) {
@@ -968,7 +963,8 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           body?.voiceProvider === "inworld" ? "inworld" : "openai";
 
         let conversationId: Id<"conversations"> | undefined;
-        const parsedConversationId = asConvexConversationId(
+        const parsedConversationId = await normalizeConversationId(
+          ctx,
           body?.conversationId,
         );
         if (parsedConversationId) {
@@ -1213,10 +1209,14 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           );
         }
         let conversationId: Id<"conversations"> | undefined;
-        if (parsed.conversationId) {
+        const parsedConversationId = await normalizeConversationId(
+          ctx,
+          parsed.conversationId,
+        );
+        if (parsedConversationId) {
           try {
-            await requireConversationOwnerAction(ctx, parsed.conversationId);
-            conversationId = parsed.conversationId;
+            await requireConversationOwnerAction(ctx, parsedConversationId);
+            conversationId = parsedConversationId;
           } catch {
             conversationId = undefined;
           }

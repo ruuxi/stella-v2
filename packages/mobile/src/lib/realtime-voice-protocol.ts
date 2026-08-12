@@ -1,4 +1,25 @@
 import type { ChatMessage, MobileTask } from "../types";
+import type { ChatThreadId } from "./offline-chat-storage";
+
+const LOCAL_CHAT_THREAD_IDS: ReadonlySet<string> = new Set<ChatThreadId>([
+  "cloud",
+  "computer",
+  "carplay",
+  "carplay-computer",
+]);
+
+/**
+ * Local transcript keys are not Convex conversation IDs. Keep them out of
+ * managed voice requests while preserving a real cloud/desktop conversation
+ * ID when one is available.
+ */
+export const managedVoiceConversationId = (
+  conversationId: string,
+): string | undefined => {
+  const normalized = conversationId.trim();
+  if (!normalized || LOCAL_CHAT_THREAD_IDS.has(normalized)) return undefined;
+  return normalized;
+};
 
 export type RealtimeVoicePhase =
   | "connecting"
@@ -41,6 +62,38 @@ export type RealtimeVoiceToolResult = {
   fileChanges?: unknown[];
   producedFiles?: unknown[];
   error?: string;
+};
+
+const UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS = [
+  "oneOf",
+  "anyOf",
+  "allOf",
+  "enum",
+  "const",
+  "not",
+] as const;
+
+/** Match the desktop/backend Realtime contract before tools reach OpenAI. */
+export const toRealtimeProviderTool = (
+  tool: RealtimeToolDefinition,
+): RealtimeToolDefinition => {
+  const parameters = { ...tool.parameters };
+  for (const key of UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS) {
+    delete parameters[key];
+  }
+  return {
+    ...tool,
+    parameters: {
+      ...parameters,
+      type: "object",
+      properties:
+        typeof parameters.properties === "object" &&
+        parameters.properties !== null &&
+        !Array.isArray(parameters.properties)
+          ? parameters.properties
+          : {},
+    },
+  };
 };
 
 export type RealtimeVoiceActionDispatch = {
@@ -159,10 +212,38 @@ export const mergeComputerVoiceTools = (
 ): RealtimeToolDefinition[] => {
   const merged = new Map<string, RealtimeToolDefinition>();
   for (const tool of [...tools, ...REALTIME_CONTROL_TOOLS]) {
-    if (tool?.name) merged.set(tool.name, tool);
+    if (tool?.name) merged.set(tool.name, toRealtimeProviderTool(tool));
   }
   return [...merged.values()];
 };
+
+export const buildMobileRealtimeSessionUpdate = (options: {
+  eventId: string;
+  execution: "phone" | "computer";
+  instructions: string;
+  tools: RealtimeToolDefinition[];
+}): Record<string, unknown> => ({
+  type: "session.update",
+  event_id: options.eventId,
+  session: {
+    type: "realtime",
+    instructions: options.instructions,
+    tools: options.tools,
+    tool_choice: options.execution === "computer" ? "auto" : "none",
+    // The model cannot be changed by session.update, and the output voice was
+    // already selected when the backend minted the client secret. Resending
+    // either risks rejecting the whole update instead of applying its tools.
+    audio: {
+      input: {
+        turn_detection: {
+          type: "server_vad",
+          create_response: options.execution === "computer",
+          interrupt_response: options.execution === "computer",
+        },
+      },
+    },
+  },
+});
 
 export const findVoiceActionCompletion = (
   messages: ChatMessage[],

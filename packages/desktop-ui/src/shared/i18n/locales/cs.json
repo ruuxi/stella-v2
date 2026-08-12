@@ -1255,6 +1255,9 @@
         "previewFailed": "Náhled mapy se nepodařilo načíst."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Zkopírováno",
         "copy": "Kopírovat",
         "readAloud": "Číst nahlas",

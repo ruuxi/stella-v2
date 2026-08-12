@@ -57,7 +57,7 @@ export type DesktopUpdaterOptions = {
   };
 };
 
-const DEFAULT_STARTUP_DELAY_MS = 15_000;
+const DEFAULT_STARTUP_DELAY_MS = 6_000;
 const DEFAULT_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
 // Squirrel hands the install off to a helper process and then terminates the
 // app, so a healthy restart never gets to run this timer. If it does fire we

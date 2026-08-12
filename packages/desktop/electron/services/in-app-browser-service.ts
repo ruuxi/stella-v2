@@ -13,6 +13,15 @@ import {
   resolveBrowserProfileSelection,
   type BrowserProfileImportResult,
 } from "./in-app-browser-profile.js";
+import {
+  IN_APP_BROWSER_USER_AGENT,
+  isAuthOrigin,
+  isAuthPermission,
+  isAuthPopupUrl,
+  isTrustCriticalCookieName,
+  shouldAllowAuthDevice,
+  shouldPreserveExistingCookie,
+} from "./in-app-browser-auth-policy.js";
 import type {
   InAppBrowserDebuggerEvent,
   InAppBrowserDebuggerTarget,
@@ -433,6 +442,13 @@ export class InAppBrowserService {
           webviewTag: false,
         },
       });
+    // Match the session UA on the tab's WebContents so navigator.userAgent and
+    // outgoing request headers present a real Chrome UA rather than Electron's.
+    try {
+      view.webContents.setUserAgent(IN_APP_BROWSER_USER_AGENT);
+    } catch {
+      // Injected/mock views in tests may not implement setUserAgent.
+    }
     const tab: ManagedTab = {
       id,
       ownerId,
@@ -686,11 +702,29 @@ export class InAppBrowserService {
         this.profilePath,
         { cache: true },
       );
+      // Present a real, current Chrome-on-macOS UA at the session level (not just
+      // the CDP Browser.getVersion facade) so pages don't see an Electron UA,
+      // which adds bot-fingerprint weight on risk engines like Google's.
+      this.browserSession.setUserAgent(IN_APP_BROWSER_USER_AGENT);
+      // Permission policy: deny by default, but allow the WebAuthn / security-key
+      // access that reauth needs and ONLY on trusted auth origins. Sensitive,
+      // auth-irrelevant permissions (camera, microphone, geolocation,
+      // notifications) stay denied everywhere. The request handler's permission
+      // union excludes hid/usb/serial, so it stays effectively deny-all; the
+      // check + device handlers are where security-key access is granted.
       this.browserSession.setPermissionRequestHandler(
-        (_webContents, _permission, callback) => callback(false),
+        (webContents, permission, callback) => {
+          const origin = webContents?.getURL?.() ?? "";
+          callback(isAuthPermission(permission) && isAuthOrigin(origin));
+        },
       );
-      this.browserSession.setPermissionCheckHandler(() => false);
-      this.browserSession.setDevicePermissionHandler(() => false);
+      this.browserSession.setPermissionCheckHandler(
+        (_webContents, permission, requestingOrigin) =>
+          isAuthPermission(permission) && isAuthOrigin(requestingOrigin),
+      );
+      this.browserSession.setDevicePermissionHandler((details) =>
+        shouldAllowAuthDevice(details),
+      );
       this.state.profileName =
         this.profileImport.profileName ??
         this.profileImport.profileId ??
@@ -729,6 +763,7 @@ export class InAppBrowserService {
       throw new Error("Browser session is unavailable.");
     let failed = 0;
     let partitioned = 0;
+    let preserved = 0;
     for (const cookie of cookies) {
       const url = cookieUrl(cookie);
       if (!url || !cookie.name) {
@@ -738,6 +773,30 @@ export class InAppBrowserService {
       if (cookie.partitionKey?.topLevelSite) {
         partitioned += 1;
         continue;
+      }
+      // Conservative re-seed: never clobber a healthy managed session. If the
+      // managed store already holds a LIVE, trust-critical cookie (device trust /
+      // session binding: __Secure-*, __Host-*, Google SID/…) for this name+host,
+      // keep it instead of overwriting with the real browser's (possibly
+      // mid-rotation) copy. The first-ever seed sees an empty store, so initial
+      // login still seeds everything; only accumulated trust survives later
+      // launches. See shouldPreserveExistingCookie for the full rule.
+      if (isTrustCriticalCookieName(cookie.name)) {
+        try {
+          const existingForName = await this.browserSession.cookies.get({
+            url,
+            name: cookie.name,
+          });
+          const existing = existingForName.find(
+            (candidate) => candidate.name === cookie.name,
+          );
+          if (shouldPreserveExistingCookie(existing, cookie)) {
+            preserved += 1;
+            continue;
+          }
+        } catch {
+          // If we can't read the existing cookie, fall through and (re)seed it.
+        }
       }
       try {
         await this.browserSession.cookies.set({
@@ -762,9 +821,9 @@ export class InAppBrowserService {
     this.pendingPartitionedCookies = cookies.filter((cookie) =>
       Boolean(cookie.partitionKey?.topLevelSite),
     );
-    if (failed > 0 || partitioned > 0) {
+    if (failed > 0 || partitioned > 0 || preserved > 0) {
       console.warn(
-        `[in-app-browser] Cookie seed completed with ${failed} failed and ${partitioned} partitioned cookie(s).`,
+        `[in-app-browser] Cookie seed completed with ${failed} failed, ${partitioned} partitioned, and ${preserved} preserved (trust-critical) cookie(s).`,
       );
     }
   }
@@ -876,6 +935,32 @@ export class InAppBrowserService {
       if (!isAllowedNavigationUrl(event.url)) event.preventDefault();
     });
     contents.setWindowOpenHandler(({ url }) => {
+      // Real auth / reauth popups (Google "confirm it's you", passkey, OAuth
+      // consent) run as window.open and MUST open as a genuine child window that
+      // keeps its opener, so the challenge can postMessage / redirect back to the
+      // page that spawned it. Scope this to the auth-origin allowlist only.
+      if (isAuthPopupUrl(url)) {
+        return {
+          action: "allow",
+          outlivesOpener: false,
+          overrideBrowserWindowOptions: {
+            autoHideMenuBar: true,
+            webPreferences: {
+              session: this.browserSession ?? undefined,
+              nodeIntegration: false,
+              nodeIntegrationInSubFrames: false,
+              nodeIntegrationInWorker: false,
+              contextIsolation: true,
+              sandbox: true,
+              webSecurity: true,
+              allowRunningInsecureContent: false,
+              webviewTag: false,
+            },
+          },
+        };
+      }
+      // Non-auth navigations keep the existing anti-junk-tab behavior: reroute a
+      // normal web URL into an opener-less managed tab, and deny everything else.
       if (isAllowedNavigationUrl(url)) {
         void this.createTab({ url, ownerId: tab.ownerId }).catch((error) => {
           this.setError(errorMessage(error), tab.ownerId);

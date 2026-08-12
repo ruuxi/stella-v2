@@ -16,6 +16,8 @@ export type InAppBrowserDebuggerEvent = {
   params?: Record<string, unknown>;
 };
 
+export type InAppBrowserDebuggerRecovery = "terminated" | "reloaded";
+
 export type InAppBrowserDebuggerController = {
   listDebuggerTargets: (
     ownerId?: string,
@@ -38,10 +40,20 @@ export type InAppBrowserDebuggerController = {
     params?: Record<string, unknown>,
     ownerId?: string,
   ) => unknown | Promise<unknown>;
+  recoverDebuggerTarget: (
+    tabId: string,
+    ownerId?: string,
+  ) => InAppBrowserDebuggerRecovery | Promise<InAppBrowserDebuggerRecovery>;
   subscribeDebuggerEvents: (
     listener: (event: InAppBrowserDebuggerEvent) => void,
   ) => () => void;
 };
+
+type InAppBrowserCdpAdapterOptions = Readonly<{
+  commandTimeoutMs?: number;
+  bootstrapCommandTimeoutMs?: number;
+  recoveryTimeoutMs?: number;
+}>;
 
 type CdpRequest = {
   id?: number;
@@ -63,6 +75,56 @@ export type InAppBrowserCdpCapability = Readonly<{
 }>;
 
 const OWNER_CAPABILITY_TTL_MS = 60_000;
+const DEFAULT_CDP_COMMAND_TIMEOUT_MS = 25_000;
+const DEFAULT_CDP_BOOTSTRAP_COMMAND_TIMEOUT_MS = 3_000;
+const DEFAULT_CDP_RECOVERY_TIMEOUT_MS = 1_500;
+const BOOTSTRAP_PAGE_METHODS = new Set([
+  "Page.enable",
+  "Runtime.enable",
+  "Network.enable",
+]);
+
+class CdpCommandTimeoutError extends Error {
+  constructor(
+    readonly method: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`CDP command ${method} timed out after ${timeoutMs}ms.`);
+    this.name = "CdpCommandTimeoutError";
+  }
+}
+
+const requirePositiveTimeout = (
+  value: number | undefined,
+  fallback: number,
+  name: string,
+) => {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved <= 0) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+  return resolved;
+};
+
+const withTimeout = async <T>(
+  operation: () => T | Promise<T>,
+  timeoutMs: number,
+  timeoutError: () => Error,
+): Promise<T> => {
+  let timer: NodeJS.Timeout | undefined;
+  const task = Promise.resolve().then(operation);
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(timeoutError()), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 const isSafeNavigationUrl = (value: string) => {
   if (value === "about:blank") return true;
@@ -105,6 +167,9 @@ const sendJson = (socket: WebSocket, payload: unknown) => {
  */
 export class InAppBrowserCdpAdapter {
   private readonly controller: InAppBrowserDebuggerController;
+  private readonly commandTimeoutMs: number;
+  private readonly bootstrapCommandTimeoutMs: number;
+  private readonly recoveryTimeoutMs: number;
   private readonly token = randomBytes(32).toString("hex");
   private readonly clients = new Set<ClientState>();
   private readonly ownerRoutes = new Map<
@@ -116,8 +181,26 @@ export class InAppBrowserCdpAdapter {
   private webSocketUrl: string | null = null;
   private unsubscribeDebuggerEvents: (() => void) | null = null;
 
-  constructor(controller: InAppBrowserDebuggerController) {
+  constructor(
+    controller: InAppBrowserDebuggerController,
+    options: InAppBrowserCdpAdapterOptions = {},
+  ) {
     this.controller = controller;
+    this.commandTimeoutMs = requirePositiveTimeout(
+      options.commandTimeoutMs,
+      DEFAULT_CDP_COMMAND_TIMEOUT_MS,
+      "commandTimeoutMs",
+    );
+    this.bootstrapCommandTimeoutMs = requirePositiveTimeout(
+      options.bootstrapCommandTimeoutMs,
+      DEFAULT_CDP_BOOTSTRAP_COMMAND_TIMEOUT_MS,
+      "bootstrapCommandTimeoutMs",
+    );
+    this.recoveryTimeoutMs = requirePositiveTimeout(
+      options.recoveryTimeoutMs,
+      DEFAULT_CDP_RECOVERY_TIMEOUT_MS,
+      "recoveryTimeoutMs",
+    );
   }
 
   async start(): Promise<string> {
@@ -381,12 +464,68 @@ export class InAppBrowserCdpAdapter {
     }
 
     await this.presentAgentAction(tabId, method, params, client.ownerId);
-    return await this.controller.sendDebuggerCommand(
-      tabId,
-      method,
-      params,
-      client.ownerId,
-    );
+    return await this.sendPageCommand(tabId, method, params, client.ownerId);
+  }
+
+  private async sendPageCommand(
+    tabId: string,
+    method: string,
+    params: Record<string, unknown>,
+    ownerId: string,
+  ): Promise<unknown> {
+    const timeoutMs = BOOTSTRAP_PAGE_METHODS.has(method)
+      ? this.bootstrapCommandTimeoutMs
+      : this.commandTimeoutMs;
+    const send = () =>
+      withTimeout(
+        () =>
+          this.controller.sendDebuggerCommand(tabId, method, params, ownerId),
+        timeoutMs,
+        () => new CdpCommandTimeoutError(method, timeoutMs),
+      );
+
+    try {
+      return await send();
+    } catch (error) {
+      if (
+        !(error instanceof CdpCommandTimeoutError) ||
+        method === "Runtime.terminateExecution"
+      ) {
+        throw error;
+      }
+
+      let recovery: InAppBrowserDebuggerRecovery;
+      try {
+        recovery = await withTimeout(
+          () => this.controller.recoverDebuggerTarget(tabId, ownerId),
+          this.recoveryTimeoutMs,
+          () =>
+            new Error(
+              `CDP recovery timed out after ${this.recoveryTimeoutMs}ms.`,
+            ),
+        );
+      } catch (recoveryError) {
+        throw new Error(
+          `${error.message} Page recovery failed: ${
+            recoveryError instanceof Error
+              ? recoveryError.message
+              : String(recoveryError)
+          }`,
+          { cause: error },
+        );
+      }
+
+      // A replacement daemon enables these domains while attaching to every
+      // retained tab. Retry them once after terminating/reloading a poisoned
+      // renderer so bootstrap does not repeatedly kill healthy new daemons.
+      if (BOOTSTRAP_PAGE_METHODS.has(method)) {
+        return await send();
+      }
+
+      throw new Error(`${error.message} Page execution was ${recovery}.`, {
+        cause: error,
+      });
+    }
   }
 
   private broadcastDebuggerEvent(event: InAppBrowserDebuggerEvent) {

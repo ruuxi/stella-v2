@@ -233,6 +233,7 @@ type BrowserViewState = {
   }>;
   tabs: Array<{
     id: string;
+    ownerId: string;
     url: string;
     title: string;
     faviconUrl?: string;
@@ -1638,12 +1639,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
       invokeIpc<BrowserViewState>("browserView:show", payload),
     setVisibleOwner: (payload: { ownerId: string }) =>
       invokeIpc<BrowserViewState>("browserView:setVisibleOwner", payload),
+    setOwnerScope: (payload: { ownerId?: string } = {}) =>
+      invokeIpc<BrowserViewState>("browserView:setOwnerScope", payload),
     setLayout: (payload: BrowserViewLayout) =>
       invokeIpc<BrowserViewState>("browserView:setLayout", payload),
     hide: () => invokeIpc<BrowserViewState>("browserView:hide"),
-    createTab: (payload: { url?: string } = {}) =>
+    createTab: (
+      payload: { url?: string; ownerId?: string; activate?: boolean } = {},
+    ) =>
       invokeIpc<BrowserViewState>("browserView:createTab", payload),
-    selectTab: (payload: { tabId: string; ownerId?: string }) =>
+    selectTab: (payload: {
+      tabId: string;
+      ownerId?: string;
+      activate?: boolean;
+    }) =>
       invokeIpc<BrowserViewState>("browserView:selectTab", payload),
     closeTab: (payload: { tabId: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:closeTab", payload),

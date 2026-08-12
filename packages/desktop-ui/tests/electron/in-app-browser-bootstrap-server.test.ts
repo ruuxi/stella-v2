@@ -118,6 +118,36 @@ describe("InAppBrowserBootstrapServer", () => {
     });
   });
 
+  it("forwards an authenticated backend recovery request", async () => {
+    const endpoint = createEndpoint();
+    const ensureReady = vi.fn(async () => ({
+      bridgeSessionId: "agent-backend-2",
+      capabilityExpiresAt: 20_000,
+    }));
+    const server = new InAppBrowserBootstrapServer({
+      endpoint,
+      tokenPath: `${endpoint.path}.token`,
+      token: "secret-token",
+      ensureReady,
+    });
+    servers.push(server);
+    await server.start();
+
+    await expect(
+      sendRequest(endpoint, {
+        ...capabilityRequest("secret-token"),
+        recover: true,
+      }),
+    ).resolves.toMatchObject({ success: true });
+    expect(ensureReady).toHaveBeenCalledWith({
+      sessionId: "agent-thread-1",
+      turnId: "turn-1",
+      ownerLeaseId: "lease-1",
+      ownerLeaseIssuedAt: 1_000,
+      recover: true,
+    });
+  });
+
   it("rejects incomplete or extra session capability metadata", async () => {
     const endpoint = createEndpoint();
     const ensureReady = vi.fn(async () => ({

@@ -122,6 +122,7 @@ export type InAppBrowserInitializer = (options: {
   turnId: string;
   ownerLeaseId: string;
   ownerLeaseIssuedAt: number;
+  recover?: boolean;
 }) => Promise<InAppBrowserCapability | boolean>;
 
 export type BrowserCommandResult<TData = unknown> =
@@ -408,6 +409,7 @@ export const initializeStellaInAppBrowser: InAppBrowserInitializer = async ({
   turnId,
   ownerLeaseId,
   ownerLeaseIssuedAt,
+  recover,
 }) => {
   throwIfAborted(signal);
   let token = "";
@@ -473,6 +475,7 @@ export const initializeStellaInAppBrowser: InAppBrowserInitializer = async ({
             turnId,
             ownerLeaseId,
             ownerLeaseIssuedAt,
+            ...(recover ? { recover: true } : {}),
           })}\n`,
         );
       });
@@ -923,6 +926,7 @@ export class BrowserSession implements BrowserSessionClient {
     turnId: string;
     ownerLeaseId: string;
   };
+  private recoverInAppBrowserCapability = false;
   private queue: Promise<void> = Promise.resolve();
   private disposed = false;
   private disposePromise?: Promise<void>;
@@ -1365,6 +1369,7 @@ export class BrowserSession implements BrowserSessionClient {
         } catch (cause) {
           this.assertOpen();
           throwIfAborted(signal);
+          this.markManagedCapabilityForRecovery(cause);
           if (
             attempts >= 2 ||
             !(cause instanceof BrowserTransportError) ||
@@ -1372,15 +1377,6 @@ export class BrowserSession implements BrowserSessionClient {
             this.remainingTime(deadline) <= 0
           ) {
             throw cause;
-          }
-          if (
-            this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE ===
-            "1"
-          ) {
-            // A connect failure can happen before a socket is installed, so
-            // invalidate the turn capability explicitly and ask bootstrap for
-            // a fresh daemon on the retry.
-            this.inAppBrowserCapability = undefined;
           }
           if (this.socket) this.invalidateSocket(this.socket, cause);
         }
@@ -1464,8 +1460,10 @@ export class BrowserSession implements BrowserSessionClient {
       turnId: turn.turnId,
       ownerLeaseId: turn.ownerLeaseId,
       ownerLeaseIssuedAt: turn.ownerLeaseIssuedAt,
+      ...(this.recoverInAppBrowserCapability ? { recover: true } : {}),
     });
     if (initialized === true) {
+      this.recoverInAppBrowserCapability = false;
       this.inAppBrowserCapability = {
         bridgeSessionId: config.bridgeSessionId,
         capabilityExpiresAt: Number.MAX_SAFE_INTEGER,
@@ -1475,6 +1473,7 @@ export class BrowserSession implements BrowserSessionClient {
       return config;
     }
     if (initialized && typeof initialized === "object") {
+      this.recoverInAppBrowserCapability = false;
       this.inAppBrowserCapability = {
         ...initialized,
         turnId: turn.turnId,
@@ -1483,6 +1482,22 @@ export class BrowserSession implements BrowserSessionClient {
       return this.switchBridgeSession(initialized.bridgeSessionId);
     }
     return config;
+  }
+
+  private markManagedCapabilityForRecovery(cause: unknown): void {
+    if (
+      !(cause instanceof BrowserTransportError) ||
+      (!cause.retryable && cause.code !== "timeout") ||
+      this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE !== "1"
+    ) {
+      return;
+    }
+    // A timed-out command may leave the single-threaded per-owner daemon
+    // alive but wedged in page evaluation. Dropping only the socket causes
+    // every follow-up to reconnect to that same process. Poison the cached
+    // capability so bootstrap replaces the backend on the next attempt/call.
+    this.inAppBrowserCapability = undefined;
+    this.recoverInAppBrowserCapability = true;
   }
 
   private async ensureConnected(

@@ -322,6 +322,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     // thread rows overlaid with live stream decoration. No event folding.
     const tasks = useMemo(() => buildActivityTasks(threadActivityRecords, taskDecorations), [threadActivityRecords, taskDecorations]);
     const chatColumnConversation = useMemo(() => ({
+        conversationId: activeConversationId,
         tasks,
         activity: {
             activities,
@@ -355,6 +356,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             isInitialLoading: isInitialLoadingMessages,
         },
     }), [
+        activeConversationId,
         activities,
         activeToolCallId,
         activeToolName,

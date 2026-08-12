@@ -213,6 +213,60 @@ describe("StellaBrowserBridgeService browser bootstrap API", () => {
     });
   });
 
+  it("replaces a wedged backend when the same lease requests recovery", async () => {
+    const service = createService();
+    const capability = {
+      ownerId: "agent-thread-1",
+      turnId: "turn-1",
+      ownerLeaseId: "lease-1",
+      ownerLeaseIssuedAt: 1_000,
+    };
+    const spawnAgentBackend = vi
+      .spyOn(
+        service as unknown as {
+          spawnAgentBackend: (
+            input: Record<string, unknown>,
+          ) => Promise<unknown>;
+        },
+        "spawnAgentBackend",
+      )
+      .mockImplementationOnce(async (input) => ({
+        ...input,
+        bridgeSessionId: "agent-wedged-session",
+        capabilityExpiresAt: Date.now() + 60_000,
+        controlToken: "old-control-token",
+        process: { exitCode: null, killed: false },
+      }))
+      .mockImplementationOnce(async (input) => ({
+        ...input,
+        bridgeSessionId: "agent-recovered-session",
+        capabilityExpiresAt: Date.now() + 60_000,
+        controlToken: "new-control-token",
+        process: { exitCode: null, killed: false },
+      }));
+    const stopAgentBackend = vi
+      .spyOn(
+        service as unknown as {
+          stopAgentBackend: (backend: unknown) => Promise<void>;
+        },
+        "stopAgentBackend",
+      )
+      .mockResolvedValue();
+
+    await expect(
+      service.connectAgentCdp(capability, "ws://127.0.0.1:9000/owner-cap"),
+    ).resolves.toMatchObject({ bridgeSessionId: "agent-wedged-session" });
+    await expect(
+      service.connectAgentCdp(
+        { ...capability, recover: true },
+        "ws://127.0.0.1:9000/owner-cap",
+      ),
+    ).resolves.toMatchObject({ bridgeSessionId: "agent-recovered-session" });
+
+    expect(stopAgentBackend).toHaveBeenCalledOnce();
+    expect(spawnAgentBackend).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects an older lease from replacing an active agent backend", async () => {
     const service = createService();
     const process = { exitCode: null, killed: false };

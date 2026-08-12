@@ -24,6 +24,9 @@ const MAX_IN_FLIGHT_REQUESTS: usize = 256;
 const MAX_REPLAY_WAITERS_PER_REQUEST: usize = 64;
 const MAX_COMPLETED_REQUESTS: usize = 1024;
 const MAX_CAPABILITY_BYTES: usize = 512;
+const DEFAULT_DAEMON_COMMAND_TIMEOUT_MS: u64 = 32_000;
+const DAEMON_COMMAND_TIMEOUT_GRACE_MS: u64 = 3_000;
+const MAX_DAEMON_COMMAND_TIMEOUT_MS: u64 = 4 * 60_000 + DAEMON_COMMAND_TIMEOUT_GRACE_MS;
 
 #[derive(Clone, Default)]
 struct DaemonAccessPolicy {
@@ -722,15 +725,11 @@ async fn handle_connection<S>(
                         Ok(Some((key, fingerprint))) => {
                             replay_cache
                                 .execute_once(key, fingerprint, || async {
-                                    let mut s = state.lock().await;
-                                    execute_command(&cmd, &mut s).await
+                                    execute_command_with_deadline(&cmd, state.clone()).await
                                 })
                                 .await
                         }
-                        Ok(None) => {
-                            let mut s = state.lock().await;
-                            execute_command(&cmd, &mut s).await
-                        }
+                        Ok(None) => execute_command_with_deadline(&cmd, state.clone()).await,
                         Err(response) => response,
                     },
                 };
@@ -754,6 +753,50 @@ async fn handle_connection<S>(
             }
             Err(_) => break,
         }
+    }
+}
+
+fn daemon_command_timeout_ms(command: &Value) -> u64 {
+    command
+        .get("timeout")
+        .and_then(Value::as_u64)
+        .filter(|timeout| *timeout > 0)
+        .map(|timeout| {
+            timeout
+                .saturating_add(DAEMON_COMMAND_TIMEOUT_GRACE_MS)
+                .clamp(
+                    DEFAULT_DAEMON_COMMAND_TIMEOUT_MS,
+                    MAX_DAEMON_COMMAND_TIMEOUT_MS,
+                )
+        })
+        .unwrap_or(DEFAULT_DAEMON_COMMAND_TIMEOUT_MS)
+}
+
+async fn execute_command_with_deadline(
+    command: &Value,
+    state: Arc<tokio::sync::Mutex<DaemonState>>,
+) -> Value {
+    let timeout_ms = daemon_command_timeout_ms(command);
+    let request_id = command.get("id").and_then(Value::as_str).unwrap_or("");
+    let action = command
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    match tokio::time::timeout(Duration::from_millis(timeout_ms), async {
+        let mut guard = state.lock().await;
+        execute_command(command, &mut guard).await
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => serde_json::json!({
+            "id": request_id,
+            "success": false,
+            "error": format!(
+                "Browser daemon command timed out after {}ms on action={}",
+                timeout_ms, action
+            ),
+        }),
     }
 }
 
@@ -856,6 +899,28 @@ mod tests {
             owner_lease_issued_at: Some(1_000),
             capability_expires_at_ms: Some(expires_at),
         }
+    }
+
+    #[test]
+    fn command_deadlines_bound_default_requested_and_oversized_work() {
+        assert_eq!(
+            daemon_command_timeout_ms(&json!({ "action": "evaluate" })),
+            DEFAULT_DAEMON_COMMAND_TIMEOUT_MS
+        );
+        assert_eq!(
+            daemon_command_timeout_ms(&json!({
+                "action": "wait",
+                "timeout": 120_000,
+            })),
+            120_000 + DAEMON_COMMAND_TIMEOUT_GRACE_MS
+        );
+        assert_eq!(
+            daemon_command_timeout_ms(&json!({
+                "action": "chain",
+                "timeout": u64::MAX,
+            })),
+            MAX_DAEMON_COMMAND_TIMEOUT_MS
+        );
     }
 
     #[test]

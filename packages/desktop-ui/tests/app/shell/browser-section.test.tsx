@@ -21,6 +21,7 @@ type BrowserState = {
   }>;
   tabs: Array<{
     id: string;
+    ownerId: string;
     url: string;
     title: string;
     loading: boolean;
@@ -35,11 +36,14 @@ const mocks = vi.hoisted(() => ({
   activeSection: "browser",
   panelOpen: true,
   uiState: new Map<string, string>(),
+  assistantWorkingMode: "orchestrated" as "direct" | "orchestrated",
   tasks: [] as Array<{ id: string; description: string; agentType: string }>,
 }));
 
 vi.mock("@/context/use-chat-runtime", () => ({
-  useChatRuntime: () => ({ conversation: { tasks: mocks.tasks } }),
+  useChatRuntime: () => ({
+    conversation: { conversationId: "conversation-1", tasks: mocks.tasks },
+  }),
 }));
 
 vi.mock("@/features/workspace-display/sidebar-sections", () => ({
@@ -105,6 +109,7 @@ const activeState: BrowserState = {
   tabs: [
     {
       id: "tab-1",
+      ownerId: "stella:manual",
       url: "https://example.com",
       title: "Example",
       loading: false,
@@ -127,6 +132,7 @@ describe("BrowserSection", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     mocks.activeSection = "browser";
     mocks.panelOpen = true;
+    mocks.assistantWorkingMode = "orchestrated";
     mocks.uiState.clear();
     mocks.tasks = [];
     mocks.uiState.set(BROWSER_SELECTION_KEY, "brave");
@@ -138,6 +144,7 @@ describe("BrowserSection", () => {
       connect: vi.fn(async () => state),
       show: vi.fn(async () => state),
       setVisibleOwner: vi.fn(async () => state),
+      setOwnerScope: vi.fn(async () => state),
       setLayout: vi.fn(async () => state),
       hide: vi.fn(async () => state),
       createTab: vi.fn(async () => state),
@@ -155,7 +162,14 @@ describe("BrowserSection", () => {
     };
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
-      value: { browserView: api },
+      value: {
+        browserView: api,
+        system: {
+          getLocalModelPreferences: vi.fn(async () => ({
+            assistantWorkingMode: mocks.assistantWorkingMode,
+          })),
+        },
+      },
     });
     vi.stubGlobal(
       "ResizeObserver",
@@ -217,6 +231,7 @@ describe("BrowserSection", () => {
       browserType: "brave",
       profileId: "profile-1",
     });
+    expect(api.setOwnerScope).toHaveBeenCalledWith({});
     expect(container.textContent).toContain("Connect your browser");
 
     const connectButton = Array.from(container.querySelectorAll("button")).find(
@@ -227,7 +242,7 @@ describe("BrowserSection", () => {
     expect(api.connect).toHaveBeenCalledTimes(2);
   });
 
-  it("offers a manual tab when the connected browser is empty", async () => {
+  it("offers a conversation-owned tab when the connected browser is empty", async () => {
     state = connectedState;
     await render();
 
@@ -237,7 +252,10 @@ describe("BrowserSection", () => {
       (button) => button.textContent?.includes("Open a new tab"),
     );
     await act(async () => newTab?.click());
-    expect(api.createTab).toHaveBeenCalledWith({});
+    expect(api.createTab).toHaveBeenCalledWith({
+      ownerId: "orchestrator-conversation-conversation-1",
+      activate: true,
+    });
     expect(api.show).not.toHaveBeenCalled();
   });
 
@@ -268,27 +286,25 @@ describe("BrowserSection", () => {
       tabId: "tab-1",
       ownerId: "stella:manual",
     });
-    expect(api.createTab).toHaveBeenCalledWith({});
+    expect(api.createTab).toHaveBeenCalledWith({
+      ownerId: "orchestrator-conversation-conversation-1",
+      activate: true,
+    });
   });
 
-  it("discovers the latest isolated agent browser and labels it from Activity", async () => {
+  it("shows every owner tab in orchestrator mode without a session header", async () => {
+    const rootOwnerId = "orchestrator-conversation-conversation-1";
     const agentOwnerId = "general-task-agent-1";
-    mocks.tasks = [
-      {
-        id: "agent-1",
-        description: "Retry App Store preparation",
-        agentType: "general",
-      },
-    ];
     const agentState: BrowserState = {
       connection: "connected",
       profileName: "Personal",
       visibleOwnerId: agentOwnerId,
       owners: [
         {
-          id: "stella:manual",
-          kind: "manual",
-          tabCount: 0,
+          id: rootOwnerId,
+          kind: "agent",
+          tabCount: 1,
+          activeTabId: "root-tab",
           latest: false,
         },
         {
@@ -302,7 +318,17 @@ describe("BrowserSection", () => {
       activeTabId: "agent-tab",
       tabs: [
         {
+          id: "root-tab",
+          ownerId: rootOwnerId,
+          url: "https://example.com",
+          title: "Root research",
+          loading: false,
+          canGoBack: false,
+          canGoForward: false,
+        },
+        {
           id: "agent-tab",
+          ownerId: agentOwnerId,
           url: "https://appstoreconnect.apple.com",
           title: "App Store Connect",
           loading: false,
@@ -311,21 +337,14 @@ describe("BrowserSection", () => {
         },
       ],
     };
-    state = {
-      ...connectedState,
-      owners: agentState.owners,
-    };
-    api.setVisibleOwner.mockImplementation(async () => {
-      state = agentState;
-      return agentState;
-    });
+    state = agentState;
 
     await render();
 
-    expect(api.setVisibleOwner).toHaveBeenCalledWith({
-      ownerId: agentOwnerId,
-    });
-    expect(container.textContent).toContain("Retry App Store preparation (1)");
+    expect(api.setOwnerScope).toHaveBeenCalledWith({});
+    expect(container.textContent).not.toContain("Viewing");
+    expect(container.querySelector('[aria-label="Browser session"]')).toBeNull();
+    expect(container.textContent).toContain("Root research");
     expect(container.textContent).toContain("App Store Connect");
 
     await act(async () => {
@@ -337,6 +356,51 @@ describe("BrowserSection", () => {
       tabId: "agent-tab",
       ownerId: agentOwnerId,
     });
+  });
+
+  it("automatically scopes direct mode to the active conversation", async () => {
+    mocks.assistantWorkingMode = "direct";
+    const currentOwnerId = "orchestrator-conversation-conversation-1";
+    const currentState: BrowserState = {
+      ...activeState,
+      visibleOwnerId: currentOwnerId,
+      owners: [
+        ...activeState.owners,
+        {
+          id: currentOwnerId,
+          kind: "agent",
+          tabCount: 1,
+          activeTabId: "current-tab",
+          latest: true,
+        },
+      ],
+      activeTabId: "current-tab",
+      tabs: [
+        {
+          id: "current-tab",
+          ownerId: currentOwnerId,
+          url: "https://current.example",
+          title: "Current chat tab",
+          loading: false,
+          canGoBack: false,
+          canGoForward: false,
+        },
+      ],
+    };
+    api.setOwnerScope.mockImplementation(async (scope) => {
+      if (scope.ownerId === currentOwnerId) state = currentState;
+      return state;
+    });
+
+    await render();
+    await vi.waitFor(() =>
+      expect(api.setOwnerScope).toHaveBeenCalledWith({
+        ownerId: currentOwnerId,
+      }),
+    );
+
+    expect(container.textContent).toContain("Current chat tab");
+    expect(container.textContent).not.toContain("Viewing");
   });
 
   it("uses the full page width when the resize handle is hidden", async () => {

@@ -3180,7 +3180,11 @@ async fn handle_evaluate(cmd: &Value, state: &DaemonState) -> Result<Value, Stri
         .ok_or("Missing 'script' parameter")?;
 
     let result = mgr.evaluate(script, None).await?;
-    let url = mgr.get_url().await.unwrap_or_default();
+    // Do not immediately inject a second `Runtime.evaluate(location.href)`.
+    // A page script can complete while leaving the renderer saturated (for
+    // example, a runaway observer); making origin metadata another blocking
+    // page evaluation turned one command into two independent hang points.
+    let url = mgr.active_url_cached();
     Ok(json!({ "result": result, "origin": url }))
 }
 

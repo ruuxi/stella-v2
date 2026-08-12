@@ -635,6 +635,13 @@ impl BrowserManager {
         Ok(result.as_str().unwrap_or("").to_string())
     }
 
+    pub fn active_url_cached(&self) -> String {
+        self.pages
+            .get(self.active_page_index)
+            .map(|page| page.url.clone())
+            .unwrap_or_default()
+    }
+
     pub async fn get_title(&self) -> Result<String, String> {
         let result = self.evaluate_simple("document.title").await?;
         Ok(result.as_str().unwrap_or("").to_string())

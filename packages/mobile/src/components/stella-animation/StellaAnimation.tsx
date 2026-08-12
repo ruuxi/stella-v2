@@ -121,7 +121,7 @@ const colorsToAurora = (c: Colors, isDark: boolean): Float32Array =>
     ),
   );
 
-export const StellaAnimation = React.forwardRef<
+const StellaAnimationInner = React.forwardRef<
   StellaAnimationHandle,
   StellaAnimationProps
 >(function StellaAnimation(
@@ -477,6 +477,18 @@ export const StellaAnimation = React.forwardRef<
     </View>
   );
 });
+
+/**
+ * Memoized so the working indicator's GL surface is never re-rendered by the
+ * chat's per-token streaming commits or by status-label swaps. The frame loop
+ * is a JS-thread `setInterval` (expo-gl can only be driven from the JS thread),
+ * so keeping this component out of the streaming re-render path is what stops
+ * the star's frames from being reset/starved while a reply streams. Props are
+ * primitives that stay stable across a working-indicator session (only
+ * `paused` toggles), so the default shallow comparison is correct; the realtime
+ * voice surface still re-renders on changing mic/output levels.
+ */
+export const StellaAnimation = React.memo(StellaAnimationInner);
 
 const nowMs = (): number => {
   if (

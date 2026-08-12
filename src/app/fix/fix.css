@@ -1,0 +1,316 @@
+.fix-page main {
+  width: min(100%, var(--page-max-width));
+  margin-inline: auto;
+  padding-inline: var(--page-margin);
+}
+
+.fix-hero {
+  display: grid;
+  align-items: center;
+  padding-block: clamp(3.5rem, 8vw, 7rem);
+}
+
+.fix-hero__copy {
+  max-width: 52rem;
+}
+
+.fix-eyebrow {
+  margin: 0;
+  color: color-mix(in oklch, var(--page-foreground) 58%, transparent);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.fix-hero h1 {
+  max-width: 50rem;
+  margin: 1rem 0 1.3rem;
+  font-family: var(--font-display), serif;
+  font-size: clamp(2.9rem, 7vw, 5.8rem);
+  font-weight: 300;
+  letter-spacing: -0.055em;
+  line-height: 0.92;
+}
+
+.fix-hero h1 span {
+  color: #3e6fdc;
+  font-style: italic;
+}
+
+.fix-lede,
+.fix-section__header > p:last-child,
+.fix-cta > div > p:last-child {
+  color: var(--page-muted);
+  font-size: clamp(1rem, 1.4vw, 1.18rem);
+  letter-spacing: -0.02em;
+  line-height: 1.65;
+}
+
+.fix-lede {
+  max-width: 44rem;
+  margin: 0;
+}
+
+.fix-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}
+
+.fix-offer {
+  margin: 1rem 0 0;
+  color: color-mix(in oklch, var(--page-foreground) 70%, transparent);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.fix-section,
+.fix-cta {
+  padding-block: clamp(3.5rem, 7vw, 6rem);
+}
+
+.fix-section__header {
+  max-width: 49rem;
+}
+
+.fix-section h2,
+.fix-cta h2 {
+  max-width: 47rem;
+  margin: 0.8rem 0 1rem;
+  font-family: var(--font-display), serif;
+  font-size: clamp(2.1rem, 5vw, 4rem);
+  font-weight: 350;
+  letter-spacing: -0.05em;
+  line-height: 0.98;
+}
+
+/* "Sound familiar?" — real searches, in the searcher's own words. */
+.fix-symptoms {
+  display: grid;
+  gap: 1px;
+  margin-top: clamp(1.8rem, 4vw, 3rem);
+  border: 1px solid var(--page-border);
+  background: var(--page-border);
+}
+
+.fix-symptoms li {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: clamp(1rem, 2.2vw, 1.4rem);
+  background: color-mix(in oklch, var(--page-panel) 92%, white);
+  color: color-mix(in oklch, var(--page-foreground) 82%, transparent);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  list-style: none;
+}
+
+.fix-symptoms li::before {
+  margin-right: 0.7rem;
+  color: #3e6fdc;
+  content: "\201C";
+  font-family: var(--font-display), serif;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+ul.fix-symptoms {
+  padding-left: 0;
+}
+
+/* How it works — three beats. */
+.fix-steps {
+  display: grid;
+  gap: 1px;
+  margin-top: clamp(2rem, 5vw, 3.5rem);
+  border: 1px solid var(--page-border);
+  background: var(--page-border);
+}
+
+.fix-step {
+  min-width: 0;
+  padding: clamp(1.3rem, 3vw, 2rem);
+  background: color-mix(in oklch, var(--page-panel) 92%, white);
+}
+
+.fix-step__num {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid color-mix(in oklch, #3e6fdc 40%, transparent);
+  border-radius: 50%;
+  color: #3e6fdc;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.fix-step h3 {
+  margin: 1.2rem 0 0.65rem;
+  font-family: var(--font-display), serif;
+  font-size: 1.55rem;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+
+.fix-step p {
+  margin: 0;
+  color: var(--page-muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.fix-prompt {
+  margin: 1rem 0 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--page-border);
+  border-radius: 0.8rem;
+  background: color-mix(in oklch, var(--page-panel) 70%, white);
+  color: color-mix(in oklch, var(--page-foreground) 85%, transparent);
+  font-size: 0.88rem;
+  font-style: italic;
+  line-height: 1.55;
+}
+
+/* What Stella actually does — per-problem checklist. */
+.fix-does {
+  max-width: 44rem;
+  margin: clamp(1.8rem, 4vw, 2.6rem) 0 0;
+  padding: 0;
+}
+
+.fix-does li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--page-border);
+  color: color-mix(in oklch, var(--page-foreground) 85%, transparent);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  list-style: none;
+}
+
+.fix-does li:last-child {
+  border-bottom: 0;
+}
+
+.fix-does svg {
+  flex-shrink: 0;
+  margin-top: 0.25rem;
+  color: #3e6fdc;
+}
+
+.fix-scope {
+  max-width: 44rem;
+  margin-top: clamp(1.8rem, 4vw, 2.6rem);
+  padding: clamp(1.1rem, 2.5vw, 1.6rem);
+  border: 1px solid var(--page-border);
+  border-radius: 1rem;
+  background: color-mix(in oklch, var(--page-panel) 88%, transparent);
+}
+
+.fix-scope h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.fix-scope p {
+  margin: 0;
+  color: var(--page-muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.fix-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.fix-cta h2 {
+  font-size: clamp(2.1rem, 5vw, 3.8rem);
+}
+
+.fix-cta .fix-actions {
+  margin-top: 0;
+}
+
+/* /fix index. */
+.fix-index-grid {
+  display: grid;
+  gap: 1px;
+  margin-block: clamp(2rem, 5vw, 3.5rem);
+  border: 1px solid var(--page-border);
+  background: var(--page-border);
+}
+
+.fix-index-card {
+  display: block;
+  min-width: 0;
+  padding: clamp(1.2rem, 2.6vw, 1.8rem);
+  background: color-mix(in oklch, var(--page-panel) 92%, white);
+  color: inherit;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+
+.fix-index-card:hover {
+  background: color-mix(in oklch, #6892ed 7%, white);
+}
+
+.fix-index-card h2 {
+  margin: 0 0 0.45rem;
+  font-family: var(--font-display), serif;
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.fix-index-card h2 em {
+  color: #3e6fdc;
+}
+
+.fix-index-card p {
+  margin: 0;
+  color: var(--page-muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+@media (min-width: 700px) {
+  .fix-symptoms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fix-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fix-index-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .fix-symptoms {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fix-index-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { FIX_PAGES } from "@/lib/fix-pages";
 import { MEDIA_DOCS_KINDS } from "@/lib/media-docs";
 import { getSiteUrl } from "@/lib/site-url";
 
@@ -35,6 +36,21 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: route.priority,
   }));
 
+  const fixEntries: MetadataRoute.Sitemap = [
+    {
+      url: new URL("/fix", base).href,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.6,
+    },
+    ...FIX_PAGES.map((page) => ({
+      url: new URL(`/fix/${page.slug}`, base).href,
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.6,
+    })),
+  ];
+
   const docsEntries: MetadataRoute.Sitemap = [
     {
       url: new URL("/docs/media", base).href,
@@ -50,5 +66,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
     })),
   ];
 
-  return [...pages, ...docsEntries];
+  return [...pages, ...fixEntries, ...docsEntries];
 }

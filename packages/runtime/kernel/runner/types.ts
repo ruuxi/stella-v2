@@ -376,7 +376,10 @@ export type RunnerContext = {
       signal?: AbortSignal,
       onUpdate?: ToolUpdateCallback,
     ) => Promise<ToolResult>;
-    endBrowserTurn: (runId: string) => Promise<void>;
+    endBrowserTurn: (
+      runId: string,
+      behavior: import("../browser-use/client.js").BrowserTurnEndBehavior,
+    ) => Promise<void>;
     registerExtensionTools: (tools: ToolDefinition[]) => void;
     /** Sweep user-extension tools (F1 hot-reload). Built-ins are untouched. */
     unregisterExtensionTools: () => void;

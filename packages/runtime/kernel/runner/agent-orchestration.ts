@@ -736,7 +736,7 @@ export const createAgentOrchestration = (
           },
         },
         hookEmitter: context.hookEmitter,
-      }).finally(() => context.toolHost.endBrowserTurn(runId));
+      }).finally(() => context.toolHost.endBrowserTurn(runId, "close-tabs"));
       // Late/background flush: long-running shell commands (e.g. video
       // renders) can finish after the model's last poll, so their produced
       // files were never drained inline and would ride only individual

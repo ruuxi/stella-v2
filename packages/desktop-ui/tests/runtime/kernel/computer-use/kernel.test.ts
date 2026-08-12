@@ -40,6 +40,17 @@ const context = (agentId: string): ToolContext => ({
   storageMode: "local",
 });
 
+const rootContext = (runId: string): ToolContext => ({
+  conversationId: "conversation-1",
+  deviceId: "device-1",
+  requestId: `request-${runId}`,
+  runId,
+  agentType: "orchestrator",
+  stellaAppDir: TEST_WORKSPACE_ROOT,
+  toolWorkspaceRoot: TEST_WORKSPACE_ROOT,
+  storageMode: "local",
+});
+
 const responseFor = (request: ComputerUseRequest): ComputerUseResponse => {
   const envelope = {
     schemaVersion: request.schemaVersion,
@@ -223,6 +234,39 @@ describe("persistent Node REPL kernels", () => {
     }
   });
 
+  it("reuses conversation-scoped browser ownership across root run kernels", async () => {
+    const browserOptions: BrowserSessionOptions[] = [];
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: (options) => {
+        browserOptions.push(options);
+        return {
+          command: vi.fn(),
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        } as unknown as BrowserSessionClient;
+      },
+    });
+
+    try {
+      await expect(registry.evaluate("1", rootContext("run-1"))).resolves.toBe(
+        "1",
+      );
+      await expect(registry.evaluate("2", rootContext("run-2"))).resolves.toBe(
+        "2",
+      );
+
+      expect(browserOptions).toHaveLength(2);
+      expect(browserOptions.map(({ sessionId }) => sessionId)).toEqual([
+        "orchestrator-conversation-conversation-1",
+        "orchestrator-conversation-conversation-1",
+      ]);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
   it("serializes evaluations within one kernel", async () => {
     const registry = createRegistry();
     try {
@@ -365,6 +409,7 @@ describe("persistent Node REPL kernels", () => {
       expect(browserOptions[0]).toMatchObject({
         binaryPath: "/runtime/stella-browser.js",
         cwd: TEST_WORKSPACE_ROOT,
+        sessionId: "general-task-agent-browser",
         ownerLeaseId: expect.any(String),
         ownerLeaseIssuedAt: expect.any(Number),
       });
@@ -385,9 +430,9 @@ describe("persistent Node REPL kernels", () => {
         selector: expect.stringContaining("aria="),
       });
       expect(beginTurn).toHaveBeenCalledWith("run-1");
-      await registry.endBrowserTurn("run-1");
+      await registry.endBrowserTurn("run-1", "close-tabs");
       expect(endTurn).toHaveBeenCalledOnce();
-      expect(endTurn).toHaveBeenCalledWith("run-1");
+      expect(endTurn).toHaveBeenCalledWith("run-1", "close-tabs");
     } finally {
       await registry.dispose();
     }

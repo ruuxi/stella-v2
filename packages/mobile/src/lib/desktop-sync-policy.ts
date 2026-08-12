@@ -88,6 +88,46 @@ export const shouldDeferLocalChatPushDuringSend = (args: {
   sending: boolean;
 }): boolean => args.storageLoaded && args.sending;
 
+export type DeferredDesktopSyncIntent = {
+  catchUp: boolean;
+};
+
+/**
+ * Merge a sync request into the one deferred by the mid-send gate. Catch-up
+ * is sticky: once a reconnect/foreground healer asks for a full-window pull,
+ * later ordinary push notifications must not downgrade its flush to a delta.
+ */
+export const mergeDeferredDesktopSyncIntent = (
+  current: DeferredDesktopSyncIntent | null,
+  requestedCatchUp: boolean,
+): DeferredDesktopSyncIntent => ({
+  catchUp: (current?.catchUp ?? false) || requestedCatchUp,
+});
+
+/**
+ * A live socket's first connection only closes the subscribe-vs-sync race, so
+ * it rides the saved cursor. Foreground resume does the same because the
+ * Computer surface already owns the bounded resume catch-up. Only an
+ * unexpected foreground socket gap gets another recent-window healer.
+ */
+export const desktopLiveConnectionSyncPlan = (details: {
+  reconnected: boolean;
+  foregroundResume: boolean;
+}): {
+  catchUp: boolean;
+  trigger: "push-connect" | "push-resume-connect" | "push-reconnect";
+} => {
+  if (!details.reconnected) {
+    return { catchUp: false, trigger: "push-connect" };
+  }
+  if (details.foregroundResume) {
+    // The Computer surface already performs its bounded resume catch-up.
+    // This socket pull only closes the subscribe-vs-sync race.
+    return { catchUp: false, trigger: "push-resume-connect" };
+  }
+  return { catchUp: true, trigger: "push-reconnect" };
+};
+
 /**
  * Which cursor a pull sends to the desktop.
  *

@@ -1111,12 +1111,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
               <UserMessageText text={item.text} styles={styles} />
             ) : null}
           </Pressable>
-          {item.queued ? (
+          {item.queued || item.stopped ? (
             <Text
-              style={styles.queuedTag}
+              style={item.queued ? styles.queuedTag : styles.stoppedTag}
               maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
             >
-              Queued
+              {item.queued ? "Queued" : "Stopped"}
             </Text>
           ) : null}
         </View>
@@ -1364,8 +1364,8 @@ function AnimatedSubmitButton({
 /**
  * Square stop affordance shown in place of the submit button while a reply is
  * streaming (chat) or pending (computer chat). Calling `onPress` cancels the
- * in-flight reply AND drops any queued follow-ups — the user explicitly asked
- * to halt the turn, so resuming requires re-sending.
+ * in-flight reply and cancels any queued messages. Canceled user bubbles stay
+ * visible in the transcript with a Stopped label; resuming requires re-sending.
  */
 function StopButton({
   onPress,
@@ -2091,8 +2091,8 @@ export type ChatPaneProps = {
   /**
    * Optional stop handler. When provided AND `streaming` is true, the send
    * button is replaced by a stop button that calls this. Used to cancel the
-   * in-flight reply (and any queued follow-ups) for both the local chat
-   * stream and the computer-chat round trip.
+   * in-flight reply (and cancels any queued messages without deleting their
+   * bubbles) for both the local chat stream and computer-chat round trip.
    */
   onStop?: () => void;
 
@@ -3125,10 +3125,9 @@ export function ChatPane({
 
   // Shared mic / dictation control. Reused across the collapsed pill and the
   // expanded toolbar. It is intentionally NOT gated on `streaming`: dictation
-  // stays available mid-run so a voice message can be queued as a follow-up,
-  // exactly like typing + sending while busy (matches desktop's
-  // "dictation-while-busy" behavior). The branches that render it are mutually
-  // exclusive per render, so reusing the same element is safe.
+  // stays available mid-run so a voice message can steer the active turn,
+  // exactly like typing + sending while busy. The branches that render it are
+  // mutually exclusive per render, so reusing the same element is safe.
   const micButton = (
     <Pressable
       onPress={() => void toggleVoice()}
@@ -3571,15 +3570,13 @@ export function ChatPane({
                       onPress={submit}
                       styles={styles}
                       colors={colors}
-                      accessibilityLabel={
-                        streaming ? "Queue follow-up message" : "Send message"
-                      }
+                      accessibilityLabel="Send message"
                     />
                   ) : streaming && onStop ? (
                     // Busy with an empty composer: keep the mic available so a
-                    // dictated message can be queued as a follow-up, and keep
-                    // Stop reachable alongside it (mirrors the expanded
-                    // toolbar, which always shows the mic).
+                    // dictated message can steer the active turn, and keep Stop
+                    // reachable alongside it (mirrors the expanded toolbar,
+                    // which always shows the mic).
                     <View style={styles.pillTrailingCluster}>
                       {micButton}
                       {realtimeVoiceButton}
@@ -3642,11 +3639,7 @@ export function ChatPane({
                           onPress={submit}
                           styles={styles}
                           colors={colors}
-                          accessibilityLabel={
-                            streaming
-                              ? "Queue follow-up message"
-                              : "Send message"
-                          }
+                          accessibilityLabel="Send message"
                         />
                       )}
                     </View>

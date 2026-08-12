@@ -820,6 +820,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }) =>
       ipcRenderer.invoke("agent:startChat", payload) as Promise<{
         requestId: string;
+        runId?: string;
+        userMessageId?: string;
+        accepted?: boolean;
+        deduplicated?: boolean;
       }>,
     sendInput: (payload: {
       conversationId: string;

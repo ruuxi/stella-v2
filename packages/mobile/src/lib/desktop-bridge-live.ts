@@ -18,6 +18,13 @@ export type DesktopBridgeLiveHandle = {
   close: () => void;
 };
 
+export type DesktopBridgeLiveConnectionDetails = {
+  /** False for this handle's first successful socket; true after a drop. */
+  reconnected: boolean;
+  /** True when the deliberate drop was caused by app backgrounding. */
+  foregroundResume: boolean;
+};
+
 /**
  * Foreground-only push channel for transcript changes. Holds one WebSocket
  * subscribed to `localChat:updated` (the desktop broadcasts it on every
@@ -32,7 +39,10 @@ export type DesktopBridgeLiveHandle = {
 export function openDesktopBridgeLive(options: {
   access: StoredPhoneAccess;
   onLocalChatUpdated: () => void;
-  onConnectedChange: (connected: boolean) => void;
+  onConnectedChange: (
+    connected: boolean,
+    details: DesktopBridgeLiveConnectionDetails,
+  ) => void;
   /**
    * The desktop broadcasts `localChat:threadActivityUpdated` on every
    * background-thread transition (spawn, retitle, terminal) — the signal to
@@ -53,6 +63,8 @@ export function openDesktopBridgeLive(options: {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let unsupportedUntil = 0;
   let connected = false;
+  let hasConnectedOnce = false;
+  let foregroundResumePending = false;
   const isBackgrounded = () =>
     AppState.currentState === "background" ||
     AppState.currentState === "inactive";
@@ -60,7 +72,11 @@ export function openDesktopBridgeLive(options: {
   const setConnected = (next: boolean) => {
     if (connected === next) return;
     connected = next;
-    options.onConnectedChange(next);
+    const reconnected = next && hasConnectedOnce;
+    if (next) hasConnectedOnce = true;
+    const foregroundResume = reconnected && foregroundResumePending;
+    if (next) foregroundResumePending = false;
+    options.onConnectedChange(next, { reconnected, foregroundResume });
   };
 
   const scheduleReconnect = () => {
@@ -170,6 +186,7 @@ export function openDesktopBridgeLive(options: {
       }
       // Background/inactive: drop the socket — iOS will kill it anyway, and a
       // deliberate close gives us a clean reconnect on return.
+      if (hasConnectedOnce) foregroundResumePending = true;
       if (socket) {
         const current = socket;
         socket = null;

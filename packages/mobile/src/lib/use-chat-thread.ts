@@ -28,6 +28,7 @@ import {
   DesktopOfflineError,
   fetchDesktopBridgeThreadTasks,
   sendDesktopBridgeChat,
+  sendDesktopBridgeSteer,
   syncDesktopBridgeChatMessages,
   type DesktopBridgeActivity,
   type DesktopBridgeAttachment,
@@ -47,12 +48,15 @@ import {
   linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
+  retargetOptimisticReplyToUser,
 } from "./chat-merge";
 import { openDesktopBridgeLive } from "./desktop-bridge-live";
 import {
+  desktopLiveConnectionSyncPlan,
   desktopSyncPullPlan,
   desktopSyncJoinPlan,
   desktopTaskPollIntervalMs,
+  mergeDeferredDesktopSyncIntent,
   shouldArmDesktopTaskPoll,
   shouldDeferLocalChatPushDuringSend,
   shouldStartDesktopSyncRun,
@@ -76,6 +80,7 @@ import {
 import { admitSend } from "./send-admission";
 import { createStreamTextSmoother } from "./stream-text-smoother";
 import { shouldReuseQueuedReplayBatch } from "./desktop-send-batch-policy";
+import { drainDesktopSteerAcceptanceQueue } from "./desktop-steer-pump";
 import { userFacingError } from "./user-facing-error";
 import { notifySuccess } from "./haptics";
 import { loadMemoryFacts, rememberFact, forgetFact } from "./chat-memory";
@@ -177,10 +182,11 @@ const assetsToBridgeAttachments = async (
 };
 
 /**
- * A locally-queued send. When the user submits while a reply is still
- * streaming, we eagerly add the user bubble (marked `queued: true`) and park
- * the dispatch payload here. As soon as the current stream finishes (or is
- * stopped), we drain the next queued item and dispatch it for real.
+ * A durably ordered send awaiting transmission. Cloud chat holds it until the
+ * current reply settles. Computer chat instead drains it through the
+ * acceptance-only steer pump as soon as the active message is durable, so it
+ * reaches the runtime during the same root turn without opening another reply
+ * observer.
  */
 type QueuedSend = {
   dispatchId: string;
@@ -353,7 +359,15 @@ export function useChatThread(opts: {
     userMessageId: string;
     replyId: string;
     abort: AbortController;
+    generation: number;
+    primaryAccepted: boolean;
+    latestResponseUserMessageId: string;
   } | null>(null);
+  const dispatchGenerationRef = useRef(0);
+  const pendingEnqueueRef = useRef<Set<string>>(new Set());
+  const steerPumpPromiseRef = useRef<Promise<unknown> | null>(null);
+  const steerPumpGenerationRef = useRef(0);
+  const pumpDesktopSteersRef = useRef<(() => void) | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const syncCursorRef = useRef<string | null>(null);
   const syncConversationIdRef = useRef<string | null>(null);
@@ -537,7 +551,13 @@ export function useChatThread(opts: {
 
   // A pull blocked by the mid-send gate is remembered here — never dropped —
   // and flushed once the send settles (the effect below the push socket).
-  const pendingPushSyncRef = useRef(false);
+  const pendingPushSyncRef = useRef<{ catchUp: boolean } | null>(null);
+  const deferDesktopSync = useCallback((catchUp: boolean) => {
+    pendingPushSyncRef.current = mergeDeferredDesktopSyncIntent(
+      pendingPushSyncRef.current,
+      catchUp,
+    );
+  }, []);
 
   const persistSyncState = useCallback(
     (state: { conversationId?: string | null; cursor?: string | null }) => {
@@ -646,7 +666,7 @@ export function useChatThread(opts: {
           duringSend: options?.duringSend === true,
         })
       ) {
-        pendingPushSyncRef.current = true;
+        deferDesktopSync(catchUp);
         recordSyncDiagnostic({
           at: Date.now(),
           trigger,
@@ -771,6 +791,7 @@ export function useChatThread(opts: {
     [
       acknowledgeDesktopSendIds,
       desktopAccess,
+      deferDesktopSync,
       persistSyncState,
       trackCatchUpRun,
     ],
@@ -921,7 +942,7 @@ export function useChatThread(opts: {
         };
         if (!shouldSyncOnLocalChatPush(gates)) {
           if (shouldDeferLocalChatPushDuringSend(gates)) {
-            pendingPushSyncRef.current = true;
+            deferDesktopSync(false);
           }
           return;
         }
@@ -931,7 +952,7 @@ export function useChatThread(opts: {
           pushDebounce = null;
           if (sendingRef.current) {
             // The send started inside the debounce window — defer, don't drop.
-            pendingPushSyncRef.current = true;
+            deferDesktopSync(false);
             return;
           }
           void runDesktopSync({ trigger: "push" });
@@ -954,11 +975,17 @@ export function useChatThread(opts: {
       },
       // Decoration pushes carry the snapshot itself — store and render.
       onTaskDecorationUpdated: setDesktopTaskDecoration,
-      onConnectedChange: (connected) => {
+      onConnectedChange: (connected, details) => {
         setLivePushConnected(connected);
         // (Re)connect: pull the current running set — any transitions that
         // broadcast while the socket was down are already folded into it.
         if (connected) void refreshDesktopThreadTasks();
+        // The first socket connection only closes the subscribe-vs-sync race
+        // and therefore rides the saved cursor. After a real socket drop,
+        // events are not replayed, so use the bounded recent-window healer.
+        if (connected && storageLoadedRef.current) {
+          void runDesktopSync(desktopLiveConnectionSyncPlan(details));
+        }
       },
     });
     return () => {
@@ -966,7 +993,12 @@ export function useChatThread(opts: {
       handle.close();
       setLivePushConnected(false);
     };
-  }, [appActive, desktopAccess, refreshDesktopThreadTasks, runDesktopSync]);
+  }, [
+    deferDesktopSync,
+    desktopAccess,
+    refreshDesktopThreadTasks,
+    runDesktopSync,
+  ]);
 
   // Flush push notifications the mid-send gate deferred. `runDesktopSync`
   // awaits the turn's pending reconcile before reading the cursor, so this
@@ -975,9 +1007,13 @@ export function useChatThread(opts: {
     if (!appActive) return;
     if (sending) return;
     if (!storageLoaded) return;
-    if (!pendingPushSyncRef.current) return;
-    pendingPushSyncRef.current = false;
-    void runDesktopSync({ trigger: "post-send-flush" });
+    const pending = pendingPushSyncRef.current;
+    if (!pending) return;
+    pendingPushSyncRef.current = null;
+    void runDesktopSync({
+      catchUp: pending.catchUp,
+      trigger: pending.catchUp ? "post-send-catch-up-flush" : "post-send-flush",
+    });
   }, [appActive, sending, storageLoaded, runDesktopSync]);
 
   const appendAssistantText = useCallback((replyId: string, chunk: string) => {
@@ -989,15 +1025,116 @@ export function useChatThread(opts: {
   }, []);
 
   const finishDispatch = useCallback(() => {
-    markSending(false);
-    setWorkingActivity(IDLE_WORKING_ACTIVITY);
-    if (queueRef.current.length > 0 && appActive) {
-      drainQueueRef.current?.();
-    } else {
-      closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
-      desktopSendBatchRef.current = null;
-    }
+    const settle = async () => {
+      // A root terminal can race the lightweight durable-acceptance pump. Let
+      // the current ACK finish before deciding whether the queue still needs a
+      // fresh turn; stable ids prevent duplicate persistence, but without this
+      // gate the UI could attach two observers to the same logical send.
+      while (steerPumpPromiseRef.current) {
+        await steerPumpPromiseRef.current;
+      }
+      activeDispatchRef.current = null;
+      markSending(false);
+      setWorkingActivity(IDLE_WORKING_ACTIVITY);
+      if (queueRef.current.length > 0 && appActive) {
+        drainQueueRef.current?.();
+      } else {
+        closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+        desktopSendBatchRef.current = null;
+      }
+    };
+    void settle();
   }, [appActive, markSending]);
+
+  const pumpDesktopSteers = useCallback(() => {
+    if (!desktopAccess || steerPumpPromiseRef.current) return;
+    const active = activeDispatchRef.current;
+    const batch = desktopSendBatchRef.current;
+    if (
+      !active ||
+      !active.primaryAccepted ||
+      active.abort.signal.aborted ||
+      !batch ||
+      batch.closed ||
+      queueRef.current.length === 0
+    ) {
+      return;
+    }
+
+    const pumpGeneration = steerPumpGenerationRef.current;
+    const dispatchGeneration = active.generation;
+    let pumpOutcome: "drained" | "blocked" | "stopped" | null = null;
+    const pump = (async () => {
+      const canContinue = () => {
+        const currentActive = activeDispatchRef.current;
+        return (
+          steerPumpGenerationRef.current === pumpGeneration &&
+          currentActive?.generation === dispatchGeneration &&
+          !currentActive.abort.signal.aborted
+        );
+      };
+      pumpOutcome = await drainDesktopSteerAcceptanceQueue({
+        peek: () => queueRef.current[0] ?? null,
+        accept: async (item) => {
+          const bridgeAttachments = await assetsToBridgeAttachments(
+            item.assets,
+          );
+          return sendDesktopBridgeSteer({
+            access: desktopAccess,
+            batch,
+            request: {
+              message: item.text,
+              clientRequestId: item.clientRequestId,
+              userMessageEventId: item.userMessageId,
+              attachments:
+                bridgeAttachments.length > 0 ? bridgeAttachments : undefined,
+            },
+          });
+        },
+        onAccepted: (item, receipt) => {
+          if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
+          acknowledgeDesktopSendIds([
+            item.clientRequestId,
+            item.userMessageId,
+            receipt.userMessageId,
+          ]);
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === item.userMessageId
+                ? {
+                    ...message,
+                    queued: false,
+                    ...(receipt.userMessageId !== item.userMessageId
+                      ? { canonicalId: receipt.userMessageId }
+                      : {}),
+                  }
+                : message,
+            ),
+          );
+        },
+        canContinue,
+      });
+      return pumpOutcome;
+    })().finally(() => {
+      if (steerPumpPromiseRef.current === pump) {
+        steerPumpPromiseRef.current = null;
+        if (
+          queueRef.current.length > 0 &&
+          activeDispatchRef.current?.primaryAccepted &&
+          // A failed head stays parked for the post-root fresh-turn drain.
+          // Successful/raced additions may start another acceptance pass.
+          pumpOutcome === "drained"
+        ) {
+          queueMicrotask(() => pumpDesktopSteersRef.current?.());
+        }
+      }
+    });
+    steerPumpPromiseRef.current = pump;
+  }, [acknowledgeDesktopSendIds, desktopAccess]);
+
+  useEffect(() => {
+    pumpDesktopSteersRef.current = pumpDesktopSteers;
+  }, [pumpDesktopSteers]);
 
   // Non-cancelable final flush for a settled turn. The debounced writer above
   // is cancelable (its cleanup clears the timeout on unmount), so a turn that
@@ -1420,6 +1557,27 @@ export function useChatThread(opts: {
                 canonicalUserMessageId: id,
               }),
             );
+            if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
+            const active = activeDispatchRef.current;
+            if (active?.replyId === replyId) {
+              active.primaryAccepted = true;
+              active.latestResponseUserMessageId = id || item.userMessageId;
+              pumpDesktopSteersRef.current?.();
+            }
+          },
+          onResponseBoundary: (boundary) => {
+            if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
+            acknowledgeDesktopSendIds([boundary.userMessageId]);
+            const active = activeDispatchRef.current;
+            if (active?.replyId === replyId) {
+              active.latestResponseUserMessageId = boundary.userMessageId;
+            }
+            setMessages((current) =>
+              retargetOptimisticReplyToUser(current, {
+                replyId,
+                userMessageId: boundary.userMessageId,
+              }),
+            );
           },
           onStatus: (status) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
@@ -1472,7 +1630,6 @@ export function useChatThread(opts: {
           return;
         }
         await textSmoother.drain();
-        activeDispatchRef.current = null;
         // Link the turn to its canonical desktop ids immediately (not just in
         // the background reconcile below, whose delta may race the desktop
         // persisting the rows): the user bubble adopts the canonical id the
@@ -1480,6 +1637,10 @@ export function useChatThread(opts: {
         // as `requestId` — the key canonical assistant rows carry — so any
         // later sync updates these rows in place instead of duplicating them.
         const canonicalUserMessageId = result.userMessageId.trim();
+        const responseUserMessageId =
+          activeDispatchRef.current?.latestResponseUserMessageId ||
+          canonicalUserMessageId ||
+          item.userMessageId;
         setMessages((m) =>
           m.map((msg) => {
             if (msg.id === replyId) {
@@ -1494,7 +1655,7 @@ export function useChatThread(opts: {
                   : {}),
               };
             }
-            if (msg.id === item.userMessageId && canonicalUserMessageId) {
+            if (msg.id === responseUserMessageId && canonicalUserMessageId) {
               return { ...msg, canonicalId: canonicalUserMessageId };
             }
             return msg;
@@ -1525,14 +1686,18 @@ export function useChatThread(opts: {
             );
             if (!hasCanonicalAssistant) return;
             setMessages((m) =>
-              reconcileSentDesktopTurn({
-                current: m,
-                userMessageId: item.userMessageId,
-                replyId,
-                sentText: item.text,
-                canonicalMessages: delta.messages,
-                ...(canonicalUserMessageId ? { canonicalUserMessageId } : {}),
-              }),
+              responseUserMessageId === item.userMessageId
+                ? reconcileSentDesktopTurn({
+                    current: m,
+                    userMessageId: item.userMessageId,
+                    replyId,
+                    sentText: item.text,
+                    canonicalMessages: delta.messages,
+                    ...(canonicalUserMessageId
+                      ? { canonicalUserMessageId }
+                      : {}),
+                  })
+                : mergeMessagesById(m, delta.messages),
             );
           })
           .catch(() => {
@@ -1553,8 +1718,8 @@ export function useChatThread(opts: {
         finishDispatch();
       } catch (e) {
         textSmoother.cancel();
-        activeDispatchRef.current = null;
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
+          activeDispatchRef.current = null;
           // The user stopped this turn mid-stream (the abort surfaced here).
           // The desktop persisted the turn's canonical user row at run start,
           // so link the optimistic bubble to it now — otherwise the next send's
@@ -1652,11 +1817,15 @@ export function useChatThread(opts: {
     async (item: QueuedSend) => {
       const replyId = createId();
       const abort = new AbortController();
+      dispatchGenerationRef.current += 1;
       activeDispatchRef.current = {
         dispatchId: item.dispatchId,
         userMessageId: item.userMessageId,
         replyId,
         abort,
+        generation: dispatchGenerationRef.current,
+        primaryAccepted: false,
+        latestResponseUserMessageId: item.userMessageId,
       };
       // Fresh turn — clear any activity left over from the previous reply so
       // the indicator starts from the pre-tool "thinking" state.
@@ -1734,12 +1903,13 @@ export function useChatThread(opts: {
         setAttachments([]);
       }
 
-      // Queue-vs-dispatch is decided on the synchronously-written ref, NOT the
+      // Queue-vs-primary-dispatch is decided on the synchronously-written ref,
+      // NOT the
       // render-state `sending`: a second imperative send in the same
-      // render/effect gap would read a stale `sending === false` from the
-      // closure and dispatch a concurrent turn instead of queueing. `admitSend`
-      // claims the dispatch slot atomically (ref write) when it answers
-      // "dispatch"; `markSending` below mirrors the claim into render state.
+      // render/effect gap would otherwise dispatch a second full response
+      // observer. `admitSend` claims that singleton observer atomically; a
+      // queued desktop item is still transmitted promptly by the durable-ACK
+      // steer pump above, while cloud keeps its serial next-turn behavior.
       const admission = admitSend(sendingRef);
 
       const userMessageId = createId();
@@ -1769,6 +1939,7 @@ export function useChatThread(opts: {
         text,
         assets,
       };
+      pendingEnqueueRef.current.add(userMessageId);
       if (admission === "dispatch") markSending(true);
       const durableRecord: Omit<DesktopChatOutboxRecord, "sequence"> = {
         sendId: userMessageId,
@@ -1784,8 +1955,18 @@ export function useChatThread(opts: {
       // the image bytes.
       void enqueueDesktopChatOutbox(threadId, durableRecord)
         .then((stored) => {
+          pendingEnqueueRef.current.delete(userMessageId);
           item.queueSequence = stored.sequence;
-          if (acceptedDesktopSendIdsRef.current.has(item.userMessageId)) return;
+          if (
+            acceptedDesktopSendIdsRef.current.has(item.userMessageId) ||
+            stoppedDispatchIdsRef.current.has(item.dispatchId)
+          ) {
+            acknowledgeDesktopSendIds([
+              item.clientRequestId,
+              item.userMessageId,
+            ]);
+            return;
+          }
           if (admission === "queue") {
             queueRef.current.push(item);
             queueRef.current.sort(
@@ -1793,12 +1974,18 @@ export function useChatThread(opts: {
                 (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
                 (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
             );
-            if (!sendingRef.current) drainQueueRef.current?.();
+            if (transport.kind === "desktop" && sendingRef.current) {
+              pumpDesktopSteersRef.current?.();
+            } else if (!sendingRef.current) {
+              drainQueueRef.current?.();
+            }
             return;
           }
           void dispatch(item);
         })
         .catch(() => {
+          pendingEnqueueRef.current.delete(userMessageId);
+          if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
           if (admission === "dispatch") markSending(false);
           setMessages((current) =>
             current.map((message) =>
@@ -1810,22 +1997,48 @@ export function useChatThread(opts: {
         });
       return { userMessageId };
     },
-    [attachments, dispatch, draft, markSending, storageLoaded, threadId],
+    [
+      acknowledgeDesktopSendIds,
+      attachments,
+      dispatch,
+      draft,
+      markSending,
+      storageLoaded,
+      threadId,
+      transport.kind,
+    ],
   );
 
   const send = useCallback(() => submit(), [submit]);
   const sendPrompt = useCallback((prompt: string) => submit(prompt), [submit]);
 
   const stop = useCallback(() => {
-    // Drop queued follow-ups first so the in-flight finally-handler doesn't
+    // Cancel queued messages first so the in-flight finally-handler doesn't
     // pick them up after the abort.
-    const cancelledIds = queueRef.current.map((q) => q.userMessageId);
+    steerPumpGenerationRef.current += 1;
+    const cancelledIds = [
+      ...new Set([
+        ...queueRef.current.map((q) => q.userMessageId),
+        ...pendingEnqueueRef.current,
+      ]),
+    ];
+    for (const id of cancelledIds) stoppedDispatchIdsRef.current.add(id);
+    pendingEnqueueRef.current.clear();
     queueRef.current = [];
     if (cancelledIds.length > 0) {
       acknowledgeDesktopSendIds(cancelledIds);
     }
     if (cancelledIds.length > 0) {
-      setMessages((m) => m.filter((msg) => !cancelledIds.includes(msg.id)));
+      // A canceled queued send is still part of the user's transcript. Keep
+      // the bubble and mark it honestly instead of making text the user just
+      // saw disappear from the conversation.
+      setMessages((m) =>
+        m.map((msg) =>
+          cancelledIds.includes(msg.id)
+            ? { ...msg, queued: false, stopped: true }
+            : msg,
+        ),
+      );
     }
     if (activeDispatchRef.current) {
       const active = activeDispatchRef.current;

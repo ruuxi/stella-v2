@@ -219,7 +219,7 @@ export type ChatMessage = {
    */
   queued?: boolean;
   /**
-   * Assistant message: the user pressed Stop before the reply completed.
+   * The user pressed Stop before this message completed or left the queue.
    * Renders with a trailing "Stopped" affordance.
    */
   stopped?: boolean;

@@ -9,7 +9,6 @@
 import type { UiState } from "./ui";
 import type { Theme } from "@/shared/theme/themes/types";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
-import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
@@ -579,6 +578,7 @@ export type ElectronAgentApi = {
     clientRequestId?: string;
   }) => Promise<{
     requestId: string;
+    runId?: string;
     userMessageId?: string;
     accepted?: boolean;
     deduplicated?: boolean;

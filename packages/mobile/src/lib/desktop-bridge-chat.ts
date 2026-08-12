@@ -55,6 +55,7 @@ import {
 import { canReuseDesktopSendBatch } from "./desktop-send-batch-policy";
 import { parseThreadActivityTasks } from "./desktop-thread-activity";
 import { probeDesktopBridgeStatus } from "./desktop-bridge-discovery";
+import { desktopBridgeEventMatchesActiveRun } from "./desktop-chat-event-policy";
 
 const DESKTOP_WAKE_ATTEMPTS = 5;
 const DESKTOP_WAKE_RETRY_MS = 3_000;
@@ -156,6 +157,13 @@ type DesktopBridgeChatArgs = {
   onActivity?: (activity: DesktopBridgeActivity) => void;
   onArtifacts?: (artifacts: ChatArtifact[]) => void;
   /**
+   * Fired when the runtime actually starts consuming a user steer. Callback
+   * ownership moves at this exact boundary, so the single optimistic reply
+   * row can move after that user message without guessing from durable ACK
+   * timing.
+   */
+  onResponseBoundary?: (boundary: DesktopBridgeSteerReceipt) => void;
+  /**
    * Fired once with the canonical desktop id of the submitted user message as
    * soon as the bridge reports it (well before the run settles). Lets the
    * caller link its optimistic bubble to the canonical row even when the turn
@@ -175,6 +183,49 @@ type DesktopBridgeChatResult = {
    */
   userMessageId: string;
 };
+
+export type DesktopBridgeSteerRequest = {
+  message: string;
+  clientRequestId: string;
+  userMessageEventId: string;
+  attachments?: DesktopBridgeAttachment[];
+};
+
+export type DesktopBridgeSteerReceipt = {
+  requestId: string;
+  runId: string;
+  userMessageId: string;
+};
+
+type DesktopBridgeStartChatAttachment =
+  | DesktopBridgeAttachment
+  | { uploadId: string; mimeType: string };
+
+const buildDesktopBridgeStartChatArgs = (args: {
+  access: StoredPhoneAccess;
+  conversationId: string;
+  text: string;
+  clientRequestId: string;
+  userMessageEventId: string;
+  model?: string | null;
+  attachments?: DesktopBridgeStartChatAttachment[] | null;
+}) => ({
+  conversationId: args.conversationId,
+  userPrompt: args.text || "See the attached image.",
+  deviceId: args.access.mobileDeviceId,
+  platform: "mobile",
+  mode: "computer",
+  storageMode: "local",
+  clientRequestId: args.clientRequestId,
+  ...(args.userMessageEventId
+    ? { userMessageEventId: args.userMessageEventId }
+    : {}),
+  ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+  messageMetadata: {
+    source: "stella_mobile",
+    ...(args.model?.trim() ? { mobileModelPreference: args.model.trim() } : {}),
+  },
+});
 
 type DesktopBridgeMessage = ChatMessage & {
   requestId?: string;
@@ -1511,6 +1562,95 @@ export const closeDesktopBridgeSendBatch = (
 };
 
 /**
+ * Durably submit one additional user message while an existing mobile reply
+ * observer continues following the conversation. This waits only for
+ * `agent:startChat` acceptance; it never opens a second event socket or waits
+ * for the shared root run to finish.
+ */
+export async function sendDesktopBridgeSteer({
+  access,
+  batch,
+  request,
+}: {
+  access: StoredPhoneAccess;
+  batch: DesktopBridgeSendBatch;
+  request: DesktopBridgeSteerRequest;
+}): Promise<DesktopBridgeSteerReceipt> {
+  const text = request.message.trim();
+  if (!text && !request.attachments?.length) {
+    throw new Error("Message is required.");
+  }
+
+  const perform = async (
+    bridge: DesktopBridgeConnection,
+    conversationId: string,
+  ): Promise<DesktopBridgeSteerReceipt> => {
+    const stagedAttachments = request.attachments?.length
+      ? await stageBridgeAttachments(bridge, request.attachments)
+      : null;
+    const result = asRecord(
+      await invokeDesktopBridge(
+        bridge,
+        "agent:startChat",
+        [
+          buildDesktopBridgeStartChatArgs({
+            access,
+            conversationId,
+            text,
+            clientRequestId: request.clientRequestId.trim(),
+            userMessageEventId: request.userMessageEventId.trim(),
+            attachments: stagedAttachments ?? request.attachments ?? null,
+          }),
+        ],
+        BRIDGE_INVOKE_TIMEOUT_MS,
+      ),
+    );
+    if (result?.accepted !== true) {
+      throw new Error("Your message is still being accepted by the desktop.");
+    }
+    const userMessageId = asString(result.userMessageId).trim();
+    if (!userMessageId) {
+      throw new Error("The desktop accepted the message without an identity.");
+    }
+    return {
+      requestId: asString(result.requestId).trim(),
+      runId: asString(result.runId).trim(),
+      userMessageId,
+    };
+  };
+
+  const initialBridge = canReuseDesktopBridgeSendBatch(
+    batch,
+    access.desktopDeviceId,
+  )
+    ? batch.bridge
+    : await resolveDesktopBridge(access);
+  const initialConversationId = canReuseDesktopBridgeSendBatch(
+    batch,
+    access.desktopDeviceId,
+  )
+    ? batch.conversationId
+    : await getDesktopBridgeConversationId(initialBridge);
+
+  return runWithSingleBridgeRecovery({
+    initial: { bridge: initialBridge, conversationId: initialConversationId },
+    operation: ({ bridge, conversationId }) => perform(bridge, conversationId),
+    recover: async () => {
+      clearCachedDesktopBridge(access.desktopDeviceId, {
+        keepPersisted: true,
+      });
+      const bridge = await resolveDesktopBridge(access, undefined, {
+        forceRefresh: true,
+      });
+      return {
+        bridge,
+        conversationId: await getDesktopBridgeConversationId(bridge),
+      };
+    },
+  });
+}
+
+/**
  * Open a lightweight event-subscription socket on an existing bridge
  * connection. Used by the localChat push channel (desktop broadcasts
  * `localChat:updated` on every persisted event); the send path keeps its own
@@ -1620,6 +1760,7 @@ export async function sendDesktopBridgeChat({
   onActivity,
   onArtifacts,
   onUserMessageId,
+  onResponseBoundary,
 }: DesktopBridgeChatArgs): Promise<DesktopBridgeChatResult> {
   const text = message.trim();
   if (!text && !attachments?.length) {
@@ -1650,25 +1791,15 @@ export async function sendDesktopBridgeChat({
   // reconnecting and re-issuing startChat can never spawn a duplicate run.
   const clientRequestId =
     suppliedClientRequestId?.trim() || createClientRequestId(conversationId);
-  const startChatArgs = {
+  const startChatArgs = buildDesktopBridgeStartChatArgs({
+    access,
     conversationId,
-    userPrompt: text || "See the attached image.",
-    deviceId: access.mobileDeviceId,
-    platform: "mobile",
-    mode: "computer",
-    storageMode: "local",
+    text,
     clientRequestId,
-    ...(userMessageEventId?.trim()
-      ? { userMessageEventId: userMessageEventId.trim() }
-      : {}),
-    ...(attachments?.length
-      ? { attachments: stagedAttachments ?? attachments }
-      : {}),
-    messageMetadata: {
-      source: "stella_mobile",
-      ...(model?.trim() ? { mobileModelPreference: model.trim() } : {}),
-    },
-  };
+    userMessageEventId: userMessageEventId?.trim() ?? "",
+    model,
+    attachments: stagedAttachments ?? attachments,
+  });
 
   // ── Run state shared across reconnect attempts ──────────────────────────
   let lastSeq = 0;
@@ -1689,6 +1820,19 @@ export async function sendDesktopBridgeChat({
   let settled = false;
   let finalResult: DesktopBridgeChatResult | null = null;
   let finalError: unknown = null;
+
+  const cancelDesktopChat = (client: BridgeSocketClient) => {
+    // Durable acceptance may arrive before the runtime assigns a run id. The
+    // desktop follows the stable request id and applies Stop at run-start; once
+    // a run id exists, retain the legacy direct cancellation shape.
+    const target = runId || (requestId ? { requestId } : null);
+    if (!target) return;
+    try {
+      void client.invoke("agent:cancelChat", [target]).catch(() => {});
+    } catch {
+      // best-effort cancellation
+    }
+  };
 
   // ── Live working-indicator activity (mirrors the desktop streaming store) ─
   // `activeToolCalls` is insertion-ordered so the "last" entry is the most
@@ -1810,31 +1954,31 @@ export async function sendDesktopBridgeChat({
 
   const eventMatchesRun = (event: Record<string, unknown>) => {
     const eventConversationId = asString(event.conversationId);
-    if (eventConversationId && eventConversationId !== conversationId) {
-      return false;
-    }
     const eventRequestId = asString(event.requestId);
     const eventRunId = asString(event.runId);
-    if (requestId && eventRequestId && eventRequestId !== requestId) {
-      return false;
-    }
-    if (runId && eventRunId && eventRunId !== runId) {
-      return false;
-    }
-    return true;
+    return desktopBridgeEventMatchesActiveRun({
+      conversationId,
+      requestId,
+      runId,
+      eventConversationId,
+      eventRequestId,
+      eventRunId,
+    });
   };
 
-  const completeFromFinishedEvent = async (event: Record<string, unknown>) => {
-    if (settled) return;
+  const completeFromFinishedEvent = async (
+    event: Record<string, unknown>,
+  ): Promise<boolean> => {
+    if (settled) return true;
     const outcome = asString(event.outcome);
     const error = asString(event.error).trim() || asString(event.reason).trim();
     if (outcome === "canceled") {
       finalizeError(new BridgeAbortError());
-      return;
+      return true;
     }
     if (error) {
       finalizeError(new Error(error));
-      return;
+      return true;
     }
     let finalText = asString(event.finalText).trim();
     if (!finalText || artifactById.size === 0) {
@@ -1853,6 +1997,7 @@ export async function sendDesktopBridgeChat({
       mergeArtifacts(latest?.artifacts ?? []);
     }
     finalizeSuccess(buildResult(normalizeDesktopChatMessageText(finalText)));
+    return true;
   };
 
   // Process one agent event (live broadcast or replayed via agent:resume).
@@ -1877,6 +2022,22 @@ export async function sendDesktopBridgeChat({
     if (seq !== null) {
       if (seq <= lastSeq) return false;
       lastSeq = seq;
+    }
+
+    if (event.type === "run-started") {
+      const boundaryUserMessageId = eventUserMessageId.trim();
+      if (boundaryUserMessageId) {
+        // Unlike the initial durable receipt, this is intentionally
+        // replaceable: every consumed steer becomes the response target for
+        // the one continuing assistant row.
+        submittedUserMessageId = boundaryUserMessageId;
+        onResponseBoundary?.({
+          requestId: eventRequestId.trim(),
+          runId: eventRunId.trim(),
+          userMessageId: boundaryUserMessageId,
+        });
+      }
+      return false;
     }
 
     if (event.type === "agent-started") {
@@ -1962,8 +2123,7 @@ export async function sendDesktopBridgeChat({
       return false;
     }
     if (event.type === "run-finished") {
-      await completeFromFinishedEvent(event);
-      return true;
+      return completeFromFinishedEvent(event);
     }
     return false;
   };
@@ -2002,7 +2162,11 @@ export async function sendDesktopBridgeChat({
 
     return await new Promise<ConnectionOutcome>((resolve) => {
       let outcomeSettled = false;
-      let resuming = isReconnect;
+      // Always prime before consuming live events. On a first connection the
+      // socket can immediately broadcast the previous active run; until
+      // startChat returns this send's request/run ids, accepting that event
+      // would attach stale text to the new optimistic reply.
+      let resuming = true;
       let acceptedReplay = false;
       const pendingLive: unknown[] = [];
       let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2020,12 +2184,8 @@ export async function sendDesktopBridgeChat({
         // can legitimately stay silent past the window, and iOS suspends JS
         // timers in the background so the timer fires the moment the app
         // foregrounds) — instead the outer loop re-attaches like a disconnect.
-        if (outcome.kind === "aborted" && runId) {
-          try {
-            void client.invoke("agent:cancelChat", [runId]).catch(() => {});
-          } catch {
-            // best-effort cancellation
-          }
+        if (outcome.kind === "aborted") {
+          cancelDesktopChat(client);
         }
         if (
           batch &&
@@ -2108,6 +2268,11 @@ export async function sendDesktopBridgeChat({
               requestId = requestId || startedRequestId;
               startIssued = true;
             }
+            const startedRunId = asString(startResult?.runId).trim();
+            if (startedRunId) {
+              runId = runId || startedRunId;
+              runStarted = true;
+            }
             // A normal startChat response is returned only after the worker has
             // durably appended the canonical user row. A replay can also return
             // the same persisted acceptance directly. Pending in-memory races
@@ -2122,6 +2287,13 @@ export async function sendDesktopBridgeChat({
               }
               acceptedReplay = startResult.deduplicated === true;
               if (acceptedReplay) resuming = true;
+            }
+            // Stop can arrive while startChat is awaiting desktop readiness.
+            // Once the response gives us either the stable request id or the
+            // concrete run id, honor it instead of leaving the run orphaned.
+            if (signal?.aborted) {
+              cancelDesktopChat(client);
+              return;
             }
             onStatus?.("running");
           }

@@ -713,14 +713,20 @@ export const spawnWindowsDaemonProcess = async (
   return child;
 };
 
-const ensureWindowsDaemon = async (
+/**
+ * Start or reconnect to the per-session helper and return the connected pipe
+ * that proved it is ready. The old flow closed this readiness connection and
+ * immediately raced a second connection against the helper's single pipe
+ * instance, which could surface as EPIPE before the real request was written.
+ */
+const connectWindowsDaemon = async (
   sessionId: string,
   signal = getComputerExecutionSignal(),
-): Promise<boolean> => {
-  if (process.platform !== "win32") return false;
+): Promise<net.Socket | null> => {
+  if (process.platform !== "win32") return null;
 
   const helperPath = resolveNativeHelperPath(windowsHelperName);
-  if (!helperPath) return false;
+  if (!helperPath) return null;
 
   const pidPath = windowsDaemonPidPath(sessionId);
   const pipeName = windowsDaemonPipeName(sessionId);
@@ -730,9 +736,7 @@ const ensureWindowsDaemon = async (
       killProcess(existingPid);
     } else {
       try {
-        const socket = await connectWindowsPipe(pipeName, 150, signal);
-        socket.end();
-        return true;
+        return await connectWindowsPipeWithRetry(pipeName, 1_000, signal);
       } catch {
         killProcess(existingPid);
       }
@@ -754,9 +758,7 @@ const ensureWindowsDaemon = async (
       const pid = readPidFile(pidPath);
       if (pid && pidIsRunning(pid)) {
         try {
-          const socket = await connectWindowsPipe(pipeName, 100, signal);
-          socket.end();
-          return true;
+          return await connectWindowsPipe(pipeName, 100, signal);
         } catch (error) {
           if (signal?.aborted) throw error;
           // Keep waiting until the named-pipe server accepts connections.
@@ -771,7 +773,7 @@ const ensureWindowsDaemon = async (
   }
   killProcess(child.pid ?? readPidFile(pidPath));
   fs.rmSync(pidPath, { force: true });
-  return false;
+  return null;
 };
 
 export const readWindowsComputerSnapshot = (
@@ -942,18 +944,15 @@ export const requestWindowsComputerHelper = async (
   request: WinHelperRequest,
   signal = getComputerExecutionSignal(),
 ): Promise<WinHelperResponse> => {
-  const daemonReady = await ensureWindowsDaemon(sessionId, signal);
-  if (!daemonReady) {
+  const seq = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  const payload = encodeWindowsDaemonPayload(seq, request);
+  const socket = await connectWindowsDaemon(sessionId, signal);
+  if (!socket) {
     throw new Error(
       `Windows stella-computer daemon failed to start after ${windowsDaemonStartupBudgetMs}ms`,
     );
   }
 
-  const pipeName = windowsDaemonPipeName(sessionId);
-  const seq = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-  const payload = encodeWindowsDaemonPayload(seq, request);
-
-  const socket = await connectWindowsPipeWithRetry(pipeName, 1_000, signal);
   const responseText = await exchangeWindowsDaemonRequest(socket, payload, {
     timeoutMs: windowsHelperTimeoutMs,
     signal,

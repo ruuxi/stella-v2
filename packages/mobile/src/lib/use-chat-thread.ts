@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, LayoutAnimation } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { File } from "expo-file-system";
 import {
   loadChatMessages,
   saveChatMessages,
@@ -182,6 +183,35 @@ const assetsToBridgeAttachments = async (
 };
 
 /**
+ * Rebuild composer attachments for a rewound user message. The transcript only
+ * persists each image's on-device thumbnail uri (not its base64 bytes — those
+ * would bloat AsyncStorage), so Rewind re-reads the bytes from disk to produce
+ * fully sendable assets, mirroring the share-intent import path. Uris whose
+ * backing file is gone (cache eviction) are skipped per-asset rather than
+ * failing the whole rewind; the text still restores.
+ */
+const restoreRewoundAttachments = async (
+  message: ChatMessage,
+): Promise<ImagePicker.ImagePickerAsset[]> => {
+  const uris = message.thumbnailUris ?? [];
+  if (uris.length === 0) return [];
+  const assets: ImagePicker.ImagePickerAsset[] = [];
+  for (const uri of uris) {
+    try {
+      const base64 = await new File(uri).base64();
+      if (!base64) continue;
+      // The send path (`toSendableImage`) sniffs the real mime type from these
+      // bytes and only reads `uri`/`base64`, so a minimal asset is sufficient
+      // for both the composer thumbnail and a faithful resend.
+      assets.push({ uri, base64, width: 0, height: 0 } as ImagePicker.ImagePickerAsset);
+    } catch {
+      // Skip an image whose backing file is gone rather than failing the rewind.
+    }
+  }
+  return assets;
+};
+
+/**
  * A durably ordered send awaiting transmission. Cloud chat holds it until the
  * current reply settles. Computer chat instead drains it through the
  * acceptance-only steer pump as soon as the active message is durable, so it
@@ -275,6 +305,12 @@ export type ChatThread = {
    * which the offline affordances own).
    */
   catchingUp: boolean;
+  /**
+   * Rewind to a user message: truncate the transcript at it (dropping it and
+   * everything after) and restore its text + attachments to the composer.
+   * A no-op unless the thread owns its transcript (the cloud chat) and is idle.
+   */
+  rewindToMessage: (messageId: string) => void;
 };
 
 /**
@@ -2058,6 +2094,44 @@ export function useChatThread(opts: {
     setWorkingActivity(IDLE_WORKING_ACTIVITY);
   }, [acknowledgeDesktopSendIds, markSending]);
 
+  // Rewind (destructive): drop a user message and everything after it, then
+  // load its text + attachments back into the composer so it can be edited and
+  // resent. Only the cloud chat owns its transcript outright — the computer
+  // chat mirrors the paired desktop's canonical rows, so a local truncate there
+  // would just be re-pulled on the next sync. The two-step confirm lives in the
+  // UI (ChatPane's message menu); this performs the committed action.
+  const rewindToMessage = useCallback(
+    (messageId: string) => {
+      if (transport.kind !== "cloud") return;
+      if (!storageLoaded) return;
+      // Never truncate under an in-flight turn — the streaming reply writes into
+      // the very rows we would be dropping.
+      if (sendingRef.current) return;
+      const current = messagesRef.current;
+      const index = current.findIndex((m) => m.id === messageId);
+      if (index < 0) return;
+      const target = current[index];
+      if (target.role !== "user") return;
+      LayoutAnimation.configureNext({
+        duration: 250,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+      });
+      // Drop the target and everything after it. The debounced persist effect
+      // writes the truncated transcript back to storage.
+      setMessages(current.slice(0, index));
+      // `text` holds the "Photo" placeholder for an image-only send (see
+      // `submit`), so restore empty text in that case rather than the literal.
+      const restoredText =
+        target.hasImage && target.text === "Photo" ? "" : target.text;
+      setDraft(restoredText);
+      setAttachments([]);
+      void restoreRewoundAttachments(target).then((assets) => {
+        if (assets.length > 0) setAttachments(assets);
+      });
+    },
+    [storageLoaded, transport.kind],
+  );
+
   const workingIndicator = useMemo(
     () => buildWorkingIndicatorState({ sending, activity: workingActivity }),
     [sending, workingActivity],
@@ -2143,6 +2217,7 @@ export function useChatThread(opts: {
     send,
     sendPrompt,
     stop,
+    rewindToMessage,
     runDesktopSync,
     catchingUp,
     livePushConnected,

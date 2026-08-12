@@ -1245,6 +1245,9 @@
         "previewFailed": "Impossibile caricare l'anteprima della mappa."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Copiato",
         "copy": "Copia",
         "readAloud": "Leggi ad alta voce",

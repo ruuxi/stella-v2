@@ -1245,6 +1245,9 @@
         "previewFailed": "L’aperçu de la carte n’a pas pu se charger."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Copié",
         "copy": "Copier",
         "readAloud": "Lire à voix haute",

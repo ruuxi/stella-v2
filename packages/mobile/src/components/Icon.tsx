@@ -54,6 +54,7 @@ export type IconName =
   | "sparkles"
   | "clock"
   | "refresh-cw"
+  | "rotate-ccw"
   | "alert-circle";
 
 const FEATHER_NAMES: Record<
@@ -108,6 +109,7 @@ const FEATHER_NAMES: Record<
   sparkles: "zap",
   clock: "clock",
   "refresh-cw": "refresh-cw",
+  "rotate-ccw": "rotate-ccw",
   "alert-circle": "alert-circle",
 };
 
@@ -158,6 +160,7 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   sparkles: "sparkles",
   clock: "clock",
   "refresh-cw": "arrow.clockwise",
+  "rotate-ccw": "arrow.counterclockwise",
   "alert-circle": "exclamationmark.circle",
 };
 

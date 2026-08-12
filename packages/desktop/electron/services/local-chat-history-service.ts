@@ -253,6 +253,45 @@ export class LocalChatHistoryService {
     return { deleted: this.getStore().deleteConversation(conversationId) };
   }
 
+  /**
+   * Truncate a conversation at (and including) a user message — the
+   * desktop "Rewind here" action. Notifies the renderer with a
+   * payload that omits `event`, forcing a full window re-read so removed
+   * rows drop out of the visible timeline.
+   */
+  truncateConversation(args: {
+    conversationId: string;
+    eventId: string;
+  }): { removed: number } {
+    const result = this.getStore().truncateConversationAtEvent(
+      args.conversationId,
+      args.eventId,
+    );
+    this.onUpdated?.({ conversationId: args.conversationId });
+    return result;
+  }
+
+  /**
+   * Branch a conversation's prefix (everything before a user message)
+   * into a brand-new conversation — the desktop "Fork to new chat"
+   * action. Returns the new conversation id (or null when the anchor
+   * event is gone). The source conversation is untouched; the renderer
+   * navigates to the new conversation and subscribes fresh.
+   */
+  forkConversation(args: {
+    conversationId: string;
+    eventId: string;
+  }): { conversationId: string } | null {
+    const result = this.getStore().forkConversationBeforeEvent(
+      args.conversationId,
+      args.eventId,
+    );
+    if (result) {
+      this.onUpdated?.({ conversationId: result.conversationId });
+    }
+    return result;
+  }
+
   listEvents(args: {
     conversationId: string;
     maxItems?: number;

@@ -86,6 +86,14 @@
   color: var(--primary);
 }
 
+/* Fork / Rewind are greyed out and non-interactive while a turn is busy;
+   they re-enable once it settles (we never interrupt in-flight work). */
+.message-actions__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
 .message-actions__spinner {
   animation: message-actions-spin 0.8s linear infinite;
 }

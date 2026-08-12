@@ -24,6 +24,7 @@
 import {
   Fragment,
   memo,
+  useCallback,
   useLayoutEffect,
   useRef,
   useState,
@@ -59,6 +60,7 @@ import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
 import { MessageActions } from "@/app/chat/MessageActions";
+import { useUserMessageActions, useUserMessageActionsBusy, } from "@/app/chat/user-message-actions-context";
 import {
   ContextPill,
   FileAttachmentChip,
@@ -405,6 +407,17 @@ type UserRowProps = {
 export const UserMessageRow = memo(
   function UserMessageRow({ row }: UserRowProps) {
     const t = useT();
+    const messageActions = useUserMessageActions();
+    const actionsBusy = useUserMessageActionsBusy();
+    const forkAction = messageActions?.fork;
+    const handleRewind = useCallback(
+      () => messageActions?.rewind(row),
+      [messageActions, row],
+    );
+    const handleFork = useCallback(
+      () => forkAction?.(row),
+      [forkAction, row],
+    );
     const { text, windowLabel, attachments, channelEnvelope } = row;
     const appSelectionLabels = (row.appSelectionLabels ?? [])
       .map((label) => label.trim())
@@ -521,7 +534,14 @@ export const UserMessageRow = memo(
             <div className="event-item user">
               <UserMessageBody text={text} />
             </div>
-            <MessageActions text={text} messageKey={row.id} align="end" />
+            <MessageActions
+              text={text}
+              messageKey={row.id}
+              align="end"
+              onRewind={messageActions ? handleRewind : undefined}
+              onFork={forkAction ? handleFork : undefined}
+              actionsDisabled={actionsBusy}
+            />
           </>
         )}
       </div>

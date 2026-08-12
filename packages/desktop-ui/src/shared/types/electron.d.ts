@@ -1401,6 +1401,25 @@ export type ElectronLocalChatApi = {
     conversationId: string;
   }) => Promise<{ deleted: boolean }>;
   /**
+   * Truncate a conversation at (and including) a user message — the
+   * desktop "Rewind here" action. Removes the target event and every
+   * event after it, then notifies listeners with a full-refresh update.
+   */
+  truncateConversation: (payload: {
+    conversationId: string;
+    eventId: string;
+  }) => Promise<{ removed: number }>;
+  /**
+   * Branch a conversation's prefix (everything before a user message)
+   * into a brand-new conversation — the desktop "Fork to new chat"
+   * action. Resolves to the new conversation id, or null when the anchor
+   * event no longer exists.
+   */
+  forkConversation: (payload: {
+    conversationId: string;
+    eventId: string;
+  }) => Promise<{ conversationId: string } | null>;
+  /**
    * Raw event-stream read kept for the few non-timeline consumers that
    * look for specific auxiliary event types (the welcome dialog reads
    * `assistant_message`), and for the mobile bridge which proxies the

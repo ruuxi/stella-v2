@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { useFullShellChat } from "@/shell/use-full-shell-chat";
 import { ChatRuntimeContext } from "@/context/chat-runtime-context";
 import { ChatMessagesContext } from "@/context/chat-messages-context";
+import { UserMessageActionsBusyContext, UserMessageActionsContext, } from "@/app/chat/user-message-actions-context";
 import { usePetStatusBroadcast } from "@/shell/pet/use-pet-status-broadcast";
 import { useTaskDecorationPublisher } from "@/features/chat/streaming/use-task-decoration-publisher";
 import { isTraceDiagnosticsEnabled } from "@/platform/diagnostics/trace-store";
@@ -19,12 +20,19 @@ import { isTraceDiagnosticsEnabled } from "@/platform/diagnostics/trace-store";
 type ChatRuntimeProviderProps = {
   activeConversationId: string | null;
   isOnChatRoute: boolean;
+  /**
+   * Opens + navigates to a conversation (tab + router). Threaded from the
+   * root layout (which owns the router) so the Fork action can jump to the
+   * newly branched conversation.
+   */
+  navigateToConversation?: (conversationId: string, title?: string) => void;
   children: ReactNode;
 };
 
 export function ChatRuntimeProvider({
   activeConversationId,
   isOnChatRoute,
+  navigateToConversation,
   children,
 }: ChatRuntimeProviderProps) {
   // `runtime` is the stable slice (identity changes only at tool/text
@@ -33,6 +41,7 @@ export function ChatRuntimeProvider({
   const { runtime, messages } = useFullShellChat({
     activeConversationId,
     isOnChatRoute,
+    navigateToConversation,
     // Stella ships as a Vite dev server, so `import.meta.env.DEV` is TRUE for
     // real users — gating trace diagnostics on it would run (and leak) them in
     // production. Use an explicit opt-in flag that defaults OFF instead.
@@ -56,7 +65,13 @@ export function ChatRuntimeProvider({
   return (
     <ChatRuntimeContext.Provider value={runtime}>
       <ChatMessagesContext.Provider value={messages}>
-        {children}
+        <UserMessageActionsContext.Provider value={runtime.messageActions}>
+          <UserMessageActionsBusyContext.Provider
+            value={runtime.conversation.isStreaming}
+          >
+            {children}
+          </UserMessageActionsBusyContext.Provider>
+        </UserMessageActionsContext.Provider>
       </ChatMessagesContext.Provider>
     </ChatRuntimeContext.Provider>
   );

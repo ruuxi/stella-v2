@@ -65,6 +65,12 @@ export const Minimize2 = createIcon("minimize-2", <path d="M19.5 10H14V4.5M19.25
 export const ExternalLink = createIcon("external-link", <path d="M19.75 13.25v3.5a3 3 0 0 1-3 3H7.25a3 3 0 0 1-3-3V7.25a3 3 0 0 1 3-3h3.5M14.5 4.25h5.25V9.5M19.25 4.75 12.5 11.5"/>);
 export const RefreshCw = createIcon("refresh-cw", <path d="M20.25 12A8.25 8.25 0 1 1 12 3.75c2.83 0 5.33 1.42 6.82 3.58M19.5 3.5v4h-4"/>);
 export const RotateCcw = createIcon("rotate-ccw", <path d="M3.75 12A8.25 8.25 0 1 0 12 3.75c-2.83 0-5.33 1.42-6.82 3.58M4.5 3.5v4h4"/>);
+export const GitBranch = createIcon("git-branch", <>
+    <path d="M6 4v10"/>
+    <circle cx="6" cy="17" r="2.5"/>
+    <circle cx="18" cy="6" r="2.5"/>
+    <path d="M18 8.5a8.5 8.5 0 0 1-8.5 8.5"/>
+  </>);
 export const History = createIcon("history", <>
     <path d="M12 3.75a8.25 8.25 0 1 1-8.18 9.31"/>
     <path d="M4.75 4.75v4h4"/>

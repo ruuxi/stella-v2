@@ -656,6 +656,13 @@ class CodexAppServerClient {
             // The process may already be shutting down.
         }
     }
+    async steer(threadId, turnId, input) {
+        await this.request("turn/steer", {
+            threadId,
+            input,
+            expectedTurnId: turnId,
+        });
+    }
     close() {
         this.rejectAll(new Error("Codex app-server closed."));
         killCodexProcess(this.child);
@@ -1042,6 +1049,9 @@ export const runCodexAgentTurn = async (request) => {
     let removeNotificationHandler;
     let removeRequestHandler;
     let removeCloseHandler;
+    let detachTurnControl;
+    let steeringInputCount = 0;
+    const steeringCleanupDirs = [];
     const turnCompleted = new Promise((resolve, reject) => {
         const resolveCompleted = () => {
             if (completed)
@@ -1333,6 +1343,24 @@ export const runCodexAgentTurn = async (request) => {
             serviceTier,
         }));
         turnId = turn.turn.id;
+        if (request.onTurnControl) {
+            detachTurnControl = request.onTurnControl({
+                steer: async ({ prompt, attachments }) => {
+                    if (!threadId || !turnId) {
+                        throw new Error("Codex turn is not ready for steering.");
+                    }
+                    const steeringInput = buildCodexUserInput({
+                        runId: `${request.runId}-steer-${++steeringInputCount}`,
+                        prompt,
+                        attachments,
+                    });
+                    if (steeringInput.cleanupDir) {
+                        steeringCleanupDirs.push(steeringInput.cleanupDir);
+                    }
+                    await client.steer(threadId, turnId, steeringInput.input);
+                },
+            });
+        }
         if (request.abortSignal?.aborted) {
             void client.interrupt(threadId, turnId);
             throw new Error("Aborted");
@@ -1377,10 +1405,14 @@ export const runCodexAgentTurn = async (request) => {
         removeNotificationHandler?.();
         removeRequestHandler?.();
         removeCloseHandler?.();
+        detachTurnControl?.();
         if (!request.reuseAppServer) {
             client.close();
         }
         if (cleanupDir)
             fs.rmSync(cleanupDir, { recursive: true, force: true });
+        for (const steeringCleanupDir of steeringCleanupDirs) {
+            fs.rmSync(steeringCleanupDir, { recursive: true, force: true });
+        }
     }
 };

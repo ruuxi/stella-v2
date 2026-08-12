@@ -234,8 +234,7 @@ export type QueuedOrchestratorTurn = {
 
 /**
  * A user chat message that arrived while a run was already active on the
- * conversation and was injected into the live run (as `"steer"` on the native
- * engine, `"followUp"` on external engines). If the run is interrupted, fails
+ * conversation and was injected into the live run as steering. If the run is interrupted, fails
  * fatally, or is otherwise torn down before the message is delivered, the
  * agent's in-memory queues are discarded and the user would never get a
  * reply. We mirror the message here so a fresh reply turn can be fired after
@@ -308,9 +307,9 @@ export type RunnerState = {
   queuedOrchestratorTurns: QueuedOrchestratorTurn[];
   /**
    * Per-conversation buffer of user chat messages that were injected into an
-   * active run as follow-ups. Populated when a user message lands on a live
+   * active run as steering. Populated when a user message lands on a live
    * streaming session; cleared when that run completes normally (the agent
-   * loop drains and answers follow-ups before `agent_end`) and flushed into a
+   * loop drains and answers the steers before `agent_end`) and flushed into a
    * fresh reply turn when the run is interrupted or fails before draining.
    */
   pendingFollowUpReplies: Map<string, PendingFollowUpReply[]>;

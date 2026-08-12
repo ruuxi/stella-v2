@@ -193,7 +193,6 @@ describe("progress-aware context overflow recovery", () => {
 
   it("compacts again after genuine tool progress refills the fallback window", async () => {
     runCompactionWithHooksMock.mockResolvedValue({ compacted: true });
-    let liveState: { messages: Array<Record<string, unknown>> };
     const execute = vi
       .fn<(resume?: boolean) => Promise<{ finalText: string }>>()
       .mockImplementationOnce(async () => {
@@ -218,7 +217,7 @@ describe("progress-aware context overflow recovery", () => {
         finalText: "Recovered after the second compaction.",
       });
     const harness = createHarness({ contextWindow: 80_000, execute });
-    liveState = harness.agent.state;
+    const liveState = harness.agent.state;
 
     await expect(harness.run()).resolves.toEqual({
       finalText: "Recovered after the second compaction.",

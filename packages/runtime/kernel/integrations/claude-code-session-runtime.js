@@ -94,6 +94,7 @@ const DEFAULT_STEP_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 // executeToolWithInactivityBound; this only backstops native tools and
 // leaked tracking.)
 const DEFAULT_STEP_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
+const DEFAULT_CONTROL_REQUEST_TIMEOUT_MS = 60 * 1000;
 const CLAUDE_CODE_COMPACTING_TEXT = "Compacting context";
 const CLAUDE_CODE_RUNNING_TEXT = "Working";
 /**
@@ -167,6 +168,22 @@ export class ClaudeCodeMalformedResultError extends Error {
     super(message);
     this.name = "ClaudeCodeMalformedResultError";
     this.kind = kind;
+    this.fileChanges = fileChanges;
+    this.mcpCalls = mcpCalls;
+  }
+}
+/**
+ * The active Claude Code query was deliberately interrupted so Stella can
+ * send steering input on the same long-lived stream. This is a control-flow
+ * boundary, not a malformed result and therefore must never enter the normal
+ * retry/nudge path.
+ */
+export class ClaudeCodeSteeringInterruptError extends Error {
+  fileChanges;
+  mcpCalls;
+  constructor(fileChanges = [], mcpCalls = []) {
+    super("Claude Code turn interrupted for steering.");
+    this.name = "ClaudeCodeSteeringInterruptError";
     this.fileChanges = fileChanges;
     this.mcpCalls = mcpCalls;
   }
@@ -1060,6 +1077,9 @@ class ClaudeCodeSessionRuntime {
       request.sessionKey,
       request.cwd,
     );
+    if (request.persistedSessionId?.trim()) {
+      request.onSessionId?.(session.sessionId);
+    }
     session.lastUsedAt = Date.now();
     return await new Promise((resolve, reject) => {
       session.queue.push({ request, resolve, reject });
@@ -1788,6 +1808,7 @@ class ClaudeCodeSessionRuntime {
       stderrText: "",
       finalSessionId: session.sessionId,
       pending: [],
+      pendingControlRequests: new Map(),
       closed: false,
       compacting: false,
       compactionCount: 0,
@@ -1818,6 +1839,32 @@ class ClaudeCodeSessionRuntime {
         if (!parsedLine) {
           continue;
         }
+        if (parsedLine.type === "control_response") {
+          const response = asObject(parsedLine.response);
+          const requestId =
+            typeof response?.request_id === "string"
+              ? response.request_id
+              : undefined;
+          const pendingControl = requestId
+            ? processState.pendingControlRequests.get(requestId)
+            : undefined;
+          if (pendingControl && requestId) {
+            processState.pendingControlRequests.delete(requestId);
+            clearTimeout(pendingControl.timeout);
+            if (response?.subtype === "error") {
+              pendingControl.reject(
+                new Error(
+                  typeof response.error === "string" && response.error.trim()
+                    ? response.error
+                    : "Claude Code control request failed.",
+                ),
+              );
+            } else {
+              pendingControl.resolve(response ?? {});
+            }
+          }
+          continue;
+        }
         if (
           typeof parsedLine.session_id === "string" &&
           parsedLine.session_id.trim()
@@ -1825,6 +1872,7 @@ class ClaudeCodeSessionRuntime {
           processState.finalSessionId = parsedLine.session_id.trim();
           session.sessionId = processState.finalSessionId;
           session.resumeReady = true;
+          request.onSessionId?.(session.sessionId);
         }
         // The init event names the model the CLI actually resolved the
         // requested alias to (e.g. default -> claude-opus-4-8[1m]).
@@ -1930,6 +1978,15 @@ class ClaudeCodeSessionRuntime {
             continue;
           }
           this.detachAbortListener(completed);
+          if (completed.steeringInterrupted) {
+            completed.reject(
+              new ClaudeCodeSteeringInterruptError(
+                completed.fileChanges,
+                completed.mcpCalls,
+              ),
+            );
+            continue;
+          }
           try {
             const stepResult = this.parseResultPayload(
               session,
@@ -2003,6 +2060,7 @@ class ClaudeCodeSessionRuntime {
           ),
         );
       }
+      this.rejectControlRequests(processState, wrapped);
     });
     child.once("close", (code) => {
       consumeStdout(true);
@@ -2036,6 +2094,10 @@ class ClaudeCodeSessionRuntime {
               ),
         );
       }
+      this.rejectControlRequests(
+        processState,
+        new ClaudeCodeProcessEndedError(message, code),
+      );
     });
     if (mcpHost && request.tools.some((tool) => tool.name === "image_gen")) {
       await mcpHost.waitForClientReady(request.abortSignal);
@@ -2127,6 +2189,25 @@ class ClaudeCodeSessionRuntime {
           ),
         );
       });
+      if (request.onTurnControl) {
+        try {
+          pending.detachTurnControl = request.onTurnControl({
+            interrupt: async () => {
+              if (pending.steeringInterruptPromise) {
+                return await pending.steeringInterruptPromise;
+              }
+              pending.steeringInterrupted = true;
+              pending.steeringInterruptPromise = this.sendControlRequest(
+                processState,
+                { subtype: "interrupt" },
+              );
+              return await pending.steeringInterruptPromise;
+            },
+          });
+        } catch {
+          // A host-side steering observer must not break the engine turn.
+        }
+      }
     });
   }
   detachAbortListener(pending) {
@@ -2140,6 +2221,59 @@ class ClaudeCodeSessionRuntime {
         pending.abortListener,
       );
     }
+    pending.detachTurnControl?.();
+    pending.detachTurnControl = undefined;
+  }
+  async sendControlRequest(processState, request) {
+    if (processState.closed || processState.child.stdin.destroyed) {
+      throw new ClaudeCodeProcessEndedError("Claude Code stream is closed.");
+    }
+    const requestId = `stella_${crypto.randomUUID()}`;
+    const timeoutMs = configuredTimeoutMs(
+      "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
+      DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
+    );
+    const response = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        processState.pendingControlRequests.delete(requestId);
+        reject(
+          new Error(
+            `Claude Code control request ${request.subtype} timed out after ${Math.round(timeoutMs / 1000)}s.`,
+          ),
+        );
+      }, timeoutMs);
+      timeout.unref?.();
+      processState.pendingControlRequests.set(requestId, {
+        resolve,
+        reject,
+        timeout,
+      });
+    });
+    const payload = JSON.stringify({
+      type: "control_request",
+      request_id: requestId,
+      request,
+    });
+    processState.child.stdin.write(`${payload}\n`, (error) => {
+      if (!error) return;
+      const pending = processState.pendingControlRequests.get(requestId);
+      if (!pending) return;
+      processState.pendingControlRequests.delete(requestId);
+      clearTimeout(pending.timeout);
+      pending.reject(
+        new ClaudeCodeProcessEndedError(
+          `Failed to write Claude Code control request: ${normalizeErrorMessage(error)}`,
+        ),
+      );
+    });
+    await response;
+  }
+  rejectControlRequests(processState, error) {
+    for (const pending of processState.pendingControlRequests.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+    processState.pendingControlRequests.clear();
   }
   refreshPendingIdleTimer(processState, pending) {
     if (pending.idleTimer) {

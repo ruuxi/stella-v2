@@ -216,21 +216,19 @@ export const buildAgentEventPrompt = (
 /**
  * Delivery mode for a chat message injected into a live orchestrator run.
  *
- * User messages on the NATIVE engine are `"steer"` so the agent sees them at
- * the next safe turn boundary and can respond mid-run. External CLI engines
- * (Claude Code, Codex) buffer steer and followUp identically and drain only
- * after the current turn completes, so user messages stay `"followUp"` there
- * to keep the semantics honest. Hidden runtime-internal injections (system
- * reminders, workspace-creation requests, etc.) always `"steer"`.
+ * Every live message is steering, regardless of sender or engine. The user
+ * always talks to the Orchestrator, and runtime messages (including descendant
+ * lifecycle reports) are equally time-sensitive context for its active turn.
+ * Codex appends it to the active turn with `turn/steer`; Claude Code uses its
+ * native interrupt control and writes the message to the same streaming
+ * session. Descendant agents continue independently.
  */
 export const resolveLiveChatMessageDelivery = (args: {
   role: string;
   engine: "native" | "external";
 }): "steer" | "followUp" => {
-  if (args.role !== "user") {
-    return "steer";
-  }
-  return args.engine === "native" ? "steer" : "followUp";
+  void args;
+  return "steer";
 };
 
 /**

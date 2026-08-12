@@ -104,9 +104,11 @@ export const createRunEventRecorder = ({
 }: RunRecorderArgs) => {
   let seq = 0;
   let currentUserMessageId = userMessageId;
+  let currentUiVisibility = uiVisibility;
   const queuedUserMessageStarts: Array<{
     userMessageId: string;
     onStart?: () => void;
+    uiVisibility?: "visible" | "hidden";
   }> = [];
   const nextSeq = () => ++seq;
   const recordAssistantTextEnd = (
@@ -126,17 +128,26 @@ export const createRunEventRecorder = ({
       text: trimmedText,
       timestamp,
       ...(responseTarget ? { responseTarget } : {}),
-      ...(uiVisibility ? { uiVisibility } : {}),
+      ...(currentUiVisibility
+        ? { uiVisibility: currentUiVisibility }
+        : {}),
     };
   };
 
   return {
-    queueUserMessageId(nextUserMessageId: string, onStart?: () => void): void {
+    queueUserMessageId(
+      nextUserMessageId: string,
+      onStart?: () => void,
+      nextUiVisibility?: "visible" | "hidden",
+    ): void {
       const trimmed = nextUserMessageId.trim();
       if (trimmed) {
         queuedUserMessageStarts.push({
           userMessageId: trimmed,
           ...(onStart ? { onStart } : {}),
+          ...(nextUiVisibility
+            ? { uiVisibility: nextUiVisibility }
+            : {}),
         });
       }
     },
@@ -148,6 +159,9 @@ export const createRunEventRecorder = ({
       }
       nextQueuedUserMessage.onStart?.();
       currentUserMessageId = nextQueuedUserMessage.userMessageId;
+      if (nextQueuedUserMessage.uiVisibility) {
+        currentUiVisibility = nextQueuedUserMessage.uiVisibility;
+      }
       const responseTarget = getResponseTarget?.();
       return {
         runId,
@@ -155,7 +169,9 @@ export const createRunEventRecorder = ({
         seq: nextSeq(),
         userMessageId: currentUserMessageId,
         ...(responseTarget ? { responseTarget } : {}),
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
 
@@ -200,7 +216,9 @@ export const createRunEventRecorder = ({
         chunk,
         userMessageId: currentUserMessageId,
         ...(responseTarget ? { responseTarget } : {}),
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
 
@@ -214,7 +232,9 @@ export const createRunEventRecorder = ({
         chunk: redactSensitiveText(chunk),
         userMessageId: currentUserMessageId,
         ...(responseTarget ? { responseTarget } : {}),
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
 
@@ -229,7 +249,9 @@ export const createRunEventRecorder = ({
         seq,
         statusState,
         statusText: redactSensitiveText(statusText),
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
 
@@ -266,7 +288,9 @@ export const createRunEventRecorder = ({
           ? { statusText: redactSensitiveText(args.statusText) }
           : {}),
         args: sanitizedArgs,
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
 
@@ -316,7 +340,9 @@ export const createRunEventRecorder = ({
         ...(args.details !== undefined ? { details: sanitizedDetails } : {}),
         ...(fileChanges ? { fileChanges } : {}),
         ...(producedFiles ? { producedFiles } : {}),
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
 
@@ -342,7 +368,9 @@ export const createRunEventRecorder = ({
         finalText: args.finalText,
         persisted: true,
         ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
 
@@ -364,7 +392,9 @@ export const createRunEventRecorder = ({
         seq,
         error,
         fatal: true,
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
 
@@ -386,7 +416,9 @@ export const createRunEventRecorder = ({
         seq,
         userMessageId: currentUserMessageId,
         reason,
-        ...(uiVisibility ? { uiVisibility } : {}),
+        ...(currentUiVisibility
+          ? { uiVisibility: currentUiVisibility }
+          : {}),
       };
     },
   };

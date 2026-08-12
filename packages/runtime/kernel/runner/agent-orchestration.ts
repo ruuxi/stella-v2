@@ -329,7 +329,7 @@ export const createAgentOrchestration = (
     // display surface (persisted activity row, renderer/run callbacks,
     // OS notification) so the task UI keeps reading "in progress",
     // while the deferred `display-only` replay skips the hidden
-    // orchestrator follow-up that already went out.
+    // orchestrator steer that already went out.
     if (
       event.audience !== "orchestrator-only" &&
       !isParentOwned &&
@@ -384,7 +384,7 @@ export const createAgentOrchestration = (
     if (parentThreadId) {
       // Subagent reports live in the parent agent's durable thread and wake
       // that parent directly. They never enter the top-level orchestrator's
-      // history, callbacks, or hidden follow-up stream — so a nested
+      // history, callbacks, or hidden steering stream — so a nested
       // completion produces no root card and no OS notification.
       if (
         !hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)
@@ -422,7 +422,7 @@ export const createAgentOrchestration = (
       }
       return;
     }
-    // The follow-up below is in-memory delivery for the active orchestrator
+    // The steer below is in-memory delivery for the active orchestrator
     // session; this row is the durable record read by the next history rebuild.
     const orchestratorThreadKey = resolveOrchestratorThreadKey(
       event.conversationId,
@@ -476,7 +476,7 @@ export const createAgentOrchestration = (
       text: userPrompt,
       uiVisibility: "hidden",
       agentType: AGENT_IDS.ORCHESTRATOR,
-      deliverAs: "followUp",
+      deliverAs: "steer",
       callbackRunId: event.rootRunId,
       customType: "runtime.task_lifecycle",
       display: false,

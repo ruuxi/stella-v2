@@ -4,7 +4,11 @@ import {
   recordPendingFollowUpReplyEntry,
   resolveLiveChatMessageDelivery,
 } from "@stella/runtime/kernel/runner/shared";
-import type { PendingFollowUpReply } from "@stella/runtime/kernel/runner/types";
+import { matchesSteerableOrchestratorSession } from "@stella/runtime/kernel/runner/orchestrator";
+import type {
+  ActiveOrchestratorSession,
+  PendingFollowUpReply,
+} from "@stella/runtime/kernel/runner/types";
 
 describe("resolveLiveChatMessageDelivery", () => {
   it("steers user messages on the native engine", () => {
@@ -13,10 +17,10 @@ describe("resolveLiveChatMessageDelivery", () => {
     ).toBe("steer");
   });
 
-  it("defers user messages to followUp on external engines", () => {
+  it("steers user messages on external engines", () => {
     expect(
       resolveLiveChatMessageDelivery({ role: "user", engine: "external" }),
-    ).toBe("followUp");
+    ).toBe("steer");
   });
 
   it("always steers runtime-internal injections", () => {
@@ -32,6 +36,48 @@ describe("resolveLiveChatMessageDelivery", () => {
         engine: "external",
       }),
     ).toBe("steer");
+  });
+});
+
+describe("matchesSteerableOrchestratorSession", () => {
+  it("keeps a hidden lifecycle turn eligible for an in-order user steer", () => {
+    const session = {
+      conversationId: "conv-1",
+      agentType: "orchestrator",
+      uiVisibility: "hidden",
+      agent: { state: { isStreaming: true } },
+    } as ActiveOrchestratorSession;
+
+    expect(
+      matchesSteerableOrchestratorSession({
+        session,
+        conversationId: "conv-1",
+        agentType: "orchestrator",
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects completed or unrelated sessions", () => {
+    const session = {
+      conversationId: "conv-1",
+      agentType: "orchestrator",
+      uiVisibility: "visible",
+      agent: { state: { isStreaming: false } },
+    } as ActiveOrchestratorSession;
+
+    expect(
+      matchesSteerableOrchestratorSession({
+        session,
+        conversationId: "conv-1",
+      }),
+    ).toBe(false);
+    session.agent.state.isStreaming = true;
+    expect(
+      matchesSteerableOrchestratorSession({
+        session,
+        conversationId: "conv-2",
+      }),
+    ).toBe(false);
   });
 });
 

@@ -642,7 +642,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     expect(manager.getActiveAgentCount()).toBe(0);
   });
 
-  it("queues input when no live Pi loop can steer, then continues after natural completion", async () => {
+  it("queues input when no live agent can steer, then continues after natural completion", async () => {
     const events: AgentLifecycleEvent[] = [];
     let runCount = 0;
     let releaseFirstRun: (() => void) | null = null;
@@ -671,8 +671,8 @@ describe("LocalAgentManager Exec fs locking", () => {
         runCount += 1;
         if (runCount === 1) {
           firstRunStarted?.();
-          // This mock does not create a live Pi Agent, so send_input must
-          // stay queued while the current engine run finishes naturally.
+          // This mock does not attach any live agent, so send_input must stay
+          // queued while the current engine run finishes naturally.
           await new Promise<void>((resolve) => {
             releaseFirstRun = resolve;
           });

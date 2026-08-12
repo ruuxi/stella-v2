@@ -8,8 +8,8 @@ import type {
 export const createOrchestratorCoordinator = (context: RunnerContext) => {
   /**
    * Fires a fresh reply turn for user chat messages that were injected into a
-   * run as follow-ups but never answered (the run was interrupted or failed
-   * before draining its follow-up queue). Set by `orchestrator.ts` once the
+   * run as steering but never answered (the run was interrupted or failed
+   * before consuming its steering queue). Set by `orchestrator.ts` once the
    * turn callback is defined. A no-op until then.
    */
   let flushPendingFollowUpReplies: ((conversationId: string) => void) | null =
@@ -110,7 +110,7 @@ export const createOrchestratorCoordinator = (context: RunnerContext) => {
         if (event.fatal) {
           clearActiveSessionQueues(runId);
           cleanupRun(runId, options?.onCleanup);
-          // The follow-up queue was discarded with the run before it could be
+          // The steering queue was discarded with the run before it could be
           // delivered — answer those messages in a fresh turn instead.
           if (conversationId) flushPendingFollowUpReplies?.(conversationId);
         }
@@ -130,7 +130,7 @@ export const createOrchestratorCoordinator = (context: RunnerContext) => {
       onEnd: (event) => {
         cleanupRun(runId, options?.onCleanup);
         // A clean end means the agent loop drained and answered any queued
-        // follow-ups before `agent_end`, so drop the recovery buffer.
+        // steers before `agent_end`, so drop the recovery buffer.
         if (conversationId) {
           context.state.pendingFollowUpReplies.delete(conversationId);
         }

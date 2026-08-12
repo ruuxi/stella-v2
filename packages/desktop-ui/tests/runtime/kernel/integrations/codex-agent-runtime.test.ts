@@ -1470,6 +1470,118 @@ describe("Codex agent runtime", () => {
     }
   });
 
+  it("steers the active Codex turn without interrupting or starting a second turn", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-codex-native-steer-"),
+    );
+    const fakeCodex = path.join(dir, "codex");
+    const methodsFile = path.join(dir, "methods.jsonl");
+    fs.writeFileSync(
+      fakeCodex,
+      [
+        "#!/usr/bin/env node",
+        'const fs = require("node:fs");',
+        'const readline = require("node:readline");',
+        "const threadId = 'thread-native-steer';",
+        "const turnId = 'turn-native-steer';",
+        "const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n');",
+        "const log = (message) => fs.appendFileSync(process.env.STELLA_FAKE_CODEX_METHODS_FILE, JSON.stringify({ method: message.method, params: message.params }) + '\\n');",
+        "readline.createInterface({ input: process.stdin }).on('line', (line) => {",
+        "  const message = JSON.parse(line);",
+        "  if (message.method === 'initialize') { send({ id: message.id, result: {} }); return; }",
+        "  if (message.method === 'initialized') return;",
+        "  log(message);",
+        "  if (message.method === 'thread/start') { send({ id: message.id, result: { thread: { id: threadId } } }); return; }",
+        "  if (message.method === 'turn/start') {",
+        "    const turn = { id: turnId, status: 'inProgress' };",
+        "    send({ id: message.id, result: { turn } });",
+        "    send({ method: 'turn/started', params: { threadId, turn } });",
+        "    return;",
+        "  }",
+        "  if (message.method === 'turn/steer') {",
+        "    send({ id: message.id, result: { turnId } });",
+        "    const text = message.params.input[0].text;",
+        "    send({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'msg-steered', text: `handled ${text}` } } });",
+        "    send({ method: 'turn/completed', params: { threadId, turn: { id: turnId, status: 'completed' } } });",
+        "  }",
+        "});",
+        "process.stdin.resume();",
+      ].join("\n"),
+    );
+    fs.chmodSync(fakeCodex, 0o755);
+    const previousPath = process.env.STELLA_CODEX_CLI_PATH;
+    const previousMethodsFile = process.env.STELLA_FAKE_CODEX_METHODS_FILE;
+    process.env.STELLA_CODEX_CLI_PATH = fakeCodex;
+    process.env.STELLA_FAKE_CODEX_METHODS_FILE = methodsFile;
+    let activeControl:
+      | {
+          steer: (input: { prompt: string }) => Promise<void>;
+        }
+      | undefined;
+    let markControlReady: (() => void) | undefined;
+    const controlReady = new Promise<void>((resolve) => {
+      markControlReady = resolve;
+    });
+
+    try {
+      const running = runCodexAgentTurn({
+        runId: "run-codex-native-steer",
+        prompt: "initial request",
+        reuseAppServer: true,
+        onTurnControl: (control) => {
+          activeControl = control;
+          markControlReady?.();
+          return () => undefined;
+        },
+      });
+
+      await controlReady;
+      await activeControl?.steer({ prompt: "focus on the failing test" });
+      const result = await running;
+      const calls = fs
+        .readFileSync(methodsFile, "utf8")
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              method: string;
+              params?: Record<string, unknown>;
+            },
+        );
+
+      expect(result.text).toBe("handled focus on the failing test");
+      expect(calls.map((call) => call.method)).toEqual([
+        "thread/start",
+        "turn/start",
+        "turn/steer",
+      ]);
+      expect(calls[2]?.params).toMatchObject({
+        threadId: "thread-native-steer",
+        expectedTurnId: "turn-native-steer",
+        input: [
+          {
+            type: "text",
+            text: "focus on the failing test",
+          },
+        ],
+      });
+    } finally {
+      shutdownCodexAppServerRuntime();
+      if (previousPath === undefined) {
+        delete process.env.STELLA_CODEX_CLI_PATH;
+      } else {
+        process.env.STELLA_CODEX_CLI_PATH = previousPath;
+      }
+      if (previousMethodsFile === undefined) {
+        delete process.env.STELLA_FAKE_CODEX_METHODS_FILE;
+      } else {
+        process.env.STELLA_FAKE_CODEX_METHODS_FILE = previousMethodsFile;
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("normalizes Codex file_change items to Stella file changes", () => {
     const changes = fileChangesFromCodexItem(
       {

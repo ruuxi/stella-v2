@@ -53,6 +53,20 @@ const asMetadataRecord = (
     ? { ...(value as Record<string, unknown>) }
     : undefined;
 
+export const matchesSteerableOrchestratorSession = (args: {
+  session: ActiveOrchestratorSession | null;
+  conversationId: string;
+  agentType?: string;
+}): boolean => {
+  const { session } = args;
+  if (!session || !session.agent.state.isStreaming) return false;
+  if (session.conversationId !== args.conversationId) return false;
+  if (args.agentType && session.agentType !== args.agentType) return false;
+  // Visibility is deliberately not an eligibility gate. Hidden lifecycle
+  // context must stay in-order and the user steer joins that same live turn.
+  return true;
+};
+
 export const createOrchestratorController = (
   context: RunnerContext,
   deps: {
@@ -180,12 +194,11 @@ export const createOrchestratorController = (
             },
             queueMessage: (
               message: AgentMessage,
-              delivery: "steer" | "followUp",
+              _delivery: "steer" | "followUp",
             ) => {
-              if (delivery === "followUp") {
-                session.agent.followUp(message);
-                return;
-              }
+              // The live-chat contract is steering-only. Keep the legacy
+              // delivery parameter at this boundary for source compatibility,
+              // but never let an older caller reintroduce post-turn blocking.
               session.agent.steer(message);
             },
           } satisfies ActiveOrchestratorSession;
@@ -289,19 +302,13 @@ export const createOrchestratorController = (
     agentType?: string,
   ): ActiveOrchestratorSession | null => {
     const session = context.state.activeOrchestratorSession;
-    if (!session || !session.agent.state.isStreaming) {
-      return null;
-    }
-    if (session.uiVisibility !== UI_VISIBILITY_VISIBLE) {
-      return null;
-    }
-    if (session.conversationId !== conversationId) {
-      return null;
-    }
-    if (agentType && session.agentType !== agentType) {
-      return null;
-    }
-    return session;
+    return matchesSteerableOrchestratorSession({
+      session,
+      conversationId,
+      ...(agentType ? { agentType } : {}),
+    })
+      ? session
+      : null;
   };
 
   const persistInjectedUserMessage = (
@@ -349,18 +356,28 @@ export const createOrchestratorController = (
         : [{ text: trimmedUserPrompt, messageType: "user" as const }];
     const timestamp = Date.now();
     if (promptInputs.some((message) => message.messageType !== "message")) {
-      args.session.queueUserMessageId(args.userMessageId, () => {
-        args.session.queueCallbackSwitch(args.callbacks);
-        // Fires at the queued user message's `message_start` — the message is
-        // now in the model context and about to be answered, so drop its
-        // recovery mirror. Otherwise a steered message answered mid-run would
-        // be flushed (re-answered) if the run later ended abnormally.
-        prunePendingFollowUpReplies(
-          context.state.pendingFollowUpReplies,
-          args.session.conversationId,
-          args.userMessageId,
-        );
-      });
+      // A user send does not preempt or replace a hidden lifecycle turn. It is
+      // appended to that same execution session, after the hidden context, and
+      // promotes only the response boundary to the visible chat surface once
+      // the engine actually consumes the steer.
+      args.session.uiVisibility = UI_VISIBILITY_VISIBLE;
+      context.state.activeOrchestratorUiVisibility = UI_VISIBILITY_VISIBLE;
+      args.session.queueUserMessageId(
+        args.userMessageId,
+        () => {
+          args.session.queueCallbackSwitch(args.callbacks);
+          // Fires at the queued user message's `message_start` — the message is
+          // now in the model context and about to be answered, so drop its
+          // recovery mirror. Otherwise a steered message answered mid-run would
+          // be flushed (re-answered) if the run later ended abnormally.
+          prunePendingFollowUpReplies(
+            context.state.pendingFollowUpReplies,
+            args.session.conversationId,
+            args.userMessageId,
+          );
+        },
+        UI_VISIBILITY_VISIBLE,
+      );
     }
     for (const [index, promptInput] of promptInputs.entries()) {
       const message = createRuntimePromptAgentMessage(
@@ -378,13 +395,10 @@ export const createOrchestratorController = (
           payload: message,
         });
       }
-      // Native engine: user messages `"steer"` (delivered at the next safe
-      // turn boundary, answered mid-run). External engines: `"followUp"`
-      // (their live agent drains only post-turn either way). Runtime-internal
-      // injections always `"steer"`. See resolveLiveChatMessageDelivery.
-      // Ordering trade-off on native: the queued message can land between the
-      // run's preamble and its post-tool answer rather than strictly below
-      // the finished answer — accepted in favor of responsiveness.
+      // All live communication is steering. Native agents consume it at their
+      // next safe boundary; Codex appends to its active turn, while Claude Code
+      // interrupts its current query and writes the steer to the same stream.
+      // Descendant agents remain independent.
       const delivery = resolveLiveChatMessageDelivery({
         role: message.role,
         engine: args.session.engine,
@@ -392,8 +406,8 @@ export const createOrchestratorController = (
       if (message.role === "user") {
         // Mirror for abnormal-termination recovery regardless of delivery
         // mode: a message queued but not yet delivered when the run dies is
-        // lost exactly like an undelivered follow-up. Pruned on delivery via
-        // the queueUserMessageId onStart above.
+        // lost exactly like any undelivered queued message. Pruned on delivery
+        // via the queueUserMessageId onStart above.
         recordPendingFollowUpReply(
           args.session.conversationId,
           promptInput.text,
@@ -426,9 +440,9 @@ export const createOrchestratorController = (
   };
 
   /**
-   * Fire a fresh reply turn for follow-up user messages that were injected
+   * Fire a fresh reply turn for steering user messages that were injected
    * into a run but never answered because the run was interrupted or failed
-   * before draining its follow-up queue. The messages are already persisted to
+   * before consuming its steering queue. The messages are already persisted to
    * the thread (at injection time), so the reply is triggered with a hidden
    * runtime message rather than re-emitting the user turn — this avoids
    * duplicating the user's message in the thread/UI while still producing a
@@ -493,7 +507,7 @@ export const createOrchestratorController = (
     if (!health.ready) {
       throw new Error(health.reason ?? "Stella runtime not ready");
     }
-    const delivery = input.deliverAs ?? "steer";
+    const delivery = "steer" as const;
     const liveSession = getLiveOrchestratorSession(
       input.conversationId,
       input.agentType,
@@ -564,7 +578,7 @@ export const createOrchestratorController = (
     const userMessageId = `local:${crypto.randomUUID()}`;
     const uiVisibility = input.uiVisibility ?? UI_VISIBILITY_VISIBLE;
     const runtimePromptVisibility = UI_VISIBILITY_HIDDEN;
-    const delivery = input.deliverAs ?? "steer";
+    const delivery = "steer" as const;
     const timestamp = Date.now();
     const metadata = asMetadataRecord(input.metadata);
     const uiMetadata = asMetadataRecord(metadata?.ui);
@@ -595,22 +609,28 @@ export const createOrchestratorController = (
       input.agentType,
     );
     if (liveSession) {
-      liveSession.queueUserMessageId(userMessageId, () => {
-        liveSession.queueCallbackSwitch(callbacks);
-        prunePendingFollowUpReplies(
-          context.state.pendingFollowUpReplies,
-          liveSession.conversationId,
-          userMessageId,
-        );
-      });
-      const message = persistInjectedUserMessage(liveSession, text, timestamp);
-      if (delivery === "followUp") {
-        recordPendingFollowUpReply(
-          liveSession.conversationId,
-          text,
-          userMessageId,
-        );
+      if (uiVisibility === UI_VISIBILITY_VISIBLE) {
+        liveSession.uiVisibility = UI_VISIBILITY_VISIBLE;
+        context.state.activeOrchestratorUiVisibility = UI_VISIBILITY_VISIBLE;
       }
+      liveSession.queueUserMessageId(
+        userMessageId,
+        () => {
+          liveSession.queueCallbackSwitch(callbacks);
+          prunePendingFollowUpReplies(
+            context.state.pendingFollowUpReplies,
+            liveSession.conversationId,
+            userMessageId,
+          );
+        },
+        uiVisibility,
+      );
+      const message = persistInjectedUserMessage(liveSession, text, timestamp);
+      recordPendingFollowUpReply(
+        liveSession.conversationId,
+        text,
+        userMessageId,
+      );
       liveSession.queueMessage(message, delivery);
       return;
     }

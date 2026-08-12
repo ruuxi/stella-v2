@@ -10,6 +10,7 @@ import type {
 import type { AgentMessage } from "../agent-core/types.js";
 import type { ToolResult, ToolUpdateCallback } from "../tools/types.js";
 import {
+  ClaudeCodeSteeringInterruptError,
   runClaudeCodeTurn,
   shutdownClaudeCodeRuntime,
 } from "../integrations/claude-code-session-runtime.js";
@@ -352,6 +353,22 @@ type ExternalQueuedMessage = {
   delivery: "steer" | "followUp";
 };
 
+export const publishQueuedUserMessageStarts = (args: {
+  entries: ExternalQueuedMessage[];
+  runEvents:
+    | ExternalOrchestratorRunSession["runEvents"]
+    | ExternalSubagentRunSession["runEvents"];
+  callbacks?: Partial<RuntimeRunCallbacks>;
+}): void => {
+  for (const entry of args.entries) {
+    if (entry.message.role !== "user") continue;
+    const queuedStarted = args.runEvents.recordQueuedUserMessageStart();
+    if (queuedStarted) {
+      args.callbacks?.onRunStarted?.(queuedStarted);
+    }
+  }
+};
+
 const contentToText = (content: AgentMessage["content"]): string => {
   if (typeof content === "string") {
     return content.trim();
@@ -492,14 +509,24 @@ const attachmentsFromQueuedMessages = (
     );
   });
 
-const createExternalLiveAgent = () => {
+/**
+ * Live facade for an external engine.
+ *
+ * Steering is queued durably at this boundary and also wakes the active
+ * engine-specific delivery hook. Codex consumes the queued entries through
+ * `turn/steer`; Claude Code leaves them queued, interrupts its current query,
+ * and consumes them as the next message on the same streaming session.
+ */
+export const createExternalLiveAgent = () => {
   const queued: ExternalQueuedMessage[] = [];
   const state = { isStreaming: true };
+  let notifySteerableTurn: (() => void) | null = null;
   return {
     agent: {
       state,
       steer: (message: AgentMessage) => {
         queued.push({ message, delivery: "steer" });
+        notifySteerableTurn?.();
       },
       followUp: (message: AgentMessage) => {
         queued.push({ message, delivery: "followUp" });
@@ -511,7 +538,29 @@ const createExternalLiveAgent = () => {
     drain(): ExternalQueuedMessage[] {
       return queued.splice(0, queued.length);
     },
+    drainSteering(): ExternalQueuedMessage[] {
+      const steering = queued.filter((entry) => entry.delivery === "steer");
+      if (steering.length === 0) return [];
+      const retained = queued.filter((entry) => entry.delivery !== "steer");
+      queued.splice(0, queued.length, ...retained);
+      return steering;
+    },
+    prepend(entries: ExternalQueuedMessage[]): void {
+      if (entries.length > 0) queued.unshift(...entries);
+    },
+    beginSteerableTurn(notify: () => void): () => void {
+      notifySteerableTurn = notify;
+      if (queued.some((entry) => entry.delivery === "steer")) {
+        notify();
+      }
+      return () => {
+        if (notifySteerableTurn === notify) {
+          notifySteerableTurn = null;
+        }
+      };
+    },
     finish(): void {
+      notifySteerableTurn = null;
       state.isStreaming = false;
     },
   };
@@ -771,105 +820,127 @@ const runClaudeHostedTurn = async (args: {
     }
   };
 
-  let finalResult = await runClaudeCodeTurn({
-    runId,
-    sessionKey,
-    persistedSessionId,
-    modelId: claudeCodeModelId,
-    stellaAppDir: args.opts.stellaAppDir,
-    ...(args.opts.cliBridgeSocketPath
-      ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
-      : {}),
-    ...(vanilla ? { vanilla } : {}),
-    ...(claudeCodeEffortLevel ? { effortLevel: claudeCodeEffortLevel } : {}),
-    prompt,
-    ...(resumeFallbackPrompt ? { resumeFallbackPrompt } : {}),
-    systemPrompt: args.systemPrompt,
-    cwd: localCliCwd,
-    attachments: args.opts.attachments,
-    tools: toolMetadata,
-    abortSignal: args.opts.abortSignal,
-    onStatusChange: (status) => {
-      args.callbacks?.onStatus?.(
-        runEvents.recordStatus(status.text, status.state),
-      );
-    },
-    onStream: (chunk) => {
-      assistantUpdateBuffer.append(chunk);
-      args.callbacks?.onStream?.(runEvents.recordStream(chunk));
-    },
-    onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
-    executeTool: executeClaudeTool,
-  }).catch((error) => {
-    assistantUpdateBuffer.flushOnTermination();
-    throw error;
-  });
-  assistantUpdateBuffer.discard();
-  collectTurnFileChanges(finalResult.fileChanges);
+  type ClaudeTurnResult = Awaited<ReturnType<typeof runClaudeCodeTurn>>;
+  let finalResult: ClaudeTurnResult | null = null;
+  let activeSessionId = persistedSessionId;
+  let nextPrompt = prompt;
+  let nextResumeFallbackPrompt = resumeFallbackPrompt;
+  let nextAttachments = args.opts.attachments;
 
   for (;;) {
+    let wasSteered = false;
+    let nativeInterrupt: Promise<void> | null = null;
+    let completedThisTurn = false;
+    try {
+      const result = await runClaudeCodeTurn({
+        runId,
+        sessionKey,
+        ...(activeSessionId ? { persistedSessionId: activeSessionId } : {}),
+        modelId: claudeCodeModelId,
+        stellaAppDir: args.opts.stellaAppDir,
+        ...(args.opts.cliBridgeSocketPath
+          ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
+          : {}),
+        ...(vanilla ? { vanilla } : {}),
+        ...(claudeCodeEffortLevel
+          ? { effortLevel: claudeCodeEffortLevel }
+          : {}),
+        prompt: nextPrompt,
+        ...(nextResumeFallbackPrompt
+          ? { resumeFallbackPrompt: nextResumeFallbackPrompt }
+          : {}),
+        systemPrompt: args.systemPrompt,
+        cwd: localCliCwd,
+        attachments: nextAttachments,
+        tools: toolMetadata,
+        abortSignal: args.opts.abortSignal,
+        onTurnControl: ({ interrupt }: { interrupt: () => Promise<void> }) =>
+          args.liveAgent?.beginSteerableTurn(() => {
+            if (wasSteered) return;
+            wasSteered = true;
+            // The message remains in the live queue. Claude Code's native
+            // control protocol ends this query; the loop below then writes
+            // that queued steering message to the same streaming session.
+            nativeInterrupt = interrupt().catch(() => undefined);
+          }),
+        onSessionId: (sessionId: string) => {
+          activeSessionId = sessionId;
+        },
+        onStatusChange: (status) => {
+          args.callbacks?.onStatus?.(
+            runEvents.recordStatus(status.text, status.state),
+          );
+        },
+        onStream: (chunk) => {
+          assistantUpdateBuffer.append(chunk);
+          args.callbacks?.onStream?.(runEvents.recordStream(chunk));
+        },
+        onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
+        executeTool: executeClaudeTool,
+      });
+      assistantUpdateBuffer.discard();
+      collectTurnFileChanges(result.fileChanges);
+      activeSessionId = result.sessionId;
+      finalResult = result;
+      completedThisTurn = true;
+    } catch (error) {
+      if (wasSteered && !args.opts.abortSignal?.aborted) {
+        // The partial reply belonged to the superseded instruction. The
+        // queued steering message starts a new visible response boundary.
+        if (error instanceof ClaudeCodeSteeringInterruptError) {
+          collectTurnFileChanges(error.fileChanges);
+        }
+        assistantUpdateBuffer.discard();
+      } else {
+        assistantUpdateBuffer.flushOnTermination();
+        throw error;
+      }
+    }
+    // Attach a rejection handler immediately above; do not delay the next
+    // prompt on a stale/missing control acknowledgement. The queued message
+    // remains a safe post-turn fallback if native interruption is unavailable.
+    void nativeInterrupt;
+
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {
-      break;
+      if (completedThisTurn && finalResult) {
+        // Close the live facade synchronously before the persistence awaits
+        // below. A message arriving after this point is routed into a fresh
+        // turn instead of being queued onto a turn that can no longer drain.
+        args.liveAgent?.finish();
+        break;
+      }
+      throw new Error("External engine steering message was lost.");
     }
-    const queuedStarted = runEvents.recordQueuedUserMessageStart();
-    if (queuedStarted) {
-      args.callbacks?.onRunStarted?.(queuedStarted);
-    }
+    publishQueuedUserMessageStarts({
+      entries: queued,
+      runEvents,
+      callbacks: args.callbacks,
+    });
     const queuedPromptMessages = queued.map(formatQueuedClaudeMessage);
     const queuedAttachments = attachmentsFromQueuedMessages(queued);
     const queuedHistoryPromptMessage = buildExternalStellaHistoryPromptMessage({
       opts: args.opts,
       promptMessages: queuedPromptMessages,
     });
-    // Queued follow-ups always continue the session the turn just ran on, so
-    // the main prompt never re-sends history; a lost resume reseeds via the
-    // fallback prompt.
+    // A queued steer continues the same external conversation. If the first
+    // turn was interrupted before Claude emitted a session id, the fallback
+    // prompt safely reseeds from Stella's durable history.
     const {
       prompt: queuedPrompt,
       resumeFallbackPrompt: queuedResumeFallbackPrompt,
     } = buildClaudeCodeTurnPrompts({
       historyPromptMessage: queuedHistoryPromptMessage,
       promptMessages: queuedPromptMessages,
-      hasPersistedSession: true,
+      hasPersistedSession: Boolean(activeSessionId),
     });
-    finalResult = await runClaudeCodeTurn({
-      runId,
-      sessionKey,
-      persistedSessionId: finalResult.sessionId,
-      modelId: claudeCodeModelId,
-      stellaAppDir: args.opts.stellaAppDir,
-      ...(args.opts.cliBridgeSocketPath
-        ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
-        : {}),
-      ...(vanilla ? { vanilla } : {}),
-      ...(claudeCodeEffortLevel ? { effortLevel: claudeCodeEffortLevel } : {}),
-      prompt: queuedPrompt,
-      ...(queuedResumeFallbackPrompt
-        ? { resumeFallbackPrompt: queuedResumeFallbackPrompt }
-        : {}),
-      systemPrompt: args.systemPrompt,
-      cwd: localCliCwd,
-      attachments: queuedAttachments,
-      tools: toolMetadata,
-      abortSignal: args.opts.abortSignal,
-      onStatusChange: (status) => {
-        args.callbacks?.onStatus?.(
-          runEvents.recordStatus(status.text, status.state),
-        );
-      },
-      onStream: (chunk) => {
-        assistantUpdateBuffer.append(chunk);
-        args.callbacks?.onStream?.(runEvents.recordStream(chunk));
-      },
-      executeTool: executeClaudeTool,
-      onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
-    }).catch((error) => {
-      assistantUpdateBuffer.flushOnTermination();
-      throw error;
-    });
-    assistantUpdateBuffer.discard();
-    collectTurnFileChanges(finalResult.fileChanges);
+    nextPrompt = queuedPrompt;
+    nextResumeFallbackPrompt = queuedResumeFallbackPrompt;
+    nextAttachments = queuedAttachments;
+  }
+
+  if (!finalResult) {
+    throw new Error("Claude Code completed without a final result.");
   }
 
   await persistAssistantReply({
@@ -1146,118 +1217,136 @@ const runCodexHostedTurn = async (args: {
     inheritedCodexConfig?.reasoningEffort ??
     args.opts.agentContext.spawnReasoningEffort;
   const codexServiceTier = inheritedCodexConfig?.serviceTier;
-  let finalResult = await runCodexAgentTurn({
-    runId,
-    sessionKey,
-    ...(persistedSessionId ? { persistedSessionId } : {}),
-    prompt,
-    systemPrompt: args.systemPrompt,
-    // Scope this durability change to image_gen. Codex persists dynamic tool
-    // definitions on the engine thread, including across thread/resume.
-    tools: imageToolMetadata,
-    cwd: localCliCwd,
-    stellaDataDir: args.opts.stellaDataDir,
-    stellaAppDir: args.opts.stellaAppDir,
-    ...(args.opts.cliBridgeSocketPath
-      ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
-      : {}),
-    stellaModel: args.opts.agentContext.model,
-    // Exact inherited parent route or per-spawn Codex pin.
-    ...(codexModelOverride ? { modelOverride: codexModelOverride } : {}),
-    ...(codexReasoningEffort
-      ? {
-          reasoningEffort: codexReasoningEffort,
-          ...(inheritedCodexConfig ? { reasoningEffortResolved: true } : {}),
-        }
-      : {}),
-    ...(codexServiceTier ? { serviceTier: codexServiceTier } : {}),
-    attachments: args.opts.attachments,
-    abortSignal: args.opts.abortSignal,
-    onStatus: (status) => {
-      args.opts.onProgress?.(status);
-      args.callbacks?.onStatus?.(runEvents.recordStatus(status));
-    },
-    onReasoning: (chunk) => {
-      args.callbacks?.onReasoning?.(runEvents.recordReasoning(chunk));
-    },
-    onCommandExecution: emitCodexCommandExecution,
-    onStream: (chunk) => {
-      assistantUpdateBuffer.append(chunk);
-      args.opts.onProgress?.(chunk);
-      args.callbacks?.onStream?.(runEvents.recordStream(chunk));
-    },
-    onSessionId: persistCodexSessionId,
-    onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
-    executeTool: executeCodexTool,
-    reuseAppServer: true,
-    streamFinalAnswer: args.session.kind === "orchestrator",
-  }).catch((error) => {
-    assistantUpdateBuffer.flushOnTermination();
-    throw error;
-  });
-  assistantUpdateBuffer.discard();
+  type CodexTurnResult = Awaited<ReturnType<typeof runCodexAgentTurn>>;
+  let finalResult: CodexTurnResult | null = null;
+  let activeSessionId = persistedSessionId;
+  let nextPrompt = prompt;
+  let nextAttachments = args.opts.attachments;
 
   for (;;) {
-    const queued = args.liveAgent?.drain() ?? [];
-    if (queued.length === 0) {
-      break;
-    }
-    const queuedStarted = runEvents.recordQueuedUserMessageStart();
-    if (queuedStarted) {
-      args.callbacks?.onRunStarted?.(queuedStarted);
-    }
-    const queuedPromptMessages = queued.map(formatQueuedClaudeMessage);
-    const queuedAttachments = attachmentsFromQueuedMessages(queued);
-    const queuedPrompt = buildCodexPromptFromMessages({
-      promptMessages: queuedPromptMessages,
-    });
-    finalResult = await runCodexAgentTurn({
-      runId,
-      sessionKey,
-      persistedSessionId: finalResult.sessionId,
-      prompt: queuedPrompt,
-      systemPrompt: args.systemPrompt,
-      tools: imageToolMetadata,
-      cwd: localCliCwd,
-      stellaDataDir: args.opts.stellaDataDir,
-      stellaAppDir: args.opts.stellaAppDir,
-      ...(args.opts.cliBridgeSocketPath
-        ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
-        : {}),
-      stellaModel: args.opts.agentContext.model,
-      ...(codexModelOverride ? { modelOverride: codexModelOverride } : {}),
-      ...(codexReasoningEffort
-        ? {
-            reasoningEffort: codexReasoningEffort,
-            ...(inheritedCodexConfig ? { reasoningEffortResolved: true } : {}),
-          }
-        : {}),
-      ...(codexServiceTier ? { serviceTier: codexServiceTier } : {}),
-      attachments: queuedAttachments,
-      abortSignal: args.opts.abortSignal,
-      onStatus: (status) => {
-        args.opts.onProgress?.(status);
-        args.callbacks?.onStatus?.(runEvents.recordStatus(status));
-      },
-      onReasoning: (chunk) => {
-        args.callbacks?.onReasoning?.(runEvents.recordReasoning(chunk));
-      },
-      onCommandExecution: emitCodexCommandExecution,
-      onStream: (chunk) => {
-        assistantUpdateBuffer.append(chunk);
-        args.opts.onProgress?.(chunk);
-        args.callbacks?.onStream?.(runEvents.recordStream(chunk));
-      },
-      onSessionId: persistCodexSessionId,
-      onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
-      executeTool: executeCodexTool,
-      reuseAppServer: true,
-      streamFinalAnswer: args.session.kind === "orchestrator",
-    }).catch((error) => {
+    let nativeSteerDispatch = Promise.resolve();
+    let completedThisTurn = false;
+    try {
+      const result = await runCodexAgentTurn({
+        runId,
+        sessionKey,
+        ...(activeSessionId ? { persistedSessionId: activeSessionId } : {}),
+        prompt: nextPrompt,
+        systemPrompt: args.systemPrompt,
+        // Scope this durability change to image_gen. Codex persists dynamic
+        // tool definitions on the engine thread, including across resume.
+        tools: imageToolMetadata,
+        cwd: localCliCwd,
+        stellaDataDir: args.opts.stellaDataDir,
+        stellaAppDir: args.opts.stellaAppDir,
+        ...(args.opts.cliBridgeSocketPath
+          ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
+          : {}),
+        stellaModel: args.opts.agentContext.model,
+        ...(codexModelOverride ? { modelOverride: codexModelOverride } : {}),
+        ...(codexReasoningEffort
+          ? {
+              reasoningEffort: codexReasoningEffort,
+              ...(inheritedCodexConfig
+                ? { reasoningEffortResolved: true }
+                : {}),
+            }
+          : {}),
+        ...(codexServiceTier ? { serviceTier: codexServiceTier } : {}),
+        attachments: nextAttachments,
+        abortSignal: args.opts.abortSignal,
+        onTurnControl: ({
+          steer,
+        }: {
+          steer: (input: {
+            prompt: string;
+            attachments?: RuntimeAttachmentRef[];
+          }) => Promise<void>;
+        }) =>
+          args.liveAgent?.beginSteerableTurn(() => {
+            nativeSteerDispatch = nativeSteerDispatch.then(async () => {
+              const entries = args.liveAgent?.drainSteering() ?? [];
+              if (entries.length === 0) return;
+              const promptMessages = entries.map(formatQueuedClaudeMessage);
+              try {
+                await steer({
+                  prompt: buildCodexPromptFromMessages({ promptMessages }),
+                  attachments: attachmentsFromQueuedMessages(entries),
+                });
+                // Codex consumed these entries inside the current turn, so
+                // advance callback ownership/user attribution immediately.
+                // Waiting for turn completion would misattribute the reply to
+                // the hidden lifecycle message that preceded this steer.
+                publishQueuedUserMessageStarts({
+                  entries,
+                  runEvents,
+                  callbacks: args.callbacks,
+                });
+              } catch {
+                // The turn may have completed between notification and the
+                // app-server request. Preserve exact ordering and fall back to
+                // a normal next turn rather than losing the steering input.
+                args.liveAgent?.prepend(entries);
+              }
+            });
+          }),
+        onStatus: (status) => {
+          args.opts.onProgress?.(status);
+          args.callbacks?.onStatus?.(runEvents.recordStatus(status));
+        },
+        onReasoning: (chunk) => {
+          args.callbacks?.onReasoning?.(runEvents.recordReasoning(chunk));
+        },
+        onCommandExecution: emitCodexCommandExecution,
+        onStream: (chunk) => {
+          assistantUpdateBuffer.append(chunk);
+          args.opts.onProgress?.(chunk);
+          args.callbacks?.onStream?.(runEvents.recordStream(chunk));
+        },
+        onSessionId: (sessionId) => {
+          activeSessionId = sessionId;
+          persistCodexSessionId(sessionId);
+        },
+        onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
+        executeTool: executeCodexTool,
+        reuseAppServer: true,
+        streamFinalAnswer: args.session.kind === "orchestrator",
+      });
+      assistantUpdateBuffer.discard();
+      activeSessionId = result.sessionId;
+      finalResult = result;
+      completedThisTurn = true;
+    } catch (error) {
       assistantUpdateBuffer.flushOnTermination();
       throw error;
+    }
+    await nativeSteerDispatch;
+
+    const queued = args.liveAgent?.drain() ?? [];
+    if (queued.length === 0) {
+      if (completedThisTurn && finalResult) {
+        // Atomically make late input ineligible for this completed engine
+        // turn before assistant persistence yields back to the event loop.
+        args.liveAgent?.finish();
+        break;
+      }
+      throw new Error("External engine steering message was lost.");
+    }
+    publishQueuedUserMessageStarts({
+      entries: queued,
+      runEvents,
+      callbacks: args.callbacks,
     });
-    assistantUpdateBuffer.discard();
+    const queuedPromptMessages = queued.map(formatQueuedClaudeMessage);
+    const queuedAttachments = attachmentsFromQueuedMessages(queued);
+    nextPrompt = buildCodexPromptFromMessages({
+      promptMessages: queuedPromptMessages,
+    });
+    nextAttachments = queuedAttachments;
+  }
+
+  if (!finalResult) {
+    throw new Error("Codex completed without a final result.");
   }
 
   await persistAssistantReply({
@@ -1378,6 +1467,17 @@ export const runExternalSubagentTurn = async (
     const session = createExternalSubagentRunSession(opts, {
       runId: opts.runId ?? `local:sub:${crypto.randomUUID()}`,
     });
+    const liveAgent = createExternalLiveAgent();
+    const detachLiveAgent = opts.subagentSession?.attachExternalLiveAgent?.(
+      liveAgent.agent,
+      {
+        store: opts.store,
+        runId: session.runId,
+        ...(typeof opts.agentContext.attemptGeneration === "number"
+          ? { attemptGeneration: opts.agentContext.attemptGeneration }
+          : {}),
+      },
+    );
 
     try {
       const promptMessages = await buildSubagentPromptMessages({
@@ -1405,6 +1505,7 @@ export const runExternalSubagentTurn = async (
         systemPrompt,
         promptMessages,
         callbacks: opts.callbacks,
+        liveAgent,
       });
       const finalized = await session.finalizeSuccess(result.finalText);
       if (result.fileChanges?.length) {
@@ -1420,12 +1521,26 @@ export const runExternalSubagentTurn = async (
         return session.finalizeInterrupted(interruptedReason);
       }
       return session.finalizeError(error);
+    } finally {
+      detachLiveAgent?.();
+      liveAgent.finish();
     }
   }
 
   const session = createExternalSubagentRunSession(opts, {
     runId: opts.runId ?? `local:sub:${crypto.randomUUID()}`,
   });
+  const liveAgent = createExternalLiveAgent();
+  const detachLiveAgent = opts.subagentSession?.attachExternalLiveAgent?.(
+    liveAgent.agent,
+    {
+      store: opts.store,
+      runId: session.runId,
+      ...(typeof opts.agentContext.attemptGeneration === "number"
+        ? { attemptGeneration: opts.agentContext.attemptGeneration }
+        : {}),
+    },
+  );
 
   try {
     const promptMessages = await buildSubagentPromptMessages({
@@ -1454,6 +1569,7 @@ export const runExternalSubagentTurn = async (
       systemPrompt,
       promptMessages,
       callbacks: opts.callbacks,
+      liveAgent,
     });
     const finalized = await session.finalizeSuccess(result.finalText);
     // Vanilla-mode Claude Code executes its own file tools, so no Stella
@@ -1473,6 +1589,9 @@ export const runExternalSubagentTurn = async (
       return session.finalizeInterrupted(interruptedReason);
     }
     return session.finalizeError(error);
+  } finally {
+    detachLiveAgent?.();
+    liveAgent.finish();
   }
 };
 

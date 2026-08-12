@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   applyAnchoredEdit,
-  formatWithHashLines,
   hashLineTag,
   parseAnchor,
   resolveAnchor,

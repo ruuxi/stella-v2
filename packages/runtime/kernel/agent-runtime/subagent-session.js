@@ -15,6 +15,7 @@ export class SubagentSession extends PiSessionCore {
     conversationId;
     agentType;
     currentSteeringContext = null;
+    externalLiveAgent = null;
     currentRetryStatusContext = null;
     currentImageDescriptionContext = null;
     handleProviderRetry = (info) => {
@@ -48,7 +49,8 @@ export class SubagentSession extends PiSessionCore {
         this.agentType = agentType;
     }
     get canSteer() {
-        return this.canSteerLiveAgent;
+        return (this.externalLiveAgent?.state.isStreaming === true ||
+            this.canSteerLiveAgent);
     }
     steer(text) {
         const prompt = text.trim();
@@ -68,7 +70,26 @@ export class SubagentSession extends PiSessionCore {
                 ? { attemptGeneration: context.attemptGeneration }
                 : {}),
         });
+        if (this.externalLiveAgent?.state.isStreaming === true) {
+            this.externalLiveAgent.steer(message);
+            return true;
+        }
         return this.steerLiveAgent(message);
+    }
+    /**
+     * Attach the engine-neutral steering facade used by Claude Code/Codex to
+     * this durable subagent session. LocalAgentManager can then steer an
+     * external General agent through the same `session.steer()` path as Pi.
+     */
+    attachExternalLiveAgent(agent, context) {
+        this.externalLiveAgent = agent;
+        this.currentSteeringContext = context;
+        return () => {
+            if (this.externalLiveAgent === agent) {
+                this.externalLiveAgent = null;
+                this.currentSteeringContext = null;
+            }
+        };
     }
     async runTurn(opts) {
         const prompt = opts.userPrompt.trim();
@@ -386,6 +407,7 @@ export class SubagentSession extends PiSessionCore {
     }
     dispose() {
         super.dispose();
+        this.externalLiveAgent = null;
         this.currentSteeringContext = null;
         this.currentRetryStatusContext = null;
         this.currentImageDescriptionContext = null;

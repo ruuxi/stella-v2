@@ -483,24 +483,7 @@ export function useStreamingChatCore({
       const platform = getPlatform()
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
       const requestLocale = locale
-      // `drainingQueuedMessageIdRef` covers the gap between a drain kicking
-      // off `startStream` and `isStreaming` flipping true: a message
-      // submitted inside that window must queue for the NEXT drain, not
-      // start a competing turn mid-drain.
-      const shouldQueueFollowUp =
-        (isStreaming || drainingQueuedMessageIdRef.current !== null) &&
-        (!pendingUserMessageId ||
-          !persistedMessages.some((message) => {
-            if (message.type !== 'assistant_message') return false
-            if (!message.payload || typeof message.payload !== 'object') return false
-            return (
-              (message.payload as { userMessageId?: string }).userMessageId
-              === pendingUserMessageId
-            )
-          }))
-      const mode = shouldQueueFollowUp ? 'follow_up' : undefined
       const optimisticUserMessageId = createLocalMessageId()
-      const queueOrder = ++queuedMessageOrderRef.current
       const optimisticText =
         cleanedText || options.selectedText?.trim() || 'Attached context'
 
@@ -523,13 +506,11 @@ export function useStreamingChatCore({
         attachments: toDisplayAttachments(attachments),
       })
 
-      if (mode !== 'follow_up') {
-        setOptimisticEvents((current) => [
-          ...current,
-          optimisticEvent,
-        ])
-        setPendingUserMessageId(optimisticUserMessageId)
-      }
+      setOptimisticEvents((current) => [
+        ...current,
+        optimisticEvent,
+      ])
+      setPendingUserMessageId(optimisticUserMessageId)
 
       // Fire-and-forget: surface a "model not available on your plan"
       // toast for restricted tiers (anonymous/free/go) when the user has a
@@ -538,44 +519,8 @@ export function useStreamingChatCore({
       // it doesn't spam on every send.
       void notifyTierRestrictedModel?.()
 
-      if (mode === 'follow_up') {
-        console.log(
-          `[stella:trace] sendMessage (follow_up queued) | convId=${resolvedConversationId}`,
-        )
-        queueDrainPausedRef.current = false
-        queuedStreamPayloadsRef.current = orderQueuedMessages([
-          ...queuedStreamPayloadsRef.current,
-          {
-            id: optimisticUserMessageId,
-            queueOrder,
-            conversationId: resolvedConversationId,
-            userPrompt: cleanedText,
-            selectedText: options.selectedText,
-            chatContext: options.chatContext,
-            deviceId,
-            platform,
-            timezone,
-            locale: requestLocale,
-            ...(messageMetadata ? { messageMetadata } : {}),
-            attachments,
-            optimisticEvent,
-          },
-        ])
-        setQueuedUserMessages((current) => orderQueuedMessages([
-          ...current,
-          {
-            id: optimisticUserMessageId,
-            text: optimisticText,
-            timestamp: messageTimestamp,
-            queueOrder,
-          },
-        ]))
-        drainQueuedMessagesIfIdle()
-        return
-      }
-
       console.log(
-        `[stella:trace] sendMessage | convId=${resolvedConversationId} | text=${cleanedText.slice(0, 200)}`,
+        `[stella:trace] sendMessage (steer) | convId=${resolvedConversationId} | text=${cleanedText.slice(0, 200)}`,
       )
       startStream({
         userPrompt: cleanedText,
@@ -596,12 +541,8 @@ export function useStreamingChatCore({
     },
     [
       activeConversationId,
-      drainQueuedMessagesIfIdle,
       isLocalStorage,
-      isStreaming,
       notifyTierRestrictedModel,
-      pendingUserMessageId,
-      persistedMessages,
       startStream,
       locale,
       setPendingUserMessageId,

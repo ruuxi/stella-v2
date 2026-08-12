@@ -1044,6 +1044,36 @@ describe("subscribeRuntimeAgentEvents", () => {
   });
 });
 
+describe("queued user steer visibility", () => {
+  it("keeps hidden context hidden, then promotes the consumed user steer", () => {
+    const store = { recordRunEvent: vi.fn() };
+    const recorder = createRunEventRecorder({
+      store: store as never,
+      runId: "run-hidden",
+      conversationId: "conversation-1",
+      agentType: AGENT_IDS.ORCHESTRATOR,
+      userMessageId: "hidden-lifecycle-message",
+      uiVisibility: "hidden",
+    });
+    const onStart = vi.fn();
+
+    expect(recorder.recordStatus("processing agent result").uiVisibility).toBe(
+      "hidden",
+    );
+    recorder.queueUserMessageId("user-steer", onStart, "visible");
+
+    expect(recorder.recordQueuedUserMessageStart()).toMatchObject({
+      userMessageId: "user-steer",
+      uiVisibility: "visible",
+    });
+    expect(onStart).toHaveBeenCalledOnce();
+    expect(recorder.recordStream("reply")).toMatchObject({
+      userMessageId: "user-steer",
+      uiVisibility: "visible",
+    });
+  });
+});
+
 describe("sensitive runtime event payloads", () => {
   it("redacts reasoning, status, tool events, and persisted previews before dispatch", () => {
     const store = { recordRunEvent: vi.fn() };

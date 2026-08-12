@@ -4,7 +4,9 @@ import {
   desktopSyncJoinPlan,
   DESKTOP_TASK_POLL_MS,
   DESKTOP_TASK_POLL_PUSH_VERIFY_MS,
+  desktopLiveConnectionSyncPlan,
   desktopTaskPollIntervalMs,
+  mergeDeferredDesktopSyncIntent,
   shouldArmDesktopTaskPoll,
   shouldDeferLocalChatPushDuringSend,
   shouldStartDesktopSyncRun,
@@ -105,6 +107,60 @@ describe("shouldDeferLocalChatPushDuringSend", () => {
         sending: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("mergeDeferredDesktopSyncIntent", () => {
+  test("preserves reconnect catch-up intent across later ordinary pushes", () => {
+    const reconnect = mergeDeferredDesktopSyncIntent(null, true);
+    expect(mergeDeferredDesktopSyncIntent(reconnect, false)).toEqual({
+      catchUp: true,
+    });
+  });
+
+  test("upgrades an already-deferred delta to catch-up", () => {
+    const push = mergeDeferredDesktopSyncIntent(null, false);
+    expect(mergeDeferredDesktopSyncIntent(push, true)).toEqual({
+      catchUp: true,
+    });
+  });
+});
+
+describe("desktopLiveConnectionSyncPlan", () => {
+  test("keeps the first socket connection on the cursor delta", () => {
+    expect(
+      desktopLiveConnectionSyncPlan({
+        reconnected: false,
+        foregroundResume: false,
+      }),
+    ).toEqual({
+      catchUp: false,
+      trigger: "push-connect",
+    });
+  });
+
+  test("does not duplicate the Computer surface's foreground catch-up", () => {
+    expect(
+      desktopLiveConnectionSyncPlan({
+        reconnected: true,
+        foregroundResume: true,
+      }),
+    ).toEqual({
+      catchUp: false,
+      trigger: "push-resume-connect",
+    });
+  });
+
+  test("uses the bounded catch-up window after a genuine socket gap", () => {
+    expect(
+      desktopLiveConnectionSyncPlan({
+        reconnected: true,
+        foregroundResume: false,
+      }),
+    ).toEqual({
+      catchUp: true,
+      trigger: "push-reconnect",
+    });
   });
 });
 

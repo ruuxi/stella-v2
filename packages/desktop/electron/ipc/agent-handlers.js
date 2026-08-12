@@ -18,6 +18,26 @@ const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1000;
  * duplicate run; we just hand back the original `requestId`.
  */
 const CLIENT_REQUEST_DEDUPE_TTL_MS = 5 * 60 * 1000;
+// The worker persists the canonical user row before it enters orchestrator
+// dispatch. A mobile send should be acknowledged from that durable receipt,
+// even when the active turn has not consumed the steer yet. Keep this window
+// short; if persistence itself is delayed, fall back to the normal startChat
+// result/error path instead of claiming acceptance prematurely.
+const DURABLE_CHAT_ACCEPTANCE_WAIT_MS = 2_000;
+const waitForDurableChatAcceptance = async (history, eventId) => {
+    // Give an already-resolved startChat call its microtask first so normal
+    // starts retain their concrete runId; durable acceptance wins only when
+    // execution is genuinely still pending.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const deadline = Date.now() + DURABLE_CHAT_ACCEPTANCE_WAIT_MS;
+    while (Date.now() < deadline) {
+        if (history.hasEventId({ eventId, type: "user_message" })) {
+            return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return history.hasEventId({ eventId, type: "user_message" });
+};
 const requestIdForClientSend = (clientRequestId) => `req:client:${crypto.createHash("sha256").update(clientRequestId).digest("hex").slice(0, 32)}`;
 /**
  * Mobile clients (the desktop-bridge chat) abort a run after a fixed window
@@ -62,6 +82,10 @@ export const registerAgentHandlers = (options) => {
     const conversationEventBuffers = new Map();
     const clientRequestIndex = new Map();
     const clientRequestKeyByRequestId = new Map();
+    // A mobile send can be durably accepted before the runtime has assigned
+    // its root run id. Preserve Stop against that stable request identity and
+    // apply it as soon as the delayed run-start boundary arrives.
+    const pendingCancelRequestIds = new Set();
     // Timestamp of the most recent frame pushed to mobile on the `agent:event`
     // channel (real events and keepalives alike). The keepalive ticker uses it
     // to avoid piling frames on top of an already-chatty run.
@@ -222,6 +246,7 @@ export const registerAgentHandlers = (options) => {
             if (linkedRequestId) {
                 requestOwners.delete(linkedRequestId);
                 requestToRunId.delete(linkedRequestId);
+                pendingCancelRequestIds.delete(linkedRequestId);
                 runToRequestId.delete(runId);
                 const clientRequestKey = clientRequestKeyByRequestId.get(linkedRequestId);
                 if (clientRequestKey) {
@@ -516,11 +541,15 @@ export const registerAgentHandlers = (options) => {
                     eventId: stableUserMessageId,
                     type: "user_message",
                 })) {
+                const activeReplay = activeRunByConversation.get(payload.conversationId);
                 return {
                     requestId: stableRequestId,
                     userMessageId: stableUserMessageId,
                     accepted: true,
                     deduplicated: true,
+                    ...(activeReplay?.userMessageId === stableUserMessageId
+                        ? { runId: activeReplay.runId }
+                        : {}),
                 };
             }
             const existing = clientRequestIndex.get(clientRequestId);
@@ -531,6 +560,9 @@ export const registerAgentHandlers = (options) => {
                 // until the run event or a later persisted replay proves acceptance.
                 return {
                     requestId: existing.requestId,
+                    ...(requestToRunId.get(existing.requestId)
+                        ? { runId: requestToRunId.get(existing.requestId) }
+                        : {}),
                     ...(stableUserMessageId
                         ? { userMessageId: stableUserMessageId, accepted: false }
                         : {}),
@@ -549,6 +581,7 @@ export const registerAgentHandlers = (options) => {
             clientRequestKeyByRequestId.set(requestId, clientRequestId);
         }
         const releaseClientRequest = () => {
+            pendingCancelRequestIds.delete(requestId);
             if (clientRequestId) {
                 clientRequestIndex.delete(clientRequestId);
                 clientRequestKeyByRequestId.delete(requestId);
@@ -585,7 +618,7 @@ export const registerAgentHandlers = (options) => {
             }, senderWebContentsId);
             scheduleRunCleanup(args.runId, requestId);
         };
-        await stellaHostRunner
+        const localChatStartPromise = stellaHostRunner
             .handleLocalChat({
             ...payload,
             requestId,
@@ -617,6 +650,9 @@ export const registerAgentHandlers = (options) => {
                     ...(ev.uiVisibility ? { uiVisibility: ev.uiVisibility } : {}),
                     ...(ev.agentType ? { agentType: ev.agentType } : {}),
                 }, senderWebContentsId);
+                if (pendingCancelRequestIds.delete(requestId)) {
+                    stellaHostRunner.cancelLocalChat(ev.runId);
+                }
             },
             onStream: (ev) => emitAgentEvent({
                 ...ev,
@@ -718,8 +754,35 @@ export const registerAgentHandlers = (options) => {
             releaseClientRequest();
             throw error;
         });
+        let localChatStart;
+        if (stableUserMessageId) {
+            const startOutcome = await Promise.race([
+                localChatStartPromise.then((value) => ({ kind: "started", value })),
+                waitForDurableChatAcceptance(options.localChatHistoryService, stableUserMessageId).then((accepted) => ({ kind: accepted ? "accepted" : "pending" })),
+            ]);
+            if (startOutcome.kind === "accepted") {
+                // Runtime delivery continues on the same request/callbacks. Any
+                // later run-start event supplies the concrete run id; the phone
+                // can clear its outbox now because the canonical row is durable.
+                void localChatStartPromise.catch((error) => {
+                    console.error("[chat] Durably accepted chat failed before runtime run start:", error instanceof Error ? error.message : String(error));
+                });
+                return {
+                    requestId,
+                    userMessageId: stableUserMessageId,
+                    accepted: true,
+                };
+            }
+            localChatStart = startOutcome.kind === "started"
+                ? startOutcome.value
+                : await localChatStartPromise;
+        }
+        else {
+            localChatStart = await localChatStartPromise;
+        }
         return {
             requestId,
+            ...(localChatStart?.runId ? { runId: localChatStart.runId } : {}),
             ...(stableUserMessageId
                 ? { userMessageId: stableUserMessageId, accepted: true }
                 : {}),
@@ -736,13 +799,34 @@ export const registerAgentHandlers = (options) => {
         await stellaHostRunner.waitUntilConnected(5_000);
         return await stellaHostRunner.sendAgentInput(payload);
     });
-    ipcMain.on("agent:cancelChat", (event, runId) => {
+    ipcMain.on("agent:cancelChat", (event, target) => {
         if (!options.assertPrivilegedSender(event, "agent:cancelChat")) {
             return;
         }
         const stellaHostRunner = options.getStellaHostRunner();
-        if (stellaHostRunner && typeof runId === "string") {
+        if (!stellaHostRunner) {
+            return;
+        }
+        const explicitRunId = typeof target === "string"
+            ? target.trim()
+            : typeof target?.runId === "string"
+                ? target.runId.trim()
+                : "";
+        const requestId = typeof target === "object" &&
+            target !== null &&
+            typeof target.requestId === "string"
+            ? target.requestId.trim()
+            : "";
+        const runId = explicitRunId || (requestId ? requestToRunId.get(requestId) : "");
+        if (runId) {
+            if (requestId) {
+                pendingCancelRequestIds.delete(requestId);
+            }
             stellaHostRunner.cancelLocalChat(runId);
+            return;
+        }
+        if (requestId) {
+            pendingCancelRequestIds.add(requestId);
         }
     });
     // Dev-only: trigger/fix a Vite compile error for testing the error overlay

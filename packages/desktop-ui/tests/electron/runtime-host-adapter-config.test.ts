@@ -249,4 +249,59 @@ describe("RuntimeHostAdapter resumed chat sessions", () => {
       expect.objectContaining({ chunk: "visible reply" }),
     );
   });
+
+  it("transfers same-run callback ownership to the consumed steer request", () => {
+    const adapter = createAdapter();
+    const first = createCallbacks();
+    const second = createCallbacks();
+
+    adapter.attachResumedLocalChatSession(
+      {
+        conversationId: "conversation-1",
+        runId: "run-1",
+        requestId: "request-1",
+        active: true,
+      },
+      first,
+    );
+    adapter.attachResumedLocalChatSession(
+      {
+        conversationId: "conversation-1",
+        runId: "run-1",
+        requestId: "request-2",
+        active: false,
+      },
+      second,
+    );
+
+    emitRunEvent(adapter, {
+      type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
+      runId: "run-1",
+      seq: 2,
+      conversationId: "conversation-1",
+      requestId: "request-2",
+      userMessageId: "message-2",
+    });
+
+    const sessions = (adapter as any).localChatSessions as Map<
+      string,
+      { activeRunIds: Set<string>; knownRunIds: Set<string> }
+    >;
+    expect(sessions.get("request-1")?.activeRunIds.has("run-1")).toBe(false);
+    expect(sessions.get("request-1")?.knownRunIds.has("run-1")).toBe(false);
+    expect(sessions.get("request-2")?.activeRunIds.has("run-1")).toBe(true);
+
+    emitRunEvent(adapter, {
+      type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
+      runId: "run-1",
+      seq: 3,
+      conversationId: "conversation-1",
+      requestId: "request-2",
+      outcome: "completed",
+    });
+
+    expect(first.onRunFinished).not.toHaveBeenCalled();
+    expect(second.onRunFinished).toHaveBeenCalledTimes(1);
+    expect(sessions.get("request-2")?.activeRunIds.has("run-1")).toBe(false);
+  });
 });

@@ -66,6 +66,10 @@ export class RuntimeHostAdapter {
                     this.activeRun = null;
                 }
             }
+            if (event.type === AGENT_STREAM_EVENT_TYPES.RUN_STARTED &&
+                event.requestId) {
+                this.transferLocalChatRunOwnership(event.runId, event.requestId, event.conversationId);
+            }
             let dispatched = false;
             if (event.requestId) {
                 dispatched = this.dispatchLocalChatSessionEvent(event.requestId, event);
@@ -90,6 +94,29 @@ export class RuntimeHostAdapter {
     clearLocalChatSessions() {
         for (const requestId of [...this.localChatSessions.keys()]) {
             this.clearLocalChatSession(requestId);
+        }
+    }
+    transferLocalChatRunOwnership(runId, nextRequestId, conversationId) {
+        for (const [requestId, session] of this.localChatSessions.entries()) {
+            if (requestId === nextRequestId) {
+                continue;
+            }
+            if (typeof conversationId === "string" &&
+                session.conversationId !== conversationId) {
+                continue;
+            }
+            const owned = session.activeRunIds.delete(runId) ||
+                session.knownRunIds.delete(runId);
+            if (!owned) {
+                continue;
+            }
+            session.knownRunIds.delete(runId);
+            for (const taskKey of [...session.activeTaskIds]) {
+                if (taskKey.startsWith(`${runId}:`)) {
+                    session.activeTaskIds.delete(taskKey);
+                }
+            }
+            this.scheduleLocalChatSessionCleanup(requestId);
         }
     }
     scheduleLocalChatSessionCleanup(requestId) {

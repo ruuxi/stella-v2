@@ -5,6 +5,7 @@ import {
   linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
+  retargetOptimisticReplyToUser,
 } from "../chat-merge";
 
 const user = (
@@ -714,8 +715,14 @@ describe("interrupted streaming snapshots (orphaned partial assistant rows)", ()
       }),
       // Interruption #1 and #2: replayed dispatches streamed into fresh rows;
       // both partials carry the turn linkage stamped at desktop acceptance.
-      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
-      assistant("partial-2", PARTIAL_2, { requestId: "desk-u", createdAt: 102 }),
+      assistant("partial-1", PARTIAL_1, {
+        requestId: "desk-u",
+        createdAt: 101,
+      }),
+      assistant("partial-2", PARTIAL_2, {
+        requestId: "desk-u",
+        createdAt: 102,
+      }),
     ];
     const merged = mergeMessagesById(current, [
       assistant("desk-a", FULL_TEXT, {
@@ -739,8 +746,14 @@ describe("interrupted streaming snapshots (orphaned partial assistant rows)", ()
         canonicalId: "desk-u",
         createdAt: 100,
       }),
-      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
-      assistant("partial-2", PARTIAL_2, { requestId: "desk-u", createdAt: 102 }),
+      assistant("partial-1", PARTIAL_1, {
+        requestId: "desk-u",
+        createdAt: 101,
+      }),
+      assistant("partial-2", PARTIAL_2, {
+        requestId: "desk-u",
+        createdAt: 102,
+      }),
       assistant("desk-a", FULL_TEXT, {
         requestId: "desk-u",
         createdAt: 110,
@@ -789,7 +802,10 @@ describe("interrupted streaming snapshots (orphaned partial assistant rows)", ()
   test("whitespace normalization differences do not block the sweep", () => {
     // The canonical text carries a blank line the raw streamed chunks did not.
     const healed = collapseLinkedDuplicates([
-      assistant("partial-1", "First li", { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-1", "First li", {
+        requestId: "desk-u",
+        createdAt: 101,
+      }),
       assistant("partial-2", "First line\nsecond li", {
         requestId: "desk-u",
         createdAt: 102,
@@ -808,7 +824,10 @@ describe("interrupted streaming snapshots (orphaned partial assistant rows)", ()
   test("adopts a swept snapshot's artifacts when the surviving row has none", () => {
     const card = agentCard("agent-work:agent-1", "running", 100, ["agent-1"]);
     const healed = collapseLinkedDuplicates([
-      assistant("partial-1", PARTIAL_1, { requestId: "desk-u", createdAt: 101 }),
+      assistant("partial-1", PARTIAL_1, {
+        requestId: "desk-u",
+        createdAt: 101,
+      }),
       assistant("partial-2", PARTIAL_2, {
         requestId: "desk-u",
         createdAt: 102,
@@ -1078,5 +1097,51 @@ describe("linkOptimisticTurnToCanonical (interrupted/stopped turn)", () => {
     expect(usersA).toHaveLength(1);
     expect(usersA[0]?.id).toBe("local-u");
     expect(usersA[0]?.canonicalId).toBe("desk-u");
+  });
+});
+
+describe("retargetOptimisticReplyToUser (rapid mobile steering)", () => {
+  test("moves one stable reply row after each consumed steer", () => {
+    const initial = [
+      user("u1", "first", { createdAt: 100 }),
+      assistant("a", "partial", { requestId: "u1", createdAt: 101 }),
+      user("u2", "second", { createdAt: 102, queued: true }),
+      user("u3", "third", { createdAt: 103, queued: true }),
+    ];
+
+    const afterU2 = retargetOptimisticReplyToUser(initial, {
+      replyId: "a",
+      userMessageId: "u2",
+    });
+    expect(ids(afterU2)).toEqual(["u1", "u2", "a", "u3"]);
+    expect(afterU2.find((message) => message.id === "a")?.requestId).toBe("u2");
+    expect(afterU2.find((message) => message.id === "u2")?.queued).toBe(false);
+
+    const afterU3 = retargetOptimisticReplyToUser(afterU2, {
+      replyId: "a",
+      userMessageId: "u3",
+    });
+    expect(ids(afterU3)).toEqual(["u1", "u2", "u3", "a"]);
+    expect(
+      afterU3.filter((message) => message.role === "assistant"),
+    ).toHaveLength(1);
+    expect(afterU3.at(-1)?.requestId).toBe("u3");
+  });
+
+  test("lets the latest canonical assistant merge into that same row", () => {
+    const current = retargetOptimisticReplyToUser(
+      [
+        user("u1", "first"),
+        assistant("local-a", "partial", { requestId: "u1" }),
+        user("u2", "steer"),
+      ],
+      { replyId: "local-a", userMessageId: "u2" },
+    );
+    const merged = mergeMessagesById(current, [
+      assistant("desk-a", "final", { requestId: "u2" }),
+    ]);
+    expect(ids(merged)).toEqual(["u1", "u2", "local-a"]);
+    expect(merged.at(-1)?.text).toBe("final");
+    expect(merged.at(-1)?.canonicalId).toBe("desk-a");
   });
 });

@@ -692,6 +692,49 @@ export const linkOptimisticTurnToCanonical = (
 };
 
 /**
+ * Move the one optimistic assistant row to the user message whose steer the
+ * runtime has just started consuming. Rapid mobile sends share one root reply
+ * observer, so creating one assistant placeholder per send would duplicate the
+ * same streamed answer. Repositioning preserves the reply id/component while
+ * keeping transcript order honest across successive response boundaries.
+ */
+export const retargetOptimisticReplyToUser = (
+  messages: ChatMessage[],
+  {
+    replyId,
+    userMessageId,
+  }: {
+    replyId: string;
+    userMessageId: string;
+  },
+): ChatMessage[] => {
+  const replyIndex = messages.findIndex((message) => message.id === replyId);
+  const userIndex = messages.findIndex(
+    (message) => message.id === userMessageId && message.role === "user",
+  );
+  if (replyIndex < 0 || userIndex < 0) return messages;
+
+  const reply = messages[replyIndex]!;
+  const withoutReply = messages.filter((message) => message.id !== replyId);
+  const targetIndex = withoutReply.findIndex(
+    (message) => message.id === userMessageId,
+  );
+  if (targetIndex < 0) return messages;
+
+  const next = [...withoutReply];
+  next[targetIndex] = { ...next[targetIndex]!, queued: false };
+  next.splice(targetIndex + 1, 0, {
+    ...reply,
+    requestId: userMessageId,
+    createdAt: Math.max(
+      reply.createdAt ?? 0,
+      next[targetIndex]!.createdAt ?? 0,
+    ),
+  });
+  return next;
+};
+
+/**
  * After a phone-sent desktop turn completes, swap the optimistic local user
  * bubble and streamed reply for their canonical desktop rows (keeping local
  * ids stable), then merge any other turns that happened on the desktop.

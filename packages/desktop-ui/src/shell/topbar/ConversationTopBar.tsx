@@ -884,7 +884,11 @@ export function ConversationTopBar() {
   const showHomeLauncher = shouldRenderConversationHomeLauncher(tabs.length);
 
   return (
-    <div className="conversation-topbar" data-testid="conversation-topbar">
+    <div
+      className="conversation-topbar"
+      data-testid="conversation-topbar"
+      data-working-mode={assistantWorkingMode}
+    >
       <Popover
         open={historyOpen}
         onOpenChange={(open) => {

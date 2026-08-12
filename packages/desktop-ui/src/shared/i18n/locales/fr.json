@@ -98,6 +98,31 @@
       "none": "Vous utilisez déjà les réglages par défaut de Stella.",
       "error": "Impossible de restaurer les réglages par défaut."
     },
+    "systemPrompt": {
+      "title": "Prompt système",
+      "description": "Le prompt par défaut de Stella se met toujours à jour avec l'app. Enregistrez le vôtre pour l'utiliser à la place : il est conservé séparément, donc les mises à jour ne l'écrasent jamais.",
+      "agentLabel": "Prompt pour",
+      "agentSublabel": "Choisissez l'agent dont vous voulez changer le prompt.",
+      "activeLabel": "Prompt actif",
+      "defaultOption": "Par défaut de Stella",
+      "usingDefault": "Utilise le prompt par défaut de Stella.",
+      "usingCustom": "Utilise votre prompt enregistré.",
+      "newFromDefault": "Nouveau depuis le défaut",
+      "edit": "Modifier",
+      "duplicate": "Dupliquer",
+      "delete": "Supprimer",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "nameLabel": "Nom",
+      "newName": "Mon prompt",
+      "saved": "Prompt enregistré.",
+      "deleted": "Prompt supprimé.",
+      "error": "Une erreur est survenue.",
+      "agents": {
+        "assistant": "Assistant",
+        "worker": "Exécutant"
+      }
+    },
     "permissions": {
       "title": "Autorisations",
       "enable": "Activer",

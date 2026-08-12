@@ -98,6 +98,31 @@
       "none": "You're already using Stella's defaults.",
       "error": "Could not restore defaults."
     },
+    "systemPrompt": {
+      "title": "System prompt",
+      "description": "Stella's default prompt always updates with the app. Save your own prompt to use instead — it's kept separately, so updates never overwrite it.",
+      "agentLabel": "Prompt for",
+      "agentSublabel": "Choose which agent's prompt to change.",
+      "activeLabel": "Active prompt",
+      "defaultOption": "Stella's default",
+      "usingDefault": "Using Stella's default prompt.",
+      "usingCustom": "Using your saved prompt.",
+      "newFromDefault": "New from default",
+      "edit": "Edit",
+      "duplicate": "Duplicate",
+      "delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel",
+      "nameLabel": "Name",
+      "newName": "My prompt",
+      "saved": "Prompt saved.",
+      "deleted": "Prompt deleted.",
+      "error": "Something went wrong.",
+      "agents": {
+        "assistant": "Assistant",
+        "worker": "Worker"
+      }
+    },
     "permissions": {
       "title": "Permissions",
       "enable": "Enable",

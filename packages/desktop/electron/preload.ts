@@ -105,6 +105,11 @@ import {
   IPC_PREFERENCES_GET_WAKE_WORD,
   IPC_PREFERENCES_SET_WAKE_WORD,
   IPC_CUSTOMIZATIONS_RESET,
+  IPC_PROMPT_PRESETS_LIST,
+  IPC_PROMPT_PRESETS_READ,
+  IPC_PROMPT_PRESETS_SAVE,
+  IPC_PROMPT_PRESETS_DELETE,
+  IPC_PROMPT_PRESETS_SELECT,
   IPC_PREFERENCES_GET_PERSONALITY_VOICE,
   IPC_PREFERENCES_SET_PERSONALITY_VOICE,
   IPC_SHELL_SAVE_FILE_AS,
@@ -1183,6 +1188,45 @@ contextBridge.exposeInMainWorld("electronAPI", {
         IPC_PREFERENCES_SET_PERSONALITY_VOICE,
         voiceId,
       ) as Promise<{ ok: boolean; voiceId: string }>,
+    listPromptPresets: (agentId: string) =>
+      ipcRenderer.invoke(IPC_PROMPT_PRESETS_LIST, agentId) as Promise<{
+        presets: Array<{ id: string; name: string; agentId: string }>;
+        selectedId: string;
+      }>,
+    readPromptPreset: (agentId: string, presetId: string) =>
+      ipcRenderer.invoke(
+        IPC_PROMPT_PRESETS_READ,
+        agentId,
+        presetId,
+      ) as Promise<{
+        id: string;
+        name: string;
+        agentId: string;
+        content: string;
+      } | null>,
+    savePromptPreset: (payload: {
+      agentId: string;
+      id?: string;
+      name: string;
+      content: string;
+      select?: boolean;
+    }) =>
+      ipcRenderer.invoke(IPC_PROMPT_PRESETS_SAVE, payload) as Promise<
+        | { ok: true; preset: { id: string; name: string; agentId: string } }
+        | { ok: false; error: string }
+      >,
+    deletePromptPreset: (agentId: string, presetId: string) =>
+      ipcRenderer.invoke(
+        IPC_PROMPT_PRESETS_DELETE,
+        agentId,
+        presetId,
+      ) as Promise<{ ok: boolean; selectedId: string }>,
+    selectPromptPreset: (agentId: string, presetId: string) =>
+      ipcRenderer.invoke(
+        IPC_PROMPT_PRESETS_SELECT,
+        agentId,
+        presetId,
+      ) as Promise<{ ok: boolean; selectedId: string }>,
     resetCustomizations: () =>
       ipcRenderer.invoke(IPC_CUSTOMIZATIONS_RESET) as Promise<{
         ok: boolean;

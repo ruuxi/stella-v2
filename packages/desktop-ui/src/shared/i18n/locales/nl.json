@@ -98,6 +98,31 @@
       "none": "Je gebruikt al Stella's standaardinstellingen.",
       "error": "Kon de standaarden niet herstellen."
     },
+    "systemPrompt": {
+      "title": "Systeemprompt",
+      "description": "Stella's standaardprompt wordt altijd met de app bijgewerkt. Sla je eigen prompt op om die in plaats daarvan te gebruiken — hij wordt apart bewaard, dus updates overschrijven hem nooit.",
+      "agentLabel": "Prompt voor",
+      "agentSublabel": "Kies van welke agent je de prompt wilt wijzigen.",
+      "activeLabel": "Actieve prompt",
+      "defaultOption": "Stella's standaard",
+      "usingDefault": "Gebruikt Stella's standaardprompt.",
+      "usingCustom": "Gebruikt je opgeslagen prompt.",
+      "newFromDefault": "Nieuw vanaf standaard",
+      "edit": "Bewerken",
+      "duplicate": "Dupliceren",
+      "delete": "Verwijderen",
+      "save": "Opslaan",
+      "cancel": "Annuleren",
+      "nameLabel": "Naam",
+      "newName": "Mijn prompt",
+      "saved": "Prompt opgeslagen.",
+      "deleted": "Prompt verwijderd.",
+      "error": "Er ging iets mis.",
+      "agents": {
+        "assistant": "Assistent",
+        "worker": "Uitvoerder"
+      }
+    },
     "permissions": {
       "title": "Machtigingen",
       "enable": "Inschakelen",

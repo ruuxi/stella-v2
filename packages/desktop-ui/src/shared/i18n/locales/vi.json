@@ -98,6 +98,31 @@
       "none": "Bạn đang dùng mặc định của Stella rồi.",
       "error": "Không thể khôi phục mặc định."
     },
+    "systemPrompt": {
+      "title": "Lời nhắc hệ thống",
+      "description": "Lời nhắc mặc định của Stella luôn cập nhật cùng ứng dụng. Lưu lời nhắc của riêng bạn để dùng thay thế — nó được giữ riêng nên bản cập nhật không bao giờ ghi đè.",
+      "agentLabel": "Lời nhắc cho",
+      "agentSublabel": "Chọn tác nhân bạn muốn đổi lời nhắc.",
+      "activeLabel": "Lời nhắc đang dùng",
+      "defaultOption": "Mặc định của Stella",
+      "usingDefault": "Đang dùng lời nhắc mặc định của Stella.",
+      "usingCustom": "Đang dùng lời nhắc bạn đã lưu.",
+      "newFromDefault": "Tạo mới từ mặc định",
+      "edit": "Sửa",
+      "duplicate": "Nhân bản",
+      "delete": "Xóa",
+      "save": "Lưu",
+      "cancel": "Hủy",
+      "nameLabel": "Tên",
+      "newName": "Lời nhắc của tôi",
+      "saved": "Đã lưu lời nhắc.",
+      "deleted": "Đã xóa lời nhắc.",
+      "error": "Đã xảy ra lỗi.",
+      "agents": {
+        "assistant": "Trợ lý",
+        "worker": "Người thực thi"
+      }
+    },
     "permissions": {
       "title": "Quyền",
       "enable": "Bật",

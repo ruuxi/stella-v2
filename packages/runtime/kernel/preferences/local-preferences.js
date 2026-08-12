@@ -51,6 +51,26 @@ const DEFAULT_PREFERENCES = {
     wakeWordThreshold: 0.6,
     readAloudEnabled: false,
     personalityVoiceId: undefined,
+    promptPresetSelections: {},
+};
+/**
+ * `{ <agentId>: <presetId> }`. Only well-formed slug pairs survive; anything
+ * else falls back to the shipped prompt rather than failing a load.
+ */
+const normalizePromptPresetSelections = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return {};
+    const out = {};
+    for (const [agentId, presetId] of Object.entries(value)) {
+        if (typeof presetId !== "string")
+            continue;
+        if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(presetId) || presetId === "default")
+            continue;
+        if (!/^[a-z0-9_-]{1,64}$/.test(agentId))
+            continue;
+        out[agentId] = presetId;
+    }
+    return out;
 };
 const LEGACY_STELLA_DEFAULT_MODEL = "stella/default";
 const RETIRED_MODEL_PROVIDERS = new Set([
@@ -133,6 +153,7 @@ export const loadLocalPreferences = (stellaDataDir) => {
             personalityVoiceId: isKnownPersonalityId(parsed.personalityVoiceId)
                 ? parsed.personalityVoiceId
                 : DEFAULT_PREFERENCES.personalityVoiceId,
+            promptPresetSelections: normalizePromptPresetSelections(parsed.promptPresetSelections),
         };
         _cached = prefs;
         _cachedMtime = stat.mtimeMs;
@@ -322,6 +343,19 @@ export const getReadAloudEnabled = (stellaDataDir) => {
 export const setReadAloudEnabled = (stellaDataDir, enabled) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     saveLocalPreferences(stellaDataDir, { ...prefs, readAloudEnabled: enabled });
+};
+export const getPromptPresetSelections = (stellaDataDir) => normalizePromptPresetSelections(loadLocalPreferences(stellaDataDir).promptPresetSelections);
+export const getPromptPresetSelection = (stellaDataDir, agentId) => getPromptPresetSelections(stellaDataDir)[agentId] ?? "default";
+export const setPromptPresetSelection = (stellaDataDir, agentId, presetId) => {
+    const prefs = loadLocalPreferences(stellaDataDir);
+    const selections = {
+        ...normalizePromptPresetSelections(prefs.promptPresetSelections),
+    };
+    if (!presetId || presetId === "default")
+        delete selections[agentId];
+    else
+        selections[agentId] = presetId;
+    saveLocalPreferences(stellaDataDir, { ...prefs, promptPresetSelections: selections });
 };
 export const getPersonalityVoiceId = (stellaDataDir) => loadLocalPreferences(stellaDataDir).personalityVoiceId;
 export const setPersonalityVoiceId = (stellaDataDir, id) => {

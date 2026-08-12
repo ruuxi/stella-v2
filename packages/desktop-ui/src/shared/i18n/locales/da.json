@@ -1639,8 +1639,10 @@
       "availableFallback": "tilgængelig",
       "downloading": "Downloader {percent}%",
       "restartToUpdate": "Genstart for at opdatere",
+      "restarting": "Genstarter…",
       "retryUpdate": "Prøv opdatering igen",
       "restartTitle": "Genstart Stella, og installer version {version}",
+      "restartingTitle": "Genstarter Stella for at installere opdateringen",
       "retryTitle": "Prøv opdateringstjekket til computeren igen",
       "downloadTitle": "Download Stella {version}",
       "toasts": {

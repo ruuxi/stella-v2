@@ -1639,8 +1639,10 @@
       "availableFallback": "mevcut",
       "downloading": "İndiriliyor %{percent}",
       "restartToUpdate": "Güncellemek için yeniden başlat",
+      "restarting": "Yeniden başlatılıyor…",
       "retryUpdate": "Güncellemeyi yeniden dene",
       "restartTitle": "Stella'yı yeniden başlatıp {version} sürümünü kur",
+      "restartingTitle": "Güncellemeyi yüklemek için Stella yeniden başlatılıyor",
       "retryTitle": "Masaüstü güncelleme kontrolünü yeniden dene",
       "downloadTitle": "Stella {version} sürümünü indir",
       "toasts": {

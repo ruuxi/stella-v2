@@ -2,9 +2,60 @@ import { app, autoUpdater, dialog, globalShortcut } from "electron";
 import { writeFileSync } from "node:fs";
 import { applyDockIcon } from "../app-icon.js";
 import { configurePackagedRuntimeEnvironment } from "../bundled-runtime-environment.js";
+import { getMainLogger } from "../observability/main-logger.js";
 import { t } from "../services/i18n-service.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
 import { initializeBootstrapApplication } from "./runtime.js";
+// Shutdown cleanup is best-effort, never a hostage. Squirrel's installer waits
+// for this process to exit before it swaps the bundle in, so a cleanup that
+// stalls reads to the user as "the update never restarted" — the app is gone
+// from screen but still alive. Each phase gets a budget; whatever hasn't
+// finished when it runs out is abandoned and the process exits anyway.
+const QUIT_PHASE_DEADLINE_MS = {
+    "before-quit": 4_000,
+    "will-quit": 2_000,
+};
+const SLOW_QUIT_PHASE_MS = 1_500;
+const SLOW_CLEANUP_MS = 750;
+const runQuitPhase = async (context, phase) => {
+    const startedAt = Date.now();
+    const phaseRun = context.state.processRuntime
+        .runPhase(phase, {
+        onCleanupTiming: ({ key, elapsedMs }) => {
+            if (elapsedMs >= SLOW_CLEANUP_MS) {
+                getMainLogger()?.process("main.quit-cleanup-slow", {
+                    phase,
+                    key,
+                    elapsedMs,
+                });
+            }
+        },
+    })
+        .then(() => false)
+        .catch((error) => {
+        console.error(`Shutdown cleanup failed for ${phase}:`, error);
+        return false;
+    });
+    const deadlineMs = QUIT_PHASE_DEADLINE_MS[phase];
+    const timedOut = await Promise.race([
+        phaseRun,
+        new Promise((resolve) => {
+            const timer = setTimeout(() => resolve(true), deadlineMs);
+            timer.unref?.();
+        }),
+    ]);
+    const elapsedMs = Date.now() - startedAt;
+    if (timedOut) {
+        getMainLogger()?.warn("main.quit-phase-timeout", {
+            phase,
+            elapsedMs,
+            deadlineMs,
+        });
+    }
+    else if (elapsedMs >= SLOW_QUIT_PHASE_MS) {
+        getMainLogger()?.process("main.quit-phase-slow", { phase, elapsedMs });
+    }
+};
 export const initializeBootstrapSingleInstance = (context) => {
     context.services.authService.bindSingleInstanceHandler();
     context.services.authService.bindOpenUrlHandler();
@@ -52,6 +103,13 @@ export const registerBootstrapLifecycle = (context) => {
         await shutdownBootstrapRuntime(context, { stopScheduler: true });
     });
     app.on("activate", () => {
+        // Quitting closes every window well before the process exits. Without
+        // this guard a dock click during that window rebuilds the whole UI on a
+        // runtime that is already torn down — which is how an update restart
+        // ends up showing the outgoing build, "Restart to update" and all.
+        if (context.state.isQuitting) {
+            return;
+        }
         context.state.windowManager?.onActivate();
     });
     // Electron's update restart closes every BrowserWindow before emitting the
@@ -99,8 +157,13 @@ export const registerBootstrapLifecycle = (context) => {
         event.preventDefault();
         context.state.isQuitting = true;
         void (async () => {
-            await context.state.processRuntime.runPhase("before-quit");
-            await context.state.processRuntime.runPhase("will-quit");
+            const startedAt = Date.now();
+            await runQuitPhase(context, "before-quit");
+            await runQuitPhase(context, "will-quit");
+            const elapsedMs = Date.now() - startedAt;
+            if (elapsedMs >= SLOW_QUIT_PHASE_MS) {
+                getMainLogger()?.process("main.quit-cleanup-elapsed", { elapsedMs });
+            }
             quitAfterCleanup = true;
             app.exit(0);
         })();

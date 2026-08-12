@@ -1639,8 +1639,10 @@
       "availableFallback": "tillgänglig",
       "downloading": "Laddar ner {percent}%",
       "restartToUpdate": "Starta om för att uppdatera",
+      "restarting": "Startar om…",
       "retryUpdate": "Försök uppdatera igen",
       "restartTitle": "Starta om Stella och installera version {version}",
+      "restartingTitle": "Startar om Stella för att installera uppdateringen",
       "retryTitle": "Försök söka efter skrivbordsuppdateringar igen",
       "downloadTitle": "Ladda ner Stella {version}",
       "toasts": {

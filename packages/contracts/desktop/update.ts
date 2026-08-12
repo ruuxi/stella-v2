@@ -9,6 +9,7 @@ export type DesktopUpdateStatus =
   | "available"
   | "downloading"
   | "downloaded"
+  | "restarting"
   | "error";
 
 export type DesktopUpdateProgress = {

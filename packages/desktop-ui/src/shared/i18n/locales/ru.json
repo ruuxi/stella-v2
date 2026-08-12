@@ -1675,8 +1675,10 @@
       "availableFallback": "доступно",
       "downloading": "Загрузка {percent}%",
       "restartToUpdate": "Перезапустить для обновления",
+      "restarting": "Перезапуск…",
       "retryUpdate": "Повторить обновление",
       "restartTitle": "Перезапустить Stella и установить версию {version}",
+      "restartingTitle": "Перезапуск Stella для установки обновления",
       "retryTitle": "Повторить проверку обновлений",
       "downloadTitle": "Скачать Stella {version}",
       "toasts": {

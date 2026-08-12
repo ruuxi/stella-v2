@@ -48,6 +48,7 @@ export type DesktopUpdaterOptions = {
   autoInstallOnAppQuit?: boolean;
   startupDelayMs?: number;
   checkIntervalMs?: number;
+  restartStallMs?: number;
   onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
   log?: {
     info: (message: string) => void;
@@ -58,6 +59,11 @@ export type DesktopUpdaterOptions = {
 
 const DEFAULT_STARTUP_DELAY_MS = 15_000;
 const DEFAULT_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
+// Squirrel hands the install off to a helper process and then terminates the
+// app, so a healthy restart never gets to run this timer. If it does fire we
+// are still alive with no windows, which the user reads as "nothing happened" —
+// surface that instead of leaving the pill stuck on "Restarting…".
+const DEFAULT_RESTART_STALL_MS = 20_000;
 
 const asErrorMessage = (value: unknown): string => {
   if (value instanceof Error) return value.message;
@@ -111,10 +117,12 @@ export class DesktopUpdater {
   private readonly autoInstallOnAppQuit: boolean;
   private readonly startupDelayMs: number;
   private readonly checkIntervalMs: number;
+  private readonly restartStallMs: number;
   private readonly onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
   private readonly log: NonNullable<DesktopUpdaterOptions["log"]>;
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private intervalTimer: ReturnType<typeof setInterval> | null = null;
+  private restartStallTimer: ReturnType<typeof setTimeout> | null = null;
   private checkPromise: Promise<DesktopUpdateSnapshot> | null = null;
   private downloadPromise: Promise<DesktopUpdateSnapshot> | null = null;
   private started = false;
@@ -128,6 +136,7 @@ export class DesktopUpdater {
     this.autoInstallOnAppQuit = options.autoInstallOnAppQuit ?? true;
     this.startupDelayMs = options.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS;
     this.checkIntervalMs = options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
+    this.restartStallMs = options.restartStallMs ?? DEFAULT_RESTART_STALL_MS;
     this.onStateChanged = options.onStateChanged;
     this.log =
       options.log ??
@@ -201,8 +210,10 @@ export class DesktopUpdater {
   dispose(): void {
     if (this.startupTimer) clearTimeout(this.startupTimer);
     if (this.intervalTimer) clearInterval(this.intervalTimer);
+    if (this.restartStallTimer) clearTimeout(this.restartStallTimer);
     this.startupTimer = null;
     this.intervalTimer = null;
+    this.restartStallTimer = null;
     for (const [event, listener] of this.listeners) {
       this.client.removeListener(event, listener);
     }
@@ -215,6 +226,10 @@ export class DesktopUpdater {
 
   checkNow(): Promise<DesktopUpdateSnapshot> {
     if (!this.enabled) return Promise.resolve(this.getState());
+    // The periodic check must not overwrite an in-flight restart.
+    if (this.snapshot.status === "restarting") {
+      return Promise.resolve(this.getState());
+    }
     if (this.checkPromise) return this.checkPromise;
     this.patch({ status: "checking", error: null, progress: null });
     this.checkPromise = this.client
@@ -232,7 +247,10 @@ export class DesktopUpdater {
 
   download(): Promise<DesktopUpdateSnapshot> {
     if (!this.enabled) return Promise.resolve(this.getState());
-    if (this.snapshot.status === "downloaded") {
+    if (
+      this.snapshot.status === "downloaded" ||
+      this.snapshot.status === "restarting"
+    ) {
       return Promise.resolve(this.getState());
     }
     if (this.snapshot.status !== "available") {
@@ -256,9 +274,33 @@ export class DesktopUpdater {
   }
 
   restartAndInstall(): { accepted: true } {
+    // A second click while the restart is already in flight must not register
+    // another quit: on macOS the installer can take several seconds to tear the
+    // app down, and re-entering quitAndInstall stacks native listeners.
+    if (this.snapshot.status === "restarting") {
+      return { accepted: true };
+    }
     if (this.snapshot.status !== "downloaded") {
       throw new Error("Download the Stella desktop update before restarting.");
     }
+    // Held across the quit so a window recreated mid-shutdown (dock click on
+    // macOS) renders "Restarting…" instead of offering the restart again.
+    this.patch({ status: "restarting", error: null });
+    this.log.info(
+      `Restarting to install desktop update ${this.snapshot.downloadedVersion ?? "unknown"}.`,
+    );
+    this.restartStallTimer = setTimeout(() => {
+      this.restartStallTimer = null;
+      this.log.error(
+        `Desktop update restart stalled after ${this.restartStallMs}ms; the installer never quit the app.`,
+      );
+      this.patch({
+        status: "downloaded",
+        error:
+          "Stella could not restart itself. Quit and reopen Stella to finish updating.",
+      });
+    }, this.restartStallMs);
+    this.restartStallTimer.unref?.();
     // Windows uses the first argument to decide whether to show the NSIS
     // installer UI. Updates should apply silently, then relaunch Stella.
     // MacUpdater ignores both arguments and keeps its native update flow.

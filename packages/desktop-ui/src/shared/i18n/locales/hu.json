@@ -1639,8 +1639,10 @@
       "availableFallback": "elérhető",
       "downloading": "Letöltés {percent}%",
       "restartToUpdate": "Újraindítás a frissítéshez",
+      "restarting": "Újraindítás…",
       "retryUpdate": "Frissítés újra",
       "restartTitle": "A Stella újraindítása és a(z) {version} verzió telepítése",
+      "restartingTitle": "A Stella újraindul a frissítés telepítéséhez",
       "retryTitle": "Az asztali frissítés ellenőrzésének újrapróbálása",
       "downloadTitle": "Stella {version} letöltése",
       "toasts": {

@@ -1621,8 +1621,10 @@
       "availableFallback": "利用可能",
       "downloading": "ダウンロード中 {percent}%",
       "restartToUpdate": "再起動してアップデート",
+      "restarting": "再起動しています…",
       "retryUpdate": "アップデートを再試行",
       "restartTitle": "Stella を再起動してバージョン {version} をインストール",
+      "restartingTitle": "アップデートをインストールするため Stella を再起動しています",
       "retryTitle": "デスクトップのアップデート確認を再試行",
       "downloadTitle": "Stella {version} をダウンロード",
       "toasts": {

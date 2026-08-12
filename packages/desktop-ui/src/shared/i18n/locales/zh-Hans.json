@@ -1621,8 +1621,10 @@
       "availableFallback": "可用",
       "downloading": "正在下载 {percent}%",
       "restartToUpdate": "重启以更新",
+      "restarting": "正在重启…",
       "retryUpdate": "重试更新",
       "restartTitle": "重启 Stella 并安装版本 {version}",
+      "restartingTitle": "正在重启 Stella 以安装更新",
       "retryTitle": "重试桌面端更新检查",
       "downloadTitle": "下载 Stella {version}",
       "toasts": {

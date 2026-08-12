@@ -1621,8 +1621,10 @@
       "availableFallback": "사용 가능",
       "downloading": "다운로드 중 {percent}%",
       "restartToUpdate": "재시작해 업데이트",
+      "restarting": "다시 시작하는 중…",
       "retryUpdate": "업데이트 다시 시도",
       "restartTitle": "Stella를 재시작하고 버전 {version} 설치",
+      "restartingTitle": "업데이트를 설치하기 위해 Stella를 다시 시작하는 중",
       "retryTitle": "데스크탑 업데이트 확인 다시 시도",
       "downloadTitle": "Stella {version} 다운로드",
       "toasts": {

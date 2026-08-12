@@ -154,7 +154,50 @@ describe("DesktopUpdater", () => {
     expect(updater.restartAndInstall()).toEqual({ accepted: true });
     await new Promise((resolve) => setImmediate(resolve));
     expect(client.quitAndInstall).toHaveBeenCalledWith(true, true);
+    // The restart is visible while the app tears itself down, so a window
+    // rebuilt mid-quit never re-offers "Restart to update".
+    expect(updater.getState()).toMatchObject({
+      status: "restarting",
+      downloadedVersion: "1.0.1",
+    });
+    expect(states).toContain("restarting");
+
+    // Clicking again mid-restart must not stack another native quit.
+    expect(updater.restartAndInstall()).toEqual({ accepted: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(client.quitAndInstall).toHaveBeenCalledTimes(1);
     updater.dispose();
+  });
+
+  it("recovers the pill when the installer never quits the app", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new FakeUpdater();
+      const updater = new DesktopUpdater({
+        client,
+        currentVersion: "1.0.0",
+        enabled: true,
+        startupDelayMs: 60_000,
+        checkIntervalMs: 60_000,
+        restartStallMs: 1_000,
+      });
+      updater.start();
+      await updater.checkNow();
+      await updater.download();
+
+      updater.restartAndInstall();
+      expect(updater.getState().status).toBe("restarting");
+
+      vi.advanceTimersByTime(1_000);
+      expect(updater.getState()).toMatchObject({
+        status: "downloaded",
+        downloadedVersion: "1.0.1",
+        error: expect.stringContaining("Quit and reopen"),
+      });
+      updater.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("can disable install-on-quit for a download-only client", () => {

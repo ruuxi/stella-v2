@@ -1639,8 +1639,10 @@
       "availableFallback": "saatavilla",
       "downloading": "Ladataan {percent} %",
       "restartToUpdate": "Käynnistä uudelleen päivittääksesi",
+      "restarting": "Käynnistetään uudelleen…",
       "retryUpdate": "Yritä päivitystä uudelleen",
       "restartTitle": "Käynnistä Stella uudelleen ja asenna versio {version}",
+      "restartingTitle": "Stella käynnistetään uudelleen päivityksen asentamiseksi",
       "retryTitle": "Yritä työpöytäpäivityksen tarkistusta uudelleen",
       "downloadTitle": "Lataa Stella {version}",
       "toasts": {

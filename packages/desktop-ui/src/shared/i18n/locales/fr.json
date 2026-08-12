@@ -1657,8 +1657,10 @@
       "availableFallback": "disponible",
       "downloading": "Téléchargement {percent} %",
       "restartToUpdate": "Redémarrer pour mettre à jour",
+      "restarting": "Redémarrage…",
       "retryUpdate": "Réessayer la mise à jour",
       "restartTitle": "Redémarrer Stella et installer la version {version}",
+      "restartingTitle": "Redémarrage de Stella pour installer la mise à jour",
       "retryTitle": "Relancer la vérification des mises à jour",
       "downloadTitle": "Télécharger Stella {version}",
       "toasts": {

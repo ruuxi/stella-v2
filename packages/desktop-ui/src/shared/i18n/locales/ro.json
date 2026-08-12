@@ -1657,8 +1657,10 @@
       "availableFallback": "disponibilă",
       "downloading": "Se descarcă {percent}%",
       "restartToUpdate": "Repornește pentru actualizare",
+      "restarting": "Se repornește…",
       "retryUpdate": "Reîncearcă actualizarea",
       "restartTitle": "Repornește Stella și instalează versiunea {version}",
+      "restartingTitle": "Se repornește Stella pentru a instala actualizarea",
       "retryTitle": "Reîncearcă verificarea actualizărilor pentru desktop",
       "downloadTitle": "Descarcă Stella {version}",
       "toasts": {

@@ -2,6 +2,12 @@ import { execFileSync, type ChildProcess } from "node:child_process";
 
 export type ProcessRuntimePhase = "before-quit" | "will-quit";
 
+export type CleanupTiming = {
+  phase: ProcessRuntimePhase;
+  key: string;
+  elapsedMs: number;
+};
+
 type CleanupFn = () => void | Promise<void>;
 
 type TimerHandle = ReturnType<typeof setTimeout>;
@@ -168,7 +174,10 @@ export class ProcessRuntime {
     });
   }
 
-  async runPhase(phase: ProcessRuntimePhase) {
+  async runPhase(
+    phase: ProcessRuntimePhase,
+    options: { onCleanupTiming?: (timing: CleanupTiming) => void } = {},
+  ) {
     const existingRun = this.phaseRuns.get(phase);
     if (existingRun) {
       return await existingRun;
@@ -181,11 +190,20 @@ export class ProcessRuntime {
 
     const run = (async () => {
       for (const [key, cleanup] of [...this.cleanups[phase].entries()].reverse()) {
+        const startedAt = Date.now();
         try {
           await cleanup();
         } catch (error) {
           console.error(`[process-runtime] Cleanup failed for ${phase}:${key}`, error);
         }
+        // Quit is on a deadline (Squirrel waits on this process to exit before
+        // installing an update), so a cleanup that drags is a real regression.
+        // Report per-cleanup timing so the culprit is named, not just the total.
+        options.onCleanupTiming?.({
+          phase,
+          key,
+          elapsedMs: Date.now() - startedAt,
+        });
       }
     })();
 

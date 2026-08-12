@@ -1657,8 +1657,10 @@
       "availableFallback": "disponível",
       "downloading": "Baixando {percent}%",
       "restartToUpdate": "Reinicie para atualizar",
+      "restarting": "Reiniciando…",
       "retryUpdate": "Tentar atualizar de novo",
       "restartTitle": "Reiniciar a Stella e instalar a versão {version}",
+      "restartingTitle": "Reiniciando o Stella para instalar a atualização",
       "retryTitle": "Tentar de novo a verificação de atualizações do app para computador",
       "downloadTitle": "Baixar a Stella {version}",
       "toasts": {

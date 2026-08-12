@@ -75,6 +75,114 @@ export const sortHubTasksByRecency = (
 export const activityHubTaskRowKey = (task: Pick<MobileTask, "id">): string =>
   `task:${task.id}`;
 
+/**
+ * One top-level Activity entry: a parent agent plus every descendant subagent
+ * it owns (flattened, newest-first). Standalone tasks have no subagents.
+ *
+ * This mirrors the desktop activity workspace's `groupActivityTasks`
+ * association rule (desktop-ui `event-transforms.ts`): a task whose
+ * `parentAgentId` resolves to another visible task is nested under that owner
+ * instead of standing on its own root row. The rule is replicated here rather
+ * than imported because the desktop projection is built on its own `TaskItem`
+ * model and manager-status helpers; only the pure parent→child association is
+ * shared in spirit. Missing/unresolved parents fail open as standalone rows,
+ * and cyclic ownership is broken so no work can disappear.
+ */
+export type HubTaskGroup = {
+  owner: MobileTask;
+  /** All descendant subagents, flattened and newest-first. */
+  subagents: MobileTask[];
+};
+
+export type HubSubagentSummary = {
+  total: number;
+  running: number;
+  done: number;
+  error: number;
+  canceled: number;
+};
+
+/**
+ * Project a flat, recency-ordered task list into top-level groups. Iterating
+ * in the incoming order keeps top-level groups in owner-recency order; each
+ * group's descendants are re-sorted by recency so nested rows stay
+ * deterministic regardless of traversal order.
+ */
+export const groupActivityHubTasks = (
+  orderedTasks: readonly MobileTask[],
+): HubTaskGroup[] => {
+  const taskById = new Map(orderedTasks.map((task) => [task.id, task]));
+  const childrenByParentId = new Map<string, MobileTask[]>();
+  const ownedIds = new Set<string>();
+  for (const task of orderedTasks) {
+    const parentId = task.parentAgentId;
+    if (!parentId || parentId === task.id || !taskById.has(parentId)) continue;
+    const siblings = childrenByParentId.get(parentId);
+    if (siblings) siblings.push(task);
+    else childrenByParentId.set(parentId, [task]);
+    ownedIds.add(task.id);
+  }
+
+  // Breadth-first descendant walk, guarded against cycles so a corrupt edge
+  // can never loop forever or double-count a task.
+  const collectDescendants = (rootId: string): MobileTask[] => {
+    const out: MobileTask[] = [];
+    const seen = new Set<string>([rootId]);
+    const queue = [...(childrenByParentId.get(rootId) ?? [])];
+    while (queue.length > 0) {
+      const task = queue.shift() as MobileTask;
+      if (seen.has(task.id)) continue;
+      seen.add(task.id);
+      out.push(task);
+      const children = childrenByParentId.get(task.id);
+      if (children) queue.push(...children);
+    }
+    return sortHubTasksByRecency(out);
+  };
+
+  const groups: HubTaskGroup[] = [];
+  const represented = new Set<string>();
+  for (const task of orderedTasks) {
+    if (ownedIds.has(task.id)) continue;
+    const subagents = collectDescendants(task.id);
+    groups.push({ owner: task, subagents });
+    represented.add(task.id);
+    for (const child of subagents) represented.add(child.id);
+  }
+
+  // Cyclic ownership leaves some tasks owned-but-never-reached. Fail them open
+  // as standalone top-level rows so nothing vanishes from Activity.
+  for (const task of orderedTasks) {
+    if (represented.has(task.id)) continue;
+    groups.push({ owner: task, subagents: [] });
+    represented.add(task.id);
+  }
+  return groups;
+};
+
+/** Stable virtualized-row identity for a top-level group (keyed on owner). */
+export const activityHubGroupRowKey = (group: {
+  owner: Pick<MobileTask, "id">;
+}): string => activityHubTaskRowKey(group.owner);
+
+/** Counts used by the collapsed "N subagents · M done" summary bar. */
+export const summarizeHubSubagents = (
+  subagents: readonly MobileTask[],
+): HubSubagentSummary => ({
+  total: subagents.length,
+  running: subagents.filter((task) => task.status === "running").length,
+  done: subagents.filter((task) => task.status === "completed").length,
+  error: subagents.filter((task) => task.status === "error").length,
+  canceled: subagents.filter((task) => task.status === "canceled").length,
+});
+
+/** Single-line summary shown on a collapsed subagent group. */
+export const hubSubagentSummaryText = (summary: HubSubagentSummary): string => {
+  const noun = summary.total === 1 ? "subagent" : "subagents";
+  return `${summary.total} ${noun} · ${summary.done} done`;
+};
+
+
 /** Full, newest-first artifact dataset for ownership and search. Display
  *  pagination is applied later to activity rows, never to this source. */
 export const collectActivityHubArtifacts = (

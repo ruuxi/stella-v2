@@ -90,6 +90,20 @@ body[data-display-expanding="true"] .shell-topbar-full,
   padding-right: 0;
 }
 
+/* The Windows window controls only render while the display panel is closed
+   (`isWin && !panelOpen` in `ShellTopBarFull`), and they must hug the window's
+   right edge — hence the flush `padding-right: 0` above. When the panel opens
+   those controls are gone and the account button becomes the right-most control,
+   so the flush padding leaves it pressed against the panel seam. macOS keeps its
+   traffic lights in the left cluster and never zeroes this padding, so restore
+   the same right-edge gap here. The extra `[data-display-open]` attribute lifts
+   this above the flush rule's specificity (an earlier fix that only padded the
+   sign-in button's interior never moved the button off the seam). */
+.shell-topbar-full[data-platform="win"][data-display-open="true"]
+  .shell-topbar-full__right {
+  padding-right: 10px;
+}
+
 .shell-topbar-full__right .shell-topbar-account {
   flex: 0 1 auto;
   min-width: 0;

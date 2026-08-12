@@ -288,9 +288,11 @@ export function ChatPanelTab({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const shellContentRef = useRef<HTMLDivElement | null>(null);
 
+  // Drag-and-drop file attach stays live at all times, including while the
+  // turn is streaming or agents are busy — dropped files attach to
+  // `chatContext` just as when idle; submit/queue behavior is unchanged.
   const { isDragOver, dropHandlers } = useFileDrop({
     setChatContext,
-    disabled: isStreaming,
   });
 
   const submitFromDictationRef = useRef<() => void>(() => {});

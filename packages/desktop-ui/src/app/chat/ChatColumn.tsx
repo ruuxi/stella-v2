@@ -242,9 +242,12 @@ export const ChatColumn = memo(function ChatColumn({
       conversation.streaming.runtimeStatusText,
     ],
   );
+  // Drag-and-drop file attach stays live at all times, including while the
+  // turn is streaming or agents are busy. Dropped files land in
+  // `composer.chatContext` (screenshot/file chips) exactly as when idle;
+  // this only governs the *attach* interaction, not submit/queue behavior.
   const { isDragOver, dropHandlers } = useFileDrop({
     setChatContext: composer.setChatContext,
-    disabled: conversation.streaming.isStreaming,
   });
 
   /**

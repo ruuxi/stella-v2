@@ -166,6 +166,33 @@ export type WebSearchResultHit = {
   favicon?: string;
 };
 
+/**
+ * UI-only browser state emitted after a Node REPL cell's last successful
+ * visual browser action. This deliberately lives outside the model-facing
+ * tool result text: the desktop can update its browser surface without
+ * feeding an automatic screenshot back into the agent.
+ */
+export type BrowserUseResponseMeta = {
+  "stella/browserUse": true;
+  "stella/toolSurface": {
+    kind: "browserUse";
+    backend: "iab";
+    browserId: string;
+    openTabIds: string[];
+    sessionEnded: boolean;
+    screenshot?: {
+      tabId: string;
+      url: string;
+      /** Origin only; query strings, fragments, and paths stay out of UI metadata. */
+      pageUrl?: string;
+    };
+  };
+  browser_use?: {
+    /** Sanitized page URL with credentials, query parameters, and fragments removed. */
+    url?: string;
+  };
+};
+
 export type ToolResultPayload = {
   toolName: string;
   result?: unknown;
@@ -183,6 +210,8 @@ export type ToolResultPayload = {
   mode?: string;
   query?: string;
   results?: WebSearchResultHit[];
+  /** Host/UI response metadata. Never included in model-visible tool text. */
+  _meta?: BrowserUseResponseMeta;
 };
 
 export type Attachment = {

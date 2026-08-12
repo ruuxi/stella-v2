@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { NodeReplKernelRegistry } from "@stella/runtime/kernel/computer-use/kernel";
+import type { BrowserSessionClient } from "@stella/runtime/kernel/browser-use/client";
 import { createNodeReplTool } from "@stella/runtime/kernel/tools/defs/node-repl";
 import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
@@ -415,6 +416,76 @@ describe("node_repl tool", () => {
         producedFiles: [
           { path: "/workspace/report.pdf", kind: { type: "add" } },
         ],
+      });
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("returns automatic browser screenshots only in UI response metadata", async () => {
+    const jpeg = Buffer.from("ui-only-node-repl-screenshot");
+    const command = vi.fn(async (action: string) => {
+      const data =
+        action === "tab_list"
+          ? {
+              tabs: [
+                { tabId: 9, active: true, url: "https://example.test/save" },
+              ],
+              activeTabId: 9,
+            }
+          : action === "screenshot"
+            ? { base64: jpeg.toString("base64"), format: "jpeg" }
+            : { ok: true };
+      return {
+        sessionId: "general-task-agent-1",
+        bridgeSessionId: "stella-app-bridge",
+        requestId: `request-${command.mock.calls.length}`,
+        action,
+        params: {},
+        result: { id: "response", success: true as const, data },
+        attempts: 1,
+        durationMs: 1,
+      };
+    });
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    const tool = createNodeReplTool({ registry });
+    try {
+      const result = await tool.execute(
+        {
+          code: "await browser.tabs.get(9).playwright.locator('#save').click(); 'done'",
+        },
+        context,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toContain("'done'");
+      expect(result.result).not.toContain("data:image/jpeg");
+      expect(result.result).not.toContain("[stella-attach-image]");
+      expect(result.details).toEqual({
+        _meta: {
+          "stella/browserUse": true,
+          "stella/toolSurface": {
+            kind: "browserUse",
+            backend: "iab",
+            browserId: "general-task-agent-1",
+            openTabIds: ["9"],
+            sessionEnded: false,
+            screenshot: {
+              tabId: "9",
+              url: `data:image/jpeg;base64,${jpeg.toString("base64")}`,
+              pageUrl: "https://example.test",
+            },
+          },
+          browser_use: { url: "https://example.test/save" },
+        },
       });
     } finally {
       await registry.dispose();

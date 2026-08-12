@@ -7,6 +7,7 @@ import type {
   ProducedFileRecord,
 } from "@stella/contracts/file-changes";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { BrowserUseResponseMeta } from "@stella/contracts/local-chat";
 import type { ToolDefinition } from "../types.js";
 
 export type NodeReplToolOptions = NodeReplKernelManagerOptions & {
@@ -48,6 +49,7 @@ export const createNodeReplTool = (
         args.timeout_ms > 0
           ? Math.floor(args.timeout_ms)
           : undefined;
+      let responseMeta: BrowserUseResponseMeta | undefined;
       try {
         const fileChanges: FileChangeRecord[] = [];
         const producedFiles: ProducedFileRecord[] = [];
@@ -55,6 +57,9 @@ export const createNodeReplTool = (
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(extras?.signal ? { signal: extras.signal } : {}),
           ...(extras?.onUpdate ? { onToolUpdate: extras.onUpdate } : {}),
+          onResponseMeta: (meta) => {
+            responseMeta = meta;
+          },
           onToolResult: (nested) => {
             if (nested.fileChanges) fileChanges.push(...nested.fileChanges);
             if (nested.producedFiles)
@@ -63,12 +68,14 @@ export const createNodeReplTool = (
         });
         return {
           result,
+          ...(responseMeta ? { details: { _meta: responseMeta } } : {}),
           ...(fileChanges.length > 0 ? { fileChanges } : {}),
           ...(producedFiles.length > 0 ? { producedFiles } : {}),
         };
       } catch (error) {
         return {
           error: error instanceof Error ? error.message : String(error),
+          ...(responseMeta ? { details: { _meta: responseMeta } } : {}),
         };
       }
     },

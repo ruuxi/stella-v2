@@ -11,6 +11,13 @@
 .shell-settings-dialog {
   display: flex;
   flex-direction: column;
+  /* Lock the settings surface to the container's fixed height (the container
+   * is already sized to `min(100vh - 16px, --dialog-height)`). Without this,
+   * `dialog-content` only carries `max-height: 100%` and collapses to its
+   * content, so the dialog grew/shrank every time you switched tabs. Pinning
+   * `height: 100%` keeps the frame stable across tabs; taller tabs scroll
+   * internally via `.settings-panel` (`overflow-y: auto`) instead. */
+  height: 100%;
 }
 
 .shell-settings-dialog__body {

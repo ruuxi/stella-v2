@@ -169,7 +169,7 @@ export const SettingsScreen = ({
               })}
             </nav>
           </header>
-          <SettingsPanel>
+          <SettingsPanel scrollResetKey={isSearching ? "search" : activeTab}>
             {isSearching ? (
               <SettingsSearchResults
                 query={deferredQuery}

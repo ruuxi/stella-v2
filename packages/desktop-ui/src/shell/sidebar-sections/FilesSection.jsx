@@ -14,6 +14,8 @@ import { DropOverlay } from "@/app/chat/DropOverlay";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
 import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
+import { CompactChildState } from "@/features/chat/components/CompactSubagentSummary";
+import { flattenActivityTasks, getActivityRowSearchText, groupActivityTasks, summarizeCompactActivity, } from "@/features/chat/lib/event-transforms";
 import { displaySearchStore, useDisplaySearchFocusRequest, useDisplaySearchOpen, useDisplaySearchQuery, } from "@/features/workspace-display/display-search-store";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { forgetArtifactFileEntry, useFileEntries, } from "@/features/workspace-display/files-index";
@@ -26,7 +28,7 @@ import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/ca
 import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { bucketByRecency } from "@/shared/lib/recency-buckets";
-import { ChevronLeft, LayoutList, Search, X } from "@/ui/icons";
+import { ChevronLeft, ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
 import { SidebarModelsControl } from "./SidebarModelsControl";
 import "./files-section.css";
@@ -60,6 +62,73 @@ const RECENCY_LABELS = {
     thisMonth: "This month",
     older: "Older",
 };
+/** A single agent-thread row: opens the delegated thread's read-only viewer.
+ *  Shared by top-level agent items and the expanded children of a group. */
+function AgentThreadButton({ task, conversationId }) {
+    return (<button type="button" className="files-list__open" onClick={() => conversationId
+        ? openAgentThreadTab({
+            threadId: task.id,
+            conversationId,
+            agentType: task.agentType,
+            title: task.description.trim() || task.agentType || "Agent thread",
+            source: task.source,
+            readOnly: task.readOnly,
+            parentAgentId: task.parentAgentId,
+        })
+        : undefined} title={task.description}>
+      <span className="files-list__icon" aria-hidden="true">
+        <AgentLifecycleStatusIcon status={task.status} size={17} strokeWidth={1.75}/>
+      </span>
+      <span className="files-list__title">{task.description}</span>
+      <span className="files-list__meta">
+        {task.source === "claude-native" ? "Claude · read-only" : "Agent"}
+      </span>
+    </button>);
+}
+/** A parent (general) agent that owns subagents, collapsed by default into the
+ *  same compact count/progress summary the activity workspace strip shows.
+ *  Toggling reveals the flat list of owned subagents; the eye opens the parent
+ *  thread. Returns a fragment of `<li>`s so it drops straight into the list. */
+function AgentGroupRow({ hierarchy, conversationId, expanded, onToggle }) {
+    const owner = hierarchy.owner;
+    const descendants = useMemo(() => flattenActivityTasks(hierarchy.children), [hierarchy.children]);
+    const summary = useMemo(() => summarizeCompactActivity(descendants), [descendants]);
+    const label = owner.description.trim() || owner.agentType || "Agent";
+    return (<>
+      <li className="files-list__item files-list__item--group" data-expanded={expanded ? "true" : undefined}>
+        <button type="button" className="files-list__open files-list__group-toggle" data-compact="true" onClick={onToggle} aria-expanded={expanded} title={label}>
+          <span className="files-list__group-head">
+            <span className="files-list__group-caret" aria-hidden="true">
+              <ChevronRight size={14} strokeWidth={2}/>
+            </span>
+            <span className="files-list__icon" aria-hidden="true">
+              <AgentLifecycleStatusIcon status={owner.status} size={17} strokeWidth={1.75}/>
+            </span>
+            <span className="files-list__title">{label}</span>
+          </span>
+          <CompactChildState summary={summary} prioritizeFailure={owner.status === "running" && !expanded}/>
+        </button>
+        <button type="button" className="files-list__group-open" onClick={() => conversationId
+            ? openAgentThreadTab({
+                threadId: owner.id,
+                conversationId,
+                agentType: owner.agentType,
+                title: label,
+                source: owner.source,
+                readOnly: owner.readOnly,
+                parentAgentId: owner.parentAgentId,
+            })
+            : undefined} aria-label="View agent thread" title="View agent thread">
+          <Eye size={13} strokeWidth={2} aria-hidden="true"/>
+        </button>
+      </li>
+      {expanded
+        ? descendants.map((child) => (<li key={`agent:${child.id}`} className="files-list__item files-list__item--nested">
+            <AgentThreadButton task={child} conversationId={conversationId}/>
+          </li>))
+        : null}
+    </>);
+}
 function WorkList() {
     const chat = useChatRuntime();
     const { state } = useUiState();
@@ -76,6 +145,23 @@ function WorkList() {
     const pageEndRef = useRef(null);
     const [draggingMedia, setDraggingMedia] = useState(false);
     const [visibleItemCount, setVisibleItemCount] = useState(WORK_PAGE_SIZE);
+    // Collapsed-by-default expansion for subagent groups, mirroring the
+    // activity workspace strip. Session-local (not persisted) and reset per
+    // conversation so stale ids can't leak across a switch.
+    const [expandedGroupIds, setExpandedGroupIds] = useState(() => new Set());
+    const toggleGroup = useCallback((id) => {
+        setExpandedGroupIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id))
+                next.delete(id);
+            else
+                next.add(id);
+            return next;
+        });
+    }, []);
+    useEffect(() => {
+        setExpandedGroupIds(new Set());
+    }, [state.conversationId]);
     const dragCounterRef = useRef(0);
     useEffect(() => {
         void loadCanvasHtmlHistory();
@@ -103,20 +189,30 @@ function WorkList() {
     }, [activeSection, panelOpen, searchOpen]);
     const query = searchOpen ? deferredQuery : "";
     const items = useMemo(() => {
-        const agents = chat.conversation.tasks
-            .filter((task) => {
+        // Nest owned subagents under their parent (general) agent, mirroring
+        // the activity workspace strip: one collapsed group row per parent
+        // instead of a flat column of every subagent. Grouping runs before the
+        // search filter so a match on a hidden child still surfaces its group;
+        // `getActivityRowSearchText` already folds in nested descendant text.
+        const agents = groupActivityTasks(chat.conversation.tasks)
+            .filter((row) => {
             if (!query)
                 return true;
-            return `${task.description} ${task.agentType}`
-                .toLowerCase()
-                .includes(query);
+            return getActivityRowSearchText(row).toLowerCase().includes(query);
         })
-            .map((task) => ({
-            kind: "agent",
-            id: `agent:${task.id}`,
-            timestamp: taskTimestamp(task),
-            task,
-        }));
+            .map((row) => row.kind === "task"
+            ? {
+                kind: "agent",
+                id: `agent:${row.task.id}`,
+                timestamp: taskTimestamp(row.task),
+                task: row.task,
+            }
+            : {
+                kind: "agentGroup",
+                id: `agent:${row.hierarchy.owner.id}`,
+                timestamp: taskTimestamp(row.hierarchy.owner),
+                hierarchy: row.hierarchy,
+            });
         const files = entries
             .filter((entry) => {
             if (!query)
@@ -248,32 +344,8 @@ function WorkList() {
                   {RECENCY_LABELS[group.id]}
                 </h3>
                 <ul className="files-list__items files-list__group-items">
-                  {group.items.map((item) => item.kind === "agent" ? (<li key={item.id} className="files-list__item">
-                  <button type="button" className="files-list__open" onClick={() => state.conversationId
-                    ? openAgentThreadTab({
-                        threadId: item.task.id,
-                        conversationId: state.conversationId,
-                        agentType: item.task.agentType,
-                        title: item.task.description.trim() ||
-                            item.task.agentType ||
-                            "Agent thread",
-                        source: item.task.source,
-                        readOnly: item.task.readOnly,
-                        parentAgentId: item.task.parentAgentId,
-                    })
-                    : undefined} title={workItemLabel(item)}>
-                    <span className="files-list__icon" aria-hidden="true">
-                      <AgentLifecycleStatusIcon status={item.task.status} size={17} strokeWidth={1.75}/>
-                    </span>
-                    <span className="files-list__title">
-                      {workItemLabel(item)}
-                    </span>
-                    <span className="files-list__meta">
-                      {item.task.source === "claude-native"
-                    ? "Claude · read-only"
-                    : "Agent"}
-                    </span>
-                  </button>
+                  {group.items.map((item) => item.kind === "agentGroup" ? (<AgentGroupRow key={item.id} hierarchy={item.hierarchy} conversationId={state.conversationId} expanded={query ? true : expandedGroupIds.has(item.id)} onToggle={() => toggleGroup(item.id)}/>) : item.kind === "agent" ? (<li key={item.id} className="files-list__item">
+                    <AgentThreadButton task={item.task} conversationId={state.conversationId}/>
                 </li>) : (<li key={item.id} className="files-list__item">
                   <button type="button" className="files-list__open" onClick={() => openDisplayPayloadTab(item.entry.payload)} title={item.entry.filePath ?? item.entry.title}>
                     <span className="files-list__icon" aria-hidden="true">

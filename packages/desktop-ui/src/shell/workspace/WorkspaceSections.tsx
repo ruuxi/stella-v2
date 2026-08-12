@@ -16,7 +16,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -59,7 +58,6 @@ import {
   activityRowKey,
   compareActivityRowsByLifecycleStart,
   flattenActivityTasks,
-  getCompactActivityStatusText,
   getActivityRowCompletedAtMs,
   getActivityRowSearchText,
   getActivityRowStatus,
@@ -90,7 +88,7 @@ import { ScheduleDetailsDialog } from "@/global/schedule/ScheduleDetailsDialog";
 import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
 import { ActivityTaskShimmer } from "@/shell/ActivityTaskShimmer";
 import { AgentAssistantUpdates } from "@/shell/AgentAssistantUpdates";
-import { selectLatestAgentAssistantMessage } from "@/features/chat/lib/agent-assistant-summary";
+import { CompactChildState } from "@/features/chat/components/CompactSubagentSummary";
 import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
 import "@/app/chat/chat-workspace-strip.css";
 
@@ -213,104 +211,8 @@ function WorkspaceSection({
   );
 }
 
-const compactTaskState = (task: TaskItem): string => {
-  switch (task.status) {
-    case "running":
-      return "running";
-    case "completed":
-      return "done";
-    case "error":
-      return "failed";
-    case "canceled":
-      return "stopped";
-  }
-};
-
-const compactTaskTooltip = (task: TaskItem): string => {
-  const label = task.description.trim() || "Agent";
-  const detail = (
-    selectLatestAgentAssistantMessage(task.assistantMessages) ?? ""
-  ).replace(/\s+/g, " ");
-  const clipped = detail.length > 120 ? `${detail.slice(0, 117)}…` : detail;
-  return `${label} · ${compactTaskState(task)}${clipped ? ` — ${clipped}` : ""}`;
-};
-
 const taskSourceLabel = (task: TaskItem): string | undefined =>
   task.source === "claude-native" ? "Claude · read-only" : undefined;
-
-const CompactChildState = memo(function CompactChildState({
-  summary,
-  prioritizeFailure,
-}: {
-  summary: ReturnType<typeof summarizeCompactActivity>;
-  prioritizeFailure: boolean;
-}) {
-  const statusText = getCompactActivityStatusText(summary, prioritizeFailure);
-  return (
-    <>
-      {summary.usesProgressBar ? (
-        <span
-          className="chat-workspace-strip__compact-progress"
-          aria-hidden="true"
-        >
-          <span className="chat-workspace-strip__compact-bar">
-            {summary.completedCount > 0 ? (
-              <span
-                className="chat-workspace-strip__compact-bar-segment chat-workspace-strip__compact-bar-segment--done"
-                style={{ flexGrow: summary.completedCount }}
-              />
-            ) : null}
-            {summary.runningCount > 0 ? (
-              <span
-                className="chat-workspace-strip__compact-bar-segment chat-workspace-strip__compact-bar-segment--running"
-                style={{ flexGrow: summary.runningCount }}
-              />
-            ) : null}
-            {summary.errorCount > 0 ? (
-              <span
-                className="chat-workspace-strip__compact-bar-segment chat-workspace-strip__compact-bar-segment--error"
-                style={{ flexGrow: summary.errorCount }}
-              />
-            ) : null}
-            {summary.canceledCount > 0 ? (
-              <span
-                className="chat-workspace-strip__compact-bar-segment chat-workspace-strip__compact-bar-segment--queued"
-                style={{ flexGrow: summary.canceledCount }}
-              />
-            ) : null}
-          </span>
-          <span className="chat-workspace-strip__compact-progress-count">
-            {summary.completedCount}/{summary.totalCount}
-          </span>
-        </span>
-      ) : (
-        <span
-          className="chat-workspace-strip__compact-cells"
-          aria-hidden="true"
-        >
-          {summary.tasks.map((task, index) => (
-            <span
-              key={task.id}
-              className={`chat-workspace-strip__compact-cell chat-workspace-strip__compact-cell--${task.status}`}
-              // Stable task identity keeps state changes on this final grid
-              // slot; only the local paint fades/pulses, never its position.
-              style={{ "--cell-order": index } as CSSProperties}
-              title={compactTaskTooltip(task)}
-            />
-          ))}
-        </span>
-      )}
-      <span
-        className="chat-workspace-strip__compact-status"
-        data-failure={
-          prioritizeFailure && summary.errorCount > 0 ? "true" : undefined
-        }
-      >
-        {statusText}
-      </span>
-    </>
-  );
-});
 
 function TaskStatusIcon({ status }: { status: TaskItem["status"] }) {
   const suffix =

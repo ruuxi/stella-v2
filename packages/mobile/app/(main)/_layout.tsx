@@ -36,7 +36,7 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
+  withSpring,
 } from "react-native-reanimated";
 import { type Colors } from "../../src/theme/colors";
 import { useColors, useTheme } from "../../src/theme/theme-context";
@@ -98,6 +98,13 @@ const SIDEBAR_WIDTH = 320;
  * from SIDEBAR_WIDTH so the sidebar can be widened (more breathing room
  * for its content) without pushing the main content further right. */
 const DRAWER_REVEAL = 232;
+/** Snappy, lightly-springy settle for the drawer — tuned to feel closer to
+ * ChatGPT iOS: it starts moving instantly (unlike an ease-in curve) and rests
+ * fast with just a hint of overshoot for tactility. `duration` is the
+ * perceptual duration; `dampingRatio` just under 1 keeps the bounce subtle
+ * rather than wobbly. Gesture releases additionally hand the fling velocity to
+ * the spring so the panel continues from the finger's speed. */
+const DRAWER_SPRING = { duration: 260, dampingRatio: 0.88 } as const;
 
 function readActiveTab(pathname: string): TabId | null {
   const tab = readMainTabFromPath(pathname);
@@ -247,23 +254,29 @@ export default function MainLayout() {
 
   const openSidebar = () => {
     Keyboard.dismiss();
+    tapLight();
     setSidebarOpen(true);
-    drawerProgress.value = withTiming(1, { duration: 280 });
+    drawerProgress.value = withSpring(1, DRAWER_SPRING);
   };
 
-  const closeSidebar = () => {
+  // `haptic` defaults on so direct user closes (scrim tap, back) feel the
+  // commit. Callers that already fire their own feedback or close the drawer
+  // programmatically (tab navigation, rotating into the wide layout) pass
+  // false to avoid a double buzz.
+  const closeSidebar = (haptic = true) => {
+    if (haptic) tapLight();
     setSidebarOpen(false);
-    drawerProgress.value = withTiming(0, { duration: 240 });
+    drawerProgress.value = withSpring(0, DRAWER_SPRING);
   };
 
   const navigate = (tab: TabId) => {
     tapLight();
     router.replace(MAIN_TAB_HREFS[tab]);
-    closeSidebar();
+    closeSidebar(false);
   };
 
   useEffect(() => {
-    if (wide) closeSidebar();
+    if (wide) closeSidebar(false);
   }, [wide]);
 
   // -- Gesture: swipe right anywhere on the app to open --
@@ -283,10 +296,20 @@ export default function MainLayout() {
     })
     .onEnd((e) => {
       if (e.velocityX > 500 || drawerProgress.value > 0.4) {
-        drawerProgress.value = withTiming(1, { duration: 200 });
+        // Commit open: continue from the fling velocity so the spring picks up
+        // where the finger left off, and fire the open haptic on the detent.
+        drawerProgress.value = withSpring(1, {
+          ...DRAWER_SPRING,
+          velocity: e.velocityX / DRAWER_REVEAL,
+        });
         runOnJS(setSidebarOpen)(true);
+        runOnJS(tapLight)();
       } else {
-        drawerProgress.value = withTiming(0, { duration: 200 });
+        // Snap back to closed — no haptic, the drawer never left its rest state.
+        drawerProgress.value = withSpring(0, {
+          ...DRAWER_SPRING,
+          velocity: e.velocityX / DRAWER_REVEAL,
+        });
       }
     });
 
@@ -304,10 +327,20 @@ export default function MainLayout() {
       })
       .onEnd((e) => {
         if (e.velocityX < -500 || drawerProgress.value < 0.6) {
-          drawerProgress.value = withTiming(0, { duration: 200 });
+          // Commit closed: ride the fling velocity into the spring and fire the
+          // close haptic on the detent.
+          drawerProgress.value = withSpring(0, {
+            ...DRAWER_SPRING,
+            velocity: e.velocityX / DRAWER_REVEAL,
+          });
           runOnJS(setSidebarOpen)(false);
+          runOnJS(tapLight)();
         } else {
-          drawerProgress.value = withTiming(1, { duration: 200 });
+          // Snap back to open — no haptic, the drawer stays where it was.
+          drawerProgress.value = withSpring(1, {
+            ...DRAWER_SPRING,
+            velocity: e.velocityX / DRAWER_REVEAL,
+          });
         }
       });
 
@@ -546,7 +579,7 @@ export default function MainLayout() {
                 style={[styles.foregroundScrim, scrimStyle]}
               >
                 <Pressable
-                  onPress={closeSidebar}
+                  onPress={() => closeSidebar()}
                   style={StyleSheet.absoluteFill}
                   accessibilityLabel={t("mobile.nav.closeLabel")}
                 />

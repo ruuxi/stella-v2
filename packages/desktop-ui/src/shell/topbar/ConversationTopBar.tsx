@@ -62,6 +62,7 @@ const TAB_DRAG_ACTIVATION_DISTANCE = 4;
 const TAB_DRAG_EDGE_SIZE = 24;
 const TAB_DRAG_SCROLL_STEP = 12;
 const HISTORY_DELETE_CONFIRM_TIMEOUT_MS = 3000;
+const HISTORY_NEW_CHAT_CONFIRM_TIMEOUT_MS = 3000;
 const HISTORY_HOVER_CLOSE_DELAY_MS = 120;
 
 export type TabOverflow = { left: boolean; right: boolean };
@@ -85,6 +86,12 @@ export const shouldRenderNewChatLabel = (tabCount: number) => tabCount <= 1;
 export const shouldRenderNewChatControl = (
   workingMode: AssistantWorkingMode,
 ): boolean => workingMode === "direct";
+
+// In orchestrated mode there are no tabs and no standalone new-chat control,
+// so the History menu owns the only affordance for starting a fresh chat.
+export const shouldRenderHistoryNewChat = (
+  workingMode: AssistantWorkingMode,
+): boolean => workingMode === "orchestrated";
 
 export const resolveHistoryDeleteActivation = (
   armedConversationId: string | null,
@@ -205,6 +212,7 @@ export function ConversationTopBar() {
   const [assistantWorkingMode, setAssistantWorkingMode] =
     useState<AssistantWorkingMode>(DEFAULT_ASSISTANT_WORKING_MODE);
   const showNewChatControl = shouldRenderNewChatControl(assistantWorkingMode);
+  const showHistoryNewChat = shouldRenderHistoryNewChat(assistantWorkingMode);
   const showNewChatLabel =
     showNewChatControl && shouldRenderNewChatLabel(tabs.length);
   const activeConversationId = useRouterState({
@@ -229,9 +237,11 @@ export function ConversationTopBar() {
   const [historyDeleteErrorId, setHistoryDeleteErrorId] = useState<
     string | null
   >(null);
+  const [historyNewChatArmed, setHistoryNewChatArmed] = useState(false);
   const historyRequestRef = useRef(0);
   const historyLoadingRef = useRef(false);
   const historyDeleteTimerRef = useRef<number | null>(null);
+  const historyNewChatTimerRef = useRef<number | null>(null);
   const historyHoverCloseTimerRef = useRef<number | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef(new Map<string, HTMLDivElement>());
@@ -530,6 +540,39 @@ export function ConversationTopBar() {
     setHistoryDeleteErrorId(null);
   }, [clearHistoryDeleteTimer]);
 
+  const clearHistoryNewChatTimer = useCallback(() => {
+    if (historyNewChatTimerRef.current === null) return;
+    window.clearTimeout(historyNewChatTimerRef.current);
+    historyNewChatTimerRef.current = null;
+  }, []);
+
+  const disarmHistoryNewChat = useCallback(() => {
+    clearHistoryNewChatTimer();
+    setHistoryNewChatArmed(false);
+  }, [clearHistoryNewChatTimer]);
+
+  // Two-step confirm mirroring the per-item delete affordance: the first click
+  // arms the button, the second within the window starts the new chat.
+  const activateHistoryNewChat = useCallback(() => {
+    if (!historyNewChatArmed) {
+      clearHistoryNewChatTimer();
+      setHistoryNewChatArmed(true);
+      historyNewChatTimerRef.current = window.setTimeout(() => {
+        setHistoryNewChatArmed(false);
+        historyNewChatTimerRef.current = null;
+      }, HISTORY_NEW_CHAT_CONFIRM_TIMEOUT_MS);
+      return;
+    }
+    disarmHistoryNewChat();
+    setHistoryOpen(false);
+    void createConversation();
+  }, [
+    clearHistoryNewChatTimer,
+    createConversation,
+    disarmHistoryNewChat,
+    historyNewChatArmed,
+  ]);
+
   const clearHistoryHoverCloseTimer = useCallback(() => {
     if (historyHoverCloseTimerRef.current === null) return;
     window.clearTimeout(historyHoverCloseTimerRef.current);
@@ -546,9 +589,10 @@ export function ConversationTopBar() {
     historyHoverCloseTimerRef.current = window.setTimeout(() => {
       historyHoverCloseTimerRef.current = null;
       disarmHistoryDelete();
+      disarmHistoryNewChat();
       setHistoryOpen(false);
     }, HISTORY_HOVER_CLOSE_DELAY_MS);
-  }, [clearHistoryHoverCloseTimer, disarmHistoryDelete]);
+  }, [clearHistoryHoverCloseTimer, disarmHistoryDelete, disarmHistoryNewChat]);
 
   const deleteHistoryConversation = useCallback(
     async (summary: ConversationSummary) => {
@@ -594,9 +638,14 @@ export function ConversationTopBar() {
   useEffect(
     () => () => {
       clearHistoryDeleteTimer();
+      clearHistoryNewChatTimer();
       clearHistoryHoverCloseTimer();
     },
-    [clearHistoryDeleteTimer, clearHistoryHoverCloseTimer],
+    [
+      clearHistoryDeleteTimer,
+      clearHistoryNewChatTimer,
+      clearHistoryHoverCloseTimer,
+    ],
   );
 
   useEffect(() => {
@@ -841,7 +890,10 @@ export function ConversationTopBar() {
         onOpenChange={(open) => {
           clearHistoryHoverCloseTimer();
           setHistoryOpen(open);
-          if (!open) disarmHistoryDelete();
+          if (!open) {
+            disarmHistoryDelete();
+            disarmHistoryNewChat();
+          }
         }}
       >
         <Popover.Trigger asChild>
@@ -886,6 +938,41 @@ export function ConversationTopBar() {
             }
           }}
         >
+          {showHistoryNewChat ? (
+            <div className="conversation-history-popover__new-chat-row">
+              <button
+                type="button"
+                className="conversation-history-popover__new-chat"
+                data-armed={historyNewChatArmed ? "true" : undefined}
+                aria-label={
+                  historyNewChatArmed
+                    ? t("shell.topbar.conversation.newChatConfirm")
+                    : t("shell.topbar.conversation.newChat")
+                }
+                title={
+                  historyNewChatArmed
+                    ? t("shell.topbar.conversation.newChatConfirm")
+                    : t("shell.topbar.conversation.newChat")
+                }
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  disarmHistoryNewChat();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  activateHistoryNewChat();
+                }}
+              >
+                <Plus size={14} strokeWidth={1.85} aria-hidden="true" />
+                <span className="conversation-history-popover__new-chat-label">
+                  {historyNewChatArmed
+                    ? t("shell.topbar.conversation.newChatConfirm")
+                    : t("shell.topbar.conversation.newChat")}
+                </span>
+              </button>
+            </div>
+          ) : null}
           <LegendList<ConversationSummary>
             className="conversation-history-popover__list"
             data={history}

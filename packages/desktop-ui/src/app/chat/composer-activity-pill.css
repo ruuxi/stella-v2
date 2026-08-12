@@ -119,12 +119,15 @@
   box-shadow: var(--shadow-overlay), var(--panel-surface-highlight);
 }
 
+/* Size to the item count rather than a fixed box: a short overview stays
+   compact, and only once the content passes the cap does the tray settle at
+   its max height and scroll (via `.sidebar-search__body`'s own overflow). */
 .composer-activity-tray {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: min(60vh, 32rem);
-  min-height: 14rem;
+  max-height: min(60vh, 32rem);
+  overflow: hidden;
 }
 
 .composer-activity-tray > .sidebar-search {

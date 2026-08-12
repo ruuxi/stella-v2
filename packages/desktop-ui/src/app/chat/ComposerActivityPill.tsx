@@ -6,17 +6,20 @@
  * while the right sidebar replaces Activity, or when the shell automatically
  * hides Activity at narrower widths.
  *
- * The pill does double duty:
- *   • Idle, it's the entry point to the Activity tray.
+ * The pill only appears while there is live or just-settled work:
+ *   • Idle (nothing in progress), it renders nothing at all — the generic
+ *     "Activity" label was pure noise, so the pill stays out of the bar
+ *     entirely. The standalone Activity surface remains the way in when
+ *     there's simply nothing running.
  *   • While Stella has background work in flight it shows a simple,
  *     shimmering count of how many top-level work units are running ("1 task in progress",
  *     "2 tasks in progress", …) — the per-task detail lives in the inline
  *     chat cards and the Tasks section, so the ambient pill just tallies. When
  *     work settles it briefly shows a finished / couldn't-finish / stopped
- *     state before quietly reverting to "Activity" — a minimum dwell so a quick
- *     task doesn't just flash its progress.
+ *     state for a minimum dwell (so a quick task doesn't just flash) before
+ *     disappearing again.
  *
- * Clicking it (in any state) opens the Activity tray. Search lives
+ * Clicking it (in any visible state) opens the Activity tray. Search lives
  * permanently in the sidebar's unified Work tab.
  */
 import {
@@ -280,11 +283,18 @@ export const ComposerActivityPill = memo(function ComposerActivityPill() {
   const tasks = chat.conversation.tasks;
 
   const { state, runningCount } = useActivityPillState(tasks);
-  const visible = shouldShowActivityPill(
-    tasks.length > 0,
-    panelOpen,
-    shellBreakpoints.hideWorkspaceStrip,
-  );
+  // Gate on live/settling work: the idle "Activity" label is noise, so when
+  // there's nothing in progress the pill renders nothing. Running plus the
+  // brief terminal (done / error / canceled) dwell keep it visible; only the
+  // idle state drops it out of the bar.
+  const hasActiveWork = state !== "idle";
+  const visible =
+    hasActiveWork &&
+    shouldShowActivityPill(
+      tasks.length > 0,
+      panelOpen,
+      shellBreakpoints.hideWorkspaceStrip,
+    );
   const [open, setOpen] = useState(false);
 
   useEffect(() => {

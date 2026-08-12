@@ -1032,7 +1032,6 @@ export function GeneralTab() {
             </div>
           </div>
         </div>
-        <PromptPresetCard />
         <div className="settings-card">
           <div className="settings-card-header">
             <h3 className="settings-card-title">
@@ -1080,6 +1079,7 @@ export function GeneralTab() {
             {t("settings.browserExtension.description")}
           </p>
         </div>
+        <PromptPresetCard />
       </div>
     </>
   );

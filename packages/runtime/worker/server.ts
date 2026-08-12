@@ -245,6 +245,7 @@ type AgentEventPayload = {
   reason?: string;
   replacedByRunId?: string;
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
+  workingMode?: AssistantWorkingMode;
   assistantMessageEventId?: string;
   assistantMessageText?: string;
 };
@@ -1811,6 +1812,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                 ...(targetRequestId ? { requestId: targetRequestId } : {}),
                 userMessageId: ev.userMessageId,
                 agentType: ev.agentType,
+                workingMode: assistantWorkingMode,
                 ...(assistantEvent
                   ? { assistantMessageEventId: assistantEvent._id }
                   : {}),
@@ -1842,6 +1844,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                   type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
                   conversationId: payload.conversationId,
                   uiVisibility: "visible",
+                  workingMode: assistantWorkingMode,
                   ...(lastVisibleRequestId
                     ? { requestId: lastVisibleRequestId }
                     : {}),
@@ -1855,6 +1858,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
               conversationId: payload.conversationId,
+              workingMode: assistantWorkingMode,
               ...(requestId ? { requestId } : {}),
             });
           },
@@ -1895,6 +1899,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                   seq: nextSyntheticSeq(),
                   type: AGENT_STREAM_EVENT_TYPES.STREAM,
                   conversationId: payload.conversationId,
+                  workingMode: assistantWorkingMode,
                   ...(lastVisibleRequestId
                     ? { requestId: lastVisibleRequestId }
                     : {}),
@@ -1906,6 +1911,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.STREAM,
               conversationId: payload.conversationId,
+              workingMode: assistantWorkingMode,
               ...(requestId ? { requestId } : {}),
             });
           },

@@ -303,37 +303,49 @@ export const getPersistedAssistantSlots = (
 export const overlayToMessageRecord = (
   overlay: StreamingAssistantOverlay,
   persisted?: MessageRecord,
-): MessageRecord => ({
-  ...(persisted ?? {}),
-  _id: overlay._id,
-  timestamp: overlay.timestamp,
-  type: "assistant_message",
-  payload: {
-    ...(persisted?.payload ?? {}),
-    text:
-      overlay.locked && typeof persisted?.payload?.text === "string"
-        ? persisted.payload.text
-        : overlay.text,
-    userMessageId: overlay.userMessageId,
-    metadata: {
-      ...((
-        persisted?.payload as { metadata?: Record<string, unknown> } | undefined
-      )?.metadata ?? {}),
-      runtime: {
+): MessageRecord => {
+  const hidesText =
+    overlay.textTransition === "queued" ||
+    overlay.textTransition === "hidden";
+  return {
+    ...(persisted ?? {}),
+    _id: overlay._id,
+    timestamp: overlay.timestamp,
+    type: "assistant_message",
+    payload: {
+      ...(persisted?.payload ?? {}),
+      text: hidesText
+        ? ""
+        : overlay.locked && typeof persisted?.payload?.text === "string"
+          ? persisted.payload.text
+          : overlay.text,
+      userMessageId: overlay.userMessageId,
+      metadata: {
         ...((
           persisted?.payload as
-            | { metadata?: { runtime?: Record<string, unknown> } }
+            | { metadata?: Record<string, unknown> }
             | undefined
-        )?.metadata?.runtime ?? {}),
-        isStreaming: !overlay.locked,
-        ...(overlay.responseTarget
-          ? { responseTarget: overlay.responseTarget }
-          : {}),
+        )?.metadata ?? {}),
+        runtime: {
+          ...((
+            persisted?.payload as
+              | { metadata?: { runtime?: Record<string, unknown> } }
+              | undefined
+          )?.metadata?.runtime ?? {}),
+          isStreaming:
+            !overlay.locked && overlay.textTransition !== "queued",
+          ...(overlay.textTransition
+            ? { assistantTextTransition: overlay.textTransition }
+            : {}),
+          ...(overlay.responseTarget
+            ? { responseTarget: overlay.responseTarget }
+            : {}),
+        },
       },
     },
-  },
-  toolEvents: persisted?.toolEvents ?? [],
-});
+    toolEvents: persisted?.toolEvents ?? [],
+  };
+};
 
 export const mergeConversationDisplayMessageSources = (args: {
   persistedMessages: MessageRecord[];

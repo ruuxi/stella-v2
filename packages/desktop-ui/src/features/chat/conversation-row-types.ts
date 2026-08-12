@@ -54,6 +54,8 @@ export type AssistantRowViewModel = {
    * + runtime signals from `useLocalAgentStream`.
    */
   isStreaming?: boolean;
+  /** Old direct-mode segment currently running its fade-only handoff. */
+  isFadingOut?: boolean;
   /** True for a pre-tool assistant segment within a still-running turn. */
   isIntraTurn?: boolean;
   responseTarget?: AgentResponseTarget;

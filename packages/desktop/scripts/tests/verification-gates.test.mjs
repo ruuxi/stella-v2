@@ -11,6 +11,36 @@ import {
   collectExistingPackagedApplicationFiles,
   findUndeclaredIdentifiers,
 } from "../verify-packaged-identifiers.mjs";
+import { collectRootAbsoluteRendererAssetReferences } from "../verify-renderer-asset-paths.mjs";
+
+test("renderer asset gate catches file-root paths without rejecting relative or remote assets", () => {
+  const tempDir = mkdtempSync(
+    path.join(os.tmpdir(), "stella-renderer-assets-"),
+  );
+  mkdirSync(path.join(tempDir, "assets"), { recursive: true });
+  writeFileSync(
+    path.join(tempDir, "assets", "app.js"),
+    [
+      'const broken = "/pets/stella.webp";',
+      'const packaged = "./pets/stella.webp";',
+      'const remote = "https://example.com/pet.webp";',
+      'const endpoint = "/api/media/v1/generate";',
+    ].join("\n"),
+  );
+  writeFileSync(
+    path.join(tempDir, "assets", "app.css"),
+    ".broken { background: url(/images/background.png); }",
+  );
+
+  const failures = collectRootAbsoluteRendererAssetReferences({
+    distDir: tempDir,
+  });
+
+  assert.deepEqual(failures.map(({ reference }) => reference).sort(), [
+    "/images/background.png",
+    "/pets/stella.webp",
+  ]);
+});
 
 test("identifier gate catches app names while accepting legitimate cross-runtime globals", () => {
   const failures = findUndeclaredIdentifiers({

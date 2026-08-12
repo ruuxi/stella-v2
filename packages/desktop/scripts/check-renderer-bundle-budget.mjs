@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { verifyRendererAssetPaths } from "./verify-renderer-asset-paths.mjs";
 
 const distDir = path.resolve("dist");
 const assetsDir = path.join(distDir, "assets");
@@ -31,6 +32,8 @@ if (!fs.existsSync(distDir) || !fs.existsSync(assetsDir)) {
     "Renderer dist is missing. Run vite build before bundle budget checks.",
   );
 }
+
+verifyRendererAssetPaths({ distDir });
 
 const files = walkFiles(distDir).map((file) => {
   const stat = fs.statSync(file);

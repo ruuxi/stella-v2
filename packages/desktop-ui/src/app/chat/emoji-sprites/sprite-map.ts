@@ -86,15 +86,16 @@ export const getEmojiSpriteSheetCount = (): number => getEmojiSheets().length;
 
 /**
  * Sentinel URL for an emoji sprite cell, encoded as a fragment on the
- * actual sprite asset path so the URL stays valid (and the asset
- * preloads) even if the markdown image override doesn't fire.
+ * logical sprite path. The markdown image override consumes this before the
+ * browser loads it; keeping it relative also prevents a missed override from
+ * escaping the packaged renderer directory under file://.
  *
- *   /emoji-sprites/sheet-1.webp#emoji-cell=0
+ *   emoji-sprites/sheet-1.webp#emoji-cell=0
  */
 export const buildEmojiSpriteUrl = ({ sheet, cell }: EmojiSpriteCell): string =>
-  `/emoji-sprites/sheet-${sheet + 1}.webp#emoji-cell=${cell}`;
+  `emoji-sprites/sheet-${sheet + 1}.webp#emoji-cell=${cell}`;
 
-const URL_PATTERN = /^\/emoji-sprites\/sheet-(\d+)\.webp#emoji-cell=(\d+)$/;
+const URL_PATTERN = /^emoji-sprites\/sheet-(\d+)\.webp#emoji-cell=(\d+)$/;
 
 export const parseEmojiSpriteUrl = (url: string): EmojiSpriteCell | null => {
   const match = url.match(URL_PATTERN);

@@ -50,6 +50,11 @@ export type DesktopUpdaterOptions = {
   checkIntervalMs?: number;
   restartStallMs?: number;
   onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
+  // Runs synchronously on the main process the instant a restart-to-install is
+  // accepted, before quitAndInstall triggers the updater's window-close sweep.
+  // Used to arm the quit (set isQuitting, tear down close-vetoing auxiliary
+  // windows) so nothing can cancel the shutdown and strand the update.
+  onBeforeRestart?: () => void;
   log?: {
     info: (message: string) => void;
     warn: (message: string) => void;
@@ -119,6 +124,7 @@ export class DesktopUpdater {
   private readonly checkIntervalMs: number;
   private readonly restartStallMs: number;
   private readonly onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
+  private readonly onBeforeRestart?: () => void;
   private readonly log: NonNullable<DesktopUpdaterOptions["log"]>;
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private intervalTimer: ReturnType<typeof setInterval> | null = null;
@@ -138,6 +144,7 @@ export class DesktopUpdater {
     this.checkIntervalMs = options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
     this.restartStallMs = options.restartStallMs ?? DEFAULT_RESTART_STALL_MS;
     this.onStateChanged = options.onStateChanged;
+    this.onBeforeRestart = options.onBeforeRestart;
     this.log =
       options.log ??
       ({
@@ -282,6 +289,22 @@ export class DesktopUpdater {
     }
     if (this.snapshot.status !== "downloaded") {
       throw new Error("Download the Stella desktop update before restarting.");
+    }
+    // Arm the shutdown before anything can quit. quitAndInstall makes the
+    // updater close every window and then waits for THIS process to exit
+    // before it swaps the bundle in and relaunches. The always-on-top overlay
+    // and pet windows preventDefault their `close` unless `isQuitting` is
+    // already set, so if that window sweep runs before `before-quit-for-update`
+    // lands (not guaranteed on macOS) they cancel the quit — the app lingers
+    // in the Dock with the update staged and never relaunches. Do it here,
+    // synchronously and before the quit is scheduled, so the shutdown can't be
+    // vetoed. Best-effort: a failure must never abort the restart.
+    try {
+      this.onBeforeRestart?.();
+    } catch (error) {
+      this.log.warn(
+        `Desktop update restart preparation failed: ${asErrorMessage(error)}`,
+      );
     }
     // Held across the quit so a window recreated mid-shutdown (dock click on
     // macOS) renders "Restarting…" instead of offering the restart again.

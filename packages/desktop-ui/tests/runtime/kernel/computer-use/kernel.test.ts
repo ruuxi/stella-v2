@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { readFile, rm } from "node:fs/promises";
 
 import {
+  createExternalNodeReplTransport,
   isBunNodeReplRuntime,
   nodeReplChildUsesElectronRuntime,
   NodeReplKernelRegistry,
@@ -139,6 +142,46 @@ describe("persistent Node REPL kernels", () => {
         STELLA_NODE_IS_ELECTRON: "1",
       }),
     ).toBe(true);
+  });
+
+  it("forwards a child stdin EPIPE through the transport without an unhandled stream error", async () => {
+    const pipeError = Object.assign(new Error("write EPIPE"), {
+      code: "EPIPE",
+    });
+    const stdin = Object.assign(new EventEmitter(), {
+      end: vi.fn(() => {
+        stdin.emit("error", pipeError);
+      }),
+    });
+    const child = Object.assign(new EventEmitter(), {
+      stdin,
+      connected: true,
+      channel: { ref: vi.fn(), unref: vi.fn() },
+      exitCode: null,
+      signalCode: null,
+      send: vi.fn(),
+      ref: vi.fn(),
+      unref: vi.fn(),
+      kill: vi.fn(),
+    }) as unknown as ChildProcess;
+    const spawnProcess = vi.fn(
+      () => child,
+    ) as unknown as typeof import("node:child_process").spawn;
+
+    const transport = createExternalNodeReplTransport(
+      "worker source",
+      {} as Parameters<typeof createExternalNodeReplTransport>[1],
+      {
+        env: { STELLA_NODE_BIN: process.execPath },
+        spawnProcess,
+      },
+    );
+    const observedError = new Promise<Error>((resolve) => {
+      transport.on("error", resolve);
+    });
+
+    await expect(observedError).resolves.toBe(pipeError);
+    expect(stdin.end).toHaveBeenCalledWith("worker source");
   });
 
   it("supports top-level await and preserves lexical bindings", async () => {

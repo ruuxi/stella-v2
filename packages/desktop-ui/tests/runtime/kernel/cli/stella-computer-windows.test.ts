@@ -374,4 +374,30 @@ describe("Windows native Computer Use architecture", () => {
     expect(wrapperSource).toContain("<app_specific_instructions>");
     expect(wrapperSource).toContain("</app_specific_instructions>");
   });
+
+  it("uses the daemon readiness connection for the request instead of reconnecting", () => {
+    const connectStart = wrapperSource.indexOf(
+      "const connectWindowsDaemon = async",
+    );
+    const connectEnd = wrapperSource.indexOf(
+      "export const readWindowsComputerSnapshot",
+      connectStart,
+    );
+    const connectBody = wrapperSource.slice(connectStart, connectEnd);
+    const requestStart = wrapperSource.indexOf(
+      "export const requestWindowsComputerHelper",
+    );
+    const requestEnd = wrapperSource.indexOf(
+      "const appFromSnapshotArgs",
+      requestStart,
+    );
+    const requestBody = wrapperSource.slice(requestStart, requestEnd);
+
+    expect(connectStart).toBeGreaterThan(0);
+    expect(connectBody).not.toContain("socket.end()");
+    expect(requestBody).toContain(
+      "const socket = await connectWindowsDaemon(sessionId, signal)",
+    );
+    expect(requestBody).not.toContain("connectWindowsPipeWithRetry");
+  });
 });

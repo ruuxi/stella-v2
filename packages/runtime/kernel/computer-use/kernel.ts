@@ -306,7 +306,7 @@ const replToolNamesForContext = (context: ToolContext): string[] =>
     (name) => !NODE_REPL_EXCLUDED_TOOL_NAMES.has(name) && !name.startsWith("$"),
   );
 
-type NodeReplTransport = {
+export type NodeReplTransport = {
   on(event: "message", listener: (message: unknown) => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;
   on(event: "exit", listener: (code: number | null) => void): unknown;
@@ -328,23 +328,32 @@ export const nodeReplChildUsesElectronRuntime = (
   return Boolean(env.STELLA_HOST_EXECUTABLE_PATH?.trim());
 };
 
-const createNodeReplTransport = (
+type ExternalNodeReplTransportOptions = Readonly<{
+  env?: NodeJS.ProcessEnv;
+  spawnProcess?: typeof spawn;
+}>;
+
+/**
+ * Bun cannot host the hardened REPL in-process, so production starts the
+ * bundled Node runtime and streams the worker source over stdin. ChildProcess
+ * `error` events do not cover errors emitted by the separate stdin Socket:
+ * when a Windows child closes during bootstrap, an unobserved stdin EPIPE is
+ * otherwise fatal to the detached runtime worker.
+ */
+export const createExternalNodeReplTransport = (
   source: string,
   workerData: NodeReplWorkerData,
-  name: string,
+  options: ExternalNodeReplTransportOptions = {},
 ): NodeReplTransport => {
-  if (!isBunNodeReplRuntime()) {
-    return new Worker(source, { eval: true, workerData, name });
-  }
-
+  const env = options.env ?? process.env;
   const executable =
-    process.env.STELLA_NODE_BIN?.trim() ||
-    process.env.STELLA_HOST_EXECUTABLE_PATH?.trim() ||
+    env.STELLA_NODE_BIN?.trim() ||
+    env.STELLA_HOST_EXECUTABLE_PATH?.trim() ||
     "node";
-  const child = spawn(executable, ["-"], {
+  const child = (options.spawnProcess ?? spawn)(executable, ["-"], {
     env: {
-      ...process.env,
-      ...(nodeReplChildUsesElectronRuntime()
+      ...env,
+      ...(nodeReplChildUsesElectronRuntime(env)
         ? { ELECTRON_RUN_AS_NODE: "1" }
         : {}),
       STELLA_NODE_REPL_WORKER_DATA: JSON.stringify(workerData),
@@ -352,10 +361,45 @@ const createNodeReplTransport = (
     stdio: ["pipe", "ignore", "ignore", "ipc"],
     windowsHide: true,
   });
-  child.stdin?.end(source);
+
+  const errorListeners = new Set<(error: Error) => void>();
+  const bufferedErrors: Error[] = [];
+  const forwardError = (error: Error) => {
+    if (errorListeners.size === 0) {
+      bufferedErrors.push(error);
+      return;
+    }
+    for (const listener of errorListeners) listener(error);
+  };
+
+  // Install both guards before writing any source. `child.on("error")` handles
+  // spawn/IPC failures; stdin is its own EventEmitter and needs a distinct
+  // listener for asynchronous EPIPE/ECONNRESET failures.
+  child.on("error", forwardError);
+  child.stdin?.on("error", forwardError);
+  try {
+    if (!child.stdin) {
+      forwardError(new Error("Node REPL child stdin is unavailable."));
+    } else {
+      child.stdin.end(source);
+    }
+  } catch (error) {
+    forwardError(error instanceof Error ? error : new Error(String(error)));
+  }
 
   return {
     on(event, listener) {
+      if (event === "error") {
+        const errorListener = listener as (error: Error) => void;
+        errorListeners.add(errorListener);
+        if (bufferedErrors.length > 0) {
+          const pending = bufferedErrors.splice(0);
+          queueMicrotask(() => {
+            for (const error of pending) errorListener(error);
+          });
+        }
+        return child;
+      }
       child.on(event, listener as never);
       return child;
     },
@@ -377,6 +421,17 @@ const createNodeReplTransport = (
       if (child.exitCode === null && child.signalCode === null) child.kill();
     },
   };
+};
+
+const createNodeReplTransport = (
+  source: string,
+  workerData: NodeReplWorkerData,
+  name: string,
+): NodeReplTransport => {
+  if (!isBunNodeReplRuntime()) {
+    return new Worker(source, { eval: true, workerData, name });
+  }
+  return createExternalNodeReplTransport(source, workerData);
 };
 
 class NodeReplKernel {

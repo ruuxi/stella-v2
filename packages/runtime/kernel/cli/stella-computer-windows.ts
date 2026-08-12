@@ -184,12 +184,28 @@ type WindowsDaemonResponse = {
   stderr: string;
 };
 
+class WindowsDaemonChannelError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WindowsDaemonChannelError";
+  }
+}
+
 const defaultSessionId = "manual";
 const windowsHelperName = "stella-computer-helper";
 const windowsHelperTimeoutMs = 30_000;
 const windowsDaemonStartupBudgetMs = 2_000;
 const sessionPruneIntervalMs = 24 * 60 * 60 * 1000;
 const sessionRetentionMs = 24 * 60 * 60 * 1000;
+const readOnlyWindowsHelperTools = new Set([
+  "doctor",
+  "get_app_state",
+  "list_apps",
+  "list_windows",
+]);
+
+export const isReadOnlyWindowsHelperRequest = (request: WinHelperRequest) =>
+  readOnlyWindowsHelperTools.has(request.tool);
 
 const windowsStateDir = () => {
   const configured = getComputerExecutionEnv().STELLA_DATA_DIR;
@@ -882,6 +898,10 @@ export const exchangeWindowsDaemonRequest = (
       if (settled) return;
       settled = true;
       cleanup();
+      // A write callback can report EPIPE before the Socket emits its matching
+      // asynchronous `error` event. Keep a terminal guard installed after the
+      // request settles so that late event cannot crash the runtime worker.
+      socket.on("error", ignoreWindowsPipeError);
       socket.destroy();
       if (error) reject(error);
       else resolve(value);
@@ -894,7 +914,7 @@ export const exchangeWindowsDaemonRequest = (
     };
     const onError = (error: Error) => {
       settle(
-        new Error(
+        new WindowsDaemonChannelError(
           `Windows stella-computer daemon connection failed: ${error.message}`,
         ),
       );
@@ -902,7 +922,7 @@ export const exchangeWindowsDaemonRequest = (
     const onClose = () => {
       if (!settled) {
         settle(
-          new Error(
+          new WindowsDaemonChannelError(
             "Windows stella-computer daemon closed the request before returning a response.",
           ),
         );
@@ -915,7 +935,7 @@ export const exchangeWindowsDaemonRequest = (
     const timer = setTimeout(() => {
       options.onTimeoutOrAbort?.();
       settle(
-        new Error(
+        new WindowsDaemonChannelError(
           `Windows stella-computer daemon timed out after ${options.timeoutMs}ms`,
         ),
       );
@@ -927,50 +947,47 @@ export const exchangeWindowsDaemonRequest = (
     socket.once("close", onClose);
     signal?.addEventListener("abort", onAbort, { once: true });
     try {
-      socket.write(payload);
+      socket.write(payload, (error) => {
+        if (error) onError(error);
+      });
     } catch (error) {
       settle(
         error instanceof Error
-          ? new Error(
+          ? new WindowsDaemonChannelError(
               `Windows stella-computer daemon connection failed: ${error.message}`,
             )
-          : new Error("Windows stella-computer daemon connection failed"),
+          : new WindowsDaemonChannelError(
+              "Windows stella-computer daemon connection failed",
+            ),
       );
     }
   });
 
-export const requestWindowsComputerHelper = async (
-  sessionId: string,
-  request: WinHelperRequest,
-  signal = getComputerExecutionSignal(),
-): Promise<WinHelperResponse> => {
-  const seq = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-  const payload = encodeWindowsDaemonPayload(seq, request);
-  const socket = await connectWindowsDaemon(sessionId, signal);
-  if (!socket) {
-    throw new Error(
-      `Windows stella-computer daemon failed to start after ${windowsDaemonStartupBudgetMs}ms`,
-    );
-  }
+export type WindowsComputerHelperTransportOverrides = Readonly<{
+  connectDaemon?: (
+    sessionId: string,
+    signal?: AbortSignal,
+  ) => Promise<net.Socket | null>;
+  exchangeRequest?: typeof exchangeWindowsDaemonRequest;
+  stopDaemon?: (sessionId: string) => boolean;
+}>;
 
-  const responseText = await exchangeWindowsDaemonRequest(socket, payload, {
-    timeoutMs: windowsHelperTimeoutMs,
-    signal,
-    onTimeoutOrAbort: () => stopWindowsDaemonUnlocked(sessionId),
-  });
-
+const parseWindowsDaemonResponse = (
+  responseText: string,
+  seq: number,
+): WinHelperResponse => {
   let envelope: WindowsDaemonResponse;
   try {
     envelope = JSON.parse(responseText) as WindowsDaemonResponse;
   } catch (error) {
-    throw new Error(
+    throw new WindowsDaemonChannelError(
       `Windows stella-computer daemon returned invalid JSON: ${
         error instanceof Error ? error.message : String(error)
       }: ${responseText.trim()}`,
     );
   }
   if (envelope.seq !== seq) {
-    throw new Error(
+    throw new WindowsDaemonChannelError(
       "Windows stella-computer daemon returned a mismatched response sequence.",
     );
   }
@@ -985,11 +1002,74 @@ export const requestWindowsComputerHelper = async (
   try {
     return JSON.parse(envelope.stdout) as WinHelperResponse;
   } catch (error) {
-    throw new Error(
+    throw new WindowsDaemonChannelError(
       `Windows stella-computer helper returned invalid JSON: ${
         error instanceof Error ? error.message : String(error)
       }: ${envelope.stdout.trim() || envelope.stderr.trim()}`,
     );
+  }
+};
+
+export const requestWindowsComputerHelper = async (
+  sessionId: string,
+  request: WinHelperRequest,
+  signal = getComputerExecutionSignal(),
+  transportOverrides: WindowsComputerHelperTransportOverrides = {},
+): Promise<WinHelperResponse> => {
+  const connectDaemon =
+    transportOverrides.connectDaemon ?? connectWindowsDaemon;
+  const exchangeRequest =
+    transportOverrides.exchangeRequest ?? exchangeWindowsDaemonRequest;
+  const stopDaemon = transportOverrides.stopDaemon ?? stopWindowsDaemonUnlocked;
+
+  const attempt = async (): Promise<WinHelperResponse> => {
+    const seq = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+    const payload = encodeWindowsDaemonPayload(seq, request);
+    const socket = await connectDaemon(sessionId, signal);
+    if (!socket) {
+      throw new Error(
+        `Windows stella-computer daemon failed to start after ${windowsDaemonStartupBudgetMs}ms`,
+      );
+    }
+
+    let responseText: string;
+    try {
+      responseText = await exchangeRequest(socket, payload, {
+        timeoutMs: windowsHelperTimeoutMs,
+        signal,
+      });
+    } catch (error) {
+      stopDaemon(sessionId);
+      if (signal?.aborted) throw error;
+      throw error instanceof WindowsDaemonChannelError
+        ? error
+        : new WindowsDaemonChannelError(
+            error instanceof Error ? error.message : String(error),
+          );
+    }
+
+    try {
+      return parseWindowsDaemonResponse(responseText, seq);
+    } catch (error) {
+      if (error instanceof WindowsDaemonChannelError) {
+        stopDaemon(sessionId);
+      }
+      throw error;
+    }
+  };
+
+  try {
+    return await attempt();
+  } catch (error) {
+    if (signal?.aborted || !(error instanceof WindowsDaemonChannelError)) {
+      throw error;
+    }
+    if (!isReadOnlyWindowsHelperRequest(request)) {
+      throw new WindowsDaemonChannelError(
+        `${error.message} The daemon was recycled, but Stella did not replay ${request.tool} because the action may already have completed. Inspect the app state before retrying it.`,
+      );
+    }
+    return await attempt();
   }
 };
 

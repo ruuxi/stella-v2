@@ -1185,7 +1185,7 @@ export const registerSystemHandlers = (options) => {
         setPromptPresetSelection(dir, agentId, id);
         return { ok: true, selectedId: getPromptPresetSelection(dir, agentId) };
     });
-    ipcMain.handle(IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, async (event) => {
+    ipcMain.handle(IPC_CUSTOMIZATIONS_RESET, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_CUSTOMIZATIONS_RESET)) {
             throw new Error("Blocked untrusted customizations:reset request.");
         }

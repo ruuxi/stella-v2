@@ -57,11 +57,17 @@ vi.mock("electron", () => {
       unregister: vi.fn(),
     },
     ipcMain: {
-      handle: vi.fn(
-        (channel: string, handler: (...args: unknown[]) => unknown) => {
-          ipc.handles.set(channel, handler);
-        },
-      ),
+      handle: vi.fn((...args: unknown[]) => {
+        if (args.length !== 2 || typeof args[1] !== "function") {
+          throw new TypeError(
+            `Expected ipcMain.handle(channel, handler), received ${args.length} arguments with handler type ${typeof args[1]}`,
+          );
+        }
+        ipc.handles.set(
+          args[0] as string,
+          args[1] as (...handlerArgs: unknown[]) => unknown,
+        );
+      }),
       on: ipc.on,
     },
     nativeImage: { createFromBuffer: vi.fn() },
@@ -108,6 +114,24 @@ describe("Electron IPC registration integrity", () => {
     for (const root of tempRoots.splice(0)) {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("registers every system IPC channel with exactly one function handler", () => {
+    const options = new Proxy(
+      {
+        getStellaAppDir: () => null,
+        externalLinkService: { assertPrivilegedSender: vi.fn(() => true) },
+      },
+      {
+        get(target, property) {
+          if (property in target) return Reflect.get(target, property);
+          return vi.fn();
+        },
+      },
+    );
+
+    expect(() => registerSystemHandlers(options)).not.toThrow();
+    expect(ipc.handles.get("customizations:reset")).toBeTypeOf("function");
   });
 
   it("executes both media materialization paths with all validation helpers bound", async () => {

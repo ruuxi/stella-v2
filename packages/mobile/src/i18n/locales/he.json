@@ -98,6 +98,31 @@
       "none": "אתם כבר משתמשים בברירות המחדל של Stella.",
       "error": "לא ניתן היה לשחזר את ברירות המחדל."
     },
+    "systemPrompt": {
+      "title": "הנחיית מערכת",
+      "description": "הנחיית ברירת המחדל של Stella מתעדכנת תמיד יחד עם האפליקציה. שמרו הנחיה משלכם כדי להשתמש בה במקום — היא נשמרת בנפרד, כך שעדכונים לעולם לא ידרסו אותה.",
+      "agentLabel": "הנחיה עבור",
+      "agentSublabel": "בחרו איזו הנחיה של סוכן לשנות.",
+      "activeLabel": "הנחיה פעילה",
+      "defaultOption": "ברירת המחדל של Stella",
+      "usingDefault": "נעשה שימוש בהנחיית ברירת המחדל של Stella.",
+      "usingCustom": "נעשה שימוש בהנחיה שלכם.",
+      "newFromDefault": "חדשה מברירת המחדל",
+      "edit": "עריכה",
+      "duplicate": "שכפול",
+      "delete": "מחיקה",
+      "save": "שמירה",
+      "cancel": "ביטול",
+      "nameLabel": "שם",
+      "newName": "ההנחיה שלי",
+      "saved": "ההנחיה נשמרה.",
+      "deleted": "ההנחיה נמחקה.",
+      "error": "משהו השתבש.",
+      "agents": {
+        "assistant": "עוזר",
+        "worker": "מבצע"
+      }
+    },
     "permissions": {
       "title": "הרשאות",
       "enable": "הפעל",
@@ -1657,8 +1682,10 @@
       "availableFallback": "זמין",
       "downloading": "מוריד {percent}%",
       "restartToUpdate": "הפעל מחדש כדי לעדכן",
+      "restarting": "מפעיל מחדש…",
       "retryUpdate": "נסה לעדכן שוב",
       "restartTitle": "הפעל מחדש את Stella והתקן את גרסה {version}",
+      "restartingTitle": "מפעיל מחדש את Stella כדי להתקין את העדכון",
       "retryTitle": "נסה שוב את בדיקת העדכון לשולחן העבודה",
       "downloadTitle": "הורד את Stella {version}",
       "toasts": {
@@ -1866,6 +1893,7 @@
     "topbar": {
       "conversation": {
         "newChat": "צ׳אט חדש",
+        "newChatConfirm": "Click again to confirm",
         "home": "בית",
         "history": "היסטוריית שיחות",
         "historyEmpty": "אין עדיין שיחות",

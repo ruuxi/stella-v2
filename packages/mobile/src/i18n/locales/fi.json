@@ -98,6 +98,31 @@
       "none": "Käytät jo Stellan oletuksia.",
       "error": "Oletuksia ei voitu palauttaa."
     },
+    "systemPrompt": {
+      "title": "Järjestelmäkehote",
+      "description": "Stellan oletuskehote päivittyy aina sovelluksen mukana. Tallenna oma kehotteesi käyttääksesi sitä sen sijaan – se säilytetään erikseen, joten päivitykset eivät koskaan korvaa sitä.",
+      "agentLabel": "Kenen kehote",
+      "agentSublabel": "Valitse minkä agentin kehotetta muutat.",
+      "activeLabel": "Aktiivinen kehote",
+      "defaultOption": "Stellan oletus",
+      "usingDefault": "Käytössä on Stellan oletuskehote.",
+      "usingCustom": "Käytössä on tallentamasi kehote.",
+      "newFromDefault": "Uusi oletuksesta",
+      "edit": "Muokkaa",
+      "duplicate": "Monista",
+      "delete": "Poista",
+      "save": "Tallenna",
+      "cancel": "Peruuta",
+      "nameLabel": "Nimi",
+      "newName": "Oma kehote",
+      "saved": "Kehote tallennettu.",
+      "deleted": "Kehote poistettu.",
+      "error": "Jokin meni pieleen.",
+      "agents": {
+        "assistant": "Avustaja",
+        "worker": "Työntekijä"
+      }
+    },
     "permissions": {
       "title": "Käyttöoikeudet",
       "enable": "Ota käyttöön",
@@ -1639,8 +1664,10 @@
       "availableFallback": "saatavilla",
       "downloading": "Ladataan {percent} %",
       "restartToUpdate": "Käynnistä uudelleen päivittääksesi",
+      "restarting": "Käynnistetään uudelleen…",
       "retryUpdate": "Yritä päivitystä uudelleen",
       "restartTitle": "Käynnistä Stella uudelleen ja asenna versio {version}",
+      "restartingTitle": "Stella käynnistetään uudelleen päivityksen asentamiseksi",
       "retryTitle": "Yritä työpöytäpäivityksen tarkistusta uudelleen",
       "downloadTitle": "Lataa Stella {version}",
       "toasts": {
@@ -1843,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Uusi keskustelu",
+        "newChatConfirm": "Click again to confirm",
         "home": "Etusivu",
         "history": "Keskusteluhistoria",
         "historyEmpty": "Ei vielä keskusteluja",

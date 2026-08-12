@@ -98,6 +98,31 @@
       "none": "Już korzystasz z domyślnych ustawień Stelli.",
       "error": "Nie udało się przywrócić ustawień domyślnych."
     },
+    "systemPrompt": {
+      "title": "Prompt systemowy",
+      "description": "Domyślny prompt Stelli zawsze aktualizuje się wraz z aplikacją. Zapisz własny, aby go używać — jest przechowywany osobno, więc aktualizacje go nie nadpiszą.",
+      "agentLabel": "Prompt dla",
+      "agentSublabel": "Wybierz, którego agenta prompt zmienić.",
+      "activeLabel": "Aktywny prompt",
+      "defaultOption": "Domyślny Stelli",
+      "usingDefault": "Używasz domyślnego promptu Stelli.",
+      "usingCustom": "Używasz zapisanego promptu.",
+      "newFromDefault": "Nowy z domyślnego",
+      "edit": "Edytuj",
+      "duplicate": "Duplikuj",
+      "delete": "Usuń",
+      "save": "Zapisz",
+      "cancel": "Anuluj",
+      "nameLabel": "Nazwa",
+      "newName": "Mój prompt",
+      "saved": "Prompt zapisany.",
+      "deleted": "Prompt usunięty.",
+      "error": "Coś poszło nie tak.",
+      "agents": {
+        "assistant": "Asystent",
+        "worker": "Wykonawca"
+      }
+    },
     "permissions": {
       "title": "Uprawnienia",
       "enable": "Włącz",
@@ -1675,8 +1700,10 @@
       "availableFallback": "dostępna",
       "downloading": "Pobieranie {percent}%",
       "restartToUpdate": "Uruchom ponownie, aby zaktualizować",
+      "restarting": "Ponowne uruchamianie…",
       "retryUpdate": "Ponów aktualizację",
       "restartTitle": "Uruchom Stellę ponownie i zainstaluj wersję {version}",
+      "restartingTitle": "Ponowne uruchamianie Stelli w celu zainstalowania aktualizacji",
       "retryTitle": "Ponów sprawdzanie aktualizacji aplikacji",
       "downloadTitle": "Pobierz Stellę {version}",
       "toasts": {
@@ -1889,6 +1916,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Nowy czat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Start",
         "history": "Historia rozmów",
         "historyEmpty": "Brak jeszcze rozmów",

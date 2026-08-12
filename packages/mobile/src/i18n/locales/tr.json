@@ -98,6 +98,31 @@
       "none": "Zaten Stella'nın varsayılanlarını kullanıyorsunuz.",
       "error": "Varsayılanlar geri yüklenemedi."
     },
+    "systemPrompt": {
+      "title": "Sistem istemi",
+      "description": "Stella'nın varsayılan istemi her zaman uygulamayla güncellenir. Kendi isteminizi kaydedip onu kullanabilirsiniz — ayrı tutulur, bu yüzden güncellemeler asla üzerine yazmaz.",
+      "agentLabel": "İstem hedefi",
+      "agentSublabel": "Hangi ajanın istemini değiştireceğinizi seçin.",
+      "activeLabel": "Etkin istem",
+      "defaultOption": "Stella'nın varsayılanı",
+      "usingDefault": "Stella'nın varsayılan istemi kullanılıyor.",
+      "usingCustom": "Kaydettiğiniz istem kullanılıyor.",
+      "newFromDefault": "Varsayılandan yeni",
+      "edit": "Düzenle",
+      "duplicate": "Çoğalt",
+      "delete": "Sil",
+      "save": "Kaydet",
+      "cancel": "İptal",
+      "nameLabel": "Ad",
+      "newName": "İstemim",
+      "saved": "İstem kaydedildi.",
+      "deleted": "İstem silindi.",
+      "error": "Bir şeyler ters gitti.",
+      "agents": {
+        "assistant": "Asistan",
+        "worker": "Çalışan"
+      }
+    },
     "permissions": {
       "title": "İzinler",
       "enable": "Etkinleştir",
@@ -1639,8 +1664,10 @@
       "availableFallback": "mevcut",
       "downloading": "İndiriliyor %{percent}",
       "restartToUpdate": "Güncellemek için yeniden başlat",
+      "restarting": "Yeniden başlatılıyor…",
       "retryUpdate": "Güncellemeyi yeniden dene",
       "restartTitle": "Stella'yı yeniden başlatıp {version} sürümünü kur",
+      "restartingTitle": "Güncellemeyi yüklemek için Stella yeniden başlatılıyor",
       "retryTitle": "Masaüstü güncelleme kontrolünü yeniden dene",
       "downloadTitle": "Stella {version} sürümünü indir",
       "toasts": {
@@ -1843,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Yeni sohbet",
+        "newChatConfirm": "Click again to confirm",
         "home": "Ana sayfa",
         "history": "Sohbet geçmişi",
         "historyEmpty": "Henüz sohbet yok",

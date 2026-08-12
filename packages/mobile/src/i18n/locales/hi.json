@@ -98,6 +98,31 @@
       "none": "आप पहले से ही Stella के डिफ़ॉल्ट उपयोग कर रहे हैं।",
       "error": "डिफ़ॉल्ट बहाल नहीं किए जा सके।"
     },
+    "systemPrompt": {
+      "title": "सिस्टम प्रॉम्प्ट",
+      "description": "Stella का डिफ़ॉल्ट प्रॉम्प्ट हमेशा ऐप के साथ अपडेट होता है। अपना प्रॉम्प्ट सहेजें ताकि उसका उपयोग हो — यह अलग रखा जाता है, इसलिए अपडेट उसे कभी नहीं बदलते।",
+      "agentLabel": "किसका प्रॉम्प्ट",
+      "agentSublabel": "चुनें कि किस एजेंट का प्रॉम्प्ट बदलना है।",
+      "activeLabel": "सक्रिय प्रॉम्प्ट",
+      "defaultOption": "Stella का डिफ़ॉल्ट",
+      "usingDefault": "Stella का डिफ़ॉल्ट प्रॉम्प्ट उपयोग में है।",
+      "usingCustom": "आपका सहेजा गया प्रॉम्प्ट उपयोग में है।",
+      "newFromDefault": "डिफ़ॉल्ट से नया",
+      "edit": "संपादित करें",
+      "duplicate": "डुप्लिकेट",
+      "delete": "हटाएँ",
+      "save": "सहेजें",
+      "cancel": "रद्द करें",
+      "nameLabel": "नाम",
+      "newName": "मेरा प्रॉम्प्ट",
+      "saved": "प्रॉम्प्ट सहेजा गया।",
+      "deleted": "प्रॉम्प्ट हटाया गया।",
+      "error": "कुछ गड़बड़ हो गई।",
+      "agents": {
+        "assistant": "सहायक",
+        "worker": "वर्कर"
+      }
+    },
     "permissions": {
       "title": "अनुमतियाँ",
       "enable": "सक्षम करें",
@@ -1639,8 +1664,10 @@
       "availableFallback": "उपलब्ध",
       "downloading": "{percent}% डाउनलोड हो रहा है",
       "restartToUpdate": "अपडेट के लिए पुनः चालू करें",
+      "restarting": "पुनः चालू हो रहा है…",
       "retryUpdate": "अपडेट फिर से आज़माएँ",
       "restartTitle": "Stella पुनः चालू करें और संस्करण {version} इंस्टॉल करें",
+      "restartingTitle": "अपडेट इंस्टॉल करने के लिए Stella पुनः चालू हो रहा है",
       "retryTitle": "डेस्कटॉप अपडेट जाँच फिर से आज़माएँ",
       "downloadTitle": "Stella {version} डाउनलोड करें",
       "toasts": {
@@ -1843,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "नई चैट",
+        "newChatConfirm": "Click again to confirm",
         "home": "होम",
         "history": "वार्तालाप इतिहास",
         "historyEmpty": "अभी तक कोई वार्तालाप नहीं",

@@ -98,6 +98,31 @@
       "none": "Vous utilisez déjà les réglages par défaut de Stella.",
       "error": "Impossible de restaurer les réglages par défaut."
     },
+    "systemPrompt": {
+      "title": "Prompt système",
+      "description": "Le prompt par défaut de Stella se met toujours à jour avec l'app. Enregistrez le vôtre pour l'utiliser à la place : il est conservé séparément, donc les mises à jour ne l'écrasent jamais.",
+      "agentLabel": "Prompt pour",
+      "agentSublabel": "Choisissez l'agent dont vous voulez changer le prompt.",
+      "activeLabel": "Prompt actif",
+      "defaultOption": "Par défaut de Stella",
+      "usingDefault": "Utilise le prompt par défaut de Stella.",
+      "usingCustom": "Utilise votre prompt enregistré.",
+      "newFromDefault": "Nouveau depuis le défaut",
+      "edit": "Modifier",
+      "duplicate": "Dupliquer",
+      "delete": "Supprimer",
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "nameLabel": "Nom",
+      "newName": "Mon prompt",
+      "saved": "Prompt enregistré.",
+      "deleted": "Prompt supprimé.",
+      "error": "Une erreur est survenue.",
+      "agents": {
+        "assistant": "Assistant",
+        "worker": "Exécutant"
+      }
+    },
     "permissions": {
       "title": "Autorisations",
       "enable": "Activer",
@@ -1657,8 +1682,10 @@
       "availableFallback": "disponible",
       "downloading": "Téléchargement {percent} %",
       "restartToUpdate": "Redémarrer pour mettre à jour",
+      "restarting": "Redémarrage…",
       "retryUpdate": "Réessayer la mise à jour",
       "restartTitle": "Redémarrer Stella et installer la version {version}",
+      "restartingTitle": "Redémarrage de Stella pour installer la mise à jour",
       "retryTitle": "Relancer la vérification des mises à jour",
       "downloadTitle": "Télécharger Stella {version}",
       "toasts": {
@@ -1866,6 +1893,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Nouvelle conversation",
+        "newChatConfirm": "Click again to confirm",
         "home": "Accueil",
         "history": "Historique des conversations",
         "historyEmpty": "Aucune conversation pour l’instant",

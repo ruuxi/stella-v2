@@ -98,6 +98,31 @@
       "none": "Anda sudah menggunakan default Stella.",
       "error": "Tidak dapat memulihkan default."
     },
+    "systemPrompt": {
+      "title": "Prompt sistem",
+      "description": "Prompt bawaan Stella selalu diperbarui bersama aplikasi. Simpan prompt Anda sendiri untuk dipakai sebagai gantinya — disimpan terpisah, jadi pembaruan tidak akan menimpanya.",
+      "agentLabel": "Prompt untuk",
+      "agentSublabel": "Pilih agen mana yang promptnya ingin diubah.",
+      "activeLabel": "Prompt aktif",
+      "defaultOption": "Bawaan Stella",
+      "usingDefault": "Menggunakan prompt bawaan Stella.",
+      "usingCustom": "Menggunakan prompt tersimpan Anda.",
+      "newFromDefault": "Baru dari bawaan",
+      "edit": "Edit",
+      "duplicate": "Duplikat",
+      "delete": "Hapus",
+      "save": "Simpan",
+      "cancel": "Batal",
+      "nameLabel": "Nama",
+      "newName": "Prompt saya",
+      "saved": "Prompt disimpan.",
+      "deleted": "Prompt dihapus.",
+      "error": "Terjadi kesalahan.",
+      "agents": {
+        "assistant": "Asisten",
+        "worker": "Pekerja"
+      }
+    },
     "permissions": {
       "title": "Izin",
       "enable": "Aktifkan",
@@ -1621,8 +1646,10 @@
       "availableFallback": "tersedia",
       "downloading": "Mengunduh {percent}%",
       "restartToUpdate": "Mulai ulang untuk memperbarui",
+      "restarting": "Memulai ulang…",
       "retryUpdate": "Coba perbarui lagi",
       "restartTitle": "Mulai ulang Stella dan pasang versi {version}",
+      "restartingTitle": "Memulai ulang Stella untuk memasang pembaruan",
       "retryTitle": "Coba lagi pemeriksaan pembaruan desktop",
       "downloadTitle": "Unduh Stella {version}",
       "toasts": {
@@ -1820,6 +1847,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Obrolan baru",
+        "newChatConfirm": "Click again to confirm",
         "home": "Beranda",
         "history": "Riwayat percakapan",
         "historyEmpty": "Belum ada percakapan",

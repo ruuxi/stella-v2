@@ -25,7 +25,7 @@ Every public claim on this page should be checked against the current Stella rep
 - BYOK and local model paths avoid the Stella managed model proxy for those model calls. Local credentials are stored locally in encrypted form.
 - Anonymous managed-model usage is limited server-side with a salted hash of a device or client identifier plus request counts. Current retention for that anonymous usage row is seven days from last use.
 - Phone chat to a paired desktop is not identical to local-only desktop chat. A signed-in phone sends the message through Stella's backend so the desktop can pick it up. The backend stores delivery state and request text needed to route, cancel, recover, and complete the remote turn. The desktop reply row used by the mobile app is short-lived, deleted after the phone acknowledges it, and otherwise expires after about two minutes.
-- Messaging connectors such as Discord, Telegram, Slack, Teams, and Linq use pairing or connection rows. Link codes are short-lived and hashed. Some connector delivery rows are transient, and relayed media is scheduled for deletion after delivery windows.
+- Messaging connectors such as Telegram, Slack, Teams, and Linq use pairing or connection rows. Link codes are short-lived and hashed. Some connector delivery rows are transient, and relayed media is scheduled for deletion after delivery windows.
 - Optional cloud-backed features necessarily store the data they are built around. Examples: billing profiles, Stripe IDs, usage credit records, connected app metadata, public Store catalog data, installed Store state, cloud backups if enabled, mobile pairing records, device presence, and push tokens.
 
 ## Public Page Copy
@@ -64,7 +64,7 @@ Behind the scenes, Stella can split work into smaller jobs, run specialized agen
 
 **Run routines.** Stella can create reminders, recurring check-ins, scheduled work, and local automations from plain English.
 
-**Connect apps.** Stella can connect to services and messaging apps where supported, including mobile, Discord, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.
+**Connect apps.** Stella can connect to services and messaging apps where supported, including mobile, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.
 
 **Use the model you want.** You can use Stella's managed model provider for convenience, bring your own provider keys, use local models, use OpenRouter-style model choices where supported, or select Claude Code as the engine for the assistant runtime.
 
@@ -80,7 +80,7 @@ Behind the scenes, Stella can split work into smaller jobs, run specialized agen
 
 **Phone.** The mobile app can pair with your desktop. When paired, your phone is another way to message the Stella running on your computer.
 
-**Messaging apps.** Supported connectors let you message Stella from apps such as Discord, Telegram, Slack, Teams, and Linq. These routes depend on pairing, connection settings, and the desktop being available for full desktop-powered execution.
+**Messaging apps.** Supported connectors let you message Stella from apps such as Telegram, Slack, Teams, and Linq. These routes depend on pairing, connection settings, and the desktop being available for full desktop-powered execution.
 
 ### Privacy In Plain English
 

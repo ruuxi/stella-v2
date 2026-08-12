@@ -247,11 +247,10 @@ export function CanvasSection() {
 
 /* ── Mobile section ───────────────────────────────── */
 
-const ALL_PLATFORMS: Platform[] = ["stella", "imessage", "discord", "slack", "telegram", "teams"];
+const ALL_PLATFORMS: Platform[] = ["stella", "imessage", "slack", "telegram", "teams"];
 const PLATFORM_LABELS: Record<Platform, string> = {
   stella: "Stella App",
   imessage: "iMessage",
-  discord: "Discord",
   slack: "Slack",
   telegram: "Telegram",
   teams: "Teams",
@@ -280,7 +279,7 @@ function useIsMobile(breakpoint = 768) {
 const DESKTOP_SLOT_COUNT = 2;
 
 function usePlatformCycle(isMobile: boolean) {
-  const [slots, setSlots] = useState<Platform[]>(["imessage", "discord"]);
+  const [slots, setSlots] = useState<Platform[]>(["imessage", "telegram"]);
   const [singleIndex, setSingleIndex] = useState(0);
   const nextSlotRef = useRef(0);
 

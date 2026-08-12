@@ -60,7 +60,7 @@ const SUGGESTIONS: ReadonlyArray<SuggestionChip> = [
     id: "github",
     kind: "tab",
     name: "Chrome",
-    detail: "github.com/ruuxi/stella/pull/214",
+    detail: "github.com/ruuxi/stella-v2/pull/214",
     iconUrl: "https://cdn.simpleicons.org/github/181717",
     iconTint: "#f2f2f4",
     previewUrl:

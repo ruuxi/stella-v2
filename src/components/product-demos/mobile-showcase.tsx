@@ -47,7 +47,6 @@ export const channels = [
   { name: "Stella", icon: <StellaAppIcon /> },
   { name: "Text Message", icon: <MessageCircle size={15} /> },
   { name: "Telegram", icon: <TelegramIcon /> },
-  { name: "Discord", icon: <DiscordIcon /> },
   { name: "Teams", icon: <TeamsIcon /> },
   { name: "Slack", icon: <SlackIcon /> },
 ];
@@ -161,14 +160,13 @@ export function MobileShowcase() {
 
 /* ── Phone-only visual for section layout ──────────── */
 
-export type Platform = "stella" | "imessage" | "discord" | "slack" | "telegram" | "teams";
+export type Platform = "stella" | "imessage" | "slack" | "telegram" | "teams";
 
-export const PLATFORMS: Platform[] = ["stella", "imessage", "discord", "slack", "telegram", "teams"];
+export const PLATFORMS: Platform[] = ["stella", "imessage", "slack", "telegram", "teams"];
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   stella: "Stella",
   imessage: "iMessage",
-  discord: "Discord",
   slack: "Slack",
   telegram: "Telegram",
   teams: "Teams",
@@ -212,103 +210,6 @@ export function MobilePhoneVisual({
             <span className="stella-app-composer__input">Message Stella</span>
             <span className="stella-app-composer__send">
               <ArrowUpRight size={14} />
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (platform === "discord") {
-    /* Group consecutive messages from the same role */
-    const grouped = convo.messages.map((msg, i) => ({
-      ...msg,
-      isGrouped: i > 0 && convo.messages[i - 1].role === msg.role,
-    }));
-
-    return (
-      <div className="mobile-phone-visual">
-        <div className="mobile-phone mobile-phone--discord">
-          <div className="mobile-phone__status-bar">
-            <span className="mobile-phone__time">9:41</span>
-            <div className="mobile-phone__status-icons">
-              <Wifi size={11} />
-              <span className="mobile-phone__battery" />
-            </div>
-          </div>
-          {/* Server sidebar + content area */}
-          <div className="discord-layout">
-            <div className="discord-sidebar">
-              <span className="discord-sidebar__icon discord-sidebar__icon--home">
-                <DiscordIcon />
-              </span>
-              <span className="discord-sidebar__divider" />
-              <span className="discord-sidebar__icon discord-sidebar__icon--active" />
-              <span className="discord-sidebar__icon" />
-              <span className="discord-sidebar__icon" />
-            </div>
-            <div className="discord-main">
-              <div className="discord-header">
-                <span className="discord-header__back">&lsaquo;</span>
-                <span className="discord-header__hash">#</span>
-                <span className="discord-header__channel">stella</span>
-              </div>
-              <div className="discord-chat">
-                <span className="discord-date-divider">
-                  <span>Today</span>
-                </span>
-                {grouped.map((msg, i) => (
-                  <div
-                    key={`${convo.id}-${i}`}
-                    className={`discord-msg${msg.isGrouped ? " discord-msg--grouped" : ""}`}
-                  >
-                    {!msg.isGrouped && (
-                      <div className="discord-msg__avatar">
-                        {msg.role === "stella" ? (
-                          <StellaMark size={18} />
-                        ) : (
-                          <span className="discord-msg__user-avatar">Y</span>
-                        )}
-                      </div>
-                    )}
-                    <div className="discord-msg__body">
-                      {!msg.isGrouped && (
-                        <span className="discord-msg__meta">
-                          <span className="discord-msg__name" data-role={msg.role}>
-                            {msg.role === "stella" ? "Stella" : "you"}
-                          </span>
-                          {msg.role === "stella" && (
-                            <span className="discord-msg__badge">BOT</span>
-                          )}
-                          <span className="discord-msg__time">
-                            Today at 3:4{i}
-                          </span>
-                        </span>
-                      )}
-                      <span className="discord-msg__text">{msg.text}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="discord-composer">
-                <span className="discord-composer__plus">+</span>
-                <span>Message #stella</span>
-              </div>
-            </div>
-          </div>
-          {/* Bottom tab bar */}
-          <div className="discord-tabbar">
-            <span className="discord-tabbar__item discord-tabbar__item--active">
-              <MessageCircle size={16} />
-            </span>
-            <span className="discord-tabbar__item">
-              <DiscordSearchIcon />
-            </span>
-            <span className="discord-tabbar__item">
-              <DiscordNotifIcon />
-            </span>
-            <span className="discord-tabbar__item">
-              <DiscordProfileIcon />
             </span>
           </div>
         </div>
@@ -612,14 +513,6 @@ function TelegramIcon() {
   );
 }
 
-function DiscordIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path fill="#5865F2" d="M20.317 4.369A19.79 19.79 0 0 0 16.558 3.18a.075.075 0 0 0-.079.037c-.34.598-.717 1.378-.98 1.99a18.27 18.27 0 0 0-5.487 0 12.6 12.6 0 0 0-1-1.99.077.077 0 0 0-.078-.037A19.736 19.736 0 0 0 5.18 4.369a.07.07 0 0 0-.032.027C2.443 8.396 1.685 12.32 2.06 16.196a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.027 14.09 14.09 0 0 0 1.226-1.994.075.075 0 0 0-.041-.105 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.127c.126-.094.252-.192.372-.291a.074.074 0 0 1 .078-.01c3.927 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.099.246.198.372.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.891.077.077 0 0 0-.041.106c.36.7.772 1.366 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-4.484-.838-8.376-3.549-11.8a.061.061 0 0 0-.031-.028zM8.02 14.835c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.956-2.418 2.157-2.418 1.21 0 2.176 1.094 2.157 2.418 0 1.334-.956 2.42-2.157 2.42zm7.974 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.418 2.157-2.418 1.21 0 2.176 1.094 2.157 2.418 0 1.334-.946 2.42-2.157 2.42z" />
-    </svg>
-  );
-}
-
 function TeamsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -629,35 +522,6 @@ function TeamsIcon() {
       <path fill="#7B83EB" d="M17.6 10H7.5c-.8 0-1.5.7-1.5 1.6v9.6c0 4 3.3 7.3 7.3 7.3h.4c4 0 7.3-3.3 7.3-7.3v-9.6c0-1-.7-1.6-1.5-1.6z" />
       <rect width="12" height="12" x="2" y="10" fill="#4B53BC" rx="1.5" />
       <path fill="#fff" d="M11 13.7H8.6V20.5H6.7v-6.8H4.3V12h6.7v1.7z" />
-    </svg>
-  );
-}
-
-/* ── Tiny Discord tab bar icons ──────────────────── */
-
-function DiscordSearchIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.3-4.3" />
-    </svg>
-  );
-}
-
-function DiscordNotifIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-    </svg>
-  );
-}
-
-function DiscordProfileIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="5" />
-      <path d="M20 21a8 8 0 0 0-16 0" />
     </svg>
   );
 }

@@ -65,7 +65,7 @@ Keep working in one window while Stella moves through another — clicking,
 typing, and finishing real tasks in your actual apps.
 
 ## Text Stella
-Text Stella from iMessage, Telegram, Discord, or the mobile app. Every message
+Text Stella from iMessage, Telegram, or the mobile app. Every message
 reaches the same assistant on your computer.
 
 ## Files are first-class work
@@ -283,7 +283,7 @@ conversation instead of becoming the project manager for your assistant.
 - **Create media** — Help make images, video, audio, 3D assets, small apps, games, mockups, and visual artifacts. Image, video, 3D, and voice generation come with the Pro plan.
 - **Listen and speak** — Use in-app dictation, OS-wide dictation, read-aloud, and realtime voice. Wake-word activation is optional. Dictation and wake word are on every tier; read-aloud and realtime voice come with the Pro plan.
 - **Run routines** — Create reminders, recurring check-ins, scheduled work, and local automations from plain English.
-- **Connect apps** — Use supported services and messaging apps, including mobile, Discord, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.
+- **Connect apps** — Use supported services and messaging apps, including mobile, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.
 - **Choose your model** — Use Stella's managed provider, bring your own keys, use local models, pick OpenRouter-style options where supported, or select Claude Code as the engine.
 
 ## Ways to reach Stella

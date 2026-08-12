@@ -39,7 +39,7 @@ const capabilities = [
   },
   {
     title: "Connect apps",
-    body: "Use supported services and messaging apps, including mobile, Discord, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.",
+    body: "Use supported services and messaging apps, including mobile, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.",
   },
   {
     title: "Choose your model",

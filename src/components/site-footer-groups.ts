@@ -21,21 +21,6 @@ export const openSourceFooterItems: FooterLink[] = [
     href: "https://github.com/ruuxi/stella-v2",
     external: true,
   },
-  {
-    label: "Backend Repo",
-    href: "https://github.com/ruuxi/stella-backend",
-    external: true,
-  },
-  {
-    label: "Mobile Repo",
-    href: "https://github.com/ruuxi/stella-mobile",
-    external: true,
-  },
-  {
-    label: "Website Repo",
-    href: "https://github.com/ruuxi/stella-website",
-    external: true,
-  },
 ];
 
 export const homeFooterGroups: FooterGroup[] = [
@@ -66,11 +51,6 @@ export const homeFooterGroups: FooterGroup[] = [
   {
     title: "Community",
     items: [
-      {
-        label: "Discord",
-        href: "https://discord.gg/HXVCCeE542",
-        external: true,
-      },
       { label: "Store", href: "/store" },
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },

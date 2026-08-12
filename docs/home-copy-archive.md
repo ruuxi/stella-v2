@@ -13,7 +13,7 @@ Snapshot of all marketing copy that lived on the home page (`src/app/page.tsx` a
 **CTA row:**
 
 - `<DownloadButton />` — "Download Stella"
-- "Private. [Open source.](https://github.com/ruuxi/stella)" (with GitHub icon)
+- "Private. [Open source.](https://github.com/ruuxi/stella-v2)" (with GitHub icon)
 
 **Badge below hero:** "Stella is in research preview"
 
@@ -53,7 +53,7 @@ Have a real conversation, hands-free. Or pull up a dictation bar inside any app 
 
 ### 6. Anywhere — `Text Stella from anywhere.` (eyebrow: Anywhere)
 
-Message her from iMessage, Slack, Discord, Telegram, Teams, or her own app on your phone. She replies from your computer, with all your stuff.
+Message her from iMessage, Slack, Telegram, Teams, or her own app on your phone. She replies from your computer, with all your stuff.
 
 ### 7. Models — `Bring any model.` (eyebrow: Models)
 

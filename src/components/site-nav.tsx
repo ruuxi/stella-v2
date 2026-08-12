@@ -44,7 +44,6 @@ const NAV_ENTRIES: NavEntry[] = [
   {
     label: "Community",
     items: [
-      { label: "Discord", href: "https://discord.gg/HXVCCeE542", external: true },
       { label: "Store", href: "/store" },
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },

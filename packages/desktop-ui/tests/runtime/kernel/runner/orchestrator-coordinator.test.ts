@@ -153,7 +153,8 @@ describe("createOrchestratorCoordinator", () => {
     const flush = vi.fn();
     coordinator.setFollowUpReplyFlusher(flush);
     context.state.pendingFollowUpReplies.set("conversation-1", [
-      { text: "are you there?" },
+      { text: "stop" },
+      { text: "hello?" },
     ]);
     const runtimeCallbacks = coordinator.createRuntimeCallbacks(
       "run-1",
@@ -169,6 +170,10 @@ describe("createOrchestratorCoordinator", () => {
     });
 
     expect(flush).toHaveBeenCalledExactlyOnceWith("conversation-1");
+    expect(context.state.pendingFollowUpReplies.get("conversation-1")).toEqual([
+      { text: "stop" },
+      { text: "hello?" },
+    ]);
   });
 
   it("flushes pending follow-up replies when a run is interrupted", () => {

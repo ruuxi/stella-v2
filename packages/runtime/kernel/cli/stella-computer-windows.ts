@@ -195,6 +195,7 @@ const defaultSessionId = "manual";
 const windowsHelperName = "stella-computer-helper";
 const windowsHelperTimeoutMs = 30_000;
 const windowsDaemonStartupBudgetMs = 2_000;
+const windowsDaemonTeardownBudgetMs = 2_000;
 const sessionPruneIntervalMs = 24 * 60 * 60 * 1000;
 const sessionRetentionMs = 24 * 60 * 60 * 1000;
 const readOnlyWindowsHelperTools = new Set([
@@ -405,10 +406,14 @@ const killProcess = (pid: number | null) => {
   }
 };
 
-const stopWindowsDaemonUnlocked = (sessionId: string) => {
+const stopWindowsDaemonUnlocked = async (
+  sessionId: string,
+  fallbackPid: number | null = null,
+) => {
   const pidPath = windowsDaemonPidPath(sessionId);
-  const pid = readPidFile(pidPath);
+  const pid = readPidFile(pidPath) ?? fallbackPid;
   killProcess(pid);
+  await waitForWindowsDaemonTeardown(pid, windowsDaemonPipeName(sessionId));
   fs.rmSync(pidPath, { force: true });
   return pid !== null;
 };
@@ -658,6 +663,60 @@ const connectWindowsPipeWithRetry = async (
     : new Error("Windows stella-computer daemon connection failed");
 };
 
+type WindowsDaemonTeardownProbeOverrides = Readonly<{
+  pidRunning?: (pid: number | null) => boolean;
+  pipeAccepting?: (pipeName: string) => Promise<boolean>;
+  timeoutMs?: number;
+  pollMs?: number;
+}>;
+
+const windowsPipeAcceptingConnections = async (
+  pipeName: string,
+): Promise<boolean> => {
+  try {
+    const socket = await connectWindowsPipe(pipeName, 50, undefined);
+    socket.destroy();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Wait until both the killed helper and its named-pipe server are gone. */
+export const waitForWindowsDaemonTeardown = async (
+  pid: number | null,
+  pipeName: string,
+  signal = getComputerExecutionSignal(),
+  overrides: WindowsDaemonTeardownProbeOverrides = {},
+): Promise<void> => {
+  const isPidRunning = overrides.pidRunning ?? pidIsRunning;
+  const isPipeAccepting =
+    overrides.pipeAccepting ?? windowsPipeAcceptingConnections;
+  const timeoutMs = overrides.timeoutMs ?? windowsDaemonTeardownBudgetMs;
+  const pollMs = overrides.pollMs ?? 25;
+  const deadline = Date.now() + timeoutMs;
+  let processStillRunning = isPidRunning(pid);
+  let stalePipeAccepting = await isPipeAccepting(pipeName);
+  while (processStillRunning || stalePipeAccepting) {
+    if (Date.now() >= deadline) {
+      const blockers = [
+        processStillRunning
+          ? `helper pid ${pid ?? "unknown"} is still running`
+          : "",
+        stalePipeAccepting
+          ? `named pipe ${pipeName} is still accepting connections`
+          : "",
+      ].filter(Boolean);
+      throw new WindowsDaemonChannelError(
+        `Windows stella-computer daemon did not tear down after ${timeoutMs}ms: ${blockers.join("; ")}.`,
+      );
+    }
+    await delayWithSignal(pollMs, signal);
+    processStillRunning = isPidRunning(pid);
+    stalePipeAccepting = await isPipeAccepting(pipeName);
+  }
+};
+
 type WindowsDaemonSpawn = typeof spawn;
 
 export const spawnWindowsDaemonProcess = async (
@@ -749,12 +808,12 @@ const connectWindowsDaemon = async (
   const existingPid = readPidFile(pidPath);
   if (existingPid && pidIsRunning(existingPid)) {
     if (helperNewerThanDaemon(helperPath, pidPath)) {
-      killProcess(existingPid);
+      await stopWindowsDaemonUnlocked(sessionId, existingPid);
     } else {
       try {
         return await connectWindowsPipeWithRetry(pipeName, 1_000, signal);
       } catch {
-        killProcess(existingPid);
+        await stopWindowsDaemonUnlocked(sessionId, existingPid);
       }
     }
   }
@@ -783,12 +842,13 @@ const connectWindowsDaemon = async (
       await delayWithSignal(50, signal);
     }
   } catch (error) {
-    killProcess(child.pid ?? readPidFile(pidPath));
-    fs.rmSync(pidPath, { force: true });
+    await stopWindowsDaemonUnlocked(
+      sessionId,
+      child.pid ?? readPidFile(pidPath),
+    );
     throw error;
   }
-  killProcess(child.pid ?? readPidFile(pidPath));
-  fs.rmSync(pidPath, { force: true });
+  await stopWindowsDaemonUnlocked(sessionId, child.pid ?? readPidFile(pidPath));
   return null;
 };
 
@@ -969,7 +1029,7 @@ export type WindowsComputerHelperTransportOverrides = Readonly<{
     signal?: AbortSignal,
   ) => Promise<net.Socket | null>;
   exchangeRequest?: typeof exchangeWindowsDaemonRequest;
-  stopDaemon?: (sessionId: string) => boolean;
+  stopDaemon?: (sessionId: string) => boolean | Promise<boolean>;
 }>;
 
 const parseWindowsDaemonResponse = (
@@ -1039,7 +1099,13 @@ export const requestWindowsComputerHelper = async (
         signal,
       });
     } catch (error) {
-      stopDaemon(sessionId);
+      try {
+        await stopDaemon(sessionId);
+      } catch (teardownError) {
+        throw new WindowsDaemonChannelError(
+          `${error instanceof Error ? error.message : String(error)} Daemon teardown also failed: ${teardownError instanceof Error ? teardownError.message : String(teardownError)}`,
+        );
+      }
       if (signal?.aborted) throw error;
       throw error instanceof WindowsDaemonChannelError
         ? error
@@ -1052,7 +1118,7 @@ export const requestWindowsComputerHelper = async (
       return parseWindowsDaemonResponse(responseText, seq);
     } catch (error) {
       if (error instanceof WindowsDaemonChannelError) {
-        stopDaemon(sessionId);
+        await stopDaemon(sessionId);
       }
       throw error;
     }
@@ -1069,7 +1135,14 @@ export const requestWindowsComputerHelper = async (
         `${error.message} The daemon was recycled, but Stella did not replay ${request.tool} because the action may already have completed. Inspect the app state before retrying it.`,
       );
     }
-    return await attempt();
+    try {
+      return await attempt();
+    } catch (retryError) {
+      if (signal?.aborted) throw retryError;
+      throw new WindowsDaemonChannelError(
+        `Windows stella-computer read-only recovery retry failed after the previous daemon was fully torn down. Initial failure: ${error.message}. Retry failure: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
+      );
+    }
   }
 };
 

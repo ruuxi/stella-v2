@@ -25,6 +25,7 @@ import {
   isReadOnlyWindowsHelperRequest,
   requestWindowsComputerHelper,
   spawnWindowsDaemonProcess,
+  waitForWindowsDaemonTeardown,
   withWindowsComputerSessionLock,
 } from "@stella/runtime/kernel/cli/stella-computer-windows";
 import { runWithComputerExecutionContext } from "@stella/runtime/kernel/computer-use/execution-context";
@@ -319,6 +320,90 @@ describe("Windows stella-computer wrapper", () => {
     expect(connectDaemon).toHaveBeenCalledTimes(2);
     expect(exchangeRequest).toHaveBeenCalledTimes(2);
     expect(stopDaemon).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for delayed daemon teardown before reconnecting a read-only request", async () => {
+    const sockets = [{ attempt: 1 }, { attempt: 2 }] as unknown as net.Socket[];
+    const connectDaemon = vi
+      .fn()
+      .mockResolvedValueOnce(sockets[0])
+      .mockResolvedValueOnce(sockets[1]);
+    let releaseTeardown!: () => void;
+    const teardown = new Promise<void>((resolve) => {
+      releaseTeardown = resolve;
+    });
+    const stopDaemon = vi.fn(async () => {
+      await teardown;
+      return true;
+    });
+    const exchangeRequest = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("write EPIPE"), { code: "EPIPE" }),
+      )
+      .mockImplementationOnce(async (_socket, payload: string) => {
+        const { seq } = JSON.parse(payload) as { seq: number };
+        return JSON.stringify({
+          seq,
+          status: 0,
+          stdout: JSON.stringify({ ok: true, text: "recovered" }),
+          stderr: "",
+        });
+      });
+
+    const request = requestWindowsComputerHelper(
+      "delayed-teardown-recovery",
+      { tool: "get_app_state", app: "notepad.exe" },
+      undefined,
+      { connectDaemon, exchangeRequest, stopDaemon },
+    );
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(connectDaemon).toHaveBeenCalledTimes(1);
+
+    releaseTeardown();
+    await expect(request).resolves.toEqual({ ok: true, text: "recovered" });
+    expect(connectDaemon).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for both the old helper process and stale named pipe to disappear", async () => {
+    const pidStates = [true, false, false];
+    const pipeStates = [true, true, false];
+    const pidRunning = vi.fn(() => pidStates.shift() ?? false);
+    const pipeAccepting = vi.fn(async () => pipeStates.shift() ?? false);
+
+    await expect(
+      waitForWindowsDaemonTeardown(42, "\\\\.\\pipe\\stella-stale", undefined, {
+        pidRunning,
+        pipeAccepting,
+        timeoutMs: 250,
+        pollMs: 1,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(pidRunning).toHaveBeenCalledTimes(3);
+    expect(pipeAccepting).toHaveBeenCalledTimes(3);
+  });
+
+  it("surfaces both failures when the read-only recovery retry also loses its channel", async () => {
+    const connectDaemon = vi.fn(async () => ({}) as net.Socket);
+    const stopDaemon = vi.fn(async () => true);
+    const exchangeRequest = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("first EPIPE"))
+      .mockRejectedValueOnce(new Error("second EPIPE"));
+
+    await expect(
+      requestWindowsComputerHelper(
+        "double-channel-failure",
+        { tool: "get_app_state", app: "notepad.exe" },
+        undefined,
+        { connectDaemon, exchangeRequest, stopDaemon },
+      ),
+    ).rejects.toThrow(
+      /recovery retry failed[\s\S]*Initial failure: first EPIPE[\s\S]*Retry failure: second EPIPE/u,
+    );
+    expect(stopDaemon).toHaveBeenCalledTimes(2);
   });
 
   it("recycles but never replays a mutating request after an EPIPE", async () => {

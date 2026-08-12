@@ -1,6 +1,6 @@
-// Recall's utility model is selected solely from the active orchestrator
-// engine. User model picks (including a saved Claude fable preference) must
-// never override the engine's light tier.
+// Recall follows the active run's provider/model boundary while forcing low
+// reasoning for the automatic utility pass. Engine-native Claude/Codex routes
+// keep their dedicated light models.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
@@ -57,6 +57,7 @@ vi.mock("@stella/runtime/ai/models", () => ({
     model("anthropic", "claude-opus-4-8", "anthropic"),
     model("anthropic", "claude-haiku-4-5", "anthropic"),
     model("openrouter", "openai/gpt-5.5"),
+    model("openrouter", "x-ai/grok-4.6"),
     model("openai-codex", "gpt-5.6-luna", "openai-codex-responses"),
   ],
   getModels: (provider: string) => {
@@ -67,7 +68,10 @@ vi.mock("@stella/runtime/ai/models", () => ({
           model("anthropic", "claude-haiku-4-5", "anthropic"),
         ];
       case "openrouter":
-        return [model("openrouter", "openai/gpt-5.5")];
+        return [
+          model("openrouter", "openai/gpt-5.5"),
+          model("openrouter", "x-ai/grok-4.6"),
+        ];
       case "openai-codex":
         return [
           model("openai-codex", "gpt-5.6-luna", "openai-codex-responses"),
@@ -128,6 +132,33 @@ describe("resolveRunnerRecallLlmRoute", () => {
       resolvedLlm: { route: "stella" },
     });
     expect(catalogMetadataCalls.count).toBe(1);
+  });
+
+  it("keeps Recall on the active OpenRouter model instead of leaking to the managed Stella quota", async () => {
+    credentials.set("openrouter", "openrouter-test-key");
+    const { resolveRunnerRecallLlmRoute } = await loadModule();
+    const context = makeContext({
+      stellaDataDir: tempDirs.create("recall-openrouter-route-"),
+      signedIn: true,
+    });
+
+    const route = await resolveRunnerRecallLlmRoute(context, "orchestrator", {
+      engine: "default",
+      routeModel: "openrouter/x-ai/grok-4.6",
+      reasoningEffort: "high",
+    });
+
+    expect(route).toMatchObject({
+      activeEngine: "default",
+      executionEngine: "native",
+      modelId: "openrouter/x-ai/grok-4.6",
+      resolvedLlm: {
+        route: "direct-provider",
+        model: { provider: "openrouter", id: "x-ai/grok-4.6" },
+      },
+    });
+    expect(JSON.stringify(route)).not.toContain("openrouter-test-key");
+    expect(JSON.stringify(route)).not.toContain('"route":"stella"');
   });
 
   it("uses Haiku even when the data-dir preference says fable", async () => {

@@ -103,7 +103,12 @@ export const createRunnerImageDescriptionService = (
       ),
   });
 
-/** Resolve Recall's authoritative light tier from the active orchestrator engine. */
+/**
+ * Resolve Recall through the active run's provider/model selection. Recall is
+ * an automatic utility pass, so it still forces low reasoning at execution,
+ * but it must not silently cross the user's provider boundary (for example,
+ * from OpenRouter to Stella's managed relay and its separate quota).
+ */
 export const resolveRunnerRecallLlmRoute = async (
   context: RunnerContext,
   agentType: string,
@@ -149,10 +154,26 @@ export const resolveRunnerRecallLlmRoute = async (
       resolvedLlm,
     };
   }
+  const activeRouteModel = modelConfigSnapshot?.routeModel?.trim();
+  if (activeRouteModel) {
+    const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
+      context,
+      agentType,
+      activeRouteModel,
+      "low",
+    );
+    return {
+      activeEngine,
+      executionEngine: "native",
+      modelId: `${resolvedLlm.model.provider}/${resolvedLlm.model.id}`,
+      resolvedLlm,
+    };
+  }
   const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
     context,
     agentType,
     RECALL_STELLA_MODEL,
+    "low",
   );
   return {
     activeEngine,

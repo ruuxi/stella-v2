@@ -100,12 +100,14 @@ const truncate = (value, maxChars) => {
 };
 
 const buildRecoverableHandoff = (args) => {
-  let history = [];
+  let history = args.history ?? [];
   let children = [];
-  try {
-    history = args.store.loadThreadMessages(args.threadKey);
-  } catch {
-    // The identifiers below still provide a usable recovery anchor.
+  if (!args.history) {
+    try {
+      history = args.store.loadThreadMessages(args.threadKey);
+    } catch {
+      // The identifiers below still provide a usable recovery anchor.
+    }
   }
   try {
     children = args.store
@@ -136,7 +138,7 @@ const buildRecoverableHandoff = (args) => {
     `thread_id: ${args.threadKey}`,
     `model: ${args.resolvedLlm.model.provider}/${args.resolvedLlm.model.id}`,
     ...(args.reason ? [`reason: ${args.reason}`] : []),
-    "Recovery: resume in a fresh General thread using the durable thread and child records below as source of truth.",
+    "Recovery: Stella will resume from this durable handoff in a clean General turn; the raw thread and child records remain stored as source of truth.",
     "",
     "Latest user instruction:",
     truncate(
@@ -158,8 +160,56 @@ const buildRecoverableHandoff = (args) => {
   ].join("\n");
 };
 
+const isBootstrapMessage = (message) =>
+  message?.role === "runtimeInternal" &&
+  message.customMessage?.customType?.startsWith("bootstrap.");
+
+/**
+ * Write a deterministic emergency compaction overlay around the failed
+ * provider history. This does not delete raw records; it only gives the next
+ * General turn a bounded handoff projection so it cannot loop on the same
+ * oversized payload when normal model-authored compaction is unavailable.
+ */
+const resetThreadToRecoverableHandoff = (args, text, history) => {
+  if (typeof args.store.compactThread !== "function") return false;
+  const compactable = history.filter(
+    (message) => message?.entryId && !isBootstrapMessage(message),
+  );
+  const first = compactable.at(0);
+  const last = compactable.at(-1);
+  if (!first?.entryId || !last?.entryId) return false;
+  args.store.compactThread({
+    threadKey: args.threadKey,
+    summary: text,
+    fromEntryId: first.entryId,
+    toEntryId: last.entryId,
+    tokensBefore: getThreadTokenEstimate(history),
+    details: {
+      kind: "context-overflow-recovery",
+      runId: args.runId,
+    },
+  });
+  if (typeof args.store.updateThreadSummary === "function") {
+    args.store.updateThreadSummary(args.threadKey, text);
+  }
+  args.session?.notifyCompacted?.();
+  return true;
+};
+
 const persistRecoverableHandoff = (args) => {
-  let text = buildRecoverableHandoff(args);
+  let history = [];
+  try {
+    history = args.store.loadThreadMessages(args.threadKey);
+  } catch {
+    // The identifiers in the handoff still provide a recovery anchor.
+  }
+  let text = buildRecoverableHandoff({ ...args, history });
+  let historyReset = false;
+  try {
+    historyReset = resetThreadToRecoverableHandoff(args, text, history);
+  } catch (error) {
+    text += `\n\nAutomatic clean-turn reset failed: ${error instanceof Error ? error.message : String(error)}. Start a new General conversation and use this handoff.`;
+  }
   try {
     persistThreadCustomMessage(args.store, {
       threadKey: args.threadKey,
@@ -171,7 +221,7 @@ const persistRecoverableHandoff = (args) => {
   } catch (error) {
     text += `\n\nDurable handoff persistence failed: ${error instanceof Error ? error.message : String(error)}`;
   }
-  return { kind: "handoff", text };
+  return { kind: "handoff", text, historyReset };
 };
 
 export const recoverContextOverflow = async (args) => {
@@ -280,12 +330,18 @@ export const executeWithContextOverflowRecovery = async (args) => {
         conversationId: args.opts.conversationId,
         resolvedLlm: args.opts.resolvedLlm,
         runId: args.runId,
+        session: args.session,
         reason: `forced compaction failed: ${errorMessage(error)}`,
       });
     }
 
     if (overflowRecovery.kind === "handoff") {
-      return { finalText: overflowRecovery.text };
+      return {
+        finalText: overflowRecovery.text,
+        errorMessage: overflowRecovery.historyReset
+          ? "Context overflow recovery reset the active thread. Continuing queued messages in a clean General turn."
+          : "Context overflow recovery could not reset the active thread. Start a new General conversation using the durable handoff.",
+      };
     }
     if (overflowRecovery.kind !== "compacted") return execution;
 

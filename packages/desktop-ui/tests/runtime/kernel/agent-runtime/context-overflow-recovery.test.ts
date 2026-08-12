@@ -41,12 +41,17 @@ const buildToolLoopPayload = (count: number) => ({
 const createStore = (history: StoredMessage[]) => ({
   history: [...history],
   handoffs: [] as Array<Record<string, unknown>>,
+  emergencyCompactions: [] as Array<Record<string, unknown>>,
   loadThreadMessages() {
     return [...this.history];
   },
   appendThreadCustomMessage(args: Record<string, unknown>) {
     this.handoffs.push(args);
   },
+  compactThread(args: Record<string, unknown>) {
+    this.emergencyCompactions.push(args);
+  },
+  updateThreadSummary: vi.fn(),
   listThreadActivity: () => [],
 });
 
@@ -186,9 +191,24 @@ describe("progress-aware context overflow recovery", () => {
     expect(result.finalText).toContain(
       "the compacted retry overflowed again before any new model output or tool result",
     );
+    expect(result.errorMessage).toContain(
+      "Continuing queued messages in a clean General turn",
+    );
     expect(execute).toHaveBeenCalledTimes(2);
     expect(runCompactionWithHooksMock).toHaveBeenCalledOnce();
     expect(harness.store.handoffs).toHaveLength(1);
+    expect(harness.store.emergencyCompactions).toEqual([
+      expect.objectContaining({
+        threadKey: THREAD_KEY,
+        fromEntryId: `${THREAD_KEY}-user`,
+        toEntryId: `${THREAD_KEY}-user`,
+        details: {
+          kind: "context-overflow-recovery",
+          runId: "run-general-parent",
+        },
+      }),
+    ]);
+    expect(harness.notifyCompacted).toHaveBeenCalledTimes(2);
   });
 
   it("compacts again after genuine tool progress refills the fallback window", async () => {

@@ -30,6 +30,8 @@ interface FeedbackDialogProps {
   onSubmitted?: () => void;
 }
 
+export const FEEDBACK_MAX_LENGTH = 32_000;
+
 const TITLE_KEY_BY_VARIANT: Record<
   NonNullable<FeedbackDialogProps["variant"]>,
   string
@@ -107,12 +109,16 @@ const FeedbackForm = ({
           label={t("shell.sidebar.feedback.fieldLabel")}
           placeholder={t("shell.sidebar.feedback.placeholder")}
           rows={5}
-          maxLength={4000}
+          maxLength={FEEDBACK_MAX_LENGTH}
           value={text}
           onChange={(event) => setText(event.target.value)}
           autoFocus
           disabled={submitting}
         />
+        <div className="sidebar-feedback-character-count" aria-live="polite">
+          {text.length.toLocaleString()} /{" "}
+          {FEEDBACK_MAX_LENGTH.toLocaleString()}
+        </div>
       </div>
       <div className="sidebar-confirm-actions">
         <Button

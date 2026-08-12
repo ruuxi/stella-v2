@@ -22,6 +22,8 @@ import {
   exchangeWindowsDaemonRequest,
   getWindowsScreenshotPolicy,
   getWindowsSelectionOptions,
+  isReadOnlyWindowsHelperRequest,
+  requestWindowsComputerHelper,
   spawnWindowsDaemonProcess,
   withWindowsComputerSessionLock,
 } from "@stella/runtime/kernel/cli/stella-computer-windows";
@@ -247,7 +249,7 @@ describe("Windows stella-computer wrapper", () => {
       expect(socket.destroyed).toBe(true);
       expect(socket.listenerCount("data")).toBe(baselineListeners.data);
       expect(socket.listenerCount("end")).toBe(baselineListeners.end);
-      expect(socket.listenerCount("error")).toBe(0);
+      expect(socket.listenerCount("error")).toBe(1);
       expect(socket.listenerCount("close")).toBe(baselineListeners.close);
       expect(removeListener).toHaveBeenCalledWith(
         "abort",
@@ -256,6 +258,102 @@ describe("Windows stella-computer wrapper", () => {
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("captures asynchronous pipe-write failures as channel errors", async () => {
+    const pipeError = Object.assign(new Error("write EPIPE"), {
+      code: "EPIPE",
+    });
+    const socket = Object.assign(new EventEmitter(), {
+      destroy: vi.fn(),
+      write: vi.fn(
+        (_payload: string, callback: (error?: Error | null) => void) => {
+          queueMicrotask(() => callback(pipeError));
+          return true;
+        },
+      ),
+    }) as unknown as net.Socket;
+
+    await expect(
+      exchangeWindowsDaemonRequest(socket, "request\n", {
+        timeoutMs: 1_000,
+      }),
+    ).rejects.toThrow(
+      "Windows stella-computer daemon connection failed: write EPIPE",
+    );
+    expect(socket.destroy).toHaveBeenCalledTimes(1);
+    expect(() => socket.emit("error", new Error("late EPIPE"))).not.toThrow();
+  });
+
+  it("recycles and retries a read-only request after an EPIPE", async () => {
+    const sockets = [{ attempt: 1 }, { attempt: 2 }] as unknown as net.Socket[];
+    const connectDaemon = vi
+      .fn()
+      .mockResolvedValueOnce(sockets[0])
+      .mockResolvedValueOnce(sockets[1]);
+    const stopDaemon = vi.fn(() => true);
+    const exchangeRequest = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("read EPIPE"), { code: "EPIPE" }),
+      )
+      .mockImplementationOnce(async (_socket, payload: string) => {
+        const { seq } = JSON.parse(payload) as { seq: number };
+        return JSON.stringify({
+          seq,
+          status: 0,
+          stdout: JSON.stringify({ ok: true, text: "recovered" }),
+          stderr: "",
+        });
+      });
+
+    await expect(
+      requestWindowsComputerHelper(
+        "read-only-recovery",
+        { tool: "get_app_state", app: "notepad.exe" },
+        undefined,
+        { connectDaemon, exchangeRequest, stopDaemon },
+      ),
+    ).resolves.toEqual({ ok: true, text: "recovered" });
+    expect(connectDaemon).toHaveBeenCalledTimes(2);
+    expect(exchangeRequest).toHaveBeenCalledTimes(2);
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
+  });
+
+  it("recycles but never replays a mutating request after an EPIPE", async () => {
+    const connectDaemon = vi.fn(async () => ({}) as net.Socket);
+    const stopDaemon = vi.fn(() => true);
+    const exchangeRequest = vi.fn(async () => {
+      throw Object.assign(new Error("read EPIPE"), { code: "EPIPE" });
+    });
+
+    await expect(
+      requestWindowsComputerHelper(
+        "mutation-recovery",
+        { tool: "click", app: "notepad.exe", x: 10, y: 20 },
+        undefined,
+        { connectDaemon, exchangeRequest, stopDaemon },
+      ),
+    ).rejects.toThrow(
+      "The daemon was recycled, but Stella did not replay click because the action may already have completed",
+    );
+    expect(connectDaemon).toHaveBeenCalledTimes(1);
+    expect(exchangeRequest).toHaveBeenCalledTimes(1);
+    expect(stopDaemon).toHaveBeenCalledTimes(1);
+  });
+
+  it("only classifies observation operations as retryable", () => {
+    for (const tool of [
+      "doctor",
+      "get_app_state",
+      "list_apps",
+      "list_windows",
+    ]) {
+      expect(isReadOnlyWindowsHelperRequest({ tool })).toBe(true);
+    }
+    for (const tool of ["batch", "click", "launch_app", "type_text"]) {
+      expect(isReadOnlyWindowsHelperRequest({ tool })).toBe(false);
     }
   });
 
@@ -396,7 +494,10 @@ describe("Windows native Computer Use architecture", () => {
     expect(connectStart).toBeGreaterThan(0);
     expect(connectBody).not.toContain("socket.end()");
     expect(requestBody).toContain(
-      "const socket = await connectWindowsDaemon(sessionId, signal)",
+      "transportOverrides.connectDaemon ?? connectWindowsDaemon",
+    );
+    expect(requestBody).toContain(
+      "const socket = await connectDaemon(sessionId, signal)",
     );
     expect(requestBody).not.toContain("connectWindowsPipeWithRetry");
   });

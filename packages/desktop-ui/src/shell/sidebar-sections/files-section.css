@@ -224,6 +224,87 @@
   box-shadow: var(--focus-ring);
 }
 
+/* Subagent groups — a parent (general) agent that owns subagents collapses
+   into one row carrying the same compact count/progress summary the activity
+   workspace strip shows; its children reveal on toggle. */
+.files-list__item--group {
+  align-items: stretch;
+}
+
+.files-list__group-toggle[data-compact="true"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.files-list__group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.files-list__group-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-weaker);
+  transition: transform 120ms ease;
+}
+
+.files-list__item--group[data-expanded="true"] .files-list__group-caret {
+  transform: rotate(90deg);
+}
+
+/* The workspace insets the summary under its own icon column; here it aligns
+   flush under the parent's caret + icon so it reads as one grouped block. */
+.files-list__group-toggle .chat-workspace-strip__compact-cells,
+.files-list__group-toggle .chat-workspace-strip__compact-progress,
+.files-list__group-toggle .chat-workspace-strip__compact-status {
+  margin-left: 22px;
+}
+
+/* Reuses the file remove button's hover-reveal language for a quiet "open the
+   parent thread" affordance beside the group toggle. */
+.files-list__group-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-weak);
+  opacity: 0;
+  cursor: default;
+}
+
+.files-list__item:hover .files-list__group-open,
+.files-list__group-open:focus-visible {
+  opacity: 1;
+}
+
+.files-list__group-open:hover {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+.files-list__group-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Owned subagents sit indented beneath their parent while expanded. */
+.files-list__item--nested {
+  margin-left: 22px;
+}
+
 /* Models popover: hosts the agent model picker above the footer button. */
 .models-popover {
   /* `max-width` has to move with `width`: the shared popover surface caps

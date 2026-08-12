@@ -1235,6 +1235,9 @@
         "previewFailed": "A térkép-előnézetet nem sikerült betölteni."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Másolva",
         "copy": "Másolás",
         "readAloud": "Felolvasás",

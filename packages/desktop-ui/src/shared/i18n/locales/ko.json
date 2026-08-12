@@ -1225,6 +1225,9 @@
         "previewFailed": "지도 미리보기를 불러올 수 없습니다."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "복사됨",
         "copy": "복사",
         "readAloud": "소리 내어 읽기",

@@ -1235,6 +1235,9 @@
         "previewFailed": "Harita önizlemesi yüklenemedi."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Kopyalandı",
         "copy": "Kopyala",
         "readAloud": "Sesli oku",

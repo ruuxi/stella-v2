@@ -1225,6 +1225,9 @@
         "previewFailed": "โหลดตัวอย่างแผนที่ไม่ได้"
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "คัดลอกแล้ว",
         "copy": "คัดลอก",
         "readAloud": "อ่านออกเสียง",

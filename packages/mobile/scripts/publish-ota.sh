@@ -9,11 +9,21 @@
 # sourcemap's sourcesContent) that the bundle matches HEAD byte-for-byte,
 # and only then publishes with the real commit stamped in the message.
 #
-# Usage: scripts/publish-ota.sh <channel>   e.g. scripts/publish-ota.sh preview
+# Usage: scripts/publish-ota.sh <channel> [platform]
+#   e.g. scripts/publish-ota.sh preview ios
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CHANNEL="${1:?usage: publish-ota.sh <channel>}"
+CHANNEL="${1:?usage: publish-ota.sh <channel> [platform]}"
+PLATFORM="${2:-all}"
+
+case "${PLATFORM}" in
+  ios|android|all) ;;
+  *)
+    echo "REFUSING to publish: platform must be ios, android, or all." >&2
+    exit 1
+    ;;
+esac
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "REFUSING to publish: working tree is dirty. Commit or stash first:" >&2
@@ -38,8 +48,8 @@ bunx expo export --platform ios --source-maps
 echo "Verifying exported bundle matches git HEAD..."
 bun scripts/verify-ota-export.ts HEAD
 
-echo "Publishing to channel '${CHANNEL}' as: ${SHA} ${SUBJECT}"
+echo "Publishing ${PLATFORM} to channel '${CHANNEL}' as: ${SHA} ${SUBJECT}"
 # Channels here (development/preview/production) map 1:1 to the default EAS
 # environments; --environment is mandatory in --non-interactive mode.
 bunx eas-cli update --channel "${CHANNEL}" --environment "${CHANNEL}" \
-  --message "${SHA} ${SUBJECT}" --non-interactive
+  --platform "${PLATFORM}" --message "${SHA} ${SUBJECT}" --non-interactive

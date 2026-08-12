@@ -612,8 +612,7 @@ describe("persistent Node REPL kernels", () => {
     }
   });
 
-  it("captures one settled receipt and one screenshot after a mutating cell", async () => {
-    const jpeg = Buffer.from("real-browser-image-bytes");
+  it("does not capture a screenshot after a successful mutating cell", async () => {
     const command = vi.fn(async (action: string) => {
       const data =
         action === "tab_list"
@@ -628,9 +627,7 @@ describe("persistent Node REPL kernels", () => {
               ],
               activeTabId: 44,
             }
-          : action === "screenshot"
-            ? { base64: jpeg.toString("base64"), format: "jpeg" }
-            : { ok: true };
+          : { ok: true };
       return {
         sessionId: "agent-receipt",
         bridgeSessionId: "stella-app-bridge",
@@ -652,8 +649,6 @@ describe("persistent Node REPL kernels", () => {
           dispose: vi.fn(async () => undefined),
         }) as unknown as BrowserSessionClient,
     });
-    let screenshotPath: string | undefined;
-
     try {
       const output = await registry.evaluate(
         [
@@ -667,25 +662,164 @@ describe("persistent Node REPL kernels", () => {
       expect(output).toContain(
         "[browser-receipt] calls=2 mutated=true tabs=1 activeTabId=44 last=fill",
       );
-      expect(output.match(/\[stella-attach-image\][^\n]+/g)).toHaveLength(1);
-      const pathMatch = output.match(/path=("[^"\n]+")/);
-      expect(pathMatch?.[1]).toBeTruthy();
-      screenshotPath = JSON.parse(pathMatch![1]!);
-      await expect(readFile(screenshotPath!)).resolves.toEqual(jpeg);
+      expect(output).not.toContain("[stella-attach-image]");
       expect(command.mock.calls.map(([action]) => action)).toEqual([
         "click",
         "fill",
+        "tab_list",
+      ]);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("best-effort attaches one screenshot when a browser action fails", async () => {
+    const jpeg = Buffer.from("browser-failure-image");
+    const command = vi.fn(async (action: string) => {
+      if (action === "click") throw new Error("Element is covered");
+      const data =
+        action === "tab_list"
+          ? {
+              tabs: [{ tabId: 44, active: true }],
+              activeTabId: 44,
+            }
+          : action === "screenshot"
+            ? { base64: jpeg.toString("base64"), format: "jpeg" }
+            : {};
+      return {
+        sessionId: "agent-browser-failure",
+        bridgeSessionId: "stella-app-bridge",
+        requestId: `request-${command.mock.calls.length}`,
+        action,
+        params: {},
+        result: { id: "response", success: true as const, data },
+        attempts: 1,
+        durationMs: 1,
+      };
+    });
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    try {
+      const error = await registry
+        .evaluate(
+          "await browser.tabs.get(44).playwright.locator('#save').click()",
+          context("agent-browser-failure"),
+        )
+        .catch((cause: unknown) => cause as Error);
+      expect(error.message).toContain("Element is covered");
+      expect(error.message).toContain("[stella-attach-image]");
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "click",
         "tab_list",
         "screenshot",
       ]);
     } finally {
       await registry.dispose();
-      if (screenshotPath) {
-        await expect(readFile(screenshotPath)).rejects.toMatchObject({
-          code: "ENOENT",
-        });
-        await rm(screenshotPath, { force: true });
-      }
+    }
+  });
+
+  it("still attaches screenshots explicitly requested by the caller", async () => {
+    const jpeg = Buffer.from("explicit-browser-image");
+    const command = vi.fn(async (action: string) => ({
+      sessionId: "agent-explicit-screenshot",
+      bridgeSessionId: "stella-app-bridge",
+      requestId: "request-explicit-screenshot",
+      action,
+      params: {},
+      result: {
+        id: "response",
+        success: true as const,
+        data: { base64: jpeg.toString("base64"), format: "jpeg" },
+      },
+      attempts: 1,
+      durationMs: 1,
+    }));
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    try {
+      const output = await registry.evaluate(
+        "await browser.tabs.get(44).screenshot({ format: 'jpeg' })",
+        context("agent-explicit-screenshot"),
+      );
+      expect(output).toContain("[stella-attach-image]");
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "screenshot",
+      ]);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("does not auto-attach screenshots for page evaluation or network work", async () => {
+    const command = vi.fn(async (action: string) => ({
+      sessionId: "agent-nonvisual-browser",
+      bridgeSessionId: "stella-app-bridge",
+      requestId: `request-${command.mock.calls.length}`,
+      action,
+      params: {},
+      result: {
+        id: "response",
+        success: true as const,
+        data:
+          action === "evaluate"
+            ? { result: 42 }
+            : action === "requests"
+              ? { requests: [] }
+              : { ok: true },
+      },
+      attempts: 1,
+      durationMs: 1,
+    }));
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+
+    try {
+      const output = await registry.evaluate(
+        [
+          "const nonvisualTab = browser.tabs.get(44)",
+          "await nonvisualTab.playwright.evaluate(() => 42)",
+          "await nonvisualTab.network.requests()",
+          "'done'",
+        ].join("; "),
+        context("agent-nonvisual-browser"),
+      );
+      expect(output).not.toContain("[stella-attach-image]");
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "evaluate",
+        "requests",
+        "tab_list",
+      ]);
+      expect(command).not.toHaveBeenCalledWith(
+        "screenshot",
+        expect.anything(),
+        expect.anything(),
+      );
+    } finally {
+      await registry.dispose();
     }
   });
 
@@ -989,7 +1123,7 @@ describe("persistent Node REPL kernels", () => {
       );
       expect(factoryOptions[0]?.timeoutMs).toBe(30_000);
       expect(
-        timeoutSpy.mock.calls.some(([, delay]) => delay === 5 * 60_000),
+        timeoutSpy.mock.calls.some(([, delay]) => delay === 11 * 60_000),
       ).toBe(true);
       expect(
         timeoutSpy.mock.calls.some(([, delay]) => delay === 4 * 60 * 60_000),

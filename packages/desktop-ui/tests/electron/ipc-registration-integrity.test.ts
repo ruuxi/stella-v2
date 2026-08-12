@@ -233,6 +233,25 @@ describe("Electron IPC registration integrity", () => {
     );
   });
 
+  it("forwards managed browser recovery through the Electron bootstrap", () => {
+    const bootstrap = readFileSync(
+      path.join(repoRoot, "packages/desktop/electron/bootstrap/ipc.js"),
+      "utf8",
+    );
+    const routingStart = bootstrap.indexOf(
+      "const ensureInAppBrowserAgentRouting",
+    );
+    const routingEnd = bootstrap.indexOf(
+      "const ensureInAppBrowserReady",
+      routingStart,
+    );
+    expect(routingStart).toBeGreaterThan(-1);
+    expect(routingEnd).toBeGreaterThan(routingStart);
+    expect(bootstrap.slice(routingStart, routingEnd)).toContain(
+      "...(capability.recover ? { recover: true } : {})",
+    );
+  });
+
   it("constructs the connector credential service and threads it into the connect-card flow", () => {
     // Regression: the local-first port dropped the ConnectorCredentialService
     // instantiation from bootstrap-services.js while ipc.js, host-runner.js,

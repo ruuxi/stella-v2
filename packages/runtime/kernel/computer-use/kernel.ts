@@ -55,7 +55,10 @@ import {
 import type { ReplConnectClient } from "../connectors/connect-service.js";
 import { resolveToolFallbackCwd } from "../tools/cwd.js";
 
-const DEFAULT_EVAL_TIMEOUT_MS = 5 * 60_000;
+// Browser protocol waits can deliberately run for ten minutes. Keep the
+// enclosing REPL cell alive slightly longer so a requested wait is not killed
+// by the historical five-minute outer evaluation ceiling.
+const DEFAULT_EVAL_TIMEOUT_MS = 11 * 60_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 4 * 60 * 60_000;
 /**
@@ -279,6 +282,13 @@ const READ_ONLY_BROWSER_ACTIONS = new Set([
   "waitforurl",
 ]);
 const NON_VISUAL_BROWSER_MUTATIONS = new Set([
+  "evaluate",
+  "evaluate_detached",
+  "waitforfunction",
+  "authenticated_request",
+  "authenticated_request_batch",
+  "rewrite_request",
+  "unrewrite_request",
   "cookies_set",
   "cookies_clear",
   "site_mod_set",
@@ -1019,8 +1029,60 @@ class NodeReplKernel {
       }
     } catch (error) {
       if (!this.closed && this.active === active) {
-        this.postBrowserError(message.callId, error);
+        let reportedError = error;
+        const failedAction =
+          message.method === "command" && typeof message.args[0] === "string"
+            ? message.args[0]
+            : "chain";
+        if (failedAction !== "screenshot") {
+          const marker = await this.captureBrowserFailureScreenshot(active);
+          if (marker) {
+            const enhanced = new Error(
+              `${error instanceof Error ? error.message : String(error)}\n${marker}`,
+            );
+            enhanced.name = error instanceof Error ? error.name : "Error";
+            reportedError = enhanced;
+          }
+        }
+        this.postBrowserError(message.callId, reportedError);
       }
+    }
+  }
+
+  private async captureBrowserFailureScreenshot(
+    active: ActiveEvaluation,
+  ): Promise<string | undefined> {
+    try {
+      const tabsReceipt = await this.browser.command<Record<string, unknown>>(
+        "tab_list",
+        {},
+        { signal: active.controller.signal },
+      );
+      const tabsData = tabsReceipt.result.data ?? {};
+      const tabs = Array.isArray(tabsData.tabs) ? tabsData.tabs : [];
+      const activeTabId =
+        typeof tabsData.activeTabId === "number" && tabsData.activeTabId > 0
+          ? tabsData.activeTabId
+          : tabs
+              .map((tab) => this.recordValue(tab))
+              .find(
+                (tab) => tab?.active === true && typeof tab.tabId === "number",
+              )?.tabId;
+      if (typeof activeTabId !== "number" || activeTabId <= 0) return undefined;
+      const screenshotReceipt = await this.browser.command<{
+        base64?: string;
+        format?: string;
+      }>(
+        "screenshot",
+        { tabId: activeTabId, format: "jpeg", quality: 55 },
+        { signal: active.controller.signal },
+      );
+      const encoded = screenshotReceipt.result.data?.base64;
+      if (typeof encoded !== "string" || !encoded) return undefined;
+      const screenshotPath = await this.writeBrowserScreenshot(encoded, "jpeg");
+      return `[stella-attach-image] inline=image/jpeg path=${JSON.stringify(screenshotPath)}`;
+    } catch {
+      return undefined;
     }
   }
 
@@ -1448,51 +1510,6 @@ class NodeReplKernel {
           activeTabId === undefined ? "" : ` activeTabId=${activeTabId}`
         }${activity.lastAction ? ` last=${activity.lastAction}` : ""}`;
         finalOutput = finalOutput ? `${finalOutput}\n${receipt}` : receipt;
-
-        if (
-          activity.visualMutated &&
-          !activity.screenshotObserved &&
-          activeTabId !== undefined
-        ) {
-          try {
-            const screenshotReceipt = await this.browser.command<{
-              base64?: string;
-              format?: string;
-            }>(
-              "screenshot",
-              { tabId: activeTabId, format: "jpeg", quality: 55 },
-              { signal: active.controller.signal },
-            );
-            const screenshot = screenshotReceipt.result.data;
-            if (typeof screenshot?.base64 === "string" && screenshot.base64) {
-              const directory = path.join(os.tmpdir(), "stella-browser-repl");
-              await mkdir(directory, { recursive: true });
-              const screenshotPath = path.join(
-                directory,
-                `${randomUUID()}.jpeg`,
-              );
-              await writeFile(
-                screenshotPath,
-                Buffer.from(screenshot.base64, "base64"),
-              );
-              this.browserScreenshotPaths.add(screenshotPath);
-              while (
-                this.browserScreenshotPaths.size >
-                MAX_BROWSER_SCREENSHOT_FILES_PER_KERNEL
-              ) {
-                const oldest = this.browserScreenshotPaths
-                  .values()
-                  .next().value;
-                if (typeof oldest !== "string") break;
-                this.browserScreenshotPaths.delete(oldest);
-                await rm(oldest, { force: true }).catch(() => undefined);
-              }
-              finalOutput += `\n[stella-attach-image] inline=image/jpeg path=${JSON.stringify(screenshotPath)}`;
-            }
-          } catch {
-            finalOutput += "\n[browser-visual] screenshot=unavailable";
-          }
-        }
       } catch {
         const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated}${
           activity.lastAction ? ` last=${activity.lastAction}` : ""

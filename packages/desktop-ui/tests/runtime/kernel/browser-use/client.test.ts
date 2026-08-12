@@ -303,11 +303,12 @@ describe("BrowserSession direct daemon client", () => {
     });
 
     try {
-      await expect(client.command("evaluate", { expression: "while(true){}" }))
-        .rejects.toMatchObject({
-          code: "execution_failed",
-          message: expect.stringContaining("timed out after 40ms"),
-        });
+      await expect(
+        client.command("evaluate", { expression: "while(true){}" }),
+      ).rejects.toMatchObject({
+        code: "execution_failed",
+        message: expect.stringContaining("timed out after 40ms"),
+      });
 
       await expect(client.command("url")).resolves.toMatchObject({
         result: { success: true, data: { recovered: true } },
@@ -412,6 +413,59 @@ describe("BrowserSession direct daemon client", () => {
       expect(daemon.requests[1]?.id).toBe(daemon.requests[0]?.id);
       expect(receipt.result.data?.recovered).toBe(true);
       expect(executions).toBe(1);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("does not replay a click whose response was lost across managed backend recovery", async () => {
+    let clickExecutions = 0;
+    const daemon = createTestDaemon((request, { socket }) => {
+      if (request.action === "click") {
+        clickExecutions += 1;
+        socket.destroy();
+        return undefined;
+      }
+      return { id: request.id, success: true, data: { recovered: true } };
+    });
+    await daemon.start();
+    const initializeInAppBrowser = vi.fn(async () => ({
+      bridgeSessionId: daemon.sessionId,
+      capabilityExpiresAt: Date.now() + 30_000,
+    }));
+    const client = createClient(daemon, {
+      initializeInAppBrowser,
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_SESSION: "bootstrap-session",
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+    });
+
+    try {
+      await expect(
+        client.command("click", { tabId: 1, selector: "#submit" }),
+      ).rejects.toMatchObject({
+        code: "execution_failed",
+        message: expect.stringContaining(
+          "may have completed before the managed browser backend disconnected",
+        ),
+      });
+      expect(clickExecutions).toBe(1);
+      expect(
+        daemon.requests.filter((request) => request.action === "click"),
+      ).toHaveLength(1);
+
+      // Recovery is still armed for the next observational command; only the
+      // ambiguous mutation itself is withheld from automatic replay.
+      await expect(client.command("url", { tabId: 1 })).resolves.toMatchObject({
+        result: { success: true, data: { recovered: true } },
+      });
+      expect(initializeInAppBrowser).toHaveBeenLastCalledWith(
+        expect.objectContaining({ recover: true }),
+      );
+      expect(clickExecutions).toBe(1);
     } finally {
       await client.dispose();
       await daemon.close();

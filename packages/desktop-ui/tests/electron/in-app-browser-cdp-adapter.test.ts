@@ -288,8 +288,20 @@ describe("InAppBrowserCdpAdapter", () => {
       targetInfos: [expect.objectContaining({ targetId: "tab-1" })],
     });
     await expect(
-      request(socket, 4, "Target.createTarget", { url: "about:blank" }),
-    ).resolves.toEqual({ targetId: "owner-test-2" });
+      request(
+        socket,
+        4,
+        "Page.getNavigationHistory",
+        {},
+        String(attached.sessionId),
+      ),
+    ).resolves.toEqual({});
+    expect(sendDebuggerCommand).toHaveBeenLastCalledWith(
+      "tab-1",
+      "Page.getNavigationHistory",
+      {},
+      "owner-test",
+    );
 
     socket.close();
   });

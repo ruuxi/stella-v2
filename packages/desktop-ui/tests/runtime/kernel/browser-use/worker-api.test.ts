@@ -14,6 +14,120 @@ const semantic = (payload: Record<string, unknown>) =>
   `aria=${encodeURIComponent(JSON.stringify(payload))}`;
 
 describe("browser worker API", () => {
+  it("accepts ten-minute daemon waits and rejects longer waits", async () => {
+    const calls: RecordedCall[] = [];
+    const tab = installBrowserWorkerApi(async (method, args) => {
+      calls.push({ method, args });
+      if (args[0] === "requests") {
+        return { success: true, data: { requests: [] } };
+      }
+      if (args[0] === "responsebody") {
+        return { success: true, data: { status: 204, body: "" } };
+      }
+      return { success: true, data: { result: true } };
+    }).tabs.get(3);
+
+    await tab.playwright.waitForFunction("true", { timeout: 600_000 });
+    await tab.network.waitForResponse("/done", undefined, {
+      timeout: 600_000,
+    });
+    await expect(
+      tab.playwright.waitForFunction("true", { timeout: 600_001 }),
+    ).rejects.toThrow("at most 600000");
+    await expect(
+      tab.network.waitForResponse("/done", undefined, { timeout: 600_001 }),
+    ).rejects.toThrow("at most 600000");
+
+    expect(calls.map(({ args }) => args[0])).toEqual([
+      "waitforfunction",
+      "requests",
+      "responsebody",
+    ]);
+    expect(calls[0]?.args[1]).toMatchObject({ timeout: 600_000 });
+    expect(calls[2]?.args[1]).toMatchObject({ timeout: 600_000 });
+  });
+
+  it("exposes daemon-backed waits, detached work, and bounded network APIs", async () => {
+    const calls: RecordedCall[] = [];
+    const browser = installBrowserWorkerApi(async (method, args) => {
+      calls.push({ method, args });
+      const action = args[0];
+      if (action === "waitforfunction") {
+        return { success: true, data: { result: true } };
+      }
+      if (action === "requests") {
+        return { success: true, data: { requests: [{ url: "/api" }] } };
+      }
+      if (action === "responsebody") {
+        return { success: true, data: { status: 200, body: "ok" } };
+      }
+      if (action === "authenticated_request") {
+        return { success: true, data: { status: 201, body: "created" } };
+      }
+      if (action === "authenticated_request_batch") {
+        return {
+          success: true,
+          data: { responses: [{ status: 200 }, { status: 201 }] },
+        };
+      }
+      return { success: true, data: {} };
+    });
+    const tab = browser.tabs.get(7);
+
+    await expect(
+      tab.playwright.waitForFunction(() => document.readyState === "complete", {
+        timeout: 120_000,
+      }),
+    ).resolves.toBe(true);
+    await tab.playwright.schedule(async () => {
+      await Promise.resolve();
+    });
+    await expect(
+      tab.network.requests({ filter: "/api", limit: 5 }),
+    ).resolves.toEqual([{ url: "/api" }]);
+    await tab.network.rewriteRequest("*/generate", {
+      jsonPatch: { parameters: { safety_tolerance: 3 } },
+      headers: { "x-client": "stella" },
+    });
+    await tab.network.clearRequestRewrite("*/generate");
+    await expect(
+      tab.network.fetch("/api/create", {
+        method: "POST",
+        body: "{}",
+        timeout: 90_000,
+        maxBodyBytes: 4096,
+      }),
+    ).resolves.toMatchObject({ status: 201 });
+    await expect(
+      tab.network.fetchAll(
+        [{ url: "/api/one" }, { url: "/api/two", method: "POST", body: "{}" }],
+        { concurrency: 2, timeout: 120_000 },
+      ),
+    ).resolves.toEqual([{ status: 200 }, { status: 201 }]);
+    await expect(
+      tab.network.waitForResponse("/api/result", async () => undefined, {
+        timeout: 60_000,
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+
+    expect(calls.map(({ args }) => args[0])).toEqual([
+      "waitforfunction",
+      "evaluate_detached",
+      "requests",
+      "rewrite_request",
+      "unrewrite_request",
+      "authenticated_request",
+      "authenticated_request_batch",
+      "requests",
+      "responsebody",
+    ]);
+    expect(calls[0]?.args[1]).toMatchObject({ tabId: 7, timeout: 120_000 });
+    expect(calls[3]?.args[1]).toMatchObject({
+      tabId: 7,
+      jsonPatch: { parameters: { safety_tolerance: 3 } },
+    });
+  });
+
   it("is self-contained when stringified and deeply freezes public roots", async () => {
     const restored = (0, eval)(
       `(${installBrowserWorkerApi.toString()})`,

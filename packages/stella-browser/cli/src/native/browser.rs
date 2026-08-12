@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
@@ -130,9 +131,9 @@ pub struct PageInfo {
     /// index. Always assigned by `BrowserManager`; caller-provided values are
     /// overwritten by `add_page`.
     pub tab_id: u64,
-    /// Opaque generation paired with `tab_id`. Numeric ids are scoped to one
-    /// BrowserManager and may be reused after a daemon reconnect; this UUID
-    /// lets clients detect a stale handle instead of driving a different tab.
+    /// Opaque generation paired with `tab_id`. It is derived from the CDP
+    /// targetId so retained managed tabs keep the same handle across daemon
+    /// replacement, while a colliding/replaced target gets a distinct value.
     pub tab_generation: String,
     pub url: String,
     pub title: String,
@@ -184,12 +185,11 @@ pub struct BrowserManager {
     pages: Vec<PageInfo>,
     active_page_index: usize,
     default_timeout_ms: u64,
-    /// Maps CDP targetIds to the stable positive integer tab ids exposed as
-    /// `tabId`. Never pruned for the life of the manager so a target keeps the
-    /// same id across detach/re-attach cycles and list calls.
+    /// Maps CDP targetIds to deterministic positive integer tab ids exposed as
+    /// `tabId`. Never pruned for the life of the manager so collision checks
+    /// remain valid across detach/re-attach cycles and list calls.
     target_tab_ids: HashMap<String, u64>,
     target_tab_generations: HashMap<String, String>,
-    next_tab_id: u64,
     /// Which stable tab ids each command owner created. Lives and dies with
     /// the manager, matching the lifetime of the tabs themselves, so a
     /// relaunch can never resurrect stale ownership over freshly numbered
@@ -317,6 +317,14 @@ const LIGHTPANDA_CDP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const LIGHTPANDA_CDP_CONNECT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const LIGHTPANDA_TARGET_INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
+fn is_target_churn_error(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("browser tab not found")
+        || normalized.contains("browser target was not found")
+        || normalized.contains("no target with given id")
+        || normalized.contains("session with given id not found")
+}
+
 impl BrowserManager {
     pub async fn launch(options: LaunchOptions, engine: Option<&str>) -> Result<Self, String> {
         let engine = engine.unwrap_or("chrome");
@@ -381,7 +389,6 @@ impl BrowserManager {
                 default_timeout_ms: 25_000,
                 target_tab_ids: HashMap::new(),
                 target_tab_generations: HashMap::new(),
-                next_tab_id: 1,
                 owner_tabs: OwnerTabRegistry::default(),
             };
             manager.discover_and_attach_targets().await?;
@@ -449,7 +456,6 @@ impl BrowserManager {
             default_timeout_ms: 10_000,
             target_tab_ids: HashMap::new(),
             target_tab_generations: HashMap::new(),
-            next_tab_id: 1,
             owner_tabs: OwnerTabRegistry::default(),
         };
 
@@ -471,32 +477,56 @@ impl BrowserManager {
             )
             .await?;
 
-        let result: GetTargetsResult = self
-            .client
-            .send_command_typed("Target.getTargets", &json!({}), None)
-            .await?;
+        // Replacement daemons reconnect to tabs that are still owned by the
+        // durable browser session. A tab may disappear while the replacement
+        // is walking getTargets -> attach -> Page.enable (for example because
+        // the user closed it, or a timed-out page finally navigated away).
+        // Treat that as ordinary target churn: rescan and attach the survivors
+        // instead of failing the whole daemon and stranding every healthy tab.
+        const MAX_DISCOVERY_PASSES: usize = 3;
+        let mut last_error: Option<String> = None;
+        let mut quarantined_target_ids = HashSet::new();
 
-        let page_targets: Vec<TargetInfo> = result
-            .target_infos
-            .into_iter()
-            .filter(|t| {
-                (t.target_type == "page" || t.target_type == "webview")
-                    && !t.url.is_empty()
-                    && !is_internal_chrome_target(&t.url)
-            })
-            .collect();
+        for _ in 0..MAX_DISCOVERY_PASSES {
+            let mut target_churn_observed = false;
+            let result: GetTargetsResult = self
+                .client
+                .send_command_typed("Target.getTargets", &json!({}), None)
+                .await?;
+            let page_targets: Vec<TargetInfo> = result
+                .target_infos
+                .into_iter()
+                .filter(|target| {
+                    (target.target_type == "page" || target.target_type == "webview")
+                        && !target.url.is_empty()
+                        && !is_internal_chrome_target(&target.url)
+                })
+                .collect();
+            let live_target_ids: HashSet<String> = page_targets
+                .iter()
+                .map(|target| target.target_id.clone())
+                .collect();
 
-        if page_targets.is_empty() {
-            // A connected Stella in-app browser is intentionally allowed to be
-            // empty. The first command that actually needs a page goes through
-            // `ensure_page`, which creates the tab then. Keeping connection and
-            // tab creation separate lets the Browser panel truthfully show its
-            // quiet "Browser connected" state until either the user or agent
-            // starts browsing.
-            return Ok(());
-        } else {
-            for target in &page_targets {
-                let attach_result: AttachToTargetResult = self
+            // An earlier pass may have attached a target that vanished before
+            // its domains could be enabled. Forget only that stale attachment;
+            // stable ids for surviving targetIds remain unchanged.
+            let stale_target_ids: Vec<String> = self
+                .pages
+                .iter()
+                .filter(|page| !live_target_ids.contains(&page.target_id))
+                .map(|page| page.target_id.clone())
+                .collect();
+            for target_id in stale_target_ids {
+                self.remove_page_by_target_id(&target_id);
+            }
+
+            for target in page_targets {
+                if quarantined_target_ids.contains(&target.target_id)
+                    || self.has_target(&target.target_id)
+                {
+                    continue;
+                }
+                let attach_result: AttachToTargetResult = match self
                     .client
                     .send_command_typed(
                         "Target.attachToTarget",
@@ -506,27 +536,69 @@ impl BrowserManager {
                         },
                         None,
                     )
-                    .await?;
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(error) => {
+                        if !is_target_churn_error(&error) {
+                            return Err(error);
+                        }
+                        last_error = Some(error);
+                        target_churn_observed = true;
+                        continue;
+                    }
+                };
 
                 let tab_id = self.tab_id_for_target(&target.target_id);
                 let tab_generation = self.tab_generation_for_target(&target.target_id);
                 self.pages.push(PageInfo {
-                    target_id: target.target_id.clone(),
-                    session_id: attach_result.session_id.clone(),
+                    target_id: target.target_id,
+                    session_id: attach_result.session_id,
                     tab_id,
                     tab_generation,
-                    url: target.url.clone(),
-                    title: target.title.clone(),
-                    target_type: target.target_type.clone(),
+                    url: target.url,
+                    title: target.title,
+                    target_type: target.target_type,
                 });
             }
 
             self.active_page_index = 0;
-            let session_id = self.pages[0].session_id.clone();
-            self.enable_domains(&session_id).await?;
+            let Some(active_page) = self.pages.first() else {
+                if live_target_ids.is_empty() {
+                    // A connected Stella in-app browser is intentionally
+                    // allowed to be empty. The first page-needing command will
+                    // create an owned tab through `ensure_page`.
+                    return Ok(());
+                }
+                continue;
+            };
+            let active_target_id = active_page.target_id.clone();
+            let session_id = active_page.session_id.clone();
+            match self.enable_domains(&session_id).await {
+                Ok(()) if !target_churn_observed => return Ok(()),
+                Ok(()) => continue,
+                Err(error) => {
+                    if !is_target_churn_error(&error) {
+                        return Err(error);
+                    }
+                    last_error = Some(error);
+                    // Rescan before deciding whether this was target churn or
+                    // a real domain/bootstrap failure. If the target remains,
+                    // the next pass retries once with its current attachment.
+                    self.remove_page_by_target_id(&active_target_id);
+                    quarantined_target_ids.insert(active_target_id);
+                }
+            }
         }
 
-        Ok(())
+        Err(format!(
+            "Failed to attach retained browser targets after {} rescans{}",
+            MAX_DISCOVERY_PASSES,
+            last_error
+                .as_deref()
+                .map(|error| format!(". Last error: {}", error))
+                .unwrap_or_default(),
+        ))
     }
 
     pub async fn enable_domains_pub(&self, session_id: &str) -> Result<(), String> {
@@ -642,6 +714,30 @@ impl BrowserManager {
             .unwrap_or_default()
     }
 
+    /// Read the active document URL from the Page domain without executing
+    /// JavaScript in the renderer. This remains responsive when Runtime
+    /// evaluation is saturated and is suitable for origin checks.
+    pub async fn active_url_protocol(&self) -> Result<String, String> {
+        let session_id = self.active_session_id()?.to_string();
+        let history = self
+            .client
+            .send_command_no_params("Page.getNavigationHistory", Some(&session_id))
+            .await?;
+        let index = history
+            .get("currentIndex")
+            .and_then(Value::as_u64)
+            .ok_or("Page navigation history did not include a current entry")?
+            as usize;
+        history
+            .get("entries")
+            .and_then(Value::as_array)
+            .and_then(|entries| entries.get(index))
+            .and_then(|entry| entry.get("url"))
+            .and_then(Value::as_str)
+            .map(String::from)
+            .ok_or_else(|| "Page navigation history did not include a current URL".to_string())
+    }
+
     pub async fn get_title(&self) -> Result<String, String> {
         let result = self.evaluate_simple("document.title").await?;
         Ok(result.as_str().unwrap_or("").to_string())
@@ -680,6 +776,37 @@ impl BrowserManager {
         }
 
         Ok(result.result.value.unwrap_or(Value::Null))
+    }
+
+    /// Schedule page-side work without awaiting a returned promise. This is
+    /// intentionally separate from `evaluate`: callers use it for work that
+    /// should continue in the renderer after the protocol command has
+    /// returned (for example, a delayed export or a fetch observed through
+    /// the Network domain).
+    pub async fn evaluate_detached(&self, script: &str) -> Result<(), String> {
+        let session_id = self.active_session_id()?.to_string();
+        let result: EvaluateResult = self
+            .client
+            .send_command_typed(
+                "Runtime.evaluate",
+                &EvaluateParams {
+                    expression: script.to_string(),
+                    return_by_value: Some(false),
+                    await_promise: Some(false),
+                },
+                Some(&session_id),
+            )
+            .await?;
+
+        if let Some(ref details) = result.exception_details {
+            let message = details
+                .exception
+                .as_ref()
+                .and_then(|exception| exception.description.as_deref())
+                .unwrap_or(&details.text);
+            return Err(format!("Detached evaluation error: {}", message));
+        }
+        Ok(())
     }
 
     async fn evaluate_simple(&self, expression: &str) -> Result<Value, String> {
@@ -831,25 +958,46 @@ impl BrowserManager {
         }
     }
 
-    /// Returns the stable positive integer tab id for a CDP target, assigning
-    /// the next id when the target is seen for the first time. The mapping is
-    /// keyed by targetId and never pruned, so the same underlying target keeps
-    /// the same `tabId` across list calls, reordering, and re-attachment.
+    /// Returns a stable positive integer tab id derived from the CDP targetId.
+    /// Managed in-app targetIds survive daemon replacement, so deriving the
+    /// public id instead of numbering discovery order keeps existing Node REPL
+    /// tab handles valid across a recovered backend. Collisions are detected
+    /// against the manager's reverse mapping and deterministically rehashed.
     fn tab_id_for_target(&mut self, target_id: &str) -> u64 {
         if let Some(id) = self.target_tab_ids.get(target_id) {
             return *id;
         }
-        let id = self.next_tab_id;
-        self.next_tab_id += 1;
-        self.target_tab_ids.insert(target_id.to_string(), id);
-        id
+        for attempt in 0_u32..=u32::MAX {
+            let mut hasher = Sha256::new();
+            hasher.update(b"stella-browser-tab-id\0");
+            hasher.update(target_id.as_bytes());
+            hasher.update(attempt.to_be_bytes());
+            let digest = hasher.finalize();
+            // Keep the id within the protocol's positive-u32 contract.
+            let candidate =
+                (u32::from_be_bytes(digest[..4].try_into().unwrap()) & 0x7fff_ffff) as u64;
+            if candidate == 0 {
+                continue;
+            }
+            let collision = self.target_tab_ids.iter().any(|(known_target, known_id)| {
+                *known_id == candidate && known_target != target_id
+            });
+            if !collision {
+                self.target_tab_ids.insert(target_id.to_string(), candidate);
+                return candidate;
+            }
+        }
+        unreachable!("SHA-256 tab id space exhausted")
     }
 
     fn tab_generation_for_target(&mut self, target_id: &str) -> String {
         if let Some(generation) = self.target_tab_generations.get(target_id) {
             return generation.clone();
         }
-        let generation = uuid::Uuid::new_v4().to_string();
+        let mut hasher = Sha256::new();
+        hasher.update(b"stella-browser-tab-generation\0");
+        hasher.update(target_id.as_bytes());
+        let generation = format!("target:{:x}", hasher.finalize());
         self.target_tab_generations
             .insert(target_id.to_string(), generation.clone());
         generation
@@ -924,6 +1072,10 @@ impl BrowserManager {
     /// The owner a tab is recorded under, if any.
     pub fn owner_of_tab(&self, tab_id: u64) -> Option<String> {
         self.owner_tabs.owner_of(tab_id).map(str::to_string)
+    }
+
+    pub fn has_session_id(&self, session_id: &str) -> bool {
+        self.pages.iter().any(|page| page.session_id == session_id)
     }
 
     /// Owner-scoped commands may address only their own tabs. Commands without
@@ -1552,7 +1704,6 @@ async fn initialize_lightpanda_manager(
             default_timeout_ms: 25_000,
             target_tab_ids: HashMap::new(),
             target_tab_generations: HashMap::new(),
-            next_tab_id: 1,
             owner_tabs: OwnerTabRegistry::default(),
         };
 
@@ -1643,7 +1794,94 @@ async fn resolve_cdp_url(input: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::net::TcpListener;
     use tokio::time::sleep;
+    use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+    async fn serve_disappearing_retained_target(listener: TcpListener) {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        let mut target_lists = 0;
+
+        while let Some(Ok(Message::Text(text))) = socket.next().await {
+            let request: Value = serde_json::from_str(&text).unwrap();
+            let id = request["id"].as_u64().unwrap();
+            let method = request["method"].as_str().unwrap();
+            let session_id = request.get("sessionId").and_then(Value::as_str);
+            let response = match (method, session_id) {
+                ("Target.setDiscoverTargets", _) => json!({ "id": id, "result": {} }),
+                ("Target.getTargets", _) => {
+                    target_lists += 1;
+                    if target_lists == 1 {
+                        json!({
+                            "id": id,
+                            "result": { "targetInfos": [
+                                { "targetId": "tab-a", "type": "page", "title": "A", "url": "https://a.example" },
+                                { "targetId": "tab-b", "type": "page", "title": "B", "url": "https://b.example" }
+                            ] }
+                        })
+                    } else {
+                        json!({
+                            "id": id,
+                            "result": { "targetInfos": [
+                                { "targetId": "tab-b", "type": "page", "title": "B", "url": "https://b.example" }
+                            ] }
+                        })
+                    }
+                }
+                ("Target.attachToTarget", _) => {
+                    let target_id = request["params"]["targetId"].as_str().unwrap();
+                    json!({ "id": id, "result": { "sessionId": format!("session-{target_id}") } })
+                }
+                ("Page.enable", Some("session-tab-a")) => json!({
+                    "id": id,
+                    "error": { "code": -32000, "message": "Browser tab not found: tab-a" }
+                }),
+                ("Page.enable" | "Runtime.enable" | "Network.enable", Some("session-tab-b")) => {
+                    json!({ "id": id, "result": {} })
+                }
+                _ => panic!("unexpected CDP request: {request}"),
+            };
+            socket
+                .send(Message::Text(response.to_string()))
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn replacement_bootstrap_rescans_when_a_retained_target_disappears() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(serve_disappearing_retained_target(listener));
+
+        let manager = BrowserManager::connect_cdp(&format!("ws://{address}"))
+            .await
+            .unwrap();
+        let pages = manager.pages_list();
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].target_id, "tab-b");
+        let mut identity_check = BrowserManager {
+            client: manager.client.clone(),
+            browser_process: None,
+            ws_url: String::new(),
+            pages: Vec::new(),
+            active_page_index: 0,
+            default_timeout_ms: 10_000,
+            target_tab_ids: HashMap::new(),
+            target_tab_generations: HashMap::new(),
+            owner_tabs: OwnerTabRegistry::default(),
+        };
+        assert_eq!(pages[0].tab_id, identity_check.tab_id_for_target("tab-b"));
+        assert_eq!(
+            pages[0].tab_generation,
+            identity_check.tab_generation_for_target("tab-b")
+        );
+
+        drop(manager);
+        server.abort();
+    }
 
     #[test]
     fn test_owner_tab_registry_records_in_order_and_dedupes() {

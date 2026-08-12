@@ -530,19 +530,24 @@ export const UserMessageRow = memo(
       >
         {chips.length > 0 && <UserContextChips chips={chips} />}
         {text.trim() && (
-          <>
-            <div className="event-item user">
-              <UserMessageBody text={text} />
-            </div>
-            <MessageActions
-              text={text}
-              messageKey={row.id}
-              align="end"
-              onRewind={messageActions ? handleRewind : undefined}
-              onFork={forkAction ? handleFork : undefined}
-              actionsDisabled={actionsBusy}
-            />
-          </>
+          <div className="event-item user">
+            <UserMessageBody text={text} />
+          </div>
+        )}
+        {/* The action row (Copy + Rewind + Fork) mounts for any user
+            message that has visible content — text OR attachment/context
+            chips — so attachment-only messages get the same actions. Copy
+            no-ops gracefully when there is no text to copy; Rewind/Fork use
+            the attachment-restore path to bring the attachments back. */}
+        {(text.trim() || chips.length > 0) && (
+          <MessageActions
+            text={text}
+            messageKey={row.id}
+            align="end"
+            onRewind={messageActions ? handleRewind : undefined}
+            onFork={forkAction ? handleFork : undefined}
+            actionsDisabled={actionsBusy}
+          />
         )}
       </div>
     );

@@ -351,18 +351,34 @@ const startService = async (engine: Engine): Promise<void> => {
       if (message) console.debug("[dictation] local helper:", message);
     });
 
-    child.once("error", (error) => {
+    const failService = (error: Error) => {
       rejectReady(error);
+      // A stopped/replaced helper can report its final pipe error later. Do
+      // not let that stale event tear down requests owned by a newer helper.
+      if (serviceProcess !== child) return;
       failPending(error);
       serviceProcess = null;
       serviceReady = null;
-    });
+      serviceBuffer = "";
+      try {
+        child.kill();
+      } catch {
+        // The helper already exited.
+      }
+    };
+
+    // ChildProcess and child.stdin are separate EventEmitters. A helper that
+    // exits between the liveness check and write emits EPIPE on stdin, not on
+    // the ChildProcess itself; without this listener Electron exits.
+    child.stdin.on("error", failService);
+    child.once("error", failService);
 
     child.once("exit", (code, signal) => {
       const error = new Error(
         `Local Parakeet helper exited (${signal ?? code ?? "unknown"}).`,
       );
       rejectReady(error);
+      if (serviceProcess !== child) return;
       failPending(error);
       serviceProcess = null;
       serviceReady = null;

@@ -6,8 +6,10 @@ import {
   truncate,
   writeFile,
 } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough, Writable } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -196,5 +198,47 @@ describe("local Parakeet background installation", () => {
       available: true,
       model: "parakeet-tdt-0.6b-v3-gguf",
     });
+  });
+
+  it("rejects transcription instead of crashing when the helper pipe breaks", async () => {
+    await mkdir(path.join(mocks.userData, "models", "parakeet"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(
+        mocks.userData,
+        "models",
+        "parakeet",
+        ".parakeet-tdt-0.6b-v3-coreml.ready",
+      ),
+      "ready\n",
+    );
+
+    const pipeError = Object.assign(new Error("broken pipe"), {
+      code: "EPIPE",
+    });
+    const stdin = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback(pipeError);
+      },
+    });
+    const child = Object.assign(new EventEmitter(), {
+      stdin,
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: vi.fn(() => true),
+    });
+    mocks.spawn.mockReturnValue(child);
+
+    const { transcribeWithLocalParakeet } = await import(
+      "../../../desktop/electron/dictation/local-parakeet.js"
+    );
+    const transcription = transcribeWithLocalParakeet("UklGRg==");
+    queueMicrotask(() => {
+      child.stdout.write('{"ok":true,"model":"parakeet-tdt-0.6b-v3-coreml"}\n');
+    });
+
+    await expect(transcription).rejects.toMatchObject({ code: "EPIPE" });
+    expect(child.kill).toHaveBeenCalledOnce();
   });
 });

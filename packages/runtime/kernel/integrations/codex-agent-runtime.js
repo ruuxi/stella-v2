@@ -563,6 +563,12 @@ class CodexAppServerClient {
         this.child.stderr.on("data", (chunk) => {
             this.stderrChunks.push(chunk);
         });
+        // stdin is a separate EventEmitter from ChildProcess. If app-server
+        // exits between the liveness check and write, EPIPE lands here; owning
+        // it keeps the runtime worker alive and rejects in-flight RPC calls.
+        this.child.stdin.on("error", (error) => {
+            this.rejectAll(new Error(`Codex app-server write failed: ${error.message}`));
+        });
         this.child.once("error", (error) => {
             this.rejectAll(new Error(`Codex app-server failed to start: ${error.message}`));
         });
@@ -674,7 +680,11 @@ class CodexAppServerClient {
     write(message) {
         const line = `${JSON.stringify(message)}\n`;
         try {
-            this.child.stdin.write(line);
+            this.child.stdin.write(line, (error) => {
+                if (!error)
+                    return;
+                this.rejectAll(new Error(`Codex app-server write failed: ${error.message}`));
+            });
         }
         catch (error) {
             const messageText = error instanceof Error ? error.message : textFromUnknown(error);
@@ -688,7 +698,9 @@ class CodexAppServerClient {
         return new Promise((resolve, reject) => {
             this.child.stdin.write(line, (error) => {
                 if (error) {
-                    reject(new Error(`Codex app-server write failed: ${error.message}`));
+                    const wrapped = new Error(`Codex app-server write failed: ${error.message}`);
+                    this.rejectAll(wrapped);
+                    reject(wrapped);
                     return;
                 }
                 resolve();
@@ -774,6 +786,8 @@ class CodexAppServerClient {
         }
     }
     rejectAll(error) {
+        if (this.closedError)
+            return;
         this.closedError = error;
         for (const pending of this.pending.values()) {
             if (pending.timeout) {

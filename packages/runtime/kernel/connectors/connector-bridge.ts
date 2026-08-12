@@ -300,6 +300,26 @@ class StdioConnectorBridgeSession {
     private readonly server: ConnectorCommandConfig,
   ) {}
 
+  private failChild(child: ChildProcessWithoutNullStreams, error: Error): void {
+    // Ignore late events from a child that has already been retired or
+    // replaced. Its first failure already removed the matching process record.
+    if (this.child !== child) return;
+    const recordPromise = this.processRecordPromise;
+    for (const pending of this.pending.values()) {
+      pending.reject(error);
+    }
+    this.pending.clear();
+    this.child = null;
+    this.processRecordPromise = null;
+    this.initialized = false;
+    void recordPromise?.then(removeConnectorBridgeProcessRecord);
+    try {
+      child.kill();
+    } catch {
+      // The connector already exited.
+    }
+  }
+
   private async start() {
     if (this.child) return;
     if (!this.server.command) {
@@ -339,38 +359,18 @@ class StdioConnectorBridgeSession {
           processGroup: process.platform !== "win32",
         })
       : Promise.resolve(null);
-    const removeProcessRecord = (recordPromise = this.processRecordPromise) => {
-      void recordPromise?.then(removeConnectorBridgeProcessRecord);
-    };
     this.child.stderr.on("data", () => {
       // Drain diagnostics so verbose connector commands cannot block on a full pipe.
     });
     this.child.on("exit", () => {
-      const recordPromise = this.processRecordPromise;
-      for (const pending of this.pending.values()) {
-        pending.reject(new Error(`${this.server.displayName} exited.`));
-      }
-      this.pending.clear();
-      if (this.child === child) {
-        this.child = null;
-        this.processRecordPromise = null;
-        this.initialized = false;
-      }
-      removeProcessRecord(recordPromise);
+      this.failChild(child, new Error(`${this.server.displayName} exited.`));
     });
     this.child.on("error", (error) => {
-      const recordPromise = this.processRecordPromise;
-      for (const pending of this.pending.values()) {
-        pending.reject(error);
-      }
-      this.pending.clear();
-      if (this.child === child) {
-        this.child = null;
-        this.processRecordPromise = null;
-        this.initialized = false;
-      }
-      removeProcessRecord(recordPromise);
+      this.failChild(child, error);
     });
+    // stdin has its own error channel; child.on("error") only covers process
+    // spawn failures. Own EPIPE/ECONNRESET before sending any MCP messages.
+    this.child.stdin.on("error", (error) => this.failChild(child, error));
     const rl = readline.createInterface({ input: this.child.stdout });
     rl.on("line", (line) => {
       let message: RpcMessage;
@@ -398,14 +398,12 @@ class StdioConnectorBridgeSession {
     const child = this.child;
     if (!child) throw new Error(`${this.server.displayName} is not running.`);
     const id = String(this.nextId++);
-    child.stdin.write(
-      `${JSON.stringify({
-        jsonrpc: "2.0",
-        id,
-        method,
-        ...(params === undefined ? {} : { params }),
-      })}\n`,
-    );
+    const payload = `${JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method,
+      ...(params === undefined ? {} : { params }),
+    })}\n`;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         if (this.pending.delete(id)) {
@@ -427,18 +425,47 @@ class StdioConnectorBridgeSession {
           reject(error);
         },
       });
+      // Register the request before writing. A connector can respond in the
+      // same turn, and response dispatch must never race pending registration.
+      try {
+        child.stdin.write(payload, (error) => {
+          if (error) this.failChild(child, error);
+        });
+      } catch (error) {
+        this.failChild(
+          child,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
     });
   }
 
   private async notify(method: string, params?: unknown) {
     await this.start();
-    this.child?.stdin.write(
-      `${JSON.stringify({
-        jsonrpc: "2.0",
-        method,
-        ...(params === undefined ? {} : { params }),
-      })}\n`,
-    );
+    const child = this.child;
+    if (!child) throw new Error(`${this.server.displayName} is not running.`);
+    const payload = `${JSON.stringify({
+      jsonrpc: "2.0",
+      method,
+      ...(params === undefined ? {} : { params }),
+    })}\n`;
+    await new Promise<void>((resolve, reject) => {
+      try {
+        child.stdin.write(payload, (error) => {
+          if (!error) {
+            resolve();
+            return;
+          }
+          this.failChild(child, error);
+          reject(error);
+        });
+      } catch (error) {
+        const normalized =
+          error instanceof Error ? error : new Error(String(error));
+        this.failChild(child, normalized);
+        reject(normalized);
+      }
+    });
   }
 
   async initialize() {

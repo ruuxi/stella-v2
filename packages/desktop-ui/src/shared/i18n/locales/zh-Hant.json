@@ -1847,6 +1847,7 @@
     "topbar": {
       "conversation": {
         "newChat": "新對話",
+        "newChatConfirm": "Click again to confirm",
         "home": "首頁",
         "history": "對話記錄",
         "historyEmpty": "還沒有對話",

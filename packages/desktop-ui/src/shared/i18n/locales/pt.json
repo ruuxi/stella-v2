@@ -1893,6 +1893,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Novo chat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Início",
         "history": "Histórico de conversas",
         "historyEmpty": "Ainda não há conversas",

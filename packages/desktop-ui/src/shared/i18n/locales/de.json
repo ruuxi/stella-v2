@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Neuer Chat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Start",
         "history": "Unterhaltungsverlauf",
         "historyEmpty": "Noch keine Unterhaltungen",

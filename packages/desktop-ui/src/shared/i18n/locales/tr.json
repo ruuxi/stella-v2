@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Yeni sohbet",
+        "newChatConfirm": "Click again to confirm",
         "home": "Ana sayfa",
         "history": "Sohbet geçmişi",
         "historyEmpty": "Henüz sohbet yok",

@@ -1847,6 +1847,7 @@
     "topbar": {
       "conversation": {
         "newChat": "แชทใหม่",
+        "newChatConfirm": "Click again to confirm",
         "home": "หน้าแรก",
         "history": "ประวัติการสนทนา",
         "historyEmpty": "ยังไม่มีการสนทนา",

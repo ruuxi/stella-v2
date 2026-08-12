@@ -1847,6 +1847,7 @@
     "topbar": {
       "conversation": {
         "newChat": "새 대화",
+        "newChatConfirm": "Click again to confirm",
         "home": "홈",
         "history": "대화 기록",
         "historyEmpty": "아직 대화가 없습니다",

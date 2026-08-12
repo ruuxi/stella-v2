@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Uusi keskustelu",
+        "newChatConfirm": "Click again to confirm",
         "home": "Etusivu",
         "history": "Keskusteluhistoria",
         "historyEmpty": "Ei vielä keskusteluja",

@@ -1847,6 +1847,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Obrolan baru",
+        "newChatConfirm": "Click again to confirm",
         "home": "Beranda",
         "history": "Riwayat percakapan",
         "historyEmpty": "Belum ada percakapan",

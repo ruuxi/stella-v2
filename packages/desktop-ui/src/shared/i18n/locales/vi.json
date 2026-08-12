@@ -1847,6 +1847,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Cuộc trò chuyện mới",
+        "newChatConfirm": "Click again to confirm",
         "home": "Trang chủ",
         "history": "Lịch sử trò chuyện",
         "historyEmpty": "Chưa có cuộc trò chuyện nào",

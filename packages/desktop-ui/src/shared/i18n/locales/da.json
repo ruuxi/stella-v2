@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Ny chat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Hjem",
         "history": "Samtalehistorik",
         "historyEmpty": "Ingen samtaler endnu",

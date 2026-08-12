@@ -1870,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Ny chatt",
+        "newChatConfirm": "Click again to confirm",
         "home": "Hem",
         "history": "Konversationshistorik",
         "historyEmpty": "Inga konversationer ännu",

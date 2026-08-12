@@ -5,6 +5,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { Worker } from "node:worker_threads";
 
+import type { BrowserUseResponseMeta } from "@stella/contracts/local-chat";
+
 import type {
   ToolContext,
   ToolResult,
@@ -151,6 +153,8 @@ export type EvaluateOptions = {
   signal?: AbortSignal;
   onToolResult?: (result: ToolResult) => void;
   onToolUpdate?: ToolUpdateCallback;
+  /** UI-only response metadata; excluded from model-facing REPL output. */
+  onResponseMeta?: (meta: BrowserUseResponseMeta) => void;
 };
 
 class KernelTerminatedError extends Error {}
@@ -205,6 +209,28 @@ const serializedSize = (value: unknown): number => {
   }
 };
 
+const sanitizedBrowserUrl = (rawUrl: string): string | undefined => {
+  try {
+    const parsed = new URL(rawUrl);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+};
+
+const browserPageOrigin = (rawUrl: string): string | undefined => {
+  try {
+    const origin = new URL(rawUrl).origin;
+    return origin === "null" ? undefined : origin;
+  } catch {
+    return undefined;
+  }
+};
+
 const serializeError = (error: unknown): SerializedError => {
   const truncate = (value: string, maxBytes: number) =>
     byteLength(value) <= maxBytes
@@ -238,20 +264,34 @@ type ActiveEvaluation = {
   context: ToolContext;
   onToolResult?: (result: ToolResult) => void;
   onToolUpdate?: ToolUpdateCallback;
+  onResponseMeta?: (meta: BrowserUseResponseMeta) => void;
   browserActivity: {
     callCount: number;
     mutated: boolean;
-    visualMutated: boolean;
-    screenshotObserved: boolean;
     screenshotAttachments: BrowserScreenshotAttachment[];
     terminalLifecycle: boolean;
     lastAction?: string;
+    presentationAction?: {
+      action: string;
+      tabId?: number;
+    };
   };
 };
 
 type BrowserScreenshotAttachment = Readonly<{
   path: string;
   mimeType: "image/jpeg" | "image/png";
+}>;
+
+type BrowserPresentationTab = Readonly<{
+  tabId: number;
+  active: boolean;
+  url?: string;
+}>;
+
+type BrowserPresentationTabs = Readonly<{
+  tabs: BrowserPresentationTab[];
+  activeTabId?: number;
 }>;
 
 const BROWSER_METHODS = new Set(["command", "chain"]);
@@ -281,27 +321,40 @@ const READ_ONLY_BROWSER_ACTIONS = new Set([
   "wait",
   "waitforurl",
 ]);
-const NON_VISUAL_BROWSER_MUTATIONS = new Set([
-  "evaluate",
-  "evaluate_detached",
-  "waitforfunction",
-  "authenticated_request",
-  "authenticated_request_batch",
-  "rewrite_request",
-  "unrewrite_request",
-  "cookies_set",
-  "cookies_clear",
-  "site_mod_set",
-  "site_mod_remove",
-  "site_mod_toggle",
-  "route",
-  "unroute",
-  "har_start",
-  "har_stop",
-  "clipboard",
-  "finalize_tabs",
-  "close_owner",
+/**
+ * Successful commands that warrant one UI-only post-cell screenshot. This is
+ * intentionally a positive allowlist matching ChatGPT's browser client: DOM
+ * reads/evaluate/network calls, hover/focus, uploads, and failures do not
+ * capture. A cell with several visual commands captures only after the last.
+ */
+const BROWSER_PRESENTATION_ACTIONS = new Set([
+  "tab_close",
+  "click",
+  "dblclick",
+  "drag",
+  "press",
+  "type",
+  "inserttext",
+  "fill",
+  "select",
+  "check",
+  "uncheck",
+  "scroll",
+  "navigate",
+  "back",
+  "forward",
+  "reload",
+  "dialog",
+  "download",
+  // Raw CUA equivalents retained for protocol parity if surfaced later.
+  "input_keyboard",
+  "input_mouse",
+  "keyboard",
+  "mouse",
+  "mousemove",
+  "wheel",
 ]);
+const BROWSER_PRESENTATION_TIMEOUT_MS = 10_000;
 const MAX_BROWSER_SCREENSHOT_FILES_PER_KERNEL = 100;
 /**
  * Tools never exposed inside the REPL's `tools` object. `$`-prefixed names
@@ -452,6 +505,7 @@ class NodeReplKernel {
   private readonly worker: NodeReplTransport;
   private readonly sky: SkyClient;
   private readonly browser: BrowserSessionClient;
+  private readonly browserSessionId: string;
   private readonly requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
   private readonly executeTool?: NodeReplKernelManagerOptions["executeTool"];
   private readonly searchTools?: NodeReplKernelManagerOptions["searchTools"];
@@ -504,6 +558,7 @@ class NodeReplKernel {
     this.executeTool = options.executeTool;
     this.searchTools = options.searchTools;
     this.connectClient = options.connectClient;
+    this.browserSessionId = options.browserSessionId;
     const getSignal = () => this.active?.controller.signal;
     const session = options.sessionFactory({
       sessionId: id,
@@ -620,6 +675,7 @@ class NodeReplKernel {
         options.signal,
         options.onToolResult,
         options.onToolUpdate,
+        options.onResponseMeta,
       );
     };
     const task = this.tail.then(run, run);
@@ -653,6 +709,7 @@ class NodeReplKernel {
     signal?: AbortSignal,
     onToolResult?: (result: ToolResult) => void,
     onToolUpdate?: ToolUpdateCallback,
+    onResponseMeta?: (meta: BrowserUseResponseMeta) => void,
   ): Promise<string> {
     if (signal?.aborted) {
       return Promise.reject(
@@ -687,11 +744,10 @@ class NodeReplKernel {
         context,
         onToolResult,
         onToolUpdate,
+        onResponseMeta,
         browserActivity: {
           callCount: 0,
           mutated: false,
-          visualMutated: false,
-          screenshotObserved: false,
           screenshotAttachments: [],
           terminalLifecycle: false,
         },
@@ -793,10 +849,15 @@ class NodeReplKernel {
         // abandoned the in-flight evaluation; the REPL cannot be safely
         // reused. Terminate so the registry disposes this kernel's session
         // and the next evaluate starts a fresh kernel.
-        this.terminateActive(new KernelTerminatedError(error.message));
+        void this.completeEvaluation(
+          active,
+          undefined,
+          new KernelTerminatedError(error.message),
+          true,
+        );
         return;
       }
-      this.settleActive(active, error);
+      void this.completeEvaluation(active, undefined, error);
     }
   }
 
@@ -1018,7 +1079,7 @@ class NodeReplKernel {
       if (serializedSize(value) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
         throw new Error("browser result exceeds the protocol limit.");
       }
-      this.recordBrowserActivity(active, message);
+      this.recordBrowserActivity(active, message, value);
       if (!this.closed && this.active === active) {
         this.post({
           type: "browser-result",
@@ -1029,60 +1090,8 @@ class NodeReplKernel {
       }
     } catch (error) {
       if (!this.closed && this.active === active) {
-        let reportedError = error;
-        const failedAction =
-          message.method === "command" && typeof message.args[0] === "string"
-            ? message.args[0]
-            : "chain";
-        if (failedAction !== "screenshot") {
-          const marker = await this.captureBrowserFailureScreenshot(active);
-          if (marker) {
-            const enhanced = new Error(
-              `${error instanceof Error ? error.message : String(error)}\n${marker}`,
-            );
-            enhanced.name = error instanceof Error ? error.name : "Error";
-            reportedError = enhanced;
-          }
-        }
-        this.postBrowserError(message.callId, reportedError);
+        this.postBrowserError(message.callId, error);
       }
-    }
-  }
-
-  private async captureBrowserFailureScreenshot(
-    active: ActiveEvaluation,
-  ): Promise<string | undefined> {
-    try {
-      const tabsReceipt = await this.browser.command<Record<string, unknown>>(
-        "tab_list",
-        {},
-        { signal: active.controller.signal },
-      );
-      const tabsData = tabsReceipt.result.data ?? {};
-      const tabs = Array.isArray(tabsData.tabs) ? tabsData.tabs : [];
-      const activeTabId =
-        typeof tabsData.activeTabId === "number" && tabsData.activeTabId > 0
-          ? tabsData.activeTabId
-          : tabs
-              .map((tab) => this.recordValue(tab))
-              .find(
-                (tab) => tab?.active === true && typeof tab.tabId === "number",
-              )?.tabId;
-      if (typeof activeTabId !== "number" || activeTabId <= 0) return undefined;
-      const screenshotReceipt = await this.browser.command<{
-        base64?: string;
-        format?: string;
-      }>(
-        "screenshot",
-        { tabId: activeTabId, format: "jpeg", quality: 55 },
-        { signal: active.controller.signal },
-      );
-      const encoded = screenshotReceipt.result.data?.base64;
-      if (typeof encoded !== "string" || !encoded) return undefined;
-      const screenshotPath = await this.writeBrowserScreenshot(encoded, "jpeg");
-      return `[stella-attach-image] inline=image/jpeg path=${JSON.stringify(screenshotPath)}`;
-    } catch {
-      return undefined;
     }
   }
 
@@ -1417,107 +1426,323 @@ class NodeReplKernel {
   private recordBrowserActivity(
     active: ActiveEvaluation,
     message: Extract<WorkerToNodeReplParentMessage, { type: "browser-call" }>,
+    value: unknown,
   ) {
-    const actions: string[] = [];
+    const actions: Array<{
+      action: string;
+      params?: Record<string, unknown>;
+    }> = [];
+    const receipt = this.recordValue(value);
+    const result = this.recordValue(receipt?.result);
+    const data = this.recordValue(result?.data);
+    const chainResults = Array.isArray(data?.results) ? data.results : [];
+    const resultTabId = (candidate: unknown): number | undefined => {
+      const record = this.recordValue(candidate);
+      const nested = this.recordValue(record?.data) ?? record;
+      const id = nested?.id ?? nested?.tabId;
+      return typeof id === "number" && Number.isInteger(id) && id > 0
+        ? id
+        : undefined;
+    };
     if (message.method === "command") {
-      if (typeof message.args[0] === "string") actions.push(message.args[0]);
+      if (typeof message.args[0] === "string") {
+        const returnedTabId = resultTabId(data);
+        actions.push({
+          action: message.args[0],
+          params: {
+            ...(this.recordValue(message.args[1]) ?? {}),
+            ...(returnedTabId ? { resultTabId: returnedTabId } : {}),
+          },
+        });
+      }
     } else if (Array.isArray(message.args[0])) {
-      for (const step of message.args[0]) {
-        if (
-          step &&
-          typeof step === "object" &&
-          typeof (step as { action?: unknown }).action === "string"
-        ) {
-          actions.push((step as { action: string }).action);
-        }
+      for (let index = 0; index < message.args[0].length; index += 1) {
+        const step = message.args[0][index];
+        const entry = this.recordValue(step);
+        if (typeof entry?.action !== "string") continue;
+        const returnedTabId = resultTabId(chainResults[index]);
+        actions.push({
+          action: entry.action,
+          params: {
+            ...(this.recordValue(entry.params) ?? {}),
+            ...(returnedTabId ? { resultTabId: returnedTabId } : {}),
+          },
+        });
       }
     }
     active.browserActivity.callCount += 1;
-    for (const action of actions) {
+    for (const { action, params } of actions) {
       active.browserActivity.lastAction = action;
-      if (action === "screenshot") {
-        active.browserActivity.screenshotObserved = true;
-      }
       if (action === "finalize_tabs" || action === "close_owner") {
         active.browserActivity.terminalLifecycle = true;
       }
       if (!READ_ONLY_BROWSER_ACTIONS.has(action)) {
         active.browserActivity.mutated = true;
-        if (!NON_VISUAL_BROWSER_MUTATIONS.has(action)) {
-          active.browserActivity.visualMutated = true;
-        }
       }
-    }
-    if (
-      message.method === "chain" &&
-      message.args[1] &&
-      typeof message.args[1] === "object" &&
-      (message.args[1] as { returnScreenshot?: unknown }).returnScreenshot ===
-        true
-    ) {
-      active.browserActivity.screenshotObserved = true;
+      if (BROWSER_PRESENTATION_ACTIONS.has(action)) {
+        const tabId = params?.tabId ?? params?.resultTabId;
+        active.browserActivity.presentationAction = {
+          action,
+          ...(typeof tabId === "number" && Number.isInteger(tabId) && tabId > 0
+            ? { tabId }
+            : {}),
+        };
+      }
     }
   }
 
-  private async completeEvaluation(active: ActiveEvaluation, output: string) {
-    if (this.active !== active) return;
-    let finalOutput = output;
-    const activity = active.browserActivity;
-    for (const attachment of activity.screenshotAttachments) {
-      finalOutput += `${finalOutput ? "\n" : ""}[stella-attach-image] inline=${attachment.mimeType} path=${JSON.stringify(attachment.path)}`;
+  private presentationSignal(active: ActiveEvaluation): {
+    signal: AbortSignal;
+    dispose: () => void;
+  } {
+    const controller = new AbortController();
+    const forwardAbort = () =>
+      controller.abort(
+        active.controller.signal.reason ??
+          new Error("Node REPL evaluation aborted."),
+      );
+    active.controller.signal.addEventListener("abort", forwardAbort, {
+      once: true,
+    });
+    if (active.controller.signal.aborted) forwardAbort();
+    const timeout = setTimeout(
+      () =>
+        controller.abort(
+          new Error(
+            `Browser presentation timed out after ${BROWSER_PRESENTATION_TIMEOUT_MS}ms.`,
+          ),
+        ),
+      BROWSER_PRESENTATION_TIMEOUT_MS,
+    );
+    timeout.unref();
+    return {
+      signal: controller.signal,
+      dispose: () => {
+        clearTimeout(timeout);
+        active.controller.signal.removeEventListener("abort", forwardAbort);
+      },
+    };
+  }
+
+  private async readBrowserPresentationTabs(
+    signal: AbortSignal,
+  ): Promise<BrowserPresentationTabs> {
+    const tabsReceipt = await this.browser.command<Record<string, unknown>>(
+      "tab_list",
+      {},
+      { signal },
+    );
+    const tabsData = tabsReceipt.result.data ?? {};
+    const sourceTabs = Array.isArray(tabsData.tabs) ? tabsData.tabs : [];
+    const tabs: BrowserPresentationTab[] = [];
+    for (const sourceTab of sourceTabs) {
+      const tab = this.recordValue(sourceTab);
+      if (
+        typeof tab?.tabId !== "number" ||
+        !Number.isInteger(tab.tabId) ||
+        tab.tabId <= 0
+      ) {
+        continue;
+      }
+      tabs.push({
+        tabId: tab.tabId,
+        active: tab.active === true,
+        ...(typeof tab.url === "string" ? { url: tab.url } : {}),
+      });
     }
-    if (activity.callCount > 0) {
+    let activeTabId =
+      typeof tabsData.activeTabId === "number" &&
+      Number.isInteger(tabsData.activeTabId) &&
+      tabsData.activeTabId > 0
+        ? tabsData.activeTabId
+        : undefined;
+    activeTabId ??= tabs.find((tab) => tab.active)?.tabId;
+    return { tabs, ...(activeTabId ? { activeTabId } : {}) };
+  }
+
+  private deliverBrowserResponseMeta(
+    active: ActiveEvaluation,
+    meta: BrowserUseResponseMeta,
+  ) {
+    try {
+      active.onResponseMeta?.(meta);
+    } catch {
+      // UI metadata must never change the tool's success/error outcome.
+    }
+  }
+
+  private async captureBrowserResponseMeta(
+    active: ActiveEvaluation,
+    tabState: BrowserPresentationTabs | undefined,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const activity = active.browserActivity;
+    if (!active.onResponseMeta) return;
+    if (activity.terminalLifecycle) {
+      this.deliverBrowserResponseMeta(active, {
+        "stella/browserUse": true,
+        "stella/toolSurface": {
+          kind: "browserUse",
+          backend: "iab",
+          browserId: this.browserSessionId,
+          openTabIds: [],
+          sessionEnded: true,
+        },
+      });
+      return;
+    }
+
+    const presentation = activity.presentationAction;
+    if (!presentation) return;
+    const tabs = tabState?.tabs ?? [];
+    const activeTab = tabs.find((tab) => tab.tabId === tabState?.activeTabId);
+    // ChatGPT treats an explicitly targeted visual action as authoritative:
+    // if that target vanished, capture fails best-effort rather than silently
+    // showing another tab. Closing a tab is the exception and intentionally
+    // selects the surviving active tab.
+    const screenshotTab =
+      presentation.action === "tab_close"
+        ? (activeTab ?? tabs[0])
+        : presentation.tabId
+          ? tabs.find((tab) => tab.tabId === presentation.tabId)
+          : (activeTab ?? tabs[0]);
+    let screenshot:
+      | NonNullable<BrowserUseResponseMeta["stella/toolSurface"]["screenshot"]>
+      | undefined;
+    if (screenshotTab) {
+      try {
+        const receipt = await this.browser.command<{
+          base64?: string;
+          format?: string;
+        }>(
+          "screenshot",
+          { tabId: screenshotTab.tabId, format: "jpeg" },
+          { signal },
+        );
+        const encoded = receipt.result.data?.base64;
+        if (typeof encoded === "string" && encoded) {
+          const pageUrl = screenshotTab.url
+            ? browserPageOrigin(screenshotTab.url)
+            : undefined;
+          screenshot = {
+            tabId: String(screenshotTab.tabId),
+            url: `data:image/jpeg;base64,${encoded}`,
+            ...(pageUrl ? { pageUrl } : {}),
+          };
+        }
+      } catch {
+        // ChatGPT treats this capture as best-effort response metadata.
+      }
+    }
+    const visibleUrl = screenshotTab?.url
+      ? sanitizedBrowserUrl(screenshotTab.url)
+      : undefined;
+    this.deliverBrowserResponseMeta(active, {
+      "stella/browserUse": true,
+      "stella/toolSurface": {
+        kind: "browserUse",
+        backend: "iab",
+        browserId: this.browserSessionId,
+        openTabIds: tabs.map((tab) => String(tab.tabId)),
+        sessionEnded: false,
+        ...(screenshot ? { screenshot } : {}),
+      },
+      ...(visibleUrl ? { browser_use: { url: visibleUrl } } : {}),
+    });
+  }
+
+  private async completeEvaluation(
+    active: ActiveEvaluation,
+    output: string | undefined,
+    error?: Error,
+    terminateAfter = false,
+  ) {
+    if (this.active !== active) return;
+    const activity = active.browserActivity;
+    const needsPresentation =
+      Boolean(active.onResponseMeta) &&
+      (activity.terminalLifecycle || Boolean(activity.presentationAction));
+    // The submitted cell itself has completed. From here ChatGPT gives the
+    // UI-only presentation hook its own ten-second budget rather than racing
+    // it against whatever remained of the REPL evaluation deadline.
+    if (needsPresentation) clearTimeout(active.timeout);
+    let finalOutput = output ?? "";
+    if (!error) {
+      for (const attachment of activity.screenshotAttachments) {
+        finalOutput += `${finalOutput ? "\n" : ""}[stella-attach-image] inline=${attachment.mimeType} path=${JSON.stringify(attachment.path)}`;
+      }
+    }
+
+    let tabState: BrowserPresentationTabs | undefined;
+    let tabStateUnavailable = false;
+    const needsTabState =
+      !activity.terminalLifecycle &&
+      ((activity.mutated && !error) ||
+        (needsPresentation && Boolean(activity.presentationAction)));
+    if (needsTabState) {
+      const presentation = activity.presentationAction
+        ? this.presentationSignal(active)
+        : undefined;
+      try {
+        tabState = await this.readBrowserPresentationTabs(
+          presentation?.signal ?? active.controller.signal,
+        );
+        if (needsPresentation && presentation) {
+          await this.captureBrowserResponseMeta(
+            active,
+            tabState,
+            presentation.signal,
+          );
+        }
+      } catch {
+        tabStateUnavailable = true;
+        if (needsPresentation && presentation) {
+          await this.captureBrowserResponseMeta(
+            active,
+            undefined,
+            presentation.signal,
+          );
+        }
+      } finally {
+        presentation?.dispose();
+      }
+    } else if (needsPresentation) {
+      await this.captureBrowserResponseMeta(
+        active,
+        undefined,
+        active.controller.signal,
+      );
+    }
+
+    if (!error && activity.callCount > 0) {
       if (!activity.mutated || activity.terminalLifecycle) {
         const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated}${
           activity.lastAction ? ` last=${activity.lastAction}` : ""
         }`;
         finalOutput = finalOutput ? `${finalOutput}\n${receipt}` : receipt;
-        if (this.active === active) {
-          this.settleActive(active, null, finalOutput);
-        }
-        return;
-      }
-      try {
-        const tabsReceipt = await this.browser.command<Record<string, unknown>>(
-          "tab_list",
-          {},
-          { signal: active.controller.signal },
-        );
-        const tabsData = tabsReceipt.result.data ?? {};
-        const tabs = Array.isArray(tabsData.tabs) ? tabsData.tabs : [];
-        let activeTabId =
-          typeof tabsData.activeTabId === "number" && tabsData.activeTabId > 0
-            ? tabsData.activeTabId
-            : undefined;
-        if (activeTabId === undefined) {
-          // Older backends omit the top-level activeTabId; derive it from the
-          // per-tab active flag that both the extension and CDP backends emit.
-          for (const tab of tabs) {
-            if (!tab || typeof tab !== "object") continue;
-            const entry = tab as { active?: unknown; tabId?: unknown };
-            if (entry.active !== true) continue;
-            if (
-              typeof entry.tabId === "number" &&
-              Number.isInteger(entry.tabId) &&
-              entry.tabId > 0
-            ) {
-              activeTabId = entry.tabId;
-            }
-            break;
-          }
-        }
-        const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated} tabs=${tabs.length}${
-          activeTabId === undefined ? "" : ` activeTabId=${activeTabId}`
+      } else if (tabState) {
+        const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated} tabs=${tabState.tabs.length}${
+          tabState.activeTabId === undefined
+            ? ""
+            : ` activeTabId=${tabState.activeTabId}`
         }${activity.lastAction ? ` last=${activity.lastAction}` : ""}`;
         finalOutput = finalOutput ? `${finalOutput}\n${receipt}` : receipt;
-      } catch {
+      } else if (tabStateUnavailable) {
         const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated}${
           activity.lastAction ? ` last=${activity.lastAction}` : ""
         } settled_state=unavailable`;
         finalOutput = finalOutput ? `${finalOutput}\n${receipt}` : receipt;
       }
     }
-    if (this.active === active) this.settleActive(active, null, finalOutput);
+    if (this.active !== active) return;
+    if (terminateAfter && error && !active.controller.signal.aborted) {
+      active.controller.abort(error);
+    }
+    this.settleActive(active, error ?? null, finalOutput);
+    if (terminateAfter) {
+      void this.close();
+      this.onTerminated(this);
+    }
   }
 
   private async cleanupBrowserScreenshots(): Promise<void> {

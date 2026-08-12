@@ -612,7 +612,8 @@ describe("persistent Node REPL kernels", () => {
     }
   });
 
-  it("does not capture a screenshot after a successful mutating cell", async () => {
+  it("captures one UI-only screenshot after the last successful visual action", async () => {
+    const jpeg = Buffer.from("browser-presentation-image");
     const command = vi.fn(async (action: string) => {
       const data =
         action === "tab_list"
@@ -621,13 +622,15 @@ describe("persistent Node REPL kernels", () => {
                 {
                   tabId: 44,
                   title: "Receipt",
-                  url: "https://example.test",
+                  url: "https://user:password@example.test/account?token=secret#section",
                   active: true,
                 },
               ],
               activeTabId: 44,
             }
-          : { ok: true };
+          : action === "screenshot"
+            ? { base64: jpeg.toString("base64"), format: "jpeg" }
+            : { ok: true };
       return {
         sessionId: "agent-receipt",
         bridgeSessionId: "stella-app-bridge",
@@ -650,6 +653,7 @@ describe("persistent Node REPL kernels", () => {
         }) as unknown as BrowserSessionClient,
     });
     try {
+      const onResponseMeta = vi.fn();
       const output = await registry.evaluate(
         [
           "const receiptTab = browser.tabs.get(44)",
@@ -658,6 +662,7 @@ describe("persistent Node REPL kernels", () => {
           "'done'",
         ].join("; "),
         context("agent-receipt"),
+        { onResponseMeta },
       );
       expect(output).toContain(
         "[browser-receipt] calls=2 mutated=true tabs=1 activeTabId=44 last=fill",
@@ -667,27 +672,51 @@ describe("persistent Node REPL kernels", () => {
         "click",
         "fill",
         "tab_list",
+        "screenshot",
       ]);
+      expect(command).toHaveBeenLastCalledWith(
+        "screenshot",
+        { tabId: 44, format: "jpeg" },
+        { signal: expect.any(AbortSignal) },
+      );
+      expect(onResponseMeta).toHaveBeenCalledTimes(1);
+      expect(onResponseMeta).toHaveBeenCalledWith({
+        "stella/browserUse": true,
+        "stella/toolSurface": {
+          kind: "browserUse",
+          backend: "iab",
+          browserId: "general-task-agent-receipt",
+          openTabIds: ["44"],
+          sessionEnded: false,
+          screenshot: {
+            tabId: "44",
+            url: `data:image/jpeg;base64,${jpeg.toString("base64")}`,
+            pageUrl: "https://example.test",
+          },
+        },
+        browser_use: { url: "https://example.test/account" },
+      });
     } finally {
       await registry.dispose();
     }
   });
 
-  it("best-effort attaches one screenshot when a browser action fails", async () => {
-    const jpeg = Buffer.from("browser-failure-image");
+  it("captures the newly active tab after a successful tab close", async () => {
+    const jpeg = Buffer.from("post-close-active-tab");
     const command = vi.fn(async (action: string) => {
-      if (action === "click") throw new Error("Element is covered");
       const data =
         action === "tab_list"
           ? {
-              tabs: [{ tabId: 44, active: true }],
-              activeTabId: 44,
+              tabs: [
+                { tabId: 55, active: true, url: "https://example.test/next" },
+              ],
+              activeTabId: 55,
             }
           : action === "screenshot"
             ? { base64: jpeg.toString("base64"), format: "jpeg" }
-            : {};
+            : { ok: true };
       return {
-        sessionId: "agent-browser-failure",
+        sessionId: "agent-close-presentation",
         bridgeSessionId: "stella-app-bridge",
         requestId: `request-${command.mock.calls.length}`,
         action,
@@ -708,19 +737,260 @@ describe("persistent Node REPL kernels", () => {
         }) as unknown as BrowserSessionClient,
     });
     try {
+      const onResponseMeta = vi.fn();
+      await registry.evaluate(
+        "await browser.tabs.get(44).close()",
+        context("agent-close-presentation"),
+        { onResponseMeta },
+      );
+
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "tab_close",
+        "tab_list",
+        "screenshot",
+      ]);
+      expect(command).toHaveBeenLastCalledWith(
+        "screenshot",
+        { tabId: 55, format: "jpeg" },
+        { signal: expect.any(AbortSignal) },
+      );
+      expect(onResponseMeta.mock.calls[0]?.[0]).toMatchObject({
+        "stella/toolSurface": {
+          openTabIds: ["55"],
+          screenshot: {
+            tabId: "55",
+            url: `data:image/jpeg;base64,${jpeg.toString("base64")}`,
+          },
+        },
+      });
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("does not fall back to another tab when a visual action target vanishes", async () => {
+    const command = vi.fn(async (action: string) => {
+      const data =
+        action === "tab_list"
+          ? {
+              tabs: [
+                { tabId: 55, active: true, url: "https://example.test/next" },
+              ],
+              activeTabId: 55,
+            }
+          : { ok: true };
+      return {
+        sessionId: "agent-vanished-presentation",
+        bridgeSessionId: "stella-app-bridge",
+        requestId: `request-${command.mock.calls.length}`,
+        action,
+        params: {},
+        result: { id: "response", success: true as const, data },
+        attempts: 1,
+        durationMs: 1,
+      };
+    });
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    try {
+      const onResponseMeta = vi.fn();
+      await registry.evaluate(
+        "await browser.tabs.get(44).playwright.locator('#save').click()",
+        context("agent-vanished-presentation"),
+        { onResponseMeta },
+      );
+
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "click",
+        "tab_list",
+      ]);
+      expect(onResponseMeta).toHaveBeenCalledWith({
+        "stella/browserUse": true,
+        "stella/toolSurface": {
+          kind: "browserUse",
+          backend: "iab",
+          browserId: "general-task-agent-vanished-presentation",
+          openTabIds: ["55"],
+          sessionEnded: false,
+        },
+      });
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("does not capture or attach a screenshot when a browser action fails", async () => {
+    const command = vi.fn(async (action: string) => {
+      if (action === "click") throw new Error("Element is covered");
+      return {
+        sessionId: "agent-browser-failure",
+        bridgeSessionId: "stella-app-bridge",
+        requestId: `request-${command.mock.calls.length}`,
+        action,
+        params: {},
+        result: { id: "response", success: true as const, data: {} },
+        attempts: 1,
+        durationMs: 1,
+      };
+    });
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    try {
+      const onResponseMeta = vi.fn();
       const error = await registry
         .evaluate(
           "await browser.tabs.get(44).playwright.locator('#save').click()",
           context("agent-browser-failure"),
+          { onResponseMeta },
         )
         .catch((cause: unknown) => cause as Error);
       expect(error.message).toContain("Element is covered");
-      expect(error.message).toContain("[stella-attach-image]");
+      expect(error.message).not.toContain("[stella-attach-image]");
+      expect(command.mock.calls.map(([action]) => action)).toEqual(["click"]);
+      expect(onResponseMeta).not.toHaveBeenCalled();
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("captures after the last successful visual action when a later command fails", async () => {
+    const jpeg = Buffer.from("successful-action-before-failure");
+    const command = vi.fn(async (action: string) => {
+      if (action === "click") throw new Error("Later click failed");
+      const data =
+        action === "tab_list"
+          ? {
+              tabs: [
+                { tabId: 44, active: true, url: "https://example.test/form" },
+              ],
+              activeTabId: 44,
+            }
+          : action === "screenshot"
+            ? { base64: jpeg.toString("base64"), format: "jpeg" }
+            : { ok: true };
+      return {
+        sessionId: "agent-visual-before-failure",
+        bridgeSessionId: "stella-app-bridge",
+        requestId: `request-${command.mock.calls.length}`,
+        action,
+        params: {},
+        result: { id: "response", success: true as const, data },
+        attempts: 1,
+        durationMs: 1,
+      };
+    });
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    try {
+      const onResponseMeta = vi.fn();
+      const error = await registry
+        .evaluate(
+          [
+            "const tab = browser.tabs.get(44)",
+            "await tab.playwright.locator('#name').fill('Rahul')",
+            "await tab.playwright.locator('#save').click()",
+          ].join("; "),
+          context("agent-visual-before-failure"),
+          { onResponseMeta },
+        )
+        .catch((cause: unknown) => cause as Error);
+
+      expect(error.message).toContain("Later click failed");
+      expect(error.message).not.toContain("[stella-attach-image]");
       expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "fill",
         "click",
         "tab_list",
         "screenshot",
       ]);
+      expect(onResponseMeta).toHaveBeenCalledTimes(1);
+      expect(onResponseMeta.mock.calls[0]?.[0]).toMatchObject({
+        "stella/toolSurface": {
+          screenshot: {
+            tabId: "44",
+            url: `data:image/jpeg;base64,${jpeg.toString("base64")}`,
+          },
+        },
+      });
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("lets finalized browser lifecycle metadata supersede a visual screenshot", async () => {
+    const command = vi.fn(async (action: string) => ({
+      sessionId: "agent-finalize-browser",
+      bridgeSessionId: "stella-app-bridge",
+      requestId: `request-${command.mock.calls.length}`,
+      action,
+      params: {},
+      result: { id: "response", success: true as const, data: { ok: true } },
+      attempts: 1,
+      durationMs: 1,
+    }));
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    try {
+      const onResponseMeta = vi.fn();
+      const output = await registry.evaluate(
+        [
+          "const tab = browser.tabs.get(44)",
+          "await tab.playwright.locator('#save').click()",
+          "await browser.tabs.finalize()",
+        ].join("; "),
+        context("agent-finalize-browser"),
+        { onResponseMeta },
+      );
+
+      expect(output).toContain(
+        "[browser-receipt] calls=2 mutated=true last=finalize_tabs",
+      );
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "click",
+        "finalize_tabs",
+      ]);
+      expect(onResponseMeta).toHaveBeenCalledWith({
+        "stella/browserUse": true,
+        "stella/toolSurface": {
+          kind: "browserUse",
+          backend: "iab",
+          browserId: "general-task-agent-finalize-browser",
+          openTabIds: [],
+          sessionEnded: true,
+        },
+      });
     } finally {
       await registry.dispose();
     }
@@ -753,14 +1023,17 @@ describe("persistent Node REPL kernels", () => {
         }) as unknown as BrowserSessionClient,
     });
     try {
+      const onResponseMeta = vi.fn();
       const output = await registry.evaluate(
         "await browser.tabs.get(44).screenshot({ format: 'jpeg' })",
         context("agent-explicit-screenshot"),
+        { onResponseMeta },
       );
       expect(output).toContain("[stella-attach-image]");
       expect(command.mock.calls.map(([action]) => action)).toEqual([
         "screenshot",
       ]);
+      expect(onResponseMeta).not.toHaveBeenCalled();
     } finally {
       await registry.dispose();
     }
@@ -798,6 +1071,7 @@ describe("persistent Node REPL kernels", () => {
     });
 
     try {
+      const onResponseMeta = vi.fn();
       const output = await registry.evaluate(
         [
           "const nonvisualTab = browser.tabs.get(44)",
@@ -806,6 +1080,7 @@ describe("persistent Node REPL kernels", () => {
           "'done'",
         ].join("; "),
         context("agent-nonvisual-browser"),
+        { onResponseMeta },
       );
       expect(output).not.toContain("[stella-attach-image]");
       expect(command.mock.calls.map(([action]) => action)).toEqual([
@@ -818,6 +1093,72 @@ describe("persistent Node REPL kernels", () => {
         expect.anything(),
         expect.anything(),
       );
+      expect(onResponseMeta).not.toHaveBeenCalled();
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("does not capture for successful actions outside the visual allowlist", async () => {
+    const command = vi.fn(async (action: string) => ({
+      sessionId: "agent-nonvisual-actions",
+      bridgeSessionId: "stella-app-bridge",
+      requestId: `request-${command.mock.calls.length}`,
+      action,
+      params: {},
+      result: {
+        id: "response",
+        success: true as const,
+        data:
+          action === "tab_list"
+            ? {
+                tabs: [
+                  {
+                    tabId: 44,
+                    active: true,
+                    url: "https://example.test",
+                  },
+                ],
+                activeTabId: 44,
+              }
+            : { ok: true },
+      },
+      attempts: 1,
+      durationMs: 1,
+    }));
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+
+    try {
+      const onResponseMeta = vi.fn();
+      const output = await registry.evaluate(
+        [
+          "const tab = browser.tabs.get(44)",
+          "await tab.playwright.locator('#save').hover()",
+          "await tab.playwright.locator('#save').focus()",
+          "await tab.playwright.locator('#save').scrollIntoViewIfNeeded()",
+          "'done'",
+        ].join("; "),
+        context("agent-nonvisual-actions"),
+        { onResponseMeta },
+      );
+
+      expect(output).not.toContain("[stella-attach-image]");
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "hover",
+        "focus",
+        "scrollintoview",
+        "tab_list",
+      ]);
+      expect(onResponseMeta).not.toHaveBeenCalled();
     } finally {
       await registry.dispose();
     }

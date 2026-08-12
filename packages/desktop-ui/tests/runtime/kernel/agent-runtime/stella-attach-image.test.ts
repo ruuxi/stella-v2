@@ -339,6 +339,56 @@ describe("truncateModelVisibleToolText", () => {
 });
 
 describe("native tool-result persistence boundary", () => {
+  it("keeps browser response-metadata screenshots out of model content", async () => {
+    const screenshotUrl = `data:image/jpeg;base64,${JPEG_BYTES.toString("base64")}`;
+    const [tool] = createPiTools({
+      runId: "run-browser-response-meta",
+      rootRunId: "run-browser-response-meta",
+      conversationId: "conversation-1",
+      agentType: "general",
+      deviceId: "device-1",
+      stellaAppDir: "/tmp/stella",
+      stellaDataDir: "/tmp/stella",
+      agentDepth: 1,
+      toolsAllowlist: ["node_repl"],
+      toolCatalog: [
+        {
+          name: "node_repl",
+          description: "Run JavaScript",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      store: {} as never,
+      toolExecutor: async () => ({
+        result: "done",
+        details: {
+          _meta: {
+            "stella/browserUse": true,
+            "stella/toolSurface": {
+              kind: "browserUse",
+              backend: "iab",
+              browserId: "browser-1",
+              openTabIds: ["9"],
+              sessionEnded: false,
+              screenshot: { tabId: "9", url: screenshotUrl },
+            },
+          },
+        },
+      }),
+    });
+
+    const result = await tool!.execute("call-1", {}, undefined, undefined);
+    expect(result.content).toEqual([{ type: "text", text: "done" }]);
+    expect(JSON.stringify(result.content)).not.toContain(screenshotUrl);
+    expect(result.details).toMatchObject({
+      _meta: {
+        "stella/toolSurface": {
+          screenshot: { url: screenshotUrl },
+        },
+      },
+    });
+  });
+
   it("truncates tool text once before it enters durable history", async () => {
     const rawText = `HEAD-${"x".repeat(40_000)}-TAIL`;
     const [tool] = createPiTools({

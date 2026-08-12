@@ -1255,6 +1255,9 @@
         "previewFailed": "Не удалось загрузить предпросмотр карты."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Скопировано",
         "copy": "Копировать",
         "readAloud": "Читать вслух",

@@ -131,6 +131,7 @@ export default function ChatScreen() {
         dictationHeaders={dictationHeaders}
         onOpenArtifact={setSelectedArtifact}
         activityTasks={thread.conversationTasks}
+        onRewindMessage={thread.rewindToMessage}
       />
       <ArtifactViewer
         visible={Boolean(selectedArtifact)}

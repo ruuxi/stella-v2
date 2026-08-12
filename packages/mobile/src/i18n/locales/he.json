@@ -1245,6 +1245,9 @@
         "previewFailed": "התצוגה המקדימה של המפה לא נטענה."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "הועתק",
         "copy": "העתק",
         "readAloud": "הקרא",

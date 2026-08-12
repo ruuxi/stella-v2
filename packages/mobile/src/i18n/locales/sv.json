@@ -1235,6 +1235,9 @@
         "previewFailed": "Kartförhandsvisningen kunde inte läsas in."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Kopierat",
         "copy": "Kopiera",
         "readAloud": "Läs upp",

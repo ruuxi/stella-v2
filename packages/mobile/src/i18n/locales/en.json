@@ -1240,6 +1240,7 @@
         "fork": "Fork to new chat",
         "readAloud": "Read aloud",
         "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "stopReading": "Stop reading"
       },
       "messageRow": {

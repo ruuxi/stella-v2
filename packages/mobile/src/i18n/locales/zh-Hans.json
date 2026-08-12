@@ -1225,6 +1225,9 @@
         "previewFailed": "无法加载地图预览。"
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "已复制",
         "copy": "复制",
         "readAloud": "朗读",

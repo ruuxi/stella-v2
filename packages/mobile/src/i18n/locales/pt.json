@@ -1245,6 +1245,9 @@
         "previewFailed": "Não foi possível carregar a prévia do mapa."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Copiado",
         "copy": "Copiar",
         "readAloud": "Ler em voz alta",

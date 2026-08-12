@@ -1235,6 +1235,9 @@
         "previewFailed": "Kartan esikatselua ei voitu ladata."
       },
       "messageActions": {
+        "fork": "Fork to new chat",
+        "rewind": "Rewind here",
+        "rewindConfirm": "Click again to rewind",
         "copied": "Kopioitu",
         "copy": "Kopioi",
         "readAloud": "Lue ääneen",

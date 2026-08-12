@@ -160,8 +160,9 @@ const KIMI_K2_6_SYNTHESIS_CONFIG: ModelConfig = {
       reasoningEffort: "low",
     },
     gateway: {
-      only: ["coreweave"],
-      allow_fallbacks: false,
+      order: ["coreweave", "baseten", "together", "fireworks"],
+      only: ["coreweave", "baseten", "together", "fireworks"],
+      allow_fallbacks: true,
     },
   },
 };

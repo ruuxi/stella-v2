@@ -590,14 +590,18 @@ export const AssistantMessageRow = memo(
             <VoiceSessionCard durationMs={row.voiceSession.durationMs} />
           )}
           {hasText && (
-            <StreamingTextReveal active={Boolean(row.isStreaming)}>
-              <Markdown
-                text={text}
-                cacheKey={row.cacheKey}
-                mode={row.isStreaming ? "streaming" : "static"}
-                hideHorizontalRules
-              />
-            </StreamingTextReveal>
+            <div
+              className={`assistant-message-text${row.isFadingOut ? " assistant-message-text--fading" : ""}`}
+            >
+              <StreamingTextReveal active={Boolean(row.isStreaming)}>
+                <Markdown
+                  text={text}
+                  cacheKey={row.cacheKey}
+                  mode={row.isStreaming ? "streaming" : "static"}
+                  hideHorizontalRules
+                />
+              </StreamingTextReveal>
+            </div>
           )}
           {hasBackgroundWork && row.backgroundWork ? (
             <BackgroundWorkCard

@@ -37,6 +37,12 @@ export const suppressCompletedDirectPreambleText = (messages) => {
     let changed = false;
     const next = messages.map((message) => {
         const runtime = getRuntimeMetadata(message);
+        // Live overlays own their own renderer-drain + dwell + fade handoff.
+        // Suppressing them at turnComplete would cut that transition short;
+        // their hidden overlays continue masking the persisted preamble row.
+        if (message._id.startsWith("stream-overlay:") &&
+            typeof runtime?.assistantTextTransition === "string")
+            return message;
         const userMessageId = getOwningUserMessageId(message);
         if (!userMessageId ||
             !completedDirectTurnIds.has(userMessageId) ||

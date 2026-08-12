@@ -786,6 +786,11 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
                   responseTarget?: AgentResponseTarget;
                   followedByToolCall?: boolean;
                   turnComplete?: boolean;
+                  assistantTextTransition?:
+                    | "holding"
+                    | "queued"
+                    | "fading"
+                    | "hidden";
                 };
               }
             | undefined
@@ -827,6 +832,8 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           message._id.startsWith(STREAMING_OVERLAY_ID_PREFIX) &&
           runtimeMetadata?.isStreaming !== false;
         const isIntraTurn = isIntraTurnAssistantRuntime(runtimeMetadata);
+        const isFadingOut =
+          runtimeMetadata?.assistantTextTransition === "fading";
         // Inline artifact cards (generated images, html/canvas + tool-output
         // resource previews, office files, source diffs, and the web-search
         // image strip) only render once their owning
@@ -836,7 +843,9 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         // row once the overlay locks or clears, so the cards appear there.
         // Non-artifact receipts (voice-session summary, schedule receipt,
         // self-mod notice, background-work card) keep rendering live.
-        const showInlineArtifacts = !isStreamingOverlay;
+        const showInlineArtifacts =
+          !isStreamingOverlay &&
+          runtimeMetadata?.assistantTextTransition !== "queued";
         const row: AssistantRowViewModel = {
           kind: "assistant",
           id: stableKey,
@@ -846,6 +855,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           text: voiceSession ? "" : text,
           cacheKey: stableKey,
           ...(isStreamingOverlay ? { isStreaming: true } : {}),
+          ...(isFadingOut ? { isFadingOut: true } : {}),
           ...(isIntraTurn ? { isIntraTurn: true } : {}),
           ...(responseTarget ? { responseTarget } : {}),
           ...(replyToUserMessageId ? { replyToUserMessageId } : {}),

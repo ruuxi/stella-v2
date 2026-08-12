@@ -76,18 +76,21 @@ type UseAgentEventHandlerOptions = {
     beginStreamingRun: (args: {
       runId: string
       userMessageId: string | null
+      workingMode?: 'direct' | 'orchestrated'
     }) => void
     acceptStreamChunk: (args: {
       runId: string
       userMessageId: string | null
       responseTarget?: AgentResponseTarget | null
       chunk: string
+      workingMode?: 'direct' | 'orchestrated'
     }) => void
     finalizeMessageBoundary: (args: {
       runId: string
       userMessageId: string | null
       canonicalMessageId?: string
       canonicalText?: string
+      workingMode?: 'direct' | 'orchestrated'
     }) => void
     finalizeRunOnFinish: (args: { runId: string }) => void
   }
@@ -321,6 +324,7 @@ export function useAgentEventHandler({
             beginStreamingRun({
               runId: event.runId,
               userMessageId: anchorUserMessageId,
+              ...(event.workingMode ? { workingMode: event.workingMode } : {}),
             })
             setPendingUserMessageId(anchorUserMessageId)
           }
@@ -343,6 +347,9 @@ export function useAgentEventHandler({
               beginStreamingRun({
                 runId: event.runId,
                 userMessageId: event.userMessageId ?? null,
+                ...(event.workingMode
+                  ? { workingMode: event.workingMode }
+                  : {}),
               })
             }
           }
@@ -364,6 +371,7 @@ export function useAgentEventHandler({
                 ? { responseTarget: event.responseTarget }
                 : {}),
               chunk: event.chunk,
+              ...(event.workingMode ? { workingMode: event.workingMode } : {}),
             })
             // The first accepted text delta starts the visual stream; its
             // first animation frame follows immediately after this handoff.
@@ -394,6 +402,7 @@ export function useAgentEventHandler({
               ...(event.assistantMessageText !== undefined
                 ? { canonicalText: event.assistantMessageText }
                 : {}),
+              ...(event.workingMode ? { workingMode: event.workingMode } : {}),
             })
             // Preamble → tool-call handoff: if this finalized message ends
             // with a tool call, clear the streaming-text flag now so the

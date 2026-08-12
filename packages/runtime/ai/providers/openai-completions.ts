@@ -37,6 +37,7 @@ import { readRetryAfterMs } from "../utils/retry.js";
 import { headersToRecord } from "../utils/headers.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
+import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 import {
   isCloudflareProvider,
   resolveCloudflareBaseUrl,
@@ -1220,7 +1221,9 @@ function convertTools(
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: tool.parameters as any, // TypeBox already generates JSON Schema
+      parameters: normalizeProviderToolInputSchema(
+        tool.parameters as Record<string, unknown>,
+      ) as any,
       // Only include strict if provider supports it. Some reject unknown fields.
       ...(compat.supportsStrictMode !== false && { strict: false }),
     },

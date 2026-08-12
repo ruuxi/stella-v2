@@ -12,6 +12,7 @@ import { DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { redactSensitiveText } from "@stella/contracts/sensitive-data";
 import { executeToolWithInactivityBound } from "./tool-inactivity.js";
+import { normalizeProviderToolInputSchema } from "../../ai/utils/tool-schema.js";
 import { DEFAULT_CODEX_MODEL, loadLocalPreferences, } from "../preferences/local-preferences.js";
 import { buildExternalCliChildEnv, resolveExternalCliPath, } from "./external-cli-resolution.js";
 const MAX_STDERR_CAPTURE = 8_000;
@@ -491,7 +492,7 @@ export const buildCodexThreadStartParams = (args) => {
                     type: "function",
                     name: tool.name,
                     description: tool.description,
-                    inputSchema: tool.parameters,
+                    inputSchema: normalizeProviderToolInputSchema(tool.parameters),
                 })),
             }
             : {}),

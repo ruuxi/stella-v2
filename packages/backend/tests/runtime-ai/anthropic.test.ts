@@ -244,6 +244,78 @@ describe("backend Anthropic message conversion", () => {
     }
   });
 
+  it("removes root tool-schema combinators at the Anthropic boundary", async () => {
+    const priorFetch = globalThis.fetch;
+    const encoder = new TextEncoder();
+    const sse = [
+      {
+        type: "message_start",
+        message: { usage: { input_tokens: 1, output_tokens: 0 } },
+      },
+      {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { output_tokens: 0 },
+      },
+      { type: "message_stop" },
+    ]
+      .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+      .join("");
+    let requestBody: Record<string, unknown> | undefined;
+    const parameters = {
+      type: "object",
+      properties: { prompt: { type: "string" } },
+      required: ["prompt"],
+      allOf: [{ not: { required: ["tooManyReferences"] } }],
+    };
+
+    globalThis.fetch = async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(sse));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      );
+    };
+
+    try {
+      const stream = streamAnthropic(
+        anthropicModel,
+        {
+          messages: [],
+          tools: [
+            {
+              name: "image_gen",
+              description: "Generate an image",
+              parameters,
+            },
+          ],
+        },
+        { apiKey: "test-key" },
+      );
+      for await (const _event of stream) {
+        // Consume the stream so the request completes.
+      }
+
+      const tools = requestBody?.tools as Array<{
+        input_schema: Record<string, unknown>;
+      }>;
+      expect(tools[0]?.input_schema).toMatchObject({
+        type: "object",
+        properties: { prompt: { type: "string" } },
+        required: ["prompt"],
+      });
+      expect(tools[0]?.input_schema).not.toHaveProperty("allOf");
+      expect(parameters).toHaveProperty("allOf");
+    } finally {
+      globalThis.fetch = priorFetch;
+    }
+  });
+
   it("captures Anthropic thinking signatures while streaming", async () => {
     const priorFetch = globalThis.fetch;
     const encoder = new TextEncoder();

@@ -133,3 +133,57 @@ describe("openai-completions prompt cache affinity", () => {
     expect(params.prompt_cache_key).toBeUndefined();
   });
 });
+
+describe("openai-completions tool schema compatibility", () => {
+  it("removes root combinators without mutating the execution schema", () => {
+    const parameters = {
+      type: "object" as const,
+      properties: {
+        prompt: { type: "string" },
+        payload: {
+          anyOf: [{ type: "string" }, { type: "number" }],
+        },
+      },
+      required: ["prompt"],
+      allOf: [{ not: { required: ["tooManyReferences"] } }],
+    };
+    const toolContext: Context = {
+      messages: [],
+      tools: [
+        {
+          name: "image_gen",
+          description: "Generate an image",
+          parameters,
+        },
+      ],
+    };
+
+    const openRouterModel = {
+      ...makeModel("chat-template"),
+      id: "anthropic/claude-opus-5",
+      provider: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+    };
+    const params = buildOpenAICompletionsParams(
+      openRouterModel,
+      toolContext,
+    ) as unknown as {
+      tools: Array<{
+        function: { parameters: Record<string, unknown> };
+      }>;
+    };
+    const outbound = params.tools[0]!.function.parameters;
+
+    expect(outbound).not.toHaveProperty("allOf");
+    expect(outbound).not.toHaveProperty("oneOf");
+    expect(outbound).not.toHaveProperty("anyOf");
+    expect(outbound).toMatchObject({
+      type: "object",
+      required: ["prompt"],
+      properties: {
+        payload: { anyOf: [{ type: "string" }, { type: "number" }] },
+      },
+    });
+    expect(parameters).toHaveProperty("allOf");
+  });
+});

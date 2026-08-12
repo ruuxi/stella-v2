@@ -32,6 +32,7 @@ import { shortHash } from "../utils/hash.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { providerAbortedStopMessage } from "../utils/provider-stop.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
+import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 import { transformMessages } from "./transform-messages.js";
 
 // =============================================================================
@@ -312,7 +313,9 @@ export function convertResponsesTools(tools: Tool[], options?: ConvertResponsesT
 		type: "function",
 		name: normalizeOpenAIFunctionName(tool.name),
 		description: tool.description,
-		parameters: tool.parameters as any, // TypeBox already generates JSON Schema
+		parameters: normalizeProviderToolInputSchema(
+			tool.parameters as Record<string, unknown>,
+		) as any,
 		strict,
 	}));
 }

@@ -19,6 +19,7 @@ import type {
   ToolUpdateCallback,
 } from "../tools/types.js";
 import { extractAttachImageBlocks } from "../agent-runtime/tool-adapters.js";
+import { normalizeProviderToolInputSchema } from "../../ai/utils/tool-schema.js";
 
 const HOST = "127.0.0.1";
 const MAX_TOOL_RESULT_CHARS = 80_000;
@@ -271,9 +272,9 @@ export const createClaudeCodeToolMcpHost = async (
   const tools = options.tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    // Detach nested schema objects from the mutable runtime catalog. Claude
-    // must see exactly the allowlist captured when this session host started.
-    inputSchema: structuredClone(tool.parameters),
+    // Claude rejects root combinators. The host still dispatches through
+    // Stella's original catalog and execution-side validators.
+    inputSchema: normalizeProviderToolInputSchema(tool.parameters),
   }));
   const names = new Set<string>();
   for (const tool of tools) {

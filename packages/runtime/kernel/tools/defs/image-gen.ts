@@ -5,23 +5,6 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { MAX_MANAGED_IMAGE_REFERENCE_ITEMS } from "../managed-image-references.js";
 import { createMediaToolHandlers } from "../media.js";
-// JSON Schema cannot express a sum of array lengths directly. Reject every
-// positive partition whose minimum lengths add up to MAX + 1; larger mixed
-// inputs necessarily match one of the same partitions. Per-array maxItems
-// below handles the one-sided cases.
-const combinedReferenceImageLimit = {
-    not: {
-        anyOf: Array.from({ length: MAX_MANAGED_IMAGE_REFERENCE_ITEMS }, (_, pathIndex) => ({
-            required: ["referenceImagePaths", "referenceImageUrls"],
-            properties: {
-                referenceImagePaths: { minItems: pathIndex + 1 },
-                referenceImageUrls: {
-                    minItems: MAX_MANAGED_IMAGE_REFERENCE_ITEMS - pathIndex,
-                },
-            },
-        })),
-    },
-};
 export const createImageGenTool = (options) => {
     const handlers = createMediaToolHandlers(options);
     const handler = handlers.image_gen;
@@ -76,7 +59,6 @@ export const createImageGenTool = (options) => {
                 },
             },
             required: ["prompt"],
-            allOf: [combinedReferenceImageLimit],
         },
         execute: handler,
     };

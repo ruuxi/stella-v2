@@ -15,6 +15,7 @@ import { supportsXhigh } from "./model_utils";
 import { sanitizeSurrogates } from "./sanitize_unicode";
 import { buildBaseOptions, clampReasoning } from "./simple_options";
 import { transformMessages } from "./transform_messages";
+import { normalizeProviderToolInputSchema } from "./tool_schema";
 import { parseOpenAIChatUsage, type OpenAIChatUsagePayload } from "./usage";
 import type {
   Api,
@@ -942,7 +943,7 @@ export function convertTools(
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: tool.parameters,
+      parameters: normalizeProviderToolInputSchema(tool.parameters),
       ...(compat.supportsStrictMode !== false && tool.strict !== undefined
         ? { strict: tool.strict }
         : {}),

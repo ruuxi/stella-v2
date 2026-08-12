@@ -229,6 +229,34 @@ describe("Codex agent runtime", () => {
     });
   });
 
+  it("normalizes dynamic tool schemas before starting a Codex thread", () => {
+    const parameters = {
+      type: "object" as const,
+      properties: { prompt: { type: "string" } },
+      required: ["prompt"],
+      allOf: [{ not: { required: ["tooManyReferences"] } }],
+    };
+
+    const params = buildCodexThreadStartParams({
+      model: DEFAULT_CODEX_MODEL,
+      tools: [
+        {
+          name: "image_gen",
+          description: "Generate an image",
+          parameters,
+        },
+      ],
+    });
+
+    expect(params.dynamicTools?.[0]?.inputSchema).toMatchObject({
+      type: "object",
+      properties: { prompt: { type: "string" } },
+      required: ["prompt"],
+    });
+    expect(params.dynamicTools?.[0]?.inputSchema).not.toHaveProperty("allOf");
+    expect(parameters).toHaveProperty("allOf");
+  });
+
   it("resumes Codex app-server threads with only Stella skills outside the turn text", () => {
     expect(
       buildCodexThreadResumeParams({

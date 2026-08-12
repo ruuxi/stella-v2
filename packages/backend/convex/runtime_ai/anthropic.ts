@@ -16,6 +16,7 @@ import { retryProviderRequest } from "./retry";
 import { buildBaseOptions, clampReasoning } from "./simple_options";
 import { transformMessages } from "./transform_messages";
 import { sanitizeSurrogates } from "./sanitize_unicode";
+import { normalizeProviderToolInputSchema } from "./tool_schema";
 
 type CacheControl = { type: "ephemeral"; ttl?: "1h" };
 
@@ -470,7 +471,7 @@ function buildRequestBody(
     tools: context.tools?.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      input_schema: tool.parameters,
+      input_schema: normalizeProviderToolInputSchema(tool.parameters),
     })),
     tool_choice:
       context.tools && context.tools.length > 0 ? { type: "auto" } : undefined,

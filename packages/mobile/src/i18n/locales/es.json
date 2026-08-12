@@ -98,6 +98,31 @@
       "none": "Ya estás usando los valores predeterminados de Stella.",
       "error": "No se pudieron restaurar los valores predeterminados."
     },
+    "systemPrompt": {
+      "title": "Prompt del sistema",
+      "description": "El prompt predeterminado de Stella siempre se actualiza con la app. Guarda el tuyo para usarlo en su lugar: se guarda por separado, así que las actualizaciones nunca lo sobrescriben.",
+      "agentLabel": "Prompt para",
+      "agentSublabel": "Elige el prompt de qué agente cambiar.",
+      "activeLabel": "Prompt activo",
+      "defaultOption": "Predeterminado de Stella",
+      "usingDefault": "Usando el prompt predeterminado de Stella.",
+      "usingCustom": "Usando tu prompt guardado.",
+      "newFromDefault": "Nuevo desde el predeterminado",
+      "edit": "Editar",
+      "duplicate": "Duplicar",
+      "delete": "Eliminar",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "nameLabel": "Nombre",
+      "newName": "Mi prompt",
+      "saved": "Prompt guardado.",
+      "deleted": "Prompt eliminado.",
+      "error": "Algo salió mal.",
+      "agents": {
+        "assistant": "Asistente",
+        "worker": "Trabajador"
+      }
+    },
     "permissions": {
       "title": "Permisos",
       "enable": "Activar",
@@ -1657,8 +1682,10 @@
       "availableFallback": "disponible",
       "downloading": "Descargando {percent}%",
       "restartToUpdate": "Reinicia para actualizar",
+      "restarting": "Reiniciando…",
       "retryUpdate": "Reintentar la actualización",
       "restartTitle": "Reiniciar Stella e instalar la versión {version}",
+      "restartingTitle": "Reiniciando Stella para instalar la actualización",
       "retryTitle": "Reintentar la comprobación de actualizaciones del escritorio",
       "downloadTitle": "Descargar Stella {version}",
       "toasts": {
@@ -1866,6 +1893,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Nuevo chat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Inicio",
         "history": "Historial de conversaciones",
         "historyEmpty": "Aún no hay conversaciones",

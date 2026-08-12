@@ -98,6 +98,31 @@
       "none": "Du verwendest bereits Stellas Standardeinstellungen.",
       "error": "Standards konnten nicht wiederhergestellt werden."
     },
+    "systemPrompt": {
+      "title": "System-Prompt",
+      "description": "Stellas Standard-Prompt wird immer mit der App aktualisiert. Speichere deinen eigenen, um ihn stattdessen zu verwenden – er wird separat abgelegt, sodass Updates ihn nie überschreiben.",
+      "agentLabel": "Prompt für",
+      "agentSublabel": "Wähle, wessen Prompt du ändern möchtest.",
+      "activeLabel": "Aktiver Prompt",
+      "defaultOption": "Stellas Standard",
+      "usingDefault": "Verwendet Stellas Standard-Prompt.",
+      "usingCustom": "Verwendet deinen gespeicherten Prompt.",
+      "newFromDefault": "Neu aus Standard",
+      "edit": "Bearbeiten",
+      "duplicate": "Duplizieren",
+      "delete": "Löschen",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "nameLabel": "Name",
+      "newName": "Mein Prompt",
+      "saved": "Prompt gespeichert.",
+      "deleted": "Prompt gelöscht.",
+      "error": "Etwas ist schiefgelaufen.",
+      "agents": {
+        "assistant": "Assistent",
+        "worker": "Worker"
+      }
+    },
     "permissions": {
       "title": "Berechtigungen",
       "enable": "Aktivieren",
@@ -1639,8 +1664,10 @@
       "availableFallback": "verfügbar",
       "downloading": "Wird geladen {percent}%",
       "restartToUpdate": "Zum Aktualisieren neu starten",
+      "restarting": "Neustart…",
       "retryUpdate": "Update erneut versuchen",
       "restartTitle": "Stella neu starten und Version {version} installieren",
+      "restartingTitle": "Stella wird neu gestartet, um das Update zu installieren",
       "retryTitle": "Desktop-Update-Prüfung erneut versuchen",
       "downloadTitle": "Stella {version} herunterladen",
       "toasts": {
@@ -1843,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Neuer Chat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Start",
         "history": "Unterhaltungsverlauf",
         "historyEmpty": "Noch keine Unterhaltungen",

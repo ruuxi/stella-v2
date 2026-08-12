@@ -98,6 +98,31 @@
       "none": "Вы уже используете настройки Stella по умолчанию.",
       "error": "Не удалось восстановить настройки по умолчанию."
     },
+    "systemPrompt": {
+      "title": "Системный промпт",
+      "description": "Стандартный промпт Stella всегда обновляется вместе с приложением. Сохраните свой, чтобы использовать его вместо этого — он хранится отдельно, поэтому обновления его не перезапишут.",
+      "agentLabel": "Промпт для",
+      "agentSublabel": "Выберите, промпт какого агента изменить.",
+      "activeLabel": "Активный промпт",
+      "defaultOption": "Стандартный Stella",
+      "usingDefault": "Используется стандартный промпт Stella.",
+      "usingCustom": "Используется ваш сохранённый промпт.",
+      "newFromDefault": "Новый на основе стандартного",
+      "edit": "Изменить",
+      "duplicate": "Дублировать",
+      "delete": "Удалить",
+      "save": "Сохранить",
+      "cancel": "Отмена",
+      "nameLabel": "Название",
+      "newName": "Мой промпт",
+      "saved": "Промпт сохранён.",
+      "deleted": "Промпт удалён.",
+      "error": "Что-то пошло не так.",
+      "agents": {
+        "assistant": "Ассистент",
+        "worker": "Исполнитель"
+      }
+    },
     "permissions": {
       "title": "Разрешения",
       "enable": "Включить",
@@ -1675,8 +1700,10 @@
       "availableFallback": "доступно",
       "downloading": "Загрузка {percent}%",
       "restartToUpdate": "Перезапустить для обновления",
+      "restarting": "Перезапуск…",
       "retryUpdate": "Повторить обновление",
       "restartTitle": "Перезапустить Stella и установить версию {version}",
+      "restartingTitle": "Перезапуск Stella для установки обновления",
       "retryTitle": "Повторить проверку обновлений",
       "downloadTitle": "Скачать Stella {version}",
       "toasts": {
@@ -1889,6 +1916,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Новый чат",
+        "newChatConfirm": "Click again to confirm",
         "home": "Главная",
         "history": "История разговоров",
         "historyEmpty": "Разговоров пока нет",

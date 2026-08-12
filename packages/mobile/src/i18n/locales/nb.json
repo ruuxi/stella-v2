@@ -98,6 +98,31 @@
       "none": "Du bruker allerede Stellas standardinnstillinger.",
       "error": "Kunne ikke gjenopprette standardene."
     },
+    "systemPrompt": {
+      "title": "Systemprompt",
+      "description": "Stellas standardprompt oppdateres alltid med appen. Lagre din egen for å bruke den i stedet – den lagres separat, så oppdateringer overskriver den aldri.",
+      "agentLabel": "Prompt for",
+      "agentSublabel": "Velg hvilken agents prompt du vil endre.",
+      "activeLabel": "Aktiv prompt",
+      "defaultOption": "Stellas standard",
+      "usingDefault": "Bruker Stellas standardprompt.",
+      "usingCustom": "Bruker din lagrede prompt.",
+      "newFromDefault": "Ny fra standard",
+      "edit": "Rediger",
+      "duplicate": "Dupliser",
+      "delete": "Slett",
+      "save": "Lagre",
+      "cancel": "Avbryt",
+      "nameLabel": "Navn",
+      "newName": "Min prompt",
+      "saved": "Prompten ble lagret.",
+      "deleted": "Prompten ble slettet.",
+      "error": "Noe gikk galt.",
+      "agents": {
+        "assistant": "Assistent",
+        "worker": "Arbeider"
+      }
+    },
     "permissions": {
       "title": "Tillatelser",
       "enable": "Aktiver",
@@ -1639,8 +1664,10 @@
       "availableFallback": "tilgjengelig",
       "downloading": "Laster ned {percent} %",
       "restartToUpdate": "Start på nytt for å oppdatere",
+      "restarting": "Starter på nytt…",
       "retryUpdate": "Prøv oppdatering igjen",
       "restartTitle": "Start Stella på nytt og installer versjon {version}",
+      "restartingTitle": "Starter Stella på nytt for å installere oppdateringen",
       "retryTitle": "Prøv oppdateringssjekken for skrivebordet igjen",
       "downloadTitle": "Last ned Stella {version}",
       "toasts": {
@@ -1843,6 +1870,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Ny samtale",
+        "newChatConfirm": "Click again to confirm",
         "home": "Hjem",
         "history": "Samtalehistorikk",
         "historyEmpty": "Ingen samtaler ennå",

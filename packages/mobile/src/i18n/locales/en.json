@@ -98,6 +98,31 @@
       "none": "You're already using Stella's defaults.",
       "error": "Could not restore defaults."
     },
+    "systemPrompt": {
+      "title": "System prompt",
+      "description": "Stella's default prompt always updates with the app. Save your own prompt to use instead — it's kept separately, so updates never overwrite it.",
+      "agentLabel": "Prompt for",
+      "agentSublabel": "Choose which agent's prompt to change.",
+      "activeLabel": "Active prompt",
+      "defaultOption": "Stella's default",
+      "usingDefault": "Using Stella's default prompt.",
+      "usingCustom": "Using your saved prompt.",
+      "newFromDefault": "New from default",
+      "edit": "Edit",
+      "duplicate": "Duplicate",
+      "delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel",
+      "nameLabel": "Name",
+      "newName": "My prompt",
+      "saved": "Prompt saved.",
+      "deleted": "Prompt deleted.",
+      "error": "Something went wrong.",
+      "agents": {
+        "assistant": "Assistant",
+        "worker": "Worker"
+      }
+    },
     "permissions": {
       "title": "Permissions",
       "enable": "Enable",
@@ -363,8 +388,8 @@
       "savePermission": "Failed to update {kind} permission.",
       "resetPermission": "Failed to reset {kind} permission.",
       "resetPermissionMaybeReopen": "Could not reset {kind} permission. Stella may need to be reopened.",
-      "microphoneDeniedReopen": "Microphone access was denied earlier. Turn it on in System Settings, then reopen Stella.",
-      "microphoneStillOff": "Microphone access is still off. Turn it on in System Settings, then reopen Stella.",
+      "microphoneDeniedReopen": "Microphone access was denied earlier. Turn it on in System Settings — Stella updates automatically.",
+      "microphoneStillOff": "Microphone access is still off. Turn it on in System Settings — Stella updates automatically.",
       "restart": "Failed to restart Stella."
     },
     "voiceCatalog": {
@@ -1212,7 +1237,9 @@
       "messageActions": {
         "copied": "Copied",
         "copy": "Copy",
+        "fork": "Fork to new chat",
         "readAloud": "Read aloud",
+        "rewind": "Rewind here",
         "stopReading": "Stop reading"
       },
       "messageRow": {
@@ -1639,8 +1666,10 @@
       "availableFallback": "available",
       "downloading": "Downloading {percent}%",
       "restartToUpdate": "Restart to update",
+      "restarting": "Restarting…",
       "retryUpdate": "Retry update",
       "restartTitle": "Restart Stella and install version {version}",
+      "restartingTitle": "Restarting Stella to install the update",
       "retryTitle": "Retry the desktop update check",
       "downloadTitle": "Download Stella {version}",
       "toasts": {
@@ -1843,6 +1872,7 @@
     "topbar": {
       "conversation": {
         "newChat": "New chat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Home",
         "history": "Conversation history",
         "historyEmpty": "No conversations yet",

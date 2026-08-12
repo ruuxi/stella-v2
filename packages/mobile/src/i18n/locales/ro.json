@@ -98,6 +98,31 @@
       "none": "Folosești deja setările implicite Stella.",
       "error": "Setările implicite nu au putut fi restaurate."
     },
+    "systemPrompt": {
+      "title": "Prompt de sistem",
+      "description": "Promptul implicit al Stellei se actualizează mereu odată cu aplicația. Salvează-l pe al tău pentru a fi folosit în loc — este păstrat separat, așa că actualizările nu îl suprascriu niciodată.",
+      "agentLabel": "Prompt pentru",
+      "agentSublabel": "Alege promptul cărui agent să îl modifici.",
+      "activeLabel": "Prompt activ",
+      "defaultOption": "Implicit Stella",
+      "usingDefault": "Se folosește promptul implicit al Stellei.",
+      "usingCustom": "Se folosește promptul tău salvat.",
+      "newFromDefault": "Nou din implicit",
+      "edit": "Editează",
+      "duplicate": "Duplică",
+      "delete": "Șterge",
+      "save": "Salvează",
+      "cancel": "Anulează",
+      "nameLabel": "Nume",
+      "newName": "Promptul meu",
+      "saved": "Prompt salvat.",
+      "deleted": "Prompt șters.",
+      "error": "Ceva nu a mers bine.",
+      "agents": {
+        "assistant": "Asistent",
+        "worker": "Executant"
+      }
+    },
     "permissions": {
       "title": "Permisiuni",
       "enable": "Activează",
@@ -1657,8 +1682,10 @@
       "availableFallback": "disponibilă",
       "downloading": "Se descarcă {percent}%",
       "restartToUpdate": "Repornește pentru actualizare",
+      "restarting": "Se repornește…",
       "retryUpdate": "Reîncearcă actualizarea",
       "restartTitle": "Repornește Stella și instalează versiunea {version}",
+      "restartingTitle": "Se repornește Stella pentru a instala actualizarea",
       "retryTitle": "Reîncearcă verificarea actualizărilor pentru desktop",
       "downloadTitle": "Descarcă Stella {version}",
       "toasts": {
@@ -1866,6 +1893,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Conversație nouă",
+        "newChatConfirm": "Click again to confirm",
         "home": "Acasă",
         "history": "Istoricul conversațiilor",
         "historyEmpty": "Nicio conversație deocamdată",

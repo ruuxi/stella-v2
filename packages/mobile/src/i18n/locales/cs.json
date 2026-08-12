@@ -98,6 +98,31 @@
       "none": "Už používáte výchozí nastavení Stelly.",
       "error": "Výchozí nastavení se nepodařilo obnovit."
     },
+    "systemPrompt": {
+      "title": "Systémový prompt",
+      "description": "Výchozí prompt Stelly se vždy aktualizuje s aplikací. Uložte si vlastní a použije se místo něj – ukládá se zvlášť, takže ho aktualizace nikdy nepřepíšou.",
+      "agentLabel": "Prompt pro",
+      "agentSublabel": "Vyberte, kterému agentovi chcete změnit prompt.",
+      "activeLabel": "Aktivní prompt",
+      "defaultOption": "Výchozí Stelly",
+      "usingDefault": "Používá se výchozí prompt Stelly.",
+      "usingCustom": "Používá se váš uložený prompt.",
+      "newFromDefault": "Nový z výchozího",
+      "edit": "Upravit",
+      "duplicate": "Duplikovat",
+      "delete": "Smazat",
+      "save": "Uložit",
+      "cancel": "Zrušit",
+      "nameLabel": "Název",
+      "newName": "Můj prompt",
+      "saved": "Prompt uložen.",
+      "deleted": "Prompt smazán.",
+      "error": "Něco se pokazilo.",
+      "agents": {
+        "assistant": "Asistent",
+        "worker": "Pracovník"
+      }
+    },
     "permissions": {
       "title": "Oprávnění",
       "enable": "Povolit",
@@ -1675,8 +1700,10 @@
       "availableFallback": "k dispozici",
       "downloading": "Stahování {percent} %",
       "restartToUpdate": "Restartovat a aktualizovat",
+      "restarting": "Restartuje se…",
       "retryUpdate": "Zkusit aktualizaci znovu",
       "restartTitle": "Restartovat Stellu a nainstalovat verzi {version}",
+      "restartingTitle": "Restartuje se Stella, aby se nainstalovala aktualizace",
       "retryTitle": "Zkusit znovu kontrolu aktualizací aplikace",
       "downloadTitle": "Stáhnout Stellu {version}",
       "toasts": {
@@ -1889,6 +1916,7 @@
     "topbar": {
       "conversation": {
         "newChat": "Nový chat",
+        "newChatConfirm": "Click again to confirm",
         "home": "Domů",
         "history": "Historie konverzací",
         "historyEmpty": "Zatím žádné konverzace",

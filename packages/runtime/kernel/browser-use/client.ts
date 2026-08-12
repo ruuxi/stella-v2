@@ -217,6 +217,8 @@ export type BrowserSessionOptions = Readonly<{
   turnId?: string;
 }>;
 
+export type BrowserTurnEndBehavior = "retain-tabs" | "close-tabs";
+
 export const BROWSER_SESSION_CLIENT_METHODS = [
   "command",
   "chain",
@@ -237,7 +239,10 @@ export interface BrowserSessionClient {
     options?: BrowserChainOptions,
   ): Promise<BrowserCommandReceipt<BrowserChainResult<TData>>>;
   beginTurn?(turnId: string): void;
-  endTurn?(turnId: string): Promise<void>;
+  endTurn?(
+    turnId: string,
+    behavior: BrowserTurnEndBehavior,
+  ): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -1000,13 +1005,16 @@ export class BrowserSession implements BrowserSessionClient {
     this.activeTurn = this.createTurnLease(validatedTurnId);
   }
 
-  async endTurn(turnId: string): Promise<void> {
+  async endTurn(
+    turnId: string,
+    behavior: BrowserTurnEndBehavior,
+  ): Promise<void> {
     const validatedTurnId = requireNonEmptyString(turnId, "turnId");
     const turn = this.activeTurn;
     if (!turn || turn.turnId !== validatedTurnId) return;
     await this.enqueue(async () => {
       try {
-        await this.cleanupTurn(turn, false);
+        await this.cleanupTurn(turn, false, behavior === "close-tabs");
       } finally {
         if (this.activeTurn === turn) this.activeTurn = undefined;
         this.inAppBrowserCapability = undefined;

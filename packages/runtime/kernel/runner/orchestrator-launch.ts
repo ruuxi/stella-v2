@@ -230,7 +230,9 @@ export const launchPreparedOrchestratorRun = (args: {
       ? { userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview }
       : {}),
   })
-    .finally(() => context.toolHost.endBrowserTurn(prepared.runId))
+    .finally(() =>
+      context.toolHost.endBrowserTurn(prepared.runId, "retain-tabs"),
+    )
     .catch((error) => {
       if (isReportedOrchestratorError(error)) {
         return;

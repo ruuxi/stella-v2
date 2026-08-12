@@ -836,7 +836,7 @@ describe("BrowserSession direct daemon client", () => {
 
     try {
       await client.command("url");
-      await client.endTurn("test-turn-1");
+      await client.endTurn("test-turn-1", "close-tabs");
       client.beginTurn("test-turn-2");
       await client.command("title");
 
@@ -858,6 +858,32 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
+  it("retains root tabs while releasing browser control at turn completion", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: {},
+    }));
+    await daemon.start();
+    const client = createClient(daemon, {
+      ownerLeaseId: "root-turn-lease",
+      ownerLeaseIssuedAt: 5_500,
+    });
+
+    try {
+      await client.command("url");
+      await client.endTurn("test-turn-1", "retain-tabs");
+
+      expect(daemon.requests.map((request) => request.action)).toEqual([
+        "url",
+        "release_owner_lease",
+      ]);
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
   it("leaves explicit deliverables released before automatic empty finalization", async () => {
     const daemon = createTestDaemon((request) => ({
       id: request.id,
@@ -871,7 +897,7 @@ describe("BrowserSession direct daemon client", () => {
       await client.command("finalize_tabs", {
         keep: [{ tabId: 7, status: "deliverable" }],
       });
-      await client.endTurn("test-turn-1");
+      await client.endTurn("test-turn-1", "close-tabs");
 
       expect(daemon.requests).toEqual([
         expect.objectContaining({

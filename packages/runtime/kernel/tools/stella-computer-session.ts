@@ -43,3 +43,33 @@ export const getStellaComputerSessionId = (
     sanitizeStellaComputerSessionId(context?.agentType) ?? "agent";
   return `${agentSegment}-${ownerSegment}`.slice(0, MAX_SESSION_LENGTH);
 };
+
+/**
+ * Browser ownership follows the durable task rather than an individual root
+ * run. Root turns therefore share their conversation's tabs, while spawned
+ * agents retain their own isolated browser sessions.
+ */
+export const getStellaBrowserSessionId = (
+  context?: ToolContext,
+): string | null => {
+  const ownerSegment = sanitizeStellaComputerSessionId(
+    context?.agentId
+      ? `task-${context.agentId}`
+      : context?.conversationId
+        ? `conversation-${context.conversationId}`
+        : context?.runId
+          ? `run-${context.runId}`
+          : context?.rootRunId
+            ? `root-${context.rootRunId}`
+            : context?.requestId
+              ? `request-${context.requestId}`
+              : null,
+  );
+  if (!ownerSegment) {
+    return null;
+  }
+
+  const agentSegment =
+    sanitizeStellaComputerSessionId(context?.agentType) ?? "agent";
+  return `${agentSegment}-${ownerSegment}`.slice(0, MAX_SESSION_LENGTH);
+};

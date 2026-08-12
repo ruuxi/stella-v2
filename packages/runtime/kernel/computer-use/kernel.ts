@@ -10,7 +10,10 @@ import type {
   ToolResult,
   ToolUpdateCallback,
 } from "../tools/types.js";
-import { getStellaComputerSessionId } from "../tools/stella-computer-session.js";
+import {
+  getStellaBrowserSessionId,
+  getStellaComputerSessionId,
+} from "../tools/stella-computer-session.js";
 import {
   maybeRequestBrowserExtensionConnect,
   type BrowserExtensionConnectRequester,
@@ -23,6 +26,7 @@ import {
   type BrowserProtocolAction,
   type BrowserSessionClient,
   type BrowserSessionOptions,
+  type BrowserTurnEndBehavior,
 } from "../browser-use/client.js";
 import {
   createSkyClient,
@@ -478,6 +482,7 @@ class NodeReplKernel {
       searchTools?: NodeReplKernelManagerOptions["searchTools"];
       connectClient?: ReplConnectClient;
       toolNames: string[];
+      browserSessionId: string;
       ownerLeaseId: string;
       ownerLeaseIssuedAt: number;
       onIdle: (kernel: NodeReplKernel) => void;
@@ -504,7 +509,7 @@ class NodeReplKernel {
     });
     this.browser = options.browserSessionFactory({
       ...(options.browserBinPath ? { binaryPath: options.browserBinPath } : {}),
-      sessionId: id,
+      sessionId: options.browserSessionId,
       cwd,
       commandTimeoutMs: options.commandTimeoutMs,
       ownerLeaseId: options.ownerLeaseId,
@@ -568,8 +573,11 @@ class NodeReplKernel {
     return this.closePromise;
   }
 
-  async endBrowserTurn(turnId: string): Promise<void> {
-    await this.browser.endTurn?.(turnId);
+  async endBrowserTurn(
+    turnId: string,
+    behavior: BrowserTurnEndBehavior,
+  ): Promise<void> {
+    await this.browser.endTurn?.(turnId, behavior);
   }
 
   enqueue(
@@ -1578,7 +1586,8 @@ export class NodeReplKernelRegistry {
     options: EvaluateOptions = {},
   ): Promise<string> {
     const id = getStellaComputerSessionId(context);
-    if (!id) {
+    const browserSessionId = getStellaBrowserSessionId(context);
+    if (!id || !browserSessionId) {
       throw new Error(
         "node_repl requires a stable Stella agent/session identity.",
       );
@@ -1610,6 +1619,7 @@ export class NodeReplKernelRegistry {
         searchTools: this.options.searchTools,
         connectClient: this.options.connectClient,
         toolNames: replToolNamesForContext(context),
+        browserSessionId,
         ownerLeaseId: randomUUID(),
         ownerLeaseIssuedAt,
         evalTimeoutMs: this.evalTimeoutMs,
@@ -1648,9 +1658,14 @@ export class NodeReplKernelRegistry {
     await Promise.all(pending);
   }
 
-  async endBrowserTurn(turnId: string): Promise<void> {
+  async endBrowserTurn(
+    turnId: string,
+    behavior: BrowserTurnEndBehavior,
+  ): Promise<void> {
     await Promise.allSettled(
-      [...this.kernels.values()].map((kernel) => kernel.endBrowserTurn(turnId)),
+      [...this.kernels.values()].map((kernel) =>
+        kernel.endBrowserTurn(turnId, behavior),
+      ),
     );
   }
 

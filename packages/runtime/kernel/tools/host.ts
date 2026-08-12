@@ -623,7 +623,10 @@ export const createToolHost = ({
     drainCompletedShellProducedFiles: (sessionIds?: string[]) =>
       drainCompletedProducedFiles(shellState, sessionIds),
     /** Finalize and detach browser ownership for one completed agent run. */
-    endBrowserTurn: (runId: string) => nodeReplRegistry.endBrowserTurn(runId),
+    endBrowserTurn: (
+      runId: string,
+      behavior: import("../browser-use/client.js").BrowserTurnEndBehavior,
+    ) => nodeReplRegistry.endBrowserTurn(runId, behavior),
     killAllShells,
     killShell,
     killShellsByPort,

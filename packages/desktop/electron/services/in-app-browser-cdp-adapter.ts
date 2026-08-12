@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+import { IN_APP_BROWSER_USER_AGENT } from "./in-app-browser-auth-policy.js";
 
 export type InAppBrowserDebuggerTarget = {
   id: string;
@@ -274,7 +275,9 @@ export class InAppBrowserCdpAdapter {
           protocolVersion: "1.3",
           product: "Stella/InAppBrowser",
           revision: "0",
-          userAgent: "Stella",
+          // Mirror the session-level UA so any CDP client that derives the page
+          // UA from Browser.getVersion sees the real Chrome UA, not "Stella".
+          userAgent: IN_APP_BROWSER_USER_AGENT,
           jsVersion: process.versions.v8,
         };
       case "Browser.setDownloadBehavior":

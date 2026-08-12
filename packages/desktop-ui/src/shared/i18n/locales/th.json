@@ -1621,8 +1621,10 @@
       "availableFallback": "พร้อมใช้งาน",
       "downloading": "กำลังดาวน์โหลด {percent}%",
       "restartToUpdate": "รีสตาร์ทเพื่ออัปเดต",
+      "restarting": "กำลังรีสตาร์ท…",
       "retryUpdate": "ลองอัปเดตอีกครั้ง",
       "restartTitle": "รีสตาร์ท Stella และติดตั้งเวอร์ชัน {version}",
+      "restartingTitle": "กำลังรีสตาร์ท Stella เพื่อติดตั้งการอัปเดต",
       "retryTitle": "ลองตรวจหาอัปเดตเดสก์ท็อปอีกครั้ง",
       "downloadTitle": "ดาวน์โหลด Stella {version}",
       "toasts": {

@@ -63,6 +63,32 @@
   color: var(--text-strong);
 }
 
+/* The restart is under way and the app is on its way out — keep the pill in the
+   primary colour so it reads as "in progress", but dimmed and inert. */
+.shell-topbar-update-pill[data-state="restarting"] {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 36%, transparent);
+  color: var(--text-strong);
+  opacity: 0.7;
+  cursor: default;
+}
+
+.shell-topbar-update-pill[data-state="restarting"]:hover {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 36%, transparent);
+}
+
+.shell-topbar-update-pill[data-state="restarting"]
+  .shell-topbar-update-pill__icon {
+  animation: shell-topbar-update-pill-spin 1.1s linear infinite;
+}
+
+@keyframes shell-topbar-update-pill-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .shell-topbar-update-pill[data-state="error"] {
   background: color-mix(in oklch, var(--destructive) 8%, transparent);
   border-color: color-mix(in oklch, var(--destructive) 28%, transparent);

@@ -1675,8 +1675,10 @@
       "availableFallback": "k dispozici",
       "downloading": "Stahování {percent} %",
       "restartToUpdate": "Restartovat a aktualizovat",
+      "restarting": "Restartuje se…",
       "retryUpdate": "Zkusit aktualizaci znovu",
       "restartTitle": "Restartovat Stellu a nainstalovat verzi {version}",
+      "restartingTitle": "Restartuje se Stella, aby se nainstalovala aktualizace",
       "retryTitle": "Zkusit znovu kontrolu aktualizací aplikace",
       "downloadTitle": "Stáhnout Stellu {version}",
       "toasts": {

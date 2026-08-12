@@ -1639,8 +1639,10 @@
       "availableFallback": "verfügbar",
       "downloading": "Wird geladen {percent}%",
       "restartToUpdate": "Zum Aktualisieren neu starten",
+      "restarting": "Neustart…",
       "retryUpdate": "Update erneut versuchen",
       "restartTitle": "Stella neu starten und Version {version} installieren",
+      "restartingTitle": "Stella wird neu gestartet, um das Update zu installieren",
       "retryTitle": "Desktop-Update-Prüfung erneut versuchen",
       "downloadTitle": "Stella {version} herunterladen",
       "toasts": {

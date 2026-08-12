@@ -1639,8 +1639,10 @@
       "availableFallback": "διαθέσιμη",
       "downloading": "Λήψη {percent}%",
       "restartToUpdate": "Επανεκκίνηση για ενημέρωση",
+      "restarting": "Επανεκκίνηση…",
       "retryUpdate": "Επανάληψη ενημέρωσης",
       "restartTitle": "Επανεκκινήστε τη Stella και εγκαταστήστε την έκδοση {version}",
+      "restartingTitle": "Επανεκκίνηση του Stella για εγκατάσταση της ενημέρωσης",
       "retryTitle": "Επανάληψη του ελέγχου ενημερώσεων για υπολογιστή",
       "downloadTitle": "Λήψη της Stella {version}",
       "toasts": {

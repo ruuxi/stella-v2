@@ -1621,8 +1621,10 @@
       "availableFallback": "tersedia",
       "downloading": "Mengunduh {percent}%",
       "restartToUpdate": "Mulai ulang untuk memperbarui",
+      "restarting": "Memulai ulang…",
       "retryUpdate": "Coba perbarui lagi",
       "restartTitle": "Mulai ulang Stella dan pasang versi {version}",
+      "restartingTitle": "Memulai ulang Stella untuk memasang pembaruan",
       "retryTitle": "Coba lagi pemeriksaan pembaruan desktop",
       "downloadTitle": "Unduh Stella {version}",
       "toasts": {

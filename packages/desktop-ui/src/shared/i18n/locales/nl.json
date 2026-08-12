@@ -1639,8 +1639,10 @@
       "availableFallback": "beschikbaar",
       "downloading": "Downloaden {percent}%",
       "restartToUpdate": "Herstart om bij te werken",
+      "restarting": "Opnieuw opstarten…",
       "retryUpdate": "Update opnieuw proberen",
       "restartTitle": "Stella opnieuw starten en versie {version} installeren",
+      "restartingTitle": "Stella wordt opnieuw opgestart om de update te installeren",
       "retryTitle": "Controle op desktop-updates opnieuw proberen",
       "downloadTitle": "Stella {version} downloaden",
       "toasts": {

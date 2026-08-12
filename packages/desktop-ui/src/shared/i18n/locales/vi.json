@@ -1621,8 +1621,10 @@
       "availableFallback": "có sẵn",
       "downloading": "Đang tải xuống {percent}%",
       "restartToUpdate": "Khởi động lại để cập nhật",
+      "restarting": "Đang khởi động lại…",
       "retryUpdate": "Thử cập nhật lại",
       "restartTitle": "Khởi động lại Stella và cài phiên bản {version}",
+      "restartingTitle": "Đang khởi động lại Stella để cài đặt bản cập nhật",
       "retryTitle": "Thử kiểm tra cập nhật ứng dụng máy tính lại",
       "downloadTitle": "Tải Stella {version}",
       "toasts": {

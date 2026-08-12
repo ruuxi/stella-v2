@@ -1657,8 +1657,10 @@
       "availableFallback": "זמין",
       "downloading": "מוריד {percent}%",
       "restartToUpdate": "הפעל מחדש כדי לעדכן",
+      "restarting": "מפעיל מחדש…",
       "retryUpdate": "נסה לעדכן שוב",
       "restartTitle": "הפעל מחדש את Stella והתקן את גרסה {version}",
+      "restartingTitle": "מפעיל מחדש את Stella כדי להתקין את העדכון",
       "retryTitle": "נסה שוב את בדיקת העדכון לשולחן העבודה",
       "downloadTitle": "הורד את Stella {version}",
       "toasts": {

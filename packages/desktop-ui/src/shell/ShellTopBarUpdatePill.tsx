@@ -53,28 +53,36 @@ export const ShellTopBarUpdatePill = () => {
 
   const isDownloading = snapshot.status === "downloading";
   const isDownloaded = snapshot.status === "downloaded";
+  const isRestarting = snapshot.status === "restarting";
   const isError = snapshot.status === "error";
   const percent = Math.round(snapshot.progress?.percent ?? 0);
   const label = isDownloading
     ? t("shell.updatePill.downloading", { percent })
+    : isRestarting
+      ? t("shell.updatePill.restarting")
+      : isDownloaded
+        ? t("shell.updatePill.restartToUpdate")
+        : isError
+          ? t("shell.updatePill.retryUpdate")
+          : t("shell.updatePill.update");
+  const title = isRestarting
+    ? t("shell.updatePill.restartingTitle")
     : isDownloaded
-      ? t("shell.updatePill.restartToUpdate")
-      : isError
-        ? t("shell.updatePill.retryUpdate")
-        : t("shell.updatePill.update");
-  const title = isDownloaded
-    ? t("shell.updatePill.restartTitle", {
-        version:
-          snapshot.downloadedVersion ??
-          snapshot.availableVersion ??
-          t("shell.updatePill.availableFallback"),
-      })
-    : isError
-      ? (snapshot.error ?? t("shell.updatePill.retryTitle"))
-      : t("shell.updatePill.downloadTitle", {
+      ? // A restart that failed to take leaves the download in place and the
+        // reason on the snapshot; that reason is the useful tooltip.
+        (snapshot.error ??
+        t("shell.updatePill.restartTitle", {
           version:
-            snapshot.availableVersion ?? t("shell.updatePill.updateFallback"),
-        });
+            snapshot.downloadedVersion ??
+            snapshot.availableVersion ??
+            t("shell.updatePill.availableFallback"),
+        }))
+      : isError
+        ? (snapshot.error ?? t("shell.updatePill.retryTitle"))
+        : t("shell.updatePill.downloadTitle", {
+            version:
+              snapshot.availableVersion ?? t("shell.updatePill.updateFallback"),
+          });
 
   return (
     <div
@@ -82,18 +90,20 @@ export const ShellTopBarUpdatePill = () => {
       data-state={
         isDownloading
           ? "active"
-          : isDownloaded
-            ? "downloaded"
-            : isError
-              ? "error"
-              : "idle"
+          : isRestarting
+            ? "restarting"
+            : isDownloaded
+              ? "downloaded"
+              : isError
+                ? "error"
+                : "idle"
       }
     >
       <button
         type="button"
         className="shell-topbar-update-pill__main"
         onClick={() => void handleUpdate()}
-        disabled={isDownloading}
+        disabled={isDownloading || isRestarting}
         aria-label={label}
         title={title}
       >

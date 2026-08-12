@@ -1639,8 +1639,10 @@
       "availableFallback": "उपलब्ध",
       "downloading": "{percent}% डाउनलोड हो रहा है",
       "restartToUpdate": "अपडेट के लिए पुनः चालू करें",
+      "restarting": "पुनः चालू हो रहा है…",
       "retryUpdate": "अपडेट फिर से आज़माएँ",
       "restartTitle": "Stella पुनः चालू करें और संस्करण {version} इंस्टॉल करें",
+      "restartingTitle": "अपडेट इंस्टॉल करने के लिए Stella पुनः चालू हो रहा है",
       "retryTitle": "डेस्कटॉप अपडेट जाँच फिर से आज़माएँ",
       "downloadTitle": "Stella {version} डाउनलोड करें",
       "toasts": {

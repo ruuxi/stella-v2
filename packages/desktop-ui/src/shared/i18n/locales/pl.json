@@ -1675,8 +1675,10 @@
       "availableFallback": "dostępna",
       "downloading": "Pobieranie {percent}%",
       "restartToUpdate": "Uruchom ponownie, aby zaktualizować",
+      "restarting": "Ponowne uruchamianie…",
       "retryUpdate": "Ponów aktualizację",
       "restartTitle": "Uruchom Stellę ponownie i zainstaluj wersję {version}",
+      "restartingTitle": "Ponowne uruchamianie Stelli w celu zainstalowania aktualizacji",
       "retryTitle": "Ponów sprawdzanie aktualizacji aplikacji",
       "downloadTitle": "Pobierz Stellę {version}",
       "toasts": {

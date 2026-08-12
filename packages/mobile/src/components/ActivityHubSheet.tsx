@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   LegendList,
   type LegendListRenderItemProps,
@@ -12,12 +12,15 @@ import { ShimmerText } from "./ShimmerText";
 import { TopSheet } from "./TopSheet";
 import { filterHubArtifacts, filterHubTasks } from "../lib/activity-hub-search";
 import {
+  activityHubGroupRowKey,
   activityHubTaskRowKey,
+  groupActivityHubTasks,
   initialActivityWindow,
   loadNewerActivityWindow,
   loadOlderActivityWindow,
   rebaseActivityWindow,
   sortHubTasksByRecency,
+  summarizeHubSubagents,
 } from "../lib/activity-hub-model";
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
@@ -131,6 +134,99 @@ function TaskRow({
   );
 }
 
+type GroupSubagent = { task: MobileTask; artifacts: ChatArtifact[] };
+
+/**
+ * A top-level agent row plus the subagents it spawned, grouped the way the
+ * desktop activity workspace does: the parent is always visible, its owned
+ * subagents collapse into a single "N subagents · M done" summary, and a tap
+ * expands them into the normal subagent list. Collapsed by default so a
+ * subagent-heavy run (e.g. a 16-child research fleet) stays quiet.
+ */
+function TaskGroupRow({
+  owner,
+  ownerArtifacts,
+  subagents,
+  expanded,
+  onToggle,
+  onOpenArtifact,
+  colors,
+  styles,
+}: {
+  owner: MobileTask;
+  ownerArtifacts: readonly ChatArtifact[];
+  subagents: readonly GroupSubagent[];
+  expanded: boolean;
+  onToggle: (ownerId: string) => void;
+  onOpenArtifact: (artifact: ChatArtifact) => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const summary = useMemo(
+    () => summarizeHubSubagents(subagents.map((entry) => entry.task)),
+    [subagents],
+  );
+  return (
+    <View style={styles.taskGroup}>
+      <TaskRow
+        task={owner}
+        artifacts={ownerArtifacts}
+        onOpenArtifact={onOpenArtifact}
+        colors={colors}
+        styles={styles}
+      />
+      {subagents.length > 0 ? (
+        <>
+          <Pressable
+            onPress={() => onToggle(owner.id)}
+            style={styles.groupToggle}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            accessibilityLabel={`${summary.total} ${
+              summary.total === 1 ? "subagent" : "subagents"
+            }, ${summary.done} done`}
+          >
+            <Icon
+              name={expanded ? "chevron-down" : "chevron-right"}
+              size={14}
+              color={colors.textMuted}
+            />
+            <Text
+              style={styles.groupToggleText}
+              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+            >
+              {summary.total} {summary.total === 1 ? "subagent" : "subagents"}
+            </Text>
+            {summary.running > 0 ? <View style={styles.runningDot} /> : null}
+            <Text
+              style={styles.groupToggleMeta}
+              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+            >
+              {summary.done} done
+            </Text>
+          </Pressable>
+          {expanded ? (
+            <View style={styles.groupChildren}>
+              {subagents.map((entry) => (
+                <TaskRow
+                  key={entry.task.id}
+                  task={entry.task}
+                  artifacts={entry.artifacts}
+                  onOpenArtifact={onOpenArtifact}
+                  colors={colors}
+                  styles={styles}
+                />
+              ))}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+
 function ConversationFilesRow({
   artifacts,
   colors,
@@ -194,11 +290,20 @@ type ActivityHubSheetProps = {
 };
 
 type ActivityHubListRow =
+  | {
+      kind: "group";
+      owner: MobileTask;
+      ownerArtifacts: ChatArtifact[];
+      subagents: GroupSubagent[];
+    }
   | { kind: "task"; task: MobileTask; artifacts: ChatArtifact[] }
   | { kind: "conversation"; artifacts: ChatArtifact[] };
 
-const activityHubListRowKey = (row: ActivityHubListRow): string =>
-  row.kind === "task" ? activityHubTaskRowKey(row.task) : "conversation";
+const activityHubListRowKey = (row: ActivityHubListRow): string => {
+  if (row.kind === "group") return activityHubGroupRowKey(row);
+  if (row.kind === "task") return activityHubTaskRowKey(row.task);
+  return "conversation";
+};
 
 /**
  * The activity hub — the unified top sheet the floating activity pill opens.
@@ -230,30 +335,51 @@ export function ActivityHubSheet({
 
   const [query, setQuery] = useState("");
   const [openArtifact, setOpenArtifact] = useState<ChatArtifact | null>(null);
+
+  const hubTasks = useMemo(() => sortHubTasksByRecency(tasks), [tasks]);
+  // Group subagents under their parent agent (desktop-parity association):
+  // each top-level group is one visual unit, so the paging window counts
+  // groups, not raw tasks — a 16-child fleet collapses to a single row here.
+  const hubGroups = useMemo(() => groupActivityHubTasks(hubTasks), [hubTasks]);
+  const groupCount = hubGroups.length;
+
   const [activityWindow, setActivityWindow] = useState(() =>
-    initialActivityWindow(tasks.length),
+    initialActivityWindow(groupCount),
   );
   const pagingLockedRef = useRef(false);
-  const latestTaskCountRef = useRef(tasks.length);
-  latestTaskCountRef.current = tasks.length;
+  const latestGroupCountRef = useRef(groupCount);
+  latestGroupCountRef.current = groupCount;
+  // Collapsed by default: only groups the user taps open expand into their
+  // subagent list. Keyed by owner id so LegendList recycling can't leak state.
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleGroup = useCallback((ownerId: string) => {
+    setExpandedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(ownerId)) next.delete(ownerId);
+      else next.add(ownerId);
+      return next;
+    });
+  }, []);
 
-  // Fresh overview each open: clear the search and any in-sheet artifact.
+  // Fresh overview each open: clear search, any in-sheet artifact, the paging
+  // window, and every expanded subagent group.
   useEffect(() => {
     if (!visible) return;
     setQuery("");
     setOpenArtifact(null);
-    setActivityWindow(initialActivityWindow(latestTaskCountRef.current));
+    setActivityWindow(initialActivityWindow(latestGroupCountRef.current));
+    setExpandedGroups(new Set());
   }, [visible]);
 
   useEffect(() => {
     setActivityWindow((current) =>
       current.end === 0
-        ? initialActivityWindow(tasks.length)
-        : rebaseActivityWindow(current, tasks.length),
+        ? initialActivityWindow(groupCount)
+        : rebaseActivityWindow(current, groupCount),
     );
-  }, [tasks.length]);
-
-  const hubTasks = useMemo(() => sortHubTasksByRecency(tasks), [tasks]);
+  }, [groupCount]);
 
   const matchingTasks = useMemo(
     () => filterHubTasks(hubTasks, query),
@@ -274,9 +400,18 @@ export function ActivityHubSheet({
     () => new Set(matchingArtifacts.map((artifact) => artifact.id)),
     [matchingArtifacts],
   );
-  const shownTasks = useMemo(() => {
-    if (!searching)
-      return hubTasks.slice(activityWindow.start, activityWindow.end);
+  // Non-search: one windowed page of grouped top-level rows.
+  const shownGroups = useMemo(
+    () =>
+      searching
+        ? []
+        : hubGroups.slice(activityWindow.start, activityWindow.end),
+    [searching, hubGroups, activityWindow.start, activityWindow.end],
+  );
+  // Search flattens grouping back to individual matching rows (parents and
+  // subagents alike), preserving the pre-existing flat search behavior.
+  const searchTaskRows = useMemo(() => {
+    if (!searching) return [];
     return hubTasks.filter(
       (task) =>
         matchingTaskIds.has(task.id) ||
@@ -285,13 +420,11 @@ export function ActivityHubSheet({
         ),
     );
   }, [
-    activityWindow.end,
-    activityWindow.start,
-    artifactsByTaskId,
-    matchingArtifactIds,
-    matchingTaskIds,
     searching,
     hubTasks,
+    matchingTaskIds,
+    matchingArtifactIds,
+    artifactsByTaskId,
   ]);
   const shownConversationArtifacts = useMemo(
     () =>
@@ -303,13 +436,30 @@ export function ActivityHubSheet({
     [conversationArtifacts, matchingArtifactIds, searching],
   );
   const listRows = useMemo<ActivityHubListRow[]>(() => {
-    const rows: ActivityHubListRow[] = shownTasks.map((task) => ({
-      kind: "task",
-      task,
-      artifacts: (artifactsByTaskId.get(task.id) ?? []).filter(
-        (artifact) => !searching || matchingArtifactIds.has(artifact.id),
-      ),
-    }));
+    const rows: ActivityHubListRow[] = [];
+    if (searching) {
+      for (const task of searchTaskRows) {
+        rows.push({
+          kind: "task",
+          task,
+          artifacts: (artifactsByTaskId.get(task.id) ?? []).filter((artifact) =>
+            matchingArtifactIds.has(artifact.id),
+          ),
+        });
+      }
+    } else {
+      for (const group of shownGroups) {
+        rows.push({
+          kind: "group",
+          owner: group.owner,
+          ownerArtifacts: artifactsByTaskId.get(group.owner.id) ?? [],
+          subagents: group.subagents.map((task) => ({
+            task,
+            artifacts: artifactsByTaskId.get(task.id) ?? [],
+          })),
+        });
+      }
+    }
     if (shownConversationArtifacts.length > 0) {
       rows.push({
         kind: "conversation",
@@ -318,11 +468,12 @@ export function ActivityHubSheet({
     }
     return rows;
   }, [
+    searching,
+    searchTaskRows,
+    shownGroups,
     artifactsByTaskId,
     matchingArtifactIds,
-    searching,
     shownConversationArtifacts,
-    shownTasks,
   ]);
 
   const releasePagingLock = () => {
@@ -339,10 +490,10 @@ export function ActivityHubSheet({
   };
   const loadOlder = () => {
     if (searching || pagingLockedRef.current) return;
-    if (activityWindow.end >= hubTasks.length) return;
+    if (activityWindow.end >= hubGroups.length) return;
     pagingLockedRef.current = true;
     setActivityWindow((current) =>
-      loadOlderActivityWindow(current, hubTasks.length),
+      loadOlderActivityWindow(current, hubGroups.length),
     );
     releasePagingLock();
   };
@@ -382,7 +533,18 @@ export function ActivityHubSheet({
             renderItem={({
               item,
             }: LegendListRenderItemProps<ActivityHubListRow>) =>
-              item.kind === "task" ? (
+              item.kind === "group" ? (
+                <TaskGroupRow
+                  owner={item.owner}
+                  ownerArtifacts={item.ownerArtifacts}
+                  subagents={item.subagents}
+                  expanded={expandedGroups.has(item.owner.id)}
+                  onToggle={toggleGroup}
+                  onOpenArtifact={setOpenArtifact}
+                  colors={colors}
+                  styles={styles}
+                />
+              ) : item.kind === "task" ? (
                 <TaskRow
                   task={item.task}
                   artifacts={item.artifacts}
@@ -494,6 +656,36 @@ const makeStyles = (colors: Colors, topInset: number) =>
     },
     taskGroup: {
       gap: 2,
+    },
+    // Collapsed subagent summary bar; sits under the parent's text column.
+    groupToggle: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 6,
+      marginLeft: 33,
+      paddingVertical: 6,
+    },
+    groupToggleText: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12,
+      letterSpacing: -0.1,
+    },
+    groupToggleMeta: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 12,
+      letterSpacing: -0.1,
+      marginLeft: "auto",
+    },
+    // Expanded subagent list: indented + a hairline rail to read as nested.
+    groupChildren: {
+      borderLeftColor: colors.border,
+      borderLeftWidth: StyleSheet.hairlineWidth,
+      gap: 2,
+      marginLeft: 9,
+      marginTop: 2,
+      paddingLeft: 12,
     },
     taskRow: {
       alignItems: "center",

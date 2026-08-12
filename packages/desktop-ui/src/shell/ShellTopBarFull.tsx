@@ -31,6 +31,7 @@ import {
 } from "@/features/workspace-display/tab-store";
 import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
 import { ShellTopBarAccount } from "@/shell/sidebar/ShellTopBarAccount";
+import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { ShellTopBarPrimaryNav } from "@/shell/sidebar/ShellTopBarNav";
 import { ConversationTopBar } from "@/shell/topbar/ConversationTopBar";
 import { ShellTopBarUpdatePill } from "@/shell/ShellTopBarUpdatePill";
@@ -55,6 +56,9 @@ export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
   const isMac = platform === "darwin";
   const isWin = platform === "win32";
   const panelOpen = useDisplayPanelOpen();
+  // While signed in, the settings gear is folded into the account button's
+  // unified menu, so the standalone gear only renders when signed out.
+  const { hasConnectedAccount } = useAuthSessionState();
 
   return (
     <header
@@ -74,7 +78,9 @@ export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
         <ShellTopBarAccount onSignIn={onSignIn} />
         {!panelOpen ? (
           <>
-            <SettingsMenuButton className="shell-topbar-account-settings" />
+            {!hasConnectedAccount ? (
+              <SettingsMenuButton className="shell-topbar-account-settings" />
+            ) : null}
             <button
               type="button"
               className="shell-topbar-icon-btn"

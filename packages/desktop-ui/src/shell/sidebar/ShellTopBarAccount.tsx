@@ -1,4 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { CreditCard, LogOut } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
 import {
@@ -25,9 +33,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
 import { CustomLogIn as LogIn } from "@/ui/nav-icons";
+import { useSettingsMenu } from "@/shell/topbar/use-settings-menu";
 import { useFeedbackPrompt } from "./use-feedback-prompt";
 import "./topbar-nav.css";
 import "./account-dialogs.css";
@@ -131,12 +141,23 @@ export const ShellTopBarAccount = ({
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
   const [planUsageOpen, setPlanUsageOpen] = useState(false);
 
-  const handleDropdownCloseAutoFocus = useCallback((event: Event) => {
+  // Settings destinations are folded into this menu while signed in, so its
+  // close handler has to service both handoffs: a queued Theme/Connectors
+  // popover and the sign-out confirmation.
+  const {
+    destinations: settingsDestinations,
+    connectHint,
+    applyPendingPopover,
+    popovers: settingsPopovers,
+  } = useSettingsMenu();
+
+  const handleDropdownCloseAutoFocus = (event: Event) => {
     event.preventDefault();
+    if (applyPendingPopover()) return;
     if (!pendingSignOutRef.current) return;
     pendingSignOutRef.current = false;
     setSignOutConfirmOpen(true);
-  }, []);
+  };
 
   const handleConfirmSignOut = useCallback(() => {
     setSignOutConfirmOpen(false);
@@ -212,24 +233,41 @@ export const ShellTopBarAccount = ({
                 </span>
               ) : null}
             </span>
+            {connectHint.active ? (
+              <span className="shell-topbar-nav-hint-dot" aria-hidden="true" />
+            ) : null}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
+          className="shell-settings-menu"
           side="bottom"
           align="end"
           sideOffset={8}
           onCloseAutoFocus={handleDropdownCloseAutoFocus}
         >
-          <DropdownMenuItem
-            onClick={() => setPlanUsageOpen(true)}
-            onMouseEnter={preloadBillingScreen}
-            onFocus={preloadBillingScreen}
-          >
-            <span data-slot="dropdown-menu-item-icon">
-              <CreditCard size={14} strokeWidth={1.75} />
-            </span>
-            Plan &amp; usage
-          </DropdownMenuItem>
+          {settingsDestinations.map(({ id, label, Icon, onSelect }, index) => (
+            <Fragment key={id}>
+              <DropdownMenuItem onSelect={onSelect}>
+                <span data-slot="dropdown-menu-item-icon">
+                  <Icon size={15} strokeWidth={1.75} />
+                </span>
+                {label}
+              </DropdownMenuItem>
+              {index === 0 ? (
+                <DropdownMenuItem
+                  onClick={() => setPlanUsageOpen(true)}
+                  onMouseEnter={preloadBillingScreen}
+                  onFocus={preloadBillingScreen}
+                >
+                  <span data-slot="dropdown-menu-item-icon">
+                    <CreditCard size={15} strokeWidth={1.75} />
+                  </span>
+                  Plan &amp; usage
+                </DropdownMenuItem>
+              ) : null}
+            </Fragment>
+          ))}
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             data-variant="destructive"
             onClick={() => {
@@ -237,12 +275,13 @@ export const ShellTopBarAccount = ({
             }}
           >
             <span data-slot="dropdown-menu-item-icon">
-              <LogOut size={14} strokeWidth={1.75} />
+              <LogOut size={15} strokeWidth={1.75} />
             </span>
             {t("common.signOut")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {settingsPopovers}
       {planUsageOpen ? (
         <Suspense fallback={null}>
           <PlanUsageDialog open onOpenChange={setPlanUsageOpen} />

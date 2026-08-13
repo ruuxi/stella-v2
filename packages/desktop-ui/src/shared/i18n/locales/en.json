@@ -1834,6 +1834,14 @@
         "toolInput": "Input",
         "toolOutput": "Output",
         "toolRunning": "Waiting for this tool to finish…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} new message",
           "other": "{count} new messages"

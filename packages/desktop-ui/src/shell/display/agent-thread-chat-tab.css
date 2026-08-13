@@ -137,6 +137,83 @@
   margin: 0 2px 4px 0;
 }
 
+/* Collapsed trace rows: consecutive tool calls / reasoning blocks between
+   two conversation messages render as one small clickable text line — no
+   card chrome — that expands into the individual trace items. */
+.agent-thread-chat__trace-group {
+  min-width: 0;
+}
+
+.agent-thread-chat__trace-group-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 2px;
+  border: none;
+  background: none;
+  color: var(--text-weak);
+  cursor: default;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.agent-thread-chat__trace-group-toggle:hover,
+.agent-thread-chat__trace-group-toggle:focus-visible {
+  color: var(--text-base);
+}
+
+.agent-thread-chat__trace-group-toggle:focus-visible {
+  outline: none;
+  border-radius: 5px;
+  box-shadow:
+    0 0 0 2px var(--surface-base),
+    0 0 0 4px var(--ring);
+}
+
+.agent-thread-chat__trace-group-chevron {
+  font-size: 13px;
+  line-height: 1;
+  transform-origin: center;
+  transition: transform 120ms ease;
+}
+
+.agent-thread-chat__trace-group[data-expanded="true"]
+  .agent-thread-chat__trace-group-chevron {
+  transform: rotate(90deg);
+}
+
+.agent-thread-chat__trace-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  animation: agent-thread-trace-group-in 140ms ease;
+}
+
+@keyframes agent-thread-trace-group-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-thread-chat__trace-group-items {
+    animation: none;
+  }
+
+  .agent-thread-chat__trace-group-chevron {
+    transition: none;
+  }
+}
+
 .agent-thread-chat__trace {
   min-width: 0;
   overflow: hidden;

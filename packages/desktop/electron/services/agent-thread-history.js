@@ -254,6 +254,24 @@ export const listAgentThreadMessages = (store, args = {}) => {
   const authored = new Set(
     projected.map((message) => `${message.role}\0${message.content.trim()}`),
   );
+  // Authored user messages store the orchestrator's composed text
+  // (`description\n\nprompt`, optionally prefixed by explore findings), while
+  // the durable agent record and the parent's tool-call arguments keep the raw
+  // prompt/message only. Exact-match dedupe misses that composition and would
+  // render the same instruction twice, so treat a synthesized user row as a
+  // duplicate whenever an authored user message already contains its text.
+  // Both sides run through the same redaction/truncation pipeline; probe with
+  // a bounded prefix so tail truncation of very long prompts cannot defeat
+  // the containment check.
+  const authoredUserContents = projected.flatMap((message) =>
+    message.role === "user" ? [message.content] : [],
+  );
+  const isDuplicateUserContent = (content) => {
+    if (!content) return true;
+    const probe = content.slice(0, 1_000);
+    return authoredUserContents.some((existing) => existing.includes(probe));
+  };
+
   const agentRecord = store.getAgentRecord(threadId);
   const storedPrompt = agentRecord
     ? Reflect.get(agentRecord, "prompt")
@@ -263,9 +281,8 @@ export const listAgentThreadMessages = (store, args = {}) => {
       storedPrompt,
       TOOL_OUTPUT_DISPLAY_MAX_CHARS,
     );
-    const key = `user\0${content}`;
-    if (!authored.has(key)) {
-      authored.add(key);
+    if (!isDuplicateUserContent(content)) {
+      authoredUserContents.push(content);
       const promptCreatedAt = Reflect.get(agentRecord, "promptCreatedAt");
       projected.push({
         entryId: `${threadId}:durable-initial-instruction`,
@@ -328,9 +345,8 @@ export const listAgentThreadMessages = (store, args = {}) => {
                     TOOL_OUTPUT_DISPLAY_MAX_CHARS,
                   )
                 : "";
-          const key = `user\0${content}`;
-          if (!content || authored.has(key)) continue;
-          authored.add(key);
+          if (!content || isDuplicateUserContent(content)) continue;
+          authoredUserContents.push(content);
           projected.push({
             entryId: `${row.entryId ?? block.id}:recovered-input:${index}`,
             timestamp: row.timestamp,

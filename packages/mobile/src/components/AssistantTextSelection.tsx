@@ -15,16 +15,17 @@ import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
 
 /**
- * Native text selection for a finished message, with a custom action row
- * (Copy / Ask Stella / Select All) above the text — reached from the message
- * long-press menu's "Select text" action. The body renders into a read-only,
- * keyboard-suppressed `TextInput` so iOS/Android give real selection handles
- * and a live highlight; the OS callout menu is hidden (`contextMenuHidden`) so
- * only our row shows. Entering selection mode selects the whole message so
- * Copy/Ask act immediately; the user can then drag the handles to narrow it.
+ * Native text selection for a finished message, with a small pill above the
+ * text (Ask Stella / Copy). Assistant replies enter this on long-press (like
+ * holding text anywhere on the phone); user messages reach it via the context
+ * menu's "Select text". The body renders into a read-only, keyboard-suppressed
+ * `TextInput` so iOS/Android give real selection handles and a live highlight;
+ * the OS callout menu is hidden (`contextMenuHidden`) so only our pill shows.
+ * Entering selection mode selects the whole message so Copy/Ask act immediately;
+ * the user can then drag the handles to narrow it.
  *
  * `onAskStella` is optional: assistant replies pass it to expose the "Ask
- * Stella" button; user messages omit it, leaving just Copy / Select All.
+ * Stella" button; user messages omit it, leaving just Copy.
  */
 export function AssistantTextSelection({
   text,
@@ -41,8 +42,8 @@ export function AssistantTextSelection({
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const inputRef = useRef<TextInput>(null);
-  // Selection is controlled so "Select All" can force the full range; it also
-  // mirrors the user's drags via onSelectionChange, so it never fights them.
+  // Selection is controlled: it starts as the whole message (so Copy/Ask act
+  // immediately) and mirrors the user's drags via onSelectionChange.
   const [selection, setSelection] = useState({ start: 0, end: text.length });
   // A tapped action button blurs the TextInput first; guard the blur-dismiss so
   // the button's own handler runs (and owns the dismiss) instead of racing it.
@@ -81,13 +82,6 @@ export function AssistantTextSelection({
     onDismiss();
   };
 
-  const handleSelectAll = () => {
-    cancelPendingDismiss();
-    tapLight();
-    setSelection({ start: 0, end: text.length });
-    inputRef.current?.focus();
-  };
-
   const scheduleDismiss = () => {
     cancelPendingDismiss();
     // Blurred by a tap elsewhere / scroll — leave selection mode, unless an
@@ -98,23 +92,17 @@ export function AssistantTextSelection({
   return (
     <View>
       <View style={styles.toolbar}>
-        <ToolbarButton label="Copy" onPress={handleCopy} styles={styles} />
         {onAskStella ? (
           <>
-            <View style={styles.divider} />
             <ToolbarButton
               label="Ask Stella"
               onPress={handleAsk}
               styles={styles}
             />
+            <View style={styles.divider} />
           </>
         ) : null}
-        <View style={styles.divider} />
-        <ToolbarButton
-          label="Select All"
-          onPress={handleSelectAll}
-          styles={styles}
-        />
+        <ToolbarButton label="Copy" onPress={handleCopy} styles={styles} />
       </View>
       <TextInput
         ref={inputRef}

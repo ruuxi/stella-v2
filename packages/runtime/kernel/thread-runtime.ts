@@ -1505,11 +1505,11 @@ export const maybeCompactRuntimeThread = async (args: {
       if (!generated.retryable) break;
     }
   }
-  if (!summary && correctiveReason !== "no API key") {
-    // Parallel chunked compaction with the current model: the primary path
-    // when the middle cannot fit one request, and the fallback when the
-    // single pass failed (e.g. the char-per-token estimate undercounted and
-    // the summary request itself overflowed the provider window).
+  if (!summary && needsChunkedCompaction && correctiveReason !== "no API key") {
+    // Parallel chunked compaction is reserved for history that cannot fit a
+    // single request. Invalid or unclean single-pass output must not fan out
+    // into many equivalent retries; those failures keep the existing bounded
+    // two-attempt behavior and escalation path.
     const chunked = await generateChunkedThreadSummary({
       threadKey: args.threadKey,
       middleMessages: splitMessages.middleMessages,
@@ -1521,23 +1521,10 @@ export const maybeCompactRuntimeThread = async (args: {
       ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
     });
     if (chunked.text) {
-      const validation = validateThreadSummary(
-        chunked.text,
-        middleTokens,
-        splitMessages.previousSummary,
-      );
-      if (validation.valid) {
-        summary = chunked.text;
-      } else {
-        bestInvalidCandidate = chunked.text;
-        correctiveReason = `chunked: ${validation.reason ?? "invalid summary"}`;
-        logger.warn("thread.compaction.chunked-summary-invalid", {
-          threadKey: args.threadKey,
-          model: args.resolvedLlm.model.id,
-          reason: validation.reason,
-          middleTokens,
-        });
-      }
+      // Every constituent segment was validated before mechanical assembly.
+      // Re-validating the concatenation as one ordinary summary incorrectly
+      // flags its intentionally repeated section headings as repetition.
+      summary = chunked.text;
     } else if (chunked.reason) {
       correctiveReason = chunked.reason;
     }

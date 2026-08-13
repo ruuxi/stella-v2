@@ -61,7 +61,7 @@ const createFakeStore = (
 
 const createRoute = (
   apiKey: string | null,
-  contextWindow = 80_000,
+  contextWindow = 200_000,
 ): ResolvedLlmRoute =>
   ({
     route: "stella",
@@ -80,6 +80,29 @@ const VALID_SUMMARY = [
   "## Open Items",
   "None outstanding beyond the active workstreams named above.",
 ].join("\n");
+
+const buildChunkSummary = (index: number) => {
+  const details = [
+    "authentication authorization credential gateway provider fallback catalog routing token renewal account permission session",
+    "desktop renderer scrolling sidebar workspace navigation viewport anchoring canvas layout keyboard pointer focus",
+    "mobile composer selection quotation attachment gesture clipboard photograph document preview menu accessibility haptics",
+    "windows composition overlay monitor flicker bootstrap graphics driver display hardware acceleration process launch",
+    "runtime checkpoint recovery overflow durable handoff compaction history context continuation storage transcript summary",
+    "packaging worker identifiers archive verification release installer manifest checksum artifact notarization signing distribution",
+    "testing diagnostics telemetry review followup ownership regression fixture assertion coverage investigation remediation approval",
+  ][index]!;
+  return [
+    "## Topic",
+    `Chronological segment ${index + 1} covers ${details}.`,
+    "## Key Points",
+    `Evidence for milestone ${100 + index} records distinct decisions, commands, observations, and verified outcomes.`,
+    `The checkpoint marker segment-${index + 1}-milestone-${100 + index} preserves its source identity and ordering.`,
+    "## Current State",
+    `Captured work is preserved; subsequent chronology continues with separate implementation facts and validation results.`,
+    "## Open Items",
+    `Review the remaining task, confirm platform behavior, and retain raw history for audit ${index + 1}.`,
+  ].join("\n");
+};
 
 const THREAD_SUMMARY_HEADINGS_FOR_TEST = [
   "Topic",
@@ -309,7 +332,7 @@ describe("orchestrator thread compaction failure handling", () => {
     const first = await maybeCompactRuntimeThread({
       store: createFakeStore(buildBigThreadMessagesWithCheckpoint()).store,
       threadKey: "hard-limit",
-      resolvedLlm: createRoute("auth-token"),
+      resolvedLlm: createRoute("auth-token", 80_000),
       agentType: "orchestrator",
     });
     expect(first).toEqual({ compacted: false });
@@ -320,7 +343,7 @@ describe("orchestrator thread compaction failure handling", () => {
     const second = await maybeCompactRuntimeThread({
       store,
       threadKey: "hard-limit",
-      resolvedLlm: createRoute("auth-token"),
+      resolvedLlm: createRoute("auth-token", 80_000),
       agentType: "orchestrator",
     });
     expect(second).toEqual({ compacted: true });
@@ -345,41 +368,50 @@ describe("orchestrator thread compaction failure handling", () => {
     }
   });
 
-  it("caps the summary input so an oversized backlog still compacts", async () => {
+  it("chunks an oversized backlog so every summary request fits", async () => {
     const { store, compactCalls } = createFakeStore();
-    completeSimpleMock.mockResolvedValue({
-      content: [{ type: "text", text: VALID_SUMMARY }],
-      stopReason: "stop",
-    });
+    completeSimpleMock.mockImplementation(
+      (
+        _model: unknown,
+        context: { messages: Array<{ content: Array<{ text: string }> }> },
+      ) => {
+        const prompt = context.messages[0]!.content[0]!.text;
+        const segment = prompt.match(/segment (\d+) of (\d+)/i);
+        const index = Number(segment?.[1] ?? 1) - 1;
+        return Promise.resolve({
+          content: [{ type: "text", text: buildChunkSummary(index) }],
+          stopReason: "stop",
+        });
+      },
+    );
 
     const result = await maybeCompactRuntimeThread({
       store,
       threadKey: "conversation-1",
-      resolvedLlm: createRoute("auth-token"),
+      resolvedLlm: createRoute("auth-token", 80_000),
       agentType: "orchestrator",
     });
 
     expect(result).toEqual({ compacted: true });
     expect(compactCalls).toHaveLength(1);
-    expect(compactCalls[0]).toMatchObject({
-      threadKey: "conversation-1",
-      summary: VALID_SUMMARY,
-    });
+    expect(compactCalls[0]).toMatchObject({ threadKey: "conversation-1" });
+    expect(String(compactCalls[0]!.summary)).toContain(
+      "compacted in 7 parallel segment summaries",
+    );
+    expect(String(compactCalls[0]!.summary)).toContain("## Part 7/7");
 
-    expect(completeSimpleMock).toHaveBeenCalledTimes(1);
-    const context = completeSimpleMock.mock.calls[0]![1] as {
-      messages: Array<{ content: Array<{ type: string; text: string }> }>;
-    };
-    const prompt = context.messages[0]!.content[0]!.text;
-    // Input budget: (80k window - 16,384 reserve) tokens * 4 chars, plus the
-    // prompt scaffold. The raw middle (~550k chars) must have been truncated.
-    expect(prompt.length).toBeLessThan((80_000 - 16_384) * 4 + 5_000);
-    expect(prompt).toContain("Compaction input truncated");
-    // The most recent part of the compacted middle survives the cap (the
-    // very last ~20k tokens are the keep-recent tail, excluded from the
-    // middle entirely); the oldest middle messages are elided.
-    expect(prompt).toContain("message 50");
-    expect(prompt).not.toContain("message 3 ");
+    expect(completeSimpleMock).toHaveBeenCalledTimes(7);
+    const prompts = completeSimpleMock.mock.calls.map((call) => {
+      const context = call[1] as {
+        messages: Array<{ content: Array<{ type: string; text: string }> }>;
+      };
+      return context.messages[0]!.content[0]!.text;
+    });
+    expect(prompts.every((prompt) => prompt.length < 100_000)).toBe(true);
+    expect(prompts[0]).toContain("segment 1 of 7");
+    expect(prompts[6]).toContain("segment 7 of 7");
+    expect(prompts.join("\n")).toContain("message 3 ");
+    expect(prompts.join("\n")).toContain("message 50");
   });
 
   it("threads summary guidelines and the durable-memory reference into the prompt", async () => {

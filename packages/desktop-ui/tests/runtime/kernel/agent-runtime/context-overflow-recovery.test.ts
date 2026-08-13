@@ -192,7 +192,7 @@ describe("progress-aware context overflow recovery", () => {
       "the compacted retry overflowed again before any new model output or tool result",
     );
     expect(result.errorMessage).toContain(
-      "Continuing queued messages in a clean General turn",
+      "Sending your message again retries compaction and continues in a clean General turn",
     );
     expect(execute).toHaveBeenCalledTimes(2);
     expect(runCompactionWithHooksMock).toHaveBeenCalledOnce();

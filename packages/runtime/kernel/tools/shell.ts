@@ -26,18 +26,13 @@ import {
   HeadTailOutputBuffer,
   RAW_SHELL_OUTPUT_MAX_BYTES,
 } from "./head-tail-output-buffer.js";
-import { resolveBundledRuntimeFile } from "../shared/runtime-paths.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
 import { inferShellMentionedPaths } from "./path-inference.js";
 import { isKnownSafeCommand } from "./safe-commands.js";
 import { sanitizeToolVisibleText } from "./safety.js";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
-import {
-  purgeExpiredDeferredDeletes,
-  trashPathsForDeferredDelete,
-} from "./deferred-delete.js";
-import { extractNativeWindowsDeleteTargets } from "./deferred-delete-cli.js";
+import { purgeExpiredDeferredDeletes } from "./deferred-delete.js";
 import { resolveToolFallbackCwd } from "./cwd.js";
 
 export type ShellState = {
@@ -749,20 +744,7 @@ export function createShellState(
   };
 }
 
-const deferredDeleteHelperPath = (() => {
-  const resolved = resolveBundledRuntimeFile(
-    "kernel/tools/deferred-delete-cli.js",
-  );
-  return existsSync(resolved) ? resolved : "";
-})();
-
-const rewriteDeleteBypassPatterns = (command: string) =>
-  command
-    .replace(/\bcommand\s+(rm|rmdir|unlink)\b/g, "$1")
-    .replace(/\b(?:\/usr\/bin|\/bin)\/(rm|rmdir|unlink)\b/g, "$1")
-    .replace(/(^|[\s;&|()])\\(rm|rmdir|unlink)\b/g, "$1$2");
-
-const buildProtectedCommand = (
+const buildPosixShellCommand = (
   command: string,
   options?: {
     stellaBrowserBinPath?: string;
@@ -772,9 +754,6 @@ const buildProtectedCommand = (
     stellaXApiCliPath?: string;
   },
 ) => {
-  if (!deferredDeleteHelperPath) {
-    return command;
-  }
   const stellaOfficeBin =
     options?.stellaOfficeBinPath && existsSync(options.stellaOfficeBinPath)
       ? options.stellaOfficeBinPath
@@ -792,27 +771,7 @@ const buildProtectedCommand = (
       ? options.stellaXApiCliPath
       : "";
 
-  // Dynamically detect python-like invocations (python, python3, python3.11, py, etc.)
-  const pythonPattern = /\b(python\d*(?:\.\d+)?|py)\b/g;
-  const pythonNames = new Set<string>();
-  let m;
-  while ((m = pythonPattern.exec(command)) !== null) {
-    pythonNames.add(m[1]);
-  }
-
-  const pythonFuncs = [...pythonNames]
-    .map(
-      (name) =>
-        `${name}() { __stella_dd python "$PWD" "$(type -P ${name} || true)" "$@"; }`,
-    )
-    .join("\n");
-  const pythonExports =
-    pythonNames.size > 0 ? ` ${[...pythonNames].join(" ")}` : "";
-
   const preamble = `
-__stella_dd() {
-  ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_DEFERRED_DELETE_HELPER" "$@"
-}
 __stella_git_exec() {
   if [ -n "$STELLA_GIT_BIN" ]; then
     "$STELLA_GIT_BIN" "$@"
@@ -861,30 +820,25 @@ git() {
   fi
   __stella_git_exec "$@"
 }
-rm() { __stella_dd delete "$PWD" rm "$@"; }
-rmdir() { __stella_dd delete "$PWD" rmdir "$@"; }
-unlink() { __stella_dd delete "$PWD" unlink "$@"; }
-del() { rm "$@"; }
-erase() { rm "$@"; }
-rd() { rmdir "$@"; }
-powershell() { __stella_dd powershell "$PWD" "$(type -P powershell || true)" "$@"; }
-pwsh() { __stella_dd powershell "$PWD" "$(type -P pwsh || true)" "$@"; }
 ${stellaOfficeBin ? `stella-office() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_OFFICE_BIN" "$@"; }` : ""}
 ${stellaComputerCli ? `stella-computer() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_COMPUTER_CLI" "$@"; }` : ""}
 ${stellaMediaCli ? `stella-media() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_MEDIA_CLI" "$@"; }` : ""}
 ${stellaXApiCli ? `stella-x-api() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_X_API_CLI" "$@"; }` : ""}
-${pythonFuncs}
-export -f __stella_dd __stella_git_exec __stella_git_stage_feature_dependencies git rm rmdir unlink del erase rd powershell pwsh${stellaOfficeBin ? " stella-office" : ""}${stellaComputerCli ? " stella-computer" : ""}${stellaMediaCli ? " stella-media" : ""}${stellaXApiCli ? " stella-x-api" : ""}${pythonExports} >/dev/null 2>&1 || true
+export -f __stella_git_exec __stella_git_stage_feature_dependencies git${stellaOfficeBin ? " stella-office" : ""}${stellaComputerCli ? " stella-computer" : ""}${stellaMediaCli ? " stella-media" : ""}${stellaXApiCli ? " stella-x-api" : ""} >/dev/null 2>&1 || true
 `;
 
-  return `${preamble}\n${rewriteDeleteBypassPatterns(command)}`;
+  return `${preamble}\n${command}`;
 };
 
-const buildShellCommand = (command: string, state: ShellState): string => {
-  if (process.platform === "win32") {
+export const buildShellCommand = (
+  command: string,
+  state: ShellState,
+  platform: NodeJS.Platform = process.platform,
+): string => {
+  if (platform === "win32") {
     return command;
   }
-  return buildProtectedCommand(command, state);
+  return buildPosixShellCommand(command, state);
 };
 
 const resolveStellaDataDirFromState = (
@@ -910,51 +864,6 @@ const maybeSweepDeferredDeletes = (state: ShellState) => {
     stellaDataDir: resolveStellaDataDirFromState(state),
     now,
   }).catch(() => undefined);
-};
-
-const maybeTrashNativeWindowsDeletes = async (
-  state: ShellState,
-  command: string,
-  cwd: string,
-  context?: ToolContext,
-): Promise<ToolResult | null> => {
-  if (process.platform !== "win32") {
-    return null;
-  }
-
-  const targets = extractNativeWindowsDeleteTargets(command);
-  if (targets.length === 0) {
-    return null;
-  }
-
-  const trashResult = await trashPathsForDeferredDelete(targets, {
-    cwd,
-    force: /(?:^|\s)(?:\/q|\/f|-force)\b/i.test(command),
-    source: "shell:windows-native",
-    stellaDataDir: resolveStellaDataDirFromState(state),
-    requestId: context?.requestId,
-    agentType: context?.agentType,
-    conversationId: context?.conversationId,
-  });
-
-  const lines: string[] = [];
-  if (trashResult.trashed.length > 0) {
-    lines.push(
-      `Moved ${trashResult.trashed.length} item(s) to Stella trash (auto-delete in 24h).`,
-    );
-  }
-  for (const skipped of trashResult.skipped) {
-    lines.push(`Skipped missing path: ${skipped}`);
-  }
-  for (const error of trashResult.errors) {
-    lines.push(`Cannot remove '${error.path}': ${error.error}`);
-  }
-
-  return {
-    ...(trashResult.errors.length > 0
-      ? { error: lines.join("\n") || "Delete command blocked." }
-      : { result: lines.join("\n") || "Delete command completed." }),
-  };
 };
 
 export const resolveShellNodeBinary = (
@@ -993,7 +902,6 @@ const buildShellEnv = (
       envOverrides ? { ...process.env, ...envOverrides } : process.env,
     ),
     STELLA_RUNTIME_WORKER_PID: String(process.pid),
-    STELLA_DEFERRED_DELETE_HELPER: deferredDeleteHelperPath,
     ...(options?.secretStateRoot
       ? { STELLA_DATA_DIR: options.secretStateRoot }
       : {}),
@@ -1889,16 +1797,6 @@ export const handleExecCommand = async (
     };
   }
 
-  const windowsDeleteResult = await maybeTrashNativeWindowsDeletes(
-    state,
-    prepared.command,
-    prepared.cwd,
-    context,
-  );
-  if (windowsDeleteResult) {
-    return windowsDeleteResult;
-  }
-
   let beforeSideEffects: {
     rootSnapshot: FileSnapshot | null;
     externalCandidateSnapshots?: ExternalCandidateSnapshot[];
@@ -2109,16 +2007,6 @@ export const handleBash = async (
   const cwd = prepared.cwd;
   const runInBackground = Boolean(args.run_in_background ?? false);
   const envOverrides = prepared.envOverrides;
-
-  const windowsDeleteResult = await maybeTrashNativeWindowsDeletes(
-    state,
-    command,
-    cwd,
-    context,
-  );
-  if (windowsDeleteResult) {
-    return windowsDeleteResult;
-  }
 
   if (runInBackground) {
     const beforeSideEffects = shouldSnapshotShellSideEffects(command)

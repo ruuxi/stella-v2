@@ -134,11 +134,11 @@ const buildRecoverableHandoff = (args) => {
   });
 
   return [
-    "Automatic context-overflow recovery could not produce a safe compacted checkpoint; no further provider retry or tool replay was attempted.",
+    "Context compaction failed: the history could not be compressed to fit the current model's context window, and no further provider retry or tool replay was attempted.",
     `thread_id: ${args.threadKey}`,
     `model: ${args.resolvedLlm.model.provider}/${args.resolvedLlm.model.id}`,
     ...(args.reason ? [`reason: ${args.reason}`] : []),
-    "Recovery: Stella will resume from this durable handoff in a clean General turn; the raw thread and child records remain stored as source of truth.",
+    "Recovery: the raw thread and child records remain stored as source of truth. The user can send their message again to retry compaction (or switch to a larger-context model); Stella will resume from this durable handoff in a clean General turn.",
     "",
     "Latest user instruction:",
     truncate(
@@ -339,8 +339,8 @@ export const executeWithContextOverflowRecovery = async (args) => {
       return {
         finalText: overflowRecovery.text,
         errorMessage: overflowRecovery.historyReset
-          ? "Context overflow recovery reset the active thread. Continuing queued messages in a clean General turn."
-          : "Context overflow recovery could not reset the active thread. Start a new General conversation using the durable handoff.",
+          ? "Context compaction failed; the thread was reset to a durable handoff. Sending your message again retries compaction and continues in a clean General turn."
+          : "Context compaction failed and the active thread could not be reset. Retry your message, or start a new General conversation using the durable handoff.",
       };
     }
     if (overflowRecovery.kind !== "compacted") return execution;

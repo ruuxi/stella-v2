@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -13,24 +13,14 @@ import {
   trashPathsForDeferredDelete,
 } from "@stella/runtime/kernel/tools/deferred-delete";
 import {
-  extractNativeWindowsDeleteTargets,
-  extractPowerShellDeleteTargets,
-  extractWindowsCmdDeleteTargets,
-} from "@stella/runtime/kernel/tools/deferred-delete-cli";
-import {
+  buildShellCommand,
   createShellState,
-  handleExecCommand,
+  runShell,
 } from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();
-const originalPlatform = process.platform;
-
 afterEach(async () => {
-  Object.defineProperty(process, "platform", {
-    value: originalPlatform,
-    configurable: true,
-  });
   await tempDirs.cleanup();
 });
 
@@ -38,14 +28,7 @@ const createTempDir = async () => {
   return await tempDirs.create("stella-deferred-delete-");
 };
 
-const forcePlatform = (platform: NodeJS.Platform) => {
-  Object.defineProperty(process, "platform", {
-    value: platform,
-    configurable: true,
-  });
-};
-
-describe("deferred-delete trash", () => {
+describe("legacy deferred-delete trash", () => {
   it("moves deleted files into Stella trash with 24h metadata", async () => {
     const stellaDataDir = await createTempDir();
     const target = path.join(stellaDataDir, "victim.txt");
@@ -162,58 +145,56 @@ describe("deferred-delete trash", () => {
   });
 });
 
-describe("Windows delete interception", () => {
-  it("extracts native cmd and PowerShell delete targets", () => {
-    expect(
-      extractWindowsCmdDeleteTargets('del /q "old file.txt" & rd /s build'),
-    ).toEqual(["old file.txt", "build"]);
-    expect(
-      extractPowerShellDeleteTargets(
-        'Remove-Item -LiteralPath "old file.txt" -Recurse -Force',
-      ),
-    ).toEqual(["old file.txt"]);
-    expect(
-      extractNativeWindowsDeleteTargets(
-        'del /q "old file.txt"; Remove-Item -Path build -Recurse',
-      ),
-    ).toEqual(["old file.txt", "build"]);
-  });
-
-  it("routes Windows native delete commands to Stella trash instead of cmd.exe", async () => {
-    forcePlatform("win32");
-
+describe("native shell deletion", () => {
+  it("lets rm execute directly without creating Stella trash", async () => {
+    if (process.platform === "win32") return;
     const stellaDataDir = await createTempDir();
-    const stateRoot = stellaDataDir;
-    await mkdir(stateRoot, { recursive: true });
     const target = path.join(stellaDataDir, "victim.txt");
-    await writeFile(target, "windows delete", "utf-8");
+    await writeFile(target, "native delete", "utf-8");
 
-    const shellState = createShellState(stateRoot);
-    const result = await handleExecCommand(
-      shellState,
-      {
-        cmd: "del victim.txt",
-        workdir: stellaDataDir,
-      },
-      {
-        conversationId: "c1",
-        deviceId: "d1",
-        requestId: "r1",
-        stellaAppDir: stellaDataDir,
-      },
+    const output = await runShell(
+      createShellState(stellaDataDir),
+      'rm -- "victim.txt"',
+      stellaDataDir,
+      10_000,
     );
 
-    expect(result.error).toBeUndefined();
-    expect(result.result).toBe(
-      "Moved 1 item(s) to Stella trash (auto-delete in 24h).",
-    );
+    expect(output).toBe("Command completed successfully (no output).");
     await expect(readFile(target, "utf-8")).rejects.toMatchObject({
       code: "ENOENT",
     });
-
     const trashFiles = await readdir(
       getDeferredDeletePaths(stellaDataDir).trashDir,
+    ).catch(() => []);
+    expect(trashFiles).toEqual([]);
+  });
+
+  it("passes Windows cmd and PowerShell delete syntax through unchanged", async () => {
+    const stellaDataDir = await createTempDir();
+    const state = createShellState(stellaDataDir);
+    const cmd =
+      'if exist "%USERPROFILE%\\Documents\\old folder\\" rd /s /q "%USERPROFILE%\\Documents\\old folder\\"';
+    const powershell =
+      'Remove-Item -LiteralPath "$env:USERPROFILE\\Documents\\old folder" -Recurse -Force';
+
+    expect(buildShellCommand(cmd, state, "win32")).toBe(cmd);
+    expect(buildShellCommand(powershell, state, "win32")).toBe(powershell);
+  });
+
+  it("does not define delete, PowerShell, or Python interception functions on macOS", async () => {
+    const stellaDataDir = await createTempDir();
+    const command =
+      'rm old.txt; powershell -Command "Remove-Item old.txt"; python cleanup.py';
+    const built = buildShellCommand(
+      command,
+      createShellState(stellaDataDir),
+      "darwin",
     );
-    expect(trashFiles).toHaveLength(1);
+
+    expect(built).not.toContain("__stella_dd");
+    expect(built).not.toMatch(
+      /(?:rm|rmdir|unlink|powershell|pwsh|python)\(\)/u,
+    );
+    expect(built.endsWith(`\n${command}`)).toBe(true);
   });
 });

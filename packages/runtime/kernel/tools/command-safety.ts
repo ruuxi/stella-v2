@@ -14,12 +14,9 @@ import { resolveHomeRelative } from "./safety.js";
 // 1. Dangerous Command Blocklist
 // ---------------------------------------------------------------------------
 
-// NOTE: Normal delete operations are handled by the deferred-delete trash system
-// (see deferred-delete.ts + shell.ts): macOS/Linux shells intercept rm/rmdir/unlink
-// through the shell preamble, and Windows native delete commands are routed through
-// the same trash helper before cmd.exe starts. The blocklist here catches things
-// the trash can't protect against: filesystem-level destruction, fork bombs, and
-// system power commands.
+// Normal file and directory deletion commands run directly in the selected shell.
+// This blocklist remains intentionally narrow: it catches filesystem-level
+// destruction, fork bombs, and system power commands.
 
 /**
  * Check if a command string contains dangerous/destructive patterns.

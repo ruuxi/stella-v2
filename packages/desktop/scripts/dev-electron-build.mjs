@@ -78,8 +78,6 @@ const electronRuntimeEntryPoints = {
     "packages/runtime/kernel/cli/stella-computer.ts",
   "runtime/kernel/cli/stella-media":
     "packages/runtime/kernel/cli/stella-media.ts",
-  "runtime/kernel/tools/deferred-delete-cli":
-    "packages/runtime/kernel/tools/deferred-delete-cli.ts",
 };
 // The worker builds on its own so we can code-split it: the heavy runner
 // subgraph is lazily imported in server.ts, and splitting lands it in a

@@ -744,6 +744,68 @@ const getSummaryInputCharBudget = (route: ResolvedLlmRoute): number =>
     getContextWindow(route) - THREAD_COMPACTION_RESERVE_TOKENS,
   ) * SUMMARY_INPUT_CHARS_PER_TOKEN;
 
+/**
+ * Chunked/hierarchical compaction sizing. When the uncompacted middle cannot
+ * fit one summary request in the current model's window (e.g. a thread built
+ * on a large-window model continuing on a smaller-window one), the middle is
+ * split into message-boundary chunks and folded into a rolling summary one
+ * chunk at a time — every request stays bounded by the current model's
+ * window regardless of total history size. The 0.5 input fraction leaves the
+ * completion reserve plus slack for chars-per-token underestimation, the
+ * summary prompt scaffolding, and the growing rolling summary.
+ */
+const CHUNKED_SUMMARY_INPUT_FRACTION = 0.5;
+const CHUNKED_SUMMARY_MIN_CHUNK_CHARS = 20_000;
+/** Char reserve for the rolling summary, guidelines, and retry corrections. */
+const CHUNKED_SUMMARY_PROMPT_OVERHEAD_CHARS = 40_000;
+
+const getChunkedSummaryChunkCharBudget = (
+  route: ResolvedLlmRoute,
+  durableMemoryReference?: string,
+): number =>
+  Math.max(
+    CHUNKED_SUMMARY_MIN_CHUNK_CHARS,
+    Math.floor(
+      Math.max(0, getContextWindow(route) - THREAD_COMPACTION_RESERVE_TOKENS) *
+        CHUNKED_SUMMARY_INPUT_FRACTION,
+    ) *
+      SUMMARY_INPUT_CHARS_PER_TOKEN -
+      (durableMemoryReference?.length ?? 0) -
+      CHUNKED_SUMMARY_PROMPT_OVERHEAD_CHARS,
+  );
+
+/**
+ * Split middle messages into chunks whose formatted representation fits
+ * `chunkCharBudget`. Boundaries always land between stored messages; a
+ * single message larger than the budget gets its own chunk (the per-request
+ * input cap in `generateThreadSummary` still bounds it).
+ */
+export const chunkThreadMessagesForCompaction = (
+  messages: StoredThreadMessage[],
+  chunkCharBudget: number,
+): StoredThreadMessage[][] => {
+  const chunks: StoredThreadMessage[][] = [];
+  let current: StoredThreadMessage[] = [];
+  let currentChars = 0;
+  for (const message of messages) {
+    const formattedChars = stringifyStoredMessage(message).reduce(
+      (sum, entry) => sum + entry.length + 2,
+      0,
+    );
+    if (current.length > 0 && currentChars + formattedChars > chunkCharBudget) {
+      chunks.push(current);
+      current = [];
+      currentChars = 0;
+    }
+    current.push(message);
+    currentChars += formattedChars;
+  }
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+  return chunks;
+};
+
 const SUMMARY_STRUCTURE = `## Topic
 [What the conversation is about]
 
@@ -978,6 +1040,125 @@ const generateThreadSummary = async (args: {
 };
 
 /**
+ * Hierarchical fallback used when the middle cannot fit (or repeatedly
+ * failed) a single summary request with the current model. Chunks are folded
+ * into a rolling summary through the same recursive-summary prompt the
+ * single-pass path uses (`buildSummaryPrompt`'s "previous summary + new
+ * turns" form), so chunked checkpoints keep the existing format, guidelines,
+ * and validation conventions. Chunks that still fail after retries are
+ * counted and disclosed in the final summary instead of failing the whole
+ * compaction; the raw messages always remain in thread storage.
+ */
+const generateChunkedThreadSummary = async (args: {
+  threadKey: string;
+  middleMessages: StoredThreadMessage[];
+  previousSummary?: string;
+  resolvedLlm: ResolvedLlmRoute;
+  durableMemoryReference?: string;
+  stellaDataDir?: string;
+}): Promise<{ text: string | null; reason?: string }> => {
+  const chunkCharBudget = getChunkedSummaryChunkCharBudget(
+    args.resolvedLlm,
+    args.durableMemoryReference,
+  );
+  const chunks = chunkThreadMessagesForCompaction(
+    args.middleMessages,
+    chunkCharBudget,
+  );
+  logger.info("thread.compaction.chunked-start", {
+    threadKey: args.threadKey,
+    model: args.resolvedLlm.model.id,
+    chunkCount: chunks.length,
+    chunkCharBudget,
+    middleTokens: getThreadTokenEstimate(args.middleMessages),
+  });
+  const previousSummary = args.previousSummary?.trim() || undefined;
+  let rollingSummary = previousSummary;
+  let foldedWithoutNarrationTokens = 0;
+  let lastFailureReason: string | undefined;
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+    const chunkMessages = chunks[chunkIndex]!;
+    const chunkTokens = getThreadTokenEstimate(chunkMessages);
+    let chunkSummary: string | null = null;
+    let correctiveReason: string | undefined;
+    let nonRetryable = false;
+    for (
+      let attempt = 1;
+      !chunkSummary && attempt <= THREAD_SUMMARY_MAX_GENERATION_ATTEMPTS;
+      attempt += 1
+    ) {
+      const generated = await generateThreadSummary({
+        threadKey: args.threadKey,
+        messages: chunkMessages,
+        ...(rollingSummary ? { previousSummary: rollingSummary } : {}),
+        resolvedLlm: args.resolvedLlm,
+        ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+        ...(args.durableMemoryReference
+          ? { durableMemoryReference: args.durableMemoryReference }
+          : {}),
+        ...(correctiveReason ? { correctiveReason } : {}),
+      });
+      if (generated.text) {
+        const validation = validateThreadSummary(
+          generated.text,
+          chunkTokens,
+          rollingSummary,
+        );
+        if (validation.valid) {
+          chunkSummary = generated.text;
+          break;
+        }
+        correctiveReason = validation.reason ?? "invalid summary";
+        logger.warn("thread.compaction.chunk-summary-invalid", {
+          threadKey: args.threadKey,
+          model: args.resolvedLlm.model.id,
+          chunkIndex,
+          chunkCount: chunks.length,
+          attempt,
+          reason: validation.reason,
+        });
+      } else {
+        correctiveReason = generated.reason ?? "summary generation failed";
+        if (!generated.retryable) {
+          nonRetryable = true;
+          break;
+        }
+      }
+    }
+    if (nonRetryable) {
+      // e.g. no API key: nothing later will succeed either; report the
+      // failure instead of folding the rest of the history unnarrated.
+      return { text: null, reason: correctiveReason };
+    }
+    if (chunkSummary) {
+      rollingSummary = chunkSummary;
+      continue;
+    }
+    foldedWithoutNarrationTokens += chunkTokens;
+    lastFailureReason = correctiveReason;
+    logger.warn("thread.compaction.chunk-summary-failed", {
+      threadKey: args.threadKey,
+      model: args.resolvedLlm.model.id,
+      chunkIndex,
+      chunkCount: chunks.length,
+      chunkTokens,
+      reason: correctiveReason,
+    });
+  }
+  if (!rollingSummary?.trim() || rollingSummary === previousSummary) {
+    return {
+      text: null,
+      reason:
+        lastFailureReason ?? "chunked summary generation produced no update",
+    };
+  }
+  if (foldedWithoutNarrationTokens > 0) {
+    rollingSummary = `[chunked compaction: ~${foldedWithoutNarrationTokens} tokens of history were folded without narration after repeated summary failures; the raw messages remain in thread storage]\n\n${rollingSummary}`;
+  }
+  return { text: rollingSummary };
+};
+
+/**
  * Result of an attempted thread compaction.
  *
  * Returns `compacted: true` only when an overlay was actually written
@@ -1136,9 +1317,18 @@ export const maybeCompactRuntimeThread = async (args: {
       ? buildDurableMemoryReference(args.stellaDataDir)
       : undefined;
   let bestInvalidCandidate: string | null = null;
+  // A middle too large for one summary request in the current model's window
+  // (e.g. a large thread continuing on a smaller-context model) goes straight
+  // to chunked compaction below; capping it into a single pass would silently
+  // drop the oldest unsummarized history from the checkpoint.
+  const needsChunkedCompaction =
+    formatThreadMessagesForCompaction(splitMessages.middleMessages).trim()
+      .length > getSummaryInputCharBudget(args.resolvedLlm);
   for (
     let attempt = 1;
-    !summary && attempt <= THREAD_SUMMARY_MAX_GENERATION_ATTEMPTS;
+    !summary &&
+    !needsChunkedCompaction &&
+    attempt <= THREAD_SUMMARY_MAX_GENERATION_ATTEMPTS;
     attempt += 1
   ) {
     const generated = await generateThreadSummary({
@@ -1175,6 +1365,43 @@ export const maybeCompactRuntimeThread = async (args: {
     } else {
       correctiveReason = generated.reason ?? "summary generation failed";
       if (!generated.retryable) break;
+    }
+  }
+  if (!summary && correctiveReason !== "no API key") {
+    // Chunked/hierarchical compaction with the current model: the primary
+    // path when the middle cannot fit one request, and the fallback when the
+    // single pass failed (e.g. the char-per-token estimate undercounted and
+    // the summary request itself overflowed the provider window).
+    const chunked = await generateChunkedThreadSummary({
+      threadKey: args.threadKey,
+      middleMessages: splitMessages.middleMessages,
+      ...(splitMessages.previousSummary
+        ? { previousSummary: splitMessages.previousSummary }
+        : {}),
+      resolvedLlm: args.resolvedLlm,
+      ...(durableMemoryReference ? { durableMemoryReference } : {}),
+      ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+    });
+    if (chunked.text) {
+      const validation = validateThreadSummary(
+        chunked.text,
+        middleTokens,
+        splitMessages.previousSummary,
+      );
+      if (validation.valid) {
+        summary = chunked.text;
+      } else {
+        bestInvalidCandidate = chunked.text;
+        correctiveReason = `chunked: ${validation.reason ?? "invalid summary"}`;
+        logger.warn("thread.compaction.chunked-summary-invalid", {
+          threadKey: args.threadKey,
+          model: args.resolvedLlm.model.id,
+          reason: validation.reason,
+          middleTokens,
+        });
+      }
+    } else if (chunked.reason) {
+      correctiveReason = chunked.reason;
     }
   }
   if (!summary) {

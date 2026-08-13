@@ -35,15 +35,15 @@ describe("friendlyInlineToolStatus", () => {
     ).toBe("Command failed");
   });
 
-  it("keeps background-work tools out of raw inline status copy", () => {
+  it("keeps agent lifecycle tools out of raw inline status copy", () => {
     expect(friendlyInlineToolStatus(activity("spawn_agent", "started"))).toBe(
-      "Starting background work",
+      "Starting work",
     );
     expect(friendlyInlineToolStatus(activity("send_input", "completed"))).toBe(
-      "Updated background work",
+      "Updated work",
     );
     expect(friendlyInlineToolStatus(activity("pause_agent", "started"))).toBe(
-      "Pausing background work",
+      "Pausing work",
     );
   });
 

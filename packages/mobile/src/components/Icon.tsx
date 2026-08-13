@@ -55,6 +55,8 @@ export type IconName =
   | "clock"
   | "refresh-cw"
   | "rotate-ccw"
+  | "text-cursor"
+  | "quote"
   | "alert-circle";
 
 const FEATHER_NAMES: Record<
@@ -110,6 +112,10 @@ const FEATHER_NAMES: Record<
   clock: "clock",
   "refresh-cw": "refresh-cw",
   "rotate-ccw": "rotate-ccw",
+  // Feather has no dedicated "select text" glyph; the "type" (T) glyph reads as
+  // text, and "corner-up-left" is the closest reply/quote affordance.
+  "text-cursor": "type",
+  quote: "corner-up-left",
   "alert-circle": "alert-circle",
 };
 
@@ -161,6 +167,8 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   clock: "clock",
   "refresh-cw": "arrow.clockwise",
   "rotate-ccw": "arrow.counterclockwise",
+  "text-cursor": "textformat",
+  quote: "text.quote",
   "alert-circle": "exclamationmark.circle",
 };
 

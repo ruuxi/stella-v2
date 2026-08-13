@@ -847,6 +847,38 @@ const shareMessageText = (text: string) => {
   void Share.share({ message: trimmed }).catch(() => {});
 };
 
+/**
+ * Renders `text` as a markdown blockquote (each line prefixed with "> "), the
+ * quote convention understood by the composer's markdown. Used by the message
+ * menu's "Quote" action to reply to a specific message.
+ */
+const quoteMessageText = (text: string): string =>
+  text
+    .trim()
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+
+/**
+ * The context-menu timestamp header, e.g. "Aug 7, 12:56 PM". Mirrors ChatGPT's
+ * long-press menu, which floats the message time above the action rows. Returns
+ * null when the row has no local timestamp (in-flight/legacy rows) so the header
+ * is simply omitted.
+ */
+const formatMessageTimestamp = (createdAt?: number): string | null => {
+  if (typeof createdAt !== "number" || !Number.isFinite(createdAt)) return null;
+  try {
+    return new Date(createdAt).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return null;
+  }
+};
+
 type ChatStyles = ReturnType<typeof makeStyles>;
 
 /**
@@ -1039,8 +1071,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
   styles,
   colors,
   isStreaming,
+  menuActive,
+  isSelecting,
   onOpenArtifact,
   onOpenMessageMenu,
+  onEndSelecting,
   onAskStella,
 }: {
   item: ChatMessage;
@@ -1048,21 +1083,50 @@ const ChatMessageRow = memo(function ChatMessageRow({
   colors: Colors;
   /** True for the trailing assistant message while a reply is mid-stream. */
   isStreaming: boolean;
+  /** True while this row's long-press menu is open — drives the focus lift. */
+  menuActive: boolean;
+  /** True while "Select text" has put this row into native selection mode. */
+  isSelecting: boolean;
   onOpenArtifact?: (artifact: ChatArtifact) => void;
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
+  /** Leaves the "Select text" mode for this row. */
+  onEndSelecting: () => void;
   /** Puts a selected assistant snippet into the composer ("Ask Stella"). */
   onAskStella: (text: string) => void;
 }) {
-  // Assistant-only: press-and-hold enters native text selection with a custom
-  // Copy / Ask Stella / Select All row (see the assistant branch below). The
-  // user-message long-press menu is unchanged.
-  const [selecting, setSelecting] = useState(false);
+  // Both roles long-press to open the unified action menu. While it's open the
+  // bubble lifts (scales up ~1.03) to mirror ChatGPT's native context menu; the
+  // spring settles back when the menu dismisses.
+  const lift = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(lift, {
+      toValue: menuActive ? 1 : 0,
+      damping: 18,
+      stiffness: 240,
+      mass: 0.7,
+      useNativeDriver: true,
+    }).start();
+  }, [menuActive, lift]);
+  const liftStyle = useMemo(
+    () => ({
+      transform: [
+        {
+          scale: lift.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 1.03],
+          }),
+        },
+      ],
+    }),
+    [lift],
+  );
   const openMenu = (e: { nativeEvent: { pageX: number; pageY: number } }) => {
     // Open for a message with text OR attachments — an attachment-only user
     // message still gets the Rewind action (desktop parity). The popover hides
     // itself when a message yields no applicable options.
     if (!item.text.trim() && (item.thumbnailUris?.length ?? 0) === 0) return;
-    tapLight();
+    // Medium impact for the "lift" moment; action taps then fire a light tap.
+    tapMedium();
     onOpenMessageMenu({
       message: item,
       anchor: {
@@ -1094,33 +1158,50 @@ const ChatMessageRow = memo(function ChatMessageRow({
     return (
       <View style={styles.userRow}>
         <View style={styles.userColumn}>
-          <Pressable
-            onLongPress={openMenu}
-            delayLongPress={350}
-            accessibilityLabel="Long press for message actions"
-            style={[styles.userBubble, item.queued && styles.userBubbleQueued]}
-          >
-            {showThumbs ? (
-              <View
+          {isSelecting && showText ? (
+            // "Select text" mode: the bubble body becomes a native selection
+            // surface (Copy / Select All), so a substring can be lifted out.
+            <View style={styles.userBubble}>
+              <AssistantTextSelection
+                text={item.text}
+                colors={colors}
+                onDismiss={onEndSelecting}
+              />
+            </View>
+          ) : (
+            <Animated.View style={liftStyle}>
+              <Pressable
+                onLongPress={openMenu}
+                delayLongPress={350}
+                accessibilityLabel="Long press for message actions"
                 style={[
-                  styles.userThumbStrip,
-                  showText && styles.userThumbsAbove,
+                  styles.userBubble,
+                  item.queued && styles.userBubbleQueued,
                 ]}
               >
-                {thumbs.slice(0, 3).map((uri) => (
-                  <Image
-                    key={uri}
-                    source={{ uri }}
-                    style={styles.userThumbImage}
-                    contentFit="cover"
-                  />
-                ))}
-              </View>
-            ) : null}
-            {showText ? (
-              <UserMessageText text={item.text} styles={styles} />
-            ) : null}
-          </Pressable>
+                {showThumbs ? (
+                  <View
+                    style={[
+                      styles.userThumbStrip,
+                      showText && styles.userThumbsAbove,
+                    ]}
+                  >
+                    {thumbs.slice(0, 3).map((uri) => (
+                      <Image
+                        key={uri}
+                        source={{ uri }}
+                        style={styles.userThumbImage}
+                        contentFit="cover"
+                      />
+                    ))}
+                  </View>
+                ) : null}
+                {showText ? (
+                  <UserMessageText text={item.text} styles={styles} />
+                ) : null}
+              </Pressable>
+            </Animated.View>
+          )}
           {item.queued || item.stopped ? (
             <Text
               style={item.queued ? styles.queuedTag : styles.stoppedTag}
@@ -1172,38 +1253,33 @@ const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <View style={styles.assistantRow}>
       {hasText ? (
-        selecting && !isStreaming ? (
-          // Native text selection with a custom Copy / Ask Stella / Select All
-          // row. Assistant messages never open the user-message menu.
+        isSelecting && !isStreaming ? (
+          // "Select text" mode: native text selection with a custom
+          // Copy / Ask Stella / Select All row, reached from the action menu.
           <AssistantTextSelection
             text={item.text}
             colors={colors}
             onAskStella={onAskStella}
-            onDismiss={() => setSelecting(false)}
+            onDismiss={onEndSelecting}
           />
         ) : (
-          // Press-and-hold a finished reply to enter that selection mode. The
-          // wrapping View in `AssistantMarkdown` lets this parent Pressable win
-          // the long-press while taps still reach inline links; code blocks
+          // Press-and-hold a finished reply to open the unified action menu.
+          // The wrapping View in `AssistantMarkdown` lets this parent Pressable
+          // win the long-press while taps still reach inline links; code blocks
           // keep their own native selection.
-          <Pressable
-            onLongPress={
-              isStreaming
-                ? undefined
-                : () => {
-                    tapLight();
-                    setSelecting(true);
-                  }
-            }
-            delayLongPress={350}
-            accessibilityLabel="Press and hold to select this message"
-          >
-            <AssistantMarkdown
-              text={item.text}
-              colors={colors}
-              isStreaming={isStreaming}
-            />
-          </Pressable>
+          <Animated.View style={liftStyle}>
+            <Pressable
+              onLongPress={isStreaming ? undefined : openMenu}
+              delayLongPress={350}
+              accessibilityLabel="Long press for message actions"
+            >
+              <AssistantMarkdown
+                text={item.text}
+                colors={colors}
+                isStreaming={isStreaming}
+              />
+            </Pressable>
+          </Animated.View>
         )
       ) : null}
       {toolActivity ? (
@@ -1637,6 +1713,8 @@ function PlusMenuPopover({
   onDismiss,
   colors,
   containerRef,
+  headerLabel = null,
+  scrim = false,
 }: {
   visible: boolean;
   anchor: AnchorRect | null;
@@ -1651,6 +1729,18 @@ function PlusMenuPopover({
    * We translate window anchors into this container's local space.
    */
   containerRef: React.RefObject<View | null>;
+  /**
+   * Non-interactive header shown above the options (the message menu passes the
+   * message timestamp, e.g. "Aug 7, 12:56 PM"). Omitted when null.
+   */
+  headerLabel?: string | null;
+  /**
+   * Dim the chat behind the menu (ChatGPT's focused context-menu feel). A plain
+   * `#000` scrim — matching the app's sheet/modal convention — rather than a
+   * full-screen `GlassView`, which as a glass layer *beneath* the in-tree menu
+   * would trigger Apple's glass-on-glass suppression and render the menu clear.
+   */
+  scrim?: boolean;
 }) {
   const styles = useMemo(() => makePlusMenuStyles(colors), [colors]);
   const [menuLayout, setMenuLayout] = useState<{
@@ -1772,6 +1862,12 @@ function PlusMenuPopover({
 
   return (
     <View style={styles.overlay} pointerEvents="box-none">
+      {scrim ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.scrim, { opacity: anim }]}
+        />
+      ) : null}
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={handleRequestClose}
@@ -1807,6 +1903,17 @@ function PlusMenuPopover({
               own `present`-driven materialize animation; the spring lives on the
               transform above. */}
         <Animated.View style={{ opacity: measured ? anim : 0 }}>
+          {headerLabel && !submenuTitle ? (
+            <View
+              style={[styles.menuItem, styles.menuHeader]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <Text style={styles.menuHeaderLabel} numberOfLines={1}>
+                {headerLabel}
+              </Text>
+            </View>
+          ) : null}
           {submenuTitle ? (
             <Pressable
               accessibilityLabel="Back to menu"
@@ -1905,6 +2012,28 @@ const makePlusMenuStyles = (colors: Colors) =>
       // to the backdrop / menu children only.
       ...StyleSheet.absoluteFillObject,
       zIndex: 50,
+    },
+    scrim: {
+      // Dim (not blur) the chat behind the focused message menu — the app's
+      // sheet/modal convention (see TopSheet). A GlassView blur here would sit
+      // beneath the menu's own glass and get suppressed, rendering it clear.
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.32)",
+    },
+    menuHeader: {
+      borderBottomColor: fadeHex(colors.border, 0.55),
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      justifyContent: "center",
+      marginBottom: 4,
+      paddingBottom: 10,
+      paddingVertical: 8,
+    },
+    menuHeaderLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 12,
+      letterSpacing: -0.1,
+      textAlign: "center",
     },
     menu: {
       borderRadius: 14,
@@ -2952,6 +3081,17 @@ export function ChatPane({
   const [messageMenu, setMessageMenu] = useState<MessageMenuRequest | null>(
     null,
   );
+  // The message currently in "Select text" mode (id), entered from the menu's
+  // Select text action. At most one row selects at a time.
+  const [selectingMessageId, setSelectingMessageId] = useState<string | null>(
+    null,
+  );
+  const startSelectingMessage = useCallback((id: string) => {
+    setSelectingMessageId(id);
+  }, []);
+  const stopSelectingMessage = useCallback(() => {
+    setSelectingMessageId(null);
+  }, []);
   // Two-step confirm for the destructive Rewind action: the first tap arms (the
   // menu stays open and the row becomes "Tap again to rewind"), the second tap
   // within the window truncates. Mirrors the desktop MessageActions confirm;
@@ -3000,29 +3140,72 @@ export function ChatPane({
     [onRewindMessage, rewindArmed],
   );
 
-  // Long-press copy/share menu for user AND assistant messages. Assistant
-  // messages also keep their inline actions (copy / read aloud / share) under
-  // the bubble; read-aloud lives only there. User messages additionally get the
-  // destructive Rewind action when the surface owns its transcript.
+  // "Quote" a message: prepend it to the composer draft as a markdown
+  // blockquote (the app has no dedicated reply-context concept), then focus the
+  // composer so the reply is typed beneath the quote.
+  const quoteMessage = useCallback(
+    (text: string) => {
+      const quoted = quoteMessageText(text);
+      if (!quoted) return;
+      const current = draftRef.current;
+      onChangeDraft(
+        current.trim() ? `${quoted}\n\n${current}` : `${quoted}\n\n`,
+      );
+      setTimeout(() => inputRef.current?.focus(), 0);
+    },
+    [onChangeDraft],
+  );
+
+  // Long-press action menu for user AND assistant messages. Copy / Select text /
+  // Share / Quote apply to any message with text; Rewind is destructive and
+  // user-only (see below). Assistant messages also keep their inline actions
+  // (copy / read aloud / share) under the bubble; read-aloud lives only there.
+  // Each action fires a light tap on selection (the menu-open medium tap is in
+  // ChatMessageRow.openMenu).
   const messageMenuOptions = useMemo<PlusMenuOption[]>(() => {
     if (!messageMenu) return [];
     const message = messageMenu.message;
     const text = message.text;
     const options: PlusMenuOption[] = [];
-    // Copy / Share act on text, so they're offered only when there is any.
+    // Copy / Select text / Share / Quote all act on text, so they're offered
+    // only when there is any (both roles).
     if (text.trim()) {
       options.push(
         {
           id: "copy",
           label: "Copy",
           icon: "copy",
-          onSelect: () => copyMessageText(text),
+          onSelect: () => {
+            tapLight();
+            copyMessageText(text);
+          },
+        },
+        {
+          id: "select-text",
+          label: "Select text",
+          icon: "text-cursor",
+          onSelect: () => {
+            tapLight();
+            startSelectingMessage(message.id);
+          },
         },
         {
           id: "share",
-          label: "Share\u2026",
+          label: "Share…",
           icon: "share",
-          onSelect: () => shareMessageText(text),
+          onSelect: () => {
+            tapLight();
+            shareMessageText(text);
+          },
+        },
+        {
+          id: "quote",
+          label: "Quote",
+          icon: "quote",
+          onSelect: () => {
+            tapLight();
+            quoteMessage(text);
+          },
         },
       );
     }
@@ -3040,7 +3223,15 @@ export function ChatPane({
       });
     }
     return options;
-  }, [messageMenu, onRewindMessage, streaming, rewindArmed, handleRewindOption]);
+  }, [
+    messageMenu,
+    onRewindMessage,
+    streaming,
+    rewindArmed,
+    handleRewindOption,
+    quoteMessage,
+    startSelectingMessage,
+  ]);
 
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
   // Stream fade is driven per-row: only the trailing assistant message
@@ -3073,6 +3264,7 @@ export function ChatPane({
     [onChangeDraft],
   );
 
+  const activeMenuMessageId = messageMenu?.message.id ?? null;
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
       const isStreamingAssistant = item.id === streamingAssistantId;
@@ -3098,8 +3290,11 @@ export function ChatPane({
             styles={styles}
             colors={colors}
             isStreaming={isStreamingAssistant}
+            menuActive={item.id === activeMenuMessageId}
+            isSelecting={item.id === selectingMessageId}
             onOpenArtifact={onOpenArtifact}
             onOpenMessageMenu={setMessageMenu}
+            onEndSelecting={stopSelectingMessage}
             onAskStella={askStella}
           />
         </FadeInMessage>
@@ -3114,6 +3309,9 @@ export function ChatPane({
       scroll.onLatestUserLayout,
       scroll.onStreamingAssistantLayout,
       streamingAssistantId,
+      activeMenuMessageId,
+      selectingMessageId,
+      stopSelectingMessage,
     ],
   );
   const renderSeparator = useCallback(
@@ -3787,6 +3985,12 @@ export function ChatPane({
         onDismiss={dismissMessageMenu}
         colors={colors}
         containerRef={rootRef}
+        headerLabel={
+          messageMenu
+            ? formatMessageTimestamp(messageMenu.message.createdAt)
+            : null
+        }
+        scrim
       />
       <PlusMenuPopover
         visible={Boolean(modelPickerAnchor) && modelPickerOptions.length > 0}

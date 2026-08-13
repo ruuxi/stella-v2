@@ -1225,6 +1225,9 @@
         "previewFailed": "Không tải được bản xem trước bản đồ."
       },
       "messageActions": {
+        "selectText": "Select text",
+        "share": "Share",
+        "quote": "Quote",
         "fork": "Fork to new chat",
         "rewind": "Rewind here",
         "rewindConfirm": "Click again to rewind",

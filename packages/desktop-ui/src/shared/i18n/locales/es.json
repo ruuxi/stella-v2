@@ -1245,6 +1245,9 @@
         "previewFailed": "No se pudo cargar la vista previa del mapa."
       },
       "messageActions": {
+        "selectText": "Select text",
+        "share": "Share",
+        "quote": "Quote",
         "fork": "Fork to new chat",
         "rewind": "Rewind here",
         "rewindConfirm": "Click again to rewind",

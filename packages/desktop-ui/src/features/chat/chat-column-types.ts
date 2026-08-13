@@ -113,6 +113,13 @@ export type ChatColumnScroll = {
   showScrollButton: boolean;
   /** True when the user is at (or within ~1px of) the newest-content edge. */
   isAtBottom: boolean;
+  /**
+   * Generous "at bottom" flag: true while the freshest turn is still on screen
+   * (within `AT_BOTTOM_TOLERANCE_PX` of the readable bottom). Unlike
+   * `isFollowingLatest`, a barely-there upward nudge does not clear it, so the
+   * streaming reply peek only appears when the user is genuinely scrolled up.
+   */
+  isNearBottom: boolean;
   /** True while stream/send auto-follow is armed (intent latch, not raw scrollTop). */
   isFollowingLatest: boolean;
   /** True during direct wheel/touch/keyboard/thumb scrolling and its short settle. */

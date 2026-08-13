@@ -229,6 +229,7 @@ export function ChatPanelTab({
   const assistantReplyPeek = useAssistantReplyPeek({
     messages,
     isFollowingLatest: sidebarScroll.isFollowingLatest,
+    isNearBottom: sidebarScroll.isNearBottom,
   });
 
   const sidebarScrollApi = useMemo<ChatColumnScroll>(
@@ -236,6 +237,7 @@ export function ChatPanelTab({
       listRef: sidebarScroll.listRef,
       showScrollButton: sidebarScroll.showScrollButton,
       isAtBottom: sidebarScroll.isAtBottom,
+      isNearBottom: sidebarScroll.isNearBottom,
       isFollowingLatest: sidebarScroll.isFollowingLatest,
       isUserScrolling: sidebarScroll.isUserScrolling,
       noteManualScroll: sidebarScroll.noteManualScroll,
@@ -247,6 +249,7 @@ export function ChatPanelTab({
       sidebarScroll.listRef,
       sidebarScroll.showScrollButton,
       sidebarScroll.isAtBottom,
+      sidebarScroll.isNearBottom,
       sidebarScroll.isFollowingLatest,
       sidebarScroll.isUserScrolling,
       sidebarScroll.noteManualScroll,

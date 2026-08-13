@@ -1245,6 +1245,9 @@
         "previewFailed": "Previzualizarea hărții nu s-a putut încărca."
       },
       "messageActions": {
+        "selectText": "Select text",
+        "share": "Share",
+        "quote": "Quote",
         "fork": "Fork to new chat",
         "rewind": "Rewind here",
         "rewindConfirm": "Click again to rewind",

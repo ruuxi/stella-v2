@@ -104,7 +104,12 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
-import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
+import type {
+  ChatArtifact,
+  ChatMessage,
+  ComposerQuote,
+  MobileTask,
+} from "../types";
 
 // Required for LayoutAnimation on Android.
 if (
@@ -1075,6 +1080,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isSelecting,
   onOpenArtifact,
   onOpenMessageMenu,
+  onStartSelecting,
   onEndSelecting,
   onAskStella,
 }: {
@@ -1085,24 +1091,30 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isStreaming: boolean;
   /** True while this row's long-press menu is open — drives the focus lift. */
   menuActive: boolean;
-  /** True while "Select text" has put this row into native selection mode. */
+  /** True while this row is in native text-selection mode. */
   isSelecting: boolean;
   onOpenArtifact?: (artifact: ChatArtifact) => void;
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
-  /** Leaves the "Select text" mode for this row. */
+  /** Enters native text-selection mode for this row's id. */
+  onStartSelecting: (id: string) => void;
+  /** Leaves native text-selection mode for this row. */
   onEndSelecting: () => void;
   /** Puts a selected assistant snippet into the composer ("Ask Stella"). */
   onAskStella: (text: string) => void;
 }) {
-  // Both roles long-press to open the unified action menu. While it's open the
-  // bubble lifts (scales up ~1.03) to mirror ChatGPT's native context menu; the
-  // spring settles back when the menu dismisses.
+  // The user bubble lifts (scales up + rises) while its long-press menu is open,
+  // to mirror an iOS context menu. Driven by `menuActive`, which only reaches
+  // this memoized row because the LegendList is given `extraData` keyed on the
+  // active message — without that, the virtualized row never re-renders and the
+  // spring stays inert (the bug where the bubble looked "exactly the same").
+  // The scale/translate are deliberately generous so the lift reads under the
+  // scrim. Spring settles back on dismiss.
   const lift = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.spring(lift, {
       toValue: menuActive ? 1 : 0,
-      damping: 18,
-      stiffness: 240,
+      damping: 16,
+      stiffness: 220,
       mass: 0.7,
       useNativeDriver: true,
     }).start();
@@ -1113,7 +1125,13 @@ const ChatMessageRow = memo(function ChatMessageRow({
         {
           scale: lift.interpolate({
             inputRange: [0, 1],
-            outputRange: [1, 1.03],
+            outputRange: [1, 1.06],
+          }),
+        },
+        {
+          translateY: lift.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, -6],
           }),
         },
       ],
@@ -1160,7 +1178,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View style={styles.userColumn}>
           {isSelecting && showText ? (
             // "Select text" mode: the bubble body becomes a native selection
-            // surface (Copy / Select All), so a substring can be lifted out.
+            // surface (with a Copy pill), so a substring can be lifted out.
             <View style={styles.userBubble}>
               <AssistantTextSelection
                 text={item.text}
@@ -1263,23 +1281,30 @@ const ChatMessageRow = memo(function ChatMessageRow({
             onDismiss={onEndSelecting}
           />
         ) : (
-          // Press-and-hold a finished reply to open the unified action menu.
-          // The wrapping View in `AssistantMarkdown` lets this parent Pressable
-          // win the long-press while taps still reach inline links; code blocks
-          // keep their own native selection.
-          <Animated.View style={liftStyle}>
-            <Pressable
-              onLongPress={isStreaming ? undefined : openMenu}
-              delayLongPress={350}
-              accessibilityLabel="Long press for message actions"
-            >
-              <AssistantMarkdown
-                text={item.text}
-                colors={colors}
-                isStreaming={isStreaming}
-              />
-            </Pressable>
-          </Animated.View>
+          // Press-and-hold a finished reply to enter native text selection —
+          // like holding text anywhere on the phone. Assistant messages never
+          // open the context menu (that's user-message only). The wrapping View
+          // in `AssistantMarkdown` lets this parent Pressable win the long-press
+          // while taps still reach inline links; code blocks keep their own
+          // native selection.
+          <Pressable
+            onLongPress={
+              isStreaming
+                ? undefined
+                : () => {
+                    tapLight();
+                    onStartSelecting(item.id);
+                  }
+            }
+            delayLongPress={350}
+            accessibilityLabel="Press and hold to select this message"
+          >
+            <AssistantMarkdown
+              text={item.text}
+              colors={colors}
+              isStreaming={isStreaming}
+            />
+          </Pressable>
         )
       ) : null}
       {toolActivity ? (
@@ -1704,6 +1729,8 @@ type AnchorRect = { x: number; y: number; width: number; height: number };
 
 const PLUS_MENU_GAP = 10;
 const PLUS_MENU_MIN_WIDTH = 200;
+// Roomier minimum for the focused message context menu (the `large` variant).
+const PLUS_MENU_LARGE_MIN_WIDTH = 268;
 const PLUS_MENU_EDGE_PADDING = 12;
 
 function PlusMenuPopover({
@@ -1715,6 +1742,7 @@ function PlusMenuPopover({
   containerRef,
   headerLabel = null,
   scrim = false,
+  large = false,
 }: {
   visible: boolean;
   anchor: AnchorRect | null;
@@ -1743,6 +1771,12 @@ function PlusMenuPopover({
    * so the frost must come from the single glass card, not the backdrop.
    */
   scrim?: boolean;
+  /**
+   * Roomier rows/typography/width for the focused message context menu, to match
+   * the reference (a small dense popover like the +/model menus reads too
+   * cramped as a primary context menu).
+   */
+  large?: boolean;
 }) {
   const styles = useMemo(() => makePlusMenuStyles(colors), [colors]);
   const [menuLayout, setMenuLayout] = useState<{
@@ -1833,7 +1867,8 @@ function PlusMenuPopover({
 
   const screen = Dimensions.get("window");
   const measured = menuLayout;
-  const desiredWidth = Math.max(PLUS_MENU_MIN_WIDTH, measured?.width ?? 0);
+  const menuMinWidth = large ? PLUS_MENU_LARGE_MIN_WIDTH : PLUS_MENU_MIN_WIDTH;
+  const desiredWidth = Math.max(menuMinWidth, measured?.width ?? 0);
   // Left-align with the anchor, clamped inside the screen so the bubble
   // never spills past the edge of the device. Computed in window space, then
   // re-based into the container's local space (we render in-tree, not modal).
@@ -1884,7 +1919,7 @@ function PlusMenuPopover({
           styles.menu,
           {
             left,
-            minWidth: PLUS_MENU_MIN_WIDTH,
+            minWidth: menuMinWidth,
             top: measured ? top : anchor.y - PLUS_MENU_GAP - origin.y,
             transform: [{ translateY: enterTranslateY }, { scale: enterScale }],
           },
@@ -1902,7 +1937,7 @@ function PlusMenuPopover({
             ? { tintColor: fadeHex(colors.surface, 0.66) }
             : { legible: true })}
           present={Boolean(measured)}
-          radius={14}
+          radius={large ? 18 : 14}
           ringed
           pointerEvents="none"
           style={StyleSheet.absoluteFill}
@@ -1915,11 +1950,21 @@ function PlusMenuPopover({
         <Animated.View style={{ opacity: measured ? anim : 0 }}>
           {headerLabel && !submenuTitle ? (
             <View
-              style={[styles.menuItem, styles.menuHeader]}
+              style={[
+                styles.menuItem,
+                large && styles.menuItemLarge,
+                styles.menuHeader,
+              ]}
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
             >
-              <Text style={styles.menuHeaderLabel} numberOfLines={1}>
+              <Text
+                style={[
+                  styles.menuHeaderLabel,
+                  large && styles.menuHeaderLabelLarge,
+                ]}
+                numberOfLines={1}
+              >
                 {headerLabel}
               </Text>
             </View>
@@ -1958,6 +2003,7 @@ function PlusMenuPopover({
                 onPress={() => onSelectOption(option)}
                 style={({ pressed }) => [
                   styles.menuItem,
+                  large && styles.menuItemLarge,
                   isFirst && styles.menuItemFirst,
                   isLast && styles.menuItemLast,
                   pressed && styles.menuItemPressed,
@@ -1966,7 +2012,7 @@ function PlusMenuPopover({
               >
                 <Icon
                   name={option.icon}
-                  size={16}
+                  size={large ? 20 : 16}
                   color={
                     option.disabled
                       ? colors.textMuted
@@ -1974,11 +2020,12 @@ function PlusMenuPopover({
                         ? colors.danger
                         : colors.text
                   }
-                  style={styles.menuItemIcon}
+                  style={large ? styles.menuItemIconLarge : styles.menuItemIcon}
                 />
                 <Text
                   style={[
                     styles.menuItemLabel,
+                    large && styles.menuItemLabelLarge,
                     option.destructive && styles.menuItemLabelDanger,
                     option.disabled && styles.menuItemLabelMuted,
                   ]}
@@ -2049,6 +2096,15 @@ const makePlusMenuStyles = (colors: Colors) =>
       letterSpacing: -0.1,
       textAlign: "center",
     },
+    menuHeaderLabelLarge: { fontSize: 13, paddingVertical: 2 },
+    // `large` variant — roomier rows/typography for the focused message menu.
+    menuItemLarge: {
+      gap: 14,
+      paddingHorizontal: 18,
+      paddingVertical: 15,
+    },
+    menuItemIconLarge: { width: 24 },
+    menuItemLabelLarge: { fontSize: 17, letterSpacing: -0.3 },
     menu: {
       borderRadius: 14,
       paddingVertical: 6,
@@ -2297,6 +2353,16 @@ export type ChatPaneProps = {
   maxAttachments?: number;
 
   /**
+   * Quoted-text chips pending in the composer — added by the message menu's
+   * "Quote" and assistant selection's "Ask Stella", rendered as removable chips
+   * above the input, and folded into the sent message by `useChatThread`. When
+   * `onAddQuote` is absent those actions fall back to inline draft text.
+   */
+  quotes?: ComposerQuote[];
+  onAddQuote?: (text: string) => void;
+  onRemoveQuote?: (id: string) => void;
+
+  /**
    * Opens the computer device sheet (status, wake, view-screen,
    * model settings). When provided, a floating gear button renders above the
    * composer. The cloud chat omits it.
@@ -2387,6 +2453,9 @@ export function ChatPane({
   attachments,
   onChangeAttachments,
   maxAttachments,
+  quotes,
+  onAddQuote,
+  onRemoveQuote,
   onOpenDeviceSheet,
   dictationAnonymous,
   dictationHeaders,
@@ -3154,28 +3223,34 @@ export function ChatPane({
     [onRewindMessage, rewindArmed],
   );
 
-  // "Quote" a message: prepend it to the composer draft as a markdown
-  // blockquote (the app has no dedicated reply-context concept), then focus the
-  // composer so the reply is typed beneath the quote.
+  // "Quote" a message: drop it into the composer as a removable quote chip (so
+  // the input isn't stuffed with the paragraph), then focus so the reply is
+  // typed alongside it. On send the chip folds back in as a blockquote (see
+  // `useChatThread`). Falls back to inline blockquote text if the surface didn't
+  // wire quote state.
   const quoteMessage = useCallback(
     (text: string) => {
-      const quoted = quoteMessageText(text);
-      if (!quoted) return;
-      const current = draftRef.current;
-      onChangeDraft(
-        current.trim() ? `${quoted}\n\n${current}` : `${quoted}\n\n`,
-      );
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      if (onAddQuote) {
+        onAddQuote(trimmed);
+      } else {
+        const quoted = quoteMessageText(trimmed);
+        const current = draftRef.current;
+        onChangeDraft(
+          current.trim() ? `${quoted}\n\n${current}` : `${quoted}\n\n`,
+        );
+      }
       setTimeout(() => inputRef.current?.focus(), 0);
     },
-    [onChangeDraft],
+    [onAddQuote, onChangeDraft],
   );
 
-  // Long-press action menu for user AND assistant messages. Copy / Select text /
-  // Share / Quote apply to any message with text; Rewind is destructive and
-  // user-only (see below). Assistant messages also keep their inline actions
-  // (copy / read aloud / share) under the bubble; read-aloud lives only there.
-  // Each action fires a light tap on selection (the menu-open medium tap is in
-  // ChatMessageRow.openMenu).
+  // Long-press action menu for USER messages (assistant long-press does native
+  // text selection instead). Copy / Select text / Share / Quote apply to any
+  // message with text; Rewind is destructive and offered only on a settled user
+  // message of an owned transcript. Each action fires a light tap on selection
+  // (the menu-open medium tap is in ChatMessageRow.openMenu).
   const messageMenuOptions = useMemo<PlusMenuOption[]>(() => {
     if (!messageMenu) return [];
     const message = messageMenu.message;
@@ -3269,13 +3344,21 @@ export function ChatPane({
     (selected: string) => {
       const snippet = selected.trim();
       if (!snippet) return;
-      const current = draftRef.current;
-      onChangeDraft(
-        current.trim() ? `${current.trimEnd()} ${snippet}` : snippet,
-      );
+      // Drop the selection into the composer as a removable quote chip (so the
+      // input isn't stuffed with the paragraph), then focus so the user can type
+      // their question. Falls back to inline draft text if the surface didn't
+      // wire quote state.
+      if (onAddQuote) {
+        onAddQuote(snippet);
+      } else {
+        const current = draftRef.current;
+        onChangeDraft(
+          current.trim() ? `${current.trimEnd()} ${snippet}` : snippet,
+        );
+      }
       setTimeout(() => inputRef.current?.focus(), 0);
     },
-    [onChangeDraft],
+    [onAddQuote, onChangeDraft],
   );
 
   const activeMenuMessageId = messageMenu?.message.id ?? null;
@@ -3308,6 +3391,7 @@ export function ChatPane({
             isSelecting={item.id === selectingMessageId}
             onOpenArtifact={onOpenArtifact}
             onOpenMessageMenu={setMessageMenu}
+            onStartSelecting={startSelectingMessage}
             onEndSelecting={stopSelectingMessage}
             onAskStella={askStella}
           />
@@ -3325,9 +3409,15 @@ export function ChatPane({
       streamingAssistantId,
       activeMenuMessageId,
       selectingMessageId,
+      startSelectingMessage,
       stopSelectingMessage,
     ],
   );
+  // Legend recycles memoized rows keyed on item data, so top-level focus state
+  // (which row's menu is open / which is selecting) never reaches a mounted row
+  // on its own. Feed it as `extraData` so opening the menu actually re-renders
+  // the pressed row and its lift spring fires (and selection mode shows).
+  const listExtraData = `${activeMenuMessageId ?? ""}|${selectingMessageId ?? ""}`;
   const renderSeparator = useCallback(
     () => <View style={styles.itemSeparator} />,
     [styles],
@@ -3493,6 +3583,8 @@ export function ChatPane({
 
   const showAttachmentStrip =
     enableAttachments && (attachments?.length ?? 0) > 0;
+  const quoteChips = quotes ?? [];
+  const showQuoteStrip = quoteChips.length > 0;
 
   const listContentContainerStyle = useMemo(
     () => [styles.list, { paddingBottom: listBottomInsetPx }],
@@ -3519,6 +3611,7 @@ export function ChatPane({
               style={styles.messageList}
               contentContainerStyle={listContentContainerStyle}
               data={visibleMessages}
+              extraData={listExtraData}
               renderItem={renderItem}
               keyExtractor={keyExtractor}
               getItemType={getItemType}
@@ -3793,6 +3886,36 @@ export function ChatPane({
         <View
           style={[styles.composerWrap, { paddingBottom: composerBottomPad }]}
         >
+          {showQuoteStrip && (
+            <View style={styles.quoteStrip}>
+              {quoteChips.map((quote) => (
+                <View key={quote.id} style={styles.quoteChip}>
+                  <Icon
+                    name="quote"
+                    size={13}
+                    color={colors.textMuted}
+                    style={styles.quoteChipIcon}
+                  />
+                  <Text
+                    style={styles.quoteChipText}
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                  >
+                    {quote.text}
+                  </Text>
+                  <Pressable
+                    style={styles.quoteChipRemove}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove quoted text"
+                    onPress={() => onRemoveQuote?.(quote.id)}
+                    hitSlop={8}
+                  >
+                    <Icon name="x" size={13} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
           {showAttachmentStrip && (
             <View style={styles.attachmentStrip}>
               {(attachments ?? []).map((asset) => (
@@ -4005,6 +4128,7 @@ export function ChatPane({
             : null
         }
         scrim
+        large
       />
       <PlusMenuPopover
         visible={Boolean(modelPickerAnchor) && modelPickerOptions.length > 0}
@@ -4380,6 +4504,44 @@ const makeStyles = (colors: Colors) =>
       gap: 8,
       paddingBottom: 10,
       paddingHorizontal: 4,
+    },
+    // Removable quoted-text chips (message-menu Quote / assistant "Ask Stella").
+    // Stretched left like the attachment strip; each chip collapses the quote to
+    // a single line so the composer never fills with a pasted paragraph.
+    quoteStrip: {
+      alignSelf: "stretch",
+      flexDirection: "column",
+      gap: 6,
+      paddingBottom: 10,
+      paddingHorizontal: 4,
+    },
+    quoteChip: {
+      alignItems: "center",
+      alignSelf: "flex-start",
+      backgroundColor: fadeHex(colors.text, 0.06),
+      borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      gap: 6,
+      maxWidth: "100%",
+      paddingLeft: 10,
+      paddingRight: 6,
+      paddingVertical: 6,
+    },
+    quoteChipIcon: { opacity: 0.8 },
+    quoteChipText: {
+      color: colors.textMuted,
+      flexShrink: 1,
+      fontFamily: fonts.sans.regular,
+      fontSize: 13,
+      letterSpacing: -0.1,
+    },
+    quoteChipRemove: {
+      alignItems: "center",
+      justifyContent: "center",
+      height: 20,
+      width: 20,
     },
     attachmentThumb: {
       borderRadius: 10,

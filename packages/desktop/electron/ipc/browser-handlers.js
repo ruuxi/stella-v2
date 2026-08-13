@@ -3,7 +3,7 @@ import path from "node:path";
 import { clipboard, ipcMain, nativeImage, } from "electron";
 import { getBrowserCookieHeader } from "./browser-fetch-session.js";
 import { normalizeUrlForPrivilegedRendererFetch, PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS, } from "./renderer-safe-url.js";
-import { IPC_BROWSER_FETCH_JSON, IPC_BROWSER_FETCH_TEXT, IPC_MEDIA_COPY_IMAGE, IPC_MEDIA_GET_DIR, IPC_MEDIA_SAVE_OUTPUT, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_BROWSER_FETCH_JSON, IPC_BROWSER_FETCH_TEXT, IPC_MEDIA_COPY_ATTACHMENT, IPC_MEDIA_COPY_IMAGE, IPC_MEDIA_GET_DIR, IPC_MEDIA_SAVE_OUTPUT, } from "@stella/contracts/desktop/ipc-channels";
 import { decodeAndValidateImage, decodeBase64ImageBounded, readResponseBodyBounded, validateDecodedImageFile, } from "@stella/runtime/kernel/tools/image-decode-validation";
 import { materializeMediaArtifact } from "@stella/runtime/kernel/tools/media-artifact-store";
 const fetchWithBrowserSession = async (payload) => {
@@ -244,6 +244,55 @@ export const registerBrowserHandlers = (options) => {
             }
             clipboard.writeImage(image);
             return { ok: true };
+        }
+        catch (error) {
+            return { ok: false, error: error.message };
+        }
+    });
+    // Copy a sent message's attachment to the clipboard. Images go on as a
+    // real image (built from the on-disk path, falling back to a data URL);
+    // everything else falls back to writing the file path as text — Electron
+    // exposes no cross-platform "put a file object on the clipboard" API, so
+    // a path-as-text drop is the least-surprising, most-portable behavior.
+    ipcMain.handle(IPC_MEDIA_COPY_ATTACHMENT, async (event, payload) => {
+        if (!options.assertPrivilegedSender(event, IPC_MEDIA_COPY_ATTACHMENT)) {
+            return { ok: false, error: "Blocked untrusted request." };
+        }
+        try {
+            const url = typeof payload?.url === "string" ? payload.url : "";
+            const explicitPath =
+                typeof payload?.path === "string" ? payload.path : "";
+            const mimeType =
+                typeof payload?.mimeType === "string" ? payload.mimeType : "";
+            const kind = typeof payload?.kind === "string" ? payload.kind : "";
+            const dataUrl = url.startsWith("data:") ? url : "";
+            // A path either comes explicitly (disk-backed files) or as the
+            // attachment `url` when it isn't a data/remote URL.
+            const filePath =
+                explicitPath ||
+                (url && !dataUrl && !/^https?:\/\//i.test(url) ? url : "");
+            const looksImage =
+                mimeType.startsWith("image/") ||
+                dataUrl.startsWith("data:image/") ||
+                (kind !== "file" && !mimeType);
+            if (looksImage) {
+                let image = null;
+                if (filePath) {
+                    image = nativeImage.createFromPath(filePath);
+                }
+                if ((!image || image.isEmpty()) && dataUrl) {
+                    image = nativeImage.createFromDataURL(dataUrl);
+                }
+                if (image && !image.isEmpty()) {
+                    clipboard.writeImage(image);
+                    return { ok: true, mode: "image" };
+                }
+            }
+            if (filePath) {
+                clipboard.writeText(filePath);
+                return { ok: true, mode: "path" };
+            }
+            return { ok: false, error: "No copyable attachment content." };
         }
         catch (error) {
             return { ok: false, error: error.message };

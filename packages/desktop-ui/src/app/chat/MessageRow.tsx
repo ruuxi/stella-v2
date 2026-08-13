@@ -25,6 +25,7 @@ import {
   Fragment,
   memo,
   useCallback,
+  useMemo,
   useLayoutEffect,
   useRef,
   useState,
@@ -61,6 +62,7 @@ import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
 import { MessageActions } from "@/app/chat/MessageActions";
 import { useUserMessageActions, useUserMessageActionsBusy, } from "@/app/chat/user-message-actions-context";
+import { primaryCopyAttachment } from "@/app/chat/message-composer-restore";
 import {
   ContextPill,
   FileAttachmentChip,
@@ -419,6 +421,13 @@ export const UserMessageRow = memo(
       [forkAction, row],
     );
     const { text, windowLabel, attachments, channelEnvelope } = row;
+    // Attachment the Copy action falls back to when the message has no text
+    // (image → clipboard image; other file → path as text). Memoized so the
+    // memoized action row isn't re-rendered by busy-state toggles.
+    const copyAttachment = useMemo(
+      () => primaryCopyAttachment(attachments),
+      [attachments],
+    );
     const appSelectionLabels = (row.appSelectionLabels ?? [])
       .map((label) => label.trim())
       .filter((label) => label.length > 0);
@@ -547,6 +556,7 @@ export const UserMessageRow = memo(
             onRewind={messageActions ? handleRewind : undefined}
             onFork={forkAction ? handleFork : undefined}
             actionsDisabled={actionsBusy}
+            copyAttachment={copyAttachment ?? undefined}
           />
         )}
       </div>

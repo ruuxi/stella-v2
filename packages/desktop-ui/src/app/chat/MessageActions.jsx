@@ -44,9 +44,12 @@ const REWIND_CONFIRM_TIMEOUT_MS = 3000;
  * @property {(() => void)} [onRewind] Rewind action (user rows only).
  * @property {(() => void)} [onFork] Fork action (user rows only).
  * @property {boolean} [actionsDisabled] Greys out Rewind/Fork while a turn is busy.
+ * @property {{ path?: string, url?: string, mimeType?: string, kind?: string, name?: string }} [copyAttachment]
+ *   Attachment to copy when the message has no text (image → clipboard image,
+ *   file → path as text). Text always takes priority when present.
  */
 /** @param {MessageActionsProps} props */
-function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "start", streaming = false, onRewind, onFork, actionsDisabled = false, }) {
+function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "start", streaming = false, onRewind, onFork, actionsDisabled = false, copyAttachment = undefined, }) {
     const t = useT();
     const [copied, setCopied] = useState(false);
     const copiedTimerRef = useRef(null);
@@ -103,9 +106,21 @@ function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "
     }, [rewindArmed, disarmRewind]);
     const handleCopy = useCallback(async () => {
         const value = text.trim();
-        if (!value)
+        let ok = false;
+        if (value) {
+            // Text takes priority, including mixed text + attachment messages.
+            ok = await copyTextToClipboard(value);
+        }
+        else if (copyAttachment) {
+            // Attachment-only message: hand it to main, which writes an image
+            // (from the on-disk path or data URL) or falls back to the file
+            // path as text.
+            const result = await window.electronAPI?.media?.copyAttachment?.(copyAttachment);
+            ok = Boolean(result?.ok);
+        }
+        else {
             return;
-        const ok = await copyTextToClipboard(value);
+        }
         if (!ok) {
             console.warn("[message-actions] copy failed");
             return;
@@ -114,7 +129,7 @@ function MessageActionsImpl({ text, messageKey, showReadAloud = false, align = "
         if (copiedTimerRef.current)
             clearTimeout(copiedTimerRef.current);
         copiedTimerRef.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
-    }, [text]);
+    }, [text, copyAttachment]);
     const handleReadAloud = useCallback(() => {
         void toggleManualReadAloud(messageKey, text);
     }, [messageKey, text]);

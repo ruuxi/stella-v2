@@ -29,6 +29,7 @@ import {
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
   IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
   IPC_MEDIA_COPY_IMAGE,
+  IPC_MEDIA_COPY_ATTACHMENT,
   IPC_MEDIA_GET_DIR,
   IPC_MEDIA_SAVE_OUTPUT,
   IPC_DISCOVERY_COLLECT_BROWSER_DATA,
@@ -1730,6 +1731,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     copyImage: (pngBase64: string) =>
       ipcRenderer.invoke(IPC_MEDIA_COPY_IMAGE, { pngBase64 }) as Promise<{
         ok: boolean;
+        error?: string;
+      }>,
+    copyAttachment: (payload: {
+      path?: string;
+      url?: string;
+      mimeType?: string;
+      kind?: string;
+      name?: string;
+    }) =>
+      ipcRenderer.invoke(IPC_MEDIA_COPY_ATTACHMENT, payload) as Promise<{
+        ok: boolean;
+        mode?: "image" | "path";
         error?: string;
       }>,
   },

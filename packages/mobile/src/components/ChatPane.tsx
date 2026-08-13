@@ -1877,6 +1877,9 @@ function PlusMenuPopover({
   const screen = Dimensions.get("window");
   const measured = menuLayout;
   const menuMinWidth = large ? PLUS_MENU_LARGE_MIN_WIDTH : PLUS_MENU_MIN_WIDTH;
+  // Cap the options list so a tall menu scrolls instead of overflowing the
+  // screen; short menus (the common case) still size to their content.
+  const menuMaxOptionsHeight = Math.round(screen.height * 0.55);
   const desiredWidth = Math.max(menuMinWidth, measured?.width ?? 0);
   // Left-align with the anchor, clamped inside the screen so the bubble
   // never spills past the edge of the device. Computed in window space, then
@@ -2000,7 +2003,13 @@ function PlusMenuPopover({
               </Text>
             </Pressable>
           ) : null}
-          {visibleOptions.map((option, index) => {
+          <ScrollView
+            style={{ maxHeight: menuMaxOptionsHeight }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            {visibleOptions.map((option, index) => {
             const isFirst = !submenuTitle && index === 0;
             const isLast = index === visibleOptions.length - 1;
             const hasSubmenu = Boolean(option.submenu?.length);
@@ -2064,6 +2073,7 @@ function PlusMenuPopover({
               </Pressable>
             );
           })}
+          </ScrollView>
         </Animated.View>
       </Animated.View>
     </View>
@@ -4131,6 +4141,7 @@ export function ChatPane({
         onDismiss={dismissPlusMenu}
         colors={colors}
         containerRef={rootRef}
+        large
       />
       <PlusMenuPopover
         // Guard against an empty menu: an attachment-only message on a surface

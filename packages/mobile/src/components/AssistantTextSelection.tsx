@@ -15,13 +15,16 @@ import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
 
 /**
- * Native text selection for a finished assistant reply, with a custom three-
- * button action row (Copy / Ask Stella / Select All) above the text — replacing
- * the reused user-message menu. The body renders into a read-only, keyboard-
- * suppressed `TextInput` so iOS/Android give real selection handles and a live
- * highlight; the OS callout menu is hidden (`contextMenuHidden`) so only our
- * row shows. Entering selection mode selects the whole message so Copy/Ask act
- * immediately; the user can then drag the handles to narrow it.
+ * Native text selection for a finished message, with a custom action row
+ * (Copy / Ask Stella / Select All) above the text — reached from the message
+ * long-press menu's "Select text" action. The body renders into a read-only,
+ * keyboard-suppressed `TextInput` so iOS/Android give real selection handles
+ * and a live highlight; the OS callout menu is hidden (`contextMenuHidden`) so
+ * only our row shows. Entering selection mode selects the whole message so
+ * Copy/Ask act immediately; the user can then drag the handles to narrow it.
+ *
+ * `onAskStella` is optional: assistant replies pass it to expose the "Ask
+ * Stella" button; user messages omit it, leaving just Copy / Select All.
  */
 export function AssistantTextSelection({
   text,
@@ -31,8 +34,8 @@ export function AssistantTextSelection({
 }: {
   text: string;
   colors: Colors;
-  /** Places the current selection into the composer input. */
-  onAskStella: (selected: string) => void;
+  /** Places the current selection into the composer input (assistant only). */
+  onAskStella?: (selected: string) => void;
   /** Leave selection mode (back to the rendered markdown). */
   onDismiss: () => void;
 }) {
@@ -74,7 +77,7 @@ export function AssistantTextSelection({
   const handleAsk = () => {
     cancelPendingDismiss();
     tapLight();
-    onAskStella(selectedText());
+    onAskStella?.(selectedText());
     onDismiss();
   };
 
@@ -96,12 +99,16 @@ export function AssistantTextSelection({
     <View>
       <View style={styles.toolbar}>
         <ToolbarButton label="Copy" onPress={handleCopy} styles={styles} />
-        <View style={styles.divider} />
-        <ToolbarButton
-          label="Ask Stella"
-          onPress={handleAsk}
-          styles={styles}
-        />
+        {onAskStella ? (
+          <>
+            <View style={styles.divider} />
+            <ToolbarButton
+              label="Ask Stella"
+              onPress={handleAsk}
+              styles={styles}
+            />
+          </>
+        ) : null}
         <View style={styles.divider} />
         <ToolbarButton
           label="Select All"

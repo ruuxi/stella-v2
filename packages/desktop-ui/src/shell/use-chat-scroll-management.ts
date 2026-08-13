@@ -36,6 +36,7 @@ import {
   subscribeChatContentGrowth,
 } from "@/shell/chat-scroll-follow";
 import {
+  AT_BOTTOM_TOLERANCE_PX,
   CHAT_VIEWPORT_BOTTOM_FADE_PX,
   POST_SEND_USER_MESSAGE_BREATHING_PX,
   consumeResponseSpacerHeight,
@@ -218,6 +219,16 @@ export function useChatScrollManagement({
     onLoadOlder,
   };
   const [isAtBottom, setIsAtBottom] = useState(true);
+  /**
+   * A generous "at bottom" flag: true while the freshest turn is still on
+   * screen (distance from the readable bottom within `AT_BOTTOM_TOLERANCE_PX`,
+   * the response spacer discounted). Unlike `isFollowingLatest` — the motion
+   * latch that drops the instant the user nudges upward — this stays true
+   * through a barely-there scroll, so UI decisions gated on "is the user
+   * genuinely scrolled up?" (the streaming reply peek) don't fire when the
+   * user can still see the latest messages.
+   */
+  const [isNearBottom, setIsNearBottom] = useState(true);
   const [isFollowingLatest, setIsFollowingLatest] = useState(true);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -239,6 +250,7 @@ export function useChatScrollManagement({
   const thumbFadeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollStateRafRef = useRef<number | null>(null);
   const isAtBottomRef = useRef(true);
+  const isNearBottomRef = useRef(true);
   const showScrollButtonRef = useRef(false);
   const isUserScrollingRef = useRef(false);
   const manualScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -360,10 +372,23 @@ export function useChatScrollManagement({
       const { scroll, scrollLength, contentLength, isAtEnd } = state;
       const distFromEnd = Math.max(0, contentLength - scrollLength - scroll);
       const shouldShowScrollButton = distFromEnd > SCROLL_BUTTON_THRESHOLD;
+      // Discount the synthetic response spacer that inflates the physical end
+      // during a turn, so "near bottom" tracks the readable content, not the
+      // blank reading gutter below it.
+      const spacerOveragePx = Math.max(
+        0,
+        responseSpacerHeightRef.current - trailingRegionMinPx,
+      );
+      const nearBottom =
+        isAtEnd || distFromEnd - spacerOveragePx <= AT_BOTTOM_TOLERANCE_PX;
 
       if (isAtBottomRef.current !== isAtEnd) {
         isAtBottomRef.current = isAtEnd;
         setIsAtBottom(isAtEnd);
+      }
+      if (isNearBottomRef.current !== nearBottom) {
+        isNearBottomRef.current = nearBottom;
+        setIsNearBottom(nearBottom);
       }
       if (showScrollButtonRef.current !== shouldShowScrollButton) {
         showScrollButtonRef.current = shouldShowScrollButton;
@@ -380,7 +405,7 @@ export function useChatScrollManagement({
         setFollow(true);
       }
     });
-  }, [followRearmThreshold, setFollow, updateThumb]);
+  }, [followRearmThreshold, setFollow, trailingRegionMinPx, updateThumb]);
 
   const scrollToBottom = useCallback(
     (behavior: "instant" | "smooth" = "smooth") => {
@@ -426,6 +451,29 @@ export function useChatScrollManagement({
       ),
       isFollowingLatest: followRef.current,
     });
+  }, [trailingRegionMinPx]);
+
+  /**
+   * Snapshot whether the user is effectively at the bottom — the freshest turn
+   * still on screen — regardless of the motion follow latch (a stray upward
+   * nudge releases the latch but does not scroll the latest messages out of
+   * view). Used by the send handler to treat a near-bottom send as an
+   * at-bottom send: pin to the newest content rather than reframe the just-sent
+   * message near the top. Purely distance-based, the response spacer discounted.
+   */
+  const getIsEffectivelyAtBottom = useCallback(() => {
+    const node =
+      attachedScrollNodeRef.current ?? listRef.current?.getScrollableNode();
+    if (!node) return isNearBottomRef.current;
+    const distanceFromBottomPx = Math.max(
+      0,
+      node.scrollHeight - node.clientHeight - node.scrollTop,
+    );
+    const spacerOveragePx = Math.max(
+      0,
+      responseSpacerHeightRef.current - trailingRegionMinPx,
+    );
+    return distanceFromBottomPx - spacerOveragePx <= AT_BOTTOM_TOLERANCE_PX;
   }, [trailingRegionMinPx]);
 
   // Report this surface's at-bottom state to the message-window decay
@@ -1494,6 +1542,7 @@ export function useChatScrollManagement({
   return {
     listRef,
     isAtBottom,
+    isNearBottom,
     isFollowingLatest,
     isUserScrolling,
     noteManualScroll,
@@ -1505,6 +1554,7 @@ export function useChatScrollManagement({
     nudgeBy,
     getIsFollowing,
     getShouldPlaceLatestTurn,
+    getIsEffectivelyAtBottom,
     thumbRef: setThumbRef,
   };
 }

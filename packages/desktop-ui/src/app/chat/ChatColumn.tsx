@@ -131,6 +131,7 @@ export const ChatColumn = memo(function ChatColumn({
     thumbRef,
     listRef,
     isFollowingLatest,
+    isNearBottom,
     isUserScrolling,
   } = scroll;
 
@@ -149,6 +150,7 @@ export const ChatColumn = memo(function ChatColumn({
   const assistantReplyPeek = useAssistantReplyPeek({
     messages,
     isFollowingLatest,
+    isNearBottom,
   });
 
   /**

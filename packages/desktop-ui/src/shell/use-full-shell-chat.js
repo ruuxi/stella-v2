@@ -20,6 +20,12 @@ import { forkLocalConversation, truncateLocalConversation, } from "@/features/ch
 import { composerDraftFromUserRow } from "@/app/chat/message-composer-restore";
 import { coerceAssistantWorkingMode, DEFAULT_ASSISTANT_WORKING_MODE, } from "@stella/contracts/local-preferences";
 const MAX_RETAINED_TAB_STATE = 20;
+/**
+ * How long, after opening/switching into a conversation that lands at the
+ * bottom, to keep re-pinning to the true end while late-rendering content
+ * (agent cards, activity cards, images) settles and grows the scroll height.
+ */
+const OPEN_BOTTOM_SETTLE_MS = 600;
 const setBoundedTabMemory = (memory, conversationId, value) => {
     memory.delete(conversationId);
     memory.set(conversationId, value);
@@ -186,7 +192,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
      * and content geometry; the hook adapts list state into the surface
      * UI concerns (at-bottom, custom thumb, scroll-to-bottom button).
      */
-    const { listRef, isAtBottom, isFollowingLatest, isUserScrolling, noteManualScroll, getIsFollowing, getShouldPlaceLatestTurn, showScrollButton, scrollToBottom, releaseFollow, nudgeAfterSend, nudgeQueuedMessagesIntoView, thumbRef, } = useChatScrollManagement({
+    const { listRef, isAtBottom, isNearBottom, isFollowingLatest, isUserScrolling, noteManualScroll, getIsFollowing, getShouldPlaceLatestTurn, getIsEffectivelyAtBottom, showScrollButton, scrollToBottom, releaseFollow, nudgeAfterSend, nudgeQueuedMessagesIntoView, thumbRef, } = useChatScrollManagement({
         hasOlderEvents: hasOlderMessages,
         isLoadingOlder: isLoadingOlderMessages,
         onLoadOlder: loadOlderMessages,
@@ -220,6 +226,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             return;
         }
         const conversationId = activeConversationId;
+        let settleRaf = null;
         const frame = window.requestAnimationFrame(() => {
             const remembered = scrollMemoryByConversationRef.current.get(conversationId);
             const element = listRef.current?.getScrollableNode();
@@ -232,13 +239,42 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             }
             else {
                 scrollToBottom("instant");
+                // Agent cards, activity cards, and images near the bottom can
+                // mount/settle a beat AFTER this initial pin, growing the scroll
+                // height so the "bottom" we just landed on is now above the real
+                // one — tab switches that land slightly above the true bottom.
+                // Keep re-pinning to the end through that post-open settling
+                // (until the height stops changing, a short window elapses, or
+                // the user takes over) so we always end at the actual bottom.
+                let lastHeight = element ? element.scrollHeight : 0;
+                const deadline = performance.now() + OPEN_BOTTOM_SETTLE_MS;
+                const settle = () => {
+                    settleRaf = null;
+                    const node = listRef.current?.getScrollableNode();
+                    // Bail once the user has scrolled away — never yank them back.
+                    if (!node || !getIsFollowing())
+                        return;
+                    if (node.scrollHeight !== lastHeight) {
+                        lastHeight = node.scrollHeight;
+                        void listRef.current?.scrollToEnd({ animated: false });
+                    }
+                    if (performance.now() < deadline) {
+                        settleRaf = window.requestAnimationFrame(settle);
+                    }
+                };
+                settleRaf = window.requestAnimationFrame(settle);
             }
             restoredConversationScrollRef.current = conversationId;
         });
-        return () => window.cancelAnimationFrame(frame);
+        return () => {
+            window.cancelAnimationFrame(frame);
+            if (settleRaf !== null)
+                window.cancelAnimationFrame(settleRaf);
+        };
     }, [
         activeConversationId,
         displayMessages.length,
+        getIsFollowing,
         isInitialLoadingMessages,
         listRef,
         scrollToBottom,
@@ -256,7 +292,16 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         // *backwards* to re-frame it. The streaming branch below uses a
         // footer-tail target instead.
         const shouldKeepTailFramed = showHomeContent || getShouldPlaceLatestTurn();
-        const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
+        // Treat a near-bottom send (the freshest turn still on screen) as an
+        // at-bottom send: pin to the newest content with a plain scroll-to-
+        // bottom instead of reframing the just-sent message near the top. Only
+        // a genuinely scrolled-up send gets the message-to-top+autoscroll
+        // reframe. `getIsEffectivelyAtBottom` is distance-based, so a stray
+        // upward nudge (which drops the motion follow latch) no longer counts
+        // as "scrolled up" here. Home's first send keeps the reframe so the
+        // opening reply lands in the Codex reading position.
+        const effectivelyAtBottom = !showHomeContent && getIsEffectivelyAtBottom();
+        const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed && !effectivelyAtBottom;
         if (showHomeContent) {
             setComposerFocusRequestId((id) => id + 1);
         }
@@ -283,10 +328,16 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             }
         }
         else if (shouldNudgeAfterSend) {
-            // Places the newest user turn near the top of the readable area,
-            // above the viewport-derived response spacer. The existing gentle
-            // loop keeps that reframe continuous with stream-follow.
+            // Genuinely scrolled up: place the newest user turn near the top of
+            // the readable area, above the viewport-derived response spacer. The
+            // existing gentle loop keeps that reframe continuous with
+            // stream-follow.
             nudgeAfterSend();
+        }
+        else if (effectivelyAtBottom) {
+            // Near-bottom send: a normal scroll-to-bottom that re-arms follow so
+            // the incoming reply is tracked as it streams.
+            scrollToBottom("smooth");
         }
         else {
             releaseFollow();
@@ -296,6 +347,8 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         enterChatSurfaceForInteraction,
         getIsFollowing,
         getShouldPlaceLatestTurn,
+        getIsEffectivelyAtBottom,
+        scrollToBottom,
         isStreaming,
         latestMessageRef,
         nudgeAfterSend,
@@ -539,6 +592,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         listRef,
         showScrollButton,
         isAtBottom,
+        isNearBottom,
         isFollowingLatest,
         isUserScrolling,
         noteManualScroll,
@@ -549,6 +603,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         listRef,
         showScrollButton,
         isAtBottom,
+        isNearBottom,
         isFollowingLatest,
         isUserScrolling,
         noteManualScroll,

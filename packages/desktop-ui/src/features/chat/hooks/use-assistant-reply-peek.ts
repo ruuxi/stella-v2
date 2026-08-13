@@ -6,6 +6,13 @@ type UseAssistantReplyPeekOptions = {
   messages: MessageRecord[];
   /** True while stream/send auto-follow is armed (i.e. user is at the tail). */
   isFollowingLatest: boolean;
+  /**
+   * True while the freshest turn is still on screen (within the generous
+   * at-bottom tolerance). Gates the peek so it only appears when the user is
+   * genuinely scrolled up, not a few px off the bottom where the follow latch
+   * has released but the latest messages are still visible.
+   */
+  isNearBottom: boolean;
 };
 
 /**
@@ -18,28 +25,34 @@ type UseAssistantReplyPeekOptions = {
 export function useAssistantReplyPeek({
   messages,
   isFollowingLatest,
+  isNearBottom,
 }: UseAssistantReplyPeekOptions) {
   const latest = useMemo(() => getLatestAssistantPreview(messages), [messages]);
   const latestId = latest?.id ?? null;
 
-  // While the user is following the tail, keep the baseline pinned to
-  // the latest assistant message id — anything at or before this id was
-  // already on screen for them. When they scroll away, the baseline
-  // freezes and any newer assistant id flips the peek visible.
+  // While the freshest turn is on screen — following the tail OR just within
+  // the generous at-bottom band — keep the baseline pinned to the latest
+  // assistant message id: anything at or before this id was already visible to
+  // the user. When they genuinely scroll away, the baseline freezes and any
+  // newer assistant id flips the peek visible.
   const [baselineId, setBaselineId] = useState<string | null>(latestId);
   const [dismissedId, setDismissedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isFollowingLatest) setBaselineId(latestId);
-  }, [isFollowingLatest, latestId]);
+    if (isFollowingLatest || isNearBottom) setBaselineId(latestId);
+  }, [isFollowingLatest, isNearBottom, latestId]);
 
   const dismiss = useCallback(() => {
     if (latestId) setDismissedId(latestId);
   }, [latestId]);
 
+  // Require the user to be genuinely scrolled up (`!isNearBottom`), not merely
+  // to have dropped the follow latch with a tiny nudge — if the latest messages
+  // are still on screen there is nothing to peek at.
   const visible =
     latest !== null &&
     !isFollowingLatest &&
+    !isNearBottom &&
     latestId !== baselineId &&
     latestId !== dismissedId;
 

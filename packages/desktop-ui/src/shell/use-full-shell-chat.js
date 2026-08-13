@@ -14,6 +14,7 @@ import { useCapturedChatContext } from "./use-captured-chat-context";
 import { useChatScrollManagement } from "./use-chat-scroll-management";
 import { useChatHomeSurface } from "./use-chat-home-surface";
 import { useAgentInputRouting } from "./use-agent-input-routing";
+import { useConversationModelSelection } from "./use-conversation-model-selection";
 import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
 import { forkLocalConversation, truncateLocalConversation, } from "@/features/chat/services/local-chat-store";
 import { composerDraftFromUserRow } from "@/app/chat/message-composer-restore";
@@ -348,6 +349,13 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         };
     }, []);
     const isOrchestratedMode = assistantWorkingMode === "orchestrated";
+    // Per-tab (per-conversation) model selection: mirror the global model
+    // preferences to whichever tab is active so each tab remembers its own
+    // engine/model/reasoning pick. Inert in orchestrated single-chat mode.
+    useConversationModelSelection({
+        activeConversationId,
+        enabled: !isOrchestratedMode,
+    });
     // Per-user-message quick actions (Fork / Rewind) exposed to the deeply
     // nested action row. The callbacks are stable and read live state
     // through this ref, so every user row can consume them without

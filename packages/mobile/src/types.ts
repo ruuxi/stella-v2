@@ -156,6 +156,18 @@ export type ChatArtifact = {
   payload: MobileDisplayPayload;
 };
 
+/**
+ * A quoted-text reference pending in the composer — added by the message menu's
+ * "Quote" action or an assistant text selection's "Ask Stella". Rendered as a
+ * removable chip; on send its `text` is folded into the outgoing message as a
+ * markdown blockquote (see `useChatThread`), so the composer input itself stays
+ * just the user's typed message.
+ */
+export type ComposerQuote = {
+  id: string;
+  text: string;
+};
+
 export type ChatMessage = {
   id: string;
   /**

@@ -511,7 +511,9 @@ function ComputerChatSurface({
         : t("mobile.computer.statusAsleep");
 
   const canSubmit =
-    (thread.draft.trim().length > 0 || thread.attachments.length > 0) &&
+    (thread.draft.trim().length > 0 ||
+      thread.attachments.length > 0 ||
+      thread.quotes.length > 0) &&
     !offline &&
     thread.storageLoaded;
 
@@ -566,6 +568,9 @@ function ComputerChatSurface({
         enableAttachments
         attachments={thread.attachments}
         onChangeAttachments={thread.setAttachments}
+        quotes={thread.quotes}
+        onAddQuote={thread.addQuote}
+        onRemoveQuote={thread.removeQuote}
         dictationAnonymous={false}
         onOpenArtifact={setSelectedArtifact}
         onOpenDeviceSheet={() => setDeviceSheetOpen(true)}

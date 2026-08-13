@@ -176,7 +176,7 @@ export type BrowserUseResponseMeta = {
   "stella/browserUse": true;
   "stella/toolSurface": {
     kind: "browserUse";
-    backend: "iab";
+    backend: "iab" | "extension";
     browserId: string;
     openTabIds: string[];
     sessionEnded: boolean;

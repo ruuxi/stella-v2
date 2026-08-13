@@ -14,6 +14,53 @@ const semantic = (payload: Record<string, unknown>) =>
   `aria=${encodeURIComponent(JSON.stringify(payload))}`;
 
 describe("browser worker API", () => {
+  it("defaults to in-app browsing and exposes an explicit external selector", async () => {
+    const callBrowser = vi.fn<BrowserWorkerCall>(async (method, args) => ({
+      backend: method === "use" ? args[0] : "in-app",
+    }));
+    const browser = installBrowserWorkerApi(callBrowser);
+
+    expect(browser.backend).toBe("in-app");
+    await expect(browser.use("external")).resolves.toEqual({
+      backend: "external",
+    });
+    expect(browser.backend).toBe("external");
+    expect(callBrowser).toHaveBeenCalledWith("use", ["external"]);
+
+    await expect(browser.use("chrome" as "external")).rejects.toThrow(
+      "backend must be 'in-app' or 'external'",
+    );
+    expect(callBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it("adapts waitForFunction and detached scheduling to the existing extension API", async () => {
+    const callBrowser = vi.fn<BrowserWorkerCall>(async (method, args) => {
+      if (method === "use") return { backend: args[0] };
+      return { success: true, data: { result: true } };
+    });
+    const browser = installBrowserWorkerApi(callBrowser);
+
+    await browser.use("external");
+    const playwright = browser.tabs.get(7).playwright;
+    await expect(
+      playwright.waitForFunction(() => document.readyState === "complete"),
+    ).resolves.toBe(true);
+    await playwright.schedule(() => window.scrollTo(0, 100));
+
+    const commands = callBrowser.mock.calls
+      .filter(([method]) => method === "command")
+      .map(([, args]) => args);
+    expect(commands.map(([action]) => action)).toEqual([
+      "evaluate",
+      "evaluate",
+    ]);
+    expect(commands[0]?.[1]).toMatchObject({ tabId: 7 });
+    expect(commands[1]?.[1]).toMatchObject({ tabId: 7 });
+    expect((commands[1]?.[1] as { script: string }).script).toContain(
+      "Promise.resolve().then",
+    );
+  });
+
   it("accepts ten-minute daemon waits and rejects longer waits", async () => {
     const calls: RecordedCall[] = [];
     const tab = installBrowserWorkerApi(async (method, args) => {

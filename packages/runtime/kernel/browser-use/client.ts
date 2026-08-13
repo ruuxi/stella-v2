@@ -226,9 +226,12 @@ export type BrowserSessionOptions = Readonly<{
 
 export type BrowserTurnEndBehavior = "retain-tabs" | "close-tabs";
 
+export type BrowserBackend = "in-app" | "external";
+
 export const BROWSER_SESSION_CLIENT_METHODS = [
   "command",
   "chain",
+  "selectBackend",
   "dispose",
 ] as const;
 
@@ -245,6 +248,9 @@ export interface BrowserSessionClient {
     steps: readonly BrowserChainStep[],
     options?: BrowserChainOptions,
   ): Promise<BrowserCommandReceipt<BrowserChainResult<TData>>>;
+  selectBackend?(
+    backend: BrowserBackend,
+  ): Promise<Readonly<{ backend: BrowserBackend }>>;
   beginTurn?(turnId: string): void;
   endTurn?(turnId: string, behavior: BrowserTurnEndBehavior): Promise<void>;
   dispose(): Promise<void>;
@@ -971,6 +977,10 @@ export class BrowserSession implements BrowserSessionClient {
     ownerLeaseIssuedAt: number;
   }>;
   private executionConfig?: ResolvedExecutionConfig;
+  private sharedBridgeSessionId?: string;
+  private inAppBrowserBridgeSessionId?: string;
+  private selectedBackend: BrowserBackend = "in-app";
+  private readonly activeTurnBackends = new Set<BrowserBackend>();
   private socket?: Socket;
   private connectingSocket?: Socket;
   private readBuffer = EMPTY_BUFFER;
@@ -1060,6 +1070,7 @@ export class BrowserSession implements BrowserSessionClient {
         `Browser turn ${this.activeTurn.turnId} must end before ${validatedTurnId} begins.`,
       );
     }
+    this.activeTurnBackends.clear();
     this.activeTurn = this.createTurnLease(validatedTurnId);
   }
 
@@ -1075,7 +1086,9 @@ export class BrowserSession implements BrowserSessionClient {
         await this.cleanupTurn(turn, false, behavior === "close-tabs");
       } finally {
         if (this.activeTurn === turn) this.activeTurn = undefined;
+        this.activeTurnBackends.clear();
         this.inAppBrowserCapability = undefined;
+        this.inAppBrowserBridgeSessionId = undefined;
         if (this.socket) {
           this.invalidateSocket(
             this.socket,
@@ -1162,6 +1175,21 @@ export class BrowserSession implements BrowserSessionClient {
     );
   }
 
+  async selectBackend(
+    backend: BrowserBackend,
+  ): Promise<Readonly<{ backend: BrowserBackend }>> {
+    if (backend !== "in-app" && backend !== "external") {
+      throw new TypeError("browser backend must be 'in-app' or 'external'.");
+    }
+    this.assertOpen();
+    return await this.enqueue(async () => {
+      this.assertOpen();
+      this.selectedBackend = backend;
+      this.switchToBackendSession(backend);
+      return Object.freeze({ backend });
+    });
+  }
+
   dispose(): Promise<void> {
     if (!this.disposePromise) {
       this.disposed = true;
@@ -1181,6 +1209,7 @@ export class BrowserSession implements BrowserSessionClient {
           // lease fencing prevents this cleanup from touching a newer turn.
         } finally {
           if (this.activeTurn === turn) this.activeTurn = undefined;
+          this.activeTurnBackends.clear();
         }
       });
       this.disposePromise = releaseLease.finally(() =>
@@ -1237,6 +1266,34 @@ export class BrowserSession implements BrowserSessionClient {
     allowDisposed: boolean,
     finalizeTabs = true,
   ): Promise<void> {
+    const backends = [...this.activeTurnBackends];
+    let firstError: unknown;
+    for (const backend of backends) {
+      try {
+        await this.cleanupTurnOnBackend(
+          turn,
+          backend,
+          allowDisposed,
+          finalizeTabs,
+        );
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError !== undefined) throw firstError;
+  }
+
+  private async cleanupTurnOnBackend(
+    turn: Readonly<{
+      turnId: string;
+      ownerLeaseId: string;
+      ownerLeaseIssuedAt: number;
+    }>,
+    backend: BrowserBackend,
+    allowDisposed: boolean,
+    finalizeTabs: boolean,
+  ): Promise<void> {
+    this.switchToBackendSession(backend);
     const timeoutMs = Math.min(
       this.commandTimeoutMs,
       MAX_BROWSER_TURN_CLEANUP_TIMEOUT_MS,
@@ -1257,6 +1314,7 @@ export class BrowserSession implements BrowserSessionClient {
           turnId: turn.turnId,
           ownerLeaseId: turn.ownerLeaseId,
           ownerLeaseIssuedAt: turn.ownerLeaseIssuedAt,
+          ...(backend === "external" ? { browserBackend: "extension" } : {}),
         },
         requestId,
         undefined,
@@ -1328,6 +1386,7 @@ export class BrowserSession implements BrowserSessionClient {
       env,
       endpoint,
     });
+    this.sharedBridgeSessionId = bridgeSessionId;
     return this.executionConfig;
   }
 
@@ -1373,6 +1432,20 @@ export class BrowserSession implements BrowserSessionClient {
     return this.executionConfig;
   }
 
+  private switchToBackendSession(
+    backend: BrowserBackend,
+  ): ResolvedExecutionConfig {
+    const current = this.resolveExecutionConfig();
+    const bridgeSessionId =
+      backend === "external"
+        ? this.sharedBridgeSessionId
+        : (this.inAppBrowserCapability?.bridgeSessionId ??
+          this.inAppBrowserBridgeSessionId);
+    return bridgeSessionId
+      ? this.switchBridgeSession(bridgeSessionId)
+      : current;
+  }
+
   private async execute<TData>(
     action: string,
     params: BrowserCommandParams,
@@ -1382,7 +1455,9 @@ export class BrowserSession implements BrowserSessionClient {
     this.assertOpen();
     throwIfAborted(signal);
     const turn = this.ensureTurn();
-    let config = this.resolveExecutionConfig();
+    const backend = this.selectedBackend;
+    this.activeTurnBackends.add(backend);
+    let config = this.switchToBackendSession(backend);
     const requestId = randomUUID();
     const request = {
       id: requestId,
@@ -1393,6 +1468,7 @@ export class BrowserSession implements BrowserSessionClient {
       turnId: turn.turnId,
       ownerLeaseId: turn.ownerLeaseId,
       ownerLeaseIssuedAt: turn.ownerLeaseIssuedAt,
+      ...(backend === "external" ? { browserBackend: "extension" } : {}),
     };
     const startedAt = Date.now();
     const deadline = startedAt + timeoutMs;
@@ -1404,7 +1480,10 @@ export class BrowserSession implements BrowserSessionClient {
       for (;;) {
         attempts += 1;
         try {
-          if (!BROWSER_OWNER_LIFECYCLE_ACTIONS.has(action)) {
+          if (
+            backend === "in-app" &&
+            !BROWSER_OWNER_LIFECYCLE_ACTIONS.has(action)
+          ) {
             config = await this.ensureInAppBrowserReady(
               config,
               turn,
@@ -1425,7 +1504,7 @@ export class BrowserSession implements BrowserSessionClient {
         } catch (cause) {
           this.assertOpen();
           throwIfAborted(signal);
-          this.markManagedCapabilityForRecovery(cause);
+          this.markManagedCapabilityForRecovery(cause, backend);
           const managedBridge =
             this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE ===
             "1";
@@ -1515,7 +1594,7 @@ export class BrowserSession implements BrowserSessionClient {
       capability.ownerLeaseId === turn.ownerLeaseId &&
       capability.capabilityExpiresAt > Date.now()
     ) {
-      return this.resolveExecutionConfig();
+      return this.switchBridgeSession(capability.bridgeSessionId);
     }
     const remainingMs = this.remainingTime(deadline);
     if (remainingMs <= 0) {
@@ -1541,6 +1620,7 @@ export class BrowserSession implements BrowserSessionClient {
         turnId: turn.turnId,
         ownerLeaseId: turn.ownerLeaseId,
       };
+      this.inAppBrowserBridgeSessionId = config.bridgeSessionId;
       return config;
     }
     if (initialized && typeof initialized === "object") {
@@ -1550,13 +1630,18 @@ export class BrowserSession implements BrowserSessionClient {
         turnId: turn.turnId,
         ownerLeaseId: turn.ownerLeaseId,
       };
+      this.inAppBrowserBridgeSessionId = initialized.bridgeSessionId;
       return this.switchBridgeSession(initialized.bridgeSessionId);
     }
     return config;
   }
 
-  private markManagedCapabilityForRecovery(cause: unknown): void {
+  private markManagedCapabilityForRecovery(
+    cause: unknown,
+    backend: BrowserBackend,
+  ): void {
     if (
+      backend !== "in-app" ||
       !(cause instanceof BrowserTransportError) ||
       (!cause.retryable && cause.code !== "timeout") ||
       this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE !== "1"

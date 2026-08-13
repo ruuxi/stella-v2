@@ -350,6 +350,41 @@ fn validate_chain_actions(cmd: &Value) -> Result<Vec<&str>, String> {
     Ok(actions)
 }
 
+/// Runtime browser sessions default to the in-app CDP daemon. An explicit
+/// per-request marker opts a command into the already-connected extension
+/// bridge without changing the daemon's process-wide provider.
+fn command_targets_extension(cmd: &Value) -> bool {
+    cmd.get("browserBackend").and_then(Value::as_str) == Some("extension")
+}
+
+fn validate_extension_domain_gates(cmd: &Value, state: &DaemonState) -> Result<(), String> {
+    let Some(filter) = state.domain_filter.as_ref() else {
+        return Ok(());
+    };
+
+    let mut commands = vec![cmd];
+    if cmd.get("action").and_then(Value::as_str) == Some("chain") {
+        commands.extend(
+            cmd.get("steps")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        );
+    }
+
+    for command in commands {
+        if command.get("action").and_then(Value::as_str) != Some("navigate") {
+            continue;
+        }
+        let url = command
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or("Missing 'url' parameter")?;
+        filter.check_url(url)?;
+    }
+    Ok(())
+}
+
 /// Trimmed, non-empty `ownerId` a command was sent with, if any. The JS
 /// client stamps every command with the session's owner id; commands from
 /// other transports may omit it.
@@ -1411,6 +1446,21 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         return error_response(&id, &format!("Not yet implemented: {}", action));
     }
 
+    let targets_extension = command_targets_extension(cmd);
+
+    if action == "release_owner_lease" && targets_extension {
+        if let Err(error) = state.owner_leases.release(cmd) {
+            return error_response(&id, &error);
+        }
+        if let Some(ref bridge) = state.extension_bridge {
+            return forward_extension_command(cmd, bridge).await;
+        }
+        return error_response(
+            &id,
+            "Extension not connected. Install or connect the Stella Browser Bridge extension before using the external browser.",
+        );
+    }
+
     if action == "release_owner_lease" {
         return match state.owner_leases.release(cmd) {
             Ok(released) => success_response(&id, json!({ "released": released })),
@@ -1593,6 +1643,19 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
                 }
             }
         }
+    }
+
+    if targets_extension {
+        if let Err(error) = validate_extension_domain_gates(cmd, state) {
+            return error_response(&id, &error);
+        }
+        if let Some(ref bridge) = state.extension_bridge {
+            return forward_extension_command(cmd, bridge).await;
+        }
+        return error_response(
+            &id,
+            "Extension not connected. Install or connect the Stella Browser Bridge extension before using the external browser.",
+        );
     }
 
     let skip_launch = matches!(
@@ -9636,6 +9699,25 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("In-app browser is not ready"));
+        assert!(state.browser.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_explicit_external_browser_control_requires_connected_extension() {
+        let mut state = DaemonState::new();
+        state.backend_type = BackendType::Extension;
+        let cmd = json!({
+            "action": "navigate",
+            "url": "https://example.com",
+            "browserBackend": "extension",
+            "id": "navigate-external"
+        });
+        let result = execute_command(&cmd, &mut state).await;
+        assert_eq!(result["success"], false);
+        assert!(result["error"]
+            .as_str()
+            .unwrap()
+            .contains("Extension not connected"));
         assert!(state.browser.is_none());
     }
 

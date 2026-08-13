@@ -32,9 +32,12 @@ const deferred = <T = void>() => {
   return { promise, resolve, reject };
 };
 
-const createTestDaemon = (handler: RequestHandler) => {
+const createTestDaemon = (
+  handler: RequestHandler,
+  sharedSocketDir?: string,
+) => {
   const tempRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
-  const socketDir = mkdtempSync(path.join(tempRoot, "sb-"));
+  const socketDir = sharedSocketDir ?? mkdtempSync(path.join(tempRoot, "sb-"));
   const sessionId = `t-${randomUUID().slice(0, 8)}`;
   const socketPath = path.join(socketDir, `${sessionId}.sock`);
   const sockets = new Set<Socket>();
@@ -101,7 +104,9 @@ const createTestDaemon = (handler: RequestHandler) => {
 
   const close = async () => {
     await stop();
-    rmSync(socketDir, { recursive: true, force: true });
+    if (!sharedSocketDir) {
+      rmSync(socketDir, { recursive: true, force: true });
+    }
   };
 
   return {
@@ -139,6 +144,57 @@ const createClient = (
   });
 
 describe("BrowserSession direct daemon client", () => {
+  it("keeps in-app as the default and switches between its daemon and the external bridge", async () => {
+    const sharedDaemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: { tabs: [] },
+    }));
+    const inAppDaemon = createTestDaemon(
+      (request) => ({
+        id: request.id,
+        success: true,
+        data: { tabs: [] },
+      }),
+      sharedDaemon.socketDir,
+    );
+    await Promise.all([sharedDaemon.start(), inAppDaemon.start()]);
+    const initializeInAppBrowser = vi.fn(async () => ({
+      bridgeSessionId: inAppDaemon.sessionId,
+      capabilityExpiresAt: Date.now() + 30_000,
+    }));
+    const client = createClient(sharedDaemon, { initializeInAppBrowser });
+
+    try {
+      await client.command("tab_list");
+
+      expect(initializeInAppBrowser).toHaveBeenCalledOnce();
+      expect(inAppDaemon.requests[0]).toMatchObject({ action: "tab_list" });
+      expect(inAppDaemon.requests[0]).not.toHaveProperty("browserBackend");
+      expect(sharedDaemon.requests).toHaveLength(0);
+
+      await client.selectBackend("external");
+      await client.command("tab_list");
+
+      expect(initializeInAppBrowser).toHaveBeenCalledOnce();
+      expect(sharedDaemon.requests[0]).toMatchObject({
+        action: "tab_list",
+        browserBackend: "extension",
+      });
+
+      await client.selectBackend("in-app");
+      await client.command("tab_list");
+
+      expect(initializeInAppBrowser).toHaveBeenCalledOnce();
+      expect(inAppDaemon.requests[1]).toMatchObject({ action: "tab_list" });
+      expect(inAppDaemon.requests[1]).not.toHaveProperty("browserBackend");
+    } finally {
+      await client.dispose();
+      await inAppDaemon.close();
+      await sharedDaemon.close();
+    }
+  });
+
   it("lazily initializes the hidden in-app browser before the first agent command", async () => {
     const daemon = createTestDaemon((request) => ({
       id: request.id,
@@ -734,6 +790,7 @@ describe("BrowserSession direct daemon client", () => {
       expect(BROWSER_SESSION_CLIENT_METHODS).toEqual([
         "command",
         "chain",
+        "selectBackend",
         "dispose",
       ]);
       expect(daemon.requests.map((request) => request.action)).toEqual([

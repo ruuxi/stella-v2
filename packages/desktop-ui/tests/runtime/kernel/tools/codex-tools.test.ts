@@ -11,6 +11,7 @@ import {
   createShellState,
   handleExecCommand,
   handleWriteStdin,
+  resolveShellLaunch,
 } from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
@@ -136,6 +137,65 @@ describe("general agent tools", () => {
       /^\/bin\/sh\|/,
     );
     expect((result.result as { output: string }).output).not.toContain("l");
+  });
+
+  it("exec_command uses PowerShell-native arguments on Windows", () => {
+    const command =
+      'git --version; & "C:\\Program Files\\GitHub CLI\\gh.exe" --version';
+    const launch = resolveShellLaunch(
+      command,
+      {
+        shell: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      },
+      "win32",
+      {},
+    );
+    if ("error" in launch) throw new Error(launch.error);
+
+    expect(launch.args.slice(0, -1)).toEqual([
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+    ]);
+    expect(Buffer.from(launch.args.at(-1)!, "base64").toString("utf16le")).toBe(
+      command,
+    );
+    expect(launch.args).not.toContain("/d");
+    expect(launch.args).not.toContain("/s");
+    expect(launch.args).not.toContain("/c");
+    expect(launch.windowsVerbatimArguments).toBeUndefined();
+  });
+
+  it("exec_command preserves quoted cmd.exe source verbatim on Windows", () => {
+    const command =
+      '"C:\\Program Files\\GitHub CLI\\gh.exe" --version & cd /d "C:\\Program Files\\Git"';
+    const launch = resolveShellLaunch(command, {}, "win32", {
+      ComSpec: "C:\\Windows\\System32\\cmd.exe",
+    });
+    if ("error" in launch) throw new Error(launch.error);
+
+    expect(launch).toEqual({
+      shell: "C:\\Windows\\System32\\cmd.exe",
+      args: ["/d", "/s", "/c", `"${command}"`],
+      windowsVerbatimArguments: true,
+    });
+    expect(launch.args.at(-1)).not.toContain('\\"');
+  });
+
+  it("exec_command uses Unix command flags for Git Bash on Windows", () => {
+    const launch = resolveShellLaunch(
+      'printf "%s" ready',
+      { shell: "C:\\Program Files\\Git\\bin\\bash.exe", login: false },
+      "win32",
+      {},
+    );
+    if ("error" in launch) throw new Error(launch.error);
+
+    expect(launch).toEqual({
+      shell: "C:\\Program Files\\Git\\bin\\bash.exe",
+      args: ["-c", 'printf "%s" ready'],
+    });
   });
 
   it("exec_command spawn failures identify the runner and resolved executable", async () => {

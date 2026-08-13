@@ -1065,18 +1065,46 @@ const resolveUnixBash = (): string => {
   return "bash";
 };
 
-type ShellLaunchOptions = {
+export type ShellLaunchOptions = {
   /** Explicit executable requested by exec_command. */
   shell?: string;
   /** Login-shell semantics are the default for compatibility with prior runs. */
   login?: boolean;
 };
 
-const resolveShellLaunch = (
+export type ResolvedShellLaunch = {
+  shell: string;
+  args: string[];
+  /**
+   * `cmd.exe` parses the raw Windows command line itself instead of using the
+   * C runtime argv decoder. Letting Node quote its final command argument turns
+   * embedded `"` delimiters into literal `\"` text, breaking executable paths
+   * that contain spaces.
+   */
+  windowsVerbatimArguments?: boolean;
+};
+
+const windowsShellName = (shell: string): string =>
+  path.win32.basename(shell.trim()).toLowerCase();
+
+const isWindowsCmdShell = (shell: string): boolean =>
+  ["cmd", "cmd.exe"].includes(windowsShellName(shell));
+
+const isWindowsPowerShell = (shell: string): boolean =>
+  ["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(
+    windowsShellName(shell),
+  );
+
+const encodePowerShellCommand = (command: string): string =>
+  Buffer.from(command, "utf16le").toString("base64");
+
+export const resolveShellLaunch = (
   command: string,
   options: ShellLaunchOptions = {},
-): { shell: string; args: string[] } | { error: string } => {
-  if (process.platform !== "win32") {
+  platform: NodeJS.Platform = process.platform,
+  environment: NodeJS.ProcessEnv = process.env,
+): ResolvedShellLaunch | { error: string } => {
+  if (platform !== "win32") {
     const requestedShell = options.shell?.trim();
     return {
       shell: requestedShell || resolveUnixBash(),
@@ -1084,19 +1112,48 @@ const resolveShellLaunch = (
     };
   }
 
+  const shell =
+    options.shell?.trim() ||
+    environment.ComSpec ||
+    environment.COMSPEC ||
+    "cmd.exe";
+  if (isWindowsPowerShell(shell)) {
+    // `-EncodedCommand` avoids routing PowerShell source through the native
+    // Windows argv quoting rules at all. PowerShell requires UTF-16LE here.
+    return {
+      shell,
+      args: [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-EncodedCommand",
+        encodePowerShellCommand(command),
+      ],
+    };
+  }
+
+  if (!isWindowsCmdShell(shell)) {
+    // Git Bash and other Unix-style shells available on Windows use the same
+    // command flags as their Unix counterparts, not cmd.exe's `/d /s /c`.
+    return {
+      shell,
+      args: [options.login === false ? "-c" : "-lc", command],
+    };
+  }
+
   return {
-    shell:
-      options.shell?.trim() ||
-      process.env.ComSpec ||
-      process.env.COMSPEC ||
-      "cmd.exe",
-    args: ["/d", "/s", "/c", command],
+    shell,
+    // Match Node's own `shell: true` cmd.exe contract: `/s` expects the whole
+    // source string to have one outer quote pair, while verbatim arguments
+    // preserve every quote inside that source for cmd's parser.
+    args: ["/d", "/s", "/c", `"${command}"`],
+    windowsVerbatimArguments: true,
   };
 };
 
 const describeShellSpawnFailure = (
   error: Error,
-  launch: { shell: string; args: string[] },
+  launch: ResolvedShellLaunch,
   cwd: string,
   options: ShellLaunchOptions,
 ): string => {
@@ -1304,12 +1361,14 @@ const spawnShellProcess = (
   args: string[],
   cwd: string,
   env: NodeJS.ProcessEnv,
+  windowsVerbatimArguments = false,
 ) =>
   spawn(shell, args, {
     cwd,
     env,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
+    windowsVerbatimArguments,
     // On Unix, make the shell the leader of its own process group so timeouts
     // and manual kills can terminate the entire command tree.
     detached: process.platform !== "win32",
@@ -1437,6 +1496,7 @@ export const startShell = (
       launch.args,
       cwd,
       buildShellEnv(envOverrides, state),
+      launch.windowsVerbatimArguments,
     );
   } catch (error) {
     return failedRecord(
@@ -1545,6 +1605,7 @@ export const runShell = async (
         launch.args,
         cwd,
         buildShellEnv(envOverrides, state),
+        launch.windowsVerbatimArguments,
       );
     } catch (error) {
       resolve(

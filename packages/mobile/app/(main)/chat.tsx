@@ -93,7 +93,9 @@ export default function ChatScreen() {
   );
 
   const canSubmit =
-    (thread.draft.trim().length > 0 || thread.attachments.length > 0) &&
+    (thread.draft.trim().length > 0 ||
+      thread.attachments.length > 0 ||
+      thread.quotes.length > 0) &&
     !offline &&
     thread.storageLoaded;
   const sendRealtimePrompt = thread.sendPrompt;
@@ -126,6 +128,9 @@ export default function ChatScreen() {
         enableAttachments
         attachments={thread.attachments}
         onChangeAttachments={thread.setAttachments}
+        quotes={thread.quotes}
+        onAddQuote={thread.addQuote}
+        onRemoveQuote={thread.removeQuote}
         maxAttachments={MAX_OFFLINE_CHAT_IMAGES}
         dictationAnonymous={guest}
         dictationHeaders={dictationHeaders}

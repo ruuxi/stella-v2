@@ -103,7 +103,12 @@ import {
 } from "./chat-message-index";
 import { resolveMap, mapArtifactFor } from "./chat-maps";
 import { generatePdf, pdfArtifactFor } from "./chat-pdf";
-import type { ChatArtifact, ChatMessage, MobileTask } from "../types";
+import type {
+  ChatArtifact,
+  ChatMessage,
+  ComposerQuote,
+  MobileTask,
+} from "../types";
 
 /** What a `runDesktopSync` call actually did, so callers can be honest. */
 export type DesktopSyncOutcome = {
@@ -150,6 +155,27 @@ const createId = () => {
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `mobile:${String(lastLocalIdOrder).padStart(16, "0")}:${random}`;
+};
+
+/**
+ * Fold composer quote chips into the outgoing message: each quote becomes a
+ * markdown blockquote (every line prefixed with "> "), stacked ahead of the
+ * user's typed text. Mirrors the desktop quote/reply convention so the quoted
+ * context travels with the sent message. Returns just `typed` when there are no
+ * quotes, and just the quotes when the user only quoted without typing.
+ */
+const composeQuotedText = (quotes: ComposerQuote[], typed: string): string => {
+  if (quotes.length === 0) return typed;
+  const blocks = quotes
+    .map((quote) =>
+      quote.text
+        .trim()
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n"),
+    )
+    .join("\n\n");
+  return typed ? `${blocks}\n\n${typed}` : blocks;
 };
 
 // Run-level connection status shown before the desktop starts streaming.
@@ -254,6 +280,12 @@ export type ChatThread = {
   setAttachments: React.Dispatch<
     React.SetStateAction<ImagePicker.ImagePickerAsset[]>
   >;
+  /** Quoted-text chips pending in the composer (folded into the sent message). */
+  quotes: ComposerQuote[];
+  /** Add a quoted-text chip (message-menu Quote / assistant "Ask Stella"). */
+  addQuote: (text: string) => void;
+  /** Remove a pending quote chip by id. */
+  removeQuote: (id: string) => void;
   sending: boolean;
   /** Live working-indicator props — active/label reflect the current step. */
   workingIndicator: WorkingIndicatorState;
@@ -341,6 +373,18 @@ export function useChatThread(opts: {
   const [attachments, setAttachments] = useState<
     ImagePicker.ImagePickerAsset[]
   >([]);
+  // Quoted-text chips pending in the composer (from the message menu's "Quote"
+  // or an assistant selection's "Ask Stella"). Kept out of `draft` so the input
+  // isn't stuffed with a paragraph; folded into the outgoing text on send.
+  const [quotes, setQuotes] = useState<ComposerQuote[]>([]);
+  const addQuote = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setQuotes((prev) => [...prev, { id: createId(), text: trimmed }]);
+  }, []);
+  const removeQuote = useCallback((id: string) => {
+    setQuotes((prev) => prev.filter((q) => q.id !== id));
+  }, []);
   const [sending, setSending] = useState(false);
   const [appActive, setAppActive] = useState(
     () =>
@@ -1930,7 +1974,12 @@ export function useChatThread(opts: {
       // The draft is left intact so the queued tap lands once we're loaded.
       if (!storageLoaded) return null;
       const supplied = suppliedPrompt !== undefined;
-      const text = (suppliedPrompt ?? draft).trim();
+      const typed = (suppliedPrompt ?? draft).trim();
+      // Composer quote chips fold into the outgoing text as markdown
+      // blockquotes ahead of the typed message; supplied (voice) prompts skip
+      // them since they bypass composer state entirely.
+      const pendingQuotes = supplied ? [] : quotes;
+      const text = composeQuotedText(pendingQuotes, typed);
       const assets = supplied ? [] : attachments.slice();
       if (!text && assets.length === 0) return null;
 
@@ -1942,6 +1991,7 @@ export function useChatThread(opts: {
       if (!supplied) {
         setDraft("");
         setAttachments([]);
+        setQuotes([]);
       }
 
       // Queue-vs-primary-dispatch is decided on the synchronously-written ref,
@@ -2043,6 +2093,7 @@ export function useChatThread(opts: {
       attachments,
       dispatch,
       draft,
+      quotes,
       markSending,
       storageLoaded,
       threadId,
@@ -2130,6 +2181,7 @@ export function useChatThread(opts: {
         target.hasImage && target.text === "Photo" ? "" : target.text;
       setDraft(restoredText);
       setAttachments([]);
+      setQuotes([]);
       void restoreRewoundAttachments(target).then((assets) => {
         if (assets.length > 0) setAttachments(assets);
       });
@@ -2212,6 +2264,9 @@ export function useChatThread(opts: {
     setDraft,
     attachments,
     setAttachments,
+    quotes,
+    addQuote,
+    removeQuote,
     sending,
     workingIndicator,
     storageLoaded,

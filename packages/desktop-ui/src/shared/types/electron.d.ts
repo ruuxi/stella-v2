@@ -1842,6 +1842,18 @@ export type ElectronApi = {
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     getStellaMediaDir: () => Promise<string | null>;
     copyImage: (pngBase64: string) => Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Copy a sent message's attachment to the system clipboard: an image
+     * (from its on-disk path or data URL) as a real image, or a non-image
+     * file's path as text. `mode` reports which path was taken.
+     */
+    copyAttachment: (payload: {
+      path?: string;
+      url?: string;
+      mimeType?: string;
+      kind?: string;
+      name?: string;
+    }) => Promise<{ ok: boolean; mode?: "image" | "path"; error?: string }>;
   };
   meetings: {
     status: () => Promise<{

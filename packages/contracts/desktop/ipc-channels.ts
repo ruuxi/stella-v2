@@ -345,6 +345,11 @@ export const IPC_HOME_CAPTURE_APP_WINDOW = "home:captureAppWindow" as const;
 export const IPC_MEDIA_SAVE_OUTPUT = "media:saveOutput" as const;
 export const IPC_MEDIA_GET_DIR = "media:getStellaMediaDir" as const;
 export const IPC_MEDIA_COPY_IMAGE = "media:copyImage" as const;
+// Copy a sent message's attachment to the system clipboard: an image (built
+// from its on-disk path or data URL) as a real image, or a non-image file's
+// path as text. Backs the desktop message-row Copy action for
+// attachment-only messages.
+export const IPC_MEDIA_COPY_ATTACHMENT = "media:copyAttachment" as const;
 
 // ── Schedule ────────────────────────────────────────────────────────────────
 

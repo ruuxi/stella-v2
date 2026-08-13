@@ -1,7 +1,9 @@
 export type BrowserWorkerCall = (
-  method: "command" | "chain",
+  method: "command" | "chain" | "use",
   args: readonly unknown[],
 ) => Promise<unknown>;
+
+export type BrowserWorkerBackend = "in-app" | "external";
 
 export type BrowserWorkerChainStep = Readonly<{
   action: string;
@@ -189,6 +191,10 @@ export interface BrowserWorkerTabs {
 }
 
 export interface BrowserWorkerApi {
+  readonly backend: BrowserWorkerBackend;
+  use(
+    backend: BrowserWorkerBackend,
+  ): Promise<Readonly<{ backend: BrowserWorkerBackend }>>;
   documentation(): string;
   chain(
     steps: readonly BrowserWorkerChainStep[],
@@ -236,6 +242,8 @@ export function installBrowserWorkerApi(
   const DOCUMENTATION = `BrowserSession worker API
 
 Run multiple awaited browser actions in one REPL cell. Keep the Tab and Locator objects you create and reuse them instead of looking them up again. The objects are frozen but introspectable: Object.keys(tab), Object.keys(locator), etc. list their methods.
+
+Backend: browser.backend starts as "in-app". Keep the in-app browser for ordinary browsing. When a task specifically needs the user's real signed-in Chromium browser, call await browser.use("external") to route subsequent browser calls through the installed Stella Browser extension. Call await browser.use("in-app") to switch back. External mode depends on the extension's currently supported command set.
 
 Tabs: browser.tabs.list()/new(url)/selected()/get(id). On a tab: goto, back, forward, reload, url(), title(), close(), snapshot(), screenshot(). tab.expectNewTab(() => action) awaits a click that opens a new tab and returns it.
 
@@ -1711,15 +1719,36 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         ) => {
           const value = requireOptions(rawOptions, "waitForFunction options");
           assertKnownKeys(value, ["timeout"], "waitForFunction options");
+          const expression =
+            typeof pageFunction === "function"
+              ? `(${functionSource(pageFunction, "pageFunction")})()`
+              : functionSource(pageFunction, "pageFunction");
+          const timeout = timeoutParam(
+            value.timeout ?? 30_000,
+            "timeout",
+            600_000,
+          );
           const params: Record<string, unknown> = {
             tabId: currentTabId(state),
             ...tabGenerationParams(state.generation),
-            expression:
-              typeof pageFunction === "function"
-                ? `(${functionSource(pageFunction, "pageFunction")})()`
-                : functionSource(pageFunction, "pageFunction"),
-            timeout: timeoutParam(value.timeout ?? 30_000, "timeout", 600_000),
+            expression,
+            timeout,
           };
+          if (selectedBackend === "external") {
+            const startedAt = Date.now();
+            while (Date.now() - startedAt <= timeout) {
+              const data = await command("evaluate", {
+                tabId: currentTabId(state),
+                ...tabGenerationParams(state.generation),
+                script: `Boolean(${expression})`,
+              });
+              if (fieldOrSelf(data, "result")) return true;
+              await delay(
+                Math.min(100, Math.max(1, timeout - (Date.now() - startedAt))),
+              );
+            }
+            throw new Error(`Timeout waiting ${timeout}ms for page function.`);
+          }
           const data = await command("waitforfunction", params);
           return fieldOrSelf(data, "result");
         },
@@ -1732,11 +1761,17 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             arg,
             arguments.length >= 2,
           );
-          await command("evaluate_detached", {
-            tabId: currentTabId(state),
-            ...tabGenerationParams(state.generation),
-            script,
-          });
+          await command(
+            selectedBackend === "external" ? "evaluate" : "evaluate_detached",
+            {
+              tabId: currentTabId(state),
+              ...tabGenerationParams(state.generation),
+              script:
+                selectedBackend === "external"
+                  ? `(() => { void Promise.resolve().then(() => (${script})); return true; })()`
+                  : script,
+            },
+          );
         },
         waitForTimeout: async (ms: number) => {
           await command("wait", {
@@ -2428,7 +2463,21 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     },
   });
 
+  let selectedBackend: BrowserWorkerBackend = "in-app";
   const browser: BrowserWorkerApi = Object.freeze({
+    get backend() {
+      return selectedBackend;
+    },
+    use: async (backend: BrowserWorkerBackend) => {
+      if (backend !== "in-app" && backend !== "external") {
+        throw new TypeError("backend must be 'in-app' or 'external'.");
+      }
+      const result = await callBrowser("use", [backend]);
+      selectedBackend = backend;
+      return (isPlainObject(result) ? result : { backend }) as Readonly<{
+        backend: BrowserWorkerBackend;
+      }>;
+    },
     documentation: () => DOCUMENTATION,
     chain: async (
       rawSteps: readonly BrowserWorkerChainStep[],

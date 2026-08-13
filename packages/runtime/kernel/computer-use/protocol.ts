@@ -27,7 +27,7 @@ export const DEFAULT_NODE_REPL_TOOL_DRAIN_TIMEOUT_MS = 60_000;
 export const NODE_REPL_TOOL_SEARCH_NAME = "$search";
 
 export type SkyMethod = keyof SkyClient;
-export type BrowserMethod = "command" | "chain";
+export type BrowserMethod = "command" | "chain" | "use";
 /** Methods of the in-REPL `connect` client, dispatched host-side. */
 export type ConnectMethod =
   | "discover"

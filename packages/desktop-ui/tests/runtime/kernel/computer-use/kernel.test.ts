@@ -267,6 +267,39 @@ describe("persistent Node REPL kernels", () => {
     }
   });
 
+  it("routes browser.use through the session client and persists the selected backend in the worker", async () => {
+    const selectBackend = vi.fn(async (backend: "in-app" | "external") => ({
+      backend,
+    }));
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command: vi.fn(),
+          chain: vi.fn(),
+          selectBackend,
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+
+    try {
+      await expect(
+        registry.evaluate(
+          'await browser.use("external"); browser.backend',
+          context("external-browser-owner"),
+        ),
+      ).resolves.toBe("'external'");
+      await expect(
+        registry.evaluate("browser.backend", context("external-browser-owner")),
+      ).resolves.toBe("'external'");
+      expect(selectBackend).toHaveBeenCalledOnce();
+      expect(selectBackend).toHaveBeenCalledWith("external");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
   it("serializes evaluations within one kernel", async () => {
     const registry = createRegistry();
     try {

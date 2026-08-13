@@ -298,7 +298,7 @@ const nodeReplWorkerMain = async (
     if (pendingBrowserCalls.size >= workerData.maxPendingBrowserCalls) {
       return Promise.reject(new Error("Too many pending browser calls."));
     }
-    if (method !== "command" && method !== "chain") {
+    if (method !== "command" && method !== "chain" && method !== "use") {
       return Promise.reject(new Error("Invalid browser method."));
     }
     if (serializedSize(args) > workerData.maxProtocolMessageBytes) {

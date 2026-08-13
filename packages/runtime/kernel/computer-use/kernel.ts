@@ -22,6 +22,7 @@ import {
 } from "../tools/browser-extension-offer.js";
 import {
   createBrowserSession,
+  type BrowserBackend,
   type BrowserChainOptions,
   type BrowserChainStep,
   type BrowserCommandParams,
@@ -294,7 +295,7 @@ type BrowserPresentationTabs = Readonly<{
   activeTabId?: number;
 }>;
 
-const BROWSER_METHODS = new Set(["command", "chain"]);
+const BROWSER_METHODS = new Set(["command", "chain", "use"]);
 const READ_ONLY_BROWSER_ACTIONS = new Set([
   "healthcheck",
   "url",
@@ -506,6 +507,7 @@ class NodeReplKernel {
   private readonly sky: SkyClient;
   private readonly browser: BrowserSessionClient;
   private readonly browserSessionId: string;
+  private browserBackend: BrowserBackend = "in-app";
   private readonly requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
   private readonly executeTool?: NodeReplKernelManagerOptions["executeTool"];
   private readonly searchTools?: NodeReplKernelManagerOptions["searchTools"];
@@ -1227,6 +1229,21 @@ class NodeReplKernel {
     active: ActiveEvaluation,
     message: Extract<WorkerToNodeReplParentMessage, { type: "browser-call" }>,
   ): Promise<unknown> {
+    if (message.method === "use") {
+      if (
+        message.args.length !== 1 ||
+        (message.args[0] !== "in-app" && message.args[0] !== "external")
+      ) {
+        throw new Error("Invalid browser backend arguments.");
+      }
+      if (!this.browser.selectBackend) {
+        throw new Error("Browser backend selection is unavailable.");
+      }
+      const backend = message.args[0] as BrowserBackend;
+      const result = await this.browser.selectBackend(backend);
+      this.browserBackend = backend;
+      return result;
+    }
     if (message.method === "command") {
       if (message.args.length < 1 || message.args.length > 2) {
         throw new Error("Invalid browser command arguments.");
@@ -1428,6 +1445,7 @@ class NodeReplKernel {
     message: Extract<WorkerToNodeReplParentMessage, { type: "browser-call" }>,
     value: unknown,
   ) {
+    if (message.method === "use") return;
     const actions: Array<{
       action: string;
       params?: Record<string, unknown>;
@@ -1583,7 +1601,7 @@ class NodeReplKernel {
         "stella/browserUse": true,
         "stella/toolSurface": {
           kind: "browserUse",
-          backend: "iab",
+          backend: this.browserBackend === "external" ? "extension" : "iab",
           browserId: this.browserSessionId,
           openTabIds: [],
           sessionEnded: true,
@@ -1641,7 +1659,7 @@ class NodeReplKernel {
       "stella/browserUse": true,
       "stella/toolSurface": {
         kind: "browserUse",
-        backend: "iab",
+        backend: this.browserBackend === "external" ? "extension" : "iab",
         browserId: this.browserSessionId,
         openTabIds: tabs.map((tab) => String(tab.tabId)),
         sessionEnded: false,

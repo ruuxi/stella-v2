@@ -97,7 +97,7 @@ import "@/app/chat/chat-workspace-strip.css";
 // (see `caps` below) and pages in the full dataset.
 const SECTION_CAPS = {
   strip: { activity: 8, files: 5, schedule: 4, store: 5 },
-  overview: { activity: 12, files: 6, schedule: 6, store: 6 },
+  overview: { activity: 9, files: 6, schedule: 6, store: 6 },
 } as const;
 // Search still scans every loaded record, but rendering an unbounded match
 // set made a common query mount hundreds of rows at once.

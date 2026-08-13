@@ -13,6 +13,7 @@ import {
 } from "./bootstrap/constants.js";
 import { createBootstrapContext } from "./bootstrap/context.js";
 import { initMainProcessLogging } from "./observability/main-logger.js";
+import { applyWindowsCompositionWorkarounds } from "./windows-composition.js";
 import {
   getTotalSystemMemoryMb,
   isLowMemoryWindowsDevice,
@@ -95,6 +96,10 @@ export const bootstrapMainProcess = () => {
   initMainProcessLogging(stellaAppDir);
   installDevBrokenPipeGuards();
   startLocalCrashReporter();
+  // Windows-only: keep DWM from putting Stella on MPO hardware overlay
+  // planes (whole-monitor flicker on NVIDIA + high-refresh setups). Must run
+  // before `ready` so the switch reaches the GPU process. No-op on macOS.
+  applyWindowsCompositionWorkarounds();
   // Stella ships its own chrome (custom top bar, custom window controls on
   // Windows). Electron's default application menu otherwise renders an
   // in-window File/Edit/View/Window/Help bar on Windows/Linux directly below

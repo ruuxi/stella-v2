@@ -1735,10 +1735,12 @@ function PlusMenuPopover({
    */
   headerLabel?: string | null;
   /**
-   * Dim the chat behind the menu (ChatGPT's focused context-menu feel). A plain
-   * `#000` scrim — matching the app's sheet/modal convention — rather than a
-   * full-screen `GlassView`, which as a glass layer *beneath* the in-tree menu
-   * would trigger Apple's glass-on-glass suppression and render the menu clear.
+   * Focused context-menu treatment (message menu): a LIGHT non-glass scrim
+   * behind the card plus a frostier tint on the card's Liquid Glass, so the
+   * menu itself is the authentic frosted-glass surface. The backdrop stays a
+   * plain scrim (never a `GlassView`): a second glass layer beneath the in-tree
+   * menu triggers Apple's glass-on-glass suppression and renders the menu clear,
+   * so the frost must come from the single glass card, not the backdrop.
    */
   scrim?: boolean;
 }) {
@@ -1890,7 +1892,15 @@ function PlusMenuPopover({
       >
         <GlassSurface
           glass="regular"
-          legible
+          // The menu card is the ONE Liquid Glass surface (expo-glass-effect
+          // GlassView / UIGlassEffect on iOS 26). The focused message menu
+          // (`scrim` variant) leans into a frostier, more refractive tint so it
+          // reads as genuine Liquid Glass — its backdrop scrim keeps labels
+          // legible, so it needn't carry `legible`'s heavier opaque surface tint
+          // the way the inline +/model menus (over undimmed live chat) do.
+          {...(scrim
+            ? { tintColor: fadeHex(colors.surface, 0.66) }
+            : { legible: true })}
           present={Boolean(measured)}
           radius={14}
           ringed
@@ -2014,11 +2024,15 @@ const makePlusMenuStyles = (colors: Colors) =>
       zIndex: 50,
     },
     scrim: {
-      // Dim (not blur) the chat behind the focused message menu — the app's
-      // sheet/modal convention (see TopSheet). A GlassView blur here would sit
-      // beneath the menu's own glass and get suppressed, rendering it clear.
+      // Non-glass backdrop behind the focused message menu: a LIGHT plain dark
+      // scrim (the app's sheet/modal convention — see TopSheet), kept subtle so
+      // the menu's Liquid Glass refracts near-live chat and reads as authentic
+      // frost instead of a muddied dark panel. It must NOT be a GlassView — a
+      // second glass layer beneath the menu triggers Apple's glass-on-glass
+      // suppression and renders the menu clear — so the frost comes entirely
+      // from the single glass surface (the menu card), never from the backdrop.
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(0, 0, 0, 0.32)",
+      backgroundColor: "rgba(0, 0, 0, 0.2)",
     },
     menuHeader: {
       borderBottomColor: fadeHex(colors.border, 0.55),

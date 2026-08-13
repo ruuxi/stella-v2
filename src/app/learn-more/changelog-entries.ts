@@ -24,6 +24,59 @@ export type ChangelogEntry = {
 
 export const changelogEntries: ChangelogEntry[] = [
   {
+    release: "v0.1.33 – v0.1.36",
+    date: "August 12, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "Fork a conversation from any of your messages, or rewind safely to an earlier point and take the chat in a different direction.",
+      "Helper agents are grouped beneath the work that started them, making busy projects much easier to follow from Home and Activity.",
+      "Browser control is more capable and resilient, including better extension handoff, network handling, and screenshots from sites such as ChatGPT.",
+    ],
+    more: [
+      "Drag files into the chat even while Stella is working or streaming a reply.",
+      "Account and Settings now share one signed-in menu, with a New chat shortcut in History.",
+      "Working labels are shorter and clearer — Starting, Updating, and Pausing work — without exposing internal agent jargon.",
+      "Microphone and screen-capture permissions refresh more accurately, and Settings stays a consistent size as you move between sections.",
+      "Windows computer control and shell commands recover more reliably across pipe, framing, and command-syntax differences.",
+      { text: "Messages gained a native-feeling press menu for selecting text, sharing, quoting, and rewinding, alongside a faster sidebar and smoother streaming text.", product: "Mobile" },
+    ],
+  },
+  {
+    release: "v0.1.29 – v0.1.32",
+    date: "August 11, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "Sign in inside Stella's browser more naturally, including popup flows, security-key prompts, and sites that check the browser they are running in.",
+      "Save your own prompt presets next to Stella's built-in system prompt, then reuse them whenever you start a chat.",
+      "Steer an active orchestrated task immediately instead of waiting for the current step to finish.",
+    ],
+    more: [
+      "Desktop updates are discovered sooner and relaunch more reliably after installation.",
+      "Direct-mode replies hand off more cleanly, avoiding stale intermediate text when a newer answer is ready.",
+      "Browser sessions recover from stalled bridges while keeping each task scoped to the right tabs.",
+      "Windows computer control is steadier when helper processes disconnect or restart.",
+      { text: "Desktop chat reconciliation and rapid steering are more dependable from your phone, and realtime voice routes correctly to the iPhone loudspeaker.", product: "Mobile" },
+      { text: "Answer synthesis gained stronger provider routing and automatic fallbacks when the preferred provider is unavailable.", product: "Backend" },
+    ],
+  },
+  {
+    release: "v0.1.25 – v0.1.28",
+    date: "August 10–11, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "New chats now start in Orchestrator mode, so Stella can coordinate longer work and helper agents by default.",
+      "The Stella mark is now drawn as a crisp vector, and its star becomes the live working indicator while Stella is busy.",
+      "Phone pairings survive desktop identity repairs, so reconnecting the same computer no longer means starting over.",
+    ],
+    more: [
+      "macOS update restarts complete more reliably, while Windows updates install quietly and finish with a cleaner relaunch.",
+      "External agent engines start from a safe local directory in packaged builds.",
+      "Voice sessions refresh provider credentials more reliably, including xAI sign-in tokens.",
+      "The theme picker stays open through its menu handoff, onboarding animation is smoother, and Windows chat scrolling is better aligned.",
+      "Bundled system prompts are protected as part of Stella, keeping the default experience consistent between installs.",
+    ],
+  },
+  {
     release: "v0.1.21 – v0.1.24",
     date: "August 10, 2026",
     tags: ["New", "Polish"],

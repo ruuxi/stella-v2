@@ -20,16 +20,16 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
   multi_edit: { active: "Editing files", done: "Edited files" },
   write_stdin: { active: "Sending input", done: "Sent input" },
   spawn_agent: {
-    active: "Working on it",
-    done: "Working on it",
+    active: "Starting work",
+    done: "Started work",
   },
   send_input: {
-    active: "Working on it",
-    done: "Working on it",
+    active: "Updating work",
+    done: "Updated work",
   },
   pause_agent: {
-    active: "Working on it",
-    done: "Working on it",
+    active: "Pausing work",
+    done: "Paused work",
   },
   read: { active: "Reading files", done: "Read files" },
   find: { active: "Searching files", done: "Searched files" },

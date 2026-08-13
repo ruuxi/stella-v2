@@ -745,19 +745,37 @@ const getSummaryInputCharBudget = (route: ResolvedLlmRoute): number =>
   ) * SUMMARY_INPUT_CHARS_PER_TOKEN;
 
 /**
- * Chunked/hierarchical compaction sizing. When the uncompacted middle cannot
- * fit one summary request in the current model's window (e.g. a thread built
- * on a large-window model continuing on a smaller-window one), the middle is
- * split into message-boundary chunks and folded into a rolling summary one
- * chunk at a time — every request stays bounded by the current model's
- * window regardless of total history size. The 0.5 input fraction leaves the
- * completion reserve plus slack for chars-per-token underestimation, the
- * summary prompt scaffolding, and the growing rolling summary.
+ * Chunked compaction sizing. When the uncompacted middle cannot fit one
+ * summary request in the current model's window (e.g. a thread built on a
+ * large-window model continuing on a smaller-window one), the middle is
+ * split into message-boundary chunks that are summarized independently in
+ * parallel — every request stays bounded by the current model's window
+ * regardless of total history size. The 0.5 input fraction leaves the
+ * completion reserve plus slack for chars-per-token underestimation and the
+ * summary prompt scaffolding.
  */
 const CHUNKED_SUMMARY_INPUT_FRACTION = 0.5;
 const CHUNKED_SUMMARY_MIN_CHUNK_CHARS = 20_000;
-/** Char reserve for the rolling summary, guidelines, and retry corrections. */
+/** Char reserve for the prompt scaffolding and retry corrections. */
 const CHUNKED_SUMMARY_PROMPT_OVERHEAD_CHARS = 40_000;
+/**
+ * Chunk summaries run in parallel; this caps how many near-window summary
+ * requests are in flight at once so a huge history doesn't blast the
+ * provider with a dozen simultaneous max-size requests (rate limits,
+ * memory, and fairness to the user's own in-flight turns).
+ */
+const CHUNKED_SUMMARY_MAX_CONCURRENCY = 3;
+/**
+ * Bounds for the concatenated result: the final checkpoint must fit
+ * comfortably inside the current model's window next turn, so the overall
+ * output budget is capped to this fraction of the window and divided across
+ * chunks; each chunk summary is also mechanically trimmed (no extra LLM
+ * call) to its share plus slack.
+ */
+const CHUNKED_SUMMARY_TOTAL_OUTPUT_WINDOW_FRACTION = 0.2;
+const CHUNKED_SUMMARY_MAX_CHUNK_OUTPUT_TOKENS = 6_000;
+const CHUNKED_SUMMARY_MIN_CHUNK_OUTPUT_TOKENS = 200;
+const CHUNKED_SUMMARY_TRIM_SLACK = 1.5;
 
 const getChunkedSummaryChunkCharBudget = (
   route: ResolvedLlmRoute,
@@ -894,6 +912,43 @@ ${SUMMARY_STRUCTURE}
 ${footer}`;
 };
 
+/**
+ * Standalone per-segment prompt for chunked compaction. Unlike
+ * `buildSummaryPrompt` there is no previous summary to update: each segment
+ * is summarized independently (in parallel) and the segment summaries are
+ * concatenated mechanically in chronological order, so the prompt tells the
+ * model exactly that and asks for self-contained, chronology-friendly
+ * output. Shares the structure, guidelines, and factuality footer with the
+ * single-pass prompt so chunked checkpoints keep the same conventions.
+ */
+const buildChunkSummaryPrompt = (
+  formattedConversation: string,
+  segment: { index: number; count: number },
+  budget: number,
+  durableMemoryReference?: string,
+  correctiveReason?: string,
+): string => {
+  const guidelines = buildSummaryGuidelines(
+    Boolean(durableMemoryReference?.trim()),
+  );
+  const alreadyKnown = buildAlreadyKnownSection(durableMemoryReference);
+  const correction = correctiveReason
+    ? `RETRY CORRECTION: The previous summary was rejected (${correctiveReason}). Return all four required headings with specific, non-repetitive facts. Do not return placeholders, invisible text, or a fragment.\n\n`
+    : "";
+  return `You are summarizing segment ${segment.index + 1} of ${segment.count} of a longer conversation. The other segments are summarized separately, and all segment summaries will be concatenated in chronological order to form one checkpoint — no model will merge them afterwards. Write a self-contained summary of THIS segment only: do not refer to a previous summary or to other segments' content, and when work in this segment clearly continues from before it or remains unfinished at its end, say so explicitly so the concatenation reads coherently.
+
+${alreadyKnown}CONVERSATION SEGMENT TO SUMMARIZE:
+${formattedConversation}
+
+Use this structure:
+
+${SUMMARY_STRUCTURE}
+
+${correction}${guidelines}
+
+Target ~${budget} tokens. Be factual — only include information that was explicitly discussed in this segment. Do NOT invent file paths, commands, or details that were not mentioned. Write only the summary body.`;
+};
+
 // Per-doc cap for the ALREADY KNOWN reference. The docs are small
 // always-loaded files; the cap only guards against a runaway doc inflating
 // the compaction request.
@@ -959,6 +1014,10 @@ const generateThreadSummary = async (args: {
   durableMemoryReference?: string;
   stellaDataDir?: string;
   correctiveReason?: string;
+  /** Chunked mode: summarize segment `index` of `count` standalone. */
+  segment?: { index: number; count: number };
+  /** Override for the ~token output target in the prompt. */
+  outputBudgetTokens?: number;
 }): Promise<{ text: string | null; retryable: boolean; reason?: string }> => {
   const apiKey = (await args.resolvedLlm.getApiKey())?.trim();
   if (!apiKey) {
@@ -986,13 +1045,23 @@ const generateThreadSummary = async (args: {
     };
   }
 
-  const promptBody = buildSummaryPrompt(
-    formattedConversation,
-    args.previousSummary,
-    computeSummaryBudget(args.messages),
-    args.durableMemoryReference,
-    args.correctiveReason,
-  );
+  const outputBudget =
+    args.outputBudgetTokens ?? computeSummaryBudget(args.messages);
+  const promptBody = args.segment
+    ? buildChunkSummaryPrompt(
+        formattedConversation,
+        args.segment,
+        outputBudget,
+        args.durableMemoryReference,
+        args.correctiveReason,
+      )
+    : buildSummaryPrompt(
+        formattedConversation,
+        args.previousSummary,
+        outputBudget,
+        args.durableMemoryReference,
+        args.correctiveReason,
+      );
 
   // LLM failures propagate to `compactRuntimeThreadHistory`, which logs
   // `thread.compaction.failed` — a swallowed error here previously made
@@ -1040,14 +1109,16 @@ const generateThreadSummary = async (args: {
 };
 
 /**
- * Hierarchical fallback used when the middle cannot fit (or repeatedly
- * failed) a single summary request with the current model. Chunks are folded
- * into a rolling summary through the same recursive-summary prompt the
- * single-pass path uses (`buildSummaryPrompt`'s "previous summary + new
- * turns" form), so chunked checkpoints keep the existing format, guidelines,
- * and validation conventions. Chunks that still fail after retries are
- * counted and disclosed in the final summary instead of failing the whole
- * compaction; the raw messages always remain in thread storage.
+ * Parallel chunked compaction used when the middle cannot fit (or repeatedly
+ * failed) a single summary request with the current model. Every chunk is
+ * summarized independently and concurrently (bounded by
+ * `CHUNKED_SUMMARY_MAX_CONCURRENCY`) with the standalone segment prompt, and
+ * the results are combined mechanically — concatenated in chronological
+ * order under "Part i/N" headings, with the previous checkpoint summary
+ * carried verbatim up front — so no combiner LLM call is needed. Chunks that
+ * still fail after retries are counted and disclosed in the final summary
+ * instead of failing the whole compaction; the raw messages always remain in
+ * thread storage.
  */
 const generateChunkedThreadSummary = async (args: {
   threadKey: string;
@@ -1065,97 +1136,164 @@ const generateChunkedThreadSummary = async (args: {
     args.middleMessages,
     chunkCharBudget,
   );
+  const chunkCount = chunks.length;
+  // Divide the overall summary budget across chunks so the mechanical
+  // concatenation cannot exceed what a single-pass summary would have been
+  // allowed, and always fits comfortably in the current model's window.
+  const totalOutputBudgetTokens = Math.min(
+    computeSummaryBudget(args.middleMessages),
+    Math.floor(
+      getContextWindow(args.resolvedLlm) *
+        CHUNKED_SUMMARY_TOTAL_OUTPUT_WINDOW_FRACTION,
+    ),
+  );
+  const perChunkOutputBudgetTokens = Math.max(
+    CHUNKED_SUMMARY_MIN_CHUNK_OUTPUT_TOKENS,
+    Math.min(
+      CHUNKED_SUMMARY_MAX_CHUNK_OUTPUT_TOKENS,
+      Math.floor(totalOutputBudgetTokens / chunkCount),
+    ),
+  );
+  const concurrency = Math.min(CHUNKED_SUMMARY_MAX_CONCURRENCY, chunkCount);
   logger.info("thread.compaction.chunked-start", {
     threadKey: args.threadKey,
     model: args.resolvedLlm.model.id,
-    chunkCount: chunks.length,
+    chunkCount,
     chunkCharBudget,
+    perChunkOutputBudgetTokens,
+    concurrency,
     middleTokens: getThreadTokenEstimate(args.middleMessages),
   });
-  const previousSummary = args.previousSummary?.trim() || undefined;
-  let rollingSummary = previousSummary;
-  let foldedWithoutNarrationTokens = 0;
+  const chunkTokensList = chunks.map((chunkMessages) =>
+    getThreadTokenEstimate(chunkMessages),
+  );
+  const results: Array<string | null> = new Array(chunkCount).fill(null);
   let lastFailureReason: string | undefined;
-  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-    const chunkMessages = chunks[chunkIndex]!;
-    const chunkTokens = getThreadTokenEstimate(chunkMessages);
-    let chunkSummary: string | null = null;
-    let correctiveReason: string | undefined;
-    let nonRetryable = false;
-    for (
-      let attempt = 1;
-      !chunkSummary && attempt <= THREAD_SUMMARY_MAX_GENERATION_ATTEMPTS;
-      attempt += 1
-    ) {
-      const generated = await generateThreadSummary({
-        threadKey: args.threadKey,
-        messages: chunkMessages,
-        ...(rollingSummary ? { previousSummary: rollingSummary } : {}),
-        resolvedLlm: args.resolvedLlm,
-        ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
-        ...(args.durableMemoryReference
-          ? { durableMemoryReference: args.durableMemoryReference }
-          : {}),
-        ...(correctiveReason ? { correctiveReason } : {}),
-      });
-      if (generated.text) {
-        const validation = validateThreadSummary(
-          generated.text,
-          chunkTokens,
-          rollingSummary,
-        );
-        if (validation.valid) {
-          chunkSummary = generated.text;
-          break;
-        }
-        correctiveReason = validation.reason ?? "invalid summary";
-        logger.warn("thread.compaction.chunk-summary-invalid", {
+  let abortReason: string | undefined;
+  let nextChunkIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (abortReason === undefined) {
+      const chunkIndex = nextChunkIndex;
+      if (chunkIndex >= chunkCount) return;
+      nextChunkIndex += 1;
+      const chunkMessages = chunks[chunkIndex]!;
+      const chunkTokens = chunkTokensList[chunkIndex]!;
+      let chunkSummary: string | null = null;
+      let correctiveReason: string | undefined;
+      for (
+        let attempt = 1;
+        !chunkSummary && attempt <= THREAD_SUMMARY_MAX_GENERATION_ATTEMPTS;
+        attempt += 1
+      ) {
+        const generated = await generateThreadSummary({
           threadKey: args.threadKey,
-          model: args.resolvedLlm.model.id,
-          chunkIndex,
-          chunkCount: chunks.length,
-          attempt,
-          reason: validation.reason,
+          messages: chunkMessages,
+          resolvedLlm: args.resolvedLlm,
+          segment: { index: chunkIndex, count: chunkCount },
+          outputBudgetTokens: perChunkOutputBudgetTokens,
+          ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+          ...(args.durableMemoryReference
+            ? { durableMemoryReference: args.durableMemoryReference }
+            : {}),
+          ...(correctiveReason ? { correctiveReason } : {}),
         });
-      } else {
-        correctiveReason = generated.reason ?? "summary generation failed";
-        if (!generated.retryable) {
-          nonRetryable = true;
-          break;
+        if (generated.text) {
+          const validation = validateThreadSummary(generated.text, chunkTokens);
+          if (validation.valid) {
+            chunkSummary = generated.text;
+            break;
+          }
+          correctiveReason = validation.reason ?? "invalid summary";
+          logger.warn("thread.compaction.chunk-summary-invalid", {
+            threadKey: args.threadKey,
+            model: args.resolvedLlm.model.id,
+            chunkIndex,
+            chunkCount,
+            attempt,
+            reason: validation.reason,
+          });
+        } else {
+          correctiveReason = generated.reason ?? "summary generation failed";
+          if (!generated.retryable) {
+            // e.g. no API key: nothing else will succeed either; stop
+            // pulling new chunks and report the failure instead of folding
+            // the history unnarrated.
+            abortReason = correctiveReason;
+            return;
+          }
         }
       }
+      if (chunkSummary) {
+        results[chunkIndex] = chunkSummary;
+        continue;
+      }
+      lastFailureReason = correctiveReason;
+      logger.warn("thread.compaction.chunk-summary-failed", {
+        threadKey: args.threadKey,
+        model: args.resolvedLlm.model.id,
+        chunkIndex,
+        chunkCount,
+        chunkTokens,
+        reason: correctiveReason,
+      });
     }
-    if (nonRetryable) {
-      // e.g. no API key: nothing later will succeed either; report the
-      // failure instead of folding the rest of the history unnarrated.
-      return { text: null, reason: correctiveReason };
-    }
-    if (chunkSummary) {
-      rollingSummary = chunkSummary;
-      continue;
-    }
-    foldedWithoutNarrationTokens += chunkTokens;
-    lastFailureReason = correctiveReason;
-    logger.warn("thread.compaction.chunk-summary-failed", {
-      threadKey: args.threadKey,
-      model: args.resolvedLlm.model.id,
-      chunkIndex,
-      chunkCount: chunks.length,
-      chunkTokens,
-      reason: correctiveReason,
-    });
+  };
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  if (abortReason !== undefined) {
+    return { text: null, reason: abortReason };
   }
-  if (!rollingSummary?.trim() || rollingSummary === previousSummary) {
+  const successfulChunks = results.filter((text) => text !== null).length;
+  if (successfulChunks === 0) {
     return {
       text: null,
-      reason:
-        lastFailureReason ?? "chunked summary generation produced no update",
+      reason: lastFailureReason ?? "all chunk summaries failed",
     };
   }
-  if (foldedWithoutNarrationTokens > 0) {
-    rollingSummary = `[chunked compaction: ~${foldedWithoutNarrationTokens} tokens of history were folded without narration after repeated summary failures; the raw messages remain in thread storage]\n\n${rollingSummary}`;
+  // Mechanical combine: chronological concatenation, no combiner LLM call.
+  const previousSummary = args.previousSummary?.trim();
+  const perChunkTrimChars = Math.floor(
+    perChunkOutputBudgetTokens *
+      SUMMARY_INPUT_CHARS_PER_TOKEN *
+      CHUNKED_SUMMARY_TRIM_SLACK,
+  );
+  let foldedWithoutNarrationTokens = 0;
+  const parts: string[] = [];
+  if (previousSummary) {
+    parts.push(
+      `## Earlier context (previous checkpoint summary)\n\n${previousSummary}`,
+    );
   }
-  return { text: rollingSummary };
+  for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+    const text = results[chunkIndex];
+    const partLabel =
+      chunkCount > 1 ? `## Part ${chunkIndex + 1}/${chunkCount}\n\n` : "";
+    if (text === null) {
+      foldedWithoutNarrationTokens += chunkTokensList[chunkIndex]!;
+      parts.push(
+        `${partLabel}[~${chunkTokensList[chunkIndex]} tokens of history in this segment were folded without narration after repeated summary failures; the raw messages remain in thread storage.]`,
+      );
+      continue;
+    }
+    parts.push(`${partLabel}${truncateForSummary(text, perChunkTrimChars)}`);
+  }
+  const summary = (
+    chunkCount > 1
+      ? [
+          `[This checkpoint was compacted in ${chunkCount} parallel segment summaries; the parts below are in chronological order.]`,
+          ...parts,
+        ]
+      : parts
+  ).join("\n\n");
+  if (foldedWithoutNarrationTokens > 0) {
+    logger.warn("thread.compaction.chunked-partial", {
+      threadKey: args.threadKey,
+      model: args.resolvedLlm.model.id,
+      chunkCount,
+      successfulChunks,
+      foldedWithoutNarrationTokens,
+    });
+  }
+  return { text: summary };
 };
 
 /**
@@ -1368,8 +1506,8 @@ export const maybeCompactRuntimeThread = async (args: {
     }
   }
   if (!summary && correctiveReason !== "no API key") {
-    // Chunked/hierarchical compaction with the current model: the primary
-    // path when the middle cannot fit one request, and the fallback when the
+    // Parallel chunked compaction with the current model: the primary path
+    // when the middle cannot fit one request, and the fallback when the
     // single pass failed (e.g. the char-per-token estimate undercounted and
     // the summary request itself overflowed the provider window).
     const chunked = await generateChunkedThreadSummary({

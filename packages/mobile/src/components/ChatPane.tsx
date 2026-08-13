@@ -1078,6 +1078,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isStreaming,
   menuActive,
   isSelecting,
+  anySelecting,
   onOpenArtifact,
   onOpenMessageMenu,
   onStartSelecting,
@@ -1093,6 +1094,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   menuActive: boolean;
   /** True while this row is in native text-selection mode. */
   isSelecting: boolean;
+  /** True while ANY row is selecting — lets other rows tap-to-dismiss it. */
+  anySelecting: boolean;
   onOpenArtifact?: (artifact: ChatArtifact) => void;
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
   /** Enters native text-selection mode for this row's id. */
@@ -1190,6 +1193,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
             <Animated.View style={liftStyle}>
               <Pressable
                 onLongPress={openMenu}
+                // While another message is selecting, a tap here exits selection
+                // (and otherwise does nothing), so tapping away always dismisses.
+                onPress={anySelecting ? onEndSelecting : undefined}
                 delayLongPress={350}
                 accessibilityLabel="Long press for message actions"
                 style={[
@@ -1296,6 +1302,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
                     onStartSelecting(item.id);
                   }
             }
+            // While another message is selecting, a tap here exits selection
+            // (taps otherwise pass through to inline links via the inner View).
+            onPress={anySelecting ? onEndSelecting : undefined}
             delayLongPress={350}
             accessibilityLabel="Press and hold to select this message"
           >
@@ -3389,6 +3398,7 @@ export function ChatPane({
             isStreaming={isStreamingAssistant}
             menuActive={item.id === activeMenuMessageId}
             isSelecting={item.id === selectingMessageId}
+            anySelecting={selectingMessageId != null}
             onOpenArtifact={onOpenArtifact}
             onOpenMessageMenu={setMessageMenu}
             onStartSelecting={startSelectingMessage}
@@ -3618,7 +3628,12 @@ export function ChatPane({
               ItemSeparatorComponent={renderSeparator}
               ListFooterComponent={listFooter}
               onScroll={handleListScroll}
-              onScrollBeginDrag={scroll.onScrollBeginDrag}
+              onScrollBeginDrag={() => {
+                // Scrolling the transcript exits any active text selection
+                // before the drag runs (inline so it adds no new deps warning).
+                if (selectingMessageId != null) stopSelectingMessage();
+                scroll.onScrollBeginDrag();
+              }}
               onScrollEndDrag={handleListScrollSettle}
               onMomentumScrollEnd={handleListScrollSettle}
               onContentSizeChange={handleListContentSizeChange}
@@ -3988,6 +4003,11 @@ export function ChatPane({
                     scrollEnabled={isExpandedComposed}
                     onChangeText={onChangeDraft}
                     onContentSizeChange={handleContentSizeChange}
+                    onFocus={() => {
+                      // Focusing the composer (keyboard opening) exits any
+                      // active message text selection.
+                      if (selectingMessageId != null) stopSelectingMessage();
+                    }}
                     blurOnSubmit={false}
                     placeholder={
                       isExpandedComposed
@@ -4518,7 +4538,9 @@ const makeStyles = (colors: Colors) =>
     quoteChip: {
       alignItems: "center",
       alignSelf: "flex-start",
-      backgroundColor: fadeHex(colors.text, 0.06),
+      // Opaque solid surface (not translucent) so the chip reads as a distinct
+      // panel over the glass composer, matching the app's other solid surfaces.
+      backgroundColor: colors.surface,
       borderColor: colors.border,
       borderRadius: 12,
       borderWidth: StyleSheet.hairlineWidth,

@@ -967,7 +967,20 @@ export const exchangeWindowsDaemonRequest = (
       else resolve(value);
     };
     const onData = (chunk: Buffer | string) => {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const newlineIndex = buffer.indexOf(0x0a);
+      if (newlineIndex < 0) {
+        chunks.push(buffer);
+        return;
+      }
+
+      // The native helper newline-frames every daemon response. Resolve as
+      // soon as that complete frame arrives instead of waiting for the server
+      // to disconnect its Windows named-pipe instance: libuv can surface that
+      // normal disconnect as a read-side EPIPE even after all response bytes
+      // were delivered.
+      chunks.push(buffer.subarray(0, newlineIndex));
+      settle(null, Buffer.concat(chunks).toString("utf8"));
     };
     const onEnd = () => {
       settle(null, Buffer.concat(chunks).toString("utf8"));

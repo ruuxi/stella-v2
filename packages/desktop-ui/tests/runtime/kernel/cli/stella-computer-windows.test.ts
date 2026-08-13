@@ -287,6 +287,35 @@ describe("Windows stella-computer wrapper", () => {
     expect(() => socket.emit("error", new Error("late EPIPE"))).not.toThrow();
   });
 
+  it("accepts a complete response frame before a read-side EPIPE", async () => {
+    const response = JSON.stringify({
+      seq: 1,
+      status: 0,
+      stdout: JSON.stringify({ ok: true, text: "received" }),
+      stderr: "",
+    });
+    const pipeError = Object.assign(new Error("broken pipe, read"), {
+      code: "EPIPE",
+    });
+    const socket = Object.assign(new EventEmitter(), {
+      destroy: vi.fn(),
+      write: vi.fn(() => {
+        queueMicrotask(() => {
+          socket.emit("data", Buffer.from(`${response}\n`, "utf8"));
+          socket.emit("error", pipeError);
+        });
+        return true;
+      }),
+    }) as unknown as net.Socket;
+
+    await expect(
+      exchangeWindowsDaemonRequest(socket, "request\n", {
+        timeoutMs: 1_000,
+      }),
+    ).resolves.toBe(response);
+    expect(socket.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("recycles and retries a read-only request after an EPIPE", async () => {
     const sockets = [{ attempt: 1 }, { attempt: 2 }] as unknown as net.Socket[];
     const connectDaemon = vi

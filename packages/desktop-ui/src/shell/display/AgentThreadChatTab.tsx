@@ -128,6 +128,69 @@ const ToolTranscriptItem = ({
   );
 };
 
+/**
+ * Consecutive tool/reasoning trace messages between two conversation
+ * messages collapse into one quiet clickable text row ("12 tool calls" /
+ * "Reasoning"). Expanding lists the individual trace items, each of which
+ * opens further into its full input/output detail.
+ */
+const TraceGroupRow = ({
+  traceKind,
+  entries,
+  expanded,
+  onToggle,
+  threadId,
+}: {
+  traceKind: "tool" | "reasoning";
+  entries: { message: AgentThreadMessageRecord; index: number }[];
+  expanded: boolean;
+  onToggle: () => void;
+  threadId: string;
+}) => {
+  const tPlural = useTPlural();
+  const label =
+    traceKind === "tool"
+      ? tPlural("shell.display.agentThread.toolGroup", entries.length)
+      : tPlural("shell.display.agentThread.reasoningGroup", entries.length);
+  return (
+    <div
+      className="agent-thread-chat__trace-group"
+      data-trace-kind={traceKind}
+      data-expanded={expanded ? "true" : undefined}
+    >
+      <button
+        type="button"
+        className="agent-thread-chat__trace-group-toggle"
+        aria-expanded={expanded}
+        onClick={onToggle}
+      >
+        <span className="agent-thread-chat__trace-group-chevron" aria-hidden="true">
+          ›
+        </span>
+        <span>{label}</span>
+      </button>
+      {expanded ? (
+        <div className="agent-thread-chat__trace-group-items">
+          {entries.map(({ message, index }) =>
+            message.role === "tool" ? (
+              <ToolTranscriptItem
+                key={message.entryId ?? `${message.timestamp}:${index}`}
+                message={message}
+              />
+            ) : (
+              <ReasoningTranscriptItem
+                key={message.entryId ?? `${message.timestamp}:${index}`}
+                message={message}
+                cacheKey={message.entryId ?? `${threadId}:${index}`}
+              />
+            ),
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const CheckpointTranscriptItem = ({
   message,
   cacheKey,
@@ -367,6 +430,59 @@ export function AgentThreadChatTab({
     [lifecycleIndex, messages],
   );
 
+  // Consecutive tool calls (and reasoning blocks) between two conversation
+  // messages fold into one collapsed row each. Group identity keys off the
+  // first trace entry so a group stays expanded while new entries append to
+  // it live (the row's count just ticks up).
+  const renderItems = useMemo(() => {
+    type TraceEntry = { message: AgentThreadMessageRecord; index: number };
+    const items: (
+      | { kind: "single"; message: AgentThreadMessageRecord; index: number }
+      | {
+          kind: "trace-group";
+          traceKind: "tool" | "reasoning";
+          key: string;
+          entries: TraceEntry[];
+        }
+    )[] = [];
+    visibleMessages.forEach((message, index) => {
+      const traceKind =
+        message.role === "tool"
+          ? ("tool" as const)
+          : message.role === "reasoning"
+            ? ("reasoning" as const)
+            : null;
+      if (!traceKind) {
+        items.push({ kind: "single", message, index });
+        return;
+      }
+      const last = items.at(-1);
+      if (last?.kind === "trace-group" && last.traceKind === traceKind) {
+        last.entries.push({ message, index });
+        return;
+      }
+      items.push({
+        kind: "trace-group",
+        traceKind,
+        key: `${traceKind}:${message.entryId ?? `${message.timestamp}:${index}`}`,
+        entries: [{ message, index }],
+      });
+    });
+    return items;
+  }, [visibleMessages]);
+  // Session-local, collapsed by default; keyed per group.
+  const [expandedTraceGroups, setExpandedTraceGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleTraceGroup = useCallback((key: string) => {
+    setExpandedTraceGroups((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   const load = useCallback(
     async (reason: "initial" | "refresh") => {
       const generation = ++requestGeneration.current;
@@ -581,7 +697,26 @@ export function AgentThreadChatTab({
           // shared bubble styling (see compact-conversation.css) so this
           // read-only view renders exactly like the normal sidebar chat.
           <ol className="agent-thread-chat__messages chat-conversation-surface chat-conversation-surface--sidebar">
-            {visibleMessages.map((message, index) => (
+            {renderItems.map((item) => {
+              if (item.kind === "trace-group") {
+                return (
+                  <li
+                    key={item.key}
+                    className="agent-thread-chat__message"
+                    data-role={`${item.traceKind}-group`}
+                  >
+                    <TraceGroupRow
+                      traceKind={item.traceKind}
+                      entries={item.entries}
+                      expanded={expandedTraceGroups.has(item.key)}
+                      onToggle={() => toggleTraceGroup(item.key)}
+                      threadId={threadId}
+                    />
+                  </li>
+                );
+              }
+              const { message, index } = item;
+              return (
               <li
                 key={message.entryId ?? `${message.timestamp}:${index}`}
                 className="agent-thread-chat__message"
@@ -598,13 +733,6 @@ export function AgentThreadChatTab({
                     conversationId={conversationId}
                     modelConfigByThread={modelConfigByThread}
                   />
-                ) : message.role === "reasoning" ? (
-                  <ReasoningTranscriptItem
-                    message={message}
-                    cacheKey={message.entryId ?? `${threadId}:${index}`}
-                  />
-                ) : message.role === "tool" ? (
-                  <ToolTranscriptItem message={message} />
                 ) : message.role === "checkpoint" ? (
                   <CheckpointTranscriptItem
                     message={message}
@@ -633,7 +761,8 @@ export function AgentThreadChatTab({
                   </>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ol>
         )}
         {newMessageCount > 0 ? (

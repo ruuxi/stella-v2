@@ -1,5 +1,5 @@
 import type { HookDefinition } from "../../../kernel/extensions/types.js";
-import { wrapInternalSystemReminder } from "@stella/contracts/system-reminders";
+import { wrapSystemReminder } from "@stella/contracts/system-reminders";
 
 /**
  * Connector-surface transition reminder (stella-runtime).
@@ -10,7 +10,7 @@ import { wrapInternalSystemReminder } from "@stella/contracts/system-reminders";
  * renders markdown and `html` artifacts inline, while connector chats
  * only show plain text.
  *
- * This hook prepends a hidden `<system_reminder>` on the single turn
+ * This hook prepends a hidden `<system-reminder>` on the single turn
  * where the routing surface changed (desktop → connector, connector →
  * desktop, or connector → different connector) so the orchestrator
  * adjusts its output format. Same-surface turns return nothing — the
@@ -29,7 +29,7 @@ export const createConnectorFormatReminderHook =
       return {
         prependMessages: [
           {
-            text: wrapInternalSystemReminder(text),
+            text: wrapSystemReminder(text),
             uiVisibility: "hidden",
             messageType: "message",
             customType: "runtime.connector_format_reminder",

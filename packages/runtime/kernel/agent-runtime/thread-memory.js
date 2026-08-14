@@ -253,12 +253,12 @@ export const persistThreadCustomMessage = (store, args) => {
     ...(args.eventId ? { eventId: args.eventId } : {}),
   });
 };
-const getPlatformShellPrompt = () => {
+const getPlatformIdentityPrompt = () => {
   if (process.platform === "win32") {
-    return "On Windows, use the native command shell and Windows paths. Prefer PowerShell when it is the clearer fit for the task.";
+    return "You are running on Windows.";
   }
   if (process.platform === "darwin") {
-    return "On macOS, use standard POSIX shell commands and native /Users/... paths when using Bash.";
+    return "You are running on macOS.";
   }
   return null;
 };
@@ -330,9 +330,9 @@ export const buildSystemPrompt = (context) => {
   if (fileEditingPrompt) {
     sections.push(fileEditingPrompt);
   }
-  const platformShellPrompt = getPlatformShellPrompt();
-  if (platformShellPrompt && hasShellToolGuidance(context)) {
-    sections.push(platformShellPrompt);
+  const platformIdentityPrompt = getPlatformIdentityPrompt();
+  if (platformIdentityPrompt && hasShellToolGuidance(context)) {
+    sections.push(platformIdentityPrompt);
   }
   const backgroundWaitPrompt = buildBackgroundWaitPrompt(context);
   if (backgroundWaitPrompt) {
@@ -441,7 +441,7 @@ export const buildSubagentPromptMessages = async (args) => {
 export const buildOrchestratorPromptMessages = async (args) => {
   const trimmedUserPrompt = args.userPrompt.trim();
   const messages = [];
-  // Stale-user / dynamic-memory reminders used to be inline branches
+  // Stale-user / orchestrator reminders used to be inline branches
   // here; they now live as `before_user_message` hooks in
   // `runtime/extensions/stella-runtime/hooks/`. The reminder text is
   // forwarded through the hook payload so the hooks can decide whether

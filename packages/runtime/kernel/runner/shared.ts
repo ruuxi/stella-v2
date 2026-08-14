@@ -120,7 +120,7 @@ export const buildAgentEventPrompt = (
 
   const lines: string[] = [];
   const toParentAgent = options?.recipient === "parent_agent";
-  const isUserPausedChild =
+  const isPausedChild =
     event.type === "agent-canceled" &&
     event.error === AGENT_PAUSE_CANCEL_REASON &&
     toParentAgent;
@@ -130,7 +130,7 @@ export const buildAgentEventPrompt = (
       lines.push(`description: ${event.description}`);
     }
   } else if (event.type === "agent-canceled") {
-    lines.push(isUserPausedChild ? "[Subagent paused]" : "[Task canceled]");
+    lines.push(isPausedChild ? "[Subagent paused]" : "[Task canceled]");
   } else {
     lines.push("[Task failed]");
   }
@@ -186,26 +186,24 @@ export const buildAgentEventPrompt = (
   }
   if (event.type === "agent-completed") {
     lines.push(
-      "agent_state: paused; this agent is not currently working. Use send_input to resume the same thread if follow-up work is needed.",
+      "agent_state: paused; use send_input on the same thread if follow-up work is needed.",
     );
     if (toParentAgent) {
       lines.push(
-        "routing: this is a report from a subagent you started. It is delivered to you alone — it does not reach the user. Continue your own task with this result, and fold anything the user needs into your own final report.",
+        "routing: your subagent's report has returned. It reaches only you, not the user; continue your own task with it.",
       );
     } else {
       lines.push(
-        "presentation: if the result is a report or substantial/dense information, present it as a canvas with the `html` tool — write the complete HTML document yourself from the result, and give the user only a short chat reply. For a quick answer or simple Q&A, reply directly in chat without `html`.",
+        "presentation: for a report or dense result, present it as a canvas with the `html` tool (write the complete HTML document yourself) and keep the chat reply short; for a quick answer, reply directly in chat. Be concise and human-friendly — the user delegated this and lacks the context, so say what happened in plain terms rather than implementation detail.",
       );
     }
   }
 
   if (toParentAgent) {
     return [
-      "<system_reminder>",
-      isUserPausedChild
-        ? "A subagent you started was paused by the user. Reassess now: wait, respawn, or finish without it. Do not stay blocked on that subagent."
-        : "A subagent you started reached a terminal state. This report is for you, not an automatic update to the user. Continue your own task.",
-      "</system_reminder>",
+      "<system-reminder>",
+      "A subagent you started reached a terminal state. This report is for you only; continue your own task.",
+      "</system-reminder>",
       "",
       ...lines,
     ].join("\n");

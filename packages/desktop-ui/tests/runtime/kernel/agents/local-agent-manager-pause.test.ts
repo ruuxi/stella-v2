@@ -251,7 +251,7 @@ describe("LocalAgentManager pause_agent cancellation", () => {
 
     expect(prompts[0]).toBe("initial prompt");
     expect(firstWasAborted).toBe(false);
-    expect(prompts[1]).toContain("Task update from orchestrator:");
+    expect(prompts[1]).toContain("Task update:");
     expect(prompts[1]).toContain("follow-up");
     expect(prompts[1]).toContain(
       "If it asks a question, requests status, or asks for a report, answer that request and then stop",

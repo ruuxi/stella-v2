@@ -273,7 +273,12 @@ export const buildChatPromptMessages = ({
   }
 
   if (selectedSnippet) {
-    visibleParts.push(`"${selectedSnippet}"`);
+    visibleParts.push(
+      selectedSnippet
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n"),
+    );
   }
 
   if (cleanedUserPrompt) {

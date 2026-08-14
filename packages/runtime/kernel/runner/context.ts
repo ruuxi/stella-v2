@@ -267,22 +267,21 @@ const buildConnectorTransitionReminder = (
         ? "iPhone or iMessage"
         : (currentSurface.provider ?? "an external chat channel");
     const connectorLines = [
-      `The user just switched to messaging you from ${providerLabel} (not the desktop app).`,
-      "Reply in plain text only — no markdown, no headers, no bullet lists, no code blocks. Write like a normal text message.",
-      "Do not call the `html` tool (HTML/canvas artifacts only render in the desktop sidebar — type the answer in chat instead).",
-      "`image_gen` stays pending until the image succeeds or fails and returns durable artifact paths in that same tool result. Do not poll, retry, download, or open the result yourself. After success, do not narrate or describe the image you just made; the returned artifact is rendered directly in chat.",
-      "Keep replies short and conversational.",
+      `The user is now messaging you from ${providerLabel}, not the desktop app.`,
+      "Reply like a normal text message: plain text only, no markdown, short and conversational.",
+      "Do not call the `html` tool — it only renders in the desktop sidebar.",
+      "`image_gen` returns the finished artifact in its tool result and it renders directly in chat; do not poll for it or describe the image afterward.",
     ];
     if (currentSurface.provider === "linq") {
       connectorLines.push(
-        "The user is texting through iPhone or iMessage. Search for and use the iMessage tools when you need intentional native chat affordances such as reactions, rich media or rich links, contact card sharing, voice memos, or message effects. Typing indicators and read receipts are handled automatically by Stella.",
+        "The user is texting over iMessage. Use the iMessage tools for native affordances (reactions, rich media, contact cards, voice memos, effects); typing indicators and read receipts are automatic.",
       );
     }
     return connectorLines.join(" ");
   }
 
   // connector → desktop
-  return "The user is back at their desktop. You can respond normally again — markdown, the `html` tool, image-gen narration, and other desktop-only surfaces are all fine.";
+  return "The user is back at their desktop. Markdown, the `html` tool, and other desktop-only surfaces are fine again.";
 };
 
 const buildStaleUserReminder = (

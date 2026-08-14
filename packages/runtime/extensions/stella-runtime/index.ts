@@ -6,7 +6,7 @@ import type {
 import { createConnectorAvailabilityReminderHook } from "./hooks/connector-availability-reminder.hook.js";
 import { createConnectorFormatReminderHook } from "./hooks/connector-format-reminder.hook.js";
 import { createDreamSchedulerNotifyHook } from "./hooks/dream-scheduler-notify.hook.js";
-import { createDynamicMemoryReminderHook } from "./hooks/dynamic-memory-reminder.hook.js";
+import { createOrchestratorReminderHook } from "./hooks/orchestrator-reminder.hook.js";
 import { createMemoryReviewHook } from "./hooks/memory-review.hook.js";
 import { createStaleUserReminderHook } from "./hooks/stale-user-reminder.hook.js";
 import { createThreadSummariesRecordHook } from "./hooks/thread-summaries-record.hook.js";
@@ -34,7 +34,7 @@ export const loadStellaRuntimeAgents = (
  *
  *   - Agent registration from backend-synchronized home markdown
  *   - Stale-user reminder
- *   - Dynamic memory reminder
+ *   - Orchestrator reminder (active-threads roster)
  *   - Memory review spawn (post-orchestrator finalize)
  *   - Dream scheduler notify (post-subagent finalize)
  *   - Thread-summaries record (post-subagent finalize, capability-gated)
@@ -64,8 +64,8 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
   };
 
   register(createStaleUserReminderHook());
-  register(createDynamicMemoryReminderHook());
-  // Connector-format reminder: one hidden `<system_reminder>` on the
+  register(createOrchestratorReminderHook());
+  // Connector-format reminder: one hidden `<system-reminder>` on the
   // single turn where the user's routing surface changes (desktop ⇄
   // connector / connector ⇄ different connector). Cheap — the
   // transition decision is precomputed in `prepareOrchestratorRun`.

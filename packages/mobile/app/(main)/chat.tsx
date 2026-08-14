@@ -135,6 +135,7 @@ export default function ChatScreen() {
         dictationAnonymous={guest}
         dictationHeaders={dictationHeaders}
         onOpenArtifact={setSelectedArtifact}
+        conversationId={thread.conversationId}
         activityTasks={thread.conversationTasks}
         onRewindMessage={thread.rewindToMessage}
       />

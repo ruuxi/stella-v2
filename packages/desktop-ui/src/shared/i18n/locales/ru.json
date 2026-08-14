@@ -1878,6 +1878,14 @@
         "toolInput": "Ввод",
         "toolOutput": "Вывод",
         "toolRunning": "Ожидание завершения этого инструмента…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} новое сообщение",
           "few": "{count} новых сообщения",

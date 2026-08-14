@@ -1921,6 +1921,14 @@
         "toolInput": "الإدخال",
         "toolOutput": "الإخراج",
         "toolRunning": "في انتظار انتهاء هذه الأداة…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "zero": "{count} رسالة جديدة",
           "one": "{count} رسالة جديدة",

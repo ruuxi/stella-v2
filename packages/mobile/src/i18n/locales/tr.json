@@ -1834,6 +1834,14 @@
         "toolInput": "Giriş",
         "toolOutput": "Çıkış",
         "toolRunning": "Bu aracın bitmesi bekleniyor…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} yeni mesaj",
           "other": "{count} yeni mesaj"

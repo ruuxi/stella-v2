@@ -1834,6 +1834,14 @@
         "toolInput": "Είσοδος",
         "toolOutput": "Έξοδος",
         "toolRunning": "Αναμονή για την ολοκλήρωση αυτού του εργαλείου…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} νέο μήνυμα",
           "other": "{count} νέα μηνύματα"

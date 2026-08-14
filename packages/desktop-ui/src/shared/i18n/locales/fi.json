@@ -1834,6 +1834,14 @@
         "toolInput": "Syöte",
         "toolOutput": "Tuloste",
         "toolRunning": "Odotetaan, että tämä työkalu valmistuu…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} uusi viesti",
           "other": "{count} uutta viestiä"

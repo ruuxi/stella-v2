@@ -1834,6 +1834,14 @@
         "toolInput": "Bemenet",
         "toolOutput": "Kimenet",
         "toolRunning": "Várakozás az eszköz befejezésére…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} új üzenet",
           "other": "{count} új üzenet"

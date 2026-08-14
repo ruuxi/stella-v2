@@ -129,6 +129,23 @@ describe("AgentThreadChatTab execution transcript", () => {
     await render();
 
     expect(container.textContent).not.toContain("No messages in this thread");
+    const reasoningGroup = container.querySelector<HTMLDivElement>(
+      '.agent-thread-chat__trace-group[data-trace-kind="reasoning"]',
+    );
+    const toolGroup = container.querySelector<HTMLDivElement>(
+      '.agent-thread-chat__trace-group[data-trace-kind="tool"]',
+    );
+    expect(reasoningGroup?.getAttribute("data-expanded")).toBeNull();
+    expect(toolGroup?.getAttribute("data-expanded")).toBeNull();
+    expect(reasoningGroup?.textContent).toContain("Reasoning");
+    expect(toolGroup?.textContent).toContain("1 tool call");
+
+    await act(async () => {
+      reasoningGroup?.querySelector<HTMLButtonElement>("button")?.click();
+      toolGroup?.querySelector<HTMLButtonElement>("button")?.click();
+      await flush();
+    });
+
     const reasoning = container.querySelector<HTMLDetailsElement>(
       'details[data-trace-kind="reasoning"]',
     );
@@ -163,6 +180,15 @@ describe("AgentThreadChatTab execution transcript", () => {
     };
     records = [running];
     await render();
+
+    const toolGroup = container.querySelector<HTMLDivElement>(
+      '.agent-thread-chat__trace-group[data-trace-kind="tool"]',
+    );
+    expect(toolGroup?.getAttribute("data-expanded")).toBeNull();
+    await act(async () => {
+      toolGroup?.querySelector<HTMLButtonElement>("button")?.click();
+      await flush();
+    });
 
     expect(
       container

@@ -1812,6 +1812,12 @@
         "toolInput": "输入",
         "toolOutput": "输出",
         "toolRunning": "正在等待此工具完成…",
+        "toolGroup": {
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "other": "{count} 条新消息"
         },

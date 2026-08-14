@@ -1878,6 +1878,14 @@
         "toolInput": "Vstup",
         "toolOutput": "Výstup",
         "toolRunning": "Čeká se na dokončení tohoto nástroje…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} nová zpráva",
           "few": "{count} nové zprávy",

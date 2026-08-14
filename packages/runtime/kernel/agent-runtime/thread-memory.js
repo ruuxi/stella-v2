@@ -677,29 +677,46 @@ export const appendThreadMessage = (store, args) => {
     ...(args.payload ? { payload: args.payload } : {}),
   });
 };
+// Thrown errors here are store-level (LLM failures are retried and reported
+// as `compacted: false` inside `maybeCompactRuntimeThread`); a busy SQLite
+// read is transient, so retry before giving up on the compaction.
+const COMPACTION_RETRY_DELAYS_MS = [250, 1_000];
+
 export const compactRuntimeThreadHistory = async (args) => {
-  try {
-    return await maybeCompactRuntimeThread({
-      store: args.store,
-      threadKey: args.threadKey,
-      resolvedLlm: args.resolvedLlm,
-      agentType: args.agentType,
-      ...(args.overrideSummary
-        ? { overrideSummary: args.overrideSummary }
-        : {}),
-      ...(args.preserveLastN !== undefined
-        ? { preserveLastN: args.preserveLastN }
-        : {}),
-      ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
-    });
-  } catch (error) {
-    logger.warn("thread.compaction.failed", {
-      threadKey: args.threadKey,
-      agentType: args.agentType,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return { compacted: false };
+  for (
+    let attempt = 0;
+    attempt <= COMPACTION_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, COMPACTION_RETRY_DELAYS_MS[attempt - 1]),
+      );
+    }
+    try {
+      return await maybeCompactRuntimeThread({
+        store: args.store,
+        threadKey: args.threadKey,
+        resolvedLlm: args.resolvedLlm,
+        agentType: args.agentType,
+        ...(args.overrideSummary
+          ? { overrideSummary: args.overrideSummary }
+          : {}),
+        ...(args.preserveLastN !== undefined
+          ? { preserveLastN: args.preserveLastN }
+          : {}),
+        ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+      });
+    } catch (error) {
+      logger.warn("thread.compaction.failed", {
+        threadKey: args.threadKey,
+        agentType: args.agentType,
+        attempt: attempt + 1,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
+  return { compacted: false };
 };
 export const persistAssistantReply = async (args) => {
   if (!args.content.trim()) {

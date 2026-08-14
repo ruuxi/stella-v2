@@ -1812,6 +1812,12 @@
         "toolInput": "Masukan",
         "toolOutput": "Keluaran",
         "toolRunning": "Menunggu alat ini selesai…",
+        "toolGroup": {
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "other": "{count} pesan baru"
         },

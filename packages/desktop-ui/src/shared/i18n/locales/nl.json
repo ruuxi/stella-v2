@@ -1834,6 +1834,14 @@
         "toolInput": "Invoer",
         "toolOutput": "Uitvoer",
         "toolRunning": "Wachten tot deze tool klaar is…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} nieuw bericht",
           "other": "{count} nieuwe berichten"

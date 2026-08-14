@@ -1878,6 +1878,14 @@
         "toolInput": "Wejście",
         "toolOutput": "Wyjście",
         "toolRunning": "Czekanie na zakończenie tego narzędzia…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} nowa wiadomość",
           "few": "{count} nowe wiadomości",

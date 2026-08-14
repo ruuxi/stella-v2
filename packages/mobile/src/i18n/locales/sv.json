@@ -1834,6 +1834,14 @@
         "toolInput": "Indata",
         "toolOutput": "Utdata",
         "toolRunning": "Väntar på att det här verktyget ska bli klart…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} nytt meddelande",
           "other": "{count} nya meddelanden"

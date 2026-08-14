@@ -1812,6 +1812,12 @@
         "toolInput": "Đầu vào",
         "toolOutput": "Đầu ra",
         "toolRunning": "Đang chờ công cụ này hoàn tất…",
+        "toolGroup": {
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "other": "{count} tin nhắn mới"
         },

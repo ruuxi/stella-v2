@@ -1812,6 +1812,12 @@
         "toolInput": "อินพุต",
         "toolOutput": "เอาต์พุต",
         "toolRunning": "กำลังรอให้เครื่องมือนี้ทำงานเสร็จ…",
+        "toolGroup": {
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "other": "{count} ข้อความใหม่"
         },

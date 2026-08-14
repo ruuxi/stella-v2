@@ -1856,6 +1856,14 @@
         "toolInput": "Input",
         "toolOutput": "Output",
         "toolRunning": "In attesa che questo strumento termini…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} nuovo messaggio",
           "many": "{count} nuovi messaggi",

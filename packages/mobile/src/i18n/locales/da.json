@@ -1834,6 +1834,14 @@
         "toolInput": "Input",
         "toolOutput": "Output",
         "toolRunning": "Venter på, at dette værktøj bliver færdigt…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "{count} ny besked",
           "other": "{count} nye beskeder"

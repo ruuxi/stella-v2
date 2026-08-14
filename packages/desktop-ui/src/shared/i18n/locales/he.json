@@ -1856,6 +1856,14 @@
         "toolInput": "קלט",
         "toolOutput": "פלט",
         "toolRunning": "ממתין לסיום הכלי הזה…",
+        "toolGroup": {
+          "one": "{count} tool call",
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "one": "Reasoning",
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "one": "הודעה חדשה {count}",
           "two": "{count} הודעות חדשות",

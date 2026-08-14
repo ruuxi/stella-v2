@@ -1812,6 +1812,12 @@
         "toolInput": "입력",
         "toolOutput": "출력",
         "toolRunning": "이 도구가 끝나기를 기다리는 중…",
+        "toolGroup": {
+          "other": "{count} tool calls"
+        },
+        "reasoningGroup": {
+          "other": "{count} reasoning steps"
+        },
         "newMessagesButton": {
           "other": "새 메시지 {count}개"
         },

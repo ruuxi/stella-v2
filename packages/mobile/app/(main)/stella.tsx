@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   ActivityIndicator,
@@ -62,6 +70,12 @@ const BRIDGE_HEALTH_TIMEOUT_MS = 3_000;
 
 type BridgeState = {
   bridgeUrl: string;
+  /**
+   * Origin of `bridgeUrl`, parsed once while building this state (inside
+   * refreshBridge's try/catch). Parsing during render would make a malformed
+   * discovery URL a fatal render throw in release builds.
+   */
+  origin: string;
   headers: Record<string, string>;
   uri: string;
   bootstrap: MobileBridgeBootstrap;
@@ -194,12 +208,99 @@ function GuestDesktopScreen() {
   );
 }
 
+/**
+ * Fallback shown when anything in the desktop-view tree throws. Reuses the
+ * regular "can't reach your computer" copy plus a retry that remounts the
+ * screen.
+ */
+function StellaScreenCrashFallback({ onRetry }: { onRetry: () => void }) {
+  const colors = useColors();
+  const t = useT();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(
+    () => makeStyles(colors, insets.bottom),
+    [colors, insets.bottom],
+  );
+  return (
+    <View style={styles.unavailableView}>
+      <View style={styles.statusBlock}>
+        <DesktopTabAnimation />
+        <Text style={styles.title}>{t("mobile.desktop.unreachable")}</Text>
+        <Text style={styles.body}>
+          {t("mobile.desktop.unavailableBodyPaired")}
+        </Text>
+      </View>
+      <View style={styles.actionRow}>
+        <Pressable
+          onPress={onRetry}
+          accessibilityLabel={t("mobile.common.tryAgain")}
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            pressed && styles.secondaryButtonPressed,
+          ]}
+        >
+          <Text style={styles.secondaryButtonText}>
+            {t("mobile.common.tryAgain")}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+type StellaScreenCrashGuardState = { crashed: boolean; generation: number };
+
+/**
+ * A throw that escapes this screen's render/effects is a fatal native crash in
+ * release builds (no other ErrorBoundary wraps this route). Viewing the paired
+ * desktop involves discovery data and a WebView feeding events back into
+ * state, so this boundary guarantees the failure mode is a retryable error
+ * screen, never an app crash.
+ */
+class StellaScreenCrashGuard extends Component<
+  { children: ReactNode },
+  StellaScreenCrashGuardState
+> {
+  state: StellaScreenCrashGuardState = { crashed: false, generation: 0 };
+
+  static getDerivedStateFromError(): Partial<StellaScreenCrashGuardState> {
+    return { crashed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("[stella-screen] Recovered from crash:", error);
+  }
+
+  private retry = () => {
+    this.setState((current) => ({
+      crashed: false,
+      generation: current.generation + 1,
+    }));
+  };
+
+  render() {
+    if (this.state.crashed) {
+      return <StellaScreenCrashFallback onRetry={this.retry} />;
+    }
+    // Remount the subtree on retry so no stale crashed state survives.
+    return (
+      <View key={this.state.generation} style={{ flex: 1 }}>
+        {this.props.children}
+      </View>
+    );
+  }
+}
+
 export default function StellaScreen() {
   if (isGuest()) {
     return <GuestDesktopScreen />;
   }
 
-  return <AuthenticatedStellaScreen />;
+  return (
+    <StellaScreenCrashGuard>
+      <AuthenticatedStellaScreen />
+    </StellaScreenCrashGuard>
+  );
 }
 
 function AuthenticatedStellaScreen() {
@@ -338,6 +439,9 @@ function AuthenticatedStellaScreen() {
           type: "ready",
           bridge: {
             bridgeUrl: baseUrl,
+            // Parsed here so a malformed URL lands in this try/catch as an
+            // "unreachable" state instead of throwing during render.
+            origin: getBridgeOrigin(baseUrl),
             headers: bridgeSession.headers,
             uri: `${baseUrl}/?mobile=1`,
             bootstrap,
@@ -557,7 +661,7 @@ function AuthenticatedStellaScreen() {
     );
   }
 
-  const bridgeOrigin = getBridgeOrigin(screenState.bridge.bridgeUrl);
+  const bridgeOrigin = screenState.bridge.origin;
   return (
     // Full-screen Modal so the live desktop covers the app's own top bar and
     // sidebar chrome — edge-to-edge, like a native screen. Only the top is
@@ -648,8 +752,39 @@ function AuthenticatedStellaScreen() {
               ),
             )
           }
+          // The WebView's web-content process died (OOM, engine crash, or the
+          // system reclaiming it). Without these handlers the user is left
+          // staring at a dead blank view; recover to the retryable state.
+          onContentProcessDidTerminate={() =>
+            setScreenState(
+              readUnavailableState(
+                "mobile.desktop.unreachable",
+                t("mobile.desktop.linkInterrupted"),
+              ),
+            )
+          }
+          onRenderProcessGone={() =>
+            setScreenState(
+              readUnavailableState(
+                "mobile.desktop.unreachable",
+                t("mobile.desktop.linkInterrupted"),
+              ),
+            )
+          }
           onHttpError={(e) => {
-            if (e.nativeEvent.statusCode >= 500) {
+            // Any failure on the main document (401 expired session, 403
+            // revoked pairing, 503 renderer assets missing, 5xx) means there
+            // is no usable desktop UI behind this URL — recover to the
+            // retryable state instead of rendering an error body as a page.
+            // Subresource errors only bail on 5xx.
+            const isMainDocument =
+              e.nativeEvent.url === screenState.bridge.uri ||
+              e.nativeEvent.url === screenState.bridge.bridgeUrl ||
+              e.nativeEvent.url === `${screenState.bridge.bridgeUrl}/`;
+            if (
+              e.nativeEvent.statusCode >= 500 ||
+              (isMainDocument && e.nativeEvent.statusCode >= 400)
+            ) {
               setScreenState(
                 readUnavailableState("mobile.desktop.unreachable"),
               );

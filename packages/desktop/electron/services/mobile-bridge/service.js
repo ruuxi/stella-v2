@@ -14,6 +14,7 @@ import { BRIDGE_CRYPTO_PROTOCOL, BRIDGE_FEATURE_DEFLATE, createBridgeKeyPair, cr
 import { getHandler, getOnHandlers } from "./handler-registry.js";
 import { adaptLegacyMobileArgs } from "./legacy-args.js";
 import { probeBridgePublicHealth } from "./public-health.js";
+import { resolveRendererRoot } from "../../renderer-location.js";
 export const MOBILE_BRIDGE_REGISTRATION_REFRESH_MS = 5 * 60_000;
 const REGISTER_DESKTOP_BRIDGE_MUTATION = anyApi.mobile_bridge.registerDesktopBridge;
 /**
@@ -83,8 +84,19 @@ const MIME_TYPES = {
     ".jpeg": "image/jpeg",
     ".png": "image/png",
     ".svg": "image/svg+xml",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
     ".woff": "font/woff",
     ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".wasm": "application/wasm",
+    ".map": "application/json; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
 };
 const trimTrailingSlash = (value) => value.replace(/\/+$/, "");
 const parseCookies = (cookieHeader) => Object.fromEntries((cookieHeader ?? "")
@@ -694,7 +706,7 @@ export class MobileBridgeService {
             await this.proxyToDevServer(req, res);
         }
         else {
-            await this.serveStaticRenderer(req, res);
+            await this.serveStaticRenderer(req, res, requestOrigin);
         }
     }
     // ── IPC routing ───────────────────────────────────────────────────────
@@ -1289,23 +1301,79 @@ export class MobileBridgeService {
             res.on("error", reject);
         });
     }
-    async serveStaticRenderer(req, res) {
+    /**
+     * Resolve the built renderer root for static serving. Packaged builds ship
+     * the Vite output inside the asar at `app.asar/renderer` (the same tree
+     * `BrowserWindow.loadFile` uses); monorepo builds fall back to
+     * `packages/desktop-ui/dist` via `resolveRendererRoot`. The legacy
+     * `electronDir/../dist` location is kept as a last resort for old layouts.
+     * Returns null when no candidate actually contains an `index.html` so the
+     * caller can answer with an error instead of streaming a missing file.
+     */
+    resolveStaticRendererRoot() {
+        const candidates = [
+            resolveRendererRoot(this.options.electronDir),
+            path.resolve(this.options.electronDir, "../dist"),
+        ];
+        for (const candidate of candidates) {
+            try {
+                if (fs.statSync(path.join(candidate, "index.html")).isFile()) {
+                    return candidate;
+                }
+            }
+            catch {
+                // Candidate does not exist — try the next layout.
+            }
+        }
+        return null;
+    }
+    async serveStaticRenderer(req, res, requestOrigin) {
         const requestUrl = new URL(req.url ?? "/", "http://localhost");
         const relativePath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
-        const distRoot = path.resolve(this.options.electronDir, "../dist");
+        const distRoot = this.resolveStaticRendererRoot();
+        if (!distRoot) {
+            console.warn("[mobile-bridge] No built renderer assets found to serve.");
+            sendJson(res, 503, { error: "Desktop renderer assets are unavailable." }, requestOrigin);
+            return;
+        }
+        const isServableFile = (candidate) => {
+            const relative = path.relative(distRoot, candidate);
+            if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+                return false;
+            }
+            try {
+                return fs.statSync(candidate).isFile();
+            }
+            catch {
+                return false;
+            }
+        };
         const safePath = path.normalize(relativePath).replace(/^(\.\.[/\\])+/, "");
         const targetPath = path.join(distRoot, safePath);
         const fallbackPath = path.join(distRoot, "index.html");
-        const filePath = fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()
-            ? targetPath
-            : fallbackPath;
+        const filePath = isServableFile(targetPath) ? targetPath : fallbackPath;
+        if (!isServableFile(filePath)) {
+            sendJson(res, 503, { error: "Desktop renderer assets are unavailable." }, requestOrigin);
+            return;
+        }
         const extension = path.extname(filePath).toLowerCase();
         const contentType = MIME_TYPES[extension] ?? "application/octet-stream";
         res.writeHead(200, {
             "Content-Type": contentType,
             ...NO_STORE_HEADERS,
         });
-        fs.createReadStream(filePath).pipe(res);
+        const stream = fs.createReadStream(filePath);
+        // A read failure after the 200 head must abort the response, never
+        // surface as an unhandled 'error' event (which would take down the
+        // whole main process).
+        stream.on("error", (error) => {
+            console.warn(`[mobile-bridge] Failed to stream renderer asset ${filePath}:`, error instanceof Error ? error.message : String(error));
+            res.destroy();
+        });
+        res.on("close", () => {
+            stream.destroy();
+        });
+        stream.pipe(res);
     }
     // ── Convex registration ───────────────────────────────────────────────
     /**

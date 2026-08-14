@@ -1414,13 +1414,22 @@ export const buildAgentContext = async (
       ].join("\n"),
     );
   }
+  // The skill catalog is a message-resident block now, NOT a system-prompt
+  // section: rendering it into the system prompt meant any mid-thread skill
+  // save rewrote request block #1 and invalidated the whole thread's prompt
+  // cache. It rides the agent context into the ResidentBlock registry
+  // (`agent-runtime/resident-context.js`), which pins it as a hidden
+  // `bootstrap.skills_catalog` message at thread start and appends a fresh
+  // copy only when the rendered bytes actually change.
+  let skillsCatalog: string | undefined;
   if (agentHasCapability(args.agentType, "injectsSkillCatalog")) {
     const skillCatalogOptions =
       agentEngine === "codex_cli" && !usesInProcessSubscriptionHarness
         ? { omitSkillIds: CODEX_SKILL_CATALOG_OMITTED_IDS }
         : undefined;
-    dynamicContextSections.push(
-      await renderSkillCatalogBlock(context.stellaDataDir, skillCatalogOptions),
+    skillsCatalog = await renderSkillCatalogBlock(
+      context.stellaDataDir,
+      skillCatalogOptions,
     );
     // Connector discovery + connect offers are orchestrator-driven now:
     // a deterministic keyword reminder (connector-availability hook) plus
@@ -1497,6 +1506,7 @@ export const buildAgentContext = async (
     personality: injectsPersonality
       ? readOrSeedPersonality(context.stellaDataDir)
       : undefined,
+    skillsCatalog,
     threadHistory: threadHistory.length > 0 ? threadHistory : undefined,
     activeThreadId: threadKey,
     agentEngine,

@@ -437,17 +437,17 @@ export class LocalAgentManager {
         const updateBlock = updates
             .map((text, index) => `${index + 1}. ${text}`)
             .join("\n");
-        const updateInstruction = "Apply the orchestrator's message according to its intent. If it asks a question, requests status, or asks for a report, answer that request and then stop; do not continue the underlying task. If it gives new or changed work instructions, apply them and continue the task. Newer updates override conflicting earlier instructions.";
+        const updateInstruction = "Apply each update per its intent: answer a question or status request and stop; apply new or changed instructions and continue the task. Newer updates override earlier ones.";
         if (task.turnCount === 0) {
             return [
                 task.prompt,
-                "Task updates from orchestrator:",
+                "Task updates:",
                 updateBlock,
                 updateInstruction,
             ].join("\n\n");
         }
         return [
-            "Task update from orchestrator:",
+            "Task update:",
             updateBlock,
             delivery === "steering"
                 ? updateInstruction
@@ -789,7 +789,7 @@ export class LocalAgentManager {
      * being implemented as "reset + re-enqueue", this is NOT a fresh run
      * of the task — the session's accumulated message array (system +
      * original user prompt + prior assistant/tool turns) is preserved,
-     * and the synthesized "Task update from orchestrator: …" string is
+     * and the synthesized "Task update: …" string is
      * just the next user message that gets appended on top.
      *
      * Reached when input could not be steered into a live native Pi loop and
@@ -809,7 +809,7 @@ export class LocalAgentManager {
         // Interjected in-flight work is a `send_input` follow-up, not a spawn.
         task.pendingStartIsFollowUp = true;
         task.recentActivity = [
-            pendingStartStatusText ?? "Applying task update from orchestrator.",
+            pendingStartStatusText ?? "Applying task update.",
         ];
         this.pendingQueue.unshift(task.threadId);
         this.persistTask(task);
@@ -1740,14 +1740,6 @@ export class LocalAgentManager {
             const persisted = this.opts.getAgentRecord?.(agentId);
             if (!persisted) {
                 return { delivered: false };
-            }
-            if (persisted.agentType === "workflow") {
-                // Workflow runs are script-driven, not conversational — hydrating
-                // one as a General task would re-run its description as a prompt.
-                return {
-                    delivered: false,
-                    reason: `${agentId} is a workflow and cannot take send_input. Start a new workflow (or spawn_agent) for follow-up work.`,
-                };
             }
             if (deliveryEventId &&
                 persisted.descendantBoundaryState?.consumedEventIds.includes(deliveryEventId)) {

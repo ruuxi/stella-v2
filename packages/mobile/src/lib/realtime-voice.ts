@@ -834,7 +834,7 @@ export class MobileRealtimeVoiceSession {
           content: [
             {
               type: "input_text",
-              text: ["<system_reminder>", text, "</system_reminder>"].join(
+              text: ["<system-reminder>", text, "</system-reminder>"].join(
                 "\n",
               ),
             },

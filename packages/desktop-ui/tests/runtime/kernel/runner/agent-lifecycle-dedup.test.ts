@@ -48,7 +48,7 @@ describe("task lifecycle deduping", () => {
 
     expect(completedPrompt).toContain("[Agent completed]");
     expect(completedPrompt).toContain(
-      "The agent has finished. The user cannot see this report. You must respond to the user.",
+      "The agent has finished. The user cannot see this report — respond to them yourself, and delegate follow-up work if the task is unfinished.",
     );
     expect(completedPrompt).not.toContain("not waiting");
     expect(completedPrompt).toContain(
@@ -56,10 +56,10 @@ describe("task lifecycle deduping", () => {
     );
     expect(completedPrompt).toContain("result: Spotify is now open");
     expect(completedPrompt).toContain(
-      "agent_state: paused; this agent is not currently working. Use send_input to resume the same thread if follow-up work is needed.",
+      "agent_state: paused; use send_input on the same thread if follow-up work is needed.",
     );
     expect(completedPrompt).toContain(
-      "presentation: if the result is a report or substantial/dense information, present it as a canvas with the `html` tool — write the complete HTML document yourself",
+      "presentation: for a report or dense result, present it as a canvas with the `html` tool",
     );
     expect(failedPrompt).toContain("[Task failed]");
     expect(failedPrompt).toContain("error: Spotify failed to open");

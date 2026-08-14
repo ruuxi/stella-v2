@@ -1,4 +1,6 @@
-export const MAX_PARENT_AGENT_REPORT_CHARS = 30_000;
+// Effectively "never truncate": a final report must reach the orchestrator or
+// parent intact. The marker path below only guards against pathological output.
+export const MAX_PARENT_AGENT_REPORT_CHARS = 200_000;
 
 export const boundParentAgentReport = (value, threadId) => {
   if (value.length <= MAX_PARENT_AGENT_REPORT_CHARS) return value;

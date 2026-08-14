@@ -31,7 +31,7 @@
 import { z } from "zod";
 import { postServiceJson } from "@/platform/http/service-request";
 import { getVoiceSessionPromptConfig } from "@/prompts";
-import { formatRealtimeSystemMessage } from "@stella/contracts/system-reminders";
+import { wrapSystemReminder } from "@stella/contracts/system-reminders";
 import type {
   RuntimeVoiceHistoryItem,
   RuntimeVoiceToolMetadata,
@@ -651,7 +651,7 @@ export class RealtimeVoiceSession {
         content: [
           {
             type: "input_text",
-            text: formatRealtimeSystemMessage(mapped.text),
+            text: wrapSystemReminder(mapped.text),
           },
         ],
       },

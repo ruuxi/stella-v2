@@ -2,22 +2,16 @@ import type { HookDefinition } from "../../../kernel/extensions/types.js";
 import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
 
 /**
- * Dynamic memory reminder (stella-runtime).
- *
- * Pairs with the orchestrator's reminder cadence: when
- * `shouldInjectDynamicReminder` is true and the runtime has a non-empty
- * `orchestratorReminderText`, this hook prepends it as a hidden
- * runtime-internal user message. Pre-migration this lived inline inside
- * `buildOrchestratorPromptMessages`.
+ * Orchestrator reminder (stella-runtime) — injects the runtime's
+ * `orchestratorReminderText` (today the "# Other Threads" active-threads
+ * roster) as a hidden runtime-internal user message.
  *
  * The cadence decision (which turns flip `shouldInjectDynamicReminder`)
- * is owned by the runtime today via
- * `runtime/kernel/agent-runtime/thread-memory.ts:updateOrchestratorReminderState`.
- * That logic could later move into the hook itself, but keeping the
- * cadence in the runtime preserves the existing SQLite-backed counter
- * semantics — this hook only consumes the decision.
+ * is owned by the runtime via
+ * `runtime/kernel/agent-runtime/thread-memory.ts:updateOrchestratorReminderState`;
+ * this hook only consumes the decision.
  */
-export const createDynamicMemoryReminderHook =
+export const createOrchestratorReminderHook =
   (): HookDefinition<"before_user_message"> => ({
     event: "before_user_message",
     async handler(payload) {

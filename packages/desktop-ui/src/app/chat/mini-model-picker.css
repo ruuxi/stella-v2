@@ -98,6 +98,31 @@
   opacity: 0.5;
 }
 
+/* Fast-mode (ChatGPT service tier) switch — same recipe as the sidebar
+   picker's engine options, right-aligned under the reasoning row. */
+.mini-model-picker-engine-options {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  min-height: 24px;
+  padding: 0 6px;
+}
+
+.mini-model-picker-engine-option {
+  gap: 7px;
+}
+
+.mini-model-picker-engine-option [data-slot="switch-label"] {
+  color: var(--text-weak);
+  font-size: var(--font-size-xs);
+  line-height: 1.35;
+}
+
+.mini-model-picker-engine-option:has([data-disabled]) {
+  opacity: 0.55;
+}
+
 .mini-model-picker-rows {
   display: flex;
   flex-direction: column;

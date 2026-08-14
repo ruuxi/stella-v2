@@ -16,13 +16,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Lightbulb, SlidersHorizontal } from "@/ui/icons";
 import { BrandIcon } from "@/ui/brand-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
+import { Switch } from "@/ui/switch";
 import { openModelPicker } from "@/features/workspace-display/default-tabs";
 import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
 import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
 import { buildModelDefaultsMap, buildResolvedModelDefaultsMap, getConfigurableAgents, getLocalModelDefaults, getModelPickerDisplayLabel, normalizeModelOverrides, } from "@/global/settings/lib/model-defaults";
-import { buildEngineReasoningPatch, buildRecentModelSelectionPatch, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, } from "@/global/settings/lib/engine-model-routing";
+import { buildEngineReasoningPatch, buildRecentModelSelectionPatch, codexModelSupportsFast, DEFAULT_CHATGPT_MODEL, DEFAULT_CLAUDE_CODE_MODEL, } from "@/global/settings/lib/engine-model-routing";
 import { listReasoningEffortOptions } from "@/global/settings/lib/reasoning-effort-options";
 import { buildRecentModelRows, createKnownModelIdPredicate, readRecentModels, recordRecentModel, } from "@/global/settings/lib/recent-models";
 import { showToast } from "@/ui/toast";
@@ -153,6 +154,13 @@ export function MiniModelPicker() {
         ? codexCatalog.models?.find((model) => model.id === selectedChatGptModel)
             ?.defaultReasoningEffort
         : null;
+    // Fast mode (codexServiceTier) — same gate as the sidebar picker: only
+    // offered when the live codex catalog reports the selected ChatGPT model
+    // supports a faster service tier.
+    const selectedChatGptLiveModel = committedEngine === "codex_cli"
+        ? (codexCatalog.models?.find((model) => model.id === selectedChatGptModel) ?? null)
+        : null;
+    const selectedChatGptSupportsFast = codexModelSupportsFast(selectedChatGptLiveModel);
     const selectedStellaModelId = currentId || defaultModelId;
     const selectedStellaCatalogModel = allModels.find((model) => model.id === selectedStellaModelId ||
         model.upstreamModel === selectedStellaModelId);
@@ -208,6 +216,14 @@ export function MiniModelPicker() {
         const patch = buildEngineReasoningPatch(preferences, preferences.agentRuntimeEngine, effort, ASSISTANT_AGENT_KEYS);
         void applyPreferencesPatch(patch, t("app.chat.miniModelPicker.reasoningUpdateFailed"));
     }, [applyPreferencesPatch, preferences, t]);
+    const handleCodexServiceTierSelect = useCallback((serviceTier) => {
+        if (!preferences ||
+            preferences.agentRuntimeEngine !== "codex_cli" ||
+            (serviceTier === "fast" && !selectedChatGptSupportsFast)) {
+            return;
+        }
+        void applyPreferencesPatch({ codexServiceTier: serviceTier }, t("app.chat.miniModelPicker.modelUpdateFailed"));
+    }, [applyPreferencesPatch, preferences, selectedChatGptSupportsFast, t]);
     const handleRecentSelect = useCallback((row) => {
         if (!preferences)
             return;
@@ -242,6 +258,9 @@ export function MiniModelPicker() {
               </button>))}
           </div>
         </div>
+        {committedEngine === "codex_cli" && selectedChatGptSupportsFast ? (<div className="mini-model-picker-engine-options">
+            <Switch className="mini-model-picker-engine-option" label="Fast" title="Uses more ChatGPT credits for faster responses." checked={preferences?.codexServiceTier === "fast"} disabled={!preferences || pending} onCheckedChange={(checked) => handleCodexServiceTierSelect(checked ? "fast" : "standard")}/>
+          </div>) : null}
         {recentRows.length > 0 ? (<div className="mini-model-picker-rows" role="listbox" aria-label={t("app.chat.miniModelPicker.modelsLabel")}>
             {recentRows.map((row) => {
                 const selected = row.id === currentId;

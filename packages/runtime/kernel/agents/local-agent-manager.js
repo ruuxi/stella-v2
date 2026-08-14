@@ -330,6 +330,11 @@ export class LocalAgentManager {
                 continue;
             const resumedTask = this.hydrateTaskFromRecord(record, "A subagent you started has finished. Review its newly persisted report in this thread and continue your task.", "Reviewing a subagent's report");
             resumedTask.rootRunId = record.rootRunId;
+            // This is an internal owner wake-up, not a new instruction from the
+            // root orchestrator. Keep the existing top-level task card in place;
+            // only the owner's eventual consolidated completion belongs in root
+            // chat.
+            resumedTask.pendingStartAudience = "orchestrator-only";
             this.enqueueTask(resumedTask, true);
         }
     }
@@ -718,6 +723,7 @@ export class LocalAgentManager {
         task.controller = new AbortController();
         task.terminalEventEmitted = false;
         task.pendingStartStatusText = undefined;
+        task.pendingStartAudience = undefined;
         // Cleared here so a bare reset reads as a spawn; the follow-up callers
         // (`sendAgentMessage` / `deliverFollowUpAsNextTurn`) re-set it right after.
         task.pendingStartIsFollowUp = undefined;
@@ -791,6 +797,7 @@ export class LocalAgentManager {
      */
     deliverFollowUpAsNextTurn(task) {
         const pendingStartStatusText = task.pendingStartStatusText;
+        const pendingStartAudience = task.pendingStartAudience;
         const prompt = this.buildTaskPrompt(task);
         this.resetTaskForNextAttempt(task, prompt);
         // The superseded turn's boundary emitted no completion event (the
@@ -798,6 +805,7 @@ export class LocalAgentManager {
         // emit) — an interjection extends ongoing work, so only the continued
         // turn's eventual real finish surfaces a completion card.
         task.pendingStartStatusText = pendingStartStatusText;
+        task.pendingStartAudience = pendingStartAudience;
         // Interjected in-flight work is a `send_input` follow-up, not a spawn.
         task.pendingStartIsFollowUp = true;
         task.recentActivity = [
@@ -894,8 +902,10 @@ export class LocalAgentManager {
             const controller = task.controller;
             const startStatusText = task.pendingStartStatusText ?? task.description;
             const startIsFollowUp = task.pendingStartIsFollowUp ?? false;
+            const startAudience = task.pendingStartAudience;
             task.pendingStartStatusText = undefined;
             task.pendingStartIsFollowUp = undefined;
+            task.pendingStartAudience = undefined;
             this.persistTask(task);
             this.opts.onAgentEvent?.({
                 type: "agent-started",
@@ -908,6 +918,7 @@ export class LocalAgentManager {
                 attemptGeneration: generation,
                 ...(startStatusText ? { statusText: startStatusText } : {}),
                 ...(startIsFollowUp ? { isFollowUp: true } : {}),
+                ...(startAudience ? { audience: startAudience } : {}),
             });
             const execution = this.executeTask(task, {
                 generation,
@@ -1564,6 +1575,7 @@ export class LocalAgentManager {
             local.completedAt = Date.now();
             local.pendingStartStatusText = undefined;
             local.pendingStartIsFollowUp = undefined;
+            local.pendingStartAudience = undefined;
             this.opts.onAgentEvent?.({
                 type: "agent-progress",
                 conversationId: local.conversationId,
@@ -1698,10 +1710,10 @@ export class LocalAgentManager {
         const deliveryEventId = isChildReport
             ? options?.deliveryEventId?.trim() || undefined
             : undefined;
-        // The parent is a root-spawned agent, so the status text on its resumed
-        // turn is projected into root chat and Activity. Deriving it from the
-        // delivered text would leak the subagent's report there — the one place
-        // that report must never appear. Label the boundary instead.
+        // The parent can be root-spawned, so keep even its internal task status
+        // free of child-report contents. The wake lifecycle is hidden from root
+        // chat below, while Activity/thread inspection may still read this safe
+        // boundary label from the durable task row.
         const updateStatusSource = isChildReport
             ? "Reviewing a subagent's report"
             : (options?.description?.trim() ?? "").length > 0
@@ -1785,6 +1797,9 @@ export class LocalAgentManager {
                 resumedTask.consumedDescendantEventIds.push(deliveryEventId);
                 resumedTask.descendantWakePending = true;
             }
+            if (isChildReport) {
+                resumedTask.pendingStartAudience = "orchestrator-only";
+            }
             resumedTask.messageLog.push({
                 from,
                 text: truncate(text, 500),
@@ -1852,6 +1867,9 @@ export class LocalAgentManager {
             // and would otherwise be replayed twice.
             this.resetTaskForNextAttempt(task, deliveredInput);
             task.pendingStartStatusText = updateStatusText;
+            task.pendingStartAudience = isChildReport
+                ? "orchestrator-only"
+                : undefined;
             // Re-activating a terminal thread is a `send_input` follow-up.
             task.pendingStartIsFollowUp = true;
             task.recentActivity = [updateStatusText];
@@ -1865,6 +1883,7 @@ export class LocalAgentManager {
                 parentAgentId: task.parentAgentId,
                 attemptGeneration: task.attemptGeneration,
                 statusText: updateStatusText,
+                ...(isChildReport ? { audience: "orchestrator-only" } : {}),
             });
             this.enqueueTask(task);
             return { delivered: true };
@@ -1894,6 +1913,9 @@ export class LocalAgentManager {
                 task.description = followUpDescription;
             }
             task.pendingStartStatusText = updateStatusText;
+            task.pendingStartAudience = isChildReport
+                ? "orchestrator-only"
+                : undefined;
             task.recentActivity = [updateStatusText];
             this.opts.onAgentEvent?.({
                 type: "agent-progress",
@@ -1905,6 +1927,7 @@ export class LocalAgentManager {
                 parentAgentId: task.parentAgentId,
                 attemptGeneration: task.attemptGeneration,
                 statusText: updateStatusText,
+                ...(isChildReport ? { audience: "orchestrator-only" } : {}),
             });
             if (task.status === "running" && !task.controller.signal.aborted) {
                 const session = this.subagentSessions.get(task.threadId);
@@ -1914,6 +1937,7 @@ export class LocalAgentManager {
                     if (session.steer(steeringPrompt)) {
                         task.toSubagentQueue.splice(0, updates.length);
                         task.pendingStartStatusText = undefined;
+                        task.pendingStartAudience = undefined;
                         this.opts.onAgentEvent?.({
                             type: "agent-started",
                             conversationId: task.conversationId,
@@ -1925,6 +1949,9 @@ export class LocalAgentManager {
                             attemptGeneration: task.attemptGeneration,
                             statusText: updateStatusText,
                             isFollowUp: true,
+                            ...(isChildReport
+                                ? { audience: "orchestrator-only" }
+                                : {}),
                         });
                     }
                 }

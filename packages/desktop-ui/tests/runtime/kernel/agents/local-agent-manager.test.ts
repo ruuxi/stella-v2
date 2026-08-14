@@ -1207,6 +1207,77 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
 });
 
 describe("send_input follow-up description and run rebind", () => {
+  it("keeps an internal child-report wake-up out of root-chat lifecycle cards", async () => {
+    const events: AgentLifecycleEvent[] = [];
+    let runCount = 0;
+    const manager = new LocalAgentManager({
+      maxConcurrent: 1,
+      fetchAgentContext: async () => ({
+        systemPrompt: "",
+        dynamicContext: "",
+        maxAgentDepth: 3,
+      }),
+      runSubagent: async (args) => {
+        runCount += 1;
+        return { runId: args.runId, result: `done-${runCount}` };
+      },
+      toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
+      onAgentEvent: (event) => {
+        events.push(event);
+      },
+      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
+      completeCloudAgentRecord: async () => undefined,
+      getCloudAgentRecord: async () => null,
+      cancelCloudAgentRecord: async () => ({ canceled: false }),
+    });
+
+    const task = await manager.createAgent({
+      conversationId: "conv-1",
+      description: "coordinate the research",
+      prompt: "coordinate the research",
+      agentType: AGENT_IDS.GENERAL,
+      rootRunId: "root-1",
+      storageMode: "local",
+    });
+    await waitForAgentSettled(manager, task.threadId);
+
+    const eventOffset = events.length;
+    await manager.sendAgentMessage(
+      task.threadId,
+      "[Subagent completed]\nresult: private child report",
+      "orchestrator",
+      {
+        deliveryKind: "child-report",
+        deliveryEventId: "child-1:1:agent-completed",
+      },
+    );
+    await waitForAgentSettled(manager, task.threadId);
+
+    const wakeEvents = events.slice(eventOffset);
+    expect(wakeEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "agent-progress",
+          statusText: "Reviewing a subagent's report",
+          audience: "orchestrator-only",
+        }),
+        expect.objectContaining({
+          type: "agent-started",
+          statusText: "Reviewing a subagent's report",
+          isFollowUp: true,
+          audience: "orchestrator-only",
+        }),
+        expect.objectContaining({
+          type: "agent-completed",
+          result: "done-2",
+        }),
+      ]),
+    );
+    expect(
+      wakeEvents.find((event) => event.type === "agent-completed")?.audience,
+    ).toBeUndefined();
+  });
+
   it("adopts the orchestrator follow-up description onto the thread", async () => {
     // The folded Activity row is keyed per thread and titled by
     // `description`. A follow-up re-tasks the thread, so every lifecycle

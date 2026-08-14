@@ -51,6 +51,7 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import { AssistantTextSelection } from "./AssistantTextSelection";
 import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
+import { stellaFileChatArtifact } from "../lib/stella-file-links";
 import { AgentWorkCard } from "./AgentWorkCard";
 import { MapRouteCard } from "./MapRouteCard";
 import { ToolActivityTrace } from "./ToolActivityTrace";
@@ -1080,6 +1081,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isSelecting,
   anySelecting,
   onOpenArtifact,
+  onOpenStellaFile,
   onOpenMessageMenu,
   onStartSelecting,
   onEndSelecting,
@@ -1097,6 +1099,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   /** True while ANY row is selecting — lets other rows tap-to-dismiss it. */
   anySelecting: boolean;
   onOpenArtifact?: (artifact: ChatArtifact) => void;
+  /** Opens a tapped `stella://file/...` markdown link in the file viewer. */
+  onOpenStellaFile?: (path: string) => void;
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
   /** Enters native text-selection mode for this row's id. */
   onStartSelecting: (id: string) => void;
@@ -1312,6 +1316,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               text={item.text}
               colors={colors}
               isStreaming={isStreaming}
+              onStellaFileLink={onOpenStellaFile}
             />
           </Pressable>
         )
@@ -2396,6 +2401,14 @@ export type ChatPaneProps = {
   onOpenArtifact?: (artifact: ChatArtifact) => void;
 
   /**
+   * Conversation the transcript belongs to. Used to key artifacts built from
+   * tapped `stella://file/...` links so the viewer's bridge file reads are
+   * scoped like inline artifact cards. Optional — link taps still open the
+   * viewer without it.
+   */
+  conversationId?: string | null;
+
+  /**
    * Background tasks for the floating activity pill (running count). The
    * cloud chat omits it.
    */
@@ -2479,6 +2492,7 @@ export function ChatPane({
   dictationAnonymous,
   dictationHeaders,
   onOpenArtifact,
+  conversationId = null,
   activityTasks,
   onOpenActivityHub,
   catchingUp = false,
@@ -3381,6 +3395,16 @@ export function ChatPane({
   );
 
   const activeMenuMessageId = messageMenu?.message.id ?? null;
+  // Tapped `stella://file/<path>` links in assistant markdown resolve into
+  // the same artifact shape inline cards carry, then open the same viewer.
+  const onOpenStellaFile = useMemo(
+    () =>
+      onOpenArtifact
+        ? (path: string) =>
+            onOpenArtifact(stellaFileChatArtifact(path, conversationId ?? ""))
+        : undefined,
+    [onOpenArtifact, conversationId],
+  );
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
       const isStreamingAssistant = item.id === streamingAssistantId;
@@ -3410,6 +3434,7 @@ export function ChatPane({
             isSelecting={item.id === selectingMessageId}
             anySelecting={selectingMessageId != null}
             onOpenArtifact={onOpenArtifact}
+            onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu}
             onStartSelecting={startSelectingMessage}
             onEndSelecting={stopSelectingMessage}
@@ -3422,6 +3447,7 @@ export function ChatPane({
       styles,
       colors,
       onOpenArtifact,
+      onOpenStellaFile,
       askStella,
       latestUserMessageId,
       scroll.onLatestUserLayout,

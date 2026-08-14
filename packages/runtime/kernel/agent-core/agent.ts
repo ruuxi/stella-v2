@@ -18,7 +18,6 @@ import type {
 import { getModel } from "../../ai/models.js";
 import { streamSimple } from "../../ai/stream.js";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.js";
-import type { StreamRule } from "./stream-rules.js";
 import type {
 	AfterToolCallContext,
 	AfterToolCallResult,
@@ -142,13 +141,6 @@ export interface AgentOptions {
 	 */
 	toolInactivityTimeoutMs?: number;
 
-	/**
-	 * Stream rules watched over text/tool-call deltas. When one fires the
-	 * in-flight response is aborted and retried with an ephemeral
-	 * correction. `undefined` uses the built-in defaults; `[]` disables.
-	 */
-	streamRules?: StreamRule[];
-
 	/** Called before a tool is executed, after arguments have been validated. */
 	beforeToolCall?: (
 		context: BeforeToolCallContext,
@@ -198,7 +190,6 @@ export class Agent {
 	private _maxRetryDelayMs?: number;
 	private _toolExecution: ToolExecutionMode;
 	private _toolInactivityTimeoutMs?: number;
-	private _streamRules?: StreamRule[];
 	private _beforeToolCall?: (
 		context: BeforeToolCallContext,
 		signal?: AbortSignal,
@@ -227,7 +218,6 @@ export class Agent {
 		this._maxRetryDelayMs = opts.maxRetryDelayMs;
 		this._toolExecution = opts.toolExecution ?? "parallel";
 		this._toolInactivityTimeoutMs = opts.toolInactivityTimeoutMs;
-		this._streamRules = opts.streamRules;
 		this._beforeToolCall = opts.beforeToolCall;
 		this._afterToolCall = opts.afterToolCall;
 	}
@@ -606,7 +596,6 @@ export class Agent {
 			maxRetryDelayMs: this._maxRetryDelayMs,
 			toolExecution: this._toolExecution,
 			toolInactivityTimeoutMs: this._toolInactivityTimeoutMs,
-			...(this._streamRules !== undefined ? { streamRules: this._streamRules } : {}),
 			beforeToolCall: this._beforeToolCall
 				? async (toolContext, signal) => {
 						try {

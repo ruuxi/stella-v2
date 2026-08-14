@@ -3,15 +3,8 @@
  * Transforms to Message[] only at the LLM call boundary.
  */
 
-import type { AssistantMessage, Context, ToolResultMessage, UserMessage } from "../../ai/types.js";
+import type { AssistantMessage, Context, ToolResultMessage } from "../../ai/types.js";
 import { streamSimple } from "../../ai/stream.js";
-import {
-	createStreamRuleMonitor,
-	DEFAULT_STREAM_RULES,
-	STREAM_RULE_MAX_RETRIES,
-	type StreamRule,
-	type StreamRuleMonitor,
-} from "./stream-rules.js";
 import { EventStream } from "../../ai/utils/event-stream.js";
 import { isContextOverflow } from "../../ai/utils/overflow.js";
 import { validateToolArguments } from "../../ai/utils/validation.js";
@@ -313,8 +306,6 @@ async function streamAssistantResponse(
 		signal,
 	};
 
-	const streamRules: StreamRule[] = config.streamRules ?? DEFAULT_STREAM_RULES;
-
 	const normalizeFinalMessage = (message: AssistantMessage): AssistantMessage => {
 		const detectsSilentOverflow = [config.model.provider, message.provider].some(
 			(provider) => provider.toLowerCase().replace(/[^a-z0-9]/g, "") === "zai",
@@ -336,143 +327,65 @@ async function streamAssistantResponse(
 		};
 	};
 
-	const runOnce = async (attempt?: {
-		monitor?: StreamRuleMonitor | null;
-		correction?: UserMessage | null;
-	}): Promise<{ message: AssistantMessage; firedRule: StreamRule | null }> => {
-		const monitor = attempt?.monitor ?? null;
-		const correction = attempt?.correction ?? null;
+	const runOnce = async (): Promise<{ message: AssistantMessage }> => {
+		const response = await streamFunction(config.model, llmContext, streamOptions);
+		let partialMessage: AssistantMessage | null = null;
+		let addedPartial = false;
+		let finalMessage: AssistantMessage | null = null;
 
-		// The correction lives only in this attempt's request payload. It is
-		// never pushed to context.messages, so a recovered response leaves no
-		// trace of the failed attempt in durable history.
-		const attemptContext: Context = correction
-			? { ...llmContext, messages: [...llmContext.messages, correction] }
-			: llmContext;
-
-		// Monitored attempts get their own abort controller so a rule can
-		// cancel the provider stream mid-token without ending the agent turn.
-		const attemptAbort = monitor ? new AbortController() : null;
-		const onOuterAbort = () => attemptAbort?.abort(signal?.reason);
-		if (attemptAbort) {
-			if (signal?.aborted) onOuterAbort();
-			signal?.addEventListener("abort", onOuterAbort);
-		}
-		let firedRule: StreamRule | null = null;
-		const observeDelta = (kind: "text" | "toolcall", contentIndex: number, delta: string) => {
-			if (!monitor || firedRule) return;
-			const rule = monitor.observe(kind, contentIndex, delta);
-			if (rule && !signal?.aborted) {
-				firedRule = rule;
-				attemptAbort?.abort(new Error(`stream rule ${rule.id} fired`));
+		const finalize = async (): Promise<AssistantMessage> => {
+			if (finalMessage) return finalMessage;
+			const next = normalizeFinalMessage(await response.result());
+			if (addedPartial) {
+				context.messages[context.messages.length - 1] = next;
+			} else {
+				context.messages.push(next);
+				await emit({ type: "message_start", message: { ...next } });
 			}
+			await emit({ type: "message_end", message: next });
+			finalMessage = next;
+			return next;
 		};
 
-		try {
-			const response = await streamFunction(
-				config.model,
-				attemptContext,
-				attemptAbort ? { ...streamOptions, signal: attemptAbort.signal } : streamOptions,
-			);
-			let partialMessage: AssistantMessage | null = null;
-			let addedPartial = false;
-			let finalMessage: AssistantMessage | null = null;
+		for await (const event of response) {
+			switch (event.type) {
+				case "start":
+					partialMessage = event.partial;
+					context.messages.push(partialMessage);
+					addedPartial = true;
+					await emit({ type: "message_start", message: { ...partialMessage } });
+					break;
 
-			const finalize = async (): Promise<AssistantMessage> => {
-				if (finalMessage) return finalMessage;
-				const next = normalizeFinalMessage(await response.result());
-				if (addedPartial) {
-					context.messages[context.messages.length - 1] = next;
-				} else {
-					context.messages.push(next);
-					await emit({ type: "message_start", message: { ...next } });
-				}
-				await emit({ type: "message_end", message: next });
-				finalMessage = next;
-				return next;
-			};
-
-			for await (const event of response) {
-				switch (event.type) {
-					case "start":
+				case "text_start":
+				case "text_delta":
+				case "text_end":
+				case "thinking_start":
+				case "thinking_delta":
+				case "thinking_end":
+				case "toolcall_start":
+				case "toolcall_delta":
+				case "toolcall_end":
+					if (partialMessage) {
 						partialMessage = event.partial;
-						context.messages.push(partialMessage);
-						addedPartial = true;
-						await emit({ type: "message_start", message: { ...partialMessage } });
-						break;
+						context.messages[context.messages.length - 1] = partialMessage;
+						await emit({
+							type: "message_update",
+							assistantMessageEvent: event,
+							message: { ...partialMessage },
+						});
+					}
+					break;
 
-					case "text_start":
-					case "text_delta":
-					case "text_end":
-					case "thinking_start":
-					case "thinking_delta":
-					case "thinking_end":
-					case "toolcall_start":
-					case "toolcall_delta":
-					case "toolcall_end":
-						if (event.type === "text_delta" || event.type === "toolcall_delta") {
-							observeDelta(
-								event.type === "text_delta" ? "text" : "toolcall",
-								event.contentIndex,
-								event.delta,
-							);
-						}
-						if (partialMessage) {
-							partialMessage = event.partial;
-							context.messages[context.messages.length - 1] = partialMessage;
-							await emit({
-								type: "message_update",
-								assistantMessageEvent: event,
-								message: { ...partialMessage },
-							});
-						}
-						break;
-
-					case "done":
-					case "error":
-						return { message: await finalize(), firedRule };
-				}
-			}
-
-			return { message: await finalize(), firedRule };
-		} finally {
-			if (attemptAbort) {
-				signal?.removeEventListener("abort", onOuterAbort);
+				case "done":
+				case "error":
+					return { message: await finalize() };
 			}
 		}
+
+		return { message: await finalize() };
 	};
 
-	// Stream-rule retry loop: a monitored attempt whose output tripped a
-	// rule is aborted mid-stream, popped from context, and re-run with an
-	// ephemeral system-reminder correction. Once the retry budget is spent
-	// the attempt runs unmonitored so a persistently misbehaving model
-	// still produces output instead of an error.
-	let retryBudget = streamRules.length > 0 ? STREAM_RULE_MAX_RETRIES : 0;
-	let correction: UserMessage | null = null;
-	let finalMessage: AssistantMessage;
-	while (true) {
-		const monitor = retryBudget > 0 ? createStreamRuleMonitor(streamRules) : null;
-		const outcome = await runOnce({ monitor, correction });
-		if (outcome.firedRule && !signal?.aborted) {
-			retryBudget--;
-			if (context.messages[context.messages.length - 1] === outcome.message) {
-				context.messages.pop();
-			}
-			correction = {
-				role: "user",
-				content: [
-					{
-						type: "text",
-						text: `<system-reminder>${outcome.firedRule.correction} This reminder is not from the user; do not mention it.</system-reminder>`,
-					},
-				],
-				timestamp: Date.now(),
-			};
-			continue;
-		}
-		finalMessage = outcome.message;
-		break;
-	}
+	let finalMessage: AssistantMessage = (await runOnce()).message;
 
 	// Defensive degenerate-response retry: when the upstream returns
 	// a clean `stop` with neither text nor tool calls (e.g. Kimi K2

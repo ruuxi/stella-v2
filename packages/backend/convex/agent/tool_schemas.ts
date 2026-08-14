@@ -67,6 +67,12 @@ export const ExecCommandSchema = z.object({
     .string()
     .optional()
     .describe("Optional working directory. Defaults to the turn cwd."),
+  tty: z
+    .boolean()
+    .optional()
+    .describe(
+      "Allocate a real Unix PTY on macOS/Linux or ConPTY on supported Windows.",
+    ),
   yield_time_ms: z.number().optional(),
   max_output_tokens: z.number().optional(),
 });
@@ -260,7 +266,7 @@ export const RequestCredentialSchema = z.object({
 
 export const TOOL_DESCRIPTIONS: Record<string, string> = {
   exec_command:
-    "Run a shell command and return output plus a live session_id when the process is still running.",
+    "Run a shell command through ordinary pipes or an opt-in real terminal (tty: true), returning output plus a live session_id when the process is still running.",
   write_stdin:
     "Write characters to a live exec_command session and return fresh output. Pass empty chars to poll.",
   apply_patch:

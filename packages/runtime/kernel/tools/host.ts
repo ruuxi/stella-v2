@@ -512,13 +512,13 @@ export const createToolHost = ({
     shutdownPromise = (async () => {
       const exits: Array<Promise<void>> = [];
       for (const shell of shellState.shells.values()) {
-        if (!shell.running || !shell.child) continue;
-        const child = shell.child;
-        if (child.exitCode !== null) continue;
+        if (!shell.running) continue;
         exits.push(
           new Promise<void>((resolve) => {
-            child.once("close", () => resolve());
-            child.once("error", () => resolve());
+            const dispose = watchShellExit(shellState, shell.id, () => {
+              dispose();
+              resolve();
+            });
           }),
         );
       }

@@ -1,6 +1,9 @@
 import path from "node:path";
 import os from "node:os";
+import { execFile } from "node:child_process";
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -17,6 +20,7 @@ import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();
 const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
+const execFileAsync = promisify(execFile);
 
 afterEach(() => tempDirs.cleanup());
 
@@ -25,7 +29,7 @@ const createTempDir = async () => {
 };
 
 describe("general agent tools", () => {
-  it("exec_command advertises its pipe-backed, non-TTY contract", async () => {
+  it("exec_command advertises pipes by default and a cross-platform opt-in PTY", async () => {
     const root = await createTempDir();
     const definition = createExecCommandTool(createShellState(root));
     const properties = definition.parameters.properties as Record<
@@ -33,10 +37,11 @@ describe("general agent tools", () => {
       { description?: string }
     >;
 
-    expect(definition.description).toContain("pipe-backed shell process");
-    expect(definition.description).toContain("tty: true is rejected");
-    expect(definition.description).not.toContain("in a PTY");
-    expect(properties.tty?.description).toContain("not available");
+    expect(definition.description).toContain("ordinary pipes");
+    expect(definition.description).toContain("tty: true");
+    expect(definition.description).toContain("ConPTY");
+    expect(properties.tty?.description).toContain("real pseudo-terminal");
+    expect(properties.tty?.description).toContain("ConPTY");
     expect(properties.login?.description).toContain("-lc");
     expect(properties.login?.description).toContain("-c");
   });
@@ -165,6 +170,18 @@ describe("general agent tools", () => {
     expect(launch.args).not.toContain("/s");
     expect(launch.args).not.toContain("/c");
     expect(launch.windowsVerbatimArguments).toBeUndefined();
+
+    const interactiveLaunch = resolveShellLaunch(
+      command,
+      { shell: "powershell.exe", tty: true },
+      "win32",
+      {},
+    );
+    if ("error" in interactiveLaunch) {
+      throw new Error(interactiveLaunch.error);
+    }
+    expect(interactiveLaunch.args).not.toContain("-NonInteractive");
+    expect(interactiveLaunch.args).toContain("-EncodedCommand");
   });
 
   it("exec_command preserves quoted cmd.exe source verbatim on Windows", () => {
@@ -266,22 +283,102 @@ describe("general agent tools", () => {
     expect(output).toContain(`cwd=${JSON.stringify(cwdFile)}`);
   });
 
-  it("exec_command rejects unsupported tty allocation instead of silently using pipes", async () => {
+  it("exec_command uses a real PTY and keeps write_stdin session semantics", async () => {
     const root = await createTempDir();
-    const result = await handleExecCommand(
-      createShellState(root),
-      { cmd: "printf unreachable", tty: true },
-      {
+    const bunExecutable = path.join(
+      repoRoot,
+      "packages/desktop/resources/bun/current",
+      process.platform === "win32" ? "bun.exe" : "bun",
+    );
+    await access(bunExecutable);
+    const shellModuleUrl = pathToFileURL(
+      path.join(repoRoot, "packages/runtime/kernel/tools/shell.ts"),
+    ).href;
+    const source = `
+      import {
+        createShellState,
+        handleExecCommand,
+        handleWriteStdin,
+      } from ${JSON.stringify(shellModuleUrl)};
+
+      const root = ${JSON.stringify(root)};
+      const state = createShellState(root);
+      const context = {
         conversationId: "c-tty",
         deviceId: "d-tty",
         requestId: "r-tty",
         stellaAppDir: root,
-      },
-    );
+      };
+      const windows = process.platform === "win32";
+      const shell = windows ? "powershell.exe" : "/bin/bash";
+      const probeCommand = windows
+        ? 'if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) { Write-Output pipe } else { Write-Output tty-ready }'
+        : 'if test -t 0 && test -t 1; then printf tty-ready; else printf pipe; fi';
+      const interactiveCommand = windows
+        ? '$value = Read-Host; Write-Output "got:$value"'
+        : 'read value; printf "got:%s" "$value"';
 
-    expect(result.result).toBeUndefined();
-    expect(result.error).toContain("does not provide a pseudo-terminal");
-    expect(result.error).toContain("tty: false");
+      const probe = await handleExecCommand(
+        state,
+        { cmd: probeCommand, shell, tty: true, yield_time_ms: 2_000 },
+        context,
+      );
+      const started = await handleExecCommand(
+        state,
+        { cmd: interactiveCommand, shell, tty: true, yield_time_ms: 50 },
+        context,
+      );
+      const sessionId = started.result?.session_id;
+      if (!sessionId) throw new Error("interactive PTY did not stay running");
+      const writes = [];
+      writes.push(
+        await handleWriteStdin(
+          state,
+          { session_id: sessionId, chars: "hello\\n", yield_time_ms: 2_000 },
+          context,
+        ),
+      );
+      if (writes.at(-1)?.result?.running) {
+        writes.push(
+          await handleWriteStdin(
+            state,
+            { session_id: sessionId, chars: "", yield_time_ms: 2_000 },
+            context,
+          ),
+        );
+      }
+      console.log("STELLA_PTY_RESULT=" + JSON.stringify({ probe, started, writes }));
+    `;
+    const { stdout } = await execFileAsync(bunExecutable, ["-e", source], {
+      cwd: repoRoot,
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    });
+    const marker = "STELLA_PTY_RESULT=";
+    const markerIndex = stdout.lastIndexOf(marker);
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    const fixture = JSON.parse(
+      stdout.slice(markerIndex + marker.length).trim(),
+    );
+    expect(fixture.probe.error).toBeUndefined();
+    expect(fixture.probe.result).toMatchObject({
+      running: false,
+      exit_code: 0,
+      output: expect.stringContaining("tty-ready"),
+    });
+    const interactionOutput = [
+      fixture.started?.result?.output,
+      ...fixture.writes.map(
+        (write: { result?: { output?: string } }) => write.result?.output,
+      ),
+    ]
+      .filter(Boolean)
+      .join("");
+    expect(interactionOutput).toContain("got:hello");
+    expect(fixture.writes.at(-1)?.result).toMatchObject({
+      running: false,
+      exit_code: 0,
+    });
   });
 
   it("exec_command exposes the bundled Node.js runtime", async () => {

@@ -1,5 +1,5 @@
 /**
- * `write_stdin` tool — continue/poll an `exec_command` PTY session.
+ * `write_stdin` tool — continue/poll a pipe-backed or PTY exec session.
  *
  * Pass empty `chars` to poll for more output without sending input.
  * Required: `session_id` returned by a still-running `exec_command`.
@@ -85,9 +85,7 @@ export const createWriteStdinTool = (
           shellState,
           {
             cmd: command,
-            ...(typeof record?.cwd === "string"
-              ? { workdir: record.cwd }
-              : {}),
+            ...(typeof record?.cwd === "string" ? { workdir: record.cwd } : {}),
           },
           context,
           extras?.signal,

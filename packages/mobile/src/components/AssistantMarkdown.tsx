@@ -23,7 +23,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { Linking, Platform, StyleSheet, View } from "react-native";
+import { Alert, Linking, Platform, StyleSheet, View } from "react-native";
 import {
   Markdown,
   MarkdownStream,
@@ -35,6 +35,7 @@ import {
   type PartialMarkdownTheme,
 } from "react-native-nitro-markdown";
 import * as WebBrowser from "expo-web-browser";
+import { parseStellaFileUrl } from "../lib/stella-file-links";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
@@ -176,6 +177,7 @@ export function AssistantMarkdown({
   text,
   colors,
   isStreaming = false,
+  onStellaFileLink,
 }: {
   text: string;
   colors: Colors;
@@ -186,6 +188,13 @@ export function AssistantMarkdown({
    * of snapping when the renderer would otherwise swap.
    */
   isStreaming?: boolean;
+  /**
+   * Tap handler for `stella://file/<path>` links — the assistant's way of
+   * pointing at a local file. When provided, such links open the in-app
+   * file viewer instead of being handed to the OS (which silently drops
+   * the unknown scheme).
+   */
+  onStellaFileLink?: (path: string) => void;
 }) {
   const theme = useMemo(() => buildTheme(colors), [colors]);
   const nodeStyles = useMemo(() => buildNodeStyles(colors), [colors]);
@@ -248,10 +257,27 @@ export function AssistantMarkdown({
     [colors, useStreamingMode],
   );
 
-  const onLinkPress = useCallback((url: string): boolean => {
-    void openLink(url);
-    return false;
-  }, []);
+  const onLinkPress = useCallback(
+    (url: string): boolean => {
+      const stellaFilePath = parseStellaFileUrl(url);
+      if (stellaFilePath) {
+        if (onStellaFileLink) {
+          onStellaFileLink(stellaFilePath);
+        } else {
+          // Surface something rather than silently dropping the tap — the
+          // OS has no handler for the stella:// scheme.
+          Alert.alert(
+            "File preview unavailable",
+            "This file can't be previewed from this chat.",
+          );
+        }
+        return false;
+      }
+      void openLink(url);
+      return false;
+    },
+    [onStellaFileLink],
+  );
 
   let content: ReactNode;
   if (session) {

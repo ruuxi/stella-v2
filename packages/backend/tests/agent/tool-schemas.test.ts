@@ -1,9 +1,21 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ExecCommandSchema,
   ImageGenSchema,
   MAX_IMAGE_GEN_REFERENCE_ITEMS,
 } from "../../convex/agent/tool_schemas";
+
+describe("backend exec_command device-tool schema", () => {
+  test("accepts the opt-in tty flag", () => {
+    expect(
+      ExecCommandSchema.safeParse({ cmd: "node", tty: true }).success,
+    ).toBe(true);
+    expect(
+      ExecCommandSchema.safeParse({ cmd: "node", tty: "true" }).success,
+    ).toBe(false);
+  });
+});
 
 const references = (pathCount: number, urlCount: number) => ({
   prompt: "render these references",

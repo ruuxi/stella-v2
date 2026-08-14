@@ -1,5 +1,5 @@
 /**
- * `exec_command` tool — pipe-backed shell execution for Stella agents.
+ * `exec_command` tool — shell execution for Stella agents, with opt-in PTY.
  *
  * Returns immediate output, or a `session_id` when the process is still
  * running so the model can poll / interact via `write_stdin`.
@@ -28,7 +28,7 @@ export const createExecCommandTool = (
 ): ToolDefinition => ({
   name: "exec_command",
   description:
-    "Run a command in a pipe-backed shell process. Pseudo-terminal allocation is unavailable, and tty: true is rejected. Returns immediate output, or a session_id if the process is still running so you can poll/interact via write_stdin. Required: cmd. Node.js and Stella CLIs (stella-browser, stella-office, stella-computer, stella-media, stella-x-api) are auto-injected into PATH.",
+    "Run a command in a shell process. By default stdin/stdout/stderr use ordinary pipes; set tty: true for a real Unix PTY on macOS/Linux or ConPTY on supported Windows. Returns immediate output, or a session_id if the process is still running so you can poll/interact via write_stdin. Required: cmd. Node.js and Stella CLIs (stella-browser, stella-office, stella-computer, stella-media, stella-x-api) are auto-injected into PATH.",
   promptSnippet:
     "Execute shell commands (git, build, package managers, file scripts)",
   parameters: {
@@ -48,7 +48,7 @@ export const createExecCommandTool = (
       tty: {
         type: "boolean",
         description:
-          "TTY allocation is not available in this runtime. Omit this or pass false; true returns an actionable error instead of silently using pipes.",
+          "True allocates a real pseudo-terminal for interactive terminal programs; false or omitted uses ordinary pipes. Uses a Unix PTY on macOS/Linux and ConPTY on supported Windows.",
       },
       yield_time_ms: {
         type: "number",

@@ -126,6 +126,7 @@ type ManagedShellRecord = ShellRecord & {
    */
   exitWatchers: Set<() => void>;
   child?: SpawnedShell;
+  pty?: SpawnedPtyShell;
   stdinOpen: boolean;
   owner?: ShellSessionOwner;
   startSnapshot?: FileSnapshot | null;
@@ -514,6 +515,7 @@ const takeCompletedProducedFiles = async (
   ) {
     record.producedFilesReported = true;
     record.child = undefined;
+    record.pty = undefined;
     return undefined;
   }
   if (!record.producedFilesCollection) {
@@ -539,6 +541,7 @@ const takeCompletedProducedFiles = async (
       record.startSnapshot = null;
       record.externalCandidateSnapshots = undefined;
       record.child = undefined;
+      record.pty = undefined;
     });
   }
   const produced = await record.producedFilesCollection;
@@ -978,6 +981,8 @@ export type ShellLaunchOptions = {
   shell?: string;
   /** Login-shell semantics are the default for compatibility with prior runs. */
   login?: boolean;
+  /** Allocate a real Unix PTY or Windows ConPTY for this command. */
+  tty?: boolean;
 };
 
 export type ResolvedShellLaunch = {
@@ -1033,7 +1038,7 @@ export const resolveShellLaunch = (
       args: [
         "-NoLogo",
         "-NoProfile",
-        "-NonInteractive",
+        ...(options.tty ? [] : ["-NonInteractive"]),
         "-EncodedCommand",
         encodePowerShellCommand(command),
       ],
@@ -1064,19 +1069,27 @@ const describeShellSpawnFailure = (
   launch: ResolvedShellLaunch,
   cwd: string,
   options: ShellLaunchOptions,
+  runner = "node:child_process.spawn",
 ): string => {
   const requestedShell = options.shell?.trim() || "platform-default";
   const login = options.login !== false;
   return [
     "Failed to start exec_command shell.",
-    `runner=node:child_process.spawn namespace=runtime-worker platform=${process.platform} runtime_pid=${process.pid}`,
-    `executable=${JSON.stringify(launch.shell)} requested_shell=${JSON.stringify(requestedShell)} login=${login}`,
+    `runner=${runner} namespace=runtime-worker platform=${process.platform} runtime_pid=${process.pid}`,
+    `executable=${JSON.stringify(launch.shell)} requested_shell=${JSON.stringify(requestedShell)} login=${login} tty=${options.tty === true}`,
     `cwd=${JSON.stringify(cwd)}`,
     `cause=${error.name}: ${error.message}`,
   ].join("\n");
 };
 
 type SpawnedShell = ReturnType<typeof spawn>;
+
+type SpawnedPtyShell = {
+  process: Bun.Subprocess;
+  terminal: Bun.Terminal;
+  write: (chars: string) => Promise<void>;
+  close: () => void;
+};
 
 export const resolveExecOutputTokens = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value)
@@ -1282,6 +1295,133 @@ const spawnShellProcess = (
     detached: process.platform !== "win32",
   });
 
+const DEFAULT_PTY_COLUMNS = 80;
+const DEFAULT_PTY_ROWS = 24;
+const PTY_OUTPUT_SETTLE_MS = 15;
+const PTY_OUTPUT_MAX_SETTLE_MS = 100;
+
+type PtyShellCallbacks = {
+  onData: (data: string) => void;
+  onExit: (
+    exitCode: number | null,
+    signalCode: number | null,
+    error?: Error,
+  ) => void;
+  onTerminalExit: (exitCode: number) => void;
+};
+
+/**
+ * Spawn a shell through Bun's native terminal transport. Bun maps this to
+ * openpty(3) on macOS/Linux and CreatePseudoConsole (ConPTY) on Windows.
+ *
+ * Bun may invoke spawn callbacks before `Bun.spawn` returns, so every callback
+ * crosses a microtask boundary. That guarantees startShell has installed the
+ * returned transport on its managed record before lifecycle events arrive.
+ */
+const spawnPtyShellProcess = (
+  shell: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  windowsVerbatimArguments: boolean,
+  callbacks: PtyShellCallbacks,
+): SpawnedPtyShell => {
+  const bunRuntime = (globalThis as typeof globalThis & { Bun?: typeof Bun })
+    .Bun;
+  if (!bunRuntime || typeof bunRuntime.Terminal !== "function") {
+    throw new Error(
+      "PTY execution requires Stella's bundled Bun runtime with Bun.Terminal support.",
+    );
+  }
+
+  const drainWaiters = new Set<() => void>();
+  const outputDecoder = new TextDecoder();
+  const terminal = new bunRuntime.Terminal({
+    cols: DEFAULT_PTY_COLUMNS,
+    rows: DEFAULT_PTY_ROWS,
+    name: "xterm-256color",
+    data: (_terminal, data) => {
+      const chunk = outputDecoder.decode(data, { stream: true });
+      if (chunk) queueMicrotask(() => callbacks.onData(chunk));
+    },
+    drain: () => {
+      const waiters = [...drainWaiters];
+      drainWaiters.clear();
+      for (const waiter of waiters) waiter();
+    },
+    exit: (_terminal, exitCode) => {
+      const finalChunk = outputDecoder.decode();
+      queueMicrotask(() => {
+        if (finalChunk) callbacks.onData(finalChunk);
+        callbacks.onTerminalExit(exitCode);
+      });
+    },
+  });
+
+  let subprocess: Bun.Subprocess;
+  try {
+    subprocess = bunRuntime.spawn([shell, ...args], {
+      cwd,
+      env: {
+        ...env,
+        TERM: env.TERM?.trim() || "xterm-256color",
+      },
+      terminal,
+      windowsHide: true,
+      windowsVerbatimArguments,
+      detached: process.platform !== "win32",
+      onExit: (_subprocess, exitCode, signalCode, error) => {
+        const normalizedError = error
+          ? error instanceof Error
+            ? error
+            : new Error(String(error))
+          : undefined;
+        queueMicrotask(() =>
+          callbacks.onExit(exitCode, signalCode, normalizedError),
+        );
+      },
+    });
+  } catch (error) {
+    terminal.close();
+    throw error;
+  }
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    const waiters = [...drainWaiters];
+    drainWaiters.clear();
+    for (const waiter of waiters) waiter();
+    if (!terminal.closed) terminal.close();
+  };
+
+  const write = async (chars: string): Promise<void> => {
+    if (closed || terminal.closed) {
+      throw new Error("PTY stdin is closed.");
+    }
+    const normalized =
+      process.platform === "win32" ? chars.replace(/\r?\n/g, "\r") : chars;
+    const bytes = new TextEncoder().encode(normalized);
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const written = terminal.write(bytes.subarray(offset));
+      if (written > 0) {
+        offset += Math.min(written, bytes.byteLength - offset);
+        continue;
+      }
+      await new Promise<void>((resolve) => {
+        drainWaiters.add(resolve);
+      });
+      if (closed || terminal.closed) {
+        throw new Error("PTY stdin closed before all input was written.");
+      }
+    }
+  };
+
+  return { process: subprocess, terminal, write, close };
+};
+
 const killShellProcess = (
   child: SpawnedShell,
   signal: NodeJS.Signals = "SIGTERM",
@@ -1336,6 +1476,57 @@ const terminateShellProcess = (child: SpawnedShell) => {
       return;
     }
     killShellProcess(child, "SIGKILL");
+  }, 1_000);
+  forceKillTimer.unref?.();
+};
+
+const killPtyShellProcess = (
+  pty: SpawnedPtyShell,
+  signal: NodeJS.Signals = "SIGTERM",
+) => {
+  const pid = pty.process.pid;
+  if (!pid || pty.process.exitCode !== null) return;
+
+  if (process.platform === "win32") {
+    const taskkillArgs = ["/pid", String(pid), "/t"];
+    if (signal === "SIGKILL") taskkillArgs.push("/f");
+    const killer = spawn("taskkill", taskkillArgs, {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    killer.on("error", () => {
+      try {
+        pty.process.kill(signal);
+      } catch {
+        // The ConPTY child may already have exited.
+      }
+    });
+    return;
+  }
+
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try {
+      pty.process.kill(signal);
+    } catch {
+      // The PTY process may already have exited.
+    }
+  }
+};
+
+const terminatePtyShellProcess = (pty: SpawnedPtyShell) => {
+  if (pty.process.exitCode !== null) {
+    pty.close();
+    return;
+  }
+  // On pre-24H2 Windows, ClosePseudoConsole can block while a live child is
+  // flushing. Kill the process first and close the terminal only after exit.
+  killPtyShellProcess(pty, "SIGTERM");
+  const forceKillTimer = setTimeout(() => {
+    if (pty.process.exitCode === null) {
+      killPtyShellProcess(pty, "SIGKILL");
+    }
   }, 1_000);
   forceKillTimer.unref?.();
 };
@@ -1397,27 +1588,6 @@ export const startShell = (
     return failedRecord(launch.error, 127);
   }
 
-  let child: SpawnedShell;
-  try {
-    child = spawnShellProcess(
-      launch.shell,
-      launch.args,
-      cwd,
-      buildShellEnv(envOverrides, state),
-      launch.windowsVerbatimArguments,
-    );
-  } catch (error) {
-    return failedRecord(
-      describeShellSpawnFailure(
-        error instanceof Error ? error : new Error(String(error)),
-        launch,
-        cwd,
-        launchOptions,
-      ),
-      1,
-    );
-  }
-
   const record: ManagedShellRecord = {
     id,
     command,
@@ -1428,62 +1598,163 @@ export const startShell = (
     exitCode: null,
     startedAt: Date.now(),
     completedAt: null,
-    child,
     unreadOutput: "",
     unreadOutputBuffer: new HeadTailOutputBuffer(RAW_SHELL_OUTPUT_MAX_BYTES),
     outputVersion: 0,
     waiters: new Set(),
     exitWatchers: new Set(),
-    stdinOpen: Boolean(child.stdin),
+    stdinOpen: false,
     startSnapshot,
     externalCandidateSnapshots,
-    kill: () => {
-      terminateShellProcess(child);
-    },
+    kill: () => {},
   };
 
-  const append = (data: Buffer) => {
-    const chunk = data.toString();
-    const safeChunk = sanitizeToolVisibleText(chunk);
-    appendShellOutput(record, safeChunk);
-    notifyShellActivity(record);
-    onActivity?.(record);
-  };
-
-  child.stdout.on("data", append);
-  child.stderr.on("data", append);
-  child.stdin?.on("close", () => {
-    record.stdinOpen = false;
-    notifyShellActivity(record);
-  });
-  child.on("error", (error) => {
-    const safeMessage = sanitizeToolVisibleText(
-      describeShellSpawnFailure(error, launch, cwd, launchOptions),
+  const append = (chunk: string, sanitizeImmediately: boolean) => {
+    // Pipe output is sanitized chunk-by-chunk for compatibility. PTY escape
+    // sequences can straddle native read boundaries, so retain those chunks
+    // until the existing payload-level sanitizer sees the complete drain.
+    appendShellOutput(
+      record,
+      sanitizeImmediately ? sanitizeToolVisibleText(chunk) : chunk,
     );
-    appendShellOutput(record, safeMessage);
+    notifyShellActivity(record);
+    onActivity?.(record);
+  };
+
+  const finish = (exitCode: number | null) => {
+    if (!record.running) return;
     record.running = false;
-    record.exitCode = record.exitCode ?? 1;
+    record.exitCode = exitCode;
     record.completedAt = Date.now();
     record.stdinOpen = false;
     notifyShellActivity(record);
     notifyShellExit(record);
     onActivity?.(record);
-    if (onClose) {
-      onClose();
+    record.pty?.close();
+    onClose?.();
+  };
+
+  const shellEnv = buildShellEnv(envOverrides, state);
+  if (launchOptions.tty) {
+    let pendingExit: { exitCode: number | null; error?: Error } | undefined;
+    let settleDeadlineAt = 0;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const schedulePtyFinish = () => {
+      if (!pendingExit || !record.running) return;
+      if (settleTimer) clearTimeout(settleTimer);
+      const remaining = Math.max(0, settleDeadlineAt - Date.now());
+      settleTimer = setTimeout(
+        () => {
+          if (!pendingExit) return;
+          const { exitCode, error } = pendingExit;
+          pendingExit = undefined;
+          if (error) {
+            append(
+              describeShellSpawnFailure(
+                error,
+                launch,
+                cwd,
+                launchOptions,
+                "bun:terminal",
+              ),
+              true,
+            );
+          }
+          finish(error ? (exitCode ?? 1) : exitCode);
+        },
+        Math.min(PTY_OUTPUT_SETTLE_MS, remaining),
+      );
+      settleTimer.unref?.();
+    };
+
+    try {
+      const pty = spawnPtyShellProcess(
+        launch.shell,
+        launch.args,
+        cwd,
+        shellEnv,
+        launch.windowsVerbatimArguments ?? false,
+        {
+          onData: (chunk) => {
+            append(chunk, false);
+            if (pendingExit) schedulePtyFinish();
+          },
+          onExit: (exitCode, _signalCode, error) => {
+            pendingExit = { exitCode, ...(error ? { error } : {}) };
+            settleDeadlineAt = Date.now() + PTY_OUTPUT_MAX_SETTLE_MS;
+            schedulePtyFinish();
+          },
+          onTerminalExit: (terminalExitCode) => {
+            record.stdinOpen = false;
+            notifyShellActivity(record);
+            if (pendingExit) {
+              if (settleTimer) clearTimeout(settleTimer);
+              settleDeadlineAt = Date.now();
+              schedulePtyFinish();
+            } else if (terminalExitCode !== 0 && record.running) {
+              append("PTY stream closed unexpectedly.\n", true);
+              if (record.pty) terminatePtyShellProcess(record.pty);
+            }
+          },
+        },
+      );
+      record.pty = pty;
+      record.stdinOpen = true;
+      record.kill = () => terminatePtyShellProcess(pty);
+    } catch (error) {
+      return failedRecord(
+        describeShellSpawnFailure(
+          error instanceof Error ? error : new Error(String(error)),
+          launch,
+          cwd,
+          launchOptions,
+          "bun:terminal",
+        ),
+        1,
+      );
     }
-  });
-  child.on("close", (code) => {
-    record.running = false;
-    record.exitCode = code ?? null;
-    record.completedAt = Date.now();
-    record.stdinOpen = false;
-    notifyShellActivity(record);
-    notifyShellExit(record);
-    onActivity?.(record);
-    if (onClose) {
-      onClose();
+  } else {
+    let child: SpawnedShell;
+    try {
+      child = spawnShellProcess(
+        launch.shell,
+        launch.args,
+        cwd,
+        shellEnv,
+        launch.windowsVerbatimArguments,
+      );
+    } catch (error) {
+      return failedRecord(
+        describeShellSpawnFailure(
+          error instanceof Error ? error : new Error(String(error)),
+          launch,
+          cwd,
+          launchOptions,
+        ),
+        1,
+      );
     }
-  });
+    record.child = child;
+    record.stdinOpen = Boolean(child.stdin);
+    record.kill = () => terminateShellProcess(child);
+
+    const appendPipe = (data: Buffer) => append(data.toString(), true);
+    child.stdout.on("data", appendPipe);
+    child.stderr.on("data", appendPipe);
+    child.stdin?.on("close", () => {
+      record.stdinOpen = false;
+      notifyShellActivity(record);
+    });
+    child.on("error", (error) => {
+      append(
+        describeShellSpawnFailure(error, launch, cwd, launchOptions),
+        true,
+      );
+      finish(record.exitCode ?? 1);
+    });
+    child.on("close", (code) => finish(code ?? null));
+  }
 
   state.shells.set(id, record);
   return record;
@@ -1641,6 +1912,7 @@ const resolveManagedShellCommand = (
     launchOptions: {
       ...(requestedShell ? { shell: requestedShell } : {}),
       login: args.login !== false,
+      tty: args.tty === true,
     },
   };
 };
@@ -1749,6 +2021,13 @@ const writeToShellStdin = async (
   chars: string,
 ): Promise<void> => {
   if (!chars) return;
+  if (record.pty) {
+    if (!record.stdinOpen) {
+      throw new Error(`stdin is not available for session ${record.id}.`);
+    }
+    await record.pty.write(chars);
+    return;
+  }
   const stdin = record.child?.stdin;
   if (!stdin || !record.stdinOpen || stdin.destroyed || !stdin.writable) {
     throw new Error(`stdin is not available for session ${record.id}.`);
@@ -1790,13 +2069,6 @@ export const handleExecCommand = async (
   if (!prepared.command.trim()) {
     return { error: "cmd is required." };
   }
-  if (args.tty === true) {
-    return {
-      error:
-        "exec_command does not provide a pseudo-terminal in this runtime. Retry with tty: false (or omit tty); stdin remains available through write_stdin for long-running commands.",
-    };
-  }
-
   let beforeSideEffects: {
     rootSnapshot: FileSnapshot | null;
     externalCandidateSnapshots?: ExternalCandidateSnapshot[];

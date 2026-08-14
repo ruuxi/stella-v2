@@ -11,6 +11,9 @@ import type { AssistantMessage } from "../types.js";
  * - Anthropic: "prompt is too long: 213462 tokens > 200000 maximum"
  * - Anthropic: "413 {\"error\":{\"type\":\"request_too_large\",\"message\":\"Request exceeds the maximum size\"}}"
  * - OpenAI: "Your input exceeds the context window of this model"
+ * - OpenAI Codex (ChatGPT backend, Responses API): "Codex error (context_length_exceeded): …",
+ *   "Your conversation is too long …", and websocket close 1009 "message too big"
+ *   (the websocket-level equivalent of a request-too-large rejection)
  * - OpenAI/LiteLLM: "Requested token count exceeds the model's maximum context length of 131072 tokens"
  * - OpenAI-compatible: "Input length (265330) exceeds model's maximum context length (262144)."
  * - Google: "The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)"
@@ -38,7 +41,10 @@ const OVERFLOW_PATTERNS = [
 	/prompt is too long/i, // Anthropic token overflow
 	/request_too_large/i, // Anthropic request byte-size overflow (HTTP 413)
 	/input is too long for requested model/i, // Amazon Bedrock
-	/exceeds the context window/i, // OpenAI (Completions & Responses API)
+	/exceed(?:s|ed)? the context window/i, // OpenAI (Completions & Responses API, incl. ChatGPT Codex backend)
+	/\bconversation (?:is )?too long\b/i, // ChatGPT backend variant on the Codex Responses path
+	/websocket closed 1009\b/i, // Codex Responses websocket transport: close code 1009 = payload too big
+	/\b(?:message|payload|request entity) too (?:big|large)\b/i, // WS 1009 reason text / HTTP 413 bodies
 	/exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))/i, // OpenAI-compatible proxies (LiteLLM)
 	/input token count.*exceeds the maximum/i, // Google (Gemini)
 	/maximum prompt length is \d+/i, // xAI (Grok)

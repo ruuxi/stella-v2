@@ -3,7 +3,12 @@ import {
   buildHistorySource,
   persistThreadCustomMessage,
 } from "./thread-memory.js";
-import { withForcedThreadCompaction } from "./context-budget.js";
+import {
+  estimateProviderPayloadTokens,
+  providerInputBudgetTokens,
+  withForcedThreadCompaction,
+} from "./context-budget.js";
+import { classifyAgentRunFailure } from "./agent-run-retry.js";
 import { runCompactionWithHooks } from "./run-completion.js";
 import { getThreadTokenEstimate } from "../thread-runtime.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
@@ -53,7 +58,36 @@ const isSafePreGenerationOverflow = (execution, agent, contextWindow) => {
   }
   const outputTokens = Number(last.usage?.output ?? 0);
   if (Number.isFinite(outputTokens) && outputTokens > 0) return false;
-  return isContextOverflow(last, contextWindow);
+  if (isContextOverflow(last, contextWindow)) return true;
+  return isOverBudgetHardFailure(execution, agent, contextWindow);
+};
+
+/**
+ * Last-resort overflow classification for providers whose context-limit
+ * error text carries no recognizable signature (seen on the ChatGPT/Codex
+ * Responses path, where a `response.failed` can surface with only an opaque
+ * message). When a pre-generation hard failure (non-retryable, no output
+ * tokens, no generated content) happened on a request that was demonstrably
+ * over the model's safe input budget, treat it as a context overflow so the
+ * forced-compaction retry can heal the thread instead of failing forever.
+ * Retryable categories (transport/rate-limit/5xx) and clearly attributable
+ * ones (auth, invalid model, canceled) never reach this fallback.
+ */
+const isOverBudgetHardFailure = (execution, agent, contextWindow) => {
+  const inputBudget = providerInputBudgetTokens(contextWindow);
+  if (!inputBudget) return false;
+  const failure = classifyAgentRunFailure(execution.errorMessage);
+  if (failure.category !== "non_retryable") {
+    return false;
+  }
+  const estimatedTokens = estimateProviderPayloadTokens(
+    {
+      systemPrompt: agent.state.systemPrompt,
+      messages: agent.state.messages,
+    },
+    inputBudget,
+  );
+  return estimatedTokens >= inputBudget;
 };
 
 const errorMessage = (error) => {

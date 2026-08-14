@@ -381,7 +381,18 @@ async function* mapCodexEvents(events) {
             const response = event.response;
             const code = response?.error?.code;
             const message = response?.error?.message;
-            throw new CodexApiError(message || "Codex response failed", { code, payload: event });
+            // Keep the code visible in the surfaced text (mirrors the "error"
+            // branch above): downstream context-overflow recovery classifies
+            // failures by message string, and the Responses API signals a
+            // context-limit failure as `response.failed` with
+            // `error.code: "context_length_exceeded"` — sometimes with a
+            // generic or empty message. Dropping the code here made those
+            // turns unrecoverable (no compaction retry).
+            const summary = message || "Codex response failed";
+            throw new CodexApiError(`Codex error${code ? ` (${code})` : ""}: ${summary}`, {
+                code,
+                payload: event,
+            });
         }
         if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
             const response = event.response;
@@ -998,6 +1009,16 @@ async function parseErrorResponse(response) {
                 friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
             }
             message = err.message || friendlyMessage || message;
+            // Preserve machine-readable error codes (e.g.
+            // `context_length_exceeded`) in the surfaced text so overflow
+            // recovery can classify the failure even when the human message
+            // omits any recognizable overflow phrasing.
+            if (typeof code === "string" &&
+                code &&
+                !friendlyMessage &&
+                !message.includes(code)) {
+                message = `${message} (${code})`;
+            }
         }
     }
     catch { }

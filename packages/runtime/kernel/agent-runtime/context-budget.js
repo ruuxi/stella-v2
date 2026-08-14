@@ -106,6 +106,31 @@ const estimatePayloadTokens = (payload, inputBudget) => {
   return Math.ceil(bytes / ESTIMATED_BYTES_PER_TOKEN) + imageTokens;
 };
 
+/**
+ * Safe per-request input budget for a context window: the same ~70% bound
+ * (with a small-window floor) that `preflightProviderPayload` enforces,
+ * exported so overflow recovery can re-derive it when re-checking whether a
+ * failed request was demonstrably over budget.
+ */
+export const providerInputBudgetTokens = (contextWindow) => {
+  const parsed = Number(contextWindow);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.max(8_000, Math.floor(parsed * MAX_INPUT_FRACTION));
+};
+
+/**
+ * Estimate the model-visible tokens of an arbitrary provider payload (same
+ * heuristic preflight uses: quick byte-based upper bound, exact JSON
+ * measurement only when the quick pass lands near the budget).
+ */
+export const estimateProviderPayloadTokens = (payload, inputBudget) =>
+  estimatePayloadTokens(
+    payload,
+    Number.isFinite(inputBudget) && inputBudget > 0
+      ? inputBudget
+      : Number.POSITIVE_INFINITY,
+  );
+
 export const preflightProviderPayload = (threadKey, payload, model) => {
   const liveContextWindow = Number(model?.contextWindow);
   const contextWindow =

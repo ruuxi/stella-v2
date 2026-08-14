@@ -21,6 +21,12 @@ import {
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import { normalizeRetiredAgentType } from "@stella/contracts/agent-runtime";
 import { DreamInboxStore } from "../memory/dream-inbox-store.js";
+import {
+  CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
+  RESIDENT_FOLD_ENTRY_ID_MARKER,
+  parseResidentFold,
+  residentIdentityForCustomMessage,
+} from "../agent-runtime/resident-context.js";
 /**
  * Upper bound on the user/assistant rows scanned per `listMessages` /
  * `listMessagesBefore` call to compute the visible-message cutoff. Lets
@@ -754,6 +760,7 @@ const buildRawThreadMessages = (path) =>
     .filter((message) => message !== null);
 const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const timestamp = Date.parse(compaction.timestamp) || Date.now();
+  const residentFold = parseResidentFold(compaction.details);
   if (compaction.fromEntryId && compaction.toEntryId) {
     return {
       id: compaction.id,
@@ -761,6 +768,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
       fromEntryId: compaction.fromEntryId,
       toEntryId: compaction.toEntryId,
       timestamp,
+      ...(residentFold ? { residentFold } : {}),
     };
   }
   if (!compaction.firstKeptEntryId) {
@@ -783,6 +791,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
     fromEntryId,
     toEntryId,
     timestamp,
+    ...(residentFold ? { residentFold } : {}),
   };
 };
 const buildThreadCompactionOverlays = (path, rawMessages) =>
@@ -790,12 +799,76 @@ const buildThreadCompactionOverlays = (path, rawMessages) =>
     .filter((entry) => entry.type === "compaction")
     .map((entry) => normalizeCompactionOverlay(entry, rawMessages))
     .filter((entry) => entry !== null);
+/**
+ * Resident-block fold-in half of the overlay application. The newest applied
+ * overlay that carries a `residentFold` (written by `maybeCompactRuntimeThread`)
+ * re-establishes the canonical resident context:
+ *
+ *   1. every older copy of a folded block (stale head docs, mid-thread
+ *      re-appends that survived in the kept tail) and every accumulated
+ *      `runtime.context_delta.*` notice from before the compaction is
+ *      dropped from the materialized window;
+ *   2. exactly one fresh copy of each folded block is emitted immediately
+ *      before that overlay's checkpoint message — i.e. at the head of the
+ *      rebuilt window, where compaction head-protection keeps it pinned.
+ *
+ * Copies appended AFTER the compaction (timestamp > overlay timestamp) are
+ * genuine new deltas and are left in place. Purely derived from persisted
+ * entries, so every store rebuild materializes the same canonical window.
+ */
+const applyResidentFold = (messages, overlay) => {
+  const fold = overlay.residentFold;
+  const checkpointIndex = messages.findIndex(
+    (message) => message.entryId === overlay.id,
+  );
+  if (checkpointIndex < 0) {
+    return messages;
+  }
+  const swept = messages.filter((message) => {
+    if (message.role !== "runtimeInternal" || !message.customMessage) {
+      return true;
+    }
+    if (message.timestamp > overlay.timestamp) {
+      return true;
+    }
+    const customType = message.customMessage.customType;
+    if (
+      typeof customType === "string" &&
+      customType.startsWith(CONTEXT_DELTA_CUSTOM_TYPE_PREFIX)
+    ) {
+      return false;
+    }
+    const identity = residentIdentityForCustomMessage(message.customMessage);
+    return !(identity && fold.identities.has(identity));
+  });
+  const insertIndex = swept.findIndex(
+    (message) => message.entryId === overlay.id,
+  );
+  if (insertIndex < 0) {
+    return swept;
+  }
+  const docMessages = fold.docs.map((doc, docIndex) => ({
+    entryId: `${overlay.id}${RESIDENT_FOLD_ENTRY_ID_MARKER}${docIndex}`,
+    threadKey: "",
+    timestamp: overlay.timestamp,
+    role: "runtimeInternal",
+    content: previewFromTextAndImages([{ type: "text", text: doc.text }]),
+    customMessage: {
+      customType: doc.customType,
+      content: [{ type: "text", text: doc.text }],
+      display: false,
+    },
+  }));
+  swept.splice(insertIndex, 0, ...docMessages);
+  return swept;
+};
 const applyCompactionOverlays = (rawMessages, overlays) => {
   if (rawMessages.length === 0 || overlays.length === 0) {
     return rawMessages;
   }
   const ids = rawMessages.map((message) => message.entryId);
-  const result = [];
+  let result = [];
+  const appliedOverlays = [];
   let index = 0;
   while (index < rawMessages.length) {
     const matching = overlays.filter(
@@ -806,6 +879,7 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
     if (overlay) {
       const endIndex = ids.indexOf(overlay.toEntryId);
       if (endIndex >= index) {
+        appliedOverlays.push(overlay);
         result.push({
           entryId: overlay.id,
           threadKey: "",
@@ -819,6 +893,12 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
     }
     result.push(rawMessages[index]);
     index += 1;
+  }
+  const foldOverlay = appliedOverlays
+    .filter((overlay) => overlay.residentFold)
+    .pop();
+  if (foldOverlay) {
+    result = applyResidentFold(result, foldOverlay);
   }
   return result;
 };

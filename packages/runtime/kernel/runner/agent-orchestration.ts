@@ -324,12 +324,12 @@ export const createAgentOrchestration = (
       typeof parentOwner === "string" ? parentOwner : undefined;
     const isParentOwned = parentThreadId !== undefined;
     const hasUnresolvedParentAncestry = parentOwner === null;
-    // Interjection-turn completions arrive twice (see
+    // Some lifecycle transitions are control-plane-only (see
     // `AgentLifecycleEvent.audience`): `orchestrator-only` skips every
-    // display surface (persisted activity row, renderer/run callbacks,
-    // OS notification) so the task UI keeps reading "in progress",
-    // while the deferred `display-only` replay skips the hidden
-    // orchestrator steer that already went out.
+    // display surface (persisted chat event, renderer/run callbacks,
+    // OS notification). Interjection completions use it before their deferred
+    // `display-only` replay; internal owner wake-ups use it so reviewing a
+    // privately routed child report does not create a root-chat card.
     if (
       event.audience !== "orchestrator-only" &&
       !isParentOwned &&

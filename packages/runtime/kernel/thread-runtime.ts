@@ -12,6 +12,10 @@ import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
 import { readRuntimePrompt } from "./prompts/home-prompts.js";
 import { isThreadCompactionForced } from "./agent-runtime/context-budget.js";
+import {
+  RESIDENT_FOLD_ENTRY_ID_MARKER,
+  buildResidentFold,
+} from "./agent-runtime/resident-context.js";
 import { loadLocalPreferences } from "./preferences/local-preferences.js";
 
 const logger = createRuntimeLogger("thread-runtime");
@@ -427,6 +431,16 @@ export const splitThreadMessagesForCompaction = (
   const fromEntryId = middleMessages[0]?.entryId?.trim();
   const toEntryId = middleMessages[middleMessages.length - 1]?.entryId?.trim();
   if (!fromEntryId || !toEntryId) {
+    return null;
+  }
+  // Fold-materialized doc entries carry synthetic entryIds that don't exist
+  // in the raw entry log; an overlay anchored on one could never be applied.
+  // Head protection keeps them out of the middle in practice; this guard
+  // makes a corrupt overlay impossible even in degenerate splits.
+  if (
+    fromEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
+    toEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER)
+  ) {
     return null;
   }
 
@@ -888,7 +902,13 @@ export const resolveCompactionProtectHeadMessages = (
 ): number =>
   agentType === AGENT_IDS.ORCHESTRATOR
     ? countLeadingBootstrapStartupDocs(messages)
-    : THREAD_COMPACTION_PROTECT_HEAD_MESSAGES;
+    : // Subagents pin their fixed task-framing window AND any leading
+      // bootstrap docs (which can exceed the fixed window once a resident
+      // fold has re-pinned the full doc set at the head).
+      Math.max(
+        THREAD_COMPACTION_PROTECT_HEAD_MESSAGES,
+        countLeadingBootstrapStartupDocs(messages),
+      );
 
 /**
  * Retry schedule for the final overlay write. `compactThread` is a local
@@ -944,9 +964,10 @@ export const maybeCompactRuntimeThread = async (args: {
     // up to the last message is compactable.
     splitMessages = splitThreadMessagesForCompaction(
       storedMessages,
-      args.agentType === AGENT_IDS.ORCHESTRATOR
-        ? countLeadingBootstrapStartupDocs(storedMessages)
-        : 0,
+      // Even in the emergency split, leading bootstrap docs stay pinned for
+      // every agent type — they are resident context, and cutting through
+      // them would anchor the overlay on a fold-synthetic entryId.
+      countLeadingBootstrapStartupDocs(storedMessages),
       0,
       1,
     );
@@ -981,6 +1002,31 @@ export const maybeCompactRuntimeThread = async (args: {
     }
   }
 
+  // Resident-block fold-in: compaction is the one moment the prompt-cache
+  // prefix is legitimately dead, so re-render every resident block from
+  // current state and carry the fresh copies on the compaction entry. The
+  // overlay materializer (`storage/session-store.js`) pins exactly one
+  // fresh copy of each block at the head of the rebuilt window and sweeps
+  // all older copies + accumulated `runtime.context_delta.*` appends —
+  // which also heals legacy threads that accumulated duplicate doc appends.
+  // Best-effort: a fold failure must never fail a compaction.
+  let residentFold: unknown = null;
+  try {
+    residentFold = buildResidentFold({
+      messages: storedMessages,
+      ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+      refreshMemoryDocsFromDisk: args.stellaDataDir
+        ? loadLocalPreferences(args.stellaDataDir).memoryEnabled !== false
+        : false,
+    });
+  } catch (error) {
+    residentFold = null;
+    logger.warn("thread.compaction.resident-fold-failed", {
+      threadKey: args.threadKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   for (
     let attempt = 0;
     attempt <= COMPACTION_STORE_WRITE_RETRY_DELAYS_MS.length;
@@ -996,6 +1042,7 @@ export const maybeCompactRuntimeThread = async (args: {
         fromEntryId: splitMessages.fromEntryId,
         toEntryId: splitMessages.toEntryId,
         tokensBefore: totalTokens,
+        ...(residentFold ? { details: { residentFold } } : {}),
       });
       args.store.updateThreadSummary(args.threadKey, summary);
       return { compacted: true };

@@ -573,6 +573,7 @@ function ComputerChatSurface({
         onRemoveQuote={thread.removeQuote}
         dictationAnonymous={false}
         onOpenArtifact={setSelectedArtifact}
+        conversationId={thread.conversationId}
         onOpenDeviceSheet={() => setDeviceSheetOpen(true)}
         activityTasks={thread.conversationTasks}
         onOpenActivityHub={() => setActivityHubOpen(true)}

@@ -1046,11 +1046,35 @@ const mapArtifactPayload = (
 export const deriveMobileArtifactsForMessage = (
   message: Pick<ArtifactMessageRecord, "toolEvents">,
   options?: MobileArtifactOptions,
+): MobileSyncArtifact[] =>
+  deriveMobileArtifactsForMessages([message], options);
+
+/**
+ * File/media artifacts across a group of message records (one turn's
+ * assistant segments), deduped with a single `seen` set so a file written
+ * across several segments yields one artifact.
+ */
+export const deriveMobileArtifactsForMessages = (
+  messages: readonly Pick<ArtifactMessageRecord, "toolEvents">[],
+  options?: MobileArtifactOptions,
 ): MobileSyncArtifact[] => {
   const artifacts: MobileSyncArtifact[] = [];
   const seen = new Set<string>();
 
-  for (const event of message.toolEvents) {
+  for (const message of messages) {
+    collectMobileArtifactsFromEvents(message.toolEvents, artifacts, seen, options);
+  }
+
+  return artifacts.slice(0, ARTIFACT_LIMIT_PER_MESSAGE);
+};
+
+const collectMobileArtifactsFromEvents = (
+  toolEvents: readonly ArtifactEventRecord[],
+  artifacts: MobileSyncArtifact[],
+  seen: Set<string>,
+  options?: MobileArtifactOptions,
+): void => {
+  for (const event of toolEvents) {
     const payload = event.payload;
     if (!payload) continue;
 
@@ -1135,8 +1159,6 @@ export const deriveMobileArtifactsForMessage = (
       );
     }
   }
-
-  return artifacts.slice(0, ARTIFACT_LIMIT_PER_MESSAGE);
 };
 
 export const buildMobileSyncMessages = (
@@ -1161,12 +1183,64 @@ export const buildMobileSyncMessages = (
   // Completion files resolve across the whole context so a fire-and-forget
   // agent completing on a later row still files onto its spawning row's card.
   const filesByAgentId = buildAgentFilesById(taskContextMessages, options);
+  // TURN-level file-artifact consolidation. The store anchors tool events on
+  // the assistant SEGMENT that preceded them, so a multi-segment turn (the
+  // orchestrator streams text, runs tools, streams more text) would hang its
+  // file cards off a mid-turn bubble. Desktop derives inline artifact cards
+  // at TURN granularity and presents them on the turn's reply; the phone's
+  // live send path likewise reads the turn's LAST assistant row. Attach the
+  // whole turn's file artifacts to that last visible assistant row so both
+  // the live reply and the synced transcript carry them. Single-segment
+  // turns and user-anchored (fire-and-forget) events keep today's placement.
+  const fileArtifactsByMessageId = new Map<string, MobileSyncArtifact[]>();
+  {
+    let turnSegments: ArtifactMessageRecord[] = [];
+    const flushTurn = () => {
+      if (turnSegments.length === 0) return;
+      const visible = turnSegments.filter(
+        (segment) => !isUiHiddenChatMessagePayload(segment.payload ?? null),
+      );
+      const anchor = visible[visible.length - 1];
+      if (!anchor || visible.length <= 1) {
+        for (const segment of turnSegments) {
+          fileArtifactsByMessageId.set(
+            segment._id,
+            deriveMobileArtifactsForMessage(segment, options),
+          );
+        }
+      } else {
+        for (const segment of turnSegments) {
+          fileArtifactsByMessageId.set(
+            segment._id,
+            segment === anchor
+              ? deriveMobileArtifactsForMessages(turnSegments, options)
+              : [],
+          );
+        }
+      }
+      turnSegments = [];
+    };
+    for (const message of messages) {
+      if (message.type === "user_message") {
+        flushTurn();
+        fileArtifactsByMessageId.set(
+          message._id,
+          deriveMobileArtifactsForMessage(message, options),
+        );
+      } else {
+        turnSegments.push(message);
+      }
+    }
+    flushTurn();
+  }
   for (const message of messages) {
     if (isUiHiddenChatMessagePayload(message.payload ?? null)) continue;
     const role = message.type === "user_message" ? "user" : "assistant";
     if (role !== "user" && role !== "assistant") continue;
     const text = textFromPayload(message.payload);
-    const fileArtifacts = deriveMobileArtifactsForMessage(message, options);
+    const fileArtifacts =
+      fileArtifactsByMessageId.get(message._id) ??
+      deriveMobileArtifactsForMessage(message, options);
     const agentWork = deriveAgentWorkPayload(
       message,
       settledAtMsById,

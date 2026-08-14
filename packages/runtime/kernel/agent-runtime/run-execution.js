@@ -215,6 +215,7 @@ export const executeRuntimeAgentPrompt = async (args) => {
             if (messageType === "message" &&
                 promptMessage.message.role === "runtimeInternal" &&
                 (promptInput.customType?.startsWith("bootstrap.") ||
+                    promptInput.customType?.startsWith("runtime.context_delta.") ||
                     promptInput.customType === IMAGE_DESCRIPTION_CUSTOM_TYPE) &&
                 args.threadStore &&
                 args.threadKey) {

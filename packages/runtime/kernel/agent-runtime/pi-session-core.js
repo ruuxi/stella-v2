@@ -3,6 +3,8 @@ import { createRuntimeLogger } from "../debug.js";
 import { buildSafetyAbortSwapRoute, isProviderContentAbortMessage, parseQuarantineRecord, ProviderAbortContainment, QUARANTINE_CUSTOM_TYPE, } from "./provider-abort-containment.js";
 import { createRuntimeAgent, resolveAgentThinkingLevel } from "./shared.js";
 import { buildHistorySource } from "./thread-memory.js";
+import { CONTEXT_DELTA_CUSTOM_TYPE_PREFIX } from "./resident-context.js";
+import { checkPromptPrefixStability, clearPromptPrefixSnapshot, } from "./prompt-prefix-guard.js";
 import { clearProviderContextWindow, setProviderContextWindow, } from "./context-budget.js";
 const resolveCodexProviderServiceTier = (resolvedLlm, agentContext) => {
     const snapshot = agentContext.modelConfigSnapshot;
@@ -15,6 +17,23 @@ const resolveCodexProviderServiceTier = (resolvedLlm, agentContext) => {
     // Codex session layer, so omission is the matching wire behavior.
     return snapshot.serviceTier === "fast" ? "priority" : undefined;
 };
+const safeSchemaJson = (value) => {
+    try {
+        return JSON.stringify(value) ?? "";
+    }
+    catch {
+        return "";
+    }
+};
+/** Provider-visible bytes per tool, snapshotted when the thread context freezes. */
+const snapshotToolSchemas = (tools) => new Map((tools ?? []).map((tool) => [
+    tool.name,
+    {
+        description: tool.description,
+        parameters: tool.parameters,
+        parametersJson: safeSchemaJson(tool.parameters),
+    },
+]));
 /**
  * Shared mutable Pi-Agent state for long-lived runtime sessions.
  *
@@ -29,6 +48,30 @@ export class PiSessionCore {
     currentResolvedLlm = null;
     pendingHistoryRefresh = false;
     lastMemoryEnabled = null;
+    /**
+     * Thread-start (or last-boundary) snapshot of the provider-visible
+     * context: the system prompt string and each tool's description +
+     * parameter schema. Between boundaries the reused Agent keeps these
+     * frozen bytes even when the freshly-computed values drift (locale
+     * change, connector-surface switch mutating node_repl's demoted-tool
+     * catalog), so the prompt-cache prefix stays byte-identical. The
+     * snapshot re-adopts fresh values only at legitimate cache boundaries:
+     * compaction/history refresh, the memory-preference toggle, or a
+     * structural tool-set change (different tool names, e.g. a model switch
+     * flipping the file-edit family).
+     */
+    frozenSystemPrompt = null;
+    frozenToolSchemas = null;
+    adoptFreshContextSnapshot = false;
+    /** Signature of the last announced frozen-tools drift (dedup). */
+    announcedToolDriftSignature = null;
+    /**
+     * Hidden `runtime.context_delta.*` messages queued by the freeze logic,
+     * consumed into the next prompt build so the model hears about resident
+     * context drift as an APPEND instead of a prefix rewrite. Persisted by
+     * run-execution and swept at the next compaction fold-in.
+     */
+    pendingContextDeltaMessages = [];
     /**
      * Deterministic provider-abort tracking for this durable thread: instant
      * first-call failure counting and the request-assembly quarantine
@@ -85,6 +128,12 @@ export class PiSessionCore {
         const refreshed = buildHistorySource(agentContext);
         this.agent.state.messages = refreshed;
         this.pendingHistoryRefresh = false;
+        // The mirror swap already broke the prompt-cache prefix (that is the
+        // point of the boundary), so the next createOrReuseAgent re-freezes
+        // the system prompt + tools from current state — this is where the
+        // compaction fold-in "re-render the canonical blocks" applies to the
+        // two request-level blocks that live outside the message array.
+        this.adoptFreshContextSnapshot = true;
         this.logger.debug("history-refreshed", {
             threadKey: this.threadKey,
             historyLength: refreshed.length,
@@ -281,6 +330,122 @@ export class PiSessionCore {
         }
         return surfaced;
     }
+    freezeContextSnapshot(systemPrompt, tools) {
+        this.frozenSystemPrompt = systemPrompt;
+        this.frozenToolSchemas = snapshotToolSchemas(tools);
+        this.announcedToolDriftSignature = null;
+        this.adoptFreshContextSnapshot = false;
+    }
+    /** Drain the queued resident-context delta messages for this turn's prompt. */
+    takePendingContextDeltaMessages() {
+        if (this.pendingContextDeltaMessages.length === 0) {
+            return [];
+        }
+        const messages = this.pendingContextDeltaMessages;
+        this.pendingContextDeltaMessages = [];
+        return messages;
+    }
+    /**
+     * Reused-agent context policy. Tool `execute` closures are rebuilt every
+     * turn (they capture per-turn state like runId), but the provider-visible
+     * bytes come from the frozen snapshot so the cached prefix survives:
+     *
+     *   - boundary (compaction refresh / memory toggle / structural tool-set
+     *     change) → adopt fresh system prompt + tools and re-freeze;
+     *   - otherwise → keep frozen bytes; when the freshly-computed bytes
+     *     drifted (e.g. a desktop↔iMessage surface switch changing
+     *     node_repl's demoted-tool catalog), queue ONE hidden
+     *     `runtime.context_delta.tools` note so the model learns about the
+     *     change as an append. The real bytes swap at the next boundary.
+     */
+    applyFrozenContext(args) {
+        const agent = this.agent;
+        const frozen = this.frozenToolSchemas;
+        const structuralToolChange = !this.frozenSystemPrompt ||
+            !frozen ||
+            frozen.size !== args.tools.length ||
+            args.tools.some((tool) => !frozen.has(tool.name));
+        const boundary = this.adoptFreshContextSnapshot || structuralToolChange;
+        if (boundary) {
+            if (structuralToolChange && !this.adoptFreshContextSnapshot) {
+                // Accepted cache break: the available tool NAMES changed (model
+                // switch flipping the file-edit family, extension hot-reload).
+                // Frozen schemas for a tool that no longer exists would strand
+                // calls, so the swap applies immediately and knowingly.
+                this.logger.warn("frozen-context.structural-tool-change", {
+                    threadKey: this.threadKey,
+                    previousTools: frozen ? [...frozen.keys()] : [],
+                    nextTools: args.tools.map((tool) => tool.name),
+                    ...args.logContext,
+                });
+            }
+            agent.state.systemPrompt = args.systemPrompt;
+            agent.state.tools = args.tools;
+            this.freezeContextSnapshot(args.systemPrompt, args.tools);
+            checkPromptPrefixStability({
+                threadKey: this.threadKey,
+                systemPrompt: agent.state.systemPrompt,
+                tools: agent.state.tools,
+                messages: agent.state.messages,
+                boundary: true,
+                logger: this.logger,
+            });
+            return;
+        }
+        agent.state.systemPrompt = this.frozenSystemPrompt;
+        const driftedToolNames = [];
+        agent.state.tools = args.tools.map((tool) => {
+            const snapshot = frozen.get(tool.name);
+            if (!snapshot) {
+                return tool;
+            }
+            const descriptionMatches = tool.description === snapshot.description;
+            const parametersMatch = tool.parameters === snapshot.parameters ||
+                safeSchemaJson(tool.parameters) === snapshot.parametersJson;
+            if (descriptionMatches && parametersMatch) {
+                return tool;
+            }
+            driftedToolNames.push(tool.name);
+            return {
+                ...tool,
+                description: snapshot.description,
+                parameters: snapshot.parameters,
+            };
+        });
+        if (args.systemPrompt !== this.frozenSystemPrompt) {
+            // Rare (locale / workspace-root / hook-append drift). Kept frozen;
+            // the fresh prompt applies at the next compaction boundary.
+            this.logger.debug("frozen-context.system-prompt-drift-held", {
+                threadKey: this.threadKey,
+                ...args.logContext,
+            });
+        }
+        if (driftedToolNames.length > 0) {
+            const signature = driftedToolNames.sort().join(",");
+            if (this.announcedToolDriftSignature !== signature) {
+                this.announcedToolDriftSignature = signature;
+                this.pendingContextDeltaMessages.push({
+                    text: `<system-reminder>Available tool definitions changed mid-conversation (${driftedToolNames.join(", ")}) — for example the set of integration tools reachable from the current delivery surface. Your visible tool schemas are a thread-start snapshot and refresh at the next context compaction; current callable signatures are always discoverable inside node_repl via await tools.$search({ query: "<capability>" }).</system-reminder>`,
+                    uiVisibility: "hidden",
+                    messageType: "message",
+                    customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}tools`,
+                });
+                this.logger.debug("frozen-context.tool-drift-held", {
+                    threadKey: this.threadKey,
+                    driftedToolNames,
+                    ...args.logContext,
+                });
+            }
+        }
+        checkPromptPrefixStability({
+            threadKey: this.threadKey,
+            systemPrompt: agent.state.systemPrompt,
+            tools: agent.state.tools,
+            messages: agent.state.messages,
+            boundary: false,
+            logger: this.logger,
+        });
+    }
     createOrReuseAgent(args) {
         const serviceTier = resolveCodexProviderServiceTier(args.resolvedLlm, args.agentContext);
         const memoryEnabled = args.agentContext.memoryEnabled !== false;
@@ -315,11 +480,23 @@ export class PiSessionCore {
                 ...args.logContext,
             });
             this.lastMemoryEnabled = memoryEnabled;
+            this.freezeContextSnapshot(args.systemPrompt, args.tools);
+            checkPromptPrefixStability({
+                threadKey: this.threadKey,
+                systemPrompt: args.systemPrompt,
+                tools: args.tools,
+                messages: this.agent.state.messages,
+                boundary: true,
+                logger: this.logger,
+            });
             return this.agent;
         }
         if (this.lastMemoryEnabled !== memoryEnabled) {
             this.agent.state.messages = buildHistorySource(args.agentContext);
             this.lastMemoryEnabled = memoryEnabled;
+            // Deliberate full cache break (the user toggled memory); adopt
+            // fresh context bytes at the same boundary.
+            this.adoptFreshContextSnapshot = true;
             this.logger.debug("history-refreshed.memory-preference", {
                 threadKey: this.threadKey,
                 memoryEnabled,
@@ -327,8 +504,7 @@ export class PiSessionCore {
                 ...args.logContext,
             });
         }
-        this.agent.state.systemPrompt = args.systemPrompt;
-        this.agent.state.tools = args.tools;
+        this.applyFrozenContext(args);
         this.agent.state.model = args.resolvedLlm.model;
         this.agent.state.thinkingLevel = resolveAgentThinkingLevel({
             resolvedLlm: args.resolvedLlm,
@@ -359,6 +535,12 @@ export class PiSessionCore {
         this.currentResolvedLlm = null;
         this.pendingHistoryRefresh = false;
         this.lastMemoryEnabled = null;
+        this.frozenSystemPrompt = null;
+        this.frozenToolSchemas = null;
+        this.adoptFreshContextSnapshot = false;
+        this.announcedToolDriftSignature = null;
+        this.pendingContextDeltaMessages = [];
+        clearPromptPrefixSnapshot(this.threadKey);
         clearProviderContextWindow(this.threadKey);
         // Release per-session provider resources keyed by the same id used as the
         // AI cache session id (the thread key), e.g. Codex WebSocket connections

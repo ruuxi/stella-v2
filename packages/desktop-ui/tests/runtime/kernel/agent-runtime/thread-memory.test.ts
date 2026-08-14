@@ -48,7 +48,7 @@ describe("buildSystemPrompt", () => {
 });
 
 describe("buildStartupPromptMessages", () => {
-  it("can include the registry startup doc when explicitly enabled", async () => {
+  it("does not resurrect the legacy registry startup doc when explicitly requested", async () => {
     const stellaDataDir = await mkdtemp(
       path.join(tmpdir(), "stella-registry-"),
     );
@@ -67,35 +67,6 @@ describe("buildStartupPromptMessages", () => {
         },
         stellaDataDir,
         includeRegistry: true,
-      });
-
-      expect(messages).toHaveLength(1);
-      expect(messages[0]?.customType).toBe("bootstrap.startup_doc");
-      expect(messages[0]?.text).toContain('path="~/.stella/registry.md"');
-      expect(messages[0]?.text).toContain("registry orientation");
-    } finally {
-      await rm(stellaDataDir, { recursive: true, force: true });
-    }
-  });
-
-  it("omits the registry startup doc by default", async () => {
-    const stellaDataDir = await mkdtemp(
-      path.join(tmpdir(), "stella-registry-"),
-    );
-    try {
-      await writeFile(
-        path.join(stellaDataDir, "registry.md"),
-        "# Life Registry\n\nregistry orientation",
-      );
-
-      const messages = await buildStartupPromptMessages({
-        context: {
-          systemPrompt: "system",
-          dynamicContext: "",
-          maxAgentDepth: 1,
-          threadHistory: [],
-        },
-        stellaDataDir,
       });
 
       expect(messages).toEqual([]);

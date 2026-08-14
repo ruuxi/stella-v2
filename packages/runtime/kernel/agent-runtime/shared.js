@@ -11,10 +11,6 @@ import {
   getLocalCliWorkingDirectory,
 } from "@stella/contracts/agent-runtime";
 import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
-import {
-  isBootstrapStartupDocMessage,
-  stripStaleImageBlocks,
-} from "./thread-memory.js";
 import { preflightProviderPayload } from "./context-budget.js";
 const MAX_RESULT_PREVIEW = 200;
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;

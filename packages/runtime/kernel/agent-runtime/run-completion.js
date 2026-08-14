@@ -1,6 +1,7 @@
 import { createRuntimeLogger } from "../debug.js";
 import { compactRuntimeThreadHistory, updateOrchestratorReminderState, } from "./thread-memory.js";
 import { getThreadTokenEstimate } from "../thread-runtime.js";
+import { isThreadCompactionForced } from "./context-budget.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
 const logger = createRuntimeLogger("agent-runtime.completion");
 /**
@@ -222,7 +223,10 @@ export const runCompactionWithHooks = async (args) => {
             isUserTurn: args.opts.uiVisibility !== "hidden",
         }, { agentType: args.opts.agentType })
             .catch(() => undefined);
-        if (hookResult?.cancel) {
+        // A hook may veto a routine compaction, but never a forced one —
+        // overflow recovery forces compaction as the only alternative to
+        // resetting the thread, and a veto there would trigger the reset.
+        if (hookResult?.cancel && !isThreadCompactionForced(args.threadKey)) {
             shouldCompact = false;
         }
         const summary = hookResult?.compaction?.summary?.trim();

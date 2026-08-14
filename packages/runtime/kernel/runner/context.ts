@@ -131,9 +131,6 @@ const getLocalHistoryBudget = (contextWindow: number): number =>
     contextWindow - LOCAL_HISTORY_RESERVE_TOKENS,
   );
 
-const getLocalHistoryWarningThreshold = (contextWindow: number): number =>
-  Math.max(MIN_LOCAL_HISTORY_TOKENS, Math.floor(contextWindow * 0.85));
-
 const hasStoredCheckpoint = (messages: ThreadHistoryEntry[]): boolean =>
   messages.some(
     (message) =>
@@ -362,15 +359,11 @@ export const buildOrchestratorThreadHistory = (args: {
 }): ThreadHistoryEntry[] => {
   const localEvents = args.localEvents ?? [];
   const localHistoryBudget = getLocalHistoryBudget(args.contextWindow);
-  const warningThresholdTokens = getLocalHistoryWarningThreshold(
-    args.contextWindow,
-  );
 
   if (args.storedThreadMessages.length === 0) {
     return buildLocalHistoryFromEvents({
       events: localEvents,
       maxTokens: localHistoryBudget,
-      warningThresholdTokens,
     });
   }
 
@@ -408,7 +401,6 @@ export const buildOrchestratorThreadHistory = (args: {
   const preTransitionHistory = buildLocalHistoryFromEvents({
     events: preTransitionEvents,
     maxTokens: preTransitionBudget,
-    warningThresholdTokens,
   });
 
   if (preTransitionHistory.length === 0) {

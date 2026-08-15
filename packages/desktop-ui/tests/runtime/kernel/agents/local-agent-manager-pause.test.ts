@@ -254,10 +254,10 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     expect(prompts[1]).toContain("Task update:");
     expect(prompts[1]).toContain("follow-up");
     expect(prompts[1]).toContain(
-      "If it asks a question, requests status, or asks for a report, answer that request and then stop",
+      "answer a question or status request and stop",
     );
     expect(prompts[1]).toContain(
-      "If it gives new or changed work instructions, apply them and continue the task",
+      "apply new or changed instructions and continue the task",
     );
     await expect(manager.getAgent(created.threadId)).resolves.toMatchObject({
       status: "completed",

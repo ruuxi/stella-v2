@@ -123,7 +123,9 @@ describe("task lifecycle deduping", () => {
 
     expect(pausedPrompt).toContain("[Subagent paused]");
     expect(pausedPrompt).not.toContain("event_id:");
-    expect(pausedPrompt).toContain("Do not stay blocked on that subagent.");
+    expect(pausedPrompt).toContain(
+      "A subagent you started reached a terminal state. This report is for you only; continue your own task.",
+    );
   });
 
   it("still suppresses the follow-up when Stella shuts down mid-task", () => {

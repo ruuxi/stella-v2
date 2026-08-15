@@ -950,6 +950,29 @@ export class SessionStore {
     }
     return this.#orderingBySequenceCache;
   }
+  #orderingColumnExistsCache = null;
+  /**
+   * Whether the `message.ordering_sequence` column exists (Phase-0 migration
+   * has run). Default DBs (flag off) do NOT have it, so every SELECT of the
+   * column must be gated on this to keep the default path working and
+   * byte-identical. Cached: the column is added once and only removed by the
+   * explicit unset.
+   */
+  get orderingColumnExists() {
+    if (this.#orderingColumnExistsCache === null) {
+      const cols = this.db.prepare("PRAGMA table_info(message);").all();
+      this.#orderingColumnExistsCache = cols.some(
+        (col) => col.name === "ordering_sequence",
+      );
+    }
+    return this.#orderingColumnExistsCache;
+  }
+  /** SELECT fragment that adds `ordering_sequence AS sequence`, only when present. */
+  orderingSequenceSelect(alias) {
+    if (!this.orderingColumnExists) return "";
+    const p = alias ? `${alias}.` : "";
+    return `, ${p}ordering_sequence AS sequence`;
+  }
   /**
    * ORDER BY fragment for a table (optional `alias`), ascending or descending,
    * under the active ordering key.
@@ -1577,7 +1600,7 @@ export class SessionStore {
     if (!eventId) return null;
     const row = this.db
       .prepare(
-        `SELECT id AS _id, created_at AS timestamp, ordering_sequence AS sequence
+        `SELECT id AS _id, created_at AS timestamp${this.orderingSequenceSelect("")}
            FROM message
           WHERE session_id = ? AND id = ?
           LIMIT 1`,
@@ -2438,7 +2461,7 @@ export class SessionStore {
       const rows = this.db
         .prepare(
           `
-        SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence, part.data_json AS payloadJson
+        SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}, part.data_json AS payloadJson
         FROM message
         LEFT JOIN part
           ON part.message_id = message.id
@@ -2518,8 +2541,7 @@ export class SessionStore {
     const sql = `
       SELECT
         message.id AS _id,
-        message.created_at AS timestamp,
-        message.ordering_sequence AS sequence,
+        message.created_at AS timestamp${this.orderingSequenceSelect("message")},
         message.type AS type,
         message.device_id AS deviceId,
         message.request_id AS requestId,
@@ -2544,7 +2566,7 @@ export class SessionStore {
     const row = this.db
       .prepare(
         `
-      SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence
+      SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
@@ -2570,7 +2592,7 @@ export class SessionStore {
     const row = this.db
       .prepare(
         `
-      SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence
+      SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'

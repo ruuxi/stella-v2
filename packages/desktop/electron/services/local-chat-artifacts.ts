@@ -111,6 +111,8 @@ export type LocalChatSyncMessageWithArtifacts = {
   role: "user" | "assistant";
   text: string;
   timestamp: number;
+  /** Owning message's monotonic ordering key, when the sequence migration is live. */
+  sequence?: number;
   requestId?: string;
   deviceId?: string;
   artifacts?: MobileSyncArtifactEntry[];
@@ -147,6 +149,7 @@ type ArtifactEventRecord = {
 type ArtifactMessageRecord = {
   _id: string;
   timestamp: number;
+  sequence?: number;
   type: string;
   deviceId?: string;
   requestId?: string;
@@ -157,6 +160,7 @@ type ArtifactMessageRecord = {
 type ArtifactSourceRecord = {
   _id: string;
   timestamp: number;
+  sequence?: number;
   toolEvents?: readonly ArtifactEventRecord[];
 };
 
@@ -1267,6 +1271,9 @@ export const buildMobileSyncMessages = (
           role,
           text,
           timestamp: message.timestamp,
+          ...(typeof message.sequence === "number"
+            ? { sequence: message.sequence }
+            : {}),
           ...(message.requestId ? { requestId: message.requestId } : {}),
           ...(role === "user" && message.deviceId
             ? { deviceId: message.deviceId }
@@ -1284,6 +1291,9 @@ export const buildMobileSyncMessages = (
         role: "assistant",
         text: "",
         timestamp: message.timestamp,
+        ...(typeof message.sequence === "number"
+          ? { sequence: message.sequence }
+          : {}),
         ...(message.requestId ? { requestId: message.requestId } : {}),
         artifacts,
       });
@@ -1295,6 +1305,9 @@ export const buildMobileSyncMessages = (
         role: "assistant",
         text: "",
         timestamp: message.timestamp,
+        ...(typeof message.sequence === "number"
+          ? { sequence: message.sequence }
+          : {}),
         ...(message.requestId ? { requestId: message.requestId } : {}),
         artifacts: [agentWork],
         // Fire-and-forget turn: the user row may not render, so carry its tasks

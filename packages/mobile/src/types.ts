@@ -159,9 +159,11 @@ export type ChatArtifact = {
 /**
  * A quoted-text reference pending in the composer — added by the message menu's
  * "Quote" action or an assistant text selection's "Ask Stella". Rendered as a
- * removable chip; on send its `text` is folded into the outgoing message as a
- * markdown blockquote (see `useChatThread`), so the composer input itself stays
- * just the user's typed message.
+ * removable chip; on send the quote is delivered to the model as a dedicated
+ * context field (`selectedText`) and surfaced on the sent message as a chip
+ * rather than being folded into the visible body — so model-facing framing
+ * cannot leak into the chat UI. The composer input itself stays just the user's
+ * typed message.
  */
 export type ComposerQuote = {
   id: string;
@@ -225,6 +227,12 @@ export type ChatMessage = {
    * fallback covers that gracefully.
    */
   thumbnailUris?: string[];
+  /**
+   * User message: bounded preview of quoted / "Ask Stella" context sent with
+   * this turn. Rendered as a chip on the bubble instead of being folded into
+   * the visible text; the quote reached the model as a dedicated context field.
+   */
+  quotedText?: string;
   /**
    * User message: the message is queued behind an in-flight reply and has
    * not been dispatched yet. Renders dimmed with a small "Queued" label.

@@ -234,7 +234,12 @@ const reuseEqualMessage = (
   candidate: ChatMessage,
 ): ChatMessage => {
   const next = { ...candidate } as ChatMessage;
-  for (const key of ["toolSteps", "tasks", "thumbnailUris"] as const) {
+  for (const key of [
+    "toolSteps",
+    "tasks",
+    "thumbnailUris",
+    "quotedText",
+  ] as const) {
     if (
       jsonValueEqual(existing[key], candidate[key]) &&
       (Object.prototype.hasOwnProperty.call(existing, key) ||
@@ -276,6 +281,12 @@ const mergeCanonicalMessage = (
     ...(artifacts?.length ? { artifacts } : {}),
     ...(existing.thumbnailUris?.length && !canonical.thumbnailUris?.length
       ? { thumbnailUris: existing.thumbnailUris, hasImage: true }
+      : {}),
+    // The desktop→mobile row projection doesn't carry quoted-context chips, so
+    // keep the optimistic quote preview across reconciliation instead of losing
+    // the chip once the canonical row lands.
+    ...(existing.quotedText && !canonical.quotedText
+      ? { quotedText: existing.quotedText }
       : {}),
   };
   return reuseEqualMessage(existing, candidate);

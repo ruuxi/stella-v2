@@ -728,6 +728,11 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           contextMetadata.pastedTexts.length > 0
             ? contextMetadata.pastedTexts
             : undefined;
+        const quotedText =
+          typeof contextMetadata?.quotedText === "string" &&
+          contextMetadata.quotedText.trim()
+            ? contextMetadata.quotedText.trim()
+            : undefined;
         const row: UserRowViewModel = {
           kind: "user",
           id: message._id,
@@ -737,6 +742,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(appSelectionLabels.length > 0 ? { appSelectionLabels } : {}),
           ...(activityLabel ? { activityLabel } : {}),
           ...(pastedTexts ? { pastedTexts } : {}),
+          ...(quotedText ? { quotedText } : {}),
           attachments: getAttachments(message),
           ...(getChannelEnvelope(message)
             ? { channelEnvelope: getChannelEnvelope(message) }

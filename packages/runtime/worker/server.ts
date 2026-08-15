@@ -1535,6 +1535,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         appSelectionLabel,
         appSelectionLabels,
         activityLabel,
+        quotedText,
         promptMessages,
         windowScreenshotAttachment,
       } = buildChatPromptMessages({
@@ -1618,6 +1619,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               browserUrl ||
               appSelectionLabel ||
               activityLabel ||
+              quotedText ||
               windowPreviewImageUrl
                 ? {
                     metadata: {
@@ -1626,6 +1628,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                       browserUrl ||
                       appSelectionLabel ||
                       activityLabel ||
+                      quotedText ||
                       windowPreviewImageUrl
                         ? {
                             context: {
@@ -1658,6 +1661,11 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                               ...(activityLabel
                                 ? {
                                     activityLabel,
+                                  }
+                                : {}),
+                              ...(quotedText
+                                ? {
+                                    quotedText,
                                   }
                                 : {}),
                             },

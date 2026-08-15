@@ -1180,9 +1180,30 @@ const ChatMessageRow = memo(function ChatMessageRow({
     const thumbs = item.thumbnailUris ?? [];
     const showThumbs = thumbs.length > 0;
     const showText = item.text.trim().length > 0;
+    const quotedText = item.quotedText?.trim();
     return (
       <View style={styles.userRow}>
         <View style={styles.userColumn}>
+          {quotedText ? (
+            // Quoted / "Ask Stella" context rides to the model as a separate
+            // field and shows here as a chip — never folded into the bubble
+            // body — so internal framing/decoration can't leak into the text.
+            <View style={[styles.quoteChip, styles.userQuoteChip]}>
+              <Icon
+                name="quote"
+                size={13}
+                color={colors.textMuted}
+                style={styles.quoteChipIcon}
+              />
+              <Text
+                style={styles.quoteChipText}
+                numberOfLines={1}
+                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+              >
+                {quotedText}
+              </Text>
+            </View>
+          ) : null}
           {isSelecting && showText ? (
             // "Select text" mode: the bubble body becomes a native selection
             // surface (with a Copy pill), so a substring can be lifted out.
@@ -4601,6 +4622,12 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       height: 20,
       width: 20,
+    },
+    // Sent-message variant of the quote chip: right-aligned above the user
+    // bubble (matching the bubble's trailing edge) with a little breathing room.
+    userQuoteChip: {
+      alignSelf: "flex-end",
+      marginBottom: 6,
     },
     attachmentThumb: {
       borderRadius: 10,

@@ -155,6 +155,23 @@ function Build-ParakeetCpp {
         & git -C $src submodule update --init --recursive --quiet 2>&1 | Add-Content $log
         if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "submodule init failed" $log; return }
 
+        # The pinned parakeet.cpp backend.hpp uses int64_t without including
+        # <cstdint>. Patch that header directly instead of force-including the
+        # C++ header globally: /FIcstdint also reaches ggml's C translation
+        # units under the Visual Studio generator, where MSVC rejects it with
+        # STL1003 ("expected C++ compiler").
+        $backendHeader = Join-Path $src "src\backend.hpp"
+        $backendSource = [System.IO.File]::ReadAllText($backendHeader)
+        if (-not $backendSource.Contains("#include <cstddef>")) {
+            Fail-ParakeetCpp "backend.hpp include anchor not found" $log
+            return
+        }
+        $backendSource = $backendSource.Replace(
+            "#include <cstddef>",
+            "#include <cstddef>`n#include <cstdint>"
+        )
+        [System.IO.File]::WriteAllText($backendHeader, $backendSource)
+
         $stella = Join-Path $src "examples\stella"
         New-Item -ItemType Directory -Force -Path $stella | Out-Null
         Copy-Item -Force (Join-Path $PSScriptRoot "src\parakeet-cpp\main.cpp") (Join-Path $stella "main.cpp")
@@ -162,12 +179,9 @@ function Build-ParakeetCpp {
         Add-Content -Path (Join-Path $src "CMakeLists.txt") -Value "add_subdirectory(examples/stella)"
 
         Write-Host "Building parakeet_cpp_transcriber (static, x64)..."
-        # /FIcstdint: parakeet.cpp's backend.hpp uses int64_t without including
-        # <cstdint>; force-include keeps the build robust across MSVC versions.
         # Static CRT (/MT) so the shipped helper needs no VC++ redistributable.
         & cmake -S $src -B (Join-Path $src "build") -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_CXX_FLAGS="/FIcstdint" `
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
             -DPARAKEET_SHARED=OFF `
             -DBUILD_SHARED_LIBS=OFF `

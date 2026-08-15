@@ -148,6 +148,7 @@ jobs:
             libxinerama-dev \
             libxkbcommon-dev \
             libxkbcommon-x11-dev \
+            libxrandr-dev \
             libxtst-dev
 
       - name: Install dependencies

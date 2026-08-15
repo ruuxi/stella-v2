@@ -30,7 +30,7 @@ describe("buildSystemPrompt", () => {
 
     expect(prompt).toContain("Prefer `apply_patch`");
     expect(prompt).toContain("Do not use shell heredocs");
-    expect(prompt).toContain("standard POSIX shell commands");
+    expect(prompt).toContain("You are running on macOS.");
   });
 
   it("omits file-editing guidance when apply_patch is unavailable", () => {
@@ -43,7 +43,7 @@ describe("buildSystemPrompt", () => {
     });
 
     expect(prompt).not.toContain("Prefer `apply_patch`");
-    expect(prompt).toContain("standard POSIX shell commands");
+    expect(prompt).toContain("You are running on macOS.");
   });
 });
 

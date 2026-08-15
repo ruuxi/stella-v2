@@ -335,7 +335,20 @@
       "target": "AppImage",
       "icon": "icon.png",
       "artifactName": "Stella-${version}-Linux-${arch}.${ext}",
-      "category": "Utility"
+      "category": "Utility",
+      "maintainer": "Stella <support@stella.app>",
+      "vendor": "Stella",
+      "synopsis": "Stella desktop assistant",
+      "description": "Stella is a personal AI assistant that lives on your computer.",
+      "mimeTypes": [
+        "x-scheme-handler/stella"
+      ],
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "Stella",
+          "Keywords": "AI;Assistant;Agent;"
+        }
+      }
     },
     "publish": [
       {

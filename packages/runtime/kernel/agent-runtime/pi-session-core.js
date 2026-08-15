@@ -3,9 +3,21 @@ import { createRuntimeLogger } from "../debug.js";
 import { buildSafetyAbortSwapRoute, isProviderContentAbortMessage, parseQuarantineRecord, ProviderAbortContainment, QUARANTINE_CUSTOM_TYPE, } from "./provider-abort-containment.js";
 import { createRuntimeAgent, resolveAgentThinkingLevel } from "./shared.js";
 import { buildHistorySource } from "./thread-memory.js";
+import { getThreadTokenEstimate } from "../thread-runtime.js";
 import { CONTEXT_DELTA_CUSTOM_TYPE_PREFIX } from "./resident-context.js";
 import { checkPromptPrefixStability, clearPromptPrefixSnapshot, } from "./prompt-prefix-guard.js";
 import { clearProviderContextWindow, setProviderContextWindow, } from "./context-budget.js";
+/**
+ * Fraction of the model's real context window at which the orchestrator's
+ * non-blocking "compact-while-you-talk" path degrades to blocking: if a
+ * background compaction is still in flight AND the (un-compacted) thread has
+ * already accumulated this share of the hard window, dispatching the next turn
+ * risks overflowing the provider limit before the compaction that would
+ * relieve it lands. At that point we wait for compaction instead. Sits above
+ * the 0.7 compaction trigger so the common case stays non-blocking; the
+ * remaining headroom to 1.0 covers the incoming turn's own output.
+ */
+const ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION = 0.9;
 const resolveCodexProviderServiceTier = (resolvedLlm, agentContext) => {
     const snapshot = agentContext.modelConfigSnapshot;
     if (snapshot?.engine !== "codex_cli" ||
@@ -155,6 +167,81 @@ export class PiSessionCore {
         };
         this.refreshHistoryIfNeeded(refreshedContext, logContext);
         return refreshedContext;
+    }
+    /**
+     * Gate the next turn on any in-flight background compaction for this
+     * thread. Compaction is scheduled off the finalize path and runs
+     * asynchronously (~1-2 min); meanwhile new turns/messages accumulate on
+     * the still-uncompacted tail. Because the compaction trigger sits at the
+     * same fraction of the window as the provider input budget, any tokens
+     * added during that window eat directly into the headroom before the hard
+     * context limit — so concurrent work can overflow the model BEFORE the
+     * compaction meant to prevent it lands.
+     *
+     *   - `mode: "blocking"` (general agents + subagents): always wait for the
+     *     pending compaction to finish before running the next turn. Agents do
+     *     real tool work and can burn a lot of tokens fast, so their next turn
+     *     must resume on the compacted context. This structurally removes the
+     *     agent overflow-during-compaction path.
+     *   - `mode: "guard"` (orchestrator): keep the non-blocking
+     *     compact-while-you-talk UX for the common case, but fall back to
+     *     blocking when a real overflow is imminent — i.e. the uncompacted
+     *     thread has already reached
+     *     {@link ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION} of the hard
+     *     window while a compaction is still in flight.
+     *
+     * A rejected wait never fails the turn: background compaction failures are
+     * logged by the scheduler, and the normal pre-generation overflow recovery
+     * remains as the last-resort backstop.
+     */
+    async awaitPendingCompactionBeforeTurn(args) {
+        const scheduler = args.compactionScheduler;
+        if (!scheduler || typeof scheduler.pending !== "function")
+            return;
+        if (!scheduler.pending(this.threadKey))
+            return;
+        if (args.mode === "guard") {
+            const window = Number(args.resolvedLlm?.model?.contextWindow);
+            if (!Number.isFinite(window) || window <= 0)
+                return;
+            let estimate;
+            try {
+                estimate = getThreadTokenEstimate(args.store.loadThreadMessages(this.threadKey));
+            }
+            catch {
+                // Can't assess the accumulated tail — preserve the non-blocking UX
+                // and let pre-generation overflow recovery catch a genuine overflow.
+                return;
+            }
+            if (estimate < window * ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION)
+                return;
+            this.logger.warn("compaction.block-imminent-overflow", {
+                threadKey: this.threadKey,
+                estimatedTokens: estimate,
+                contextWindow: window,
+                ...args.logContext,
+            });
+        }
+        else {
+            this.logger.debug("compaction.block-agent-turn", {
+                threadKey: this.threadKey,
+                ...args.logContext,
+            });
+        }
+        try {
+            // Drain the active run plus any queued follow-up so the next turn
+            // starts on the compacted context. No new compaction is scheduled
+            // during a turn boundary, so this loop terminates.
+            let pending = scheduler.pending(this.threadKey);
+            while (pending) {
+                await pending;
+                pending = scheduler.pending(this.threadKey);
+            }
+        }
+        catch {
+            // Background compaction failures are already logged by the scheduler;
+            // a rejected wait must not fail the turn.
+        }
     }
     /**
      * Start a containment-tracked turn. Re-seeds the quarantine registry from

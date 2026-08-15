@@ -111,13 +111,36 @@ foreach ($t in $targets) {
 if (-not $allOk) { exit 1 }
 
 # parakeet_cpp_transcriber.exe — local on-device dictation (parakeet.cpp / ggml).
-# Best-effort and fully non-fatal: a failure here just leaves Windows users on
-# cloud dictation rather than blocking the required native tarball.
+#
+# Strictness is controlled by the REQUIRE_PARAKEET_CPP env flag:
+#   - CI sets REQUIRE_PARAKEET_CPP=1 so any failure (missing toolchain, clone,
+#     cmake configure/build, or a missing binary) HARD-FAILS the workflow. A
+#     silently-skipped required helper is exactly what previously shipped a
+#     Windows tarball with no on-device dictation, so CI must never swallow it.
+#   - Local/dev runs leave the flag unset, so the helper is best-effort: a
+#     failure just leaves that machine on cloud dictation instead of blocking
+#     the whole native build for contributors without cmake/MSVC.
+$RequireParakeetCpp = ($env:REQUIRE_PARAKEET_CPP -eq "1")
+
+# Emit a failure for the parakeet.cpp helper. In strict (CI) mode this prints a
+# GitHub Actions ::error:: annotation and terminates the whole build with a
+# non-zero exit; otherwise it warns and lets the caller skip gracefully.
+function Fail-ParakeetCpp($message, $logPath) {
+    if ($logPath -and (Test-Path $logPath)) {
+        Get-Content $logPath -Tail 25 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+    }
+    if ($RequireParakeetCpp) {
+        Write-Host "::error::parakeet_cpp_transcriber.exe is required but failed: $message"
+        exit 1
+    }
+    Write-Host "  WARNING: $message (non-fatal; set REQUIRE_PARAKEET_CPP=1 to enforce)"
+}
+
 function Build-ParakeetCpp {
     $cmake = Get-Command cmake -ErrorAction SilentlyContinue
-    if (-not $cmake) { Write-Host "Skipping parakeet_cpp_transcriber: cmake not on PATH."; return }
+    if (-not $cmake) { Fail-ParakeetCpp "cmake not on PATH" $null; return }
     $git = Get-Command git -ErrorAction SilentlyContinue
-    if (-not $git) { Write-Host "Skipping parakeet_cpp_transcriber: git not on PATH."; return }
+    if (-not $git) { Fail-ParakeetCpp "git not on PATH" $null; return }
 
     $work = Join-Path $env:TEMP ("parakeet-cpp-" + [System.Guid]::NewGuid().ToString("N"))
     $src = Join-Path $work "parakeet.cpp"
@@ -126,11 +149,11 @@ function Build-ParakeetCpp {
     try {
         Write-Host "Cloning parakeet.cpp ($ParakeetCppCommit)..."
         & git clone --quiet $ParakeetCppRepo $src 2>&1 | Out-File -FilePath $log -Encoding utf8
-        if ($LASTEXITCODE -ne 0) { Write-Host "  WARNING: clone failed (non-fatal)"; return }
+        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "clone failed" $log; return }
         & git -C $src checkout --quiet $ParakeetCppCommit 2>&1 | Add-Content $log
-        if ($LASTEXITCODE -ne 0) { Write-Host "  WARNING: checkout failed (non-fatal)"; return }
+        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "checkout failed" $log; return }
         & git -C $src submodule update --init --recursive --quiet 2>&1 | Add-Content $log
-        if ($LASTEXITCODE -ne 0) { Write-Host "  WARNING: submodule init failed (non-fatal)"; return }
+        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "submodule init failed" $log; return }
 
         $stella = Join-Path $src "examples\stella"
         New-Item -ItemType Directory -Force -Path $stella | Out-Null
@@ -151,27 +174,19 @@ function Build-ParakeetCpp {
             -DPARAKEET_BUILD_CLI=OFF `
             -DPARAKEET_BUILD_TESTS=OFF `
             -DGGML_NATIVE=OFF 2>&1 | Add-Content $log
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  WARNING: cmake configure failed (non-fatal)"
-            Get-Content $log -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-            return
-        }
+        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "cmake configure failed" $log; return }
         & cmake --build (Join-Path $src "build") --config Release --target parakeet_cpp_transcriber 2>&1 | Add-Content $log
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  WARNING: cmake build failed (non-fatal)"
-            Get-Content $log -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-            return
-        }
+        if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "cmake build failed" $log; return }
 
         $built = Join-Path $src "build\stella-helper\parakeet_cpp_transcriber.exe"
-        if (-not (Test-Path $built)) { Write-Host "  WARNING: binary not found after build (non-fatal)"; return }
+        if (-not (Test-Path $built)) { Fail-ParakeetCpp "binary not found after build" $log; return }
         Copy-Item -Force $built (Join-Path $outputDir "parakeet_cpp_transcriber.exe")
         Write-Host "  Build successful: parakeet_cpp_transcriber.exe"
     } finally {
         Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
     }
 }
-Write-Host "Building parakeet_cpp_transcriber.exe..."
+Write-Host "Building parakeet_cpp_transcriber.exe (REQUIRE_PARAKEET_CPP=$($RequireParakeetCpp))..."
 Build-ParakeetCpp
 
 # wakeword_listener — Rust binary, x86_64 Windows via cargo. Skipped silently

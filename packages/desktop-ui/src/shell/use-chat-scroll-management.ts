@@ -707,22 +707,43 @@ export function useChatScrollManagement({
           minimumHeightPx: trailingRegionMinPx,
         });
         responseSpacerTargetHeightRef.current = target;
-        if (
-          responseSpacerExpandedRef.current &&
-          responseSpacerHeightRef.current <= trailingRegionMinPx
-        ) {
-          writeResponseSpacerHeight(target);
+        // While a latest-turn placement is live (`responseSpacerExpandedRef`),
+        // the spacer height is exactly what the post-send nudge target is
+        // measured against, so it must stay put. An incidental resize /
+        // re-measure pass during the send (the composer clearing, virtualized
+        // rows settling) would otherwise shrink it mid-nudge — dropping
+        // `maxScroll`, clamping `scrollTop`, and stranding the just-sent row in
+        // the middle of the viewport. So during a placement never shrink it;
+        // only grow toward the (fresh) target if we somehow sit below it. The
+        // user scrolling up (`consumeResponseSpacer`) or a scroll-to-bottom /
+        // release still collapses it, and a fresh send re-establishes it.
+        if (responseSpacerExpandedRef.current) {
+          if (responseSpacerHeightRef.current < target) {
+            writeResponseSpacerHeight(target);
+          }
           return;
         }
-        // Match Codex resize behavior: cap an existing spacer when the
-        // viewport shrinks, but do not regrow consumed space on resize.
+        // Not placed: match Codex resize behavior — cap an existing spacer when
+        // the viewport shrinks, but do not regrow consumed space on resize.
         writeResponseSpacerHeight(
           Math.min(responseSpacerHeightRef.current, target),
         );
       };
       const activateResponseSpacer = () => {
+        if (!attached) return;
         responseSpacerExpandedRef.current = true;
-        writeResponseSpacerHeight(responseSpacerTargetHeightRef.current);
+        // Settle the spacer to its FINAL height for this placement up front,
+        // measured from the CURRENT viewport (the composer has usually just
+        // cleared), so the nudge target computed a couple of frames later lands
+        // against a stable bottom-space and the row can reach the top in one
+        // motion. Freezing above then keeps this height put through the nudge.
+        const target = resolveResponseSpacerHeight({
+          viewportHeight: attached.clientHeight,
+          bottomInsetPx: responseSpacerBottomInsetPx,
+          minimumHeightPx: trailingRegionMinPx,
+        });
+        responseSpacerTargetHeightRef.current = target;
+        writeResponseSpacerHeight(target);
       };
       const clearResponseSpacer = () => {
         responseSpacerExpandedRef.current = false;

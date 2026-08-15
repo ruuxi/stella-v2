@@ -36,6 +36,13 @@ jobs:
             target: x86_64-pc-windows-msvc
             builtFile: stella-browser.exe
             installedFile: stella-browser.exe
+          # Oldest supported LTS runner keeps the glibc floor low (2.35) so the
+          # binary runs on the same distros the AppImage targets.
+          - os: ubuntu-22.04
+            platform: linux-x64
+            target: x86_64-unknown-linux-gnu
+            builtFile: stella-browser
+            installedFile: stella-browser
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -61,8 +68,10 @@ jobs:
           cp \
             "packages/stella-browser/cli/target/${{ matrix.target }}/release/${{ matrix.builtFile }}" \
             "browser-artifact/${{ matrix.platform }}/${{ matrix.installedFile }}"
-          if [ "${{ runner.os }}" = "macOS" ]; then
+          if [ "${{ runner.os }}" != "Windows" ]; then
             chmod +x "browser-artifact/${{ matrix.platform }}/${{ matrix.installedFile }}"
+          fi
+          if [ "${{ runner.os }}" = "macOS" ]; then
             codesign --force --sign - "browser-artifact/${{ matrix.platform }}/${{ matrix.installedFile }}"
           fi
 
@@ -102,7 +111,7 @@ jobs:
           const { readdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
           const { join } = require("node:path");
           const [manifestPath, sourceSha, publicBaseUrl, assetsRoot] = process.argv.slice(2);
-          const platforms = ["darwin-arm64", "darwin-x64", "win-x64"];
+          const platforms = ["darwin-arm64", "darwin-x64", "win-x64", "linux-x64"];
           const assets = {};
           for (const platform of platforms) {
             const artifactDir = join(assetsRoot, `stella-browser-${platform}`);
@@ -128,7 +137,7 @@ jobs:
           export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
           export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
           export AWS_DEFAULT_REGION=auto
-          for platform in darwin-arm64 darwin-x64 win-x64; do
+          for platform in darwin-arm64 darwin-x64 win-x64 linux-x64; do
             file_name="stella-browser"
             if [ "$platform" = "win-x64" ]; then file_name="stella-browser.exe"; fi
             aws s3 cp \

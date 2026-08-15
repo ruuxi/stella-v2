@@ -11,6 +11,7 @@ import {
   Laptop,
 } from "lucide-react";
 import { DownloadButton } from "@/components/download-button";
+import { WindowsInstallNote } from "@/components/windows-install-note";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
@@ -75,6 +76,7 @@ export default function GoPage() {
                 <ArrowRight size={16} />
               </Link>
             </div>
+            <WindowsInstallNote />
             <p className="go-offer">
               Free comes with a one-time $0.50 of usage. Managed AI is
               $5/month.
@@ -175,6 +177,7 @@ export default function GoPage() {
               View source
             </a>
           </div>
+          <WindowsInstallNote />
         </section>
       </main>
 

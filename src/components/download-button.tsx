@@ -45,17 +45,18 @@ function LinuxIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+// User-facing download URLs live on the trusted stella.sh domain (handled by
+// `src/app/download/[platform]/route.ts`) instead of the raw, no-reputation
+// Cloudflare R2 bucket host. The route 302-redirects to the real R2 asset, so
+// the bytes are unchanged but the click origin the browser sees is stella.sh —
+// which reduces SmartScreen friction for the still-unsigned Windows build.
 const DOWNLOADS = {
-  macArm64:
-    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-darwin-arm64.dmg",
-  macX64:
-    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-darwin-x64.dmg",
-  windows:
-    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella.exe",
+  macArm64: "/download/mac-arm64",
+  macX64: "/download/mac-x64",
+  windows: "/download/windows",
   // Linux x64 AppImage. Goes live with the first Linux desktop release; the
   // desktop pipeline publishes this stable alias, so the URL may 404 until then.
-  linux:
-    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-linux-x64.AppImage",
+  linux: "/download/linux",
 } as const;
 
 type Platform = "macArm64" | "macX64" | "windows" | "linux";
@@ -94,16 +95,20 @@ function detectPlatform(): Platform {
   return "windows";
 }
 
-export function DownloadButton() {
-  // Resolve the platform from `navigator` only on the client. Using
-  // useSyncExternalStore avoids the cascading re-render that comes from
-  // calling setState inside useEffect, while still keeping the SSR
-  // markup stable ("Download for Mac").
-  const platform = useSyncExternalStore<Platform>(
+// Client-only platform resolution shared by the download button and the
+// Windows install-warning note. useSyncExternalStore keeps the SSR markup
+// stable ("macArm64") and swaps to the real platform after hydration without a
+// cascading setState-in-useEffect re-render.
+export function usePlatform(): Platform {
+  return useSyncExternalStore<Platform>(
     subscribeNoop,
     detectPlatform,
     () => "macArm64",
   );
+}
+
+export function DownloadButton() {
+  const platform = usePlatform();
 
   const [macArchitecture, setMacArchitecture] = useState<"arm64" | "x64">(
     "arm64",

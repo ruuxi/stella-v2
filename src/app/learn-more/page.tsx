@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRight, Github } from "lucide-react";
 import { DownloadButton } from "@/components/download-button";
+import { WindowsInstallNote } from "@/components/windows-install-note";
 import { LearnSidebar } from "./learn-sidebar";
 
 export const metadata: Metadata = {
@@ -166,6 +167,7 @@ export default function LearnMore() {
                   View source
                 </a>
               </div>
+              <WindowsInstallNote />
             </div>
           </section>
 

@@ -1,0 +1,65 @@
+/* Windows-only install-warning helper shown near download CTAs. Colors are
+ * derived from the surrounding text color (currentColor) so it reads correctly
+ * on both the light hero and any darker CTA sections. */
+.note {
+  margin-top: 0.85rem;
+  max-width: 34rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: fit-content;
+  cursor: pointer;
+  color: var(--page-accent);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  list-style: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Rotating caret cue. */
+.summary::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
+}
+
+.note[open] .summary::before {
+  transform: rotate(45deg);
+}
+
+.summary:hover {
+  color: var(--page-accent-hover);
+}
+
+.body {
+  margin-top: 0.55rem;
+  color: color-mix(in srgb, currentColor 74%, transparent);
+}
+
+.body p {
+  margin: 0 0 0.5rem;
+}
+
+.body ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.body strong {
+  font-weight: 600;
+  color: color-mix(in srgb, currentColor 92%, transparent);
+}

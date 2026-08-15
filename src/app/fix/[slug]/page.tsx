@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowRight, Check } from "lucide-react";
 import { AuroraCanvas } from "@/components/aurora-canvas";
 import { DownloadButton } from "@/components/download-button";
+import { WindowsInstallNote } from "@/components/windows-install-note";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
@@ -61,6 +62,7 @@ export default async function FixPage({
                 <ArrowRight size={16} />
               </Link>
             </div>
+            <WindowsInstallNote />
             <p className="fix-offer">
               Free to start — no setup, no API keys. Go is $5/mo, Pro is
               $15/mo.
@@ -155,6 +157,7 @@ export default async function FixPage({
               <ArrowRight size={16} />
             </Link>
           </div>
+          <WindowsInstallNote />
         </section>
       </main>
 

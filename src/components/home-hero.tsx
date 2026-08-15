@@ -2,6 +2,7 @@
 
 import { AuroraCanvas } from "./aurora-canvas";
 import { DownloadButton } from "./download-button";
+import { WindowsInstallNote } from "./windows-install-note";
 import styles from "./home-hero.module.css";
 
 /* Editorial hero ported from the fromyou-ai landing page: a single
@@ -28,6 +29,7 @@ export function HomeHero() {
           <div className={styles.cta}>
             <DownloadButton />
           </div>
+          <WindowsInstallNote />
         </div>
       </section>
     </main>

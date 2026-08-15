@@ -12,6 +12,7 @@ import {
   Waves,
 } from "lucide-react";
 import { DownloadButton } from "@/components/download-button";
+import { WindowsInstallNote } from "@/components/windows-install-note";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
@@ -291,6 +292,7 @@ export default function VoicePage() {
             <div className={styles.closingCta}>
               <DownloadButton />
             </div>
+            <WindowsInstallNote />
           </div>
         </section>
       </main>

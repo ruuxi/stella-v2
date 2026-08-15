@@ -44,6 +44,8 @@
     "./kernel/agent-runtime/thread-memory.js": "./kernel/agent-runtime/thread-memory.js",
     "./kernel/agent-runtime/tool-adapters": "./kernel/agent-runtime/tool-adapters.js",
     "./kernel/agent-runtime/tool-adapters.js": "./kernel/agent-runtime/tool-adapters.js",
+    "./kernel/agent-runtime/transcript-decoration": "./kernel/agent-runtime/transcript-decoration.js",
+    "./kernel/agent-runtime/transcript-decoration.js": "./kernel/agent-runtime/transcript-decoration.js",
     "./kernel/agent-runtime/types": "./kernel/agent-runtime/types.js",
     "./kernel/agent-runtime/types.js": "./kernel/agent-runtime/types.js",
     "./kernel/agents/local-agent-manager": "./kernel/agents/local-agent-manager.js",

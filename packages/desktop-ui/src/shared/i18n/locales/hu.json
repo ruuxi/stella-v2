@@ -458,6 +458,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Modellek keresése…",
       "searchAriaLabel": "Modellek keresése",
       "closeSearch": "Keresés bezárása",
@@ -1247,6 +1249,7 @@
         "stopReading": "Felolvasás leállítása"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Melléklet",
         "attachmentFallback": "Melléklet {index}",
         "channelKind": {

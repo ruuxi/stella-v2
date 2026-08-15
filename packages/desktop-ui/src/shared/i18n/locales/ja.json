@@ -457,6 +457,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "モデルを検索…",
       "searchAriaLabel": "モデルを検索",
       "closeSearch": "検索を閉じる",
@@ -1237,6 +1239,7 @@
         "stopReading": "読み上げを停止"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "添付ファイル",
         "attachmentFallback": "添付ファイル {index}",
         "channelKind": {

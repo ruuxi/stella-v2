@@ -459,6 +459,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Buscar modelos…",
       "searchAriaLabel": "Buscar modelos",
       "closeSearch": "Cerrar búsqueda",
@@ -1257,6 +1259,7 @@
         "stopReading": "Dejar de leer"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Adjunto",
         "attachmentFallback": "Adjunto {index}",
         "channelKind": {

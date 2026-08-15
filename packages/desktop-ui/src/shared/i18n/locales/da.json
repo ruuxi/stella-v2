@@ -458,6 +458,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Søg efter modeller…",
       "searchAriaLabel": "Søg efter modeller",
       "closeSearch": "Luk søgning",
@@ -1247,6 +1249,7 @@
         "stopReading": "Stop oplæsning"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Vedhæftet fil",
         "attachmentFallback": "Vedhæftet fil {index}",
         "channelKind": {

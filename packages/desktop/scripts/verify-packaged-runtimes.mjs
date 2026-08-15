@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -14,19 +14,20 @@ const platform = valueFor("--platform");
 if (
   !requestedAppPath ||
   !platform ||
-  !["darwin-arm64", "darwin-x64", "win-x64"].includes(platform)
+  !["darwin-arm64", "darwin-x64", "win-x64", "linux-x64"].includes(platform)
 ) {
   throw new Error(
-    "Usage: verify-packaged-runtimes.mjs --app <Stella.app|win-unpacked> --platform <darwin-arm64|darwin-x64|win-x64>",
+    "Usage: verify-packaged-runtimes.mjs --app <Stella.app|win-unpacked|linux-unpacked> --platform <darwin-arm64|darwin-x64|win-x64|linux-x64>",
   );
 }
 
 const appPath = path.resolve(requestedAppPath);
 
 const isWindows = platform === "win-x64";
-const resources = isWindows
-  ? path.join(appPath, "resources")
-  : path.join(appPath, "Contents", "Resources");
+const isLinux = platform === "linux-x64";
+const resources = platform.startsWith("darwin-")
+  ? path.join(appPath, "Contents", "Resources")
+  : path.join(appPath, "resources");
 const executable = (unixPath, windowsPath) =>
   path.join(resources, ...(isWindows ? windowsPath : unixPath));
 
@@ -59,7 +60,9 @@ const runtimePath = [
         path.join(gitRoot, "mingw64", "bin"),
         path.join(gitRoot, "usr", "bin"),
       ]
-    : [path.join(gitRoot, "bin")]),
+    : isLinux
+      ? []
+      : [path.join(gitRoot, "bin")]),
   process.env.PATH ?? "",
 ].join(path.delimiter);
 const env = {
@@ -67,11 +70,17 @@ const env = {
   PATH: runtimePath,
   PIP_USER: "1",
   PYTHONDONTWRITEBYTECODE: "1",
-  LOCAL_GIT_DIRECTORY: gitRoot,
-  GIT_EXEC_PATH: isWindows
-    ? path.join(gitRoot, "mingw64", "libexec", "git-core")
-    : path.join(gitRoot, "libexec", "git-core"),
-  ...(isWindows
+  // Linux ships no bundled git runtime; pointing git env at the (empty)
+  // bundled root would break the system-git probe below.
+  ...(isLinux
+    ? {}
+    : {
+        LOCAL_GIT_DIRECTORY: gitRoot,
+        GIT_EXEC_PATH: isWindows
+          ? path.join(gitRoot, "mingw64", "libexec", "git-core")
+          : path.join(gitRoot, "libexec", "git-core"),
+      }),
+  ...(isWindows || isLinux
     ? {}
     : {
         GIT_CONFIG_SYSTEM: path.join(gitRoot, "etc", "gitconfig"),
@@ -151,13 +160,35 @@ run(
 );
 run("pip", binaries.python, ["-m", "pip", "--version"], /^pip\b/mu);
 
-const gitProbe = mkdtempSync(path.join(os.tmpdir(), "stella-git-probe-"));
-try {
-  run("Git", binaries.git, ["--version"], /^git version 2\.53\./mu);
-  run("Git init", binaries.git, ["init", "--quiet", gitProbe]);
-  run("Git worktree", binaries.git, ["-C", gitProbe, "status", "--porcelain"]);
-} finally {
-  rmSync(gitProbe, { recursive: true, force: true });
+if (isLinux) {
+  // Linux beta: no bundled git. Assert we did not accidentally half-bundle
+  // one, then confirm the system-git fallback path works on this machine.
+  if (existsSync(binaries.git)) {
+    throw new Error(
+      `Unexpected bundled git at ${binaries.git}; Linux builds must rely on system git.`,
+    );
+  }
+  const gitProbe = mkdtempSync(path.join(os.tmpdir(), "stella-git-probe-"));
+  try {
+    run("System git", "git", ["--version"], /^git version \d/mu);
+    run("System git init", "git", ["init", "--quiet", gitProbe]);
+  } finally {
+    rmSync(gitProbe, { recursive: true, force: true });
+  }
+} else {
+  const gitProbe = mkdtempSync(path.join(os.tmpdir(), "stella-git-probe-"));
+  try {
+    run("Git", binaries.git, ["--version"], /^git version 2\.53\./mu);
+    run("Git init", binaries.git, ["init", "--quiet", gitProbe]);
+    run("Git worktree", binaries.git, [
+      "-C",
+      gitProbe,
+      "status",
+      "--porcelain",
+    ]);
+  } finally {
+    rmSync(gitProbe, { recursive: true, force: true });
+  }
 }
 
 console.log(`[packaging] All managed runtimes passed for ${platform}.`);

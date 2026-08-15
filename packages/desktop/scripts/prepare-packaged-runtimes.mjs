@@ -133,7 +133,51 @@ const PLATFORM_ASSETS = {
       executable: "uv.exe",
     },
   },
+  "linux-x64": {
+    bun: {
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip",
+      sha256:
+        "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f",
+      archive: "zip",
+      executable: "bun-linux-x64/bun",
+    },
+    node: {
+      url: "https://nodejs.org/dist/v24.14.1/node-v24.14.1-linux-x64.tar.gz",
+      sha256:
+        "ace9fa104992ed0829642629c46ca7bd7fd6e76278cb96c958c4b387d29658ea",
+      archive: "tar.gz",
+      root: "node-v24.14.1-linux-x64",
+    },
+    python: {
+      url: "https://github.com/astral-sh/python-build-standalone/releases/download/20260211/cpython-3.12.12%2B20260211-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      sha256:
+        "1dbaa624a09e15afe7efbdac08d42993135a68db8d34f986ef6977a6d77bdc3c",
+      archive: "tar.gz",
+      root: "python",
+    },
+    // musl build for glibc-independent portability across distros.
+    ripgrep: {
+      url: "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz",
+      sha256:
+        "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599",
+      archive: "tar.gz",
+      executable: "ripgrep-15.1.0-x86_64-unknown-linux-musl/rg",
+    },
+    uv: {
+      url: "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-unknown-linux-gnu.tar.gz",
+      sha256:
+        "aab924fd522efd06f1c5f3b93a243864fc453132c94b2dc49f1371b528a4b967",
+      archive: "tar.gz",
+      executable: "uv-x86_64-unknown-linux-gnu/uv",
+    },
+  },
 };
+
+// The Linux beta deliberately ships no bundled git runtime: the hosted
+// git-runtime manifest has no linux asset, and a relocatable Linux git is
+// fiddly (libc/exec-path assumptions). Packaged Linux installs fall back to
+// system git (see bundled-runtime-environment.ts).
+const GITLESS_PLATFORMS = new Set(["linux-x64"]);
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 const resourcesRoot = path.join(repoRoot, "packages", "desktop", "resources");
@@ -160,6 +204,8 @@ const hostPlatform = () => {
   if (process.platform === "darwin" && process.arch === "x64")
     return "darwin-x64";
   if (process.platform === "win32" && process.arch === "x64") return "win-x64";
+  if (process.platform === "linux" && process.arch === "x64")
+    return "linux-x64";
   throw new Error(
     `Unsupported packaging host: ${process.platform}-${process.arch}`,
   );
@@ -346,17 +392,29 @@ const main = async () => {
       }
     }
 
-    const gitManifest = await loadGitManifest(args.gitManifestFile);
-    const gitAsset = gitManifest.assets?.[platform];
-    if (!gitAsset?.url || !gitAsset?.sha256) {
-      throw new Error(`Git runtime manifest does not contain ${platform}.`);
+    if (GITLESS_PLATFORMS.has(platform)) {
+      console.log(
+        `[packaging] Skipping git runtime for ${platform}; packaged installs use system git.`,
+      );
+      rmSync(gitOutput, { recursive: true, force: true });
+      mkdirSync(gitOutput, { recursive: true });
+      writeFileSync(
+        path.join(gitOutput, "README.txt"),
+        "Stella for Linux (beta) does not bundle a git runtime.\nPackaged installs use the git found on the system PATH.\n",
+      );
+    } else {
+      const gitManifest = await loadGitManifest(args.gitManifestFile);
+      const gitAsset = gitManifest.assets?.[platform];
+      if (!gitAsset?.url || !gitAsset?.sha256) {
+        throw new Error(`Git runtime manifest does not contain ${platform}.`);
+      }
+      const gitArchive = path.join(scratch, "git.tar.gz");
+      const gitExtract = path.join(scratch, "git-extract");
+      console.log(`[packaging] Downloading git for ${platform}.`);
+      await downloadAsset(gitAsset, gitArchive);
+      extractArchive(gitArchive, "tar.gz", gitExtract);
+      installTree(gitExtract, gitOutput);
     }
-    const gitArchive = path.join(scratch, "git.tar.gz");
-    const gitExtract = path.join(scratch, "git-extract");
-    console.log(`[packaging] Downloading git for ${platform}.`);
-    await downloadAsset(gitAsset, gitArchive);
-    extractArchive(gitArchive, "tar.gz", gitExtract);
-    installTree(gitExtract, gitOutput);
 
     if (platform.startsWith("darwin-")) {
       for (const executable of ["bun", "rg", "uv"]) {

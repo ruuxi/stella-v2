@@ -151,7 +151,10 @@ export const configurePackagedRuntimeEnvironment = (options: {
     }
   }
 
-  if (!env.STELLA_GIT_BIN?.trim()) {
+  // Linux (beta) ships no bundled git runtime; leaving STELLA_GIT_BIN unset
+  // makes every downstream consumer (git-environment.ts, the shell shim's
+  // `command git` fallback) resolve git from the system PATH instead.
+  if (platform !== "linux" && !env.STELLA_GIT_BIN?.trim()) {
     env.STELLA_GIT_BIN = runtimes.gitBin;
     env.LOCAL_GIT_DIRECTORY = runtimes.gitRoot;
     if (platform === "win32") {

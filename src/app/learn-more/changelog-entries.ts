@@ -24,6 +24,26 @@ export type ChangelogEntry = {
 
 export const changelogEntries: ChangelogEntry[] = [
   {
+    release: "v0.1.37 – v0.1.42",
+    date: "August 14, 2026",
+    tags: ["New", "Polish"],
+    highlights: [
+      "Stella now runs on Linux, with a native AppImage build that installs cleanly and opens Stella links just like it does on macOS and Windows.",
+      "Every chat tab remembers its own model, engine, and reasoning setting, so switching between conversations keeps the setup you picked for each one.",
+      "Helper-agent threads are far calmer to read — tool calls and reasoning collapse into tidy, clickable rows you can expand only when you want the detail.",
+    ],
+    more: [
+      "The Fast toggle is back in the composer's compact model picker, so you can drop a model like ChatGPT into a quicker, lighter mode without opening the full picker.",
+      "Windows updates now show clear installer progress and relaunch cleanly, and the restart icon no longer spins forever.",
+      "Fixed a monitor-level flicker some Windows setups saw by disabling an overlay path that misbehaved.",
+      "Chat scrolling is steadier — tabs open at the true bottom, and Stella is less likely to jump or interrupt while you read.",
+      "Copy now grabs the image or file on attachment-only messages, not just the text.",
+      "Voice and connector transcripts are saved alongside your conversation, so they're still there when you come back.",
+      { text: "The message menu feels more native — a larger glass menu, cleaner quote chips, a roomier scrollable “+” menu, and text selection that exits when you tap away or scroll.", product: "Mobile" },
+      { text: "Tapping a Stella file link opens the file, and artifact cards from orchestrated work show up again.", product: "Mobile" },
+    ],
+  },
+  {
     release: "v0.1.33 – v0.1.36",
     date: "August 12, 2026",
     tags: ["New", "Polish"],

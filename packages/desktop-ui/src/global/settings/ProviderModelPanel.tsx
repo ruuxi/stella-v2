@@ -117,6 +117,9 @@ export interface ProviderModelPanelProps {
   onExtraSectionExpanded?: (sectionKey: string, open: boolean) => void;
   onRefresh?: () => void;
   refreshing?: boolean;
+  /** Quiet inline notice shown when the Stella/managed catalog fetch failed.
+   * `onRefresh` doubles as its Retry. Replaces the old repeating toast. */
+  catalogError?: string | null;
   selectedRowExtra?: ReactNode;
 }
 
@@ -182,7 +185,7 @@ export function buildProviderTabs(groups: readonly ProviderGroup[], visibleProvi
     }
     return Array.from(tabs.values()).sort((a, b) => compareProviderRailOrder(a.key, b.key, a.label, b.label));
 }
-export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, hiddenProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, authOpenRequest = 0, onRequestSearchClose, collapsibleGroups = false, activeSectionKey = null, extraSections = [], sectionOrder = null, onExtraSectionExpanded, onRefresh, refreshing = false, selectedRowExtra = null, }: ProviderModelPanelProps) {
+export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, onSelect, disabled = false, reasoningEffort, onSelectReasoning, restrictStellaPicks = false, restrictedPlanLabel, ariaLabel, hideDefaultRow = false, selectedHeaderKicker, hideSelectedTitle = false, hideSearch = false, hideSelectionCheck = false, disableNonStellaProviders = false, disabledProviderReason, hideProviderLabel = false, visibleProviders, hiddenProviders, favoriteScope, hideGroupHead = false, headerActionsTarget, authOpenRequest = 0, onRequestSearchClose, collapsibleGroups = false, activeSectionKey = null, extraSections = [], sectionOrder = null, onExtraSectionExpanded, onRefresh, refreshing = false, catalogError = null, selectedRowExtra = null, }: ProviderModelPanelProps) {
     const t = useT();
     const credentials = useLlmCredentials();
     const cancelOAuth = credentials.cancelOAuth;
@@ -806,6 +809,14 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 <RefreshCw size={13} strokeWidth={1.75} data-spinning={refreshing || undefined}/>
               </button>) : null}
           </div>) : renderSearch()}
+
+        {catalogError ? (<p className="model-picker-load-error" role="status">
+            <span>{t("settings.modelPicker.loadFailed")}</span>
+            {onRefresh ? (<button type="button" className="model-picker-load-error-retry" onClick={onRefresh} disabled={disabled || refreshing}>
+                {t("settings.modelPicker.retry")}
+              </button>) : null}
+          </p>) : null}
+
 
         <div className="model-picker-groups" role="listbox" aria-live="polite">
           {orderedSections.length === 0 ? (<div className="model-picker-empty">

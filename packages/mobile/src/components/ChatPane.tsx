@@ -237,6 +237,13 @@ const CHAT_TAIL_GAP = WORKING_INDICATOR_SLOT_HEIGHT + 12;
  * inset, so the buttons keep clearing the home indicator.
  */
 const FLOATING_CONTROL_LIFT = WORKING_INDICATOR_SLOT_HEIGHT;
+/**
+ * Vertical gap between the activity-pill/settings row and the composer directly
+ * below it. Halved from the previous `FLOATING_CONTROL_LIFT - 20` (14pt) so the
+ * row sits noticeably closer to the composer. Scoped to that row only — the
+ * scroll-to-bottom FAB keeps its own `- 24` offset.
+ */
+const FLOATING_CONTROL_ROW_LIFT = (FLOATING_CONTROL_LIFT - 20) / 2;
 /** Cancels the shell `content` padding so chat owns its horizontal inset. */
 const SHELL_CONTENT_PADDING = 20;
 /** Horizontal inset from the true screen edge once shell padding is cancelled. */
@@ -3803,7 +3810,7 @@ export function ChatPane({
               style={[
                 styles.floatingActivityPill,
                 {
-                  bottom: footerHeight + FLOATING_CONTROL_LIFT - 20,
+                  bottom: footerHeight + FLOATING_CONTROL_ROW_LIFT,
                   // See the settings button below: never fade a Liquid Glass
                   // ancestor's opacity (it drops the material). Fade only on
                   // the fallback; on glass the material fades via `present`
@@ -3837,7 +3844,7 @@ export function ChatPane({
               style={[
                 styles.floatingMenuButton,
                 {
-                  bottom: footerHeight + FLOATING_CONTROL_LIFT - 20,
+                  bottom: footerHeight + FLOATING_CONTROL_ROW_LIFT,
                   // See ScrollToBottomFab: never fade a Liquid Glass ancestor's
                   // opacity (it drops the material). Fade only on the fallback;
                   // on glass the material fades via `present` and the icon below.

@@ -417,27 +417,31 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         description: model.description,
     })) ?? null, [claudeCodeCatalog.models]);
     const claudeCodeModelsLoading = claudeCodeCatalog.loading;
-    const visiblePickerError = error ??
-        claudeCodeCatalog.error ??
-        catalogError;
-    const visiblePickerErrorTitle = error
-        ? t("settings.agentModelPicker.errors.updateTitle")
-        : t("settings.agentModelPicker.errors.refreshTitle");
+    // Only errors from an explicit user action (a model/engine commit or a
+    // preference save, tracked in `error`) surface as a toast. Model *catalog*
+    // fetch failures — the Stella provider list (`catalogError`), ChatGPT/Codex
+    // (`codexCatalog.error`), and Claude Code (`claudeCodeCatalog.error`) — used
+    // to be folded in here too, but the picker re-checks every catalog each time
+    // it opens (the picker remounts, so the de-dup ref below reset), which
+    // re-fired the same error toast on every open. Those failures now render as
+    // a quiet inline "Couldn't load models · Retry" line scoped to the specific
+    // provider that failed (the Stella list via ProviderModelPanel's
+    // `catalogError`; the two engines inside their own sections below).
     const lastToastedErrorRef = useRef<string | null>(null);
     useEffect(() => {
-        if (!visiblePickerError) {
+        if (!error) {
             lastToastedErrorRef.current = null;
             return;
         }
-        if (!active || lastToastedErrorRef.current === visiblePickerError)
+        if (!active || lastToastedErrorRef.current === error)
             return;
-        lastToastedErrorRef.current = visiblePickerError;
+        lastToastedErrorRef.current = error;
         showToast({
-            title: visiblePickerErrorTitle,
-            description: visiblePickerError,
+            title: t("settings.agentModelPicker.errors.updateTitle"),
+            description: error,
             variant: "error",
         });
-    }, [active, visiblePickerError, visiblePickerErrorTitle]);
+    }, [active, error, t]);
     // Check the ChatGPT OAuth session whenever its panel is on screen (so the
     // connect notice is accurate before any commit), and always while the
     // committed engine is ChatGPT (the auto-migration effect depends on it).
@@ -1059,6 +1063,16 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         }} disabled={pendingAgent !== null && !oauthPendingProvider} title={title}>
       {label}
     </button>);
+    /** Quiet inline "Couldn't load models · Retry" line for an engine section
+     * (ChatGPT/Codex, Claude Code) whose live catalog fetch failed. Replaces
+     * the old repeating fetch-failure toast; the retry refetches only that
+     * engine's catalog. */
+    const engineCatalogError = (onRetry: () => void) => (<p className="agent-model-picker-load-error" role="status">
+        <span>{t("settings.modelPicker.loadFailed")}</span>
+        <button type="button" className="agent-model-picker-load-error-retry" onClick={onRetry} disabled={pendingAgent !== null}>
+          {t("settings.modelPicker.retry")}
+        </button>
+      </p>);
     return (<div className={["agent-model-picker", className].filter(Boolean).join(" ")}>
       <div className="agent-model-picker-header">
           <div className="agent-model-picker-toggle" role="tablist" aria-label={t("settings.agentModelPicker.surfaceAriaLabel")} data-surface={surface}>
@@ -1088,7 +1102,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
             <ProviderOnlyPicker providers={voiceProviderOptions} value={current || "stella"} onSelect={(key) => void handleVoiceProviderSelect(key)} disabled={!preferences || pendingAgent !== null} ariaLabel={t("settings.agentModelPicker.voiceProviderAriaLabel")}/>
             <VoiceCatalogPicker voiceProvider={voicePreferences.provider} stellaSubProvider={voicePreferences.stellaSubProvider} selectedVoices={voicePreferences.voices} inworldSpeed={voicePreferences.inworldSpeed} readAloudProvider={voicePreferences.readAloudProvider} onSelectVoice={(underlyingProvider, voiceId) => void handleVoiceSelect(underlyingProvider, voiceId)} onSelectStellaSubProvider={(sub) => void handleStellaSubProviderSelect(sub)} onSelectInworldSpeed={(speed) => void handleInworldSpeedSelect(speed)} onSelectReadAloudProvider={(provider) => void handleReadAloudProviderSelect(provider)} disabled={!preferences || pendingAgent !== null}/>
           </>) : (<>
-            <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel={t("settings.agentModelPicker.assistantPickerAriaLabel")} onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={reasoningControl} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} refreshing={refreshing ||
+            <ProviderModelPanel value={current} defaultLabel={defaultLabel} currentLabel={currentLabel} groups={groups} disabled={!ready || pendingAgent !== null} restrictStellaPicks={restrictedStellaPicks} restrictedPlanLabel={restrictedPlanLabel} ariaLabel={t("settings.agentModelPicker.assistantPickerAriaLabel")} onSelect={handleSelect} hideSelectedTitle hideDefaultRow selectedRowExtra={reasoningControl} collapsibleGroups activeSectionKey={activeSectionKey} hiddenProviders={HIDDEN_CATALOG_PROVIDERS} sectionOrder={SECTION_ORDER} onExtraSectionExpanded={handleExtraSectionExpanded} onRefresh={handleCatalogRefresh} catalogError={catalogError} refreshing={refreshing ||
                 ((claudeCodeSectionOpen || committedEngine === "claude_code_local") &&
                     claudeCodeModelsLoading) ||
                 ((chatGptSectionOpen || committedEngine === "codex_cli") &&
@@ -1098,18 +1112,22 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                     label: "Claude Code",
                     brandKey: "anthropic",
                     selected: committedEngine === "claude_code_local",
-                    content: () => (<>
+                    content: () => (claudeCodeCatalog.error && !claudeCodeModelsLoading
+                        ? engineCatalogError(() => void claudeCodeCatalog.refresh())
+                        : (<>
                         <EngineScopedModelList engineLabel="Claude Code" hideHead selectedRowExtra={claudeCodeSelectionControls} models={claudeCodeModelsWithCurrent} value={committedEngine === "claude_code_local"
                                 ? selectedClaudeCodeModel
                                 : ""} onSelect={(modelId) => void handleEngineModelSelect("claude_code_local", modelId)} loading={claudeCodeModelsLoading} disabled={!preferences || pendingAgent !== null}/>
-                      </>),
+                      </>)),
                 },
                 {
                     key: CHATGPT_SECTION_KEY,
                     label: "ChatGPT/Codex",
                     brandKey: "openai",
                     selected: committedEngine === "codex_cli",
-                    content: () => (<>
+                    content: () => (codexCatalog.error && !codexCatalog.loading
+                        ? engineCatalogError(() => void codexCatalog.refresh())
+                        : (<>
                         {codexCatalog.loading ? (<p className="agent-model-picker-connection" role="status">
                             {t("settings.agentModelPicker.verifyingChatGpt")}
                           </p>) : chatGptDisplayModels.length === 0 ? (<p className="agent-model-picker-connection" role="status">
@@ -1123,7 +1141,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
                         <EngineScopedModelList engineLabel="ChatGPT" hideHead selectedRowExtra={chatGptSelectionControls} models={chatGptDisplayModels} value={committedEngine === "codex_cli" ? selectedChatGptModel : ""} onSelect={(modelId) => void handleEngineModelSelect("codex_cli", modelId)} emptyMessage={null} disabled={!preferences ||
                             pendingAgent !== null ||
                             codexCatalog.loading}/>
-                      </>),
+                      </>)),
                 },
             ]}/>
           </>)}

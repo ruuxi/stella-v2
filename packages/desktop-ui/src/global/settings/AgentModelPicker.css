@@ -206,3 +206,37 @@
   flex: 1 1 auto;
   min-height: 0;
 }
+
+/* Quiet inline "Couldn't load models · Retry" line for an engine section
+ * (ChatGPT/Codex, Claude Code) whose live catalog fetch failed. Mirrors the
+ * Stella list's `.model-picker-load-error`; replaces the old repeating toast. */
+.agent-model-picker-load-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 2px 6px;
+  font-size: var(--font-size-xs);
+  color: var(--text-weak);
+}
+
+.agent-model-picker-load-error-retry {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--text-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.agent-model-picker-load-error-retry:hover:not(:disabled),
+.agent-model-picker-load-error-retry:focus-visible {
+  color: var(--primary);
+}
+
+.agent-model-picker-load-error-retry:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

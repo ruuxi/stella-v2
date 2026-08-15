@@ -325,9 +325,14 @@ export class DesktopUpdater {
     }, this.restartStallMs);
     this.restartStallTimer.unref?.();
     // Windows uses the first argument to decide whether to show the NSIS
-    // installer UI. Updates should apply silently, then relaunch Stella.
-    // MacUpdater ignores both arguments and keeps its native update flow.
-    setImmediate(() => this.client.quitAndInstall(true, true));
+    // installer UI. Silent (`/S`) installs are fully invisible, and swapping
+    // this ~1 GB install takes NSIS 30-60+ seconds — users read the blank gap
+    // as "the app broke". The one-click installer's non-silent mode shows a
+    // single auto-advancing progress window (no clicks, `--force-run`
+    // relaunches Stella when it finishes), so run it visibly instead.
+    // MacUpdater and AppImageUpdater ignore the first argument and keep
+    // their native update flows.
+    setImmediate(() => this.client.quitAndInstall(false, true));
     return { accepted: true };
   }
 

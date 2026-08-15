@@ -2,6 +2,7 @@ import { app, autoUpdater, dialog, globalShortcut } from "electron";
 import { writeFileSync } from "node:fs";
 import { applyDockIcon } from "../app-icon.js";
 import { configurePackagedRuntimeEnvironment } from "../bundled-runtime-environment.js";
+import { registerLinuxDesktopIntegration, warnIfSystemGitMissing, } from "../linux-desktop-integration.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { t } from "../services/i18n-service.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
@@ -127,6 +128,13 @@ export const registerBootstrapLifecycle = (context) => {
             configurePackagedRuntimeEnvironment({
                 resourcesPath: process.resourcesPath,
             });
+            if (process.platform === "linux") {
+                // Best-effort AppImage integration (stella:// handler) and an
+                // early, explicit signal when the system-git fallback has no
+                // git to fall back to. Both are no-throw.
+                registerLinuxDesktopIntegration();
+                warnIfSystemGitMissing();
+            }
         }
         if (process.platform === "darwin") {
             app.dock?.show();

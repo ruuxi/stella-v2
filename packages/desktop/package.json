@@ -44,6 +44,7 @@
     "./electron/ipc/system-handlers.js": "./electron/ipc/system-handlers.js",
     "./electron/ipc/ui-handlers.js": "./electron/ipc/ui-handlers.js",
     "./electron/ipc/voice-handlers.js": "./electron/ipc/voice-handlers.js",
+    "./electron/linux-desktop-integration.js": "./electron/linux-desktop-integration.js",
     "./electron/native-helper.js": "./electron/native-helper.js",
     "./electron/process-resources/mobile-bridge-resource.js": "./electron/process-resources/mobile-bridge-resource.js",
     "./electron/recent-apps.js": "./electron/recent-apps.js",

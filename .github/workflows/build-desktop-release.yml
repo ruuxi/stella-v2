@@ -149,6 +149,7 @@ jobs:
             libxkbcommon-dev \
             libxkbcommon-x11-dev \
             libxrandr-dev \
+            libxt-dev \
             libxtst-dev
 
       - name: Install dependencies

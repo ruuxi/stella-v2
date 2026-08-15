@@ -109,6 +109,15 @@ export class SubagentSession extends PiSessionCore {
             model: opts.resolvedLlm.model,
             ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
         };
+        // Overflow-during-compaction guard: general agents and subagents do
+        // real tool work and can burn a lot of tokens fast, so block on any
+        // in-flight background compaction and resume this turn on the compacted
+        // context instead of accumulating onto the uncompacted tail.
+        await this.awaitPendingCompactionBeforeTurn({
+            compactionScheduler: opts.compactionScheduler,
+            mode: "blocking",
+            logContext: { threadId: this.threadId, runId },
+        });
         this.refreshHistoryIfNeeded(opts.agentContext, {
             threadId: this.threadId,
         });

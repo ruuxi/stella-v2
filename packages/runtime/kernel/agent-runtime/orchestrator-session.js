@@ -109,6 +109,18 @@ export class OrchestratorSession extends PiSessionCore {
         const effectiveSystemPrompt = await buildRuntimeSystemPrompt(turnOpts);
         // Keep the reused Agent pointed at this turn's model route.
         this.setResolvedLlm(opts.resolvedLlm);
+        // Non-blocking compact-while-you-talk stays the norm, but degrade to
+        // blocking if a real overflow is imminent: when a background compaction
+        // is still in flight and the uncompacted thread has already reached the
+        // hard-window guard fraction, wait for it rather than dispatch a turn
+        // that could overflow before the compaction lands.
+        await this.awaitPendingCompactionBeforeTurn({
+            compactionScheduler: opts.compactionScheduler,
+            store: opts.store,
+            resolvedLlm: opts.resolvedLlm,
+            mode: "guard",
+            logContext: { conversationId: this.conversationId, runId },
+        });
         // Apply compaction overlays before provider calls, never mid-stream.
         this.refreshHistoryIfNeeded(opts.agentContext, {
             conversationId: this.conversationId,

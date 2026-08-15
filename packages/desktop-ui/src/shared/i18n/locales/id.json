@@ -457,6 +457,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Cari model…",
       "searchAriaLabel": "Cari model",
       "closeSearch": "Tutup pencarian",
@@ -1237,6 +1239,7 @@
         "stopReading": "Hentikan pembacaan"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Lampiran",
         "attachmentFallback": "Lampiran {index}",
         "channelKind": {

@@ -460,6 +460,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Поиск моделей…",
       "searchAriaLabel": "Поиск моделей",
       "closeSearch": "Закрыть поиск",
@@ -1267,6 +1269,7 @@
         "stopReading": "Остановить чтение"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Вложение",
         "attachmentFallback": "Вложение {index}",
         "channelKind": {

@@ -122,18 +122,23 @@ describe("full-area agent model picker layout", () => {
     expect(styles).toContain("padding: 5px 10px;");
   });
 
-  it("silently falls back when optional Codex model discovery is unavailable", () => {
+  it("keeps optional Codex discovery failures inline and out of the toast", () => {
     const picker = readSource("global/settings/AgentModelPicker.tsx");
-    const visibleErrorStart = picker.indexOf("const visiblePickerError =");
-    const visibleErrorEnd = picker.indexOf(
-      "const visiblePickerErrorTitle =",
-      visibleErrorStart,
+    const toastEffectStart = picker.indexOf(
+      "const lastToastedErrorRef =",
+    );
+    const toastEffectEnd = picker.indexOf(
+      "// Check the ChatGPT OAuth session",
+      toastEffectStart,
     );
 
-    expect(visibleErrorStart).toBeGreaterThanOrEqual(0);
-    expect(visibleErrorEnd).toBeGreaterThan(visibleErrorStart);
-    expect(picker.slice(visibleErrorStart, visibleErrorEnd)).not.toContain(
+    expect(toastEffectStart).toBeGreaterThanOrEqual(0);
+    expect(toastEffectEnd).toBeGreaterThan(toastEffectStart);
+    expect(picker.slice(toastEffectStart, toastEffectEnd)).not.toContain(
       "codexCatalog.error",
+    );
+    expect(picker).toContain(
+      "codexCatalog.error && !codexCatalog.loading",
     );
     expect(picker).toMatch(
       /useCodexModelCatalog\(\s*active\s*&&\s*\(chatGptSectionOpen\s*\|\|\s*committedEngine\s*===\s*"codex_cli"\)\s*\)/,

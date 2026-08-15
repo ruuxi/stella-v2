@@ -77,6 +77,7 @@ const fake = vi.hoisted(() => {
 vi.mock("@/features/dictation/services/inworld-dictation", () => ({
   InworldDictationSession: fake.FakeDictationSession,
   isDictationSuperFastEnabled: () => false,
+  probeLocalDictationInstallable: async () => false,
   ensureDictationSuperFastWarm: async () => undefined,
   warmLocalDictationModel: async () => undefined,
 }));

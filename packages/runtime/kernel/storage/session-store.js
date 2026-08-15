@@ -3160,6 +3160,54 @@ export class SessionStore {
         : {}),
     }));
   }
+  /**
+   * Newest-first sample of recent user-role messages in a thread. Used by
+   * write-time transcript decoration (`agent-runtime/transcript-decoration.js`)
+   * to decide whether a freshly persisted user message needs a timestamp tag —
+   * the same thirty-minute suppression window the retired local-events history
+   * projection applied. Content is returned so callers can skip user-role rows
+   * that are not actual user utterances (e.g. voice tool results persisted with
+   * role "user" and a "[Tool result]" prefix).
+   */
+  listRecentThreadUserMessages(threadKeyInput, limit = 8) {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    if (!threadKey) {
+      return [];
+    }
+    const normalizedLimit = Math.min(50, Math.max(1, Math.floor(limit)));
+    const rows = this.db
+      .prepare(
+        `
+      SELECT created_at AS createdAt, data_json AS dataJson
+      FROM runtime_thread_entries
+      WHERE thread_key = ?
+        AND entry_type = 'message'
+        AND json_extract(data_json, '$.message.role') = 'user'
+      ORDER BY insertion_sequence DESC, rowid DESC
+      LIMIT ?
+    `,
+      )
+      .all(threadKey, normalizedLimit);
+    const results = [];
+    for (const row of rows) {
+      const timestamp = Number(row.createdAt);
+      if (!Number.isFinite(timestamp)) {
+        continue;
+      }
+      let content = "";
+      try {
+        const parsed = JSON.parse(row.dataJson);
+        const rawContent = parsed?.message?.content;
+        if (typeof rawContent === "string") {
+          content = rawContent;
+        }
+      } catch {
+        // Malformed rows simply don't inform tagging.
+      }
+      results.push({ content, timestamp });
+    }
+    return results;
+  }
   compactThread(args) {
     const threadKey = normalizeRuntimeThreadId(args.threadKey);
     if (!threadKey) {

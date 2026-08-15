@@ -14,6 +14,7 @@ import { createRuntimeInitialization } from "./runner/runtime-initialization.js"
 import { createStoreOperations } from "./runner/store-operations.js";
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
 import { buildRuntimeSystemPrompt } from "./agent-runtime/run-preparation.js";
+import { decorateUserTranscriptContent } from "./agent-runtime/transcript-decoration.js";
 import { getRuntimeToolMetadata } from "./agent-runtime/tool-adapters.js";
 import { loadGoogleWorkspaceTools } from "./google-workspace/load-google-workspace-tools.js";
 import {
@@ -366,9 +367,26 @@ export const createStellaHostRunner = (
       orchestratorController.cancelLocalChatByConversation,
     getActiveOrchestratorRun: orchestratorController.getActiveOrchestratorRun,
     appendThreadMessage: (args) => {
+      const timestamp = Date.now();
+      // The durable thread store is the single model-context source, so
+      // user transcripts persisted directly (realtime voice) get the same
+      // metadata the retired local-events projection used to add at read
+      // time — see `agent-runtime/transcript-decoration.js`.
+      const content =
+        args.role === "user" && args.decorateUserTimestampTag
+          ? decorateUserTranscriptContent({
+              store: context.runtimeStore,
+              threadKey: args.threadKey,
+              text: args.content,
+              timestamp,
+              ...(args.timezone ? { timezone: args.timezone } : {}),
+            })
+          : args.content;
       context.runtimeStore.appendThreadMessage({
-        ...args,
-        timestamp: Date.now(),
+        threadKey: args.threadKey,
+        role: args.role,
+        content,
+        timestamp,
       });
     },
     notifyOrchestratorHistoryChanged: (conversationId: string) => {
@@ -481,10 +499,12 @@ export const createStellaHostRunner = (
 
     triggerDreamNow: async (trigger = "manual") => {
       try {
-        const { maybeSpawnDreamRun } =
-          await import("./agent-runtime/dream-scheduler.js");
-        const { resolveRunnerLlmRoute } =
-          await import("./runner/model-selection.js");
+        const { maybeSpawnDreamRun } = await import(
+          "./agent-runtime/dream-scheduler.js"
+        );
+        const { resolveRunnerLlmRoute } = await import(
+          "./runner/model-selection.js"
+        );
         const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
         const pendingItems =
           context.runtimeStore.dreamInboxStore.countUnprocessed();
@@ -522,6 +542,5 @@ export const createStellaHostRunner = (
         };
       }
     },
-
   };
 };

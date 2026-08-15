@@ -953,9 +953,14 @@ export class StellaRuntimeHost {
                     backendConversationId: conversationId,
                     provider,
                 });
+                // Stable event id shared with the worker turn so the runtime
+                // can exclude this display event from the legacy history shim
+                // (the same text reaches the model via the turn's prompt).
+                const connectorUserMessageId = `connector:${requestId}`;
                 await this.appendLocalChatEvent({
                     conversationId: localConversationId,
                     type: "user_message",
+                    eventId: connectorUserMessageId,
                     payload: {
                         text: userPrompt,
                         source: "connector",
@@ -985,6 +990,7 @@ export class StellaRuntimeHost {
                     const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, {
                         conversationId: localConversationId,
                         userPrompt,
+                        userMessageEventId: connectorUserMessageId,
                         ...(agentType ? { agentType } : {}),
                         ...(modelOverride ? { modelOverride } : {}),
                         ...(attachments?.length ? { attachments } : {}),

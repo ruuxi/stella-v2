@@ -2406,6 +2406,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           provider?: string;
           externalMessageId?: string;
         };
+        userMessageEventId?: string;
       };
       let automationImageTarget: ImageCapTarget | undefined;
       try {

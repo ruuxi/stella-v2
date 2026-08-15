@@ -313,11 +313,14 @@ describe("VoiceRuntimeService direct tool execution", () => {
       uiVisibility: "visible",
     });
 
-    expect(runner.appendThreadMessage).toHaveBeenCalledWith({
-      threadKey: "conv-1",
-      role: "user",
-      content: "Please check this from voice.",
-    });
+    expect(runner.appendThreadMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadKey: "conv-1",
+        role: "user",
+        content: "Please check this from voice.",
+        decorateUserTimestampTag: true,
+      }),
+    );
     expect(runner.notifyOrchestratorHistoryChanged).toHaveBeenCalledWith(
       "conv-1",
     );

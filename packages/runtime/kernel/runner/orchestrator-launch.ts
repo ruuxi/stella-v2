@@ -69,6 +69,9 @@ export const prepareOrchestratorRun = async (args: {
     externalMessageId?: string;
   };
   toolWorkspaceRoot?: string;
+  /** Current turn's user-message id; excludes the just-appended display
+   * event from the legacy pre-transition history shim. */
+  userMessageId?: string;
 }): Promise<PreparedOrchestratorRun> => {
   const isUserTurn = args.uiVisibility !== "hidden";
 
@@ -96,6 +99,9 @@ export const prepareOrchestratorRun = async (args: {
       runId: args.runId,
       ...(args.toolWorkspaceRoot
         ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
+        : {}),
+      ...(args.userMessageId
+        ? { currentUserMessageId: args.userMessageId }
         : {}),
       ...resolvedAgentModel,
     });
@@ -287,6 +293,7 @@ export const startPreparedOrchestratorRun = async (args: {
     ...(args.connectorDeliveryTarget
       ? { connectorDeliveryTarget: args.connectorDeliveryTarget }
       : {}),
+    userMessageId: args.userMessageId,
   });
 
   args.onPrepared?.(prepared);

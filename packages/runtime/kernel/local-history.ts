@@ -1,7 +1,36 @@
+/**
+ * @deprecated LEGACY PRE-TRANSITION COMPAT SHIM — do not add new callers.
+ *
+ * Historical role: the chat-events log was a second source of conversation
+ * history. This projection folded `user_message` / `assistant_message` /
+ * `tool_request` / `tool_result` events into orchestrator model context,
+ * adding user timestamp tags and the Linq `[linq_message_id: …]` trailer.
+ *
+ * The durable runtime thread store is now the SINGLE model-context source:
+ * typed turns persist through the run machinery, realtime-voice transcripts
+ * persist via `runner.appendThreadMessage`, and connector prompts are
+ * decorated + persisted per-turn (see
+ * `agent-runtime/transcript-decoration.js`). The chat-events log remains a
+ * display/sync log only.
+ *
+ * This module survives solely so conversations whose events PREDATE that
+ * transition keep their history: `buildOrchestratorThreadHistory`
+ * (`runner/context.ts`) calls it only for events older than the thread's
+ * first durable entry (or when a conversation has events but no durable
+ * entries at all, which can only be pre-transition data or the current
+ * turn's own just-appended user message, which is filtered out upstream).
+ * Once a conversation gains a compaction checkpoint the shim is skipped
+ * entirely, so it retires organically per conversation. Delete this file
+ * when the pre-transition branch in `buildOrchestratorThreadHistory` goes.
+ */
 import {
   formatTimestampForHistory,
   THIRTY_MINUTES_MS,
 } from "@stella/contracts/message-timestamp";
+import {
+  selectRecentByTokenBudget,
+  type LocalContextEvent,
+} from "./storage/shared.js";
 
 // Internal sub-agent management tool names. Tool calls/results for these are
 // runtime coordination details; model-visible task updates are delivered as
@@ -12,25 +41,10 @@ const INTERNAL_TASK_TOOL_NAMES = new Set([
   "pause_agent",
 ]);
 
-export type LocalContextEvent = {
-  _id: string;
-  timestamp: number;
-  type: string;
-  payload?: unknown;
-  requestId?: string;
-};
-
 export type LocalHistoryMessage = {
   role: "user" | "assistant";
   content: string;
 };
-
-export const LOCAL_CONTEXT_EVENT_TYPES = new Set<string>([
-  "user_message",
-  "assistant_message",
-  "tool_request",
-  "tool_result",
-]);
 
 type HistoryBuildOptions = {
   timezone?: string;
@@ -55,7 +69,8 @@ const truncateWithSuffix = (
   value: string,
   maxChars: number,
   suffix = "...(truncated)",
-): string => (value.length <= maxChars ? value : `${value.slice(0, maxChars)}${suffix}`);
+): string =>
+  value.length <= maxChars ? value : `${value.slice(0, maxChars)}${suffix}`;
 
 const stringifyBounded = (value: unknown, maxChars: number): string => {
   if (typeof value === "string") {
@@ -100,7 +115,9 @@ const estimateContextEventTokens = (event: {
 
   if (event.type === "user_message" || event.type === "assistant_message") {
     return clampEventTokens(
-      estimateTextTokens(payload.text) + (payload.usage ? estimateJsonTokens(payload.usage) : 0) + 8,
+      estimateTextTokens(payload.text) +
+        (payload.usage ? estimateJsonTokens(payload.usage) : 0) +
+        8,
     );
   }
 
@@ -112,7 +129,8 @@ const normalizeRequestId = (event: LocalContextEvent): string | undefined => {
     return event.requestId;
   }
   const payload = asObject(event.payload);
-  const fromPayload = typeof payload.requestId === "string" ? payload.requestId.trim() : "";
+  const fromPayload =
+    typeof payload.requestId === "string" ? payload.requestId.trim() : "";
   return fromPayload || undefined;
 };
 
@@ -120,7 +138,8 @@ const normalizeToolName = (
   payload: Record<string, unknown>,
   fallbackToolName?: string,
 ): string => {
-  const payloadToolName = typeof payload.toolName === "string" ? payload.toolName.trim() : "";
+  const payloadToolName =
+    typeof payload.toolName === "string" ? payload.toolName.trim() : "";
   return payloadToolName || fallbackToolName || "unknown_tool";
 };
 
@@ -143,7 +162,8 @@ const formatTextEvent = (
     payload.linqMessageId.trim()
       ? payload.linqMessageId.trim()
       : "";
-  const skipTs = !isAssistant &&
+  const skipTs =
+    !isAssistant &&
     tsState.prevUserTs != null &&
     event.timestamp - tsState.prevUserTs < THIRTY_MINUTES_MS;
   if (!isAssistant) tsState.prevUserTs = event.timestamp;
@@ -185,7 +205,9 @@ const formatToolResult = (
   const lines = [`[Tool result] ${toolName}`];
   if (requestId) lines.push(`request_id: ${requestId}`);
   if (typeof payload.error === "string" && payload.error.trim()) {
-    lines.push(`error: ${truncateWithSuffix(payload.error.trim(), MAX_TEXT_CHARS)}`);
+    lines.push(
+      `error: ${truncateWithSuffix(payload.error.trim(), MAX_TEXT_CHARS)}`,
+    );
   } else if ("result" in payload) {
     lines.push(`result: ${stringifyBounded(payload.result, MAX_JSON_CHARS)}`);
   }
@@ -279,31 +301,11 @@ const eventsToHistoryMessages = (
   return out;
 };
 
-export const selectRecentByTokenBudget = <T>(args: {
-  itemsNewestFirst: T[];
-  maxTokens: number;
-  maxItems?: number;
-  estimateTokens: (item: T) => number;
-}): T[] => {
-  const safeMaxTokens = Math.max(1, Math.floor(args.maxTokens));
-  const safeMaxItems =
-    args.maxItems === undefined
-      ? Number.MAX_SAFE_INTEGER
-      : Math.max(1, Math.floor(args.maxItems));
-  const selected: T[] = [];
-  let usedTokens = 0;
-  for (const item of args.itemsNewestFirst) {
-    if (selected.length >= safeMaxItems) break;
-    const itemTokens = Math.max(1, Math.floor(args.estimateTokens(item)));
-    if (selected.length > 0 && usedTokens + itemTokens > safeMaxTokens) {
-      break;
-    }
-    selected.push(item);
-    usedTokens += itemTokens;
-  }
-  return selected;
-};
-
+/**
+ * @deprecated Pre-transition compat only. Projects legacy chat events into
+ * model-context messages for conversations whose history predates the
+ * durable-store unification. See the module header.
+ */
 export const buildLocalHistoryFromEvents = (args: {
   events: LocalContextEvent[];
   maxTokens?: number;

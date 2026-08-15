@@ -1,7 +1,9 @@
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
-import type { LocalContextEvent } from "../local-history.js";
-import type { LocalChatAppendEventArgs } from "../storage/shared.js";
+import type {
+  LocalChatAppendEventArgs,
+  LocalContextEvent,
+} from "../storage/shared.js";
 import type { AgentMessage } from "../agent-core/types.js";
 
 /**

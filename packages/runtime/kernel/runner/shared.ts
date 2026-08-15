@@ -5,7 +5,7 @@ import {
   AGENT_SHUTDOWN_CANCEL_REASON,
   type AgentLifecycleEvent,
 } from "../agents/local-agent-manager.js";
-import { LOCAL_CONTEXT_EVENT_TYPES } from "../local-history.js";
+import { LOCAL_CONTEXT_EVENT_TYPES } from "../storage/shared.js";
 import {
   readConfiguredConvexUrl as sanitizeConvexDeploymentUrl,
   readConfiguredStellaBaseUrl as sanitizeStellaBase,

@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import { Type } from "@sinclair/typebox";
 import { Agent } from "../agent-core/agent.js";
-import { selectRecentByTokenBudget } from "../local-history.js";
+import { selectRecentByTokenBudget } from "../storage/shared.js";
 import { estimateRuntimeTokens } from "../runtime-threads.js";
 import {
   getAgentFollowUpMode,

@@ -13,14 +13,14 @@ import {
   getSubscriptionHarnessEnabled,
 } from "../preferences/local-preferences.js";
 import { readOrSeedPersonality } from "../personality/personality.js";
-import {
-  type LocalContextEvent,
-  buildLocalHistoryFromEvents,
-} from "../local-history.js";
+// Deprecated pre-transition compat shim; see `buildOrchestratorThreadHistory`.
+import { buildLocalHistoryFromEvents } from "../local-history.js";
+import type { LocalContextEvent } from "../storage/shared.js";
 import { ConvexClient } from "convex/browser";
 import {
   formatDateTimeReminder,
   THIRTY_MINUTES_MS,
+  TRAILING_TIME_TAG_RE,
 } from "@stella/contracts/message-timestamp";
 import {
   buildRuntimeThreadKey,
@@ -141,6 +141,18 @@ const hasStoredCheckpoint = (messages: ThreadHistoryEntry[]): boolean =>
 const getStoredMessagePreview = (
   message: ThreadHistoryEntry | undefined,
 ): string => message?.content.trim() ?? "";
+
+/**
+ * Durable-store user messages may carry write-time decoration (trailing
+ * timestamp tag, `[linq_message_id: …]` trailer) that raw chat events do
+ * not. Strip it before comparing a stored preview against event text so the
+ * legacy transition dedup keeps matching.
+ */
+const stripUserTranscriptDecoration = (value: string): string =>
+  value
+    .replace(TRAILING_TIME_TAG_RE, "")
+    .replace(/\s*\n\n\[linq_message_id: [^\]\n]+\]$/, "")
+    .trim();
 
 const getLocalEventText = (event: LocalContextEvent): string => {
   if (!event.payload || typeof event.payload !== "object") {
@@ -318,7 +330,9 @@ const trimDuplicatedTransitionUserEvent = (
     if (message.role !== "user") {
       break;
     }
-    const preview = getStoredMessagePreview(message);
+    const preview = stripUserTranscriptDecoration(
+      getStoredMessagePreview(message),
+    );
     if (!preview) {
       break;
     }
@@ -352,6 +366,30 @@ const trimDuplicatedTransitionUserEvent = (
   return nextEvents;
 };
 
+/**
+ * Orchestrator model-context history.
+ *
+ * The durable runtime thread store is the single source of conversation
+ * history: typed turns, realtime-voice transcripts, and connector messages
+ * all persist thread entries at write time (with the timestamp-tag and
+ * `linq_message_id` decoration applied by
+ * `agent-runtime/transcript-decoration.js`). Ordinarily this function just
+ * returns `storedThreadMessages`.
+ *
+ * LEGACY PRE-TRANSITION COMPAT: conversations whose chat events predate the
+ * unification still need those events once. Two shim branches remain, both
+ * feeding the deprecated `buildLocalHistoryFromEvents` projection:
+ *
+ *   1. no durable entries at all — a conversation that only ever wrote
+ *      chat events (the current turn's own just-appended user event is
+ *      excluded upstream via `currentUserMessageId`); and
+ *   2. events strictly older than the thread's first durable entry, merged
+ *      ahead of the stored history ("pre-transition head").
+ *
+ * A stored compaction checkpoint disables both branches, so the shim
+ * retires organically per conversation as checkpoints land. Do not extend
+ * these branches — new history must go through the durable store.
+ */
 export const buildOrchestratorThreadHistory = (args: {
   storedThreadMessages: ThreadHistoryEntry[];
   localEvents?: LocalContextEvent[];
@@ -983,6 +1021,14 @@ export type BuildAgentContextArgs = {
   /** Preference sample taken before async route resolution. */
   subscriptionHarnessEnabled?: boolean;
   toolWorkspaceRoot?: string;
+  /**
+   * The current turn's user-message id. The chat-events log receives the
+   * user message before the run prepares its context, and the same message
+   * arrives via the prompt, so the matching event (by eventId or requestId)
+   * is excluded from the legacy pre-transition history shim to avoid
+   * duplication. Reminders still see the full event list.
+   */
+  currentUserMessageId?: string;
 } & ResolvedAgentModelRoute;
 
 const normalizeCapturedReasoningEffort = (
@@ -1267,9 +1313,19 @@ export const buildAgentContext = async (
     connectorTransitionReminderText =
       buildConnectorTransitionReminder(localEvents);
     userLocale = findLatestLocale(localEvents);
+    // The current turn's user message rides in via the prompt; its
+    // just-appended display event must not double into the legacy
+    // pre-transition history shim.
+    const historyEvents = args.currentUserMessageId
+      ? localEvents.filter(
+          (event) =>
+            event._id !== args.currentUserMessageId &&
+            event.requestId !== args.currentUserMessageId,
+        )
+      : localEvents;
     threadHistory = buildOrchestratorThreadHistory({
       storedThreadMessages,
-      localEvents,
+      localEvents: historyEvents,
       contextWindow,
     });
   } else {

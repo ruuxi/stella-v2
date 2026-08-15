@@ -86,6 +86,9 @@ jobs:
             if (!browser.assets?.[platform]) throw new Error(`Missing Stella Browser pin for ${platform}`);
             if (!git.assets?.[platform]) throw new Error(`Missing Git runtime pin for ${platform}`);
           }
+          // Linux (beta) needs only the browser CLI pin: no native helpers are
+          // built for linux and the AppImage relies on system git.
+          if (!browser.assets?.["linux-x64"]) throw new Error("Missing Stella Browser pin for linux-x64");
           NODE
 
       - uses: actions/upload-artifact@v4
@@ -117,6 +120,11 @@ jobs:
             sourcePlatform: win-x64
             nativeDir: win32
             builderArgs: --win --x64
+          - os: ubuntu-latest
+            platform: linux-x64
+            sourcePlatform: linux-x64
+            nativeDir: linux
+            builderArgs: --linux --x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
 
@@ -233,12 +241,27 @@ jobs:
             --publish never \
             --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 
+      # Linux is deliberately unsigned for the beta: AppImages carry no
+      # platform code-signing story comparable to Apple/DigiCert.
+      - name: Build unsigned Linux AppImage release
+        if: runner.os == 'Linux'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        shell: bash
+        run: |
+          set -euo pipefail
+          node node_modules/electron-builder/out/cli/cli.js ${{ matrix.builderArgs }} \
+            --publish never \
+            --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
+
       - name: Verify packaged command-line runtimes
         shell: bash
         run: |
           set -euo pipefail
           if [ "${{ runner.os }}" = "Windows" ]; then
             app_path="packages/desktop/release/win-unpacked"
+          elif [ "${{ runner.os }}" = "Linux" ]; then
+            app_path="packages/desktop/release/linux-unpacked"
           else
             app_path="$(find packages/desktop/release -maxdepth 2 -type d -name Stella.app -print -quit)"
           fi
@@ -284,12 +307,15 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
           find packages/desktop/release -maxdepth 1 -type f \
-            \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.blockmap' -o -name 'latest-v2*.yml' \) \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.blockmap' -o -name 'latest-v2*.yml' \) \
             -exec cp {} release-assets/ \;
           test -n "$(find release-assets -maxdepth 1 -type f -print -quit)"
           if [ "${{ runner.os }}" = "macOS" ]; then
             test -f release-assets/latest-v2-mac.yml
             test -n "$(find release-assets -maxdepth 1 -name '*.zip' -print -quit)"
+          elif [ "${{ runner.os }}" = "Linux" ]; then
+            test -f release-assets/latest-v2-linux.yml
+            test -n "$(find release-assets -maxdepth 1 -name '*.AppImage' -print -quit)"
           else
             test -f release-assets/latest-v2.yml
             test -n "$(find release-assets -maxdepth 1 -name '*.exe' -print -quit)"
@@ -343,7 +369,7 @@ jobs:
           export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
           export AWS_DEFAULT_REGION=auto
 
-          for platform in mac-arm64 mac-x64 win-x64; do
+          for platform in mac-arm64 mac-x64 win-x64 linux-x64; do
             source_dir="release-assets/stella-desktop-v2-${platform}"
             release_prefix="${STELLA_V2_RELEASE_PREFIX}/${tag}/${platform}"
             stable_prefix="${STELLA_V2_STABLE_PREFIX}/${platform}"
@@ -365,6 +391,7 @@ jobs:
 
             metadata="latest-v2.yml"
             if [[ "$platform" == mac-* ]]; then metadata="latest-v2-mac.yml"; fi
+            if [[ "$platform" == linux-* ]]; then metadata="latest-v2-linux.yml"; fi
             test -f "$source_dir/$metadata"
             aws s3 cp "$source_dir/$metadata" \
               "s3://${R2_BUCKET}/${stable_prefix}/${metadata}" \
@@ -388,6 +415,10 @@ jobs:
                 installer="$(find "$source_dir" -maxdepth 1 -type f -name '*.exe' -print -quit)"
                 alias_name="Stella.exe"
                 ;;
+              linux-x64)
+                installer="$(find "$source_dir" -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+                alias_name="Stella-linux-x64.AppImage"
+                ;;
             esac
             test -n "$installer"
             alias_target="${STELLA_V2_STABLE_PREFIX}/${alias_name}"
@@ -405,7 +436,7 @@ jobs:
           set -euo pipefail
           mapfile -d '' files < <(
             find release-assets -type f \
-              \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' \) \
+              \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' \) \
               -print0
           )
           test "${#files[@]}" -gt 0
@@ -421,7 +452,8 @@ jobs:
           for target in \
             mac-arm64/latest-v2-mac.yml \
             mac-x64/latest-v2-mac.yml \
-            win-x64/latest-v2.yml; do
+            win-x64/latest-v2.yml \
+            linux-x64/latest-v2-linux.yml; do
             url="${R2_PUBLIC_BASE_URL%/}/${STELLA_V2_STABLE_PREFIX}/${target}"
             metadata="$(curl --fail --show-error --silent --retry 5 --retry-delay 2 "$url")"
             printf '%s' "$metadata" | grep -F "version: $version" >/dev/null
@@ -434,7 +466,8 @@ jobs:
           for installer in \
             Stella-darwin-arm64.dmg \
             Stella-darwin-x64.dmg \
-            Stella.exe; do
+            Stella.exe \
+            Stella-linux-x64.AppImage; do
             url="${R2_PUBLIC_BASE_URL%/}/${STELLA_V2_STABLE_PREFIX}/${installer}"
             status="$(curl --fail --show-error --silent --location \
               --range 0-0 --output /dev/null --write-out '%{http_code}' \

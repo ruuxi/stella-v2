@@ -33,13 +33,30 @@ import type { SqliteDatabase } from "./shared.js";
 
 export const CHAT_ORDERING_SEQUENCE_ENV_FLAG = "STELLA_CHAT_ORDERING_SEQUENCE";
 
+/**
+ * Phase 3/4 flip: order the chat timeline (and its cutoff / keyset / delta / and
+ * destructive Rewind & Fork predicates) by `ordering_sequence` instead of the
+ * legacy `(created_at, id)` tuple. Default off. Only takes effect when the
+ * column is fully backfilled (`chatOrderingSequenceIsComplete`) so a flip can
+ * never key on a NULL sequence.
+ */
+export const CHAT_ORDERING_BY_SEQUENCE_ENV_FLAG =
+  "STELLA_CHAT_ORDERING_BY_SEQUENCE";
+
+const isTruthyFlag = (raw: string | undefined): boolean => {
+  const v = (raw ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "on" || v === "yes";
+};
+
 /** Whether the Phase-0 ordering-sequence migration is opted into for this process. */
 export const isChatOrderingSequenceEnabled = (
   env: NodeJS.ProcessEnv = process.env,
-): boolean => {
-  const raw = (env[CHAT_ORDERING_SEQUENCE_ENV_FLAG] ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "on" || raw === "yes";
-};
+): boolean => isTruthyFlag(env[CHAT_ORDERING_SEQUENCE_ENV_FLAG]);
+
+/** Whether the Phase-3/4 comparator/predicate flip is opted into for this process. */
+export const isChatOrderingBySequenceEnabled = (
+  env: NodeJS.ProcessEnv = process.env,
+): boolean => isTruthyFlag(env[CHAT_ORDERING_BY_SEQUENCE_ENV_FLAG]);
 
 const hasColumn = (
   db: SqliteDatabase,

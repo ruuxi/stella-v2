@@ -4,6 +4,10 @@ import {
 } from "../runtime-threads.js";
 import { slugify } from "../shared/slug.js";
 import {
+  chatOrderingSequenceIsComplete,
+  isChatOrderingBySequenceEnabled,
+} from "./chat-ordering-sequence.js";
+import {
   DEFAULT_CONVERSATION_SETTING_KEY,
   MAX_EVENTS_PER_CONVERSATION,
   RUNTIME_THREAD_SESSION_VERSION,
@@ -38,6 +42,19 @@ const CUTOFF_SCAN_CEILING = 4000;
 const CUTOFF_SCAN_BATCH_MIN = 128;
 const CUTOFF_SCAN_BATCH_MAX = 512;
 const compareTimelineCursor = (a, b) => {
+  // Sequence-aware: when both cursors carry a finite `sequence` (populated only
+  // when the ordering-by-sequence flip is active), order by the dedicated
+  // monotonic key. Falls back to the legacy (timestamp, id) tuple otherwise, so
+  // the default path is byte-identical.
+  if (
+    typeof a.sequence === "number" &&
+    Number.isFinite(a.sequence) &&
+    typeof b.sequence === "number" &&
+    Number.isFinite(b.sequence)
+  ) {
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+    return a.id.localeCompare(b.id);
+  }
   if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
   return a.id.localeCompare(b.id);
 };
@@ -916,6 +933,64 @@ export class SessionStore {
     this.db = db;
     this.options = options;
   }
+  #orderingBySequenceCache = null;
+  /**
+   * Whether chat timeline ordering + cutoff/keyset/delta/destructive predicates
+   * should key on `ordering_sequence` (Phase 3/4 flip) instead of the legacy
+   * (created_at, id) tuple. Requires BOTH the env flag AND a fully-backfilled
+   * column, so a flip can never key on a NULL sequence. Cached per store; the
+   * column only transitions NULL→complete once (the guarded migration), and the
+   * env flag is process-static.
+   */
+  get orderingBySequence() {
+    if (this.#orderingBySequenceCache === null) {
+      this.#orderingBySequenceCache =
+        isChatOrderingBySequenceEnabled() &&
+        chatOrderingSequenceIsComplete(this.db);
+    }
+    return this.#orderingBySequenceCache;
+  }
+  /**
+   * ORDER BY fragment for a table (optional `alias`), ascending or descending,
+   * under the active ordering key.
+   */
+  timelineOrderBy(alias, direction) {
+    const p = alias ? `${alias}.` : "";
+    const dir = direction === "DESC" ? "DESC" : "ASC";
+    return this.orderingBySequence
+      ? `${p}ordering_sequence ${dir}`
+      : `${p}created_at ${dir}, ${p}id ${dir}`;
+  }
+  /**
+   * Keyset comparison predicate for a table (optional `alias`) against a bound
+   * cursor, e.g. ">=". Returns { clause, params } so call sites bind the right
+   * arity for the active key (1 param for sequence, 2 for the legacy tuple).
+   */
+  timelineKeyset(alias, op, cursor) {
+    const p = alias ? `${alias}.` : "";
+    // Sequence key only when the flip is active AND we actually have the
+    // cursor's sequence. If the sequence can't be resolved (e.g. the cursor's
+    // row was deleted by a Rewind), fall back to the legacy (created_at, id)
+    // value comparison, which still works on a bound timestamp/id even when the
+    // row is gone.
+    if (
+      this.orderingBySequence &&
+      typeof cursor.sequence === "number" &&
+      Number.isFinite(cursor.sequence)
+    ) {
+      return {
+        clause: `${p}ordering_sequence ${op} ?`,
+        params: [cursor.sequence],
+      };
+    }
+    // Legacy (created_at, id) keyset. Outer bound is strict (> for >/>=, < for
+    // </<=); the same-timestamp tie uses the exact operator.
+    const outer = op === ">" || op === ">=" ? ">" : "<";
+    return {
+      clause: `(${p}created_at ${outer} ? OR (${p}created_at = ? AND ${p}id ${op} ?))`,
+      params: [cursor.timestamp, cursor.timestamp, cursor.id],
+    };
+  }
   /**
    * Lazily-constructed singleton DreamInboxStore — the unified queue of
    * everything Dream consolidates: subagent rollout summaries, orchestrator
@@ -1174,6 +1249,7 @@ export class SessionStore {
     return {
       _id: row._id,
       timestamp: row.timestamp,
+      ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
       type: row.type,
       ...(row.deviceId ? { deviceId: row.deviceId } : {}),
       ...(row.requestId ? { requestId: row.requestId } : {}),
@@ -1501,14 +1577,18 @@ export class SessionStore {
     if (!eventId) return null;
     const row = this.db
       .prepare(
-        `SELECT id AS _id, created_at AS timestamp
+        `SELECT id AS _id, created_at AS timestamp, ordering_sequence AS sequence
            FROM message
           WHERE session_id = ? AND id = ?
           LIMIT 1`,
       )
       .get(conversationId, eventId);
     if (!row) return null;
-    return { id: row._id, timestamp: row.timestamp };
+    return {
+      id: row._id,
+      timestamp: row.timestamp,
+      ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+    };
   }
   /**
    * Mint a fresh, empty conversation id WITHOUT touching the durable
@@ -1543,15 +1623,18 @@ export class SessionStore {
     if (!cursor) return { removed: 0 };
     let removed = 0;
     this.withImmediateTransaction(() => {
-      const cutoffCondition =
-        `session_id = ? AND (created_at > ? OR (created_at = ? AND id >= ?))`;
+      // "At or after" the target event, in the ACTIVE ordering key — so Rewind
+      // removes exactly the suffix the user sees, whether ordering by the
+      // sequence (flip) or the legacy (created_at, id) tuple.
+      const keyset = this.timelineKeyset("", ">=", cursor);
+      const cutoffCondition = `session_id = ? AND ${keyset.clause}`;
       // The DELETE's own `changes` count is the number of removed rows —
       // no separate COUNT(*) pass over the same index range. (SQLite's
       // changes() counts only the directly-deleted `message` rows, not the
       // cascaded `part` rows, which is exactly the total we want.)
       const deleteResult = this.db
         .prepare(`DELETE FROM message WHERE ${cutoffCondition}`)
-        .run(conversationId, cursor.timestamp, cursor.timestamp, cursor.id);
+        .run(conversationId, ...keyset.params);
       removed = deleteResult?.changes ?? 0;
       const orphanThreadRows = this.db
         .prepare(
@@ -1597,6 +1680,9 @@ export class SessionStore {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const cursor = this.getEventCursor(conversationId, eventIdInput);
     if (!cursor) return null;
+    // Copy every user/assistant message strictly BEFORE the target event, in
+    // the ACTIVE ordering key.
+    const forkKeyset = this.timelineKeyset("source", "<", cursor);
     const rows = this.db
       .prepare(
         `SELECT
@@ -1613,10 +1699,10 @@ export class SessionStore {
            ON part.message_id = source.id AND part.ord = 0
          WHERE source.session_id = ?
            AND source.type IN ('user_message', 'assistant_message')
-           AND (source.created_at < ? OR (source.created_at = ? AND source.id < ?))
-         ORDER BY source.created_at ASC, source.id ASC`,
+           AND ${forkKeyset.clause}
+         ORDER BY ${this.timelineOrderBy("source", "ASC")}`,
       )
-      .all(conversationId, cursor.timestamp, cursor.timestamp, cursor.id);
+      .all(conversationId, ...forkKeyset.params);
     const newConversationId = generateLocalId();
     const createdAt = Date.now();
     const idMap = new Map();
@@ -2139,10 +2225,13 @@ export class SessionStore {
       1,
       Math.floor(args.maxVisibleMessages ?? 200),
     );
-    const after = {
+    const after = this.resolveCursorSequence(conversationId, {
       timestamp: Math.floor(args.afterTimestampMs),
       id: args.afterId,
-    };
+      ...(typeof args.afterSequence === "number"
+        ? { sequence: args.afterSequence }
+        : {}),
+    });
     const fetchCutoff = this.findTurnFetchCutoff(conversationId, after);
     const rows = this.fetchTimelineRows(
       conversationId,
@@ -2154,7 +2243,13 @@ export class SessionStore {
     const sourceEvents = rows.filter(
       (row) =>
         compareTimelineCursor(
-          { timestamp: row.timestamp, id: row._id },
+          {
+            timestamp: row.timestamp,
+            id: row._id,
+            ...(typeof row.sequence === "number"
+              ? { sequence: row.sequence }
+              : {}),
+          },
           after,
         ) > 0,
     );
@@ -2167,22 +2262,31 @@ export class SessionStore {
       sourceEvents,
     };
   }
-  hasMobileSyncEventsAfter(conversationIdInput, afterTimestampMs, afterId) {
+  hasMobileSyncEventsAfter(
+    conversationIdInput,
+    afterTimestampMs,
+    afterId,
+    afterSequence,
+  ) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
+    const cursor = this.resolveCursorSequence(conversationId, {
+      timestamp: Math.floor(afterTimestampMs),
+      id: afterId,
+      ...(typeof afterSequence === "number" ? { sequence: afterSequence } : {}),
+    });
+    const keyset = this.timelineKeyset("", ">", cursor);
     const row = this.db
       .prepare(
         `
       SELECT 1 AS found
       FROM message
       WHERE session_id = ?
-        AND (
-          created_at, id
-        ) > (?, ?)
-      ORDER BY created_at ASC, id ASC
+        AND ${keyset.clause}
+      ORDER BY ${this.timelineOrderBy("", "ASC")}
       LIMIT 1
     `,
       )
-      .get(conversationId, Math.floor(afterTimestampMs), afterId);
+      .get(conversationId, ...keyset.params);
     return row?.found === 1;
   }
   /**
@@ -2322,18 +2426,19 @@ export class SessionStore {
     let oldestScanned = null;
     while (scanned < CUTOFF_SCAN_CEILING) {
       const limit = Math.min(batchSize, CUTOFF_SCAN_CEILING - scanned);
-      const beforeClause = before
-        ? "AND (message.created_at, message.id) < (?, ?)"
-        : "";
+      const beforeKeyset = before
+        ? this.timelineKeyset("message", "<", before)
+        : null;
+      const beforeClause = beforeKeyset ? `AND ${beforeKeyset.clause}` : "";
       const params = [conversationId];
-      if (before) {
-        params.push(before.timestamp, before.id);
+      if (beforeKeyset) {
+        params.push(...beforeKeyset.params);
       }
       params.push(limit);
       const rows = this.db
         .prepare(
           `
-        SELECT message.created_at AS timestamp, message.id AS id, part.data_json AS payloadJson
+        SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence, part.data_json AS payloadJson
         FROM message
         LEFT JOIN part
           ON part.message_id = message.id
@@ -2341,7 +2446,7 @@ export class SessionStore {
         WHERE message.session_id = ?
           AND message.type IN ('user_message', 'assistant_message')
           ${beforeClause}
-        ORDER BY message.created_at DESC, message.id DESC
+        ORDER BY ${this.timelineOrderBy("message", "DESC")}
         LIMIT ?
       `,
         )
@@ -2351,7 +2456,13 @@ export class SessionStore {
         if (typeof row.timestamp !== "number" || typeof row.id !== "string") {
           continue;
         }
-        oldestScanned = { timestamp: row.timestamp, id: row.id };
+        oldestScanned = {
+          timestamp: row.timestamp,
+          id: row.id,
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
+        };
         const payload = parseJsonRecord(row.payloadJson) ?? null;
         if (isUiHiddenChatMessagePayload(payload)) continue;
         visible += 1;
@@ -2371,16 +2482,31 @@ export class SessionStore {
     ];
     const params = [conversationId];
     if (cutoff) {
-      clauses.push("(message.created_at, message.id) >= (?, ?)");
-      params.push(cutoff.timestamp, cutoff.id);
+      const k = this.timelineKeyset(
+        "message",
+        ">=",
+        this.resolveCursorSequence(conversationId, cutoff),
+      );
+      clauses.push(k.clause);
+      params.push(...k.params);
     }
     if (before) {
-      clauses.push("(message.created_at, message.id) < (?, ?)");
-      params.push(before.timestamp, before.id);
+      const k = this.timelineKeyset(
+        "message",
+        "<",
+        this.resolveCursorSequence(conversationId, before),
+      );
+      clauses.push(k.clause);
+      params.push(...k.params);
     }
     if (after) {
-      clauses.push("(message.created_at, message.id) > (?, ?)");
-      params.push(after.timestamp, after.id);
+      const k = this.timelineKeyset(
+        "message",
+        ">",
+        this.resolveCursorSequence(conversationId, after),
+      );
+      clauses.push(k.clause);
+      params.push(...k.params);
     }
     const normalizedLimit =
       typeof limit === "number" && Number.isFinite(limit)
@@ -2393,6 +2519,7 @@ export class SessionStore {
       SELECT
         message.id AS _id,
         message.created_at AS timestamp,
+        message.ordering_sequence AS sequence,
         message.type AS type,
         message.device_id AS deviceId,
         message.request_id AS requestId,
@@ -2404,7 +2531,7 @@ export class SessionStore {
         ON part.message_id = message.id
        AND part.ord = 0
       WHERE ${clauses.join(" AND ")}
-      ORDER BY message.created_at ASC, message.id ASC
+      ORDER BY ${this.timelineOrderBy("message", "ASC")}
       ${normalizedLimit !== null ? "LIMIT ?" : ""}
     `;
     const rows = this.db.prepare(sql).all(...params);
@@ -2412,46 +2539,78 @@ export class SessionStore {
   }
   findTurnFetchCutoff(conversationId, cutoff) {
     if (!cutoff) return null;
+    const resolved = this.resolveCursorSequence(conversationId, cutoff);
+    const keyset = this.timelineKeyset("message", "<=", resolved);
     const row = this.db
       .prepare(
         `
-      SELECT message.created_at AS timestamp, message.id AS id
+      SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
-        AND (
-          message.created_at, message.id
-        ) <= (?, ?)
-      ORDER BY message.created_at DESC, message.id DESC
+        AND ${keyset.clause}
+      ORDER BY ${this.timelineOrderBy("message", "DESC")}
       LIMIT 1
     `,
       )
-      .get(conversationId, cutoff.timestamp, cutoff.id);
+      .get(conversationId, ...keyset.params);
     if (typeof row?.timestamp !== "number" || typeof row.id !== "string") {
-      return cutoff;
+      return resolved;
     }
-    return { timestamp: row.timestamp, id: row.id };
+    return {
+      timestamp: row.timestamp,
+      id: row.id,
+      ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+    };
   }
   findNextUserMessageAfter(conversationId, cursor) {
     if (!cursor) return null;
+    const resolved = this.resolveCursorSequence(conversationId, cursor);
+    const keyset = this.timelineKeyset("message", ">", resolved);
     const row = this.db
       .prepare(
         `
-      SELECT message.created_at AS timestamp, message.id AS id
+      SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
-        AND (
-          message.created_at, message.id
-        ) > (?, ?)
-      ORDER BY message.created_at ASC, message.id ASC
+        AND ${keyset.clause}
+      ORDER BY ${this.timelineOrderBy("message", "ASC")}
       LIMIT 1
     `,
       )
-      .get(conversationId, cursor.timestamp, cursor.id);
+      .get(conversationId, ...keyset.params);
     return typeof row?.timestamp === "number" && typeof row.id === "string"
-      ? { timestamp: row.timestamp, id: row.id }
+      ? {
+          timestamp: row.timestamp,
+          id: row.id,
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
+        }
       : null;
+  }
+  /**
+   * Ensure a keyset cursor carries `sequence` when the sequence flip is active.
+   * External cursors (mobile delta `after`, pagination `before`) arrive as
+   * (timestamp, id); resolve the row's ordering_sequence by id once so the
+   * keyset predicate can key on it. No-op when the flip is off or the sequence
+   * is already present.
+   */
+  resolveCursorSequence(conversationId, cursor) {
+    if (!cursor) return cursor;
+    if (!this.orderingBySequence) return cursor;
+    if (typeof cursor.sequence === "number") return cursor;
+    if (typeof cursor.id !== "string" || cursor.id.length === 0) return cursor;
+    const row = this.db
+      .prepare(
+        `SELECT ordering_sequence AS sequence FROM message
+          WHERE session_id = ? AND id = ? LIMIT 1`,
+      )
+      .get(conversationId, cursor.id);
+    return typeof row?.sequence === "number"
+      ? { ...cursor, sequence: row.sequence }
+      : cursor;
   }
   trimMessageWindow(window, cutoff) {
     if (!cutoff) return window;
@@ -2459,7 +2618,13 @@ export class SessionStore {
     const messages = window.messages.filter((message) => {
       const keep =
         compareTimelineCursor(
-          { timestamp: message.timestamp, id: message._id },
+          {
+            timestamp: message.timestamp,
+            id: message._id,
+            ...(typeof message.sequence === "number"
+              ? { sequence: message.sequence }
+              : {}),
+          },
           cutoff,
         ) >= 0;
       if (keep && !isUiHiddenChatMessagePayload(message.payload ?? null)) {
@@ -2489,13 +2654,25 @@ export class SessionStore {
     for (const message of window.messages) {
       const messageChanged =
         compareTimelineCursor(
-          { timestamp: message.timestamp, id: message._id },
+          {
+            timestamp: message.timestamp,
+            id: message._id,
+            ...(typeof message.sequence === "number"
+              ? { sequence: message.sequence }
+              : {}),
+          },
           after,
         ) > 0;
       const toolEventsChanged = message.toolEvents.some(
         (event) =>
           compareTimelineCursor(
-            { timestamp: event.timestamp, id: event._id },
+            {
+              timestamp: event.timestamp,
+              id: event._id,
+              ...(typeof event.sequence === "number"
+                ? { sequence: event.sequence }
+                : {}),
+            },
             after,
           ) > 0,
       );

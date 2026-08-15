@@ -88,6 +88,18 @@ export type LocalParakeetStatus = {
   available: boolean;
   model: string;
   reason?: string;
+  /**
+   * Whether on-device dictation can actually be installed + run on THIS
+   * machine — i.e. the platform's native helper binary is present, so a model
+   * download can make local dictation available. This is stricter than "is a
+   * local-dictation platform": on Windows the code path is fully wired, but the
+   * `parakeet_cpp_transcriber` helper is not published for `win-x64` yet, so
+   * `installable` is false there and the renderer must not dangle a "Download
+   * voice feature" affordance that can never succeed — it falls back to cloud
+   * instead. Once the helper ships for a platform, this flips to true and the
+   * on-demand download flow works with no further code changes.
+   */
+  installable?: boolean;
 };
 
 type PendingRequest = {
@@ -540,6 +552,7 @@ export const getLocalParakeetStatus =
     if (!engine) {
       return {
         available: false,
+        installable: false,
         model: CPP_MODEL_ID,
         reason: "Local Parakeet dictation is not supported on this platform.",
       };
@@ -547,16 +560,23 @@ export const getLocalParakeetStatus =
     const modelId = MODEL_ID_BY_ENGINE[engine];
     const helperPath = resolveNativeHelperPath(HELPER_NAME_BY_ENGINE[engine]);
     if (!helperPath) {
+      // The engine is wired for this OS/arch, but the native transcriber helper
+      // isn't present in this build (e.g. Windows, where `parakeet_cpp_transcriber.exe`
+      // is not yet published to the native-helpers manifest). Downloading the
+      // model can't make local dictation work without the helper, so report it
+      // as not installable and let the renderer stay on cloud transcription.
       return {
         available: false,
+        installable: false,
         model: modelId,
-        reason: "Local Parakeet helper has not been built.",
+        reason: "On-device dictation isn't available on this device yet.",
       };
     }
     const ready =
       engine === "coreml" ? coremlModelIsReady() : Boolean(cppModelIsReady());
     return {
       available: ready,
+      installable: true,
       model: modelId,
       reason: ready
         ? undefined

@@ -22,7 +22,7 @@ import {
   InworldDictationSession,
   isDictationSuperFastEnabled,
   isLocalDictationEnabled,
-  isLocalDictationPlatform,
+  probeLocalDictationInstallable,
   warmLocalDictationModel,
   type DictationSessionState,
 } from "@/features/dictation/services/inworld-dictation";
@@ -140,6 +140,14 @@ export const useDictation = ({
    * lifecycle.
    */
   const warmedRef = useRef(false);
+  /**
+   * Whether on-device dictation can actually be installed + run on this machine
+   * (the native helper is present). Only then do we offer "Download voice
+   * feature"; where the helper isn't shipped (e.g. Windows today) the download
+   * can never succeed, so we surface the plain sign-in path and stay on cloud.
+   * Probed once on mount; defaults false so we never dangle a broken download.
+   */
+  const localInstallableRef = useRef(false);
 
   messageRef.current = message;
   setMessageRef.current = setMessage;
@@ -164,6 +172,19 @@ export const useDictation = ({
   }, []);
 
   stateRef.current = state;
+
+  // Learn whether on-device dictation can actually be installed here (native
+  // helper present). Gates the "Download voice feature" affordance so we never
+  // offer a download that structurally can't succeed on this machine.
+  useEffect(() => {
+    let cancelled = false;
+    void probeLocalDictationInstallable().then((installable) => {
+      if (!cancelled) localInstallableRef.current = installable;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // While listening, tick a 4-Hz timer for the visible mm:ss display.
   // The initial 0:00 paint is set in `start()` before the session begins
@@ -249,7 +270,7 @@ export const useDictation = ({
                 );
               if (needsSignIn) {
                 const canDownloadLocalDictation =
-                  isLocalDictationPlatform() && isLocalDictationEnabled();
+                  localInstallableRef.current && isLocalDictationEnabled();
                 showToast(
                   canDownloadLocalDictation
                     ? {

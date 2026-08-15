@@ -130,6 +130,35 @@ export function isLocalDictationPlatform(): boolean {
   return platform === "darwin" || platform === "win32";
 }
 
+/**
+ * Whether on-device dictation can actually be installed + run on THIS machine.
+ *
+ * `isLocalDictationPlatform()` is only a coarse OS gate; being on Windows or
+ * macOS does not guarantee the native transcriber helper is present. On Windows
+ * the `parakeet_cpp_transcriber.exe` helper is not yet published, so the model
+ * download can never make local dictation work — offering "Download voice
+ * feature" there just fails ("voice feature couldn't be downloaded"). The main
+ * process is the source of truth (`dictation.localStatus().installable`); when
+ * it reports the helper is missing we stay on cloud transcription and never
+ * dangle a broken download. The result is memoized because helper presence only
+ * changes across an app update (which restarts the renderer).
+ */
+let localInstallableProbe: Promise<boolean> | null = null;
+export async function probeLocalDictationInstallable(): Promise<boolean> {
+  if (!isLocalDictationPlatform()) return false;
+  if (!localInstallableProbe) {
+    localInstallableProbe = (async () => {
+      try {
+        const status = await window.electronAPI?.dictation?.localStatus?.();
+        return Boolean(status?.installable);
+      } catch {
+        return false;
+      }
+    })();
+  }
+  return localInstallableProbe;
+}
+
 export function setDictationEnhancePreference(enabled: boolean): void {
   uiState.setItem(DICTATION_ENHANCE_KEY, enabled ? "true" : "false");
 }
@@ -572,7 +601,11 @@ export class InworldDictationSession {
     if (
       isLocalDictationPlatform() &&
       isLocalDictationEnabled() &&
-      window.electronAPI?.dictation?.transcribeLocal
+      window.electronAPI?.dictation?.transcribeLocal &&
+      // Only attempt on-device transcription when the native helper is actually
+      // present. Where it isn't (e.g. Windows today), skip straight to cloud so
+      // the mic "just works" instead of failing a local attempt every time.
+      (await probeLocalDictationInstallable())
     ) {
       try {
         const totalSamples = chunks.reduce(

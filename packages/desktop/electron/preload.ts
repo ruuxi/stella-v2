@@ -744,6 +744,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         available: boolean;
         model: string;
         reason?: string;
+        installable?: boolean;
       }>,
     downloadLocalModel: () =>
       ipcRenderer.invoke("dictation:downloadLocalModel") as Promise<{

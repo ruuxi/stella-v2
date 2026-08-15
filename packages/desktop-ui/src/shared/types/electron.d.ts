@@ -500,6 +500,14 @@ export type ElectronDictationApi = {
     available: boolean;
     model: string;
     reason?: string;
+    /**
+     * Whether on-device dictation can actually run on this machine — the native
+     * helper is present so a model download can make it available. False on
+     * platforms/builds where the helper isn't shipped (e.g. Windows today), so
+     * the UI must not offer a "Download voice feature" affordance that can't
+     * succeed and should stay on cloud transcription instead.
+     */
+    installable?: boolean;
   }>;
   downloadLocalModel: () => Promise<{
     available: boolean;

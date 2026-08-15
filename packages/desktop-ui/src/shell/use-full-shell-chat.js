@@ -291,17 +291,18 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         // it would fall through to the prior turn's user bubble and scroll
         // *backwards* to re-frame it. The streaming branch below uses a
         // footer-tail target instead.
-        const shouldKeepTailFramed = showHomeContent || getShouldPlaceLatestTurn();
-        // Treat a near-bottom send (the freshest turn still on screen) as an
-        // at-bottom send: pin to the newest content with a plain scroll-to-
-        // bottom instead of reframing the just-sent message near the top. Only
-        // a genuinely scrolled-up send gets the message-to-top+autoscroll
-        // reframe. `getIsEffectivelyAtBottom` is distance-based, so a stray
-        // upward nudge (which drops the motion follow latch) no longer counts
-        // as "scrolled up" here. Home's first send keeps the reframe so the
-        // opening reply lands in the Codex reading position.
-        const effectivelyAtBottom = !showHomeContent && getIsEffectivelyAtBottom();
-        const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed && !effectivelyAtBottom;
+        // Frame the just-sent turn (place the new user message near the top,
+        // with the response spacer as the reading area below it) whenever the
+        // freshest turn is on screen — near/at bottom OR meaningfully scrolled
+        // up but still within the placement window. `getIsEffectivelyAtBottom`
+        // is distance-based (latch-independent), so a stray upward nudge near
+        // the bottom still frames-to-top rather than falling through to a plain
+        // scroll. Only a genuine read-history position (neither) stays put. The
+        // spacer is settled+frozen for the placement in the scroll hook, so the
+        // nudge target can't be yanked mid-animation.
+        const shouldKeepTailFramed =
+            showHomeContent || getIsEffectivelyAtBottom() || getShouldPlaceLatestTurn();
+        const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
         if (showHomeContent) {
             setComposerFocusRequestId((id) => id + 1);
         }
@@ -328,16 +329,10 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             }
         }
         else if (shouldNudgeAfterSend) {
-            // Genuinely scrolled up: place the newest user turn near the top of
-            // the readable area, above the viewport-derived response spacer. The
-            // existing gentle loop keeps that reframe continuous with
-            // stream-follow.
+            // Places the newest user turn near the top of the readable area,
+            // above the (now settled) response spacer. The gentle loop keeps
+            // that reframe continuous with the assistant stream-follow.
             nudgeAfterSend();
-        }
-        else if (effectivelyAtBottom) {
-            // Near-bottom send: a normal scroll-to-bottom that re-arms follow so
-            // the incoming reply is tracked as it streams.
-            scrollToBottom("smooth");
         }
         else {
             releaseFollow();
@@ -348,7 +343,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         getIsFollowing,
         getShouldPlaceLatestTurn,
         getIsEffectivelyAtBottom,
-        scrollToBottom,
         isStreaming,
         latestMessageRef,
         nudgeAfterSend,

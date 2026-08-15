@@ -1261,6 +1261,7 @@
         "clickToEnlarge": "Click to enlarge {label}",
         "pastedTextLabel": "Pasted text",
         "pastedTextTitle": "Pasted text — {stats}",
+        "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reactions {reactions}",
         "showMoreChips": "Show {count} more",
         "windowPreviewAlt": "Window content preview"

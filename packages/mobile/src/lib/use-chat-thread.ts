@@ -178,6 +178,21 @@ const composeQuotedText = (quotes: ComposerQuote[], typed: string): string => {
   return typed ? `${blocks}\n\n${typed}` : blocks;
 };
 
+/**
+ * Join composer quote chips into a single raw context blob (no `> ` prefixes)
+ * delivered to the model as a dedicated `selectedText` field on a fresh turn.
+ * The runtime wraps it as hidden context and the bubble shows it as a chip, so
+ * the quote never folds into the visible/persisted user body.
+ */
+const composeRawQuotes = (quotes: ComposerQuote[]): string =>
+  quotes
+    .map((quote) => quote.text.trim())
+    .filter((text) => text.length > 0)
+    .join("\n\n");
+
+/** Bounded preview of quoted context stored on the sent message for its chip. */
+const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000;
+
 // Run-level connection status shown before the desktop starts streaming.
 // `connecting` deliberately carries no copy: desktop has no "reaching" state,
 // so mobile lets the indicator fall through to the same baseline
@@ -253,7 +268,20 @@ type QueuedSend = {
   dispatchId: string;
   clientRequestId: string;
   userMessageId: string;
+  /**
+   * Message body for the steer/queued fallback path — keeps the folded quote
+   * blockquote so a follow-up steer (which carries no separate context) still
+   * delivers the quote to the model.
+   */
   text: string;
+  /**
+   * Fresh-turn message body with quotes decoupled out: just the typed text.
+   * The primary `sendDesktopBridgeChat` path sends this plus `selectedText`
+   * so the quote reaches the model without leaking into the visible body.
+   */
+  promptText?: string;
+  /** Raw quoted / "Ask Stella" context delivered as a dedicated model field. */
+  selectedText?: string;
   assets: ImagePicker.ImagePickerAsset[];
   queueSequence?: number;
 };
@@ -1615,7 +1643,8 @@ export function useChatThread(opts: {
         const result = await sendDesktopBridgeChat({
           access,
           batch: desktopSendBatchRef.current ?? synced.preparedSend,
-          message: item.text,
+          message: item.promptText ?? item.text,
+          ...(item.selectedText ? { selectedText: item.selectedText } : {}),
           clientRequestId: item.clientRequestId,
           userMessageEventId: item.userMessageId,
           attachments:
@@ -1776,7 +1805,7 @@ export function useChatThread(opts: {
                     current: m,
                     userMessageId: item.userMessageId,
                     replyId,
-                    sentText: item.text,
+                    sentText: item.promptText ?? item.text,
                     canonicalMessages: delta.messages,
                     ...(canonicalUserMessageId
                       ? { canonicalUserMessageId }
@@ -1979,7 +2008,16 @@ export function useChatThread(opts: {
       // blockquotes ahead of the typed message; supplied (voice) prompts skip
       // them since they bypass composer state entirely.
       const pendingQuotes = supplied ? [] : quotes;
+      // `text` is the steer/queued fallback body (folded blockquote so a
+      // follow-up steer still carries the quote). A fresh turn with both typed
+      // text and quotes decouples instead: the quote rides as `selectedText`
+      // and shows as a chip, so it never leaks into the visible body. Quote-only
+      // sends keep the folded form (there is no separate body to attach a chip
+      // to) — matching the desktop behaviour for an empty prompt.
       const text = composeQuotedText(pendingQuotes, typed);
+      const decoupleQuotes = typed.length > 0 && pendingQuotes.length > 0;
+      const rawQuotes = decoupleQuotes ? composeRawQuotes(pendingQuotes) : "";
+      const promptText = decoupleQuotes ? typed : text;
       const assets = supplied ? [] : attachments.slice();
       if (!text && assets.length === 0) return null;
 
@@ -2004,7 +2042,10 @@ export function useChatThread(opts: {
       const admission = admitSend(sendingRef);
 
       const userMessageId = createId();
-      const displayText = text || (assets.length ? "Photo" : "");
+      const displayText = promptText || (assets.length ? "Photo" : "");
+      const quotedPreview = rawQuotes
+        ? rawQuotes.slice(0, QUOTED_TEXT_PREVIEW_MAX_CHARS)
+        : undefined;
       const thumbs = assets.slice(0, 3).map((a) => a.uri);
       const createdAt = Date.now();
       const userMsg: ChatMessage = {
@@ -2014,6 +2055,7 @@ export function useChatThread(opts: {
         createdAt,
         hasImage: assets.length > 0,
         ...(thumbs.length > 0 ? { thumbnailUris: thumbs } : {}),
+        ...(quotedPreview ? { quotedText: quotedPreview } : {}),
         ...(admission === "queue" ? { queued: true } : {}),
       };
 
@@ -2028,6 +2070,9 @@ export function useChatThread(opts: {
         clientRequestId: userMessageId,
         userMessageId,
         text,
+        ...(decoupleQuotes
+          ? { promptText, selectedText: rawQuotes }
+          : {}),
         assets,
       };
       pendingEnqueueRef.current.add(userMessageId);

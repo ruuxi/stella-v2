@@ -29,6 +29,12 @@ export type UserRowViewModel = {
   activityLabel?: string;
   /** Descriptors for the "Pasted text" chips lifted out of the composer. */
   pastedTexts?: PastedTextDescriptor[];
+  /**
+   * Bounded preview of quoted / "Ask Stella" context for this turn. Rendered
+   * as a chip on the sent message; the full quote reached the model as a
+   * dedicated hidden context message and is never part of the visible body.
+   */
+  quotedText?: string;
   attachments: Attachment[];
   channelEnvelope?: ChannelEnvelope;
 };

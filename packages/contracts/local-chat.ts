@@ -287,6 +287,13 @@ export type MessageMetadata = {
      * composer chip; `lines`/`chars` describe the full paste.
      */
     pastedTexts?: { text?: string; lines: number; chars: number }[];
+    /**
+     * Bounded preview of the quoted / "Ask Stella" context attached to this
+     * turn. Rendered as a chip on the sent message instead of being folded
+     * into the visible body; the model receives the quote as a dedicated
+     * hidden context message at prompt-assembly time.
+     */
+    quotedText?: string;
   };
   trigger?: {
     kind?: string;

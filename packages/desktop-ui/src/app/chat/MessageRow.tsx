@@ -247,6 +247,43 @@ function UserPastedTextChip({
   );
 }
 
+/**
+ * Quoted / "Ask Stella" context chip inside the user bubble. Mirrors the
+ * composer's selected-text chip: the quoted content is delivered to the model
+ * as a dedicated hidden context message, never folded into the visible body,
+ * so this chip is the display side of that decoupling. Hovering (or focusing)
+ * reveals the quoted text in a scrollable portaled card.
+ */
+function UserQuotedTextChip({ quotedText }: { quotedText: string }) {
+  const t = useT();
+  const { triggerRef, open, previewProps } = useHoverPreview<HTMLSpanElement>();
+  const preview = quotedText.trim();
+  return (
+    <span className="event-window-badge-hovercard">
+      <ContextPill
+        kind="selected-text"
+        pillRef={triggerRef}
+        label={t("app.chat.messageRow.quotedTextLabel")}
+        data-has-preview={preview ? "true" : undefined}
+        tabIndex={preview ? 0 : undefined}
+        title={t("app.chat.messageRow.quotedTextLabel")}
+      />
+      {preview && (
+        <ChipPreviewPortal
+          triggerRef={triggerRef}
+          open={open}
+          preferredPlacement="top"
+          className="event-pasted-text-preview-card"
+          {...previewProps}
+        >
+          <div className="event-pasted-text-preview-body">{preview}</div>
+        </ChipPreviewPortal>
+      )}
+    </span>
+  );
+}
+
+
 type ContextChip = { key: string; node: ReactNode };
 
 // The chips sit above the bubble and are capped to the same 85% of the
@@ -470,6 +507,12 @@ export const UserMessageRow = memo(
         node: <UserPastedTextChip descriptor={descriptor} />,
       });
     });
+    if (row.quotedText?.trim()) {
+      chips.push({
+        key: "quoted-text",
+        node: <UserQuotedTextChip quotedText={row.quotedText} />,
+      });
+    }
     if (channelEnvelope?.provider) {
       chips.push({
         key: "channel-provider",

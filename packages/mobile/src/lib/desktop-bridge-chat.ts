@@ -145,6 +145,12 @@ type DesktopBridgeChatArgs = {
   /** Reused only for a serialized queued-send batch. */
   batch?: DesktopBridgeSendBatch;
   message: string;
+  /**
+   * Quoted / "Ask Stella" context for a fresh turn. Delivered to the desktop
+   * worker as a dedicated field so it reaches the model as hidden context and
+   * renders as a chip — never folded into the visible user body.
+   */
+  selectedText?: string;
   /** Durable logical-send identity, persisted by mobile before transmission. */
   clientRequestId?: string;
   /** Stable canonical user-row identity for desktop persistence. */
@@ -205,6 +211,7 @@ const buildDesktopBridgeStartChatArgs = (args: {
   access: StoredPhoneAccess;
   conversationId: string;
   text: string;
+  selectedText?: string;
   clientRequestId: string;
   userMessageEventId: string;
   model?: string | null;
@@ -212,6 +219,11 @@ const buildDesktopBridgeStartChatArgs = (args: {
 }) => ({
   conversationId: args.conversationId,
   userPrompt: args.text || "See the attached image.",
+  // The worker folds this into hidden model context and stores it as chip
+  // metadata (see kernel/chat-prompt-context.ts) — it is never concatenated
+  // into the visible user body. `agent:startChat` is a passthrough bridge
+  // method, so this rides straight through to the worker payload.
+  ...(args.selectedText?.trim() ? { selectedText: args.selectedText.trim() } : {}),
   deviceId: args.access.mobileDeviceId,
   platform: "mobile",
   mode: "computer",
@@ -1750,6 +1762,7 @@ export async function sendDesktopBridgeChat({
   access,
   batch: suppliedBatch,
   message,
+  selectedText,
   clientRequestId: suppliedClientRequestId,
   userMessageEventId,
   model,
@@ -1795,6 +1808,7 @@ export async function sendDesktopBridgeChat({
     access,
     conversationId,
     text,
+    ...(selectedText?.trim() ? { selectedText: selectedText.trim() } : {}),
     clientRequestId,
     userMessageEventId: userMessageEventId?.trim() ?? "",
     model,

@@ -916,6 +916,53 @@ export function useChatThread(opts: {
     runDesktopSyncRef.current = runDesktopSync;
   }, [runDesktopSync]);
 
+  // Live/connect-triggered pull that self-heals a poisoned delta cursor.
+  //
+  // The localChat push socket (and the socket's own (re)connect) fire because
+  // the desktop *just persisted a row* — so a steady-state delta that then
+  // returns ZERO rows is the poisoned-cursor signature the codebase documents
+  // (`desktopSyncPullPlan`): the `(created_at, id)` cursor already sits at or
+  // ahead of the new row and the desktop's strictly-greater-than filter hides
+  // it forever. The most common trigger is a turn *finishing* — the final
+  // assistant row and a same-millisecond agent/tool lifecycle event race on a
+  // random id tiebreak, so ~half the time the message sorts below the cursor
+  // and never lands. Before the push optimization the always-on 5s task poll
+  // papered over this; push relaxed that poll to a 30s while-running
+  // verification (and stands it down entirely once nothing is running), so a
+  // stranded row now waits for a full app restart (the landing full-window
+  // pull) — exactly the intermittent "never catches up to the newest message"
+  // report.
+  //
+  // Fix: when such a delta comes back empty, escalate ONCE to a full-window
+  // catch-up. It ignores the cursor, merges by id and re-mints a fresh cursor,
+  // healing the strand and un-poisoning the deltas that follow. The connection
+  // path is untouched (fast connect is preserved) and the common non-empty
+  // delta still returns immediately — the extra pull only runs on the anomaly.
+  // Full-window callers (real reconnect, resume, Force Sync) already re-read
+  // the whole window, so they short-circuit and never double-pull.
+  const runDesktopLiveSyncWithHeal = useCallback(
+    async (options?: {
+      catchUp?: boolean;
+      trigger?: string;
+    }): Promise<DesktopSyncOutcome> => {
+      const outcome = await runDesktopSync(options);
+      if (
+        options?.catchUp === true ||
+        outcome.offline === true ||
+        outcome.deferred === true ||
+        outcome.rows !== 0
+      ) {
+        return outcome;
+      }
+      return runDesktopSync({
+        catchUp: true,
+        trigger: `${options?.trigger ?? "live"}-heal`,
+      });
+    },
+    [runDesktopSync],
+  );
+
+
   // Re-arm the landing sync and invalidate any in-flight one whenever the
   // paired computer changes (or the surface unmounts), so the new computer
   // syncs on landing and a stale sync never persists the old cursor or merges
@@ -1068,7 +1115,7 @@ export function useChatThread(opts: {
             deferDesktopSync(false);
             return;
           }
-          void runDesktopSync({ trigger: "push" });
+          void runDesktopLiveSyncWithHeal({ trigger: "push" });
         }, 400);
       },
       // Authoritative task rows: a thread transition (spawn, retitle,
@@ -1094,10 +1141,12 @@ export function useChatThread(opts: {
         // broadcast while the socket was down are already folded into it.
         if (connected) void refreshDesktopThreadTasks();
         // The first socket connection only closes the subscribe-vs-sync race
-        // and therefore rides the saved cursor. After a real socket drop,
-        // events are not replayed, so use the bounded recent-window healer.
+        // and therefore rides the saved cursor; a real socket drop uses the
+        // bounded recent-window healer. Either way, route through the
+        // empty-delta heal so a (re)connect that lands on a poisoned cursor
+        // still converges instead of silently riding a zero-row delta.
         if (connected && storageLoadedRef.current) {
-          void runDesktopSync(desktopLiveConnectionSyncPlan(details));
+          void runDesktopLiveSyncWithHeal(desktopLiveConnectionSyncPlan(details));
         }
       },
     });
@@ -1110,7 +1159,7 @@ export function useChatThread(opts: {
     deferDesktopSync,
     desktopAccess,
     refreshDesktopThreadTasks,
-    runDesktopSync,
+    runDesktopLiveSyncWithHeal,
   ]);
 
   // Flush push notifications the mid-send gate deferred. `runDesktopSync`
@@ -1123,11 +1172,15 @@ export function useChatThread(opts: {
     const pending = pendingPushSyncRef.current;
     if (!pending) return;
     pendingPushSyncRef.current = null;
-    void runDesktopSync({
+    // Same poisoned-cursor risk as the live path: a push deferred by the
+    // mid-send gate is flushed here as a delta, and a turn that finished
+    // mid-send is exactly when the final row can sort below the cursor. Heal
+    // an empty delta with a full-window pull so the reply lands post-send.
+    void runDesktopLiveSyncWithHeal({
       catchUp: pending.catchUp,
       trigger: pending.catchUp ? "post-send-catch-up-flush" : "post-send-flush",
     });
-  }, [appActive, sending, storageLoaded, runDesktopSync]);
+  }, [appActive, sending, storageLoaded, runDesktopLiveSyncWithHeal]);
 
   const appendAssistantText = useCallback((replyId: string, chunk: string) => {
     setMessages((m) =>

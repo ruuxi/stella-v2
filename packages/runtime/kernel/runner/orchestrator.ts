@@ -6,6 +6,8 @@ import {
   prepareRuntimeAttachments,
 } from "../agent-runtime/run-preparation.js";
 import { persistThreadPayloadMessage } from "../agent-runtime/thread-memory.js";
+import { decorateUserTranscriptContent } from "../agent-runtime/transcript-decoration.js";
+import { buildRuntimeThreadKey } from "../thread-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { AgentMessage } from "../agent-core/types.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
@@ -749,6 +751,7 @@ export const createOrchestratorController = (
       toolWorkspaceRoot?: string;
       attachments?: StartPreparedRunArgs["attachments"];
       connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
+      userMessageEventId?: string;
     },
     resolveResult: (value: AutomationTurnResult) => void,
   ): Promise<{ runId: string }> => {
@@ -776,6 +779,29 @@ export const createOrchestratorController = (
       }
 
       const runId = `local:auto:${crypto.randomUUID()}`;
+      // Connector turns (iMessage/Linq, Telegram, …): the durable thread
+      // store is the single model-context source, so the metadata the
+      // retired local-events projection used to add at read time — the
+      // `[linq_message_id: …]` trailer and the user timestamp tag — is
+      // stamped onto the model-visible prompt here. run-execution persists
+      // this exact text into the thread; the host's chat-events write keeps
+      // the raw text for display/sync.
+      const modelUserPrompt = connectorDeliveryTarget
+        ? decorateUserTranscriptContent({
+            store: context.runtimeStore,
+            threadKey: buildRuntimeThreadKey({
+              conversationId,
+              agentType,
+              runId,
+            }),
+            text: userPrompt,
+            timestamp: Date.now(),
+            ...(connectorDeliveryTarget.provider === "linq" &&
+            connectorDeliveryTarget.externalMessageId
+              ? { linqMessageId: connectorDeliveryTarget.externalMessageId }
+              : {}),
+          })
+        : userPrompt;
       const appendConnectorTerminalNotice = (event: RuntimeEndEvent) => {
         if (!connectorDeliveryTarget) {
           return;
@@ -799,13 +825,17 @@ export const createOrchestratorController = (
         runId,
         conversationId,
         agentType,
-        userPrompt,
+        userPrompt: modelUserPrompt,
         ...(modelOverride ? { modelOverride } : {}),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
         uiVisibility: "hidden",
         attachments,
         ...(connectorDeliveryTarget ? { connectorDeliveryTarget } : {}),
-        userMessageId: `automation:${crypto.randomUUID()}`,
+        // Connector turns reuse the id of the display event the host already
+        // appended so the runtime can exclude it from the legacy history shim.
+        userMessageId:
+          payload.userMessageEventId?.trim() ||
+          `automation:${crypto.randomUUID()}`,
         createRuntimeCallbacks: ({ runId }) =>
           createRuntimeCallbacks(
             runId,
@@ -838,6 +868,7 @@ export const createOrchestratorController = (
     toolWorkspaceRoot?: string;
     attachments?: StartPreparedRunArgs["attachments"];
     connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
+    userMessageEventId?: string;
   }): Promise<AutomationTurnResult> => {
     const health = agentHealthCheck();
     if (!health.ready) {

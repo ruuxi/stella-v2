@@ -497,6 +497,13 @@ export type RunnerPublicApi = {
     threadKey: string;
     role: "user" | "assistant";
     content: string;
+    /**
+     * Stamp the user-message timestamp tag (and thirty-minute suppression)
+     * onto the persisted content — the durable-store equivalent of the
+     * metadata the retired local-events projection added at read time.
+     */
+    decorateUserTimestampTag?: boolean;
+    timezone?: string;
   }) => void;
   notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   getVoiceOrchestratorConfig: (

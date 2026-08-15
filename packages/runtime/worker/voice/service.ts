@@ -58,6 +58,8 @@ type VoiceRunner = {
     threadKey: string;
     role: "user" | "assistant";
     content: string;
+    decorateUserTimestampTag?: boolean;
+    timezone?: string;
   }) => void;
   notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   getVoiceOrchestratorConfig: (
@@ -147,10 +149,25 @@ export class VoiceRuntimeService {
     uiVisibility?: "visible" | "hidden";
     voiceSession?: { durationMs: number };
   }) {
+    // Durable thread store is the model-context source for every provider's
+    // voice transcripts (OpenAI realtime, xAI/Grok realtime, Inworld — they
+    // all funnel through this single persist path). User utterances carry
+    // the same timestamp tag the retired events projection used to render;
+    // the chat-events write below stays raw for display/sync.
     this.ensureRunner().appendThreadMessage({
       threadKey: payload.conversationId,
       role: payload.role,
       content: payload.text,
+      ...(payload.role === "user"
+        ? {
+            decorateUserTimestampTag: true,
+            ...(Intl.DateTimeFormat().resolvedOptions().timeZone
+              ? {
+                  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                }
+              : {}),
+          }
+        : {}),
     });
     this.ensureRunner().notifyOrchestratorHistoryChanged(
       payload.conversationId,

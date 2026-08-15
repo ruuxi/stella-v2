@@ -559,6 +559,13 @@ export type RuntimeAutomationTurnRequest = {
     provider?: string;
     externalMessageId?: string;
   };
+  /**
+   * Chat-events id of the user message the caller already appended for
+   * display (connector turns). Lets the runtime exclude that event from the
+   * legacy pre-transition history shim so the message isn't duplicated into
+   * model context alongside the prompt.
+   */
+  userMessageEventId?: string;
 };
 
 export type RuntimeAutomationTurnResult =

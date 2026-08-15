@@ -332,6 +332,13 @@ export type MessageRecord = {
   _id: string;
   timestamp: number;
   /**
+   * Dedicated monotonic ordering key assigned by the authoritative desktop
+   * (chat-ordering re-architecture). Present only when the ordering-sequence
+   * migration is active; clients order by it when the sequence flip is enabled,
+   * else they keep using `(timestamp, _id)`.
+   */
+  sequence?: number;
+  /**
    * Underlying event type — currently `"user_message"` or
    * `"assistant_message"`. Kept as the raw string (rather than narrowed)
    * so future visible-message kinds don't need a contract bump.

@@ -1204,6 +1204,10 @@ function parseDesktopBridgeMessageRows(
         Number.isFinite(record.timestamp)
           ? record.timestamp
           : undefined;
+      const sequence =
+        typeof record.sequence === "number" && Number.isFinite(record.sequence)
+          ? record.sequence
+          : undefined;
       if (
         !id ||
         (role !== "user" && role !== "assistant") ||
@@ -1220,6 +1224,7 @@ function parseDesktopBridgeMessageRows(
         text,
         ...(requestId ? { requestId } : {}),
         ...(timestamp !== undefined ? { timestamp, createdAt: timestamp } : {}),
+        ...(sequence !== undefined ? { sequence } : {}),
         ...(artifacts.length > 0 ? { artifacts } : {}),
         ...(toolSteps.length > 0 ? { toolSteps } : {}),
         ...(tasks.length > 0 ? { tasks } : {}),

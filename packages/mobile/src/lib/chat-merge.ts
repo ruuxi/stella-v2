@@ -20,6 +20,40 @@ const compareCanonicalOrder = (
 };
 
 /**
+ * Phase 4 flip (default OFF): retire mobile insert-only in favor of a full
+ * canonical re-derive by the desktop's authoritative monotonic `sequence`. Only
+ * takes effect when EVERY row carries a finite sequence — so in-flight
+ * optimistic rows (no sequence until they reconcile) keep insert-only and never
+ * jump; the transcript re-derives by sequence only once fully canonical. Toggled
+ * via EXPO_PUBLIC_CHAT_ORDERING_REDERIVE so Rahul can flip it on in the app.
+ */
+export const chatOrderingRederiveEnabled = (): boolean => {
+  const raw = (process.env.EXPO_PUBLIC_CHAT_ORDERING_REDERIVE ?? "")
+    .trim()
+    .toLowerCase();
+  return raw === "1" || raw === "true" || raw === "on" || raw === "yes";
+};
+
+/**
+ * Order every row by the authoritative `sequence` (id as a deterministic
+ * tiebreak). Returns null — signalling "fall back to insert-only" — when any row
+ * lacks a finite sequence, so the two ordering domains are never mixed.
+ */
+const rederiveBySequence = (rows: ChatMessage[]): ChatMessage[] | null => {
+  if (rows.length === 0) return rows;
+  for (const row of rows) {
+    if (typeof row.sequence !== "number" || !Number.isFinite(row.sequence)) {
+      return null;
+    }
+  }
+  return [...rows].sort((a, b) => {
+    if (a.sequence! !== b.sequence!) return a.sequence! - b.sequence!;
+    if (a.id === b.id) return 0;
+    return a.id < b.id ? -1 : 1;
+  });
+};
+
+/**
  * Insert rows the phone has never rendered into their canonical desktop slots
  * without re-sorting rows already on screen.
  *
@@ -648,8 +682,11 @@ export const mergeMessagesById = (
   const unseen = unseenIds
     .map((id) => byId.get(id))
     .filter((message): message is ChatMessage => Boolean(message));
+  const rederived = chatOrderingRederiveEnabled()
+    ? rederiveBySequence([...retained, ...unseen])
+    : null;
   const merged = collapseLinkedDuplicates(
-    insertNewRowsCanonically(retained, unseen),
+    rederived ?? insertNewRowsCanonically(retained, unseen),
   );
   return sameMessageSequence(current, merged) ? current : merged;
 };

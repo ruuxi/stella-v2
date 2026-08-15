@@ -45,7 +45,7 @@ const work = [
 const included = [
   "Open source",
   "Local-first desktop app",
-  "Mac and Windows",
+  "Mac, Windows, and Linux",
   "Bring your own AI models",
 ];
 

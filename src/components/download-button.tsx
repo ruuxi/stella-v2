@@ -31,6 +31,20 @@ function WindowsIcon({ size = 18 }: { size?: number }) {
   );
 }
 
+function LinuxIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+    >
+      <path d="M12 2c-1.9 0-3.2 1.6-3.2 3.9 0 1.2.3 2.2.3 3.1 0 .9-.6 1.6-1.4 2.7-.9 1.2-2 2.6-2 4.6 0 .5.1.9.3 1.2-.3.3-.5.7-.5 1.2 0 .8.6 1.3 1.4 1.6.8.3 1.8.4 2.7.9.8.5 1.6.9 2.4.9s1.6-.4 2.4-.9c.9-.5 1.9-.6 2.7-.9.8-.3 1.4-.8 1.4-1.6 0-.5-.2-.9-.5-1.2.2-.3.3-.7.3-1.2 0-2-1.1-3.4-2-4.6-.8-1.1-1.4-1.8-1.4-2.7 0-.9.3-1.9.3-3.1C15.2 3.6 13.9 2 12 2zm-1.5 4c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zm3 0c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zM12 9.2c.9 0 1.9.5 1.9 1 0 .3-.4.5-.9.8-.4.2-.7.5-1 .5s-.6-.3-1-.5c-.5-.3-.9-.5-.9-.8 0-.5 1-1 1.9-1z" />
+    </svg>
+  );
+}
+
 const DOWNLOADS = {
   macArm64:
     "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-darwin-arm64.dmg",
@@ -38,14 +52,19 @@ const DOWNLOADS = {
     "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-darwin-x64.dmg",
   windows:
     "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella.exe",
+  // Linux x64 AppImage. Goes live with the first Linux desktop release; the
+  // desktop pipeline publishes this stable alias, so the URL may 404 until then.
+  linux:
+    "https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/desktop-v2/stable/Stella-linux-x64.AppImage",
 } as const;
 
-type Platform = "macArm64" | "macX64" | "windows";
+type Platform = "macArm64" | "macX64" | "windows" | "linux";
 
 const ariaLabels: Record<Platform, string> = {
   macArm64: "Download for Mac",
   macX64: "Download for Mac",
   windows: "Download for Windows",
+  linux: "Download for Linux (AppImage)",
 };
 
 type NavigatorUAData = {
@@ -61,9 +80,18 @@ function subscribeNoop() {
 
 function detectPlatform(): Platform {
   if (typeof navigator === "undefined") return "macArm64";
-  return navigator.userAgent.toLowerCase().includes("mac")
-    ? "macArm64"
-    : "windows";
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes("mac")) return "macArm64";
+  // Desktop Linux only: exclude Android (and ChromeOS), which report "linux"
+  // in the userAgent but should keep their existing mobile/generic path.
+  if (
+    ua.includes("linux") &&
+    !ua.includes("android") &&
+    !ua.includes("cros")
+  ) {
+    return "linux";
+  }
+  return "windows";
 }
 
 export function DownloadButton() {
@@ -110,7 +138,12 @@ export function DownloadButton() {
     reportGoogleAdsDownload(DOWNLOADS[resolvedPlatform]);
   }
 
-  const isMac = resolvedPlatform !== "windows";
+  const PlatformIcon =
+    resolvedPlatform === "windows"
+      ? WindowsIcon
+      : resolvedPlatform === "linux"
+        ? LinuxIcon
+        : AppleIcon;
 
   return (
     <button
@@ -121,7 +154,7 @@ export function DownloadButton() {
       title={ariaLabels[resolvedPlatform]}
     >
       Download Stella
-      {isMac ? <AppleIcon size={18} /> : <WindowsIcon size={18} />}
+      <PlatformIcon size={18} />
     </button>
   );
 }

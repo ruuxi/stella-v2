@@ -20,7 +20,7 @@ import type {
 } from "../agent-runtime.js";
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
-import type { LocalContextEvent } from "../local-history.js";
+import type { LocalContextEvent } from "../storage/shared.js";
 import type {
   FashionToolApi,
   ScheduleToolApi,

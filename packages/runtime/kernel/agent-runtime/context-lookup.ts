@@ -11,7 +11,7 @@ import type {
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { HostAppBrowserContextSnapshot } from "@stella/contracts/protocol";
-import type { LocalContextEvent } from "../local-history.js";
+import type { LocalContextEvent } from "../storage/shared.js";
 import { readOptionalTextFile } from "../shared/read-optional-text-file.js";
 import {
   sanitizePromptContext,

@@ -128,6 +128,24 @@ jobs:
         shell: pwsh
         run: rustup target add x86_64-pc-windows-msvc
 
+      # parakeet_cpp_transcriber.exe (local on-device dictation) is built with
+      # cmake + MSVC from parakeet.cpp. The windows-latest runner already ships
+      # cmake, git, and the VS Build Tools, but the MSVC dev environment
+      # (cl.exe, INCLUDE/LIB) must be activated on PATH for the toolchain to be
+      # picked up consistently. Set up x64.
+      - name: Set up MSVC developer environment (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Verify Windows build toolchain (cmake + git + MSVC)
+        shell: pwsh
+        run: |
+          cmake --version
+          git --version
+          Get-Command cl -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "cl: $($_.Source)" }
+
+
       # dictation_bridge.exe does keyboard input synthesis (paste) and
       # stella-computer-helper.exe does window control — both look like
       # malware to Defender, which silently quarantines them. Disable every
@@ -178,6 +196,11 @@ jobs:
       - name: Build native helpers (Windows)
         shell: pwsh
         working-directory: packages/native
+        env:
+          # Enforce the on-device dictation helper in CI: build.ps1 hard-fails
+          # (instead of silently skipping) if parakeet_cpp_transcriber.exe does
+          # not build, so a missing helper can never silently ship again.
+          REQUIRE_PARAKEET_CPP: "1"
         run: powershell -ExecutionPolicy Bypass -File build.ps1
 
       - name: Snapshot Defender threat detections
@@ -210,7 +233,7 @@ jobs:
           # Hard-fail if Defender (or anything else) ate a binary the
           # build script said it produced; surface the regression in CI
           # rather than shipping a broken Windows tarball.
-          required=("window_info.exe" "window_text.exe" "selected_text.exe" "dictation_bridge.exe" "stella-computer-helper.exe" "meeting_capture.exe" "wakeword_listener.exe")
+          required=("window_info.exe" "window_text.exe" "selected_text.exe" "dictation_bridge.exe" "stella-computer-helper.exe" "meeting_capture.exe" "wakeword_listener.exe" "parakeet_cpp_transcriber.exe")
           missing=0
           for name in "${required[@]}"; do
             if [ ! -f "$OUT/$name" ]; then

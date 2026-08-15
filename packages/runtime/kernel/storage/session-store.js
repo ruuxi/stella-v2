@@ -2269,7 +2269,7 @@ export class SessionStore {
           {
             timestamp: row.timestamp,
             id: row._id,
-            ...(typeof row.sequence === "number"
+            ...(this.orderingBySequence && typeof row.sequence === "number"
               ? { sequence: row.sequence }
               : {}),
           },
@@ -2443,7 +2443,11 @@ export class SessionStore {
       CUTOFF_SCAN_BATCH_MAX,
       Math.max(CUTOFF_SCAN_BATCH_MIN, maxVisibleMessages * 2),
     );
-    let before = initialBefore;
+    // Resolve the external "load older" cursor's sequence up front (M1): under
+    // the flip its keyset must key on ordering_sequence, matching the
+    // sequence-ordered scan and fetchTimelineRows. Later iterations use
+    // `oldestScanned`, which already carries a resolved sequence from the SELECT.
+    let before = this.resolveCursorSequence(conversationId, initialBefore);
     let scanned = 0;
     let visible = 0;
     let oldestScanned = null;
@@ -2643,7 +2647,7 @@ export class SessionStore {
           {
             timestamp: message.timestamp,
             id: message._id,
-            ...(typeof message.sequence === "number"
+            ...(this.orderingBySequence && typeof message.sequence === "number"
               ? { sequence: message.sequence }
               : {}),
           },
@@ -2679,7 +2683,7 @@ export class SessionStore {
           {
             timestamp: message.timestamp,
             id: message._id,
-            ...(typeof message.sequence === "number"
+            ...(this.orderingBySequence && typeof message.sequence === "number"
               ? { sequence: message.sequence }
               : {}),
           },
@@ -2691,7 +2695,7 @@ export class SessionStore {
             {
               timestamp: event.timestamp,
               id: event._id,
-              ...(typeof event.sequence === "number"
+              ...(this.orderingBySequence && typeof event.sequence === "number"
                 ? { sequence: event.sequence }
                 : {}),
             },

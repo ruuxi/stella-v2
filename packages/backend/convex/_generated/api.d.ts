@@ -193,6 +193,7 @@ import type * as runtime_ai_retry from "../runtime_ai/retry.js";
 import type * as runtime_ai_sanitize_unicode from "../runtime_ai/sanitize_unicode.js";
 import type * as runtime_ai_simple_options from "../runtime_ai/simple_options.js";
 import type * as runtime_ai_stream from "../runtime_ai/stream.js";
+import type * as runtime_ai_tool_schema from "../runtime_ai/tool_schema.js";
 import type * as runtime_ai_transform_messages from "../runtime_ai/transform_messages.js";
 import type * as runtime_ai_types from "../runtime_ai/types.js";
 import type * as runtime_ai_usage from "../runtime_ai/usage.js";
@@ -432,6 +433,7 @@ declare const fullApi: ApiFromModules<{
   "runtime_ai/sanitize_unicode": typeof runtime_ai_sanitize_unicode;
   "runtime_ai/simple_options": typeof runtime_ai_simple_options;
   "runtime_ai/stream": typeof runtime_ai_stream;
+  "runtime_ai/tool_schema": typeof runtime_ai_tool_schema;
   "runtime_ai/transform_messages": typeof runtime_ai_transform_messages;
   "runtime_ai/types": typeof runtime_ai_types;
   "runtime_ai/usage": typeof runtime_ai_usage;

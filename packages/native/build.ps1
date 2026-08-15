@@ -172,6 +172,22 @@ function Build-ParakeetCpp {
         )
         [System.IO.File]::WriteAllText($backendHeader, $backendSource)
 
+        # MSVC only exposes M_PI from <cmath> when this opt-in is defined
+        # before any standard header. The pinned upstream sources use M_PI in
+        # exactly these two translation units.
+        foreach ($mathSourceRelative in @("src\fft.cpp", "src\mel_gpu.cpp")) {
+            $mathSourcePath = Join-Path $src $mathSourceRelative
+            $mathSource = [System.IO.File]::ReadAllText($mathSourcePath)
+            if (-not $mathSource.Contains("M_PI")) {
+                Fail-ParakeetCpp "$mathSourceRelative M_PI anchor not found" $log
+                return
+            }
+            [System.IO.File]::WriteAllText(
+                $mathSourcePath,
+                "#define _USE_MATH_DEFINES`n$mathSource"
+            )
+        }
+
         $stella = Join-Path $src "examples\stella"
         New-Item -ItemType Directory -Force -Path $stella | Out-Null
         Copy-Item -Force (Join-Path $PSScriptRoot "src\parakeet-cpp\main.cpp") (Join-Path $stella "main.cpp")

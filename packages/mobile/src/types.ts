@@ -47,6 +47,13 @@ export type MobileAgentWorkFileSection = {
   /** Section header — the agent's task description. */
   title: string;
   files: MobileDisplayPayload[];
+  /**
+   * Compact one-line excerpt of the agent's result (mirrors the desktop
+   * AgentCompletionCard's fileless summary). Rendered on the distinct
+   * completion card so a result-only completion still surfaces. Absent when the
+   * agent produced no result text or from older desktops.
+   */
+  summary?: string;
 };
 
 export type MobileOfficePreviewRef = {

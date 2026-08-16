@@ -49,13 +49,21 @@ export type MobileAgentWorkPayload = {
   agents?: MobileAgentWorkFileSection[];
 };
 
-/** One agent's completion files on the mobile agent-work card. */
+/** One agent's completion rollup on the mobile agent-completion card. */
 export type MobileAgentWorkFileSection = {
   agentId: string;
   /** Section header — the agent's task description (or group label). */
   title: string;
   /** Display payloads for the files this agent's completion(s) revealed. */
   files: DisplayPayload[];
+  /**
+   * Compact one-line excerpt of the agent's `result` text from its latest
+   * `agent-completed` rollup. Mirrors the desktop `AgentCompletionCard`
+   * fileless summary — mobile renders it on the distinct completion card so a
+   * result-only (no files) completion still surfaces. Absent when the agent
+   * produced no result text.
+   */
+  summary?: string;
 };
 
 /**
@@ -664,6 +672,59 @@ const buildAgentFilesById = (
   return files;
 };
 
+/** Cap for the fileless completion summary excerpt (whitespace-collapsed). */
+const AGENT_SUMMARY_EXCERPT_CAP = 200;
+
+/**
+ * Collapse an agent's result to a compact one-line plain-text excerpt for the
+ * card. Mobile renders it as plain Text (not Markdown), so block/inline markdown
+ * is reduced to text first (mirrors the desktop summary's inline reduction), and
+ * the cap counts code points so an emoji/astral char is never split into a `�`.
+ */
+const toAgentSummaryExcerpt = (result: string): string => {
+  const inline = result
+    .replace(/```[\s\S]*?```/g, " ") // fenced code blocks
+    .replace(/`([^`]*)`/g, "$1") // inline code -> text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // links/images -> label
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "") // heading markers
+    .replace(/^\s{0,3}>\s?/gm, "") // blockquote markers
+    .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/gm, "") // list markers
+    .replace(/(\*\*|__|\*|_|~~)/g, "") // emphasis
+    .replace(/\s+/g, " ")
+    .trim();
+  const points = [...inline];
+  if (points.length <= AGENT_SUMMARY_EXCERPT_CAP) return inline;
+  return `${points.slice(0, AGENT_SUMMARY_EXCERPT_CAP).join("").trimEnd()}…`;
+};
+
+/**
+ * Latest `agent-completed` result excerpt per agent — mirrors the desktop
+ * `agent-completion.ts` summary derivation so mobile's completion card can show
+ * a result-only completion. A re-run finishing without a result clears the
+ * older excerpt rather than leaving stale text on the newer completion.
+ */
+const buildAgentSummariesById = (
+  messages: readonly ArtifactMessageRecord[],
+): Map<string, string> => {
+  const completedAtByAgent = new Map<string, number>();
+  const summaries = new Map<string, string>();
+  for (const message of messages) {
+    for (const event of message.toolEvents) {
+      if (event.type !== "agent-completed") continue;
+      const payload = event.payload;
+      const agentId = trimmedString(payload?.agentId);
+      if (!payload || !agentId) continue;
+      const prev = completedAtByAgent.get(agentId);
+      if (prev !== undefined && event.timestamp < prev) continue;
+      completedAtByAgent.set(agentId, Math.max(prev ?? 0, event.timestamp));
+      const result = trimmedString(payload.result);
+      if (result) summaries.set(agentId, toAgentSummaryExcerpt(result));
+      else summaries.delete(agentId);
+    }
+  }
+  return summaries;
+};
+
 /**
  * Stable identity for a turn's agent-work card. Agent ids are discovered over
  * time, so keying by the whole set (`agent-work:a,b`) replaced the already
@@ -687,6 +748,7 @@ const deriveAgentWorkPayload = (
   settledAtMsById: ReadonlyMap<string, number>,
   nowMs: number,
   filesByAgentId: ReadonlyMap<string, DisplayPayload[]> = new Map(),
+  summariesByAgentId: ReadonlyMap<string, string> = new Map(),
 ): { id: string; payload: MobileAgentWorkPayload } | null => {
   const threadIds: string[] = [];
   const descriptions: Record<string, string> = {};
@@ -761,12 +823,16 @@ const deriveAgentWorkPayload = (
   // any loose file artifacts left on the row are orchestrator-direct.
   const agents: MobileAgentWorkFileSection[] = [];
   for (const id of threadIds) {
-    const files = filesByAgentId.get(id);
-    if (!files || files.length === 0) continue;
+    const files = filesByAgentId.get(id) ?? [];
+    const summary = summariesByAgentId.get(id);
+    // A section exists once the agent's completion landed with EITHER files OR
+    // a result excerpt, so a result-only completion still gets a card section.
+    if (files.length === 0 && !summary) continue;
     agents.push({
       agentId: id,
       title: descriptions[id] || "Task",
       files,
+      ...(summary ? { summary } : {}),
     });
   }
 
@@ -1197,6 +1263,7 @@ export const buildMobileSyncMessages = (
   // Completion files resolve across the whole context so a fire-and-forget
   // agent completing on a later row still files onto its spawning row's card.
   const filesByAgentId = buildAgentFilesById(taskContextMessages, options);
+  const summaryByAgentId = buildAgentSummariesById(taskContextMessages);
   // TURN-level file-artifact consolidation. The store anchors tool events on
   // the assistant SEGMENT that preceded them, so a multi-segment turn (the
   // orchestrator streams text, runs tools, streams more text) would hang its
@@ -1260,6 +1327,7 @@ export const buildMobileSyncMessages = (
       settledAtMsById,
       nowMs,
       filesByAgentId,
+      summaryByAgentId,
     );
     // Background tasks spawned by this turn (collected into the activity tray).
     const tasks = deriveMobileTasksForMessage(message, tasksById);

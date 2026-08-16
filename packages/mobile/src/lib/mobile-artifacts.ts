@@ -119,6 +119,8 @@ export const isMobileDisplayPayload = (
                 isRecord(section) &&
                 isString(section.agentId) &&
                 typeof section.title === "string" &&
+                (section.summary === undefined ||
+                  typeof section.summary === "string") &&
                 Array.isArray(section.files) &&
                 section.files.every(isMobileDisplayPayload),
             )))

@@ -1411,8 +1411,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
                   key={card.key}
                   payload={card.payload}
                   colors={colors}
-                  {...(card.sections.length > 0 && onOpenArtifact
-                    ? { sections: card.sections, onOpenArtifact }
+                  {...(card.sections.length > 0
+                    ? {
+                        sections: card.sections,
+                        ...(onOpenArtifact ? { onOpenArtifact } : {}),
+                      }
                     : {})}
                 />
               ));
@@ -1436,8 +1439,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 key={artifact.id}
                 payload={artifact.payload}
                 colors={colors}
-                {...(sections.length > 0 && onOpenArtifact
-                  ? { sections, onOpenArtifact }
+                {...(sections.length > 0
+                  ? {
+                      sections,
+                      ...(onOpenArtifact ? { onOpenArtifact } : {}),
+                    }
                   : {})}
               />,
             ];

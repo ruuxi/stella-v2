@@ -133,6 +133,9 @@ export type AgentWorkCardSection = {
    *  title already names the work). */
   title?: string;
   files: ChatArtifact[];
+  /** Compact result excerpt for a fileless/textual completion (desktop parity:
+   *  the AgentCompletionCard's summary). */
+  summary?: string;
 };
 
 /**
@@ -149,7 +152,9 @@ export const agentWorkCardSections = (
   if (agents === undefined) return null;
   const sections: AgentWorkCardSection[] = [];
   for (const agent of agents) {
-    if (agent.files.length === 0) continue;
+    // Keep a section when it has files OR a result excerpt: a result-only
+    // (fileless) completion still surfaces its summary, matching desktop.
+    if (agent.files.length === 0 && !agent.summary) continue;
     sections.push({
       key: `${artifact.id}:${agent.agentId}`,
       agentId: agent.agentId,
@@ -159,6 +164,7 @@ export const agentWorkCardSections = (
         conversationId: artifact.conversationId,
         payload: file,
       })),
+      ...(agent.summary ? { summary: agent.summary } : {}),
     });
   }
   return sections;

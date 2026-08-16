@@ -50,10 +50,14 @@ export function AgentWorkCard({
   const translateY = useRef(new Animated.Value(3)).current;
   const [pillsExpanded, setPillsExpanded] = useState(false);
   const running = payload.state === "running";
-  const fileSections =
-    onOpenArtifact && sections
-      ? sections.filter((section) => section.files.length > 0)
-      : [];
+  // Render a section when it has openable files OR a result excerpt — the
+  // fileless summary is the mobile analogue of the desktop AgentCompletionCard's
+  // result line, so a result-only completion still surfaces.
+  const fileSections = (sections ?? []).filter(
+    (section) =>
+      (onOpenArtifact && section.files.length > 0) ||
+      (section.summary?.length ?? 0) > 0,
+  );
   // Section headers earn their space only when the card carries several
   // agents' files — a single group is already named by the card title.
   const showSectionTitles = fileSections.length > 1;
@@ -105,8 +109,10 @@ export function AgentWorkCard({
           </Text>
         </View>
       </View>
-      {fileSections.length > 0 && onOpenArtifact
+      {fileSections.length > 0
         ? fileSections.map((section) => {
+            const showPills =
+              Boolean(onOpenArtifact) && section.files.length > 0;
             const visiblePills =
               pillsExpanded || section.files.length <= PILL_CAP
                 ? section.files
@@ -123,6 +129,19 @@ export function AgentWorkCard({
                     {section.title}
                   </Text>
                 ) : null}
+                {section.summary && !showPills ? (
+                  // Desktop parity: the result excerpt is a stand-in shown ONLY
+                  // for a fileless completion; when files are present the pills
+                  // carry the completion and the summary is suppressed.
+                  <Text
+                    style={styles.summary}
+                    numberOfLines={4}
+                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                  >
+                    {section.summary}
+                  </Text>
+                ) : null}
+                {showPills ? (
                 <View
                   style={[
                     styles.pills,
@@ -136,7 +155,7 @@ export function AgentWorkCard({
                       key={artifact.id}
                       accessibilityRole="button"
                       accessibilityLabel={`Open ${artifactTitle(artifact.payload)}`}
-                      onPress={() => onOpenArtifact(artifact)}
+                      onPress={() => onOpenArtifact?.(artifact)}
                       style={({ pressed }) => [
                         styles.pill,
                         pressed ? styles.pillPressed : null,
@@ -175,6 +194,7 @@ export function AgentWorkCard({
                     </Pressable>
                   ) : null}
                 </View>
+                ) : null}
               </View>
             );
           })
@@ -210,6 +230,14 @@ const makeStyles = (colors: Colors) =>
       fontSize: 11.5,
       letterSpacing: 0.1,
       marginTop: 8,
+    },
+    summary: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 12.5,
+      lineHeight: 17,
+      letterSpacing: -0.1,
+      marginTop: 6,
     },
     pills: {
       flexDirection: "row",

@@ -2083,6 +2083,57 @@ export async function sendDesktopBridgeChat({
       return false;
     }
 
+    if (
+      event.type === "agent-completed" ||
+      event.type === "agent-failed" ||
+      event.type === "agent-canceled"
+    ) {
+      // Flip the running agent-work card to its finished ("done") copy LIVE,
+      // instead of leaving it spinning until the next transcript sync. The
+      // mobile agent-work card in `done` state is the analogue of the desktop
+      // AgentCompletionCard, so this makes the completion card appear on mobile
+      // the moment the agent finishes — matching desktop. The next sync fills in
+      // the per-agent files/result rollup; here we only settle the state.
+      const agentId = asString(event.agentId).trim();
+      if (agentId) {
+        const id = agentWorkArtifactId([agentId]);
+        let base = artifactById.get(id);
+        if (!base) {
+          for (const existing of artifactById.values()) {
+            const ids = agentIdsOf(existing);
+            if (ids?.has(agentId)) {
+              base = existing;
+              break;
+            }
+          }
+        }
+        const basePayload =
+          base && base.payload.kind === "agent-work" ? base.payload : null;
+        const total = basePayload?.total ?? 1;
+        mergeArtifacts([
+          {
+            id,
+            conversationId,
+            payload: {
+              kind: "agent-work",
+              state: "done",
+              agentIds: basePayload?.agentIds ?? [agentId],
+              total,
+              completed: total,
+              title:
+                basePayload?.title ||
+                asString(event.description).trim() ||
+                "Background work",
+              subtitle: basePayload?.subtitle ?? "",
+              createdAt: basePayload?.createdAt ?? Date.now(),
+              ...(basePayload?.agents ? { agents: basePayload.agents } : {}),
+            },
+          },
+        ]);
+      }
+      return false;
+    }
+
     if (event.type === "stream") {
       const chunk = asString(event.chunk);
       if (chunk) {

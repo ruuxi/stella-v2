@@ -83,6 +83,24 @@ export type StellaBrowserExportedCookie = {
   [key: string]: unknown;
 };
 
+/**
+ * A single real-browser cookie change pushed in real time by the extension.
+ * `removed` distinguishes a deletion from a set; `cookie` carries the same shape
+ * as an exported cookie.
+ */
+export type StellaBrowserCookieChange = {
+  removed?: boolean;
+  cause?: string;
+  cookie?: StellaBrowserExportedCookie;
+};
+
+/** An unsolicited event object pushed over the bridge subscription. */
+export type StellaBrowserBridgeEvent = {
+  event?: string;
+  changes?: StellaBrowserCookieChange[];
+  [key: string]: unknown;
+};
+
 type ManagedTab = {
   id: string;
   ownerId: string;
@@ -116,6 +134,16 @@ type InAppBrowserServiceOptions = {
   exportCookiesForUrls?: (
     urls: string[],
   ) => Promise<StellaBrowserExportedCookie[]>;
+  /**
+   * Subscribe to real-time cookie-change events pushed by the extension. The
+   * returned function unsubscribes. When present, this is the PRIMARY freshness
+   * mechanism; the periodic reconcile below is only a backstop for events
+   * missed while the extension's service worker was asleep or the subscription
+   * was reconnecting.
+   */
+  subscribeCookieEvents?: (
+    onEvent: (event: StellaBrowserBridgeEvent) => void,
+  ) => () => void;
   onStateChanged?: (state: BrowserViewState) => void;
   connectionTimeoutMs?: number;
   connectionPollMs?: number;
@@ -293,6 +321,8 @@ export class InAppBrowserService {
   private cookieMirrorTimer: ReturnType<typeof setTimeout> | null = null;
   /** Timestamp (ms) of the last completed reseed, for navigation throttling. */
   private lastReseedAt = 0;
+  /** Disposer for the real-time cookie-event subscription (primary path). */
+  private cookieEventUnsubscribe: (() => void) | null = null;
   private pendingPartitionedCookies: StellaBrowserExportedCookie[] = [];
   private connectionError: string | undefined;
 
@@ -426,9 +456,11 @@ export class InAppBrowserService {
       this.hasSeededOnce = true;
       this.lastReseedAt = Date.now();
       this.updateConnection("connected");
-      // Freshness from here on is owned by the continuous mirror, not by a
-      // one-shot latch: the in-app store is refreshed on a cadence and on
-      // navigation so new logins / rotated tokens in the real browser propagate.
+      // Freshness from here on is real-time: the extension pushes every cookie
+      // change and we apply it immediately (startCookieEventSubscription). The
+      // periodic mirror is only a lightweight backstop for changes missed while
+      // the extension's service worker slept or the subscription reconnected.
+      this.startCookieEventSubscription();
       this.startCookieMirror();
     } catch (error) {
       this.updateConnection("disconnected", errorMessage(error));
@@ -781,6 +813,7 @@ export class InAppBrowserService {
     this.disposed = true;
     this.visible = false;
     this.stopCookieMirror();
+    this.stopCookieEventSubscription();
     this.detachAttachedView();
     for (const tab of [...this.tabs.values()]) {
       this.closeTabInternal(tab.id, tab.ownerId);
@@ -1035,6 +1068,120 @@ export class InAppBrowserService {
       DEFAULT_NAVIGATION_RESEED_THROTTLE_MS;
     if (Date.now() - this.lastReseedAt < throttleMs) return;
     void this.reseedFromExtension().catch(() => {});
+  }
+
+  /**
+   * Start the real-time cookie-event subscription (primary freshness path).
+   * Idempotent; no-op if already running, disposed, or the option is absent.
+   */
+  private startCookieEventSubscription() {
+    if (
+      this.cookieEventUnsubscribe ||
+      this.disposed ||
+      !this.options.subscribeCookieEvents
+    ) {
+      return;
+    }
+    this.cookieEventUnsubscribe = this.options.subscribeCookieEvents(
+      (event) => {
+        void this.handleCookieEvent(event).catch(() => {});
+      },
+    );
+  }
+
+  private stopCookieEventSubscription() {
+    if (this.cookieEventUnsubscribe) {
+      try {
+        this.cookieEventUnsubscribe();
+      } catch {
+        // A best-effort unsubscribe must not throw out of dispose().
+      }
+      this.cookieEventUnsubscribe = null;
+    }
+  }
+
+  /**
+   * Handle one pushed bridge event. `cookies_changed` applies each change to the
+   * in-app session immediately; `events_lagged` means the extension outran the
+   * broadcast buffer, so we full-reconcile to catch up.
+   */
+  private async handleCookieEvent(
+    event: StellaBrowserBridgeEvent,
+  ): Promise<void> {
+    if (this.disposed || !this.browserSession) return;
+    const kind = typeof event.event === "string" ? event.event : "";
+    if (kind === "events_lagged") {
+      await this.reseedFromExtension();
+      return;
+    }
+    if (kind !== "cookies_changed") return;
+    const changes = Array.isArray(event.changes) ? event.changes : [];
+    // Apply in order: an overwrite arrives as remove(old) then set(new), so
+    // preserving order keeps the final value correct.
+    for (const change of changes) {
+      if (this.disposed || !this.browserSession) return;
+      await this.applyCookieChange(change);
+    }
+  }
+
+  /**
+   * Apply a single real-browser cookie change to the in-app session. Writes only
+   * to `this.browserSession` (the in-app profile). Mirrors seedCookies' rules:
+   * partitioned cookies are skipped here (applied per-tab via CDP), and a live
+   * trust-critical managed cookie is never clobbered by a mid-rotation copy.
+   */
+  private async applyCookieChange(
+    change: StellaBrowserCookieChange,
+  ): Promise<void> {
+    const session = this.browserSession;
+    if (!session) return;
+    const cookie = change?.cookie;
+    if (!cookie || !cookie.name) return;
+    const url = cookieUrl(cookie);
+    if (!url) return;
+    if (cookie.partitionKey?.topLevelSite) return;
+
+    if (change.removed) {
+      try {
+        await session.cookies.remove(url, cookie.name);
+      } catch {
+        // Removal is best-effort; the periodic reconcile is the backstop.
+      }
+      return;
+    }
+
+    if (isTrustCriticalCookieName(cookie.name)) {
+      try {
+        const existingForName = await session.cookies.get({
+          url,
+          name: cookie.name,
+        });
+        const existing = existingForName.find(
+          (candidate) => candidate.name === cookie.name,
+        );
+        if (shouldPreserveExistingCookie(existing, cookie)) return;
+      } catch {
+        // If we can't read the existing cookie, fall through and set it.
+      }
+    }
+
+    try {
+      await session.cookies.set({
+        url,
+        name: cookie.name,
+        value: cookie.value,
+        ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
+        path: cookie.path || "/",
+        secure: cookie.secure,
+        httpOnly: cookie.httpOnly,
+        sameSite: cookie.sameSite,
+        ...(!cookie.session && typeof cookie.expirationDate === "number"
+          ? { expirationDate: cookie.expirationDate }
+          : {}),
+      });
+    } catch {
+      // A single failed cookie must not stop the stream; reconcile recovers it.
+    }
   }
 
   private async applyPendingPartitionedCookies(tab: ManagedTab) {

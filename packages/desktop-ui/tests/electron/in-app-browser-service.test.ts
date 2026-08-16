@@ -117,9 +117,13 @@ const createHarness = (
   const root = path.join(os.tmpdir(), `stella-browser-test-${Date.now()}`);
   const views: FakeView[] = [];
   const cookieSet = vi.fn(async () => undefined);
+  const cookieRemove = vi.fn(async () => undefined);
+  const cookieGet = vi.fn(async () => [] as unknown[]);
   const fakeSession = {
     cookies: {
       set: cookieSet,
+      remove: cookieRemove,
+      get: cookieGet,
       flushStore: vi.fn(async () => undefined),
     },
     flushStorageData: vi.fn(),
@@ -180,6 +184,15 @@ const createHarness = (
     async (): Promise<StellaBrowserExportedCookie[]> => [],
   );
   const wait = vi.fn(async () => undefined);
+  let cookieEventListener: ((event: Record<string, unknown>) => void) | null =
+    null;
+  const cookieUnsubscribe = vi.fn();
+  const subscribeCookieEvents = vi.fn(
+    (onEvent: (event: Record<string, unknown>) => void) => {
+      cookieEventListener = onEvent;
+      return cookieUnsubscribe;
+    },
+  );
   const service = new InAppBrowserService({
     stellaDataDir: root,
     getWindow: () => fakeWindow as never,
@@ -187,6 +200,7 @@ const createHarness = (
     openExtensionStore,
     getExtensionStatus: status,
     exportAllCookies,
+    subscribeCookieEvents,
     exportCookiesForUrls,
     onStateChanged,
     resolveProfile: async () => ({
@@ -228,6 +242,16 @@ const createHarness = (
     views,
     fakeSession,
     cookieSet,
+    cookieRemove,
+    cookieGet,
+    subscribeCookieEvents,
+    cookieUnsubscribe,
+    emitCookieEvent: (event: Record<string, unknown>) => {
+      if (!cookieEventListener) {
+        throw new Error("No cookie-event subscriber is registered.");
+      }
+      cookieEventListener(event);
+    },
     fakeWindow,
     addChildView: fakeWindow.addChildView,
     removeChildView: fakeWindow.removeChildView,
@@ -393,6 +417,105 @@ describe("InAppBrowserService", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("applies a pushed cookie set to the in-app session in real time", async () => {
+    const harness = createHarness(async () => true);
+    await harness.service.connect();
+    expect(harness.subscribeCookieEvents).toHaveBeenCalledOnce();
+    const setsAfterSeed = harness.cookieSet.mock.calls.length;
+
+    harness.emitCookieEvent({
+      event: "cookies_changed",
+      changes: [
+        {
+          removed: false,
+          cause: "explicit",
+          cookie: {
+            name: "sid",
+            value: "fresh",
+            domain: "app.example.com",
+            path: "/",
+            secure: true,
+            httpOnly: true,
+            hostOnly: true,
+            session: false,
+            storeId: "0",
+            sameSite: "lax",
+            expirationDate: 2_000_000_000,
+          },
+        },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(harness.cookieSet.mock.calls.length).toBeGreaterThan(
+        setsAfterSeed,
+      );
+    });
+    expect(harness.cookieSet).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        url: "https://app.example.com/",
+        name: "sid",
+        value: "fresh",
+      }),
+    );
+    // A pushed set must NOT trigger a full re-export; it applies directly.
+    expect(harness.exportAllCookies).toHaveBeenCalledOnce();
+  });
+
+  it("applies a pushed cookie removal in real time", async () => {
+    const harness = createHarness(async () => true);
+    await harness.service.connect();
+
+    harness.emitCookieEvent({
+      event: "cookies_changed",
+      changes: [
+        {
+          removed: true,
+          cause: "explicit",
+          cookie: {
+            name: "sid",
+            value: "",
+            domain: "app.example.com",
+            path: "/",
+            secure: true,
+            httpOnly: true,
+            hostOnly: true,
+            session: false,
+            storeId: "0",
+            sameSite: "lax",
+          },
+        },
+      ],
+    });
+
+    await vi.waitFor(() => {
+      expect(harness.cookieRemove).toHaveBeenCalledWith(
+        "https://app.example.com/",
+        "sid",
+      );
+    });
+  });
+
+  it("full-reconciles when the extension reports it lagged", async () => {
+    const harness = createHarness(async () => true);
+    await harness.service.connect();
+    expect(harness.exportAllCookies).toHaveBeenCalledOnce();
+
+    harness.emitCookieEvent({ event: "events_lagged" });
+
+    await vi.waitFor(() => {
+      expect(harness.exportAllCookies.mock.calls.length).toBeGreaterThan(1);
+    });
+  });
+
+  it("unsubscribes from cookie events on dispose", async () => {
+    const harness = createHarness(async () => true);
+    await harness.service.connect();
+    expect(harness.cookieUnsubscribe).not.toHaveBeenCalled();
+    harness.service.dispose();
+    expect(harness.cookieUnsubscribe).toHaveBeenCalledOnce();
   });
 
   it("turns safe popups into managed tabs and forwards debugger events", async () => {

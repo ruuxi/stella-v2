@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot, Mutex, Notify};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex, Notify};
 use uuid::Uuid;
 
 /// Default port for the extension bridge TCP server.
@@ -93,6 +93,11 @@ struct BridgeInner {
     last_health_check: Instant,
 }
 
+/// Buffer of unsolicited events (e.g. cookie changes) held per subscriber. A
+/// subscriber that falls this far behind is told it lagged (so it can do a full
+/// reconcile) rather than stalling the bridge.
+const EVENT_BROADCAST_CAPACITY: usize = 256;
+
 #[derive(Clone)]
 pub struct ExtensionBridge {
     port: u16,
@@ -100,6 +105,10 @@ pub struct ExtensionBridge {
     inner: Arc<Mutex<BridgeInner>>,
     connected_notify: Arc<Notify>,
     shutdown_tx: Option<mpsc::Sender<()>>,
+    /// Fan-out of unsolicited extension events (cookie changes) to desktop
+    /// subscribers. Lives outside `inner` so subscribing never contends the
+    /// command-path mutex. Cloned into each accepted extension connection.
+    events_tx: broadcast::Sender<String>,
 }
 
 impl ExtensionBridge {
@@ -135,7 +144,16 @@ impl ExtensionBridge {
             })),
             connected_notify: Arc::new(Notify::new()),
             shutdown_tx: None,
+            events_tx: broadcast::channel(EVENT_BROADCAST_CAPACITY).0,
         }
+    }
+
+    /// Subscribe to unsolicited events the extension pushes (currently cookie
+    /// changes). Each caller gets an independent receiver. A receiver that lags
+    /// past the buffer drops the oldest events (surfaced as `RecvError::Lagged`)
+    /// instead of blocking the bridge — the desktop reacts by full-reconciling.
+    pub fn subscribe_events(&self) -> broadcast::Receiver<String> {
+        self.events_tx.subscribe()
     }
 
     /// Start the TCP server (native host connects from localhost). Returns a channel
@@ -195,6 +213,7 @@ impl ExtensionBridge {
         let connected_notify = self.connected_notify.clone();
         let token = self.token.clone();
         let session_str = session.to_string();
+        let events_tx = self.events_tx.clone();
 
         // Spawn the TCP accept loop (native messaging host connects to 127.0.0.1:port).
         tokio::spawn(async move {
@@ -213,6 +232,7 @@ impl ExtensionBridge {
                                 let token = token.clone();
                                 let session = session_str.clone();
                                 let disconnect_tx = disconnect_shutdown_tx.clone();
+                                let events = events_tx.clone();
 
                                 tokio::spawn(async move {
                                     handle_extension_connection(
@@ -222,6 +242,7 @@ impl ExtensionBridge {
                                         token,
                                         session,
                                         disconnect_tx,
+                                        events,
                                     ).await;
                                 });
                             }
@@ -572,6 +593,7 @@ async fn handle_extension_connection(
     expected_token: String,
     session: String,
     disconnect_shutdown_tx: mpsc::Sender<()>,
+    events_tx: broadcast::Sender<String>,
 ) {
     // Liveness-probe short-circuit: answer HTTP and bail before touching any
     // bridge state so probes never disturb an active native-host connection.
@@ -739,6 +761,16 @@ async fn handle_extension_connection(
                     let _ = pending.tx.send(response);
                 }
             }
+            "event" => {
+                // Unsolicited event pushed by the extension (e.g. a cookie
+                // change). Fan it out to desktop subscribers verbatim. No
+                // subscribers (send Err) or a lagging subscriber is not fatal to
+                // the bridge — the desktop full-reconciles on a lag notice.
+                if !authenticated {
+                    break;
+                }
+                let _ = events_tx.send(trimmed.to_string());
+            }
             _ => {}
         }
     }
@@ -898,6 +930,72 @@ mod tests {
             "protocolVersion": EXTENSION_PROTOCOL_VERSION,
         });
         assert_eq!(validate_extension_hello(&current).unwrap(), "1.2.6");
+    }
+
+    #[tokio::test]
+    async fn extension_event_message_is_broadcast_to_subscribers() {
+        use tokio::io::AsyncWriteExt;
+
+        // A real loopback socket exercises the full accept → parse → broadcast
+        // path (handle_extension_connection peeks the stream, so a plain duplex
+        // pipe would not do). No discovery files are written — only start()
+        // touches the filesystem, which we deliberately do not call here.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback");
+        let addr = listener.local_addr().expect("local addr");
+
+        let inner = test_inner();
+        let notify = Arc::new(Notify::new());
+        let (disconnect_tx, _disconnect_rx) = mpsc::channel::<()>(1);
+        let (events_tx, mut events_rx) = broadcast::channel::<String>(16);
+
+        let server = {
+            let inner = inner.clone();
+            let notify = notify.clone();
+            let events_tx = events_tx.clone();
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.expect("accept");
+                handle_extension_connection(
+                    stream,
+                    inner,
+                    notify,
+                    String::new(), // empty token disables auth in tests
+                    "test-session".to_string(),
+                    disconnect_tx,
+                    events_tx,
+                )
+                .await;
+            })
+        };
+
+        let mut client = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connect");
+        client
+            .write_all(
+                b"{\"type\":\"hello\",\"extensionVersion\":\"1.2.10\",\"protocolVersion\":\"2.0\"}\n",
+            )
+            .await
+            .expect("send hello");
+        client
+            .write_all(
+                b"{\"type\":\"event\",\"event\":\"cookies_changed\",\"changes\":[{\"removed\":false}]}\n",
+            )
+            .await
+            .expect("send event");
+
+        let received = tokio::time::timeout(Duration::from_secs(2), events_rx.recv())
+            .await
+            .expect("event should be broadcast before timeout")
+            .expect("broadcast recv ok");
+        assert!(
+            received.contains("cookies_changed"),
+            "unexpected broadcast payload: {received}"
+        );
+
+        drop(client);
+        let _ = tokio::time::timeout(Duration::from_secs(2), server).await;
     }
 
     #[tokio::test]

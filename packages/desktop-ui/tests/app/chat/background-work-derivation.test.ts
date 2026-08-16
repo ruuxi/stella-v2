@@ -3,8 +3,13 @@ import {
   derivePausedThreadIds,
   getBackgroundWork,
   getBackgroundWorks,
+  suppressReceiptsForRenderedCompletions,
 } from "@/features/chat/hooks/use-event-rows";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
+import type {
+  AssistantRowViewModel,
+  EventRowViewModel,
+} from "@/features/chat/conversation-row-types";
 
 /**
  * `agent-started` lifecycle event as persisted into a turn's `toolEvents`.
@@ -210,3 +215,144 @@ describe("derivePausedThreadIds — paused state for the inline cards", () => {
     expect(paused).toEqual(["thread-b"]);
   });
 });
+
+type BackgroundWork = NonNullable<AssistantRowViewModel["backgroundWork"]>;
+
+const receiptRow = (
+  id: string,
+  overrides: Partial<BackgroundWork> & Pick<BackgroundWork, "threadIds">,
+): AssistantRowViewModel => {
+  const threadIds = overrides.threadIds;
+  return {
+    kind: "assistant",
+    id,
+    text: "",
+    cacheKey: id,
+    backgroundWork: {
+      completedThreadIds: [],
+      descriptions: Object.fromEntries(threadIds.map((t) => [t, t])),
+      startEventIdsByThread: Object.fromEntries(
+        threadIds.map((t) => [t, `start:${t}`]),
+      ),
+      rootRunIdsByThread: {},
+      cardId: `agent-activity:${threadIds.map((t) => `start:${t}`).join("+")}`,
+      ...overrides,
+    },
+  };
+};
+
+const completionRow = (
+  id: string,
+  sections: { agentId: string; startEventId: string; title?: string }[],
+): AssistantRowViewModel => ({
+  kind: "assistant",
+  id,
+  text: "",
+  cacheKey: id,
+  agentCompletion: {
+    sections: sections.map((section) => ({
+      agentId: section.agentId,
+      title: section.title ?? "Cleanup",
+      completedAtMs: 100,
+      files: [],
+      startEventId: section.startEventId,
+    })),
+  },
+});
+
+describe("suppressReceiptsForRenderedCompletions", () => {
+  it("drops the settled spawn receipt when its completion card renders elsewhere", () => {
+    const rows: EventRowViewModel[] = [
+      receiptRow("spawn", {
+        threadIds: ["thread-a"],
+        completedThreadIds: ["thread-a"],
+      }),
+      completionRow("done", [
+        { agentId: "thread-a", startEventId: "start:thread-a" },
+      ]),
+    ];
+    const dropped = new Set<number>();
+    suppressReceiptsForRenderedCompletions(rows, dropped);
+    // The receipt-only row (index 0) is dropped; the completion card survives.
+    expect(dropped.has(0)).toBe(true);
+    expect(dropped.has(1)).toBe(false);
+  });
+
+  it("sheds only the background card when the receipt row carries other content", () => {
+    const spawn = receiptRow("spawn", {
+      threadIds: ["thread-a"],
+      completedThreadIds: ["thread-a"],
+    });
+    const rows: EventRowViewModel[] = [
+      { ...spawn, text: "Kicking that off now." },
+      completionRow("done", [
+        { agentId: "thread-a", startEventId: "start:thread-a" },
+      ]),
+    ];
+    const dropped = new Set<number>();
+    suppressReceiptsForRenderedCompletions(rows, dropped);
+    expect(dropped.size).toBe(0);
+    expect((rows[0] as AssistantRowViewModel).backgroundWork).toBeUndefined();
+    expect((rows[0] as AssistantRowViewModel).text).toBe("Kicking that off now.");
+  });
+
+  it("keeps a distinct same-title task's receipt (dedupes by occurrence id, not title)", () => {
+    const rows: EventRowViewModel[] = [
+      receiptRow("spawn", {
+        threadIds: ["thread-a"],
+        completedThreadIds: ["thread-a"],
+      }),
+      // A different task that happens to share the title, completed separately.
+      completionRow("done", [
+        { agentId: "thread-b", startEventId: "start:thread-b" },
+      ]),
+    ];
+    const dropped = new Set<number>();
+    suppressReceiptsForRenderedCompletions(rows, dropped);
+    expect(dropped.size).toBe(0);
+    expect(
+      (rows[0] as AssistantRowViewModel).backgroundWork?.threadIds,
+    ).toEqual(["thread-a"]);
+  });
+
+  it("keeps a running send_input re-run whose occurrence has not completed", () => {
+    const rerun = receiptRow("rerun", {
+      threadIds: ["thread-a"],
+      completedThreadIds: [], // the live re-run has NOT completed
+      startEventIdsByThread: { "thread-a": "start:rerun" },
+    });
+    const rows: EventRowViewModel[] = [
+      rerun,
+      // The completion card belongs to the EARLIER occurrence of the thread.
+      completionRow("done", [
+        { agentId: "thread-a", startEventId: "start:thread-a" },
+      ]),
+    ];
+    const dropped = new Set<number>();
+    suppressReceiptsForRenderedCompletions(rows, dropped);
+    expect(dropped.size).toBe(0);
+    expect(
+      (rows[0] as AssistantRowViewModel).backgroundWork?.threadIds,
+    ).toEqual(["thread-a"]);
+  });
+
+  it("removes only the completed thread from a multi-thread tally, leaving the rest running", () => {
+    const rows: EventRowViewModel[] = [
+      receiptRow("spawn", {
+        threadIds: ["thread-a", "thread-b"],
+        completedThreadIds: ["thread-a"],
+      }),
+      completionRow("done", [
+        { agentId: "thread-a", startEventId: "start:thread-a" },
+      ]),
+    ];
+    const dropped = new Set<number>();
+    suppressReceiptsForRenderedCompletions(rows, dropped);
+    expect(dropped.size).toBe(0);
+    const bw = (rows[0] as AssistantRowViewModel).backgroundWork;
+    expect(bw?.threadIds).toEqual(["thread-b"]);
+    expect(bw?.completedThreadIds).toEqual([]);
+    expect(bw?.startEventIdsByThread["thread-a"]).toBeUndefined();
+  });
+});
+

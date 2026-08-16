@@ -106,6 +106,7 @@ export const isMobileDisplayPayload = (
         isFiniteNumber(value.total) &&
         isFiniteNumber(value.completed) &&
         isFiniteNumber(value.createdAt) &&
+        (value.textOffset === undefined || isFiniteNumber(value.textOffset)) &&
         (value.agentIds === undefined ||
           (Array.isArray(value.agentIds) &&
             value.agentIds.every((id) => isString(id) && id.length > 0))) &&

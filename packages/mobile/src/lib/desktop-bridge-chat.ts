@@ -1860,6 +1860,13 @@ export async function sendDesktopBridgeChat({
   let activityStatusText: string | undefined;
   let activityStreamingText = false;
   let activityHasToolActivity = false;
+  // Total assistant text streamed so far this run (seq-gated, so a reconnect
+  // replay never double-counts). Captured onto an agent card at spawn as its
+  // `textOffset` — the character position in the reply where the tool/agent was
+  // kicked off — so mobile can render the card BETWEEN the pre-tool and post-tool
+  // text during streaming, holding its position like desktop instead of letting
+  // post-tool text push it below.
+  let streamedChars = 0;
 
   const emitActivity = () => {
     const lastEntry = [...activeToolCalls.entries()].at(-1);
@@ -2093,6 +2100,7 @@ export async function sendDesktopBridgeChat({
               title,
               subtitle: "Working in background",
               createdAt: existingCreatedAt ?? Date.now(),
+              textOffset: streamedChars,
             },
           },
         ]);
@@ -2143,6 +2151,9 @@ export async function sendDesktopBridgeChat({
                 "Background work",
               subtitle: basePayload?.subtitle ?? "",
               createdAt: basePayload?.createdAt ?? Date.now(),
+              ...(typeof basePayload?.textOffset === "number"
+                ? { textOffset: basePayload.textOffset }
+                : {}),
               ...(basePayload?.agents ? { agents: basePayload.agents } : {}),
             },
           },
@@ -2154,6 +2165,7 @@ export async function sendDesktopBridgeChat({
     if (event.type === "stream") {
       const chunk = asString(event.chunk);
       if (chunk) {
+        streamedChars += chunk.length;
         onTextDelta?.(chunk);
         // Mark the run as streaming answer text so the indicator steps aside,
         // and clear any lingering run-level status (mirrors the desktop

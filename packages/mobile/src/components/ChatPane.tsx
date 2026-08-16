@@ -1306,6 +1306,65 @@ const ChatMessageRow = memo(function ChatMessageRow({
     Boolean(onOpenArtifact) &&
     looseFiles.length > 0;
   const showArtifacts = showAgentWork || showMapArtifacts || showFileArtifacts;
+  // Live segmentation (desktop parity): a spawned agent card carries a bridge-
+  // stamped `textOffset` — the character position in the streaming reply where
+  // the agent/tool was kicked off. Render that single card BETWEEN the pre-tool
+  // and post-tool text so it holds its place during streaming instead of being
+  // pushed below the growing answer, matching desktop's segmented shape. Only
+  // the un-segmented live reply carries a textOffset; settled rows (already
+  // split into pre/post messages by sync) never do, so this never fires on them.
+  const inlineAgentCard = (() => {
+    if (!showAgentWork || !hasText || agentWorkArtifacts.length !== 1) {
+      return null;
+    }
+    const only = agentWorkArtifacts[0];
+    const p = only.payload;
+    if (
+      p.kind === "agent-work" &&
+      typeof p.textOffset === "number" &&
+      Number.isFinite(p.textOffset) &&
+      p.textOffset > 0 &&
+      p.textOffset < item.text.length
+    ) {
+      return { artifact: only, payload: p, offset: p.textOffset };
+    }
+    return null;
+  })();
+  // The agent-work list the artifact group renders — excludes any card shown
+  // inline above so it is never rendered twice.
+  const groupAgentWorkArtifacts = inlineAgentCard
+    ? agentWorkArtifacts.filter((a) => a !== inlineAgentCard.artifact)
+    : agentWorkArtifacts;
+  const renderAssistantMarkdown = (text: string) => (
+    // Press-and-hold a finished reply to enter native text selection —
+    // like holding text anywhere on the phone. Assistant messages never
+    // open the context menu (that's user-message only). The wrapping View
+    // in `AssistantMarkdown` lets this parent Pressable win the long-press
+    // while taps still reach inline links; code blocks keep their own
+    // native selection.
+    <Pressable
+      onLongPress={
+        isStreaming
+          ? undefined
+          : () => {
+              tapLight();
+              onStartSelecting(item.id);
+            }
+      }
+      // While another message is selecting, a tap here exits selection
+      // (taps otherwise pass through to inline links via the inner View).
+      onPress={anySelecting ? onEndSelecting : undefined}
+      delayLongPress={350}
+      accessibilityLabel="Press and hold to select this message"
+    >
+      <AssistantMarkdown
+        text={text}
+        colors={colors}
+        isStreaming={isStreaming}
+        onStellaFileLink={onOpenStellaFile}
+      />
+    </Pressable>
+  );
   return (
     <View style={styles.assistantRow}>
       {hasText ? (
@@ -1318,35 +1377,19 @@ const ChatMessageRow = memo(function ChatMessageRow({
             onAskStella={onAskStella}
             onDismiss={onEndSelecting}
           />
+        ) : inlineAgentCard ? (
+          <>
+            {renderAssistantMarkdown(item.text.slice(0, inlineAgentCard.offset))}
+            <View style={[styles.artifactGroup, styles.artifactGroupSpaced]}>
+              <AgentWorkCard
+                payload={inlineAgentCard.payload}
+                colors={colors}
+              />
+            </View>
+            {renderAssistantMarkdown(item.text.slice(inlineAgentCard.offset))}
+          </>
         ) : (
-          // Press-and-hold a finished reply to enter native text selection —
-          // like holding text anywhere on the phone. Assistant messages never
-          // open the context menu (that's user-message only). The wrapping View
-          // in `AssistantMarkdown` lets this parent Pressable win the long-press
-          // while taps still reach inline links; code blocks keep their own
-          // native selection.
-          <Pressable
-            onLongPress={
-              isStreaming
-                ? undefined
-                : () => {
-                    tapLight();
-                    onStartSelecting(item.id);
-                  }
-            }
-            // While another message is selecting, a tap here exits selection
-            // (taps otherwise pass through to inline links via the inner View).
-            onPress={anySelecting ? onEndSelecting : undefined}
-            delayLongPress={350}
-            accessibilityLabel="Press and hold to select this message"
-          >
-            <AssistantMarkdown
-              text={item.text}
-              colors={colors}
-              isStreaming={isStreaming}
-              onStellaFileLink={onOpenStellaFile}
-            />
-          </Pressable>
+          renderAssistantMarkdown(item.text)
         )
       ) : null}
       {toolActivity ? (
@@ -1356,7 +1399,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {agentWorkArtifacts.flatMap((artifact, index) => {
+          {groupAgentWorkArtifacts.flatMap((artifact, index) => {
             // Desktop posts a distinct completion card per finished agent. A
             // settled multi-agent group splits into one card per agent so each
             // completion reads as its own card instead of the sibling
@@ -1385,7 +1428,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
             const bridgeSections = inlineAgentWorkCardSections(artifact);
             const sections =
               bridgeSections ??
-              (showAgentFiles && index === agentWorkArtifacts.length - 1
+              (showAgentFiles && index === groupAgentWorkArtifacts.length - 1
                 ? [{ key: `${artifact.id}:files`, files: agentFiles }]
                 : []);
             return [

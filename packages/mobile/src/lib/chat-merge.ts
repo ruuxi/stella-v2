@@ -1,59 +1,110 @@
 import type { ChatArtifact, ChatMessage } from "../types";
 import { isStandInArtifactRow } from "./message-row-identity";
 
-const compareIds = (a: string, b: string): number =>
-  a === b ? 0 : a < b ? -1 : 1;
+type CanonicalOrder = { stamp: number; tie: string };
+
+const canonicalOrderOf = (message: ChatMessage): CanonicalOrder | null => {
+  const stamp = message.canonicalCreatedAt;
+  return typeof stamp === "number" && Number.isFinite(stamp)
+    ? { stamp, tie: message.canonicalId ?? message.id }
+    : null;
+};
+
+const compareCanonicalOrder = (a: CanonicalOrder, b: CanonicalOrder): number => {
+  if (a.stamp !== b.stamp) return a.stamp - b.stamp;
+  if (a.tie === b.tie) return 0;
+  return a.tie < b.tie ? -1 : 1;
+};
+
+const everyRowHasSequence = (rows: readonly ChatMessage[]): boolean => {
+  for (const row of rows) {
+    if (typeof row.sequence !== "number" || !Number.isFinite(row.sequence)) {
+      return false;
+    }
+  }
+  return true;
+};
 
 /**
- * Canonical re-derive of the whole transcript by the desktop's authoritative
- * monotonic `sequence`. This is the single ordering engine (the old insert-only
- * "durable sequence" is gone): a stable sequence + stable row identity make a
- * full re-derive jump-free, and an optimistic row snaps deterministically into
- * its authoritative slot the moment it reconciles and gains a sequence.
- *
- * Ordering rule:
- *  - Rows WITH a sequence order by it (id as a deterministic tiebreak).
- *  - Rows WITHOUT a sequence sort AFTER all sequenced rows. In steady state
- *    these are exactly the in-flight optimistic rows (no sequence until they
- *    reconcile), which belong at the tail — so they never jump mid-flight.
- *  - Among unsequenced rows, order by the first-seen desktop stamp
- *    (`canonicalCreatedAt`) when present, else the local `createdAt`, so a
- *    fully-unsequenced transcript (VERSION-SKEW FALLBACK: a peer desktop on an
- *    older build that never sends `sequence`) still degrades to a sane
- *    canonical/clock order instead of breaking. Array.prototype.sort is stable
- *    on Hermes/V8, so equal keys keep arrival order.
- *
- * The only imperfect case is a transient MIXED skew (some rows sequenced, some
- * not — e.g. right after a desktop upgrade mid-conversation): unsequenced older
- * rows are placed after sequenced ones until the next full hydration re-sends
- * every row with a sequence, at which point the order self-heals.
+ * Order the whole transcript by the desktop's authoritative monotonic
+ * `sequence`. Sorting by the stable sequence is jump-free, and an optimistic row
+ * snaps deterministically into its authoritative slot the moment it reconciles
+ * and gains a sequence. This is the steady-state path.
  */
-const rederiveOrder = (rows: ChatMessage[]): ChatMessage[] => {
-  if (rows.length <= 1) return rows;
-  const seqOf = (m: ChatMessage): number | null =>
-    typeof m.sequence === "number" && Number.isFinite(m.sequence)
-      ? m.sequence
-      : null;
-  const stampOf = (m: ChatMessage): number =>
-    typeof m.canonicalCreatedAt === "number" &&
-    Number.isFinite(m.canonicalCreatedAt)
-      ? m.canonicalCreatedAt
-      : typeof m.createdAt === "number" && Number.isFinite(m.createdAt)
-        ? m.createdAt
-        : Number.POSITIVE_INFINITY;
-  return [...rows].sort((a, b) => {
-    const sa = seqOf(a);
-    const sb = seqOf(b);
-    if (sa !== null && sb !== null) {
-      return sa !== sb ? sa - sb : compareIds(a.id, b.id);
-    }
-    if (sa !== null) return -1; // sequenced rows before unsequenced ones
-    if (sb !== null) return 1;
-    const ta = stampOf(a);
-    const tb = stampOf(b);
-    return ta !== tb ? ta - tb : compareIds(a.id, b.id);
+const orderBySequence = (rows: ChatMessage[]): ChatMessage[] =>
+  [...rows].sort((a, b) => {
+    if (a.sequence! !== b.sequence!) return a.sequence! - b.sequence!;
+    if (a.id === b.id) return 0;
+    return a.id < b.id ? -1 : 1;
   });
+
+/**
+ * SAFETY FALLBACK for rows that lack a sequence — the in-flight/optimistic
+ * window (a just-sent bubble has no sequence until it reconciles) and version
+ * skew (a peer desktop on an older build that never sends `sequence`). It slots
+ * only genuinely-new rows into their canonical `(canonicalCreatedAt,
+ * canonicalId)` position and NEVER re-sorts rows already on screen, so a
+ * locally-anchored row (whose phone clock may disagree with the desktop by
+ * minutes) can't invert above its neighbours — e.g. a linked reply can't render
+ * above its own unstamped user row. Once every row carries a sequence the
+ * transcript re-derives by sequence instead (see mergeMessagesById), so this
+ * path is the exception, not the norm.
+ */
+const insertNewRowsCanonically = (
+  current: ChatMessage[],
+  unseen: ChatMessage[],
+): ChatMessage[] => {
+  if (unseen.length === 0) return current;
+  const indexed = unseen.map((message, index) => ({
+    message,
+    index,
+    order: canonicalOrderOf(message),
+  }));
+  const ordered = indexed.every((entry) => entry.order)
+    ? [...indexed].sort(
+        (a, b) => compareCanonicalOrder(a.order!, b.order!) || a.index - b.index,
+      )
+    : indexed;
+  const out = [...current];
+  let afterPreviousInsert = 0;
+  for (const entry of ordered) {
+    if (!entry.order) {
+      out.push(entry.message);
+      afterPreviousInsert = out.length;
+      continue;
+    }
+    let insertAt = out.length;
+    for (let index = afterPreviousInsert; index < out.length; index += 1) {
+      const existingOrder = canonicalOrderOf(out[index]);
+      if (
+        existingOrder &&
+        compareCanonicalOrder(existingOrder, entry.order) > 0
+      ) {
+        insertAt = index;
+        break;
+      }
+    }
+    out.splice(insertAt, 0, entry.message);
+    afterPreviousInsert = insertAt + 1;
+  }
+  return out;
 };
+
+/**
+ * Order the merged transcript. Steady state (every row carries the desktop's
+ * authoritative `sequence`) sorts by that monotonic key — jump-free and
+ * clock-independent. When any row lacks a sequence (the optimistic window or
+ * version skew) it falls back to {@link insertNewRowsCanonically}, which places
+ * only new rows and never re-sorts visible ones, preserving the no-inversion
+ * invariant until sequences arrive and the sort converges.
+ */
+const rederiveOrder = (
+  retained: ChatMessage[],
+  unseen: ChatMessage[],
+): ChatMessage[] =>
+  everyRowHasSequence(retained) && everyRowHasSequence(unseen)
+    ? orderBySequence([...retained, ...unseen])
+    : insertNewRowsCanonically(retained, unseen);
 
 /**
  * The desktop-clock ordering stamp for a canonical row arriving off the
@@ -626,9 +677,7 @@ export const mergeMessagesById = (
   const unseen = unseenIds
     .map((id) => byId.get(id))
     .filter((message): message is ChatMessage => Boolean(message));
-  const merged = collapseLinkedDuplicates(
-    rederiveOrder([...retained, ...unseen]),
-  );
+  const merged = collapseLinkedDuplicates(rederiveOrder(retained, unseen));
   return sameMessageSequence(current, merged) ? current : merged;
 };
 

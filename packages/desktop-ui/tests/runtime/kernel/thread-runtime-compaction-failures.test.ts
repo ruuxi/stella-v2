@@ -456,4 +456,45 @@ describe("orchestrator thread compaction failure handling", () => {
       fs.rmSync(stellaDataDir, { recursive: true, force: true });
     }
   });
+
+  it("does not spuriously compact when the effective context fits the target model's window", async () => {
+    // Repro for the model-switch spurious-compaction bug. A conversation whose
+    // effective (post-checkpoint) context comfortably fits the target model
+    // must NOT trigger compaction. The trigger scales with the model's window,
+    // so a fitting thread only compacts when the resolved window is wrong
+    // (too small) — the measured size is the effective context, not an inflated
+    // raw count.
+    const effective = Array.from({ length: 20 }, (_, index) => ({
+      entryId: `eff-${index + 1}`,
+      timestamp: 1_000 + index,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `turn ${index} ${"x".repeat(10_000)}`,
+    })); // ~50k estimated tokens
+
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    // Real ~1M-window target: 0.7 x window dwarfs the ~50k effective size, so
+    // nothing compacts and no summary request is made.
+    const fits = await maybeCompactRuntimeThread({
+      store: createFakeStore(effective).store,
+      threadKey: "fits-large-window",
+      resolvedLlm: createRoute(async () => "auth-token", 1_000_000),
+      agentType: "orchestrator",
+    });
+    expect(fits).toEqual({ compacted: false });
+    expect(completeSimpleMock).not.toHaveBeenCalled();
+
+    // The very same thread on a wrongly-small window DOES cross the trigger —
+    // proving the resolved window, not an inflated size count, is what decides.
+    const { store, compactCalls } = createFakeStore(effective);
+    const wrongSmallWindow = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "fits-small-window",
+      resolvedLlm: createRoute(async () => "auth-token", 60_000),
+      agentType: "orchestrator",
+    });
+    expect(wrongSmallWindow).toEqual({ compacted: true });
+    expect(compactCalls).toHaveLength(1);
+    expect(completeSimpleMock).toHaveBeenCalled();
+  });
 });

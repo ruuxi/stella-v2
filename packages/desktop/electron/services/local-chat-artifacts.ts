@@ -690,6 +690,11 @@ const deriveAgentWorkPayload = (
 ): { id: string; payload: MobileAgentWorkPayload } | null => {
   const threadIds: string[] = [];
   const descriptions: Record<string, string> = {};
+  // Timestamp of the description currently stored per agent, so a later
+  // `send_input` re-activation (a steer) overwrites an earlier one — matching
+  // desktop `getBackgroundWork`, which reads the LATEST occurrence's label. A
+  // follow-up carries its title in `statusText`; a plain spawn in `description`.
+  const descriptionAtMs: Record<string, number> = {};
   const spawnedAtMs: Record<string, number> = {};
   let createdAt = 0;
 
@@ -700,9 +705,14 @@ const deriveAgentWorkPayload = (
     const agentId = trimmedString(payload.agentId);
     if (!agentId) continue;
     if (!threadIds.includes(agentId)) threadIds.push(agentId);
+    const isFollowUp = payload.isFollowUp === true;
     const description = trimmedString(payload.description);
-    if (description && !descriptions[agentId])
-      descriptions[agentId] = description;
+    const followUpLabel = trimmedString(payload.statusText);
+    const label = isFollowUp ? followUpLabel || description : description;
+    if (label && event.timestamp >= (descriptionAtMs[agentId] ?? -1)) {
+      descriptions[agentId] = label;
+      descriptionAtMs[agentId] = event.timestamp;
+    }
     if (event.timestamp > (spawnedAtMs[agentId] ?? 0)) {
       spawnedAtMs[agentId] = event.timestamp;
     }

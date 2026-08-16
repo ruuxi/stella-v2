@@ -469,6 +469,8 @@
       "use": "Use",
       "selected": "Selected",
       "refresh": "Refresh model catalog",
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "restrictedPlan": "Not available on the {plan} plan",
       "reasoning": {
         "label": "Reasoning effort",

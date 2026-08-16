@@ -457,6 +457,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "모델 검색…",
       "searchAriaLabel": "모델 검색",
       "closeSearch": "검색 닫기",
@@ -1237,6 +1239,7 @@
         "stopReading": "읽기 중지"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "첨부 파일",
         "attachmentFallback": "첨부 파일 {index}",
         "channelKind": {

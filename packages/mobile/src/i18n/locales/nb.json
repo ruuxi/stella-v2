@@ -458,6 +458,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Søk i modeller…",
       "searchAriaLabel": "Søk i modeller",
       "closeSearch": "Lukk søk",
@@ -1247,6 +1249,7 @@
         "stopReading": "Stopp opplesing"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Vedlegg",
         "attachmentFallback": "Vedlegg {index}",
         "channelKind": {

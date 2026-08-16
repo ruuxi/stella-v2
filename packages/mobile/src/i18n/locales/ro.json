@@ -459,6 +459,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Caută modele…",
       "searchAriaLabel": "Caută modele",
       "closeSearch": "Închide căutarea",
@@ -1257,6 +1259,7 @@
         "stopReading": "Oprește citirea"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Atașament",
         "attachmentFallback": "Atașament {index}",
         "channelKind": {

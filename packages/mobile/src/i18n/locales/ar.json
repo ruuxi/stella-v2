@@ -462,6 +462,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "ابحث في النماذج…",
       "searchAriaLabel": "البحث في النماذج",
       "closeSearch": "إغلاق البحث",
@@ -1287,6 +1289,7 @@
         "stopReading": "أوقف القراءة"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "مرفق",
         "attachmentFallback": "مرفق {index}",
         "channelKind": {

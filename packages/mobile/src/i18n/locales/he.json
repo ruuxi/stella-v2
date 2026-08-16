@@ -459,6 +459,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "חפש מודלים…",
       "searchAriaLabel": "חיפוש מודלים",
       "closeSearch": "סגור חיפוש",
@@ -1257,6 +1259,7 @@
         "stopReading": "הפסק הקראה"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "קובץ מצורף",
         "attachmentFallback": "קובץ מצורף {index}",
         "channelKind": {

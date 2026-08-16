@@ -930,16 +930,57 @@ export class SessionStore {
     this.db = db;
     this.options = options;
   }
+  #orderingBySequenceCache = null;
   /**
-   * ORDER BY fragment for a table (optional `alias`). Chat timeline ordering is
-   * always by the monotonic `ordering_sequence` (assigned to every row by the
-   * unconditional migration); `id` is a deterministic secondary that also keeps
-   * a defensive, never-expected NULL-sequence row stably placed.
+   * Whether chat timeline ordering keys on the monotonic `ordering_sequence`.
+   * There is NO feature flag — sequence ordering is the default. This is the
+   * SAFETY GATE for graceful degradation: it is true only when the column
+   * exists AND every row is backfilled. If the unconditional startup migration
+   * failed (disk/IO/busy) or is mid-backfill, the column is absent or has NULL
+   * rows, and the store transparently falls back to the legacy `(created_at,
+   * id)` ordering so queries keep working and no row is mis-placed/dropped —
+   * rather than emitting `ORDER BY ordering_sequence` against a missing column
+   * or a NULL that sorts to an end. Cached per store (the column only
+   * transitions absent→present→complete once, before the store serves queries).
+   */
+  get orderingBySequence() {
+    if (this.#orderingBySequenceCache === null) {
+      let ok = false;
+      try {
+        const cols = this.db.prepare("PRAGMA table_info(message);").all();
+        if (cols.some((col) => col.name === "ordering_sequence")) {
+          const nullRow = this.db
+            .prepare(
+              `SELECT 1 AS present FROM message WHERE ordering_sequence IS NULL LIMIT 1`,
+            )
+            .get();
+          ok = !nullRow;
+        }
+      } catch {
+        ok = false;
+      }
+      this.#orderingBySequenceCache = ok;
+    }
+    return this.#orderingBySequenceCache;
+  }
+  /** SELECT fragment adding `ordering_sequence AS sequence`, only when active. */
+  orderingSequenceSelect(alias) {
+    if (!this.orderingBySequence) return "";
+    const p = alias ? `${alias}.` : "";
+    return `, ${p}ordering_sequence AS sequence`;
+  }
+  /**
+   * ORDER BY fragment for a table (optional `alias`). Keys on the monotonic
+   * `ordering_sequence` in the steady state; falls back to the legacy
+   * `(created_at, id)` tuple when the sequence is unavailable/incomplete (see
+   * orderingBySequence).
    */
   timelineOrderBy(alias, direction) {
     const p = alias ? `${alias}.` : "";
     const dir = direction === "DESC" ? "DESC" : "ASC";
-    return `${p}ordering_sequence ${dir}, ${p}id ${dir}`;
+    return this.orderingBySequence
+      ? `${p}ordering_sequence ${dir}, ${p}id ${dir}`
+      : `${p}created_at ${dir}, ${p}id ${dir}`;
   }
   /**
    * Keyset comparison predicate for a table (optional `alias`) against a bound
@@ -954,6 +995,7 @@ export class SessionStore {
   timelineKeyset(alias, op, cursor) {
     const p = alias ? `${alias}.` : "";
     if (
+      this.orderingBySequence &&
       typeof cursor.sequence === "number" &&
       Number.isFinite(cursor.sequence)
     ) {
@@ -1556,7 +1598,7 @@ export class SessionStore {
     if (!eventId) return null;
     const row = this.db
       .prepare(
-        `SELECT id AS _id, created_at AS timestamp, ordering_sequence AS sequence
+        `SELECT id AS _id, created_at AS timestamp${this.orderingSequenceSelect("")}
            FROM message
           WHERE session_id = ? AND id = ?
           LIMIT 1`,
@@ -2225,7 +2267,7 @@ export class SessionStore {
           {
             timestamp: row.timestamp,
             id: row._id,
-            ...(typeof row.sequence === "number"
+            ...(this.orderingBySequence && typeof row.sequence === "number"
               ? { sequence: row.sequence }
               : {}),
           },
@@ -2421,7 +2463,7 @@ export class SessionStore {
       const rows = this.db
         .prepare(
           `
-        SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence, part.data_json AS payloadJson
+        SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}, part.data_json AS payloadJson
         FROM message
         LEFT JOIN part
           ON part.message_id = message.id
@@ -2501,7 +2543,7 @@ export class SessionStore {
     const sql = `
       SELECT
         message.id AS _id,
-        message.created_at AS timestamp, message.ordering_sequence AS sequence,
+        message.created_at AS timestamp${this.orderingSequenceSelect("message")},
         message.type AS type,
         message.device_id AS deviceId,
         message.request_id AS requestId,
@@ -2526,7 +2568,7 @@ export class SessionStore {
     const row = this.db
       .prepare(
         `
-      SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence
+      SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
@@ -2552,7 +2594,7 @@ export class SessionStore {
     const row = this.db
       .prepare(
         `
-      SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence
+      SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
@@ -2581,6 +2623,7 @@ export class SessionStore {
    */
   resolveCursorSequence(conversationId, cursor) {
     if (!cursor) return cursor;
+    if (!this.orderingBySequence) return cursor;
     if (typeof cursor.sequence === "number") return cursor;
     if (typeof cursor.id !== "string" || cursor.id.length === 0) return cursor;
     const row = this.db
@@ -2602,7 +2645,7 @@ export class SessionStore {
           {
             timestamp: message.timestamp,
             id: message._id,
-            ...(typeof message.sequence === "number"
+            ...(this.orderingBySequence && typeof message.sequence === "number"
               ? { sequence: message.sequence }
               : {}),
           },
@@ -2638,7 +2681,7 @@ export class SessionStore {
           {
             timestamp: message.timestamp,
             id: message._id,
-            ...(typeof message.sequence === "number"
+            ...(this.orderingBySequence && typeof message.sequence === "number"
               ? { sequence: message.sequence }
               : {}),
           },
@@ -2650,7 +2693,7 @@ export class SessionStore {
             {
               timestamp: event.timestamp,
               id: event._id,
-              ...(typeof event.sequence === "number"
+              ...(this.orderingBySequence && typeof event.sequence === "number"
                 ? { sequence: event.sequence }
                 : {}),
             },

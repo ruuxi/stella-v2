@@ -157,8 +157,17 @@ const backfillChunk = (db: SqliteDatabase, limit: number): number => {
 export const installChatOrderingSequence = (db: SqliteDatabase): void => {
   installSchema(db);
 
-  // Chunked bulk backfill under short, interleavable locks.
-  for (;;) {
+  // Chunked bulk backfill under short, interleavable locks. Bounded by the row
+  // count observed at the start (plus generous slack) so a pathological writer
+  // inserting NULL rows faster than a chunk drains them can never livelock the
+  // loop — whatever remains is finished by the final atomic step below, which
+  // holds the write lock and therefore blocks concurrent inserts to completion.
+  const totalRow = db
+    .prepare(`SELECT COUNT(*) AS n FROM message`)
+    .get() as { n?: number };
+  const total = typeof totalRow?.n === "number" ? totalRow.n : 0;
+  const maxChunks = Math.ceil(total / BACKFILL_CHUNK_SIZE) + 8;
+  for (let i = 0; i < maxChunks; i += 1) {
     const stamped = backfillChunk(db, BACKFILL_CHUNK_SIZE);
     if (stamped === 0) break;
   }

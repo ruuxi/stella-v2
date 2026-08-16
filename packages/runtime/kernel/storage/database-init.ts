@@ -502,12 +502,26 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   `);
 
   // Chat-ordering re-architecture: the dedicated, never-reused monotonic
-  // ordering key on `message` is now the default and only ordering key. The
-  // migration runs unconditionally — it is idempotent (a fully-migrated DB just
-  // re-checks the trigger), chunked/resumable so a large history never holds the
-  // write lock long or hangs launch, and order-preserving (existing rows keep
-  // their current (created_at, id) display order).
-  installChatOrderingSequence(db);
+  // ordering key on `message` is the default ordering key. The migration runs
+  // unconditionally — it is idempotent (a fully-migrated DB just re-checks the
+  // trigger), chunked/resumable so a large history never holds the write lock
+  // long or hangs launch, and order-preserving (existing rows keep their
+  // current (created_at, id) display order).
+  //
+  // Contained on the launch-critical path: a failure (SQLITE_BUSY past the
+  // busy_timeout, disk-full, IO error, an interrupted-migration UNIQUE) must
+  // NOT block desktop startup. On failure we log and continue with the column
+  // absent or partially backfilled; the store's `orderingBySequence` gate then
+  // transparently falls back to the legacy (created_at, id) ordering, and the
+  // resumable migration retries on the next launch.
+  try {
+    installChatOrderingSequence(db);
+  } catch (error) {
+    console.error(
+      "[stella:chat-ordering] sequence migration failed; falling back to legacy ordering this launch",
+      error,
+    );
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS part (

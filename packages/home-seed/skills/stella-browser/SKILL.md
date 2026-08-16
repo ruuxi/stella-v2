@@ -197,6 +197,20 @@ evaluate(pageFunction, arg?), waitFor(options?), allTextContents()
 
 Timeouts are non-negative milliseconds and are capped at 120 seconds unless a smaller `expectNewTab()` limit applies. Unknown option keys fail fast.
 
+## Not Logged In: Try the External Browser
+
+The default in-app browser has its own session and mirrors the user's signed-in cookies from their real browser, but that copy can be incomplete — sites that keep auth in localStorage/token storage, device-bound sessions, or partitioned cookies may still read as logged out even when the real browser is signed in.
+
+When a site loads but appears NOT logged in — redirected to a sign-in page, "session expired", an auth wall, or an action that fails only for lack of auth — attempt the user's real, signed-in browser before concluding the site is inaccessible:
+
+```js
+await browser.use("external"); // drive the user's real browser via the Stella Browser extension
+// retry the same navigation / action on that site
+await browser.use("in-app"); // switch back when the auth-gated step is done
+```
+
+This is a fallback to try, not a default. Keep using the in-app browser for normal work; reach for `external` only when missing auth actually blocks the task, then switch back with `browser.use("in-app")`. External mode needs the Stella Browser extension installed and connected — if it is unavailable, report that rather than assuming the site is down. This is distinct from a transport/bridge failure (below): use `external` only for a logged-out or auth-failed site on an otherwise-working browser.
+
 ## Transport Failures
 
 Do not fall back to shell commands or a visible Chrome/Brave browser when the frozen browser API reports a bridge or transport failure. Report the exact error and park the browser-dependent step; continue only work that does not require browser access. Do not promise automatic backend recovery, retries, or stale-tab cleanup; none is part of the frozen worker API contract.

@@ -120,6 +120,10 @@ type InAppBrowserServiceOptions = {
   connectionTimeoutMs?: number;
   connectionPollMs?: number;
   automaticConnectionTimeoutMs?: number;
+  /** Continuous cookie-mirror cadence (ms). Defaults to 60s; floored at 5s. */
+  cookieMirrorIntervalMs?: number;
+  /** Min gap between navigation-triggered cookie reseeds (ms). Defaults to 5s. */
+  navigationReseedThrottleMs?: number;
   profilePath?: string;
   resolveProfile?: typeof resolveBrowserProfileSelection;
   importProfile?: typeof importBrowserProfileSnapshot;
@@ -146,6 +150,21 @@ const DRAWABLE_CDP_METHODS = new Set([
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECTION_POLL_MS = 250;
 const DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS = 1_000;
+// Extension wake (MV3 service worker) plus native-host/daemon spawn can take
+// several seconds on a cold start. 1.5s was too tight and routinely produced a
+// "connected extension but no seed" state; give the first automatic connect a
+// more forgiving window. Repeated getState polls also retry the seed, so this
+// is only the first-attempt budget.
+const DEFAULT_AUTOMATIC_CONNECTION_TIMEOUT_MS = 5_000;
+// Continuous cookie mirror: how often, once the initial seed has completed, the
+// in-app cookie store is refreshed from the real browser so it never goes
+// stale. Background, unref'd, single-flight.
+const DEFAULT_COOKIE_MIRROR_INTERVAL_MS = 60_000;
+const MIN_COOKIE_MIRROR_INTERVAL_MS = 5_000;
+// Reconcile-on-navigation coalescing: skip a navigation-triggered refresh if a
+// reseed already ran within this window, so rapid navigations don't each pull a
+// full cookie export.
+const DEFAULT_NAVIGATION_RESEED_THROTTLE_MS = 5_000;
 
 const cloneState = (state: BrowserViewState): BrowserViewState => ({
   ...state,
@@ -260,7 +279,20 @@ export class InAppBrowserService {
   private attachedWindow: BrowserWindow | null = null;
   private drawableHost: BrowserWindow | null = null;
   private disposed = false;
-  private seeded = false;
+  /**
+   * True once at least one successful cookie seed has completed. Unlike the
+   * old one-shot `seeded` latch, this does NOT block reseeding: freshness is
+   * owned by the continuous cookie mirror (`startCookieMirror`), which keeps
+   * running after the initial seed. This flag only gates the connection-state
+   * fast paths and marks that the mirror may start.
+   */
+  private hasSeededOnce = false;
+  /** Single-flight guard so overlapping reseeds never interleave cookie writes. */
+  private reseedInFlight = false;
+  /** Background, unref'd timer that drives the continuous cookie mirror. */
+  private cookieMirrorTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Timestamp (ms) of the last completed reseed, for navigation throttling. */
+  private lastReseedAt = 0;
   private pendingPartitionedCookies: StellaBrowserExportedCookie[] = [];
   private connectionError: string | undefined;
 
@@ -275,7 +307,7 @@ export class InAppBrowserService {
     const resolvedOwnerId =
       ownerId === undefined ? undefined : this.resolveOwnerId(ownerId);
     if (this.disposed) return this.snapshot(resolvedOwnerId);
-    if (this.seeded) {
+    if (this.hasSeededOnce) {
       this.updateConnection("connected");
       return this.snapshot(resolvedOwnerId);
     }
@@ -283,7 +315,17 @@ export class InAppBrowserService {
       const extensionConnected = await this.options.getExtensionStatus();
       // Extension presence is only the first half of connection. Do not claim
       // readiness until profile/cookie seeding and in-app CDP routing finish.
-      this.updateConnection(extensionConnected ? "checking" : "disconnected");
+      if (extensionConnected) {
+        this.updateConnection("checking");
+        // Race fix: the extension is up but we have not seeded yet. Drive the
+        // seed now instead of waiting for a manual connect. Because the UI polls
+        // getState, an extension that woke up after the first automatic-connect
+        // window still gets picked up here on the next poll. connect() dedupes
+        // via connectPromise, so concurrent polls collapse to one attempt.
+        void this.connect().catch(() => {});
+      } else {
+        this.updateConnection("disconnected");
+      }
     } catch {
       // The bridge socket commonly isn't ready during app startup. That is a
       // normal disconnected state, not a fatal Browser-tab error.
@@ -294,7 +336,7 @@ export class InAppBrowserService {
 
   async requestExtensionConnect(): Promise<BrowserViewState> {
     if (this.disposed) throw new Error("The in-app browser has been closed.");
-    if (this.seeded) {
+    if (this.hasSeededOnce) {
       this.updateConnection("connected");
       return this.snapshot();
     }
@@ -348,14 +390,15 @@ export class InAppBrowserService {
     browserType?: string;
     profileId?: string;
   }): Promise<BrowserViewState> {
-    if (this.seeded) {
+    if (this.hasSeededOnce) {
       this.updateConnection("connected");
       return this.snapshot();
     }
     try {
       await this.options.ensureBrowserBridgeStarted();
       const connected = await this.pollExtensionStatus(
-        this.options.automaticConnectionTimeoutMs ?? 1_500,
+        this.options.automaticConnectionTimeoutMs ??
+          DEFAULT_AUTOMATIC_CONNECTION_TIMEOUT_MS,
         this.options.connectionPollMs ?? DEFAULT_CONNECTION_POLL_MS,
       );
       if (!connected) {
@@ -380,8 +423,13 @@ export class InAppBrowserService {
         );
       }
       await this.seedCookies(cookies);
-      this.seeded = true;
+      this.hasSeededOnce = true;
+      this.lastReseedAt = Date.now();
       this.updateConnection("connected");
+      // Freshness from here on is owned by the continuous mirror, not by a
+      // one-shot latch: the in-app store is refreshed on a cadence and on
+      // navigation so new logins / rotated tokens in the real browser propagate.
+      this.startCookieMirror();
     } catch (error) {
       this.updateConnection("disconnected", errorMessage(error));
     }
@@ -732,6 +780,7 @@ export class InAppBrowserService {
     if (this.disposed) return;
     this.disposed = true;
     this.visible = false;
+    this.stopCookieMirror();
     this.detachAttachedView();
     for (const tab of [...this.tabs.values()]) {
       this.closeTabInternal(tab.id, tab.ownerId);
@@ -890,6 +939,104 @@ export class InAppBrowserService {
     }
   }
 
+  /**
+   * Start the continuous cookie mirror. After the initial seed this re-pulls
+   * the real browser's cookies on a cadence and re-applies them to the in-app
+   * session, so the in-app store never goes stale. Uses a self-rescheduling
+   * timeout (not setInterval) so a slow reseed can never overlap the next tick,
+   * is unref'd so it does not keep the process alive, and is torn down in
+   * dispose(). No-op if already running or disposed.
+   */
+  private startCookieMirror() {
+    if (this.cookieMirrorTimer || this.disposed) return;
+    const intervalMs = Math.max(
+      MIN_COOKIE_MIRROR_INTERVAL_MS,
+      this.options.cookieMirrorIntervalMs ?? DEFAULT_COOKIE_MIRROR_INTERVAL_MS,
+    );
+    const scheduleNext = () => {
+      if (this.disposed) {
+        this.cookieMirrorTimer = null;
+        return;
+      }
+      const timer = setTimeout(() => {
+        void this.reseedFromExtension()
+          .catch(() => {})
+          .finally(scheduleNext);
+      }, intervalMs);
+      timer.unref?.();
+      this.cookieMirrorTimer = timer;
+    };
+    scheduleNext();
+  }
+
+  private stopCookieMirror() {
+    if (this.cookieMirrorTimer) {
+      clearTimeout(this.cookieMirrorTimer);
+      this.cookieMirrorTimer = null;
+    }
+  }
+
+  /**
+   * Re-pull cookies from the real browser (via the extension) and re-apply them
+   * to the in-app session. Safe to call repeatedly and concurrently: a
+   * single-flight guard prevents overlapping writes to the shared cookie store,
+   * and it only ever writes to `this.browserSession` (the in-app profile), never
+   * to any other Electron session. No-op until the initial seed has run.
+   */
+  private async reseedFromExtension(): Promise<void> {
+    if (this.disposed || !this.hasSeededOnce || !this.browserSession) return;
+    if (this.reseedInFlight) return;
+    this.reseedInFlight = true;
+    try {
+      const extensionConnected = await this.options
+        .getExtensionStatus()
+        .catch(() => false);
+      if (!extensionConnected || this.disposed) return;
+      let cookies: StellaBrowserExportedCookie[];
+      try {
+        cookies = await this.options.exportAllCookies();
+      } catch (error) {
+        const message = errorMessage(error);
+        if (
+          !/unknown (?:command|action): cookies_export_all/i.test(message) ||
+          !this.options.exportCookiesForUrls
+        ) {
+          throw error;
+        }
+        cookies = await this.options.exportCookiesForUrls(
+          readBrowserHistoryUrls(this.profilePath),
+        );
+      }
+      if (this.disposed || !this.browserSession) return;
+      await this.seedCookies(cookies);
+      this.lastReseedAt = Date.now();
+    } catch (error) {
+      // A failed mirror pass must never kill the mirror loop; the next tick
+      // retries. Transient bridge/daemon errors are expected during extension
+      // wake or app shutdown.
+      console.warn(
+        `[in-app-browser] Cookie mirror refresh failed: ${errorMessage(error)}`,
+      );
+    } finally {
+      this.reseedInFlight = false;
+    }
+  }
+
+  /**
+   * Reconcile-on-navigation: refresh cookies around a top-level navigation so
+   * the target site sees a current session on its subresource / XHR / next-hop
+   * requests. Non-blocking and throttled so rapid navigations don't each pull a
+   * full cookie export.
+   */
+  private scheduleNavigationReseed() {
+    if (this.disposed || !this.hasSeededOnce) return;
+    const throttleMs =
+      this.options.navigationReseedThrottleMs ??
+      DEFAULT_NAVIGATION_RESEED_THROTTLE_MS;
+    if (Date.now() - this.lastReseedAt < throttleMs) return;
+    void this.reseedFromExtension().catch(() => {});
+  }
+
   private async applyPendingPartitionedCookies(tab: ManagedTab) {
     if (this.pendingPartitionedCookies.length === 0) return;
     const sameSite = (value: StellaBrowserExportedCookie["sameSite"]) => {
@@ -944,7 +1091,12 @@ export class InAppBrowserService {
       tab.loading = false;
       refresh();
     });
-    contents.on("did-navigate", refresh);
+    contents.on("did-navigate", () => {
+      // Reconcile-on-navigation: freshen cookies for the site just navigated to
+      // (non-blocking, throttled) before running the normal state refresh.
+      this.scheduleNavigationReseed();
+      refresh();
+    });
     contents.on("did-navigate-in-page", refresh);
     contents.on("page-title-updated", (_event, title) => {
       tab.title = title || "New Tab";

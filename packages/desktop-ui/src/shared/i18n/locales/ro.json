@@ -1982,58 +1982,11 @@
       "signInToConnect": "Conectează-te la Stella pentru a lega conturile",
       "connectStellaApp": "Conectează la aplicația Stella",
       "connectStellaAppSub": "Asociază aplicația Stella de pe telefonul tău cu acest computer",
-      "sectionTitle": "Integrări",
       "connectTitle": "Conectează",
       "phoneTitle": "Telefonul tău",
-      "backToConnections": "Înapoi la conexiuni",
       "connected": "Conectat",
-      "connectProvider": "Conectează {provider}",
-      "openProvider": "Deschide {provider}",
-      "listeningOn": "Stella ascultă pe {provider}. Scrie-i acolo oricând.",
-      "disconnect": "Deconectează",
-      "disconnecting": "Se deconectează...",
-      "disconnected": "Deconectat de la {provider}",
-      "disconnectFailed": "Deconectarea de la {provider} a eșuat",
-      "codeCopied": "Cod copiat în clipboard",
-      "generateCodeFailed": "Generarea codului a eșuat",
-      "slackInstallUrlFailed": "Pregătirea URL-ului de instalare Slack a eșuat",
       "signInHeadline": "Conectează-te ca să începi",
       "signInSub": "Conectează-te la contul tău Stella pentru a lega {provider}.",
-      "providers": {
-        "linq": {
-          "name": "Scrie-i Stellei",
-          "instructions": "Introdu numărul tău de telefon și îți trimitem prin SMS un cod pentru conectare. După legare, îi poți scrie Stellei oricând prin iMessage sau SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Instalează aplicația Stella în contul tău Discord, rulează o dată /link cu codul, apoi scrie-i normal lui @Stella."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Instalează aplicația Stella în spațiul tău de lucru, apoi scrie-i lui @Stella cu codul de mai jos."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Deschide @StellaAppBot în Telegram, apoi trimite-i codul de mai jos."
-        }
-      },
-      "linq": {
-        "countryCode": "Prefix de țară",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Se trimite...",
-        "sendCode": "Trimite codul",
-        "sendCodeFailed": "Trimiterea codului a eșuat. Verifică numărul și încearcă din nou.",
-        "enterCodeTitle": "Introdu codul tău",
-        "enterCodeSub": "Verifică-ți telefonul — am trimis un cod din 6 cifre la {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Verifică",
-        "verifying": "Se verifică...",
-        "verifyCodeFailed": "Verificarea codului a eșuat.",
-        "connected": "Conectat! Acum îi poți scrie Stellei prin SMS.",
-        "invalidCode": "Cod invalid sau expirat. Încearcă să trimiți unul nou.",
-        "genericError": "Ceva nu a mers. Încearcă din nou.",
-        "useDifferentNumber": "Folosește alt număr"
-      },
       "credential": {
         "title": "Conectează {provider}",
         "description": "Stella are nevoie de cheia ta API {provider} pentru a se conecta. Lipește-o mai jos. Rămâne pe computerul tău.",

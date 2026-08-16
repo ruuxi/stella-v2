@@ -4,7 +4,7 @@
  * Historical role: the chat-events log was a second source of conversation
  * history. This projection folded `user_message` / `assistant_message` /
  * `tool_request` / `tool_result` events into orchestrator model context,
- * adding user timestamp tags and the Linq `[linq_message_id: …]` trailer.
+ * adding user timestamp tags.
  *
  * The durable runtime thread store is now the SINGLE model-context source:
  * typed turns persist through the run machinery, realtime-voice transcripts
@@ -154,14 +154,6 @@ const formatTextEvent = (
   const text = typeof payload.text === "string" ? payload.text.trim() : "";
   if (!text) return null;
   const isAssistant = event.type === "assistant_message";
-  const linqMessageId =
-    !isAssistant &&
-    payload.source === "connector" &&
-    payload.provider === "linq" &&
-    typeof payload.linqMessageId === "string" &&
-    payload.linqMessageId.trim()
-      ? payload.linqMessageId.trim()
-      : "";
   const skipTs =
     !isAssistant &&
     tsState.prevUserTs != null &&
@@ -177,12 +169,9 @@ const formatTextEvent = (
   if (isAssistant) {
     return { role: "assistant", content: body };
   }
-  const bodyWithMetadata = linqMessageId
-    ? `${body}\n\n[linq_message_id: ${linqMessageId}]`
-    : body;
   return {
     role: "user",
-    content: skipTs ? bodyWithMetadata : `${bodyWithMetadata}\n\n${tag}`,
+    content: skipTs ? body : `${body}\n\n${tag}`,
   };
 };
 

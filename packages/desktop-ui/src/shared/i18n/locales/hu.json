@@ -1958,58 +1958,11 @@
       "signInToConnect": "Jelentkezz be a Stellába a csatlakoztatáshoz",
       "connectStellaApp": "Csatlakozás a Stella alkalmazáshoz",
       "connectStellaAppSub": "Párosítsd a telefonodon lévő Stella alkalmazást ezzel a számítógéppel",
-      "sectionTitle": "Integrációk",
       "connectTitle": "Csatlakozás",
       "phoneTitle": "A telefonod",
-      "backToConnections": "Vissza a kapcsolatokhoz",
       "connected": "Csatlakoztatva",
-      "connectProvider": "Csatlakozás: {provider}",
-      "openProvider": "Megnyitás: {provider}",
-      "listeningOn": "A Stella itt figyel: {provider}. Bármikor írhatsz neki ott.",
-      "disconnect": "Leválasztás",
-      "disconnecting": "Leválasztás...",
-      "disconnected": "Leválasztva: {provider}",
-      "disconnectFailed": "Nem sikerült leválasztani: {provider}",
-      "codeCopied": "A kód a vágólapra másolva",
-      "generateCodeFailed": "Nem sikerült kódot generálni",
-      "slackInstallUrlFailed": "Nem sikerült előkészíteni a Slack telepítési URL-t",
       "signInHeadline": "Jelentkezz be a kezdéshez",
       "signInSub": "Jelentkezz be a Stella-fiókodba a csatlakoztatáshoz: {provider}.",
-      "providers": {
-        "linq": {
-          "name": "Írj a Stellának",
-          "instructions": "Add meg a telefonszámodat, és küldünk egy kódot SMS-ben a csatlakoztatáshoz. Az összekapcsolás után bármikor írhatsz a Stellának iMessage-ben vagy SMS-ben."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Telepítsd a Stella alkalmazást a Discord-fiókodba, futtasd egyszer a /link parancsot a kóddal, majd írj DM-et a @Stella címre."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Telepítsd a Stella alkalmazást a munkaterületedre, majd írj DM-et a @Stella címre az alábbi kóddal."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Nyisd meg a @StellaAppBot fiókot a Telegramban, majd küldd el neki az alábbi kódot."
-        }
-      },
-      "linq": {
-        "countryCode": "Országhívó",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Küldés...",
-        "sendCode": "Kód küldése",
-        "sendCodeFailed": "Nem sikerült elküldeni a kódot. Ellenőrizd a számot, és próbáld újra.",
-        "enterCodeTitle": "Add meg a kódot",
-        "enterCodeSub": "Nézd meg a telefonod – egy 6 jegyű kódot küldtünk ide: {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Ellenőrzés",
-        "verifying": "Ellenőrzés...",
-        "verifyCodeFailed": "Nem sikerült ellenőrizni a kódot.",
-        "connected": "Csatlakoztatva! Mostantól írhatsz a Stellának.",
-        "invalidCode": "Érvénytelen vagy lejárt kód. Kérj újat.",
-        "genericError": "Valami hiba történt. Próbáld újra.",
-        "useDifferentNumber": "Másik szám használata"
-      },
       "credential": {
         "title": "Csatlakozás: {provider}",
         "description": "A csatlakozáshoz a Stellának szüksége van a(z) {provider} API-kulcsra. Illeszd be alább. A kulcs a számítógépeden marad.",

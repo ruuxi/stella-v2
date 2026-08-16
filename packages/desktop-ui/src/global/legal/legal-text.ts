@@ -40,7 +40,7 @@ The Stella Platform (Free) — Stella is a personal AI assistant that runs prima
 
 The Stella Provider (Paid LLM Service) — Separately, FromYou operates the Stella Provider, a managed LLM inference service that routes AI model requests to upstream providers on your behalf. The Stella Provider is the paid component of the Service — subscription plans and usage-based billing apply to LLM inference consumed through the Stella Provider. You are never required to use the Stella Provider; you may supply your own API keys (BYOK) and use the platform entirely for free.
 
-Additional Backend Services — Our backend also provides authentication, an offline fallback responder, connector integrations (Slack, Discord, Telegram, etc.), the mod store, social features, and media generation capabilities.
+Additional Backend Services — Our backend also provides authentication, an offline fallback responder, Stella mobile app connectivity, the mod store, social features, and media generation capabilities.
 
 
 5. Local-First Architecture and Your Data
@@ -49,11 +49,11 @@ Local Storage — Stella is designed with a local-first architecture. Your canon
 
 No FromYou-Hosted Conversation History — We do not maintain a server-side conversation history for ordinary desktop chats. When Stella uses a provider's Responses API, the request is sent with response storage enabled so the provider can support stateful response continuation. The selected AI provider may retain those request and response records under its own retention and deletion policies. Your canonical Stella conversation history remains local to your device. If a connection fails, Stella retries the model round from your locally stored conversation state rather than storing the in-progress response on our servers.
 
-Offline Responder — When your desktop application is not running or not reachable, you may interact with Stella through the mobile app or connected channels (Slack, Discord, etc.). In this case, your message is sent to our backend, processed by a minimal fallback AI agent, and a response is returned. These offline interactions are transient — they are processed in memory and are not persistently stored in our systems beyond what is required to deliver the response and record usage for billing purposes.
+Offline Responder — When your desktop application is not running or not reachable, you may interact with Stella through the Stella mobile app. In this case, your message is sent to our backend, processed by a minimal fallback AI agent, and a response is returned. These offline interactions are transient — they are processed in memory and are not persistently stored in our systems beyond what is required to deliver the response and record usage for billing purposes.
 
 Discovery Signals — During onboarding, Stella may optionally collect signals from your device (browser bookmarks, installed applications, development environment, etc.) to personalize your experience. This data is processed and stored entirely on your local device. Discovery categories involving sensitive data (messages, notes) are opt-in and disabled by default.
 
-Connector Integrations — If you connect Stella to third-party platforms (Slack, Discord, Telegram, Google Chat, Microsoft Teams), inbound messages from those platforms are routed to your desktop device for local processing whenever possible. When your desktop is offline, the backend offline responder processes them transiently as described above. Connector routing metadata (connection identifiers, conversation mappings) is stored on our backend to facilitate message delivery.
+Stella Mobile App — When you pair the Stella mobile app with your desktop, messages you send from the app are routed to your desktop device for local processing whenever possible. When your desktop is offline, the backend offline responder processes them transiently as described above. Pairing and routing metadata (device identifiers, conversation mappings) is stored on our backend to facilitate message delivery.
 
 
 6. Computer Use and Agent Autonomy
@@ -243,9 +243,9 @@ The Stella Provider forwards response bytes to your device as they arrive and do
 
 We separately log usage metadata for billing, security, and rate limiting: timestamp, model, token count, duration, success or failure, safe upstream request identifiers, and your owner ID or anonymous device identifier. We do not put prompt or response bodies in those diagnostics. When using BYOK, requests go directly from your device to the provider; Responses API requests still enable provider-side storage where supported.
 
-Offline Responder — When your desktop is offline and you interact with Stella via the mobile app or a connected channel (Slack, Discord, etc.), your message is sent to our backend and processed by a minimal fallback AI agent. The interaction is transient — it is processed in memory and not persistently stored beyond what is needed to deliver the response and record usage metadata.
+Offline Responder — When your desktop is offline and you interact with Stella via the Stella mobile app, your message is sent to our backend and processed by a minimal fallback AI agent. The interaction is transient — it is processed in memory and not persistently stored beyond what is needed to deliver the response and record usage metadata.
 
-Connector Message Routing — If you connect Stella to third-party messaging platforms (Slack, Discord, Telegram, Google Chat, Microsoft Teams), we store connection metadata (which external account is linked to which Stella account, conversation mapping identifiers) and transient message events (inbound and outbound messages held temporarily for delivery, with a short time-to-live, automatically cleaned up). We do not permanently store the text content of connector messages.
+Stella Mobile App Routing — When you pair the Stella mobile app with your desktop, we store pairing metadata (which device is linked to which Stella account, conversation mapping identifiers) and transient message events (inbound and outbound messages held temporarily for delivery, with a short time-to-live, automatically cleaned up). We do not permanently store the text content of mobile app messages.
 
 
 5. Computer Use and Agent Activity Data
@@ -297,7 +297,7 @@ If you publish a mod to the Stella Mod Store, we store the mod package, metadata
 
 12. Third-Party Services
 
-Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, messaging platforms (Slack, Discord, Telegram, etc.) when using connector integrations, and Convex for backend infrastructure. When using BYOK (your own API keys), AI requests go directly from your device to the provider — our servers are not involved.
+Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, and Convex for backend infrastructure. When using BYOK (your own API keys), AI requests go directly from your device to the provider — our servers are not involved.
 
 
 13. Data Retention

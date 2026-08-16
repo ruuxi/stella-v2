@@ -137,16 +137,6 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
   heartbeatget: { category: "schedule", phrase: () => "checked heartbeats" },
   heartbeatrun: { category: "schedule", phrase: () => "ran a heartbeat" },
   heartbeatupsert: { category: "schedule", phrase: () => "updated heartbeats" },
-  linq_send_message: {
-    category: "message",
-    phrase: plural("sent a message", (n) => `sent ${n} messages`),
-  },
-  linq_send_voice_memo: {
-    category: "message",
-    phrase: plural("sent a voice memo", (n) => `sent ${n} voice memos`),
-  },
-  linq_react_to_message: { category: "message", phrase: () => "reacted to a message" },
-  linq_share_contact_card: { category: "message", phrase: () => "shared a contact" },
   request_credential: { category: "other", phrase: () => "requested access" },
   requestcredential: { category: "other", phrase: () => "requested access" },
 };

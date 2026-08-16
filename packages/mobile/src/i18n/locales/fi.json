@@ -1958,58 +1958,11 @@
       "signInToConnect": "Kirjaudu Stellaan yhdistääksesi",
       "connectStellaApp": "Yhdistä Stella-sovellukseen",
       "connectStellaAppSub": "Paritä puhelimesi Stella-sovellus tämän tietokoneen kanssa",
-      "sectionTitle": "Integraatiot",
       "connectTitle": "Yhdistä",
       "phoneTitle": "Puhelimesi",
-      "backToConnections": "Takaisin yhteyksiin",
       "connected": "Yhdistetty",
-      "connectProvider": "Yhdistä {provider}",
-      "openProvider": "Avaa {provider}",
-      "listeningOn": "Stella kuuntelee palvelussa {provider}. Voit viestiä hänelle siellä milloin tahansa.",
-      "disconnect": "Katkaise yhteys",
-      "disconnecting": "Katkaistaan yhteyttä...",
-      "disconnected": "Yhteys katkaistu: {provider}",
-      "disconnectFailed": "Yhteyden katkaisu epäonnistui: {provider}",
-      "codeCopied": "Koodi kopioitu leikepöydälle",
-      "generateCodeFailed": "Koodin luonti epäonnistui",
-      "slackInstallUrlFailed": "Slackin asennusosoitteen valmistelu epäonnistui",
       "signInHeadline": "Kirjaudu sisään aloittaaksesi",
       "signInSub": "Kirjaudu Stella-tiliisi yhdistääksesi: {provider}.",
-      "providers": {
-        "linq": {
-          "name": "Tekstaa Stellalle",
-          "instructions": "Syötä puhelinnumerosi, niin lähetämme sinulle koodin tekstiviestillä. Kun yhteys on luotu, voit viestiä Stellalle milloin tahansa iMessagella tai tekstiviestillä."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Asenna Stella-sovellus Discord-tilillesi, suorita /link koodilla kerran ja lähetä sitten @Stellalle yksityisviestejä normaalisti."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Asenna Stella-sovellus työtilaasi ja lähetä sitten @Stellalle yksityisviesti alla olevalla koodilla."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Avaa @StellaAppBot Telegramissa ja lähetä sille alla oleva koodi."
-        }
-      },
-      "linq": {
-        "countryCode": "Maakoodi",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Lähetetään...",
-        "sendCode": "Lähetä koodi",
-        "sendCodeFailed": "Koodin lähetys epäonnistui. Tarkista numero ja yritä uudelleen.",
-        "enterCodeTitle": "Syötä koodisi",
-        "enterCodeSub": "Tarkista puhelimesi — lähetimme 6-numeroisen koodin numeroon {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Vahvista",
-        "verifying": "Vahvistetaan...",
-        "verifyCodeFailed": "Koodin vahvistus epäonnistui.",
-        "connected": "Yhdistetty! Voit nyt tekstata Stellalle.",
-        "invalidCode": "Virheellinen tai vanhentunut koodi. Kokeile lähettää uusi.",
-        "genericError": "Jokin meni pieleen. Yritä uudelleen.",
-        "useDifferentNumber": "Käytä toista numeroa"
-      },
       "credential": {
         "title": "Yhdistä {provider}",
         "description": "Stella tarvitsee {provider}-API-avaimesi yhdistääkseen. Liitä se alle. Se pysyy tietokoneellasi.",

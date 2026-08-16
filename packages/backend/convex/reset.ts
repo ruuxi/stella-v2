@@ -39,7 +39,6 @@ const OWNER_TABLES = [
   ["billing_usage_windows", "by_ownerId"],
   ["billing_profiles", "by_ownerId"],
   ["user_counters", "by_ownerId"],
-  ["slack_oauth_states", "by_ownerId_and_expiresAt"],
   ["x_oauth_states", "by_ownerId_and_expiresAt"],
   ["x_oauth_tokens", "by_ownerId"],
   ["connector_turn_payloads", "by_ownerId_and_createdAt"],
@@ -265,7 +264,6 @@ const ownerTableValidator = v.union(
   v.literal("billing_usage_windows"),
   v.literal("billing_profiles"),
   v.literal("user_counters"),
-  v.literal("slack_oauth_states"),
   v.literal("x_oauth_states"),
   v.literal("x_oauth_tokens"),
   v.literal("connector_turn_payloads"),
@@ -390,14 +388,6 @@ async function deleteOneOwnerTableBatch(
       const rows = await ctx.db
         .query("user_counters")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(BATCH);
-      ids = rows.map((r) => r._id) as Id<OwnerTable>[];
-      break;
-    }
-    case "slack_oauth_states": {
-      const rows = await ctx.db
-        .query("slack_oauth_states")
-        .withIndex("by_ownerId_and_expiresAt", (q) => q.eq("ownerId", ownerId))
         .take(BATCH);
       ids = rows.map((r) => r._id) as Id<OwnerTable>[];
       break;

@@ -1958,58 +1958,11 @@
       "signInToConnect": "Sign in to Stella to connect",
       "connectStellaApp": "Connect to Stella App",
       "connectStellaAppSub": "Pair the Stella app on your phone with this computer",
-      "sectionTitle": "Integrations",
       "connectTitle": "Connect",
       "phoneTitle": "Your phone",
-      "backToConnections": "Back to connections",
       "connected": "Connected",
-      "connectProvider": "Connect {provider}",
-      "openProvider": "Open {provider}",
-      "listeningOn": "Stella is listening on {provider}. Message her there anytime.",
-      "disconnect": "Disconnect",
-      "disconnecting": "Disconnecting...",
-      "disconnected": "Disconnected from {provider}",
-      "disconnectFailed": "Failed to disconnect from {provider}",
-      "codeCopied": "Code copied to clipboard",
-      "generateCodeFailed": "Failed to generate code",
-      "slackInstallUrlFailed": "Failed to prepare Slack install URL",
       "signInHeadline": "Sign in to get started",
       "signInSub": "Sign in to your Stella account to connect {provider}.",
-      "providers": {
-        "linq": {
-          "name": "Text Stella",
-          "instructions": "Enter your phone number and we’ll text you a code to connect. Once linked, you can message Stella anytime via iMessage or SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Install the Stella app to your Discord account, run /link with the code once, then DM @Stella normally."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Install the Stella app in your workspace, then DM @Stella with the code below."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Open @StellaAppBot in Telegram, then send it the code below."
-        }
-      },
-      "linq": {
-        "countryCode": "Country code",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Sending...",
-        "sendCode": "Send Code",
-        "sendCodeFailed": "Failed to send code. Check the number and try again.",
-        "enterCodeTitle": "Enter your code",
-        "enterCodeSub": "Check your phone — we sent a 6-digit code to {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Verify",
-        "verifying": "Verifying...",
-        "verifyCodeFailed": "Failed to verify code.",
-        "connected": "Connected! You can now text Stella.",
-        "invalidCode": "Invalid or expired code. Try sending a new one.",
-        "genericError": "Something went wrong. Please try again.",
-        "useDifferentNumber": "Use a different number"
-      },
       "credential": {
         "title": "Connect {provider}",
         "description": "Stella needs your {provider} API key to connect. Paste it below. It stays on your computer.",

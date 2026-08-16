@@ -169,7 +169,7 @@ describe("remote-turn mobile model override", () => {
         payload: {
           conversationId: "conversation-1",
           text: "[Audio]",
-          provider: "linq",
+          provider: "stella_app",
           deliveryMeta: {},
           mediaRefs: [
             {
@@ -229,7 +229,7 @@ describe("remote-turn mobile model override", () => {
         payload: {
           conversationId: "conversation-1",
           text: "[Attachment]",
-          provider: "linq",
+          provider: "stella_app",
           deliveryMeta: {},
           mediaRefs: [
             {

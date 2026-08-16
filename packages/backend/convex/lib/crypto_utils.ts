@@ -1,9 +1,6 @@
 /**
- * Shared cryptographic / encoding utilities.
- *
- * Extracted from channels/connector_delivery.ts, channels/google_chat.ts,
- * channels/teams.ts, http_routes/connectors.ts, channels/slack.ts, and
- * channels/discord.ts to eliminate duplication.
+ * Shared cryptographic / encoding utilities used across the backend to
+ * eliminate duplicated base64/hashing/constant-time-compare helpers.
  */
 
 export function base64UrlDecode(str: string): Uint8Array {

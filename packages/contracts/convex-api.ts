@@ -28,8 +28,8 @@ export type PublicApiType = {
       "fashionGetOrchestratorContext": FunctionReference<'action', 'public', {}, any, string | undefined>;
     };
     "prompt_builder": {
-      "fetchAgentContextForRuntime": FunctionReference<'action', 'public', { threadId?: Id<'threads'> | undefined; platform?: string | undefined; maxHistoryMessages?: number | undefined; timezone?: string | undefined; conversationId: Id<'conversations'>; runId: string; agentType: string; }, any, string | undefined>;
-      "fetchLocalAgentContextForRuntime": FunctionReference<'action', 'public', { platform?: string | undefined; timezone?: string | undefined; runId: string; agentType: string; }, any, string | undefined>;
+      "fetchAgentContextForRuntime": FunctionReference<'action', 'public', { threadId?: Id<'threads'> | undefined; platform?: string | undefined; maxHistoryMessages?: number | undefined; timezone?: string | undefined; conversationId: Id<'conversations'>; agentType: string; runId: string; }, any, string | undefined>;
+      "fetchLocalAgentContextForRuntime": FunctionReference<'action', 'public', { platform?: string | undefined; timezone?: string | undefined; agentType: string; runId: string; }, any, string | undefined>;
     };
   };
   "auth": {
@@ -51,20 +51,7 @@ export type PublicApiType = {
       "claimRemoteTurn": FunctionReference<'mutation', 'public', { deviceId?: string | undefined; conversationId: Id<'conversations'>; requestId: string; }, any, string | undefined>;
       "cancelRemoteTurn": FunctionReference<'mutation', 'public', { requestId: string; }, any, string | undefined>;
       "completeRemoteTurn": FunctionReference<'mutation', 'public', { deviceId?: string | undefined; conversationId: Id<'conversations'>; text: string; requestId: string; }, any, string | undefined>;
-      "streamConnectorTurnUpdate": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; text: string; requestId: string; revision: number; }, any, string | undefined>;
       "sendConnectorFollowup": FunctionReference<'mutation', 'public', { deviceId?: string | undefined; conversationId: Id<'conversations'>; text: string; requestId: string; }, any, string | undefined>;
-    };
-    "link_codes": {
-      "generateLinkCode": FunctionReference<'mutation', 'public', { provider: string; }, any, string | undefined>;
-      "verifyLinqLinkCode": FunctionReference<'mutation', 'public', { code: string; phoneNumber: string; }, any, string | undefined>;
-    };
-    "linq": {
-      "executeLinqConnectorTool": FunctionReference<'action', 'public', { conversationId: Id<'conversations'>; payload: Value; requestId: string; operation: string; }, any, string | undefined>;
-      "sendLinqLinkSms": FunctionReference<'action', 'public', { phoneNumber: string; }, any, string | undefined>;
-    };
-    "utils": {
-      "getConnection": FunctionReference<'query', 'public', { provider: string; }, any, string | undefined>;
-      "deleteConnection": FunctionReference<'mutation', 'public', { provider: string; }, any, string | undefined>;
     };
   };
   "conversations": {
@@ -121,7 +108,6 @@ export type PublicApiType = {
     };
     "integrations": {
       "listStoreIntegrations": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "createSlackInstallUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
       "createXConnectUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
       "listXConnections": FunctionReference<'query', 'public', {}, any, string | undefined>;
     };
@@ -197,6 +183,9 @@ export type PublicApiType = {
       "deletePet": FunctionReference<'mutation', 'public', { petId: string; }, any, string | undefined>;
       "recordInstall": FunctionReference<'mutation', 'public', { petId: string; }, any, string | undefined>;
     };
+  };
+  "device_identity": {
+    "adoptDeviceIdentitySuccession": FunctionReference<'mutation', 'public', { deviceId: string; previousDeviceId: string; }, any, string | undefined>;
   };
   "events": {
     "subscribeRemoteTurnRequestsForDevice": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; since: number; }, any, string | undefined>;

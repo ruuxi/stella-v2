@@ -779,13 +779,12 @@ export const createOrchestratorController = (
       }
 
       const runId = `local:auto:${crypto.randomUUID()}`;
-      // Connector turns (iMessage/Linq, Telegram, …): the durable thread
-      // store is the single model-context source, so the metadata the
-      // retired local-events projection used to add at read time — the
-      // `[linq_message_id: …]` trailer and the user timestamp tag — is
-      // stamped onto the model-visible prompt here. run-execution persists
-      // this exact text into the thread; the host's chat-events write keeps
-      // the raw text for display/sync.
+      // Connector turns: the durable thread store is the single
+      // model-context source, so the user timestamp tag the retired
+      // local-events projection used to add at read time is stamped onto the
+      // model-visible prompt here. run-execution persists this exact text
+      // into the thread; the host's chat-events write keeps the raw text for
+      // display/sync.
       const modelUserPrompt = connectorDeliveryTarget
         ? decorateUserTranscriptContent({
             store: context.runtimeStore,
@@ -796,10 +795,6 @@ export const createOrchestratorController = (
             }),
             text: userPrompt,
             timestamp: Date.now(),
-            ...(connectorDeliveryTarget.provider === "linq" &&
-            connectorDeliveryTarget.externalMessageId
-              ? { linqMessageId: connectorDeliveryTarget.externalMessageId }
-              : {}),
           })
         : userPrompt;
       const appendConnectorTerminalNotice = (event: RuntimeEndEvent) => {

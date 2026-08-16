@@ -38,15 +38,15 @@ const baseCatalog: ToolMetadata[] = [
     demoted: { searchTerms: ["connector", "integration"] },
   },
   {
-    name: "linq_react_to_message",
-    description: "Add or remove an iMessage tapback reaction.",
+    name: "example_react_message",
+    description: "Add or remove an example connector reaction.",
     parameters: {
       type: "object",
       properties: { operation: { type: "string" } },
     },
     demoted: {
-      requiredConnectorProvider: "linq",
-      searchTerms: ["imessage", "tapback"],
+      requiredConnectorProvider: "example_connector",
+      searchTerms: ["example", "reaction"],
     },
   },
 ];
@@ -127,14 +127,14 @@ describe("demoted tool catalog (createPiTools)", () => {
     expect(nodeRepl?.description).toContain(
       "Some tools are demoted from your direct tool list",
     );
-    // linq is connector-gated out, so only connector_status is in scope.
+    // the example connector tool is connector-gated out, so only connector_status is in scope.
     expect(nodeRepl?.description).toContain(
       "## Demoted tools (COMPLETE — all 1 shown; call via tools.<name> inside node_repl)",
     );
     expect(nodeRepl?.description).toContain(
       "tools.connector_status(input: { connector: string }): Promise<unknown>",
     );
-    expect(nodeRepl?.description).not.toContain("linq_react_to_message");
+    expect(nodeRepl?.description).not.toContain("example_react_message");
 
     // The web tool's description is untouched.
     expect(tools.find((tool) => tool.name === "web")?.description).toBe(
@@ -185,7 +185,7 @@ describe("demoted tool catalog (createPiTools)", () => {
     });
     expect(captured[0]?.allowedToolNames).toContain("connector_status");
     expect(captured[0]?.allowedToolNames).not.toContain(
-      "linq_react_to_message",
+      "example_react_message",
     );
 
     const capturedNoRepl: CapturedCall[] = [];
@@ -205,39 +205,39 @@ describe("demoted tool catalog (createPiTools)", () => {
   });
 
   it("applies the requiredConnectorProvider gate to catalog, union, and direct fallback", async () => {
-    // Linq turn with node_repl: linq tools join the catalog and the union.
+    // Connector turn with node_repl: connector tools join the catalog and the union.
     const captured: CapturedCall[] = [];
-    const linqTools = makeTools({
+    const connectorTools = makeTools({
       toolsAllowlist: ["node_repl", "web"],
-      connectorProvider: "linq",
+      connectorProvider: "example_connector",
       captured,
     });
-    const nodeRepl = linqTools.find((tool) => tool.name === "node_repl");
+    const nodeRepl = connectorTools.find((tool) => tool.name === "node_repl");
     expect(nodeRepl?.description).toContain(
       "## Demoted tools (COMPLETE — all 2 shown",
     );
-    expect(nodeRepl?.description).toContain("linq_react_to_message");
-    await linqTools.find((tool) => tool.name === "web")!.execute("call-1", {
+    expect(nodeRepl?.description).toContain("example_react_message");
+    await connectorTools.find((tool) => tool.name === "web")!.execute("call-1", {
       query: "hi",
     });
-    expect(captured[0]?.allowedToolNames).toContain("linq_react_to_message");
+    expect(captured[0]?.allowedToolNames).toContain("example_react_message");
 
-    // Linq turn without node_repl: direct fallback includes the linq tool.
-    const linqDirect = makeTools({
+    // Connector turn without node_repl: direct fallback includes the connector tool.
+    const connectorDirect = makeTools({
       toolsAllowlist: ["web"],
-      connectorProvider: "linq",
+      connectorProvider: "example_connector",
     });
-    expect(linqDirect.map((tool) => tool.name).sort()).toEqual([
+    expect(connectorDirect.map((tool) => tool.name).sort()).toEqual([
       "connector_status",
-      "linq_react_to_message",
+      "example_react_message",
       "web",
     ]);
 
-    // Non-linq turn without node_repl: the gate hides the linq tool even
+    // Non-connector turn without node_repl: the gate hides the connector tool even
     // from the direct fallback.
-    const nonLinqDirect = makeTools({ toolsAllowlist: ["web"] });
+    const nonConnectorDirect = makeTools({ toolsAllowlist: ["web"] });
     expect(
-      nonLinqDirect.some((tool) => tool.name === "linq_react_to_message"),
+      nonConnectorDirect.some((tool) => tool.name === "example_react_message"),
     ).toBe(false);
   });
 
@@ -260,9 +260,9 @@ describe("demoted tool catalog (createPiTools)", () => {
     expect(collectDemotedToolNames(baseCatalog, undefined)).toEqual([
       "connector_status",
     ]);
-    expect(collectDemotedToolNames(baseCatalog, "linq").sort()).toEqual([
+    expect(collectDemotedToolNames(baseCatalog, "example_connector").sort()).toEqual([
       "connector_status",
-      "linq_react_to_message",
+      "example_react_message",
     ]);
   });
 });
@@ -296,21 +296,21 @@ describe("collectReplSearchableTools (searchable must equal callable)", () => {
 
   it("keeps the connector and agent-type gates as defense in depth", () => {
     // Name present in allowedToolNames but wrong connector context.
-    const nonLinq = collectReplSearchableTools(baseCatalog, {
+    const nonConnectorTool = collectReplSearchableTools(baseCatalog, {
       ...baseContext,
-      allowedToolNames: ["linq_react_to_message"],
+      allowedToolNames: ["example_react_message"],
     });
-    expect(nonLinq).toEqual([]);
-    const linq = collectReplSearchableTools(baseCatalog, {
+    expect(nonConnectorTool).toEqual([]);
+    const connectorTool = collectReplSearchableTools(baseCatalog, {
       ...baseContext,
-      allowedToolNames: ["linq_react_to_message"],
+      allowedToolNames: ["example_react_message"],
       connectorDeliveryTarget: {
         requestId: "remote-1",
         conversationId: "backend-conv-1",
-        provider: "linq",
+        provider: "example_connector",
       },
     }).map((tool) => tool.name);
-    expect(linq).toEqual(["linq_react_to_message"]);
+    expect(connectorTool).toEqual(["example_react_message"]);
 
     // agentTypes gate.
     const gated: ToolMetadata[] = [

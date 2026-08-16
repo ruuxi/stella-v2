@@ -1932,58 +1932,11 @@
       "signInToConnect": "연결하려면 Stella에 로그인하세요",
       "connectStellaApp": "Stella 앱에 연결",
       "connectStellaAppSub": "휴대폰의 Stella 앱을 이 컴퓨터와 페어링합니다",
-      "sectionTitle": "연동",
       "connectTitle": "연결",
       "phoneTitle": "내 휴대폰",
-      "backToConnections": "연결 목록으로 돌아가기",
       "connected": "연결됨",
-      "connectProvider": "{provider} 연결",
-      "openProvider": "{provider} 열기",
-      "listeningOn": "Stella가 {provider}에서 대기 중입니다. 언제든 거기서 메시지를 보내세요.",
-      "disconnect": "연결 해제",
-      "disconnecting": "연결 해제 중...",
-      "disconnected": "{provider} 연결이 해제됨",
-      "disconnectFailed": "{provider} 연결을 해제하지 못했습니다",
-      "codeCopied": "코드가 클립보드에 복사됨",
-      "generateCodeFailed": "코드를 생성하지 못했습니다",
-      "slackInstallUrlFailed": "Slack 설치 URL을 준비하지 못했습니다",
       "signInHeadline": "로그인하고 시작하세요",
       "signInSub": "{provider}을(를) 연결하려면 Stella 계정에 로그인하세요.",
-      "providers": {
-        "linq": {
-          "name": "Stella에 문자",
-          "instructions": "전화번호를 입력하면 연결용 코드를 문자로 보내 드립니다. 연결하고 나면 iMessage나 SMS로 언제든 Stella에게 메시지를 보낼 수 있습니다."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Discord 계정에 Stella 앱을 설치하고 코드와 함께 /link를 한 번 실행한 다음, 평소처럼 @Stella에게 DM을 보내세요."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "워크스페이스에 Stella 앱을 설치한 다음, 아래 코드와 함께 @Stella에게 DM을 보내세요."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Telegram에서 @StellaAppBot을 열고 아래 코드를 보내세요."
-        }
-      },
-      "linq": {
-        "countryCode": "국가 번호",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "보내는 중...",
-        "sendCode": "코드 보내기",
-        "sendCodeFailed": "코드를 보내지 못했습니다. 번호를 확인하고 다시 시도하세요.",
-        "enterCodeTitle": "코드를 입력하세요",
-        "enterCodeSub": "휴대폰을 확인하세요 — {phone}(으)로 6자리 코드를 보냈습니다.",
-        "codePlaceholder": "ABC123",
-        "verify": "확인",
-        "verifying": "확인 중...",
-        "verifyCodeFailed": "코드를 확인하지 못했습니다.",
-        "connected": "연결되었습니다! 이제 Stella에게 문자를 보낼 수 있습니다.",
-        "invalidCode": "코드가 잘못되었거나 만료되었습니다. 새 코드를 받아 보세요.",
-        "genericError": "문제가 발생했습니다. 다시 시도해 주세요.",
-        "useDifferentNumber": "다른 번호 사용"
-      },
       "credential": {
         "title": "{provider} 연결",
         "description": "연결하려면 Stella에 {provider} API 키가 필요합니다. 아래에 붙여 넣으세요. 키는 사용자의 컴퓨터에 남아 있습니다.",

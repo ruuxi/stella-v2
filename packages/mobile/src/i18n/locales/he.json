@@ -1982,58 +1982,11 @@
       "signInToConnect": "התחבר ל-Stella כדי לחבר",
       "connectStellaApp": "התחבר לאפליקציית Stella",
       "connectStellaAppSub": "שייך את אפליקציית Stella שבטלפון שלך למחשב הזה",
-      "sectionTitle": "אינטגרציות",
       "connectTitle": "חיבור",
       "phoneTitle": "הטלפון שלך",
-      "backToConnections": "חזרה לחיבורים",
       "connected": "מחובר",
-      "connectProvider": "חבר את {provider}",
-      "openProvider": "פתח את {provider}",
-      "listeningOn": "Stella מאזינה ב-{provider}. שלח לה הודעה שם בכל עת.",
-      "disconnect": "נתק",
-      "disconnecting": "מנתק...",
-      "disconnected": "נותק מ-{provider}",
-      "disconnectFailed": "הניתוק מ-{provider} נכשל",
-      "codeCopied": "הקוד הועתק ללוח",
-      "generateCodeFailed": "יצירת הקוד נכשלה",
-      "slackInstallUrlFailed": "הכנת כתובת ההתקנה של Slack נכשלה",
       "signInHeadline": "התחבר כדי להתחיל",
       "signInSub": "התחבר לחשבון Stella שלך כדי לחבר את {provider}.",
-      "providers": {
-        "linq": {
-          "name": "שלח SMS ל-Stella",
-          "instructions": "הזן את מספר הטלפון שלך ונשלח לך קוד ב-SMS כדי להתחבר. אחרי הקישור תוכל לשלוח ל-Stella הודעות בכל עת ב-iMessage או ב-SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "התקן את אפליקציית Stella בחשבון ה-Discord שלך, הרץ פעם אחת /link עם הקוד, ואז שלח הודעה פרטית ל-@Stella כרגיל."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "התקן את אפליקציית Stella בסביבת העבודה שלך, ואז שלח הודעה פרטית ל-@Stella עם הקוד שלמטה."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "פתח את @StellaAppBot ב-Telegram, ואז שלח לו את הקוד שלמטה."
-        }
-      },
-      "linq": {
-        "countryCode": "קידומת מדינה",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "שולח...",
-        "sendCode": "שלח קוד",
-        "sendCodeFailed": "שליחת הקוד נכשלה. בדוק את המספר ונסה שוב.",
-        "enterCodeTitle": "הזן את הקוד שלך",
-        "enterCodeSub": "בדוק את הטלפון שלך — שלחנו קוד בן 6 ספרות אל {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "אמת",
-        "verifying": "מאמת...",
-        "verifyCodeFailed": "אימות הקוד נכשל.",
-        "connected": "מחובר! עכשיו אפשר לשלוח ל-Stella הודעות SMS.",
-        "invalidCode": "קוד לא תקין או שפג תוקפו. נסה לשלוח קוד חדש.",
-        "genericError": "משהו השתבש. נסה שוב.",
-        "useDifferentNumber": "השתמש במספר אחר"
-      },
       "credential": {
         "title": "חבר את {provider}",
         "description": "Stella צריכה את מפתח ה-API שלך ב-{provider} כדי להתחבר. הדבק אותו למטה. הוא נשאר במחשב שלך.",

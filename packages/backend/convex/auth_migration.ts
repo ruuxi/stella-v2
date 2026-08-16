@@ -195,40 +195,6 @@ export const migrateUsageLogsBatch = internalMutation({
   },
 });
 
-export const migrateTransientChannelEventsBatch = internalMutation({
-  args: ownerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx: MutationCtx, args) => {
-    const rows = await ctx.db
-      .query("transient_channel_events")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
-    );
-    return { hasMore: isFullPage(rows) };
-  },
-});
-
-export const migrateTransientCleanupFailuresBatch = internalMutation({
-  args: ownerArgs,
-  returns: hasMoreReturn,
-  handler: async (ctx: MutationCtx, args) => {
-    const rows = await ctx.db
-      .query("transient_cleanup_failures")
-      .withIndex("by_ownerId_and_createdAt", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-    await Promise.all(
-      rows.map((row) => ctx.db.patch(row._id, { ownerId: args.toOwnerId })),
-    );
-    return { hasMore: isFullPage(rows) };
-  },
-});
-
 export const migrateConnectorTurnPayloadsBatch = internalMutation({
   args: ownerArgs,
   returns: hasMoreReturn,
@@ -426,11 +392,9 @@ export const deduplicateUserCounters = internalMutation({
 
 /**
  * Tables whose batches are independent of every other table — drainable in
- * parallel from the orchestrator. `devices` / `device_presence` /
- * `channel_connections` are NOT here: they go through
+ * parallel from the orchestrator. `devices` / `device_presence` are NOT here: they go through
  * `migrateDevicesForAccountLink` because that mutation enforces the
- * devices→presence→connections write order to keep partial migrations
- * consistent.
+ * devices→presence write order to keep partial migrations consistent.
  */
 const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateConversationsBatch,
@@ -440,8 +404,6 @@ const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateSecretAccessAuditBatch,
   internal.auth_migration.migrateUserIntegrationsBatch,
   internal.auth_migration.migrateUsageLogsBatch,
-  internal.auth_migration.migrateTransientChannelEventsBatch,
-  internal.auth_migration.migrateTransientCleanupFailuresBatch,
   internal.auth_migration.migrateConnectorTurnPayloadsBatch,
   internal.auth_migration.migrateAgentsBatch,
   internal.auth_migration.migrateMediaJobsBatch,
@@ -535,17 +497,15 @@ export const migrateOwnership = internalAction({
 });
 
 /**
- * Migrate devices, device_presence and channel_connections rows for an
- * account-link in bounded batches. Each invocation processes at most
- * `BATCH_SIZE` rows per table and returns `hasMore` so the caller
- * (`migrateOwnership`) can re-invoke until all three tables are drained,
- * staying within Convex mutation transaction limits even for owners with
- * many devices/presence rows/connections.
+ * Migrate devices and device_presence rows for an account-link in bounded
+ * batches. Each invocation processes at most `BATCH_SIZE` rows per table and
+ * returns `hasMore` so the caller (`migrateOwnership`) can re-invoke until
+ * both tables are drained, staying within Convex mutation transaction limits
+ * even for owners with many devices/presence rows.
  *
  * Migration order is preserved across batches: presence migrates after
- * devices and connections after presence, so a partial migration never
- * leaves the system with a connection that points to the old owner while
- * devices have already moved.
+ * devices, so a partial migration never leaves presence pointing at the old
+ * owner while devices have already moved.
  */
 export const migrateDevicesForAccountLink = internalMutation({
   args: {
@@ -584,35 +544,20 @@ export const migrateDevicesForAccountLink = internalMutation({
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
       .take(BATCH_SIZE);
 
-    if (presenceRows.length > 0) {
-      for (const row of presenceRows) {
-        const existing = await ctx.db
-          .query("device_presence")
-          .withIndex("by_ownerId_and_deviceId", (q) =>
-            q.eq("ownerId", args.toOwnerId).eq("deviceId", row.deviceId),
-          )
-          .unique();
+    for (const row of presenceRows) {
+      const existing = await ctx.db
+        .query("device_presence")
+        .withIndex("by_ownerId_and_deviceId", (q) =>
+          q.eq("ownerId", args.toOwnerId).eq("deviceId", row.deviceId),
+        )
+        .unique();
 
-        if (existing) {
-          await ctx.db.delete(row._id);
-        } else {
-          await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-        }
+      if (existing) {
+        await ctx.db.delete(row._id);
+      } else {
+        await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
       }
-      return { hasMore: presenceRows.length === BATCH_SIZE };
     }
-
-    // --- channel_connections ---
-    const connectionRows = await ctx.db
-      .query("channel_connections")
-      .withIndex("by_ownerId_and_provider", (q) =>
-        q.eq("ownerId", args.fromOwnerId),
-      )
-      .take(BATCH_SIZE);
-
-    for (const row of connectionRows) {
-      await ctx.db.patch(row._id, { ownerId: args.toOwnerId });
-    }
-    return { hasMore: connectionRows.length === BATCH_SIZE };
+    return { hasMore: presenceRows.length === BATCH_SIZE };
   },
 });

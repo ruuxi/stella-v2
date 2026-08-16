@@ -1958,58 +1958,11 @@
       "signInToConnect": "Log in bij Stella om te verbinden",
       "connectStellaApp": "Verbinden met Stella-app",
       "connectStellaAppSub": "Koppel de Stella-app op je telefoon aan deze computer",
-      "sectionTitle": "Integraties",
       "connectTitle": "Verbinden",
       "phoneTitle": "Je telefoon",
-      "backToConnections": "Terug naar verbindingen",
       "connected": "Verbonden",
-      "connectProvider": "{provider} verbinden",
-      "openProvider": "{provider} openen",
-      "listeningOn": "Stella luistert mee op {provider}. Stuur haar daar altijd een bericht.",
-      "disconnect": "Verbinding verbreken",
-      "disconnecting": "Verbinding verbreken...",
-      "disconnected": "Verbinding met {provider} verbroken",
-      "disconnectFailed": "Verbinding met {provider} verbreken mislukt",
-      "codeCopied": "Code gekopieerd naar klembord",
-      "generateCodeFailed": "Code genereren mislukt",
-      "slackInstallUrlFailed": "Voorbereiden van de Slack-installatie-URL mislukt",
       "signInHeadline": "Log in om te beginnen",
       "signInSub": "Log in op je Stella-account om {provider} te verbinden.",
-      "providers": {
-        "linq": {
-          "name": "Sms Stella",
-          "instructions": "Voer je telefoonnummer in en we sturen je een code om te verbinden. Zodra dat is gekoppeld, kun je Stella altijd berichten via iMessage of sms."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Installeer de Stella-app in je Discord-account, voer één keer /link uit met de code en stuur daarna gewoon een DM naar @Stella."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Installeer de Stella-app in je workspace en stuur daarna @Stella een DM met de code hieronder."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Open @StellaAppBot in Telegram en stuur de code hieronder."
-        }
-      },
-      "linq": {
-        "countryCode": "Landcode",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Versturen...",
-        "sendCode": "Code versturen",
-        "sendCodeFailed": "Code versturen mislukt. Controleer het nummer en probeer het opnieuw.",
-        "enterCodeTitle": "Voer je code in",
-        "enterCodeSub": "Kijk op je telefoon — we hebben een 6-cijferige code naar {phone} gestuurd.",
-        "codePlaceholder": "ABC123",
-        "verify": "Verifiëren",
-        "verifying": "Verifiëren...",
-        "verifyCodeFailed": "Code verifiëren mislukt.",
-        "connected": "Verbonden! Je kunt Stella nu sms'en.",
-        "invalidCode": "Ongeldige of verlopen code. Vraag een nieuwe aan.",
-        "genericError": "Er ging iets mis. Probeer het opnieuw.",
-        "useDifferentNumber": "Een ander nummer gebruiken"
-      },
       "credential": {
         "title": "{provider} verbinden",
         "description": "Stella heeft je {provider}-API-sleutel nodig om te verbinden. Plak die hieronder. Hij blijft op je computer.",

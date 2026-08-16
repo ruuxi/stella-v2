@@ -371,20 +371,7 @@ export const upsertPublicIntegration = internalMutation({
   },
 });
 
-const SLACK_OAUTH_SCOPE = "chat:write,im:history,im:read,im:write";
-const SLACK_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-/**
- * On every state creation, opportunistically clean up at most this many of
- * the caller's own expired states. Bounded so creation latency stays flat.
- */
-const SLACK_OAUTH_EXPIRED_CLEANUP_BATCH = 16;
 const X_OAUTH_EXPIRED_CLEANUP_BATCH = 16;
-
-const generateSecureState = (bytesLength = 24) => {
-  const bytes = new Uint8Array(bytesLength);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-};
 
 const hashSha256Hex = sha256Hex;
 type JsonObject = Infer<typeof jsonObjectValidator>;
@@ -430,118 +417,6 @@ const upsertUserIntegrationForOwnerHandler = async (
   });
   return null;
 };
-
-export const createSlackInstallUrl = mutation({
-  args: {},
-  returns: v.object({ url: v.string(), expiresAt: v.number() }),
-  handler: async (ctx) => {
-    const ownerId = await requireUserId(ctx);
-
-    // Each call writes a `slack_oauth_states` row + crypto + cleanup work.
-    // No legitimate UI needs to ask for new install URLs in tight loops.
-    await enforceMutationRateLimit(
-      ctx,
-      "data_create_slack_install_url",
-      ownerId,
-      RATE_VERY_EXPENSIVE,
-      "Too many Slack install requests. Please wait before trying again.",
-    );
-
-    const clientId = process.env.SLACK_CLIENT_ID;
-    const convexSiteUrl = process.env.CONVEX_SITE_URL;
-
-    if (!clientId || !convexSiteUrl) {
-      throw new ConvexError({ code: "INTERNAL_ERROR", message: "Slack OAuth is not configured" });
-    }
-
-    const now = Date.now();
-    const expiresAt = now + SLACK_OAUTH_STATE_TTL_MS;
-    // 24 bytes (192 bits) of entropy — sufficient strength that we can store
-    // sha256(state) directly without an additional per-row salt.
-    const state = generateSecureState();
-    const stateHash = await hashSha256Hex(state);
-
-    // Best-effort cleanup of this owner's expired state rows so the table
-    // doesn't accumulate dead nonces. Bounded; any leftovers get caught by
-    // the next call or the periodic `purgeExpiredSlackOAuthStates` mutation.
-    const expiredOwnRows = await ctx.db
-      .query("slack_oauth_states")
-      .withIndex("by_ownerId_and_expiresAt", (q) =>
-        q.eq("ownerId", ownerId).lt("expiresAt", now),
-      )
-      .take(SLACK_OAUTH_EXPIRED_CLEANUP_BATCH);
-    await Promise.all(expiredOwnRows.map((row) => ctx.db.delete(row._id)));
-
-    await ctx.db.insert("slack_oauth_states", {
-      ownerId,
-      stateHash,
-      expiresAt,
-      createdAt: now,
-    });
-
-    const redirectUri = `${convexSiteUrl}/api/slack/oauth_callback`;
-    const url =
-      `https://slack.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}` +
-      `&scope=${encodeURIComponent(SLACK_OAUTH_SCOPE)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&state=${encodeURIComponent(state)}`;
-
-    return { url, expiresAt };
-  },
-});
-
-export const consumeSlackOAuthState = internalMutation({
-  args: {
-    state: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const stateHash = await hashSha256Hex(args.state);
-    const candidate = await ctx.db
-      .query("slack_oauth_states")
-      .withIndex("by_stateHash", (q) => q.eq("stateHash", stateHash))
-      .unique();
-
-    if (!candidate) return null;
-    if (candidate.usedAt !== undefined) return null;
-    if (candidate.expiresAt <= now) return null;
-
-    await ctx.db.patch(candidate._id, { usedAt: now });
-    return { ownerId: candidate.ownerId };
-  },
-});
-
-/**
- * Periodic cleanup for expired Slack OAuth state nonces. Returns
- * `hasMore: true` while there are more rows to delete and self-schedules a
- * follow-up via `ctx.scheduler.runAfter(0, ...)` so a single hourly cron tick
- * can drain a large backlog without blowing the per-mutation transaction
- * limits.
- */
-export const purgeExpiredSlackOAuthStates = internalMutation({
-  args: {
-    batchSize: v.optional(v.number()),
-  },
-  returns: v.object({ deleted: v.number(), hasMore: v.boolean() }),
-  handler: async (ctx, args) => {
-    const batchSize = Math.min(Math.max(Math.floor(args.batchSize ?? 200), 1), 1000);
-    const now = Date.now();
-    const expired = await ctx.db
-      .query("slack_oauth_states")
-      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
-      .take(batchSize);
-    await Promise.all(expired.map((row) => ctx.db.delete(row._id)));
-    const hasMore = expired.length === batchSize;
-    if (hasMore) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.data.integrations.purgeExpiredSlackOAuthStates,
-        { batchSize },
-      );
-    }
-    return { deleted: expired.length, hasMore };
-  },
-});
 
 export const createXConnectUrl = mutation({
   args: {},

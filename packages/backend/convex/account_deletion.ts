@@ -22,7 +22,6 @@ const OWNER_TABLES = [
   "billing_usage_windows",
   "billing_profiles",
   "user_counters",
-  "slack_oauth_states",
   "x_oauth_states",
   "x_oauth_tokens",
   "connector_turn_payloads",
@@ -181,10 +180,6 @@ const EXTRA_TABLES = [
   "media_job_logs",
   "media_request_cancellations",
   "media_webhook_events",
-  "transient_channel_events",
-  "transient_cleanup_failures",
-  "channel_connections",
-  "link_codes",
   "billing_usage_credits",
   "billing_voice_usage_receipts",
   "billing_media_usage_receipts",
@@ -448,38 +443,6 @@ async function deleteOneExtraTableBatch(
         .withIndex("by_ownerId_and_clientRequestKey", (q) =>
           q.eq("ownerId", ownerId),
         )
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "transient_channel_events": {
-      const rows = await ctx.db
-        .query("transient_channel_events")
-        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "transient_cleanup_failures": {
-      const rows = await ctx.db
-        .query("transient_cleanup_failures")
-        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "channel_connections": {
-      const rows = await ctx.db
-        .query("channel_connections")
-        .withIndex("by_ownerId_and_provider", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "link_codes": {
-      const rows = await ctx.db
-        .query("link_codes")
-        .withIndex("by_ownerId_and_provider", (q) => q.eq("ownerId", ownerId))
         .take(batch);
       ids = rows.map((r) => r._id);
       break;

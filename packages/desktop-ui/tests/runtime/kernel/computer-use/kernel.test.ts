@@ -1586,22 +1586,22 @@ describe("persistent Node REPL kernels", () => {
         queries.push({ query, ...(limit !== undefined ? { limit } : {}) });
         return [
           {
-            name: "linq_send_message",
+            name: "example_send_message",
             signature:
-              "tools.linq_send_message(input: { parts: Array<unknown> }): Promise<unknown>",
-            description: "Send a Linq/iMessage message.",
+              "tools.example_send_message(input: { parts: Array<unknown> }): Promise<unknown>",
+            description: "Send an example connector message.",
           },
         ];
       },
     });
     try {
       const output = await registry.evaluate(
-        "await tools.$search({ query: 'send an imessage', limit: 3 })",
+        "await tools.$search({ query: 'send an example', limit: 3 })",
         context("agent-search"),
       );
-      expect(output).toContain("linq_send_message");
-      expect(output).toContain("tools.linq_send_message(input:");
-      expect(queries).toEqual([{ query: "send an imessage", limit: 3 }]);
+      expect(output).toContain("example_send_message");
+      expect(output).toContain("tools.example_send_message(input:");
+      expect(queries).toEqual([{ query: "send an example", limit: 3 }]);
 
       // Empty queries fail loudly instead of returning an ambiguous [].
       await expect(

@@ -5,7 +5,6 @@ import { corsPreflightHandler } from "./http_shared/cors";
 
 // Route modules
 import { registerAdminRoutes } from "./http_routes/admin";
-import { registerConnectorWebhookRoutes } from "./http_routes/connectors";
 import { registerBackupRoutes } from "./http_routes/backups";
 import { registerDesktopReleaseRoutes } from "./http_routes/desktop_releases";
 import { registerMediaRoutes } from "./http_routes/media";
@@ -55,7 +54,6 @@ authComponent.registerRoutes(http, createAuth, { cors: true });
 
 registerAdminRoutes(http);
 registerSynthesisRoutes(http);
-registerConnectorWebhookRoutes(http);
 registerBackupRoutes(http);
 registerDesktopReleaseRoutes(http);
 registerMusicRoutes(http);
@@ -68,33 +66,6 @@ registerDictationRoutes(http);
 registerXRoutes(http);
 
 registerStripeRoutes(http);
-
-// ---------------------------------------------------------------------------
-// Static assets (vCard, etc.)
-// ---------------------------------------------------------------------------
-
-http.route({
-  path: "/stella.vcf",
-  method: "GET",
-  handler: httpAction(async () => {
-    const phone = process.env.LINQ_FROM_NUMBER ?? "";
-    const vcard =
-      `BEGIN:VCARD\r\n` +
-      `VERSION:3.0\r\n` +
-      `FN:Stella\r\n` +
-      `TEL;TYPE=CELL:${phone}\r\n` +
-      `NOTE:Your AI assistant — text me anytime.\r\n` +
-      `END:VCARD`;
-    return new Response(vcard, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/vcard; charset=utf-8",
-        "Content-Disposition": 'attachment; filename="Stella.vcf"',
-        "Cache-Control": "public, max-age=86400",
-      },
-    });
-  }),
-});
 
 // ---------------------------------------------------------------------------
 // Stella provider endpoints

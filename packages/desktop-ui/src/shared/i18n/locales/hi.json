@@ -1958,58 +1958,11 @@
       "signInToConnect": "कनेक्ट करने के लिए Stella में साइन इन करें",
       "connectStellaApp": "Stella ऐप से कनेक्ट करें",
       "connectStellaAppSub": "अपने फ़ोन के Stella ऐप को इस कंप्यूटर से जोड़ें",
-      "sectionTitle": "एकीकरण",
       "connectTitle": "कनेक्ट करें",
       "phoneTitle": "आपका फ़ोन",
-      "backToConnections": "कनेक्शनों पर वापस",
       "connected": "कनेक्टेड",
-      "connectProvider": "{provider} कनेक्ट करें",
-      "openProvider": "{provider} खोलें",
-      "listeningOn": "Stella {provider} पर सुन रही है। वहाँ कभी भी उसे संदेश भेजें।",
-      "disconnect": "डिस्कनेक्ट करें",
-      "disconnecting": "डिस्कनेक्ट हो रहा है...",
-      "disconnected": "{provider} से डिस्कनेक्ट हुआ",
-      "disconnectFailed": "{provider} से डिस्कनेक्ट करने में विफल",
-      "codeCopied": "कोड क्लिपबोर्ड पर कॉपी हुआ",
-      "generateCodeFailed": "कोड बनाने में विफल",
-      "slackInstallUrlFailed": "Slack इंस्टॉल URL तैयार करने में विफल",
       "signInHeadline": "शुरू करने के लिए साइन इन करें",
       "signInSub": "{provider} कनेक्ट करने के लिए अपने Stella खाते में साइन इन करें।",
-      "providers": {
-        "linq": {
-          "name": "Stella को टेक्स्ट करें",
-          "instructions": "अपना फ़ोन नंबर दर्ज करें और हम कनेक्ट करने के लिए आपको एक कोड टेक्स्ट करेंगे। जुड़ने के बाद आप iMessage या SMS से Stella को कभी भी संदेश भेज सकते हैं।"
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "अपने Discord खाते में Stella ऐप इंस्टॉल करें, कोड के साथ एक बार /link चलाएँ, फिर सामान्य रूप से @Stella को DM करें।"
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "अपने वर्कस्पेस में Stella ऐप इंस्टॉल करें, फिर नीचे दिए कोड के साथ @Stella को DM करें।"
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Telegram में @StellaAppBot खोलें, फिर उसे नीचे दिया कोड भेजें।"
-        }
-      },
-      "linq": {
-        "countryCode": "देश कोड",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "भेजा जा रहा है...",
-        "sendCode": "कोड भेजें",
-        "sendCodeFailed": "कोड भेजने में विफल। नंबर जाँचें और फिर कोशिश करें।",
-        "enterCodeTitle": "अपना कोड दर्ज करें",
-        "enterCodeSub": "अपना फ़ोन देखें — हमने {phone} पर 6-अंकों का कोड भेजा है।",
-        "codePlaceholder": "ABC123",
-        "verify": "सत्यापित करें",
-        "verifying": "सत्यापित हो रहा है...",
-        "verifyCodeFailed": "कोड सत्यापित करने में विफल।",
-        "connected": "कनेक्ट हो गया! अब आप Stella को टेक्स्ट कर सकते हैं।",
-        "invalidCode": "अमान्य या समाप्त कोड। नया कोड भेजकर देखें।",
-        "genericError": "कुछ गड़बड़ हुई। कृपया फिर कोशिश करें।",
-        "useDifferentNumber": "कोई दूसरा नंबर उपयोग करें"
-      },
       "credential": {
         "title": "{provider} कनेक्ट करें",
         "description": "कनेक्ट करने के लिए Stella को आपकी {provider} API कुंजी चाहिए। इसे नीचे चिपकाएँ। यह आपके कंप्यूटर पर ही रहती है।",

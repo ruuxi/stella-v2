@@ -143,16 +143,12 @@ const getStoredMessagePreview = (
 ): string => message?.content.trim() ?? "";
 
 /**
- * Durable-store user messages may carry write-time decoration (trailing
- * timestamp tag, `[linq_message_id: …]` trailer) that raw chat events do
- * not. Strip it before comparing a stored preview against event text so the
- * legacy transition dedup keeps matching.
+ * Durable-store user messages may carry a write-time timestamp tag that raw
+ * chat events do not. Strip it before comparing a stored preview against
+ * event text so the legacy transition dedup keeps matching.
  */
 const stripUserTranscriptDecoration = (value: string): string =>
-  value
-    .replace(TRAILING_TIME_TAG_RE, "")
-    .replace(/\s*\n\n\[linq_message_id: [^\]\n]+\]$/, "")
-    .trim();
+  value.replace(TRAILING_TIME_TAG_RE, "").trim();
 
 const getLocalEventText = (event: LocalContextEvent): string => {
   if (!event.payload || typeof event.payload !== "object") {
@@ -215,8 +211,8 @@ const findLatestLocale = (events: LocalContextEvent[]): string | undefined => {
  * nothing changed).
  *
  * "Routing surface" here means whether the user is talking through a
- * connector (Linq SMS, Slack, Discord, etc.) or directly from the
- * desktop, and which connector if so. Each `user_message` event carries
+ * connector (the Stella mobile app) or directly from the desktop, and
+ * which connector if so. Each `user_message` event carries
  * `payload.source` (either `"connector"` or absent) and, when sourced
  * from a connector, `payload.provider` identifying the channel.
  *
@@ -272,8 +268,8 @@ const buildConnectorTransitionReminder = (
 
   if (currentSurface.isConnector) {
     const providerLabel =
-      currentSurface.provider === "linq"
-        ? "iPhone or iMessage"
+      currentSurface.provider === "stella_app"
+        ? "the Stella mobile app"
         : (currentSurface.provider ?? "an external chat channel");
     const connectorLines = [
       `The user is now messaging you from ${providerLabel}, not the desktop app.`,
@@ -281,11 +277,6 @@ const buildConnectorTransitionReminder = (
       "Do not call the `html` tool — it only renders in the desktop sidebar.",
       "`image_gen` returns the finished artifact in its tool result and it renders directly in chat; do not poll for it or describe the image afterward.",
     ];
-    if (currentSurface.provider === "linq") {
-      connectorLines.push(
-        "The user is texting over iMessage. Use the iMessage tools for native affordances (reactions, rich media, contact cards, voice memos, effects); typing indicators and read receipts are automatic.",
-      );
-    }
     return connectorLines.join(" ");
   }
 
@@ -371,9 +362,9 @@ const trimDuplicatedTransitionUserEvent = (
  *
  * The durable runtime thread store is the single source of conversation
  * history: typed turns, realtime-voice transcripts, and connector messages
- * all persist thread entries at write time (with the timestamp-tag and
- * `linq_message_id` decoration applied by
- * `agent-runtime/transcript-decoration.js`). Ordinarily this function just
+ * all persist thread entries at write time (with the timestamp-tag
+ * decoration applied by `agent-runtime/transcript-decoration.js`).
+ * Ordinarily this function just
  * returns `storedThreadMessages`.
  *
  * LEGACY PRE-TRANSITION COMPAT: conversations whose chat events predate the

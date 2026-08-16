@@ -2053,58 +2053,11 @@
       "signInToConnect": "سجّل الدخول إلى Stella للاتصال",
       "connectStellaApp": "اتصل بتطبيق Stella",
       "connectStellaAppSub": "اقرن تطبيق Stella على هاتفك بهذا الكمبيوتر",
-      "sectionTitle": "التكاملات",
       "connectTitle": "اتصال",
       "phoneTitle": "هاتفك",
-      "backToConnections": "العودة إلى الاتصالات",
       "connected": "متصل",
-      "connectProvider": "اتصل بـ {provider}",
-      "openProvider": "افتح {provider}",
-      "listeningOn": "تستمع Stella على {provider}. راسلها هناك في أي وقت.",
-      "disconnect": "قطع الاتصال",
-      "disconnecting": "جارٍ قطع الاتصال...",
-      "disconnected": "تم قطع الاتصال بـ {provider}",
-      "disconnectFailed": "تعذّر قطع الاتصال بـ {provider}",
-      "codeCopied": "تم نسخ الرمز إلى الحافظة",
-      "generateCodeFailed": "تعذّر إنشاء الرمز",
-      "slackInstallUrlFailed": "تعذّر تجهيز رابط تثبيت Slack",
       "signInHeadline": "سجّل الدخول للبدء",
       "signInSub": "سجّل الدخول إلى حساب Stella لتوصيل {provider}.",
-      "providers": {
-        "linq": {
-          "name": "راسل Stella",
-          "instructions": "أدخل رقم هاتفك وسنرسل لك رمزًا عبر رسالة نصية للاتصال. بعد الربط، يمكنك مراسلة Stella في أي وقت عبر iMessage أو الرسائل النصية."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "ثبّت تطبيق Stella في حسابك على Discord، ونفّذ /link بالرمز مرة واحدة، ثم راسل @Stella مباشرة كالمعتاد."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "ثبّت تطبيق Stella في مساحة عملك، ثم راسل @Stella مباشرة بالرمز أدناه."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "افتح @StellaAppBot في Telegram، ثم أرسل إليه الرمز أدناه."
-        }
-      },
-      "linq": {
-        "countryCode": "رمز الدولة",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "جارٍ الإرسال...",
-        "sendCode": "أرسل الرمز",
-        "sendCodeFailed": "تعذّر إرسال الرمز. تحقّق من الرقم وحاول مرة أخرى.",
-        "enterCodeTitle": "أدخل رمزك",
-        "enterCodeSub": "تحقّق من هاتفك — أرسلنا رمزًا من 6 أرقام إلى {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "تحقّق",
-        "verifying": "جارٍ التحقق...",
-        "verifyCodeFailed": "تعذّر التحقق من الرمز.",
-        "connected": "تم الاتصال! يمكنك الآن مراسلة Stella نصيًا.",
-        "invalidCode": "رمز غير صالح أو منتهي الصلاحية. جرّب إرسال رمز جديد.",
-        "genericError": "حدث خطأ ما. حاول مرة أخرى.",
-        "useDifferentNumber": "استخدم رقمًا مختلفًا"
-      },
       "credential": {
         "title": "اتصل بـ {provider}",
         "description": "تحتاج Stella إلى مفتاح API الخاص بك في {provider} للاتصال. ألصقه أدناه. سيبقى على حاسوبك.",

@@ -447,6 +447,50 @@ const resolveDirectProviderRoute = (args: {
   return { kind: "missing-credential" };
 };
 
+/**
+ * Desktop-local engine model references (`claude-code/<model>`,
+ * `codex-cli/<model>`) that can appear as a run's configured model when the
+ * active engine is a desktop-local engine (Claude Code / Codex).
+ *
+ * The desktop model picker keeps `modelOverrides` resolvable — it stores a
+ * Stella route for Claude Code and an `openai-codex/<model>` route for Codex,
+ * and carries the engine-native model in a dedicated preference field
+ * (`claudeCodeModel` / `codexModel`). The mobile picker mirrors the same engine
+ * plus engine-native model, but writes the engine-prefixed id straight into
+ * `modelOverrides`. Those prefixes are NOT cloud providers, so feeding them to
+ * the direct-provider resolver rejects them as `unsupported-provider` — a
+ * mobile-originated turn on a desktop-local engine then fails even though the
+ * desktop runs the exact same selection fine.
+ *
+ * Normalize such a reference to the route a desktop turn resolves so the turn
+ * dispatches to the desktop engine identically regardless of origin. The
+ * engine-native model itself is always read from its dedicated preference field
+ * downstream (`getClaudeCodeAgentModelId` / `getCodexRuntimePreferences`), so
+ * rewriting only the prep/orchestrator *route* model here never changes which
+ * engine model actually runs the turn.
+ */
+const CLAUDE_CODE_ENGINE_PROVIDER = "claude-code";
+const CODEX_CLI_ENGINE_PROVIDER = "codex-cli";
+
+const normalizeDesktopLocalEngineModelReference = (
+  modelName: string | undefined,
+): string | undefined => {
+  const parsed = parseModelReference(modelName);
+  if (!parsed) return modelName;
+  // Codex resolves its orchestrator/prep route through the OpenAI-Codex
+  // provider on desktop; map the mobile engine prefix onto that same provider.
+  if (parsed.provider === CODEX_CLI_ENGINE_PROVIDER) {
+    return `openai-codex/${parsed.modelId}`;
+  }
+  // Claude Code keeps a Stella conversation/prep route on desktop; fall back to
+  // the default Stella route (no explicit model) so the engine executes the
+  // turn instead of the resolver rejecting an unknown provider.
+  if (parsed.provider === CLAUDE_CODE_ENGINE_PROVIDER) {
+    return undefined;
+  }
+  return modelName;
+};
+
 type LlmRouteResolution =
   | { ok: true; route: ResolvedLlmRoute }
   | { ok: false; failure: LlmRouteFailure };
@@ -459,7 +503,9 @@ const resolveLlmRouteResult = (args: {
   reasoningEffort?: string;
   deferBareStellaModelFailure?: boolean;
 }): LlmRouteResolution => {
-  const parsed = parseModelReference(args.modelName);
+  const parsed = parseModelReference(
+    normalizeDesktopLocalEngineModelReference(args.modelName),
+  );
 
   // No model specified → let the backend choose from agent type + audience.
   if (!parsed) {

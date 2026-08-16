@@ -53,6 +53,7 @@ import { AppBackdrop, TOP_BAR_BAR_HEIGHT } from "./AppBackdrop";
 import { ArtifactCard } from "./ArtifactCard";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
 import { AgentWorkCard } from "./AgentWorkCard";
+import { AgentCompletionCard } from "./AgentCompletionCard";
 import { MapRouteCard } from "./MapRouteCard";
 import { ToolActivityTrace } from "./ToolActivityTrace";
 import { ActivityPill } from "./ActivityPill";
@@ -69,7 +70,6 @@ import {
 } from "../lib/message-row-identity";
 import {
   inlineAgentWorkCardSections,
-  settledAgentWorkCards,
   consolidateRowArtifacts,
 } from "../lib/agent-artifact-consolidation";
 import { DictationRecordingBar } from "./DictationRecordingBar";
@@ -1400,53 +1400,40 @@ const ChatMessageRow = memo(function ChatMessageRow({
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
           {groupAgentWorkArtifacts.flatMap((artifact, index) => {
-            // Desktop posts a distinct completion card per finished agent. A
-            // settled multi-agent group splits into one card per agent so each
-            // completion reads as its own card instead of the sibling
-            // completions coalescing into — and overwriting — one grouped card.
-            const splitCards = settledAgentWorkCards(artifact);
-            if (splitCards.length > 1) {
-              return splitCards.map((card) => (
-                <AgentWorkCard
-                  key={card.key}
-                  payload={card.payload}
-                  colors={colors}
-                  {...(card.sections.length > 0
-                    ? {
-                        sections: card.sections,
-                        ...(onOpenArtifact ? { onOpenArtifact } : {}),
-                      }
-                    : {})}
-                />
-              ));
-            }
-            // Single grouped card: prefer the bridge's per-agent sections
-            // (desktop-computed attribution), gated so files appear on the
-            // finish card only — never mid-run — matching desktop. Older
-            // desktops omit the field — fall back to folding the row's own
-            // files into the last card once every covered agent settled (with
-            // several transitional per-agent cards on one row the consolidated
-            // list rides the last; the sync path collapses them into one
-            // grouped card per turn).
-            const bridgeSections = inlineAgentWorkCardSections(artifact);
-            const sections =
-              bridgeSections ??
-              (showAgentFiles && index === groupAgentWorkArtifacts.length - 1
-                ? [{ key: `${artifact.id}:files`, files: agentFiles }]
-                : []);
-            return [
+            // Two-card structural parity with desktop (BackgroundWorkCard +
+            // AgentCompletionCard): render the spawn/working card WITHOUT any
+            // sections (status only, persists after completion), then — once the
+            // work settles — a physically-separate completion card carrying the
+            // per-agent result summary and produced files.
+            const nodes = [
               <AgentWorkCard
                 key={artifact.id}
                 payload={artifact.payload}
                 colors={colors}
-                {...(sections.length > 0
-                  ? {
-                      sections,
-                      ...(onOpenArtifact ? { onOpenArtifact } : {}),
-                    }
-                  : {})}
               />,
             ];
+            if (artifact.payload.state === "done") {
+              // Prefer the bridge's per-agent sections (desktop-computed
+              // attribution). Older desktops omit the field — fall back to
+              // folding the row's own files onto the last card's completion.
+              const bridgeSections = inlineAgentWorkCardSections(artifact);
+              const sections =
+                bridgeSections ??
+                (showAgentFiles && index === groupAgentWorkArtifacts.length - 1
+                  ? [{ key: `${artifact.id}:files`, files: agentFiles }]
+                  : []);
+              if (sections.length > 0) {
+                nodes.push(
+                  <AgentCompletionCard
+                    key={`${artifact.id}:completion`}
+                    sections={sections}
+                    colors={colors}
+                    {...(onOpenArtifact ? { onOpenArtifact } : {})}
+                  />,
+                );
+              }
+            }
+            return nodes;
           })}
           {showMapArtifacts
             ? mapArtifacts.map((artifact) => (

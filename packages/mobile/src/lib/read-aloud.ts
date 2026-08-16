@@ -151,7 +151,7 @@ async function fetchInworldReadAloudAudio(text: string) {
       text,
       voiceProvider: "inworld",
       voice: "Wendy",
-      model: "inworld-tts-2",
+      model: "inworld-tts-2-flash",
     }),
   });
 

@@ -986,7 +986,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             );
           }
           const voiceId = body?.voice?.trim() || "Evelyn";
-          const modelId = body?.model?.trim() || "inworld-tts-2";
+          const modelId = body?.model?.trim() || "inworld-tts-2-flash";
           try {
             const inworldResponse = await fetch(
               "https://api.inworld.ai/tts/v1/voice",

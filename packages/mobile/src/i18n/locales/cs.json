@@ -460,6 +460,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Hledat modely…",
       "searchAriaLabel": "Hledat modely",
       "closeSearch": "Zavřít hledání",
@@ -1267,6 +1269,7 @@
         "stopReading": "Zastavit čtení"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Příloha",
         "attachmentFallback": "Příloha {index}",
         "channelKind": {

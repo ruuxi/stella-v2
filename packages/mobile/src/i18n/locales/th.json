@@ -457,6 +457,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "ค้นหาโมเดล…",
       "searchAriaLabel": "ค้นหาโมเดล",
       "closeSearch": "ปิดการค้นหา",
@@ -1237,6 +1239,7 @@
         "stopReading": "หยุดอ่าน"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "ไฟล์แนบ",
         "attachmentFallback": "ไฟล์แนบ {index}",
         "channelKind": {

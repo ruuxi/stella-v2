@@ -457,6 +457,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "搜尋模型…",
       "searchAriaLabel": "搜尋模型",
       "closeSearch": "關閉搜尋",
@@ -1237,6 +1239,7 @@
         "stopReading": "停止朗讀"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "附件",
         "attachmentFallback": "附件 {index}",
         "channelKind": {

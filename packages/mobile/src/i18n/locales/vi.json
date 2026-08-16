@@ -457,6 +457,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Tìm mô hình…",
       "searchAriaLabel": "Tìm mô hình",
       "closeSearch": "Đóng tìm kiếm",
@@ -1237,6 +1239,7 @@
         "stopReading": "Dừng đọc"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Tệp đính kèm",
         "attachmentFallback": "Tệp đính kèm {index}",
         "channelKind": {

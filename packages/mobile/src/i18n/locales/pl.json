@@ -460,6 +460,8 @@
       }
     },
     "modelPicker": {
+      "loadFailed": "Couldn't load models",
+      "retry": "Retry",
       "searchPlaceholder": "Szukaj modeli…",
       "searchAriaLabel": "Szukaj modeli",
       "closeSearch": "Zamknij wyszukiwanie",
@@ -1267,6 +1269,7 @@
         "stopReading": "Przerwij czytanie"
       },
       "messageRow": {
+        "quotedTextLabel": "Quoted text",
         "attachmentAlt": "Załącznik",
         "attachmentFallback": "Załącznik {index}",
         "channelKind": {

@@ -205,11 +205,11 @@ export type ChatMessage = {
   canonicalCreatedAt?: number;
   /**
    * Authoritative monotonic ordering key from the desktop (chat-ordering
-   * re-architecture). Present on canonical rows once the desktop's
-   * ordering-sequence migration is live; absent on in-flight optimistic rows
-   * until they reconcile to their canonical row. When the re-derive flag is on
-   * and every row carries this, the transcript is ordered by it (jump-free,
-   * clock-independent) instead of the insert-only durable sequence.
+   * re-architecture). The transcript is ordered by this (jump-free,
+   * clock-independent). Present on canonical rows; absent on in-flight
+   * optimistic rows until they reconcile (they sort at the tail until then) and
+   * on rows from a peer desktop on an older build that never sends it (the
+   * merge then degrades to a canonical/clock order — see rederiveOrder).
    */
   sequence?: number;
   role: "assistant" | "user";

@@ -1,10 +1,7 @@
 import path from "path";
 import type { SqliteDatabase } from "./shared.js";
 import { ensurePrivateDirSync } from "../shared/private-fs.js";
-import {
-  installChatOrderingSequence,
-  isChatOrderingSequenceEnabled,
-} from "./chat-ordering-sequence.js";
+import { installChatOrderingSequence } from "./chat-ordering-sequence.js";
 
 const DB_FILE = "stella.sqlite";
 
@@ -504,15 +501,13 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     ON message(run_id, created_at, id);
   `);
 
-  // Phase 0 (chat-ordering re-architecture): dedicated, never-reused monotonic
-  // ordering key on `message`, assigned by the authoritative desktop. Entirely
-  // gated behind STELLA_CHAT_ORDERING_SEQUENCE and default-off, so a normal
-  // launch is byte-identical and no real user data is touched. Ordering still
-  // uses the legacy (created_at, id) comparator until a later, separately
-  // signed-off phase flips it behind its own flag.
-  if (isChatOrderingSequenceEnabled()) {
-    installChatOrderingSequence(db);
-  }
+  // Chat-ordering re-architecture: the dedicated, never-reused monotonic
+  // ordering key on `message` is now the default and only ordering key. The
+  // migration runs unconditionally — it is idempotent (a fully-migrated DB just
+  // re-checks the trigger), chunked/resumable so a large history never holds the
+  // write lock long or hangs launch, and order-preserving (existing rows keep
+  // their current (created_at, id) display order).
+  installChatOrderingSequence(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS part (

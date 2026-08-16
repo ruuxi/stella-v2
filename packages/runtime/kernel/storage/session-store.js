@@ -3,10 +3,7 @@ import {
   normalizeRuntimeThreadId,
 } from "../runtime-threads.js";
 import { slugify } from "../shared/slug.js";
-import {
-  chatOrderingSequenceIsComplete,
-  isChatOrderingBySequenceEnabled,
-} from "./chat-ordering-sequence.js";
+
 import {
   DEFAULT_CONVERSATION_SETTING_KEY,
   MAX_EVENTS_PER_CONVERSATION,
@@ -933,71 +930,30 @@ export class SessionStore {
     this.db = db;
     this.options = options;
   }
-  #orderingBySequenceCache = null;
   /**
-   * Whether chat timeline ordering + cutoff/keyset/delta/destructive predicates
-   * should key on `ordering_sequence` (Phase 3/4 flip) instead of the legacy
-   * (created_at, id) tuple. Requires BOTH the env flag AND a fully-backfilled
-   * column, so a flip can never key on a NULL sequence. Cached per store; the
-   * column only transitions NULL→complete once (the guarded migration), and the
-   * env flag is process-static.
-   */
-  get orderingBySequence() {
-    if (this.#orderingBySequenceCache === null) {
-      this.#orderingBySequenceCache =
-        isChatOrderingBySequenceEnabled() &&
-        chatOrderingSequenceIsComplete(this.db);
-    }
-    return this.#orderingBySequenceCache;
-  }
-  #orderingColumnExistsCache = null;
-  /**
-   * Whether the `message.ordering_sequence` column exists (Phase-0 migration
-   * has run). Default DBs (flag off) do NOT have it, so every SELECT of the
-   * column must be gated on this to keep the default path working and
-   * byte-identical. Cached: the column is added once and only removed by the
-   * explicit unset.
-   */
-  get orderingColumnExists() {
-    if (this.#orderingColumnExistsCache === null) {
-      const cols = this.db.prepare("PRAGMA table_info(message);").all();
-      this.#orderingColumnExistsCache = cols.some(
-        (col) => col.name === "ordering_sequence",
-      );
-    }
-    return this.#orderingColumnExistsCache;
-  }
-  /** SELECT fragment that adds `ordering_sequence AS sequence`, only when present. */
-  orderingSequenceSelect(alias) {
-    if (!this.orderingColumnExists) return "";
-    const p = alias ? `${alias}.` : "";
-    return `, ${p}ordering_sequence AS sequence`;
-  }
-  /**
-   * ORDER BY fragment for a table (optional `alias`), ascending or descending,
-   * under the active ordering key.
+   * ORDER BY fragment for a table (optional `alias`). Chat timeline ordering is
+   * always by the monotonic `ordering_sequence` (assigned to every row by the
+   * unconditional migration); `id` is a deterministic secondary that also keeps
+   * a defensive, never-expected NULL-sequence row stably placed.
    */
   timelineOrderBy(alias, direction) {
     const p = alias ? `${alias}.` : "";
     const dir = direction === "DESC" ? "DESC" : "ASC";
-    return this.orderingBySequence
-      ? `${p}ordering_sequence ${dir}`
-      : `${p}created_at ${dir}, ${p}id ${dir}`;
+    return `${p}ordering_sequence ${dir}, ${p}id ${dir}`;
   }
   /**
    * Keyset comparison predicate for a table (optional `alias`) against a bound
-   * cursor, e.g. ">=". Returns { clause, params } so call sites bind the right
-   * arity for the active key (1 param for sequence, 2 for the legacy tuple).
+   * cursor, e.g. ">=". Keys on `ordering_sequence` whenever the cursor carries
+   * one. FALLBACK (version skew / defensive): when a cursor has no resolvable
+   * sequence — an external cursor whose row was deleted (Rewind), or a row from
+   * a peer on an older build that never carried a sequence — it degrades to the
+   * legacy `(created_at, id)` value comparison, which still works on a bound
+   * timestamp/id even when the row is gone. Returns { clause, params } so call
+   * sites bind the right arity (1 for sequence, 2 for the legacy tuple).
    */
   timelineKeyset(alias, op, cursor) {
     const p = alias ? `${alias}.` : "";
-    // Sequence key only when the flip is active AND we actually have the
-    // cursor's sequence. If the sequence can't be resolved (e.g. the cursor's
-    // row was deleted by a Rewind), fall back to the legacy (created_at, id)
-    // value comparison, which still works on a bound timestamp/id even when the
-    // row is gone.
     if (
-      this.orderingBySequence &&
       typeof cursor.sequence === "number" &&
       Number.isFinite(cursor.sequence)
     ) {
@@ -1600,7 +1556,7 @@ export class SessionStore {
     if (!eventId) return null;
     const row = this.db
       .prepare(
-        `SELECT id AS _id, created_at AS timestamp${this.orderingSequenceSelect("")}
+        `SELECT id AS _id, created_at AS timestamp, ordering_sequence AS sequence
            FROM message
           WHERE session_id = ? AND id = ?
           LIMIT 1`,
@@ -2269,7 +2225,7 @@ export class SessionStore {
           {
             timestamp: row.timestamp,
             id: row._id,
-            ...(this.orderingBySequence && typeof row.sequence === "number"
+            ...(typeof row.sequence === "number"
               ? { sequence: row.sequence }
               : {}),
           },
@@ -2465,7 +2421,7 @@ export class SessionStore {
       const rows = this.db
         .prepare(
           `
-        SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}, part.data_json AS payloadJson
+        SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence, part.data_json AS payloadJson
         FROM message
         LEFT JOIN part
           ON part.message_id = message.id
@@ -2545,7 +2501,7 @@ export class SessionStore {
     const sql = `
       SELECT
         message.id AS _id,
-        message.created_at AS timestamp${this.orderingSequenceSelect("message")},
+        message.created_at AS timestamp, message.ordering_sequence AS sequence,
         message.type AS type,
         message.device_id AS deviceId,
         message.request_id AS requestId,
@@ -2570,7 +2526,7 @@ export class SessionStore {
     const row = this.db
       .prepare(
         `
-      SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
+      SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
@@ -2596,7 +2552,7 @@ export class SessionStore {
     const row = this.db
       .prepare(
         `
-      SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
+      SELECT message.created_at AS timestamp, message.id AS id, message.ordering_sequence AS sequence
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
@@ -2617,15 +2573,14 @@ export class SessionStore {
       : null;
   }
   /**
-   * Ensure a keyset cursor carries `sequence` when the sequence flip is active.
-   * External cursors (mobile delta `after`, pagination `before`) arrive as
-   * (timestamp, id); resolve the row's ordering_sequence by id once so the
-   * keyset predicate can key on it. No-op when the flip is off or the sequence
-   * is already present.
+   * Ensure a keyset cursor carries `sequence`. External cursors (mobile delta
+   * `after`, pagination `before`) arrive as (timestamp, id); resolve the row's
+   * ordering_sequence by id once so the keyset predicate can key on it. No-op
+   * when the sequence is already present, or when the id no longer resolves (the
+   * keyset then degrades to the legacy tuple — see timelineKeyset).
    */
   resolveCursorSequence(conversationId, cursor) {
     if (!cursor) return cursor;
-    if (!this.orderingBySequence) return cursor;
     if (typeof cursor.sequence === "number") return cursor;
     if (typeof cursor.id !== "string" || cursor.id.length === 0) return cursor;
     const row = this.db
@@ -2647,7 +2602,7 @@ export class SessionStore {
           {
             timestamp: message.timestamp,
             id: message._id,
-            ...(this.orderingBySequence && typeof message.sequence === "number"
+            ...(typeof message.sequence === "number"
               ? { sequence: message.sequence }
               : {}),
           },
@@ -2683,7 +2638,7 @@ export class SessionStore {
           {
             timestamp: message.timestamp,
             id: message._id,
-            ...(this.orderingBySequence && typeof message.sequence === "number"
+            ...(typeof message.sequence === "number"
               ? { sequence: message.sequence }
               : {}),
           },
@@ -2695,7 +2650,7 @@ export class SessionStore {
             {
               timestamp: event.timestamp,
               id: event._id,
-              ...(this.orderingBySequence && typeof event.sequence === "number"
+              ...(typeof event.sequence === "number"
                 ? { sequence: event.sequence }
                 : {}),
             },

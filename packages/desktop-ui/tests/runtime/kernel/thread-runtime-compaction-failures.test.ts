@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Compaction must just work: transient provider failures (429/overloaded/
 // network/400) and credential blips are retried with backoff, hook override
-// summaries are accepted verbatim, and an oversized backlog is capped into a
-// single summary request instead of fanning out into chunked requests. A
-// failed compaction is the rare terminal outcome, not the first response to
-// one blip.
+// summaries are accepted verbatim, and an oversized backlog that cannot fit
+// one summary request in the target model's window is compacted via parallel
+// chunked summaries (so nothing is silently dropped and it never hard-fails)
+// instead of a single truncated pass. A failed compaction is the rare
+// terminal outcome, not the first response to one blip.
 
 const completeSimpleMock = vi.fn();
 
@@ -45,6 +46,18 @@ const buildBigThreadMessages = () =>
     timestamp: 1_000 + index,
     role: index % 2 === 0 ? "user" : "assistant",
     content: `message ${index + 1} ${"x".repeat(10_000)}`,
+  }));
+
+// Small enough that the formatted middle fits one summary request in the 200k
+// test window, so the retry/credential/store-write mechanics exercise the
+// single-pass path. Run under forced compaction so the below-trigger size
+// still compacts.
+const buildFittingThreadMessages = () =>
+  Array.from({ length: 8 }, (_, index) => ({
+    entryId: `entry-${index + 1}`,
+    timestamp: 1_000 + index,
+    role: index % 2 === 0 ? "user" : "assistant",
+    content: `message ${index + 1} ${"x".repeat(2_000)}`,
   }));
 
 const createFakeStore = (
@@ -90,7 +103,9 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("retries transient summary-LLM failures with backoff and recovers", async () => {
-    const { store, compactCalls } = createFakeStore();
+    const { store, compactCalls } = createFakeStore(
+      buildFittingThreadMessages(),
+    );
     completeSimpleMock
       .mockRejectedValueOnce(
         new Error(
@@ -104,12 +119,14 @@ describe("orchestrator thread compaction failure handling", () => {
       })
       .mockResolvedValueOnce(successResponse());
 
-    const result = await maybeCompactRuntimeThread({
-      store,
-      threadKey: "transient-retry",
-      resolvedLlm: createRoute(async () => "auth-token"),
-      agentType: "orchestrator",
-    });
+    const result = await withForcedThreadCompaction("transient-retry", () =>
+      maybeCompactRuntimeThread({
+        store,
+        threadKey: "transient-retry",
+        resolvedLlm: createRoute(async () => "auth-token"),
+        agentType: "orchestrator",
+      }),
+    );
 
     expect(result).toEqual({ compacted: true });
     expect(completeSimpleMock).toHaveBeenCalledTimes(3);
@@ -117,19 +134,23 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("reports compacted: false only after the full retry schedule is exhausted", async () => {
-    const { store, compactCalls } = createFakeStore();
+    const { store, compactCalls } = createFakeStore(
+      buildFittingThreadMessages(),
+    );
     completeSimpleMock.mockResolvedValue({
       content: [],
       stopReason: "error",
       errorMessage: "provider stream ended before a clean stop",
     });
 
-    const result = await compactRuntimeThreadHistory({
-      store,
-      threadKey: "exhausted",
-      resolvedLlm: createRoute(async () => "auth-token"),
-      agentType: "orchestrator",
-    });
+    const result = await withForcedThreadCompaction("exhausted", () =>
+      compactRuntimeThreadHistory({
+        store,
+        threadKey: "exhausted",
+        resolvedLlm: createRoute(async () => "auth-token"),
+        agentType: "orchestrator",
+      }),
+    );
 
     expect(result).toEqual({ compacted: false });
     expect(completeSimpleMock).toHaveBeenCalledTimes(MAX_SUMMARY_ATTEMPTS);
@@ -137,19 +158,23 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("re-resolves the API key per attempt so a credential blip recovers", async () => {
-    const { store, compactCalls } = createFakeStore();
+    const { store, compactCalls } = createFakeStore(
+      buildFittingThreadMessages(),
+    );
     const getApiKey = vi
       .fn<() => Promise<string | null>>()
       .mockResolvedValueOnce(null)
       .mockResolvedValue("auth-token");
     completeSimpleMock.mockResolvedValue(successResponse());
 
-    const result = await maybeCompactRuntimeThread({
-      store,
-      threadKey: "credential-blip",
-      resolvedLlm: createRoute(getApiKey),
-      agentType: "orchestrator",
-    });
+    const result = await withForcedThreadCompaction("credential-blip", () =>
+      maybeCompactRuntimeThread({
+        store,
+        threadKey: "credential-blip",
+        resolvedLlm: createRoute(getApiKey),
+        agentType: "orchestrator",
+      }),
+    );
 
     expect(result).toEqual({ compacted: true });
     expect(getApiKey).toHaveBeenCalledTimes(2);
@@ -188,7 +213,7 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(compactCalls[0]).toMatchObject({ summary: "Compacted." });
   });
 
-  it("caps an oversized backlog into a single summary request", async () => {
+  it("compacts an oversized backlog via parallel chunked summaries", async () => {
     const { store, compactCalls } = createFakeStore();
     completeSimpleMock.mockResolvedValue(successResponse());
 
@@ -199,19 +224,106 @@ describe("orchestrator thread compaction failure handling", () => {
       agentType: "orchestrator",
     });
 
+    // The ~600k-char middle cannot fit one summary request in the 200k window,
+    // so compaction fans out into chunked segment summaries rather than
+    // silently truncating the oldest history — and it still writes exactly one
+    // checkpoint overlay.
     expect(result).toEqual({ compacted: true });
     expect(compactCalls).toHaveLength(1);
-    expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+    expect(completeSimpleMock.mock.calls.length).toBeGreaterThan(1);
 
+    // Every request stays bounded by the model's window (no single overflowing
+    // request, no truncation-elision note).
+    for (const call of completeSimpleMock.mock.calls) {
+      const context = call[1] as {
+        messages: Array<{ content: Array<{ text: string }> }>;
+      };
+      const prompt = context.messages[0]!.content[0]!.text;
+      expect(prompt).not.toContain("[Compaction input truncated");
+      // (200k window - 49,152 reserve) * 0.5 input fraction * 3 chars/token,
+      // plus scaffolding — comfortably under the single-pass ceiling.
+      expect(prompt.length).toBeLessThan(300_000);
+      expect(prompt).toContain("segment");
+    }
+
+    // The mechanical combine concatenates the segment summaries in order under
+    // "Part i/N" headings — no combiner LLM call, no lost span.
+    const summary = compactCalls[0]!.summary as string;
+    expect(summary).toContain("parallel segment summaries");
+    expect(summary).toContain("## Part 1/");
+    expect(summary).toContain(SUMMARY_TEXT);
+  });
+
+  it("chunks an over-budget thread for a small-context target model so compaction never hard-fails", async () => {
+    // Reproduce the model-switch failure: a large live thread (built on a big
+    // window) is compacted for a much smaller-context target (e.g. after
+    // switching the active model). A single pass could not fit the transcript
+    // into the target at all; chunked compaction fits every request and
+    // succeeds instead of stranding the user with "compaction failed".
+    const { store, compactCalls } = createFakeStore();
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const smallWindow = 32_000;
+    const result = await withForcedThreadCompaction("small-target", () =>
+      maybeCompactRuntimeThread({
+        store,
+        threadKey: "small-target",
+        resolvedLlm: createRoute(async () => "auth-token", smallWindow),
+        agentType: "orchestrator",
+      }),
+    );
+
+    expect(result).toEqual({ compacted: true });
+    expect(compactCalls).toHaveLength(1);
+    // Many small chunks for a tiny window, none overflowing it.
+    expect(completeSimpleMock.mock.calls.length).toBeGreaterThan(3);
+    for (const call of completeSimpleMock.mock.calls) {
+      const context = call[1] as {
+        messages: Array<{ content: Array<{ text: string }> }>;
+      };
+      const prompt = context.messages[0]!.content[0]!.text;
+      // 32k window → tiny per-chunk request that fits with the completion
+      // reserve; the min-chunk floor keeps it from degenerating to zero.
+      expect(prompt.length).toBeLessThan(120_000);
+    }
+    const summary = compactCalls[0]!.summary as string;
+    expect(summary).toContain(SUMMARY_TEXT);
+  });
+
+  it("resolves a valid context window (falls back to the default) when the target model reports no limit", async () => {
+    // A model whose metadata lacks a context window must not make the sizing
+    // math operate on undefined/NaN/0 — it falls back to the conservative
+    // default so compaction still runs and succeeds.
+    const { store, compactCalls } = createFakeStore(
+      buildFittingThreadMessages(),
+    );
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const route = {
+      route: "stella",
+      model: { id: "mystery/model", contextWindow: undefined },
+      getApiKey: async () => "auth-token",
+    } as unknown as ResolvedLlmRoute;
+
+    const result = await withForcedThreadCompaction("undefined-window", () =>
+      maybeCompactRuntimeThread({
+        store,
+        threadKey: "undefined-window",
+        resolvedLlm: route,
+        agentType: "orchestrator",
+      }),
+    );
+
+    expect(result).toEqual({ compacted: true });
+    expect(compactCalls).toHaveLength(1);
+    expect(completeSimpleMock).toHaveBeenCalled();
     const context = completeSimpleMock.mock.calls[0]![1] as {
       messages: Array<{ content: Array<{ text: string }> }>;
     };
-    const prompt = context.messages[0]!.content[0]!.text;
-    // The conversation is truncated to the input budget with an elision note
-    // instead of fanning out into chunked requests or overflowing the window.
-    expect(prompt).toContain("[Compaction input truncated");
-    // (200k window - 49,152 reserve) * 3 chars/token, plus prompt scaffolding.
-    expect(prompt.length).toBeLessThan(480_000);
+    // Finite prompt built against the default window, not NaN-derived garbage.
+    expect(
+      Number.isFinite(context.messages[0]!.content[0]!.text.length),
+    ).toBe(true);
   });
 
   it("relaxes the split under forced compaction when the standard cut fails", async () => {
@@ -256,7 +368,7 @@ describe("orchestrator thread compaction failure handling", () => {
     const compactCalls: Array<Record<string, unknown>> = [];
     let failures = 1;
     const store = {
-      loadThreadMessages: () => buildBigThreadMessages(),
+      loadThreadMessages: () => buildFittingThreadMessages(),
       compactThread: (args: Record<string, unknown>) => {
         if (failures > 0) {
           failures -= 1;
@@ -268,12 +380,14 @@ describe("orchestrator thread compaction failure handling", () => {
     } as unknown as RuntimeStore;
     completeSimpleMock.mockResolvedValue(successResponse());
 
-    const result = await maybeCompactRuntimeThread({
-      store,
-      threadKey: "store-write-retry",
-      resolvedLlm: createRoute(async () => "auth-token"),
-      agentType: "orchestrator",
-    });
+    const result = await withForcedThreadCompaction("store-write-retry", () =>
+      maybeCompactRuntimeThread({
+        store,
+        threadKey: "store-write-retry",
+        resolvedLlm: createRoute(async () => "auth-token"),
+        agentType: "orchestrator",
+      }),
+    );
 
     expect(result).toEqual({ compacted: true });
     // The summary is generated once; only the store write is retried.

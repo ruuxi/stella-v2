@@ -267,7 +267,15 @@ const synthesizeGatewayModelFromTemplate = (
     name: modelId,
     input: ["text", "image"],
     maxTokens: 0,
-    contextWindow: Math.max(template.contextWindow, 200_000),
+    // Coerce defensively: a template whose `contextWindow` is missing or
+    // non-finite must not poison the synthesized model with `NaN` (which would
+    // make every downstream compaction/overflow sizing operate on NaN). The
+    // floor keeps a conservative, always-valid window for gateway ids
+    // (OpenRouter/Vercel) whose real limit the gateway enforces upstream.
+    contextWindow: Math.max(
+      Number.isFinite(template.contextWindow) ? template.contextWindow : 0,
+      200_000,
+    ),
   };
 };
 

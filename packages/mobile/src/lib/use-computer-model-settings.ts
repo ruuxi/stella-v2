@@ -231,29 +231,36 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
   const selectRecentModel = useCallback(
     (routeId: string) => {
       if (!snapshot) return;
-      const engine = snapshot.agentRuntimeEngine;
+      // Recents span every engine/provider, so route by the recent id's own
+      // family — not the active engine — and switch `agentRuntimeEngine` as
+      // needed. Mirrors desktop's `buildRecentModelSelectionPatch`, where a
+      // recent pick implies its engine.
+      const family = routeFamily(routeId);
       let patch: DesktopModelPrefsPatch | null = null;
-      if (engine === "codex_cli" && routeId.startsWith("codex-cli/")) {
-        patch = buildRuntimeAssignPatch(
-          snapshot,
-          engine,
-          catalog.agentKeys,
-          routeId.slice("codex-cli/".length),
-          runtimeSelectedEffort(snapshot, engine),
-        );
-      } else if (
-        engine === "claude_code_local" &&
-        routeId.startsWith("claude-code/")
-      ) {
-        patch = buildRuntimeAssignPatch(
-          snapshot,
-          engine,
-          catalog.agentKeys,
-          routeId.slice("claude-code/".length),
-          runtimeSelectedEffort(snapshot, engine),
-        );
-      } else if (engine === "default" && routeFamily(routeId) === "stella") {
-        patch =
+      if (family === "codex") {
+        patch = {
+          ...buildRuntimeAssignPatch(
+            snapshot,
+            "codex_cli",
+            catalog.agentKeys,
+            routeId.slice("codex-cli/".length),
+            runtimeSelectedEffort(snapshot, "codex_cli"),
+          ),
+          agentRuntimeEngine: "codex_cli",
+        };
+      } else if (family === "claude") {
+        patch = {
+          ...buildRuntimeAssignPatch(
+            snapshot,
+            "claude_code_local",
+            catalog.agentKeys,
+            routeId.slice("claude-code/".length),
+            runtimeSelectedEffort(snapshot, "claude_code_local"),
+          ),
+          agentRuntimeEngine: "claude_code_local",
+        };
+      } else {
+        const base =
           routeId === STELLA_DEFAULT_MODEL
             ? buildStellaClearPatch(snapshot, catalog.agentKeys)
             : buildStellaAssignPatch(
@@ -262,19 +269,22 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
                 routeId,
                 stellaSelectedEffort(snapshot),
               );
+        patch = { ...base, agentRuntimeEngine: "default" };
       }
       if (patch) void applyPatch(patch);
     },
     [applyPatch, catalog.agentKeys, snapshot],
   );
 
+  // Mirrors desktop's MiniModelPicker (`buildRecentModelRows`): the current
+  // selection first, then the freshest recents across ALL engines/providers
+  // (Stella, Codex, Claude Code, BYOK), deduped and capped. Desktop does NOT
+  // gate the recents to the active engine, so neither do we.
   const recentModels = useMemo<ComputerRecentModel[]>(() => {
     if (!snapshot) return [];
     const currentId = routeIdForSnapshot(snapshot);
-    const family = routeFamily(currentId);
     return [currentId, ...recentIds]
       .filter((id, index, all) => all.indexOf(id) === index)
-      .filter((id) => routeFamily(id) === family)
       .slice(0, MAX_RECENTS)
       .map((id) => ({
         id,

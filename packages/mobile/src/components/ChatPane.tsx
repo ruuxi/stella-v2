@@ -4753,8 +4753,6 @@ const makeStyles = (colors: Colors) =>
     toolbarRight: { flexDirection: "row", alignItems: "center", gap: 8 },
     miniModelPickerTrigger: {
       alignItems: "center",
-      backgroundColor: fadeHex(colors.text, 0.06),
-      borderRadius: 15,
       flexDirection: "row",
       gap: 4,
       height: 30,
@@ -4762,7 +4760,7 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 10,
     },
     miniModelPickerTriggerPressed: {
-      backgroundColor: fadeHex(colors.text, 0.1),
+      opacity: 0.55,
     },
     miniModelPickerLabel: {
       color: colors.textMuted,

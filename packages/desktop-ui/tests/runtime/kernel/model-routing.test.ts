@@ -897,6 +897,34 @@ describe("resolveLlmRoute", () => {
     );
   });
 
+  it("recovers a large-context gateway model's real window from the catalog, not the small floor", async () => {
+    // Regression: switching an existing conversation to a big-window model
+    // reached through a gateway (e.g. an OpenRouter Google Gemini at ~1M) must
+    // resolve that model's REAL context window. When the exact slug isn't in
+    // the gateway provider's registry slice it is synthesized from a template;
+    // pinning it to the conservative 200k floor made a conversation that
+    // comfortably fits the real model cross the compaction trigger (0.7 x
+    // window) and fail the fit check — spuriously compacting on a model that
+    // never needed it. The catalog aggregates every provider's models, so the
+    // real window is recovered by matching the model id across providers.
+    credentials.set("openrouter", "openrouter-key");
+    const { resolveLlmRoute } = await import(
+      "@stella/runtime/kernel/model-routing"
+    );
+
+    const resolved = resolveLlmRoute({
+      stellaAppDir: "/tmp/stella",
+      modelName: "openrouter/google/gemini-3-flash-preview",
+      agentType: "general",
+      site,
+    });
+
+    expect(resolved.model.provider).toBe("openrouter");
+    // The real Gemini flash window, not the 200k synthesis floor.
+    expect(resolved.model.contextWindow).toBeGreaterThanOrEqual(1_000_000);
+  });
+
+
   it("declares image input on synthesized gateway models, never the template's modalities", async () => {
     // The template (like the real ai21/jamba-large-1.7) is text-only. If the
     // synthesized clone inherited that, transformMessages would silently swap

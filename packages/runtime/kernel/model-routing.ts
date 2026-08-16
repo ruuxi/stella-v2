@@ -1,5 +1,6 @@
 import type { Api, Model } from "../ai/types.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { getAllModels } from "@stella/contracts/model-catalog";
 import { getModels } from "../ai/models.js";
 import {
   mergeModelHeaders,
@@ -254,6 +255,39 @@ const getDirectProviderCandidates = (
  * text-only model rejects the request loudly upstream instead of Stella
  * silently discarding the user's attachments.
  */
+/**
+ * Recover a gateway model's real context window from the full model catalog.
+ *
+ * Gateway ids (`<vendor>/<model>`) that aren't in the gateway provider's own
+ * registry slice are synthesized from an arbitrary template below. Without
+ * this, a large-context model (e.g. an OpenRouter Google Gemini at ~1M) would
+ * be pinned to the conservative floor — so a conversation that comfortably
+ * fits the real model crosses the compaction trigger (0.7 x window) and fails
+ * the fit check, spuriously compacting on a model that never needed it. The
+ * catalog aggregates every provider's models, so the same model is very often
+ * present under a sibling provider (`google/…`, `vercel-ai-gateway/…`) with
+ * its true window even when the requested gateway slice lacks the exact id.
+ * Match by exact id first, then by the vendor-stripped base id, and take the
+ * largest known window (a model's window is a property of the model, not the
+ * gateway it's reached through).
+ */
+const resolveCatalogContextWindow = (modelId: string): number | undefined => {
+  const trimmed = modelId.trim();
+  if (!trimmed) return undefined;
+  const slash = trimmed.indexOf("/");
+  const baseId = slash > 0 ? trimmed.slice(slash + 1) : trimmed;
+  let best = 0;
+  for (const model of getAllModels()) {
+    const id = model.id;
+    const idSlash = id.indexOf("/");
+    const idBase = idSlash > 0 ? id.slice(idSlash + 1) : id;
+    if (id !== trimmed && idBase !== baseId) continue;
+    const window = Number(model.contextWindow);
+    if (Number.isFinite(window) && window > best) best = window;
+  }
+  return best > 0 ? Math.floor(best) : undefined;
+};
+
 const synthesizeGatewayModelFromTemplate = (
   registryProvider: string,
   modelId: string,
@@ -267,13 +301,14 @@ const synthesizeGatewayModelFromTemplate = (
     name: modelId,
     input: ["text", "image"],
     maxTokens: 0,
-    // Coerce defensively: a template whose `contextWindow` is missing or
-    // non-finite must not poison the synthesized model with `NaN` (which would
-    // make every downstream compaction/overflow sizing operate on NaN). The
-    // floor keeps a conservative, always-valid window for gateway ids
-    // (OpenRouter/Vercel) whose real limit the gateway enforces upstream.
+    // Prefer the model's real catalog window (a large-context model reached
+    // through a gateway must not be pinned to the small floor — that spuriously
+    // compacts/over-flows a conversation the real model holds). Fall back to a
+    // NaN-safe conservative floor only when the model is genuinely unknown to
+    // the catalog; the gateway enforces the true limit upstream regardless.
     contextWindow: Math.max(
-      Number.isFinite(template.contextWindow) ? template.contextWindow : 0,
+      resolveCatalogContextWindow(modelId) ??
+        (Number.isFinite(template.contextWindow) ? template.contextWindow : 0),
       200_000,
     ),
   };

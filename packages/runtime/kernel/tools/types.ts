@@ -526,8 +526,8 @@ export type ToolDefinition = {
    * `node_repl` is available for the agent; they remain callable inside the
    * REPL as `tools.<name>(args)` and are advertised through the signature
    * catalog appended to node_repl's description (plus `tools.$search`).
-   * `requiredConnectorProvider` gates context-specific tools (e.g. linq) to
-   * matching connector-delivery turns; `searchTerms` feed `$search` scoring.
+   * `requiredConnectorProvider` gates context-specific tools to matching
+   * connector-delivery turns; `searchTerms` feed `$search` scoring.
    * Agents without node_repl get demoted tools in their direct list as
    * normal tools, so nothing is ever stranded.
    *

@@ -19,8 +19,6 @@ import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
 import { buildUdsConnectionFactory, killDetachedWorker, retireDetachedWorkerRoot, } from "./uds-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
 import { computeRuntimeBuildStamp, RUNTIME_BUILD_STAMP_UNAVAILABLE, } from "../worker/runtime-build-stamp.js";
-const CONNECTOR_STREAM_FLUSH_INTERVAL_MS = 1_000;
-const CONNECTOR_STREAM_BUFFER_THRESHOLD = 80;
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
 const DEVICE_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -138,7 +136,6 @@ export class StellaRuntimeHost {
      * ups, etc.) reaches the phone instead of dead-ending on the desktop.
      */
     connectorTargetsByLocalConversation = new Map();
-    connectorStreamBuffersByRequestId = new Map();
     /**
      * Reverse index of `connectorTargetsByLocalConversation` keyed by
      * `requestId`. Used by the cancel subscription to map an inbound
@@ -948,11 +945,6 @@ export class StellaRuntimeHost {
                     pendingFollowupTexts: [],
                 });
                 this.localConversationByRequestId.set(requestId, localConversationId);
-                this.armConnectorStreamBuffer({
-                    requestId,
-                    backendConversationId: conversationId,
-                    provider,
-                });
                 // Stable event id shared with the worker turn so the runtime
                 // can exclude this display event from the legacy history shim
                 // (the same text reaches the model via the turn's prompt).
@@ -965,72 +957,35 @@ export class StellaRuntimeHost {
                         text: userPrompt,
                         source: "connector",
                         ...(provider ? { provider } : {}),
-                        ...(provider === "linq" && externalMessageId
-                            ? { linqMessageId: externalMessageId }
-                            : {}),
                         ...(attachments?.length ? { attachments } : {}),
                     },
                 });
-                const isLinqTurn = provider === "linq";
-                if (isLinqTurn) {
-                    await this.executeLinqConnectorLifecycleOperation({
+                const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, {
+                    conversationId: localConversationId,
+                    userPrompt,
+                    userMessageEventId: connectorUserMessageId,
+                    ...(agentType ? { agentType } : {}),
+                    ...(modelOverride ? { modelOverride } : {}),
+                    ...(attachments?.length ? { attachments } : {}),
+                    connectorDeliveryTarget: {
                         requestId,
                         conversationId,
-                        operation: "read",
-                        payload: {},
-                    });
-                    await this.executeLinqConnectorLifecycleOperation({
-                        requestId,
-                        conversationId,
-                        operation: "typing",
-                        payload: { action: "start" },
-                    });
-                }
-                try {
-                    const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, {
+                        ...(provider ? { provider } : {}),
+                        ...(externalMessageId ? { externalMessageId } : {}),
+                    },
+                }, {
+                    ensureWorker: true,
+                    recordActivity: true,
+                    retryOnceOnDisconnect: true,
+                });
+                if (result.status === "ok" && result.finalText) {
+                    await this.appendLocalChatEvent({
                         conversationId: localConversationId,
-                        userPrompt,
-                        userMessageEventId: connectorUserMessageId,
-                        ...(agentType ? { agentType } : {}),
-                        ...(modelOverride ? { modelOverride } : {}),
-                        ...(attachments?.length ? { attachments } : {}),
-                        connectorDeliveryTarget: {
-                            requestId,
-                            conversationId,
-                            ...(provider ? { provider } : {}),
-                            ...(externalMessageId ? { externalMessageId } : {}),
-                        },
-                    }, {
-                        ensureWorker: true,
-                        recordActivity: true,
-                        retryOnceOnDisconnect: true,
+                        type: "assistant_message",
+                        payload: { text: result.finalText, source: "connector" },
                     });
-                    if (result.status === "ok" && result.finalText) {
-                        await this.appendLocalChatEvent({
-                            conversationId: localConversationId,
-                            type: "assistant_message",
-                            payload: { text: result.finalText, source: "connector" },
-                        });
-                    }
-                    if (result.status !== "ok") {
-                        this.clearConnectorStreamBuffer(requestId);
-                    }
-                    return result;
                 }
-                catch (error) {
-                    this.clearConnectorStreamBuffer(requestId);
-                    throw error;
-                }
-                finally {
-                    if (isLinqTurn) {
-                        await this.executeLinqConnectorLifecycleOperation({
-                            requestId,
-                            conversationId,
-                            operation: "typing",
-                            payload: { action: "stop" },
-                        });
-                    }
-                }
+                return result;
             },
             claimRemoteTurn: async ({ requestId, conversationId }) => {
                 const client = this.ensureHostConvexClient();
@@ -1049,7 +1004,6 @@ export class StellaRuntimeHost {
                     requestId,
                     backendConversationId: conversationId,
                 });
-                this.clearConnectorStreamBuffer(requestId);
             },
             log: (level, message, error) => {
                 const logger = level === "error" ? console.error : console.warn;
@@ -1060,23 +1014,6 @@ export class StellaRuntimeHost {
                 logger(message, error);
             },
         });
-    }
-    async executeLinqConnectorLifecycleOperation(args) {
-        const client = this.ensureHostConvexClient();
-        if (!client) {
-            return;
-        }
-        try {
-            await client.action(anyApi.channels.linq.executeLinqConnectorTool, {
-                requestId: args.requestId,
-                conversationId: args.conversationId,
-                operation: args.operation,
-                payload: args.payload,
-            });
-        }
-        catch (error) {
-            console.warn(`[runtime-host] Linq ${args.operation} lifecycle operation failed:`, error instanceof Error ? error.message : String(error));
-        }
     }
     async sendConnectorFollowup(args) {
         const client = this.ensureHostConvexClient();
@@ -1093,112 +1030,6 @@ export class StellaRuntimeHost {
         catch (error) {
             console.warn("[runtime-host] sendConnectorFollowup failed:", error instanceof Error ? error.message : String(error));
         }
-    }
-    armConnectorStreamBuffer(args) {
-        if (args.provider !== "telegram") {
-            return;
-        }
-        const existing = this.connectorStreamBuffersByRequestId.get(args.requestId);
-        if (existing?.timer) {
-            clearTimeout(existing.timer);
-        }
-        this.connectorStreamBuffersByRequestId.set(args.requestId, {
-            requestId: args.requestId,
-            backendConversationId: args.backendConversationId,
-            provider: args.provider,
-            text: "",
-            revision: 0,
-            lastSentRevision: 0,
-            lastSentTextLength: 0,
-            lastSentAt: 0,
-            timer: null,
-            inFlight: null,
-        });
-    }
-    clearConnectorStreamBuffer(requestId) {
-        const buffer = this.connectorStreamBuffersByRequestId.get(requestId);
-        if (buffer?.timer) {
-            clearTimeout(buffer.timer);
-        }
-        this.connectorStreamBuffersByRequestId.delete(requestId);
-    }
-    clearAllConnectorStreamBuffers() {
-        for (const buffer of this.connectorStreamBuffersByRequestId.values()) {
-            if (buffer.timer) {
-                clearTimeout(buffer.timer);
-            }
-        }
-        this.connectorStreamBuffersByRequestId.clear();
-    }
-    handleConnectorStreamRunEvent(event) {
-        if (event.type !== AGENT_STREAM_EVENT_TYPES.STREAM ||
-            !event.requestId ||
-            !event.chunk) {
-            return;
-        }
-        const buffer = this.connectorStreamBuffersByRequestId.get(event.requestId);
-        if (!buffer || buffer.provider !== "telegram") {
-            return;
-        }
-        buffer.text += event.chunk;
-        buffer.revision += 1;
-        this.scheduleConnectorStreamFlush(buffer);
-    }
-    scheduleConnectorStreamFlush(buffer) {
-        if (buffer.timer) {
-            clearTimeout(buffer.timer);
-            buffer.timer = null;
-        }
-        const pendingChars = Math.max(0, buffer.text.length - buffer.lastSentTextLength);
-        const elapsed = Date.now() - buffer.lastSentAt;
-        if (pendingChars >= CONNECTOR_STREAM_BUFFER_THRESHOLD ||
-            elapsed >= CONNECTOR_STREAM_FLUSH_INTERVAL_MS) {
-            void this.flushConnectorStreamBuffer(buffer);
-            return;
-        }
-        buffer.timer = setTimeout(() => {
-            buffer.timer = null;
-            void this.flushConnectorStreamBuffer(buffer);
-        }, Math.max(0, CONNECTOR_STREAM_FLUSH_INTERVAL_MS - elapsed));
-        buffer.timer.unref?.();
-    }
-    async flushConnectorStreamBuffer(buffer) {
-        if (buffer.inFlight) {
-            await buffer.inFlight.catch(() => undefined);
-        }
-        const client = this.ensureHostConvexClient();
-        const text = buffer.text.trim();
-        if (!client ||
-            !text ||
-            buffer.revision <= buffer.lastSentRevision ||
-            !this.connectorStreamBuffersByRequestId.has(buffer.requestId)) {
-            return;
-        }
-        const revision = buffer.revision;
-        buffer.inFlight = (async () => {
-            try {
-                await client.mutation(anyApi.channels.connector_delivery.streamConnectorTurnUpdate, {
-                    requestId: buffer.requestId,
-                    conversationId: buffer.backendConversationId,
-                    text,
-                    revision,
-                });
-                buffer.lastSentRevision = Math.max(buffer.lastSentRevision, revision);
-                buffer.lastSentTextLength = Math.max(buffer.lastSentTextLength, text.length);
-                buffer.lastSentAt = Date.now();
-            }
-            catch (error) {
-                console.warn("[runtime-host] streamConnectorTurnUpdate failed:", error instanceof Error ? error.message : String(error));
-            }
-            finally {
-                buffer.inFlight = null;
-                if (this.connectorStreamBuffersByRequestId.has(buffer.requestId) &&
-                    buffer.revision > buffer.lastSentRevision) {
-                    this.scheduleConnectorStreamFlush(buffer);
-                }
-            }
-        })();
-        await buffer.inFlight;
     }
     markConnectorInitialTurnCompleted(args) {
         const localConversationId = this.localConversationByRequestId.get(args.requestId);
@@ -1269,7 +1100,6 @@ export class StellaRuntimeHost {
             this.stopHostHeartbeatLoop();
             this.stopHostRemoteTurnCancelSubscription();
             this.hostRemoteTurnBridge?.stop();
-            this.clearAllConnectorStreamBuffers();
             void this.sendHostGoOffline().finally(() => {
                 this.disposeHostConvexClient();
             });
@@ -1281,7 +1111,6 @@ export class StellaRuntimeHost {
             this.stopHostHeartbeatLoop();
             this.stopHostRemoteTurnCancelSubscription();
             this.hostRemoteTurnBridge?.stop();
-            this.clearAllConnectorStreamBuffers();
             this.hostDeviceRegistered = false;
             this.hostDeviceRegistering = false;
             this.disposeHostConvexClient();
@@ -1291,7 +1120,6 @@ export class StellaRuntimeHost {
             this.stopHostHeartbeatLoop();
             this.stopHostRemoteTurnCancelSubscription();
             this.hostRemoteTurnBridge?.stop();
-            this.clearAllConnectorStreamBuffers();
             void this.sendHostGoOffline().finally(() => {
                 this.disposeHostConvexClient();
             });
@@ -1393,7 +1221,6 @@ export class StellaRuntimeHost {
         this.workerGeneration = 0;
         this.agentEventBuffers.clear();
         this.pendingRunEventAcks.clear();
-        this.clearAllConnectorStreamBuffers();
         if (this.runEventAckTimer)
             clearTimeout(this.runEventAckTimer);
         this.runEventAckTimer = null;
@@ -2025,7 +1852,6 @@ export class StellaRuntimeHost {
             const payload = params;
             bufferAgentEvent(this.agentEventBuffers, payload);
             pruneAgentEventBuffers(this.agentEventBuffers);
-            this.handleConnectorStreamRunEvent(payload);
             this.events.emit("run-event", payload);
             // Ack only ordinary recorder events. Terminal events must remain
             // replayable until the retention sweep, otherwise an Electron

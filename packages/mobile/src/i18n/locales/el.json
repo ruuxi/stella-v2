@@ -1958,58 +1958,11 @@
       "signInToConnect": "Συνδεθείτε στη Stella για να συνδέσετε",
       "connectStellaApp": "Σύνδεση με την εφαρμογή Stella",
       "connectStellaAppSub": "Σύνδεσε την εφαρμογή Stella στο τηλέφωνό σου με αυτόν τον υπολογιστή",
-      "sectionTitle": "Ενσωματώσεις",
       "connectTitle": "Σύνδεση",
       "phoneTitle": "Το τηλέφωνό σου",
-      "backToConnections": "Πίσω στις συνδέσεις",
       "connected": "Συνδεδεμένο",
-      "connectProvider": "Σύνδεση {provider}",
-      "openProvider": "Άνοιγμα {provider}",
-      "listeningOn": "Η Stella ακούει στο {provider}. Στείλτε της μήνυμα εκεί οποιαδήποτε στιγμή.",
-      "disconnect": "Αποσύνδεση",
-      "disconnecting": "Αποσύνδεση...",
-      "disconnected": "Έγινε αποσύνδεση από {provider}",
-      "disconnectFailed": "Αποτυχία αποσύνδεσης από {provider}",
-      "codeCopied": "Ο κωδικός αντιγράφηκε στο πρόχειρο",
-      "generateCodeFailed": "Αποτυχία δημιουργίας κωδικού",
-      "slackInstallUrlFailed": "Αποτυχία προετοιμασίας του URL εγκατάστασης Slack",
       "signInHeadline": "Συνδεθείτε για να ξεκινήσετε",
       "signInSub": "Συνδεθείτε στον λογαριασμό σας Stella για να συνδέσετε το {provider}.",
-      "providers": {
-        "linq": {
-          "name": "Μηνύματα στη Stella",
-          "instructions": "Εισαγάγετε τον αριθμό τηλεφώνου σας και θα σας στείλουμε έναν κωδικό με μήνυμα για τη σύνδεση. Μόλις συνδεθεί, μπορείτε να στέλνετε μηνύματα στη Stella οποιαδήποτε στιγμή μέσω iMessage ή SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Εγκαταστήστε την εφαρμογή Stella στον λογαριασμό σας Discord, εκτελέστε μία φορά /link με τον κωδικό και μετά στείλτε DM στον @Stella κανονικά."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Εγκαταστήστε την εφαρμογή Stella στον χώρο εργασίας σας και μετά στείλτε DM στον @Stella με τον παρακάτω κωδικό."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Ανοίξτε το @StellaAppBot στο Telegram και μετά στείλτε του τον παρακάτω κωδικό."
-        }
-      },
-      "linq": {
-        "countryCode": "Κωδικός χώρας",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Αποστολή...",
-        "sendCode": "Αποστολή κωδικού",
-        "sendCodeFailed": "Αποτυχία αποστολής κωδικού. Ελέγξτε τον αριθμό και δοκιμάστε ξανά.",
-        "enterCodeTitle": "Εισαγάγετε τον κωδικό σας",
-        "enterCodeSub": "Ελέγξτε το τηλέφωνό σας — στείλαμε έναν 6ψήφιο κωδικό στο {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Επαλήθευση",
-        "verifying": "Επαλήθευση...",
-        "verifyCodeFailed": "Αποτυχία επαλήθευσης του κωδικού.",
-        "connected": "Συνδέθηκε! Μπορείτε τώρα να στέλνετε μηνύματα στη Stella.",
-        "invalidCode": "Μη έγκυρος ή ληγμένος κωδικός. Δοκιμάστε να στείλετε νέον.",
-        "genericError": "Κάτι πήγε στραβά. Δοκιμάστε ξανά.",
-        "useDifferentNumber": "Χρήση άλλου αριθμού"
-      },
       "credential": {
         "title": "Σύνδεση {provider}",
         "description": "Η Stella χρειάζεται το κλειδί API σας για το {provider} για να συνδεθεί. Επικολλήστε το παρακάτω. Παραμένει στον υπολογιστή σας.",

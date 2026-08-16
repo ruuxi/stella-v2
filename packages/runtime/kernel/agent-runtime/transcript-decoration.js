@@ -1,15 +1,12 @@
 /**
  * Write-time decoration for user transcripts persisted directly into the
- * durable runtime thread store (realtime-voice transcripts, connector
- * messages such as Linq/iMessage, Telegram, etc.).
+ * durable runtime thread store (realtime-voice transcripts and connector
+ * messages).
  *
  * The local-events history projection (`kernel/local-history.ts`, now a
  * deprecated pre-transition compat shim) used to add this metadata while
  * folding chat events into orchestrator model context:
  *
- *   - a trailing `[linq_message_id: …]` line on Linq user messages so the
- *     model can target native iMessage affordances (reactions, replies) at
- *     older messages, and
  *   - a trailing `<system-reminder>…</system-reminder>` timestamp tag on
  *     user messages, suppressed when the previous user message landed less
  *     than thirty minutes earlier (date portion omitted when the previous
@@ -58,9 +55,8 @@ const findPreviousUserMessageTimestamp = (store, threadKey) => {
 
 /**
  * Decorate a user transcript body exactly the way the retired events
- * projection rendered it: optional `[linq_message_id: …]` trailer, then an
- * optional timestamp tag (skipped inside the thirty-minute window after the
- * thread's previous user message).
+ * projection rendered it: an optional timestamp tag (skipped inside the
+ * thirty-minute window after the thread's previous user message).
  *
  * @param {{
  *   store: {
@@ -73,7 +69,6 @@ const findPreviousUserMessageTimestamp = (store, threadKey) => {
  *   text: string;
  *   timestamp: number;
  *   timezone?: string;
- *   linqMessageId?: string;
  * }} args
  * @returns {string}
  */
@@ -83,25 +78,19 @@ export const decorateUserTranscriptContent = ({
   text,
   timestamp,
   timezone,
-  linqMessageId,
 }) => {
   const body = truncateWithSuffix(text.trim(), MAX_TEXT_CHARS);
   if (!body) {
     return body;
   }
-  const trimmedLinqId =
-    typeof linqMessageId === "string" ? linqMessageId.trim() : "";
-  const bodyWithMetadata = trimmedLinqId
-    ? `${body}\n\n[linq_message_id: ${trimmedLinqId}]`
-    : body;
   const prevUserTs = findPreviousUserMessageTimestamp(store, threadKey);
   if (prevUserTs != null && timestamp - prevUserTs < THIRTY_MINUTES_MS) {
-    return bodyWithMetadata;
+    return body;
   }
   const prevDate =
     prevUserTs != null
       ? formatTimestampForHistory(prevUserTs, undefined, timezone).dateStr
       : undefined;
   const { tag } = formatTimestampForHistory(timestamp, prevDate, timezone);
-  return `${bodyWithMetadata}\n\n${tag}`;
+  return `${body}\n\n${tag}`;
 };

@@ -13,16 +13,16 @@ describe("connector turn privacy payloads", () => {
 
     const eventPayload = buildConnectorTurnEventPayload({
       conversationId: "conversation-1",
-      provider: "slack",
-      deliveryMeta: { channelId: "C123", threadTs: "1710000000.000000" },
+      provider: "stella_app",
+      deliveryMeta: { targetDeviceId: "device-1" },
       userMessageId: "event-1",
     });
     const serialized = JSON.stringify(eventPayload);
 
     expect(eventPayload).toEqual({
       conversationId: "conversation-1",
-      provider: "slack",
-      deliveryMeta: { channelId: "C123", threadTs: "1710000000.000000" },
+      provider: "stella_app",
+      deliveryMeta: { targetDeviceId: "device-1" },
       payloadRef: CONNECTOR_TURN_PAYLOAD_REF,
       userMessageId: "event-1",
     });
@@ -32,23 +32,23 @@ describe("connector turn privacy payloads", () => {
     expect("mediaRefs" in eventPayload).toBe(false);
   });
 
-  it("keeps direct Discord DM prompts out of durable event payloads", () => {
+  it("keeps direct mobile app DM prompts out of durable event payloads", () => {
     const eventPayload = buildConnectorTurnEventPayload({
       conversationId: "conversation-1",
-      provider: "discord",
-      deliveryMeta: { channelId: "discord-dm", messageId: "message-1" },
+      provider: "stella_app",
+      deliveryMeta: { targetDeviceId: "device-2", messageId: "message-1" },
       userMessageId: "event-1",
     });
     const serialized = JSON.stringify(eventPayload);
 
     expect(eventPayload).toEqual({
       conversationId: "conversation-1",
-      provider: "discord",
-      deliveryMeta: { channelId: "discord-dm", messageId: "message-1" },
+      provider: "stella_app",
+      deliveryMeta: { targetDeviceId: "device-2", messageId: "message-1" },
       payloadRef: CONNECTOR_TURN_PAYLOAD_REF,
       userMessageId: "event-1",
     });
-    expect(serialized).not.toContain("private discord dm prompt");
+    expect(serialized).not.toContain("private mobile app dm prompt");
     expect("text" in eventPayload).toBe(false);
   });
 

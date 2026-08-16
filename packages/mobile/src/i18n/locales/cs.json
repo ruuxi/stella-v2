@@ -2006,58 +2006,11 @@
       "signInToConnect": "Pro připojení se přihlaste ke Stelle",
       "connectStellaApp": "Připojit k aplikaci Stella",
       "connectStellaAppSub": "Spárujte aplikaci Stella v telefonu s tímto počítačem",
-      "sectionTitle": "Integrace",
       "connectTitle": "Připojit",
       "phoneTitle": "Váš telefon",
-      "backToConnections": "Zpět na připojení",
       "connected": "Připojeno",
-      "connectProvider": "Připojit {provider}",
-      "openProvider": "Otevřít {provider}",
-      "listeningOn": "Stella naslouchá na {provider}. Napište jí tam kdykoli.",
-      "disconnect": "Odpojit",
-      "disconnecting": "Odpojování...",
-      "disconnected": "Odpojeno od {provider}",
-      "disconnectFailed": "Nepodařilo se odpojit od {provider}",
-      "codeCopied": "Kód zkopírován do schránky",
-      "generateCodeFailed": "Nepodařilo se vygenerovat kód",
-      "slackInstallUrlFailed": "Nepodařilo se připravit instalační URL pro Slack",
       "signInHeadline": "Přihlaste se a začněte",
       "signInSub": "Přihlaste se ke svému účtu Stella, abyste připojili {provider}.",
-      "providers": {
-        "linq": {
-          "name": "SMS Stelle",
-          "instructions": "Zadejte své telefonní číslo a pošleme vám SMS s kódem pro připojení. Po propojení můžete Stelle kdykoli psát přes iMessage nebo SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Nainstalujte aplikaci Stella do svého účtu Discord, jednou spusťte /link s kódem a pak normálně pište @Stella do soukromé zprávy."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Nainstalujte aplikaci Stella do svého pracovního prostoru a pak napište @Stella kód níže."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Otevřete @StellaAppBot v Telegramu a pošlete mu kód níže."
-        }
-      },
-      "linq": {
-        "countryCode": "Předvolba země",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Odesílání...",
-        "sendCode": "Odeslat kód",
-        "sendCodeFailed": "Kód se nepodařilo odeslat. Zkontrolujte číslo a zkuste to znovu.",
-        "enterCodeTitle": "Zadejte svůj kód",
-        "enterCodeSub": "Podívejte se do telefonu — poslali jsme 6místný kód na {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Ověřit",
-        "verifying": "Ověřování...",
-        "verifyCodeFailed": "Kód se nepodařilo ověřit.",
-        "connected": "Připojeno! Teď můžete Stelle psát SMS.",
-        "invalidCode": "Neplatný nebo prošlý kód. Zkuste poslat nový.",
-        "genericError": "Něco se pokazilo. Zkuste to prosím znovu.",
-        "useDifferentNumber": "Použít jiné číslo"
-      },
       "credential": {
         "title": "Připojit {provider}",
         "description": "Stella potřebuje pro připojení váš klíč API {provider}. Vložte ho níže. Zůstane ve vašem počítači.",

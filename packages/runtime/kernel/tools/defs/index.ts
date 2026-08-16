@@ -32,7 +32,6 @@ import { createFashionControlTools } from "./fashion-control.js";
 import { grepTool } from "./grep.js";
 import { createHtmlTool } from "./html.js";
 import { createImageGenTool } from "./image-gen.js";
-import { createLinqImessageTools } from "./linq-imessage.js";
 import { createMapTool } from "./map.js";
 import { createMultiToolUseParallelTool } from "./multi-tool-use-parallel.js";
 import { createNodeReplTool } from "./node-repl.js";
@@ -163,12 +162,6 @@ export const buildBuiltinTools = (
   // Fashion subagent surface
   tools.push(...createFashionControlTools({ fashionApi: options.fashionApi }));
 
-  // Demoted connector affordances. These stay out of the model's direct
-  // tool list when node_repl is available and are called inside the REPL
-  // (`tools.<name>`), gated to matching connector contexts.
-  tools.push(
-    ...createLinqImessageTools({ actionConvex: options.actionConvex }),
-  );
   // Demoted orchestrator connector check + inline connect card. Surfaced
   // situationally by the connector-availability system reminder.
   tools.push(

@@ -2006,58 +2006,11 @@
       "signInToConnect": "Войдите в Stella, чтобы подключить",
       "connectStellaApp": "Подключить к приложению Stella",
       "connectStellaAppSub": "Свяжите приложение Stella на телефоне с этим компьютером",
-      "sectionTitle": "Интеграции",
       "connectTitle": "Подключение",
       "phoneTitle": "Ваш телефон",
-      "backToConnections": "Назад к подключениям",
       "connected": "Подключено",
-      "connectProvider": "Подключить {provider}",
-      "openProvider": "Открыть {provider}",
-      "listeningOn": "Stella слушает в {provider}. Пишите ей туда в любое время.",
-      "disconnect": "Отключить",
-      "disconnecting": "Отключение...",
-      "disconnected": "Отключено от {provider}",
-      "disconnectFailed": "Не удалось отключиться от {provider}",
-      "codeCopied": "Код скопирован в буфер обмена",
-      "generateCodeFailed": "Не удалось создать код",
-      "slackInstallUrlFailed": "Не удалось подготовить ссылку установки Slack",
       "signInHeadline": "Войдите, чтобы начать",
       "signInSub": "Войдите в аккаунт Stella, чтобы подключить {provider}.",
-      "providers": {
-        "linq": {
-          "name": "SMS для Stella",
-          "instructions": "Введите номер телефона, и мы отправим вам код для подключения. После привязки вы сможете писать Stella в любое время через iMessage или SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Установите приложение Stella в свой аккаунт Discord, один раз выполните /link с кодом, а затем просто пишите @Stella в личные сообщения."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Установите приложение Stella в своё рабочее пространство, затем напишите @Stella код ниже."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Откройте @StellaAppBot в Telegram и отправьте ему код ниже."
-        }
-      },
-      "linq": {
-        "countryCode": "Код страны",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Отправка...",
-        "sendCode": "Отправить код",
-        "sendCodeFailed": "Не удалось отправить код. Проверьте номер и попробуйте ещё раз.",
-        "enterCodeTitle": "Введите код",
-        "enterCodeSub": "Проверьте телефон — мы отправили 6-значный код на {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Подтвердить",
-        "verifying": "Проверка...",
-        "verifyCodeFailed": "Не удалось подтвердить код.",
-        "connected": "Подключено! Теперь вы можете писать Stella по SMS.",
-        "invalidCode": "Неверный или устаревший код. Попробуйте отправить новый.",
-        "genericError": "Что-то пошло не так. Попробуйте ещё раз.",
-        "useDifferentNumber": "Использовать другой номер"
-      },
       "credential": {
         "title": "Подключить {provider}",
         "description": "Для подключения Stella нужен ваш ключ API {provider}. Вставьте его ниже. Он остаётся на вашем компьютере.",

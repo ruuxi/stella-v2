@@ -1932,58 +1932,11 @@
       "signInToConnect": "接続するには Stella にサインインしてください",
       "connectStellaApp": "Stella アプリに接続",
       "connectStellaAppSub": "スマートフォンの Stella アプリをこのコンピュータとペアリングします",
-      "sectionTitle": "連携",
       "connectTitle": "接続",
       "phoneTitle": "あなたのスマートフォン",
-      "backToConnections": "接続一覧に戻る",
       "connected": "接続済み",
-      "connectProvider": "{provider} を接続",
-      "openProvider": "{provider} を開く",
-      "listeningOn": "Stella は {provider} で待機しています。いつでもそちらからメッセージを送れます。",
-      "disconnect": "接続を解除",
-      "disconnecting": "接続を解除中...",
-      "disconnected": "{provider} との接続を解除しました",
-      "disconnectFailed": "{provider} との接続を解除できませんでした",
-      "codeCopied": "コードをクリップボードにコピーしました",
-      "generateCodeFailed": "コードを生成できませんでした",
-      "slackInstallUrlFailed": "Slack のインストール URL を準備できませんでした",
       "signInHeadline": "サインインして始めましょう",
       "signInSub": "{provider} を接続するには、Stella アカウントにサインインしてください。",
-      "providers": {
-        "linq": {
-          "name": "Stella にメッセージ",
-          "instructions": "電話番号を入力すると、接続用のコードをメッセージでお送りします。連携すると、iMessage や SMS からいつでも Stella にメッセージを送れます。"
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Discord アカウントに Stella アプリをインストールし、コードを付けて /link を一度実行してから、通常どおり @Stella に DM を送ってください。"
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "ワークスペースに Stella アプリをインストールし、下のコードを付けて @Stella に DM を送ってください。"
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Telegram で @StellaAppBot を開き、下のコードを送信してください。"
-        }
-      },
-      "linq": {
-        "countryCode": "国番号",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "送信中...",
-        "sendCode": "コードを送信",
-        "sendCodeFailed": "コードを送信できませんでした。番号を確認して、もう一度お試しください。",
-        "enterCodeTitle": "コードを入力してください",
-        "enterCodeSub": "お使いの端末をご確認ください — {phone} に 6 桁のコードを送信しました。",
-        "codePlaceholder": "ABC123",
-        "verify": "確認",
-        "verifying": "確認中...",
-        "verifyCodeFailed": "コードを確認できませんでした。",
-        "connected": "接続しました！これで Stella にメッセージを送れます。",
-        "invalidCode": "コードが無効か、有効期限が切れています。新しいコードを送信してみてください。",
-        "genericError": "問題が発生しました。もう一度お試しください。",
-        "useDifferentNumber": "別の番号を使う"
-      },
       "credential": {
         "title": "{provider} を接続",
         "description": "接続には {provider} の API キーが必要です。下に貼り付けてください。キーはお使いのコンピュータに保存されます。",

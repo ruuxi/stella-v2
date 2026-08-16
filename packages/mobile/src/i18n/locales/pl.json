@@ -2006,58 +2006,11 @@
       "signInToConnect": "Zaloguj się do Stelli, aby połączyć",
       "connectStellaApp": "Połącz z aplikacją Stella",
       "connectStellaAppSub": "Sparuj aplikację Stella w telefonie z tym komputerem",
-      "sectionTitle": "Integracje",
       "connectTitle": "Połącz",
       "phoneTitle": "Twój telefon",
-      "backToConnections": "Wróć do połączeń",
       "connected": "Połączono",
-      "connectProvider": "Połącz {provider}",
-      "openProvider": "Otwórz {provider}",
-      "listeningOn": "Stella słucha na {provider}. Pisz do niej tam, kiedy chcesz.",
-      "disconnect": "Rozłącz",
-      "disconnecting": "Rozłączanie...",
-      "disconnected": "Rozłączono z {provider}",
-      "disconnectFailed": "Nie udało się rozłączyć z {provider}",
-      "codeCopied": "Kod skopiowany do schowka",
-      "generateCodeFailed": "Nie udało się wygenerować kodu",
-      "slackInstallUrlFailed": "Nie udało się przygotować adresu instalacji Slacka",
       "signInHeadline": "Zaloguj się, aby zacząć",
       "signInSub": "Zaloguj się na konto Stelli, aby połączyć {provider}.",
-      "providers": {
-        "linq": {
-          "name": "SMS do Stelli",
-          "instructions": "Podaj numer telefonu, a wyślemy Ci SMS-em kod do połączenia. Po powiązaniu możesz pisać do Stelli w każdej chwili przez iMessage lub SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Zainstaluj aplikację Stella na koncie Discord, raz uruchom /link z kodem, a potem po prostu pisz do @Stella na priv."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Zainstaluj aplikację Stella w swojej przestrzeni roboczej, a potem wyślij @Stella poniższy kod."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Otwórz @StellaAppBot w Telegramie i wyślij mu poniższy kod."
-        }
-      },
-      "linq": {
-        "countryCode": "Kod kraju",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Wysyłanie...",
-        "sendCode": "Wyślij kod",
-        "sendCodeFailed": "Nie udało się wysłać kodu. Sprawdź numer i spróbuj ponownie.",
-        "enterCodeTitle": "Wpisz swój kod",
-        "enterCodeSub": "Sprawdź telefon — wysłaliśmy 6-cyfrowy kod na {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Zweryfikuj",
-        "verifying": "Weryfikowanie...",
-        "verifyCodeFailed": "Nie udało się zweryfikować kodu.",
-        "connected": "Połączono! Możesz już pisać do Stelli SMS-em.",
-        "invalidCode": "Nieprawidłowy lub wygasły kod. Spróbuj wysłać nowy.",
-        "genericError": "Coś poszło nie tak. Spróbuj ponownie.",
-        "useDifferentNumber": "Użyj innego numeru"
-      },
       "credential": {
         "title": "Połącz {provider}",
         "description": "Stella potrzebuje Twojego klucza API {provider}, aby się połączyć. Wklej go poniżej. Zostaje na Twoim komputerze.",

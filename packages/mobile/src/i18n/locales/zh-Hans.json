@@ -1932,58 +1932,11 @@
       "signInToConnect": "登录 Stella 以连接",
       "connectStellaApp": "连接到 Stella 应用",
       "connectStellaAppSub": "将手机上的 Stella 应用与这台电脑配对",
-      "sectionTitle": "集成",
       "connectTitle": "连接",
       "phoneTitle": "你的手机",
-      "backToConnections": "返回连接列表",
       "connected": "已连接",
-      "connectProvider": "连接 {provider}",
-      "openProvider": "打开 {provider}",
-      "listeningOn": "Stella 正在 {provider} 上待命。随时可以在那里给她发消息。",
-      "disconnect": "断开连接",
-      "disconnecting": "正在断开连接...",
-      "disconnected": "已从 {provider} 断开连接",
-      "disconnectFailed": "无法从 {provider} 断开连接",
-      "codeCopied": "代码已复制到剪贴板",
-      "generateCodeFailed": "生成代码失败",
-      "slackInstallUrlFailed": "准备 Slack 安装链接失败",
       "signInHeadline": "登录即可开始",
       "signInSub": "登录你的 Stella 账户以连接 {provider}。",
-      "providers": {
-        "linq": {
-          "name": "给 Stella 发短信",
-          "instructions": "输入你的手机号，我们会发送一条验证码短信用于连接。绑定后，你随时可以通过 iMessage 或短信给 Stella 发消息。"
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "把 Stella 应用安装到你的 Discord 账户，用代码运行一次 /link，之后就能正常私信 @Stella。"
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "在你的工作区安装 Stella 应用，然后用下方的代码私信 @Stella。"
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "在 Telegram 中打开 @StellaAppBot，然后发送下方的代码。"
-        }
-      },
-      "linq": {
-        "countryCode": "国家/地区代码",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "正在发送...",
-        "sendCode": "发送验证码",
-        "sendCodeFailed": "发送验证码失败。请检查号码后重试。",
-        "enterCodeTitle": "输入你的验证码",
-        "enterCodeSub": "请查看手机 — 我们已向 {phone} 发送了 6 位验证码。",
-        "codePlaceholder": "ABC123",
-        "verify": "验证",
-        "verifying": "正在验证...",
-        "verifyCodeFailed": "验证码验证失败。",
-        "connected": "已连接！现在你可以给 Stella 发短信了。",
-        "invalidCode": "验证码无效或已过期。请重新发送一个。",
-        "genericError": "出了点问题。请重试。",
-        "useDifferentNumber": "使用其他号码"
-      },
       "credential": {
         "title": "连接 {provider}",
         "description": "Stella 需要你的 {provider} API 密钥才能连接。请粘贴到下方。它只会保存在你的电脑上。",

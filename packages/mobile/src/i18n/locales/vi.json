@@ -1932,58 +1932,11 @@
       "signInToConnect": "Đăng nhập vào Stella để kết nối",
       "connectStellaApp": "Kết nối với ứng dụng Stella",
       "connectStellaAppSub": "Ghép nối ứng dụng Stella trên điện thoại của bạn với máy tính này",
-      "sectionTitle": "Tích hợp",
       "connectTitle": "Kết nối",
       "phoneTitle": "Điện thoại của bạn",
-      "backToConnections": "Quay lại danh sách kết nối",
       "connected": "Đã kết nối",
-      "connectProvider": "Kết nối {provider}",
-      "openProvider": "Mở {provider}",
-      "listeningOn": "Stella đang lắng nghe trên {provider}. Hãy nhắn cho cô ấy ở đó bất cứ lúc nào.",
-      "disconnect": "Ngắt kết nối",
-      "disconnecting": "Đang ngắt kết nối...",
-      "disconnected": "Đã ngắt kết nối khỏi {provider}",
-      "disconnectFailed": "Không ngắt kết nối được khỏi {provider}",
-      "codeCopied": "Đã sao chép mã vào bảng nhớ tạm",
-      "generateCodeFailed": "Không tạo được mã",
-      "slackInstallUrlFailed": "Không chuẩn bị được URL cài đặt Slack",
       "signInHeadline": "Đăng nhập để bắt đầu",
       "signInSub": "Đăng nhập vào tài khoản Stella của bạn để kết nối {provider}.",
-      "providers": {
-        "linq": {
-          "name": "Nhắn tin cho Stella",
-          "instructions": "Nhập số điện thoại của bạn và chúng tôi sẽ nhắn cho bạn một mã để kết nối. Sau khi liên kết, bạn có thể nhắn tin cho Stella bất cứ lúc nào qua iMessage hoặc SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Cài ứng dụng Stella vào tài khoản Discord của bạn, chạy /link kèm mã một lần, rồi nhắn tin riêng cho @Stella như bình thường."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Cài ứng dụng Stella trong workspace của bạn, rồi nhắn tin riêng cho @Stella kèm mã bên dưới."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Mở @StellaAppBot trong Telegram, rồi gửi cho nó mã bên dưới."
-        }
-      },
-      "linq": {
-        "countryCode": "Mã quốc gia",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Đang gửi...",
-        "sendCode": "Gửi mã",
-        "sendCodeFailed": "Không gửi được mã. Hãy kiểm tra số và thử lại.",
-        "enterCodeTitle": "Nhập mã của bạn",
-        "enterCodeSub": "Hãy kiểm tra điện thoại — chúng tôi đã gửi mã 6 chữ số tới {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Xác minh",
-        "verifying": "Đang xác minh...",
-        "verifyCodeFailed": "Không xác minh được mã.",
-        "connected": "Đã kết nối! Giờ bạn có thể nhắn tin cho Stella.",
-        "invalidCode": "Mã không hợp lệ hoặc đã hết hạn. Hãy thử gửi mã mới.",
-        "genericError": "Đã xảy ra sự cố. Vui lòng thử lại.",
-        "useDifferentNumber": "Dùng số khác"
-      },
       "credential": {
         "title": "Kết nối {provider}",
         "description": "Stella cần khóa API {provider} của bạn để kết nối. Hãy dán vào bên dưới. Khóa vẫn nằm trên máy tính của bạn.",

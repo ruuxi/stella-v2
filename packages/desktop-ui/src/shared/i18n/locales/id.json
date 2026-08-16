@@ -1932,58 +1932,11 @@
       "signInToConnect": "Masuk ke Stella untuk menghubungkan",
       "connectStellaApp": "Hubungkan ke Aplikasi Stella",
       "connectStellaAppSub": "Pasangkan aplikasi Stella di ponsel Anda dengan komputer ini",
-      "sectionTitle": "Integrasi",
       "connectTitle": "Hubungkan",
       "phoneTitle": "Ponsel Anda",
-      "backToConnections": "Kembali ke koneksi",
       "connected": "Terhubung",
-      "connectProvider": "Hubungkan {provider}",
-      "openProvider": "Buka {provider}",
-      "listeningOn": "Stella mendengarkan di {provider}. Kirim pesan kepadanya di sana kapan saja.",
-      "disconnect": "Putuskan",
-      "disconnecting": "Memutuskan...",
-      "disconnected": "Terputus dari {provider}",
-      "disconnectFailed": "Gagal memutuskan dari {provider}",
-      "codeCopied": "Kode disalin ke papan klip",
-      "generateCodeFailed": "Gagal membuat kode",
-      "slackInstallUrlFailed": "Gagal menyiapkan URL pemasangan Slack",
       "signInHeadline": "Masuk untuk memulai",
       "signInSub": "Masuk ke akun Stella Anda untuk menghubungkan {provider}.",
-      "providers": {
-        "linq": {
-          "name": "SMS ke Stella",
-          "instructions": "Masukkan nomor telepon Anda dan kami akan mengirimkan kode lewat SMS untuk menghubungkan. Setelah tertaut, Anda bisa mengirim pesan ke Stella kapan saja lewat iMessage atau SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Pasang aplikasi Stella ke akun Discord Anda, jalankan /link dengan kodenya sekali, lalu DM @Stella seperti biasa."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Pasang aplikasi Stella di ruang kerja Anda, lalu DM @Stella dengan kode di bawah ini."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Buka @StellaAppBot di Telegram, lalu kirimkan kode di bawah ini."
-        }
-      },
-      "linq": {
-        "countryCode": "Kode negara",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Mengirim...",
-        "sendCode": "Kirim Kode",
-        "sendCodeFailed": "Gagal mengirim kode. Periksa nomornya dan coba lagi.",
-        "enterCodeTitle": "Masukkan kode Anda",
-        "enterCodeSub": "Periksa ponsel Anda — kami mengirim kode 6 digit ke {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Verifikasi",
-        "verifying": "Memverifikasi...",
-        "verifyCodeFailed": "Gagal memverifikasi kode.",
-        "connected": "Terhubung! Sekarang Anda bisa mengirim SMS ke Stella.",
-        "invalidCode": "Kode tidak valid atau kedaluwarsa. Coba kirim yang baru.",
-        "genericError": "Terjadi kesalahan. Silakan coba lagi.",
-        "useDifferentNumber": "Gunakan nomor lain"
-      },
       "credential": {
         "title": "Hubungkan {provider}",
         "description": "Stella memerlukan kunci API {provider} Anda untuk terhubung. Tempel di bawah ini. Kuncinya tetap di komputer Anda.",

@@ -285,20 +285,12 @@ describe("working orchestrator surface", () => {
     const working = directToolNames(AGENT_IDS.ORCHESTRATOR);
     expect(working.has("node_repl")).toBe(true);
     expect(working.has("connector_status")).toBe(false);
-    expect(working.has("linq_send_message")).toBe(false);
 
     // Coordinator variant has no node_repl → never-strand fallback puts
     // demoted tools straight into its direct list.
     const orchestrated = directToolNames(ORCHESTRATED_ORCHESTRATOR_ID);
     expect(orchestrated.has("node_repl")).toBe(false);
     expect(orchestrated.has("connector_status")).toBe(true);
-    // Linq tools stay connector-gated even in the fallback.
-    expect(orchestrated.has("linq_send_message")).toBe(false);
-    const orchestratedLinq = directToolNames(
-      ORCHESTRATED_ORCHESTRATOR_ID,
-      "linq",
-    );
-    expect(orchestratedLinq.has("linq_send_message")).toBe(true);
   });
 
   it("never demotes core built-ins and keeps voice-style catalogs demoted-free", async () => {
@@ -320,19 +312,13 @@ describe("working orchestrator surface", () => {
       expect(entry, toolName).toBeDefined();
       expect(entry?.demoted, toolName).toBeUndefined();
     }
-    // The demoted surface today is exactly the connector affordances.
+    // The demoted surface today is exactly the connector-status affordance.
     expect(
       catalog
         .filter((tool) => tool.demoted)
         .map((tool) => tool.name)
         .sort(),
-    ).toEqual([
-      "connector_status",
-      "linq_react_to_message",
-      "linq_send_message",
-      "linq_send_voice_memo",
-      "linq_share_contact_card",
-    ]);
+    ).toEqual(["connector_status"]);
     // Voice paths filter demoted entries out of the realtime function list.
     const voiceCatalog = catalog.filter((tool) => !tool.demoted);
     expect(voiceCatalog.some((tool) => tool.name === "connector_status")).toBe(

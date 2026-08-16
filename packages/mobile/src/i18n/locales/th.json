@@ -1932,58 +1932,11 @@
       "signInToConnect": "ลงชื่อเข้าใช้ Stella เพื่อเชื่อมต่อ",
       "connectStellaApp": "เชื่อมต่อกับแอป Stella",
       "connectStellaAppSub": "จับคู่แอป Stella บนโทรศัพท์ของคุณกับคอมพิวเตอร์เครื่องนี้",
-      "sectionTitle": "การเชื่อมต่อ",
       "connectTitle": "เชื่อมต่อ",
       "phoneTitle": "โทรศัพท์ของคุณ",
-      "backToConnections": "กลับไปที่การเชื่อมต่อ",
       "connected": "เชื่อมต่อแล้ว",
-      "connectProvider": "เชื่อมต่อ {provider}",
-      "openProvider": "เปิด {provider}",
-      "listeningOn": "Stella กำลังรอฟังอยู่บน {provider} ส่งข้อความหาเธอที่นั่นได้ทุกเมื่อ",
-      "disconnect": "ตัดการเชื่อมต่อ",
-      "disconnecting": "กำลังตัดการเชื่อมต่อ...",
-      "disconnected": "ตัดการเชื่อมต่อจาก {provider} แล้ว",
-      "disconnectFailed": "ตัดการเชื่อมต่อจาก {provider} ไม่สำเร็จ",
-      "codeCopied": "คัดลอกรหัสไปยังคลิปบอร์ดแล้ว",
-      "generateCodeFailed": "สร้างรหัสไม่สำเร็จ",
-      "slackInstallUrlFailed": "เตรียม URL ติดตั้ง Slack ไม่สำเร็จ",
       "signInHeadline": "ลงชื่อเข้าใช้เพื่อเริ่มต้น",
       "signInSub": "ลงชื่อเข้าใช้บัญชี Stella ของคุณเพื่อเชื่อมต่อ {provider}",
-      "providers": {
-        "linq": {
-          "name": "ส่งข้อความหา Stella",
-          "instructions": "ป้อนหมายเลขโทรศัพท์ของคุณ แล้วเราจะส่งรหัสไปให้เพื่อเชื่อมต่อ เมื่อเชื่อมแล้ว คุณส่งข้อความหา Stella ผ่าน iMessage หรือ SMS ได้ทุกเมื่อ"
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "ติดตั้งแอป Stella ในบัญชี Discord ของคุณ รัน /link พร้อมรหัสหนึ่งครั้ง แล้วส่ง DM หา @Stella ได้ตามปกติ"
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "ติดตั้งแอป Stella ในเวิร์กสเปซของคุณ แล้วส่ง DM หา @Stella พร้อมรหัสด้านล่าง"
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "เปิด @StellaAppBot ใน Telegram แล้วส่งรหัสด้านล่างไปให้"
-        }
-      },
-      "linq": {
-        "countryCode": "รหัสประเทศ",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "กำลังส่ง...",
-        "sendCode": "ส่งรหัส",
-        "sendCodeFailed": "ส่งรหัสไม่สำเร็จ ตรวจสอบหมายเลขแล้วลองอีกครั้ง",
-        "enterCodeTitle": "ป้อนรหัสของคุณ",
-        "enterCodeSub": "ดูที่โทรศัพท์ของคุณ — เราส่งรหัส 6 หลักไปที่ {phone} แล้ว",
-        "codePlaceholder": "ABC123",
-        "verify": "ยืนยัน",
-        "verifying": "กำลังยืนยัน...",
-        "verifyCodeFailed": "ยืนยันรหัสไม่สำเร็จ",
-        "connected": "เชื่อมต่อแล้ว! ตอนนี้คุณส่งข้อความหา Stella ได้",
-        "invalidCode": "รหัสไม่ถูกต้องหรือหมดอายุ ลองส่งรหัสใหม่",
-        "genericError": "เกิดบางอย่างผิดพลาด โปรดลองอีกครั้ง",
-        "useDifferentNumber": "ใช้หมายเลขอื่น"
-      },
       "credential": {
         "title": "เชื่อมต่อ {provider}",
         "description": "Stella ต้องใช้คีย์ API ของ {provider} เพื่อเชื่อมต่อ วางไว้ด้านล่าง คีย์จะอยู่บนคอมพิวเตอร์ของคุณ",

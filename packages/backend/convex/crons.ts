@@ -4,27 +4,9 @@ import { internal } from "./_generated/api";
 const crons = cronJobs();
 
 crons.interval(
-  "transient connector cleanup",
-  { minutes: 5 },
-  internal.channels.transient_data.purgeExpired,
-  { maxBatches: 10 },
-);
-crons.interval(
   "transient connector turn payload cleanup",
   { minutes: 5 },
   internal.channels.connector_turn_payloads.purgeExpired,
-  { maxBatches: 10 },
-);
-crons.interval(
-  "transient connector stream cleanup",
-  { minutes: 5 },
-  internal.channels.connector_delivery.purgeExpiredConnectorStreamStates,
-  { maxBatches: 10 },
-);
-crons.interval(
-  "transient cleanup failure retention sweep",
-  { hours: 12 },
-  internal.channels.transient_data.purgeExpiredCleanupFailures,
   { maxBatches: 10 },
 );
 crons.interval(
@@ -122,12 +104,6 @@ crons.interval(
   { batchSize: 1000 },
 );
 
-crons.interval(
-  "purge expired slack oauth states",
-  { hours: 1 },
-  internal.data.integrations.purgeExpiredSlackOAuthStates,
-  { batchSize: 200 },
-);
 
 crons.interval(
   "purge expired x oauth states",
@@ -136,12 +112,6 @@ crons.interval(
   { batchSize: 200 },
 );
 
-crons.interval(
-  "purge expired link codes",
-  { hours: 1 },
-  internal.channels.link_codes.purgeExpiredLinkCodes,
-  { batchSize: 200 },
-);
 
 crons.interval(
   "purge expired canvas shares",

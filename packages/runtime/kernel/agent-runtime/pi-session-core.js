@@ -440,7 +440,7 @@ export class PiSessionCore {
      *   - boundary (compaction refresh / memory toggle / structural tool-set
      *     change) → adopt fresh system prompt + tools and re-freeze;
      *   - otherwise → keep frozen bytes; when the freshly-computed bytes
-     *     drifted (e.g. a desktop↔iMessage surface switch changing
+     *     drifted (e.g. a desktop↔mobile surface switch changing
      *     node_repl's demoted-tool catalog), queue ONE hidden
      *     `runtime.context_delta.tools` note so the model learns about the
      *     change as an append. The real bytes swap at the next boundary.

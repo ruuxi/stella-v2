@@ -304,12 +304,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   fashion_create_checkout: ["Setting up checkout", "Getting the order ready", "Building the cart", "Prepping the order"],
   fashion_mark_outfit_ready: ["Finishing the look", "Wrapping it up", "Finalizing the fit", "Calling it ready"],
   fashion_mark_outfit_failed: ["Reworking it", "Noting the issue", "Adjusting course", "Trying again"],
-
-  // iMessage / Linq subagent
-  linq_send_message: ["Texting them", "Sending the message", "Firing off a text", "Writing back", "Replying"],
-  linq_react_to_message: ["Reacting", "Adding a reaction", "Tapping back", "Responding"],
-  linq_send_voice_memo: ["Recording a memo", "Sending a voice note", "Recording it", "Sending audio"],
-  linq_share_contact_card: ["Sharing the contact", "Sending the card", "Passing it along", "Sharing details"],
 };
 
 // Verb-prefixed tool status emitted by the runtime when a tool does not

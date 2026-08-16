@@ -1958,58 +1958,11 @@
       "signInToConnect": "Logg på Stella for å koble til",
       "connectStellaApp": "Koble til Stella-appen",
       "connectStellaAppSub": "Koble Stella-appen på telefonen din til denne datamaskinen",
-      "sectionTitle": "Integrasjoner",
       "connectTitle": "Koble til",
       "phoneTitle": "Telefonen din",
-      "backToConnections": "Tilbake til tilkoblinger",
       "connected": "Tilkoblet",
-      "connectProvider": "Koble til {provider}",
-      "openProvider": "Åpne {provider}",
-      "listeningOn": "Stella lytter på {provider}. Send henne en melding der når som helst.",
-      "disconnect": "Koble fra",
-      "disconnecting": "Kobler fra...",
-      "disconnected": "Koblet fra {provider}",
-      "disconnectFailed": "Kunne ikke koble fra {provider}",
-      "codeCopied": "Koden er kopiert til utklippstavlen",
-      "generateCodeFailed": "Kunne ikke generere kode",
-      "slackInstallUrlFailed": "Kunne ikke klargjøre installasjons-URL for Slack",
       "signInHeadline": "Logg på for å komme i gang",
       "signInSub": "Logg på Stella-kontoen din for å koble til {provider}.",
-      "providers": {
-        "linq": {
-          "name": "Send SMS til Stella",
-          "instructions": "Skriv inn telefonnummeret ditt, så sender vi deg en kode på SMS for å koble til. Når det er koblet, kan du sende meldinger til Stella når som helst via iMessage eller SMS."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Installer Stella-appen på Discord-kontoen din, kjør /link med koden én gang, og send deretter DM til @Stella som vanlig."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Installer Stella-appen i arbeidsområdet ditt, og send deretter DM til @Stella med koden nedenfor."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Åpne @StellaAppBot i Telegram, og send den koden nedenfor."
-        }
-      },
-      "linq": {
-        "countryCode": "Landkode",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Sender...",
-        "sendCode": "Send kode",
-        "sendCodeFailed": "Kunne ikke sende kode. Sjekk nummeret og prøv igjen.",
-        "enterCodeTitle": "Skriv inn koden din",
-        "enterCodeSub": "Sjekk telefonen din – vi sendte en sekssifret kode til {phone}.",
-        "codePlaceholder": "ABC123",
-        "verify": "Bekreft",
-        "verifying": "Bekrefter...",
-        "verifyCodeFailed": "Kunne ikke bekrefte koden.",
-        "connected": "Tilkoblet! Nå kan du sende SMS til Stella.",
-        "invalidCode": "Ugyldig eller utløpt kode. Prøv å sende en ny.",
-        "genericError": "Noe gikk galt. Prøv igjen.",
-        "useDifferentNumber": "Bruk et annet nummer"
-      },
       "credential": {
         "title": "Koble til {provider}",
         "description": "Stella trenger API-nøkkelen din for {provider} for å koble til. Lim den inn nedenfor. Den blir værende på datamaskinen din.",

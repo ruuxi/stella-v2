@@ -120,21 +120,21 @@ describe("buildCatalogSection budgeter", () => {
 
   it("marks COMPLETE with all tools shown when the budget fits", () => {
     const section = buildCatalogSection([
-      makeTool("linq_send_message", 40, {
-        demoted: { requiredConnectorProvider: "linq" },
+      makeTool("example_send_message", 40, {
+        demoted: { requiredConnectorProvider: "example_connector" },
       }),
-      makeTool("linq_react_to_message", 40, {
-        demoted: { requiredConnectorProvider: "linq" },
+      makeTool("example_react_message", 40, {
+        demoted: { requiredConnectorProvider: "example_connector" },
       }),
       makeTool("connector_status", 40),
     ]);
     expect(section).toContain(
       "## Demoted tools (COMPLETE — all 3 shown; call via tools.<name> inside node_repl)",
     );
-    expect(section).toContain("- linq (2 tools, 2 shown)");
+    expect(section).toContain("- example_connector (2 tools, 2 shown)");
     expect(section).toContain("- connector (1 tool, 1 shown)");
     expect(section).toContain(
-      "tools.linq_send_message(input: { value?: string }): Promise<unknown>",
+      "tools.example_send_message(input: { value?: string }): Promise<unknown>",
     );
     expect(section).toContain("// dddd");
   });
@@ -207,11 +207,11 @@ describe("buildCatalogSection budgeter", () => {
 describe("scoreToolSearch + searchToolCatalog", () => {
   const catalog: DemotedToolCatalogEntry[] = [
     {
-      name: "linq_send_message",
-      description: "Send a Linq/iMessage message with parts.",
+      name: "example_send_message",
+      description: "Send an example connector message with parts.",
       demoted: {
-        requiredConnectorProvider: "linq",
-        searchTerms: ["imessage", "sms", "rich link"],
+        requiredConnectorProvider: "example_connector",
+        searchTerms: ["example", "sms", "rich link"],
       },
       parameters: {
         type: "object",
@@ -221,13 +221,13 @@ describe("scoreToolSearch + searchToolCatalog", () => {
       },
     },
     {
-      name: "linq_react_to_message",
-      description: "Add or remove an iMessage tapback reaction.",
-      demoted: { requiredConnectorProvider: "linq", searchTerms: ["tapback"] },
+      name: "example_react_message",
+      description: "Add or remove a reaction on an example connector message.",
+      demoted: { requiredConnectorProvider: "example_connector", searchTerms: ["reaction"] },
       parameters: {
         type: "object",
         properties: {
-          message_id: { type: "string", description: "Linq message UUID." },
+          message_id: { type: "string", description: "Example connector message UUID." },
         },
       },
     },
@@ -258,8 +258,8 @@ describe("scoreToolSearch + searchToolCatalog", () => {
       "message",
       "quickly",
     ]);
-    const results = searchToolCatalog(catalog, "iMessage reactions");
-    expect(results[0]?.name).toBe("linq_react_to_message");
+    const results = searchToolCatalog(catalog, "example reactions");
+    expect(results[0]?.name).toBe("example_react_message");
   });
 
   it("matches on input property names and descriptions", () => {
@@ -273,8 +273,8 @@ describe("scoreToolSearch + searchToolCatalog", () => {
   it("ranks name matches above description matches and breaks ties by name", () => {
     const results = searchToolCatalog(catalog, "message");
     expect(results.map((entry) => entry.name)).toEqual([
-      "linq_react_to_message",
-      "linq_send_message",
+      "example_react_message",
+      "example_send_message",
     ]);
     // Both contain "message" in the name; tie broken by localeCompare.
     const [first, second] = results;
@@ -282,7 +282,7 @@ describe("scoreToolSearch + searchToolCatalog", () => {
   });
 
   it("returns full signatures so no second lookup is needed", () => {
-    const results = searchToolCatalog(catalog, "imessage");
+    const results = searchToolCatalog(catalog, "example");
     for (const result of results) {
       expect(result.signature).toMatch(/^tools\..+\(input: .+\): Promise<unknown>$/);
     }
@@ -291,7 +291,7 @@ describe("scoreToolSearch + searchToolCatalog", () => {
   it("clamps limit and returns [] for garbage", () => {
     expect(searchToolCatalog(catalog, "")).toEqual([]);
     expect(searchToolCatalog(catalog, "   ")).toEqual([]);
-    expect(searchToolCatalog(catalog, "imessage", 0)).toHaveLength(1);
+    expect(searchToolCatalog(catalog, "example", 0)).toHaveLength(1);
     expect(searchToolCatalog([], "anything")).toEqual([]);
     expect(
       searchToolCatalog(

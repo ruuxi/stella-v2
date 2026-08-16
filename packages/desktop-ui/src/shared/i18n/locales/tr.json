@@ -1958,58 +1958,11 @@
       "signInToConnect": "Bağlanmak için Stella'ya giriş yapın",
       "connectStellaApp": "Stella Uygulamasına bağlan",
       "connectStellaAppSub": "Telefonunuzdaki Stella uygulamasını bu bilgisayarla eşleştirin",
-      "sectionTitle": "Entegrasyonlar",
       "connectTitle": "Bağlan",
       "phoneTitle": "Telefonunuz",
-      "backToConnections": "Bağlantılara dön",
       "connected": "Bağlı",
-      "connectProvider": "{provider} bağla",
-      "openProvider": "{provider} uygulamasını aç",
-      "listeningOn": "Stella {provider} üzerinde dinliyor. Ona istediğiniz zaman oradan yazın.",
-      "disconnect": "Bağlantıyı kes",
-      "disconnecting": "Bağlantı kesiliyor...",
-      "disconnected": "{provider} bağlantısı kesildi",
-      "disconnectFailed": "{provider} bağlantısı kesilemedi",
-      "codeCopied": "Kod panoya kopyalandı",
-      "generateCodeFailed": "Kod oluşturulamadı",
-      "slackInstallUrlFailed": "Slack kurulum adresi hazırlanamadı",
       "signInHeadline": "Başlamak için giriş yapın",
       "signInSub": "{provider} bağlamak için Stella hesabınıza giriş yapın.",
-      "providers": {
-        "linq": {
-          "name": "Stella'ya mesaj at",
-          "instructions": "Telefon numaranızı girin, bağlanmanız için size bir kod göndereceğiz. Bağlandıktan sonra Stella'ya iMessage veya SMS ile istediğiniz zaman yazabilirsiniz."
-        },
-        "discord": {
-          "name": "Discord",
-          "instructions": "Stella uygulamasını Discord hesabınıza kurun, kodla bir kez /link çalıştırın, sonra @Stella'ya normal şekilde DM atın."
-        },
-        "slack": {
-          "name": "Slack",
-          "instructions": "Stella uygulamasını çalışma alanınıza kurun, ardından @Stella'ya aşağıdaki kodla DM atın."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "instructions": "Telegram'da @StellaAppBot hesabını açın, ardından aşağıdaki kodu gönderin."
-        }
-      },
-      "linq": {
-        "countryCode": "Ülke kodu",
-        "phonePlaceholder": "(555) 123-4567",
-        "sending": "Gönderiliyor...",
-        "sendCode": "Kod Gönder",
-        "sendCodeFailed": "Kod gönderilemedi. Numarayı kontrol edip tekrar deneyin.",
-        "enterCodeTitle": "Kodunuzu girin",
-        "enterCodeSub": "Telefonunuza bakın — {phone} numarasına 6 haneli bir kod gönderdik.",
-        "codePlaceholder": "ABC123",
-        "verify": "Doğrula",
-        "verifying": "Doğrulanıyor...",
-        "verifyCodeFailed": "Kod doğrulanamadı.",
-        "connected": "Bağlandı! Artık Stella'ya mesaj atabilirsiniz.",
-        "invalidCode": "Geçersiz veya süresi dolmuş kod. Yeni bir tane göndermeyi deneyin.",
-        "genericError": "Bir şeyler ters gitti. Lütfen tekrar deneyin.",
-        "useDifferentNumber": "Farklı bir numara kullan"
-      },
       "credential": {
         "title": "{provider} bağla",
         "description": "Bağlanmak için Stella'nın {provider} API anahtarınıza ihtiyacı var. Aşağıya yapıştırın. Bilgisayarınızda kalır.",

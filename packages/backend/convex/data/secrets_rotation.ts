@@ -75,43 +75,6 @@ export const rotateEncryptedMaterialBatch = internalMutation({
       }
     }
 
-    if (remaining > 0) {
-      // Query slack installations NOT on the active key version.
-      const candidatesBelow = await ctx.db
-        .query("slack_installations")
-        .withIndex("by_botTokenKeyVersion", (q) => q.lt("botTokenKeyVersion", activeKeyVersion))
-        .take(remaining);
-      const candidatesAbove = await ctx.db
-        .query("slack_installations")
-        .withIndex("by_botTokenKeyVersion", (q) => q.gt("botTokenKeyVersion", activeKeyVersion))
-        .take(remaining);
-      const candidates = [...candidatesBelow, ...candidatesAbove];
-
-      const rotationPromises = candidates.slice(0, remaining).map(async (candidate) => {
-        try {
-          const result = await rotateSecretToActiveKey(candidate.botToken);
-          if (!result.changed) {
-            return { type: 'skipped' as const };
-          }
-          await ctx.db.patch(candidate._id, {
-            botToken: result.serialized,
-            botTokenKeyVersion: result.keyVersion,
-            updatedAt: now,
-          });
-          return { type: 'rotated' as const };
-        } catch {
-          return { type: 'failed' as const };
-        }
-      });
-
-      const results = await Promise.all(rotationPromises);
-      for (const res of results) {
-        if (res.type === 'skipped') skipped += 1;
-        if (res.type === 'rotated') { rotated += 1; remaining -= 1; }
-        if (res.type === 'failed') failed += 1;
-      }
-    }
-
     return {
       activeKeyVersion,
       batchSize,

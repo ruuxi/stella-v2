@@ -367,28 +367,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Adjusting course",
     "Trying again",
   ],
-
-  // iMessage / Linq subagent
-  linq_send_message: [
-    "Texting them",
-    "Sending the message",
-    "Firing off a text",
-    "Writing back",
-    "Replying",
-  ],
-  linq_react_to_message: ["Reacting", "Adding a reaction", "Tapping back", "Responding"],
-  linq_send_voice_memo: [
-    "Recording a memo",
-    "Sending a voice note",
-    "Recording it",
-    "Sending audio",
-  ],
-  linq_share_contact_card: [
-    "Sharing the contact",
-    "Sending the card",
-    "Passing it along",
-    "Sharing details",
-  ],
 };
 
 const FALLBACK_VARIATIONS: readonly string[] = [

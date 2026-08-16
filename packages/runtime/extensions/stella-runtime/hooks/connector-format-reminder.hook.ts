@@ -4,11 +4,10 @@ import { wrapSystemReminder } from "@stella/contracts/system-reminders";
 /**
  * Connector-surface transition reminder (stella-runtime).
  *
- * The orchestrator handles both desktop and connector chats (Linq SMS,
- * Slack, Discord, Teams, Google Chat) in a single thread. The two
- * surfaces have very different rendering capabilities: the desktop
- * renders markdown and `html` artifacts inline, while connector chats
- * only show plain text.
+ * The orchestrator handles both desktop chats and Stella mobile app chats
+ * in a single thread. The two surfaces have very different rendering
+ * capabilities: the desktop renders markdown and `html` artifacts inline,
+ * while the mobile app only shows plain text.
  *
  * This hook prepends a hidden `<system-reminder>` on the single turn
  * where the routing surface changed (desktop → connector, connector →

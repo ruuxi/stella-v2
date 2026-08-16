@@ -5,7 +5,7 @@
  * commands to Chrome extension APIs.
  */
 
-import { connect, disconnect, isConnected, onCommand, onStatus } from './lib/connection.js';
+import { connect, disconnect, isConnected, onCommand, onStatus, send } from './lib/connection.js';
 import { authorizeOwnerLease, releaseOwnerLease, handleTabNew, handleTabList, handleTabSwitch, handleTabClose, closeAgentWindow, finalizeOwnerTabs, cleanupStaleGroups, cleanupStaleTabs } from './commands/tabs.js';
 import { handleNavigate, handleBack, handleForward, handleReload, handleUrl, handleTitle } from './commands/navigation.js';
 import {
@@ -290,6 +290,84 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // Ensure site-mods content script is registered for pages with saved mods
 syncContentScriptRegistration();
+
+// --- Real-time cookie mirroring ---------------------------------------------
+//
+// Push every cookie change in the user's real browser to the daemon as an
+// UNSOLICITED event, so the desktop can keep the in-app browser's session in
+// sync in real time instead of polling. Changes are coalesced into small
+// batches to absorb login storms (a single sign-in can rewrite dozens of
+// cookies at once). If we're disconnected the buffer is dropped and the
+// desktop's periodic reconcile is the backstop that recovers missed changes.
+const COOKIE_EVENT_DEBOUNCE_MS = 120;
+const COOKIE_EVENT_MAX_BATCH = 200;
+let pendingCookieChanges = [];
+let cookieFlushTimer = null;
+
+// Known incognito cookie-store ids. cookies_export_all deliberately excludes
+// incognito stores; the real-time push must match that so a private-window
+// session never leaks into the in-app browser. Refreshed from
+// getAllCookieStores (best-effort; default extensions can't see incognito at
+// all, so this is belt-and-suspenders).
+let incognitoStoreIds = new Set();
+function refreshCookieStores() {
+  try {
+    const result = chrome.cookies.getAllCookieStores();
+    if (result && typeof result.then === 'function') {
+      result
+        .then((stores) => {
+          incognitoStoreIds = new Set(
+            stores.filter((s) => s.incognito === true).map((s) => s.id),
+          );
+        })
+        .catch(() => {});
+    }
+  } catch {
+    // cookies API unavailable; leave the set empty.
+  }
+}
+refreshCookieStores();
+
+function flushCookieChanges() {
+  cookieFlushTimer = null;
+  if (pendingCookieChanges.length === 0) return;
+  if (!isConnected()) {
+    pendingCookieChanges = [];
+    return;
+  }
+  const changes = pendingCookieChanges;
+  pendingCookieChanges = [];
+  send({ type: 'event', event: 'cookies_changed', changes });
+}
+
+function queueCookieChange(changeInfo) {
+  // changeInfo: { removed, cookie, cause }. Forward the raw Chrome cookie shape
+  // (name/value/domain/hostOnly/path/secure/httpOnly/sameSite/session/
+  // expirationDate/storeId/partitionKey) the desktop already understands from
+  // cookies_export_all.
+  const cookie = changeInfo?.cookie;
+  if (!cookie || !cookie.name) return;
+  // Never mirror incognito cookies into the in-app session.
+  if (cookie.storeId && incognitoStoreIds.has(cookie.storeId)) return;
+  pendingCookieChanges.push({
+    removed: changeInfo.removed === true,
+    cause: changeInfo.cause,
+    cookie,
+  });
+  if (pendingCookieChanges.length >= COOKIE_EVENT_MAX_BATCH) {
+    if (cookieFlushTimer) {
+      clearTimeout(cookieFlushTimer);
+      cookieFlushTimer = null;
+    }
+    flushCookieChanges();
+    return;
+  }
+  if (!cookieFlushTimer) {
+    cookieFlushTimer = setTimeout(flushCookieChanges, COOKIE_EVENT_DEBOUNCE_MS);
+  }
+}
+
+chrome.cookies.onChanged.addListener(queueCookieChange);
 
 // Auto-connect on service worker load (this runs on every SW start, including
 // browser startup and extension install/update - no need for separate listeners)

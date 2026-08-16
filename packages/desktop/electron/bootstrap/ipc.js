@@ -88,6 +88,13 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 }
                 return await resource.exportCookiesForUrls(urls);
             },
+            subscribeCookieEvents: (onEvent) => {
+                const resource = state.stellaBrowserBridgeService;
+                if (!resource?.subscribeCookieEvents) {
+                    return () => {};
+                }
+                return resource.subscribeCookieEvents(onEvent);
+            },
             connectionTimeoutMs: 4 * 60 * 1000,
             connectionPollMs: 1000,
             automaticConnectionTimeoutMs: 15 * 1000,

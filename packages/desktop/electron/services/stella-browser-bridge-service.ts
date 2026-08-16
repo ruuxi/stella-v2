@@ -976,6 +976,121 @@ export class StellaBrowserBridgeService {
     });
   }
 
+  /**
+   * Open a long-lived subscription to unsolicited extension events (cookie
+   * changes pushed in real time). `onEvent` is called for each event object
+   * after the initial subscription ack. Auto-reconnects with capped backoff
+   * while the daemon is reachable; the returned disposer stops reconnecting and
+   * closes the socket. Best-effort: never throws to the caller, and a listener
+   * error never tears down the stream.
+   */
+  subscribeToExtensionEvents(
+    onEvent: (event: Record<string, unknown>) => void,
+  ): () => void {
+    let disposed = false;
+    let socket: net.Socket | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
+    let backoffMs = 500;
+    const MAX_BACKOFF_MS = 15_000;
+
+    const scheduleReconnect = () => {
+      if (disposed || this.stopped || reconnectTimer) {
+        return;
+      }
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, backoffMs);
+      reconnectTimer.unref?.();
+      backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+    };
+
+    const connect = async () => {
+      if (disposed || this.stopped) {
+        return;
+      }
+      let next: net.Socket;
+      try {
+        next = await this.openConnection(STELLA_BROWSER_BRIDGE_SESSION);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+      if (disposed || this.stopped) {
+        next.destroy();
+        return;
+      }
+      socket = next;
+      let buffer = "";
+      let acked = false;
+
+      next.on("data", (chunk: Buffer | string) => {
+        buffer += String(chunk);
+        let newlineIndex = buffer.indexOf("\n");
+        while (newlineIndex !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          newlineIndex = buffer.indexOf("\n");
+          if (!line) {
+            continue;
+          }
+          let parsed: Record<string, unknown>;
+          try {
+            parsed = JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
+          if (!acked) {
+            // First line is the subscription ack: the stream is healthy, so
+            // reset backoff for the next reconnect.
+            acked = true;
+            backoffMs = 500;
+            continue;
+          }
+          try {
+            onEvent(parsed);
+          } catch {
+            // A listener error must never tear down the subscription.
+          }
+        }
+      });
+
+      const handleDrop = () => {
+        if (socket === next) {
+          socket = null;
+        }
+        next.removeAllListeners();
+        next.destroy();
+        scheduleReconnect();
+      };
+      next.once("error", handleDrop);
+      next.once("close", handleDrop);
+
+      next.write(
+        `${JSON.stringify({
+          id: randomUUID(),
+          action: "subscribe_events",
+          controlToken: this.controlToken,
+        })}\n`,
+      );
+    };
+
+    void connect();
+
+    return () => {
+      disposed = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (socket) {
+        socket.removeAllListeners();
+        socket.destroy();
+        socket = null;
+      }
+    };
+  }
+
   private async isTcpPortListening(
     port: number,
     timeoutMs = 250,

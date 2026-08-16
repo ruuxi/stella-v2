@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 
 use super::actions::{execute_command, teardown_daemon_state, DaemonState};
 use super::cdp::client::CdpClient;
@@ -719,6 +719,48 @@ async fn handle_connection<S>(
                     && (action == Some("close")
                         || (access_policy.is_protected() && action == Some("release_owner_lease")));
 
+                // Server-push subscription. This connection stops being
+                // request/response and becomes a long-lived stream of
+                // unsolicited extension events (cookie changes) until the peer
+                // disconnects. The idle-reset above already fired, so an active
+                // subscription keeps the daemon from idle-shutting down.
+                if action == Some("subscribe_events") {
+                    match authorization {
+                        Err(response) => {
+                            let mut resp = serde_json::to_string(&response).unwrap_or_default();
+                            resp.push('\n');
+                            let _ = writer.write_all(resp.as_bytes()).await;
+                            break;
+                        }
+                        Ok(()) => {
+                            let request_id =
+                                cmd.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                            let receiver = {
+                                let guard = state.lock().await;
+                                guard
+                                    .extension_bridge
+                                    .as_ref()
+                                    .map(|bridge| bridge.subscribe_events())
+                            };
+                            let ack = serde_json::json!({
+                                "id": request_id,
+                                "success": true,
+                                "data": { "subscribed": receiver.is_some() },
+                            });
+                            let mut ack_line = serde_json::to_string(&ack).unwrap_or_default();
+                            ack_line.push('\n');
+                            if writer.write_all(ack_line.as_bytes()).await.is_err() {
+                                break;
+                            }
+                            if let Some(receiver) = receiver {
+                                stream_extension_events(receiver, &mut buf_reader, &mut writer)
+                                    .await;
+                            }
+                            break;
+                        }
+                    }
+                }
+
                 let response = match authorization {
                     Err(response) => response,
                     Ok(()) => match replay_key(&cmd) {
@@ -752,6 +794,68 @@ async fn handle_connection<S>(
                 }
             }
             Err(_) => break,
+        }
+    }
+}
+
+/// Stream unsolicited extension events to a subscribed control-socket peer.
+///
+/// Runs until the peer disconnects or the broadcast closes. A subscriber that
+/// falls behind the broadcast buffer receives a single `events_lagged` notice
+/// (so it can full-reconcile) rather than stalling the daemon or other
+/// subscribers. Client-sent lines are ignored (reserved for future keepalive),
+/// but a client EOF/error ends the stream promptly.
+async fn stream_extension_events<R, W>(
+    mut receiver: broadcast::Receiver<String>,
+    reader: &mut BufReader<R>,
+    writer: &mut W,
+) where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::sync::broadcast::error::RecvError;
+    // Cap the inbound line buffer: the subscriber (the desktop) is trusted and
+    // sends nothing today, but an unbounded read_line would let a misbehaving
+    // peer grow memory without a delimiter. 64 KiB is far beyond any keepalive.
+    const MAX_SUBSCRIBER_LINE_BYTES: usize = 64 * 1024;
+    let mut scratch = String::new();
+    loop {
+        tokio::select! {
+            recv = receiver.recv() => match recv {
+                Ok(event) => {
+                    let mut line = event;
+                    line.push('\n');
+                    if writer.write_all(line.as_bytes()).await.is_err() {
+                        break;
+                    }
+                    if writer.flush().await.is_err() {
+                        break;
+                    }
+                }
+                Err(RecvError::Lagged(_)) => {
+                    if writer
+                        .write_all(b"{\"type\":\"event\",\"event\":\"events_lagged\"}\n")
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                    if writer.flush().await.is_err() {
+                        break;
+                    }
+                }
+                Err(RecvError::Closed) => break,
+            },
+            read = reader.read_line(&mut scratch) => match read {
+                Ok(0) => break,
+                Ok(_) => {
+                    if scratch.len() > MAX_SUBSCRIBER_LINE_BYTES {
+                        break;
+                    }
+                    scratch.clear();
+                }
+                Err(_) => break,
+            },
         }
     }
 }
@@ -888,6 +992,67 @@ mod tests {
     use crate::native::extension_bridge::ExtensionBridge;
     use crate::native::policy::ActionPolicy;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn test_stream_extension_events_forwards_and_closes() {
+        let (tx, rx) = broadcast::channel::<String>(8);
+        let (mut client, server) = tokio::io::duplex(4096);
+        let (server_read, mut server_write) = tokio::io::split(server);
+        let mut server_reader = BufReader::new(server_read);
+        let task = tokio::spawn(async move {
+            stream_extension_events(rx, &mut server_reader, &mut server_write).await;
+        });
+
+        tx.send("{\"type\":\"event\",\"event\":\"cookies_changed\"}".to_string())
+            .unwrap();
+
+        let mut reader = BufReader::new(&mut client);
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+            .await
+            .expect("event should arrive before timeout")
+            .expect("read ok");
+        assert_eq!(
+            line.trim(),
+            "{\"type\":\"event\",\"event\":\"cookies_changed\"}"
+        );
+
+        // Dropping the sole sender closes the broadcast, ending the stream.
+        drop(tx);
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .expect("stream task should finish after channel close")
+            .expect("task join");
+    }
+
+    #[tokio::test]
+    async fn test_stream_extension_events_emits_lag_notice_when_overflowed() {
+        let (tx, rx) = broadcast::channel::<String>(2);
+        // Overflow the buffer before the stream drains so the first recv lags.
+        for i in 0..5 {
+            tx.send(format!("{{\"type\":\"event\",\"n\":{}}}", i)).unwrap();
+        }
+        let (mut client, server) = tokio::io::duplex(4096);
+        let (server_read, mut server_write) = tokio::io::split(server);
+        let mut server_reader = BufReader::new(server_read);
+        let task = tokio::spawn(async move {
+            stream_extension_events(rx, &mut server_reader, &mut server_write).await;
+        });
+
+        let mut reader = BufReader::new(&mut client);
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line))
+            .await
+            .expect("lag notice should arrive before timeout")
+            .expect("read ok");
+        assert!(
+            line.contains("events_lagged"),
+            "expected a lag notice, got: {line}"
+        );
+
+        drop(tx);
+        let _ = tokio::time::timeout(Duration::from_secs(2), task).await;
+    }
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     fn protected_policy(expires_at: u64) -> DaemonAccessPolicy {

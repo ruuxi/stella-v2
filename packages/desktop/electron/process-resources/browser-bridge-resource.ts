@@ -36,6 +36,9 @@ export type StellaBrowserBridgeResource = {
     capability: StellaBrowserAgentCapability,
     cdpUrl: string,
   ) => Promise<StellaBrowserAgentBackend>;
+  subscribeCookieEvents: (
+    onEvent: (event: Record<string, unknown>) => void,
+  ) => () => void;
 };
 
 export const createStellaBrowserBridgeResource = (options: {
@@ -54,6 +57,7 @@ export const createStellaBrowserBridgeResource = (options: {
       | "exportCookiesForUrls"
       | "connectCdp"
       | "connectAgentCdp"
+      | "subscribeCookieEvents"
     >
   >(
     {
@@ -124,6 +128,19 @@ export const createStellaBrowserBridgeResource = (options: {
           capability: StellaBrowserAgentCapability,
           cdpUrl: string,
         ) => requireService().connectAgentCdp(capability, cdpUrl),
+        subscribeCookieEvents: (
+          onEvent: (event: Record<string, unknown>) => void,
+        ) => {
+          // Delegates to the current service, which owns socket-level
+          // reconnects to the daemon. If the bridge service has not started
+          // yet, there is nothing to subscribe to; the in-app browser's
+          // periodic reconcile is the backstop until a subscription exists.
+          const service = getService();
+          if (!service) {
+            return () => {};
+          }
+          return service.subscribeToExtensionEvents(onEvent);
+        },
       };
     },
   );

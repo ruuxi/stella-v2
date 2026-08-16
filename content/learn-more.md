@@ -25,7 +25,7 @@ Every public claim on this page should be checked against the current Stella rep
 - BYOK and local model paths avoid the Stella managed model proxy for those model calls. Local credentials are stored locally in encrypted form.
 - Anonymous managed-model usage is limited server-side with a salted hash of a device or client identifier plus request counts. Current retention for that anonymous usage row is seven days from last use.
 - Phone chat to a paired desktop is not identical to local-only desktop chat. A signed-in phone sends the message through Stella's backend so the desktop can pick it up. The backend stores delivery state and request text needed to route, cancel, recover, and complete the remote turn. The desktop reply row used by the mobile app is short-lived, deleted after the phone acknowledges it, and otherwise expires after about two minutes.
-- Messaging connectors such as Telegram, Slack, Teams, and Linq use pairing or connection rows. Link codes are short-lived and hashed. Some connector delivery rows are transient, and relayed media is scheduled for deletion after delivery windows.
+- The Stella mobile app pairs with your desktop to reach the same assistant. Some remote-delivery rows are transient, and relayed media is scheduled for deletion after delivery windows.
 - Optional cloud-backed features necessarily store the data they are built around. Examples: billing profiles, Stripe IDs, usage credit records, connected app metadata, public Store catalog data, installed Store state, cloud backups if enabled, mobile pairing records, device presence, and push tokens.
 
 ## Public Page Copy
@@ -64,7 +64,7 @@ Behind the scenes, Stella can split work into smaller jobs, run specialized agen
 
 **Run routines.** Stella can create reminders, recurring check-ins, scheduled work, and local automations from plain English.
 
-**Connect apps.** Stella can connect to services and messaging apps where supported, including mobile, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.
+**Connect apps.** Stella can connect to services where supported, including the Stella mobile app, Google Workspace, and Store-backed integrations.
 
 **Use the model you want.** You can use Stella's managed model provider for convenience, bring your own provider keys, use local models, use OpenRouter-style model choices where supported, or select Claude Code as the engine for the assistant runtime.
 
@@ -80,7 +80,7 @@ Behind the scenes, Stella can split work into smaller jobs, run specialized agen
 
 **Phone.** The mobile app can pair with your desktop. When paired, your phone is another way to message the Stella running on your computer.
 
-**Messaging apps.** Supported connectors let you message Stella from apps such as Telegram, Slack, Teams, and Linq. These routes depend on pairing, connection settings, and the desktop being available for full desktop-powered execution.
+**Mobile app.** The Stella mobile app lets you message Stella from your phone. It depends on pairing with your desktop, which stays available for full desktop-powered execution.
 
 ### Privacy In Plain English
 
@@ -98,9 +98,9 @@ Some features need a backend. Sign-in, billing, plan limits, managed model acces
 
 **Device and pairing metadata.** We store device IDs, device names where provided, platform, presence timestamps, mobile pairing records, pairing secret hashes, mobile push tokens, and bridge registration URLs so a phone can reach the paired desktop.
 
-**Connected app metadata.** We store the minimum connection records needed to know which account is linked to which Stella user and provider. Some connection secrets are encrypted. Short-lived link codes are hashed and expire quickly.
+**Connected app metadata.** We store the minimum connection records needed to know which account is linked to which Stella user and provider. Some connection secrets are encrypted.
 
-**Remote delivery state.** When you message Stella from a paired phone or messaging connector, the backend may store the request text, delivery metadata, request state, and connector routing information so the desktop can claim the work, cancel it, complete it, and deliver the reply. Mobile desktop replies are short-lived: they are deleted after the phone acknowledges them and otherwise expire after about two minutes.
+**Remote delivery state.** When you message Stella from a paired phone, the backend may store the request text, delivery metadata, request state, and routing information so the desktop can claim the work, cancel it, complete it, and deliver the reply. Mobile desktop replies are short-lived: they are deleted after the phone acknowledges them and otherwise expire after about two minutes.
 
 **Optional cloud content.** If you enable cloud-backed features such as backups, shared Store publishing, social or collaboration surfaces, or other hosted features, those features store the data required to provide them.
 
@@ -147,7 +147,7 @@ Recent updates cleaned up the chat surface, activity history, display sidebar, c
 
 #### Stella can reach more places
 
-Mobile pairing, push updates, messaging connectors, Google sign-in, Google Workspace connections, native integrations, and Store-backed integrations have all been expanded. The goal is to make Stella reachable from your desktop, phone, and the apps you already use without turning those apps into the source of truth.
+Mobile pairing, push updates, Google sign-in, Google Workspace connections, native integrations, and Store-backed integrations have all been expanded. The goal is to make Stella reachable from your desktop, phone, and the apps you already use without turning those apps into the source of truth.
 
 #### Voice, dictation, and media got stronger
 
@@ -159,7 +159,7 @@ Self-mod updates, HMR handling, morph transitions, update checks, launcher recov
 
 #### Privacy and billing moved into clearer boundaries
 
-Recent backend work tightened anonymous limits, plan usage checks, paid media gates, BYOK escape hatches, connector storage, mobile delivery cleanup, and cloud backup subscription gating. The app should be honest about what is local, what is routed, what is optional, and what is stored for billing or delivery.
+Recent backend work tightened anonymous limits, plan usage checks, paid media gates, BYOK escape hatches, mobile delivery cleanup, and cloud backup subscription gating. The app should be honest about what is local, what is routed, what is optional, and what is stored for billing or delivery.
 
 #### Model choice got more practical
 

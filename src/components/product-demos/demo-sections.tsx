@@ -1,18 +1,11 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useViewportActivity } from "@/components/use-viewport-activity";
 import { RADIAL_WEDGES, CANVAS_CONCEPTS } from "./data";
 import { DeferInView } from "./defer-in-view";
 import { RadialDialInteractive } from "./radial-dial-interactive";
-import type { Platform } from "./mobile-showcase";
 
 function DemoChunkPlaceholder() {
   return (
@@ -47,31 +40,6 @@ const MobilePhoneVisual = dynamic(
       default: m.MobilePhoneVisual,
     })),
   { loading: () => <DemoChunkPlaceholder /> },
-);
-
-// Lazy-load channels so SVG icons aren't in the initial bundle
-const MobileChannels = dynamic(
-  () =>
-    import("./mobile-showcase").then((m) => ({
-      default: function Channels() {
-        return (
-          <div className="mobile-channels" style={{ marginTop: "0.5rem" }}>
-            <span className="mobile-channels__label">Message Stella from</span>
-            <div className="mobile-channels__list">
-              {m.channels.map(
-                (ch: { name: string; icon: React.ReactNode }) => (
-                  <div key={ch.name} className="mobile-channel">
-                    <span className="mobile-channel__icon">{ch.icon}</span>
-                    <span className="mobile-channel__name">{ch.name}</span>
-                  </div>
-                ),
-              )}
-            </div>
-          </div>
-        );
-      },
-    })),
-  { ssr: false },
 );
 
 /* ── Radial dial section ───────────────────────────── */
@@ -245,80 +213,12 @@ export function CanvasSection() {
   );
 }
 
-/* ── Mobile section ───────────────────────────────── */
-
-const ALL_PLATFORMS: Platform[] = ["stella", "imessage", "slack", "telegram", "teams"];
-const PLATFORM_LABELS: Record<Platform, string> = {
-  stella: "Stella App",
-  imessage: "iMessage",
-  slack: "Slack",
-  telegram: "Telegram",
-  teams: "Teams",
-};
-const CYCLE_MS = 4000;
-/** Viewports at or below this width show one cycling phone mock (not two-up). */
-const MOBILE_HERO_SINGLE_PHONE_MAX_PX = 1150;
-
-function useIsMobile(breakpoint = 768) {
-  const query = `(max-width: ${breakpoint - 1}px)`;
-  const subscribe = useCallback(
-    (notify: () => void) => {
-      const mql = window.matchMedia(query);
-      mql.addEventListener("change", notify);
-      return () => mql.removeEventListener("change", notify);
-    },
-    [query],
-  );
-  const getSnapshot = useCallback(
-    () => window.matchMedia(query).matches,
-    [query],
-  );
-  return useSyncExternalStore(subscribe, getSnapshot, () => false);
-}
-
-const DESKTOP_SLOT_COUNT = 2;
-
-function usePlatformCycle(isMobile: boolean) {
-  const [slots, setSlots] = useState<Platform[]>(["imessage", "telegram"]);
-  const [singleIndex, setSingleIndex] = useState(0);
-  const nextSlotRef = useRef(0);
-
-  const cycle = useCallback(() => {
-    if (isMobile) {
-      setSingleIndex((i) => (i + 1) % ALL_PLATFORMS.length);
-    } else {
-      setSlots((prev) => {
-        const slot = nextSlotRef.current;
-        nextSlotRef.current = (slot + 1) % DESKTOP_SLOT_COUNT;
-
-        const available = ALL_PLATFORMS.filter((p) => !prev.includes(p));
-        if (available.length === 0) return prev;
-        const next = available[Math.floor(Math.random() * available.length)];
-
-        const updated = [...prev];
-        updated[slot] = next;
-        return updated;
-      });
-    }
-  }, [isMobile]);
-
-  const activePlatform = ALL_PLATFORMS[singleIndex];
-
-  return { slots, cycle, activePlatform };
-}
+/* ── Mobile section ─────────────────── */
 
 export function MobileSection() {
-  const useSinglePhoneLayout = useIsMobile(MOBILE_HERO_SINGLE_PHONE_MAX_PX + 1);
-  const { slots, cycle, activePlatform } = usePlatformCycle(useSinglePhoneLayout);
-  const { ref, isActive } = useViewportActivity<HTMLDivElement>({
+  const { ref } = useViewportActivity<HTMLDivElement>({
     rootMargin: "360px 0px",
   });
-
-  useEffect(() => {
-    if (!isActive) return;
-    const timer = window.setInterval(cycle, CYCLE_MS);
-    return () => window.clearInterval(timer);
-  }, [isActive, cycle]);
 
   return (
     <section className="mobile-hero codex-section" data-reveal suppressHydrationWarning>
@@ -333,8 +233,8 @@ export function MobileSection() {
             Control your computer from anywhere
           </h2>
           <p className="mobile-hero__lede">
-            Away from your desk? Message Stella from anywhere and she&apos;ll
-            take action on your computer in real time.
+            Away from your desk? Message Stella from the mobile app and
+            she&apos;ll take action on your computer in real time.
           </p>
         </header>
 
@@ -345,43 +245,14 @@ export function MobileSection() {
         >
           <div className="codex-frame">
             <div className="mobile-hero__stage">
-              <div className="mobile-hero__channels">
-                <MobileChannels />
-              </div>
-
               <div ref={ref} className="mobile-hero__mock">
                 <DeferInView fallback={<DemoChunkPlaceholder />}>
-                  {useSinglePhoneLayout ? (
-                    <div className="mobile-phone-single">
-                      <div className="mobile-phone-swap">
-                        <MobilePhoneVisual
-                          key={activePlatform}
-                          activeConvo={0}
-                          platform={activePlatform}
-                        />
-                      </div>
-                      <span className="mobile-phone-label">
-                        {PLATFORM_LABELS[activePlatform]}
-                      </span>
+                  <div className="mobile-phone-single">
+                    <div className="mobile-phone-swap">
+                      <MobilePhoneVisual activeConvo={0} platform="stella" />
                     </div>
-                  ) : (
-                    <div className="mobile-phone-row">
-                      {slots.map((platform, i) => (
-                        <div key={i} className="mobile-phone-col">
-                          <div className="mobile-phone-swap">
-                            <MobilePhoneVisual
-                              key={platform}
-                              activeConvo={i}
-                              platform={platform}
-                            />
-                          </div>
-                          <span className="mobile-phone-label">
-                            {PLATFORM_LABELS[platform]}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                    <span className="mobile-phone-label">Stella App</span>
+                  </div>
                 </DeferInView>
               </div>
             </div>

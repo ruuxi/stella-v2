@@ -40,7 +40,7 @@ const capabilities = [
   },
   {
     title: "Connect apps",
-    body: "Use supported services and messaging apps, including mobile, Telegram, Slack, Teams, Linq, Google Workspace, and Store-backed integrations.",
+    body: "Use supported services, including the Stella mobile app, Google Workspace, and Store-backed integrations.",
   },
   {
     title: "Choose your model",
@@ -70,8 +70,8 @@ const accessMethods = [
     body: "Pair the mobile app with your desktop so your phone can message the Stella running on your computer.",
   },
   {
-    title: "Messaging apps",
-    body: "Message Stella from supported apps. Full desktop-powered execution depends on pairing, connection settings, and your desktop being available.",
+    title: "Mobile app",
+    body: "Message Stella from the mobile app. Full desktop-powered execution depends on pairing with your desktop, which stays available.",
   },
 ];
 
@@ -98,7 +98,7 @@ const storedItems = [
   },
   {
     title: "Remote delivery state",
-    body: "When you message Stella from a phone or connector, the backend may store request text, delivery metadata, request state, and routing info so the desktop can claim, cancel, complete, and deliver the work.",
+    body: "When you message Stella from a paired phone, the backend may store request text, delivery metadata, request state, and routing info so the desktop can claim, cancel, complete, and deliver the work.",
   },
   {
     title: "Optional cloud content",

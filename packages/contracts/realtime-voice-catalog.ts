@@ -94,8 +94,8 @@ export const INWORLD_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
 
 /** Default Inworld LLM router model id. Must match `provider/modelName`. */
 export const DEFAULT_INWORLD_REALTIME_MODEL = "xai/grok-4.3-latest";
-/** Default Inworld TTS model id. `inworld-tts-2` is their 8B higher-quality model. */
-export const DEFAULT_INWORLD_REALTIME_TTS_MODEL = "inworld-tts-2";
+/** Default Inworld TTS model id. `inworld-tts-2-flash` is their lower-latency variant. */
+export const DEFAULT_INWORLD_REALTIME_TTS_MODEL = "inworld-tts-2-flash";
 
 /** xAI recommends short-lived browser tokens; Stella's leases are five minutes. */
 export const XAI_REALTIME_CLIENT_SECRET_TTL_SECONDS = 5 * 60;

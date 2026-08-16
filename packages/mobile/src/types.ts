@@ -126,6 +126,14 @@ export type MobileDisplayPayload =
       subtitle: string;
       createdAt: number;
       /**
+       * LIVE-ONLY: character position in the streaming reply's text where this
+       * agent/tool was kicked off. Set by the bridge during a live turn so the
+       * card renders BETWEEN the pre-tool and post-tool text (holding its place
+       * like desktop) instead of after all text. Absent on settled/synced rows,
+       * which are already segmented into separate pre/post messages.
+       */
+      textOffset?: number;
+      /**
        * Per-agent produced-file sections computed desktop-side (each covered
        * agent's completion-rollup files, noise-filtered, deliverables first).
        * Present — possibly empty — on bridges that consolidate agent files

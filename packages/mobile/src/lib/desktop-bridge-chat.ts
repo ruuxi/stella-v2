@@ -2062,10 +2062,27 @@ export async function sendDesktopBridgeChat({
     if (event.type === "agent-started") {
       const agentId = asString(event.agentId).trim();
       if (agentId) {
-        const title = asString(event.description).trim() || "Background work";
+        // A `send_input` re-activation (steer) fires a fresh agent-started with
+        // `isFollowUp` and the new title in `statusText`; a plain spawn carries
+        // it in `description`. Read the follow-up label so a steered agent's
+        // card updates its description live — matching desktop's getBackgroundWork.
+        const isFollowUp = event.isFollowUp === true;
+        const followUpLabel = asString(event.statusText).trim();
+        const description = asString(event.description).trim();
+        const title =
+          (isFollowUp ? followUpLabel || description : description) ||
+          "Background work";
+        const id = agentWorkArtifactId([agentId]);
+        // Preserve the card's original insertion timestamp across a steer so it
+        // holds its position instead of jumping.
+        let existingCreatedAt: number | undefined;
+        const prior = artifactById.get(id);
+        if (prior && prior.payload.kind === "agent-work") {
+          existingCreatedAt = prior.payload.createdAt;
+        }
         mergeArtifacts([
           {
-            id: agentWorkArtifactId([agentId]),
+            id,
             conversationId,
             payload: {
               kind: "agent-work",
@@ -2075,7 +2092,7 @@ export async function sendDesktopBridgeChat({
               completed: 0,
               title,
               subtitle: "Working in background",
-              createdAt: Date.now(),
+              createdAt: existingCreatedAt ?? Date.now(),
             },
           },
         ]);

@@ -108,7 +108,11 @@ afterEach(async () => {
 
 const createHarness = (
   status: () => Promise<boolean>,
-  options: { debuggerRecoveryTimeoutMs?: number } = {},
+  options: {
+    debuggerRecoveryTimeoutMs?: number;
+    cookieMirrorIntervalMs?: number;
+    navigationReseedThrottleMs?: number;
+  } = {},
 ) => {
   const root = path.join(os.tmpdir(), `stella-browser-test-${Date.now()}`);
   const views: FakeView[] = [];
@@ -211,6 +215,12 @@ const createHarness = (
     connectionTimeoutMs: 50,
     connectionPollMs: 1,
     automaticConnectionTimeoutMs: 0,
+    ...(options.cookieMirrorIntervalMs !== undefined
+      ? { cookieMirrorIntervalMs: options.cookieMirrorIntervalMs }
+      : {}),
+    ...(options.navigationReseedThrottleMs !== undefined
+      ? { navigationReseedThrottleMs: options.navigationReseedThrottleMs }
+      : {}),
     debuggerRecoveryTimeoutMs: options.debuggerRecoveryTimeoutMs,
   });
   return {
@@ -334,6 +344,55 @@ describe("InAppBrowserService", () => {
       connection: "connected",
     });
     expect(harness.exportCookiesForUrls).toHaveBeenCalledWith([]);
+  });
+
+  it("seeds on a plain getState once the extension is present (connect-race fix)", async () => {
+    const harness = createHarness(async () => true);
+    // No explicit connect(): a state poll alone must drive the seed when the
+    // extension is available, so an extension that woke after the first
+    // automatic-connect window is still picked up on the next poll.
+    await harness.service.getState();
+    await vi.waitFor(() => expect(harness.exportAllCookies).toHaveBeenCalled());
+    expect((await harness.service.getState()).connection).toBe("connected");
+  });
+
+  it("re-mirrors cookies on navigation (reconcile-on-navigation)", async () => {
+    const harness = createHarness(async () => true, {
+      navigationReseedThrottleMs: 0,
+    });
+    await harness.service.connect();
+    expect(harness.exportAllCookies).toHaveBeenCalledTimes(1);
+    const seedsAfterConnect = harness.cookieSet.mock.calls.length;
+    // createTab's loadURL emits did-navigate, which triggers a throttled reseed.
+    await harness.service.createTab({ url: "https://example.com" });
+    await vi.waitFor(() =>
+      expect(harness.exportAllCookies.mock.calls.length).toBeGreaterThan(1),
+    );
+    expect(harness.cookieSet.mock.calls.length).toBeGreaterThan(
+      seedsAfterConnect,
+    );
+  });
+
+  it("keeps mirroring on a cadence and never latches, then stops on dispose (staleness fix)", async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = createHarness(async () => true, {
+        cookieMirrorIntervalMs: 5_000,
+      });
+      await harness.service.connect();
+      expect(harness.exportAllCookies).toHaveBeenCalledTimes(1);
+      // The one-shot latch is gone: the mirror refreshes every interval.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(harness.exportAllCookies).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(harness.exportAllCookies).toHaveBeenCalledTimes(3);
+      // dispose() must tear the mirror down: no further passes.
+      harness.service.dispose();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(harness.exportAllCookies).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("turns safe popups into managed tabs and forwards debugger events", async () => {

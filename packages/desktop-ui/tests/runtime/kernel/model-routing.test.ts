@@ -764,6 +764,53 @@ describe("resolveLlmRoute", () => {
     );
   });
 
+  it("routes a mobile Codex engine reference (codex-cli/<model>) through the OpenAI-Codex provider", async () => {
+    // The mobile picker writes `codex-cli/<model>` into modelOverrides (the
+    // desktop picker writes `openai-codex/<model>`). A mobile-originated turn
+    // must resolve to the same desktop-local engine route, not fail as an
+    // unknown provider.
+    oauthCredentials.add("openai-codex");
+    const { resolveLlmRoute } = await import(
+      "@stella/runtime/kernel/model-routing"
+    );
+
+    const resolved = resolveLlmRoute({
+      stellaAppDir: "/tmp/stella",
+      modelName: "codex-cli/gpt-5.4",
+      agentType: "orchestrator",
+      site,
+    });
+
+    expect(resolved.route).toBe("direct-provider");
+    expect(resolved.model.provider).toBe("openai-codex");
+    expect(resolved.model.id).toBe("gpt-5.4");
+    await expect(resolved.getApiKey()).resolves.toBe(
+      "openai-codex-oauth-token",
+    );
+  });
+
+  it("routes a mobile Claude Code engine reference (claude-code/<model>) to the Stella prep route instead of failing", async () => {
+    // The mobile picker writes `claude-code/<model>` into modelOverrides while
+    // the desktop keeps a Stella conversation route. `claude-code` is a
+    // desktop-local engine, not a cloud provider, so the prep/orchestrator
+    // route must fall back to Stella (the engine executes the actual turn)
+    // rather than throwing `unsupported-provider`.
+    const { resolveLlmRoute } = await import(
+      "@stella/runtime/kernel/model-routing"
+    );
+
+    const resolved = resolveLlmRoute({
+      stellaAppDir: "/tmp/stella",
+      modelName: "claude-code/fable",
+      agentType: "orchestrator",
+      site,
+    });
+
+    expect(resolved.route).toBe("stella");
+    expect(resolved.model.id).toBe("stella/default");
+  });
+
+
   it("honors multiple authed providers — each model id picks its own credential", async () => {
     credentials.set("anthropic", "anthropic-key");
     credentials.set("openai", "openai-key");

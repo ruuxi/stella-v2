@@ -170,6 +170,7 @@ function UserAppFrame({ app, active }: { app: UserApp; active: boolean }) {
           src={load.url}
           title={app.meta.label}
           sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-same-origin"
+          allow="microphone; camera"
           onLoad={() =>
             setLoad((current) => ({ ...current, status: "ready", error: null }))
           }

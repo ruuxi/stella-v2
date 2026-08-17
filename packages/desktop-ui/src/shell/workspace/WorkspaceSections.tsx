@@ -19,7 +19,7 @@ import {
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { AppWindowMac, Eye } from "@/ui/icons";
+import { AppWindowMac, ChevronRight } from "@/ui/icons";
 import {
   getServerSnapshot as getUserAppsServerSnapshot,
   getSnapshot as getUserAppsSnapshot,
@@ -329,15 +329,30 @@ const TaskRow = memo(function TaskRow({
       data-continuous-animation={compactMotionActive ? "true" : undefined}
     >
       <div className="chat-workspace-strip__task-row-head">
+        {hasDetail ? (
+          <button
+            type="button"
+            className="chat-workspace-strip__task-caret"
+            data-expanded={expanded ? "true" : undefined}
+            onClick={() => onToggle(task.id, !expanded)}
+            aria-expanded={expanded}
+            aria-label={`${label || "Activity"} — ${
+              expanded ? "collapse" : "expand"
+            }`}
+          >
+            <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
+        ) : null}
         <button
           type="button"
           className="chat-workspace-strip__task-button"
           data-compact={compactSummary ? "true" : undefined}
-          onClick={() => onToggle(task.id, !expanded)}
-          aria-expanded={expanded}
-          aria-label={`${label || "Activity"} — ${
-            expanded ? "collapse" : "expand"
-          }`}
+          onClick={() => onSelect(task)}
+          aria-label={
+            task.source === "claude-native"
+              ? "View Claude conversation"
+              : "View activity"
+          }
         >
           {compactSummary ? (
             <>
@@ -393,23 +408,6 @@ const TaskRow = memo(function TaskRow({
               ) : null}
             </>
           )}
-        </button>
-        <button
-          type="button"
-          className="chat-workspace-strip__task-attach"
-          onClick={() => onSelect(task)}
-          aria-label={
-            task.source === "claude-native"
-              ? "View Claude conversation"
-              : "View activity"
-          }
-          title={
-            task.source === "claude-native"
-              ? "View Claude conversation"
-              : "View activity"
-          }
-        >
-          <Eye size={14} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
       {/* Always mounted so both the user toggle and the first summary/file

@@ -626,6 +626,8 @@ const parseStoredThreadLifecycleEvent = (value) => {
 };
 const parseThreadSessionEntry = (row) => {
   const data = parseJsonValue(row.dataJson);
+  const sequence = Number(row.insertionSequence);
+  const sequenceField = Number.isFinite(sequence) ? { sequence } : {};
   switch (row.entryType) {
     case "message": {
       const rawMessage =
@@ -638,6 +640,7 @@ const parseThreadSessionEntry = (row) => {
       return {
         type: "message",
         id: row.entryId,
+        ...sequenceField,
         parentId: row.parentEntryId,
         timestamp: row.timestampIso,
         message: rawMessage,
@@ -665,6 +668,7 @@ const parseThreadSessionEntry = (row) => {
       return {
         type: "compaction",
         id: row.entryId,
+        ...sequenceField,
         parentId: row.parentEntryId,
         timestamp: row.timestampIso,
         summary,
@@ -690,6 +694,7 @@ const parseThreadSessionEntry = (row) => {
       return {
         type: "custom_message",
         id: row.entryId,
+        ...sequenceField,
         parentId: row.parentEntryId,
         timestamp: row.timestampIso,
         customType,
@@ -704,6 +709,7 @@ const parseThreadSessionEntry = (row) => {
       return {
         type: "lifecycle_event",
         id: row.entryId,
+        ...sequenceField,
         parentId: row.parentEntryId,
         timestamp: row.timestampIso,
         event,
@@ -718,6 +724,7 @@ const toThreadMessageRecord = (entry) => {
     const payload = entry.message;
     return {
       entryId: entry.id,
+      ...(Number.isFinite(entry.sequence) ? { sequence: entry.sequence } : {}),
       threadKey: "",
       timestamp: payload.timestamp,
       role: payload.role,
@@ -731,6 +738,7 @@ const toThreadMessageRecord = (entry) => {
   if (entry.type === "custom_message") {
     return {
       entryId: entry.id,
+      ...(Number.isFinite(entry.sequence) ? { sequence: entry.sequence } : {}),
       threadKey: "",
       timestamp: Date.parse(entry.timestamp) || Date.now(),
       role: "runtimeInternal",
@@ -3165,6 +3173,7 @@ export class SessionStore {
         recent.entry_type AS entryType,
         recent.timestamp_iso AS timestampIso,
         recent.created_at AS createdAt,
+        recent.insertion_sequence AS insertionSequence,
         recent.data_json AS dataJson
       FROM (
         SELECT rowid AS entryRowId, *
@@ -3224,6 +3233,7 @@ export class SessionStore {
     if (payload.role === "assistant") {
       this.emitThreadAssistantUpdate(threadKey, message.timestamp);
     }
+    return entryId || undefined;
   }
   appendThreadCustomMessage(message) {
     const threadKey = normalizeRuntimeThreadId(message.threadKey);
@@ -3241,6 +3251,7 @@ export class SessionStore {
       ...(message.eventId?.trim() ? { eventId: message.eventId.trim() } : {}),
     });
     const conversationId = this.getThreadConversationId(threadKey);
+    let entryId = "";
     this.withImmediateTransaction(() => {
       this.upsertSession(conversationId, message.timestamp);
       const threadSession = this.ensureThreadSession(
@@ -3248,7 +3259,7 @@ export class SessionStore {
         conversationId,
         message.timestamp,
       );
-      this.appendThreadSessionEntry({
+      entryId = this.appendThreadSessionEntry({
         threadKey,
         sessionId: threadSession.sessionId,
         entryType: "custom_message",
@@ -3264,6 +3275,7 @@ export class SessionStore {
       });
       this.touchThread(threadKey);
     });
+    return entryId || undefined;
   }
   appendThreadLifecycleEvent(message) {
     const threadKey = normalizeRuntimeThreadId(message.threadKey);
@@ -3351,6 +3363,38 @@ export class SessionStore {
       this.loadThreadSessionEntries(threadKey, limit),
     ).map((message) => ({
       ...(message.entryId ? { entryId: message.entryId } : {}),
+      timestamp: message.timestamp,
+      role: message.role,
+      content: message.content,
+      ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
+      ...(message.payload ? { payload: message.payload } : {}),
+      ...(message.customMessage
+        ? { customMessage: message.customMessage }
+        : {}),
+    }));
+  }
+  loadRawThreadMessagesWithEntryTypes(threadKeyInput, limit) {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    if (!threadKey) {
+      throw new Error("threadKey is required.");
+    }
+    const path = buildThreadPathEntries(
+      this.loadThreadSessionEntries(threadKey),
+    );
+    const rawMessages = buildRawThreadMessages(path);
+    const normalizedLimit =
+      typeof limit === "number" && Number.isFinite(limit)
+        ? Math.max(1, Math.floor(limit))
+        : undefined;
+    const selected = normalizedLimit
+      ? rawMessages.slice(-normalizedLimit)
+      : rawMessages;
+    return selected.map((message) => ({
+      ...(message.entryId ? { entryId: message.entryId } : {}),
+      ...(Number.isFinite(message.sequence)
+        ? { sequence: message.sequence }
+        : {}),
+      sourceEntryType: message.customMessage ? "custom_message" : "message",
       timestamp: message.timestamp,
       role: message.role,
       content: message.content,
@@ -4368,6 +4412,210 @@ export class SessionStore {
     `,
       )
       .run(normalized, Date.now(), threadKey);
+  }
+  getLatestExternalEngineSession(args) {
+    this.ensureImplicitThreadRow(args.threadKey);
+    const row = this.db
+      .prepare(
+        `
+      SELECT
+        native_session_id AS nativeSessionId,
+        delivered_through_sequence AS deliveredThroughSequence,
+        delivered_entry_ids_json AS deliveredEntryIdsJson
+      FROM runtime_external_engine_sessions
+      WHERE thread_key = ?
+        AND engine = ?
+        AND provider = ?
+        AND model = ?
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `,
+      )
+      .get(args.threadKey, args.engine, args.provider, args.model);
+    if (!row?.nativeSessionId) return undefined;
+    let deliveredEntryIds = [];
+    try {
+      const parsed = JSON.parse(row.deliveredEntryIdsJson ?? "[]");
+      if (Array.isArray(parsed)) {
+        deliveredEntryIds = parsed.filter(
+          (value) => typeof value === "string" && value.trim().length > 0,
+        );
+      }
+    } catch {
+      deliveredEntryIds = [];
+    }
+    return {
+      nativeSessionId: row.nativeSessionId,
+      deliveredThroughSequence: Math.max(
+        0,
+        Number(row.deliveredThroughSequence) || 0,
+      ),
+      deliveredEntryIds,
+    };
+  }
+  hasExternalEngineSessions(threadKey, engine) {
+    this.ensureImplicitThreadRow(threadKey);
+    const row = this.db
+      .prepare(
+        `
+      SELECT 1 AS present
+      FROM runtime_external_engine_sessions
+      WHERE thread_key = ? AND engine = ?
+      LIMIT 1
+    `,
+      )
+      .get(threadKey, engine);
+    return row?.present === 1;
+  }
+  getExternalEngineSessionDelivery(args) {
+    this.ensureImplicitThreadRow(args.threadKey);
+    const row = this.db
+      .prepare(
+        `
+      SELECT
+        delivered_through_sequence AS deliveredThroughSequence,
+        delivered_entry_ids_json AS deliveredEntryIdsJson
+      FROM runtime_external_engine_sessions
+      WHERE thread_key = ?
+        AND engine = ?
+        AND provider = ?
+        AND model = ?
+        AND native_session_id = ?
+      LIMIT 1
+    `,
+      )
+      .get(
+        args.threadKey,
+        args.engine,
+        args.provider,
+        args.model,
+        args.nativeSessionId,
+      );
+    if (!row) return undefined;
+    let deliveredEntryIds = [];
+    try {
+      const parsed = JSON.parse(row.deliveredEntryIdsJson ?? "[]");
+      if (Array.isArray(parsed)) {
+        deliveredEntryIds = parsed.filter(
+          (value) => typeof value === "string" && value.trim().length > 0,
+        );
+      }
+    } catch {
+      deliveredEntryIds = [];
+    }
+    return {
+      deliveredThroughSequence: Math.max(
+        0,
+        Number(row.deliveredThroughSequence) || 0,
+      ),
+      deliveredEntryIds,
+    };
+  }
+  upsertExternalEngineSession(args) {
+    this.ensureImplicitThreadRow(args.threadKey);
+    const now = Date.now();
+    this.db
+      .prepare(
+        `
+      INSERT INTO runtime_external_engine_sessions (
+        thread_key,
+        engine,
+        provider,
+        model,
+        native_session_id,
+        delivered_through_sequence,
+        delivered_entry_ids_json,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, 0, '[]', ?, ?)
+      ON CONFLICT(thread_key, engine, provider, model, native_session_id)
+      DO UPDATE SET updated_at = excluded.updated_at
+    `,
+      )
+      .run(
+        args.threadKey,
+        args.engine,
+        args.provider,
+        args.model,
+        args.nativeSessionId,
+        now,
+        now,
+      );
+  }
+  commitExternalEngineSessionDelivery(args) {
+    this.ensureImplicitThreadRow(args.threadKey);
+    this.withImmediateTransaction(() => {
+      const existing = this.getExternalEngineSessionDelivery(args);
+      const deliveredThroughSequence = Math.max(
+        existing?.deliveredThroughSequence ?? 0,
+        Number(args.deliveredThroughSequence) || 0,
+      );
+      const candidateIds = [
+        ...(existing?.deliveredEntryIds ?? []),
+        ...(Array.isArray(args.deliveredEntryIds)
+          ? args.deliveredEntryIds
+          : []),
+      ].filter(
+        (value, index, values) =>
+          typeof value === "string" &&
+          value.trim().length > 0 &&
+          values.indexOf(value) === index,
+      );
+      const retainedIds = [];
+      if (candidateIds.length > 0) {
+        const placeholders = candidateIds.map(() => "?").join(", ");
+        const rows = this.db
+          .prepare(
+            `
+        SELECT entry_id AS entryId, insertion_sequence AS sequence
+        FROM runtime_thread_entries
+        WHERE thread_key = ?
+          AND entry_id IN (${placeholders})
+      `,
+          )
+          .all(args.threadKey, ...candidateIds);
+        for (const row of rows) {
+          if (Number(row.sequence) > deliveredThroughSequence) {
+            retainedIds.push(row.entryId);
+          }
+        }
+      }
+      const now = Date.now();
+      this.db
+        .prepare(
+          `
+      INSERT INTO runtime_external_engine_sessions (
+        thread_key,
+        engine,
+        provider,
+        model,
+        native_session_id,
+        delivered_through_sequence,
+        delivered_entry_ids_json,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(thread_key, engine, provider, model, native_session_id)
+      DO UPDATE SET
+        delivered_through_sequence = excluded.delivered_through_sequence,
+        delivered_entry_ids_json = excluded.delivered_entry_ids_json,
+        updated_at = excluded.updated_at
+    `,
+        )
+        .run(
+          args.threadKey,
+          args.engine,
+          args.provider,
+          args.model,
+          args.nativeSessionId,
+          deliveredThroughSequence,
+          JSON.stringify(retainedIds),
+          now,
+          now,
+        );
+    });
   }
   updateThreadSummary(threadKey, summary) {
     const trimmed = summary.trim();

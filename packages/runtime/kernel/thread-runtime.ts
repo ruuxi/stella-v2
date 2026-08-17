@@ -15,6 +15,7 @@ import {
   getLastProviderPayloadTokens,
   isThreadCompactionForced,
 } from "./agent-runtime/context-budget.js";
+import { resolveCanonicalContextWindow } from "./agent-runtime/canonical-history-budget.js";
 import {
   RESIDENT_FOLD_ENTRY_ID_MARKER,
   buildResidentFold,
@@ -252,13 +253,16 @@ const estimateStoredMessageTokens = (message: StoredThreadMessage): number =>
     ? estimatePayloadTokens(message.payload)
     : estimateMessageTokens(message as ThreadMessage);
 
-const getContextWindow = (route: ResolvedLlmRoute): number => {
+const getRealContextWindow = (route: ResolvedLlmRoute): number => {
   const value = Number(route.model.contextWindow);
   if (!Number.isFinite(value) || value <= 0) {
     return DEFAULT_CONTEXT_WINDOW_TOKENS;
   }
   return Math.floor(value);
 };
+
+const getContextWindow = (route: ResolvedLlmRoute): number =>
+  resolveCanonicalContextWindow(getRealContextWindow(route));
 
 export const getCompactionTriggerTokens = (route: ResolvedLlmRoute): number =>
   Math.max(
@@ -282,7 +286,7 @@ export const getCompactionPayloadTriggerTokens = (
 ): number =>
   Math.max(
     MIN_TRIGGER_TOKENS,
-    Math.floor(getContextWindow(route) * PAYLOAD_COMPACTION_TRIGGER_PCT),
+    Math.floor(getRealContextWindow(route) * PAYLOAD_COMPACTION_TRIGGER_PCT),
   );
 
 export const getThreadTokenEstimate = (
@@ -841,7 +845,6 @@ ${guidelines}
 Target ~${budget} tokens. Be factual — only include information that was explicitly discussed in this segment. Do NOT invent file paths, commands, or details that were not mentioned. Write only the summary body.`;
 };
 
-
 // Per-doc cap for the ALREADY KNOWN reference. The docs are small
 // always-loaded files; the cap only guards against a runaway doc inflating
 // the compaction request.
@@ -906,6 +909,7 @@ const generateThreadSummary = async (args: {
   resolvedLlm: ResolvedLlmRoute;
   durableMemoryReference?: string;
   stellaDataDir?: string;
+  requireAllChunks?: boolean;
   /**
    * Chunked mode: summarize segment `index` of `count` as a self-contained
    * standalone summary (no previous-summary update). The caller concatenates
@@ -1150,6 +1154,12 @@ const generateChunkedThreadSummary = async (args: {
       reason: lastFailureReason ?? "all chunk summaries failed",
     };
   }
+  if (args.requireAllChunks && successfulChunks !== chunkCount) {
+    return {
+      text: null,
+      reason: lastFailureReason ?? "one or more chunk summaries failed",
+    };
+  }
   // Mechanical combine: chronological concatenation, no combiner LLM call.
   const previousSummary = args.previousSummary?.trim();
   const perChunkTrimChars = Math.floor(
@@ -1197,6 +1207,19 @@ const generateChunkedThreadSummary = async (args: {
   return { text: summary };
 };
 
+export const summarizeCanonicalCatchUp = async (args: {
+  threadKey: string;
+  messages: StoredThreadMessage[];
+  resolvedLlm: ResolvedLlmRoute;
+  stellaDataDir?: string;
+}): Promise<{ text: string | null; reason?: string }> =>
+  generateChunkedThreadSummary({
+    threadKey: args.threadKey,
+    middleMessages: args.messages,
+    resolvedLlm: args.resolvedLlm,
+    requireAllChunks: true,
+    ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+  });
 
 /**
  * Result of an attempted thread compaction.
@@ -1271,7 +1294,9 @@ const COMPACTION_STORE_WRITE_RETRY_DELAYS_MS = [250, 1_000];
 const resolveKeepRecentTokens = (route: ResolvedLlmRoute): number =>
   Math.min(
     THREAD_COMPACTION_KEEP_RECENT_TOKENS,
-    Math.floor(getContextWindow(route) * THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT),
+    Math.floor(
+      getContextWindow(route) * THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT,
+    ),
   );
 
 export const maybeCompactRuntimeThread = async (args: {

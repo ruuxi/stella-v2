@@ -73,6 +73,10 @@ import type {
 } from "@stella/contracts/protocol";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
+import {
+  commitExternalSessionDelivery,
+  prepareExternalSessionCatchUp,
+} from "./external-session-sync.js";
 
 /**
  * External engines run node_repl through the same host dispatcher, so the
@@ -203,9 +207,7 @@ const buildToolResultContent = async (
 };
 
 type ExternalEngineSessionKind =
-  | "claude_code_local"
-  | "claude_code_local_vanilla"
-  | "codex_cli";
+  "claude_code_local" | "claude_code_local_vanilla" | "codex_cli";
 
 type ExternalOrchestratorEngine = "claude_code_local";
 
@@ -245,7 +247,21 @@ export const getExternalEngineSessionId = (args: {
   store: BaseRunOptions["store"];
   threadKey: string;
   engine: ExternalEngineSessionKind;
+  provider?: string;
+  model?: string;
 }): string | undefined => {
+  if (args.provider && args.model) {
+    const routed = args.store.getLatestExternalEngineSession?.({
+      threadKey: args.threadKey,
+      engine: args.engine,
+      provider: args.provider,
+      model: args.model,
+    });
+    if (routed?.nativeSessionId) return routed.nativeSessionId;
+    if (args.store.hasExternalEngineSessions?.(args.threadKey, args.engine)) {
+      return undefined;
+    }
+  }
   const raw = args.store.getThreadExternalSessionId(args.threadKey);
   if (!raw) return undefined;
   const expectedPrefix = `${args.engine}:`;
@@ -267,7 +283,18 @@ export const setExternalEngineSessionId = (args: {
   threadKey: string;
   engine: ExternalEngineSessionKind;
   sessionId: string;
+  provider?: string;
+  model?: string;
 }) => {
+  if (args.provider && args.model) {
+    args.store.upsertExternalEngineSession?.({
+      threadKey: args.threadKey,
+      engine: args.engine,
+      provider: args.provider,
+      model: args.model,
+      nativeSessionId: args.sessionId,
+    });
+  }
   args.store.setThreadExternalSessionId(
     args.threadKey,
     `${args.engine}:${args.sessionId}`,
@@ -291,6 +318,7 @@ const persistExternalPromptMessages = (
           },
         ];
   const promptTimestamp = now();
+  const entryIds: string[] = [];
   for (const [index, promptInput] of promptInputs.entries()) {
     const promptMessage = createRuntimePromptAgentMessage(
       promptInput,
@@ -298,25 +326,28 @@ const persistExternalPromptMessages = (
     );
     const messageType = promptInput.messageType ?? "user";
     if (messageType === "user" && promptMessage.role === "user") {
-      persistThreadPayloadMessage(opts.store, {
+      const entryId = persistThreadPayloadMessage(opts.store, {
         threadKey,
         payload: promptMessage,
       });
+      if (entryId) entryIds.push(entryId);
     }
     if (
       messageType === "message" &&
       promptMessage.role === "runtimeInternal" &&
       promptInput.customType?.startsWith("bootstrap.")
     ) {
-      persistThreadCustomMessage(opts.store, {
+      const entryId = persistThreadCustomMessage(opts.store, {
         threadKey,
         customType: promptInput.customType,
         content: promptMessage.content,
         display: promptMessage.display === true,
         timestamp: promptMessage.timestamp,
       });
+      if (entryId) entryIds.push(entryId);
     }
   }
+  return entryIds;
 };
 
 const formatClaudePromptMessage = (
@@ -446,6 +477,7 @@ export const buildExternalStellaHistoryPromptMessage = (args: {
  */
 export const buildClaudeCodeTurnPrompts = (args: {
   historyPromptMessage: RuntimePromptMessage | null;
+  catchUpPromptMessage?: RuntimePromptMessage;
   promptMessages: RuntimePromptMessage[];
   hasPersistedSession: boolean;
 }): { prompt: string; resumeFallbackPrompt?: string } => {
@@ -455,8 +487,12 @@ export const buildClaudeCodeTurnPrompts = (args: {
         ...args.promptMessages,
       ])
     : undefined;
-  const prompt =
-    !args.hasPersistedSession && historyPrefixedPrompt
+  const prompt = args.catchUpPromptMessage
+    ? buildClaudePromptFromMessages([
+        args.catchUpPromptMessage,
+        ...args.promptMessages,
+      ])
+    : !args.hasPersistedSession && historyPrefixedPrompt
       ? historyPrefixedPrompt
       : buildClaudePromptFromMessages(args.promptMessages);
   return {
@@ -587,7 +623,6 @@ const runClaudeHostedTurn = async (args: {
       : undefined;
 
   runEvents.recordRunStart();
-  persistExternalPromptMessages(args.opts, threadKey, args.promptMessages);
 
   if (args.opts.abortSignal?.aborted) {
     throw new Error("Aborted");
@@ -620,11 +655,6 @@ const runClaudeHostedTurn = async (args: {
   // run never resumes a vanilla conversation on the same thread.
   const sessionEngine: "claude_code_local" | "claude_code_local_vanilla" =
     vanilla ? "claude_code_local_vanilla" : "claude_code_local";
-  const persistedSessionId = getExternalEngineSessionId({
-    store: args.opts.store,
-    threadKey,
-    engine: sessionEngine,
-  });
   // Parity with createPiTools: node_repl's description carries the demoted
   // workflow text + signature catalog here too, so demoted tools stay
   // discoverable under external engines (appendDemotedCatalogToNodeRepl is
@@ -649,6 +679,19 @@ const runClaudeHostedTurn = async (args: {
         ? spawnEngine?.model
         : undefined,
   );
+  const sessionProvider = "anthropic";
+  const persistedSessionId = getExternalEngineSessionId({
+    store: args.opts.store,
+    threadKey,
+    engine: sessionEngine,
+    provider: sessionProvider,
+    model: claudeCodeModelId,
+  });
+  const deliveredEntryIds: string[] = [];
+  const trackDeliveredEntryId = (entryId: string | undefined) => {
+    if (entryId) deliveredEntryIds.push(entryId);
+    return entryId;
+  };
   const emitToolUpdateStatus = (update: {
     result?: unknown;
     details?: unknown;
@@ -723,14 +766,16 @@ const runClaudeHostedTurn = async (args: {
       toolArgs,
     });
     args.callbacks?.onToolStart?.(toolStartEvent);
-    persistThreadPayloadMessage(args.opts.store, {
-      threadKey,
-      payload: buildToolCallPayload({
-        toolCallId,
-        toolName,
-        toolArgs: toolStartEvent.args,
+    trackDeliveredEntryId(
+      persistThreadPayloadMessage(args.opts.store, {
+        threadKey,
+        payload: buildToolCallPayload({
+          toolCallId,
+          toolName,
+          toolArgs: toolStartEvent.args,
+        }),
       }),
-    });
+    );
     const toolResult = await executeRuntimeToolCall({
       toolCallId,
       toolName,
@@ -771,20 +816,22 @@ const runClaudeHostedTurn = async (args: {
       }),
     );
     const sanitizedToolResult = sanitizeSensitiveData(toolResult) as ToolResult;
-    persistThreadPayloadMessage(args.opts.store, {
-      threadKey,
-      payload: {
-        role: "toolResult",
-        toolCallId,
-        toolName,
-        content: await buildToolResultContent(
-          sanitizedToolResult,
-          imageCapTarget,
-        ),
-        isError: Boolean(toolResult.error),
-        timestamp: now(),
-      },
-    });
+    trackDeliveredEntryId(
+      persistThreadPayloadMessage(args.opts.store, {
+        threadKey,
+        payload: {
+          role: "toolResult",
+          toolCallId,
+          toolName,
+          content: await buildToolResultContent(
+            sanitizedToolResult,
+            imageCapTarget,
+          ),
+          isError: Boolean(toolResult.error),
+          timestamp: now(),
+        },
+      }),
+    );
     return toolResult;
   };
 
@@ -792,8 +839,25 @@ const runClaudeHostedTurn = async (args: {
     opts: args.opts,
     promptMessages: args.promptMessages,
   });
+  const catchUp = await prepareExternalSessionCatchUp({
+    store: args.opts.store,
+    threadKey,
+    engine: sessionEngine,
+    provider: sessionProvider,
+    model: claudeCodeModelId,
+    nativeSessionId: persistedSessionId,
+    resolvedLlm: args.opts.resolvedLlm,
+    systemPrompt: args.systemPrompt,
+    promptMessages: args.promptMessages,
+    stellaDataDir: args.opts.stellaDataDir,
+  });
+  deliveredEntryIds.push(...catchUp.deliveredEntryIds);
+  deliveredEntryIds.push(
+    ...persistExternalPromptMessages(args.opts, threadKey, args.promptMessages),
+  );
   const { prompt, resumeFallbackPrompt } = buildClaudeCodeTurnPrompts({
     historyPromptMessage,
+    catchUpPromptMessage: catchUp.promptMessage,
     promptMessages: args.promptMessages,
     hasPersistedSession: Boolean(persistedSessionId),
   });
@@ -919,6 +983,13 @@ const runClaudeHostedTurn = async (args: {
     });
     const queuedPromptMessages = queued.map(formatQueuedClaudeMessage);
     const queuedAttachments = attachmentsFromQueuedMessages(queued);
+    deliveredEntryIds.push(
+      ...persistExternalPromptMessages(
+        args.opts,
+        threadKey,
+        queuedPromptMessages,
+      ),
+    );
     const queuedHistoryPromptMessage = buildExternalStellaHistoryPromptMessage({
       opts: args.opts,
       promptMessages: queuedPromptMessages,
@@ -943,14 +1014,16 @@ const runClaudeHostedTurn = async (args: {
     throw new Error("Claude Code completed without a final result.");
   }
 
-  await persistAssistantReply({
-    store: args.opts.store,
-    threadKey,
-    resolvedLlm: args.opts.resolvedLlm,
-    agentType: args.opts.agentType,
-    content: finalResult.text,
-    stellaDataDir: args.opts.stellaDataDir,
-  });
+  trackDeliveredEntryId(
+    await persistAssistantReply({
+      store: args.opts.store,
+      threadKey,
+      resolvedLlm: args.opts.resolvedLlm,
+      agentType: args.opts.agentType,
+      content: finalResult.text,
+      stellaDataDir: args.opts.stellaDataDir,
+    }),
+  );
   const assistantMessageEvent = runEvents.recordAssistantTextEnd(
     finalResult.text,
   );
@@ -962,6 +1035,18 @@ const runClaudeHostedTurn = async (args: {
     threadKey,
     engine: sessionEngine,
     sessionId: finalResult.sessionId,
+    provider: sessionProvider,
+    model: claudeCodeModelId,
+  });
+  commitExternalSessionDelivery({
+    store: args.opts.store,
+    threadKey,
+    engine: sessionEngine,
+    provider: sessionProvider,
+    model: claudeCodeModelId,
+    nativeSessionId: finalResult.sessionId,
+    boundarySequence: catchUp.boundarySequence,
+    deliveredEntryIds,
   });
 
   return {
@@ -992,7 +1077,6 @@ const runCodexHostedTurn = async (args: {
       : undefined;
 
   runEvents.recordRunStart();
-  persistExternalPromptMessages(args.opts, threadKey, args.promptMessages);
 
   if (args.opts.abortSignal?.aborted) {
     throw new Error("Aborted");
@@ -1005,11 +1089,29 @@ const runCodexHostedTurn = async (args: {
   const sessionKey = args.opts.agentContext.activeThreadId
     ? `${args.opts.conversationId}:${args.opts.agentContext.activeThreadId}`
     : `${args.opts.conversationId}:run:${runId}`;
+  const inheritedCodexConfig =
+    args.opts.agentContext.modelConfigSnapshot?.engine === "codex_cli"
+      ? args.opts.agentContext.modelConfigSnapshot
+      : undefined;
+  const codexModelOverride =
+    inheritedCodexConfig?.engineModel ??
+    (args.opts.agentContext.spawnEngine?.engine === "codex_cli"
+      ? args.opts.agentContext.spawnEngine.model
+      : undefined);
+  const sessionProvider = "openai-codex";
+  const sessionModel = codexModelOverride ?? args.opts.agentContext.model;
   const persistedSessionId = getExternalEngineSessionId({
     store: args.opts.store,
     threadKey,
     engine: "codex_cli",
+    provider: sessionProvider,
+    model: sessionModel,
   });
+  const deliveredEntryIds: string[] = [];
+  const trackDeliveredEntryId = (entryId: string | undefined) => {
+    if (entryId) deliveredEntryIds.push(entryId);
+    return entryId;
+  };
   const imageToolMetadata = getRuntimeToolMetadata({
     toolsAllowlist: args.opts.agentContext.toolsAllowlist,
     toolCatalog: args.opts.toolCatalog,
@@ -1020,6 +1122,8 @@ const runCodexHostedTurn = async (args: {
       threadKey,
       engine: "codex_cli",
       sessionId,
+      provider: sessionProvider,
+      model: sessionModel,
     });
   };
   const emitToolUpdateStatus = (update: ToolResult) => {
@@ -1089,14 +1193,16 @@ const runCodexHostedTurn = async (args: {
       toolArgs,
     });
     args.callbacks?.onToolStart?.(toolStartEvent);
-    persistThreadPayloadMessage(args.opts.store, {
-      threadKey,
-      payload: buildToolCallPayload({
-        toolCallId,
-        toolName,
-        toolArgs: toolStartEvent.args,
+    trackDeliveredEntryId(
+      persistThreadPayloadMessage(args.opts.store, {
+        threadKey,
+        payload: buildToolCallPayload({
+          toolCallId,
+          toolName,
+          toolArgs: toolStartEvent.args,
+        }),
       }),
-    });
+    );
     const toolResult = await executeRuntimeToolCall({
       toolCallId,
       toolName,
@@ -1137,20 +1243,22 @@ const runCodexHostedTurn = async (args: {
       }),
     );
     const sanitizedToolResult = sanitizeSensitiveData(toolResult) as ToolResult;
-    persistThreadPayloadMessage(args.opts.store, {
-      threadKey,
-      payload: {
-        role: "toolResult",
-        toolCallId,
-        toolName,
-        content: await buildToolResultContent(
-          sanitizedToolResult,
-          imageCapTarget,
-        ),
-        isError: Boolean(toolResult.error),
-        timestamp: now(),
-      },
-    });
+    trackDeliveredEntryId(
+      persistThreadPayloadMessage(args.opts.store, {
+        threadKey,
+        payload: {
+          role: "toolResult",
+          toolCallId,
+          toolName,
+          content: await buildToolResultContent(
+            sanitizedToolResult,
+            imageCapTarget,
+          ),
+          isError: Boolean(toolResult.error),
+          timestamp: now(),
+        },
+      }),
+    );
     return toolResult;
   };
   const emitCodexCommandExecution = (
@@ -1201,18 +1309,40 @@ const runCodexHostedTurn = async (args: {
       }),
     );
   };
-  const prompt = buildCodexPromptFromMessages({
+  const historyPromptMessage = buildExternalStellaHistoryPromptMessage({
+    opts: args.opts,
     promptMessages: args.promptMessages,
   });
-  const inheritedCodexConfig =
-    args.opts.agentContext.modelConfigSnapshot?.engine === "codex_cli"
-      ? args.opts.agentContext.modelConfigSnapshot
-      : undefined;
-  const codexModelOverride =
-    inheritedCodexConfig?.engineModel ??
-    (args.opts.agentContext.spawnEngine?.engine === "codex_cli"
-      ? args.opts.agentContext.spawnEngine.model
-      : undefined);
+  const catchUp = await prepareExternalSessionCatchUp({
+    store: args.opts.store,
+    threadKey,
+    engine: "codex_cli",
+    provider: sessionProvider,
+    model: sessionModel,
+    nativeSessionId: persistedSessionId,
+    resolvedLlm: args.opts.resolvedLlm,
+    systemPrompt: args.systemPrompt,
+    promptMessages: args.promptMessages,
+    stellaDataDir: args.opts.stellaDataDir,
+  });
+  deliveredEntryIds.push(...catchUp.deliveredEntryIds);
+  deliveredEntryIds.push(
+    ...persistExternalPromptMessages(args.opts, threadKey, args.promptMessages),
+  );
+  const prompt = buildCodexPromptFromMessages({
+    promptMessages: [
+      ...(catchUp.promptMessage ? [catchUp.promptMessage] : []),
+      ...args.promptMessages,
+    ],
+  });
+  const resumeFallbackPrompt = persistedSessionId
+    ? buildCodexPromptFromMessages({
+        promptMessages: [
+          ...(historyPromptMessage ? [historyPromptMessage] : []),
+          ...args.promptMessages,
+        ],
+      })
+    : undefined;
   const codexReasoningEffort =
     inheritedCodexConfig?.reasoningEffort ??
     args.opts.agentContext.spawnReasoningEffort;
@@ -1232,6 +1362,9 @@ const runCodexHostedTurn = async (args: {
         sessionKey,
         ...(activeSessionId ? { persistedSessionId: activeSessionId } : {}),
         prompt: nextPrompt,
+        ...(nextPrompt === prompt && resumeFallbackPrompt
+          ? { resumeFallbackPrompt }
+          : {}),
         systemPrompt: args.systemPrompt,
         // Scope this durability change to image_gen. Codex persists dynamic
         // tool definitions on the engine thread, including across resume.
@@ -1273,6 +1406,13 @@ const runCodexHostedTurn = async (args: {
                   prompt: buildCodexPromptFromMessages({ promptMessages }),
                   attachments: attachmentsFromQueuedMessages(entries),
                 });
+                deliveredEntryIds.push(
+                  ...persistExternalPromptMessages(
+                    args.opts,
+                    threadKey,
+                    promptMessages,
+                  ),
+                );
                 // Codex consumed these entries inside the current turn, so
                 // advance callback ownership/user attribution immediately.
                 // Waiting for turn completion would misattribute the reply to
@@ -1339,6 +1479,13 @@ const runCodexHostedTurn = async (args: {
     });
     const queuedPromptMessages = queued.map(formatQueuedClaudeMessage);
     const queuedAttachments = attachmentsFromQueuedMessages(queued);
+    deliveredEntryIds.push(
+      ...persistExternalPromptMessages(
+        args.opts,
+        threadKey,
+        queuedPromptMessages,
+      ),
+    );
     nextPrompt = buildCodexPromptFromMessages({
       promptMessages: queuedPromptMessages,
     });
@@ -1349,14 +1496,16 @@ const runCodexHostedTurn = async (args: {
     throw new Error("Codex completed without a final result.");
   }
 
-  await persistAssistantReply({
-    store: args.opts.store,
-    threadKey,
-    resolvedLlm: args.opts.resolvedLlm,
-    agentType: args.opts.agentType,
-    content: finalResult.text,
-    stellaDataDir: args.opts.stellaDataDir,
-  });
+  trackDeliveredEntryId(
+    await persistAssistantReply({
+      store: args.opts.store,
+      threadKey,
+      resolvedLlm: args.opts.resolvedLlm,
+      agentType: args.opts.agentType,
+      content: finalResult.text,
+      stellaDataDir: args.opts.stellaDataDir,
+    }),
+  );
   const assistantMessageEvent = runEvents.recordAssistantTextEnd(
     finalResult.text,
   );
@@ -1364,6 +1513,16 @@ const runCodexHostedTurn = async (args: {
     args.callbacks?.onAssistantMessage?.(assistantMessageEvent);
   }
   persistCodexSessionId(finalResult.sessionId);
+  commitExternalSessionDelivery({
+    store: args.opts.store,
+    threadKey,
+    engine: "codex_cli",
+    provider: sessionProvider,
+    model: sessionModel,
+    nativeSessionId: finalResult.sessionId,
+    boundarySequence: catchUp.boundarySequence,
+    deliveredEntryIds,
+  });
 
   return {
     finalText: finalResult.text,

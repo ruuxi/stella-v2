@@ -30,6 +30,7 @@ import {
   buildActiveThreadsPrompt,
   estimateRuntimeTokens,
 } from "../runtime-threads.js";
+import { resolveCanonicalContextWindow } from "../agent-runtime/canonical-history-budget.js";
 import { anyApi } from "convex/server";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { loadAgentSystemPrompt } from "../agents/home-agent-prompt.js";
@@ -87,7 +88,6 @@ import {
   DEFAULT_MAX_AGENT_DEPTH,
   LOCAL_CONTEXT_EVENT_TYPES,
   LOCAL_HISTORY_RESERVE_TOKENS,
-  MIN_LOCAL_HISTORY_TOKENS,
   readCoreMemory,
   readMemorySummaryDoc,
   readUserProfileDoc,
@@ -125,11 +125,90 @@ type ThreadHistoryEntry = {
   customMessage?: RuntimeThreadMessage["customMessage"];
 };
 
-const getLocalHistoryBudget = (contextWindow: number): number =>
-  Math.max(
-    MIN_LOCAL_HISTORY_TOKENS,
-    contextWindow - LOCAL_HISTORY_RESERVE_TOKENS,
+const getLocalHistoryBudget = (contextWindow: number): number => {
+  const canonicalWindow = resolveCanonicalContextWindow(contextWindow);
+  return Math.min(
+    canonicalWindow,
+    Math.max(512, canonicalWindow - LOCAL_HISTORY_RESERVE_TOKENS),
   );
+};
+
+const estimateHistoryEntryTokens = (message: ThreadHistoryEntry): number =>
+  Math.max(
+    1,
+    estimateRuntimeTokens(
+      message.payload ? JSON.stringify(message.payload) : message.content,
+    ),
+  );
+
+const truncateHistoryEntry = (
+  message: ThreadHistoryEntry,
+  maxTokens: number,
+): ThreadHistoryEntry => {
+  const maxChars = Math.max(1, maxTokens * 4);
+  if (message.content.length <= maxChars && !message.payload) return message;
+  const sourceContent = message.payload
+    ? JSON.stringify(message.payload)
+    : message.content;
+  const marker = "[Earlier portion of this entry omitted by history cap.]\n\n";
+  const boundedContent =
+    maxChars <= marker.length
+      ? marker.slice(0, maxChars)
+      : `${marker}${sourceContent.slice(-(maxChars - marker.length))}`;
+  return {
+    ...message,
+    content: boundedContent,
+    payload: undefined,
+  };
+};
+
+const capStoredThreadHistory = (
+  messages: ThreadHistoryEntry[],
+  maxTokens: number,
+): ThreadHistoryEntry[] => {
+  let usedTokens = 0;
+  const selected: ThreadHistoryEntry[] = [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    const tokens = estimateHistoryEntryTokens(message);
+    if (usedTokens + tokens > maxTokens) {
+      if (selected.length === 0) {
+        const truncated = truncateHistoryEntry(message, maxTokens);
+        selected.push(truncated);
+        usedTokens += estimateHistoryEntryTokens(truncated);
+      }
+      break;
+    }
+    selected.push(message);
+    usedTokens += tokens;
+    if (usedTokens >= maxTokens) break;
+  }
+  selected.reverse();
+  const selectedSet = new Set(selected);
+  const checkpoint = [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        !selectedSet.has(message) &&
+        message.role === "assistant" &&
+        parseThreadCheckpoint(message.content) !== null,
+    );
+  if (!checkpoint) return selected;
+  const checkpointTokens = estimateHistoryEntryTokens(checkpoint);
+  while (selected.length > 1 && usedTokens + checkpointTokens > maxTokens) {
+    const removed = selected.shift();
+    if (removed) {
+      usedTokens -= estimateHistoryEntryTokens(removed);
+    }
+  }
+  const remainingTokens = Math.max(1, maxTokens - usedTokens);
+  if (maxTokens - usedTokens <= 0) return selected;
+  const boundedCheckpoint =
+    checkpointTokens > remainingTokens
+      ? truncateHistoryEntry(checkpoint, remainingTokens)
+      : checkpoint;
+  return [boundedCheckpoint, ...selected];
+};
 
 const hasStoredCheckpoint = (messages: ThreadHistoryEntry[]): boolean =>
   messages.some(
@@ -388,44 +467,48 @@ export const buildOrchestratorThreadHistory = (args: {
 }): ThreadHistoryEntry[] => {
   const localEvents = args.localEvents ?? [];
   const localHistoryBudget = getLocalHistoryBudget(args.contextWindow);
+  const storedThreadMessages = capStoredThreadHistory(
+    args.storedThreadMessages,
+    localHistoryBudget,
+  );
 
-  if (args.storedThreadMessages.length === 0) {
+  if (storedThreadMessages.length === 0) {
     return buildLocalHistoryFromEvents({
       events: localEvents,
       maxTokens: localHistoryBudget,
     });
   }
 
-  if (
-    localEvents.length === 0 ||
-    hasStoredCheckpoint(args.storedThreadMessages)
-  ) {
-    return args.storedThreadMessages;
+  if (localEvents.length === 0 || hasStoredCheckpoint(storedThreadMessages)) {
+    return storedThreadMessages;
   }
 
   const transitionCutoff =
-    args.storedThreadMessages.find((message) => message.role !== "user")
-      ?.timestamp ?? args.storedThreadMessages[0]?.timestamp;
+    storedThreadMessages.find((message) => message.role !== "user")
+      ?.timestamp ?? storedThreadMessages[0]?.timestamp;
   if (!transitionCutoff || !Number.isFinite(transitionCutoff)) {
-    return args.storedThreadMessages;
+    return storedThreadMessages;
   }
 
   const preTransitionEvents = trimDuplicatedTransitionUserEvent(
     localEvents.filter((event) => event.timestamp < transitionCutoff),
-    args.storedThreadMessages,
+    storedThreadMessages,
   );
   if (preTransitionEvents.length === 0) {
-    return args.storedThreadMessages;
+    return storedThreadMessages;
   }
 
-  const storedTokenEstimate = args.storedThreadMessages.reduce(
-    (total, message) => total + estimateRuntimeTokens(message.content),
+  const storedTokenEstimate = storedThreadMessages.reduce(
+    (total, message) => total + estimateHistoryEntryTokens(message),
     0,
   );
   const preTransitionBudget = Math.max(
-    MIN_LOCAL_HISTORY_TOKENS,
+    0,
     localHistoryBudget - storedTokenEstimate,
   );
+  if (preTransitionBudget <= 0) {
+    return storedThreadMessages;
+  }
 
   const preTransitionHistory = buildLocalHistoryFromEvents({
     events: preTransitionEvents,
@@ -433,10 +516,10 @@ export const buildOrchestratorThreadHistory = (args: {
   });
 
   if (preTransitionHistory.length === 0) {
-    return args.storedThreadMessages;
+    return storedThreadMessages;
   }
 
-  return [...preTransitionHistory, ...args.storedThreadMessages];
+  return [...preTransitionHistory, ...storedThreadMessages];
 };
 
 export const createRunnerContext = ({
@@ -684,8 +767,7 @@ export const createRunnerContext = ({
             // Resolving eagerly here made an unresolvable/ signed-out model
             // selection fail EVERY Recall, including pure lookups.
             let recallRoutePromise:
-              | ReturnType<typeof resolveRunnerRecallLlmRoute>
-              | undefined;
+              ReturnType<typeof resolveRunnerRecallLlmRoute> | undefined;
             const resolveRecallRoute = (): ReturnType<
               typeof resolveRunnerRecallLlmRoute
             > =>
@@ -1284,10 +1366,11 @@ export const buildAgentContext = async (
     context.runtimeStore.loadThreadMessages(threadKey);
 
   const resolvedContextWindow = Number(resolvedLlm.model.contextWindow);
-  const contextWindow =
+  const contextWindow = resolveCanonicalContextWindow(
     Number.isFinite(resolvedContextWindow) && resolvedContextWindow > 0
       ? Math.floor(resolvedContextWindow)
-      : 128_000;
+      : 128_000,
+  );
 
   let threadHistory: ThreadHistoryEntry[] | undefined;
   let staleUserReminderText: string | undefined;

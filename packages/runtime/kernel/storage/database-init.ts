@@ -608,6 +608,37 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     // Column already exists.
   }
   db.exec(`
+    CREATE TABLE IF NOT EXISTS runtime_external_engine_sessions (
+      thread_key TEXT NOT NULL,
+      engine TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      native_session_id TEXT NOT NULL,
+      delivered_through_sequence INTEGER NOT NULL DEFAULT 0,
+      delivered_entry_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (
+        thread_key,
+        engine,
+        provider,
+        model,
+        native_session_id
+      ),
+      FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_runtime_external_engine_sessions_latest
+    ON runtime_external_engine_sessions(
+      thread_key,
+      engine,
+      provider,
+      model,
+      updated_at DESC
+    );
+  `);
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_runtime_threads_conversation_status
     ON runtime_threads(conversation_id, status, last_used_at);
   `);

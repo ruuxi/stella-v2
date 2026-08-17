@@ -920,7 +920,7 @@ const startOrResumeCodexThread = async (args) => {
                 cwd: args.cwd,
                 systemPrompt: args.systemPrompt,
             }));
-            return response.thread.id;
+            return { threadId: response.thread.id, resumed: true };
         }
         catch {
             // Fall through to a fresh Codex thread when the persisted id is stale.
@@ -932,7 +932,7 @@ const startOrResumeCodexThread = async (args) => {
         systemPrompt: args.systemPrompt,
         tools: args.tools,
     }));
-    return response.thread.id;
+    return { threadId: response.thread.id, resumed: false };
 };
 const isNotificationForTurn = (notification, threadId, turnId) => {
     const params = notification.params && typeof notification.params === "object"
@@ -992,11 +992,8 @@ export const runCodexAgentTurn = async (request) => {
     let reasoningEffort = request.utility
         ? "low"
         : (request.reasoningEffort ?? runtimePreferences.reasoningEffort);
-    const { input, cleanupDir } = buildCodexUserInput({
-        runId: request.runId,
-        prompt: request.prompt,
-        attachments: request.attachments,
-    });
+    let input;
+    let cleanupDir;
     const snapshotBefore = request.cwd
         ? await snapshotWorktree(request.cwd)
         : null;
@@ -1336,7 +1333,7 @@ export const runCodexAgentTurn = async (request) => {
         if (request.abortSignal?.aborted) {
             throw new Error("Aborted");
         }
-        threadId = await startOrResumeCodexThread({
+        const thread = await startOrResumeCodexThread({
             client,
             persistedSessionId: request.persistedSessionId,
             model,
@@ -1345,6 +1342,16 @@ export const runCodexAgentTurn = async (request) => {
             tools: request.tools,
             onStatus: emitStatus,
         });
+        threadId = thread.threadId;
+        const userInput = buildCodexUserInput({
+            runId: request.runId,
+            prompt: !thread.resumed && request.resumeFallbackPrompt
+                ? request.resumeFallbackPrompt
+                : request.prompt,
+            attachments: request.attachments,
+        });
+        input = userInput.input;
+        cleanupDir = userInput.cleanupDir;
         request.onSessionId?.(threadId);
         if (request.abortSignal?.aborted) {
             throw new Error("Aborted");

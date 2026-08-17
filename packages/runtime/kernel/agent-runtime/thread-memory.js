@@ -235,7 +235,7 @@ export const persistThreadPayloadMessage = (store, args) => {
   const preview = buildThreadMessagePreview(payload);
   const toolCallId =
     payload.role === "toolResult" ? payload.toolCallId : undefined;
-  appendThreadMessage(store, {
+  return appendThreadMessage(store, {
     threadKey: args.threadKey,
     role: payload.role,
     content: preview,
@@ -244,7 +244,7 @@ export const persistThreadPayloadMessage = (store, args) => {
   });
 };
 export const persistThreadCustomMessage = (store, args) => {
-  store.appendThreadCustomMessage({
+  return store.appendThreadCustomMessage({
     threadKey: args.threadKey,
     timestamp: args.timestamp ?? now(),
     customType: args.customType,
@@ -511,7 +511,7 @@ export const updateOrchestratorReminderState = (store, args) => {
   }
 };
 export const appendThreadMessage = (store, args) => {
-  store.appendThreadMessage({
+  return store.appendThreadMessage({
     timestamp: now(),
     threadKey: args.threadKey,
     role: args.role,
@@ -563,12 +563,13 @@ export const compactRuntimeThreadHistory = async (args) => {
 };
 export const persistAssistantReply = async (args) => {
   if (!args.content.trim()) {
-    return;
+    return undefined;
   }
-  appendThreadMessage(args.store, {
+  const entryId = appendThreadMessage(args.store, {
     threadKey: args.threadKey,
     role: "assistant",
     content: args.content,
   });
   await compactRuntimeThreadHistory(args);
+  return entryId;
 };

@@ -7,6 +7,7 @@ import { getThreadTokenEstimate } from "../thread-runtime.js";
 import { CONTEXT_DELTA_CUSTOM_TYPE_PREFIX } from "./resident-context.js";
 import { checkPromptPrefixStability, clearPromptPrefixSnapshot, } from "./prompt-prefix-guard.js";
 import { clearProviderContextWindow, setProviderContextWindow, } from "./context-budget.js";
+import { capCanonicalMessages, resolveCanonicalContextWindow, } from "./canonical-history-budget.js";
 /**
  * Fraction of the model's real context window at which the orchestrator's
  * non-blocking "compact-while-you-talk" path degrades to blocking: if a
@@ -131,8 +132,14 @@ export class PiSessionCore {
         this.pendingHistoryRefresh = true;
     }
     setResolvedLlm(resolvedLlm) {
+        const previousWindow = this.currentResolvedLlm?.model?.contextWindow;
         this.currentResolvedLlm = resolvedLlm;
         setProviderContextWindow(this.threadKey, resolvedLlm.model.contextWindow);
+        if (this.agent &&
+            resolveCanonicalContextWindow(previousWindow) !==
+                resolveCanonicalContextWindow(resolvedLlm.model.contextWindow)) {
+            this.pendingHistoryRefresh = true;
+        }
     }
     refreshHistoryIfNeeded(agentContext, logContext) {
         if (!this.pendingHistoryRefresh || !this.agent)
@@ -163,7 +170,7 @@ export class PiSessionCore {
             return agentContext;
         const refreshedContext = {
             ...agentContext,
-            threadHistory: store.loadThreadMessages(this.threadKey),
+            threadHistory: capCanonicalMessages(store.loadThreadMessages(this.threadKey), this.currentResolvedLlm?.model?.contextWindow),
         };
         this.refreshHistoryIfNeeded(refreshedContext, logContext);
         return refreshedContext;

@@ -1,0 +1,69 @@
+/* Quick chat — see `QuickChatSection.tsx`. An ephemeral chat that reuses the
+   normal sidebar chat surface (`ChatPanelTab`) inside the panel. */
+
+.quick-chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.quick-chat__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 6px;
+}
+
+.quick-chat__title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-weak);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.quick-chat__new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-weak);
+  cursor: default;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.quick-chat__new:hover {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+.quick-chat__new:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.quick-chat__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.quick-chat__body > .chat-panel-tab {
+  flex: 1;
+  min-height: 0;
+}
+
+.quick-chat--pending {
+  height: 100%;
+}

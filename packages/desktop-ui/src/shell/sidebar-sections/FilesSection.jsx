@@ -21,14 +21,14 @@ import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { forgetArtifactFileEntry, useFileEntries, } from "@/features/workspace-display/files-index";
 import { dataTransferHasSupportedMedia, importLocalMedia, isSupportedMediaFile, } from "@/features/workspace-display/media-files";
 import { openAgentThreadTab, openDisplayPayloadTab, } from "@/features/workspace-display/open-payload";
-import { resolvePanelSidebarSection, sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
+import { useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen, useDisplayTabList, } from "@/features/workspace-display/tab-store";
 import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toast";
 import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/canvas-tab/canvas-items";
 import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { bucketByRecency } from "@/shared/lib/recency-buckets";
-import { ChevronLeft, ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
+import { ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
 import { SidebarModelsControl } from "./SidebarModelsControl";
 import "./files-section.css";
@@ -129,7 +129,16 @@ function AgentGroupRow({ hierarchy, conversationId, expanded, onToggle }) {
         : null}
     </>);
 }
-function WorkList() {
+/**
+ * @param {{
+ *   section?: "home" | "files",
+ *   idleContent?: import("react").ReactNode,
+ * }} props
+ */
+export function WorkList({ section = "files", idleContent = null }) {
+    // Home owns the search field (the launcher's top bar); Files is a plain
+    // browsable list that never mounts its own search input.
+    const showSearch = section === "home";
     const chat = useChatRuntime();
     const { state } = useUiState();
     const entries = useFileEntries();
@@ -167,6 +176,7 @@ function WorkList() {
         void loadCanvasHtmlHistory();
     }, []);
     useEffect(() => {
+        if (!showSearch) return;
         if (!searchOpen) {
             setInputValue("");
             return;
@@ -175,19 +185,21 @@ function WorkList() {
             displaySearchStore.setQuery(inputValue);
         }, 120);
         return () => window.clearTimeout(timer);
-    }, [inputValue, searchOpen]);
+    }, [inputValue, searchOpen, showSearch]);
     useEffect(() => {
-        if (!searchOpen)
+        if (!showSearch || !searchOpen)
             return;
         const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
         return () => window.cancelAnimationFrame(frame);
-    }, [focusRequest, searchOpen]);
+    }, [focusRequest, searchOpen, showSearch]);
     useEffect(() => {
-        if (searchOpen && (!panelOpen || activeSection !== "files")) {
+        // Search is owned by Home; close it whenever the panel closes or the
+        // user navigates away from Home to any other destination.
+        if (searchOpen && (!panelOpen || activeSection !== "home")) {
             displaySearchStore.close();
         }
     }, [activeSection, panelOpen, searchOpen]);
-    const query = searchOpen ? deferredQuery : "";
+    const query = showSearch && searchOpen ? deferredQuery : "";
     const items = useMemo(() => {
         // Home lists FILES only by default; agents live in the ambient
         // activity strip. They stay findable here through search, so agent
@@ -282,7 +294,7 @@ function WorkList() {
             notifyMediaGenerationError(error);
         }
     }, []);
-    return (<div className="files-list" data-search-open={searchOpen || undefined} onDragEnter={(event) => {
+    return (<div className="files-list" data-search-open={(showSearch && searchOpen) || undefined} onDragEnter={(event) => {
             if (!dataTransferHasSupportedMedia(event))
                 return;
             event.preventDefault();
@@ -316,7 +328,7 @@ function WorkList() {
                 void importDroppedFiles(files);
         }}>
       <DropOverlay visible={draggingMedia} variant="sidebar"/>
-      <div className="files-list__search">
+      {showSearch ? (<div className="files-list__search">
         <Search size={15} strokeWidth={1.75} aria-hidden="true"/>
         <input ref={inputRef} type="text" value={inputValue} placeholder="Search agents and files" onFocus={() => {
             if (!searchOpen)
@@ -325,19 +337,19 @@ function WorkList() {
             if (event.key === "Escape")
                 displaySearchStore.close();
         }} aria-label="Search agents and files"/>
-      </div>
+      </div>) : null}
 
-      {items.length === 0 ? (<div className="sidebar-section__empty">
+      {!query && idleContent ? (idleContent) : items.length === 0 ? (<div className="sidebar-section__empty">
           <span className="sidebar-section__empty-icon" aria-hidden="true">
-            {deferredQuery ? (<Search size={17} strokeWidth={1.75}/>) : (<LayoutList size={17} strokeWidth={1.75}/>)}
+            {query ? (<Search size={17} strokeWidth={1.75}/>) : (<LayoutList size={17} strokeWidth={1.75}/>)}
           </span>
           <p className="sidebar-section__empty-title">
-            {deferredQuery ? "No matches" : "Nothing here yet"}
+            {query ? "No matches" : "Nothing here yet"}
           </p>
           <p className="sidebar-section__empty-body">
-            {deferredQuery
+            {query
                 ? "No agents or files match that search."
-                : "Agent threads and files you work on with Stella will show up here."}
+                : "Files you work on with Stella will show up here."}
           </p>
         </div>) : (<div ref={scrollRef} className="sidebar-section__scroll">
           <ul className="files-list__items">
@@ -383,21 +395,14 @@ export function FilesSection() {
     const showFooter = modelsOpen || !openTab;
     // This footer owns the shared Models popover only while it is the one
     // on screen; otherwise the workspace strip's footer anchors it.
-    const modelsActive = panelOpen && resolvePanelSidebarSection(activeSection) === "files";
+    const modelsActive = panelOpen && activeSection === "files";
     return (<div className="work-section">
       <div className="work-section__body">
-        {!openTab ? (<WorkList />) : (<>
-          <div className="sidebar-section__viewer-head">
-            <button type="button" className="sidebar-section__back" onClick={() => sidebarSections.clearLocation("files")} aria-label="Back to home">
-              <ChevronLeft size={15} strokeWidth={1.75} aria-hidden="true"/>
-              Home
-            </button>
-            <span className="sidebar-section__viewer-title">{openTab.title}</span>
-          </div>
-          <div className="sidebar-section__viewer-body">
+        {/* The drill-back to the list lives in the top bar now (browser-tab
+            model), so no in-body viewer header here. */}
+        {!openTab ? (<WorkList section="files" />) : (<div className="sidebar-section__viewer-body">
             <DeferredDisplayContent key={openTab.id} render={openTab.render}/>
-          </div>
-        </>)}
+          </div>)}
       </div>
       {showFooter ? (<div className="work-section__footer">
           <SidebarModelsControl active={modelsActive}/>

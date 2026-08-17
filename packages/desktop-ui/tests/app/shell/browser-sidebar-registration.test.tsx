@@ -5,7 +5,7 @@ import {
   PANEL_SIDEBAR_SECTIONS,
   SIDEBAR_SECTIONS,
 } from "@/features/workspace-display/sidebar-sections";
-import { SIDEBAR_SECTION_META } from "@/shell/sidebar-sections/SidebarTabRail";
+import { SIDEBAR_SECTION_META } from "@/shell/sidebar-sections/section-meta";
 
 describe("browser sidebar registration", () => {
   it("registers Browser as a panel section with rail metadata", () => {

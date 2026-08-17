@@ -118,6 +118,12 @@ interface ChatPanelTabProps {
   onStop?: () => void;
   /** When the display sidebar is expanded to full width. */
   wideLayout?: boolean;
+  /**
+   * Detach this surface from the shared main-chat runtime context: no activity
+   * pill, no cross-thread agent-model badges, no area-select annotation. Used
+   * by the ephemeral Quick chat so it stays a self-contained side conversation.
+   */
+  isolated?: boolean;
 }
 
 export function ChatPanelTab({
@@ -142,6 +148,7 @@ export function ChatPanelTab({
   onLoadOlder,
   onSend,
   onStop,
+  isolated = false,
 }: ChatPanelTabProps) {
   const t = useT();
   // Input state + always-current mirror ref, synced at WRITE time. The
@@ -183,7 +190,10 @@ export function ChatPanelTab({
       window.removeEventListener("blur", sync);
     };
   }, []);
-  const chatRuntime = useContext(ChatRuntimeContext);
+  const mainChatRuntime = useContext(ChatRuntimeContext);
+  // Isolated surfaces (Quick chat) ignore the shared main-chat runtime so they
+  // don't inherit its agents, activity pill, or area-select annotation.
+  const chatRuntime = isolated ? null : mainChatRuntime;
   const agentModelConfigByThread = useAgentModelConfigs(
     chatRuntime?.conversation.tasks ?? [],
   );

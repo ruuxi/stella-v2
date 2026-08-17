@@ -19,7 +19,7 @@ import { getServerSnapshot, getSnapshot, refreshUserApps, stopUserApp, subscribe
 import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
 import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
-import { AppWindowMac, ChevronLeft, LoaderCircle, Power } from "@/ui/icons";
+import { AppWindowMac, LoaderCircle, Power } from "@/ui/icons";
 import "./apps-section.css";
 export function AppsSection() {
     const registry = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
@@ -46,15 +46,8 @@ export function AppsSection() {
             markAllUserAppsSeen();
     }, [apps, listVisible]);
     return (<>
-      {openApp ? (<div className="sidebar-section__viewer-head">
-          <button type="button" className="sidebar-section__back" onClick={() => sidebarSections.clearLocation("apps")} aria-label="Back to apps">
-            <ChevronLeft size={15} strokeWidth={1.75} aria-hidden="true"/>
-            Apps
-          </button>
-          <span className="sidebar-section__viewer-title">
-            {openApp.meta.label}
-          </span>
-        </div>) : null}
+      {/* Back-to-library nav lives in the top bar now (browser-tab model),
+          so there is no in-body section header here. */}
       <div className="apps-section__body">
         {openApp ? null : <AppsLibrary registry={registry}/>}
         <PersistentUserAppsHost />

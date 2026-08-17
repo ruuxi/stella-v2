@@ -9,16 +9,20 @@
  * of them their state, and neither must closing the panel — which is why the
  * hidden host stays mounted even when `panelOpen` is false.
  */
-import { PANEL_SIDEBAR_SECTIONS, resolvePanelSidebarSection, useActiveSidebarSection, } from "@/features/workspace-display/sidebar-sections";
+import { PANEL_SIDEBAR_SECTIONS, useActiveSidebarSection, } from "@/features/workspace-display/sidebar-sections";
 import { AppsSection } from "./AppsSection";
 import { BrowserSection } from "./BrowserSection";
 import { FilesSection } from "./FilesSection";
+import { HomeLauncherSection } from "./HomeLauncherSection";
+import { QuickChatSection } from "./QuickChatSection";
 import "./sidebar-sections.css";
 /**
  * Typed as a total `Record` rather than inferred: adding a section without a
  * body is then a compile error here instead of an `undefined` at render.
  */
 const SECTION_BODIES = {
+    home: HomeLauncherSection,
+    quickchat: QuickChatSection,
     files: FilesSection,
     apps: AppsSection,
     browser: BrowserSection,
@@ -26,17 +30,15 @@ const SECTION_BODIES = {
 /**
  * The body for a section id, never `undefined`.
  *
- * A retired/unknown id degrades to Files, the panel's default section. Home is
- * handled by WorkspaceHomeSurface and never enters this map.
+ * A retired/unknown id degrades to the Home launcher, the panel's default.
  */
-export const sidebarSectionBody = (section) => SECTION_BODIES[section] ?? FilesSection;
+export const sidebarSectionBody = (section) => SECTION_BODIES[section] ?? HomeLauncherSection;
 export function SidebarSectionBody() {
     const activeSection = useActiveSidebarSection();
-    const activePanelSection = resolvePanelSidebarSection(activeSection);
     return (<>
       {PANEL_SIDEBAR_SECTIONS.map((section) => {
             const Body = sidebarSectionBody(section);
-            const active = section === activePanelSection;
+            const active = section === activeSection;
             return (<div key={section} className="sidebar-section" data-section={section} data-active={active ? "true" : undefined} role="tabpanel" aria-hidden={!active} inert={!active}>
             <Body />
           </div>);

@@ -115,25 +115,54 @@ describe("user-profile-store", () => {
     }
 
     expect(await entries()).toHaveLength(10);
-    expect(MAX_USER_PROFILE_CHARS).toBe(4_000);
+    expect(MAX_USER_PROFILE_CHARS).toBe(8_000);
   });
 
-  it("rejects adds that would exceed the size cap", async () => {
-    let added = 0;
+  it("evicts oldest facts to stay within the cap instead of wedging", async () => {
+    let lastCount = 0;
     for (let i = 0; i < 200; i += 1) {
       const result = await applyUserProfileOperation(dir, {
         action: "add",
         content: `Durable fact number ${i} about the user and their stable long-running preferences`,
       });
-      if (result.ok && result.message === "Remembered.") added += 1;
-      else if (!result.ok) {
-        expect(result.message).toMatch(/full/i);
-        break;
-      }
+      // Every add must succeed — the store must never wedge above its cap.
+      expect(result.ok).toBe(true);
+      lastCount = result.entryCount;
     }
-    expect(added).toBeGreaterThan(0);
-    // Some adds must have been rejected by the cap.
-    expect(added).toBeLessThan(200);
+
+    // The store bounded itself by evicting oldest facts rather than rejecting.
+    expect(lastCount).toBeGreaterThan(0);
+    expect(lastCount).toBeLessThan(200);
+
+    // The persisted body is at or under the hard cap.
+    const stored = await entries();
+    const bodyLength = stored.reduce((sum, e) => sum + e.length + 3, 0);
+    expect(bodyLength).toBeLessThanOrEqual(MAX_USER_PROFILE_CHARS);
+
+    // The newest fact survived; the oldest were the ones evicted (FIFO).
+    expect(stored[stored.length - 1]).toContain("number 199");
+    expect(stored.some((e) => e.includes("number 0 "))).toBe(false);
+  });
+
+  it("never wedges: adds still succeed when the on-disk file starts over cap", async () => {
+    // Simulate a hand-edited / legacy over-cap profile.md.
+    const oversized = Array.from(
+      { length: 40 },
+      (_, i) => `- Legacy durable fact ${i} ${"padding ".repeat(30)}`,
+    ).join("\n");
+    await fs.mkdir(path.join(dir, "memories"), { recursive: true });
+    await fs.writeFile(userProfilePath(dir), `# User Profile\n\n${oversized}\n`);
+
+    const result = await applyUserProfileOperation(dir, {
+      action: "add",
+      content: "A fresh fact that must be accepted",
+    });
+    expect(result.ok).toBe(true);
+
+    const stored = await entries();
+    const bodyLength = stored.reduce((sum, e) => sum + e.length + 3, 0);
+    expect(bodyLength).toBeLessThanOrEqual(MAX_USER_PROFILE_CHARS);
+    expect(stored[stored.length - 1]).toBe("A fresh fact that must be accepted");
   });
 
   it("keeps both facts when two adds run concurrently", async () => {

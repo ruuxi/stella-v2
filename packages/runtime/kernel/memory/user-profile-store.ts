@@ -23,7 +23,16 @@ import { redactMemoryText } from "./redaction.js";
 export const USER_PROFILE_FILE = "profile.md";
 
 /** Cap on the rendered entries body (excludes the header). */
-export const MAX_USER_PROFILE_CHARS = 4_000;
+export const MAX_USER_PROFILE_CHARS = 8_000;
+
+/**
+ * Hard bound the resident-doc injector applies when reading `profile.md` into
+ * the Orchestrator context. Kept coherent with (and above) the write cap so a
+ * legitimately at-cap file is never truncated, while a hand-edited or otherwise
+ * over-cap file can never blow the always-resident context budget. The slack
+ * over {@link MAX_USER_PROFILE_CHARS} covers the header and per-entry markup.
+ */
+export const USER_PROFILE_INJECT_MAX_CHARS = MAX_USER_PROFILE_CHARS + 1_000;
 
 const HEADER = [
   "# User Profile",
@@ -130,9 +139,49 @@ export type UserProfileOperationResult = {
 };
 
 /**
+ * Anti-wedge cap enforcement. Eviction policy: OLDEST-FIRST (FIFO) — the
+ * front of the list is the oldest fact, so we drop from there until the body
+ * fits within {@link MAX_USER_PROFILE_CHARS}, always preserving the entry at
+ * `protectIndex` (the fact just added or updated by this operation). This
+ * guarantees a write never leaves the store above its cap and never lets an
+ * over-cap store reject every subsequent write — the failure mode that
+ * previously wedged the profile once it drifted past the old cap.
+ *
+ * OWNER: to change the eviction policy (e.g. keep-oldest / lowest-signal /
+ * LRU), replace the `findIndex` selection below with a different victim
+ * chooser; everything else stays the same.
+ *
+ * Returns the trimmed entries plus how many were evicted, or null when the
+ * protected entry alone still exceeds the cap (caller rejects that one write).
+ */
+const evictOldestToFit = (
+  entries: string[],
+  protectIndex: number,
+): { entries: string[]; evicted: number } | null => {
+  const kept = [...entries];
+  let protectAt = protectIndex;
+  let evicted = 0;
+  while (entriesBodyLength(kept) > MAX_USER_PROFILE_CHARS) {
+    const victim = kept.findIndex((_, i) => i !== protectAt);
+    if (victim === -1) return null;
+    kept.splice(victim, 1);
+    if (victim < protectAt) protectAt -= 1;
+    evicted += 1;
+  }
+  return { entries: kept, evicted };
+};
+
+const evictionNote = (evicted: number): string =>
+  evicted > 0
+    ? ` (evicted ${evicted} oldest ${evicted === 1 ? "fact" : "facts"} to stay within the size cap)`
+    : "";
+
+/**
  * Apply a single add/replace/remove operation to `profile.md`. Content is
- * redacted and whitespace-collapsed; adds dedupe case-insensitively and are
- * rejected when they would push the body past {@link MAX_USER_PROFILE_CHARS}.
+ * redacted and whitespace-collapsed; adds dedupe case-insensitively. When a
+ * write would push the body past {@link MAX_USER_PROFILE_CHARS} the store
+ * evicts the oldest facts to make room (see {@link evictOldestToFit}) rather
+ * than rejecting the write, so the profile can never wedge above its cap.
  */
 const applyUserProfileOperationLocked = async (
   stellaDataDir: string,
@@ -168,16 +217,21 @@ const applyUserProfileOperationLocked = async (
       };
     }
     const next = [...entries, content];
-    if (entriesBodyLength(next) > MAX_USER_PROFILE_CHARS) {
+    const bounded = evictOldestToFit(next, next.length - 1);
+    if (!bounded) {
       return {
         ok: false,
         message:
-          "User profile is full. Replace or remove a stale fact before adding more.",
+          "This fact is larger than the entire user-profile budget; shorten it before remembering.",
         entryCount: entries.length,
       };
     }
-    await writeEntries(stellaDataDir, next);
-    return { ok: true, message: "Remembered.", entryCount: next.length };
+    await writeEntries(stellaDataDir, bounded.entries);
+    return {
+      ok: true,
+      message: `Remembered${evictionNote(bounded.evicted)}.`,
+      entryCount: bounded.entries.length,
+    };
   }
 
   if (op.action === "replace") {
@@ -198,15 +252,21 @@ const applyUserProfileOperationLocked = async (
     }
     const next = [...entries];
     next[idx] = content;
-    if (entriesBodyLength(next) > MAX_USER_PROFILE_CHARS) {
+    const bounded = evictOldestToFit(next, idx);
+    if (!bounded) {
       return {
         ok: false,
-        message: "Replacement would exceed the user-profile size cap.",
+        message:
+          "This fact is larger than the entire user-profile budget; shorten it before saving.",
         entryCount: entries.length,
       };
     }
-    await writeEntries(stellaDataDir, next);
-    return { ok: true, message: "Updated.", entryCount: next.length };
+    await writeEntries(stellaDataDir, bounded.entries);
+    return {
+      ok: true,
+      message: `Updated${evictionNote(bounded.evicted)}.`,
+      entryCount: bounded.entries.length,
+    };
   }
 
   // remove

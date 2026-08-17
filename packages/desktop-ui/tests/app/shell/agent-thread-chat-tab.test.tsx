@@ -30,7 +30,7 @@ const { AgentThreadChatTab } = await import(
   "@/shell/display/AgentThreadChatTab"
 );
 
-describe("AgentThreadChatTab execution transcript", () => {
+describe("AgentThreadChatTab read-only transcript", () => {
   let container: HTMLDivElement;
   let root: Root;
   let records: AgentThreadMessageRecord[];
@@ -48,14 +48,14 @@ describe("AgentThreadChatTab execution transcript", () => {
     await Promise.resolve();
   };
 
-  const render = async () => {
+  const render = async (agentType = "general") => {
     await act(async () => {
       root.render(
         withI18n(
           <AgentThreadChatTab
             threadId="agent-1"
             conversationId="conversation-1"
-            agentType="general"
+            agentType={agentType}
           />,
         ),
       );
@@ -96,17 +96,23 @@ describe("AgentThreadChatTab execution transcript", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders reasoning, paired tool details, and checkpoints as collapsed trace rows", async () => {
+  it("hides tool + reasoning, keeps user/assistant/checkpoint, and drops the read-only header and assistant role label", async () => {
     records = [
       {
-        entryId: "reasoning-1",
+        entryId: "user-1",
         timestamp: 1,
+        role: "user",
+        content: "Do the thing.",
+      },
+      {
+        entryId: "reasoning-1",
+        timestamp: 2,
         role: "reasoning",
-        content: "Inspect the current implementation before editing.",
+        content: "Reasoning that should not appear.",
       },
       {
         entryId: "tool-1",
-        timestamp: 2,
+        timestamp: 3,
         role: "tool",
         content: "exec_command completed",
         toolActivity: {
@@ -114,13 +120,19 @@ describe("AgentThreadChatTab execution transcript", () => {
           toolName: "exec_command",
           status: "completed",
           input: '{\n  "cmd": "rg transcript"\n}',
-          output: "packages/desktop/electron/services/agent-thread-history.js",
-          completedAt: 3,
+          output: "some/output/path",
+          completedAt: 4,
         },
       },
       {
+        entryId: "assistant-1",
+        timestamp: 5,
+        role: "assistant",
+        content: "Here is the answer.",
+      },
+      {
         entryId: "checkpoint-1",
-        timestamp: 4,
+        timestamp: 6,
         role: "checkpoint",
         content: "## Goal\nKeep the exact thread observable.",
       },
@@ -128,85 +140,96 @@ describe("AgentThreadChatTab execution transcript", () => {
 
     await render();
 
-    expect(container.textContent).not.toContain("No messages in this thread");
-    const reasoningGroup = container.querySelector<HTMLDivElement>(
-      '.agent-thread-chat__trace-group[data-trace-kind="reasoning"]',
-    );
-    const toolGroup = container.querySelector<HTMLDivElement>(
-      '.agent-thread-chat__trace-group[data-trace-kind="tool"]',
-    );
-    expect(reasoningGroup?.getAttribute("data-expanded")).toBeNull();
-    expect(toolGroup?.getAttribute("data-expanded")).toBeNull();
-    expect(reasoningGroup?.textContent).toContain("Reasoning");
-    expect(toolGroup?.textContent).toContain("1 tool call");
+    // The "Read-only agent thread" eyebrow header is gone.
+    expect(
+      container.querySelector(".agent-thread-chat__header"),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("Read-only agent thread");
 
-    await act(async () => {
-      reasoningGroup?.querySelector<HTMLButtonElement>("button")?.click();
-      toolGroup?.querySelector<HTMLButtonElement>("button")?.click();
-      await flush();
-    });
+    // Tools and (non-Codex) reasoning are not rendered.
+    expect(
+      container.querySelector('[data-trace-kind="tool"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-trace-kind="reasoning"]'),
+    ).toBeNull();
+    expect(container.textContent).not.toContain(
+      "Reasoning that should not appear.",
+    );
+    expect(container.textContent).not.toContain("exec_command");
 
-    const reasoning = container.querySelector<HTMLDetailsElement>(
-      'details[data-trace-kind="reasoning"]',
-    );
-    const tool = container.querySelector<HTMLDetailsElement>(
-      'details[data-trace-kind="tool"]',
-    );
-    const checkpoint = container.querySelector<HTMLDetailsElement>(
-      'details[data-trace-kind="checkpoint"]',
-    );
-    expect(reasoning?.open).toBe(false);
-    expect(tool?.open).toBe(false);
-    expect(checkpoint?.open).toBe(false);
-    expect(reasoning?.textContent).toContain("Reasoning");
-    expect(tool?.textContent).toContain("exec_command");
-    expect(tool?.textContent).toContain("Input");
-    expect(tool?.textContent).toContain("Output");
-    expect(checkpoint?.textContent).toContain("Thread checkpoint");
+    // User, assistant, and checkpoint content survive.
+    expect(container.textContent).toContain("Do the thing.");
+    expect(container.textContent).toContain("Here is the answer.");
+    expect(
+      container.querySelector('details[data-trace-kind="checkpoint"]'),
+    ).not.toBeNull();
+
+    // Assistant rows drop the "Agent" role label; user rows keep their eyebrow.
+    const assistantLi = container.querySelector('li[data-role="assistant"]');
+    expect(
+      assistantLi?.querySelector(".agent-thread-chat__role"),
+    ).toBeNull();
+    const userLi = container.querySelector('li[data-role="user"]');
+    expect(
+      userLi?.querySelector(".agent-thread-chat__role"),
+    ).not.toBeNull();
   });
 
-  it("refreshes an in-flight tool row in place when its persisted result arrives", async () => {
-    const running: AgentThreadMessageRecord = {
-      entryId: "assistant-1:block:0",
-      timestamp: 1,
-      role: "tool",
-      content: "web running",
-      toolActivity: {
-        toolCallId: "call-web",
-        toolName: "web",
-        status: "running",
-        input: '{\n  "query": "Stella"\n}',
+  it("renders Codex reasoning as an assistant message", async () => {
+    mocks.threadActivity = [
+      {
+        threadId: "agent-1",
+        source: "stella",
+        modelConfigSnapshot: { engine: "codex_cli" },
       },
-    };
-    records = [running];
-    await render();
+    ];
+    records = [
+      {
+        entryId: "reasoning-1",
+        timestamp: 1,
+        role: "reasoning",
+        content: "Codex is thinking out loud.",
+      },
+    ];
 
-    const toolGroup = container.querySelector<HTMLDivElement>(
-      '.agent-thread-chat__trace-group[data-trace-kind="tool"]',
-    );
-    expect(toolGroup?.getAttribute("data-expanded")).toBeNull();
-    await act(async () => {
-      toolGroup?.querySelector<HTMLButtonElement>("button")?.click();
-      await flush();
-    });
+    await render("codex");
 
+    const assistantLi = container.querySelector('li[data-role="assistant"]');
+    expect(assistantLi).not.toBeNull();
     expect(
-      container
-        .querySelector('details[data-trace-kind="tool"]')
-        ?.getAttribute("data-tool-status"),
-    ).toBe("running");
-    expect(container.textContent).toContain("Waiting for this tool to finish");
+      assistantLi?.querySelector(".event-item.assistant"),
+    ).not.toBeNull();
+    expect(
+      assistantLi?.querySelector(".agent-thread-chat__role"),
+    ).toBeNull();
+    expect(container.textContent).toContain("Codex is thinking out loud.");
+  });
+
+  it("refreshes the transcript in place when a transcript update arrives", async () => {
+    records = [
+      {
+        entryId: "assistant-1",
+        timestamp: 1,
+        role: "assistant",
+        content: "First reply.",
+      },
+    ];
+    await render();
+    expect(container.textContent).toContain("First reply.");
 
     records = [
       {
-        ...running,
-        content: "web completed",
-        toolActivity: {
-          ...running.toolActivity!,
-          status: "completed",
-          output: "Search complete.",
-          completedAt: 2,
-        },
+        entryId: "assistant-1",
+        timestamp: 1,
+        role: "assistant",
+        content: "First reply.",
+      },
+      {
+        entryId: "assistant-2",
+        timestamp: 2,
+        role: "assistant",
+        content: "Second reply.",
       },
     ];
     await act(async () => {
@@ -214,7 +237,7 @@ describe("AgentThreadChatTab execution transcript", () => {
         conversationId: "conversation-1",
         transcriptUpdate: {
           threadId: "agent-1",
-          entryId: "tool-result-1",
+          entryId: "entry-2",
           atMs: 2,
         },
       });
@@ -222,11 +245,6 @@ describe("AgentThreadChatTab execution transcript", () => {
     });
 
     expect(listAgentThreadMessages).toHaveBeenCalledTimes(2);
-    expect(
-      container
-        .querySelector('details[data-trace-kind="tool"]')
-        ?.getAttribute("data-tool-status"),
-    ).toBe("completed");
-    expect(container.textContent).toContain("Search complete.");
+    expect(container.textContent).toContain("Second reply.");
   });
 });

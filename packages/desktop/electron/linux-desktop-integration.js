@@ -153,7 +153,8 @@ export const warnIfSystemGitMissing = () => {
   if (probe.error || probe.status !== 0) {
     const message =
       "System git was not found on PATH. Stella for Linux uses the system " +
-      "git installation; install it (e.g. `sudo apt install git`) to enable " +
+      "git installation; install it with your distribution's package manager " +
+      "(for example, `sudo apt install git` or `sudo pacman -S git`) to enable " +
       "git-based features.";
     console.warn(`[linux] ${message}`);
     getMainLogger()?.warn("main.linux-system-git-missing", { message });

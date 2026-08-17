@@ -93,8 +93,9 @@ independent guards:
 - the packaged client pins the generic provider to
   `desktop-v2/stable/<platform>` and channel `latest-v2`. The main process
   rejects a feed URL outside a `/desktop-v2/` path before `electron-updater`
-  starts. Platform directories are `mac-arm64`, `mac-x64`, and `win-x64`, so
-  independently built metadata files cannot overwrite another architecture.
+  starts. Platform directories are `mac-arm64`, `mac-x64`, `win-x64`, and
+  `linux-x64`, so independently built metadata files cannot overwrite another
+  architecture.
 
 The updater's local payload cache is also explicitly named
 `stella-v2-updater`, avoiding the package-name-derived cache and keeping it
@@ -166,13 +167,16 @@ M4 stops locally. To run the real release:
    R2 public base URL serves byte ranges and exposes only the intended
    `desktop-v2/stable/<platform>` feeds to this client.
 4. Run the retained native-helper and Stella Browser workflows first so their
-   immutable manifests contain `darwin-arm64`, `darwin-x64`, and `win-x64`.
+   immutable manifests contain `darwin-arm64`, `darwin-x64`, `win-x64`, and
+   `linux-x64`.
 5. Push an exact stable `desktop-v2-vX.Y.Z` tag. Confirm Developer ID signing,
    notarization, stapling, Gatekeeper assessment, unsigned-Windows assertion,
    R2 publication, website installer aliases, and GitHub Release creation all
    pass. The website aliases are `desktop-v2/stable/Stella-darwin-arm64.dmg`,
    `desktop-v2/stable/Stella-darwin-x64.dmg`, and
-   `desktop-v2/stable/Stella.exe`.
+   `desktop-v2/stable/Stella.exe`,
+   `desktop-v2/stable/Stella-linux-x64.AppImage`, and
+   `desktop-v2/stable/Stella-arch-x64.pkg.tar.xz`.
 6. On an isolated test account or machine—not Rahul's live install—install an
    older signed v2 build, publish a newer signed v2 build, and prove the pill
    downloads, quits, installs, and relaunches the newer version. Verify the

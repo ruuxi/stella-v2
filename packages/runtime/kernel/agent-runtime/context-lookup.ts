@@ -1853,7 +1853,9 @@ const runArchitecturalRecall = async (args: {
             : {}),
           // Recall sets neither temperature nor a max-tokens cap: provider
           // defaults govern both. Codex's responses API rejects `temperature`
-          // outright, and pinning output length here is not Recall's job.
+          // outright, and `omitMaxTokens` keeps every provider's serialized
+          // request free of any max-tokens field (no model-derived default).
+          omitMaxTokens: true,
           ...(args.signal ? { signal: args.signal } : {}),
         },
       );
@@ -2273,7 +2275,10 @@ export const runRecall = async (args: {
             ? { refreshApiKey: resolvedLlm!.refreshApiKey }
             : {}),
           // Recall sets neither temperature nor a max-tokens cap: provider
-          // defaults govern both (Codex's responses API rejects `temperature`).
+          // defaults govern both (Codex's responses API rejects `temperature`);
+          // `omitMaxTokens` keeps the serialized request free of any max-tokens
+          // field (no model-derived default) across every provider.
+          omitMaxTokens: true,
           ...(args.signal ? { signal: args.signal } : {}),
         },
       ),

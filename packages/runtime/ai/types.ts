@@ -92,6 +92,15 @@ export interface ProviderResponse {
 export interface StreamOptions {
   temperature?: number;
   maxTokens?: number;
+  /**
+   * Explicit "no output-token cap" mode. When true, {@link buildBaseOptions}
+   * skips the model-derived default so the outgoing request carries NO
+   * max-tokens field at all (`max_tokens` / `max_completion_tokens` /
+   * `max_output_tokens`) and provider defaults govern output length. Callers
+   * that want a cap pass `maxTokens` instead; this flag is for callers (e.g.
+   * Recall) that must not set the field on any provider.
+   */
+  omitMaxTokens?: boolean;
   signal?: AbortSignal;
   apiKey?: string;
   /**

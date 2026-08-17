@@ -134,6 +134,9 @@ describe("architectural Recall synthesis returns a model brief", () => {
     expect(options.reasoning).toBeUndefined();
     expect(options.temperature).toBeUndefined();
     expect(options.maxTokens).toBeUndefined();
+    // Explicit omission mode so the serialized provider request carries no
+    // max-tokens field at all (no model-derived default downstream).
+    expect(options.omitMaxTokens).toBe(true);
   });
 
   it("sends LOW reasoning and the key for a keyed model that supports effort", async () => {

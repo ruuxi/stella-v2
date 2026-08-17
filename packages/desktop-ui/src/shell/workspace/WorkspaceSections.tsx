@@ -107,6 +107,10 @@ const EMPTY_FILES: ReadonlyArray<ConversationFileEntry> = [];
 const EMPTY_UPDATES: ReadonlyArray<string> = [];
 /** Agent-authored messages shown under an expanded RUNNING agent. */
 const AGENT_UPDATE_CAP = 1;
+// Terminal (done / failed / paused / canceled) agents drop out of the activity
+// index this long after their last activity; running agents are never hidden,
+// and a re-activation moves the row back to the running list (resetting this).
+const TERMINAL_ROW_AUTOHIDE_MS = 30 * 60 * 1000;
 
 const activityRowText = (row: ActivityRow): string =>
   getActivityRowSearchText(row);
@@ -275,10 +279,11 @@ const TaskRow = memo(function TaskRow({
   // most recent line); finished rows keep just title, status, and files.
   const agentUpdates =
     task.status === "running" ? getTaskAgentUpdates(task) : EMPTY_UPDATES;
-  // Produced files hide behind one "View N files" disclosure row in every
-  // status — the per-file rows were the noisiest part of a finished thread.
-  // Per-session only; resets when the row unmounts, which is fine.
+  // Up to two produced files show inline; any beyond that hide behind a
+  // "N more files" disclosure so a busy thread stays scannable without
+  // burying every file. Per-session only; resets when the row unmounts.
   const [filesExpanded, setFilesExpanded] = useState(false);
+  const FILE_CHIP_PREVIEW = 2;
   const hasAgentUpdates = agentUpdates.length > 0;
   // Second line on a row that owns subagents: what the parent is doing now,
   // or its result once settled. Keyed on having children, not on agent type.
@@ -291,6 +296,9 @@ const TaskRow = memo(function TaskRow({
       : task.outputPreview?.trim() || undefined
     : undefined;
   const hasFiles = files.length > 0;
+  const previewFiles = files.slice(0, FILE_CHIP_PREVIEW);
+  const extraFiles = files.slice(FILE_CHIP_PREVIEW);
+  const hasExtraFiles = extraFiles.length > 0;
   const compactTasks = useMemo(
     () => (compactChildren ? flattenActivityTasks(compactChildren) : undefined),
     [compactChildren],
@@ -430,6 +438,31 @@ const TaskRow = memo(function TaskRow({
                     />
                   ) : null}
                   {hasFiles ? (
+                    <ul className="chat-workspace-strip__list chat-workspace-strip__task-files">
+                      {previewFiles.map((file) => (
+                        <li
+                          key={file.path}
+                          className="chat-workspace-strip__row"
+                          title={file.path}
+                        >
+                          <button
+                            type="button"
+                            className="chat-workspace-strip__file-button"
+                            onClick={() => onOpenFile(file)}
+                          >
+                            <DisplayTabIcon
+                              kind={displayTabKindForPayload(file.payload)}
+                              size={15}
+                            />
+                            <span className="chat-workspace-strip__file-name">
+                              {basenameOf(file.path)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {hasExtraFiles ? (
                     <button
                       type="button"
                       className="chat-workspace-strip__file-button chat-workspace-strip__files-toggle"
@@ -438,16 +471,16 @@ const TaskRow = memo(function TaskRow({
                     >
                       <span className="chat-workspace-strip__file-name">
                         {tPlural(
-                          "shell.workspace.viewFiles",
-                          files.length,
+                          "shell.workspace.moreFiles",
+                          extraFiles.length,
                         )}
                       </span>
                     </button>
                   ) : null}
-                  {hasFiles ? (
+                  {hasExtraFiles ? (
                     // Same always-mounted grid-rows collapse as the row's own
-                    // detail above, so the file list glides open instead of
-                    // popping in when the disclosure toggles.
+                    // detail above, so the extra file list glides open instead
+                    // of popping in when the disclosure toggles.
                     <div
                       className="chat-workspace-strip__task-collapse"
                       data-collapsed={filesExpanded ? undefined : "true"}
@@ -455,7 +488,7 @@ const TaskRow = memo(function TaskRow({
                     >
                       <div className="chat-workspace-strip__task-collapse-clip">
                         <ul className="chat-workspace-strip__list chat-workspace-strip__task-files">
-                          {files.map((file) => (
+                          {extraFiles.map((file) => (
                             <li
                               key={file.path}
                               className="chat-workspace-strip__row"
@@ -925,11 +958,29 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [includeUserApps, query, searching, userApps],
   );
 
-  const nowMs = Date.now();
+  // Ticks on a coarse cadence so terminal activity rows drop out ~30 minutes
+  // after their last activity even when nothing else in the conversation is
+  // changing. Only armed off-search, where the time-based auto-hide applies.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (searching) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, [searching]);
 
   const visibleDoneRows = useMemo(
-    () => doneRows.slice(0, Math.max(0, caps.activity - runningRows.length)),
-    [doneRows, caps.activity, runningRows.length],
+    () =>
+      // Not searching: no fixed cap — every terminal row stays until it is
+      // 30 minutes past its last activity, then auto-hides. Searching keeps
+      // the bounded result set so a broad query can't mount hundreds of rows.
+      searching
+        ? doneRows.slice(0, Math.max(0, caps.activity - runningRows.length))
+        : doneRows.filter(
+            (row) =>
+              nowMs - getActivityRowCompletedAtMs(row) <=
+              TERMINAL_ROW_AUTOHIDE_MS,
+          ),
+    [doneRows, caps.activity, runningRows.length, searching, nowMs],
   );
   const visibleActivityRows = useMemo(
     () => {

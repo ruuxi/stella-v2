@@ -189,12 +189,13 @@ function WorkList() {
     }, [activeSection, panelOpen, searchOpen]);
     const query = searchOpen ? deferredQuery : "";
     const items = useMemo(() => {
-        // Nest owned subagents under their parent (general) agent, mirroring
-        // the activity workspace strip: one collapsed group row per parent
-        // instead of a flat column of every subagent. Grouping runs before the
-        // search filter so a match on a hidden child still surfaces its group;
-        // `getActivityRowSearchText` already folds in nested descendant text.
-        const agents = groupActivityTasks(chat.conversation.tasks)
+        // Home lists FILES only by default; agents live in the ambient
+        // activity strip. They stay findable here through search, so agent
+        // rows are folded in only while a query is active (mirroring the
+        // activity strip's nesting so a match on a hidden child surfaces its
+        // group; `getActivityRowSearchText` folds in nested descendant text).
+        const agents = query
+            ? groupActivityTasks(chat.conversation.tasks)
             .filter((row) => {
             if (!query)
                 return true;
@@ -212,7 +213,8 @@ function WorkList() {
                 id: `agent:${row.hierarchy.owner.id}`,
                 timestamp: taskTimestamp(row.hierarchy.owner),
                 hierarchy: row.hierarchy,
-            });
+            })
+            : [];
         const files = entries
             .filter((entry) => {
             if (!query)

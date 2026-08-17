@@ -43,8 +43,6 @@ import type { RecallModelRoute } from "./recall-route.js";
 import { resolvedLlmSupportsCredentiallessCalls } from "../model-routing.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 
-const MAX_CONTEXT_OUTPUT_TOKENS = 1_500;
-
 /**
  * Recall's synthesis pass runs at LOW reasoning. Models that expose no
  * reasoning/effort setting get no reasoning param at all (i.e. off/none) — the
@@ -1853,8 +1851,9 @@ const runArchitecturalRecall = async (args: {
           ...(resolvedLlm.refreshApiKey
             ? { refreshApiKey: resolvedLlm.refreshApiKey }
             : {}),
-          maxTokens: MAX_CONTEXT_OUTPUT_TOKENS,
-          temperature: 0,
+          // Recall sets neither temperature nor a max-tokens cap: provider
+          // defaults govern both. Codex's responses API rejects `temperature`
+          // outright, and pinning output length here is not Recall's job.
           ...(args.signal ? { signal: args.signal } : {}),
         },
       );
@@ -2273,8 +2272,8 @@ export const runRecall = async (args: {
           ...(resolvedLlm!.refreshApiKey
             ? { refreshApiKey: resolvedLlm!.refreshApiKey }
             : {}),
-          maxTokens: MAX_CONTEXT_OUTPUT_TOKENS,
-          temperature: 0,
+          // Recall sets neither temperature nor a max-tokens cap: provider
+          // defaults govern both (Codex's responses API rejects `temperature`).
           ...(args.signal ? { signal: args.signal } : {}),
         },
       ),

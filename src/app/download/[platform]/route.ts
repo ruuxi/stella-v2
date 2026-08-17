@@ -20,8 +20,8 @@ const ASSETS: Record<string, string> = {
   windows: `${R2_BASE}/Stella.exe`,
   "mac-arm64": `${R2_BASE}/Stella-darwin-arm64.dmg`,
   "mac-x64": `${R2_BASE}/Stella-darwin-x64.dmg`,
-  // Linux x64 AppImage — may 404 until the first Linux desktop release ships.
   linux: `${R2_BASE}/Stella-linux-x64.AppImage`,
+  arch: `${R2_BASE}/Stella-arch-x64.pkg.tar.xz`,
 };
 
 export async function GET(

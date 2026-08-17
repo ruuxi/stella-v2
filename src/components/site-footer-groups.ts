@@ -42,6 +42,8 @@ export const homeFooterGroups: FooterGroup[] = [
       chromeExtensionLink,
       { label: "Install for macOS", href: "/install.sh" },
       { label: "Install for Windows", href: "/install.ps1" },
+      { label: "Install for Linux", href: "/download/linux" },
+      { label: "Install for Arch / Omarchy", href: "/download/arch" },
     ],
   },
   {

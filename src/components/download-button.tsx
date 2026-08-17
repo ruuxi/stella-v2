@@ -54,9 +54,8 @@ const DOWNLOADS = {
   macArm64: "/download/mac-arm64",
   macX64: "/download/mac-x64",
   windows: "/download/windows",
-  // Linux x64 AppImage. Goes live with the first Linux desktop release; the
-  // desktop pipeline publishes this stable alias, so the URL may 404 until then.
   linux: "/download/linux",
+  arch: "/download/arch",
 } as const;
 
 type Platform = "macArm64" | "macX64" | "windows" | "linux";
@@ -65,7 +64,7 @@ const ariaLabels: Record<Platform, string> = {
   macArm64: "Download for Mac",
   macX64: "Download for Mac",
   windows: "Download for Windows",
-  linux: "Download for Linux (AppImage)",
+  linux: "Choose a Linux download",
 };
 
 type NavigatorUAData = {
@@ -138,17 +137,52 @@ export function DownloadButton() {
       .catch(() => {});
   }, [platform]);
 
-  function handleClick(e: React.MouseEvent) {
+  function handleClick(
+    e: React.MouseEvent,
+    url: (typeof DOWNLOADS)[keyof typeof DOWNLOADS] = DOWNLOADS[resolvedPlatform],
+  ) {
     e.preventDefault();
-    reportGoogleAdsDownload(DOWNLOADS[resolvedPlatform]);
+    reportGoogleAdsDownload(url);
+  }
+
+  if (resolvedPlatform === "linux") {
+    return (
+      <details className="download-menu">
+        <summary
+          className="button button--primary button--download"
+          aria-label={ariaLabels.linux}
+          title={ariaLabels.linux}
+        >
+          Download Stella
+          <LinuxIcon size={18} />
+        </summary>
+
+        <div className="download-menu__options">
+          <a
+            className="download-menu__option"
+            href={DOWNLOADS.linux}
+            onClick={(event) => handleClick(event, DOWNLOADS.linux)}
+          >
+            <strong>AppImage</strong>
+            <span>Works on most Linux distributions</span>
+          </a>
+          <a
+            className="download-menu__option"
+            href={DOWNLOADS.arch}
+            onClick={(event) => handleClick(event, DOWNLOADS.arch)}
+          >
+            <strong>Arch / Omarchy</strong>
+            <span>Native pacman package</span>
+          </a>
+        </div>
+      </details>
+    );
   }
 
   const PlatformIcon =
     resolvedPlatform === "windows"
       ? WindowsIcon
-      : resolvedPlatform === "linux"
-        ? LinuxIcon
-        : AppleIcon;
+      : AppleIcon;
 
   return (
     <button

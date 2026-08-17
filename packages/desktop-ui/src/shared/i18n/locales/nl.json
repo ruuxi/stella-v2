@@ -1665,6 +1665,10 @@
       "viewFiles": {
         "one": "{count} bestand bekijken",
         "other": "{count} bestanden bekijken"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

@@ -1701,6 +1701,12 @@
         "few": "Zobrazit {count} soubory",
         "many": "Zobrazit {count} souboru",
         "other": "Zobrazit {count} souborů"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "few": "{count} more files",
+        "many": "{count} more files",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

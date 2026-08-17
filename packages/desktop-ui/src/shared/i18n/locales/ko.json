@@ -1647,6 +1647,9 @@
       "activity": "활동",
       "viewFiles": {
         "other": "파일 {count}개 보기"
+      },
+      "moreFiles": {
+        "other": "{count} more files"
       }
     },
     "updatePill": {

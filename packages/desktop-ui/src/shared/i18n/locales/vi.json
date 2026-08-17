@@ -1647,6 +1647,9 @@
       "activity": "Hoạt động",
       "viewFiles": {
         "other": "Xem {count} tệp"
+      },
+      "moreFiles": {
+        "other": "{count} more files"
       }
     },
     "updatePill": {

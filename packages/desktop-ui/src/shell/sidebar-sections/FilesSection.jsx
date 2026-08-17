@@ -330,13 +330,13 @@ export function WorkList({ section = "files", idleContent = null }) {
       <DropOverlay visible={draggingMedia} variant="sidebar"/>
       {showSearch ? (<div className="files-list__search">
         <Search size={15} strokeWidth={1.75} aria-hidden="true"/>
-        <input ref={inputRef} type="text" value={inputValue} placeholder="Search agents and files" onFocus={() => {
+        <input ref={inputRef} type="text" value={inputValue} placeholder="Search anything" onFocus={() => {
             if (!searchOpen)
                 displaySearchStore.open();
         }} onChange={(event) => setInputValue(event.currentTarget.value)} onKeyDown={(event) => {
             if (event.key === "Escape")
                 displaySearchStore.close();
-        }} aria-label="Search agents and files"/>
+        }} aria-label="Search anything"/>
       </div>) : null}
 
       {!query && idleContent ? (idleContent) : items.length === 0 ? (<div className="sidebar-section__empty">

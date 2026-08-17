@@ -8,10 +8,48 @@
  * (`FilesSection`) and the workspace strip (`WorkspaceSections`) share ONE
  * implementation of the collapsed group summary and stay visually identical.
  */
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { getCompactActivityStatusText } from "@/features/chat/lib/event-transforms";
 import { selectLatestAgentAssistantMessage } from "@/features/chat/lib/agent-assistant-summary";
 import "@/app/chat/chat-workspace-strip.css";
+
+// Past this the elapsed timer stops resolving to a duration and shows a short
+// placeholder phrase instead (owner may tweak the copy).
+const ELAPSED_STILL_GOING_MS = 2 * 60 * 60 * 1000;
+
+/** "3s" → "12m" → "1h", then "still going" past ~2h. */
+const formatElapsedLabel = (elapsedMs) => {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  if (elapsedMs >= ELAPSED_STILL_GOING_MS) return "still going";
+  return `${Math.floor(totalMinutes / 60)}h`;
+};
+
+/**
+ * Live elapsed-running label. Ticks every second under a minute, then every
+ * minute (cheap, self-scheduling), and stops once it settles into "still
+ * going". Returns null when there's nothing to time.
+ */
+const useElapsedRunningLabel = (startedAtMs) => {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (startedAtMs == null) return undefined;
+    let timer = 0;
+    const schedule = () => {
+      const elapsed = Date.now() - startedAtMs;
+      setNowMs(Date.now());
+      // No further ticks needed once we've crossed into "still going".
+      if (elapsed >= ELAPSED_STILL_GOING_MS) return;
+      timer = window.setTimeout(schedule, elapsed < 60_000 ? 1_000 : 60_000);
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, [startedAtMs]);
+  if (startedAtMs == null) return null;
+  return formatElapsedLabel(nowMs - startedAtMs);
+};
 
 const compactTaskState = (task) => {
   switch (task.status) {
@@ -45,8 +83,13 @@ const compactTaskTooltip = (task) => {
 export const CompactChildState = memo(function CompactChildState({
   summary,
   prioritizeFailure,
+  startedAtMs,
+  running = false,
 }) {
   const statusText = getCompactActivityStatusText(summary, prioritizeFailure);
+  const elapsedLabel = useElapsedRunningLabel(
+    running && typeof startedAtMs === "number" ? startedAtMs : null,
+  );
   return (
     <>
       {summary.usesProgressBar ? (
@@ -108,6 +151,7 @@ export const CompactChildState = memo(function CompactChildState({
         }
       >
         {statusText}
+        {elapsedLabel ? ` · ${elapsedLabel}` : ""}
       </span>
     </>
   );

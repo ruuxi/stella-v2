@@ -106,7 +106,7 @@ function AgentGroupRow({ hierarchy, conversationId, expanded, onToggle }) {
             </span>
             <span className="files-list__title">{label}</span>
           </span>
-          <CompactChildState summary={summary} prioritizeFailure={owner.status === "running" && !expanded}/>
+          <CompactChildState summary={summary} prioritizeFailure={owner.status === "running" && !expanded} startedAtMs={owner.startedAtMs} running={owner.status === "running"}/>
         </button>
         <button type="button" className="files-list__group-open" onClick={() => conversationId
             ? openAgentThreadTab({

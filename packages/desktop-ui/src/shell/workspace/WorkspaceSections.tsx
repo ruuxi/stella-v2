@@ -275,10 +275,15 @@ const TaskRow = memo(function TaskRow({
   const label = task.description.trim();
   const sourceLabel = taskSourceLabel(task);
   // Agent-authored assistant messages replace generated/tool-status summary
-  // text. Only a still-running agent surfaces them (capped to the single
-  // most recent line); finished rows keep just title, status, and files.
+  // text. Only a still-running agent surfaces them (capped to the single most
+  // recent line); finished rows keep just title, status, and files. Agents
+  // that own subagents never show this — their compact summary line carries
+  // the state instead.
+  const hasSubagents = Boolean(compactChildren);
   const agentUpdates =
-    task.status === "running" ? getTaskAgentUpdates(task) : EMPTY_UPDATES;
+    !hasSubagents && task.status === "running"
+      ? getTaskAgentUpdates(task)
+      : EMPTY_UPDATES;
   // Up to two produced files show inline; any beyond that hide behind a
   // "N more files" disclosure so a busy thread stays scannable without
   // burying every file. Per-session only; resets when the row unmounts.
@@ -329,20 +334,6 @@ const TaskRow = memo(function TaskRow({
       data-continuous-animation={compactMotionActive ? "true" : undefined}
     >
       <div className="chat-workspace-strip__task-row-head">
-        {hasDetail ? (
-          <button
-            type="button"
-            className="chat-workspace-strip__task-caret"
-            data-expanded={expanded ? "true" : undefined}
-            onClick={() => onToggle(task.id, !expanded)}
-            aria-expanded={expanded}
-            aria-label={`${label || "Activity"} — ${
-              expanded ? "collapse" : "expand"
-            }`}
-          >
-            <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
-          </button>
-        ) : null}
         <button
           type="button"
           className="chat-workspace-strip__task-button"
@@ -379,6 +370,8 @@ const TaskRow = memo(function TaskRow({
               <CompactChildState
                 summary={compactSummary}
                 prioritizeFailure={compactFailurePriority && !expanded}
+                startedAtMs={task.startedAtMs}
+                running={task.status === "running"}
               />
             </>
           ) : (
@@ -409,6 +402,20 @@ const TaskRow = memo(function TaskRow({
             </>
           )}
         </button>
+        {hasDetail ? (
+          <button
+            type="button"
+            className="chat-workspace-strip__task-caret"
+            data-expanded={expanded ? "true" : undefined}
+            onClick={() => onToggle(task.id, !expanded)}
+            aria-expanded={expanded}
+            aria-label={`${label || "Activity"} — ${
+              expanded ? "collapse" : "expand"
+            }`}
+          >
+            <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
       {/* Always mounted so both the user toggle and the first summary/file
           arriving animate open — grid-rows 0fr↔1fr, same pattern as the

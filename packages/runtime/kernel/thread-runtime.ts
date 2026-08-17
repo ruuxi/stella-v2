@@ -11,7 +11,10 @@ import path from "node:path";
 import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
 import { readRuntimePrompt } from "./prompts/home-prompts.js";
-import { isThreadCompactionForced } from "./agent-runtime/context-budget.js";
+import {
+  getLastProviderPayloadTokens,
+  isThreadCompactionForced,
+} from "./agent-runtime/context-budget.js";
 import {
   RESIDENT_FOLD_ENTRY_ID_MARKER,
   buildResidentFold,
@@ -261,6 +264,25 @@ export const getCompactionTriggerTokens = (route: ResolvedLlmRoute): number =>
   Math.max(
     MIN_TRIGGER_TOKENS,
     Math.floor(getContextWindow(route) * THREAD_COMPACTION_TRIGGER_PCT),
+  );
+
+/**
+ * Fraction of the window at which the last measured full outbound payload (system
+ * prompt + tool schemas + resident context + history, captured at preflight) forces
+ * a proactive compaction. `getCompactionTriggerTokens` compares only the history
+ * estimate against 0.7x the window, but the provider actually receives the whole
+ * payload — on large-toolset engines (the Codex Responses path) that dispatched
+ * payload runs ~2x the history estimate, so a thread can blow the input budget while
+ * its history sits well under the trigger. Sitting below the 0.7 preflight-reject
+ * fraction leaves headroom for the next turn's own growth before the hard limit.
+ */
+const PAYLOAD_COMPACTION_TRIGGER_PCT = 0.6;
+export const getCompactionPayloadTriggerTokens = (
+  route: ResolvedLlmRoute,
+): number =>
+  Math.max(
+    MIN_TRIGGER_TOKENS,
+    Math.floor(getContextWindow(route) * PAYLOAD_COMPACTION_TRIGGER_PCT),
   );
 
 export const getThreadTokenEstimate = (
@@ -1272,7 +1294,19 @@ export const maybeCompactRuntimeThread = async (args: {
 
   const totalTokens = getThreadTokenEstimate(storedMessages);
   const forced = isThreadCompactionForced(args.threadKey);
-  if (!forced && totalTokens < getCompactionTriggerTokens(args.resolvedLlm)) {
+  // Compaction fires on whichever ceiling is reached first: the history-only estimate
+  // hitting 0.7x the window, OR the last measured full outbound payload (system prompt
+  // + tool schemas + resident context + history, captured at preflight) reaching the
+  // payload-pressure trigger. The second condition closes the
+  // history-under-trigger-but-payload-over-budget gap on large-toolset engines (Codex)
+  // that would otherwise only ever be caught reactively by the pre-dispatch preflight.
+  const lastPayloadTokens = getLastProviderPayloadTokens(args.threadKey);
+  const historyOverTrigger =
+    totalTokens >= getCompactionTriggerTokens(args.resolvedLlm);
+  const payloadOverTrigger =
+    lastPayloadTokens !== undefined &&
+    lastPayloadTokens >= getCompactionPayloadTriggerTokens(args.resolvedLlm);
+  if (!forced && !historyOverTrigger && !payloadOverTrigger) {
     return { compacted: false };
   }
 

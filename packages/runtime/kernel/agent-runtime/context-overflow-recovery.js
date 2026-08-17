@@ -5,6 +5,7 @@ import {
 } from "./thread-memory.js";
 import {
   estimateProviderPayloadTokens,
+  getLastProviderPayloadTokens,
   providerInputBudgetTokens,
   withForcedThreadCompaction,
 } from "./context-budget.js";
@@ -258,6 +259,80 @@ const persistRecoverableHandoff = (args) => {
   return { kind: "handoff", text, historyReset };
 };
 
+const getThreadTokenEstimateSafely = (storedMessages) => {
+  try {
+    return getThreadTokenEstimate(storedMessages);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Persistently drop the trailing content-less failed-overflow assistant marker from
+ * the store before the forced compaction. The marker carries no model output (a
+ * pre-generation overflow produced nothing), but as the last stored message it makes
+ * the compaction split spend its tail budget on the marker and summarize the real
+ * resume anchor (the tool result / user turn it followed). Removing it first lets the
+ * split preserve that anchor, so the refreshed history ends on a `continue()`-able
+ * message instead of a lone checkpoint summary. Best-effort and leaf-guarded.
+ */
+const dropFailedOverflowTailFromStore = (args) => {
+  if (typeof args.store.removeThreadMessageEntry !== "function") return;
+  let stored;
+  try {
+    stored = args.store.loadThreadMessages(args.threadKey);
+  } catch {
+    return;
+  }
+  const last = stored.at(-1);
+  const payload = last?.payload;
+  if (
+    !last?.entryId ||
+    payload?.role !== "assistant" ||
+    (payload.stopReason !== "error" && payload.stopReason !== "length") ||
+    generatedContent(payload)
+  ) {
+    return;
+  }
+  try {
+    args.store.removeThreadMessageEntry(args.threadKey, last.entryId);
+  } catch {
+    // Best-effort: on failure the forced compaction still runs and the re-measure /
+    // resumable-tail checks below fall back to the durable handoff rather than
+    // corrupt the thread.
+  }
+};
+
+/**
+ * Whether the just-compacted history would fit the model's input budget on retry.
+ * Primary path reduces the last measured full payload (which already includes the
+ * fixed system-prompt + tool-schema + resident overhead the history-only estimate
+ * misses) by the history the compaction actually removed, counted in history-estimate
+ * units so it never over-credits the shrink. Falls back to a system-prompt + history
+ * estimate (omits tool schemas, so it undercounts; a still-oversized retry is caught
+ * by the recovery loop guard). Unknown window ⇒ let the retry + loop guard decide.
+ */
+const compactedPayloadFitsBudget = (args) => {
+  const budget = args.inputBudget;
+  if (!budget) return true;
+  if (
+    typeof args.lastPayloadTokens === "number" &&
+    typeof args.historyBefore === "number" &&
+    typeof args.historyAfter === "number"
+  ) {
+    const reduction = Math.max(0, args.historyBefore - args.historyAfter);
+    return args.lastPayloadTokens - reduction < budget;
+  }
+  const estimate = estimateProviderPayloadTokens(
+    {
+      systemPrompt: args.agent?.state?.systemPrompt,
+      messages: args.refreshed,
+    },
+    budget,
+  );
+  return estimate < budget;
+};
+
 export const recoverContextOverflow = async (args) => {
   const contextWindow = Number(args.resolvedLlm.model.contextWindow);
   if (!isSafePreGenerationOverflow(args.execution, args.agent, contextWindow)) {
@@ -288,6 +363,10 @@ export const recoverContextOverflow = async (args) => {
   while (args.compactionScheduler?.pending(args.threadKey)) {
     await args.compactionScheduler.pending(args.threadKey);
   }
+  // Drop the content-less failed-overflow marker from the store now (the in-memory
+  // copy was already popped above) so the forced compaction preserves the real resume
+  // anchor instead of summarizing it and leaving a lone checkpoint-summary tail.
+  dropFailedOverflowTailFromStore(args);
   let threadTokenEstimate;
   try {
     threadTokenEstimate = getThreadTokenEstimate(
@@ -308,16 +387,22 @@ export const recoverContextOverflow = async (args) => {
           : {}),
       }),
     );
+  const lastPayloadTokens = getLastProviderPayloadTokens(args.threadKey);
   const result = await runCompaction();
-  if (!result.compacted) {
-    return persistRecoverableHandoff(args);
+  if (result.compacted) {
+    resetSkillReadDedup(args.threadKey);
+    args.session?.notifyCompacted();
   }
-  resetSkillReadDedup(args.threadKey);
-  args.session?.notifyCompacted();
 
-  const refreshed = buildHistorySource({
-    threadHistory: args.store.loadThreadMessages(args.threadKey),
-  });
+  // Decide from the refreshed store state, not from result.compacted alone: a
+  // concurrent background compaction can relieve the thread while this forced pass
+  // finds nothing left to compact. Reload, drop any still-present content-less failed
+  // tail, then retry when the history ends on a continue()-resumable anchor (user /
+  // tool result) AND the re-measured payload fits the input budget. A checkpoint
+  // summary (assistant role) is resumable when a real anchor follows it — the store
+  // cleanup above guarantees one survives for the mid-tool-loop overflow shape.
+  const storedAfter = args.store.loadThreadMessages(args.threadKey);
+  const refreshed = buildHistorySource({ threadHistory: storedAfter });
   const failedTail = refreshed.at(-1);
   if (
     failedTail?.role === "assistant" &&
@@ -326,8 +411,28 @@ export const recoverContextOverflow = async (args) => {
   ) {
     refreshed.pop();
   }
-  if (refreshed.length === 0 || refreshed.at(-1)?.role === "assistant") {
+  const resumeTail = refreshed.at(-1);
+  if (refreshed.length === 0 || resumeTail?.role === "assistant") {
+    // Nothing safe to resume from: the whole turn (including its user / tool anchor)
+    // was summarized away, so `continue()` has no trailing turn to answer.
     return persistRecoverableHandoff(args);
+  }
+  if (
+    !compactedPayloadFitsBudget({
+      inputBudget: providerInputBudgetTokens(contextWindow),
+      lastPayloadTokens,
+      historyBefore: threadTokenEstimate,
+      historyAfter: getThreadTokenEstimateSafely(storedAfter),
+      agent: args.agent,
+      refreshed,
+    })
+  ) {
+    // Compaction ran but the request still exceeds the budget; retrying would just
+    // overflow again. Hand off with an explicit reason instead of looping into it.
+    return persistRecoverableHandoff({
+      ...args,
+      reason: "the compacted history still exceeds the model input budget",
+    });
   }
   args.agent.state.messages = refreshed;
   return {

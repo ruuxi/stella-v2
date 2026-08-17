@@ -21,7 +21,7 @@ import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { forgetArtifactFileEntry, useFileEntries, } from "@/features/workspace-display/files-index";
 import { dataTransferHasSupportedMedia, importLocalMedia, isSupportedMediaFile, } from "@/features/workspace-display/media-files";
 import { openAgentThreadTab, openDisplayPayloadTab, } from "@/features/workspace-display/open-payload";
-import { useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
+import { useActiveSidebarSection, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen, useDisplayTabList, } from "@/features/workspace-display/tab-store";
 import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toast";
 import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/canvas-tab/canvas-items";
@@ -381,21 +381,24 @@ export function WorkList({ section = "files", idleContent = null }) {
         </div>)}
     </div>);
 }
-export function FilesSection() {
-    const openTabId = useSidebarSectionLocation("files");
+/**
+ * One Files tab: the browsable list (no `location`) or a single file/agent
+ * viewer (`location` = a display-tab id). Prop-driven so multiple file tabs can
+ * coexist, each keeping its own mounted viewer.
+ *
+ * @param {{ location?: string | null, active?: boolean }} props
+ */
+export function FilesSection({ location = null, active = false }) {
     const modelsOpen = useEngineOverlayOpen();
-    const panelOpen = useDisplayPanelOpen();
-    const activeSection = useActiveSidebarSection();
     const { tabs } = useDisplayTabList();
-    const openTab = openTabId
-        ? (tabs.find((tab) => tab.id === openTabId) ?? null)
+    const openTab = location
+        ? (tabs.find((tab) => tab.id === location) ?? null)
         : null;
     // The footer is the Models popover's anchor: keep it visible when the
     // picker is opened externally while a viewer tab is showing.
     const showFooter = modelsOpen || !openTab;
-    // This footer owns the shared Models popover only while it is the one
-    // on screen; otherwise the workspace strip's footer anchors it.
-    const modelsActive = panelOpen && activeSection === "files";
+    // Only the ACTIVE tab's footer owns the shared Models popover.
+    const modelsActive = active && showFooter;
     return (<div className="work-section">
       <div className="work-section__body">
         {/* The drill-back to the list lives in the top bar now (browser-tab

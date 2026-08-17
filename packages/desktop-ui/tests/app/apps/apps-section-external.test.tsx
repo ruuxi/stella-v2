@@ -79,7 +79,8 @@ describe("AppsSection external-app states", () => {
     });
     sidebarSections.reset();
     displayTabs.setPanelOpen(true);
-    sidebarSections.setActiveSection("apps");
+    // Open an Apps (library) tab so AppsSection renders active.
+    sidebarSections.openLocation("apps", null);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -132,7 +133,7 @@ describe("AppsSection external-app states", () => {
       ".apps-section__card-open",
     );
     act(() => card?.click());
-    expect(sidebarSections.getSnapshot().locations.apps).toBe("ledger");
+    expect(sidebarSections.getActiveTab()?.location).toBe("ledger");
 
     act(() =>
       registry.set({
@@ -142,7 +143,7 @@ describe("AppsSection external-app states", () => {
         refreshing: false,
       }),
     );
-    expect(sidebarSections.getSnapshot().locations.apps).toBe("ledger");
+    expect(sidebarSections.getActiveTab()?.location).toBe("ledger");
 
     act(() =>
       registry.set({
@@ -152,7 +153,7 @@ describe("AppsSection external-app states", () => {
         refreshing: false,
       }),
     );
-    expect(sidebarSections.getSnapshot().locations.apps).toBeNull();
+    expect(sidebarSections.getActiveTab()?.location).toBeNull();
   });
 
   it("shows runtime status and shuts down a running app", async () => {

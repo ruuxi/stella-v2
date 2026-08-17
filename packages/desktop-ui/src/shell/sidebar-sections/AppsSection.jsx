@@ -133,7 +133,7 @@ function AppsLibrary({ registry }) {
             const stopping = stoppingSlugs.has(app.slug) || app.status === "stopping";
             const running = app.status === "running";
             return (<li key={app.slug} className="apps-section__card">
-            <button type="button" className={`apps-section__card-open${running || stopping ? " apps-section__card-open--with-runtime" : ""}`} onClick={() => sidebarSections.setLocation("apps", app.slug)}>
+            <button type="button" className={`apps-section__card-open${running || stopping ? " apps-section__card-open--with-runtime" : ""}`} onClick={() => sidebarSections.openLocation("apps", app.slug)}>
               <AppWindowMac className="apps-section__card-icon" size={16} strokeWidth={1.7} aria-hidden="true"/>
               <span className="apps-section__card-label">{app.meta.label}</span>
             </button>

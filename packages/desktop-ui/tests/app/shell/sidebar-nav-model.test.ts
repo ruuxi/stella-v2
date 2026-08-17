@@ -52,68 +52,69 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
     expect(resolveSidebarSection("nonsense")).toBe("home");
   });
 
-  it("selecting a section opens the panel; Home stays a real in-panel view", () => {
-    sidebarSections.selectSection("quickchat");
-    expect(sidebarSections.getSnapshot().activeSection).toBe("quickchat");
+  it("resets to a single Home tab", () => {
+    const snap = sidebarSections.getSnapshot();
+    expect(snap.tabs).toHaveLength(1);
+    expect(snap.tabs[0]!.kind).toBe("home");
+    expect(snap.activeTabId).toBe(snap.tabs[0]!.id);
+  });
+
+  it("a launcher pick morphs the empty Home tab into that item + opens the panel", () => {
+    sidebarSections.openLocation("files", "file-a");
+    const snap = sidebarSections.getSnapshot();
+    expect(snap.tabs).toHaveLength(1);
+    expect(snap.tabs[0]!.kind).toBe("files");
+    expect(snap.tabs[0]!.location).toBe("file-a");
     expect(displayTabs.getSnapshot().panelOpen).toBe(true);
+  });
 
-    // Home no longer closes the panel — it is the launcher.
+  it("'+' opens a NEW Home tab alongside the current one (does not replace it)", () => {
+    sidebarSections.openLocation("files", "file-a");
     sidebarSections.openHomeLauncher();
-    expect(sidebarSections.getSnapshot().activeSection).toBe("home");
-    expect(displayTabs.getSnapshot().panelOpen).toBe(true);
+    const snap = sidebarSections.getSnapshot();
+    expect(snap.tabs.map((tab) => tab.kind)).toEqual(["files", "home"]);
+    expect(snap.activeTabId).toBe(snap.tabs[1]!.id);
   });
 
-  it("re-selecting the active drilled section returns it to its list", () => {
-    sidebarSections.openLocation("files", "tab-123");
-    expect(sidebarSections.getSnapshot().activeSection).toBe("files");
-    expect(sidebarSections.getSnapshot().locations.files).toBe("tab-123");
-
-    sidebarSections.selectSection("files");
-    expect(sidebarSections.getSnapshot().locations.files).toBeNull();
+  it("opening two files yields two INDEPENDENT file tabs (per item, not per section)", () => {
+    sidebarSections.openLocation("files", "file-a"); // morphs Home -> file-a
+    sidebarSections.openHomeLauncher(); // new empty Home tab
+    sidebarSections.openLocation("files", "file-b"); // morphs it -> file-b
+    const fileTabs = sidebarSections
+      .getSnapshot()
+      .tabs.filter((tab) => tab.kind === "files");
+    expect(fileTabs).toHaveLength(2);
+    expect(fileTabs.map((tab) => tab.location)).toEqual(["file-a", "file-b"]);
   });
 
-  it("'+' opens a NEW Home tab alongside the current view (does not replace it)", () => {
-    // Open Files.
-    sidebarSections.selectSection("files");
-    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files"]);
-
-    // "+" adds a Home tab and activates it — Files stays open.
-    sidebarSections.openHomeLauncher();
-    expect(sidebarSections.getSnapshot().activeSection).toBe("home");
-    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files", "home"]);
+  it("opening an item from a NON-home tab creates a new tab (no morph)", () => {
+    sidebarSections.openLocation("quickchat", null); // Home -> quickchat
+    sidebarSections.openLocation("files", "file-a"); // active is quickchat -> new tab
+    expect(
+      sidebarSections.getSnapshot().tabs.map((tab) => tab.kind),
+    ).toEqual(["quickchat", "files"]);
   });
 
-  it("navigating from the empty Home tab consumes it (browser new-tab)", () => {
-    sidebarSections.selectSection("files"); // openTabs: [files]
-    sidebarSections.openHomeLauncher(); // openTabs: [files, home], active home
-    // Picking a destination from the Home launcher turns that empty tab into it.
-    sidebarSections.selectSection("apps");
-    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files", "apps"]);
-    expect(sidebarSections.getSnapshot().activeSection).toBe("apps");
-  });
+  it("activateTab switches by id; closeTab activates a neighbor / closes on last", () => {
+    sidebarSections.openLocation("files", "file-a"); // [file-a]
+    sidebarSections.openHomeLauncher(); // [file-a, home]
+    sidebarSections.openLocation("browser", null); // morph home -> [file-a, browser]
+    const snap = sidebarSections.getSnapshot();
+    const fileTabId = snap.tabs[0]!.id;
+    const browserTabId = snap.tabs[1]!.id;
 
-  it("activateTab switches between coexisting tabs without adding/removing any", () => {
-    sidebarSections.selectSection("files");
-    sidebarSections.openHomeLauncher();
-    sidebarSections.selectSection("browser"); // [files, browser], active browser
-    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files", "browser"]);
+    sidebarSections.activateTab(fileTabId);
+    expect(sidebarSections.getSnapshot().activeTabId).toBe(fileTabId);
 
-    sidebarSections.activateTab("files");
-    expect(sidebarSections.getSnapshot().activeSection).toBe("files");
-    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files", "browser"]);
-  });
+    sidebarSections.closeTab(browserTabId);
+    expect(
+      sidebarSections.getSnapshot().tabs.map((tab) => tab.kind),
+    ).toEqual(["files"]);
 
-  it("closing a tab activates a neighbor; closing the last closes the panel", () => {
-    sidebarSections.selectSection("files");
-    sidebarSections.openHomeLauncher();
-    sidebarSections.selectSection("apps"); // [files, apps], active apps
-
-    sidebarSections.closeTab("apps");
-    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files"]);
-    expect(sidebarSections.getSnapshot().activeSection).toBe("files");
-
-    sidebarSections.closeTab("files");
+    sidebarSections.closeTab(fileTabId);
     expect(displayTabs.getSnapshot().panelOpen).toBe(false);
-    expect(sidebarSections.getSnapshot().openTabs).toEqual(["home"]);
+    expect(
+      sidebarSections.getSnapshot().tabs.map((tab) => tab.kind),
+    ).toEqual(["home"]);
   });
 });

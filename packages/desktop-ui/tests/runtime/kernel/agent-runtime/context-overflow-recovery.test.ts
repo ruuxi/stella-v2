@@ -30,6 +30,8 @@ const storedUser = (content: string): StoredMessage => ({
   content,
 });
 
+const oversizedStoredUser = () => storedUser("x".repeat(800_000));
+
 const buildToolLoopPayload = (count: number) => ({
   input: Array.from({ length: count }, (_, index) => ({
     type: "tool_result",
@@ -57,12 +59,15 @@ const createStore = (history: StoredMessage[]) => ({
 
 const createHarness = (args: {
   contextWindow?: number;
+  storedHistory?: StoredMessage[];
   execute: (resume?: boolean) => Promise<{
     finalText: string;
     errorMessage?: string;
   }>;
 }) => {
-  const store = createStore([storedUser("Compacted durable tail.")]);
+  const store = createStore(
+    args.storedHistory ?? [storedUser("Compacted durable tail.")],
+  );
   const agent = {
     state: {
       messages: [
@@ -106,12 +111,12 @@ describe("progress-aware context overflow recovery", () => {
     runCompactionWithHooksMock.mockReset();
   });
 
-  it("uses the real model window and a uniform 70% full-payload boundary", () => {
+  it("caps canonical history while using the real window for provider payloads", () => {
     expect(
       getCompactionTriggerTokens({
         model: { contextWindow: 1_000_000 },
       } as never),
-    ).toBe(700_000);
+    ).toBe(140_000);
     expect(
       getCompactionTriggerTokens({
         model: { contextWindow: 80_000 },
@@ -150,12 +155,6 @@ describe("progress-aware context overflow recovery", () => {
   });
 
   it("forces compaction, rebuilds durable history, and retries", async () => {
-    runCompactionWithHooksMock.mockImplementation(
-      async ({ threadKey }: { threadKey: string }) => {
-        expect(isThreadCompactionForced(threadKey)).toBe(true);
-        return { compacted: true };
-      },
-    );
     const execute = vi
       .fn<(resume?: boolean) => Promise<{ finalText: string }>>()
       .mockImplementationOnce(async () => {
@@ -165,7 +164,18 @@ describe("progress-aware context overflow recovery", () => {
         return { finalText: "unreachable" };
       })
       .mockResolvedValueOnce({ finalText: "Recovered after compaction." });
-    const harness = createHarness({ contextWindow: 272_000, execute });
+    const harness = createHarness({
+      contextWindow: 272_000,
+      storedHistory: [oversizedStoredUser()],
+      execute,
+    });
+    runCompactionWithHooksMock.mockImplementation(
+      async ({ threadKey }: { threadKey: string }) => {
+        expect(isThreadCompactionForced(threadKey)).toBe(true);
+        harness.store.history = [storedUser("Compacted durable tail.")];
+        return { compacted: true };
+      },
+    );
 
     await expect(harness.run()).resolves.toEqual({
       finalText: "Recovered after compaction.",
@@ -176,7 +186,7 @@ describe("progress-aware context overflow recovery", () => {
     expect(harness.store.handoffs).toHaveLength(0);
   });
 
-  it("hands off when a compacted retry overflows without new progress", async () => {
+  it("hands off when compaction does not reduce the durable payload enough", async () => {
     runCompactionWithHooksMock.mockResolvedValue({ compacted: true });
     const execute = vi.fn(async () => {
       preflightProviderPayload(THREAD_KEY, buildToolLoopPayload(230), {
@@ -189,12 +199,12 @@ describe("progress-aware context overflow recovery", () => {
     const result = await harness.run();
 
     expect(result.finalText).toContain(
-      "the compacted retry overflowed again before any new model output or tool result",
+      "the compacted history still exceeds the model input budget",
     );
     expect(result.errorMessage).toContain(
       "Sending your message again retries compaction and continues in a clean General turn",
     );
-    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenCalledOnce();
     expect(runCompactionWithHooksMock).toHaveBeenCalledOnce();
     expect(harness.store.handoffs).toHaveLength(1);
     expect(harness.store.emergencyCompactions).toEqual([
@@ -212,7 +222,6 @@ describe("progress-aware context overflow recovery", () => {
   });
 
   it("compacts again after genuine tool progress refills the fallback window", async () => {
-    runCompactionWithHooksMock.mockResolvedValue({ compacted: true });
     const execute = vi
       .fn<(resume?: boolean) => Promise<{ finalText: string }>>()
       .mockImplementationOnce(async () => {
@@ -228,6 +237,7 @@ describe("progress-aware context overflow recovery", () => {
           content: [{ type: "text", text: "inspection complete" }],
           timestamp: 2,
         });
+        harness.store.history = [oversizedStoredUser()];
         preflightProviderPayload(THREAD_KEY, buildToolLoopPayload(230), {
           contextWindow: 80_000,
         });
@@ -236,8 +246,16 @@ describe("progress-aware context overflow recovery", () => {
       .mockResolvedValueOnce({
         finalText: "Recovered after the second compaction.",
       });
-    const harness = createHarness({ contextWindow: 80_000, execute });
+    const harness = createHarness({
+      contextWindow: 80_000,
+      storedHistory: [oversizedStoredUser()],
+      execute,
+    });
     const liveState = harness.agent.state;
+    runCompactionWithHooksMock.mockImplementation(async () => {
+      harness.store.history = [storedUser("Compacted durable tail.")];
+      return { compacted: true };
+    });
 
     await expect(harness.run()).resolves.toEqual({
       finalText: "Recovered after the second compaction.",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  POST_SEND_TOP_MARGIN_PX,
   consumeResponseSpacerHeight,
   resolvePostSendTarget,
   resolveResponseSpacerHeight,
@@ -80,7 +81,7 @@ describe("chat response spacer geometry", () => {
     ).toBe(840);
   });
 
-  it("aligns a tall user row by its top", () => {
+  it("keeps a tall user row below the top fade", () => {
     expect(
       resolvePostSendTarget({
         rowTop: 1_000,
@@ -88,7 +89,7 @@ describe("chat response spacer geometry", () => {
         viewportHeight: 600,
         responseSpacerHeightPx: 360,
       }),
-    ).toBe(1_000);
+    ).toBe(1_000 - POST_SEND_TOP_MARGIN_PX);
   });
 
   it("does not pull a submit out of scrollback", () => {

@@ -706,8 +706,7 @@ export function getCompactActivityStatusText(
     return `${summary.errorCount} failed — ${name} · ${tally}${stopped}`
   }
   const failed = summary.errorCount > 0 ? ` · ${summary.errorCount} failed` : ''
-  const latest = summary.latestText ? ` — latest: ${summary.latestText}` : ''
-  return `${tally}${failed}${stopped}${latest}`
+  return `${tally}${failed}${stopped}`
 }
 
 /** Stable, namespaced identity shared by sorting state and React keys. */

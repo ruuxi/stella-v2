@@ -99,32 +99,61 @@
   min-width: 0;
 }
 
-/* In the head, the row button shares space with the collapse caret. */
+/* In the head, the row button spans the row; the collapse caret overlays its
+   trailing edge. */
 .chat-workspace-strip__task-row-head .chat-workspace-strip__task-button {
   flex: 1 1 auto;
   width: auto;
   margin-right: 0;
 }
 
+.chat-workspace-strip__task-row-head:hover .chat-workspace-strip__task-button,
+.chat-workspace-strip__task-row-head:focus-within
+  .chat-workspace-strip__task-button,
+.chat-workspace-strip__task-row[data-expanded="true"]
+  .chat-workspace-strip__task-button {
+  padding-right: 32px;
+}
+
 /* Collapse caret: toggles the row's nested detail (owned subagents, produced
-   files, live updates). The row button itself opens the thread transcript. */
+   files). The row button itself opens the thread transcript. It lives in the
+   trailing slot the old view button used — a resting overlay revealed on
+   hover/focus, and pinned visible while the row is expanded so it can be
+   collapsed again. */
 .chat-workspace-strip__task-caret {
   appearance: none;
-  flex: 0 0 auto;
+  position: absolute;
+  z-index: 1;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--text-weak);
   cursor: default;
+  opacity: 0;
+  pointer-events: none;
   transition:
+    opacity 120ms ease,
     background 120ms ease,
     color 120ms ease;
+}
+
+.chat-workspace-strip__task-row-head:hover .chat-workspace-strip__task-caret,
+.chat-workspace-strip__task-row-head:focus-within
+  .chat-workspace-strip__task-caret,
+.chat-workspace-strip__task-caret:focus-visible,
+.chat-workspace-strip__task-row[data-expanded="true"]
+  .chat-workspace-strip__task-caret {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .chat-workspace-strip__task-caret > svg {
@@ -141,6 +170,17 @@
   outline: none;
   background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--text-base);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .chat-workspace-strip__task-row-head .chat-workspace-strip__task-button {
+    padding-right: 32px;
+  }
+
+  .chat-workspace-strip__task-caret {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -621,19 +661,15 @@
   overflow: hidden;
 }
 
-/* Hairline rail beside everything the thread itself produced — the live
-   assistant line plus the files disclosure ("View N files" and, expanded,
-   the file rows). The detail block starts under the label (23px); pull the
-   rail back to the center of the 15px status-icon column so its content
-   rests at a 17px indent. */
+/* Everything the thread itself produced (the files disclosure and, expanded,
+   the file rows). No rail line — just clean indentation: the block inherits
+   the detail's 23px indent so its content lines up under the parent thread's
+   title text (the label spine). */
 .chat-workspace-strip__task-rail {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  margin-left: -16px;
-  padding-left: 9px;
-  border-left: 1px solid var(--border-base);
 }
 
 /* The file list reuses the __task-collapse pair for its expand/collapse so

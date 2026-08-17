@@ -3470,6 +3470,44 @@ export class SessionStore {
       });
     }
   }
+  /**
+   * Delete a single trailing thread-message entry by id. Used by context-overflow
+   * recovery to drop the content-less failed-overflow assistant marker so the forced
+   * compaction preserves the real resume anchor (the tool result / user turn it
+   * followed) instead of spending its tail budget on the marker. Only removes a leaf
+   * entry (nothing references it as a parent) so the parent chain and the next
+   * append's parent link stay consistent under concurrent writers. Returns true when
+   * a row was removed.
+   */
+  removeThreadMessageEntry(threadKeyInput, entryIdInput) {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    const entryId = typeof entryIdInput === "string" ? entryIdInput.trim() : "";
+    if (!threadKey || !entryId) {
+      return false;
+    }
+    let removed = 0;
+    this.withImmediateTransaction(() => {
+      const deleteResult = this.db
+        .prepare(
+          `DELETE FROM runtime_thread_entries
+             WHERE thread_key = ?
+               AND entry_id = ?
+               AND entry_type = 'message'
+               AND NOT EXISTS (
+                 SELECT 1 FROM runtime_thread_entries child
+                 WHERE child.thread_key = ?
+                   AND child.parent_entry_id = ?
+               )`,
+        )
+        .run(threadKey, entryId, threadKey, entryId);
+      removed = deleteResult?.changes ?? 0;
+      if (removed > 0) {
+        this.touchThread(threadKey);
+      }
+    });
+    return removed > 0;
+  }
+
   recordRunEvent(event) {
     const messageId = `run:${event.runId}:${event.seq ?? generateLocalId()}`;
     this.withTransaction(() => {

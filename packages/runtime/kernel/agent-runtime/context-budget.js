@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 
 const providerBudgets = new Map();
+const providerPayloadEstimates = new Map();
 const forcedCompactions = new Map();
 
 const MAX_INPUT_FRACTION = 0.7;
@@ -20,6 +21,21 @@ export const setProviderContextWindow = (threadKey, contextWindow) => {
 
 export const clearProviderContextWindow = (threadKey) => {
   providerBudgets.delete(threadKey);
+  providerPayloadEstimates.delete(threadKey);
+};
+
+/**
+ * Last full outbound-payload token estimate `preflightProviderPayload` measured for
+ * a thread — system prompt + tool schemas + resident context + history, the same
+ * bytes the provider receives. Compaction reads this so its trigger tracks the real
+ * request size instead of the history-only estimate, which on large-toolset engines
+ * (e.g. the Codex Responses path) runs ~2x smaller than the dispatched payload.
+ */
+export const getLastProviderPayloadTokens = (threadKey) => {
+  const value = providerPayloadEstimates.get(threadKey);
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 };
 
 const isImageValue = (key, value) =>
@@ -144,6 +160,11 @@ export const preflightProviderPayload = (threadKey, payload, model) => {
     Math.floor(contextWindow * MAX_INPUT_FRACTION),
   );
   const estimatedTokens = estimatePayloadTokens(payload, inputBudget);
+  // Capture the measured full-payload size so proactive compaction and overflow
+  // recovery can reason about the real request rather than the history-only estimate.
+  if (threadKey) {
+    providerPayloadEstimates.set(threadKey, estimatedTokens);
+  }
   if (estimatedTokens < inputBudget) return;
 
   throw new Error(

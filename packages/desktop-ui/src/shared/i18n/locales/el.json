@@ -1665,6 +1665,10 @@
       "viewFiles": {
         "one": "Προβολή {count} αρχείου",
         "other": "Προβολή {count} αρχείων"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

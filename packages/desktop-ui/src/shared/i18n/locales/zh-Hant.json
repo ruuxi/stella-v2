@@ -1647,6 +1647,9 @@
       "activity": "活動",
       "viewFiles": {
         "other": "查看 {count} 個檔案"
+      },
+      "moreFiles": {
+        "other": "{count} more files"
       }
     },
     "updatePill": {

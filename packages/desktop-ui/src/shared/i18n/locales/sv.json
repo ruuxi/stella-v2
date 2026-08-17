@@ -1665,6 +1665,10 @@
       "viewFiles": {
         "one": "Visa {count} fil",
         "other": "Visa {count} filer"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

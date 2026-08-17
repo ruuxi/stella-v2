@@ -1647,6 +1647,9 @@
       "activity": "กิจกรรม",
       "viewFiles": {
         "other": "ดู {count} ไฟล์"
+      },
+      "moreFiles": {
+        "other": "{count} more files"
       }
     },
     "updatePill": {

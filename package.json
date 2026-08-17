@@ -2,6 +2,7 @@
   "name": "stella-v2",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
     "packages/*"
@@ -348,6 +349,22 @@
           "Keywords": "AI;Assistant;Agent;"
         }
       }
+    },
+    "pacman": {
+      "artifactName": "Stella-${version}-ArchLinux-${arch}.pkg.tar.xz",
+      "packageName": "stella",
+      "compression": "xz",
+      "depends": [
+        "at-spi2-core",
+        "git",
+        "gnome-keyring",
+        "gtk3",
+        "libnotify",
+        "libsecret",
+        "libxss",
+        "nss",
+        "xdg-utils"
+      ]
     },
     "publish": [
       {

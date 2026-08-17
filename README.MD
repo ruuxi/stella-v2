@@ -20,7 +20,9 @@ across background agents while you keep going.
 
 Download the installer from [stella.sh](https://stella.sh). On macOS, open the
 DMG and drag Stella into Applications. On Windows, run the NSIS installer. On
-Linux, mark the AppImage executable and open it.
+Arch Linux and Omarchy, download the native package and install it with
+`sudo pacman -U ./Stella-*-ArchLinux-x64.pkg.tar.xz`. On other Linux
+distributions, mark the AppImage executable and open it.
 
 ## Chats that stay manageable
 
@@ -61,7 +63,15 @@ If you'd rather not set anything up, an optional Stella subscription covers medi
 
 ## Platforms
 
-macOS and Windows. Windows support is currently untested and experimental.
+- macOS
+- Windows (experimental)
+- Linux x64 (beta), including Ubuntu and Omarchy/Arch with Hyprland
+
+Linux releases include an AppImage plus a native Arch Linux package for Omarchy
+and other Arch-based distributions. The native package installs Stella's menu
+entry and its Git and GNOME Keyring dependencies through `pacman`, with no FUSE
+setup required. Stella uses the system Git installation on Linux and a Secret
+Service-compatible keyring for credential storage.
 
 ## Repository layout
 

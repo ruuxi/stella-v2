@@ -145,6 +145,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             libcrypt1 \
+            libarchive-tools \
             libx11-dev \
             libxinerama-dev \
             libxkbcommon-dev \

@@ -53,6 +53,24 @@ export const FOLLOW_BREATHING_PX = 72;
  */
 export const FOLLOW_TOP_PEEK_PX = 56;
 
+/**
+ * Height of the *top* mask fade on `.session-content` (see the `mask-image`
+ * rule in `shell/full-shell.layout.css`: `transparent 0% → black 24px`).
+ * Content inside this band is painted at partial-to-zero opacity, so a row
+ * whose top sits here reads as clipped. Mirror of the bottom fade; keep in
+ * sync with the CSS.
+ */
+export const CHAT_VIEWPORT_TOP_FADE_PX = 24;
+
+/**
+ * Margin kept above the just-sent user row's top edge when the send auto-scroll
+ * frames it near the top. Clears the top fade band (so the whole bubble is
+ * readable and never clipped by the viewport's top edge) and leaves a small
+ * peek of the previous turn above it for context. Sized to the top fade plus a
+ * readable sliver, which lands it at the same visual gap as `FOLLOW_TOP_PEEK_PX`.
+ */
+export const POST_SEND_TOP_MARGIN_PX = CHAT_VIEWPORT_TOP_FADE_PX + 32;
+
 /** Breathing room between the user bubble's bottom edge and the footer. */
 export const POST_SEND_USER_MESSAGE_BREATHING_PX = 48;
 
@@ -142,9 +160,18 @@ export const resolvePostSendTarget = ({
 }): number => {
   const rowHeight = Math.max(0, rowBottom - rowTop);
   const availableForRow = Math.max(0, viewportHeight - responseSpacerHeightPx);
-  return rowHeight <= availableForRow
-    ? rowBottom - viewportHeight + responseSpacerHeightPx
-    : rowTop;
+  const framed =
+    rowHeight <= availableForRow
+      ? rowBottom - viewportHeight + responseSpacerHeightPx
+      : rowTop;
+  // Never scroll so far that the row's top reaches (or passes) the viewport's
+  // top edge — the top fade would clip it. Cap the target so the row's top
+  // keeps `POST_SEND_TOP_MARGIN_PX` of space above it: the whole bubble clears
+  // the fade and a sliver of the previous turn peeks in for context. This also
+  // covers the tall-message case (`framed === rowTop`), which would otherwise
+  // pin the top flush to y=0. (`setTarget` clamps the result to `[0, maxScroll]`,
+  // so the very first turn near the top of content still resolves sanely.)
+  return Math.min(framed, rowTop - POST_SEND_TOP_MARGIN_PX);
 };
 
 /** All offsets are in scroll-container coordinates (`scrollTop`-relative). */

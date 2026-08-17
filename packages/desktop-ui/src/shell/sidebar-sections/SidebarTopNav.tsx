@@ -1,37 +1,41 @@
 /**
- * The right-sidebar top bar's navigation, browser-tab style.
+ * The right-sidebar top bar's navigation — a genuine browser-tab strip.
  *
- * Instead of a fixed row of tabs, it shows WHATEVER destination you're
- * currently on (icon + name), an optional back affordance when a section is
- * drilled into a sub-item, and a "+" that opens the Home launcher to pick a
- * new destination — like opening a new browser tab.
+ * Each open destination is its own tab (Home launcher, Quick chat, Files, Apps,
+ * Browser). Tabs coexist: click to switch, X to close, and "+" opens a NEW
+ * empty Home tab alongside whatever you already had open (it never replaces the
+ * current view). The selected-tab styling mirrors the main chat's conversation
+ * tabs (see `conversation-topbar.css`): overlapping borders with the active tab
+ * going borderless/transparent so it melts into the panel below.
+ *
+ * A drilled-in tab (an open file / running app) keeps a back affordance in the
+ * top bar; re-clicking the active tab also returns it to its list.
  */
 import {
   sidebarSections,
   useActiveSidebarSection,
+  useSidebarOpenTabs,
   useSidebarSectionLocation,
 } from "@/features/workspace-display/sidebar-sections";
-import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
-import { ChevronLeft, Plus } from "@/ui/icons";
+import { ChevronLeft, Plus, X } from "@/ui/icons";
 import { SIDEBAR_SECTION_META } from "./section-meta";
 import "./sidebar-top-nav.css";
 
 export function SidebarTopNav() {
+  const openTabs = useSidebarOpenTabs();
   const activeSection = useActiveSidebarSection();
-  const panelOpen = useDisplayPanelOpen();
   const filesLocation = useSidebarSectionLocation("files");
   const appsLocation = useSidebarSectionLocation("apps");
-  const { label, Icon } = SIDEBAR_SECTION_META[activeSection];
 
-  // Files and Apps can drill into a sub-item (an open file / running app).
-  // The back-to-list affordance lives here now — the in-body section headers
-  // are gone (superseded by this top-bar model).
+  // Files and Apps can drill into a sub-item (an open file / running app); the
+  // back-to-list affordance for the active tab lives here.
   const drilledSection =
     activeSection === "files" && filesLocation
       ? "files"
       : activeSection === "apps" && appsLocation
         ? "apps"
         : null;
+  const activeMeta = SIDEBAR_SECTION_META[activeSection];
 
   return (
     <div className="sidebar-top-nav">
@@ -40,30 +44,57 @@ export function SidebarTopNav() {
           type="button"
           className="sidebar-top-nav__back"
           onClick={() => sidebarSections.clearLocation(drilledSection)}
-          aria-label={`Back to ${label}`}
-          title={`Back to ${label}`}
+          aria-label={`Back to ${activeMeta.label}`}
+          title={`Back to ${activeMeta.label}`}
         >
           <ChevronLeft size={16} strokeWidth={1.9} aria-hidden="true" />
         </button>
       ) : null}
-      <span className="sidebar-top-nav__current">
-        <span className="sidebar-top-nav__icon" aria-hidden="true">
-          <Icon size={15} strokeWidth={1.75} />
-        </span>
-        <span className="sidebar-top-nav__label">{label}</span>
-      </span>
-      {activeSection !== "home" ? (
-        <button
-          type="button"
-          className="sidebar-top-nav__new"
-          onClick={() => sidebarSections.openHomeLauncher()}
-          aria-label="Open Home to switch views"
-          title="Home"
-          disabled={!panelOpen}
-        >
-          <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
-        </button>
-      ) : null}
+      <div className="sidebar-top-nav__tabs" role="tablist" aria-label="Sidebar">
+        {openTabs.map((section) => {
+          const { label, Icon } = SIDEBAR_SECTION_META[section];
+          const active = section === activeSection;
+          return (
+            <div
+              key={section}
+              className="sidebar-top-nav__tab"
+              data-active={active ? "true" : undefined}
+              title={label}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className="sidebar-top-nav__tab-target"
+                onClick={() => sidebarSections.activateTab(section)}
+              >
+                <span className="sidebar-top-nav__tab-icon" aria-hidden="true">
+                  <Icon size={15} strokeWidth={1.75} />
+                </span>
+                <span className="sidebar-top-nav__tab-label">{label}</span>
+              </button>
+              <button
+                type="button"
+                className="sidebar-top-nav__tab-close"
+                aria-label={`Close ${label}`}
+                title={`Close ${label}`}
+                onClick={() => sidebarSections.closeTab(section)}
+              >
+                <X size={12} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="sidebar-top-nav__plus"
+        onClick={() => sidebarSections.openHomeLauncher()}
+        aria-label="New tab"
+        title="New tab"
+      >
+        <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
+      </button>
     </div>
   );
 }

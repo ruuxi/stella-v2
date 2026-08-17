@@ -71,4 +71,49 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
     sidebarSections.selectSection("files");
     expect(sidebarSections.getSnapshot().locations.files).toBeNull();
   });
+
+  it("'+' opens a NEW Home tab alongside the current view (does not replace it)", () => {
+    // Open Files.
+    sidebarSections.selectSection("files");
+    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files"]);
+
+    // "+" adds a Home tab and activates it — Files stays open.
+    sidebarSections.openHomeLauncher();
+    expect(sidebarSections.getSnapshot().activeSection).toBe("home");
+    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files", "home"]);
+  });
+
+  it("navigating from the empty Home tab consumes it (browser new-tab)", () => {
+    sidebarSections.selectSection("files"); // openTabs: [files]
+    sidebarSections.openHomeLauncher(); // openTabs: [files, home], active home
+    // Picking a destination from the Home launcher turns that empty tab into it.
+    sidebarSections.selectSection("apps");
+    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files", "apps"]);
+    expect(sidebarSections.getSnapshot().activeSection).toBe("apps");
+  });
+
+  it("activateTab switches between coexisting tabs without adding/removing any", () => {
+    sidebarSections.selectSection("files");
+    sidebarSections.openHomeLauncher();
+    sidebarSections.selectSection("browser"); // [files, browser], active browser
+    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files", "browser"]);
+
+    sidebarSections.activateTab("files");
+    expect(sidebarSections.getSnapshot().activeSection).toBe("files");
+    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files", "browser"]);
+  });
+
+  it("closing a tab activates a neighbor; closing the last closes the panel", () => {
+    sidebarSections.selectSection("files");
+    sidebarSections.openHomeLauncher();
+    sidebarSections.selectSection("apps"); // [files, apps], active apps
+
+    sidebarSections.closeTab("apps");
+    expect(sidebarSections.getSnapshot().openTabs).toEqual(["files"]);
+    expect(sidebarSections.getSnapshot().activeSection).toBe("files");
+
+    sidebarSections.closeTab("files");
+    expect(displayTabs.getSnapshot().panelOpen).toBe(false);
+    expect(sidebarSections.getSnapshot().openTabs).toEqual(["home"]);
+  });
 });

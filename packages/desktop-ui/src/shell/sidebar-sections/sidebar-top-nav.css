@@ -1,12 +1,15 @@
 /* Right-sidebar top bar navigation — see `SidebarTopNav.tsx`.
 
-   Browser-tab model: the current destination on the left, a "+" that opens the
-   Home launcher on the right. Sized to sit inside the 38px topbar strip
-   alongside Settings and the persistent panel toggle. */
+   A genuine browser-tab strip whose selected-tab treatment mirrors the main
+   chat's conversation tabs (`shell/topbar/conversation-topbar.css`): tabs share
+   an overlapping hairline border, first/last (and the active tab's neighbours)
+   round their bottom corners, and the active tab goes borderless + transparent
+   so it melts seamlessly into the panel below. */
 
 .sidebar-top-nav {
   display: flex;
   align-items: center;
+  flex: 1 1 auto;
   gap: 4px;
   min-width: 0;
   height: 100%;
@@ -14,67 +17,206 @@
 }
 
 .sidebar-top-nav__back,
-.sidebar-top-nav__new {
+.sidebar-top-nav__plus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-sm, 6px);
   background: transparent;
-  color: var(--text-weak);
+  color: var(--text-muted);
   cursor: default;
   -webkit-app-region: no-drag;
   transition:
     background 0.12s ease,
-    border-color 0.12s ease,
     color 0.12s ease;
 }
 
 .sidebar-top-nav__back:hover,
-.sidebar-top-nav__new:hover:not(:disabled) {
+.sidebar-top-nav__plus:hover {
   color: var(--text-strong);
-  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .sidebar-top-nav__back:focus-visible,
-.sidebar-top-nav__new:focus-visible {
+.sidebar-top-nav__plus:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
 
-.sidebar-top-nav__new:disabled {
-  opacity: 0.4;
-}
-
-.sidebar-top-nav__current {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.sidebar-top-nav__tabs {
+  display: flex;
+  align-items: flex-start;
   min-width: 0;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--radius-sm, 6px);
-  color: var(--text-strong);
-  background: var(--select-surface-bg);
-  border: 1px solid var(--select-surface-border);
-  font-size: var(--font-size-base);
-  font-weight: var(--weight-medium);
-  letter-spacing: -0.005em;
-  white-space: nowrap;
+  height: var(--shell-topbar-height, 38px);
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-app-region: no-drag;
 }
 
-.sidebar-top-nav__icon {
+.sidebar-top-nav__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-top-nav__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 34px;
+  max-width: 150px;
+  height: calc(var(--shell-topbar-height, 38px) - 5px);
+  box-sizing: border-box;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-muted);
+  background: color-mix(in oklch, var(--foreground) 7%, transparent);
+  container-type: inline-size;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-top-nav__tab:first-child {
+  border-bottom-left-radius: 6px;
+}
+
+.sidebar-top-nav__tab:last-child {
+  border-bottom-right-radius: 6px;
+}
+
+.sidebar-top-nav__tab:has(+ .sidebar-top-nav__tab[data-active="true"]) {
+  border-bottom-right-radius: 6px;
+}
+
+.sidebar-top-nav__tab[data-active="true"] + .sidebar-top-nav__tab {
+  border-bottom-left-radius: 6px;
+}
+
+.sidebar-top-nav__tab + .sidebar-top-nav__tab {
+  margin-left: -1px;
+}
+
+.sidebar-top-nav__tab:hover {
+  color: var(--text-base);
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+}
+
+.sidebar-top-nav__tab[data-active="true"] {
+  border-color: transparent;
+  color: var(--text-strong);
+  background: transparent;
+}
+
+.sidebar-top-nav__tab-target {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  gap: 6px;
+  padding: 5px 8px 0;
+  border: 0;
+  outline: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: default;
+  font: inherit;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-top-nav__tab:hover .sidebar-top-nav__tab-target,
+.sidebar-top-nav__tab[data-active="true"] .sidebar-top-nav__tab-target {
+  padding-right: 26px;
+}
+
+.sidebar-top-nav__tab-target:focus-visible {
+  box-shadow: inset var(--focus-ring);
+}
+
+.sidebar-top-nav__tab-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  flex: 0 0 auto;
 }
 
-.sidebar-top-nav__label {
+.sidebar-top-nav__tab-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+
+.sidebar-top-nav__tab-close {
+  position: absolute;
+  right: 4px;
+  top: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  opacity: 0;
+  cursor: default;
+  -webkit-app-region: no-drag;
+  transition: opacity 100ms ease;
+}
+
+.sidebar-top-nav__tab:hover .sidebar-top-nav__tab-close,
+.sidebar-top-nav__tab:focus-within .sidebar-top-nav__tab-close,
+.sidebar-top-nav__tab[data-active="true"] .sidebar-top-nav__tab-close {
+  opacity: 0.72;
+}
+
+.sidebar-top-nav__tab-close:hover,
+.sidebar-top-nav__tab-close:focus-visible {
+  opacity: 1;
+  outline: none;
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+/* Icon-only tabs when the strip gets tight: drop the label, center the icon. */
+@container (max-width: 56px) {
+  .sidebar-top-nav__tab-target {
+    justify-content: center;
+    padding: 5px 0 0;
+  }
+
+  .sidebar-top-nav__tab-label {
+    display: none;
+  }
+
+  .sidebar-top-nav__tab-close {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .sidebar-top-nav__tab:hover .sidebar-top-nav__tab-icon,
+  .sidebar-top-nav__tab[data-active="true"] .sidebar-top-nav__tab-icon {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-top-nav__tab-close {
+    transition: none;
+  }
 }

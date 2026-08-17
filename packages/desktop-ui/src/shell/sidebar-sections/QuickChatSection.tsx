@@ -18,7 +18,6 @@ import { useConversationMessages } from "@/features/chat/hooks/use-conversation-
 import { useConversationDisplayMessages } from "@/features/chat/hooks/use-conversation-display-messages";
 import { useStreamingChat } from "@/features/chat/hooks/use-streaming-chat";
 import { createNewLocalConversationId } from "@/features/chat/services/local-chat-store";
-import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelExpanded } from "@/features/workspace-display/tab-store";
 import type { ChatContext } from "@/shared/types/electron";
 import { SquarePen } from "@/ui/icons";
@@ -126,18 +125,17 @@ function QuickChatConversation({
   );
 }
 
-export function QuickChatSection() {
-  const activeSection = useActiveSidebarSection();
+export function QuickChatSection({ active = false }: { active?: boolean }) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   // Bump to force a brand-new throwaway conversation ("New chat").
   const [generation, setGeneration] = useState(0);
-  // Mint the throwaway conversation lazily, only once the user actually opens
-  // Quick chat — so users who never touch it don't accrue orphan conversations.
+  // Mint the throwaway conversation lazily, only once this tab is actually
+  // opened — so an unopened Quick chat tab doesn't accrue an orphan conversation.
   const [activated, setActivated] = useState(false);
 
   useEffect(() => {
-    if (activeSection === "quickchat") setActivated(true);
-  }, [activeSection]);
+    if (active) setActivated(true);
+  }, [active]);
 
   useEffect(() => {
     if (!activated) return;

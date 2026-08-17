@@ -16,7 +16,6 @@
   -webkit-app-region: no-drag;
 }
 
-.sidebar-top-nav__back,
 .sidebar-top-nav__plus {
   display: inline-flex;
   align-items: center;
@@ -36,13 +35,11 @@
     color 0.12s ease;
 }
 
-.sidebar-top-nav__back:hover,
 .sidebar-top-nav__plus:hover {
   color: var(--text-strong);
   background: color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
-.sidebar-top-nav__back:focus-visible,
 .sidebar-top-nav__plus:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);

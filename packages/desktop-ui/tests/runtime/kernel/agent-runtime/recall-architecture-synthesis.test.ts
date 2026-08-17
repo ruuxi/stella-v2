@@ -124,13 +124,16 @@ describe("architectural Recall synthesis returns a model brief", () => {
 
     // Credentialless route: no apiKey sent, and reasoning omitted (off/none)
     // because the local model does not support a reasoning/effort setting.
+    // Recall also sends NEITHER temperature NOR a max-tokens cap — provider
+    // defaults govern both (Codex's responses API rejects `temperature`).
     const options = streamMock.completeSimple.mock.calls[0]?.[2] as Record<
       string,
       unknown
     >;
     expect(options.apiKey).toBeUndefined();
     expect(options.reasoning).toBeUndefined();
-    expect(options.temperature).toBe(0);
+    expect(options.temperature).toBeUndefined();
+    expect(options.maxTokens).toBeUndefined();
   });
 
   it("sends LOW reasoning and the key for a keyed model that supports effort", async () => {

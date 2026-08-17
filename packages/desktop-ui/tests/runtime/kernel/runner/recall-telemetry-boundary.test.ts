@@ -116,7 +116,14 @@ describe("runner Recall telemetry boundary", () => {
       }),
     ).resolves.toMatchObject({ status: "found", brief: "Found it." });
 
-    expect(clock).toHaveBeenCalledTimes(9);
+    // Route resolution is deferred to the synthesis fallback inside runRecall,
+    // so the boundary no longer measures route time (two fewer clock reads) and
+    // never resolves the route eagerly — fast lookups take no model route.
+    expect(clock).toHaveBeenCalledTimes(7);
+    expect(boundaryMocks.resolveRunnerRecallLlmRoute).not.toHaveBeenCalled();
+    expect(
+      typeof boundaryMocks.runRecall.mock.calls[0]?.[0].resolveRecallRoute,
+    ).toBe("function");
     expect(listLocalChatEvents).toHaveBeenCalledWith("conversation-1", 5);
     expect(getAppBrowserContext).toHaveBeenCalledTimes(1);
     const recallArgs = boundaryMocks.runRecall.mock.calls[0]?.[0];
@@ -125,14 +132,14 @@ describe("runner Recall telemetry boundary", () => {
       appBrowserContext: browserContext,
       telemetry: {
         startedAtMs: 100,
-        routeMs: 5,
+        routeMs: 0,
         hostContextMs: 15,
         sourceTimings: {
-          "host.localEvents": { kind: "sql", calls: 1, ms: 3, chars: 0 },
+          "host.localEvents": { kind: "sql", calls: 1, ms: 5, chars: 0 },
           "host.appBrowserContext": {
             kind: "host",
             calls: 1,
-            ms: 7,
+            ms: 3,
             chars: JSON.stringify(browserContext).length,
           },
         },
@@ -164,14 +171,14 @@ describe("runner Recall telemetry boundary", () => {
       localEvents: [],
       telemetry: {
         startedAtMs: 100,
-        routeMs: 5,
+        routeMs: 0,
         hostContextMs: 15,
         sourceTimings: {
-          "host.localEvents": { kind: "sql", calls: 0, ms: 3, chars: 0 },
+          "host.localEvents": { kind: "sql", calls: 0, ms: 5, chars: 0 },
           "host.appBrowserContext": {
             kind: "host",
             calls: 0,
-            ms: 7,
+            ms: 3,
             chars: 0,
           },
         },

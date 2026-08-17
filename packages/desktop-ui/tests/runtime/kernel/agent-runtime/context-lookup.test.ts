@@ -659,15 +659,16 @@ describe("runRecall", () => {
       ...storeOverrides,
     } as unknown as Parameters<typeof runRecall>[0]["store"],
     localEvents: [],
-    recallRoute: {
-      activeEngine: "default",
-      executionEngine: "native",
-      modelId: "test-provider/test-model",
-      resolvedLlm: {
-        model: { id: "test-model" },
-        getApiKey: async () => "test-key",
-      },
-    } as unknown as Parameters<typeof runRecall>[0]["recallRoute"],
+    resolveRecallRoute: async () =>
+      ({
+        activeEngine: "default",
+        executionEngine: "native",
+        modelId: "test-provider/test-model",
+        resolvedLlm: {
+          model: { id: "test-model" },
+          getApiKey: async () => "test-key",
+        },
+      }) as never,
   });
 
   it("advertises the native tools, executes a tool round, and returns the final text brief", async () => {
@@ -987,12 +988,13 @@ describe("runRecall", () => {
         args: {
           ...(await makeRunArgs(rootPath, { searchTranscripts })),
           stellaAppDir: path.join(rootPath, "repo-checkout"),
-          recallRoute: {
-            activeEngine: "claude_code_local" as const,
-            executionEngine: "claude-code" as const,
-            modelId: "claude-code/haiku",
-            claudeCodeModel: "haiku",
-          },
+          resolveRecallRoute: async () =>
+            ({
+              activeEngine: "claude_code_local" as const,
+              executionEngine: "claude-code" as const,
+              modelId: "claude-code/haiku",
+              claudeCodeModel: "haiku",
+            }) as never,
         },
         searchTranscripts,
       };

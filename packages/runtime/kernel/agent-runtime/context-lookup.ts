@@ -40,8 +40,37 @@ import {
   type RecallTelemetrySourceKind,
 } from "./recall-telemetry.js";
 import type { RecallModelRoute } from "./recall-route.js";
+import { resolvedLlmSupportsCredentiallessCalls } from "../model-routing.js";
+import type { ResolvedLlmRoute } from "../model-routing.js";
 
 const MAX_CONTEXT_OUTPUT_TOKENS = 1_500;
+
+/**
+ * Recall's synthesis pass runs at LOW reasoning. Models that expose no
+ * reasoning/effort setting get no reasoning param at all (i.e. off/none) — the
+ * completion option only carries positive ThinkingLevels, so omitting it is how
+ * "off" is expressed on the wire.
+ */
+export const recallSynthesisReasoning = (
+  model: ResolvedLlmRoute["model"],
+): "low" | undefined => (model.reasoning === true ? "low" : undefined);
+
+/**
+ * Resolve the synthesis credential for a native (in-process) Recall route.
+ * Mirrors the utility-route / one-shot contract: a direct-provider route that
+ * carries a baseUrl (local or otherwise credentialless) needs no key, while
+ * every other route must produce one. Returns the key (or undefined for a
+ * credentialless route) and only throws the documented "no credential" error
+ * when a key is genuinely required — never for a credentialless local model.
+ */
+export const resolveRecallSynthesisApiKey = async (
+  resolvedLlm: ResolvedLlmRoute,
+): Promise<string | undefined> => {
+  const apiKey = (await resolvedLlm.getApiKey())?.trim();
+  if (apiKey) return apiKey;
+  if (resolvedLlmSupportsCredentiallessCalls(resolvedLlm)) return undefined;
+  throw new Error("No Recall model credential is configured.");
+};
 const EAGER_MEMORY_FILE_CHAR_BUDGET = 4_000;
 /** Hard ceiling for the complete eager seed, including headings and request. */
 export const EAGER_RECALL_SEED_MAX_CHARS = 12_000;
@@ -1484,7 +1513,7 @@ const runArchitecturalRecall = async (args: {
   store: RuntimeStore;
   localEvents: LocalContextEvent[];
   appBrowserContext?: HostAppBrowserContextSnapshot;
-  recallRoute: RecallModelRoute;
+  resolveRecallRoute: () => Promise<RecallModelRoute>;
   recallReadQueries?: RecallReadQueries;
   memoryEnabled: boolean;
   telemetry: RecallTelemetryCollector;
@@ -1502,11 +1531,14 @@ const runArchitecturalRecall = async (args: {
   const classificationRequiresSynthesis = !intentDecision.deterministicFastPath;
   let synthesisRequired = classificationRequiresSynthesis;
   args.telemetry.setIntent(intent, intentDecision.deterministicFastPath);
-  const useClaudeCode = args.recallRoute.executionEngine === "claude-code";
-  args.telemetry.setRoute(
-    useClaudeCode ? "claude-code" : "native",
-    args.recallRoute.modelId,
-  );
+  // Route resolution is deferred to the synthesis path below. Fast, indexed
+  // lookups (repo/path/decision/exact-phrase) return their evidence directly
+  // and must never resolve — let alone require — a model or its credential.
+  // Resolving eagerly here is exactly what made a signed-out / unresolvable
+  // model selection fail EVERY Recall, including pure lookups.
+  let cachedRoute: RecallModelRoute | undefined;
+  const resolveRoute = async (): Promise<RecallModelRoute> =>
+    (cachedRoute ??= await args.resolveRecallRoute());
 
   let sourceKinds:
     | readonly ["durable_memory"]
@@ -1757,6 +1789,15 @@ const runArchitecturalRecall = async (args: {
   }
 
   args.telemetry.setIntent(intent, false);
+  // Only genuine multi-source episodic synthesis reaches here, so this is the
+  // first and only place a model/credential is required. Resolve the user's
+  // active Recall route now (never on the fast path).
+  const recallRoute = await resolveRoute();
+  const useClaudeCode = recallRoute.executionEngine === "claude-code";
+  args.telemetry.setRoute(
+    useClaudeCode ? "claude-code" : "native",
+    recallRoute.modelId,
+  );
   const systemPrompt =
     "Synthesize the supplied Recall evidence into one concise factual brief. Cite dates and thread ids present in evidence. Do not invent facts. If evidence is insufficient, answer exactly: Nothing relevant found.";
   const userPrompt = `${evidenceText}\n\n# Lookup request\n${args.lookupPrompt.trim()}`;
@@ -1769,7 +1810,7 @@ const runArchitecturalRecall = async (args: {
           stellaAppDir: args.stellaDataDir,
           cwd: args.stellaAppDir,
           agentType: AGENT_IDS.ORCHESTRATOR,
-          modelOverride: args.recallRoute.claudeCodeModel,
+          modelOverride: recallRoute.claudeCodeModel,
           effortLevel: "low",
           context: {
             systemPrompt,
@@ -1786,12 +1827,14 @@ const runArchitecturalRecall = async (args: {
         })
       ).trim();
     } else {
-      const resolvedLlm = args.recallRoute.resolvedLlm;
+      const resolvedLlm = recallRoute.resolvedLlm;
       if (!resolvedLlm) {
         throw new Error("Recall light-tier route is unavailable.");
       }
-      const apiKey = (await resolvedLlm.getApiKey())?.trim();
-      if (!apiKey) throw new Error("No Recall model credential is configured.");
+      // Credentialless local/direct-provider routes (baseUrl, no key) are
+      // valid — only routes that genuinely need a key and have none fail here.
+      const apiKey = await resolveRecallSynthesisApiKey(resolvedLlm);
+      const reasoning = recallSynthesisReasoning(resolvedLlm.model);
       const response = await completeSimple(
         resolvedLlm.model,
         {
@@ -1805,8 +1848,8 @@ const runArchitecturalRecall = async (args: {
           ],
         },
         {
-          apiKey,
-          reasoning: "low",
+          ...(apiKey ? { apiKey } : {}),
+          ...(reasoning ? { reasoning } : {}),
           ...(resolvedLlm.refreshApiKey
             ? { refreshApiKey: resolvedLlm.refreshApiKey }
             : {}),
@@ -1856,7 +1899,7 @@ export const runRecall = async (args: {
   store: RuntimeStore;
   localEvents: LocalContextEvent[];
   appBrowserContext?: HostAppBrowserContextSnapshot;
-  recallRoute: RecallModelRoute;
+  resolveRecallRoute: () => Promise<RecallModelRoute>;
   recallReadQueries?: RecallReadQueries;
   telemetry?: RecallTelemetrySeed;
   onTelemetry?: (record: RecallTelemetryRecord) => void;
@@ -1902,7 +1945,7 @@ export const runRecall = async (args: {
         ...(args.appBrowserContext
           ? { appBrowserContext: args.appBrowserContext }
           : {}),
-        recallRoute: args.recallRoute,
+        resolveRecallRoute: args.resolveRecallRoute,
         ...(args.recallReadQueries
           ? { recallReadQueries: args.recallReadQueries }
           : {}),
@@ -1951,10 +1994,11 @@ export const runRecall = async (args: {
   // The runner resolves this authoritative route from the active engine before
   // retrieval. Claude needs no provider credential here; its explicit Haiku
   // override is carried separately from saved user model preferences.
-  const useClaudeCode = args.recallRoute.executionEngine === "claude-code";
+  const recallRoute = await args.resolveRecallRoute();
+  const useClaudeCode = recallRoute.executionEngine === "claude-code";
   telemetry.setRoute(
     useClaudeCode ? "claude-code" : "native",
-    args.recallRoute.modelId,
+    recallRoute.modelId,
   );
   const verbose = recallTraceVerbose();
   const finish = (outcome: string, brief: string): string => {
@@ -1967,17 +2011,22 @@ export const runRecall = async (args: {
     emitTelemetry(outcome);
     return brief;
   };
-  const resolvedLlm = args.recallRoute.resolvedLlm;
+  const resolvedLlm = recallRoute.resolvedLlm;
   if (!useClaudeCode && !resolvedLlm) {
     return finish(
       "route-unavailable",
       "Recall failed: the active engine's light-tier route is unavailable.",
     );
   }
-  const apiKey = useClaudeCode
-    ? undefined
-    : (await resolvedLlm?.getApiKey())?.trim();
-  if (!useClaudeCode && !apiKey) {
+  // Credentialless local/direct-provider routes (baseUrl, no key) are valid;
+  // only a native route that genuinely needs a key and has none is unavailable.
+  const credentialless =
+    !!resolvedLlm && resolvedLlmSupportsCredentiallessCalls(resolvedLlm);
+  const apiKey =
+    useClaudeCode || credentialless
+      ? undefined
+      : (await resolvedLlm?.getApiKey())?.trim();
+  if (!useClaudeCode && !credentialless && !apiKey) {
     return finish(
       "credential-unavailable",
       "Recall is unavailable because no model credential is configured.",
@@ -2137,7 +2186,7 @@ export const runRecall = async (args: {
             stellaAppDir: args.stellaDataDir,
             cwd: args.stellaAppDir,
             agentType: AGENT_IDS.ORCHESTRATOR,
-            modelOverride: args.recallRoute.claudeCodeModel,
+            modelOverride: recallRoute.claudeCodeModel,
             effortLevel: "low",
             context,
             abortSignal: args.signal,
@@ -2217,8 +2266,10 @@ export const runRecall = async (args: {
           messages,
         },
         {
-          apiKey: apiKey as string,
-          reasoning: "low",
+          ...(apiKey ? { apiKey } : {}),
+          ...(recallSynthesisReasoning(resolvedLlm!.model)
+            ? { reasoning: recallSynthesisReasoning(resolvedLlm!.model) }
+            : {}),
           ...(resolvedLlm!.refreshApiKey
             ? { refreshApiKey: resolvedLlm!.refreshApiKey }
             : {}),

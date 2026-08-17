@@ -14,6 +14,7 @@ import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
 import { redactMemoryText } from "../memory/redaction.js";
 import { MEMORY_INDEX_MAX_CHARS } from "../memory/dream-storage.js";
+import { USER_PROFILE_INJECT_MAX_CHARS } from "../memory/user-profile-store.js";
 import { readRuntimePrompt } from "../prompts/home-prompts.js";
 import { boundParentAgentReport } from "./agent-report-bounds.js";
 
@@ -97,7 +98,12 @@ export const readMemorySummaryDoc = (
  * synchronously for resident injection.
  */
 export const readUserProfileDoc = (stellaDataDir: string): string | undefined =>
-  readResidentMemoryDoc(path.join(stellaDataDir, "memories", "profile.md"));
+  readResidentMemoryDoc(
+    path.join(stellaDataDir, "memories", "profile.md"),
+    // Coupled to the write cap: bound the always-resident block so a
+    // hand-edited or over-cap profile.md can never blow the context budget.
+    USER_PROFILE_INJECT_MAX_CHARS,
+  );
 
 const MAX_AGENT_EVENT_FIELD_CHARS = 30_000;
 

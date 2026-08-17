@@ -106,11 +106,12 @@ describe("architectural Recall pipeline", () => {
       stellaDataDir: root,
       store: makeStore(),
       localEvents: [],
-      recallRoute: {
-        activeEngine: "default",
-        executionEngine: "native",
-        modelId: "test/light",
-      } as never,
+      resolveRecallRoute: async () =>
+        ({
+          activeEngine: "default",
+          executionEngine: "native",
+          modelId: "test/light",
+        }) as never,
       recallReadQueries: {
         getFtsHealth,
         listTranscriptNeighborsBatch: vi.fn(() => []),
@@ -131,6 +132,47 @@ describe("architectural Recall pipeline", () => {
     expect(getFtsHealth).not.toHaveBeenCalled();
   });
 
+  it("answers a fast indexed lookup without ever resolving a model route", async () => {
+    // Regression: route resolution used to run eagerly for every Recall, so a
+    // signed-out / unresolvable model selection failed EVERY lookup, including
+    // pure indexed ones. A fast lookup must never call the route resolver.
+    const root = await createRoot();
+    await writeFile(
+      path.join(root, "memories", "memory_index.md"),
+      [
+        "# Memory routing index",
+        "- Stella repo path: /Users/rahulnanda/projects/stella",
+        "  hooks: stella repo, dev checkout, v1",
+      ].join("\n"),
+    );
+    let routeResolutions = 0;
+    const brief = await runRecall({
+      conversationId: "conv-1",
+      lookupPrompt: "What repo path did we decide for Stella?",
+      memorySearchTerms: ["Stella repo", "/Users/rahulnanda/projects/stella"],
+      stellaAppDir: root,
+      stellaDataDir: root,
+      store: makeStore(),
+      localEvents: [],
+      resolveRecallRoute: async () => {
+        routeResolutions += 1;
+        // Model selection is unresolvable (e.g. signed out) — must not matter.
+        throw new Error("No usable model route is configured.");
+      },
+      recallReadQueries: {
+        getFtsHealth: () => ({
+          healthy: true,
+          transcriptReady: true,
+          threadsReady: true,
+        }),
+        listTranscriptNeighborsBatch: () => [],
+      },
+    });
+
+    expect(brief).toContain("/Users/rahulnanda/projects/stella");
+    expect(routeResolutions).toBe(0);
+  });
+
   it("uses delimiter-safe repository anchors and preserves bare stella", async () => {
     const falseRoot = await createRoot();
     await writeFile(
@@ -145,11 +187,12 @@ describe("architectural Recall pipeline", () => {
       stellaDataDir: root,
       store: makeStore(),
       localEvents: [],
-      recallRoute: {
-        activeEngine: "default",
-        executionEngine: "native",
-        modelId: "test/light",
-      } as never,
+      resolveRecallRoute: async () =>
+        ({
+          activeEngine: "default",
+          executionEngine: "native",
+          modelId: "test/light",
+        }) as never,
       recallReadQueries: {
         getFtsHealth: () => ({
           healthy: true,
@@ -225,12 +268,13 @@ describe("architectural Recall pipeline", () => {
         stellaDataDir: root,
         store,
         localEvents: [],
-        recallRoute: {
-          activeEngine: "claude_code_local",
-          executionEngine: "claude-code",
-          modelId: "claude-code/haiku",
-          claudeCodeModel: "haiku",
-        },
+        resolveRecallRoute: async () =>
+          ({
+            activeEngine: "claude_code_local",
+            executionEngine: "claude-code",
+            modelId: "claude-code/haiku",
+            claudeCodeModel: "haiku",
+          }) as never,
         recallReadQueries: {
           getFtsHealth: () => ({
             healthy: false,
@@ -276,11 +320,12 @@ describe("architectural Recall pipeline", () => {
       stellaDataDir: root,
       store,
       localEvents: [],
-      recallRoute: {
-        activeEngine: "default",
-        executionEngine: "native",
-        modelId: "test/light",
-      } as never,
+      resolveRecallRoute: async () =>
+        ({
+          activeEngine: "default",
+          executionEngine: "native",
+          modelId: "test/light",
+        }) as never,
       recallReadQueries: {
         getFtsHealth: () => ({
           healthy: true,
@@ -322,11 +367,12 @@ describe("architectural Recall pipeline", () => {
       stellaDataDir: root,
       store,
       localEvents: [],
-      recallRoute: {
-        activeEngine: "default",
-        executionEngine: "native",
-        modelId: "test/light",
-      } as never,
+      resolveRecallRoute: async () =>
+        ({
+          activeEngine: "default",
+          executionEngine: "native",
+          modelId: "test/light",
+        }) as never,
       recallReadQueries: {
         getFtsHealth: () => ({
           healthy: true,
@@ -366,11 +412,12 @@ describe("architectural Recall pipeline", () => {
       stellaDataDir: root,
       store,
       localEvents: [],
-      recallRoute: {
-        activeEngine: "default",
-        executionEngine: "native",
-        modelId: "test/light",
-      } as never,
+      resolveRecallRoute: async () =>
+        ({
+          activeEngine: "default",
+          executionEngine: "native",
+          modelId: "test/light",
+        }) as never,
       recallReadQueries: {
         getFtsHealth: () => ({
           healthy: true,
@@ -401,11 +448,12 @@ describe("architectural Recall pipeline", () => {
       stellaDataDir: root,
       store: makeStore(),
       localEvents: [],
-      recallRoute: {
-        activeEngine: "default",
-        executionEngine: "native",
-        modelId: "test/light",
-      } as never,
+      resolveRecallRoute: async () =>
+        ({
+          activeEngine: "default",
+          executionEngine: "native",
+          modelId: "test/light",
+        }) as never,
       recallReadQueries: {
         getFtsHealth: () => ({
           healthy: true,
@@ -519,11 +567,12 @@ describe("architectural Recall pipeline", () => {
         stellaDataDir: root,
         store,
         localEvents: [],
-        recallRoute: {
-          activeEngine: "default",
-          executionEngine: "native",
-          modelId: "test/light",
-        } as never,
+        resolveRecallRoute: async () =>
+          ({
+            activeEngine: "default",
+            executionEngine: "native",
+            modelId: "test/light",
+          }) as never,
         recallReadQueries: {
           getFtsHealth: () => readRecallFtsHealth(db),
           listTranscriptNeighborsBatch: (targets, options) =>

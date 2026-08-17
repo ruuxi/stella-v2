@@ -678,13 +678,22 @@ export const createRunnerContext = ({
         async (): Promise<RecallLookupResult> => {
           try {
             const recallStartedAtMs = performance.now();
-            const routeStartedAt = performance.now();
-            const recallRoute = await resolveRunnerRecallLlmRoute(
-              context,
-              AGENT_IDS.ORCHESTRATOR,
-              payload.modelConfigSnapshot,
-            );
-            const routeMs = performance.now() - routeStartedAt;
+            // Resolve the Recall route lazily and memoized. Fast, indexed
+            // lookups return evidence with no model call, so they must never
+            // resolve — let alone require — a route or its credential.
+            // Resolving eagerly here made an unresolvable/ signed-out model
+            // selection fail EVERY Recall, including pure lookups.
+            let recallRoutePromise:
+              | ReturnType<typeof resolveRunnerRecallLlmRoute>
+              | undefined;
+            const resolveRecallRoute = (): ReturnType<
+              typeof resolveRunnerRecallLlmRoute
+            > =>
+              (recallRoutePromise ??= resolveRunnerRecallLlmRoute(
+                context,
+                AGENT_IDS.ORCHESTRATOR,
+                payload.modelConfigSnapshot,
+              ));
             const sourceTimings: NonNullable<
               RecallTelemetrySeed["sourceTimings"]
             > = {};
@@ -734,13 +743,15 @@ export const createRunnerContext = ({
               store: context.runtimeStore,
               localEvents,
               ...(appBrowserContext ? { appBrowserContext } : {}),
-              recallRoute,
+              resolveRecallRoute,
               ...(context.recallReadQueries
                 ? { recallReadQueries: context.recallReadQueries }
                 : {}),
               telemetry: {
                 startedAtMs: recallStartedAtMs,
-                routeMs,
+                // Route resolution is deferred to the synthesis fallback, so
+                // it is folded into model timing rather than measured here.
+                routeMs: 0,
                 hostContextMs,
                 sourceTimings,
               },

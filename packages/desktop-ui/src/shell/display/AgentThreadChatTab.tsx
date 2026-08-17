@@ -53,144 +53,6 @@ const compactPreview = (value: string, maxChars = 120): string => {
     : compact;
 };
 
-const ReasoningTranscriptItem = ({
-  message,
-  cacheKey,
-}: {
-  message: AgentThreadMessageRecord;
-  cacheKey: string;
-}) => {
-  const t = useT();
-  return (
-    <details className="agent-thread-chat__trace" data-trace-kind="reasoning">
-      <summary>
-        <span className="agent-thread-chat__trace-title">
-          {t("shell.display.agentThread.role.reasoning")}
-        </span>
-        <span className="agent-thread-chat__trace-preview">
-          {compactPreview(message.content)}
-        </span>
-      </summary>
-      <div className="agent-thread-chat__trace-body">
-        <Markdown
-          text={message.content}
-          cacheKey={cacheKey}
-          hideHorizontalRules
-        />
-      </div>
-    </details>
-  );
-};
-
-const ToolTranscriptItem = ({
-  message,
-}: {
-  message: AgentThreadMessageRecord;
-}) => {
-  const t = useT();
-  const activity = message.toolActivity;
-  if (!activity) return null;
-  const statusKey =
-    activity.status === "running"
-      ? "shell.display.agentThread.status.running"
-      : activity.status === "completed"
-        ? "shell.display.agentThread.status.completed"
-        : "shell.display.agentThread.status.error";
-  return (
-    <details
-      className="agent-thread-chat__trace"
-      data-trace-kind="tool"
-      data-tool-status={activity.status}
-    >
-      <summary>
-        <span className="agent-thread-chat__trace-title">
-          {activity.toolName}
-        </span>
-        <span className="agent-thread-chat__tool-status">{t(statusKey)}</span>
-      </summary>
-      <div className="agent-thread-chat__trace-body agent-thread-chat__tool-details">
-        {activity.input ? (
-          <section>
-            <span>{t("shell.display.agentThread.toolInput")}</span>
-            <pre>{activity.input}</pre>
-          </section>
-        ) : null}
-        {activity.output ? (
-          <section>
-            <span>{t("shell.display.agentThread.toolOutput")}</span>
-            <pre>{activity.output}</pre>
-          </section>
-        ) : activity.status === "running" ? (
-          <p>{t("shell.display.agentThread.toolRunning")}</p>
-        ) : null}
-      </div>
-    </details>
-  );
-};
-
-/**
- * Consecutive tool/reasoning trace messages between two conversation
- * messages collapse into one quiet clickable text row ("12 tool calls" /
- * "Reasoning"). Expanding lists the individual trace items, each of which
- * opens further into its full input/output detail.
- */
-const TraceGroupRow = ({
-  traceKind,
-  entries,
-  expanded,
-  onToggle,
-  threadId,
-}: {
-  traceKind: "tool" | "reasoning";
-  entries: { message: AgentThreadMessageRecord; index: number }[];
-  expanded: boolean;
-  onToggle: () => void;
-  threadId: string;
-}) => {
-  const tPlural = useTPlural();
-  const label =
-    traceKind === "tool"
-      ? tPlural("shell.display.agentThread.toolGroup", entries.length)
-      : tPlural("shell.display.agentThread.reasoningGroup", entries.length);
-  return (
-    <div
-      className="agent-thread-chat__trace-group"
-      data-trace-kind={traceKind}
-      data-expanded={expanded ? "true" : undefined}
-    >
-      <button
-        type="button"
-        className="agent-thread-chat__trace-group-toggle"
-        aria-expanded={expanded}
-        onClick={onToggle}
-      >
-        <span className="agent-thread-chat__trace-group-chevron" aria-hidden="true">
-          ›
-        </span>
-        <span>{label}</span>
-      </button>
-      {expanded ? (
-        <div className="agent-thread-chat__trace-group-items">
-          {entries.map(({ message, index }) =>
-            message.role === "tool" ? (
-              <ToolTranscriptItem
-                key={message.entryId ?? `${message.timestamp}:${index}`}
-                message={message}
-              />
-            ) : (
-              <ReasoningTranscriptItem
-                key={message.entryId ?? `${message.timestamp}:${index}`}
-                message={message}
-                cacheKey={message.entryId ?? `${threadId}:${index}`}
-              />
-            ),
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-};
-
 const CheckpointTranscriptItem = ({
   message,
   cacheKey,
@@ -358,6 +220,11 @@ export function AgentThreadChatTab({
   const isClaudeNative = resolvedSource === "claude-native";
   const resolvedReadOnly = activityRecord?.readOnly ?? readOnly;
   const resolvedParentId = activityRecord?.parentAgentId ?? parentAgentId;
+  // Codex surfaces its reasoning AS its working assistant message, so a Codex
+  // thread keeps reasoning (rendered as assistant) while every other engine's
+  // reasoning is dropped from this transcript.
+  const isCodex =
+    activityRecord?.modelConfigSnapshot?.engine === "codex_cli";
   const parentRecord = useMemo(
     () =>
       resolvedParentId
@@ -365,20 +232,6 @@ export function AgentThreadChatTab({
         : undefined,
     [resolvedParentId, threadActivity],
   );
-  const statusLabel = useMemo(() => {
-    switch (activityRecord?.status) {
-      case "running":
-        return t("shell.display.agentThread.status.running");
-      case "completed":
-        return t("shell.display.agentThread.status.completed");
-      case "error":
-        return t("shell.display.agentThread.status.error");
-      case "canceled":
-        return t("shell.display.agentThread.status.canceled");
-      default:
-        return undefined;
-    }
-  }, [activityRecord?.status, t]);
   const [messages, setMessages] = useState<AgentThreadMessageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -413,75 +266,34 @@ export function AgentThreadChatTab({
   );
   const visibleMessages = useMemo(
     () =>
-      messages.filter((message) => {
-        if (message.role !== "lifecycle") return true;
-        if (
-          message.source === "claude-native" &&
-          message.content.trim().length > 0
-        ) {
-          return true;
-        }
-        return Boolean(
-          message.lifecycleEvent &&
-            isAgentStartedEvent(message.lifecycleEvent) &&
-            lifecycleIndex.byStartEventId.has(message.lifecycleEvent._id),
-        );
-      }),
-    [lifecycleIndex, messages],
+      messages
+        .filter((message) => {
+          // Tool calls are never shown in this transcript.
+          if (message.role === "tool") return false;
+          // Reasoning is dropped everywhere except Codex, whose reasoning is
+          // its working assistant message (surfaced as assistant below).
+          if (message.role === "reasoning") return isCodex;
+          if (message.role !== "lifecycle") return true;
+          if (
+            message.source === "claude-native" &&
+            message.content.trim().length > 0
+          ) {
+            return true;
+          }
+          return Boolean(
+            message.lifecycleEvent &&
+              isAgentStartedEvent(message.lifecycleEvent) &&
+              lifecycleIndex.byStartEventId.has(message.lifecycleEvent._id),
+          );
+        })
+        .map((message) =>
+          // Codex reasoning renders exactly like an assistant message.
+          message.role === "reasoning"
+            ? { ...message, role: "assistant" as const }
+            : message,
+        ),
+    [isCodex, lifecycleIndex, messages],
   );
-
-  // Consecutive tool calls (and reasoning blocks) between two conversation
-  // messages fold into one collapsed row each. Group identity keys off the
-  // first trace entry so a group stays expanded while new entries append to
-  // it live (the row's count just ticks up).
-  const renderItems = useMemo(() => {
-    type TraceEntry = { message: AgentThreadMessageRecord; index: number };
-    const items: (
-      | { kind: "single"; message: AgentThreadMessageRecord; index: number }
-      | {
-          kind: "trace-group";
-          traceKind: "tool" | "reasoning";
-          key: string;
-          entries: TraceEntry[];
-        }
-    )[] = [];
-    visibleMessages.forEach((message, index) => {
-      const traceKind =
-        message.role === "tool"
-          ? ("tool" as const)
-          : message.role === "reasoning"
-            ? ("reasoning" as const)
-            : null;
-      if (!traceKind) {
-        items.push({ kind: "single", message, index });
-        return;
-      }
-      const last = items.at(-1);
-      if (last?.kind === "trace-group" && last.traceKind === traceKind) {
-        last.entries.push({ message, index });
-        return;
-      }
-      items.push({
-        kind: "trace-group",
-        traceKind,
-        key: `${traceKind}:${message.entryId ?? `${message.timestamp}:${index}`}`,
-        entries: [{ message, index }],
-      });
-    });
-    return items;
-  }, [visibleMessages]);
-  // Session-local, collapsed by default; keyed per group.
-  const [expandedTraceGroups, setExpandedTraceGroups] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const toggleTraceGroup = useCallback((key: string) => {
-    setExpandedTraceGroups((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
 
   const load = useCallback(
     async (reason: "initial" | "refresh") => {
@@ -636,17 +448,6 @@ export function AgentThreadChatTab({
       data-read-only={resolvedReadOnly ? "true" : undefined}
       aria-busy={loading || refreshing}
     >
-      <header className="agent-thread-chat__header">
-        <span className="agent-thread-chat__eyebrow">
-          {isClaudeNative
-            ? t("shell.display.agentThread.claudeBadge")
-            : t("shell.display.agentThread.badge")}
-        </span>
-        <span className="agent-thread-chat__agent">
-          {isClaudeNative ? "Claude Code" : agentType}
-          {statusLabel ? ` · ${statusLabel}` : ""}
-        </span>
-      </header>
       {error && messages.length > 0 ? (
         <div
           className="agent-thread-chat__refresh-error"
@@ -697,25 +498,11 @@ export function AgentThreadChatTab({
           // shared bubble styling (see compact-conversation.css) so this
           // read-only view renders exactly like the normal sidebar chat.
           <ol className="agent-thread-chat__messages chat-conversation-surface chat-conversation-surface--sidebar">
-            {renderItems.map((item) => {
-              if (item.kind === "trace-group") {
-                return (
-                  <li
-                    key={item.key}
-                    className="agent-thread-chat__message"
-                    data-role={`${item.traceKind}-group`}
-                  >
-                    <TraceGroupRow
-                      traceKind={item.traceKind}
-                      entries={item.entries}
-                      expanded={expandedTraceGroups.has(item.key)}
-                      onToggle={() => toggleTraceGroup(item.key)}
-                      threadId={threadId}
-                    />
-                  </li>
-                );
-              }
-              const { message, index } = item;
+            {visibleMessages.map((message, index) => {
+              const isAssistant =
+                message.role === "assistant" ||
+                (message.role === "lifecycle" &&
+                  message.source === "claude-native");
               return (
               <li
                 key={message.entryId ?? `${message.timestamp}:${index}`}
@@ -740,12 +527,15 @@ export function AgentThreadChatTab({
                   />
                 ) : (
                   <>
-                    <span className="agent-thread-chat__role">
-                      {t(roleLabelKey(message.role))}
-                    </span>
-                    {message.role === "assistant" ||
-                    (message.role === "lifecycle" &&
-                      message.source === "claude-native") ? (
+                    {/* The "Agent" role label above assistant messages is
+                        dropped; the message keeps its indent. Non-assistant
+                        (user/instruction) rows still show their eyebrow. */}
+                    {!isAssistant ? (
+                      <span className="agent-thread-chat__role">
+                        {t(roleLabelKey(message.role))}
+                      </span>
+                    ) : null}
+                    {isAssistant ? (
                       <div className="event-item assistant">
                         <Markdown
                           text={message.content}

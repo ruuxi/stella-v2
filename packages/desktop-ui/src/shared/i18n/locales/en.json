@@ -1665,6 +1665,10 @@
       "viewFiles": {
         "one": "View {count} file",
         "other": "View {count} files"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

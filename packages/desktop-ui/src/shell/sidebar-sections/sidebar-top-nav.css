@@ -48,6 +48,7 @@
 .sidebar-top-nav__tabs {
   display: flex;
   align-items: flex-start;
+  flex: 1 1 auto;
   min-width: 0;
   height: var(--shell-topbar-height, 38px);
   gap: 0;
@@ -66,8 +67,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  flex: 0 1 auto;
-  min-width: 34px;
+  flex: 0 1 150px;
+  width: 150px;
+  min-width: 88px;
   max-width: 150px;
   height: calc(var(--shell-topbar-height, 38px) - 5px);
   box-sizing: border-box;
@@ -76,7 +78,6 @@
   border-radius: 0;
   color: var(--text-muted);
   background: color-mix(in oklch, var(--foreground) 7%, transparent);
-  container-type: inline-size;
   -webkit-app-region: no-drag;
 }
 
@@ -187,29 +188,6 @@
   opacity: 1;
   outline: none;
   background: color-mix(in oklch, var(--foreground) 10%, transparent);
-}
-
-/* Icon-only tabs when the strip gets tight: drop the label, center the icon. */
-@container (max-width: 56px) {
-  .sidebar-top-nav__tab-target {
-    justify-content: center;
-    padding: 5px 0 0;
-  }
-
-  .sidebar-top-nav__tab-label {
-    display: none;
-  }
-
-  .sidebar-top-nav__tab-close {
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
-  }
-
-  .sidebar-top-nav__tab:hover .sidebar-top-nav__tab-icon,
-  .sidebar-top-nav__tab[data-active="true"] .sidebar-top-nav__tab-icon {
-    opacity: 0;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

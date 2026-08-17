@@ -1,0 +1,74 @@
+/* Home launcher options — see `HomeLauncherSection.tsx`.
+
+   The vertically-centered destination picker shown under the search field when
+   nothing is being searched (the browser-tab "new tab" empty state). */
+
+.home-launcher {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.home-launcher__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 320px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-launcher__option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--card) 60%, transparent);
+  color: var(--text-base);
+  cursor: default;
+  text-align: left;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.home-launcher__option:hover {
+  color: var(--text-strong);
+  border-color: color-mix(in oklch, var(--foreground) 18%, var(--border));
+  background: color-mix(in oklch, var(--foreground) 5%, var(--card));
+}
+
+.home-launcher__option:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.home-launcher__option-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--text-weak);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+.home-launcher__option:hover .home-launcher__option-icon {
+  color: var(--text-strong);
+}
+
+.home-launcher__option-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+}

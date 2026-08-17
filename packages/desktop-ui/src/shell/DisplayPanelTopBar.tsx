@@ -5,7 +5,7 @@ import {
 } from "@/features/workspace-display/tab-store";
 import { displaySearchStore } from "@/features/workspace-display/display-search-store";
 import { getPlatform } from "@/platform/electron/platform";
-import { SidebarTabRail } from "@/shell/sidebar-sections/SidebarTabRail";
+import { SidebarTopNav } from "@/shell/sidebar-sections/SidebarTopNav";
 import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
 import { PanelRight } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
@@ -28,7 +28,7 @@ export function DisplayPanelTopBar() {
       inert={!panelOpen}
     >
       <div className="display-panel-topbar__tabs">
-        <SidebarTabRail />
+        <SidebarTopNav />
       </div>
       <SettingsMenuButton
         className="shell-topbar-account-settings"

@@ -1,0 +1,80 @@
+/* Right-sidebar top bar navigation — see `SidebarTopNav.tsx`.
+
+   Browser-tab model: the current destination on the left, a "+" that opens the
+   Home launcher on the right. Sized to sit inside the 38px topbar strip
+   alongside Settings and the persistent panel toggle. */
+
+.sidebar-top-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-top-nav__back,
+.sidebar-top-nav__new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--text-weak);
+  cursor: default;
+  -webkit-app-region: no-drag;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.sidebar-top-nav__back:hover,
+.sidebar-top-nav__new:hover:not(:disabled) {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+.sidebar-top-nav__back:focus-visible,
+.sidebar-top-nav__new:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sidebar-top-nav__new:disabled {
+  opacity: 0.4;
+}
+
+.sidebar-top-nav__current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text-strong);
+  background: var(--select-surface-bg);
+  border: 1px solid var(--select-surface-border);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+
+.sidebar-top-nav__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-top-nav__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -20,8 +20,23 @@ import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 import { displayTabs } from "./tab-store";
 
-export const SIDEBAR_SECTIONS = ["home", "files", "apps", "browser"] as const;
-export const PANEL_SIDEBAR_SECTIONS = ["files", "apps", "browser"] as const;
+export const SIDEBAR_SECTIONS = [
+  "home",
+  "quickchat",
+  "files",
+  "apps",
+  "browser",
+] as const;
+// Every section now renders inside the panel body — Home is the panel's
+// empty-state launcher (browser-tab "new tab" model) rather than a surface
+// that lives outside the panel.
+export const PANEL_SIDEBAR_SECTIONS = [
+  "home",
+  "quickchat",
+  "files",
+  "apps",
+  "browser",
+] as const;
 
 export type SidebarSection = (typeof SIDEBAR_SECTIONS)[number];
 export type PanelSidebarSection = (typeof PANEL_SIDEBAR_SECTIONS)[number];
@@ -64,7 +79,7 @@ export const resolveSidebarSection = (value: unknown): SidebarSection => {
 
 export const resolvePanelSidebarSection = (
   section: SidebarSection,
-): PanelSidebarSection => (section === "home" ? "files" : section);
+): PanelSidebarSection => section;
 
 /**
  * Per-section sub-location. `null` always means "show this section's default
@@ -76,6 +91,7 @@ export const resolvePanelSidebarSection = (
  */
 export type SidebarSectionLocations = {
   home: string | null;
+  quickchat: string | null;
   files: string | null;
   apps: string | null;
   browser: string | null;
@@ -93,6 +109,7 @@ const STORAGE_KEY_LOCATIONS = "stella.sidebar.sectionLocations";
 
 const DEFAULT_LOCATIONS: SidebarSectionLocations = {
   home: null,
+  quickchat: null,
   files: null,
   apps: null,
   browser: null,
@@ -130,6 +147,7 @@ const readPersistedLocations = (): SidebarSectionLocations => {
     return {
       // `tasks` is the pre-rename key for the same drill-down location.
       home: pick("home") ?? pick("tasks"),
+      quickchat: pick("quickchat"),
       files: pick("files"),
       apps: pick("apps"),
       browser: pick("browser"),
@@ -162,6 +180,7 @@ const persistLocations = (locations: SidebarSectionLocations): void => {
     STORAGE_KEY_LOCATIONS,
     JSON.stringify({
       home: locations.home,
+      quickchat: locations.quickchat,
       files: locations.files,
       apps: locations.apps,
       browser: locations.browser,
@@ -192,28 +211,21 @@ export const sidebarSections = {
   },
 
   /**
-   * The tab rail's open / switch / reset rule.
+   * The top bar's open / switch / reset rule, browser-tab style.
    *
    * - panel closed                     → open it on `section`
    * - panel open on X's detail, pick X → return X to its default view
    * - panel open on X's default, pick X → do nothing
    * - panel open on X, pick Y          → switch to Y, stay open
    *
+   * Home is now a real in-panel view (the empty-state launcher), so selecting
+   * it opens/keeps the panel like any other section rather than closing it.
    * Neither branch touches per-section memory, so a close/reopen round trip
    * lands back on whatever sub-location the section was showing.
    */
   selectSection(rawSection: SidebarSection): void {
     const section = resolveSidebarSection(rawSection);
     const { panelOpen } = displayTabs.getLayoutSnapshot();
-
-    if (section === "home") {
-      this.setActiveSection("home");
-      displayTabs.setPanelOpen(false);
-      if (snapshot.locations.home !== null) {
-        this.clearLocation("home");
-      }
-      return;
-    }
 
     if (!panelOpen) {
       this.setActiveSection(section);
@@ -229,6 +241,19 @@ export const sidebarSections = {
     }
 
     this.setActiveSection(section);
+  },
+
+  /**
+   * Jump to the Home launcher (the browser-tab "new tab" empty state) with the
+   * panel open, so the user can pick another destination. Returns Home to its
+   * default view if it was drilled in.
+   */
+  openHomeLauncher(): void {
+    this.setActiveSection("home");
+    displayTabs.setPanelOpen(true);
+    if (snapshot.locations.home !== null) {
+      this.clearLocation("home");
+    }
   },
 
   /**
@@ -254,7 +279,7 @@ export const sidebarSections = {
   openLocation(section: SidebarSection, location: string | null): void {
     this.setLocation(section, location);
     this.setActiveSection(section);
-    displayTabs.setPanelOpen(section !== "home");
+    displayTabs.setPanelOpen(true);
   },
 
   reset(): void {

@@ -375,6 +375,14 @@ fn connect(session: &str) -> Result<Connection, String> {
 }
 
 pub fn send_command(cmd: Value, session: &str) -> Result<Response, String> {
+    send_command_with_timeout(cmd, session, Duration::from_secs(30))
+}
+
+pub fn send_command_with_timeout(
+    cmd: Value,
+    session: &str,
+    timeout: Duration,
+) -> Result<Response, String> {
     // Retry logic for transient errors (EAGAIN/EWOULDBLOCK/connection issues)
     const MAX_RETRIES: u32 = 5;
     const RETRY_DELAY_MS: u64 = 200;
@@ -386,7 +394,7 @@ pub fn send_command(cmd: Value, session: &str) -> Result<Response, String> {
             thread::sleep(Duration::from_millis(RETRY_DELAY_MS * (attempt as u64)));
         }
 
-        match send_command_once(&cmd, session) {
+        match send_command_once(&cmd, session, timeout) {
             Ok(response) => return Ok(response),
             Err(e) => {
                 if is_transient_error(&e) {
@@ -429,10 +437,10 @@ fn is_transient_error(error: &str) -> bool {
         || error.contains("os error 10054") // Connection reset by peer (Windows)
 }
 
-fn send_command_once(cmd: &Value, session: &str) -> Result<Response, String> {
+fn send_command_once(cmd: &Value, session: &str, timeout: Duration) -> Result<Response, String> {
     let mut stream = connect(session)?;
 
-    stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
+    stream.set_read_timeout(Some(timeout)).ok();
     stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
 
     let mut json_str = serde_json::to_string(cmd).map_err(|e| e.to_string())?;

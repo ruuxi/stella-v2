@@ -705,6 +705,29 @@
       "accessEnds": "Access ends {date}",
       "lapseTitle": "Stella stops when your plan ends",
       "lapseDescription": "Your {plan} plan runs until {date}. After that Stella stops — the Free plan's allowance is one-time and you've already used yours."
+    },
+    "mobile": {
+      "sectionTitle": "Subscription",
+      "currentPlanLabel": "Current plan",
+      "planValue": "Stella {plan}",
+      "manage": "Manage subscription",
+      "manageWebNote": "Manage or cancel this subscription from Stella on the web at stella.sh.",
+      "renews": "Renews {date}",
+      "accessEnds": "Access ends {date}",
+      "chooseHeading": "Choose a plan",
+      "subscribe": "Subscribe",
+      "perMonth": "{price}/mo",
+      "introLine": "{introPrice} first month, then {price}/mo",
+      "signInToSubscribe": "Sign in to subscribe",
+      "startingCheckout": "Starting…",
+      "pendingTitle": "Finishing your purchase",
+      "pendingBody": "Finish paying in the browser. Your plan updates here automatically once payment is confirmed — no need to restart.",
+      "pendingDismiss": "Not now",
+      "successTitle": "You're on Stella {plan}",
+      "successBody": "Your subscription is active. Enjoy the higher limits.",
+      "errorRetry": "Try again",
+      "alreadySubscribedTitle": "You already have a subscription",
+      "footnote": "Billed by Stella via Stripe. Renews monthly until canceled; cancel anytime."
     }
   },
   "chat": {

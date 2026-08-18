@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "../../src/components/Icon";
 import { GlassToggle } from "../../src/components/glass";
 import { PrimaryButton } from "../../src/components/PrimaryButton";
+import { SubscriptionSection } from "../../src/components/SubscriptionSection";
 import { authClient } from "../../src/lib/auth-client";
 import { clearAiConsent } from "../../src/lib/ai-consent";
 import { clearCachedToken } from "../../src/lib/auth-token";
@@ -337,6 +338,8 @@ export default function AccountScreen() {
           />
         </View>
       )}
+
+      <SubscriptionSection />
 
       <View style={styles.separator} />
 

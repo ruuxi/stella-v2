@@ -2048,6 +2048,26 @@ export async function sendDesktopBridgeChat({
     userMessageId: submittedUserMessageId,
   });
 
+  const settlePendingGeneratedImages = (
+    generationState: "failed" | "canceled",
+  ) => {
+    const updates: ChatArtifact[] = [];
+    for (const artifact of artifactById.values()) {
+      if (
+        artifact.payload.kind !== "media" ||
+        artifact.payload.asset.kind !== "image" ||
+        artifact.payload.generationState !== "running"
+      ) {
+        continue;
+      }
+      updates.push({
+        ...artifact,
+        payload: { ...artifact.payload, generationState },
+      });
+    }
+    if (updates.length > 0) mergeArtifacts(updates);
+  };
+
   const finalizeSuccess = (result: DesktopBridgeChatResult) => {
     if (settled) return;
     settled = true;
@@ -2055,6 +2075,9 @@ export async function sendDesktopBridgeChat({
   };
   const finalizeError = (error: unknown) => {
     if (settled) return;
+    settlePendingGeneratedImages(
+      error instanceof BridgeAbortError ? "canceled" : "failed",
+    );
     settled = true;
     finalError = error;
   };
@@ -2628,6 +2651,7 @@ export async function sendDesktopBridgeChat({
       break;
     }
     if (outcome.kind === "aborted") {
+      settlePendingGeneratedImages("canceled");
       throw new BridgeAbortError();
     }
     if (outcome.kind === "fatal") {
@@ -2654,6 +2678,7 @@ export async function sendDesktopBridgeChat({
     );
     await sleep(delay);
     if (signal?.aborted) {
+      settlePendingGeneratedImages("canceled");
       throw new BridgeAbortError();
     }
     // First retry the existing authenticated route: most socket closures are

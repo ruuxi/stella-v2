@@ -38,6 +38,7 @@ import {
 } from "../http_shared/webhook_controls";
 import { readJsonBody } from "../http_shared/request";
 import { encodeSseData, sseResponse } from "../http_shared/sse";
+import { dollarsToMicroCents } from "../lib/billing_money";
 import { getClientAddressKey } from "../lib/http_utils";
 import {
   resolveManagedModelAccess,
@@ -842,6 +843,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
+        // Composer dictation is free on every plan. Identity resolution stays
+        // in place for attribution and abuse controls, but there is no paid
+        // subscription/capability check on this transcription-only route.
         const owner = await resolveMobileOwnerOrGuest(ctx, request, origin);
         if ("response" in owner) {
           return owner.response;
@@ -910,6 +914,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           );
         }
 
+        const startedAt = Date.now();
         try {
           const upstream = await fetch(
             `${MANAGED_GATEWAY.baseURL}/audio/transcriptions`,
@@ -939,6 +944,13 @@ export const registerMobileRoutes = (http: HttpRouter) => {
               upstream.status,
               errText.slice(0, 500),
             );
+            await scheduleManagedUsage(ctx, {
+              ownerId: owner.ownerId,
+              agentType: "service:mobile_dictation",
+              model: TRANSCRIBE_MODEL,
+              durationMs: Date.now() - startedAt,
+              success: false,
+            });
             return errorResponse(
               upstream.status >= 400 && upstream.status < 500
                 ? upstream.status
@@ -948,12 +960,51 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             );
           }
 
-          const parsed = (await upstream.json()) as { text?: unknown };
+          const parsed = (await upstream.json()) as {
+            text?: unknown;
+            usage?: {
+              cost?: unknown;
+              input_tokens?: unknown;
+              output_tokens?: unknown;
+              total_tokens?: unknown;
+            };
+          };
           const text =
             typeof parsed.text === "string" ? parsed.text.trim() : "";
+          const costUsd =
+            typeof parsed.usage?.cost === "number" &&
+            Number.isFinite(parsed.usage.cost)
+              ? Math.max(0, parsed.usage.cost)
+              : undefined;
+          const usageNumber = (value: unknown) =>
+            typeof value === "number" && Number.isFinite(value)
+              ? Math.max(0, Math.floor(value))
+              : undefined;
+          await scheduleManagedUsage(ctx, {
+            ownerId: owner.ownerId,
+            agentType: "service:mobile_dictation",
+            model: TRANSCRIBE_MODEL,
+            durationMs: Date.now() - startedAt,
+            success: true,
+            ...(costUsd !== undefined
+              ? { costMicroCents: dollarsToMicroCents(costUsd) }
+              : {}),
+            usage: {
+              inputTokens: usageNumber(parsed.usage?.input_tokens),
+              outputTokens: usageNumber(parsed.usage?.output_tokens),
+              totalTokens: usageNumber(parsed.usage?.total_tokens),
+            },
+          });
           return jsonResponse({ text }, 200, origin);
         } catch (error) {
           console.error("[mobile/transcribe] Error:", error);
+          await scheduleManagedUsage(ctx, {
+            ownerId: owner.ownerId,
+            agentType: "service:mobile_dictation",
+            model: TRANSCRIBE_MODEL,
+            durationMs: Date.now() - startedAt,
+            success: false,
+          });
           return errorResponse(
             500,
             readConvexErrorMessage(error, "Could not transcribe that audio."),

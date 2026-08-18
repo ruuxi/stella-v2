@@ -202,9 +202,9 @@ export const buildCapabilityDenial = (
  * Keyed by capability id rather than by `MediaCapability.category` because
  * the category buckets transcription and stem-separation in with real
  * audio synthesis. Speech-to-text is an *input* path — it is how the
- * assistant hears you, not something it generates — so gating it behind
- * `audio_generation` would take dictation away from Go, which is meant to
- * be a full text assistant. Unlisted ids are ungated by design.
+ * assistant hears you, not something it generates — so it is intentionally
+ * absent from this table and available to Free, Go, and Pro users. Unlisted
+ * ids are ungated by design.
  */
 const MEDIA_CAPABILITY_GATES: Record<string, Capability> = {
   text_to_image: "image_generation",

@@ -78,14 +78,14 @@ export const registerDictationRoutes = (http: HttpRouter) => {
         if (!auth.ok) return auth.response;
         const ownerId = auth.ownerId;
 
-        // No capability gate: dictation is transcription, an input path into
-        // the text assistant rather than a generative surface. Go buys a full
-        // text assistant, and one you cannot talk to is not that. See
+        // No capability/subscription gate: composer dictation is a free input
+        // path into the text assistant, not audio generation. Signed-in Free,
+        // Go, and Pro users all reach the same transcription path. See
         // `capabilityForMediaCapabilityId` in `capability_contract.ts`, which
         // leaves `speech_to_text` ungated for the same reason.
-        const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId);
-        if (!subscriptionCheck.allowed) {
-          return errorResponse(429, subscriptionCheck.message, origin);
+        const usageLimitCheck = await checkManagedUsageLimit(ctx, ownerId);
+        if (!usageLimitCheck.allowed) {
+          return errorResponse(429, usageLimitCheck.message, origin);
         }
 
         const rateLimit = await ctx.runMutation(

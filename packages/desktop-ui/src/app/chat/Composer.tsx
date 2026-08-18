@@ -132,6 +132,9 @@ function ComposerImpl({
   // service's per-segment timeout), so a stalled request fails into a
   // recoverable error and fires the commit instead of wedging submit.
   const submitComposer = () => {
+    if (!canSubmit && !dictation.isRecording && !dictation.isTranscribing) {
+      return;
+    }
     if (dictation.isRecording || dictation.isTranscribing) {
       dictation.commitAndSend();
       return;
@@ -316,6 +319,12 @@ function ComposerImpl({
                     });
                   }}
                   onKeyDown={(event) => {
+                    if (
+                      event.nativeEvent.isComposing ||
+                      event.nativeEvent.keyCode === 229
+                    ) {
+                      return;
+                    }
                     if (
                       modelMentionMenuRef.current?.handleKeyDown(event) === true
                     ) {

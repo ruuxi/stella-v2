@@ -146,6 +146,9 @@ export function useStreamingChatCore({
   const drainingQueuedMessageIdRef = useRef<string | null>(null)
   const queuedMessageOrderRef = useRef(0)
   const queueDrainPausedRef = useRef(false)
+  const pendingSendRef = useRef<symbol | null>(null)
+  const activeConversationIdRef = useRef(activeConversationId)
+  activeConversationIdRef.current = activeConversationId
   const {
     isLocalStorage,
     storageMode,
@@ -240,6 +243,7 @@ export function useStreamingChatCore({
     drainingQueuedMessageIdRef.current = null
     queuedMessageOrderRef.current = 0
     queueDrainPausedRef.current = false
+    pendingSendRef.current = null
     setOptimisticEvents([])
     setQueuedUserMessages([])
     setPendingUserMessageId(null)
@@ -470,8 +474,14 @@ export function useStreamingChatCore({
       )
 
       if (!resolvedConversationId || (!cleanedText && !contextState.hasSubmittableContext)) {
-        return
+        return false
       }
+      if (pendingSendRef.current) {
+        return false
+      }
+
+      const sendAttempt = Symbol('composer-send')
+      pendingSendRef.current = sendAttempt
 
       const attachments = isLocalStorage && hasAttachments
         ? buildAllLocalAttachments(options.chatContext)
@@ -488,56 +498,69 @@ export function useStreamingChatCore({
         cleanedText || options.selectedText?.trim() || 'Attached context'
 
       const messageTimestamp = Date.now()
-      // Resolve prerequisites before clearing the composer. A failed device
-      // lookup must leave the user's draft intact rather than silently lose
-      // a message that has not reached either queue or persistence.
-      const deviceId = await getOrCreateDeviceId()
-      options.onClear()
-      await nextAnimationFrame()
+      try {
+        // A turn is not accepted until the main-process runtime returns a
+        // request id. Keep the draft and viewport untouched through transient
+        // bootstrap/readiness failures so one retry is lossless.
+        const deviceId = await getOrCreateDeviceId()
+        const accepted = await startStream({
+          userPrompt: cleanedText,
+          selectedText: options.selectedText,
+          chatContext: options.chatContext,
+          deviceId,
+          platform,
+          timezone,
+          locale: requestLocale,
+          ...(messageMetadata ? { messageMetadata } : {}),
+          attachments,
+          userMessageEventId: optimisticUserMessageId,
+          userMessageTimestamp: messageTimestamp,
+        })
+        if (!accepted) return false
 
-      const optimisticEvent = buildOptimisticUserEvent({
-        id: optimisticUserMessageId,
-        text: optimisticText,
-        timestamp: messageTimestamp,
-        platform,
-        timezone,
-        locale: requestLocale,
-        ...(messageMetadata ? { metadata: messageMetadata } : {}),
-        attachments: toDisplayAttachments(attachments),
-      })
+        options.onClear()
+        await nextAnimationFrame()
 
-      setOptimisticEvents((current) => [
-        ...current,
-        optimisticEvent,
-      ])
-      setPendingUserMessageId(optimisticUserMessageId)
+        // The accepted turn belongs to the captured conversation. If IPC was
+        // pending across a tab switch, persistence will populate that tab; do
+        // not leak an optimistic row into the newly active conversation.
+        if (activeConversationIdRef.current === resolvedConversationId) {
+          const optimisticEvent = buildOptimisticUserEvent({
+            id: optimisticUserMessageId,
+            text: optimisticText,
+            timestamp: messageTimestamp,
+            platform,
+            timezone,
+            locale: requestLocale,
+            ...(messageMetadata ? { metadata: messageMetadata } : {}),
+            attachments: toDisplayAttachments(attachments),
+          })
+          setOptimisticEvents((current) => [...current, optimisticEvent])
+          setPendingUserMessageId(optimisticUserMessageId)
+        }
 
-      // Fire-and-forget: surface a "model not available on your plan"
-      // toast for restricted tiers (anonymous/free/go) when the user has a
-      // saved non-default override for orchestrator/general. The backend
-      // silently coerces to the tier-default model regardless. Deduped so
-      // it doesn't spam on every send.
-      void notifyTierRestrictedModel?.()
+        // Fire-and-forget: surface a "model not available on your plan"
+        // toast for restricted tiers (anonymous/free/go) when the user has a
+        // saved non-default override for orchestrator/general. The backend
+        // silently coerces to the tier-default model regardless. Deduped so
+        // it doesn't spam on every send.
+        void notifyTierRestrictedModel?.()
 
-      console.log(
-        `[stella:trace] sendMessage (steer) | convId=${resolvedConversationId} | text=${cleanedText.slice(0, 200)}`,
-      )
-      startStream({
-        userPrompt: cleanedText,
-        selectedText: options.selectedText,
-        chatContext: options.chatContext,
-        deviceId,
-        platform,
-        timezone,
-        locale: requestLocale,
-        ...(messageMetadata ? { messageMetadata } : {}),
-        attachments,
-        userMessageEventId: optimisticUserMessageId,
-        userMessageTimestamp: messageTimestamp,
-        onStartFailed: () => {
-          clearOptimisticMessage(optimisticUserMessageId)
-        },
-      })
+        console.log(
+          `[stella:trace] sendMessage (steer) | convId=${resolvedConversationId} | text=${cleanedText.slice(0, 200)}`,
+        )
+        return true
+      } catch (error) {
+        console.error(
+          'Failed to prepare local agent chat:',
+          error instanceof Error ? error.message : String(error),
+        )
+        return false
+      } finally {
+        if (pendingSendRef.current === sendAttempt) {
+          pendingSendRef.current = null
+        }
+      }
     },
     [
       activeConversationId,
@@ -546,7 +569,6 @@ export function useStreamingChatCore({
       startStream,
       locale,
       setPendingUserMessageId,
-      clearOptimisticMessage,
     ],
   )
 

@@ -23,10 +23,7 @@ import {
   REASONING_OPTIONS,
   type ReasoningEffort,
 } from "../../src/lib/desktop-model-prefs";
-import {
-  useTopBarStatus,
-  type DesktopConnection,
-} from "../../src/lib/top-bar-status";
+import { type DesktopConnection } from "../../src/lib/top-bar-status";
 import { useColors } from "../../src/theme/theme-context";
 import { type Colors } from "../../src/theme/colors";
 import { fonts } from "../../src/theme/fonts";
@@ -65,7 +62,7 @@ type DeviceStatus = {
 /**
  * The Computer tab hosts the conversation with the paired desktop's Stella
  * agent. Its device controls (status, wake, view-screen, artifacts, model
- * settings) live in a sheet opened from the composer's gear button.
+ * settings) live in a sheet opened from the composer's status control.
  */
 export default function ComputerScreen() {
   if (isGuest()) {
@@ -172,7 +169,6 @@ function ComputerChatSurface({
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const offline = useIsOffline();
-  const { setConnection: setTopBarConnection } = useTopBarStatus();
   const composerModelPinned = useComposerModelPinned();
   const modelSettings = useComputerModelSettings(access);
 
@@ -283,11 +279,6 @@ function ComputerChatSurface({
       : status.available
         ? "connected"
         : "disconnected";
-
-  useEffect(() => {
-    setTopBarConnection(connection);
-  }, [connection, setTopBarConnection]);
-  useEffect(() => () => setTopBarConnection(null), [setTopBarConnection]);
 
   useEffect(() => {
     if (status.available === true && waking) {
@@ -575,6 +566,14 @@ function ComputerChatSurface({
         onOpenArtifact={setSelectedArtifact}
         conversationId={thread.conversationId}
         onOpenDeviceSheet={() => setDeviceSheetOpen(true)}
+        computerConnection={connection}
+        computerConnectionLabel={
+          connection === "connecting"
+            ? t("mobile.computer.connectingLabel")
+            : connection === "connected"
+              ? t("mobile.computer.connectedLabel")
+              : t("mobile.computer.disconnectedLabel")
+        }
         activityTasks={thread.conversationTasks}
         onOpenActivityHub={() => setActivityHubOpen(true)}
         catchingUp={thread.catchingUp}

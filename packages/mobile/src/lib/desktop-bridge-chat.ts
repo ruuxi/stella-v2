@@ -223,7 +223,9 @@ const buildDesktopBridgeStartChatArgs = (args: {
   // metadata (see kernel/chat-prompt-context.ts) — it is never concatenated
   // into the visible user body. `agent:startChat` is a passthrough bridge
   // method, so this rides straight through to the worker payload.
-  ...(args.selectedText?.trim() ? { selectedText: args.selectedText.trim() } : {}),
+  ...(args.selectedText?.trim()
+    ? { selectedText: args.selectedText.trim() }
+    : {}),
   deviceId: args.access.mobileDeviceId,
   platform: "mobile",
   mode: "computer",
@@ -1904,10 +1906,45 @@ export async function sendDesktopBridgeChat({
     }
     return true;
   };
+  const isGeneratedImage = (artifact: ChatArtifact) =>
+    artifact.payload.kind === "media" &&
+    artifact.payload.asset.kind === "image" &&
+    artifact.payload.presentation === "inline-image";
   const mergeArtifacts = (artifacts: ChatArtifact[]) => {
     let changed = false;
     for (const incomingArtifact of artifacts) {
       let artifact = incomingArtifact;
+      if (
+        isGeneratedImage(artifact) &&
+        artifact.payload.kind === "media" &&
+        artifact.payload.asset.kind === "image" &&
+        artifact.payload.asset.filePaths.length > 0
+      ) {
+        const pending = [...artifactById.values()].find(
+          (candidate) =>
+            isGeneratedImage(candidate) &&
+            candidate.payload.kind === "media" &&
+            candidate.payload.generationState === "running",
+        );
+        if (pending?.payload.kind === "media") {
+          artifactById.delete(pending.id);
+          artifact = {
+            ...artifact,
+            id: pending.id,
+            payload: {
+              ...artifact.payload,
+              generationState: "completed",
+              ...(pending.payload.toolCallId
+                ? { toolCallId: pending.payload.toolCallId }
+                : {}),
+              ...(typeof pending.payload.textOffset === "number"
+                ? { textOffset: pending.payload.textOffset }
+                : {}),
+            },
+          };
+          changed = true;
+        }
+      }
       const nextAgentIds = agentIdsOf(artifact);
       if (nextAgentIds) {
         const covered: ChatArtifact[] = [];
@@ -1935,11 +1972,46 @@ export async function sendDesktopBridgeChat({
           // Preserve the first card that became visible; a later aggregate
           // projection updates it and removes only the now-covered siblings.
           const stableId = covered[0]!.id;
+          const textOffsetsByAgentId: Record<string, number> = {
+            ...(artifact.payload.kind === "agent-work"
+              ? artifact.payload.textOffsetsByAgentId
+              : {}),
+          };
+          for (const existing of covered) {
+            if (existing.payload.kind !== "agent-work") continue;
+            for (const [agentId, offset] of Object.entries(
+              existing.payload.textOffsetsByAgentId ?? {},
+            )) {
+              textOffsetsByAgentId[agentId] = offset;
+            }
+            const existingIds = agentIdsOf(existing);
+            if (
+              existingIds?.size === 1 &&
+              typeof existing.payload.textOffset === "number"
+            ) {
+              const [agentId] = existingIds;
+              if (agentId) {
+                textOffsetsByAgentId[agentId] = existing.payload.textOffset;
+              }
+            }
+          }
           for (const existing of covered.slice(1)) {
             artifactById.delete(existing.id);
             changed = true;
           }
-          artifact = { ...artifact, id: stableId };
+          artifact = {
+            ...artifact,
+            id: stableId,
+            ...(artifact.payload.kind === "agent-work" &&
+            Object.keys(textOffsetsByAgentId).length > 0
+              ? {
+                  payload: {
+                    ...artifact.payload,
+                    textOffsetsByAgentId,
+                  },
+                }
+              : {}),
+          };
         }
       }
       const existing = artifactById.get(artifact.id);
@@ -2101,6 +2173,7 @@ export async function sendDesktopBridgeChat({
               subtitle: "Working in background",
               createdAt: existingCreatedAt ?? Date.now(),
               textOffset: streamedChars,
+              textOffsetsByAgentId: { [agentId]: streamedChars },
             },
           },
         ]);
@@ -2154,6 +2227,9 @@ export async function sendDesktopBridgeChat({
               ...(typeof basePayload?.textOffset === "number"
                 ? { textOffset: basePayload.textOffset }
                 : {}),
+              ...(basePayload?.textOffsetsByAgentId
+                ? { textOffsetsByAgentId: basePayload.textOffsetsByAgentId }
+                : {}),
               ...(basePayload?.agents ? { agents: basePayload.agents } : {}),
             },
           },
@@ -2189,6 +2265,23 @@ export async function sendDesktopBridgeChat({
       activityStreamingText = false;
       if (statusText) activityStatusText = statusText;
       activeToolCalls.set(key, { toolName });
+      if (toolName === "image_gen") {
+        mergeArtifacts([
+          {
+            id: `image-gen:${key}`,
+            conversationId,
+            payload: {
+              kind: "media",
+              asset: { kind: "image", filePaths: [] },
+              createdAt: Date.now(),
+              presentation: "inline-image",
+              toolCallId: key,
+              generationState: "running",
+              textOffset: streamedChars,
+            },
+          },
+        ]);
+      }
       emitActivity();
       return false;
     }

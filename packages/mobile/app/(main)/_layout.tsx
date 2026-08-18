@@ -54,10 +54,6 @@ import {
   hasSeenComputerHint,
   markComputerHintSeen,
 } from "../../src/lib/computer-hint";
-import {
-  TopBarStatusProvider,
-  type DesktopConnection,
-} from "../../src/lib/top-bar-status";
 import { useT } from "../../src/i18n";
 
 type TabId = MainTabId;
@@ -135,7 +131,10 @@ function Sidebar({
     <GlassCard
       radius={0}
       legible
-      style={[styles.sidebar, { paddingTop: insets.top + 12, paddingBottom: insets.bottom }]}
+      style={[
+        styles.sidebar,
+        { paddingTop: insets.top + 12, paddingBottom: insets.bottom },
+      ]}
     >
       <StellaBrandMark />
       <View style={styles.nav}>
@@ -162,9 +161,7 @@ function Sidebar({
                   <View style={styles.navHintDot} />
                 ) : null}
               </View>
-              <Text
-                style={[styles.navLabel, active && styles.navLabelActive]}
-              >
+              <Text style={[styles.navLabel, active && styles.navLabelActive]}>
                 {t(tab.labelKey)}
               </Text>
             </Pressable>
@@ -183,7 +180,6 @@ export default function MainLayout() {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [consentVisible, setConsentVisible] = useState(false);
-  const [connection, setConnection] = useState<DesktopConnection | null>(null);
   // First-time hint dot on the Computer icon, dismissed once the user opens
   // the Computer tab.
   const [showComputerHint, setShowComputerHint] = useState(false);
@@ -191,7 +187,6 @@ export default function MainLayout() {
   const t = useT();
   const { isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const topBarStatus = useMemo(() => ({ setConnection }), []);
 
   useEffect(() => {
     if (!hasAiConsent()) {
@@ -292,7 +287,10 @@ export default function MainLayout() {
       runOnJS(dismissKeyboard)();
     })
     .onUpdate((e) => {
-      drawerProgress.value = Math.min(1, Math.max(0, e.translationX / DRAWER_REVEAL));
+      drawerProgress.value = Math.min(
+        1,
+        Math.max(0, e.translationX / DRAWER_REVEAL),
+      );
     })
     .onEnd((e) => {
       if (e.velocityX > 500 || drawerProgress.value > 0.4) {
@@ -404,9 +402,7 @@ export default function MainLayout() {
             />
             <View style={styles.content}>
               <View style={styles.contentSlot}>
-                <TopBarStatusProvider value={topBarStatus}>
-                  <Slot />
-                </TopBarStatusProvider>
+                <Slot />
               </View>
             </View>
           </View>
@@ -524,52 +520,12 @@ export default function MainLayout() {
                         </Pressable>
                       ) : null}
                     </View>
-                    {onChatSurface && connection ? (
-                      <View style={styles.topBarBrand} pointerEvents="none">
-                        {connection === "connecting" ? (
-                          <ActivityIndicator
-                            size="small"
-                            color={colors.textMuted}
-                            accessibilityLabel={t("mobile.computer.connectingLabel")}
-                          />
-                        ) : (
-                          <View
-                            style={styles.connectionBadge}
-                            accessibilityLabel={
-                              connection === "connected"
-                                ? t("mobile.computer.connectedLabel")
-                                : t("mobile.computer.disconnectedLabel")
-                            }
-                          >
-                            <Icon
-                              name="monitor"
-                              size={20}
-                              color={colors.text}
-                              weight="regular"
-                            />
-                            <View
-                              style={[
-                                styles.connectionDot,
-                                {
-                                  backgroundColor:
-                                    connection === "connected"
-                                      ? colors.ok
-                                      : colors.danger,
-                                },
-                              ]}
-                            />
-                          </View>
-                        )}
-                      </View>
-                    ) : null}
                   </>
                 )}
               </View>
 
               <View style={styles.content}>
-                <TopBarStatusProvider value={topBarStatus}>
-                  <Slot />
-                </TopBarStatusProvider>
+                <Slot />
               </View>
 
               {/* Scrim — sits on top of the foreground while the drawer is
@@ -597,227 +553,210 @@ export default function MainLayout() {
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  shell: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    shell: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
 
-  // Wide (tablet / landscape)
-  wideLayout: {
-    flex: 1,
-    flexDirection: "row",
-  },
+    // Wide (tablet / landscape)
+    wideLayout: {
+      flex: 1,
+      flexDirection: "row",
+    },
 
-  // Narrow (phone)
-  narrowLayout: {
-    flex: 1,
-  },
+    // Narrow (phone)
+    narrowLayout: {
+      flex: 1,
+    },
 
-  // Top bar — phone only (hamburger | centered pill on Chat | action).
-  // Height is set inline as `insets.top + barHeight` so the safe-area inset
-  // is added on top of the bar's own height rather than eating into it
-  // (RN box model is border-box, so a fixed `height` would absorb the inset).
-  topBar: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    paddingHorizontal: 4,
-  },
-  topBarSide: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  // Right-side action cluster (search + chat/computer toggle).
-  topBarRight: {
-    alignItems: "center",
-    flexDirection: "row",
-    height: 44,
-  },
-  // Brand/sync indicator, absolutely centered across the whole bar so it stays
-  // screen-centered regardless of how many action buttons flank it.
-  topBarBrand: {
-    alignItems: "center",
-    bottom: 0,
-    height: 44,
-    justifyContent: "center",
-    left: 0,
-    position: "absolute",
-    right: 0,
-  },
-  topBarAction: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  // Expanded search field that replaces the top-bar contents.
-  searchRow: {
-    alignItems: "center",
-    flex: 1,
-    flexDirection: "row",
-    gap: 8,
-    height: 44,
-    paddingLeft: 8,
-  },
-  searchField: {
-    alignItems: "center",
-    backgroundColor: colors.muted,
-    borderColor: colors.border,
-    borderRadius: 11,
-    borderWidth: StyleSheet.hairlineWidth,
-    flex: 1,
-    flexDirection: "row",
-    gap: 8,
-    height: 36,
-    paddingHorizontal: 10,
-  },
-  searchInput: {
-    color: colors.text,
-    flex: 1,
-    fontFamily: fonts.sans.regular,
-    fontSize: 16,
-    padding: 0,
-  },
-  searchCancel: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  searchCancelText: {
-    color: colors.accent,
-    fontFamily: fonts.sans.medium,
-    fontSize: 15,
-  },
-  hamburger: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  // Desktop connection badge in the bar center (computer chat): monitor glyph
-  // with a status dot pinned to its top-right.
-  connectionBadge: {
-    alignItems: "center",
-    height: 28,
-    justifyContent: "center",
-    width: 28,
-  },
-  connectionDot: {
-    borderColor: colors.background,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    bottom: 1,
-    height: 8,
-    position: "absolute",
-    right: 1,
-    width: 8,
-  },
-  wideChatHeader: {
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  contentSlot: {
-    flex: 1,
-    minHeight: 0,
-  },
-  // Sidebar
-  sidebar: {
-    flex: 1,
-    width: SIDEBAR_WIDTH,
-  },
-  nav: {
-    gap: 2,
-    paddingHorizontal: 12,
-  },
-  navItem: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    borderRadius: 10,
-    flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    width: 188,
-  },
-  navItemActive: {
-    backgroundColor: colors.accentSoft,
-  },
-  navItemPressed: {
-    opacity: 0.7,
-  },
-  navIcon: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: 20,
-  },
-  // First-time hint dot on the Computer nav item, pinned to the top-right of
-  // the 18px glyph.
-  navHintDot: {
-    backgroundColor: colors.danger,
-    borderColor: colors.background,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    height: 8,
-    position: "absolute",
-    right: -1,
-    top: -1,
-    width: 8,
-  },
-  navLabel: {
-    color: colors.text,
-    fontFamily: fonts.sans.medium,
-    fontSize: 15,
-  },
-  navLabelActive: {
-    color: colors.accent,
-  },
+    // Top bar — phone only (hamburger | centered pill on Chat | action).
+    // Height is set inline as `insets.top + barHeight` so the safe-area inset
+    // is added on top of the bar's own height rather than eating into it
+    // (RN box model is border-box, so a fixed `height` would absorb the inset).
+    topBar: {
+      alignItems: "flex-end",
+      flexDirection: "row",
+      paddingHorizontal: 4,
+    },
+    topBarSide: {
+      alignItems: "center",
+      height: 44,
+      justifyContent: "center",
+      width: 44,
+    },
+    // Right-side action cluster (search + chat/computer toggle).
+    topBarRight: {
+      alignItems: "center",
+      flexDirection: "row",
+      height: 44,
+    },
+    // Brand/sync indicator, absolutely centered across the whole bar so it stays
+    // screen-centered regardless of how many action buttons flank it.
+    topBarBrand: {
+      alignItems: "center",
+      bottom: 0,
+      height: 44,
+      justifyContent: "center",
+      left: 0,
+      position: "absolute",
+      right: 0,
+    },
+    topBarAction: {
+      alignItems: "center",
+      height: 44,
+      justifyContent: "center",
+      width: 44,
+    },
+    // Expanded search field that replaces the top-bar contents.
+    searchRow: {
+      alignItems: "center",
+      flex: 1,
+      flexDirection: "row",
+      gap: 8,
+      height: 44,
+      paddingLeft: 8,
+    },
+    searchField: {
+      alignItems: "center",
+      backgroundColor: colors.muted,
+      borderColor: colors.border,
+      borderRadius: 11,
+      borderWidth: StyleSheet.hairlineWidth,
+      flex: 1,
+      flexDirection: "row",
+      gap: 8,
+      height: 36,
+      paddingHorizontal: 10,
+    },
+    searchInput: {
+      color: colors.text,
+      flex: 1,
+      fontFamily: fonts.sans.regular,
+      fontSize: 16,
+      padding: 0,
+    },
+    searchCancel: {
+      alignItems: "center",
+      height: 44,
+      justifyContent: "center",
+      paddingHorizontal: 4,
+    },
+    searchCancelText: {
+      color: colors.accent,
+      fontFamily: fonts.sans.medium,
+      fontSize: 15,
+    },
+    hamburger: {
+      alignItems: "center",
+      height: 44,
+      justifyContent: "center",
+      width: 44,
+    },
+    wideChatHeader: {
+      alignItems: "center",
+      marginBottom: 8,
+    },
+    contentSlot: {
+      flex: 1,
+      minHeight: 0,
+    },
+    // Sidebar
+    sidebar: {
+      flex: 1,
+      width: SIDEBAR_WIDTH,
+    },
+    nav: {
+      gap: 2,
+      paddingHorizontal: 12,
+    },
+    navItem: {
+      alignItems: "center",
+      alignSelf: "flex-start",
+      borderRadius: 10,
+      flexDirection: "row",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      width: 188,
+    },
+    navItemActive: {
+      backgroundColor: colors.accentSoft,
+    },
+    navItemPressed: {
+      opacity: 0.7,
+    },
+    navIcon: {
+      alignItems: "center",
+      justifyContent: "center",
+      width: 20,
+    },
+    // First-time hint dot on the Computer nav item, pinned to the top-right of
+    // the 18px glyph.
+    navHintDot: {
+      backgroundColor: colors.danger,
+      borderColor: colors.background,
+      borderRadius: 4,
+      borderWidth: 1.5,
+      height: 8,
+      position: "absolute",
+      right: -1,
+      top: -1,
+      width: 8,
+    },
+    navLabel: {
+      color: colors.text,
+      fontFamily: fonts.sans.medium,
+      fontSize: 15,
+    },
+    navLabelActive: {
+      color: colors.accent,
+    },
 
-  // Sidebar layer — sits underneath the foreground, anchored to the left
-  // edge. Stays mounted so swipe-to-open reveals an already-laid-out menu.
-  sidebarLayer: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    top: 0,
-    width: SIDEBAR_WIDTH,
-    zIndex: 1,
-  },
+    // Sidebar layer — sits underneath the foreground, anchored to the left
+    // edge. Stays mounted so swipe-to-open reveals an already-laid-out menu.
+    sidebarLayer: {
+      bottom: 0,
+      left: 0,
+      position: "absolute",
+      top: 0,
+      width: SIDEBAR_WIDTH,
+      zIndex: 1,
+    },
 
-  // Foreground layer — elevated above the sidebar. Carries the canvas
-  // color so the parked sidebar doesn't show through the app, and a soft
-  // left-edge shadow so the layering reads when the drawer is open.
-  foregroundLayer: {
-    flex: 1,
-    backgroundColor: colors.background,
-    zIndex: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: -2, height: 0 },
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    elevation: 12,
-    overflow: "hidden",
-    borderTopLeftRadius: 56,
-    borderBottomLeftRadius: 56,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
+    // Foreground layer — elevated above the sidebar. Carries the canvas
+    // color so the parked sidebar doesn't show through the app, and a soft
+    // left-edge shadow so the layering reads when the drawer is open.
+    foregroundLayer: {
+      flex: 1,
+      backgroundColor: colors.background,
+      zIndex: 2,
+      shadowColor: "#000",
+      shadowOffset: { width: -2, height: 0 },
+      shadowOpacity: 0.18,
+      shadowRadius: 18,
+      elevation: 12,
+      overflow: "hidden",
+      borderTopLeftRadius: 56,
+      borderBottomLeftRadius: 56,
+      borderLeftWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
 
-  // Scrim painted on the foreground while the drawer is open. Dims the
-  // app slightly and provides a tap target to close.
-  foregroundScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
-    zIndex: 3,
-  },
+    // Scrim painted on the foreground while the drawer is open. Dims the
+    // app slightly and provides a tap target to close.
+    foregroundScrim: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "#000",
+      zIndex: 3,
+    },
 
-  // Shared content area
-  content: {
-    flex: 1,
-    minHeight: 0,
-    paddingHorizontal: 20,
-    paddingTop: 4,
-  },
-} as const);
+    // Shared content area
+    content: {
+      flex: 1,
+      minHeight: 0,
+      paddingHorizontal: 20,
+      paddingTop: 4,
+    },
+  } as const);

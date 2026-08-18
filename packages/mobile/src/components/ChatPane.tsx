@@ -83,6 +83,12 @@ import { useDictation } from "../lib/dictation";
 import { hasAiConsent, requestAiConsent } from "../lib/ai-consent";
 import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol";
 import type { StoredPhoneAccess } from "../lib/phone-access";
+import type { DesktopConnection } from "../lib/top-bar-status";
+import {
+  bytesToDataUri,
+  readDesktopArtifactFile,
+  resolveArtifactBridge,
+} from "../lib/desktop-artifact-data";
 import { useChatSearch } from "../lib/chat-search";
 import { resolveComposerExpanded } from "../lib/composer-model-layout";
 import {
@@ -1079,6 +1085,155 @@ function UserMessageText({
   );
 }
 
+const generatedImageAspectRatio = (value: string | undefined): number => {
+  const match = value
+    ?.trim()
+    .match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
+  if (!match) return 4 / 3;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return width > 0 && height > 0 ? width / height : 4 / 3;
+};
+
+const GeneratedImageTile = memo(function GeneratedImageTile({
+  filePath,
+  conversationId,
+  access,
+  aspectRatio,
+  alt,
+  colors,
+}: {
+  filePath?: string;
+  conversationId: string;
+  access: StoredPhoneAccess;
+  aspectRatio: number;
+  alt: string;
+  colors: Colors;
+}) {
+  const [uri, setUri] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setUri(null);
+    setFailed(false);
+    if (!filePath) return () => undefined;
+    void resolveArtifactBridge(access)
+      .then((bridge) =>
+        readDesktopArtifactFile(bridge, conversationId, filePath),
+      )
+      .then((result) => {
+        if (cancelled) return;
+        if (result.missing) {
+          setFailed(true);
+          return;
+        }
+        setUri(bytesToDataUri(result.bytes, result.mimeType));
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [access, conversationId, filePath]);
+
+  return (
+    <View
+      accessibilityLabel={failed ? "Generated image failed to load" : alt}
+      accessibilityRole="image"
+      style={[
+        generatedImageStyles.tile,
+        { aspectRatio, backgroundColor: colors.surface },
+      ]}
+    >
+      {uri ? (
+        <Image
+          source={{ uri }}
+          style={generatedImageStyles.image}
+          contentFit="cover"
+        />
+      ) : (
+        <View style={generatedImageStyles.placeholder}>
+          {failed ? (
+            <Text style={{ color: colors.textMuted }}>Image unavailable</Text>
+          ) : (
+            <>
+              <ActivityIndicator size="small" color={colors.textMuted} />
+              <Text
+                style={[
+                  generatedImageStyles.placeholderText,
+                  { color: colors.textMuted },
+                ]}
+              >
+                Generating image...
+              </Text>
+            </>
+          )}
+        </View>
+      )}
+    </View>
+  );
+});
+
+const GeneratedImageCard = memo(function GeneratedImageCard({
+  artifact,
+  access,
+  colors,
+  onPress,
+}: {
+  artifact: ChatArtifact;
+  access: StoredPhoneAccess;
+  colors: Colors;
+  onPress?: (artifact: ChatArtifact) => void;
+}) {
+  const payload = artifact.payload;
+  if (payload.kind !== "media" || payload.asset.kind !== "image") return null;
+  const paths =
+    payload.asset.filePaths.length > 0 ? payload.asset.filePaths : [undefined];
+  return (
+    <Pressable
+      accessibilityRole={
+        payload.asset.filePaths.length > 0 ? "button" : undefined
+      }
+      accessibilityLabel={
+        payload.generationState === "failed"
+          ? "Image generation failed"
+          : payload.asset.filePaths.length > 0
+            ? "Open generated image"
+            : "Generating image"
+      }
+      disabled={payload.asset.filePaths.length === 0}
+      onPress={() => onPress?.(artifact)}
+      style={generatedImageStyles.strip}
+    >
+      {paths.map((filePath, index) => (
+        <GeneratedImageTile
+          key={filePath ?? `${artifact.id}:${index}`}
+          filePath={filePath}
+          conversationId={artifact.conversationId}
+          access={access}
+          aspectRatio={generatedImageAspectRatio(payload.aspectRatio)}
+          alt={payload.prompt ?? "Generated image"}
+          colors={colors}
+        />
+      ))}
+    </Pressable>
+  );
+});
+
+const generatedImageStyles = StyleSheet.create({
+  image: { height: "100%", width: "100%" },
+  placeholder: {
+    alignItems: "center",
+    flex: 1,
+    gap: 8,
+    justifyContent: "center",
+  },
+  placeholderText: { fontFamily: fonts.sans.regular, fontSize: 14 },
+  strip: { gap: 8 },
+  tile: { borderRadius: 14, maxWidth: 320, overflow: "hidden", width: "100%" },
+});
+
 const ChatMessageRow = memo(function ChatMessageRow({
   item,
   styles,
@@ -1093,6 +1248,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onStartSelecting,
   onEndSelecting,
   onAskStella,
+  desktopAccess,
 }: {
   item: ChatMessage;
   styles: ChatStyles;
@@ -1115,6 +1271,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onEndSelecting: () => void;
   /** Puts a selected assistant snippet into the composer ("Ask Stella"). */
   onAskStella: (text: string) => void;
+  desktopAccess?: StoredPhoneAccess | null;
 }) {
   // The user bubble lifts (scales up + rises) while its long-press menu is open,
   // to mirror an iOS context menu. Driven by `menuActive`, which only reaches
@@ -1305,36 +1462,54 @@ const ChatMessageRow = memo(function ChatMessageRow({
     !isStandIn &&
     Boolean(onOpenArtifact) &&
     looseFiles.length > 0;
-  const showArtifacts = showAgentWork || showMapArtifacts || showFileArtifacts;
-  // Live segmentation (desktop parity): a spawned agent card carries a bridge-
-  // stamped `textOffset` — the character position in the streaming reply where
-  // the agent/tool was kicked off. Render that single card BETWEEN the pre-tool
-  // and post-tool text so it holds its place during streaming instead of being
-  // pushed below the growing answer, matching desktop's segmented shape. Only
-  // the un-segmented live reply carries a textOffset; settled rows (already
-  // split into pre/post messages by sync) never do, so this never fires on them.
-  const inlineAgentCard = (() => {
-    if (!showAgentWork || !hasText || agentWorkArtifacts.length !== 1) {
-      return null;
-    }
-    const only = agentWorkArtifacts[0];
-    const p = only.payload;
-    if (
-      p.kind === "agent-work" &&
-      typeof p.textOffset === "number" &&
-      Number.isFinite(p.textOffset) &&
-      p.textOffset > 0 &&
-      p.textOffset < item.text.length
-    ) {
-      return { artifact: only, payload: p, offset: p.textOffset };
-    }
-    return null;
-  })();
-  // The agent-work list the artifact group renders — excludes any card shown
-  // inline above so it is never rendered twice.
-  const groupAgentWorkArtifacts = inlineAgentCard
-    ? agentWorkArtifacts.filter((a) => a !== inlineAgentCard.artifact)
-    : agentWorkArtifacts;
+  const generatedImages = looseFiles.filter(
+    (artifact) =>
+      artifact.payload.kind === "media" &&
+      artifact.payload.asset.kind === "image",
+  );
+  const genericLooseFiles = looseFiles.filter(
+    (artifact) => !generatedImages.includes(artifact),
+  );
+  const showGeneratedImages =
+    !isStandIn && Boolean(desktopAccess) && generatedImages.length > 0;
+  const showArtifacts =
+    showAgentWork ||
+    showMapArtifacts ||
+    showFileArtifacts ||
+    showGeneratedImages;
+  // Live segmentation (desktop parity): every spawned agent card carries its
+  // own bridge-stamped character offset. Keep all cards at those immutable
+  // anchors while later text streams, including several starts in one turn.
+  // Settled rows are already split by desktop sync and carry no live offsets.
+  const inlineAgentCards = showAgentWork
+    ? agentWorkArtifacts
+        .map((artifact, index) => ({
+          artifact,
+          payload: artifact.payload,
+          offset: artifact.payload.textOffset,
+          index,
+        }))
+        .filter(
+          (
+            card,
+          ): card is typeof card & {
+            offset: number;
+          } =>
+            typeof card.offset === "number" &&
+            Number.isFinite(card.offset) &&
+            card.offset >= 0 &&
+            card.offset <= item.text.length,
+        )
+        .sort((a, b) => a.offset - b.offset || a.index - b.index)
+    : [];
+  const inlineAgentIds = new Set(
+    inlineAgentCards.map((card) => card.artifact.id),
+  );
+  // Exclude cards rendered at an inline anchor so no lifecycle update can
+  // duplicate one at the trailing artifact group.
+  const groupAgentWorkArtifacts = agentWorkArtifacts.filter(
+    (artifact) => !inlineAgentIds.has(artifact.id),
+  );
   const renderAssistantMarkdown = (text: string) => (
     // Press-and-hold a finished reply to enter native text selection —
     // like holding text anywhere on the phone. Assistant messages never
@@ -1365,6 +1540,58 @@ const ChatMessageRow = memo(function ChatMessageRow({
       />
     </Pressable>
   );
+  const renderTextWithInlineAgentCards = () => {
+    const nodes: ReactNode[] = [];
+    let cursor = 0;
+    let cardIndex = 0;
+    while (cardIndex < inlineAgentCards.length) {
+      const offset = inlineAgentCards[cardIndex]!.offset;
+      if (offset > cursor) {
+        nodes.push(
+          <View key={`text:${cursor}:${offset}`}>
+            {renderAssistantMarkdown(item.text.slice(cursor, offset))}
+          </View>,
+        );
+      }
+      const cardsAtOffset = [];
+      while (
+        cardIndex < inlineAgentCards.length &&
+        inlineAgentCards[cardIndex]!.offset === offset
+      ) {
+        cardsAtOffset.push(inlineAgentCards[cardIndex]!);
+        cardIndex += 1;
+      }
+      nodes.push(
+        <View
+          key={`agents:${offset}:${cardsAtOffset.map((card) => card.artifact.id).join(",")}`}
+          style={[styles.artifactGroup, styles.artifactGroupSpaced]}
+        >
+          {cardsAtOffset.map((card) => (
+            <View key={card.artifact.id} style={styles.artifactGroup}>
+              <AgentWorkCard payload={card.payload} colors={colors} />
+              {inlineAgentWorkCardSections(card.artifact)?.map((section) => (
+                <AgentCompletionCard
+                  key={`${card.artifact.id}:completion:${section.key}`}
+                  sections={[section]}
+                  colors={colors}
+                  {...(onOpenArtifact ? { onOpenArtifact } : {})}
+                />
+              ))}
+            </View>
+          ))}
+        </View>,
+      );
+      cursor = offset;
+    }
+    if (cursor < item.text.length) {
+      nodes.push(
+        <View key={`text:${cursor}:end`}>
+          {renderAssistantMarkdown(item.text.slice(cursor))}
+        </View>,
+      );
+    }
+    return nodes;
+  };
   return (
     <View style={styles.assistantRow}>
       {hasText ? (
@@ -1377,17 +1604,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
             onAskStella={onAskStella}
             onDismiss={onEndSelecting}
           />
-        ) : inlineAgentCard ? (
-          <>
-            {renderAssistantMarkdown(item.text.slice(0, inlineAgentCard.offset))}
-            <View style={[styles.artifactGroup, styles.artifactGroupSpaced]}>
-              <AgentWorkCard
-                payload={inlineAgentCard.payload}
-                colors={colors}
-              />
-            </View>
-            {renderAssistantMarkdown(item.text.slice(inlineAgentCard.offset))}
-          </>
+        ) : inlineAgentCards.length > 0 ? (
+          renderTextWithInlineAgentCards()
         ) : (
           renderAssistantMarkdown(item.text)
         )
@@ -1444,8 +1662,21 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 />
               ))
             : null}
+          {showGeneratedImages && desktopAccess
+            ? generatedImages.map((artifact) => {
+                return (
+                  <GeneratedImageCard
+                    key={artifact.id}
+                    artifact={artifact}
+                    access={desktopAccess}
+                    colors={colors}
+                    onPress={onOpenArtifact}
+                  />
+                );
+              })
+            : null}
           {showFileArtifacts && onOpenArtifact
-            ? looseFiles.map((artifact) => (
+            ? genericLooseFiles.map((artifact) => (
                 <ArtifactCard
                   key={artifact.id}
                   artifact={artifact}
@@ -2079,69 +2310,71 @@ function PlusMenuPopover({
             bounces={false}
           >
             {visibleOptions.map((option, index) => {
-            const isFirst = !submenuTitle && index === 0;
-            const isLast = index === visibleOptions.length - 1;
-            const hasSubmenu = Boolean(option.submenu?.length);
-            return (
-              <Pressable
-                key={option.id}
-                accessibilityLabel={option.label}
-                disabled={option.disabled}
-                onPress={() => onSelectOption(option)}
-                style={({ pressed }) => [
-                  styles.menuItem,
-                  large && styles.menuItemLarge,
-                  isFirst && styles.menuItemFirst,
-                  isLast && styles.menuItemLast,
-                  pressed && styles.menuItemPressed,
-                  option.disabled && styles.menuItemDisabled,
-                ]}
-              >
-                <Icon
-                  name={option.icon}
-                  size={large ? 20 : 16}
-                  color={
-                    option.disabled
-                      ? colors.textMuted
-                      : option.destructive
-                        ? colors.danger
-                        : colors.text
-                  }
-                  style={large ? styles.menuItemIconLarge : styles.menuItemIcon}
-                />
-                <Text
-                  style={[
-                    styles.menuItemLabel,
-                    large && styles.menuItemLabelLarge,
-                    option.destructive && styles.menuItemLabelDanger,
-                    option.disabled && styles.menuItemLabelMuted,
+              const isFirst = !submenuTitle && index === 0;
+              const isLast = index === visibleOptions.length - 1;
+              const hasSubmenu = Boolean(option.submenu?.length);
+              return (
+                <Pressable
+                  key={option.id}
+                  accessibilityLabel={option.label}
+                  disabled={option.disabled}
+                  onPress={() => onSelectOption(option)}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    large && styles.menuItemLarge,
+                    isFirst && styles.menuItemFirst,
+                    isLast && styles.menuItemLast,
+                    pressed && styles.menuItemPressed,
+                    option.disabled && styles.menuItemDisabled,
                   ]}
-                  numberOfLines={1}
                 >
-                  {option.label}
-                </Text>
-                {option.trailingLabel ? (
-                  <Text style={styles.menuItemTrailing} numberOfLines={1}>
-                    {option.trailingLabel}
+                  <Icon
+                    name={option.icon}
+                    size={large ? 20 : 16}
+                    color={
+                      option.disabled
+                        ? colors.textMuted
+                        : option.destructive
+                          ? colors.danger
+                          : colors.text
+                    }
+                    style={
+                      large ? styles.menuItemIconLarge : styles.menuItemIcon
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.menuItemLabel,
+                      large && styles.menuItemLabelLarge,
+                      option.destructive && styles.menuItemLabelDanger,
+                      option.disabled && styles.menuItemLabelMuted,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {option.label}
                   </Text>
-                ) : hasSubmenu ? (
-                  <Icon
-                    name="chevron-right"
-                    size={15}
-                    color={colors.textMuted}
-                    style={styles.menuItemCheck}
-                  />
-                ) : option.selected ? (
-                  <Icon
-                    name="check"
-                    size={15}
-                    color={colors.accent}
-                    style={styles.menuItemCheck}
-                  />
-                ) : null}
-              </Pressable>
-            );
-          })}
+                  {option.trailingLabel ? (
+                    <Text style={styles.menuItemTrailing} numberOfLines={1}>
+                      {option.trailingLabel}
+                    </Text>
+                  ) : hasSubmenu ? (
+                    <Icon
+                      name="chevron-right"
+                      size={15}
+                      color={colors.textMuted}
+                      style={styles.menuItemCheck}
+                    />
+                  ) : option.selected ? (
+                    <Icon
+                      name="check"
+                      size={15}
+                      color={colors.accent}
+                      style={styles.menuItemCheck}
+                    />
+                  ) : null}
+                </Pressable>
+              );
+            })}
           </ScrollView>
         </Animated.View>
       </Animated.View>
@@ -2450,12 +2683,12 @@ export type ChatPaneProps = {
   onAddQuote?: (text: string) => void;
   onRemoveQuote?: (id: string) => void;
 
-  /**
-   * Opens the computer device sheet (status, wake, view-screen,
-   * model settings). When provided, a floating gear button renders above the
-   * composer. The cloud chat omits it.
-   */
+  /** Opens the computer device sheet from the floating status control. */
   onOpenDeviceSheet?: () => void;
+  /** Live paired-computer state shown by that status control. */
+  computerConnection?: DesktopConnection;
+  /** Localized accessibility label for the current connection state. */
+  computerConnectionLabel?: string;
 
   /** Headers passed to the dictation upload (e.g. mobile device id for guests). */
   dictationAnonymous: boolean;
@@ -2553,6 +2786,8 @@ export function ChatPane({
   onAddQuote,
   onRemoveQuote,
   onOpenDeviceSheet,
+  computerConnection,
+  computerConnectionLabel,
   dictationAnonymous,
   dictationHeaders,
   onOpenArtifact,
@@ -3068,9 +3303,8 @@ export function ChatPane({
     return out;
   }, [enableAttachments, pickImage, readAloud, takePhoto]);
 
-  // Floating gear button (computer chat only): opens the device sheet — status,
-  // wake, view-screen, model settings. The cloud chat passes no
-  // handler, so nothing renders.
+  // Floating computer-status control (computer chat only): opens the device
+  // sheet. The cloud chat passes no handler, so nothing renders.
   const floatingAnchorRef = useRef<View>(null);
   const hasFloatingMenu = Boolean(onOpenDeviceSheet);
 
@@ -3503,6 +3737,7 @@ export function ChatPane({
             onStartSelecting={startSelectingMessage}
             onEndSelecting={stopSelectingMessage}
             onAskStella={askStella}
+            desktopAccess={realtimeVoiceDesktopAccess}
           />
         </FadeInMessage>
       );
@@ -3521,6 +3756,7 @@ export function ChatPane({
       selectingMessageId,
       startSelectingMessage,
       stopSelectingMessage,
+      realtimeVoiceDesktopAccess,
     ],
   );
   // Legend recycles memoized rows keyed on item data, so top-level focus state
@@ -3897,7 +4133,9 @@ export function ChatPane({
               ]}
             >
               <Pressable
-                accessibilityLabel="Computer settings"
+                accessibilityLabel={
+                  computerConnectionLabel ?? "Computer connection status"
+                }
                 accessibilityRole="button"
                 hitSlop={6}
                 onPress={onPressFloating}
@@ -3924,13 +4162,35 @@ export function ChatPane({
                       { opacity: floatingAnim },
                     ]}
                   />
-                  <Animated.View style={{ opacity: floatingAnim }}>
-                    <Icon
-                      name="settings"
-                      size={20}
-                      color={colors.textMuted}
-                      weight="semibold"
-                    />
+                  <Animated.View
+                    style={[styles.connectionBadge, { opacity: floatingAnim }]}
+                  >
+                    {computerConnection === "connecting" ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={colors.textMuted}
+                      />
+                    ) : (
+                      <>
+                        <Icon
+                          name="monitor"
+                          size={20}
+                          color={colors.text}
+                          weight="regular"
+                        />
+                        <View
+                          style={[
+                            styles.connectionDot,
+                            {
+                              backgroundColor:
+                                computerConnection === "connected"
+                                  ? colors.ok
+                                  : colors.danger,
+                            },
+                          ]}
+                        />
+                      </>
+                    )}
                   </Animated.View>
                 </GlassSurface>
               </Pressable>
@@ -4369,6 +4629,22 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       overflow: "hidden",
       width: 40,
+    },
+    connectionBadge: {
+      alignItems: "center",
+      height: 28,
+      justifyContent: "center",
+      width: 28,
+    },
+    connectionDot: {
+      borderColor: colors.surface,
+      borderRadius: 4,
+      borderWidth: 1.5,
+      bottom: 1,
+      height: 8,
+      position: "absolute",
+      right: 1,
+      width: 8,
     },
     // See scrollToBottomFabRing: fading overlay so the hairline dissolves with
     // the glass rather than lingering as an outline when the button hides.

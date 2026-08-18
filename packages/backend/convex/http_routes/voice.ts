@@ -410,6 +410,207 @@ const extractInworldAudioChunk = (line: string): Uint8Array | null => {
   }
 };
 
+const buildInworldTtsStreamBody = (params: TtsSynthesisParams): string =>
+  JSON.stringify({
+    text: params.text,
+    voiceId: params.voice,
+    modelId: params.model,
+    audioConfig: {
+      audioEncoding: "MP3",
+      ...(params.speed !== undefined ? { speakingRate: params.speed } : {}),
+    },
+  });
+
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + step));
+  }
+  return btoa(binary);
+};
+
+// Cap the per-ticket audio cache so a doc stays well under Convex's 1 MiB
+// limit; longer clips simply re-synthesize on a range request (rare for
+// read-aloud).
+const MAX_TICKET_AUDIO_CACHE_BYTES = 700_000;
+
+type BufferedTtsResult =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; status: number; message: string };
+
+/**
+ * Synthesize a full Inworld MP3 into a single buffer.
+ *
+ * Used for the mobile GET transport: native players (AVPlayer/ExoPlayer)
+ * fetch a seekable resource and issue several ranged requests, which a
+ * chunked, length-less stream cannot satisfy — so the GET serves a complete,
+ * range-capable body instead. Internally this still consumes Inworld's fast
+ * streaming endpoint (so the buffer fills quickly); the org key never leaves
+ * the action, and spend is metered once to the internal ledger.
+ */
+const synthesizeInworldTtsBuffered = async (
+  ctx: ActionCtx,
+  params: TtsSynthesisParams,
+  meta: { ownerId: string; conversationId?: Id<"conversations"> },
+): Promise<BufferedTtsResult> => {
+  const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
+  if (!inworldApiKey) {
+    return { ok: false, status: 503, message: "Stella Inworld voice is not configured yet." };
+  }
+  const requestChars = params.text.length;
+  const startedAt = Date.now();
+  const record = (
+    status: "completed" | "failed" | "partial",
+    synthesizedChars: number,
+    audioBytes: number,
+  ) =>
+    ctx
+      .runMutation(internal.billing.recordInternalTtsUsage, {
+        ownerId: meta.ownerId,
+        provider: "inworld" as const,
+        model: params.model,
+        voice: params.voice,
+        ...(meta.conversationId ? { conversationId: meta.conversationId } : {}),
+        streaming: false,
+        status,
+        requestChars,
+        synthesizedChars,
+        audioBytes,
+        durationMs: Date.now() - startedAt,
+      })
+      .catch(() => undefined);
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(INWORLD_TTS_STREAM_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${inworldApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: buildInworldTtsStreamBody(params),
+    });
+  } catch (error) {
+    console.error(
+      "[voice/tts/stream] Failed to contact Inworld:",
+      (error as Error).message,
+    );
+    await record("failed", 0, 0);
+    return { ok: false, status: 502, message: "Failed to reach Inworld TTS" };
+  }
+  if (!upstream.ok || !upstream.body) {
+    await upstream.text().catch(() => undefined);
+    console.error("[voice/tts/stream] Inworld TTS failed:", upstream.status);
+    await record("failed", 0, 0);
+    const status =
+      upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
+    return { ok: false, status, message: "Inworld TTS failed" };
+  }
+
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  let errored = false;
+  const takeLine = (line: string) => {
+    const chunk = extractInworldAudioChunk(line);
+    if (chunk && chunk.length > 0) {
+      parts.push(chunk);
+      total += chunk.length;
+    }
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) buffer += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (line) takeLine(line);
+      }
+    }
+    buffer += decoder.decode();
+    const rest = buffer.trim();
+    if (rest) takeLine(rest);
+  } catch (error) {
+    errored = true;
+    console.error(
+      "[voice/tts/stream] Buffered relay failed:",
+      (error as Error).message,
+    );
+  }
+
+  if (total === 0) {
+    await record("failed", 0, 0);
+    return { ok: false, status: 502, message: "Inworld returned no audio" };
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    bytes.set(part, offset);
+    offset += part.length;
+  }
+  await record(errored ? "partial" : "completed", requestChars, total);
+  return { ok: true, bytes };
+};
+
+const AUDIO_RANGE_RE = /^bytes=(\d*)-(\d*)$/;
+
+// Serve a complete MP3 buffer with byte-range support so native players can
+// probe and seek. Answers `Range` with 206 + `Content-Range`; otherwise 200 +
+// `Content-Length`. Always advertises `Accept-Ranges: bytes`.
+const serveAudioWithRange = (
+  bytes: Uint8Array,
+  rangeHeader: string | null,
+  origin: string | null,
+): Response => {
+  const total = bytes.byteLength;
+  const baseHeaders: Record<string, string> = {
+    "Content-Type": "audio/mpeg",
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "no-store",
+  };
+  const match = rangeHeader ? AUDIO_RANGE_RE.exec(rangeHeader.trim()) : null;
+  if (match) {
+    let start = match[1] ? Number.parseInt(match[1], 10) : 0;
+    let end = match[2] ? Number.parseInt(match[2], 10) : total - 1;
+    if (!Number.isFinite(start) || start < 0) start = 0;
+    if (!Number.isFinite(end) || end >= total) end = total - 1;
+    if (start > end || start >= total) {
+      return withCors(
+        new Response(null, {
+          status: 416,
+          headers: { ...baseHeaders, "Content-Range": `bytes */${total}` },
+        }),
+        origin,
+      );
+    }
+    const slice = bytes.slice(start, end + 1);
+    return withCors(
+      new Response(slice as BodyInit, {
+        status: 206,
+        headers: {
+          ...baseHeaders,
+          "Content-Range": `bytes ${start}-${end}/${total}`,
+          "Content-Length": String(slice.byteLength),
+        },
+      }),
+      origin,
+    );
+  }
+  return withCors(
+    new Response(bytes as BodyInit, {
+      status: 200,
+      headers: { ...baseHeaders, "Content-Length": String(total) },
+    }),
+    origin,
+  );
+};
+
 /**
  * Proxy Inworld's streaming TTS back to the caller as a single progressive
  * `audio/mpeg` stream. The org Inworld key never leaves this action — the
@@ -468,17 +669,7 @@ const streamInworldTts = async (
         Authorization: `Bearer ${inworldApiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        text: params.text,
-        voiceId: params.voice,
-        modelId: params.model,
-        audioConfig: {
-          audioEncoding: "MP3",
-          ...(params.speed !== undefined
-            ? { speakingRate: params.speed }
-            : {}),
-        },
-      }),
+      body: buildInworldTtsStreamBody(params),
     });
   } catch (error) {
     console.error(
@@ -1365,11 +1556,16 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud streaming TTS: consume a ticket (mobile GET) ───────
+  // ── Read-aloud streaming TTS: serve a ticketed clip (mobile GET) ──
   // Registered as a prefix so the request URL can carry a `.mp3` suffix (which
-  // nudges native players to treat the response as an MP3 stream) without a
-  // dot in the registered route path. Auth is still enforced (Bearer header);
-  // the ticket is single-use and owner-bound.
+  // nudges native players to treat the response as an MP3) without a dot in the
+  // registered route path. Native players (AVPlayer/ExoPlayer) fetch a seekable
+  // resource and issue several ranged requests per playback, so — unlike the
+  // desktop POST stream — this serves a complete, `Range`-capable MP3 from a
+  // reusable, owner-bound ticket. The first request synthesizes and caches the
+  // audio; the player's follow-up range requests are served from that cache.
+  // Auth is still enforced (Bearer header). GET has no side effects the browser
+  // needs to preflight, so there is no CORS OPTIONS route for this path.
   http.route({
     pathPrefix: "/api/voice/tts/stream/audio/",
     method: "GET",
@@ -1386,21 +1582,32 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           return errorResponse(400, "ticket is required", origin);
         }
 
-        const consumed = await ctx.runMutation(
-          internal.tts_stream.consumeTicket,
-          {
-            ticket,
-            ownerId: auth.ownerId,
-            nowMs: Date.now(),
-          },
-        );
+        const consumed = await ctx.runMutation(internal.tts_stream.readTicket, {
+          ticket,
+          ownerId: auth.ownerId,
+          nowMs: Date.now(),
+        });
         if (!consumed) {
           return errorResponse(404, "Stream ticket is invalid or expired", origin);
         }
 
-        return streamInworldTts(
+        const rangeHeader = request.headers.get("range");
+
+        // Serve the cached clip if a prior request already synthesized it.
+        if (consumed.audio) {
+          try {
+            return serveAudioWithRange(
+              decodeBase64ToBytes(consumed.audio),
+              rangeHeader,
+              origin,
+            );
+          } catch {
+            // Corrupt cache — fall through and re-synthesize.
+          }
+        }
+
+        const result = await synthesizeInworldTtsBuffered(
           ctx,
-          origin,
           {
             text: consumed.text,
             voice: consumed.voice,
@@ -1416,6 +1623,19 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               : {}),
           },
         );
+        if (!result.ok) {
+          return errorResponse(result.status, result.message, origin);
+        }
+        if (result.bytes.byteLength <= MAX_TICKET_AUDIO_CACHE_BYTES) {
+          await ctx
+            .runMutation(internal.tts_stream.cacheTicketAudio, {
+              ticket,
+              ownerId: auth.ownerId,
+              audio: bytesToBase64(result.bytes),
+            })
+            .catch(() => undefined);
+        }
+        return serveAudioWithRange(result.bytes, rangeHeader, origin);
       }),
     ),
   });

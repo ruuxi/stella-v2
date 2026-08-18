@@ -218,12 +218,16 @@ export const billingSchema = {
 
   // Short-lived, single-use tickets that bridge a POSTed read-aloud request
   // to a GET audio stream. Mobile's native audio player (AVPlayer/ExoPlayer)
-  // can only progressively stream from a GET URL, and the assistant text is
-  // far too long to place in a query string — so the client POSTs the text to
-  // `/api/voice/tts/stream/prepare`, receives an opaque ticket, and the player
-  // GETs `/api/voice/tts/stream.mp3?ticket=…`. Rows are owner-bound, expire in
-  // ~2 minutes, are consumed (deleted) on first use, and are swept by a cron,
-  // so the assistant text never lands in a URL, log, or long-lived store.
+  // fetches a seekable resource and issues multiple (ranged) requests per
+  // playback, and the assistant text is far too long to place in a query
+  // string — so the client POSTs the text to `/api/voice/tts/stream/prepare`,
+  // receives an opaque ticket, and the player GETs
+  // `/api/voice/tts/stream/audio/reply.mp3?ticket=…`. Rows are owner-bound,
+  // expire in ~2 minutes, are reusable within that window (so the player's
+  // range requests all succeed), and are swept by a cron — so the assistant
+  // text never lands in a URL, log, or long-lived store. `audio` caches the
+  // synthesized MP3 (base64) after the first request so the player's follow-up
+  // range requests are served from cache instead of re-synthesizing.
   tts_stream_tickets: defineTable({
     ticket: v.string(),
     ownerId: v.string(),
@@ -232,6 +236,7 @@ export const billingSchema = {
     model: v.string(),
     speed: v.optional(v.number()),
     conversationId: v.optional(v.id("conversations")),
+    audio: v.optional(v.string()),
     createdAt: v.number(),
     expiresAt: v.number(),
   })

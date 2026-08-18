@@ -92,7 +92,7 @@ export const buildHistorySource = (context) => {
       )
       ?.map((entry) => {
         if (entry.payload) {
-          return toRuntimeMessage(entry.payload);
+          return entry.payload;
         }
         if (entry.role === "runtimeInternal" && entry.customMessage) {
           return {
@@ -170,15 +170,6 @@ const createHistoryAssistantMessage = (content, errorMessage) => ({
   ...(errorMessage ? { errorMessage } : {}),
   timestamp: now(),
 });
-const toRuntimeMessage = (payload) => {
-  if (payload.role === "user") {
-    return payload;
-  }
-  if (payload.role === "assistant") {
-    return payload;
-  }
-  return payload;
-};
 const stringifyPayload = (value) => {
   try {
     return JSON.stringify(value);
@@ -520,46 +511,33 @@ export const appendThreadMessage = (store, args) => {
     ...(args.payload ? { payload: args.payload } : {}),
   });
 };
-// Thrown errors here are store-level (LLM failures are retried and reported
-// as `compacted: false` inside `maybeCompactRuntimeThread`); a busy SQLite
-// read is transient, so retry before giving up on the compaction.
-const COMPACTION_RETRY_DELAYS_MS = [250, 1_000];
-
+// Retries live where the failures are: summary generation has its own
+// backoff schedule and the overlay write retries a busy SQLite inside
+// `maybeCompactRuntimeThread`. This wrapper only converts a residual
+// store-level throw into a logged `compacted: false`.
 export const compactRuntimeThreadHistory = async (args) => {
-  for (
-    let attempt = 0;
-    attempt <= COMPACTION_RETRY_DELAYS_MS.length;
-    attempt += 1
-  ) {
-    if (attempt > 0) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, COMPACTION_RETRY_DELAYS_MS[attempt - 1]),
-      );
-    }
-    try {
-      return await maybeCompactRuntimeThread({
-        store: args.store,
-        threadKey: args.threadKey,
-        resolvedLlm: args.resolvedLlm,
-        agentType: args.agentType,
-        ...(args.overrideSummary
-          ? { overrideSummary: args.overrideSummary }
-          : {}),
-        ...(args.preserveLastN !== undefined
-          ? { preserveLastN: args.preserveLastN }
-          : {}),
-        ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
-      });
-    } catch (error) {
-      logger.warn("thread.compaction.failed", {
-        threadKey: args.threadKey,
-        agentType: args.agentType,
-        attempt: attempt + 1,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  try {
+    return await maybeCompactRuntimeThread({
+      store: args.store,
+      threadKey: args.threadKey,
+      resolvedLlm: args.resolvedLlm,
+      agentType: args.agentType,
+      ...(args.overrideSummary
+        ? { overrideSummary: args.overrideSummary }
+        : {}),
+      ...(args.preserveLastN !== undefined
+        ? { preserveLastN: args.preserveLastN }
+        : {}),
+      ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
+    });
+  } catch (error) {
+    logger.warn("thread.compaction.failed", {
+      threadKey: args.threadKey,
+      agentType: args.agentType,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { compacted: false };
   }
-  return { compacted: false };
 };
 export const persistAssistantReply = async (args) => {
   if (!args.content.trim()) {

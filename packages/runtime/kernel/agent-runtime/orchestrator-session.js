@@ -107,6 +107,36 @@ export class OrchestratorSession extends PiSessionCore {
         const runId = opts.runId ?? `local:${crypto.randomUUID()}`;
         const turnOpts = opts.runId === runId ? opts : { ...opts, runId };
         const effectiveSystemPrompt = await buildRuntimeSystemPrompt(turnOpts);
+        // The recorder is side-effect-free to create and is needed this early
+        // so the compaction waits below can surface a "compacting" indicator.
+        const responseTargetTracker = createOrchestratorResponseTargetTracker(opts.responseTarget);
+        this.currentResponseTargetTracker = responseTargetTracker;
+        const runEvents = createRunEventRecorder({
+            store: opts.store,
+            runId,
+            conversationId: opts.conversationId,
+            agentType: opts.agentType,
+            userMessageId: opts.userMessageId,
+            uiVisibility: opts.uiVisibility,
+            getResponseTarget: () => responseTargetTracker.resolve() ?? opts.responseTarget,
+        });
+        const emitCompactingStatus = () => {
+            try {
+                opts.callbacks?.onStatus?.(runEvents.recordStatus("Compacting context", "compacting"));
+            }
+            catch {
+                // Best-effort UI signal; never let a status emit block the turn.
+            }
+        };
+        // Shrinking model switch: while the outgoing (larger-window) route is
+        // still current, run a blocking compaction with it so the incoming
+        // smaller-window route starts on a context it can actually hold.
+        await this.maybeCompactForModelSwitch({
+            opts,
+            runId,
+            onCompacting: emitCompactingStatus,
+            logContext: { conversationId: this.conversationId, runId },
+        });
         // Keep the reused Agent pointed at this turn's model route.
         this.setResolvedLlm(opts.resolvedLlm);
         // Non-blocking compact-while-you-talk stays the norm, but degrade to
@@ -119,14 +149,13 @@ export class OrchestratorSession extends PiSessionCore {
             store: opts.store,
             resolvedLlm: opts.resolvedLlm,
             mode: "guard",
+            onCompacting: emitCompactingStatus,
             logContext: { conversationId: this.conversationId, runId },
         });
         // Apply compaction overlays before provider calls, never mid-stream.
         this.refreshHistoryIfNeeded(opts.agentContext, {
             conversationId: this.conversationId,
         });
-        const responseTargetTracker = createOrchestratorResponseTargetTracker(opts.responseTarget);
-        this.currentResponseTargetTracker = responseTargetTracker;
         this.currentImageDescriptionContext = {
             model: opts.resolvedLlm.model,
             ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
@@ -156,15 +185,6 @@ export class OrchestratorSession extends PiSessionCore {
                 api: opts.resolvedLlm.model.api,
                 modelId: opts.resolvedLlm.model.id,
             },
-        });
-        const runEvents = createRunEventRecorder({
-            store: opts.store,
-            runId,
-            conversationId: opts.conversationId,
-            agentType: opts.agentType,
-            userMessageId: opts.userMessageId,
-            uiVisibility: opts.uiVisibility,
-            getResponseTarget: () => responseTargetTracker.resolve() ?? opts.responseTarget,
         });
         const agent = this.createOrReuseAgent({
             agentType: opts.agentType,

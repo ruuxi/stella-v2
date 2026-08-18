@@ -103,6 +103,33 @@ export class SubagentSession extends PiSessionCore {
             ...opts,
             runId,
         });
+        // The recorder is side-effect-free to create and is needed this early
+        // so the compaction waits below can surface a "compacting" indicator.
+        const runEvents = createRunEventRecorder({
+            store: opts.store,
+            runId,
+            conversationId: opts.conversationId,
+            agentType: opts.agentType,
+            userMessageId: opts.userMessageId,
+            uiVisibility: opts.uiVisibility,
+        });
+        const emitCompactingStatus = () => {
+            try {
+                opts.callbacks?.onStatus?.(runEvents.recordStatus("Compacting context", "compacting"));
+            }
+            catch {
+                // Best-effort UI signal; never let a status emit block the turn.
+            }
+        };
+        // Shrinking model switch: while the outgoing (larger-window) route is
+        // still current, run a blocking compaction with it so the incoming
+        // smaller-window route starts on a context it can actually hold.
+        await this.maybeCompactForModelSwitch({
+            opts,
+            runId,
+            onCompacting: emitCompactingStatus,
+            logContext: { threadId: this.threadId, runId },
+        });
         // Keep the reused Agent pointed at the current model route.
         this.setResolvedLlm(opts.resolvedLlm);
         this.currentImageDescriptionContext = {
@@ -116,6 +143,7 @@ export class SubagentSession extends PiSessionCore {
         await this.awaitPendingCompactionBeforeTurn({
             compactionScheduler: opts.compactionScheduler,
             mode: "blocking",
+            onCompacting: emitCompactingStatus,
             logContext: { threadId: this.threadId, runId },
         });
         this.refreshHistoryIfNeeded(opts.agentContext, {
@@ -151,14 +179,6 @@ export class SubagentSession extends PiSessionCore {
                 api: opts.resolvedLlm.model.api,
                 modelId: opts.resolvedLlm.model.id,
             },
-        });
-        const runEvents = createRunEventRecorder({
-            store: opts.store,
-            runId,
-            conversationId: opts.conversationId,
-            agentType: opts.agentType,
-            userMessageId: opts.userMessageId,
-            uiVisibility: opts.uiVisibility,
         });
         const agent = this.createOrReuseAgent({
             agentType: opts.agentType,

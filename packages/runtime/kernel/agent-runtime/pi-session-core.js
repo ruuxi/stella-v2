@@ -6,7 +6,8 @@ import { buildHistorySource } from "./thread-memory.js";
 import { getThreadTokenEstimate } from "../thread-runtime.js";
 import { CONTEXT_DELTA_CUSTOM_TYPE_PREFIX } from "./resident-context.js";
 import { checkPromptPrefixStability, clearPromptPrefixSnapshot, } from "./prompt-prefix-guard.js";
-import { clearProviderContextWindow, setProviderContextWindow, } from "./context-budget.js";
+import { clearProviderContextWindow, getLastProviderPayloadTokens, providerInputBudgetTokens, setProviderContextWindow, withForcedThreadCompaction, } from "./context-budget.js";
+import { runCompactionWithHooks } from "./run-completion.js";
 /**
  * Fraction of the model's real context window at which the orchestrator's
  * non-blocking "compact-while-you-talk" path degrades to blocking: if a
@@ -194,6 +195,104 @@ export class PiSessionCore {
      * logged by the scheduler, and the normal pre-generation overflow recovery
      * remains as the last-resort backstop.
      */
+    /**
+     * Shrinking-model-switch compaction. When the incoming route's context
+     * window is smaller than the current route's AND the thread's measured
+     * context no longer fits the incoming route's safe input budget (the
+     * same ~70% bound preflight enforces at dispatch), the outgoing
+     * (larger-window) model is the one that can still read the uncompacted
+     * history in one summary pass — so compact NOW, blocking, on the
+     * outgoing route before the switch takes effect. Any in-flight
+     * background compaction is drained first (the "switched while
+     * compacting" case waits here too), and `args.onCompacting` lets the
+     * caller surface the wait as a "compacting" working indicator. Below
+     * that bound nothing blocks: the thread fits the new model, and the
+     * routine non-blocking compaction covers it from there.
+     *
+     * Best-effort by design: after a worker restart the previous route is
+     * unknown (`currentResolvedLlm` is null), and a failed pass here is not
+     * fatal — the pre-dispatch preflight, overflow recovery, and the capped
+     * single-pass summary on the new route remain the backstops.
+     */
+    async maybeCompactForModelSwitch(args) {
+        const previous = this.currentResolvedLlm;
+        const next = args.opts.resolvedLlm;
+        const scheduler = args.opts.compactionScheduler;
+        if (!previous || !next || !scheduler)
+            return;
+        const previousWindow = Number(previous.model.contextWindow);
+        const nextWindow = Number(next.model.contextWindow);
+        if (!Number.isFinite(previousWindow) ||
+            !Number.isFinite(nextWindow) ||
+            nextWindow >= previousWindow) {
+            return;
+        }
+        const blockThresholdTokens = providerInputBudgetTokens(nextWindow);
+        if (!blockThresholdTokens)
+            return;
+        const measureTokens = () => {
+            const historyTokens = getThreadTokenEstimate(args.opts.store.loadThreadMessages(this.threadKey));
+            return Math.max(historyTokens, getLastProviderPayloadTokens(this.threadKey) ?? 0);
+        };
+        let measuredTokens;
+        try {
+            measuredTokens = measureTokens();
+        }
+        catch {
+            // Can't measure the thread — let the dispatch backstops decide.
+            return;
+        }
+        if (measuredTokens < blockThresholdTokens)
+            return;
+        this.logger.warn("compaction.model-switch-shrink", {
+            threadKey: this.threadKey,
+            fromModel: previous.model.id,
+            toModel: next.model.id,
+            fromWindow: previousWindow,
+            toWindow: nextWindow,
+            measuredTokens,
+            ...args.logContext,
+        });
+        args.onCompacting?.();
+        try {
+            // Drain any in-flight/queued background compaction first; it may
+            // already relieve the thread (it was scheduled with the outgoing
+            // route too).
+            let pending = scheduler.pending(this.threadKey);
+            while (pending) {
+                await pending;
+                pending = scheduler.pending(this.threadKey);
+            }
+            try {
+                measuredTokens = measureTokens();
+            }
+            catch {
+                return;
+            }
+            if (measuredTokens < blockThresholdTokens)
+                return;
+            // Forced pass on the outgoing route. The scheduler is idle after the
+            // drain, so this runs immediately and the await is the block.
+            await scheduler.schedule({
+                threadKey: this.threadKey,
+                run: async () => {
+                    const { compacted } = await withForcedThreadCompaction(this.threadKey, () => runCompactionWithHooks({
+                        opts: { ...args.opts, resolvedLlm: previous },
+                        threadKey: this.threadKey,
+                        runId: args.runId,
+                        messageCount: this.agent?.state.messages.length ?? 0,
+                    }));
+                    if (compacted) {
+                        this.notifyCompacted();
+                    }
+                },
+            });
+        }
+        catch {
+            // Failures are logged by the scheduler/compaction path; the turn
+            // proceeds and the dispatch backstops handle a residual overflow.
+        }
+    }
     async awaitPendingCompactionBeforeTurn(args) {
         const scheduler = args.compactionScheduler;
         if (!scheduler || typeof scheduler.pending !== "function")
@@ -228,6 +327,9 @@ export class PiSessionCore {
                 ...args.logContext,
             });
         }
+        // The turn is now actually going to wait on compaction — surface it
+        // as a "compacting" working indicator instead of a silent stall.
+        args.onCompacting?.();
         try {
             // Drain the active run plus any queued follow-up so the next turn
             // starts on the compacted context. No new compaction is scheduled

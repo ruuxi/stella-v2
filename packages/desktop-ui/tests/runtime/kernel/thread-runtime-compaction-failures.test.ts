@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Compaction must just work: transient provider failures (429/overloaded/
 // network/400) and credential blips are retried with backoff, hook override
 // summaries are accepted verbatim, and an oversized backlog that cannot fit
-// one summary request in the target model's window is compacted via parallel
-// chunked summaries (so nothing is silently dropped and it never hard-fails)
-// instead of a single truncated pass. A failed compaction is the rare
-// terminal outcome, not the first response to one blip.
+// one summary request in the target model's window is capped to the window
+// with an explicit elision note (the shrinking-model-switch case is handled
+// up front by a blocking compaction on the outgoing route). A failed
+// compaction is the rare terminal outcome, not the first response to one
+// blip.
 
 const completeSimpleMock = vi.fn();
 
@@ -38,7 +39,7 @@ import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 const MAX_SUMMARY_ATTEMPTS = 5;
 
 // ~10k chars per message; 60 messages ≈ 150k estimated tokens — far past the
-// 140k orchestrator trigger on a 200k window, and big enough that the raw
+// 100k trigger (0.5 x window) on a 200k window, and big enough that the raw
 // formatted middle exceeds the summarizer's input budget.
 const buildBigThreadMessages = () =>
   Array.from({ length: 60 }, (_, index) => ({
@@ -213,7 +214,7 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(compactCalls[0]).toMatchObject({ summary: "Compacted." });
   });
 
-  it("compacts an oversized backlog via parallel chunked summaries", async () => {
+  it("caps an oversized backlog into one bounded summary request with an elision note", async () => {
     const { store, compactCalls } = createFakeStore();
     completeSimpleMock.mockResolvedValue(successResponse());
 
@@ -224,42 +225,32 @@ describe("orchestrator thread compaction failure handling", () => {
       agentType: "orchestrator",
     });
 
-    // The ~600k-char middle cannot fit one summary request in the 200k window,
-    // so compaction fans out into chunked segment summaries rather than
-    // silently truncating the oldest history — and it still writes exactly one
-    // checkpoint overlay.
+    // The ~600k-char middle cannot fit one summary request in the 200k
+    // window; the request is capped to the window's input budget, keeping the
+    // most recent span and disclosing the elided oldest span, and exactly one
+    // checkpoint overlay is written. (The shrinking-model-switch case that
+    // used to need chunking is handled before the switch by a blocking
+    // compaction on the outgoing larger-window route.)
     expect(result).toEqual({ compacted: true });
     expect(compactCalls).toHaveLength(1);
-    expect(completeSimpleMock.mock.calls.length).toBeGreaterThan(1);
+    expect(completeSimpleMock).toHaveBeenCalledTimes(1);
 
-    // Every request stays bounded by the model's window (no single overflowing
-    // request, no truncation-elision note).
-    for (const call of completeSimpleMock.mock.calls) {
-      const context = call[1] as {
-        messages: Array<{ content: Array<{ text: string }> }>;
-      };
-      const prompt = context.messages[0]!.content[0]!.text;
-      expect(prompt).not.toContain("[Compaction input truncated");
-      // (200k window - 49,152 reserve) * 0.5 input fraction * 3 chars/token,
-      // plus scaffolding — comfortably under the single-pass ceiling.
-      expect(prompt.length).toBeLessThan(300_000);
-      expect(prompt).toContain("segment");
-    }
-
-    // The mechanical combine concatenates the segment summaries in order under
-    // "Part i/N" headings — no combiner LLM call, no lost span.
-    const summary = compactCalls[0]!.summary as string;
-    expect(summary).toContain("parallel segment summaries");
-    expect(summary).toContain("## Part 1/");
-    expect(summary).toContain(SUMMARY_TEXT);
+    const context = completeSimpleMock.mock.calls[0]![1] as {
+      messages: Array<{ content: Array<{ text: string }> }>;
+    };
+    const prompt = context.messages[0]!.content[0]!.text;
+    expect(prompt).toContain("[Compaction input truncated");
+    // (200k window - 49,152 reserve) * 3 chars/token, plus scaffolding —
+    // bounded by the single-pass ceiling instead of the raw middle size.
+    expect(prompt.length).toBeLessThan(500_000);
+    expect(compactCalls[0]).toMatchObject({ summary: SUMMARY_TEXT });
   });
 
-  it("chunks an over-budget thread for a small-context target model so compaction never hard-fails", async () => {
-    // Reproduce the model-switch failure: a large live thread (built on a big
-    // window) is compacted for a much smaller-context target (e.g. after
-    // switching the active model). A single pass could not fit the transcript
-    // into the target at all; chunked compaction fits every request and
-    // succeeds instead of stranding the user with "compaction failed".
+  it("caps the request for a small-context target model so compaction still succeeds", async () => {
+    // A large live thread compacted against a much smaller-context target
+    // (e.g. a forced compaction where no larger-window route is available,
+    // such as after a worker restart). The single pass caps its input to the
+    // small window instead of overflowing it or hard-failing.
     const { store, compactCalls } = createFakeStore();
     completeSimpleMock.mockResolvedValue(successResponse());
 
@@ -275,17 +266,15 @@ describe("orchestrator thread compaction failure handling", () => {
 
     expect(result).toEqual({ compacted: true });
     expect(compactCalls).toHaveLength(1);
-    // Many small chunks for a tiny window, none overflowing it.
-    expect(completeSimpleMock.mock.calls.length).toBeGreaterThan(3);
-    for (const call of completeSimpleMock.mock.calls) {
-      const context = call[1] as {
-        messages: Array<{ content: Array<{ text: string }> }>;
-      };
-      const prompt = context.messages[0]!.content[0]!.text;
-      // 32k window → tiny per-chunk request that fits with the completion
-      // reserve; the min-chunk floor keeps it from degenerating to zero.
-      expect(prompt.length).toBeLessThan(120_000);
-    }
+    expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+    const context = completeSimpleMock.mock.calls[0]![1] as {
+      messages: Array<{ content: Array<{ text: string }> }>;
+    };
+    const prompt = context.messages[0]!.content[0]!.text;
+    // 32k window → the input-budget floor keeps the request tiny but
+    // well-defined (the reserve exceeds the window itself).
+    expect(prompt).toContain("[Compaction input truncated");
+    expect(prompt.length).toBeLessThan(120_000);
     const summary = compactCalls[0]!.summary as string;
     expect(summary).toContain(SUMMARY_TEXT);
   });
@@ -473,7 +462,7 @@ describe("orchestrator thread compaction failure handling", () => {
 
     completeSimpleMock.mockResolvedValue(successResponse());
 
-    // Real ~1M-window target: 0.7 x window dwarfs the ~50k effective size, so
+    // Real ~1M-window target: 0.5 x window dwarfs the ~50k effective size, so
     // nothing compacts and no summary request is made.
     const fits = await maybeCompactRuntimeThread({
       store: createFakeStore(effective).store,

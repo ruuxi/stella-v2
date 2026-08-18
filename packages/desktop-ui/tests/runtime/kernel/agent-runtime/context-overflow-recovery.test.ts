@@ -111,17 +111,18 @@ describe("progress-aware context overflow recovery", () => {
     runCompactionWithHooksMock.mockReset();
   });
 
-  it("caps canonical history while using the real window for provider payloads", () => {
+  it("scales the compaction trigger with the window while preflight uses the real window", () => {
+    // 0.5 x the model's real context window.
     expect(
       getCompactionTriggerTokens({
         model: { contextWindow: 1_000_000 },
       } as never),
-    ).toBe(140_000);
+    ).toBe(500_000);
     expect(
       getCompactionTriggerTokens({
         model: { contextWindow: 80_000 },
       } as never),
-    ).toBe(56_000);
+    ).toBe(40_000);
 
     expect(() =>
       preflightProviderPayload(

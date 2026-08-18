@@ -24,17 +24,19 @@ import { loadLocalPreferences } from "./preferences/local-preferences.js";
 const logger = createRuntimeLogger("thread-runtime");
 
 const THREAD_CHECKPOINT_MARKER = "[[THREAD_CHECKPOINT]]";
-export const resolveThreadCompactionSystemPrompt = (
-  _stellaDataDir?: string,
-): string => readRuntimePrompt("thread-compaction") ?? "";
+export const resolveThreadCompactionSystemPrompt = (): string =>
+  readRuntimePrompt("thread-compaction") ?? "";
 const THREAD_COMPACTION_RESERVE_TOKENS = 49_152;
 /**
- * Fraction of the model's real context window at which the orchestrator
- * thread store compacts. Keyed off `route.model.contextWindow` (the real,
- * provider-catalog-derived window) so the trigger scales with the active model
- * instead of a fixed token budget.
+ * Fraction of the model's real context window at which a thread compacts.
+ * Keyed off `route.model.contextWindow` (the real, provider-catalog-derived
+ * window) so the trigger scales with the active model. Compared against the
+ * full model-visible request — the last preflight-measured outbound payload
+ * (system prompt + tool schemas + resident context + history) when one has
+ * been captured, with the history-only estimate as the floor for threads
+ * that have not dispatched a turn yet (e.g. right after a worker restart).
  */
-const THREAD_COMPACTION_TRIGGER_PCT = 0.7;
+const THREAD_COMPACTION_TRIGGER_PCT = 0.5;
 const THREAD_COMPACTION_PROTECT_HEAD_MESSAGES = 3;
 const THREAD_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
 /**
@@ -69,7 +71,6 @@ type StoredThreadMessage = {
 
 type ThreadCheckpoint = {
   summary: string;
-  previousThreadFile?: string;
 };
 
 export type ThreadCompactionPlan = {
@@ -187,7 +188,7 @@ const stringifyStoredMessage = (message: StoredThreadMessage): string[] => {
   );
 };
 
-export const formatThreadMessagesForCompaction = (
+const formatThreadMessagesForCompaction = (
   messages: StoredThreadMessage[],
 ): string =>
   messages
@@ -264,25 +265,6 @@ export const getCompactionTriggerTokens = (route: ResolvedLlmRoute): number =>
   Math.max(
     MIN_TRIGGER_TOKENS,
     Math.floor(getContextWindow(route) * THREAD_COMPACTION_TRIGGER_PCT),
-  );
-
-/**
- * Fraction of the window at which the last measured full outbound payload (system
- * prompt + tool schemas + resident context + history, captured at preflight) forces
- * a proactive compaction. `getCompactionTriggerTokens` compares only the history
- * estimate against 0.7x the window, but the provider actually receives the whole
- * payload — on large-toolset engines (the Codex Responses path) that dispatched
- * payload runs ~2x the history estimate, so a thread can blow the input budget while
- * its history sits well under the trigger. Sitting below the 0.7 preflight-reject
- * fraction leaves headroom for the next turn's own growth before the hard limit.
- */
-const PAYLOAD_COMPACTION_TRIGGER_PCT = 0.6;
-export const getCompactionPayloadTriggerTokens = (
-  route: ResolvedLlmRoute,
-): number =>
-  Math.max(
-    MIN_TRIGGER_TOKENS,
-    Math.floor(getContextWindow(route) * PAYLOAD_COMPACTION_TRIGGER_PCT),
   );
 
 export const getThreadTokenEstimate = (
@@ -503,17 +485,13 @@ export const parseThreadCheckpoint = (
   }
 
   const lines = trimmed.split(/\r?\n/);
-  let previousThreadFile: string | undefined;
+  // Skip legacy header lines (e.g. "Previous thread file: …") up to the
+  // blank separator; the summary body is everything after it.
   let bodyStart = 1;
   for (let index = 1; index < lines.length; index += 1) {
-    const line = lines[index]!.trim();
-    if (!line) {
+    if (!lines[index]!.trim()) {
       bodyStart = index + 1;
       break;
-    }
-    if (line.toLowerCase().startsWith("previous thread file:")) {
-      const value = line.slice("previous thread file:".length).trim();
-      previousThreadFile = value || undefined;
     }
   }
 
@@ -521,23 +499,13 @@ export const parseThreadCheckpoint = (
   if (!summary) {
     return null;
   }
-  return {
-    summary,
-    ...(previousThreadFile ? { previousThreadFile } : {}),
-  };
+  return { summary };
 };
 
 export const formatThreadCheckpointMessage = (
   checkpoint: ThreadCheckpoint,
 ): string =>
-  [
-    THREAD_CHECKPOINT_MARKER,
-    ...(checkpoint.previousThreadFile
-      ? [`Previous thread file: ${checkpoint.previousThreadFile}`]
-      : []),
-    "",
-    checkpoint.summary.trim(),
-  ].join("\n");
+  [THREAD_CHECKPOINT_MARKER, "", checkpoint.summary.trim()].join("\n");
 
 const computeSummaryBudget = (messages: StoredThreadMessage[]): number =>
   Math.max(100, Math.floor(getThreadTokenEstimate(messages) * 0.2));
@@ -618,39 +586,6 @@ const getSummaryInputCharBudget = (
   );
 
 /**
- * Chunked compaction sizing. When the uncompacted middle cannot fit one
- * summary request in the current model's window (e.g. a thread built on a
- * large-window model continuing on a much smaller-window one after a model
- * switch), the middle is split into message-boundary chunks that are
- * summarized independently in parallel — every request stays bounded by the
- * current model's window regardless of total history size. The 0.5 input
- * fraction leaves the completion reserve plus slack for chars-per-token
- * underestimation and the summary prompt scaffolding.
- */
-const CHUNKED_SUMMARY_INPUT_FRACTION = 0.5;
-const CHUNKED_SUMMARY_MIN_CHUNK_CHARS = 20_000;
-/** Char reserve for the prompt scaffolding riding along each chunk request. */
-const CHUNKED_SUMMARY_PROMPT_OVERHEAD_CHARS = 40_000;
-/**
- * Chunk summaries run in parallel; this caps how many near-window summary
- * requests are in flight at once so a huge history doesn't blast the
- * provider with a dozen simultaneous max-size requests (rate limits,
- * memory, and fairness to the user's own in-flight turns).
- */
-const CHUNKED_SUMMARY_MAX_CONCURRENCY = 3;
-/**
- * Bounds for the concatenated result: the final checkpoint must fit
- * comfortably inside the current model's window next turn, so the overall
- * output budget is capped to this fraction of the window and divided across
- * chunks; each chunk summary is also mechanically trimmed (no extra LLM
- * call) to its share plus slack.
- */
-const CHUNKED_SUMMARY_TOTAL_OUTPUT_WINDOW_FRACTION = 0.2;
-const CHUNKED_SUMMARY_MAX_CHUNK_OUTPUT_TOKENS = 6_000;
-const CHUNKED_SUMMARY_MIN_CHUNK_OUTPUT_TOKENS = 200;
-const CHUNKED_SUMMARY_TRIM_SLACK = 1.5;
-
-/**
  * Non-conversation chars that ride along every summary request (system
  * prompt, previous checkpoint summary, durable-memory reference, and the
  * fixed prompt template). Shared by the single-pass budget check and
@@ -666,60 +601,6 @@ const estimateSummaryOverheadChars = (args: {
   (args.previousSummary?.length ?? 0) +
   (args.durableMemoryReference?.length ?? 0) +
   SUMMARY_PROMPT_TEMPLATE_CHARS;
-
-/**
- * Per-chunk char budget: half the model's usable window (leaving the
- * completion reserve and slack), minus the durable-memory reference and the
- * prompt scaffolding, floored at a minimum so a tiny window still makes
- * forward progress. Each chunk's own request is still capped by
- * `getSummaryInputCharBudget` inside `generateThreadSummary`.
- */
-const getChunkedSummaryChunkCharBudget = (
-  route: ResolvedLlmRoute,
-  durableMemoryReference?: string,
-): number =>
-  Math.max(
-    CHUNKED_SUMMARY_MIN_CHUNK_CHARS,
-    Math.floor(
-      Math.max(0, getContextWindow(route) - THREAD_COMPACTION_RESERVE_TOKENS) *
-        CHUNKED_SUMMARY_INPUT_FRACTION,
-    ) *
-      SUMMARY_INPUT_CHARS_PER_TOKEN -
-      (durableMemoryReference?.length ?? 0) -
-      CHUNKED_SUMMARY_PROMPT_OVERHEAD_CHARS,
-  );
-
-/**
- * Split middle messages into chunks whose formatted representation fits
- * `chunkCharBudget`. Boundaries always land between stored messages; a
- * single message larger than the budget gets its own chunk (its request is
- * still bounded by the per-request input cap in `generateThreadSummary`).
- */
-export const chunkThreadMessagesForCompaction = (
-  messages: StoredThreadMessage[],
-  chunkCharBudget: number,
-): StoredThreadMessage[][] => {
-  const chunks: StoredThreadMessage[][] = [];
-  let current: StoredThreadMessage[] = [];
-  let currentChars = 0;
-  for (const message of messages) {
-    const formattedChars = stringifyStoredMessage(message).reduce(
-      (sum, entry) => sum + entry.length + 2,
-      0,
-    );
-    if (current.length > 0 && currentChars + formattedChars > chunkCharBudget) {
-      chunks.push(current);
-      current = [];
-      currentChars = 0;
-    }
-    current.push(message);
-    currentChars += formattedChars;
-  }
-  if (current.length > 0) {
-    chunks.push(current);
-  }
-  return chunks;
-};
 
 /** Char slack for the fixed prompt template (structure, guidelines, footer). */
 const SUMMARY_PROMPT_TEMPLATE_CHARS = 4_000;
@@ -808,40 +689,6 @@ ${SUMMARY_STRUCTURE}
 ${footer}`;
 };
 
-/**
- * Standalone per-segment prompt for chunked compaction. Unlike
- * `buildSummaryPrompt` there is no previous summary to update: each segment
- * is summarized independently (in parallel) and the segment summaries are
- * concatenated mechanically in chronological order, so the prompt tells the
- * model exactly that and asks for self-contained, chronology-friendly
- * output. Shares the structure, guidelines, and factuality footer with the
- * single-pass prompt so chunked checkpoints keep the same conventions.
- */
-const buildChunkSummaryPrompt = (
-  formattedConversation: string,
-  segment: { index: number; count: number },
-  budget: number,
-  durableMemoryReference?: string,
-): string => {
-  const guidelines = buildSummaryGuidelines(
-    Boolean(durableMemoryReference?.trim()),
-  );
-  const alreadyKnown = buildAlreadyKnownSection(durableMemoryReference);
-  return `You are summarizing segment ${segment.index + 1} of ${segment.count} of a longer conversation. The other segments are summarized separately, and all segment summaries will be concatenated in chronological order to form one checkpoint — no model will merge them afterwards. Write a self-contained summary of THIS segment only: do not refer to a previous summary or to other segments' content, and when work in this segment clearly continues from before it or remains unfinished at its end, say so explicitly so the concatenation reads coherently.
-
-${alreadyKnown}CONVERSATION SEGMENT TO SUMMARIZE:
-${formattedConversation}
-
-Use this structure:
-
-${SUMMARY_STRUCTURE}
-
-${guidelines}
-
-Target ~${budget} tokens. Be factual — only include information that was explicitly discussed in this segment. Do NOT invent file paths, commands, or details that were not mentioned. Write only the summary body.`;
-};
-
-
 // Per-doc cap for the ALREADY KNOWN reference. The docs are small
 // always-loaded files; the cap only guards against a runaway doc inflating
 // the compaction request.
@@ -867,7 +714,7 @@ const readDurableMemoryDoc = (filePath: string): string | undefined => {
  * durable-memory docs (user profile + Dream memory summary), so the
  * summarizer can skip restating facts the assistant sees on every turn.
  */
-export const buildDurableMemoryReference = (
+const buildDurableMemoryReference = (
   stellaDataDir: string | undefined,
 ): string | undefined => {
   if (!stellaDataDir?.trim()) {
@@ -905,17 +752,8 @@ const generateThreadSummary = async (args: {
   previousSummary?: string;
   resolvedLlm: ResolvedLlmRoute;
   durableMemoryReference?: string;
-  stellaDataDir?: string;
-  /**
-   * Chunked mode: summarize segment `index` of `count` as a self-contained
-   * standalone summary (no previous-summary update). The caller concatenates
-   * the segment summaries mechanically in chronological order.
-   */
-  segment?: { index: number; count: number };
-  /** Override for the ~token output target passed into the prompt. */
-  outputBudgetTokens?: number;
 }): Promise<{ text: string | null; reason?: string }> => {
-  const systemPrompt = resolveThreadCompactionSystemPrompt(args.stellaDataDir);
+  const systemPrompt = resolveThreadCompactionSystemPrompt();
   const previousSummary = args.previousSummary?.trim();
   const overheadChars = estimateSummaryOverheadChars({
     systemPromptChars: systemPrompt.length,
@@ -933,21 +771,12 @@ const generateThreadSummary = async (args: {
     };
   }
 
-  const outputBudget =
-    args.outputBudgetTokens ?? computeSummaryBudget(args.messages);
-  const promptBody = args.segment
-    ? buildChunkSummaryPrompt(
-        formattedConversation,
-        args.segment,
-        outputBudget,
-        args.durableMemoryReference,
-      )
-    : buildSummaryPrompt(
-        formattedConversation,
-        previousSummary,
-        outputBudget,
-        args.durableMemoryReference,
-      );
+  const promptBody = buildSummaryPrompt(
+    formattedConversation,
+    previousSummary,
+    computeSummaryBudget(args.messages),
+    args.durableMemoryReference,
+  );
 
   // Every failure mode is treated as transient and retried with backoff:
   // provider errors (429/overloaded/network/400), thrown transport errors,
@@ -1022,179 +851,6 @@ const generateThreadSummary = async (args: {
     }
   }
   return { text: null, reason };
-};
-
-/**
- * Parallel chunked compaction used when the middle cannot fit a single
- * summary request in the current model's window (e.g. a large thread
- * continuing on a smaller-context model after a model switch). Every chunk
- * is summarized independently and concurrently (bounded by
- * `CHUNKED_SUMMARY_MAX_CONCURRENCY`) with the standalone segment prompt, and
- * the results are combined mechanically — concatenated in chronological
- * order under "Part i/N" headings, with the previous checkpoint summary
- * carried verbatim up front — so no combiner LLM call is needed. Chunks that
- * still fail after their own retry schedule are counted and disclosed in the
- * final summary instead of failing the whole compaction; the raw messages
- * always remain in thread storage. The loop is strictly bounded: each chunk
- * is attempted exactly once by exactly one worker, and workers stop when the
- * chunk index is exhausted or a non-retryable failure aborts the run.
- */
-const generateChunkedThreadSummary = async (args: {
-  threadKey: string;
-  middleMessages: StoredThreadMessage[];
-  previousSummary?: string;
-  resolvedLlm: ResolvedLlmRoute;
-  durableMemoryReference?: string;
-  stellaDataDir?: string;
-}): Promise<{ text: string | null; reason?: string }> => {
-  const chunkCharBudget = getChunkedSummaryChunkCharBudget(
-    args.resolvedLlm,
-    args.durableMemoryReference,
-  );
-  const chunks = chunkThreadMessagesForCompaction(
-    args.middleMessages,
-    chunkCharBudget,
-  );
-  const chunkCount = chunks.length;
-  if (chunkCount === 0) {
-    return { text: null, reason: "no chunks to summarize" };
-  }
-  // Cap the overall summary budget to a fraction of the CURRENT model's
-  // window (not the — potentially enormous — middle) and divide it across
-  // chunks, so the mechanically concatenated checkpoint fits the target
-  // window with room for the kept tail and head. `perChunkOutputBudgetTokens`
-  // applies its own minimum floor per chunk, so this only needs a small
-  // positive floor to stay well-defined; it deliberately does not scale with
-  // the middle.
-  const totalOutputBudgetTokens = Math.max(
-    CHUNKED_SUMMARY_MIN_CHUNK_OUTPUT_TOKENS,
-    Math.min(
-      computeSummaryBudget(args.middleMessages),
-      Math.floor(
-        getContextWindow(args.resolvedLlm) *
-          CHUNKED_SUMMARY_TOTAL_OUTPUT_WINDOW_FRACTION,
-      ),
-    ),
-  );
-  const perChunkOutputBudgetTokens = Math.max(
-    CHUNKED_SUMMARY_MIN_CHUNK_OUTPUT_TOKENS,
-    Math.min(
-      CHUNKED_SUMMARY_MAX_CHUNK_OUTPUT_TOKENS,
-      Math.floor(totalOutputBudgetTokens / chunkCount),
-    ),
-  );
-  const concurrency = Math.min(CHUNKED_SUMMARY_MAX_CONCURRENCY, chunkCount);
-  logger.info("thread.compaction.chunked-start", {
-    threadKey: args.threadKey,
-    model: args.resolvedLlm.model.id,
-    chunkCount,
-    chunkCharBudget,
-    perChunkOutputBudgetTokens,
-    concurrency,
-    middleTokens: getThreadTokenEstimate(args.middleMessages),
-  });
-  const chunkTokensList = chunks.map((chunkMessages) =>
-    getThreadTokenEstimate(chunkMessages),
-  );
-  const results: Array<string | null> = new Array(chunkCount).fill(null);
-  let lastFailureReason: string | undefined;
-  let abortReason: string | undefined;
-  let nextChunkIndex = 0;
-  const worker = async (): Promise<void> => {
-    while (abortReason === undefined) {
-      const chunkIndex = nextChunkIndex;
-      if (chunkIndex >= chunkCount) return;
-      nextChunkIndex += 1;
-      const chunkMessages = chunks[chunkIndex]!;
-      const generated = await generateThreadSummary({
-        threadKey: args.threadKey,
-        messages: chunkMessages,
-        resolvedLlm: args.resolvedLlm,
-        segment: { index: chunkIndex, count: chunkCount },
-        outputBudgetTokens: perChunkOutputBudgetTokens,
-        ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
-        ...(args.durableMemoryReference
-          ? { durableMemoryReference: args.durableMemoryReference }
-          : {}),
-      });
-      if (generated.text) {
-        results[chunkIndex] = generated.text;
-        continue;
-      }
-      lastFailureReason = generated.reason ?? "summary generation failed";
-      // A missing credential can never succeed on any chunk either; stop
-      // pulling new chunks and report the failure instead of folding most of
-      // the history unnarrated.
-      if (generated.reason === "no API key") {
-        abortReason = generated.reason;
-        return;
-      }
-      logger.warn("thread.compaction.chunk-summary-failed", {
-        threadKey: args.threadKey,
-        model: args.resolvedLlm.model.id,
-        chunkIndex,
-        chunkCount,
-        chunkTokens: chunkTokensList[chunkIndex],
-        reason: lastFailureReason,
-      });
-    }
-  };
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
-  if (abortReason !== undefined) {
-    return { text: null, reason: abortReason };
-  }
-  const successfulChunks = results.filter((text) => text !== null).length;
-  if (successfulChunks === 0) {
-    return {
-      text: null,
-      reason: lastFailureReason ?? "all chunk summaries failed",
-    };
-  }
-  // Mechanical combine: chronological concatenation, no combiner LLM call.
-  const previousSummary = args.previousSummary?.trim();
-  const perChunkTrimChars = Math.floor(
-    perChunkOutputBudgetTokens *
-      SUMMARY_INPUT_CHARS_PER_TOKEN *
-      CHUNKED_SUMMARY_TRIM_SLACK,
-  );
-  let foldedWithoutNarrationTokens = 0;
-  const parts: string[] = [];
-  if (previousSummary) {
-    parts.push(
-      `## Earlier context (previous checkpoint summary)\n\n${previousSummary}`,
-    );
-  }
-  for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-    const text = results[chunkIndex];
-    const partLabel =
-      chunkCount > 1 ? `## Part ${chunkIndex + 1}/${chunkCount}\n\n` : "";
-    if (text === null) {
-      foldedWithoutNarrationTokens += chunkTokensList[chunkIndex]!;
-      parts.push(
-        `${partLabel}[~${chunkTokensList[chunkIndex]} tokens of history in this segment were folded without narration after repeated summary failures; the raw messages remain in thread storage.]`,
-      );
-      continue;
-    }
-    parts.push(`${partLabel}${truncateForSummary(text, perChunkTrimChars)}`);
-  }
-  const summary = (
-    chunkCount > 1
-      ? [
-          `[This checkpoint was compacted in ${chunkCount} parallel segment summaries; the parts below are in chronological order.]`,
-          ...parts,
-        ]
-      : parts
-  ).join("\n\n");
-  if (foldedWithoutNarrationTokens > 0) {
-    logger.warn("thread.compaction.chunked-partial", {
-      threadKey: args.threadKey,
-      model: args.resolvedLlm.model.id,
-      chunkCount,
-      successfulChunks,
-      foldedWithoutNarrationTokens,
-    });
-  }
-  return { text: summary };
 };
 
 
@@ -1294,19 +950,19 @@ export const maybeCompactRuntimeThread = async (args: {
 
   const totalTokens = getThreadTokenEstimate(storedMessages);
   const forced = isThreadCompactionForced(args.threadKey);
-  // Compaction fires on whichever ceiling is reached first: the history-only estimate
-  // hitting 0.7x the window, OR the last measured full outbound payload (system prompt
-  // + tool schemas + resident context + history, captured at preflight) reaching the
-  // payload-pressure trigger. The second condition closes the
-  // history-under-trigger-but-payload-over-budget gap on large-toolset engines (Codex)
-  // that would otherwise only ever be caught reactively by the pre-dispatch preflight.
-  const lastPayloadTokens = getLastProviderPayloadTokens(args.threadKey);
-  const historyOverTrigger =
-    totalTokens >= getCompactionTriggerTokens(args.resolvedLlm);
-  const payloadOverTrigger =
-    lastPayloadTokens !== undefined &&
-    lastPayloadTokens >= getCompactionPayloadTriggerTokens(args.resolvedLlm);
-  if (!forced && !historyOverTrigger && !payloadOverTrigger) {
+  // The trigger measures what the provider actually receives: the last
+  // preflight-measured full outbound payload (system prompt + tool schemas +
+  // resident context + history). The history-only estimate is the floor for
+  // threads with no measured dispatch yet (e.g. the first turn after a
+  // worker restart, where the in-memory payload estimate is gone).
+  const measuredTokens = Math.max(
+    totalTokens,
+    getLastProviderPayloadTokens(args.threadKey) ?? 0,
+  );
+  if (
+    !forced &&
+    measuredTokens < getCompactionTriggerTokens(args.resolvedLlm)
+  ) {
     return { compacted: false };
   }
 
@@ -1345,46 +1001,19 @@ export const maybeCompactRuntimeThread = async (args: {
       : undefined;
   let summary = args.overrideSummary?.trim() || null;
   if (!summary) {
-    // Single-pass compaction is the default. When the uncompacted middle is
-    // too large to fit one summary request in the current model's window
-    // (e.g. a big thread continuing on a smaller-context model after a model
-    // switch), capping it into a single pass would silently drop the oldest
-    // unsummarized history from the checkpoint — so route to parallel chunked
-    // compaction, which fits every request to the window without losing the
-    // over-budget span. The threshold uses the same input accounting the
-    // single-pass request itself does.
-    const systemPromptChars = resolveThreadCompactionSystemPrompt(
-      args.stellaDataDir,
-    ).length;
-    const singlePassBudget = getSummaryInputCharBudget(
-      args.resolvedLlm,
-      estimateSummaryOverheadChars({
-        systemPromptChars,
-        previousSummary: splitMessages.previousSummary,
-        durableMemoryReference,
-      }),
-    );
-    const formattedMiddleChars = formatThreadMessagesForCompaction(
-      splitMessages.middleMessages,
-    ).trim().length;
-    const generated =
-      formattedMiddleChars > singlePassBudget
-        ? await generateChunkedThreadSummary({
-            threadKey: args.threadKey,
-            middleMessages: splitMessages.middleMessages,
-            previousSummary: splitMessages.previousSummary,
-            resolvedLlm: args.resolvedLlm,
-            stellaDataDir: args.stellaDataDir,
-            durableMemoryReference,
-          })
-        : await generateThreadSummary({
-            threadKey: args.threadKey,
-            messages: splitMessages.middleMessages,
-            previousSummary: splitMessages.previousSummary,
-            resolvedLlm: args.resolvedLlm,
-            stellaDataDir: args.stellaDataDir,
-            durableMemoryReference,
-          });
+    // One single-pass summary request. A middle too large for the current
+    // model's summarizer window is normally prevented up front: a shrinking
+    // model switch runs a blocking compaction on the previous (larger-window)
+    // route before the new route takes over. If an oversized middle still
+    // reaches this point, `capSummaryConversation` bounds the request to the
+    // window and discloses the elided span rather than failing.
+    const generated = await generateThreadSummary({
+      threadKey: args.threadKey,
+      messages: splitMessages.middleMessages,
+      previousSummary: splitMessages.previousSummary,
+      resolvedLlm: args.resolvedLlm,
+      durableMemoryReference,
+    });
     summary = generated.text;
     if (!summary) {
       logger.error("thread.compaction.summary-failed-final", {

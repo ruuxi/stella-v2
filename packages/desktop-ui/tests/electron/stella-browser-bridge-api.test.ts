@@ -5,8 +5,13 @@ type SendCommand = (
   command: Record<string, unknown>,
 ) => Promise<{ success?: boolean; error?: string; data?: unknown }>;
 
-const createService = () =>
-  new StellaBrowserBridgeService({ stellaAppDir: "/tmp/stella-test" });
+const createService = () => {
+  const service = new StellaBrowserBridgeService({
+    stellaAppDir: "/tmp/stella-test",
+  });
+  vi.spyOn(service, "start").mockResolvedValue();
+  return service;
+};
 
 const mockSendCommand = (
   service: StellaBrowserBridgeService,

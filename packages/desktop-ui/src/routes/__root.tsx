@@ -68,6 +68,7 @@ const SubscriptionUpgradeDialog = lazy(() =>
 );
 import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
 import { GlobalModelsControl } from "@/shell/GlobalModelsControl";
+import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
 import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
 import { StellaContextMenu } from "@/shell/context-menu/StellaContextMenu";
 import {
@@ -181,6 +182,23 @@ function RootChrome() {
   const panelOpen = useDisplayPanelOpen();
   const panelExpanded = useDisplayPanelExpanded();
   const shellBreakpoints = useShellBreakpointState();
+  const activeSidebarSection = useActiveSidebarSection();
+  // Authoritative visibility for the global Models control. It shows only when
+  //  1) the right-side Activity workspace is legitimately present — the panel is
+  //     open, or the ambient Activity strip is showing (not breakpoint-hidden,
+  //     and there is activity), the same inputs WorkspaceHomeSurface uses — and
+  //  2) the active surface supports choosing the main conversation model. Quick
+  //     chat is its own ephemeral thread, so the main-model picker is excluded
+  //     there (only relevant while that surface is actually on screen, i.e. the
+  //     panel is open on it).
+  // It never forces the right region into existence — it only reads state.
+  const activityWorkspaceVisible =
+    panelOpen ||
+    (!shellBreakpoints.hideWorkspaceStrip &&
+      chat.conversation.tasks.length > 0);
+  const onQuickChatSurface =
+    panelOpen && activeSidebarSection === "quickchat";
+  const modelControlVisible = activityWorkspaceVisible && !onQuickChatSurface;
   const panelExpandedBeforeTakeoverRef = useRef<boolean | null>(null);
   const displayBreakpointTransitionTimeoutRef = useRef<number | null>(null);
 
@@ -570,8 +588,10 @@ function RootChrome() {
       </StellaContextMenu>
 
       {/* Global bottom-right Models control — top-level, not owned by the
-          right sidebar, so it stays visible/openable on every tab and state. */}
-      <GlobalModelsControl />
+          right sidebar (state/overlay/lifecycle stay global), but its on-screen
+          visibility follows the right-side Activity workspace so it never
+          creates an empty right gutter when there is nothing on the right. */}
+      <GlobalModelsControl visible={modelControlVisible} />
 
 
       <ComposerAreaSelectOverlay

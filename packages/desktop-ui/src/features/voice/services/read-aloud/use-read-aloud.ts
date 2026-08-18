@@ -31,8 +31,13 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import { stripMarkdownForTts } from "./markdown-strip";
-import { fetchReadAloudAudio } from "./tts-client";
-import { playReadAloud, stopReadAloud } from "./read-aloud-player";
+import { fetchReadAloudAudio, openReadAloudStream } from "./tts-client";
+import {
+  canStreamReadAloud,
+  playReadAloud,
+  playReadAloudStream,
+  stopReadAloud,
+} from "./read-aloud-player";
 import { readAloudPrefStore } from "./read-aloud-pref";
 import { resolveReadAloudVoicePrefs } from "./read-aloud-voice-prefs";
 
@@ -117,6 +122,32 @@ export function useReadAloud(messages: readonly MessageRecord[]): void {
         try {
           const prefs = await resolveReadAloudVoicePrefs();
           if (!enabledRef.current) return;
+
+          // Prefer progressive Inworld streaming; fall back to one-shot for
+          // the OpenAI voice family, unsupported runtimes, or a stream that
+          // fails before any audio arrives.
+          if (prefs.family === "inworld" && canStreamReadAloud()) {
+            try {
+              const response = await openReadAloudStream({
+                text: clean,
+                voice: prefs.voice,
+                speed: prefs.speed,
+              });
+              if (!enabledRef.current) {
+                await response.body?.cancel().catch(() => undefined);
+                return;
+              }
+              await playReadAloudStream(response);
+              return;
+            } catch (streamErr) {
+              console.warn(
+                "[read-aloud] streaming failed, falling back:",
+                streamErr,
+              );
+              if (!enabledRef.current) return;
+            }
+          }
+
           const { audio } = await fetchReadAloudAudio({
             text: clean,
             voiceProvider: prefs.family,

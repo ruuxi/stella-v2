@@ -12,6 +12,14 @@ import { getConvexToken } from "./auth-token";
 
 const READ_ALOUD_KEY = "stella-mobile.read-aloud-enabled";
 const TTS_PATH = "/api/voice/tts";
+const TTS_STREAM_PREPARE_PATH = "/api/voice/tts/stream/prepare";
+// The `.mp3` suffix is a hint for the native player; the ticket authorizes it.
+const TTS_STREAM_AUDIO_PATH = "/api/voice/tts/stream/audio/reply.mp3";
+const INWORLD_READ_ALOUD_VOICE = "Wendy";
+const INWORLD_READ_ALOUD_MODEL = "inworld-tts-2-flash";
+// Safety net: if progressive playback has not begun within this window we
+// abandon it and fall back to the one-shot buffered request.
+const STREAM_START_TIMEOUT_MS = 8000;
 
 let cachedReadAloudEnabled = false;
 const listeners = new Set<() => void>();
@@ -125,10 +133,26 @@ const readErrorMessage = async (response: Response) => {
   }
 };
 
+// Pick the file extension from the audio's magic bytes first, falling back to
+// the content-type. Inworld's one-shot endpoint labels MP3 output as
+// `audio/wav`, so trusting the header alone would write a `.wav` file the
+// native player cannot demux.
+const detectAudioExt = (audio: ArrayBuffer, contentType: string): "mp3" | "wav" => {
+  const b = new Uint8Array(audio);
+  if (b.length >= 4 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) {
+    return "wav"; // "RIFF"
+  }
+  if (b.length >= 3 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) {
+    return "mp3"; // "ID3"
+  }
+  if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0) {
+    return "mp3"; // MPEG frame sync
+  }
+  return contentType.includes("mpeg") || contentType.includes("mp3") ? "mp3" : "wav";
+};
+
 const createAudioFile = (audio: ArrayBuffer, contentType: string) => {
-  const ext = contentType.includes("mpeg") || contentType.includes("mp3")
-    ? "mp3"
-    : "wav";
+  const ext = detectAudioExt(audio, contentType);
   const file = new File(
     Paths.cache,
     `stella-read-aloud-${Date.now()}-${playbackGeneration}.${ext}`,
@@ -150,8 +174,8 @@ async function fetchInworldReadAloudAudio(text: string) {
     body: JSON.stringify({
       text,
       voiceProvider: "inworld",
-      voice: "Wendy",
-      model: "inworld-tts-2-flash",
+      voice: INWORLD_READ_ALOUD_VOICE,
+      model: INWORLD_READ_ALOUD_MODEL,
     }),
   });
 
@@ -164,6 +188,48 @@ async function fetchInworldReadAloudAudio(text: string) {
     contentType:
       response.headers.get("content-type")?.split(";")[0]?.trim() ?? "audio/wav",
   };
+}
+
+// Ask the backend to synthesize a read-aloud reply and hold it under an opaque
+// ticket, so the native audio player can progressively stream it from a GET
+// URL. The (long) assistant text is POSTed here and never appears in the URL.
+async function prepareInworldReadAloudStream(text: string): Promise<string> {
+  assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
+  const token = await getConvexToken();
+  const response = await fetch(`${env.convexSiteUrl}${TTS_STREAM_PREPARE_PATH}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text,
+      voiceProvider: "inworld",
+      voice: INWORLD_READ_ALOUD_VOICE,
+      model: INWORLD_READ_ALOUD_MODEL,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  const data = (await response.json()) as { ticket?: unknown };
+  if (typeof data.ticket !== "string" || !data.ticket) {
+    throw new Error("Read-aloud stream ticket missing.");
+  }
+  return data.ticket;
+}
+
+// Release a streaming player without disturbing the global generation counter
+// (used when a stream fails and we fall back to buffered playback).
+function releaseStreamPlayer(player: AudioPlayer) {
+  if (currentPlayer === player) currentPlayer = null;
+  try {
+    player.pause();
+    player.remove();
+    player.release();
+  } catch {
+    /* ignore */
+  }
 }
 
 export function stopReadAloud() {
@@ -226,6 +292,17 @@ export async function speakReply(text: string, messageId?: string) {
   // new request instead of being treated as a pause/cancel.
   setPlaybackState({ messageId: id, status: "loading" });
 
+  // Prefer progressive streaming so audio starts before the whole reply is
+  // synthesized. Fall back to a one-shot buffered clip if streaming is
+  // unavailable or fails before any audio is audible.
+  try {
+    const streamed = await tryStreamReply(spoken, id, generation);
+    if (streamed) return;
+  } catch (error) {
+    console.warn("[read-aloud] streaming failed, falling back", error);
+  }
+  if (generation !== playbackGeneration) return;
+
   try {
     const { audio, contentType } = await fetchInworldReadAloudAudio(spoken);
     if (generation !== playbackGeneration) return;
@@ -256,6 +333,74 @@ export async function speakReply(text: string, messageId?: string) {
     if (generation === playbackGeneration) setPlaybackState(null);
     console.warn("[read-aloud] playback failed", error);
   }
+}
+
+// Attempt progressive playback. Resolves `true` when playback started (or the
+// request was superseded/cancelled — nothing left to do), and `false` when the
+// caller should fall back to the buffered path. Cleans up its own player on
+// the fall-back path so nothing lingers.
+async function tryStreamReply(
+  text: string,
+  id: string | null,
+  generation: number,
+): Promise<boolean> {
+  const ticket = await prepareInworldReadAloudStream(text);
+  if (generation !== playbackGeneration) return true;
+
+  assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
+  const token = await getConvexToken();
+  const uri = `${env.convexSiteUrl}${TTS_STREAM_AUDIO_PATH}?ticket=${encodeURIComponent(
+    ticket,
+  )}`;
+
+  await setAudioModeAsync({ playsInSilentMode: true });
+  if (generation !== playbackGeneration) return true;
+
+  const player = createAudioPlayer({
+    uri,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  currentFile = null;
+  currentPlayer = player;
+
+  return await new Promise<boolean>((resolve) => {
+    let decided = false;
+    const decide = (result: boolean) => {
+      if (decided) return;
+      decided = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    // A single persistent listener drives both start/fail detection and the
+    // natural-finish reset for the life of this player.
+    player.addListener("playbackStatusUpdate", (status) => {
+      if (generation !== playbackGeneration) return;
+      if (status.didJustFinish) {
+        setPlaybackState(null);
+        return;
+      }
+      const state = (status.playbackState ?? "").toLowerCase();
+      const errored = state.includes("error") || state.includes("fail");
+      if (decided) return;
+      if (status.playing || status.currentTime > 0) {
+        setPlaybackState({ messageId: id, status: "playing" });
+        decide(true);
+      } else if (errored) {
+        releaseStreamPlayer(player);
+        decide(false);
+      }
+    });
+    const timer = setTimeout(() => {
+      if (generation !== playbackGeneration) {
+        decide(true);
+        return;
+      }
+      // Never became audible in time → tear down and fall back.
+      releaseStreamPlayer(player);
+      decide(false);
+    }, STREAM_START_TIMEOUT_MS);
+    player.play();
+  });
 }
 
 export function useReadAloudPreference() {

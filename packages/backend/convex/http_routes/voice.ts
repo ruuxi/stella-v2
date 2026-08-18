@@ -278,6 +278,375 @@ const estimateTtsAudioOutputTokens = (
 };
 
 // ---------------------------------------------------------------------------
+// Read-aloud streaming TTS
+// ---------------------------------------------------------------------------
+
+const INWORLD_TTS_STREAM_URL = "https://api.inworld.ai/tts/v1/voice:stream";
+const DEFAULT_INWORLD_TTS_MODEL = "inworld-tts-2-flash";
+const DEFAULT_INWORLD_TTS_VOICE = "Evelyn";
+const TTS_MAX_INPUT_CHARS = 8000;
+// Read-aloud fires per assistant message; give it more headroom than session
+// mints but still cap to prevent accidental loops.
+const TTS_RATE_LIMIT = 120;
+
+type TtsSynthesisParams = {
+  text: string;
+  voice: string;
+  model: string;
+  speed?: number;
+};
+
+type ParsedTtsRequest =
+  | { ok: false; status: number; message: string }
+  | {
+      ok: true;
+      params: TtsSynthesisParams;
+      conversationId?: Id<"conversations">;
+    };
+
+const consumeTtsRateLimit = (ctx: ActionCtx, key: string) =>
+  ctx.runMutation(internal.rate_limits.consumeWebhookRateLimit, {
+    scope: "voice_tts",
+    key,
+    limit: TTS_RATE_LIMIT,
+    windowMs: VOICE_SESSION_RATE_WINDOW_MS,
+    blockMs: VOICE_SESSION_RATE_WINDOW_MS,
+  });
+
+const normalizeTtsSpeed = (value: unknown): number | undefined =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  value >= 0.25 &&
+  value <= 4
+    ? value
+    : undefined;
+
+const resolveTtsRequest = async (
+  ctx: ActionCtx,
+  raw: {
+    text?: unknown;
+    voice?: unknown;
+    model?: unknown;
+    speed?: unknown;
+    conversationId?: unknown;
+  },
+): Promise<ParsedTtsRequest> => {
+  const text = typeof raw.text === "string" ? raw.text.trim() : "";
+  if (!text) {
+    return { ok: false, status: 400, message: "text is required" };
+  }
+  // Bound the input so a runaway prompt can't blow the provider budget.
+  const truncated =
+    text.length > TTS_MAX_INPUT_CHARS ? text.slice(0, TTS_MAX_INPUT_CHARS) : text;
+  const voice =
+    typeof raw.voice === "string" && raw.voice.trim().length > 0
+      ? raw.voice.trim()
+      : DEFAULT_INWORLD_TTS_VOICE;
+  const model =
+    typeof raw.model === "string" && raw.model.trim().length > 0
+      ? raw.model.trim()
+      : DEFAULT_INWORLD_TTS_MODEL;
+  const speed = normalizeTtsSpeed(raw.speed);
+
+  let conversationId: Id<"conversations"> | undefined;
+  const parsedConversationId = await normalizeConversationId(
+    ctx,
+    raw.conversationId,
+  );
+  if (parsedConversationId) {
+    try {
+      await requireConversationOwnerAction(ctx, parsedConversationId);
+      conversationId = parsedConversationId;
+    } catch {
+      conversationId = undefined;
+    }
+  }
+
+  return {
+    ok: true,
+    params: { text: truncated, voice, model, ...(speed ? { speed } : {}) },
+    ...(conversationId ? { conversationId } : {}),
+  };
+};
+
+const decodeBase64ToBytes = (b64: string): Uint8Array => {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+};
+
+// Inworld's streaming TTS returns newline-delimited JSON: one object per line,
+// each carrying a base64 audio chunk under `result.audioContent` (the
+// non-streaming endpoint uses a bare `audioContent`). Return the decoded audio
+// bytes for a line, or null when the line has no audio.
+const extractInworldAudioChunk = (line: string): Uint8Array | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as {
+    audioContent?: unknown;
+    result?: { audioContent?: unknown } | null;
+  };
+  const b64 =
+    obj.result &&
+    typeof obj.result === "object" &&
+    typeof obj.result.audioContent === "string"
+      ? obj.result.audioContent
+      : typeof obj.audioContent === "string"
+        ? obj.audioContent
+        : null;
+  if (!b64) return null;
+  try {
+    return decodeBase64ToBytes(b64);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Proxy Inworld's streaming TTS back to the caller as a single progressive
+ * `audio/mpeg` stream. The org Inworld key never leaves this action — the
+ * client only ever sees decoded MP3 bytes. Provider spend (including
+ * cancellations and partial synthesis) is recorded to the internal ledger via
+ * `recordInternalTtsUsage`, which never charges the user or grants any plan
+ * entitlement. Mirrors the relay-stream lifecycle in `stella_provider.ts`:
+ * downstream cancellation promptly cancels the upstream read.
+ */
+const streamInworldTts = async (
+  ctx: ActionCtx,
+  origin: string | null,
+  params: TtsSynthesisParams,
+  meta: { ownerId: string; conversationId?: Id<"conversations"> },
+): Promise<Response> => {
+  const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
+  if (!inworldApiKey) {
+    return errorResponse(
+      503,
+      "Stella Inworld voice is not configured yet.",
+      origin,
+    );
+  }
+
+  const requestChars = params.text.length;
+  const startedAt = Date.now();
+
+  // Insert a "failed" ledger row directly (used when synthesis never starts).
+  const recordFailure = (): Promise<unknown> =>
+    ctx
+      .runMutation(internal.billing.recordInternalTtsUsage, {
+        ownerId: meta.ownerId,
+        provider: "inworld" as const,
+        model: params.model,
+        voice: params.voice,
+        ...(meta.conversationId ? { conversationId: meta.conversationId } : {}),
+        streaming: true,
+        status: "failed" as const,
+        requestChars,
+        synthesizedChars: 0,
+        audioBytes: 0,
+        durationMs: Date.now() - startedAt,
+      })
+      .catch((error) => {
+        console.error(
+          "[voice/tts/stream] usage record failed:",
+          (error as Error).message,
+        );
+      });
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(INWORLD_TTS_STREAM_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${inworldApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: params.text,
+        voiceId: params.voice,
+        modelId: params.model,
+        audioConfig: {
+          audioEncoding: "MP3",
+          ...(params.speed !== undefined
+            ? { speakingRate: params.speed }
+            : {}),
+        },
+      }),
+    });
+  } catch (error) {
+    console.error(
+      "[voice/tts/stream] Failed to contact Inworld:",
+      (error as Error).message,
+    );
+    await recordFailure();
+    return errorResponse(502, "Failed to reach Inworld TTS", origin);
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    // Drain + discard the error body so the socket frees; never forward a
+    // provider error body to the client.
+    await upstream.text().catch(() => undefined);
+    console.error("[voice/tts/stream] Inworld TTS failed:", upstream.status);
+    await recordFailure();
+    const status =
+      upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
+    return errorResponse(status, "Inworld TTS failed", origin);
+  }
+
+  // Synthesis is under way. Record a pessimistic "interrupted" row up front so
+  // that a client disconnect (which terminates this action before the stream
+  // ends) still leaves accurate provider spend; it is finalized to the real
+  // terminal status when the stream completes.
+  const usage = await ctx
+    .runMutation(internal.billing.recordInternalTtsUsage, {
+      ownerId: meta.ownerId,
+      provider: "inworld" as const,
+      model: params.model,
+      voice: params.voice,
+      ...(meta.conversationId ? { conversationId: meta.conversationId } : {}),
+      streaming: true,
+      status: "interrupted" as const,
+      requestChars,
+      synthesizedChars: requestChars,
+      audioBytes: 0,
+      durationMs: 0,
+    })
+    .catch((error) => {
+      console.error(
+        "[voice/tts/stream] usage record failed:",
+        (error as Error).message,
+      );
+      return null;
+    });
+  const usageId = usage?.usageId;
+
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let audioBytes = 0;
+  let sawAudio = false;
+  let upstreamDone = false;
+  let recorded = false;
+
+  // Finalize the up-front "interrupted" row exactly once. A pull-based stream
+  // lets Convex stop pulling and invoke `cancel()` the moment the client
+  // disconnects, so upstream synthesis is closed promptly and the ledger row
+  // is finalized with the true terminal status. If the disconnect kills the
+  // action before finalize runs, the row correctly stays "interrupted".
+  const finalizeUsage = async (
+    status: "completed" | "failed" | "interrupted" | "partial",
+  ) => {
+    if (recorded || !usageId) return;
+    recorded = true;
+    // Conservative accounting: any run that produced audio is charged for the
+    // full submitted text (the provider meters by input character);
+    // `audioBytes` + `status` are retained so an interrupted run's true share
+    // can be reconstructed. Only a run that produced no audio at all is
+    // charged nothing.
+    const synthesizedChars = status === "failed" ? 0 : requestChars;
+    await ctx
+      .runMutation(internal.billing.finalizeInternalTtsUsage, {
+        usageId,
+        status,
+        synthesizedChars,
+        audioBytes,
+        durationMs: Date.now() - startedAt,
+      })
+      .catch((error) => {
+        console.error(
+          "[voice/tts/stream] usage finalize failed:",
+          (error as Error).message,
+        );
+      });
+  };
+
+  // Pull the next decoded audio chunk out of the NDJSON buffer, reading more
+  // from Inworld only as the downstream consumer asks for it (backpressure →
+  // bounded buffering).
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        while (true) {
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line) continue;
+            const chunk = extractInworldAudioChunk(line);
+            if (chunk && chunk.length > 0) {
+              audioBytes += chunk.length;
+              sawAudio = true;
+              controller.enqueue(chunk);
+              return;
+            }
+          }
+          if (upstreamDone) {
+            const rest = buffer.trim();
+            buffer = "";
+            if (rest) {
+              const chunk = extractInworldAudioChunk(rest);
+              if (chunk && chunk.length > 0) {
+                audioBytes += chunk.length;
+                sawAudio = true;
+                controller.enqueue(chunk);
+                return;
+              }
+            }
+            await finalizeUsage("completed");
+            controller.close();
+            return;
+          }
+          const { done, value } = await reader.read();
+          if (done) {
+            upstreamDone = true;
+            buffer += decoder.decode();
+            continue;
+          }
+          if (value) buffer += decoder.decode(value, { stream: true });
+        }
+      } catch (error) {
+        console.error(
+          "[voice/tts/stream] Relay stream failed:",
+          (error as Error).message,
+        );
+        await finalizeUsage(sawAudio ? "partial" : "failed");
+        try {
+          controller.error(error);
+        } catch {
+          // Ignore downstream error races.
+        }
+      }
+    },
+    async cancel(reason) {
+      // Client went away — stop pulling from Inworld and record the
+      // interrupted outcome. (On platforms that drain the response server-side
+      // this may resolve as "completed", which is the correct spend since the
+      // provider meters the full submitted text.)
+      await reader.cancel(reason).catch(() => undefined);
+      await finalizeUsage("interrupted");
+    },
+  });
+
+  return withCors(
+    new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Cache-Control": "no-store",
+      },
+    }),
+    origin,
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Route Registration
 // ---------------------------------------------------------------------------
 
@@ -290,6 +659,8 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     "/api/voice/lease",
     "/api/voice/inworld/sdp",
     "/api/voice/tts",
+    "/api/voice/tts/stream",
+    "/api/voice/tts/stream/prepare",
   ]);
 
   http.route({
@@ -887,11 +1258,175 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud TTS ───────────────────────────────────────────────
+  // ── Read-aloud streaming TTS (desktop) ───────────────────────────
+  // Progressive text-to-speech: proxies Inworld's streaming synthesis back
+  // as a single `audio/mpeg` stream so playback can begin before the whole
+  // reply is synthesized. Read-aloud is FREE on every plan, so — unlike
+  // realtime voice — there is deliberately no capability or managed-usage
+  // gate here; auth, rate limiting, bounded input, and safe provider-error
+  // handling remain. Provider spend is tracked internally only.
+  http.route({
+    path: "/api/voice/tts/stream",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use text to speech.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+
+        const rateLimit = await consumeTtsRateLimit(
+          ctx,
+          auth.identity.tokenIdentifier,
+        );
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        let body: Record<string, unknown> | null = null;
+        try {
+          body = (await request.json()) as Record<string, unknown>;
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const parsed = await resolveTtsRequest(ctx, body ?? {});
+        if (!parsed.ok) {
+          return errorResponse(parsed.status, parsed.message, origin);
+        }
+        return streamInworldTts(ctx, origin, parsed.params, {
+          ownerId: auth.ownerId,
+          ...(parsed.conversationId
+            ? { conversationId: parsed.conversationId }
+            : {}),
+        });
+      }),
+    ),
+  });
+
+  // ── Read-aloud streaming TTS: prepare a mobile stream ticket ──────
+  // Mobile's native audio player can only progressively stream from a GET
+  // URL, but the assistant text is too long for a query string. The client
+  // POSTs the text here, gets back a short-lived opaque ticket, and the
+  // player GETs `/api/voice/tts/stream.mp3?ticket=…`. The text therefore
+  // never appears in a URL, log, or client-visible store.
+  http.route({
+    path: "/api/voice/tts/stream/prepare",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use text to speech.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+
+        const rateLimit = await consumeTtsRateLimit(
+          ctx,
+          auth.identity.tokenIdentifier,
+        );
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        let body: Record<string, unknown> | null = null;
+        try {
+          body = (await request.json()) as Record<string, unknown>;
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const parsed = await resolveTtsRequest(ctx, body ?? {});
+        if (!parsed.ok) {
+          return errorResponse(parsed.status, parsed.message, origin);
+        }
+
+        const ticket = `${Date.now().toString(36)}_${
+          typeof globalThis.crypto?.randomUUID === "function"
+            ? globalThis.crypto.randomUUID().replace(/-/g, "")
+            : Math.random().toString(36).slice(2)
+        }`;
+        await ctx.runMutation(internal.tts_stream.storeTicket, {
+          ticket,
+          ownerId: auth.ownerId,
+          text: parsed.params.text,
+          voice: parsed.params.voice,
+          model: parsed.params.model,
+          ...(parsed.params.speed !== undefined
+            ? { speed: parsed.params.speed }
+            : {}),
+          ...(parsed.conversationId
+            ? { conversationId: parsed.conversationId }
+            : {}),
+        });
+        return jsonResponse({ ticket }, 200, origin);
+      }),
+    ),
+  });
+
+  // ── Read-aloud streaming TTS: consume a ticket (mobile GET) ───────
+  // Registered as a prefix so the request URL can carry a `.mp3` suffix (which
+  // nudges native players to treat the response as an MP3 stream) without a
+  // dot in the registered route path. Auth is still enforced (Bearer header);
+  // the ticket is single-use and owner-bound.
+  http.route({
+    pathPrefix: "/api/voice/tts/stream/audio/",
+    method: "GET",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use text to speech.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+
+        const ticket = new URL(request.url).searchParams.get("ticket")?.trim();
+        if (!ticket) {
+          return errorResponse(400, "ticket is required", origin);
+        }
+
+        const consumed = await ctx.runMutation(
+          internal.tts_stream.consumeTicket,
+          {
+            ticket,
+            ownerId: auth.ownerId,
+            nowMs: Date.now(),
+          },
+        );
+        if (!consumed) {
+          return errorResponse(404, "Stream ticket is invalid or expired", origin);
+        }
+
+        return streamInworldTts(
+          ctx,
+          origin,
+          {
+            text: consumed.text,
+            voice: consumed.voice,
+            model: consumed.model,
+            ...(typeof consumed.speed === "number"
+              ? { speed: consumed.speed }
+              : {}),
+          },
+          {
+            ownerId: auth.ownerId,
+            ...(consumed.conversationId
+              ? { conversationId: consumed.conversationId }
+              : {}),
+          },
+        );
+      }),
+    ),
+  });
+
+  // ── Read-aloud TTS (non-streamed fallback) ───────────────────────
   // One-shot text-to-speech for the renderer's "read assistant replies
   // aloud" toggle. Returns binary audio (mp3 for OpenAI, wav for
   // Inworld) so the renderer can decode + play through Web Audio API
-  // without an extra JSON unwrap.
+  // without an extra JSON unwrap. Kept as the graceful fallback for when
+  // true streaming is unavailable (e.g. the OpenAI voice family, or a
+  // client that cannot consume a progressive stream). Free on every plan.
   http.route({
     path: "/api/voice/tts",
     method: "POST",
@@ -921,21 +1456,9 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
 
-        const capabilityCheck = await requireCapabilityAction(
-          ctx,
-          auth.ownerId,
-          "audio_generation",
-          origin,
-        );
-        if (!capabilityCheck.ok) return capabilityCheck.response;
-
-        const subscriptionCheck = await checkManagedUsageLimit(
-          ctx,
-          auth.ownerId,
-        );
-        if (!subscriptionCheck.allowed) {
-          return errorResponse(429, subscriptionCheck.message, origin);
-        }
+        // Read-aloud is free on every plan: no capability or managed-usage
+        // gate here (that would restrict it to paid plans). Auth + rate
+        // limiting above remain; provider spend is tracked internally below.
 
         type TtsBody = {
           text?: string;
@@ -1037,6 +1560,24 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             const bytes = Uint8Array.from(atob(audioBase64), (c) =>
               c.charCodeAt(0),
             );
+            try {
+              // Internal spend tracking only — read-aloud is free, so this
+              // never touches the user's usage windows, credits, or plan.
+              await ctx.runMutation(internal.billing.recordInternalTtsUsage, {
+                ownerId: identity.tokenIdentifier,
+                provider: "inworld" as const,
+                model: modelId,
+                voice: voiceId,
+                ...(conversationId ? { conversationId } : {}),
+                streaming: false,
+                status: "completed" as const,
+                requestChars: truncated.length,
+                synthesizedChars: truncated.length,
+                audioBytes: bytes.byteLength,
+              });
+            } catch {
+              // Best-effort metering should not block audio playback.
+            }
             return withCors(
               new Response(bytes, {
                 status: 200,
@@ -1098,10 +1639,19 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
           const audio = await openaiResponse.arrayBuffer();
           try {
-            await ctx.runMutation(internal.billing.recordVoiceTtsUsage, {
+            // Internal spend tracking only — read-aloud is free, so this
+            // never touches the user's usage windows, credits, or plan.
+            await ctx.runMutation(internal.billing.recordInternalTtsUsage, {
               ownerId: identity.tokenIdentifier,
+              provider: "openai" as const,
               model: ttsModel,
+              voice: ttsVoice,
               ...(conversationId ? { conversationId } : {}),
+              streaming: false,
+              status: "completed" as const,
+              requestChars: truncated.length,
+              synthesizedChars: truncated.length,
+              audioBytes: audio.byteLength,
               textInputTokens: estimateTextTokensFromChars(truncated),
               audioOutputTokens: estimateTtsAudioOutputTokens(
                 truncated,

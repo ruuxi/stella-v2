@@ -120,4 +120,11 @@ crons.interval(
   { batchSize: 200, maxBatches: 10 },
 );
 
+crons.interval(
+  "purge expired tts stream tickets",
+  { minutes: 5 },
+  internal.tts_stream.purgeExpired,
+  { maxBatches: 10 },
+);
+
 export default crons;

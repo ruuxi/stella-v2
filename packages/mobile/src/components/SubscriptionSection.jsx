@@ -128,6 +128,7 @@ export function SubscriptionSection() {
         {header}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>{t("billing.mobile.chooseHeading")}</Text>
+          <Text style={styles.cardSubtitle}>{t("billing.subtitle")}</Text>
           {PAID_PLANS.map((key) => renderPlanRow(key, { subscribe: false }))}
           <PrimaryButton
             label={t("billing.mobile.signInToSubscribe")}
@@ -255,6 +256,7 @@ export function SubscriptionSection() {
     return (
       <>
         <Text style={styles.cardTitle}>{t("billing.mobile.chooseHeading")}</Text>
+        <Text style={styles.cardSubtitle}>{t("billing.subtitle")}</Text>
         {checkoutPhase === "error" && checkout.error ? (
           <View style={[styles.banner, styles.bannerError]}>
             <Text style={styles.bannerTitle}>
@@ -341,6 +343,13 @@ const makeStyles = (colors) => ({
     fontFamily: fonts.sans.semiBold,
     fontSize: 16,
     letterSpacing: -0.2,
+  },
+  cardSubtitle: {
+    color: colors.textMuted,
+    fontFamily: fonts.sans.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: -6,
   },
   currentPlanRow: {
     alignItems: "center",

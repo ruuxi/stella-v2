@@ -652,21 +652,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Kuota sekali pakai untuk mencoba Stella"
+        "tagline": "Gratis untuk dicoba."
       },
       "go": {
-        "tagline": "Penggunaan berlimpah untuk kerja sehari-hari"
+        "tagline": "Penggunaan 10× lebih tinggi"
       },
       "pro": {
-        "tagline": "Semua yang ada di Go, plus pembuatan konten"
+        "tagline": "Batas penggunaan tertinggi untuk pembuatan media dan beberapa agen"
       }
     },
     "features": {
       "assistant": "Asisten pribadi",
       "codingAgent": "Agen pemrograman",
       "research": "Riset dan kerja pengetahuan",
-      "noAds": "Tanpa iklan",
-      "orchestrator": "Mode orkestrator"
+      "dictationReadAloud": "Dikte dan baca nyaring",
+      "multipleAgents": "Beberapa agen"
     },
     "capability": {
       "image_generation": "Pembuatan gambar",
@@ -685,11 +685,11 @@
       "genericDescription": "Fitur ini termasuk dalam Stella Pro. Tingkatkan paket untuk membukanya."
     },
     "freeAllowance": {
-      "label": "Kuota gratis",
-      "caption": "Sekali pakai — tidak diatur ulang.",
-      "remaining": "Sisa {amount}. Setelah habis, tidak kembali lagi.",
-      "exhaustedTitle": "Kuota gratis Anda sudah habis",
-      "exhaustedDescription": "Paket Free mencakup kuota sekali pakai yang tidak pernah diatur ulang. Tingkatkan ke Go untuk terus menggunakan Stella.",
+      "label": "Penggunaan paket Free",
+      "caption": "Gratis untuk dicoba.",
+      "remaining": "Gratis untuk dicoba.",
+      "exhaustedTitle": "Anda telah mencapai batas paket Free",
+      "exhaustedDescription": "Tingkatkan ke Go untuk penggunaan 10× lebih tinggi.",
       "exhaustedCta": "Tingkatkan ke Go"
     },
     "upgradeDialog": {
@@ -704,7 +704,9 @@
       "accessEnds": "Akses berakhir {date}",
       "lapseTitle": "Stella berhenti saat paket Anda berakhir",
       "lapseDescription": "Paket {plan} Anda berlaku sampai {date}. Setelah itu Stella berhenti — kuota paket Free hanya diberikan sekali dan milik Anda sudah terpakai."
-    }
+    },
+    "heading": "Pilih paket Anda",
+    "subtitle": "Mulai gratis. Tingkatkan saat Anda membutuhkan lebih banyak."
   },
   "chat": {
     "stoppedReply": "Stella tidak dapat memulai balasan ini",

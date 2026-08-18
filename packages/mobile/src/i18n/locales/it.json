@@ -654,21 +654,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Un credito una tantum per provare Stella"
+        "tagline": "Prova gratuita."
       },
       "go": {
-        "tagline": "Utilizzo generoso per il lavoro di ogni giorno"
+        "tagline": "Utilizzo 10× superiore"
       },
       "pro": {
-        "tagline": "Tutto quello che c'è in Go, più la generazione"
+        "tagline": "I limiti di utilizzo più elevati per la generazione di contenuti multimediali e più agenti"
       }
     },
     "features": {
       "assistant": "Assistente personale",
       "codingAgent": "Agente di programmazione",
       "research": "Ricerca e lavoro sulla conoscenza",
-      "noAds": "Nessuna pubblicità",
-      "orchestrator": "Modalità orchestratore"
+      "dictationReadAloud": "Dettatura e lettura ad alta voce",
+      "multipleAgents": "Più agenti"
     },
     "capability": {
       "image_generation": "Generazione di immagini",
@@ -687,11 +687,11 @@
       "genericDescription": "Questa funzione fa parte di Stella Pro. Aggiorna il piano per sbloccarla."
     },
     "freeAllowance": {
-      "label": "Credito gratuito",
-      "caption": "Una tantum — non si rinnova.",
-      "remaining": "Restano {amount}. Una volta esaurito non torna.",
-      "exhaustedTitle": "Il tuo credito gratuito è esaurito",
-      "exhaustedDescription": "Il piano Free include un credito una tantum che non si rinnova mai. Aggiorna a Go per continuare a usare Stella.",
+      "label": "Utilizzo del piano Free",
+      "caption": "Prova gratuita.",
+      "remaining": "Prova gratuita.",
+      "exhaustedTitle": "Hai raggiunto il limite del piano Free",
+      "exhaustedDescription": "Passa a Go per un utilizzo 10× superiore.",
       "exhaustedCta": "Aggiorna a Go"
     },
     "upgradeDialog": {
@@ -706,7 +706,9 @@
       "accessEnds": "L'accesso termina il {date}",
       "lapseTitle": "Stella si ferma quando finisce il tuo piano",
       "lapseDescription": "Il tuo piano {plan} resta attivo fino al {date}. Dopo, Stella si ferma: il credito del piano Free è una tantum e il tuo è già esaurito."
-    }
+    },
+    "heading": "Scegli il tuo piano",
+    "subtitle": "Inizia gratis. Passa a un piano superiore quando ti serve di più."
   },
   "chat": {
     "stoppedReply": "Stella non è riuscita ad avviare questa risposta",

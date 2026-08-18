@@ -46,9 +46,9 @@ export const CAPABILITY_AUDIENCE_ORDER: readonly CapabilityAudience[] = [
 ];
 
 /**
- * Free and Go are text-only: assistant + coding agent. Everything
- * generative (image / video / voice / 3D) is what Pro sells — Pro's pitch
- * is capabilities, not a bigger token bucket.
+ * Free and Go include the assistant and coding workflows. Media generation
+ * (image / video / voice / 3D) is what Pro adds; dictation and read-aloud are
+ * all-plan features and therefore do not belong in this gate.
  */
 export const CAPABILITY_MATRIX: Record<
   Capability,

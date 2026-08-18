@@ -653,21 +653,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "En engangssaldo for å prøve Stella"
+        "tagline": "Gratis å prøve."
       },
       "go": {
-        "tagline": "Raus bruk til hverdagens arbeid"
+        "tagline": "10× høyere bruk"
       },
       "pro": {
-        "tagline": "Alt i Go, pluss generering"
+        "tagline": "De høyeste bruksgrensene for mediegenerering og flere agenter"
       }
     },
     "features": {
       "assistant": "Personlig assistent",
       "codingAgent": "Kodeagent",
       "research": "Research og kunnskapsarbeid",
-      "noAds": "Ingen annonser",
-      "orchestrator": "Orkestratormodus"
+      "dictationReadAloud": "Diktering og høytlesing",
+      "multipleAgents": "Flere agenter"
     },
     "capability": {
       "image_generation": "Bildegenerering",
@@ -686,11 +686,11 @@
       "genericDescription": "Denne funksjonen er inkludert i Stella Pro. Oppgrader for å låse den opp."
     },
     "freeAllowance": {
-      "label": "Gratis saldo",
-      "caption": "Engangs — den nullstilles ikke.",
-      "remaining": "{amount} igjen. Når den er brukt opp, kommer den ikke tilbake.",
-      "exhaustedTitle": "Den gratis saldoen din er brukt opp",
-      "exhaustedDescription": "Free-planen inkluderer en engangssaldo som aldri nullstilles. Oppgrader til Go for å fortsette å bruke Stella.",
+      "label": "Bruk på Free-planen",
+      "caption": "Gratis å prøve.",
+      "remaining": "Gratis å prøve.",
+      "exhaustedTitle": "Du har nådd grensen for Free-planen",
+      "exhaustedDescription": "Oppgrader til Go for 10× høyere bruk.",
       "exhaustedCta": "Oppgrader til Go"
     },
     "upgradeDialog": {
@@ -705,7 +705,9 @@
       "accessEnds": "Tilgangen slutter {date}",
       "lapseTitle": "Stella stopper når planen din utløper",
       "lapseDescription": "{plan}-planen din varer til {date}. Etter det stopper Stella — Free-planens saldo gis bare én gang, og din er allerede brukt opp."
-    }
+    },
+    "heading": "Velg planen din",
+    "subtitle": "Start gratis. Oppgrader når du trenger mer."
   },
   "chat": {
     "stoppedReply": "Stella klarte ikke å starte dette svaret",

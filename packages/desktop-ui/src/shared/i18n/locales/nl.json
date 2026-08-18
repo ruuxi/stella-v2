@@ -653,21 +653,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Een eenmalig tegoed om Stella te proberen"
+        "tagline": "Gratis te proberen."
       },
       "go": {
-        "tagline": "Ruim gebruik voor dagelijks werk"
+        "tagline": "10× hoger gebruik"
       },
       "pro": {
-        "tagline": "Alles uit Go, plus generatie"
+        "tagline": "De hoogste gebruikslimieten voor mediageneratie en meerdere agents"
       }
     },
     "features": {
       "assistant": "Persoonlijke assistent",
       "codingAgent": "Code-agent",
       "research": "Onderzoek en kenniswerk",
-      "noAds": "Geen advertenties",
-      "orchestrator": "Orkestratormodus"
+      "dictationReadAloud": "Dicteren en voorlezen",
+      "multipleAgents": "Meerdere agents"
     },
     "capability": {
       "image_generation": "Afbeeldingen genereren",
@@ -686,11 +686,11 @@
       "genericDescription": "Deze functie hoort bij Stella Pro. Upgrade om hem te ontgrendelen."
     },
     "freeAllowance": {
-      "label": "Gratis tegoed",
-      "caption": "Eenmalig — dit wordt niet vernieuwd.",
-      "remaining": "Nog {amount} over. Als het op is, komt het niet terug.",
-      "exhaustedTitle": "Je gratis tegoed is op",
-      "exhaustedDescription": "Het Free-abonnement bevat een eenmalig tegoed dat nooit wordt vernieuwd. Upgrade naar Go om Stella te blijven gebruiken.",
+      "label": "Gebruik van het Free-abonnement",
+      "caption": "Gratis te proberen.",
+      "remaining": "Gratis te proberen.",
+      "exhaustedTitle": "Je hebt de limiet van het Free-abonnement bereikt",
+      "exhaustedDescription": "Upgrade naar Go voor 10× hoger gebruik.",
       "exhaustedCta": "Upgraden naar Go"
     },
     "upgradeDialog": {
@@ -705,7 +705,9 @@
       "accessEnds": "Toegang stopt op {date}",
       "lapseTitle": "Stella stopt zodra je abonnement afloopt",
       "lapseDescription": "Je {plan}-abonnement loopt tot {date}. Daarna stopt Stella — het tegoed van het Free-abonnement krijg je maar één keer en dat van jou is al op."
-    }
+    },
+    "heading": "Kies je abonnement",
+    "subtitle": "Begin gratis. Upgrade wanneer je meer nodig hebt."
   },
   "chat": {
     "stoppedReply": "Stella kon dit antwoord niet starten",

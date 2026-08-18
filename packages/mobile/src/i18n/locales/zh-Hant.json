@@ -652,21 +652,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "一次性額度，用來體驗 Stella"
+        "tagline": "免費試用。"
       },
       "go": {
-        "tagline": "日常工作足夠的充裕用量"
+        "tagline": "10 倍更高用量"
       },
       "pro": {
-        "tagline": "包含 Go 的全部功能，再加上生成能力"
+        "tagline": "適用於媒體生成和多個代理程式的最高用量限制"
       }
     },
     "features": {
       "assistant": "個人助理",
       "codingAgent": "程式設計代理",
       "research": "研究與知識工作",
-      "noAds": "無廣告",
-      "orchestrator": "協調器模式"
+      "dictationReadAloud": "聽寫和朗讀",
+      "multipleAgents": "多個代理程式"
     },
     "capability": {
       "image_generation": "圖片生成",
@@ -685,11 +685,11 @@
       "genericDescription": "此功能包含在 Stella Pro 方案中。升級方案即可解鎖。"
     },
     "freeAllowance": {
-      "label": "免費額度",
-      "caption": "一次性額度，用完不會重設。",
-      "remaining": "還剩 {amount}。用完就沒有了。",
-      "exhaustedTitle": "你的免費額度已用完",
-      "exhaustedDescription": "Free 方案包含一次性額度，永不重設。升級到 Go 即可繼續使用 Stella。",
+      "label": "Free 方案用量",
+      "caption": "免費試用。",
+      "remaining": "免費試用。",
+      "exhaustedTitle": "你已達到 Free 方案的上限",
+      "exhaustedDescription": "升級至 Go，獲得 10 倍更高用量。",
       "exhaustedCta": "升級到 Go"
     },
     "upgradeDialog": {
@@ -704,7 +704,9 @@
       "accessEnds": "{date} 結束使用",
       "lapseTitle": "方案到期後 Stella 將停止服務",
       "lapseDescription": "你的 {plan} 方案可用到 {date}。之後 Stella 將停止服務 — Free 方案的額度只發放一次，你的已經用完了。"
-    }
+    },
+    "heading": "選擇你的方案",
+    "subtitle": "免費開始。需要更多時再升級。"
   },
   "chat": {
     "stoppedReply": "Stella 無法開始此次回覆",

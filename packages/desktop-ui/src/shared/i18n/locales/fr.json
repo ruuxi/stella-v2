@@ -654,21 +654,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Un crédit unique pour essayer Stella"
+        "tagline": "Essai gratuit."
       },
       "go": {
-        "tagline": "Un usage généreux pour le travail au quotidien"
+        "tagline": "10× plus d’utilisation"
       },
       "pro": {
-        "tagline": "Tout ce que propose Go, plus la génération"
+        "tagline": "Les limites d’utilisation les plus élevées pour la génération de médias et plusieurs agents"
       }
     },
     "features": {
       "assistant": "Assistant personnel",
       "codingAgent": "Agent de code",
       "research": "Recherche et travail documentaire",
-      "noAds": "Sans publicité",
-      "orchestrator": "Mode orchestrateur"
+      "dictationReadAloud": "Dictée et lecture à voix haute",
+      "multipleAgents": "Plusieurs agents"
     },
     "capability": {
       "image_generation": "Génération d'images",
@@ -687,11 +687,11 @@
       "genericDescription": "Cette fonctionnalité fait partie de Stella Pro. Passez à un plan supérieur pour la débloquer."
     },
     "freeAllowance": {
-      "label": "Crédit gratuit",
-      "caption": "Unique — il ne se réinitialise pas.",
-      "remaining": "Il reste {amount}. Une fois épuisé, il ne revient pas.",
-      "exhaustedTitle": "Votre crédit gratuit est épuisé",
-      "exhaustedDescription": "Le plan Free comprend un crédit unique qui ne se réinitialise jamais. Passez à Go pour continuer à utiliser Stella.",
+      "label": "Utilisation du forfait Free",
+      "caption": "Essai gratuit.",
+      "remaining": "Essai gratuit.",
+      "exhaustedTitle": "Vous avez atteint la limite du forfait Free",
+      "exhaustedDescription": "Passez à Go pour bénéficier de 10× plus d’utilisation.",
       "exhaustedCta": "Passer à Go"
     },
     "upgradeDialog": {
@@ -706,7 +706,9 @@
       "accessEnds": "Fin de l'accès le {date}",
       "lapseTitle": "Stella s'arrêtera à la fin de votre plan",
       "lapseDescription": "Votre plan {plan} reste actif jusqu'au {date}. Ensuite, Stella s'arrête : le crédit du plan Free est unique et vous avez déjà utilisé le vôtre."
-    }
+    },
+    "heading": "Choisissez votre forfait",
+    "subtitle": "Commencez gratuitement. Passez au forfait supérieur quand vous en avez besoin."
   },
   "chat": {
     "stoppedReply": "Stella n'a pas pu démarrer cette réponse",

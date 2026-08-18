@@ -655,21 +655,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Jednorazowy limit na wypróbowanie Stelli"
+        "tagline": "Bezpłatnie na próbę."
       },
       "go": {
-        "tagline": "Hojny limit do codziennej pracy"
+        "tagline": "10× większe użycie"
       },
       "pro": {
-        "tagline": "Wszystko z planu Go plus generowanie"
+        "tagline": "Najwyższe limity użycia do generowania multimediów i pracy wielu agentów"
       }
     },
     "features": {
       "assistant": "Osobisty asystent",
       "codingAgent": "Agent programistyczny",
       "research": "Badania i praca z wiedzą",
-      "noAds": "Bez reklam",
-      "orchestrator": "Tryb orkiestratora"
+      "dictationReadAloud": "Dyktowanie i czytanie na głos",
+      "multipleAgents": "Wielu agentów"
     },
     "capability": {
       "image_generation": "Generowanie obrazów",
@@ -688,11 +688,11 @@
       "genericDescription": "Ta funkcja jest częścią planu Stella Pro. Ulepsz plan, aby ją odblokować."
     },
     "freeAllowance": {
-      "label": "Darmowy limit",
-      "caption": "Jednorazowy — nie odnawia się.",
-      "remaining": "Zostało {amount}. Gdy się skończy, nie wróci.",
-      "exhaustedTitle": "Twój darmowy limit się skończył",
-      "exhaustedDescription": "Plan Free zawiera jednorazowy limit, który nigdy się nie odnawia. Ulepsz plan do Go, aby dalej korzystać ze Stelli.",
+      "label": "Użycie planu Free",
+      "caption": "Bezpłatnie na próbę.",
+      "remaining": "Bezpłatnie na próbę.",
+      "exhaustedTitle": "Osiągnięto limit planu Free",
+      "exhaustedDescription": "Ulepsz plan do Go, aby uzyskać 10× większe użycie.",
       "exhaustedCta": "Ulepsz do Go"
     },
     "upgradeDialog": {
@@ -707,7 +707,9 @@
       "accessEnds": "Dostęp kończy się {date}",
       "lapseTitle": "Stella przestanie działać, gdy skończy się Twój plan",
       "lapseDescription": "Twój plan {plan} działa do {date}. Potem Stella przestanie działać — limit planu Free przyznawany jest raz, a Twój został już wykorzystany."
-    }
+    },
+    "heading": "Wybierz swój plan",
+    "subtitle": "Zacznij bezpłatnie. Ulepsz plan, gdy potrzebujesz więcej."
   },
   "chat": {
     "stoppedReply": "Stella nie mogła rozpocząć tej odpowiedzi",

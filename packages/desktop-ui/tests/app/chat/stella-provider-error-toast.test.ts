@@ -235,7 +235,7 @@ describe("capability denials → toast", () => {
   });
 });
 
-// The Free plan's $0.50 never refreshes, so its exhaustion must never be
+// The Free plan does not refill, so its exhaustion must never be
 // phrased as something to wait out.
 describe("free allowance exhaustion → toast", () => {
   const reason =
@@ -244,8 +244,8 @@ describe("free allowance exhaustion → toast", () => {
   it("is a terminal upgrade prompt, not a wait", () => {
     const toast = resolveStellaProviderErrorToast(reason);
 
-    expect(toast.title).toBe("Your free allowance is used up");
-    expect(toast.description).toContain("never resets");
+    expect(toast.title).toBe("You've reached the Free plan limit");
+    expect(toast.description).toContain("10× higher usage");
     expect(toast.description).not.toContain("wait");
     expect(toast.description).not.toContain("try again");
     expect(toast.action).toMatchObject({ label: "Upgrade" });

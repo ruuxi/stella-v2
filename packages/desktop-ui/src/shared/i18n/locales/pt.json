@@ -654,21 +654,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Um saldo único para experimentar a Stella"
+        "tagline": "Grátis para experimentar."
       },
       "go": {
-        "tagline": "Uso generoso para o trabalho do dia a dia"
+        "tagline": "10× mais uso"
       },
       "pro": {
-        "tagline": "Tudo do Go, mais geração"
+        "tagline": "Os maiores limites de uso para geração de mídia e vários agentes"
       }
     },
     "features": {
       "assistant": "Assistente pessoal",
       "codingAgent": "Agente de programação",
       "research": "Pesquisa e trabalho com conhecimento",
-      "noAds": "Sem anúncios",
-      "orchestrator": "Modo orquestrador"
+      "dictationReadAloud": "Ditado e leitura em voz alta",
+      "multipleAgents": "Vários agentes"
     },
     "capability": {
       "image_generation": "Geração de imagens",
@@ -687,11 +687,11 @@
       "genericDescription": "Esse recurso faz parte do Stella Pro. Mude de plano para liberá-lo."
     },
     "freeAllowance": {
-      "label": "Saldo gratuito",
-      "caption": "É único — não é renovado.",
-      "remaining": "Restam {amount}. Quando acabar, não volta.",
-      "exhaustedTitle": "Seu saldo gratuito acabou",
-      "exhaustedDescription": "O plano Free inclui um saldo único que nunca é renovado. Mude para o Go para continuar usando a Stella.",
+      "label": "Uso do plano Free",
+      "caption": "Grátis para experimentar.",
+      "remaining": "Grátis para experimentar.",
+      "exhaustedTitle": "Você atingiu o limite do plano Free",
+      "exhaustedDescription": "Mude para o Go para ter 10× mais uso.",
       "exhaustedCta": "Mudar para o Go"
     },
     "upgradeDialog": {
@@ -706,7 +706,9 @@
       "accessEnds": "O acesso termina em {date}",
       "lapseTitle": "A Stella para quando seu plano terminar",
       "lapseDescription": "Seu plano {plan} vai até {date}. Depois disso a Stella para — o saldo do plano Free é único e o seu já foi usado."
-    }
+    },
+    "heading": "Escolha seu plano",
+    "subtitle": "Comece grátis. Mude de plano quando precisar de mais."
   },
   "chat": {
     "stoppedReply": "A Stella não conseguiu iniciar esta resposta",

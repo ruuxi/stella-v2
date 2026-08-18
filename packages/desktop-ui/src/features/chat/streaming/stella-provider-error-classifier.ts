@@ -41,10 +41,10 @@ export type StellaProviderErrorClassification = {
 const signInRequiredMatchers = ['sign in required'] as const
 
 /**
- * The Free plan's $0.50 is a lifetime budget, not a window — once it is
- * gone it never comes back. It has to be classified separately from the
- * ordinary `billing` limit or the user gets told to "wait until usage
- * resets" about a quota that has no reset.
+ * The Free plan's allowance is a lifetime budget, not a window — once it
+ * is exhausted it cannot be used again. It has to be classified separately
+ * from the ordinary `billing` limit or the user gets told to "wait until
+ * usage resets" about a quota that has no reset.
  *
  * Checked before `billingMatchers` because the backend's exhaustion
  * error may also carry the generic "usage limit reached" prose.

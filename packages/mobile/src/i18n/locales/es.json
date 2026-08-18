@@ -654,21 +654,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Un saldo único para probar Stella"
+        "tagline": "Gratis para probar."
       },
       "go": {
-        "tagline": "Uso generoso para el trabajo del día a día"
+        "tagline": "10× más uso"
       },
       "pro": {
-        "tagline": "Todo lo de Go, más generación"
+        "tagline": "Los límites de uso más altos para generar contenido multimedia y usar varios agentes"
       }
     },
     "features": {
       "assistant": "Asistente personal",
       "codingAgent": "Agente de programación",
       "research": "Investigación y trabajo con información",
-      "noAds": "Sin anuncios",
-      "orchestrator": "Modo orquestador"
+      "dictationReadAloud": "Dictado y lectura en voz alta",
+      "multipleAgents": "Varios agentes"
     },
     "capability": {
       "image_generation": "Generación de imágenes",
@@ -687,11 +687,11 @@
       "genericDescription": "Esta función se incluye con Stella Pro. Mejora tu plan para desbloquearla."
     },
     "freeAllowance": {
-      "label": "Saldo gratuito",
-      "caption": "Es único — no se renueva.",
-      "remaining": "Te quedan {amount}. Cuando se acabe, no vuelve.",
-      "exhaustedTitle": "Has agotado tu saldo gratuito",
-      "exhaustedDescription": "El plan Free incluye un saldo único que nunca se renueva. Mejora tu plan a Go para seguir usando Stella.",
+      "label": "Uso del plan Free",
+      "caption": "Gratis para probar.",
+      "remaining": "Gratis para probar.",
+      "exhaustedTitle": "Has alcanzado el límite del plan Free",
+      "exhaustedDescription": "Mejora al plan Go para obtener 10× más uso.",
       "exhaustedCta": "Mejorar a Go"
     },
     "upgradeDialog": {
@@ -706,7 +706,9 @@
       "accessEnds": "El acceso termina el {date}",
       "lapseTitle": "Stella se detendrá cuando acabe tu plan",
       "lapseDescription": "Tu plan {plan} sigue activo hasta el {date}. Después, Stella se detiene: el saldo del plan Free es único y el tuyo ya está agotado."
-    }
+    },
+    "heading": "Elige tu plan",
+    "subtitle": "Empieza gratis. Mejora tu plan cuando necesites más."
   },
   "chat": {
     "stoppedReply": "Stella no pudo iniciar esta respuesta",

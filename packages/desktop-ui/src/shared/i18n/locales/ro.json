@@ -654,21 +654,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Un credit unic pentru a încerca Stella"
+        "tagline": "Gratuit pentru încercare."
       },
       "go": {
-        "tagline": "Utilizare generoasă pentru munca de zi cu zi"
+        "tagline": "Utilizare de 10× mai mare"
       },
       "pro": {
-        "tagline": "Tot ce are Go, plus generarea"
+        "tagline": "Cele mai mari limite de utilizare pentru generare media și mai mulți agenți"
       }
     },
     "features": {
       "assistant": "Asistent personal",
       "codingAgent": "Agent de programare",
       "research": "Cercetare și lucru cu informații",
-      "noAds": "Fără reclame",
-      "orchestrator": "Mod orchestrator"
+      "dictationReadAloud": "Dictare și citire cu voce tare",
+      "multipleAgents": "Mai mulți agenți"
     },
     "capability": {
       "image_generation": "Generare de imagini",
@@ -687,11 +687,11 @@
       "genericDescription": "Această funcție face parte din Stella Pro. Fă upgrade pentru a o debloca."
     },
     "freeAllowance": {
-      "label": "Credit gratuit",
-      "caption": "Unic — nu se resetează.",
-      "remaining": "Au mai rămas {amount}. Odată consumat, nu revine.",
-      "exhaustedTitle": "Creditul tău gratuit s-a epuizat",
-      "exhaustedDescription": "Planul Free include un credit unic care nu se resetează niciodată. Fă upgrade la Go pentru a folosi Stella în continuare.",
+      "label": "Utilizarea planului Free",
+      "caption": "Gratuit pentru încercare.",
+      "remaining": "Gratuit pentru încercare.",
+      "exhaustedTitle": "Ai atins limita planului Free",
+      "exhaustedDescription": "Fă upgrade la Go pentru o utilizare de 10× mai mare.",
       "exhaustedCta": "Upgrade la Go"
     },
     "upgradeDialog": {
@@ -706,7 +706,9 @@
       "accessEnds": "Accesul se încheie pe {date}",
       "lapseTitle": "Stella se oprește când se termină planul tău",
       "lapseDescription": "Planul tău {plan} este activ până pe {date}. După aceea Stella se oprește — creditul planului Free se acordă o singură dată, iar al tău a fost deja folosit."
-    }
+    },
+    "heading": "Alege-ți planul",
+    "subtitle": "Începe gratuit. Fă upgrade când ai nevoie de mai mult."
   },
   "chat": {
     "stoppedReply": "Stella nu a putut începe acest răspuns",

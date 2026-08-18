@@ -116,14 +116,13 @@ type UsageMeter = {
 type PlanFeature = { key: string; plans: readonly BillingPlan[] };
 
 const ALL_PLANS: readonly BillingPlan[] = ["free", "go", "pro"];
-const PAID_PLANS: readonly BillingPlan[] = ["go", "pro"];
-
-/** Rows the capability matrix doesn't model — the text-only baseline. */
+/** All-plan features that the paid media capability matrix doesn't model. */
 const BASE_PLAN_FEATURES: readonly PlanFeature[] = [
   { key: "billing.features.assistant", plans: ALL_PLANS },
   { key: "billing.features.codingAgent", plans: ALL_PLANS },
   { key: "billing.features.research", plans: ALL_PLANS },
-  { key: "billing.features.noAds", plans: PAID_PLANS },
+  { key: "billing.features.dictationReadAloud", plans: ALL_PLANS },
+  { key: "billing.features.multipleAgents", plans: ALL_PLANS },
 ];
 
 /**
@@ -141,29 +140,6 @@ const CAPABILITY_PLAN_FEATURES: readonly PlanFeature[] = CAPABILITIES.map(
 ).filter((feature) => feature.plans.length > 0);
 
 /**
- * ⚠️ PRESENTATIONAL ONLY — NOT ENFORCED. ⚠️
- *
- * These rows are marketing placement, nothing more. Every other row on
- * this screen is either a baseline everyone gets or a capability the
- * gate actually enforces; a row listed here is available to every plan
- * and merely *appears* on a paid card.
- *
- * Orchestrator mode is the case this exists for: any audience may turn
- * it on in Settings, but it burns several times the model usage of a
- * single agent, so it is only practical at Pro allowances and is
- * presented there.
- *
- * Never wire an entry from this list into `capabilities.ts`,
- * `useCapabilityAccess`, or any `restrictionFor(...)` call. If a feature
- * here should actually be restricted, it belongs in
- * `CAPABILITY_MATRIX` in `@stella/contracts/capabilities` instead — that
- * is the only list the app enforces.
- */
-const PRESENTATIONAL_PLAN_FEATURES: readonly PlanFeature[] = [
-  { key: "billing.features.orchestrator", plans: ["pro"] },
-];
-
-/**
  * Widest reach first (stable within a tier). That single rule is what
  * keeps the columns nested — every row a cheaper plan has appears above
  * every row it doesn't — no matter how the matrix is later re-cut.
@@ -171,7 +147,6 @@ const PRESENTATIONAL_PLAN_FEATURES: readonly PlanFeature[] = [
 const PLAN_FEATURE_MATRIX: readonly PlanFeature[] = [
   ...BASE_PLAN_FEATURES,
   ...CAPABILITY_PLAN_FEATURES,
-  ...PRESENTATIONAL_PLAN_FEATURES,
 ]
   .map((feature, index) => ({ feature, index }))
   .sort(
@@ -607,20 +582,12 @@ export function BillingPanel() {
               const percent = toUsagePercent(meter.usedUsd, meter.limitUsd);
               return (
                 <div key={meter.key} className="billing-meter">
-                  {/* Two lines, not three. The percentage used to sit on
-                      its own row opposite the label while the amounts sat
-                      under the bar — but the bar already *is* the
-                      percentage, drawn to scale. Dropping the number and
-                      lifting the amounts up beside the label gives the
-                      same information in one fewer line per meter, three
-                      fewer down the strip. The percent stays as the
-                      accessible name, where a bar can't speak. */}
+                  {/* The bar communicates relative usage without exposing
+                      the internal dollar-denominated accounting. The
+                      percentage stays in the accessible name, where a bar
+                      cannot communicate its scale visually. */}
                   <div className="billing-meter-head">
                     <span className="billing-meter-label">{meter.label}</span>
-                    <span className="billing-meter-amount">
-                      {formatters.usd.format(meter.usedUsd)}
-                      <span> / {formatters.usd.format(meter.limitUsd)}</span>
-                    </span>
                   </div>
                   <div
                     className="billing-meter-track"
@@ -674,14 +641,7 @@ export function BillingPanel() {
                 {t("billing.freeAllowance.exhaustedCta")}
               </button>
             </div>
-          ) : (
-            <p className="billing-allowance-caption">
-              {t("billing.freeAllowance.caption")}{" "}
-              {t("billing.freeAllowance.remaining", {
-                amount: formatters.usd.format(freeAllowance.remainingUsd),
-              })}
-            </p>
-          )
+          ) : null
         ) : null}
 
         {lapseEndsAccess && periodEndLabel ? (
@@ -702,7 +662,12 @@ export function BillingPanel() {
         ) : null}
       </section>
 
-      <section className="billing-plans" aria-label="Plans">
+      <header className="billing-plan-intro">
+        <h1>{t("billing.heading")}</h1>
+        <p>{t("billing.subtitle")}</p>
+      </header>
+
+      <section className="billing-plans" aria-label={t("billing.heading")}>
         {PLAN_ORDER.map((plan) => {
           const display = getPlanDisplay(plan);
           const isCurrentPlan = plan === currentPlan;
@@ -814,9 +779,9 @@ export function BillingPanel() {
                       </s>
                       <span className="billing-plan-period">first month</span>
                     </>
-                  ) : (
+                  ) : plan !== "free" ? (
                     <span className="billing-plan-period">/month</span>
-                  )}
+                  ) : null}
                 </span>
                 {introCents !== null ? (
                   <span className="billing-plan-terms">

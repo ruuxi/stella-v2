@@ -11,49 +11,6 @@
   overflow: hidden;
 }
 
-.work-section__footer {
-  display: flex;
-  flex: 0 0 auto;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 10px 12px 12px;
-}
-
-/* Composer pin — a plain label + switch, not a pill: it is a persistent
-   preference, not an action to press. */
-.work-models-pin-switch [data-slot="switch-label"] {
-  color: var(--text-weak);
-  font-size: var(--font-size-sm);
-}
-
-.pill-btn.work-models-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid transparent;
-}
-
-.pill-btn.work-models-button[data-active] {
-  background: transparent;
-  color: var(--text-strong);
-}
-
-.work-models-panel .agent-model-picker {
-  flex: 1 1 auto;
-  width: 100%;
-  height: auto;
-  min-height: 0;
-}
-
-.work-models-panel__loading {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-weak);
-  font-size: var(--font-size-base);
-}
-
 .files-list {
   position: relative;
   display: flex;
@@ -303,48 +260,4 @@
 /* Owned subagents sit indented beneath their parent while expanded. */
 .files-list__item--nested {
   margin-left: 22px;
-}
-
-/* Models popover: hosts the agent model picker above the footer button. */
-.models-popover {
-  /* `max-width` has to move with `width`: the shared popover surface caps
-     every popover at 320px, which silently clamped this one. The model
-     list carries provider names plus an action pill, so it needs the
-     extra room. */
-  width: min(380px, 92vw);
-  max-width: min(380px, 92vw);
-  height: min(560px, 72vh);
-  display: flex;
-  flex-direction: column;
-}
-
-.models-popover__body {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  flex-direction: column;
-}
-
-.models-popover__panel {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-}
-
-/* The picker's own root is `flex-grow: 0` (it sizes to content in the
-   settings page, where it sits beside other blocks). Inside the popover it
-   is the only child and should own the full width, or widening the popover
-   just adds dead space on the right. */
-.models-popover__panel > * {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.models-popover__footer {
-  display: flex;
-  flex: 0 0 auto;
-  justify-content: flex-end;
-  padding-top: 8px;
 }

@@ -67,6 +67,7 @@ const SubscriptionUpgradeDialog = lazy(() =>
   })),
 );
 import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
+import { GlobalModelsControl } from "@/shell/GlobalModelsControl";
 import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
 import { StellaContextMenu } from "@/shell/context-menu/StellaContextMenu";
 import {
@@ -567,6 +568,11 @@ function RootChrome() {
           <RightSidebar ref={rightSidebarRef} />
         </Suspense>
       </StellaContextMenu>
+
+      {/* Global bottom-right Models control — top-level, not owned by the
+          right sidebar, so it stays visible/openable on every tab and state. */}
+      <GlobalModelsControl />
+
 
       <ComposerAreaSelectOverlay
         active={chat.annotation.active}

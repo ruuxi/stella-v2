@@ -91,7 +91,7 @@ Media Generation — Stella may offer media generation features (image, audio, v
 
 Free Use — The Stella platform is free to use. You can use all features of the desktop and mobile application at no cost by providing your own API keys (BYOK).
 
-Stella Provider Plans — The Stella Provider LLM inference service offers a free tier with rate-limited access, as well as paid subscription plans (currently Go, Pro, Plus, and Ultra) with higher usage limits and access to additional AI models. Paid plans are billed monthly through Stripe.
+Stella Provider Plans — The Stella Provider LLM inference service offers a free tier with rate-limited access, as well as paid subscription plans (currently Go and Pro) with higher usage limits and access to additional AI models. Paid plans are billed monthly through Stripe.
 
 Pricing Changes — All prices are subject to change at any time, including during the beta period. We will make reasonable efforts to notify active subscribers of pricing changes in advance. Continued use of a paid plan after a price change constitutes acceptance of the new pricing.
 

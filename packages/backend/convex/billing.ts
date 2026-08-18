@@ -2449,6 +2449,11 @@ export const createCheckoutSession = action({
   args: {
     plan: paidPlanValidator,
     returnUrl: v.string(),
+    // Optional caller context. The mobile app sends source "ios" plus the
+    // StoreKit storefront country so the server can enforce the U.S.-only
+    // in-app purchase policy. Desktop/web omit both and are unaffected.
+    source: v.optional(v.string()),
+    appStoreCountry: v.optional(v.string()),
   },
   returns: v.object({
     url: v.string(),
@@ -2464,6 +2469,24 @@ export const createCheckoutSession = action({
     }
 
     const ownerId = identity.tokenIdentifier;
+    // iOS in-app purchase is offered only where the App Store storefront is
+    // the United States. The client gates its UI on StoreKit's storefront and
+    // attests it here; this is the server-side backstop that fails closed for
+    // any non-US or unknown storefront. Desktop/web callers omit `source`.
+    const checkoutSource = args.source?.trim().toLowerCase() || "web";
+    if (checkoutSource === "ios") {
+      const appStoreCountry = args.appStoreCountry?.trim().toUpperCase();
+      if (appStoreCountry !== "USA") {
+        console.warn("[billing] iOS checkout blocked off US storefront", {
+          appStoreCountry: appStoreCountry || "unknown",
+        });
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message:
+            "In-app subscriptions aren't available in your App Store region.",
+        });
+      }
+    }
     // Each call hits the live Stripe API (customer.create / checkout.create);
     // tight cap protects both Stripe rate limits and our cost.
     await enforceActionRateLimit(
@@ -2557,11 +2580,13 @@ export const createCheckoutSession = action({
       metadata: {
         ownerId,
         plan: args.plan,
+        source: checkoutSource,
       },
       subscription_data: {
         metadata: {
           ownerId,
           plan: args.plan,
+          source: checkoutSource,
         },
       },
     } as Stripe.Checkout.SessionCreateParams;

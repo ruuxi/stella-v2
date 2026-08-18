@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ChatMessage, MobileTask } from "../types";
+import type { ToolStep } from "./tool-activity";
 import {
   desktopChatOutboxStorageKeys,
   waitForDesktopChatOutboxWrites,
@@ -48,6 +49,41 @@ const TASK_STATUSES = new Set(["running", "completed", "error", "canceled"]);
  * that finished while the app was closed can't shimmer the pill forever.
  */
 const STORED_RUNNING_TASK_STALE_MS = 5 * 60_000;
+
+function parseStoredToolSteps(value: unknown): ToolStep[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): ToolStep[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const record = entry as Record<string, unknown>;
+    if (
+      typeof record.id !== "string" ||
+      typeof record.toolName !== "string" ||
+      (record.status !== "running" &&
+        record.status !== "completed" &&
+        record.status !== "error" &&
+        record.status !== "canceled")
+    ) {
+      return [];
+    }
+    const args =
+      record.args && typeof record.args === "object"
+        ? Object.fromEntries(
+            Object.entries(record.args as Record<string, unknown>).filter(
+              (entry): entry is [string, string] => typeof entry[1] === "string",
+            ),
+          )
+        : undefined;
+    return [{
+      id: record.id,
+      toolName: record.toolName,
+      status: record.status,
+      ...(args && Object.keys(args).length > 0 ? { args } : {}),
+      ...(typeof record.textOffset === "number" && Number.isFinite(record.textOffset)
+        ? { textOffset: record.textOffset }
+        : {}),
+    }];
+  });
+}
 
 /**
  * Round-trip the background-task snapshots riding a persisted row. Tasks feed
@@ -135,6 +171,7 @@ function parseRow(row: unknown): ChatMessage | null {
     typeof o.conversationId === "string" ? o.conversationId : "";
   const artifacts = parseChatArtifacts(o.artifacts, conversationId);
   const tasks = parseStoredTasks(o.tasks);
+  const toolSteps = parseStoredToolSteps(o.toolSteps);
   return {
     id: o.id,
     ...(typeof o.canonicalId === "string" && o.canonicalId.trim()
@@ -158,6 +195,7 @@ function parseRow(row: unknown): ChatMessage | null {
     role: o.role,
     text: o.text,
     ...(artifacts.length > 0 ? { artifacts } : {}),
+    ...(toolSteps.length > 0 ? { toolSteps } : {}),
     ...(tasks.length > 0 ? { tasks } : {}),
     ...(o.hasImage === true ? { hasImage: true } : {}),
     ...(thumbnailUris.length > 0 ? { thumbnailUris } : {}),

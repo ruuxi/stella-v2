@@ -32,7 +32,14 @@ export type ToolCall =
       mode?: string;
       title?: string;
     }
-  | { tool: "pdf"; title?: string; content: string; filename?: string };
+  | { tool: "pdf"; title?: string; content: string; filename?: string }
+  | { tool: "web"; query: string; category?: string }
+  | {
+      tool: "image_gen";
+      prompt: string;
+      aspectRatio?: string;
+      numImages?: number;
+    };
 
 const asString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
@@ -101,6 +108,27 @@ const toToolCall = (value: unknown): ToolCall | null => {
         ...(filename ? { filename } : {}),
       };
     }
+    case "web": {
+      const query = asString(record.query);
+      if (!query) return null;
+      const category = asString(record.category);
+      return { tool: "web", query, ...(category ? { category } : {}) };
+    }
+    case "image_gen": {
+      const prompt = asString(record.prompt);
+      if (!prompt) return null;
+      const aspectRatio = asString(record.aspectRatio ?? record.aspect_ratio);
+      const requestedCount = Number(record.numImages ?? record.num_images ?? 1);
+      const numImages = Number.isFinite(requestedCount)
+        ? Math.max(1, Math.min(4, Math.floor(requestedCount)))
+        : 1;
+      return {
+        tool: "image_gen",
+        prompt,
+        ...(aspectRatio ? { aspectRatio } : {}),
+        ...(numImages > 1 ? { numImages } : {}),
+      };
+    }
     default:
       return null;
   }
@@ -125,16 +153,24 @@ export function parseToolBlock(rawText: string): ParsedReply {
   const body = closeAt === -1 ? afterOpen : afterOpen.slice(0, closeAt);
 
   const calls: ToolCall[] = [];
-  for (const line of body.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("[")))
-      continue;
-    let parsed: unknown;
+  const parseCandidate = (candidate: string): unknown[] => {
     try {
-      parsed = JSON.parse(trimmed);
+      const parsed = JSON.parse(candidate) as unknown;
+      return Array.isArray(parsed) ? parsed : [parsed];
     } catch {
-      continue;
+      return [];
     }
+  };
+  // Prefer the complete body. Models commonly pretty-print a PDF call across
+  // several lines; the old line-only parser silently dropped that valid call
+  // and left the assistant claiming it could not make the requested file.
+  let parsedEntries = parseCandidate(body.trim());
+  if (parsedEntries.length === 0) {
+    parsedEntries = body
+      .split(/\r?\n/)
+      .flatMap((line) => parseCandidate(line.trim()));
+  }
+  for (const parsed of parsedEntries) {
     const entries = Array.isArray(parsed) ? parsed : [parsed];
     for (const entry of entries) {
       const call = toToolCall(entry);
@@ -191,7 +227,7 @@ export function createToolBlockFilter() {
 }
 
 const TOOL_INSTRUCTIONS = [
-  "You have five on-device tools, invoked through a text protocol.",
+  "You have seven mobile tools, invoked through a text protocol.",
   "To use them, append EXACTLY ONE tool block at the very END of your reply with nothing after it:",
   TOOL_BLOCK_OPEN,
   '{"tool":"remember","key":"home city","value":"Austin, TX"}',
@@ -203,6 +239,8 @@ const TOOL_INSTRUCTIONS = [
   '- map: show an interactive map card inline (pins and/or a route). {"tool":"map","places":["Blue Bottle, SF"]} or {"tool":"map","origin":"...","destination":"...","mode":"driving"}',
   '- recall: full-text search YOUR earlier messages in this conversation. {"tool":"recall","query":"..."} When you need to recall, reply with ONLY the tool block (no answer text) and wait for the results, then answer.',
   '- pdf: generate a PDF on the phone and drop it into the chat as a tappable file the user can open, save, or share. Use it whenever the user asks for a PDF (a document, report, summary, letter, cheatsheet…). {"tool":"pdf","title":"Trip Itinerary","content":"# Trip Itinerary\\n\\nDay 1: ..."} The content is the full document body in Markdown (headings, lists, bold, tables, code all render). Put the entire document in `content` as a single JSON string with \\n for line breaks, or as an array of lines. Keep a short spoken reply like "Here is your PDF" as the visible answer; do not paste the whole document into the chat text too.',
+  '- web: search the live web when the answer depends on current or sourced information. {"tool":"web","query":"..."} Reply with ONLY the tool block and wait for results; then answer with links.',
+  '- image_gen: generate an image and render it directly in chat. Use whenever the user asks to create, draw, or generate an image. {"tool":"image_gen","prompt":"a detailed generation prompt","aspectRatio":"4:3","numImages":1} Keep any visible preamble to one short sentence; never substitute a generic file or claim image generation is unavailable.',
 ].join("\n");
 
 /**

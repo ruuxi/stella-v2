@@ -23,7 +23,7 @@ export type ToolActivityCategory =
   | "message"
   | "other";
 
-export type ToolActivityStatus = "completed" | "error";
+export type ToolActivityStatus = "running" | "completed" | "error" | "canceled";
 
 /** Settled step as it arrives over the bridge. */
 export type ToolStep = {
@@ -32,6 +32,8 @@ export type ToolStep = {
   status: ToolActivityStatus;
   /** Pruned string args used to build the per-call title. */
   args?: Record<string, string>;
+  /** Immutable character position where normal chat first observed the call. */
+  textOffset?: number;
 };
 
 export type ToolActivityStep = {
@@ -41,6 +43,7 @@ export type ToolActivityStep = {
   /** Friendly per-call title (filename, pattern, command snippet, …). */
   title: string;
   status: ToolActivityStatus;
+  textOffset?: number;
 };
 
 export type ToolActivityGroup = {
@@ -117,6 +120,10 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
   image_gen: {
     category: "create",
     phrase: plural("generated an image", (n) => `generated ${n} images`),
+  },
+  pdf: {
+    category: "create",
+    phrase: plural("created a PDF", (n) => `created ${n} PDFs`),
   },
   html: { category: "create", phrase: plural("built a page", (n) => `built ${n} pages`) },
   dream: {
@@ -222,6 +229,8 @@ const titleForCall = (
     case "image_gen":
     case "dream":
       return str(a.prompt) ? clamp(str(a.prompt)!, 48) : "image";
+    case "pdf":
+      return str(a.title) ?? "PDF";
     case "html":
       return str(a.title) ?? "page";
     case "remember":
@@ -260,6 +269,9 @@ export function deriveToolActivity(
       category: descriptorFor(raw.toolName).category,
       title: titleForCall(raw.toolName, raw.args),
       status: raw.status,
+      ...(typeof raw.textOffset === "number"
+        ? { textOffset: raw.textOffset }
+        : {}),
     });
   }
   if (settled.length === 0) return undefined;
@@ -284,6 +296,21 @@ export function deriveToolActivity(
     }),
   );
 
+  const active = settled.find((step) => step.status === "running");
+  const displayedSummary = active
+    ? active.toolName.toLowerCase() === "web"
+      ? "Searching the web"
+      : active.toolName.toLowerCase() === "image_gen"
+        ? "Creating image"
+        : active.toolName.toLowerCase() === "pdf"
+          ? "Creating PDF"
+          : active.toolName.toLowerCase() === "map"
+            ? "Looking up map"
+            : active.toolName.toLowerCase() === "recall"
+              ? "Checking memory"
+              : `Using ${humanizeToolName(active.toolName)}`
+    : summary;
+
   // Leading icon: dominant aggregation group (most calls; ties keep order).
   let iconKey = order[0];
   let best = -1;
@@ -296,5 +323,5 @@ export function deriveToolActivity(
   }
   const icon = groupSample.get(iconKey)!.category;
 
-  return { steps: settled, summary, icon };
+  return { steps: settled, summary: displayedSummary, icon };
 }

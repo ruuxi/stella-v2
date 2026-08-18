@@ -310,15 +310,15 @@ export async function generatePdf(
       html: renderPdfHtml(title, content),
     });
 
-    // Move the print output to a human-readable name in the cache directory so
-    // the share sheet / Files entry shows a sensible filename. Best-effort: if
-    // the move fails we still hand back the original print URI.
+    // Move the print output to the app's durable document directory. The old
+    // cache destination could be purged between a saved transcript and reload,
+    // leaving a persisted card that no longer opened.
     let localUri = uri;
     let sizeBytes: number | undefined;
     try {
       const { File, Paths } = await import("expo-file-system");
       const source = new File(uri);
-      const target = new File(Paths.cache, fileName);
+      const target = new File(Paths.document, fileName);
       if (target.exists) target.delete();
       source.move(target);
       localUri = target.uri;
@@ -327,6 +327,19 @@ export async function generatePdf(
     } catch {
       // Keep the original print URI; the artifact is still usable.
     }
+
+    const generatedFile = new (await import("expo-file-system")).File(localUri);
+    const bytes = await generatedFile.bytes();
+    const hasPdfHeader =
+      bytes.length >= 4 &&
+      bytes[0] === 0x25 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x44 &&
+      bytes[3] === 0x46;
+    if (!hasPdfHeader) {
+      throw new Error("the generated file was not a valid PDF");
+    }
+    sizeBytes = bytes.length;
 
     const payload: PdfPayload = {
       kind: "pdf",

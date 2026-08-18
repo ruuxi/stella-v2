@@ -86,7 +86,9 @@ export const isMobileDisplayPayload = (
       return (
         typeof value.filePath === "string" &&
         (value.localUri === undefined || typeof value.localUri === "string") &&
-        (value.sizeBytes === undefined || isFiniteNumber(value.sizeBytes))
+        (value.sizeBytes === undefined || isFiniteNumber(value.sizeBytes)) &&
+        (value.textOffset === undefined || isFiniteNumber(value.textOffset)) &&
+        (value.toolCallId === undefined || typeof value.toolCallId === "string")
       );
     case "file-artifact":
       return (
@@ -183,7 +185,16 @@ export const parseChatArtifacts = (
         isRecord(entry) && typeof entry.conversationId === "string"
           ? entry.conversationId
           : conversationId;
-      return { id, conversationId: artifactConversationId, payload };
+      const textOffset =
+        isRecord(entry) && isFiniteNumber(entry.textOffset)
+          ? entry.textOffset
+          : undefined;
+      return {
+        id,
+        conversationId: artifactConversationId,
+        payload,
+        ...(textOffset !== undefined ? { textOffset } : {}),
+      };
     })
     .filter((entry): entry is ChatArtifact => Boolean(entry));
 };

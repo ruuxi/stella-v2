@@ -33,11 +33,11 @@ import { downloadLocalParakeet } from "../dictation/local-parakeet.js";
 import { startCapturingHandlers } from "../services/mobile-bridge/handler-registry.js";
 import { getAllWindows, getMobileBroadcast, } from "./context.js";
 import { startMobileBridge, startStellaBrowserBridge, stopMobileBridge, } from "./aux-runtime.js";
-import { isBrowserBridgeEagerStartWorthwhile } from "../services/stella-browser-bridge-service.js";
+import { isBrowserBridgeEagerStartWorthwhile, isStellaBrowserBridgeBinaryInstalled, isStellaExtensionInstalled, } from "../services/stella-browser-bridge-service.js";
 import { InAppBrowserService } from "../services/in-app-browser-service.js";
 import { InAppBrowserCdpAdapter } from "../services/in-app-browser-cdp-adapter.js";
 import { InAppBrowserBootstrapServer } from "../services/in-app-browser-bootstrap-server.js";
-import { STELLA_BROWSER_EXTENSION_ID } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
+import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/contracts/browser-extension";
 import { scheduleGlobalInputHooksAfterAppReady } from "./global-input-hooks.js";
 import { randomUUID } from "crypto";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
@@ -67,7 +67,12 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             stellaDataDir: state.stellaDataDirPath ?? config.stellaDataDirPath,
             getWindow: () => state.windowManager?.getFullWindow() ?? null,
             ensureBrowserBridgeStarted: () => startStellaBrowserBridge(context),
-            openExtensionStore: () => shell.openExternal(`https://chromewebstore.google.com/detail/${STELLA_BROWSER_EXTENSION_ID}`),
+            openExtensionStore: () => shell.openExternal(STELLA_BROWSER_EXTENSION_STORE_URL),
+            getBrowserSetupStatus: () => ({
+                bridgeBinaryInstalled: isStellaBrowserBridgeBinaryInstalled(),
+                extensionInstalled: isStellaExtensionInstalled(),
+            }),
+            getBrowserBridgeStatus: () => state.stellaBrowserBridgeService?.getStatus?.(),
             getExtensionStatus: async () => {
                 const resource = state.stellaBrowserBridgeService;
                 if (!resource?.getExtensionStatus)

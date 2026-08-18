@@ -246,6 +246,13 @@ type BrowserViewState = {
   }>;
   activeTabId?: string;
   error?: string;
+  unavailableReason?:
+    | "extension_not_installed"
+    | "extension_disconnected"
+    | "bridge_missing"
+    | "authorization_failed"
+    | "connection_lost"
+    | "transient_failure";
 };
 
 type BrowserViewLayout = {
@@ -1624,6 +1631,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ) => invokeBrowserFetch(IPC_BROWSER_FETCH_TEXT, { url, init }),
     onBridgeStatus: onIpc<{
       state:
+        | "idle"
         | "connecting"
         | "connected"
         | "reconnecting"
@@ -1631,6 +1639,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       attempt: number;
       nextRetryMs?: number;
       error?: string;
+      reason?:
+        | "bridge_missing"
+        | "authorization_failed"
+        | "connection_lost"
+        | "transient_failure";
       notifyUser?: boolean;
     }>("browser:bridgeStatus"),
   },

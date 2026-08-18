@@ -1149,6 +1149,7 @@ export type ElectronBrowserApi = {
   onBridgeStatus: (
     callback: (status: {
       state:
+        | "idle"
         | "connecting"
         | "connected"
         | "reconnecting"
@@ -1156,6 +1157,11 @@ export type ElectronBrowserApi = {
       attempt: number;
       nextRetryMs?: number;
       error?: string;
+      reason?:
+        | "bridge_missing"
+        | "authorization_failed"
+        | "connection_lost"
+        | "transient_failure";
       notifyUser?: boolean;
     }) => void,
   ) => () => void;
@@ -1200,6 +1206,13 @@ export type BrowserViewState = {
   }>;
   activeTabId?: string;
   error?: string;
+  unavailableReason?:
+    | "extension_not_installed"
+    | "extension_disconnected"
+    | "bridge_missing"
+    | "authorization_failed"
+    | "connection_lost"
+    | "transient_failure";
 };
 
 export type BrowserViewLayout = {

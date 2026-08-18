@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { STELLA_BROWSER_EXTENSION_ID } from "@stella/contracts/browser-extension";
+
+export {
+  STELLA_BROWSER_EXTENSION_ID,
+  STELLA_BROWSER_EXTENSION_STORE_URL,
+} from "@stella/contracts/browser-extension";
 
 export const STELLA_BROWSER_BRIDGE_PROVIDER = "extension";
 export const STELLA_BROWSER_BRIDGE_SESSION = "stella-app-bridge";
@@ -11,9 +17,6 @@ export const STELLA_BROWSER_MANAGED_BRIDGE = "1";
 
 /** Chrome native messaging host name — must match extension `connectNative` and host manifest. */
 export const STELLA_NATIVE_MESSAGING_HOST_NAME = "com.stella.browser_bridge";
-
-/** Chrome Web Store extension id allowed to connect to the native messaging host. */
-export const STELLA_BROWSER_EXTENSION_ID = "kfnchfpocpmdblhfgcnpfaaebaioojnl";
 
 const readBridgeToken = (tokenPath: string): string | null => {
   try {

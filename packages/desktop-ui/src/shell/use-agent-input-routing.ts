@@ -9,7 +9,7 @@ const NO_OP = () => {}
 type UseAgentInputRoutingOptions = {
   activeConversationId: string | null
   /** Resolved at call-time via a ref so we never close over a stale identity. */
-  sendMessage: (args: SendMessageArgs) => void | Promise<void>
+  sendMessage: (args: SendMessageArgs) => Promise<boolean>
   enterChatSurfaceForInteraction: () => void
 }
 
@@ -26,7 +26,7 @@ type UseAgentInputRoutingResult = {
     text: string,
     chatCtx?: ChatContext | null,
     selectedTextCtx?: string | null,
-  ) => void
+  ) => Promise<boolean>
 }
 
 /**
@@ -47,14 +47,17 @@ export function useAgentInputRouting({
 
   const sendContextlessMessage = useCallback(
     (text: string, metadata?: MessageMetadata) => {
-      enterChatSurfaceForInteraction()
-      void sendMessageRef.current({
-        text,
-        selectedText: null,
-        chatContext: null,
-        onClear: NO_OP,
-        metadata,
-      })
+      void sendMessageRef
+        .current({
+          text,
+          selectedText: null,
+          chatContext: null,
+          onClear: NO_OP,
+          metadata,
+        })
+        .then((accepted) => {
+          if (accepted) enterChatSurfaceForInteraction()
+        })
     },
     [enterChatSurfaceForInteraction],
   )
@@ -90,18 +93,19 @@ export function useAgentInputRouting({
   )
 
   const sendMessageWithContext = useCallback(
-    (
+    async (
       text: string,
       chatCtx?: ChatContext | null,
       selectedTextCtx?: string | null,
     ) => {
-      enterChatSurfaceForInteraction()
-      void sendMessageRef.current({
+      const accepted = await sendMessageRef.current({
         text,
         selectedText: selectedTextCtx ?? null,
         chatContext: chatCtx ?? null,
         onClear: NO_OP,
       })
+      if (accepted) enterChatSurfaceForInteraction()
+      return accepted
     },
     [enterChatSurfaceForInteraction],
   )

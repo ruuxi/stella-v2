@@ -114,7 +114,7 @@ interface ChatPanelTabProps {
     text: string,
     chatContext?: ChatContext | null,
     selectedText?: string | null,
-  ) => void;
+  ) => boolean | Promise<boolean>;
   onStop?: () => void;
   /** When the display sidebar is expanded to full width. */
   wideLayout?: boolean;
@@ -390,7 +390,7 @@ export function ChatPanelTab({
     syncOnNextFrame: true,
   });
 
-  const sendCurrentMessage = useCallback(() => {
+  const sendCurrentMessage = useCallback(async () => {
     const { canSubmit, trimmedMessage } = deriveComposerState({
       message: inputTextRef.current,
       chatContext,
@@ -401,7 +401,8 @@ export function ChatPanelTab({
     // applying Codex's 300px near-bottom threshold, so a visually-bottomed
     // short reply still reframes while deliberate scrollback stays put.
     const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
-    onSend(trimmedMessage, chatContext, selectedText);
+    const accepted = await onSend(trimmedMessage, chatContext, selectedText);
+    if (!accepted) return;
     setInputText("");
     setChatContext(null);
     setSelectedText(null);
@@ -602,6 +603,12 @@ export function ChatPanelTab({
                             });
                           }}
                           onKeyDown={(event) => {
+                            if (
+                              event.nativeEvent.isComposing ||
+                              event.nativeEvent.keyCode === 229
+                            ) {
+                              return;
+                            }
                             if (event.key === "Enter" && !event.shiftKey) {
                               event.preventDefault();
                               submitComposer();

@@ -51,6 +51,8 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     const { chatContext, setChatContext, selectedText, setSelectedText } = useCapturedChatContext();
     const composerMemoryByConversationRef = useRef(new Map());
     const scrollMemoryByConversationRef = useRef(new Map());
+    const activeConversationIdRef = useRef(activeConversationId);
+    activeConversationIdRef.current = activeConversationId;
     const previousComposerConversationIdRef = useRef(activeConversationId);
     const restoredConversationScrollRef = useRef(null);
     useEffect(() => {
@@ -279,7 +281,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         listRef,
         scrollToBottom,
     ]);
-    const handleSend = useCallback(() => {
+    const handleSend = useCallback(async () => {
         // The placement gate subtracts the synthetic response spacer before
         // applying Codex's 300px near-bottom threshold. That keeps a visually
         // bottomed short reply eligible without pulling deliberate scrollback
@@ -303,21 +305,35 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         const shouldKeepTailFramed =
             showHomeContent || getIsEffectivelyAtBottom() || getShouldPlaceLatestTurn();
         const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
-        if (showHomeContent) {
-            setComposerFocusRequestId((id) => id + 1);
-        }
-        enterChatSurfaceForInteraction();
-        resetIdleTimer();
-        void sendMessage({
+        const submittedConversationId = activeConversationId;
+        const accepted = await sendMessage({
             text: latestMessageRef.current,
             selectedText,
             chatContext,
             onClear: () => {
+                if (activeConversationIdRef.current !== submittedConversationId) {
+                    if (submittedConversationId) {
+                        setBoundedTabMemory(composerMemoryByConversationRef.current, submittedConversationId, {
+                            message: "",
+                            selectedText: null,
+                            chatContext: null,
+                        });
+                    }
+                    return;
+                }
                 setMessage("");
                 setSelectedText(null);
                 setChatContext(null);
             },
         });
+        if (!accepted || activeConversationIdRef.current !== submittedConversationId) {
+            return;
+        }
+        if (showHomeContent) {
+            setComposerFocusRequestId((id) => id + 1);
+        }
+        enterChatSurfaceForInteraction();
+        resetIdleTimer();
         if (isStreaming) {
             // Queued follow-up — no new user row lands in the event list.
             // The streaming assistant row's own auto-follow keeps the reply
@@ -338,6 +354,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             releaseFollow();
         }
     }, [
+        activeConversationId,
         chatContext,
         enterChatSurfaceForInteraction,
         getIsFollowing,

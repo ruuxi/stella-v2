@@ -497,10 +497,10 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         }, 0);
         return () => window.clearTimeout(timeoutId);
     }, [activeConversationId, commitStreamingAssistants, discardStreamText]);
-    const startStream = useCallback((args) => {
+    const startStream = useCallback(async (args) => {
         if (!activeConversationId || !window.electronAPI) {
             args.onStartFailed?.();
-            return;
+            return false;
         }
         ensureAgentStreamSubscription();
         if (args.userMessageEventId && args.mode !== "follow_up") {
@@ -520,9 +520,11 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 files: undefined,
             }
             : args.chatContext;
-        void (async () => {
-            if (attemptId !== startAttemptRef.current)
-                return;
+        try {
+            await Promise.resolve();
+            if (attemptId !== startAttemptRef.current) {
+                return false;
+            }
             const { requestId } = await window.electronAPI.agent.startChat({
                 conversationId: activeConversationId,
                 userPrompt: args.userPrompt,
@@ -552,7 +554,9 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 storageMode,
             });
             pendingRequestIdsRef.current.add(requestId);
-        })().catch((error) => {
+            return true;
+        }
+        catch (error) {
             console.error("Failed to start local agent chat:", error.message);
             if (args.userMessageEventId) {
                 setPendingUserMessageId((current) => current === args.userMessageEventId ? null : current);
@@ -577,10 +581,11 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 });
             }
             args.onStartFailed?.();
-        });
+            return false;
+        }
     }, [activeConversationId, ensureAgentStreamSubscription, storageMode]);
     const queueStream = useCallback((args) => {
-        startStream(args);
+        void startStream(args);
     }, [startStream]);
     const cancelCurrentStream = useCallback(() => {
         if (!activeRunId || !window.electronAPI?.agent.cancelChat) {

@@ -72,7 +72,7 @@ function QuickChatConversation({
       chatContext?: ChatContext | null,
       selectedText?: string | null,
     ) => {
-      void sendMessage({
+      return sendMessage({
         text,
         chatContext: chatContext ?? null,
         selectedText: selectedText ?? null,

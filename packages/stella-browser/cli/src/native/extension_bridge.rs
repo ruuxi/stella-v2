@@ -974,7 +974,7 @@ mod tests {
             .expect("connect");
         client
             .write_all(
-                b"{\"type\":\"hello\",\"extensionVersion\":\"1.2.10\",\"protocolVersion\":\"2.0\"}\n",
+                b"{\"type\":\"hello\",\"extensionVersion\":\"1.2.11\",\"protocolVersion\":\"2.0\"}\n",
             )
             .await
             .expect("send hello");

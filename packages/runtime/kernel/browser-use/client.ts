@@ -977,8 +977,6 @@ export class BrowserSession implements BrowserSessionClient {
     ownerLeaseIssuedAt: number;
   }>;
   private executionConfig?: ResolvedExecutionConfig;
-  private sharedBridgeSessionId?: string;
-  private inAppBrowserBridgeSessionId?: string;
   private selectedBackend: BrowserBackend = "in-app";
   private readonly activeTurnBackends = new Set<BrowserBackend>();
   private socket?: Socket;
@@ -986,10 +984,13 @@ export class BrowserSession implements BrowserSessionClient {
   private readBuffer = EMPTY_BUFFER;
   private pending?: PendingResponse;
   private fallbackAttempted = false;
-  private inAppBrowserCapability?: InAppBrowserCapability & {
-    turnId: string;
-    ownerLeaseId: string;
-  };
+  private ownerRoute?: Readonly<{
+    capability: InAppBrowserCapability & {
+      turnId: string;
+      ownerLeaseId: string;
+    };
+    config: ResolvedExecutionConfig;
+  }>;
   private recoverInAppBrowserCapability = false;
   private queue: Promise<void> = Promise.resolve();
   private disposed = false;
@@ -1087,8 +1088,7 @@ export class BrowserSession implements BrowserSessionClient {
       } finally {
         if (this.activeTurn === turn) this.activeTurn = undefined;
         this.activeTurnBackends.clear();
-        this.inAppBrowserCapability = undefined;
-        this.inAppBrowserBridgeSessionId = undefined;
+        this.ownerRoute = undefined;
         if (this.socket) {
           this.invalidateSocket(
             this.socket,
@@ -1185,7 +1185,6 @@ export class BrowserSession implements BrowserSessionClient {
     return await this.enqueue(async () => {
       this.assertOpen();
       this.selectedBackend = backend;
-      this.switchToBackendSession(backend);
       return Object.freeze({ backend });
     });
   }
@@ -1267,14 +1266,30 @@ export class BrowserSession implements BrowserSessionClient {
     finalizeTabs = true,
   ): Promise<void> {
     const backends = [...this.activeTurnBackends];
+    if (!finalizeTabs) {
+      const releaseBackend = backends.includes("external")
+        ? "external"
+        : backends[0];
+      if (releaseBackend) {
+        await this.cleanupTurnOnBackend(
+          turn,
+          releaseBackend,
+          allowDisposed,
+          false,
+          true,
+        );
+      }
+      return;
+    }
     let firstError: unknown;
-    for (const backend of backends) {
+    for (const [index, backend] of backends.entries()) {
       try {
         await this.cleanupTurnOnBackend(
           turn,
           backend,
           allowDisposed,
-          finalizeTabs,
+          true,
+          index === backends.length - 1,
         );
       } catch (error) {
         firstError ??= error;
@@ -1292,8 +1307,8 @@ export class BrowserSession implements BrowserSessionClient {
     backend: BrowserBackend,
     allowDisposed: boolean,
     finalizeTabs: boolean,
+    releaseLease: boolean,
   ): Promise<void> {
-    this.switchToBackendSession(backend);
     const timeoutMs = Math.min(
       this.commandTimeoutMs,
       MAX_BROWSER_TURN_CLEANUP_TIMEOUT_MS,
@@ -1324,7 +1339,11 @@ export class BrowserSession implements BrowserSessionClient {
       );
     };
     if (!finalizeTabs) {
-      await send("release_owner_lease");
+      if (releaseLease) await send("release_owner_lease");
+      return;
+    }
+    if (!releaseLease) {
+      await send("finalize_tabs");
       return;
     }
     try {
@@ -1386,30 +1405,20 @@ export class BrowserSession implements BrowserSessionClient {
       env,
       endpoint,
     });
-    this.sharedBridgeSessionId = bridgeSessionId;
     return this.executionConfig;
   }
 
-  private switchBridgeSession(
-    bridgeSessionId: string,
+  private bindOwnerRoute(
+    capability: InAppBrowserCapability & {
+      turnId: string;
+      ownerLeaseId: string;
+    },
   ): ResolvedExecutionConfig {
     const current = this.resolveExecutionConfig();
     const validatedSessionId = requireNonEmptyString(
-      bridgeSessionId,
+      capability.bridgeSessionId,
       "bridgeSessionId",
     );
-    if (current.bridgeSessionId === validatedSessionId) return current;
-    if (this.socket) {
-      this.invalidateSocket(
-        this.socket,
-        new BrowserTransportError(
-          "connection_closed",
-          "Browser capability switched daemon sessions.",
-          { retryable: true },
-        ),
-        true,
-      );
-    }
     const env: NodeJS.ProcessEnv = {
       ...current.env,
       STELLA_BROWSER_SESSION: validatedSessionId,
@@ -1423,27 +1432,29 @@ export class BrowserSession implements BrowserSessionClient {
         : Object.freeze({
             path: path.join(getSocketDir(env), `${validatedSessionId}.sock`),
           });
-    this.executionConfig = Object.freeze({
+    const config = Object.freeze({
       binaryPath: current.binaryPath,
       bridgeSessionId: validatedSessionId,
       env,
       endpoint,
     });
-    return this.executionConfig;
-  }
-
-  private switchToBackendSession(
-    backend: BrowserBackend,
-  ): ResolvedExecutionConfig {
-    const current = this.resolveExecutionConfig();
-    const bridgeSessionId =
-      backend === "external"
-        ? this.sharedBridgeSessionId
-        : (this.inAppBrowserCapability?.bridgeSessionId ??
-          this.inAppBrowserBridgeSessionId);
-    return bridgeSessionId
-      ? this.switchBridgeSession(bridgeSessionId)
-      : current;
+    if (this.socket && current.bridgeSessionId !== validatedSessionId) {
+      this.invalidateSocket(
+        this.socket,
+        new BrowserTransportError(
+          "connection_closed",
+          "Browser capability switched daemon sessions.",
+          { retryable: true },
+        ),
+        true,
+      );
+    }
+    this.ownerRoute = Object.freeze({
+      capability: Object.freeze({ ...capability }),
+      config,
+    });
+    this.executionConfig = config;
+    return config;
   }
 
   private async execute<TData>(
@@ -1457,7 +1468,7 @@ export class BrowserSession implements BrowserSessionClient {
     const turn = this.ensureTurn();
     const backend = this.selectedBackend;
     this.activeTurnBackends.add(backend);
-    let config = this.switchToBackendSession(backend);
+    let config = this.ownerRoute?.config ?? this.resolveExecutionConfig();
     const requestId = randomUUID();
     const request = {
       id: requestId,
@@ -1481,7 +1492,6 @@ export class BrowserSession implements BrowserSessionClient {
         attempts += 1;
         try {
           if (
-            backend === "in-app" &&
             !BROWSER_OWNER_LIFECYCLE_ACTIONS.has(action)
           ) {
             config = await this.ensureInAppBrowserReady(
@@ -1500,11 +1510,24 @@ export class BrowserSession implements BrowserSessionClient {
             deadline,
             timeoutMs,
           )) as BrowserCommandResult<TData>;
+          if (
+            backend === "external" &&
+            !response.success &&
+            /extension (?:proxy unavailable|delegation expired|delegation .*revoked)/i.test(
+              response.error,
+            )
+          ) {
+            throw new BrowserTransportError(
+              "connection_closed",
+              response.error,
+              { retryable: true },
+            );
+          }
           break;
         } catch (cause) {
           this.assertOpen();
           throwIfAborted(signal);
-          this.markManagedCapabilityForRecovery(cause, backend);
+          this.markManagedCapabilityForRecovery(cause);
           const managedBridge =
             this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE ===
             "1";
@@ -1588,13 +1611,13 @@ export class BrowserSession implements BrowserSessionClient {
     signal: AbortSignal | undefined,
     deadline: number,
   ): Promise<ResolvedExecutionConfig> {
-    const capability = this.inAppBrowserCapability;
+    const capability = this.ownerRoute?.capability;
     if (
       capability?.turnId === turn.turnId &&
       capability.ownerLeaseId === turn.ownerLeaseId &&
       capability.capabilityExpiresAt > Date.now()
     ) {
-      return this.switchBridgeSession(capability.bridgeSessionId);
+      return this.ownerRoute!.config;
     }
     const remainingMs = this.remainingTime(deadline);
     if (remainingMs <= 0) {
@@ -1614,34 +1637,28 @@ export class BrowserSession implements BrowserSessionClient {
     });
     if (initialized === true) {
       this.recoverInAppBrowserCapability = false;
-      this.inAppBrowserCapability = {
+      return this.bindOwnerRoute({
         bridgeSessionId: config.bridgeSessionId,
         capabilityExpiresAt: Number.MAX_SAFE_INTEGER,
         turnId: turn.turnId,
         ownerLeaseId: turn.ownerLeaseId,
-      };
-      this.inAppBrowserBridgeSessionId = config.bridgeSessionId;
-      return config;
+      });
     }
     if (initialized && typeof initialized === "object") {
       this.recoverInAppBrowserCapability = false;
-      this.inAppBrowserCapability = {
+      return this.bindOwnerRoute({
         ...initialized,
         turnId: turn.turnId,
         ownerLeaseId: turn.ownerLeaseId,
-      };
-      this.inAppBrowserBridgeSessionId = initialized.bridgeSessionId;
-      return this.switchBridgeSession(initialized.bridgeSessionId);
+      });
     }
     return config;
   }
 
   private markManagedCapabilityForRecovery(
     cause: unknown,
-    backend: BrowserBackend,
   ): void {
     if (
-      backend !== "in-app" ||
       !(cause instanceof BrowserTransportError) ||
       (!cause.retryable && cause.code !== "timeout") ||
       this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE !== "1"
@@ -1652,7 +1669,7 @@ export class BrowserSession implements BrowserSessionClient {
     // alive but wedged in page evaluation. Dropping only the socket causes
     // every follow-up to reconnect to that same process. Poison the cached
     // capability so bootstrap replaces the backend on the next attempt/call.
-    this.inAppBrowserCapability = undefined;
+    this.ownerRoute = undefined;
     this.recoverInAppBrowserCapability = true;
   }
 
@@ -2035,7 +2052,7 @@ export class BrowserSession implements BrowserSessionClient {
   ): void {
     if (socket !== this.socket) return;
     this.socket = undefined;
-    if (!preserveCapability) this.inAppBrowserCapability = undefined;
+    if (!preserveCapability) this.ownerRoute = undefined;
     this.readBuffer = EMPTY_BUFFER;
     const pending = this.takePending();
     socket.removeAllListeners();

@@ -36,6 +36,16 @@ struct DaemonAccessPolicy {
     owner_lease_id: Option<String>,
     owner_lease_issued_at: Option<u64>,
     capability_expires_at_ms: Option<u64>,
+    extension_delegations: Arc<StdMutex<HashMap<String, ExtensionDelegation>>>,
+}
+
+#[derive(Clone)]
+struct ExtensionDelegation {
+    owner_id: String,
+    turn_id: String,
+    owner_lease_id: String,
+    owner_lease_issued_at: u64,
+    expires_at_ms: u64,
 }
 
 impl DaemonAccessPolicy {
@@ -92,6 +102,7 @@ impl DaemonAccessPolicy {
             owner_lease_id,
             owner_lease_issued_at,
             capability_expires_at_ms,
+            extension_delegations: Arc::new(StdMutex::new(HashMap::new())),
         })
     }
 
@@ -106,6 +117,12 @@ impl DaemonAccessPolicy {
         let request_id = command.get("id").and_then(Value::as_str).unwrap_or("");
         if command.get("controlToken").and_then(Value::as_str) == self.control_token.as_deref() {
             return Ok(());
+        }
+        if let Some(token) = command
+            .get("extensionDelegateToken")
+            .and_then(Value::as_str)
+        {
+            return self.authorize_extension_delegation(command, request_id, token);
         }
         let capability_matches = command.get("ownerId").and_then(Value::as_str)
             == self.owner_id.as_deref()
@@ -135,6 +152,152 @@ impl DaemonAccessPolicy {
             },
         }))
     }
+
+    fn authorize_extension_delegation(
+        &self,
+        command: &Value,
+        request_id: &str,
+        token: &str,
+    ) -> Result<(), Value> {
+        let now_ms = current_time_ms();
+        let delegation = self
+            .extension_delegations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(token)
+            .cloned();
+        let matches = delegation.as_ref().is_some_and(|delegation| {
+            command.get("browserBackend").and_then(Value::as_str) == Some("extension")
+                && command.get("ownerId").and_then(Value::as_str)
+                    == Some(delegation.owner_id.as_str())
+                && command.get("sessionId").and_then(Value::as_str)
+                    == Some(delegation.owner_id.as_str())
+                && command.get("turnId").and_then(Value::as_str)
+                    == Some(delegation.turn_id.as_str())
+                && command.get("ownerLeaseId").and_then(Value::as_str)
+                    == Some(delegation.owner_lease_id.as_str())
+                && command.get("ownerLeaseIssuedAt").and_then(Value::as_u64)
+                    == Some(delegation.owner_lease_issued_at)
+                && now_ms < delegation.expires_at_ms
+        });
+        if matches {
+            return Ok(());
+        }
+        if delegation.is_some_and(|delegation| now_ms >= delegation.expires_at_ms) {
+            self.extension_delegations
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(token);
+        }
+        Err(serde_json::json!({
+            "id": request_id,
+            "success": false,
+            "error": "Browser extension delegation expired, was revoked, or does not match this owner session; initialize the browser session again",
+        }))
+    }
+
+    fn handle_extension_delegation_command(&self, command: &Value) -> Option<Value> {
+        let action = command.get("action").and_then(Value::as_str)?;
+        if action != "extension_delegate_register" && action != "extension_delegate_revoke" {
+            return None;
+        }
+        let id = command.get("id").and_then(Value::as_str).unwrap_or("");
+        if command.get("controlToken").and_then(Value::as_str) != self.control_token.as_deref() {
+            return Some(serde_json::json!({
+                "id": id,
+                "success": false,
+                "error": "Only the desktop bridge owner may manage extension delegations",
+            }));
+        }
+        let token = match bounded_command_string(command, "extensionDelegateToken") {
+            Ok(value) => value,
+            Err(error) => {
+                return Some(serde_json::json!({
+                    "id": id,
+                    "success": false,
+                    "error": error,
+                }))
+            }
+        };
+        let mut delegations = self
+            .extension_delegations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if action == "extension_delegate_revoke" {
+            let revoked = delegations.remove(&token).is_some();
+            return Some(serde_json::json!({
+                "id": id,
+                "success": true,
+                "data": { "revoked": revoked },
+            }));
+        }
+        let owner_id = match bounded_command_string(command, "ownerId") {
+            Ok(value) => value,
+            Err(error) => return Some(delegation_error(id, &error)),
+        };
+        let session_id = match bounded_command_string(command, "sessionId") {
+            Ok(value) => value,
+            Err(error) => return Some(delegation_error(id, &error)),
+        };
+        let turn_id = match bounded_command_string(command, "turnId") {
+            Ok(value) => value,
+            Err(error) => return Some(delegation_error(id, &error)),
+        };
+        let owner_lease_id = match bounded_command_string(command, "ownerLeaseId") {
+            Ok(value) => value,
+            Err(error) => return Some(delegation_error(id, &error)),
+        };
+        let owner_lease_issued_at = command
+            .get("ownerLeaseIssuedAt")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0);
+        let expires_at_ms = command
+            .get("capabilityExpiresAt")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > current_time_ms());
+        if owner_id != session_id || owner_lease_issued_at.is_none() || expires_at_ms.is_none() {
+            return Some(delegation_error(
+                id,
+                "Extension delegation requires a matching owner/session and valid lease/expiry",
+            ));
+        }
+        delegations.insert(
+            token,
+            ExtensionDelegation {
+                owner_id,
+                turn_id,
+                owner_lease_id,
+                owner_lease_issued_at: owner_lease_issued_at.unwrap(),
+                expires_at_ms: expires_at_ms.unwrap(),
+            },
+        );
+        Some(serde_json::json!({
+            "id": id,
+            "success": true,
+            "data": { "registered": true },
+        }))
+    }
+}
+
+fn current_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn bounded_command_string(command: &Value, name: &str) -> Result<String, String> {
+    command
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= MAX_CAPABILITY_BYTES)
+        .map(String::from)
+        .ok_or_else(|| format!("{name} must be a bounded non-empty string"))
+}
+
+fn delegation_error(id: &str, error: &str) -> Value {
+    serde_json::json!({ "id": id, "success": false, "error": error })
 }
 
 fn non_empty_env(name: &str) -> Option<String> {
@@ -715,9 +878,27 @@ async fn handle_connection<S>(
                     }
                 }
                 let action = cmd.get("action").and_then(|v| v.as_str());
+                let is_extension_delegation = cmd
+                    .get("extensionDelegateToken")
+                    .and_then(Value::as_str)
+                    .is_some();
                 let is_close = authorization.is_ok()
+                    && !is_extension_delegation
                     && (action == Some("close")
-                        || (access_policy.is_protected() && action == Some("release_owner_lease")));
+                        || (access_policy.owner_id.is_some()
+                            && action == Some("release_owner_lease")));
+
+                if authorization.is_ok() {
+                    if let Some(response) = access_policy.handle_extension_delegation_command(&cmd)
+                    {
+                        let mut resp = serde_json::to_string(&response).unwrap_or_default();
+                        resp.push('\n');
+                        if writer.write_all(resp.as_bytes()).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                }
 
                 // Server-push subscription. This connection stops being
                 // request/response and becomes a long-lived stream of
@@ -733,8 +914,11 @@ async fn handle_connection<S>(
                             break;
                         }
                         Ok(()) => {
-                            let request_id =
-                                cmd.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                            let request_id = cmd
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
                             let receiver = {
                                 let guard = state.lock().await;
                                 guard

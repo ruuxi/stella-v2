@@ -183,6 +183,7 @@ type AgentBackendRecord = StellaBrowserAgentCapability &
   Readonly<{
     cdpUrl: string;
     controlToken: string;
+    extensionDelegateToken: string;
     process: ChildProcess;
   }>;
 
@@ -382,6 +383,7 @@ export class StellaBrowserBridgeService {
     );
     const normalizedUrl = cdpUrl.trim();
     if (!normalizedUrl) throw new Error("A CDP URL is required.");
+    await this.start();
     const backendGeneration = this.agentBackendGeneration;
 
     // The process map is intentionally ephemeral: a daemon may exit after a
@@ -568,6 +570,11 @@ export class StellaBrowserBridgeService {
         action: "launch",
         provider: "extension",
       });
+      await Promise.all(
+        Array.from(this.agentBackends.values(), (backend) =>
+          this.registerAgentExtensionDelegate(backend),
+        ),
+      );
     } catch (error) {
       await this.killDaemonProcess();
       throw error;
@@ -680,6 +687,7 @@ export class StellaBrowserBridgeService {
 
     const bridgeSessionId = `agent-${randomUUID().replaceAll("-", "")}`;
     const controlToken = randomUUID();
+    const extensionDelegateToken = randomUUID();
     const capabilityExpiresAt = Date.now() + AGENT_CAPABILITY_TTL_MS;
     const daemon = spawn(
       binPath,
@@ -689,6 +697,9 @@ export class StellaBrowserBridgeService {
         env: {
           ...process.env,
           STELLA_BROWSER_CONTROL_TOKEN: controlToken,
+          STELLA_BROWSER_EXTENSION_PROXY_SESSION:
+            STELLA_BROWSER_BRIDGE_SESSION,
+          STELLA_BROWSER_EXTENSION_DELEGATE_TOKEN: extensionDelegateToken,
           STELLA_BROWSER_REQUIRED_OWNER_ID: input.ownerId,
           STELLA_BROWSER_REQUIRED_TURN_ID: input.turnId,
           STELLA_BROWSER_REQUIRED_OWNER_LEASE_ID: input.ownerLeaseId,
@@ -707,6 +718,7 @@ export class StellaBrowserBridgeService {
       bridgeSessionId,
       capabilityExpiresAt,
       controlToken,
+      extensionDelegateToken,
       process: daemon,
     };
     daemon.stdout?.on("data", (chunk: Buffer | string) => {
@@ -721,12 +733,14 @@ export class StellaBrowserBridgeService {
       if (this.agentBackends.get(input.ownerId)?.process === daemon) {
         this.agentBackends.delete(input.ownerId);
       }
+      void this.revokeAgentExtensionDelegate(backend).catch(() => undefined);
     };
     daemon.once("exit", forgetBackend);
     daemon.once("error", forgetBackend);
 
     try {
       await this.waitForAgentDaemonReady(backend);
+      await this.registerAgentExtensionDelegate(backend);
       await this.sendCommandToSession(
         bridgeSessionId,
         {
@@ -773,10 +787,33 @@ export class StellaBrowserBridgeService {
     throw new Error("Agent browser daemon did not become ready in time.");
   }
 
+  private async registerAgentExtensionDelegate(backend: AgentBackendRecord) {
+    await this.sendCommand({
+      id: randomUUID(),
+      action: "extension_delegate_register",
+      extensionDelegateToken: backend.extensionDelegateToken,
+      ownerId: backend.ownerId,
+      sessionId: backend.ownerId,
+      turnId: backend.turnId,
+      ownerLeaseId: backend.ownerLeaseId,
+      ownerLeaseIssuedAt: backend.ownerLeaseIssuedAt,
+      capabilityExpiresAt: backend.capabilityExpiresAt,
+    });
+  }
+
+  private async revokeAgentExtensionDelegate(backend: AgentBackendRecord) {
+    await this.sendCommand({
+      id: randomUUID(),
+      action: "extension_delegate_revoke",
+      extensionDelegateToken: backend.extensionDelegateToken,
+    });
+  }
+
   private async stopAgentBackend(backend: AgentBackendRecord) {
     if (this.agentBackends.get(backend.ownerId)?.process === backend.process) {
       this.agentBackends.delete(backend.ownerId);
     }
+    await this.revokeAgentExtensionDelegate(backend).catch(() => undefined);
     await Promise.race([
       this.sendCommandToSession(
         backend.bridgeSessionId,

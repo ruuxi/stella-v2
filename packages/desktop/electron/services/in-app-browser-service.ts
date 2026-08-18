@@ -4,6 +4,7 @@ import {
   BrowserWindow,
   session,
   WebContentsView,
+  type Cookie,
   type Rectangle,
   type Session,
 } from "electron";
@@ -22,6 +23,11 @@ import {
   shouldAllowAuthDevice,
   shouldPreserveExistingCookie,
 } from "./in-app-browser-auth-policy.js";
+import {
+  cookieIdentityKey,
+  googleCookieFamilyKey,
+  isGoogleAuthNavigation,
+} from "./in-app-browser-cookie-family.js";
 import type {
   InAppBrowserDebuggerEvent,
   InAppBrowserDebuggerRecovery,
@@ -258,8 +264,14 @@ const clampBoundsToWindow = (
   };
 };
 
-const cookieUrl = (cookie: StellaBrowserExportedCookie) => {
-  const host = cookie.domain.trim().replace(/^\./, "");
+const cookieUrl = (cookie: {
+  domain?: string;
+  path?: string;
+  secure?: boolean;
+}) => {
+  const host = String(cookie.domain || "")
+    .trim()
+    .replace(/^\./, "");
   if (!host || host.includes("/") || host.includes("\0")) return null;
   return `${cookie.secure ? "https" : "http"}://${host}${
     cookie.path?.startsWith("/") ? cookie.path : "/"
@@ -316,13 +328,17 @@ export class InAppBrowserService {
    */
   private hasSeededOnce = false;
   /** Single-flight guard so overlapping reseeds never interleave cookie writes. */
-  private reseedInFlight = false;
+  private reseedInFlight: Promise<void> | null = null;
   /** Background, unref'd timer that drives the continuous cookie mirror. */
   private cookieMirrorTimer: ReturnType<typeof setTimeout> | null = null;
   /** Timestamp (ms) of the last completed reseed, for navigation throttling. */
   private lastReseedAt = 0;
   /** Disposer for the real-time cookie-event subscription (primary path). */
   private cookieEventUnsubscribe: (() => void) | null = null;
+  private readonly knownMirroredCookieFamilies = new Set<string>();
+  private readonly knownMirroredPartitionedCookieFamilies = new Set<string>();
+  private readonly googleNavigationReadyContents = new Set<number>();
+  private reseedRequested = false;
   private pendingPartitionedCookies: StellaBrowserExportedCookie[] = [];
   private connectionError: string | undefined;
 
@@ -567,8 +583,10 @@ export class InAppBrowserService {
     this.syncState();
     this.attachActiveView();
     try {
+      const url = normalizeWebUrl(options.url);
+      await this.prepareGoogleNavigation(view.webContents.id, url);
       await this.applyPendingPartitionedCookies(tab);
-      await view.webContents.loadURL(normalizeWebUrl(options.url));
+      await view.webContents.loadURL(url);
     } catch (error) {
       if (!view.webContents.isDestroyed()) {
         this.setError(errorMessage(error), ownerId);
@@ -612,7 +630,10 @@ export class InAppBrowserService {
     const ownerId = this.resolveOwnerId(options.ownerId);
     const tab = this.requireTab(options.tabId, ownerId);
     this.clearOwnerError(ownerId);
-    await tab.view.webContents.loadURL(normalizeWebUrl(options.url));
+    const url = normalizeWebUrl(options.url);
+    await this.prepareGoogleNavigation(tab.view.webContents.id, url);
+    await this.applyPendingPartitionedCookies(tab);
+    await tab.view.webContents.loadURL(url);
     this.syncState();
     return this.snapshot(ownerId);
   }
@@ -814,6 +835,8 @@ export class InAppBrowserService {
     this.visible = false;
     this.stopCookieMirror();
     this.stopCookieEventSubscription();
+    this.browserSession?.webRequest?.onBeforeRequest?.(null);
+    this.googleNavigationReadyContents.clear();
     this.detachAttachedView();
     for (const tab of [...this.tabs.values()]) {
       this.closeTabInternal(tab.id, tab.ownerId);
@@ -869,6 +892,26 @@ export class InAppBrowserService {
       this.browserSession.setDevicePermissionHandler((details) =>
         shouldAllowAuthDevice(details),
       );
+      this.browserSession.webRequest?.onBeforeRequest?.(
+        { urls: ["<all_urls>"], types: ["mainFrame"] },
+        (details, callback) => {
+          const webContentsId = details.webContentsId;
+          if (
+            !isGoogleAuthNavigation(details.url) ||
+            (webContentsId !== undefined &&
+              this.googleNavigationReadyContents.has(webContentsId))
+          ) {
+            callback({});
+            return;
+          }
+          void this.reconcileBeforeGoogleNavigation(details.url).finally(() => {
+            if (webContentsId !== undefined) {
+              this.googleNavigationReadyContents.add(webContentsId);
+            }
+            callback({});
+          });
+        },
+      );
       this.state.profileName =
         this.profileImport.profileName ??
         this.profileImport.profileId ??
@@ -903,31 +946,44 @@ export class InAppBrowserService {
   }
 
   private async seedCookies(cookies: StellaBrowserExportedCookie[]) {
-    if (!this.browserSession)
+    const browserSession = this.browserSession;
+    if (!browserSession)
       throw new Error("Browser session is unavailable.");
     let failed = 0;
     let partitioned = 0;
     let preserved = 0;
+    const googleFamilies = new Map<string, StellaBrowserExportedCookie[]>();
+    this.pendingPartitionedCookies = [];
+
     for (const cookie of cookies) {
       const url = cookieUrl(cookie);
       if (!url || !cookie.name) {
         failed += 1;
         continue;
       }
+      const familyKey = googleCookieFamilyKey(cookie);
       if (cookie.partitionKey?.topLevelSite) {
         partitioned += 1;
+        this.pendingPartitionedCookies.push(cookie);
+        if (familyKey) {
+          this.knownMirroredPartitionedCookieFamilies.add(familyKey);
+        }
         continue;
       }
-      // Conservative re-seed: never clobber a healthy managed session. If the
-      // managed store already holds a LIVE, trust-critical cookie (device trust /
-      // session binding: __Secure-*, __Host-*, Google SID/…) for this name+host,
-      // keep it instead of overwriting with the real browser's (possibly
-      // mid-rotation) copy. The first-ever seed sees an empty store, so initial
-      // login still seeds everything; only accumulated trust survives later
-      // launches. See shouldPreserveExistingCookie for the full rule.
+      if (familyKey) {
+        this.knownMirroredCookieFamilies.add(familyKey);
+        const family = googleFamilies.get(familyKey) ?? [];
+        family.push(cookie);
+        googleFamilies.set(familyKey, family);
+        continue;
+      }
+
+      // Non-Google trust state remains conservative and independent. Google
+      // rotating families are reconciled below as complete source snapshots so
+      // their 1P/3P and secure/host variants can never be mixed across epochs.
       if (isTrustCriticalCookieName(cookie.name)) {
         try {
-          const existingForName = await this.browserSession.cookies.get({
+          const existingForName = await browserSession.cookies.get({
             url,
             name: cookie.name,
           });
@@ -943,33 +999,88 @@ export class InAppBrowserService {
         }
       }
       try {
-        await this.browserSession.cookies.set({
-          url,
-          name: cookie.name,
-          value: cookie.value,
-          ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
-          path: cookie.path || "/",
-          secure: cookie.secure,
-          httpOnly: cookie.httpOnly,
-          sameSite: cookie.sameSite,
-          ...(!cookie.session && typeof cookie.expirationDate === "number"
-            ? { expirationDate: cookie.expirationDate }
-            : {}),
-        });
+        await this.setSessionCookie(cookie);
       } catch {
         failed += 1;
       }
     }
-    await this.browserSession.cookies.flushStore();
-    this.browserSession.flushStorageData();
-    this.pendingPartitionedCookies = cookies.filter((cookie) =>
-      Boolean(cookie.partitionKey?.topLevelSite),
-    );
+
+    const existingCookies = await browserSession.cookies.get({});
+    const sourceIdentityKeys = new Map<string, Set<string>>();
+    for (const [familyKey, family] of googleFamilies) {
+      sourceIdentityKeys.set(
+        familyKey,
+        new Set(family.map((cookie) => cookieIdentityKey(cookie))),
+      );
+    }
+    for (const existing of existingCookies) {
+      const familyKey = googleCookieFamilyKey(existing);
+      if (!familyKey || !this.knownMirroredCookieFamilies.has(familyKey)) {
+        continue;
+      }
+      const incoming = sourceIdentityKeys.get(familyKey);
+      if (incoming?.has(cookieIdentityKey(existing))) continue;
+      try {
+        await this.removeSessionCookie(existing);
+      } catch {
+        failed += 1;
+      }
+    }
+    for (const family of googleFamilies.values()) {
+      for (const cookie of family) {
+        try {
+          await this.setSessionCookie(cookie);
+        } catch {
+          failed += 1;
+        }
+      }
+    }
+
+    await browserSession.cookies.flushStore();
+    browserSession.flushStorageData();
+    const activeTab = this.tabs.values().next().value as ManagedTab | undefined;
+    if (activeTab) await this.applyPendingPartitionedCookies(activeTab);
     if (failed > 0 || partitioned > 0 || preserved > 0) {
       console.warn(
         `[in-app-browser] Cookie seed completed with ${failed} failed, ${partitioned} partitioned, and ${preserved} preserved (trust-critical) cookie(s).`,
       );
     }
+  }
+
+  private async setSessionCookie(cookie: StellaBrowserExportedCookie) {
+    const browserSession = this.browserSession;
+    const url = cookieUrl(cookie);
+    if (!browserSession || !url) return;
+    await browserSession.cookies.set({
+      url,
+      name: cookie.name,
+      value: cookie.value,
+      ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
+      path: cookie.path || "/",
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      sameSite: cookie.sameSite,
+      ...(!cookie.session && typeof cookie.expirationDate === "number"
+        ? { expirationDate: cookie.expirationDate }
+        : {}),
+    });
+  }
+
+  private async removeSessionCookie(cookie: Cookie) {
+    const browserSession = this.browserSession;
+    const url = cookieUrl(cookie);
+    if (!browserSession || !url) return;
+    await browserSession.cookies.set({
+      url,
+      name: cookie.name,
+      value: "",
+      ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
+      path: cookie.path || "/",
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      sameSite: cookie.sameSite,
+      expirationDate: 1,
+    });
   }
 
   /**
@@ -1018,41 +1129,70 @@ export class InAppBrowserService {
    */
   private async reseedFromExtension(): Promise<void> {
     if (this.disposed || !this.hasSeededOnce || !this.browserSession) return;
-    if (this.reseedInFlight) return;
-    this.reseedInFlight = true;
-    try {
-      const extensionConnected = await this.options
-        .getExtensionStatus()
-        .catch(() => false);
-      if (!extensionConnected || this.disposed) return;
-      let cookies: StellaBrowserExportedCookie[];
-      try {
-        cookies = await this.options.exportAllCookies();
-      } catch (error) {
-        const message = errorMessage(error);
-        if (
-          !/unknown (?:command|action): cookies_export_all/i.test(message) ||
-          !this.options.exportCookiesForUrls
-        ) {
-          throw error;
+    this.reseedRequested = true;
+    if (this.reseedInFlight) return await this.reseedInFlight;
+
+    const reseed = (async () => {
+      while (
+        this.reseedRequested &&
+        !this.disposed &&
+        this.hasSeededOnce &&
+        this.browserSession
+      ) {
+        this.reseedRequested = false;
+        try {
+          const extensionConnected = await this.options
+            .getExtensionStatus()
+            .catch(() => false);
+          if (!extensionConnected || this.disposed) continue;
+          let cookies: StellaBrowserExportedCookie[];
+          try {
+            cookies = await this.options.exportAllCookies();
+          } catch (error) {
+            const message = errorMessage(error);
+            if (
+              !/unknown (?:command|action): cookies_export_all/i.test(message) ||
+              !this.options.exportCookiesForUrls
+            ) {
+              throw error;
+            }
+            cookies = await this.options.exportCookiesForUrls(
+              readBrowserHistoryUrls(this.profilePath),
+            );
+          }
+          if (this.disposed || !this.browserSession) continue;
+          await this.seedCookies(cookies);
+          this.lastReseedAt = Date.now();
+        } catch (error) {
+          // A failed mirror pass must never kill the mirror loop; the next tick
+          // retries. Transient bridge/daemon errors are expected during extension
+          // wake or app shutdown.
+          console.warn(
+            `[in-app-browser] Cookie mirror refresh failed: ${errorMessage(error)}`,
+          );
         }
-        cookies = await this.options.exportCookiesForUrls(
-          readBrowserHistoryUrls(this.profilePath),
-        );
       }
-      if (this.disposed || !this.browserSession) return;
-      await this.seedCookies(cookies);
-      this.lastReseedAt = Date.now();
-    } catch (error) {
-      // A failed mirror pass must never kill the mirror loop; the next tick
-      // retries. Transient bridge/daemon errors are expected during extension
-      // wake or app shutdown.
-      console.warn(
-        `[in-app-browser] Cookie mirror refresh failed: ${errorMessage(error)}`,
-      );
-    } finally {
-      this.reseedInFlight = false;
-    }
+    })().finally(() => {
+      if (this.reseedInFlight === reseed) this.reseedInFlight = null;
+    });
+    this.reseedInFlight = reseed;
+    await reseed;
+  }
+
+  private async reconcileBeforeGoogleNavigation(url: string): Promise<void> {
+    if (!isGoogleAuthNavigation(url) || this.disposed) return;
+    if (this.connectPromise) await this.connectPromise.catch(() => undefined);
+    if (!this.hasSeededOnce) await this.connect().catch(() => undefined);
+    if (this.hasSeededOnce) await this.reseedFromExtension();
+  }
+
+  private async prepareGoogleNavigation(
+    webContentsId: number,
+    url: string,
+  ): Promise<void> {
+    if (!isGoogleAuthNavigation(url)) return;
+    await this.reconcileBeforeGoogleNavigation(url);
+    this.googleNavigationReadyContents.add(webContentsId);
   }
 
   /**
@@ -1116,6 +1256,25 @@ export class InAppBrowserService {
     }
     if (kind !== "cookies_changed") return;
     const changes = Array.isArray(event.changes) ? event.changes : [];
+    const familyChanges = changes.flatMap((change) => {
+      const cookie = change?.cookie;
+      const familyKey = cookie ? googleCookieFamilyKey(cookie) : null;
+      return familyKey && cookie ? [{ familyKey, cookie }] : [];
+    });
+    if (familyChanges.length > 0) {
+      for (const { familyKey, cookie } of familyChanges) {
+        if (cookie.partitionKey?.topLevelSite) {
+          this.knownMirroredPartitionedCookieFamilies.add(familyKey);
+        } else {
+          this.knownMirroredCookieFamilies.add(familyKey);
+        }
+      }
+      // A Google rotation commonly arrives as remove(old), set(new), plus
+      // sibling 1P/3P variants. Never apply those edges independently: pull one
+      // complete source snapshot and reconcile every affected family together.
+      await this.reseedFromExtension();
+      return;
+    }
     // Apply in order: an overwrite arrives as remove(old) then set(new), so
     // preserving order keeps the final value correct.
     for (const change of changes) {
@@ -1185,7 +1344,12 @@ export class InAppBrowserService {
   }
 
   private async applyPendingPartitionedCookies(tab: ManagedTab) {
-    if (this.pendingPartitionedCookies.length === 0) return;
+    if (
+      this.pendingPartitionedCookies.length === 0 &&
+      this.knownMirroredPartitionedCookieFamilies.size === 0
+    ) {
+      return;
+    }
     const sameSite = (value: StellaBrowserExportedCookie["sameSite"]) => {
       if (value === "no_restriction") return "None";
       if (value === "lax") return "Lax";
@@ -1213,11 +1377,42 @@ export class InAppBrowserService {
         },
       ];
     });
-    if (cookies.length === 0) return;
     try {
       const tabDebugger = tab.view.webContents.debugger;
       if (!tabDebugger.isAttached()) tabDebugger.attach();
-      await tabDebugger.sendCommand("Network.setCookies", { cookies });
+      const sourceIdentityKeys = new Map<string, Set<string>>();
+      for (const cookie of this.pendingPartitionedCookies) {
+        const familyKey = googleCookieFamilyKey(cookie);
+        if (!familyKey) continue;
+        const family = sourceIdentityKeys.get(familyKey) ?? new Set<string>();
+        family.add(cookieIdentityKey(cookie));
+        sourceIdentityKeys.set(familyKey, family);
+      }
+      const current = (await tabDebugger.sendCommand(
+        "Network.getAllCookies",
+      )) as { cookies?: StellaBrowserExportedCookie[] };
+      for (const existing of current.cookies ?? []) {
+        if (!existing.partitionKey?.topLevelSite) continue;
+        const familyKey = googleCookieFamilyKey(existing);
+        if (
+          !familyKey ||
+          !this.knownMirroredPartitionedCookieFamilies.has(familyKey) ||
+          sourceIdentityKeys
+            .get(familyKey)
+            ?.has(cookieIdentityKey(existing))
+        ) {
+          continue;
+        }
+        await tabDebugger.sendCommand("Network.deleteCookies", {
+          name: existing.name,
+          domain: existing.domain,
+          path: existing.path || "/",
+          partitionKey: existing.partitionKey,
+        });
+      }
+      if (cookies.length > 0) {
+        await tabDebugger.sendCommand("Network.setCookies", { cookies });
+      }
       this.pendingPartitionedCookies = [];
     } catch (error) {
       console.warn(
@@ -1269,6 +1464,7 @@ export class InAppBrowserService {
       this.setError(`Browser page stopped: ${details.reason}.`, tab.ownerId);
     });
     contents.on("destroyed", () => {
+      this.googleNavigationReadyContents.delete(contents.id);
       if (this.tabs.get(tab.id) !== tab) return;
       this.tabs.delete(tab.id);
       this.drawableLeases.delete(tab.id);

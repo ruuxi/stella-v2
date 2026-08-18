@@ -7,6 +7,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::time::Duration;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 
@@ -38,6 +39,7 @@ use super::webdriver::appium::AppiumManager;
 use super::webdriver::backend::{BrowserBackend, WebDriverBackend, WEBDRIVER_UNSUPPORTED_ACTIONS};
 use super::webdriver::ios;
 use super::webdriver::safari;
+use crate::connection;
 
 pub struct PendingConfirmation {
     pub action: String,
@@ -833,9 +835,16 @@ pub enum BackendType {
     Extension,
 }
 
+#[derive(Clone)]
+struct ExtensionProxy {
+    session: String,
+    delegate_token: String,
+}
+
 pub struct DaemonState {
     pub browser: Option<BrowserManager>,
     pub extension_bridge: Option<ExtensionBridge>,
+    extension_proxy: Option<ExtensionProxy>,
     pub appium: Option<AppiumManager>,
     pub safari_driver: Option<safari::SafariDriverProcess>,
     pub webdriver_backend: Option<super::webdriver::backend::WebDriverBackend>,
@@ -887,6 +896,20 @@ impl DaemonState {
         Self {
             browser: None,
             extension_bridge: None,
+            extension_proxy: match (
+                env::var("STELLA_BROWSER_EXTENSION_PROXY_SESSION").ok(),
+                env::var("STELLA_BROWSER_EXTENSION_DELEGATE_TOKEN").ok(),
+            ) {
+                (Some(session), Some(delegate_token))
+                    if !session.trim().is_empty() && !delegate_token.trim().is_empty() =>
+                {
+                    Some(ExtensionProxy {
+                        session: session.trim().to_string(),
+                        delegate_token: delegate_token.trim().to_string(),
+                    })
+                }
+                _ => None,
+            },
             appium: None,
             safari_driver: None,
             webdriver_backend: None,
@@ -1452,13 +1475,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         if let Err(error) = state.owner_leases.release(cmd) {
             return error_response(&id, &error);
         }
-        if let Some(ref bridge) = state.extension_bridge {
-            return forward_extension_command(cmd, bridge).await;
-        }
-        return error_response(
-            &id,
-            "Extension not connected. Install or connect the Stella Browser Bridge extension before using the external browser.",
-        );
+        return forward_targeted_extension_command(cmd, state).await;
     }
 
     if action == "release_owner_lease" {
@@ -1649,13 +1666,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
         if let Err(error) = validate_extension_domain_gates(cmd, state) {
             return error_response(&id, &error);
         }
-        if let Some(ref bridge) = state.extension_bridge {
-            return forward_extension_command(cmd, bridge).await;
-        }
-        return error_response(
-            &id,
-            "Extension not connected. Install or connect the Stella Browser Bridge extension before using the external browser.",
-        );
+        return forward_targeted_extension_command(cmd, state).await;
     }
 
     let skip_launch = matches!(
@@ -2786,6 +2797,57 @@ async fn export_extension_cookies_for_urls(cmd: &Value, bridge: &ExtensionBridge
     )
 }
 
+async fn forward_targeted_extension_command(cmd: &Value, state: &DaemonState) -> Value {
+    let id = cmd
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if let Some(ref bridge) = state.extension_bridge {
+        return forward_extension_command(cmd, bridge).await;
+    }
+    let Some(proxy) = state.extension_proxy.clone() else {
+        return error_response(
+            &id,
+            "Extension not connected. Install or connect the Stella Browser Bridge extension before using the external browser.",
+        );
+    };
+    let mut proxied = cmd.clone();
+    if let Some(object) = proxied.as_object_mut() {
+        object.insert(
+            "extensionDelegateToken".to_string(),
+            Value::String(proxy.delegate_token),
+        );
+    }
+    let timeout = if cmd.get("action").and_then(Value::as_str) == Some("chain") {
+        Duration::from_secs(5 * 60)
+    } else {
+        Duration::from_secs(65)
+    };
+    match tokio::task::spawn_blocking(move || {
+        connection::send_command_with_timeout(proxied, &proxy.session, timeout)
+    })
+    .await
+    {
+        Ok(Ok(response)) if response.success => {
+            let mut result = json!({ "id": id, "success": true });
+            if let Some(data) = response.data {
+                result["data"] = data;
+            }
+            result
+        }
+        Ok(Ok(response)) => error_response(
+            &id,
+            response
+                .error
+                .as_deref()
+                .unwrap_or("Extension proxy command failed without an error message"),
+        ),
+        Ok(Err(error)) => error_response(&id, &format!("Extension proxy unavailable: {error}")),
+        Err(error) => error_response(&id, &format!("Extension proxy task failed: {error}")),
+    }
+}
+
 pub(crate) async fn forward_extension_command(cmd: &Value, bridge: &ExtensionBridge) -> Value {
     let id = cmd
         .get("id")
@@ -2793,7 +2855,19 @@ pub(crate) async fn forward_extension_command(cmd: &Value, bridge: &ExtensionBri
         .unwrap_or("")
         .to_string();
 
-    match bridge.execute_command(cmd).await {
+    let mut forwarded = cmd.clone();
+    if let Some(object) = forwarded.as_object_mut() {
+        for private_field in [
+            "controlToken",
+            "extensionDelegateToken",
+            "browserBackend",
+            "sessionId",
+            "turnId",
+        ] {
+            object.remove(private_field);
+        }
+    }
+    match bridge.execute_command(&forwarded).await {
         Ok(response) => normalize_extension_response(&id, &response),
         Err(e) => error_response(&id, &e),
     }

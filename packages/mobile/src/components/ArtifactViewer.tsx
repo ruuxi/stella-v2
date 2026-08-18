@@ -429,10 +429,13 @@ export function ArtifactViewerContent({
             uri: materialize(result.bytes, result.mimeType, filePath),
           };
         }
-        const uri = bytesToDataUri(result.bytes, result.mimeType);
         if (payload.asset.kind === "image") {
-          return { kind: "image" as const, uri };
+          return {
+            kind: "image" as const,
+            uri: materialize(result.bytes, result.mimeType, filePath),
+          };
         }
+        const uri = bytesToDataUri(result.bytes, result.mimeType);
         if (payload.asset.kind === "video") {
           return {
             kind: "web-media" as const,

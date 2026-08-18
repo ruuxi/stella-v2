@@ -122,7 +122,14 @@ const BASE_PLAN_FEATURES: readonly PlanFeature[] = [
   { key: "billing.features.codingAgent", plans: ALL_PLANS },
   { key: "billing.features.research", plans: ALL_PLANS },
   { key: "billing.features.dictationReadAloud", plans: ALL_PLANS },
-  { key: "billing.features.multipleAgents", plans: ALL_PLANS },
+];
+
+/**
+ * Available across plans, but intentionally marketed only with Pro.
+ * This is presentation, not an entitlement gate.
+ */
+const MARKETED_PLAN_FEATURES: readonly PlanFeature[] = [
+  { key: "billing.features.multipleAgents", plans: ["pro"] },
 ];
 
 /**
@@ -146,6 +153,7 @@ const CAPABILITY_PLAN_FEATURES: readonly PlanFeature[] = CAPABILITIES.map(
  */
 const PLAN_FEATURE_MATRIX: readonly PlanFeature[] = [
   ...BASE_PLAN_FEATURES,
+  ...MARKETED_PLAN_FEATURES,
   ...CAPABILITY_PLAN_FEATURES,
 ]
   .map((feature, index) => ({ feature, index }))

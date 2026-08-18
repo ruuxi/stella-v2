@@ -184,13 +184,14 @@ describe("billing panel", () => {
       "Coding agent",
       "Research and knowledge work",
       "Dictation and read-aloud",
-      "Multiple agents",
     ]);
     expect(go).toEqual(free);
-    // Pro's extra rows are the enforced capabilities themselves, derived
-    // from CAPABILITY_MATRIX rather than written out here.
+    // Multiple agents works across plans but is intentionally marketed only
+    // on Pro. The media rows are enforced capabilities derived from the
+    // capability matrix.
     expect(pro).toEqual([
       ...go,
+      "Multiple agents",
       "Image generation",
       "Video generation",
       "Voice and music generation",

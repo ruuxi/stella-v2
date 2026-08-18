@@ -1,11 +1,12 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
-// Short-lived tickets that let mobile's native audio player GET a read-aloud
-// stream whose (long) text was submitted by an earlier POST. Kept deliberately
-// small: owner-bound, single-use, ~2 minute TTL, swept by a cron.
-const TICKET_TTL_MS = 2 * 60 * 1000;
-const MAX_TEXT_CHARS = 8000;
+// Read-aloud stream tickets. Mobile POSTs its (long) reply text once (see
+// `tts_hls.startHlsSession`) and gets back a short-lived, owner-bound ticket so
+// its native player can fetch the audio without the text ever hitting a URL.
+// The HLS transport streams MP3 segments; the buffered range transport
+// (`readTicket` + `cacheTicketAudio`) serves a whole `Range`-capable MP3 from
+// the same ticket. Both are swept by the cron below.
 const MAX_PURGE_BATCH_LIMIT = 5000;
 
 const clampInt = (value, defaultValue, min, max) => {
@@ -15,36 +16,6 @@ const clampInt = (value, defaultValue, min, max) => {
       : defaultValue;
   return Math.max(min, Math.min(max, n));
 };
-
-export const storeTicket = internalMutation({
-  args: {
-    ticket: v.string(),
-    ownerId: v.string(),
-    text: v.string(),
-    voice: v.string(),
-    model: v.string(),
-    speed: v.optional(v.number()),
-    conversationId: v.optional(v.id("conversations")),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    await ctx.db.insert("tts_stream_tickets", {
-      ticket: args.ticket,
-      ownerId: args.ownerId,
-      text: args.text.slice(0, MAX_TEXT_CHARS),
-      voice: args.voice,
-      model: args.model,
-      ...(typeof args.speed === "number" && Number.isFinite(args.speed)
-        ? { speed: args.speed }
-        : {}),
-      ...(args.conversationId ? { conversationId: args.conversationId } : {}),
-      createdAt: now,
-      expiresAt: now + TICKET_TTL_MS,
-    });
-    return null;
-  },
-});
 
 // Reusable within its short TTL (owner-bound), NOT single-use: native players
 // issue several (ranged) requests per playback, so all must resolve. Replay is
@@ -121,6 +92,20 @@ export const purgeExpired = internalMutation({
         deleted += 1;
       }
       if (expired.length < limit) break;
+    }
+
+    // Sweep expired HLS segments (a side table keyed by the same TTL).
+    for (let i = 0; i < maxBatches; i += 1) {
+      const expiredSegments = await ctx.db
+        .query("tts_hls_segments")
+        .withIndex("by_expiresAt", (q) => q.lte("expiresAt", nowMs))
+        .take(limit);
+      if (expiredSegments.length === 0) break;
+      for (const row of expiredSegments) {
+        await ctx.db.delete(row._id);
+        deleted += 1;
+      }
+      if (expiredSegments.length < limit) break;
     }
     return deleted;
   },

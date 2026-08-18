@@ -97,7 +97,18 @@ export const isMobileDisplayPayload = (
           value.artifactKind === "delimited-table")
       );
     case "media":
-      return isMediaAsset(value.asset);
+      return (
+        isMediaAsset(value.asset) &&
+        (value.textOffset === undefined || isFiniteNumber(value.textOffset)) &&
+        (value.numImages === undefined || isFiniteNumber(value.numImages)) &&
+        (value.toolCallId === undefined ||
+          typeof value.toolCallId === "string") &&
+        (value.generationState === undefined ||
+          value.generationState === "running" ||
+          value.generationState === "completed" ||
+          value.generationState === "failed" ||
+          value.generationState === "canceled")
+      );
     case "agent-work":
       return (
         (value.state === "running" || value.state === "done") &&
@@ -107,6 +118,9 @@ export const isMobileDisplayPayload = (
         isFiniteNumber(value.completed) &&
         isFiniteNumber(value.createdAt) &&
         (value.textOffset === undefined || isFiniteNumber(value.textOffset)) &&
+        (value.textOffsetsByAgentId === undefined ||
+          (isRecord(value.textOffsetsByAgentId) &&
+            Object.values(value.textOffsetsByAgentId).every(isFiniteNumber))) &&
         (value.agentIds === undefined ||
           (Array.isArray(value.agentIds) &&
             value.agentIds.every((id) => isString(id) && id.length > 0))) &&

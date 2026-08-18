@@ -114,6 +114,13 @@ export type MobileDisplayPayload =
       createdAt: number;
       prompt?: string;
       capability?: string;
+      presentation?: "inline-image";
+      aspectRatio?: string;
+      numImages?: number;
+      toolCallId?: string;
+      generationState?: "running" | "completed" | "failed" | "canceled";
+      /** Live insertion point for a pending direct-tool card. */
+      textOffset?: number;
     }
   | {
       /**
@@ -140,6 +147,12 @@ export type MobileDisplayPayload =
        * which are already segmented into separate pre/post messages.
        */
       textOffset?: number;
+      /**
+       * LIVE-ONLY insertion anchors for grouped bridge projections. Each
+       * agent keeps the offset captured by its own `agent-started` event so
+       * expanding an aggregate never collapses several cards onto one anchor.
+       */
+      textOffsetsByAgentId?: Record<string, number>;
       /**
        * Per-agent produced-file sections computed desktop-side (each covered
        * agent's completion-rollup files, noise-filtered, deliverables first).

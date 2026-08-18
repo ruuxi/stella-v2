@@ -1,8 +1,4 @@
-import type {
-  ChatArtifact,
-  MobileDisplayPayload,
-  MobileTask,
-} from "../types";
+import type { ChatArtifact, MobileDisplayPayload, MobileTask } from "../types";
 import {
   agentWorkArtifactId,
   artifactId,
@@ -217,7 +213,10 @@ export const settledAgentWorkCards = (
 ): AgentWorkCardRender[] => {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const sectionById = new Map(
-    (artifact.payload.agents ?? []).map((section) => [section.agentId, section]),
+    (artifact.payload.agents ?? []).map((section) => [
+      section.agentId,
+      section,
+    ]),
   );
   const agentIds = [
     ...new Set([
@@ -264,6 +263,16 @@ export const settledAgentWorkCards = (
         task && task.createdAt > 0
           ? task.createdAt
           : artifact.payload.createdAt,
+      ...(artifact.payload.textOffsetsByAgentId?.[agentId] !== undefined
+        ? {
+            textOffset: artifact.payload.textOffsetsByAgentId[agentId],
+            textOffsetsByAgentId: {
+              [agentId]: artifact.payload.textOffsetsByAgentId[agentId],
+            },
+          }
+        : index > 0
+          ? { textOffset: undefined, textOffsetsByAgentId: undefined }
+          : {}),
       ...(artifact.payload.agents !== undefined
         ? { agents: rawSection ? [rawSection] : [] }
         : {}),

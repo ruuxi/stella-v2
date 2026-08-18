@@ -9,7 +9,6 @@ import {
 import { useChatThread } from "../../src/lib/use-chat-thread";
 import { MAX_OFFLINE_CHAT_IMAGES } from "../../src/lib/offline-chat-request";
 import { useIsOffline } from "../../src/lib/use-network-status";
-import { useTopBarStatus } from "../../src/lib/top-bar-status";
 import { useColors } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
 import { ChatPane } from "../../src/components/ChatPane";
@@ -28,7 +27,6 @@ export default function ChatScreen() {
   const t = useT();
   const guest = isGuest();
   const offline = useIsOffline();
-  const { setConnection: setTopBarConnection } = useTopBarStatus();
   const [mobileDeviceId, setMobileDeviceId] = useState<string | null>(null);
   // A tapped file artifact (e.g. a PDF the `pdf` tool generated on-device),
   // previewed + saved/shared from the standalone artifact viewer. The cloud
@@ -40,13 +38,6 @@ export default function ChatScreen() {
   const transport = useMemo(() => ({ kind: "cloud" as const, guest }), [guest]);
   const thread = useChatThread({ threadId: "cloud", transport });
   const { setDraft, setAttachments } = thread;
-
-  // Cloud chat needs no desktop-connection affordance — keep the top-bar badge
-  // clear while this tab is mounted.
-  useEffect(() => {
-    setTopBarConnection(null);
-    return () => setTopBarConnection(null);
-  }, [setTopBarConnection]);
 
   useEffect(() => {
     if (!guest) return;

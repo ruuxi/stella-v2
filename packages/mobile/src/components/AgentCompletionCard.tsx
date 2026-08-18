@@ -38,11 +38,7 @@ export function AgentCompletionCard({
       (section.summary?.length ?? 0) > 0,
   );
   if (visible.length === 0) return null;
-  const showSectionTitles = visible.length > 1;
-  const headerTitle =
-    visible.length > 1
-      ? `${visible.length} tasks finished`
-      : (visible[0]?.title ?? "Finished");
+  const headerTitle = visible[0]?.title ?? "Finished";
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
@@ -68,15 +64,6 @@ export function AgentCompletionCard({
         const hiddenPillCount = section.files.length - visiblePills.length;
         return (
           <View key={section.key} style={styles.section}>
-            {showSectionTitles && section.title ? (
-              <Text
-                style={styles.sectionTitle}
-                numberOfLines={1}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                {section.title}
-              </Text>
-            ) : null}
             {section.summary && !showPills ? (
               <Text
                 style={styles.summary}
@@ -182,13 +169,6 @@ const makeStyles = (colors: Colors) =>
     },
     section: {
       marginTop: 2,
-    },
-    sectionTitle: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 11.5,
-      letterSpacing: 0.1,
-      marginTop: 8,
     },
     summary: {
       color: colors.textMuted,

@@ -13,8 +13,12 @@ import { getConvexToken } from "./auth-token";
 const READ_ALOUD_KEY = "stella-mobile.read-aloud-enabled";
 const TTS_PATH = "/api/voice/tts";
 const TTS_STREAM_PREPARE_PATH = "/api/voice/tts/stream/prepare";
-// The `.mp3` suffix is a hint for the native player; the ticket authorizes it.
-const TTS_STREAM_AUDIO_PATH = "/api/voice/tts/stream/audio/reply.mp3";
+const TTS_STREAM_CANCEL_PATH = "/api/voice/tts/stream/cancel";
+// The mobile player streams a live HLS playlist so audio starts while Inworld
+// is still generating. The ticket authorizes the session; the playlist and its
+// segments live under this prefix.
+const ttsStreamHlsPlaylistPath = (ticket: string) =>
+  `/api/voice/tts/stream/hls/${encodeURIComponent(ticket)}/playlist.m3u8`;
 const INWORLD_READ_ALOUD_VOICE = "Wendy";
 const INWORLD_READ_ALOUD_MODEL = "inworld-tts-2-flash";
 // Safety net: if progressive playback has not begun within this window we
@@ -25,6 +29,10 @@ let cachedReadAloudEnabled = false;
 const listeners = new Set<() => void>();
 let currentPlayer: AudioPlayer | null = null;
 let currentFile: File | null = null;
+// The active HLS session ticket, so `stop` can tell the backend to end the
+// single background synthesis early (metered as interrupted) instead of letting
+// it run to completion after the user has already stopped listening.
+let currentStreamTicket: string | null = null;
 let playbackGeneration = 0;
 
 const emit = () => {
@@ -38,7 +46,10 @@ const emit = () => {
 // keeps the clip and player alive so playback can resume in place instead of
 // regenerating the audio from scratch.
 export type ReadAloudStatus = "loading" | "playing" | "paused";
-export type ReadAloudState = { messageId: string | null; status: ReadAloudStatus };
+export type ReadAloudState = {
+  messageId: string | null;
+  status: ReadAloudStatus;
+};
 
 let playbackState: ReadAloudState | null = null;
 const speakingListeners = new Set<() => void>();
@@ -137,9 +148,18 @@ const readErrorMessage = async (response: Response) => {
 // the content-type. Inworld's one-shot endpoint labels MP3 output as
 // `audio/wav`, so trusting the header alone would write a `.wav` file the
 // native player cannot demux.
-const detectAudioExt = (audio: ArrayBuffer, contentType: string): "mp3" | "wav" => {
+const detectAudioExt = (
+  audio: ArrayBuffer,
+  contentType: string,
+): "mp3" | "wav" => {
   const b = new Uint8Array(audio);
-  if (b.length >= 4 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) {
+  if (
+    b.length >= 4 &&
+    b[0] === 0x52 &&
+    b[1] === 0x49 &&
+    b[2] === 0x46 &&
+    b[3] === 0x46
+  ) {
     return "wav"; // "RIFF"
   }
   if (b.length >= 3 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) {
@@ -148,7 +168,9 @@ const detectAudioExt = (audio: ArrayBuffer, contentType: string): "mp3" | "wav" 
   if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0) {
     return "mp3"; // MPEG frame sync
   }
-  return contentType.includes("mpeg") || contentType.includes("mp3") ? "mp3" : "wav";
+  return contentType.includes("mpeg") || contentType.includes("mp3")
+    ? "mp3"
+    : "wav";
 };
 
 const createAudioFile = (audio: ArrayBuffer, contentType: string) => {
@@ -186,7 +208,8 @@ async function fetchInworldReadAloudAudio(text: string) {
   return {
     audio: await response.arrayBuffer(),
     contentType:
-      response.headers.get("content-type")?.split(";")[0]?.trim() ?? "audio/wav",
+      response.headers.get("content-type")?.split(";")[0]?.trim() ??
+      "audio/wav",
   };
 }
 
@@ -196,19 +219,22 @@ async function fetchInworldReadAloudAudio(text: string) {
 async function prepareInworldReadAloudStream(text: string): Promise<string> {
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   const token = await getConvexToken();
-  const response = await fetch(`${env.convexSiteUrl}${TTS_STREAM_PREPARE_PATH}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  const response = await fetch(
+    `${env.convexSiteUrl}${TTS_STREAM_PREPARE_PATH}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        voiceProvider: "inworld",
+        voice: INWORLD_READ_ALOUD_VOICE,
+        model: INWORLD_READ_ALOUD_MODEL,
+      }),
     },
-    body: JSON.stringify({
-      text,
-      voiceProvider: "inworld",
-      voice: INWORLD_READ_ALOUD_VOICE,
-      model: INWORLD_READ_ALOUD_MODEL,
-    }),
-  });
+  );
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
   }
@@ -219,10 +245,36 @@ async function prepareInworldReadAloudStream(text: string): Promise<string> {
   return data.ticket;
 }
 
+// Best-effort stop beacon: tell the backend to end the background synthesis for
+// a ticket so provider spend stops when the user stops listening. Fire and
+// forget — a failure just means the synthesis runs to its (bounded) completion.
+function cancelStreamSession(ticket: string) {
+  if (!env.convexSiteUrl) return;
+  void (async () => {
+    try {
+      const token = await getConvexToken();
+      await fetch(`${env.convexSiteUrl}${TTS_STREAM_CANCEL_PATH}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ticket }),
+      });
+    } catch {
+      /* ignore */
+    }
+  })();
+}
+
 // Release a streaming player without disturbing the global generation counter
-// (used when a stream fails and we fall back to buffered playback).
+// (used when a stream fails and we fall back to buffered playback). Also ends
+// the background synthesis so it does not keep spending alongside the fallback.
 function releaseStreamPlayer(player: AudioPlayer) {
   if (currentPlayer === player) currentPlayer = null;
+  const ticket = currentStreamTicket;
+  currentStreamTicket = null;
+  if (ticket) cancelStreamSession(ticket);
   try {
     player.pause();
     player.remove();
@@ -235,6 +287,9 @@ function releaseStreamPlayer(player: AudioPlayer) {
 export function stopReadAloud() {
   playbackGeneration += 1;
   setPlaybackState(null);
+  const ticket = currentStreamTicket;
+  currentStreamTicket = null;
+  if (ticket) cancelStreamSession(ticket);
   const player = currentPlayer;
   currentPlayer = null;
   if (player) {
@@ -345,16 +400,24 @@ async function tryStreamReply(
   generation: number,
 ): Promise<boolean> {
   const ticket = await prepareInworldReadAloudStream(text);
-  if (generation !== playbackGeneration) return true;
+  if (generation !== playbackGeneration) {
+    // Superseded before playback began — end the background synthesis so it
+    // does not run to completion unheard.
+    cancelStreamSession(ticket);
+    return true;
+  }
 
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   const token = await getConvexToken();
-  const uri = `${env.convexSiteUrl}${TTS_STREAM_AUDIO_PATH}?ticket=${encodeURIComponent(
-    ticket,
-  )}`;
+  // A live HLS playlist that grows as Inworld generates, so playback begins on
+  // the first segment instead of waiting for the whole clip.
+  const uri = `${env.convexSiteUrl}${ttsStreamHlsPlaylistPath(ticket)}`;
 
   await setAudioModeAsync({ playsInSilentMode: true });
-  if (generation !== playbackGeneration) return true;
+  if (generation !== playbackGeneration) {
+    cancelStreamSession(ticket);
+    return true;
+  }
 
   const player = createAudioPlayer({
     uri,
@@ -362,6 +425,7 @@ async function tryStreamReply(
   });
   currentFile = null;
   currentPlayer = player;
+  currentStreamTicket = ticket;
 
   return await new Promise<boolean>((resolve) => {
     let decided = false;

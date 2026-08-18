@@ -337,7 +337,9 @@ const resolveTtsRequest = async (
   }
   // Bound the input so a runaway prompt can't blow the provider budget.
   const truncated =
-    text.length > TTS_MAX_INPUT_CHARS ? text.slice(0, TTS_MAX_INPUT_CHARS) : text;
+    text.length > TTS_MAX_INPUT_CHARS
+      ? text.slice(0, TTS_MAX_INPUT_CHARS)
+      : text;
   const voice =
     typeof raw.voice === "string" && raw.voice.trim().length > 0
       ? raw.voice.trim()
@@ -456,7 +458,11 @@ const synthesizeInworldTtsBuffered = async (
 ): Promise<BufferedTtsResult> => {
   const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
   if (!inworldApiKey) {
-    return { ok: false, status: 503, message: "Stella Inworld voice is not configured yet." };
+    return {
+      ok: false,
+      status: 503,
+      message: "Stella Inworld voice is not configured yet.",
+    };
   }
   const requestChars = params.text.length;
   const startedAt = Date.now();
@@ -559,6 +565,34 @@ const synthesizeInworldTtsBuffered = async (
 };
 
 const AUDIO_RANGE_RE = /^bytes=(\d*)-(\d*)$/;
+
+// Build a live HLS media playlist for a mobile read-aloud session. Uses an
+// EVENT playlist (segments are only ever appended) so the player keeps
+// re-fetching and playing new segments as the background synthesis produces
+// them; `#EXT-X-ENDLIST` is added once synthesis is done. Segment URIs are
+// relative, so the player resolves them against this playlist's own path and
+// carries the same `Authorization` header to each segment request.
+const HLS_TARGET_DURATION = 3;
+const buildHlsPlaylist = (
+  segments: ReadonlyArray<{ seq: number; durationSec: number }>,
+  done: boolean,
+): string => {
+  const lines = [
+    "#EXTM3U",
+    "#EXT-X-VERSION:3",
+    "#EXT-X-PLAYLIST-TYPE:EVENT",
+    `#EXT-X-TARGETDURATION:${HLS_TARGET_DURATION}`,
+    "#EXT-X-MEDIA-SEQUENCE:0",
+  ];
+  const ordered = [...segments].sort((a, b) => a.seq - b.seq);
+  for (const seg of ordered) {
+    const dur = Number.isFinite(seg.durationSec) ? seg.durationSec : 0;
+    lines.push(`#EXTINF:${dur.toFixed(3)},`);
+    lines.push(`${seg.seq}.mp3`);
+  }
+  if (done) lines.push("#EXT-X-ENDLIST");
+  return `${lines.join("\n")}\n`;
+};
 
 // Serve a complete MP3 buffer with byte-range support so native players can
 // probe and seek. Answers `Range` with 206 + `Content-Range`; otherwise 200 +
@@ -852,6 +886,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     "/api/voice/tts",
     "/api/voice/tts/stream",
     "/api/voice/tts/stream/prepare",
+    "/api/voice/tts/stream/cancel",
   ]);
 
   http.route({
@@ -1496,12 +1531,14 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud streaming TTS: prepare a mobile stream ticket ──────
-  // Mobile's native audio player can only progressively stream from a GET
-  // URL, but the assistant text is too long for a query string. The client
-  // POSTs the text here, gets back a short-lived opaque ticket, and the
-  // player GETs `/api/voice/tts/stream.mp3?ticket=…`. The text therefore
-  // never appears in a URL, log, or client-visible store.
+  // ── Read-aloud streaming TTS: prepare a mobile HLS session ────────
+  // Mobile's native player can only progressively stream from a GET URL, but
+  // the assistant text is too long for a query string. The client POSTs the
+  // text here and gets back a short-lived opaque ticket; it then plays the live
+  // HLS playlist at `/api/voice/tts/stream/hls/<ticket>/playlist.m3u8`. This
+  // schedules ONE background synthesis that streams Inworld and appends MP3
+  // segments as they are produced, so audio begins while Inworld is still
+  // generating. The text never appears in a URL, log, or client-visible store.
   http.route({
     path: "/api/voice/tts/stream/prepare",
     method: "POST",
@@ -1538,7 +1575,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             ? globalThis.crypto.randomUUID().replace(/-/g, "")
             : Math.random().toString(36).slice(2)
         }`;
-        await ctx.runMutation(internal.tts_stream.storeTicket, {
+        await ctx.runMutation(internal.tts_hls.startHlsSession, {
           ticket,
           ownerId: auth.ownerId,
           text: parsed.params.text,
@@ -1588,7 +1625,11 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           nowMs: Date.now(),
         });
         if (!consumed) {
-          return errorResponse(404, "Stream ticket is invalid or expired", origin);
+          return errorResponse(
+            404,
+            "Stream ticket is invalid or expired",
+            origin,
+          );
         }
 
         const rangeHeader = request.headers.get("range");
@@ -1636,6 +1677,123 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             .catch(() => undefined);
         }
         return serveAudioWithRange(result.bytes, rangeHeader, origin);
+      }),
+    ),
+  });
+
+  // ── Read-aloud streaming TTS: mobile HLS transport (playlist + segments) ──
+  // The mobile player streams a live HLS playlist so audio begins while Inworld
+  // is still generating. One prefix serves both the growing `playlist.m3u8`
+  // (built from the ticket's manifest — no audio loaded) and each `<seq>.mp3`
+  // packed-audio segment. Auth is enforced per request (Bearer header, which
+  // native players attach to every playlist + segment fetch); segments are
+  // owner-bound to the ticket. Registered as a prefix so the `.m3u8`/`.mp3`
+  // suffixes reach native players without a dot in the route path.
+  http.route({
+    pathPrefix: "/api/voice/tts/stream/hls/",
+    method: "GET",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use text to speech.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+
+        const url = new URL(request.url);
+        const prefix = "/api/voice/tts/stream/hls/";
+        const idx = url.pathname.indexOf(prefix);
+        const rest = idx >= 0 ? url.pathname.slice(idx + prefix.length) : "";
+        const slash = rest.indexOf("/");
+        if (slash <= 0) {
+          return errorResponse(404, "Not found", origin);
+        }
+        const ticket = decodeURIComponent(rest.slice(0, slash));
+        const file = rest.slice(slash + 1);
+        if (!ticket) {
+          return errorResponse(404, "Not found", origin);
+        }
+
+        if (file === "playlist.m3u8") {
+          const playlist = await ctx.runQuery(
+            internal.tts_hls.readHlsPlaylist,
+            { ticket, ownerId: auth.ownerId, nowMs: Date.now() },
+          );
+          if (!playlist) {
+            return errorResponse(404, "Stream is invalid or expired", origin);
+          }
+          const body = buildHlsPlaylist(playlist.segments, playlist.done);
+          return withCors(
+            new Response(body, {
+              status: 200,
+              headers: {
+                "Content-Type": "application/vnd.apple.mpegurl",
+                "Cache-Control": "no-store",
+              },
+            }),
+            origin,
+          );
+        }
+
+        const segMatch = /^(\d+)\.mp3$/.exec(file);
+        if (segMatch) {
+          const seq = Number.parseInt(segMatch[1], 10);
+          const segment = await ctx.runQuery(internal.tts_hls.readHlsSegment, {
+            ticket,
+            ownerId: auth.ownerId,
+            seq,
+          });
+          if (!segment) {
+            return errorResponse(404, "Segment not found", origin);
+          }
+          try {
+            return serveAudioWithRange(
+              decodeBase64ToBytes(segment.audio),
+              request.headers.get("range"),
+              origin,
+            );
+          } catch {
+            return errorResponse(500, "Segment decode failed", origin);
+          }
+        }
+
+        return errorResponse(404, "Not found", origin);
+      }),
+    ),
+  });
+
+  // ── Read-aloud streaming TTS: stop beacon (mobile) ────────────────
+  // Posted when the user stops read-aloud. Sets a cooperative cancel flag the
+  // background synthesis polls so provider spend ends early and is metered as
+  // interrupted. Best-effort: a missing/expired ticket is a no-op.
+  http.route({
+    path: "/api/voice/tts/stream/cancel",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const auth = await requireSignedInAccountAction(ctx, origin, {
+          message: "Sign in to Stella to use text to speech.",
+          realm: "stella-voice",
+        });
+        if (!auth.ok) return auth.response;
+
+        let body: Record<string, unknown> | null = null;
+        try {
+          body = (await request.json()) as Record<string, unknown>;
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+        const ticket =
+          typeof body?.ticket === "string" ? body.ticket.trim() : "";
+        if (!ticket) {
+          return errorResponse(400, "ticket is required", origin);
+        }
+        await ctx.runMutation(internal.tts_hls.cancelHlsSession, {
+          ticket,
+          ownerId: auth.ownerId,
+          nowMs: Date.now(),
+        });
+        return jsonResponse({ ok: true }, 200, origin);
       }),
     ),
   });

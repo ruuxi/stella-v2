@@ -237,10 +237,48 @@ export const billingSchema = {
     speed: v.optional(v.number()),
     conversationId: v.optional(v.id("conversations")),
     audio: v.optional(v.string()),
+    // HLS progressive-playback session state (mobile). A background action
+    // streams Inworld once and appends MP3 segments to `tts_hls_segments`; this
+    // row holds the live playlist manifest so a `playlist.m3u8` read never has
+    // to load segment audio. `hlsStatus` walks pending → synthesizing → done
+    // (or error). `hlsSegments` grows as segments land; the playlist gains
+    // `#EXT-X-ENDLIST` once `hlsDone` is set. `hlsCanceledAt` is a cooperative
+    // stop beacon the synthesis loop polls so a user "stop" ends provider spend
+    // early and is metered as interrupted.
+    hlsStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("synthesizing"),
+        v.literal("done"),
+        v.literal("error"),
+      ),
+    ),
+    hlsSegments: v.optional(
+      v.array(v.object({ seq: v.number(), durationSec: v.number() })),
+    ),
+    hlsDone: v.optional(v.boolean()),
+    hlsCanceledAt: v.optional(v.number()),
     createdAt: v.number(),
     expiresAt: v.number(),
   })
     .index("by_ticket", ["ticket"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  // Per-segment MP3 payloads for the mobile HLS transport. Each row is one
+  // packed-audio segment (ID3 transport-stream-timestamp tag + whole MP3
+  // frames), base64-encoded. Owner-bound + short TTL like the parent ticket,
+  // swept by the same cron. Kept in a side table (not on the ticket row) so a
+  // playlist read stays tiny and only a segment GET pays for the audio bytes.
+  tts_hls_segments: defineTable({
+    ticket: v.string(),
+    ownerId: v.string(),
+    seq: v.number(),
+    audio: v.string(),
+    durationSec: v.number(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_ticket_and_seq", ["ticket", "seq"])
     .index("by_expiresAt", ["expiresAt"]),
 
   // Internal provider-spend ledger for read-aloud / TTS synthesis.

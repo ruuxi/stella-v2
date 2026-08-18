@@ -1,8 +1,8 @@
 import { createPortal } from "react-dom";
 import { useT } from "@/shared/i18n";
 import { useLayoutEffect, useState } from "react";
-import { useChatRuntime } from "@/context/use-chat-runtime";
 import { HomeSection } from "@/shell/sidebar-sections/HomeSection";
+import { useHasQualifyingActivity } from "@/shell/workspace/use-qualifying-activity";
 import "./workspace-home-surface.css";
 
 type WorkspaceHomeSurfaceProps = {
@@ -22,8 +22,12 @@ export function WorkspaceHomeSurface({
   portalTarget,
 }: WorkspaceHomeSurfaceProps) {
   const t = useT();
-  const chat = useChatRuntime();
-  const hasActivity = chat.conversation.tasks.length > 0;
+  // Authoritative "is anything legitimately on the right?" signal: the count of
+  // Activity rows that actually qualify to be shown (running + terminal rows
+  // inside their auto-hide window), NOT the raw conversation task count — the
+  // latter stays > 0 after every row has auto-hidden, which reserved an empty
+  // gutter here. Shared with WorkspaceSections so the strip and its list agree.
+  const hasActivity = useHasQualifyingActivity();
   const [settledHasActivity, setSettledHasActivity] = useState(hasActivity);
   const activityAvailabilityChanging = settledHasActivity !== hasActivity;
 

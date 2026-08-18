@@ -90,6 +90,7 @@ import { ActivityTaskShimmer } from "@/shell/ActivityTaskShimmer";
 import { AgentAssistantUpdates } from "@/shell/AgentAssistantUpdates";
 import { CompactChildState } from "@/features/chat/components/CompactSubagentSummary";
 import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
+import { TERMINAL_ROW_AUTOHIDE_MS } from "@/shell/workspace/use-qualifying-activity";
 import "@/app/chat/chat-workspace-strip.css";
 
 // Default per-section caps. The compact strip shows a small preview; the
@@ -110,7 +111,9 @@ const AGENT_UPDATE_CAP = 1;
 // Terminal (done / failed / paused / canceled) agents drop out of the activity
 // index this long after their last activity; running agents are never hidden,
 // and a re-activation moves the row back to the running list (resetting this).
-const TERMINAL_ROW_AUTOHIDE_MS = 30 * 60 * 1000;
+// `TERMINAL_ROW_AUTOHIDE_MS` is imported from the shared qualifying-activity
+// module (top of file) so the shell's right-workspace visibility auto-hides on
+// exactly the same threshold this list uses.
 
 const activityRowText = (row: ActivityRow): string =>
   getActivityRowSearchText(row);

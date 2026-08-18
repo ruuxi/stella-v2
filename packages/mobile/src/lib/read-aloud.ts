@@ -24,6 +24,20 @@ const INWORLD_READ_ALOUD_MODEL = "inworld-tts-2-flash";
 // Safety net: if progressive playback has not begun within this window we
 // abandon it and fall back to the one-shot buffered request.
 const STREAM_START_TIMEOUT_MS = 8000;
+// Progressive HLS playback is resilient to transient segment/playlist/network
+// failures. Native players (AVPlayer/ExoPlayer) give up on a segment fetch that
+// fails past their small built-in retry budget, stalling mid-message. When that
+// happens we recreate the player and seek back to the last played position —
+// reusing the server-cached segments (no re-synthesis, no duplicated audio) —
+// so playback continues instead of silently stopping partway.
+const HLS_MAX_RECOVER_ATTEMPTS = 4; // mid-stream recoveries before giving up
+const HLS_MAX_START_RETRIES = 3; // pre-audible reloads (e.g. empty first playlist)
+const HLS_RECOVER_BACKOFF_MS = 700;
+const HLS_START_RETRY_BACKOFF_MS = 500;
+const HLS_STALL_TIMEOUT_MS = 6000; // no playback progress → treat as stalled
+const HLS_WATCHDOG_INTERVAL_MS = 1500;
+// Treat an end-of-stream this far before the known duration as a premature stop.
+const HLS_PREMATURE_EPS_SEC = 1.5;
 
 let cachedReadAloudEnabled = false;
 const listeners = new Set<() => void>();
@@ -34,6 +48,25 @@ let currentFile: File | null = null;
 // it run to completion after the user has already stopped listening.
 let currentStreamTicket: string | null = null;
 let playbackGeneration = 0;
+// Watchdog interval for the resilient HLS player (detects stalls). Held at
+// module scope so `stopReadAloud` can clear it when playback ends.
+let hlsWatchdog: ReturnType<typeof setInterval> | null = null;
+const clearHlsWatchdog = () => {
+  if (hlsWatchdog) {
+    clearInterval(hlsWatchdog);
+    hlsWatchdog = null;
+  }
+};
+// Resume context saved when resilient HLS playback exhausts its recovery budget
+// and stops mid-message, so the user can resume from where it stopped (rebuilds
+// the player from the still-cached segments) instead of the message being
+// silently presented as finished.
+let hlsResume: {
+  uri: string;
+  token: string;
+  id: string | null;
+  at: number;
+} | null = null;
 
 const emit = () => {
   for (const listener of listeners) listener();
@@ -267,25 +300,10 @@ function cancelStreamSession(ticket: string) {
   })();
 }
 
-// Release a streaming player without disturbing the global generation counter
-// (used when a stream fails and we fall back to buffered playback). Also ends
-// the background synthesis so it does not keep spending alongside the fallback.
-function releaseStreamPlayer(player: AudioPlayer) {
-  if (currentPlayer === player) currentPlayer = null;
-  const ticket = currentStreamTicket;
-  currentStreamTicket = null;
-  if (ticket) cancelStreamSession(ticket);
-  try {
-    player.pause();
-    player.remove();
-    player.release();
-  } catch {
-    /* ignore */
-  }
-}
-
 export function stopReadAloud() {
   playbackGeneration += 1;
+  clearHlsWatchdog();
+  hlsResume = null;
   setPlaybackState(null);
   const ticket = currentStreamTicket;
   currentStreamTicket = null;
@@ -326,7 +344,20 @@ export function pauseReadAloud() {
 
 /** Resume a clip that was paused with `pauseReadAloud`. */
 export function resumeReadAloud() {
-  if (!currentPlayer || playbackState?.status !== "paused") return;
+  if (playbackState?.status !== "paused") return;
+  // Resilient HLS playback that exhausted its recovery budget leaves no live
+  // player but a saved resume point; rebuild it from the cached segments so the
+  // user can pick up where the message stopped instead of restarting.
+  if (!currentPlayer && hlsResume) {
+    const resume = hlsResume;
+    hlsResume = null;
+    const id = playbackState.messageId;
+    const generation = playbackGeneration;
+    setPlaybackState({ messageId: id, status: "loading" });
+    void playHlsResilient(resume.uri, resume.token, id, generation, resume.at);
+    return;
+  }
+  if (!currentPlayer) return;
   try {
     currentPlayer.play();
   } catch {
@@ -419,51 +450,267 @@ async function tryStreamReply(
     return true;
   }
 
-  const player = createAudioPlayer({
-    uri,
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  currentFile = null;
-  currentPlayer = player;
   currentStreamTicket = ticket;
+  return await playHlsResilient(uri, token, id, generation, 0);
+}
 
+// Drive resilient progressive HLS playback for the life of one read-aloud.
+//
+// Native players give up on a segment/playlist fetch that keeps failing past
+// their small internal retry budget, which shows up as playback stalling and
+// then stopping partway through the message. This controller detects that (an
+// error state, a failed-to-finish, or a prolonged lack of progress) and
+// recovers by recreating the player and seeking back to the last played
+// position — reusing the server-cached segments, so there is no re-synthesis,
+// no restart from the beginning, and no double-counted cost. It also retries a
+// pre-audible failure (e.g. an empty first playlist while the first segment is
+// still being synthesized) before conceding to the buffered fallback, and
+// verifies an end-of-stream actually reached the known duration so a premature
+// stop is never presented as a clean finish.
+async function playHlsResilient(
+  uri: string,
+  token: string,
+  id: string | null,
+  generation: number,
+  startAt: number,
+): Promise<boolean> {
   return await new Promise<boolean>((resolve) => {
     let decided = false;
+    let started = false;
+    let finished = false;
+    let recovering = false;
+    let recoverAttempts = 0;
+    let startRetries = 0;
+    let lastTime = 0;
+    let lastProgressAt = Date.now();
+    let expectedDur = 0;
+    let player: AudioPlayer | null = null;
+
+    const superseded = () => generation !== playbackGeneration;
+
     const decide = (result: boolean) => {
       if (decided) return;
       decided = true;
-      clearTimeout(timer);
+      clearTimeout(startTimer);
       resolve(result);
     };
-    // A single persistent listener drives both start/fail detection and the
-    // natural-finish reset for the life of this player.
-    player.addListener("playbackStatusUpdate", (status) => {
-      if (generation !== playbackGeneration) return;
-      if (status.didJustFinish) {
-        setPlaybackState(null);
-        return;
+
+    // Release a player without touching the backend session (kept so a retry can
+    // re-fetch the still-cached segments).
+    const dropPlayer = (p: AudioPlayer | null) => {
+      if (!p) return;
+      if (currentPlayer === p) currentPlayer = null;
+      try {
+        p.pause();
+        p.remove();
+        p.release();
+      } catch {
+        /* ignore */
       }
-      const state = (status.playbackState ?? "").toLowerCase();
-      const errored = state.includes("error") || state.includes("fail");
-      if (decided) return;
-      if (status.playing || status.currentTime > 0) {
-        setPlaybackState({ messageId: id, status: "playing" });
-        decide(true);
-      } else if (errored) {
-        releaseStreamPlayer(player);
-        decide(false);
-      }
-    });
-    const timer = setTimeout(() => {
-      if (generation !== playbackGeneration) {
-        decide(true);
-        return;
-      }
-      // Never became audible in time → tear down and fall back.
-      releaseStreamPlayer(player);
+    };
+
+    // Concede progressive playback before it ever became audible: end the
+    // background synthesis (so it does not keep spending unheard) and let the
+    // caller fall back to the one-shot buffered clip.
+    const fallback = () => {
+      clearHlsWatchdog();
+      const p = player;
+      player = null;
+      dropPlayer(p);
+      const t = currentStreamTicket;
+      currentStreamTicket = null;
+      if (t) cancelStreamSession(t);
       decide(false);
+    };
+
+    const finishOk = () => {
+      finished = true;
+      clearHlsWatchdog();
+      hlsResume = null;
+      const p = player;
+      player = null;
+      dropPlayer(p);
+      if (!superseded()) setPlaybackState(null);
+      decide(true);
+    };
+
+    const giveUp = () => {
+      finished = true;
+      clearHlsWatchdog();
+      const p = player;
+      player = null;
+      dropPlayer(p);
+      if (!started) {
+        // Never became audible → let the caller fall back to the buffered clip.
+        fallback();
+        return;
+      }
+      // Started but could not be recovered. Surface a stopped (not finished)
+      // state and remember where we were so the user can resume from the cached
+      // segments, rather than the truncated clip being presented as complete.
+      if (!superseded()) {
+        hlsResume = { uri, token, id, at: Math.max(lastTime, 0) };
+        setPlaybackState({ messageId: id, status: "paused" });
+        console.warn(
+          `[read-aloud] progressive playback stopped at ${lastTime.toFixed(
+            1,
+          )}s of ${expectedDur.toFixed(1)}s after ${recoverAttempts} recovery attempts`,
+        );
+      }
+      decide(true);
+    };
+
+    const scheduleAttach = (at: number, backoff: number) => {
+      setTimeout(() => {
+        recovering = false;
+        if (finished || superseded()) {
+          decide(true);
+          return;
+        }
+        lastProgressAt = Date.now();
+        attach(at);
+      }, backoff);
+    };
+
+    // A mid-stream stall/error: recreate the player and resume in place.
+    const recover = () => {
+      if (finished || superseded() || recovering) return;
+      recovering = true;
+      const p = player;
+      player = null;
+      dropPlayer(p);
+      if (recoverAttempts >= HLS_MAX_RECOVER_ATTEMPTS) {
+        giveUp();
+        return;
+      }
+      recoverAttempts += 1;
+      scheduleAttach(Math.max(lastTime, 0), HLS_RECOVER_BACKOFF_MS);
+    };
+
+    // A pre-audible failure (e.g. empty first playlist): retry a few times before
+    // conceding to the buffered fallback.
+    const retryStart = () => {
+      if (decided || started || finished || superseded() || recovering) return;
+      recovering = true;
+      const p = player;
+      player = null;
+      dropPlayer(p);
+      if (startRetries >= HLS_MAX_START_RETRIES) {
+        recovering = false;
+        fallback();
+        return;
+      }
+      startRetries += 1;
+      scheduleAttach(0, HLS_START_RETRY_BACKOFF_MS);
+    };
+
+    const attach = (at: number) => {
+      if (finished || superseded()) {
+        decide(true);
+        return;
+      }
+      const p = createAudioPlayer({
+        uri,
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      player = p;
+      currentPlayer = p;
+      currentFile = null;
+      let seeked = at <= 0.25;
+      p.addListener("playbackStatusUpdate", (status) => {
+        if (player !== p) return; // stale listener from a replaced player
+        if (superseded()) {
+          clearHlsWatchdog();
+          return;
+        }
+        if (!seeked && (status.isLoaded || status.duration > 0)) {
+          seeked = true;
+          p.seekTo(at)
+            .then(() => p.play())
+            .catch(() => {
+              try {
+                p.play();
+              } catch {
+                /* ignore */
+              }
+            });
+        }
+        if (
+          typeof status.duration === "number" &&
+          status.duration > expectedDur
+        ) {
+          expectedDur = status.duration;
+        }
+        const t =
+          typeof status.currentTime === "number" ? status.currentTime : 0;
+        if (t > lastTime + 0.05) {
+          lastTime = t;
+          lastProgressAt = Date.now();
+        }
+        if (!started && (status.playing || t > 0.01)) {
+          started = true;
+          setPlaybackState({ messageId: id, status: "playing" });
+          decide(true);
+        }
+        if (status.didJustFinish) {
+          // Only a finish that actually reached the known end is a clean finish;
+          // a short one is a premature stop to recover from.
+          if (
+            expectedDur > 0 &&
+            lastTime < expectedDur - HLS_PREMATURE_EPS_SEC
+          ) {
+            recover();
+          } else {
+            finishOk();
+          }
+          return;
+        }
+        const stateStr = (status.playbackState ?? "").toLowerCase();
+        const errored =
+          stateStr.includes("error") ||
+          stateStr.includes("fail") ||
+          status.mediaServicesDidReset === true;
+        if (errored) {
+          if (started) recover();
+          else retryStart();
+        }
+      });
+      if (at <= 0.25) {
+        try {
+          p.play();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    // Stall watchdog: if playback is expected to progress but has not for a
+    // while (and the user has not paused), recover.
+    clearHlsWatchdog();
+    hlsWatchdog = setInterval(() => {
+      if (finished || superseded() || !started || recovering) return;
+      if (playbackState?.status === "paused") {
+        lastProgressAt = Date.now();
+        return;
+      }
+      const stalledFor = Date.now() - lastProgressAt;
+      const moreExpected =
+        expectedDur === 0 || lastTime < expectedDur - HLS_PREMATURE_EPS_SEC;
+      if (stalledFor > HLS_STALL_TIMEOUT_MS && moreExpected) recover();
+    }, HLS_WATCHDOG_INTERVAL_MS);
+
+    const startTimer = setTimeout(() => {
+      if (superseded()) {
+        decide(true);
+        return;
+      }
+      if (!started) {
+        // Never became audible in time → tear down and fall back.
+        fallback();
+      }
     }, STREAM_START_TIMEOUT_MS);
-    player.play();
+
+    attach(startAt);
   });
 }
 

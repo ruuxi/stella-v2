@@ -12,6 +12,7 @@ import {
 import { Icon } from "./Icon";
 import { AudioPlayerView } from "./AudioPlayerView";
 import { Image } from "expo-image";
+import * as Sharing from "expo-sharing";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -280,16 +281,26 @@ export function ArtifactViewerContent({
       ? artifact.payload
       : null;
   const [sharing, setSharing] = useState(false);
+  const shareableImageUri = loaded?.kind === "image" && loaded.uri.startsWith("file:")
+    ? loaded.uri
+    : null;
   const onShare = useCallback(async () => {
-    if (!localPdf || sharing) return;
+    if ((!localPdf && !shareableImageUri) || sharing) return;
     setSharing(true);
     try {
-      const result = await sharePdf(localPdf);
-      if (!result.ok) Alert.alert("Couldn't share the PDF", result.error);
+      if (localPdf) {
+        const result = await sharePdf(localPdf);
+        if (!result.ok) Alert.alert("Couldn't share the PDF", result.error);
+      } else if (shareableImageUri) {
+        await Sharing.shareAsync(shareableImageUri, {
+          mimeType: "image/*",
+          dialogTitle: "Share generated image",
+        });
+      }
     } finally {
       setSharing(false);
     }
-  }, [localPdf, sharing]);
+  }, [localPdf, shareableImageUri, sharing]);
 
   useEffect(() => {
     if (!artifact) return;
@@ -324,6 +335,12 @@ export function ArtifactViewerContent({
       // so hand its URI straight to the viewer; no desktop bridge is involved.
       if (payload.kind === "pdf" && payload.localUri) {
         return { kind: "pdf" as const, uri: payload.localUri };
+      }
+      if (payload.kind === "media" && payload.asset.kind === "image") {
+        const filePath = payload.asset.filePaths[0];
+        if (filePath && /^(?:file|https?|data):/i.test(filePath)) {
+          return { kind: "image" as const, uri: filePath };
+        }
       }
       if (!access) {
         throw new Error("Pair this phone with your desktop again.");
@@ -482,12 +499,12 @@ export function ArtifactViewerContent({
             {subtitle}
           </Text>
         </View>
-        {localPdf ? (
+        {localPdf || shareableImageUri ? (
           <Pressable
             onPress={onShare}
             disabled={sharing}
             accessibilityRole="button"
-            accessibilityLabel="Save or share PDF"
+            accessibilityLabel={localPdf ? "Save or share PDF" : "Share generated image"}
             hitSlop={10}
             style={({ pressed }) => [
               styles.shareButton,

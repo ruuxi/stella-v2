@@ -107,6 +107,8 @@ export type MobileDisplayPayload =
       localUri?: string;
       /** Size of the on-device file in bytes, when known. */
       sizeBytes?: number;
+      textOffset?: number;
+      toolCallId?: string;
     }
   | {
       kind: "media";
@@ -182,6 +184,8 @@ export type ChatArtifact = {
   id: string;
   conversationId: string;
   payload: MobileDisplayPayload;
+  /** Stable normal-chat timeline anchor; lifecycle replacements keep it. */
+  textOffset?: number;
 };
 
 /**

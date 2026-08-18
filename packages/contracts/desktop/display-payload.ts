@@ -90,6 +90,12 @@ export type DisplayPayload =
       imageIndex?: number;
       /** Expected image count for in-flight jobs (placeholders). */
       numImages?: number;
+      /** Mobile bridge identity used to replace the matching pending card. */
+      toolCallId?: string;
+      /** Mobile-only lifecycle metadata; desktop rendering remains unchanged. */
+      generationState?: "running" | "completed" | "failed" | "canceled";
+      /** Mobile chat insertion position within the owning assistant segment. */
+      textOffset?: number;
       createdAt: number;
     };
 

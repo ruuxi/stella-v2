@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -114,13 +115,19 @@ function StepRow({
   colors: Colors;
 }) {
   const isError = step.status === "error";
+  const isRunning = step.status === "running";
+  const isCanceled = step.status === "canceled";
   return (
     <View style={styles.step}>
-      <Icon
-        name={isError ? "alert-circle" : "check"}
-        size={12}
-        color={isError ? colors.danger : colors.ok}
-      />
+      {isRunning ? (
+        <ActivityIndicator size={12} color={colors.textMuted} />
+      ) : (
+        <Icon
+          name={isError || isCanceled ? "alert-circle" : "check"}
+          size={12}
+          color={isError ? colors.danger : isCanceled ? colors.textMuted : colors.ok}
+        />
+      )}
       <Icon
         name={CATEGORY_ICON[step.category]}
         size={12}

@@ -1920,12 +1920,21 @@ export async function sendDesktopBridgeChat({
         artifact.payload.asset.kind === "image" &&
         artifact.payload.asset.filePaths.length > 0
       ) {
-        const pending = [...artifactById.values()].find(
+        const generatedPayload = artifact.payload;
+        const pendingCandidates = [...artifactById.values()].filter(
           (candidate) =>
             isGeneratedImage(candidate) &&
             candidate.payload.kind === "media" &&
             candidate.payload.generationState === "running",
         );
+        const pending =
+          pendingCandidates.find(
+            (candidate) =>
+              candidate.payload.kind === "media" &&
+              Boolean(generatedPayload.toolCallId) &&
+              candidate.payload.toolCallId === generatedPayload.toolCallId,
+          ) ??
+          (pendingCandidates.length === 1 ? pendingCandidates[0] : undefined);
         if (pending?.payload.kind === "media") {
           artifactById.delete(pending.id);
           artifact = {
@@ -2300,6 +2309,28 @@ export async function sendDesktopBridgeChat({
       }
       if (!key) key = [...activeToolCalls.keys()].at(-1);
       if (key) activeToolCalls.delete(key);
+      if (key && toolName === "image_gen") {
+        const pendingId = `image-gen:${key}`;
+        const pending = artifactById.get(pendingId);
+        if (pending?.payload.kind === "media") {
+          const terminal = asString(event.status || event.state).toLowerCase();
+          const error = event.error;
+          const generationState =
+            terminal === "canceled" || terminal === "cancelled"
+              ? "canceled"
+              : error || terminal === "failed" || terminal === "error"
+                ? "failed"
+                : undefined;
+          if (generationState) {
+            mergeArtifacts([
+              {
+                ...pending,
+                payload: { ...pending.payload, generationState },
+              },
+            ]);
+          }
+        }
+      }
       if (activeToolCalls.size === 0) activityStatusText = undefined;
       emitActivity();
       return false;

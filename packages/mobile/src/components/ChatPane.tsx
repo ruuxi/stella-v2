@@ -1101,13 +1101,15 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
   access,
   aspectRatio,
   alt,
+  generationState,
   colors,
 }: {
   filePath?: string;
   conversationId: string;
-  access: StoredPhoneAccess;
+  access?: StoredPhoneAccess;
   aspectRatio: number;
   alt: string;
+  generationState?: "running" | "completed" | "failed" | "canceled";
   colors: Colors;
 }) {
   const [uri, setUri] = useState<string | null>(null);
@@ -1117,6 +1119,14 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
     setUri(null);
     setFailed(false);
     if (!filePath) return () => undefined;
+    if (/^(?:file|https?|data):/i.test(filePath)) {
+      setUri(filePath);
+      return () => undefined;
+    }
+    if (!access) {
+      setFailed(true);
+      return () => undefined;
+    }
     void resolveArtifactBridge(access)
       .then((bridge) =>
         readDesktopArtifactFile(bridge, conversationId, filePath),
@@ -1154,8 +1164,14 @@ const GeneratedImageTile = memo(function GeneratedImageTile({
         />
       ) : (
         <View style={generatedImageStyles.placeholder}>
-          {failed ? (
-            <Text style={{ color: colors.textMuted }}>Image unavailable</Text>
+          {failed || generationState === "failed" || generationState === "canceled" ? (
+            <Text style={{ color: colors.textMuted }}>
+              {generationState === "canceled"
+                ? "Image generation canceled"
+                : generationState === "failed"
+                  ? "Image generation failed"
+                  : "Image unavailable"}
+            </Text>
           ) : (
             <>
               <ActivityIndicator size="small" color={colors.textMuted} />
@@ -1182,7 +1198,7 @@ const GeneratedImageCard = memo(function GeneratedImageCard({
   onPress,
 }: {
   artifact: ChatArtifact;
-  access: StoredPhoneAccess;
+  access?: StoredPhoneAccess;
   colors: Colors;
   onPress?: (artifact: ChatArtifact) => void;
 }) {
@@ -1214,6 +1230,7 @@ const GeneratedImageCard = memo(function GeneratedImageCard({
           access={access}
           aspectRatio={generatedImageAspectRatio(payload.aspectRatio)}
           alt={payload.prompt ?? "Generated image"}
+          generationState={payload.generationState}
           colors={colors}
         />
       ))}
@@ -1336,8 +1353,17 @@ const ChatMessageRow = memo(function ChatMessageRow({
     [item.artifacts, item.tasks],
   );
   const toolActivity = useMemo(
-    () => (item.toolSteps ? deriveToolActivity(item.toolSteps) : undefined),
-    [item.toolSteps],
+    () => {
+      const trailing = (item.toolSteps ?? []).filter(
+        (step) =>
+          typeof step.textOffset !== "number" ||
+          !Number.isFinite(step.textOffset) ||
+          step.textOffset < 0 ||
+          step.textOffset > item.text.length,
+      );
+      return trailing.length > 0 ? deriveToolActivity(trailing) : undefined;
+    },
+    [item.text.length, item.toolSteps],
   );
 
   if (item.role === "user") {
@@ -1470,8 +1496,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   const genericLooseFiles = looseFiles.filter(
     (artifact) => !generatedImages.includes(artifact),
   );
-  const showGeneratedImages =
-    !isStandIn && Boolean(desktopAccess) && generatedImages.length > 0;
+  const showGeneratedImages = !isStandIn && generatedImages.length > 0;
   const showArtifacts =
     showAgentWork ||
     showMapArtifacts ||
@@ -1502,8 +1527,58 @@ const ChatMessageRow = memo(function ChatMessageRow({
         )
         .sort((a, b) => a.offset - b.offset || a.index - b.index)
     : [];
+  const inlineToolGroups = Array.from(
+    (item.toolSteps ?? []).reduce((groups, step, index) => {
+      const offset = step.textOffset;
+      if (
+        typeof offset !== "number" ||
+        !Number.isFinite(offset) ||
+        offset < 0 ||
+        offset > item.text.length
+      ) {
+        return groups;
+      }
+      const current = groups.get(offset) ?? [];
+      current.push({ step, index });
+      groups.set(offset, current);
+      return groups;
+    }, new Map<number, Array<{ step: NonNullable<ChatMessage["toolSteps"]>[number]; index: number }>>()),
+  ).map(([offset, entries]) => ({
+    offset,
+    index: entries[0]?.index ?? 0,
+    group: deriveToolActivity(entries.map((entry) => entry.step)),
+  }));
+  const timelineArtifacts = [...mapArtifacts, ...looseFiles]
+    .map((artifact, index) => {
+      const payloadOffset =
+        artifact.payload.kind === "media" || artifact.payload.kind === "pdf"
+          ? artifact.payload.textOffset
+          : undefined;
+      return {
+        artifact,
+        index,
+        offset: artifact.textOffset ?? payloadOffset,
+      };
+    })
+    .filter(
+      (entry): entry is typeof entry & { offset: number } =>
+        typeof entry.offset === "number" &&
+        Number.isFinite(entry.offset) &&
+        entry.offset >= 0 &&
+        entry.offset <= item.text.length,
+    );
+  const inlineTimeline = [
+    ...inlineAgentCards.map((card) => ({ ...card, type: "agent" as const })),
+    ...inlineToolGroups
+      .filter((entry) => entry.group)
+      .map((entry) => ({ ...entry, type: "tool" as const })),
+    ...timelineArtifacts.map((entry) => ({ ...entry, type: "artifact" as const })),
+  ].sort((a, b) => a.offset - b.offset || a.index - b.index);
   const inlineAgentIds = new Set(
     inlineAgentCards.map((card) => card.artifact.id),
+  );
+  const inlineArtifactIds = new Set(
+    timelineArtifacts.map((entry) => entry.artifact.id),
   );
   // Exclude cards rendered at an inline anchor so no lifecycle update can
   // duplicate one at the trailing artifact group.
@@ -1540,12 +1615,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
       />
     </Pressable>
   );
-  const renderTextWithInlineAgentCards = () => {
+  const renderTextWithInlineTimeline = () => {
     const nodes: ReactNode[] = [];
     let cursor = 0;
-    let cardIndex = 0;
-    while (cardIndex < inlineAgentCards.length) {
-      const offset = inlineAgentCards[cardIndex]!.offset;
+    let entryIndex = 0;
+    while (entryIndex < inlineTimeline.length) {
+      const offset = inlineTimeline[entryIndex]!.offset;
       if (offset > cursor) {
         nodes.push(
           <View key={`text:${cursor}:${offset}`}>
@@ -1553,32 +1628,68 @@ const ChatMessageRow = memo(function ChatMessageRow({
           </View>,
         );
       }
-      const cardsAtOffset = [];
+      const entriesAtOffset = [];
       while (
-        cardIndex < inlineAgentCards.length &&
-        inlineAgentCards[cardIndex]!.offset === offset
+        entryIndex < inlineTimeline.length &&
+        inlineTimeline[entryIndex]!.offset === offset
       ) {
-        cardsAtOffset.push(inlineAgentCards[cardIndex]!);
-        cardIndex += 1;
+        entriesAtOffset.push(inlineTimeline[entryIndex]!);
+        entryIndex += 1;
       }
       nodes.push(
         <View
-          key={`agents:${offset}:${cardsAtOffset.map((card) => card.artifact.id).join(",")}`}
+          key={`timeline:${offset}`}
           style={[styles.artifactGroup, styles.artifactGroupSpaced]}
         >
-          {cardsAtOffset.map((card) => (
-            <View key={card.artifact.id} style={styles.artifactGroup}>
-              <AgentWorkCard payload={card.payload} colors={colors} />
-              {inlineAgentWorkCardSections(card.artifact)?.map((section) => (
-                <AgentCompletionCard
-                  key={`${card.artifact.id}:completion:${section.key}`}
-                  sections={[section]}
+          {entriesAtOffset.map((entry) => {
+            if (entry.type === "tool") {
+              if (!entry.group) return null;
+              return (
+                <ToolActivityTrace
+                  key={`tool:${offset}:${entry.index}`}
+                  group={entry.group}
                   colors={colors}
-                  {...(onOpenArtifact ? { onOpenArtifact } : {})}
                 />
-              ))}
-            </View>
-          ))}
+              );
+            }
+            if (entry.type === "artifact") {
+              const artifact = entry.artifact;
+              if (artifact.payload.kind === "map-route") {
+                return <MapRouteCard key={artifact.id} payload={artifact.payload} colors={colors} />;
+              }
+              if (
+                artifact.payload.kind === "media" &&
+                artifact.payload.asset.kind === "image"
+              ) {
+                return (
+                  <GeneratedImageCard
+                    key={artifact.id}
+                    artifact={artifact}
+                    access={desktopAccess ?? undefined}
+                    colors={colors}
+                    onPress={onOpenArtifact}
+                  />
+                );
+              }
+              return onOpenArtifact ? (
+                <ArtifactCard key={artifact.id} artifact={artifact} colors={colors} onPress={onOpenArtifact} />
+              ) : null;
+            }
+            const card = entry;
+            return (
+              <View key={card.artifact.id} style={styles.artifactGroup}>
+                <AgentWorkCard payload={card.payload} colors={colors} />
+                {inlineAgentWorkCardSections(card.artifact)?.map((section) => (
+                  <AgentCompletionCard
+                    key={`${card.artifact.id}:completion:${section.key}`}
+                    sections={[section]}
+                    colors={colors}
+                    {...(onOpenArtifact ? { onOpenArtifact } : {})}
+                  />
+                ))}
+              </View>
+            );
+          })}
         </View>,
       );
       cursor = offset;
@@ -1604,8 +1715,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
             onAskStella={onAskStella}
             onDismiss={onEndSelecting}
           />
-        ) : inlineAgentCards.length > 0 ? (
-          renderTextWithInlineAgentCards()
+        ) : inlineTimeline.length > 0 ? (
+          renderTextWithInlineTimeline()
         ) : (
           renderAssistantMarkdown(item.text)
         )
@@ -1654,7 +1765,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
             return nodes;
           })}
           {showMapArtifacts
-            ? mapArtifacts.map((artifact) => (
+            ? mapArtifacts.filter((artifact) => !inlineArtifactIds.has(artifact.id)).map((artifact) => (
                 <MapRouteCard
                   key={artifact.id}
                   payload={artifact.payload}
@@ -1662,13 +1773,13 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 />
               ))
             : null}
-          {showGeneratedImages && desktopAccess
-            ? generatedImages.map((artifact) => {
+          {showGeneratedImages
+            ? generatedImages.filter((artifact) => !inlineArtifactIds.has(artifact.id)).map((artifact) => {
                 return (
                   <GeneratedImageCard
                     key={artifact.id}
                     artifact={artifact}
-                    access={desktopAccess}
+                    access={desktopAccess ?? undefined}
                     colors={colors}
                     onPress={onOpenArtifact}
                   />
@@ -1676,7 +1787,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               })
             : null}
           {showFileArtifacts && onOpenArtifact
-            ? genericLooseFiles.map((artifact) => (
+            ? genericLooseFiles.filter((artifact) => !inlineArtifactIds.has(artifact.id)).map((artifact) => (
                 <ArtifactCard
                   key={artifact.id}
                   artifact={artifact}

@@ -532,6 +532,14 @@ const imageGenPayload = (event: ArtifactEventRecord): DisplayPayload | null => {
       : payload.result;
   if (!candidate || typeof candidate !== "object") return null;
   const record = candidate as Record<string, unknown>;
+  const toolCallId =
+    typeof record.toolCallId === "string"
+      ? record.toolCallId
+      : typeof record.callId === "string"
+        ? record.callId
+        : typeof payload.toolCallId === "string"
+          ? payload.toolCallId
+          : undefined;
   const filePaths = Array.isArray(record.filePaths)
     ? record.filePaths.filter(
         (filePath): filePath is string =>
@@ -544,6 +552,7 @@ const imageGenPayload = (event: ArtifactEventRecord): DisplayPayload | null => {
     asset: { kind: "image", filePaths },
     createdAt: event.timestamp,
     ...(typeof record.jobId === "string" ? { jobId: record.jobId } : {}),
+    ...(toolCallId ? { toolCallId } : {}),
     ...(typeof record.capability === "string"
       ? { capability: record.capability }
       : {}),
@@ -1290,11 +1299,56 @@ export const buildMobileSyncMessages = (
           );
         }
       } else {
+        const turnArtifacts = deriveMobileArtifactsForMessages(
+          turnSegments,
+          options,
+        ).map((artifact) => {
+          if (
+            artifact.kind !== "media" ||
+            artifact.asset.kind !== "image" ||
+            artifact.presentation !== "inline-image"
+          ) {
+            return artifact;
+          }
+          const sourceSegment = turnSegments.find((segment) =>
+            segment.toolEvents.some((event) => {
+              const candidate = imageGenPayload(event);
+              if (!candidate || candidate.kind !== "media") return false;
+              const artifactCallId =
+                "toolCallId" in artifact && typeof artifact.toolCallId === "string"
+                  ? artifact.toolCallId
+                  : undefined;
+              const candidateCallId =
+                "toolCallId" in candidate && typeof candidate.toolCallId === "string"
+                  ? candidate.toolCallId
+                  : undefined;
+              if (artifactCallId && candidateCallId) {
+                return artifactCallId === candidateCallId;
+              }
+              return candidate.asset.kind === "image" &&
+                candidate.asset.filePaths.some((path) =>
+                  artifact.asset.kind === "image" &&
+                  artifact.asset.filePaths.includes(path),
+                );
+            }),
+          );
+          // Tool results anchored to an earlier assistant segment happened
+          // before the final segment's text. Keeping offset zero on that final
+          // row preserves the original call position across sync/reload.
+          return {
+            ...artifact,
+            textOffset:
+              sourceSegment === anchor
+                ? textFromPayload(anchor.payload).length
+                : 0,
+            generationState: "completed" as const,
+          };
+        });
         for (const segment of turnSegments) {
           fileArtifactsByMessageId.set(
             segment._id,
             segment === anchor
-              ? deriveMobileArtifactsForMessages(turnSegments, options)
+              ? turnArtifacts
               : [],
           );
         }

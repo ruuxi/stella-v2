@@ -19,6 +19,11 @@ const formatRetryDelay = (
   return ` ${tPlural('features.browserBridge.retryDelay', seconds)}`
 }
 
+const formatErrorWithRetry = (error: string, retryDelay: string) => {
+  const message = error.trim()
+  return `${message}${/[.!?]$/.test(message) ? '' : '.'}${retryDelay}`
+}
+
 export const useStellaBrowserBridgeToast = () => {
   const t = useT()
   const tPlural = useTPlural()
@@ -59,9 +64,10 @@ export const useStellaBrowserBridgeToast = () => {
         return
       }
 
+      const retryDelay = formatRetryDelay(status.nextRetryMs, tPlural)
       const description = status.error
-        ? `${status.error}.${formatRetryDelay(status.nextRetryMs, tPlural)}`
-        : `${t('features.browserBridge.disconnected')}${formatRetryDelay(status.nextRetryMs, tPlural)}`
+        ? formatErrorWithRetry(status.error, retryDelay)
+        : `${t('features.browserBridge.disconnected')}${retryDelay}`
 
       showToast({
         title: t('features.browserBridge.connectionLostTitle'),

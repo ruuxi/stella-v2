@@ -33,8 +33,17 @@ import type {
   InAppBrowserDebuggerRecovery,
   InAppBrowserDebuggerTarget,
 } from "./in-app-browser-cdp-adapter.js";
+import type {
+  StellaBrowserBridgeFailureReason,
+  StellaBrowserBridgeStatus,
+} from "../process-resources/browser-bridge-resource.js";
+import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
 
 export type BrowserViewConnection = "checking" | "disconnected" | "connected";
+export type BrowserViewUnavailableReason =
+  | "extension_not_installed"
+  | "extension_disconnected"
+  | StellaBrowserBridgeFailureReason;
 
 export type BrowserViewTabState = {
   id: string;
@@ -63,6 +72,7 @@ export type BrowserViewState = {
   tabs: BrowserViewTabState[];
   activeTabId?: string;
   error?: string;
+  unavailableReason?: BrowserViewUnavailableReason;
 };
 
 export type BrowserViewLayout = {
@@ -135,6 +145,11 @@ type InAppBrowserServiceOptions = {
   getWindow: () => BrowserWindow | null;
   ensureBrowserBridgeStarted: () => void | Promise<void>;
   openExtensionStore?: () => void | Promise<void>;
+  getBrowserSetupStatus?: () => {
+    bridgeBinaryInstalled: boolean;
+    extensionInstalled: boolean;
+  };
+  getBrowserBridgeStatus?: () => StellaBrowserBridgeStatus | undefined;
   getExtensionStatus: () => Promise<boolean>;
   exportAllCookies: () => Promise<StellaBrowserExportedCookie[]>;
   exportCookiesForUrls?: (
@@ -341,6 +356,7 @@ export class InAppBrowserService {
   private reseedRequested = false;
   private pendingPartitionedCookies: StellaBrowserExportedCookie[] = [];
   private connectionError: string | undefined;
+  private connectionUnavailableReason: BrowserViewUnavailableReason | undefined;
 
   constructor(options: InAppBrowserServiceOptions) {
     this.options = options;
@@ -357,6 +373,11 @@ export class InAppBrowserService {
       this.updateConnection("connected");
       return this.snapshot(resolvedOwnerId);
     }
+    const setupRequirement = this.readSetupRequirement();
+    if (setupRequirement) {
+      this.updateUnavailableConnection(setupRequirement);
+      return this.snapshot(resolvedOwnerId);
+    }
     try {
       const extensionConnected = await this.options.getExtensionStatus();
       // Extension presence is only the first half of connection. Do not claim
@@ -370,12 +391,14 @@ export class InAppBrowserService {
         // via connectPromise, so concurrent polls collapse to one attempt.
         void this.connect().catch(() => {});
       } else {
-        this.updateConnection("disconnected");
+        this.updateUnavailableConnection(
+          this.readConnectionFailure("extension_disconnected"),
+        );
       }
     } catch {
-      // The bridge socket commonly isn't ready during app startup. That is a
-      // normal disconnected state, not a fatal Browser-tab error.
-      this.updateConnection("disconnected");
+      this.updateUnavailableConnection(
+        this.readConnectionFailure("transient_failure"),
+      );
     }
     return this.snapshot(resolvedOwnerId);
   }
@@ -384,6 +407,11 @@ export class InAppBrowserService {
     if (this.disposed) throw new Error("The in-app browser has been closed.");
     if (this.hasSeededOnce) {
       this.updateConnection("connected");
+      return this.snapshot();
+    }
+    const setupRequirement = this.readSetupRequirement({ extension: false });
+    if (setupRequirement) {
+      this.updateUnavailableConnection(setupRequirement);
       return this.snapshot();
     }
     this.updateConnection("checking");
@@ -408,12 +436,13 @@ export class InAppBrowserService {
         this.updateConnection("checking");
         return this.snapshot();
       }
-      this.updateConnection(
-        "disconnected",
-        "Connect the Stella browser extension to continue.",
+      this.updateUnavailableConnection(
+        this.readConnectionFailure("extension_not_installed"),
       );
     } catch (error) {
-      this.updateConnection("disconnected", errorMessage(error));
+      this.updateUnavailableConnection(
+        this.readConnectionFailure("transient_failure", errorMessage(error)),
+      );
     }
     return this.snapshot();
   }
@@ -440,6 +469,11 @@ export class InAppBrowserService {
       this.updateConnection("connected");
       return this.snapshot();
     }
+    const setupRequirement = this.readSetupRequirement();
+    if (setupRequirement) {
+      this.updateUnavailableConnection(setupRequirement);
+      return this.snapshot();
+    }
     try {
       await this.options.ensureBrowserBridgeStarted();
       const connected = await this.pollExtensionStatus(
@@ -448,7 +482,9 @@ export class InAppBrowserService {
         this.options.connectionPollMs ?? DEFAULT_CONNECTION_POLL_MS,
       );
       if (!connected) {
-        this.updateConnection("disconnected");
+        this.updateUnavailableConnection(
+          this.readConnectionFailure("extension_disconnected"),
+        );
         return this.snapshot();
       }
       this.updateConnection("checking");
@@ -479,7 +515,9 @@ export class InAppBrowserService {
       this.startCookieEventSubscription();
       this.startCookieMirror();
     } catch (error) {
-      this.updateConnection("disconnected", errorMessage(error));
+      this.updateUnavailableConnection(
+        this.readConnectionFailure("transient_failure", errorMessage(error)),
+      );
     }
     return this.snapshot();
   }
@@ -934,6 +972,13 @@ export class InAppBrowserService {
       } catch {
         // Native-host registration and daemon startup can race any individual
         // probe. A failed attempt is not a terminal connection result.
+      }
+      const bridgeFailure = this.options.getBrowserBridgeStatus?.()?.reason;
+      if (
+        bridgeFailure === "bridge_missing" ||
+        bridgeFailure === "authorization_failed"
+      ) {
+        break;
       }
       if (Date.now() >= deadline || this.disposed) break;
       await (
@@ -1623,6 +1668,56 @@ export class InAppBrowserService {
   private updateConnection(connection: BrowserViewConnection, error?: string) {
     this.state.connection = connection;
     this.connectionError = error;
+    this.connectionUnavailableReason = undefined;
+    delete this.state.unavailableReason;
+    this.syncErrorState();
+    this.emitState();
+  }
+
+  private readSetupRequirement(
+    options: { extension?: boolean } = {},
+  ):
+    | { reason: BrowserViewUnavailableReason; error?: string }
+    | undefined {
+    const setup = this.options.getBrowserSetupStatus?.();
+    if (!setup) return undefined;
+    if (!setup.bridgeBinaryInstalled) {
+      return { reason: "bridge_missing", error: BROWSER_BRIDGE_MISSING_ERROR };
+    }
+    if (options.extension !== false && !setup.extensionInstalled) {
+      return { reason: "extension_not_installed" };
+    }
+    return undefined;
+  }
+
+  private readConnectionFailure(
+    fallback: BrowserViewUnavailableReason,
+    error?: string,
+  ): { reason: BrowserViewUnavailableReason; error?: string } {
+    const bridgeStatus = this.options.getBrowserBridgeStatus?.();
+    if (bridgeStatus?.reason && bridgeStatus.state !== "connected") {
+      return {
+        reason: bridgeStatus.reason,
+        error: bridgeStatus.error ?? error,
+      };
+    }
+    if (fallback === "extension_not_installed") {
+      const setup = this.options.getBrowserSetupStatus?.();
+      if (setup?.extensionInstalled) {
+        return { reason: "extension_disconnected", error };
+      }
+    }
+    return { reason: fallback, error };
+  }
+
+  private updateUnavailableConnection(failure: {
+    reason: BrowserViewUnavailableReason;
+    error?: string;
+  }) {
+    this.state.connection = "disconnected";
+    this.connectionError = failure.error;
+    this.connectionUnavailableReason = failure.reason;
+    this.state.unavailableReason = failure.reason;
     this.syncErrorState();
     this.emitState();
   }
@@ -1678,6 +1773,9 @@ export class InAppBrowserService {
         : [],
       ...(owner?.activeTabId ? { activeTabId: owner.activeTabId } : {}),
       ...(error ? { error } : {}),
+      ...(this.connectionUnavailableReason
+        ? { unavailableReason: this.connectionUnavailableReason }
+        : {}),
     });
   }
 

@@ -11,6 +11,7 @@ import {
 } from "@stella/contracts/local-preferences";
 import { uiState } from "@/platform/ui-state";
 import { useChatRuntime } from "@/context/use-chat-runtime";
+import { useT } from "@/shared/i18n";
 import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
 import {
@@ -27,6 +28,20 @@ import {
 import "./browser-section.css";
 
 type BrowserConnection = "checking" | "disconnected" | "connected";
+type BrowserUnavailableReason =
+  | "extension_not_installed"
+  | "extension_disconnected"
+  | "bridge_missing"
+  | "authorization_failed"
+  | "connection_lost"
+  | "transient_failure";
+type BrowserStatusKind =
+  | "checking"
+  | "setup_required"
+  | Exclude<BrowserUnavailableReason, "extension_not_installed">
+  | "connected"
+  | "preparing"
+  | "error";
 
 type BrowserTab = {
   id: string;
@@ -55,6 +70,7 @@ type BrowserViewState = {
   tabs: BrowserTab[];
   activeTabId?: string;
   error?: string;
+  unavailableReason?: BrowserUnavailableReason;
 };
 
 type BrowserBounds = {
@@ -214,7 +230,7 @@ function BrowserStatus({
   onRetry,
   onCreateTab,
 }: {
-  kind: "checking" | "disconnected" | "connected" | "preparing" | "error";
+  kind: BrowserStatusKind;
   profileName?: string;
   error?: string;
   connectingExtension: boolean;
@@ -222,6 +238,8 @@ function BrowserStatus({
   onRetry: () => void;
   onCreateTab: () => void;
 }) {
+  const t = useT();
+
   if (kind === "checking" || kind === "preparing") {
     return (
       <div className="browser-section__status" role="status" aria-live="polite">
@@ -240,15 +258,46 @@ function BrowserStatus({
     );
   }
 
-  if (kind === "error") {
+  if (
+    kind === "extension_disconnected" ||
+    kind === "bridge_missing" ||
+    kind === "authorization_failed" ||
+    kind === "connection_lost" ||
+    kind === "transient_failure" ||
+    kind === "error"
+  ) {
+    const copy = {
+      extension_disconnected: {
+        title: "Extension isn’t connected",
+        body: "Stella found the browser extension, but it isn’t currently connected. Enable it in Chrome, then try again.",
+      },
+      bridge_missing: {
+        title: "Browser service is missing",
+        body: "Reinstall Stella, or run the desktop build, so the browser bridge binary is present.",
+      },
+      authorization_failed: {
+        title: "Browser access is blocked",
+        body: "Stella couldn’t authorize the browser bridge. Check system permissions, then try again.",
+      },
+      connection_lost: {
+        title: "Browser connection lost",
+        body: "The browser bridge stopped responding. Stella is retrying in the background.",
+      },
+      transient_failure: {
+        title: "Couldn’t connect to the browser",
+        body: "The browser bridge didn’t start successfully. Try again in a moment.",
+      },
+      error: {
+        title: "Couldn’t open the browser",
+        body: "Stella couldn’t prepare the in-app browser.",
+      },
+    }[kind];
     return (
       <div className="browser-section__status" role="alert">
         <AlertCircle size={22} strokeWidth={1.75} aria-hidden="true" />
-        <p className="browser-section__status-title">
-          Couldn’t open the browser
-        </p>
+        <p className="browser-section__status-title">{copy.title}</p>
         <p className="browser-section__status-body">
-          {error || "Stella couldn’t prepare the in-app browser."}
+          {error || copy.body}
         </p>
         <button
           type="button"
@@ -261,16 +310,17 @@ function BrowserStatus({
     );
   }
 
-  if (kind === "disconnected") {
+  if (kind === "setup_required") {
     return (
       <div className="browser-section__status" role="status">
         <span className="browser-section__status-icon" aria-hidden="true">
           <Globe size={21} strokeWidth={1.75} />
         </span>
-        <p className="browser-section__status-title">Connect your browser</p>
+        <p className="browser-section__status-title">
+          {t("settings.browserExtension.title")}
+        </p>
         <p className="browser-section__status-body">
-          Add or enable the Stella browser extension to bring your logged-in
-          sites into Stella.
+          {t("settings.browserExtension.description")}
         </p>
         <button
           type="button"
@@ -278,7 +328,9 @@ function BrowserStatus({
           disabled={connectingExtension}
           onClick={onConnect}
         >
-          {connectingExtension ? "Waiting for extension…" : "Connect browser"}
+          {connectingExtension
+            ? "Waiting for extension…"
+            : t("settings.browserExtension.action")}
         </button>
       </div>
     );
@@ -645,15 +697,18 @@ export function BrowserSection() {
   };
 
   const error = localError ?? state.error;
-  const statusKind = error
-    ? "error"
-    : state.connection === "checking"
-      ? "checking"
-      : state.connection === "disconnected"
-        ? "disconnected"
-        : preparing && state.tabs.length === 0
-          ? "preparing"
-          : "connected";
+  let statusKind: BrowserStatusKind = "connected";
+  if (localError) statusKind = "error";
+  else if (connectingExtension) statusKind = "setup_required";
+  else if (state.connection === "checking") statusKind = "checking";
+  else if (state.connection === "disconnected") {
+    statusKind =
+      !state.unavailableReason ||
+      state.unavailableReason === "extension_not_installed"
+        ? "setup_required"
+        : state.unavailableReason;
+  } else if (error) statusKind = "error";
+  else if (preparing && state.tabs.length === 0) statusKind = "preparing";
 
   return (
     <section

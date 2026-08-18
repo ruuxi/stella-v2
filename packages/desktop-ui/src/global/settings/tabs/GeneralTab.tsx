@@ -36,12 +36,11 @@ import {
   isKnownPersonalityId,
   type PersonalityId,
 } from "@stella/contracts/personality";
+import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/contracts/browser-extension";
 import { getSettingsErrorMessage } from "./shared";
 
 const SETTINGS_PERMISSION_RESTART_KINDS = ["screen"] as const;
 const ACCESSIBILITY_RESET_CONFIRM_TIMEOUT_MS = 8_000;
-const STELLA_CHROME_EXTENSION_URL =
-  "https://chromewebstore.google.com/detail/kfnchfpocpmdblhfgcnpfaaebaioojnl?utm_source=item-share-cb";
 
 type PermissionKind = "accessibility" | "screen" | "microphone";
 
@@ -1179,7 +1178,9 @@ export function GeneralTab() {
               type="button"
               variant="ghost"
               className="pill-btn"
-              onClick={() => openExternalUrl(STELLA_CHROME_EXTENSION_URL)}
+              onClick={() =>
+                openExternalUrl(STELLA_BROWSER_EXTENSION_STORE_URL)
+              }
             >
               {t("settings.browserExtension.action")}
             </Button>

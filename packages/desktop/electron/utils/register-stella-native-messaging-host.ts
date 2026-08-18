@@ -21,6 +21,9 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+export const BROWSER_BRIDGE_MISSING_ERROR =
+  "Browser bridge is not installed. Reinstall Stella or run the desktop build so the bridge binary is present.";
+
 function getStellaBrowserBinaryName(): string | null {
   const plat = os.platform();
   const cpuArch = os.arch();
@@ -209,8 +212,7 @@ export async function registerStellaNativeMessagingHost(): Promise<{
     if (!binaryPath || !existsSync(binaryPath)) {
       return {
         ok: false,
-        error:
-          "Browser bridge is not installed. Reinstall Stella or run the desktop build so the bridge binary is present.",
+        error: BROWSER_BRIDGE_MISSING_ERROR,
       };
     }
 

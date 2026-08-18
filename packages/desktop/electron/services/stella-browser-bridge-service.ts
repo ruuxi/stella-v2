@@ -1324,6 +1324,17 @@ const getChromiumUserDataRoots = (): string[] => {
   ];
 };
 
+export const isStellaBrowserBridgeBinaryInstalled = (): boolean => {
+  try {
+    const stellaBrowserRoot = resolveStellaBrowserRoot();
+    activateStagedStellaBrowserBinary(stellaBrowserRoot);
+    const binaryPath = resolveStellaBrowserBinaryPath(stellaBrowserRoot);
+    return Boolean(binaryPath && existsSync(binaryPath));
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Cheap, synchronous scan (readdir + existsSync only — no process spawn, no
  * socket dial) for whether the Stella browser extension is installed in ANY

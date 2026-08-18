@@ -1175,8 +1175,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // identity, so these derivations must not re-run (and mint fresh objects
   // that defeat child memoization) once per frame.
   const consolidated = useMemo(
-    () => consolidateRowArtifacts(item.artifacts ?? []),
-    [item.artifacts],
+    () => consolidateRowArtifacts(item.artifacts ?? [], item.tasks ?? []),
+    [item.artifacts, item.tasks],
   );
   const toolActivity = useMemo(
     () => (item.toolSteps ? deriveToolActivity(item.toolSteps) : undefined),

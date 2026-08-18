@@ -124,8 +124,8 @@ export type MobileDisplayPayload =
        */
       kind: "agent-work";
       state: "running" | "done";
-      /** Spawn-order membership for stable aggregate reconciliation. Optional
-       * because older desktop bridges only encoded membership in the id. */
+      /** Agent membership. A bridge payload may contain several ids; the
+       * mobile transcript expands those into independently keyed cards. */
       agentIds?: string[];
       total: number;
       completed: number;

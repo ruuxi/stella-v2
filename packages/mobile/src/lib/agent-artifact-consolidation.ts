@@ -1,5 +1,13 @@
-import type { ChatArtifact, MobileDisplayPayload } from "../types";
-import { artifactId, artifactPrimaryFilePath } from "./mobile-artifacts";
+import type {
+  ChatArtifact,
+  MobileDisplayPayload,
+  MobileTask,
+} from "../types";
+import {
+  agentWorkArtifactId,
+  artifactId,
+  artifactPrimaryFilePath,
+} from "./mobile-artifacts";
 
 export type AgentWorkChatArtifact = ChatArtifact & {
   payload: Extract<MobileDisplayPayload, { kind: "agent-work" }>;
@@ -27,7 +35,8 @@ export const isAgentWorkArtifact = (
  * carries an agent-work card treats its file artifacts as that card's
  * deliverables. Agents spawned on different turns ride different rows, which
  * keeps attribution correct across concurrent agents at the granularity
- * mobile can represent (one grouped card per spawning turn).
+ * mobile can represent at the row level. Inline rendering later projects that
+ * row into one independently keyed card per agent.
  */
 
 /**
@@ -96,7 +105,7 @@ export const rankDeliverablesFirst = (
 };
 
 export type ConsolidatedRowArtifacts = {
-  /** The row's agent lifecycle card(s) — normally one grouped card. */
+  /** The row's agent lifecycle cards — one per background task. */
   agentWork: AgentWorkChatArtifact[];
   /** Inline map cards (self-contained, never folded). */
   maps: MapRouteChatArtifact[];
@@ -184,8 +193,7 @@ export const inlineAgentWorkCardSections = (
 ): AgentWorkCardSection[] | null =>
   artifact.payload.state === "done" ? agentWorkCardSections(artifact) : null;
 
-/** One agent-work card to render — either the whole grouped card, or one of
- *  the per-agent completion cards a settled group splits into. */
+/** One independently updating agent-work card to render. */
 export type AgentWorkCardRender = {
   /** Stable React key + card identity. */
   key: string;
@@ -197,52 +205,118 @@ export type AgentWorkCardRender = {
 /**
  * The card(s) to render for one agent-work artifact.
  *
- * Desktop posts a DISTINCT completion card per `agent-completed` event
- * (`AgentCompletionCard`), so sibling agents finishing on one turn each
- * surface as their own card. The desktop→mobile bridge instead ships a single
- * grouped `agent-work` payload per spawning turn (keyed by all its agent ids),
- * so mobile would otherwise coalesce every completion into one card that just
- * updates in place — the second agent's finish overwriting the first's card
- * instead of posting its own.
- *
- * Once the grouped card has settled AND the bridge carried per-agent
- * attribution for more than one agent, split it into one completion card per
- * agent so each task's finish reads as its own card, matching desktop. A
- * running card (the live "Working on N tasks" aggregate), a single-agent card,
- * or a bridge without per-agent sections keeps the single grouped card
- * unchanged (returned as a one-element list), so the caller's running-state
- * and row-scoped fallback rendering is untouched.
+ * The desktop-to-mobile transcript projection historically ships one aggregate
+ * `agent-work` payload for every agent spawned by a turn. Expand that payload
+ * at the inline-rendering boundary so each task retains its own identity and
+ * can transition independently. The activity pill/tray continues to consume
+ * the original `MobileTask` collection and is deliberately unaffected.
  */
 export const settledAgentWorkCards = (
   artifact: AgentWorkChatArtifact,
+  tasks: readonly MobileTask[] = [],
 ): AgentWorkCardRender[] => {
-  const sections = inlineAgentWorkCardSections(artifact);
-  if (!sections || sections.length <= 1) {
-    return [{ key: artifact.id, payload: artifact.payload, sections: [] }];
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const sectionById = new Map(
+    (artifact.payload.agents ?? []).map((section) => [section.agentId, section]),
+  );
+  const agentIds = [
+    ...new Set([
+      ...(artifact.payload.agentIds ?? []),
+      ...sectionById.keys(),
+      ...tasks.map((task) => task.id),
+    ]),
+  ];
+  if (agentIds.length <= 1) {
+    return [
+      {
+        key: artifact.id,
+        payload: artifact.payload,
+        sections: inlineAgentWorkCardSections(artifact) ?? [],
+      },
+    ];
   }
-  return sections.map((section, index) => ({
-    // The running aggregate already rendered with `artifact.id`. Keep that
-    // key for the first completion card so settling updates the mounted card
-    // in place; only additional per-agent completions enter as new siblings.
-    key: index === 0 ? artifact.id : section.key,
-    payload: {
+
+  return agentIds.map((agentId, index) => {
+    const task = taskById.get(agentId);
+    const rawSection = sectionById.get(agentId);
+    const taskFinished = task ? task.status !== "running" : Boolean(rawSection);
+    const done = artifact.payload.state === "done" || taskFinished;
+    const subtitle = task
+      ? task.status === "running"
+        ? task.statusText || "Working in background"
+        : task.status === "error"
+          ? "Failed"
+          : task.status === "canceled"
+            ? "Canceled"
+            : "Finished"
+      : done
+        ? "Finished"
+        : "Working in background";
+    const payload: Extract<MobileDisplayPayload, { kind: "agent-work" }> = {
       ...artifact.payload,
+      state: done ? "done" : "running",
+      agentIds: [agentId],
       total: 1,
-      completed: 1,
-      title: section.title ?? artifact.payload.title,
-      subtitle: "Finished",
-    },
-    sections: [section],
-  }));
+      completed: done ? 1 : 0,
+      title: task?.title || rawSection?.title || "Background work",
+      subtitle,
+      createdAt:
+        task && task.createdAt > 0
+          ? task.createdAt
+          : artifact.payload.createdAt,
+      ...(artifact.payload.agents !== undefined
+        ? { agents: rawSection ? [rawSection] : [] }
+        : {}),
+    };
+    const splitArtifact: AgentWorkChatArtifact = {
+      ...artifact,
+      // Preserve the aggregate's mounted insertion identity for its first
+      // member. Later members use their own durable agent ids, matching the
+      // live event cards and avoiding remounts when canonical sync lands.
+      id: index === 0 ? artifact.id : agentWorkArtifactId([agentId]),
+      payload,
+    };
+    return {
+      key: splitArtifact.id,
+      payload,
+      sections: inlineAgentWorkCardSections(splitArtifact) ?? [],
+    };
+  });
+};
+
+const expandInlineAgentWork = (
+  artifacts: readonly ChatArtifact[],
+  tasks: readonly MobileTask[],
+): ChatArtifact[] => {
+  const expanded: ChatArtifact[] = [];
+  const agentCardIndexById = new Map<string, number>();
+  for (const artifact of artifacts) {
+    if (!isAgentWorkArtifact(artifact)) {
+      expanded.push(artifact);
+      continue;
+    }
+    for (const card of settledAgentWorkCards(artifact, tasks)) {
+      const split = { ...artifact, id: card.key, payload: card.payload };
+      const existingIndex = agentCardIndexById.get(card.key);
+      if (existingIndex === undefined) {
+        agentCardIndexById.set(card.key, expanded.length);
+        expanded.push(split);
+      } else {
+        expanded[existingIndex] = split;
+      }
+    }
+  }
+  return expanded;
 };
 
 export const consolidateRowArtifacts = (
   artifacts: readonly ChatArtifact[],
+  tasks: readonly MobileTask[] = [],
 ): ConsolidatedRowArtifacts => {
   const agentWork: AgentWorkChatArtifact[] = [];
   const maps: MapRouteChatArtifact[] = [];
   const files: ChatArtifact[] = [];
-  for (const artifact of artifacts) {
+  for (const artifact of expandInlineAgentWork(artifacts, tasks)) {
     if (artifact.payload.kind === "agent-work") {
       agentWork.push(artifact as AgentWorkChatArtifact);
     } else if (artifact.payload.kind === "map-route") {

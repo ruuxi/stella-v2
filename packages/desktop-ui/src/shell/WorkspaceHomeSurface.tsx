@@ -3,8 +3,6 @@ import { useT } from "@/shared/i18n";
 import { useLayoutEffect, useState } from "react";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { HomeSection } from "@/shell/sidebar-sections/HomeSection";
-import { SidebarModelsControl } from "@/shell/sidebar-sections/SidebarModelsControl";
-import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import "./workspace-home-surface.css";
 
 type WorkspaceHomeSurfaceProps = {
@@ -26,7 +24,6 @@ export function WorkspaceHomeSurface({
   const t = useT();
   const chat = useChatRuntime();
   const hasActivity = chat.conversation.tasks.length > 0;
-  const modelsOpen = useEngineOverlayOpen();
   const [settledHasActivity, setSettledHasActivity] = useState(hasActivity);
   const activityAvailabilityChanging = settledHasActivity !== hasActivity;
 
@@ -37,9 +34,9 @@ export function WorkspaceHomeSurface({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activityAvailabilityChanging, hasActivity]);
-  // With the panel closed this strip's footer is the Models popover's only
-  // anchor, so an empty activity list can't hide it while the picker is open.
-  const surfaceHidden = hidden || (!hasActivity && !modelsOpen);
+  // The Models control now lives globally in the shell (GlobalModelsControl),
+  // so this strip only exists to show ambient activity.
+  const surfaceHidden = hidden || !hasActivity;
   const resolvedPortalTarget =
     portalTarget ?? document.querySelector(".full-body") ?? document.body;
 
@@ -59,15 +56,6 @@ export function WorkspaceHomeSurface({
           <div className="workspace-home-surface__activity">
             <HomeSection />
           </div>
-        </div>
-        {/* Models only. The rest of the utility cluster (Theme, Phone,
-            Connectors, Feedback) stays in the panel's Home footer — this
-            strip is for activity, and a second copy of those triggers just
-            crowded it. `active` hands the shared Models popover to
-            whichever footer is actually visible, since both mount at once
-            and read the same engine-overlay store. */}
-        <div className="workspace-home-surface__footer">
-          <SidebarModelsControl active={!surfaceHidden} />
         </div>
       </div>
     </aside>,

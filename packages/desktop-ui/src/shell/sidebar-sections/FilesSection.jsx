@@ -25,12 +25,10 @@ import { useActiveSidebarSection, } from "@/features/workspace-display/sidebar-s
 import { useDisplayPanelOpen, useDisplayTabList, } from "@/features/workspace-display/tab-store";
 import { notifyMediaGenerationError } from "@/global/billing/paid-media-tier-toast";
 import { loadCanvasHtmlHistory, removeCanvasHtmlItem, } from "@/shell/display/canvas-tab/canvas-items";
-import { useEngineOverlayOpen } from "@/shell/display/engine-overlay-store";
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { bucketByRecency } from "@/shared/lib/recency-buckets";
 import { ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
-import { SidebarModelsControl } from "./SidebarModelsControl";
 import "./files-section.css";
 /**
  * Keep the Work panel cheap to open even after a long-running conversation.
@@ -386,19 +384,15 @@ export function WorkList({ section = "files", idleContent = null }) {
  * viewer (`location` = a display-tab id). Prop-driven so multiple file tabs can
  * coexist, each keeping its own mounted viewer.
  *
- * @param {{ location?: string | null, active?: boolean }} props
+ * @param {{ location?: string | null }} props
  */
-export function FilesSection({ location = null, active = false }) {
-    const modelsOpen = useEngineOverlayOpen();
+export function FilesSection({ location = null }) {
     const { tabs } = useDisplayTabList();
     const openTab = location
         ? (tabs.find((tab) => tab.id === location) ?? null)
         : null;
-    // The footer is the Models popover's anchor: keep it visible when the
-    // picker is opened externally while a viewer tab is showing.
-    const showFooter = modelsOpen || !openTab;
-    // Only the ACTIVE tab's footer owns the shared Models popover.
-    const modelsActive = active && showFooter;
+    // The Models control now lives globally in the shell (GlobalModelsControl),
+    // so there is no per-section footer here.
     return (<div className="work-section">
       <div className="work-section__body">
         {/* The drill-back to the list lives in the top bar now (browser-tab
@@ -407,8 +401,5 @@ export function FilesSection({ location = null, active = false }) {
             <DeferredDisplayContent key={openTab.id} render={openTab.render}/>
           </div>)}
       </div>
-      {showFooter ? (<div className="work-section__footer">
-          <SidebarModelsControl active={modelsActive}/>
-        </div>) : null}
     </div>);
 }

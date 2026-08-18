@@ -212,6 +212,15 @@ const emit = (next: SidebarSectionsSnapshot): void => {
 const activeTabOf = (state: SidebarSectionsSnapshot): SidebarTab | null =>
   state.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
 
+/**
+ * A tab that shows a launcher/list rather than a concrete item, so selecting an
+ * item from it is in-place navigation (reuse the tab) rather than a new tab:
+ * the empty Home launcher, or a Files/Apps list with nothing drilled in.
+ */
+const isReusableNavTab = (tab: SidebarTab): boolean =>
+  tab.kind === "home" ||
+  (tab.location === null && (tab.kind === "files" || tab.kind === "apps"));
+
 export const sidebarSections = {
   subscribe(listener: Listener): () => void {
     listeners.add(listener);
@@ -238,20 +247,46 @@ export const sidebarSections = {
   },
 
   /**
-   * Open an item as a tab. If the active tab is an empty Home launcher it is
-   * turned INTO the item (browser "new tab → navigate"); otherwise a brand-new
-   * tab is created. Activates it and opens the panel.
+   * Open an item as a tab.
+   *
+   * - If a tab for this exact concrete item (kind + location) is already open,
+   *   it is focused — never duplicated.
+   * - Else, if the active tab is a launcher/list surface (the empty Home
+   *   launcher, or a Files/Apps list with nothing drilled in), that SAME tab is
+   *   reused in place — selecting an item from a list/launcher is in-place
+   *   navigation (Files list → click report.pdf → that tab becomes report.pdf),
+   *   preserving its id / order / mounted state.
+   * - Otherwise (a concrete content tab is active: a specific file/app, quick
+   *   chat, browser) a brand-new tab is created, never overwriting it.
+   *
+   * Always activates the destination and opens the panel.
    */
   openLocation(section: SidebarSection, location: string | null): void {
     const kind = resolveSidebarSection(section);
+    const loc = location ?? null;
+
+    // Dedupe concrete items: focus an already-open tab for this exact item.
+    if (loc !== null) {
+      const existing = snapshot.tabs.find(
+        (tab) => tab.kind === kind && tab.location === loc,
+      );
+      if (existing) {
+        if (snapshot.activeTabId !== existing.id) {
+          emit({ ...snapshot, activeTabId: existing.id });
+        }
+        displayTabs.setPanelOpen(true);
+        return;
+      }
+    }
+
     const active = activeTabOf(snapshot);
-    if (active && active.kind === "home") {
+    if (active && isReusableNavTab(active)) {
       const tabs = snapshot.tabs.map((tab) =>
-        tab.id === active.id ? { ...tab, kind, location: location ?? null } : tab,
+        tab.id === active.id ? { ...tab, kind, location: loc } : tab,
       );
       emit({ tabs, activeTabId: active.id });
     } else {
-      const tab = makeTab(kind, location);
+      const tab = makeTab(kind, loc);
       emit({ tabs: [...snapshot.tabs, tab], activeTabId: tab.id });
     }
     displayTabs.setPanelOpen(true);

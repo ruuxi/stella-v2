@@ -58,13 +58,6 @@
   overflow: hidden;
 }
 
-.workspace-home-surface__footer {
-  display: flex;
-  flex: 0 0 auto;
-  justify-content: flex-end;
-  padding: 10px 12px 12px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .workspace-home-surface,
   .workspace-home-surface__inner {

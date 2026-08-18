@@ -653,21 +653,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Ein einmaliges Guthaben, um Stella auszuprobieren"
+        "tagline": "Kostenlos testen."
       },
       "go": {
-        "tagline": "Großzügige Nutzung für den Arbeitsalltag"
+        "tagline": "10× höhere Nutzung"
       },
       "pro": {
-        "tagline": "Alles aus Go, plus Generierung"
+        "tagline": "Die höchsten Nutzungslimits für Mediengenerierung und mehrere Agenten"
       }
     },
     "features": {
       "assistant": "Persönlicher Assistent",
       "codingAgent": "Coding-Agent",
       "research": "Recherche und Wissensarbeit",
-      "noAds": "Keine Werbung",
-      "orchestrator": "Orchestrator-Modus"
+      "dictationReadAloud": "Diktat und Vorlesen",
+      "multipleAgents": "Mehrere Agenten"
     },
     "capability": {
       "image_generation": "Bildgenerierung",
@@ -686,11 +686,11 @@
       "genericDescription": "Diese Funktion ist in Stella Pro enthalten. Mach ein Upgrade, um sie freizuschalten."
     },
     "freeAllowance": {
-      "label": "Kostenloses Guthaben",
-      "caption": "Einmalig — es wird nicht zurückgesetzt.",
-      "remaining": "{amount} übrig. Ist es aufgebraucht, kommt es nicht zurück.",
-      "exhaustedTitle": "Dein kostenloses Guthaben ist aufgebraucht",
-      "exhaustedDescription": "Der Tarif Free enthält ein einmaliges Guthaben, das nie zurückgesetzt wird. Mach ein Upgrade auf Go, um Stella weiter zu nutzen.",
+      "label": "Nutzung des Free-Tarifs",
+      "caption": "Kostenlos testen.",
+      "remaining": "Kostenlos testen.",
+      "exhaustedTitle": "Du hast das Limit des Free-Tarifs erreicht",
+      "exhaustedDescription": "Führe ein Upgrade auf Go durch, um 10× mehr zu nutzen.",
       "exhaustedCta": "Upgrade auf Go"
     },
     "upgradeDialog": {
@@ -705,7 +705,9 @@
       "accessEnds": "Zugriff endet am {date}",
       "lapseTitle": "Stella stoppt, wenn dein Tarif endet",
       "lapseDescription": "Dein Tarif {plan} läuft noch bis {date}. Danach stoppt Stella — das Guthaben des Tarifs Free gibt es nur einmal, und deins ist schon aufgebraucht."
-    }
+    },
+    "heading": "Wähle deinen Tarif",
+    "subtitle": "Starte kostenlos. Führe ein Upgrade durch, wenn du mehr brauchst."
   },
   "chat": {
     "stoppedReply": "Stella konnte diese Antwort nicht starten",

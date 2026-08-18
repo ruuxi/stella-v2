@@ -653,21 +653,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Egyszeri keret a Stella kipróbálásához"
+        "tagline": "Ingyenesen kipróbálható."
       },
       "go": {
-        "tagline": "Bőséges használat a mindennapi munkához"
+        "tagline": "10× nagyobb használat"
       },
       "pro": {
-        "tagline": "Minden, ami a Go-ban, plusz a generálás"
+        "tagline": "A legmagasabb használati korlátok médiageneráláshoz és több ügynökhöz"
       }
     },
     "features": {
       "assistant": "Személyes asszisztens",
       "codingAgent": "Kódoló ügynök",
       "research": "Kutatás és tudásmunka",
-      "noAds": "Nincsenek hirdetések",
-      "orchestrator": "Orkesztrátor mód"
+      "dictationReadAloud": "Diktálás és felolvasás",
+      "multipleAgents": "Több ügynök"
     },
     "capability": {
       "image_generation": "Képgenerálás",
@@ -686,11 +686,11 @@
       "genericDescription": "Ez a funkció a Stella Pro csomag része. Válts csomagot a feloldásához."
     },
     "freeAllowance": {
-      "label": "Ingyenes keret",
-      "caption": "Egyszeri — nem áll vissza.",
-      "remaining": "Maradt {amount}. Ha elfogy, nem jön vissza.",
-      "exhaustedTitle": "Elfogyott az ingyenes kereted",
-      "exhaustedDescription": "A Free csomag egyszeri keretet tartalmaz, ami soha nem áll vissza. Válts a Go csomagra, hogy tovább használhasd a Stellát.",
+      "label": "A Free csomag használata",
+      "caption": "Ingyenesen kipróbálható.",
+      "remaining": "Ingyenesen kipróbálható.",
+      "exhaustedTitle": "Elérted a Free csomag korlátját",
+      "exhaustedDescription": "Válts Go csomagra a 10× nagyobb használatért.",
       "exhaustedCta": "Váltás a Go csomagra"
     },
     "upgradeDialog": {
@@ -705,7 +705,9 @@
       "accessEnds": "A hozzáférés eddig tart: {date}",
       "lapseTitle": "A Stella leáll, amikor a csomagod lejár",
       "lapseDescription": "A(z) {plan} csomagod eddig tart: {date}. Utána a Stella leáll — a Free csomag kerete egyszeri, és a tiédet már elhasználtad."
-    }
+    },
+    "heading": "Válaszd ki a csomagodat",
+    "subtitle": "Kezdd ingyen. Válts magasabb csomagra, amikor többre van szükséged."
   },
   "chat": {
     "stoppedReply": "A Stella nem tudta elindítani ezt a választ",

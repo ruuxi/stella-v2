@@ -652,21 +652,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Hạn mức dùng một lần để trải nghiệm Stella"
+        "tagline": "Dùng thử miễn phí."
       },
       "go": {
-        "tagline": "Hạn mức rộng rãi cho công việc hằng ngày"
+        "tagline": "Mức sử dụng cao hơn 10×"
       },
       "pro": {
-        "tagline": "Mọi thứ trong Go, cộng thêm khả năng tạo nội dung"
+        "tagline": "Giới hạn sử dụng cao nhất cho việc tạo nội dung đa phương tiện và nhiều tác nhân"
       }
     },
     "features": {
       "assistant": "Trợ lý cá nhân",
       "codingAgent": "Tác nhân lập trình",
       "research": "Nghiên cứu và công việc tri thức",
-      "noAds": "Không quảng cáo",
-      "orchestrator": "Chế độ điều phối"
+      "dictationReadAloud": "Đọc chính tả và đọc thành tiếng",
+      "multipleAgents": "Nhiều tác nhân"
     },
     "capability": {
       "image_generation": "Tạo hình ảnh",
@@ -685,11 +685,11 @@
       "genericDescription": "Tính năng này có trong Stella Pro. Nâng cấp để mở khóa."
     },
     "freeAllowance": {
-      "label": "Hạn mức miễn phí",
-      "caption": "Dùng một lần — không đặt lại.",
-      "remaining": "Còn {amount}. Dùng hết là không có lại.",
-      "exhaustedTitle": "Bạn đã dùng hết hạn mức miễn phí",
-      "exhaustedDescription": "Gói Free có hạn mức dùng một lần và không bao giờ đặt lại. Nâng cấp lên Go để tiếp tục dùng Stella.",
+      "label": "Mức sử dụng gói Free",
+      "caption": "Dùng thử miễn phí.",
+      "remaining": "Dùng thử miễn phí.",
+      "exhaustedTitle": "Bạn đã đạt giới hạn của gói Free",
+      "exhaustedDescription": "Nâng cấp lên Go để có mức sử dụng cao hơn 10×.",
       "exhaustedCta": "Nâng cấp lên Go"
     },
     "upgradeDialog": {
@@ -704,7 +704,9 @@
       "accessEnds": "Kết thúc truy cập vào {date}",
       "lapseTitle": "Stella sẽ dừng khi gói của bạn kết thúc",
       "lapseDescription": "Gói {plan} của bạn còn hiệu lực đến {date}. Sau đó Stella sẽ dừng — hạn mức của gói Free chỉ được cấp một lần và bạn đã dùng hết."
-    }
+    },
+    "heading": "Chọn gói của bạn",
+    "subtitle": "Bắt đầu miễn phí. Nâng cấp khi bạn cần nhiều hơn."
   },
   "chat": {
     "stoppedReply": "Stella không thể bắt đầu phản hồi này",

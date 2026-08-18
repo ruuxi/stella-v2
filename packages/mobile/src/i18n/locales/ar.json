@@ -657,21 +657,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "رصيد لمرة واحدة لتجربة Stella"
+        "tagline": "مجاني للتجربة."
       },
       "go": {
-        "tagline": "استخدام سخي للعمل اليومي"
+        "tagline": "استخدام أعلى 10×"
       },
       "pro": {
-        "tagline": "كل ما في Go، بالإضافة إلى التوليد"
+        "tagline": "أعلى حدود استخدام لإنشاء الوسائط والوكلاء المتعددين"
       }
     },
     "features": {
       "assistant": "مساعد شخصي",
       "codingAgent": "وكيل برمجة",
       "research": "البحث والعمل المعرفي",
-      "noAds": "بدون إعلانات",
-      "orchestrator": "وضع المنسّق"
+      "dictationReadAloud": "الإملاء والقراءة بصوت عالٍ",
+      "multipleAgents": "وكلاء متعددون"
     },
     "capability": {
       "image_generation": "توليد الصور",
@@ -690,11 +690,11 @@
       "genericDescription": "هذه الميزة مضمّنة في Stella Pro. رقِّ خطتك لفتحها."
     },
     "freeAllowance": {
-      "label": "الرصيد المجاني",
-      "caption": "لمرة واحدة — لا يتجدد.",
-      "remaining": "بقي {amount}. وبعد نفاده لا يعود.",
-      "exhaustedTitle": "نفد رصيدك المجاني",
-      "exhaustedDescription": "تتضمن خطة Free رصيدًا لمرة واحدة لا يتجدد أبدًا. رقِّ إلى Go لمواصلة استخدام Stella.",
+      "label": "استخدام الخطة المجانية",
+      "caption": "مجاني للتجربة.",
+      "remaining": "مجاني للتجربة.",
+      "exhaustedTitle": "لقد وصلت إلى حد الخطة المجانية",
+      "exhaustedDescription": "قم بالترقية إلى Go لاستخدام أعلى 10×.",
       "exhaustedCta": "الترقية إلى Go"
     },
     "upgradeDialog": {
@@ -709,7 +709,9 @@
       "accessEnds": "ينتهي الوصول في {date}",
       "lapseTitle": "سيتوقف Stella عند انتهاء خطتك",
       "lapseDescription": "تستمر خطة {plan} حتى {date}. بعد ذلك يتوقف Stella — رصيد خطة Free يُمنح مرة واحدة، ورصيدك استُهلك بالفعل."
-    }
+    },
+    "heading": "اختر خطتك",
+    "subtitle": "ابدأ مجانًا. قم بالترقية عندما تحتاج إلى المزيد."
   },
   "chat": {
     "stoppedReply": "لم تستطع Stella بدء هذا الرد",

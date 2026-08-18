@@ -654,21 +654,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "מכסה חד-פעמית להתנסות ב-Stella"
+        "tagline": "חינם להתנסות."
       },
       "go": {
-        "tagline": "מכסה נדיבה לעבודה יומיומית"
+        "tagline": "שימוש גבוה פי 10"
       },
       "pro": {
-        "tagline": "כל מה שיש ב-Go, ובנוסף יצירת תוכן"
+        "tagline": "מגבלות השימוש הגבוהות ביותר ליצירת מדיה ולסוכנים מרובים"
       }
     },
     "features": {
       "assistant": "עוזר אישי",
       "codingAgent": "סוכן קוד",
       "research": "מחקר ועבודת ידע",
-      "noAds": "בלי פרסומות",
-      "orchestrator": "מצב תזמור"
+      "dictationReadAloud": "הכתבה והקראה",
+      "multipleAgents": "סוכנים מרובים"
     },
     "capability": {
       "image_generation": "יצירת תמונות",
@@ -687,11 +687,11 @@
       "genericDescription": "התכונה הזו כלולה ב-Stella Pro. שדרג כדי לפתוח אותה."
     },
     "freeAllowance": {
-      "label": "מכסה חינם",
-      "caption": "חד-פעמית — היא לא מתאפסת.",
-      "remaining": "נותרו {amount}. אחרי שייגמר, הוא לא חוזר.",
-      "exhaustedTitle": "המכסה החינמית שלך נגמרה",
-      "exhaustedDescription": "תוכנית Free כוללת מכסה חד-פעמית שלא מתאפסת לעולם. שדרג ל-Go כדי להמשיך להשתמש ב-Stella.",
+      "label": "שימוש בתוכנית Free",
+      "caption": "חינם להתנסות.",
+      "remaining": "חינם להתנסות.",
+      "exhaustedTitle": "הגעתם למגבלת תוכנית Free",
+      "exhaustedDescription": "שדרגו ל-Go לשימוש גבוה פי 10.",
       "exhaustedCta": "שדרוג ל-Go"
     },
     "upgradeDialog": {
@@ -706,7 +706,9 @@
       "accessEnds": "הגישה מסתיימת ב-{date}",
       "lapseTitle": "Stella תפסיק לפעול כשהתוכנית שלך תסתיים",
       "lapseDescription": "תוכנית {plan} שלך פעילה עד {date}. אחרי כן Stella תפסיק לפעול — המכסה של תוכנית Free ניתנת פעם אחת, ואת שלך כבר ניצלת."
-    }
+    },
+    "heading": "בחרו את התוכנית שלכם",
+    "subtitle": "התחילו בחינם. שדרגו כשתצטרכו יותר."
   },
   "chat": {
     "stoppedReply": "Stella לא הצליחה להתחיל את התגובה הזו",

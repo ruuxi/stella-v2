@@ -653,21 +653,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Ett engångssaldo för att testa Stella"
+        "tagline": "Gratis att prova."
       },
       "go": {
-        "tagline": "Generös användning för vardagens arbete"
+        "tagline": "10× högre användning"
       },
       "pro": {
-        "tagline": "Allt i Go, plus generering"
+        "tagline": "De högsta användningsgränserna för mediegenerering och flera agenter"
       }
     },
     "features": {
       "assistant": "Personlig assistent",
       "codingAgent": "Kodagent",
       "research": "Research och kunskapsarbete",
-      "noAds": "Inga annonser",
-      "orchestrator": "Orkestratorläge"
+      "dictationReadAloud": "Diktering och uppläsning",
+      "multipleAgents": "Flera agenter"
     },
     "capability": {
       "image_generation": "Bildgenerering",
@@ -686,11 +686,11 @@
       "genericDescription": "Den här funktionen ingår i Stella Pro. Uppgradera för att låsa upp den."
     },
     "freeAllowance": {
-      "label": "Gratissaldo",
-      "caption": "Engångs — det nollställs inte.",
-      "remaining": "{amount} kvar. När det är slut kommer det inte tillbaka.",
-      "exhaustedTitle": "Ditt gratissaldo är slut",
-      "exhaustedDescription": "Free-planen innehåller ett engångssaldo som aldrig nollställs. Uppgradera till Go för att fortsätta använda Stella.",
+      "label": "Användning på Free-planen",
+      "caption": "Gratis att prova.",
+      "remaining": "Gratis att prova.",
+      "exhaustedTitle": "Du har nått gränsen för Free-planen",
+      "exhaustedDescription": "Uppgradera till Go för 10× högre användning.",
       "exhaustedCta": "Uppgradera till Go"
     },
     "upgradeDialog": {
@@ -705,7 +705,9 @@
       "accessEnds": "Åtkomsten slutar {date}",
       "lapseTitle": "Stella stannar när din plan tar slut",
       "lapseDescription": "Din {plan}-plan gäller till {date}. Efter det stannar Stella — Free-planens saldo ges bara en gång och ditt är redan förbrukat."
-    }
+    },
+    "heading": "Välj din plan",
+    "subtitle": "Börja gratis. Uppgradera när du behöver mer."
   },
   "chat": {
     "stoppedReply": "Stella kunde inte starta det här svaret",

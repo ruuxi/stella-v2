@@ -158,7 +158,7 @@ describe("billing panel", () => {
     expect(findButton("Choose Pro")).not.toBeUndefined();
     // Free user has no subscription to manage.
     expect(findButton("Manage subscription")).toBeUndefined();
-    expect(container.textContent).toContain("A one-time allowance to try");
+    expect(container.textContent).toContain("Free to try.");
     expect(container.textContent).not.toContain("3x the usage");
     expect(container.textContent).not.toContain("Verified creator badge");
     expect(container.textContent).toContain("Extra usage credit");
@@ -183,21 +183,18 @@ describe("billing panel", () => {
       "Personal assistant",
       "Coding agent",
       "Research and knowledge work",
+      "Dictation and read-aloud",
+      "Multiple agents",
     ]);
-    expect(go).toEqual([...free, "No ads"]);
+    expect(go).toEqual(free);
     // Pro's extra rows are the enforced capabilities themselves, derived
-    // from CAPABILITY_MATRIX rather than written out here — that is what
-    // stops the copy drifting from what the app enforces. "Orchestrator
-    // mode" trails them as the one presentational-only row: it is open
-    // to every plan and merely listed on Pro, so it must never appear in
-    // the capability matrix.
+    // from CAPABILITY_MATRIX rather than written out here.
     expect(pro).toEqual([
       ...go,
       "Image generation",
       "Video generation",
       "Voice and music generation",
       "3D generation",
-      "Orchestrator mode",
     ]);
 
     // The rows plans share stay in the same sequence in every column, so
@@ -226,13 +223,11 @@ describe("billing panel", () => {
 
     const meters = Array.from(container.querySelectorAll(".billing-meter"));
     expect(meters).toHaveLength(1);
-    expect(meters[0]?.textContent).toContain("Free allowance");
-    expect(meters[0]?.textContent).toContain("$0.20");
-    expect(meters[0]?.textContent).toContain("$0.50");
+    expect(meters[0]?.textContent).toContain("Free plan usage");
+    expect(meters[0]?.textContent).not.toContain("$");
     expect(container.textContent).not.toContain("This week");
     expect(container.textContent).not.toContain("This month");
-    expect(container.textContent).toContain("doesn't reset");
-    expect(container.textContent).toContain("$0.30 left");
+    expect(container.textContent).not.toContain("doesn't reset");
   });
 
   it("shows a terminal upgrade state once the free allowance is spent", async () => {
@@ -243,9 +238,8 @@ describe("billing panel", () => {
     });
     await render();
 
-    expect(container.textContent).toContain("Your free allowance is used up");
-    // Never "try again later" — the allowance has no reset to wait for.
-    expect(container.textContent).toContain("never resets");
+    expect(container.textContent).toContain("You've reached the Free plan limit");
+    expect(container.textContent).toContain("10× higher usage");
     expect(container.textContent).not.toContain("try again");
 
     await act(async () => {

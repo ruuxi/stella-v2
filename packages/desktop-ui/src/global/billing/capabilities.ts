@@ -9,10 +9,8 @@
  * request after the fact. There is deliberately no second list to keep
  * in sync.
  *
- * Note that a feature appearing on a paid plan card is not proof it is
- * gated — `BillingScreen`'s `PRESENTATIONAL_PLAN_FEATURES` lists rows
- * that are open to everyone and merely presented on a paid tier
- * (orchestrator mode). Only what is in `CAPABILITY_MATRIX` is enforced.
+ * Only what is in `CAPABILITY_MATRIX` is enforced. Billing copy for
+ * all-plan features must stay separate from this capability gate.
  *
  * Copy lives behind i18n keys rather than inline English. The action
  * rule — signed-out users get "Sign in", everybody else gets "Upgrade" —

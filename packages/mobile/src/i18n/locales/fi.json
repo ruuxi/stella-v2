@@ -653,21 +653,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Kertaluonteinen krediitti Stellan kokeiluun"
+        "tagline": "Ilmainen kokeilla."
       },
       "go": {
-        "tagline": "Runsaasti käyttöä arjen työhön"
+        "tagline": "10× enemmän käyttöä"
       },
       "pro": {
-        "tagline": "Kaikki Go:sta ja lisäksi sisällön luonti"
+        "tagline": "Suurimmat käyttörajat median luontiin ja useille agenteille"
       }
     },
     "features": {
       "assistant": "Henkilökohtainen avustaja",
       "codingAgent": "Koodausagentti",
       "research": "Tutkimus ja tietotyö",
-      "noAds": "Ei mainoksia",
-      "orchestrator": "Orkestraattoritila"
+      "dictationReadAloud": "Sanelu ja ääneenluku",
+      "multipleAgents": "Useita agentteja"
     },
     "capability": {
       "image_generation": "Kuvien luonti",
@@ -686,11 +686,11 @@
       "genericDescription": "Tämä ominaisuus sisältyy Stella Pro -tilaukseen. Päivitä tilaus, niin saat sen käyttöön."
     },
     "freeAllowance": {
-      "label": "Ilmainen krediitti",
-      "caption": "Kertaluonteinen — se ei nollaudu.",
-      "remaining": "Jäljellä {amount}. Kun se on käytetty, se ei palaa.",
-      "exhaustedTitle": "Ilmainen krediittisi on käytetty",
-      "exhaustedDescription": "Free-tilaus sisältää kertaluonteisen krediitin, joka ei koskaan nollaudu. Päivitä Go-tilaukseen ja jatka Stellan käyttöä.",
+      "label": "Free-tilauksen käyttö",
+      "caption": "Ilmainen kokeilla.",
+      "remaining": "Ilmainen kokeilla.",
+      "exhaustedTitle": "Olet saavuttanut Free-tilauksen rajan",
+      "exhaustedDescription": "Päivitä Go-tilaukseen saadaksesi 10× enemmän käyttöä.",
       "exhaustedCta": "Päivitä Go-tilaukseen"
     },
     "upgradeDialog": {
@@ -705,7 +705,9 @@
       "accessEnds": "Käyttöoikeus päättyy {date}",
       "lapseTitle": "Stella pysähtyy, kun tilauksesi päättyy",
       "lapseDescription": "{plan}-tilauksesi on voimassa {date} asti. Sen jälkeen Stella pysähtyy — Free-tilauksen krediitti annetaan vain kerran, ja olet jo käyttänyt omasi."
-    }
+    },
+    "heading": "Valitse tilauksesi",
+    "subtitle": "Aloita ilmaiseksi. Päivitä, kun tarvitset enemmän."
   },
   "chat": {
     "stoppedReply": "Stella ei pystynyt aloittamaan tätä vastausta",

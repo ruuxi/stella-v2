@@ -655,21 +655,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Jednorázový kredit na vyzkoušení Stelly"
+        "tagline": "Zdarma na vyzkoušení."
       },
       "go": {
-        "tagline": "Štědré limity pro každodenní práci"
+        "tagline": "10× vyšší využití"
       },
       "pro": {
-        "tagline": "Vše z plánu Go a navíc generování"
+        "tagline": "Nejvyšší limity využití pro generování médií a více agentů"
       }
     },
     "features": {
       "assistant": "Osobní asistent",
       "codingAgent": "Programovací agent",
       "research": "Rešerše a znalostní práce",
-      "noAds": "Žádné reklamy",
-      "orchestrator": "Režim orchestrátoru"
+      "dictationReadAloud": "Diktování a předčítání",
+      "multipleAgents": "Více agentů"
     },
     "capability": {
       "image_generation": "Generování obrázků",
@@ -688,11 +688,11 @@
       "genericDescription": "Tato funkce je součástí plánu Stella Pro. Upgradujte plán, abyste ji odemkli."
     },
     "freeAllowance": {
-      "label": "Kredit zdarma",
-      "caption": "Jednorázový — neobnovuje se.",
-      "remaining": "Zbývá {amount}. Až se vyčerpá, už se nevrátí.",
-      "exhaustedTitle": "Váš kredit zdarma je vyčerpaný",
-      "exhaustedDescription": "Plán Free zahrnuje jednorázový kredit, který se nikdy neobnovuje. Upgradujte na Go a používejte Stellu dál.",
+      "label": "Využití tarifu Free",
+      "caption": "Zdarma na vyzkoušení.",
+      "remaining": "Zdarma na vyzkoušení.",
+      "exhaustedTitle": "Dosáhli jste limitu tarifu Free",
+      "exhaustedDescription": "Upgradujte na Go pro 10× vyšší využití.",
       "exhaustedCta": "Upgradovat na Go"
     },
     "upgradeDialog": {
@@ -707,7 +707,9 @@
       "accessEnds": "Přístup končí {date}",
       "lapseTitle": "Až plán skončí, Stella přestane fungovat",
       "lapseDescription": "Váš plán {plan} běží do {date}. Poté Stella přestane fungovat — kredit plánu Free je jednorázový a ten svůj jste už vyčerpali."
-    }
+    },
+    "heading": "Vyberte si tarif",
+    "subtitle": "Začněte zdarma. Upgradujte, až budete potřebovat více."
   },
   "chat": {
     "stoppedReply": "Stella nemohla zahájit tuto odpověď",

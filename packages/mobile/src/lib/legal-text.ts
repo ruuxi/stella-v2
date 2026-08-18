@@ -199,10 +199,10 @@ Last updated: ${LEGAL_LAST_UPDATED}
 
 This Privacy Policy describes how FromYou LLC ("FromYou," "we," "us," or "our") handles information when you use Stella, including the desktop application, mobile companion app, backend services, and related websites or APIs (collectively, the "Service").
 
-Stella is built on a local-first, privacy-by-design architecture. The Stella platform is completely free and open source. We designed the system so that your personal data stays on your device. FromYou operates the Stella Provider, a managed LLM inference service, as a separate paid offering — this is the only component where your data transits our servers. This policy explains exactly what we do and do not collect, and the limited circumstances where data reaches our infrastructure.
+Stella stores its canonical conversation history and local context on your device. Some features send data to Stella services or third-party providers to perform the actions you request. Stella's platform is open source. This policy explains what we collect, how requested features process data, and when data reaches our infrastructure.
 
 
-1. Our Core Principle: Your Data Stays on Your Device
+1. Local and Hosted Data Flows
 
 Stella runs primarily on your local machine. Unlike most AI assistants:
 
@@ -365,7 +365,7 @@ We may update this Privacy Policy from time to time. We will indicate the date o
 
 21. Open Source Transparency
 
-Stella's platform is open source. You can review exactly how data is handled by inspecting the source code. We believe this is the strongest form of privacy assurance — you don't have to take our word for it.
+Stella's platform is open source, and its source code can be reviewed.
 
 
 22. Contact Us

@@ -651,23 +651,25 @@
     }
   },
   "billing": {
+    "heading": "Choose your plan",
+    "subtitle": "Start free. Upgrade when you need more.",
     "plans": {
       "free": {
-        "tagline": "A one-time allowance to try Stella"
+        "tagline": "Free to try."
       },
       "go": {
-        "tagline": "Generous usage for everyday work"
+        "tagline": "10× higher usage"
       },
       "pro": {
-        "tagline": "Everything in Go, plus generation"
+        "tagline": "Highest usage limits for media generation and multiple agents"
       }
     },
     "features": {
       "assistant": "Personal assistant",
       "codingAgent": "Coding agent",
       "research": "Research and knowledge work",
-      "noAds": "No ads",
-      "orchestrator": "Orchestrator mode"
+      "dictationReadAloud": "Dictation and read-aloud",
+      "multipleAgents": "Multiple agents"
     },
     "capability": {
       "image_generation": "Image generation",
@@ -686,11 +688,11 @@
       "genericDescription": "This feature is included with Stella Pro. Upgrade to unlock it."
     },
     "freeAllowance": {
-      "label": "Free allowance",
-      "caption": "One-time — this doesn't reset.",
-      "remaining": "{amount} left. Once it's gone it doesn't come back.",
-      "exhaustedTitle": "Your free allowance is used up",
-      "exhaustedDescription": "The Free plan includes a one-time allowance that never resets. Upgrade to Go to keep using Stella.",
+      "label": "Free plan usage",
+      "caption": "Free to try.",
+      "remaining": "Free to try.",
+      "exhaustedTitle": "You've reached the Free plan limit",
+      "exhaustedDescription": "Upgrade to Go for 10× higher usage.",
       "exhaustedCta": "Upgrade to Go"
     },
     "upgradeDialog": {
@@ -714,7 +716,7 @@
       "manageWebNote": "Manage or cancel this subscription from Stella on the web at stella.sh.",
       "renews": "Renews {date}",
       "accessEnds": "Access ends {date}",
-      "chooseHeading": "Choose a plan",
+      "chooseHeading": "Choose your plan",
       "subscribe": "Subscribe",
       "perMonth": "{price}/mo",
       "introLine": "{introPrice} first month, then {price}/mo",

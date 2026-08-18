@@ -652,21 +652,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Stella を試すための一度きりの利用枠"
+        "tagline": "無料でお試し。"
       },
       "go": {
-        "tagline": "日々の仕事に十分な利用量"
+        "tagline": "10倍の利用上限"
       },
       "pro": {
-        "tagline": "Go のすべてに生成機能をプラス"
+        "tagline": "メディア生成と複数エージェント向けの最大利用上限"
       }
     },
     "features": {
       "assistant": "パーソナルアシスタント",
       "codingAgent": "コーディングエージェント",
       "research": "リサーチとナレッジワーク",
-      "noAds": "広告なし",
-      "orchestrator": "オーケストレーターモード"
+      "dictationReadAloud": "音声入力と読み上げ",
+      "multipleAgents": "複数のエージェント"
     },
     "capability": {
       "image_generation": "画像生成",
@@ -685,11 +685,11 @@
       "genericDescription": "この機能は Stella Pro に含まれています。アップグレードすると利用できます。"
     },
     "freeAllowance": {
-      "label": "無料利用枠",
-      "caption": "一度きりで、リセットされません。",
-      "remaining": "残り {amount}。使い切ると元には戻りません。",
-      "exhaustedTitle": "無料利用枠を使い切りました",
-      "exhaustedDescription": "Free プランには、リセットされない一度きりの利用枠が含まれています。Stella を使い続けるには Go にアップグレードしてください。",
+      "label": "Freeプランの使用量",
+      "caption": "無料でお試し。",
+      "remaining": "無料でお試し。",
+      "exhaustedTitle": "Freeプランの上限に達しました",
+      "exhaustedDescription": "10倍の利用上限が必要な場合はGoにアップグレードしてください。",
       "exhaustedCta": "Go にアップグレード"
     },
     "upgradeDialog": {
@@ -704,7 +704,9 @@
       "accessEnds": "{date} に利用終了",
       "lapseTitle": "プランの終了とともに Stella は止まります",
       "lapseDescription": "{plan} プランは {date} まで利用できます。その後は Stella が止まります — Free プランの利用枠は一度きりで、すでに使い切っています。"
-    }
+    },
+    "heading": "プランを選択",
+    "subtitle": "無料で始めて、必要になったらアップグレード。"
   },
   "chat": {
     "stoppedReply": "Stella はこの返信を開始できませんでした",

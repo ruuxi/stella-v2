@@ -653,21 +653,21 @@
   "billing": {
     "plans": {
       "free": {
-        "tagline": "Stella'yı denemek için tek seferlik kullanım hakkı"
+        "tagline": "Denemek ücretsiz."
       },
       "go": {
-        "tagline": "Günlük iş için bol kullanım"
+        "tagline": "10× daha yüksek kullanım"
       },
       "pro": {
-        "tagline": "Go'daki her şey, üstüne üretim"
+        "tagline": "Medya üretimi ve birden fazla aracı için en yüksek kullanım sınırları"
       }
     },
     "features": {
       "assistant": "Kişisel asistan",
       "codingAgent": "Kodlama ajanı",
       "research": "Araştırma ve bilgi işi",
-      "noAds": "Reklam yok",
-      "orchestrator": "Orkestratör modu"
+      "dictationReadAloud": "Dikte ve sesli okuma",
+      "multipleAgents": "Birden fazla aracı"
     },
     "capability": {
       "image_generation": "Görsel oluşturma",
@@ -686,11 +686,11 @@
       "genericDescription": "Bu özellik Stella Pro'ya dahildir. Kullanmak için planınızı yükseltin."
     },
     "freeAllowance": {
-      "label": "Ücretsiz kullanım hakkı",
-      "caption": "Tek seferlik — sıfırlanmaz.",
-      "remaining": "{amount} kaldı. Bitince geri gelmez.",
-      "exhaustedTitle": "Ücretsiz kullanım hakkınız bitti",
-      "exhaustedDescription": "Free planı, hiç sıfırlanmayan tek seferlik bir kullanım hakkı içerir. Stella'yı kullanmaya devam etmek için Go'ya yükseltin.",
+      "label": "Free planı kullanımı",
+      "caption": "Denemek ücretsiz.",
+      "remaining": "Denemek ücretsiz.",
+      "exhaustedTitle": "Free planı sınırına ulaştınız",
+      "exhaustedDescription": "10× daha yüksek kullanım için Go'ya yükseltin.",
       "exhaustedCta": "Go'ya yükselt"
     },
     "upgradeDialog": {
@@ -705,7 +705,9 @@
       "accessEnds": "Erişim {date} tarihinde sona erer",
       "lapseTitle": "Planınız bitince Stella duracak",
       "lapseDescription": "{plan} planınız {date} tarihine kadar geçerli. Sonrasında Stella durur — Free planının kullanım hakkı tek seferlik ve sizinki zaten kullanıldı."
-    }
+    },
+    "heading": "Planınızı seçin",
+    "subtitle": "Ücretsiz başlayın. Daha fazlasına ihtiyacınız olduğunda yükseltin."
   },
   "chat": {
     "stoppedReply": "Stella bu yanıtı başlatamadı",

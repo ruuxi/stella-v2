@@ -184,12 +184,6 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-.billing-allowance-caption {
-  margin: 10px 0 0;
-  font-size: var(--font-size-xs);
-  color: var(--text-weak);
-}
-
 .billing-allowance {
   display: flex;
   align-items: center;
@@ -232,17 +226,6 @@
   font-weight: var(--weight-medium);
 }
 
-.billing-meter-amount {
-  color: var(--text-weak);
-  font-size: var(--font-size-xs);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.billing-meter-amount span {
-  color: var(--text-weaker);
-}
-
 .billing-meter-track {
   height: 3px;
   border-radius: var(--radius-full);
@@ -271,6 +254,22 @@
    thing that separates a pricing table from three stacked boxes. The
    feature list is the flexible track, so a shorter list leaves its slack
    above the CTA rather than dragging the button up out of line. */
+
+.billing-plan-intro h1 {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-family-display);
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-regular);
+  letter-spacing: -0.025em;
+}
+
+.billing-plan-intro p {
+  margin: 3px 0 0;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
 
 .billing-plans {
   display: grid;

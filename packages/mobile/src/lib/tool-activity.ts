@@ -166,6 +166,26 @@ const descriptorFor = (toolName: string): ToolDescriptor => {
   };
 };
 
+const failedSummary = (step: ToolActivityStep): string => {
+  const outcome = step.status === "canceled" ? "canceled" : "failed";
+  switch (step.toolName.toLowerCase()) {
+    case "web":
+      return `Web search ${outcome}`;
+    case "pdf":
+      return `PDF creation ${outcome}`;
+    case "map":
+      return `Map lookup ${outcome}`;
+    case "recall":
+      return `Memory lookup ${outcome}`;
+    case "remember":
+      return `Saving note ${outcome}`;
+    case "forget":
+      return `Removing note ${outcome}`;
+    default:
+      return `${capitalize(humanizeToolName(step.toolName))} ${outcome}`;
+  }
+};
+
 const DEV_CATEGORIES = new Set<ToolActivityCategory>([
   "read",
   "edit",
@@ -297,6 +317,9 @@ export function deriveToolActivity(
   );
 
   const active = settled.find((step) => step.status === "running");
+  const failed = settled.find(
+    (step) => step.status === "error" || step.status === "canceled",
+  );
   const displayedSummary = active
     ? active.toolName.toLowerCase() === "web"
       ? "Searching the web"
@@ -309,7 +332,9 @@ export function deriveToolActivity(
             : active.toolName.toLowerCase() === "recall"
               ? "Checking memory"
               : `Using ${humanizeToolName(active.toolName)}`
-    : summary;
+    : failed
+      ? failedSummary(failed)
+      : summary;
 
   // Leading icon: dominant aggregation group (most calls; ties keep order).
   let iconKey = order[0];

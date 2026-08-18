@@ -177,17 +177,18 @@ describe("BrowserSession direct daemon client", () => {
       await client.command("tab_list");
 
       expect(initializeInAppBrowser).toHaveBeenCalledOnce();
-      expect(sharedDaemon.requests[0]).toMatchObject({
+      expect(inAppDaemon.requests[1]).toMatchObject({
         action: "tab_list",
         browserBackend: "extension",
       });
+      expect(sharedDaemon.requests).toHaveLength(0);
 
       await client.selectBackend("in-app");
       await client.command("tab_list");
 
       expect(initializeInAppBrowser).toHaveBeenCalledOnce();
-      expect(inAppDaemon.requests[1]).toMatchObject({ action: "tab_list" });
-      expect(inAppDaemon.requests[1]).not.toHaveProperty("browserBackend");
+      expect(inAppDaemon.requests[2]).toMatchObject({ action: "tab_list" });
+      expect(inAppDaemon.requests[2]).not.toHaveProperty("browserBackend");
     } finally {
       await client.dispose();
       await inAppDaemon.close();

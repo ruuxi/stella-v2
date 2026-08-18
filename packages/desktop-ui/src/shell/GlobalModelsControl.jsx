@@ -36,13 +36,22 @@ const AgentModelPicker = lazy(() =>
   })),
 );
 
-export function GlobalModelsControl() {
+/**
+ * @param {{ visible?: boolean }} props `visible` follows the shell's
+ *   authoritative right-side Activity-workspace visibility. When the right
+ *   region isn't displaying, the control renders nothing so it never leaves an
+ *   empty right gutter behind. State/overlay/lifecycle stay globally owned
+ *   (engine-overlay store) — this only gates whether the button is on screen.
+ */
+export function GlobalModelsControl({ visible = true }) {
   const open = useEngineOverlayOpen();
   const modelPinned = useComposerModelPinned();
 
   useEffect(() => {
-    if (open) preloadModelsPicker();
-  }, [open]);
+    if (visible && open) preloadModelsPicker();
+  }, [open, visible]);
+
+  if (!visible) return null;
 
   return (
     <div className="global-models-control">

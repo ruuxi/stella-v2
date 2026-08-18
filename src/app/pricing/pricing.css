@@ -83,6 +83,30 @@
   backdrop-filter: blur(12px);
 }
 
+.pr-card--featured {
+  border-color: var(--page-accent);
+  box-shadow:
+    0 0 0 1px var(--page-accent),
+    0 8px 24px rgba(29, 120, 242, 0.1);
+}
+
+/* ── Popular badge ───────────────────────────────── */
+
+.pr-card__badge {
+  position: absolute;
+  top: -0.55rem;
+  left: 1.25rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--page-accent);
+  color: var(--page-accent-foreground);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
 /* ── Card header ─────────────────────────────────── */
 
 .pr-card__head {
@@ -187,16 +211,6 @@
   flex-shrink: 0;
   margin-top: 0.1rem;
   color: var(--page-accent);
-}
-
-/* Muted footnote under a card's checklist — states what the tier can't do. */
-.pr-card__note {
-  margin: 0;
-  padding-top: 0.85rem;
-  border-top: 1px solid rgba(82, 104, 134, 0.14);
-  color: var(--page-muted);
-  font-size: 0.74rem;
-  line-height: 1.45;
 }
 
 /* ── Every plan includes ─────────────────────────── */

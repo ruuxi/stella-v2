@@ -29,8 +29,7 @@ const plans: {
   introFirstMonthPriceUsd?: number;
   tagline: string;
   features: string[];
-  /** Muted line under the checklist — used to state what a tier does *not* do. */
-  note?: string;
+  featured?: boolean;
 }[] = [
   {
     name: "Free",
@@ -40,31 +39,24 @@ const plans: {
       "Coding agent",
       "Personal assistant",
       "Research and knowledge work",
+      "Dictation and read-aloud",
     ],
-    note: "Includes text output and dictation. Media generation requires Pro.",
   },
   {
     name: "Go",
     price: 5,
     tagline: "10× higher usage",
-    features: [
-      "Everything in Free",
-      "10× higher usage limits",
-      "Text output and dictation",
-    ],
-    note: "Media generation requires Pro.",
+    features: ["Coding, assistant and research", "Dictation and read-aloud"],
   },
   {
     name: "Pro",
     price: 15,
     tagline: "The highest usage limits",
+    featured: true,
     features: [
-      "Everything in Go",
-      "Highest usage limits",
       "Image, video, 3D and voice generation",
       "Multiple agents working together",
     ],
-    note: "For media generation and multi-agent workflows.",
   },
 ];
 
@@ -100,9 +92,13 @@ export default function Pricing() {
               {plans.map((plan, i) => (
                 <div
                   key={plan.name}
-                  className="pr-card reveal"
+                  className={`pr-card reveal${plan.featured ? " pr-card--featured" : ""}`}
                   style={{ animationDelay: `${i * 60}ms` }}
                 >
+                  {plan.featured && (
+                    <span className="pr-card__badge">Popular</span>
+                  )}
+
                   <div className="pr-card__head">
                     <h3 className="pr-card__name">{plan.name}</h3>
                     {typeof plan.introFirstMonthPriceUsd === "number" &&
@@ -144,10 +140,6 @@ export default function Pricing() {
                       </li>
                     ))}
                   </ul>
-
-                  {plan.note ? (
-                    <p className="pr-card__note">{plan.note}</p>
-                  ) : null}
                 </div>
               ))}
             </div>

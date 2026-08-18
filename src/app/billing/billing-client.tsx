@@ -137,16 +137,10 @@ const PLAN_FEATURES: Record<BillingPlan, readonly string[]> = {
     "Coding agent",
     "Personal assistant",
     "Research and knowledge work",
-    "Dictation",
+    "Dictation and read-aloud",
   ],
-  go: [
-    "Everything in Free",
-    "10× higher usage limits",
-    "Text output and dictation",
-  ],
+  go: ["Coding, assistant and research", "Dictation and read-aloud"],
   pro: [
-    "Everything in Go",
-    "Highest usage limits",
     "Image, video, 3D and voice generation",
     "Multiple agents working together",
   ],

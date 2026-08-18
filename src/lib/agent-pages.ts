@@ -220,8 +220,8 @@ const PRICING_MD = `${header(
   "Start free. Upgrade when you need more.",
 )}
 ## Plans
-- **Free** — $0. Free to try. Includes the coding agent, personal assistant, research and knowledge work, and dictation. Media generation requires Pro.
-- **Go** — $5/mo. Everything in Free with 10× higher usage. Includes text output and dictation. Media generation requires Pro.
+- **Free** — $0. Free to try. Includes the coding agent, personal assistant, research and knowledge work, dictation, and read-aloud.
+- **Go** — $5/mo. 10× higher usage. Includes coding, assistant and research features, dictation, and read-aloud.
 - **Pro** — $15/mo. The highest usage limits, image, video, 3D and voice generation, and multiple agents working together.
 
 ## Every plan includes

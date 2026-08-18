@@ -46,10 +46,11 @@ export const storeTicket = internalMutation({
   },
 });
 
-// Single-use: the row is always deleted, whether or not it validates, so a
-// ticket can never be replayed. Returns the synthesis params only when the
-// ticket exists, is owned by the caller, and has not expired.
-export const consumeTicket = internalMutation({
+// Reusable within its short TTL (owner-bound), NOT single-use: native players
+// issue several (ranged) requests per playback, so all must resolve. Replay is
+// bounded — same owner, same text, ≤2 minutes, prepare is rate-limited, and the
+// cron sweeps it. Returns the synthesis params plus any cached audio.
+export const readTicket = internalMutation({
   args: {
     ticket: v.string(),
     ownerId: v.string(),
@@ -61,7 +62,6 @@ export const consumeTicket = internalMutation({
       .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
       .unique();
     if (!row) return null;
-    await ctx.db.delete(row._id);
     if (row.ownerId !== args.ownerId || row.expiresAt <= args.nowMs) {
       return null;
     }
@@ -71,7 +71,29 @@ export const consumeTicket = internalMutation({
       model: row.model,
       speed: typeof row.speed === "number" ? row.speed : null,
       conversationId: row.conversationId ?? null,
+      audio: typeof row.audio === "string" ? row.audio : null,
     };
+  },
+});
+
+// Cache the synthesized MP3 (base64) on the ticket so the player's follow-up
+// range requests are served without re-synthesizing.
+export const cacheTicketAudio = internalMutation({
+  args: {
+    ticket: v.string(),
+    ownerId: v.string(),
+    audio: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("tts_stream_tickets")
+      .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
+      .unique();
+    if (row && row.ownerId === args.ownerId && !row.audio) {
+      await ctx.db.patch(row._id, { audio: args.audio });
+    }
+    return null;
   },
 });
 

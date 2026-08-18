@@ -4,10 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
 import { SiteHeaderAccount } from "@/components/auth/site-header-account";
-import {
-  chromeExtensionLink,
-  openSourceFooterItems,
-} from "@/components/site-footer-groups";
+import { chromeExtensionLink } from "@/components/site-footer-groups";
 
 type NavLink = { label: string; href: string; external?: boolean };
 type NavEntry = {
@@ -40,13 +37,8 @@ const NAV_ENTRIES: NavEntry[] = [
     ],
   },
   {
-    label: "Open Source",
-    items: openSourceFooterItems,
-  },
-  {
     label: "Community",
     items: [
-      { label: "Store", href: "/store" },
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },
     ],
@@ -85,9 +77,9 @@ function NavItemLink({
 /**
  * Primary site navigation used in every marketing-page header.
  *
- * On wide screens each top-level tab is either a direct link (Store) or a
- * footer-style category (Product, Resources, Community) that reveals its
- * links in a popover on hover or keyboard focus.
+ * On wide screens each top-level tab is a footer-style category (Product,
+ * Resources, Community) that reveals its links in a popover on hover or
+ * keyboard focus.
  *
  * On narrow screens (<= 860px) the tabs collapse into a hamburger sheet that
  * lists every category and its links. The `SiteHeaderAccount` sign-in button

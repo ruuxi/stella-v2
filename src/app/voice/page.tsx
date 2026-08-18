@@ -22,7 +22,7 @@ import { StellaMark } from "@/components/stella-mark";
 export const metadata: Metadata = {
   title: "Voice",
   description:
-    "Talk to Stella out loud. Your voice can turn into text right on your computer, and no recording ever leaves your machine. \"Hey Stella\" is fully on-device and off by default.",
+    "Talk to Stella out loud. On supported Macs, dictation and optional wake-word detection can run on-device.",
   alternates: { canonical: "/voice" },
 };
 

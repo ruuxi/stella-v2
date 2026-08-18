@@ -3,7 +3,6 @@ import Link from "next/link";
 import {
   CheckCircle2,
   Cloud,
-  CloudOff,
   FileLock,
   HardDrive,
   Hash,
@@ -16,8 +15,6 @@ import {
   Upload,
   Users,
 } from "lucide-react";
-import { DownloadButton } from "@/components/download-button";
-import { WindowsInstallNote } from "@/components/windows-install-note";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
@@ -27,7 +24,7 @@ import { StellaMark } from "@/components/stella-mark";
 export const metadata: Metadata = {
   title: "Storage",
   description:
-    "Where your stuff lives: Stella keeps your conversations in a single file on your own computer, not on our servers. Backups are off by default, and the only things that leave are the ones you choose to send.",
+    "Where Stella stores data locally, what its cloud services process, and when third-party providers handle request content.",
   alternates: { canonical: "/storage" },
 };
 
@@ -43,11 +40,11 @@ export default function StoragePage() {
               <ShieldCheck size={15} strokeWidth={1.9} aria-hidden="true" />
               Storage
             </span>
-            <h1>Your stuff stays on your computer.</h1>
+            <h1>Where Stella keeps your data.</h1>
             <p>
-              Stella keeps your conversations on your own machine, not on our
-              servers. The only things that ever leave are the ones you choose
-              to send.
+              Your normal desktop database lives on your computer. Managed AI,
+              media, search, mobile access, and connected services process the
+              data needed to fulfill your requests.
             </p>
           </div>
         </section>
@@ -62,9 +59,9 @@ export default function StoragePage() {
               </span>
               <h2>Your conversations live on your laptop.</h2>
               <p>
-                Every chat is saved in a single file on your computer. We
-                can&apos;t read it, because it never reaches us. The only time
-                your words go out is to the AI that writes the reply.
+                Your normal desktop chat history is saved in a database on your
+                computer. Relevant content can be sent to Stella and third-party
+                providers when a request uses a cloud-backed feature.
               </p>
             </div>
 
@@ -88,8 +85,8 @@ export default function StoragePage() {
                 </div>
                 <span className={styles.down} />
                 <div className={styles.crossed}>
-                  <CloudOff size={14} />
-                  nothing on our servers
+                  <Cloud size={14} />
+                  cloud features are handled separately
                 </div>
               </div>
             </div>
@@ -108,8 +105,7 @@ export default function StoragePage() {
               <p>
                 If you ever want a safety copy, you can turn backups on. They
                 get locked tight before they leave your computer, and they come
-                with a paid plan — so nothing is ever backed up unless you opt
-                in.
+                with a paid plan. Backups are off until you turn them on.
               </p>
             </div>
 
@@ -150,9 +146,9 @@ export default function StoragePage() {
               <p>
                 Connect Stella to your texts or chat apps and the work happens
                 on your computer — it reads the message, does the task, and
-                sends the reply. A message only passes through us long enough to
-                find your machine, and phone numbers are always scrambled, never
-                kept as-is.
+                sends the reply. Stella&apos;s backend processes request content,
+                routing data, and delivery state needed to connect the service
+                to your machine.
               </p>
             </div>
 
@@ -193,11 +189,11 @@ export default function StoragePage() {
                 <Smartphone size={14} strokeWidth={1.9} aria-hidden="true" />
                 From your phone
               </span>
-              <h2>Your phone talks straight to your desktop.</h2>
+              <h2>Your phone can reach your desktop.</h2>
               <p>
-                Use the app to drive your computer from anywhere. It connects
-                right to your desktop through a private tunnel — we only keep
-                track of which devices are paired, never what you say.
+                Use the app to reach your computer from anywhere. Stella&apos;s
+                backend handles pairing, routing, and temporary delivery state,
+                including request content when needed to complete the work.
               </p>
             </div>
 
@@ -219,7 +215,7 @@ export default function StoragePage() {
                 <span className={styles.down} />
                 <div className={styles.pile}>
                   <CheckCircle2 size={13} aria-hidden="true" />
-                  we keep only which devices are paired
+                  pairing and delivery state connect your devices
                 </div>
               </div>
             </div>
@@ -232,14 +228,14 @@ export default function StoragePage() {
             <div className={styles.copy}>
               <span className={styles.eyebrow}>
                 <Send size={14} strokeWidth={1.9} aria-hidden="true" />
-                Only when you share
+                Cloud features
               </span>
-              <h2>The only things that leave are the ones you send.</h2>
+              <h2>Some features need remote processing.</h2>
               <p>
-                Publishing an app to the Store or posting in the community are
-                the moments you choose to share. When you publish, we get a
-                tidied-up app — not your private chats. Posts you make are
-                public, like any message board.
+                Managed AI, media generation, search, connected services,
+                mobile delivery, backups, and publishing send the content and
+                metadata needed to provide those features. Providers may retain
+                submitted data under their own policies and configurations.
               </p>
             </div>
 
@@ -249,15 +245,15 @@ export default function StoragePage() {
                   <span className={styles.nodeIcon}>
                     <Upload size={18} />
                   </span>
-                  <strong>an app you publish</strong>
-                  <em>tidied up, no private chats</em>
+                  <strong>content you submit</strong>
+                  <em>sent to the service you use</em>
                 </div>
                 <div className={styles.node}>
                   <span className={styles.nodeIcon}>
                     <Users size={18} />
                   </span>
-                  <strong>a post you share</strong>
-                  <em>public, on purpose</em>
+                  <strong>provider processing</strong>
+                  <em>subject to provider policies</em>
                 </div>
               </div>
             </div>
@@ -269,18 +265,20 @@ export default function StoragePage() {
           <div className={styles.closing}>
             <span className={styles.eyebrow}>
               <ShieldCheck size={14} strokeWidth={1.9} aria-hidden="true" />
-              Yours by default
+              Learn more
             </span>
-            <h2>Private because it&apos;s on your machine.</h2>
+            <h2>Local storage and cloud processing are separate.</h2>
             <p>
-              No cloud database of your life, nothing kept on our servers by
-              default. Your data is yours — on your computer, where you can open
-              it, read it, and delete it whenever you want.
+              You can inspect and delete your local Stella data. Account,
+              billing, usage, device, delivery, and optional cloud-feature data
+              may be stored by Stella, while providers handle submitted data
+              under their own policies. Read the Privacy Policy for details.
             </p>
             <div className={styles.closingCta}>
-              <DownloadButton />
+              <Link className="button button--primary" href="/privacy">
+                Read the Privacy Policy
+              </Link>
             </div>
-            <WindowsInstallNote />
           </div>
         </section>
       </main>

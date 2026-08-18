@@ -50,7 +50,7 @@ function header(title: string, route: string, ...taglines: string[]): string {
 const HOME_MD = `${header(
   "Stella — your personal assistant",
   "/",
-  "Give Stella a task and keep moving. It can work with your computer, browser, files, and apps while your work stays local.",
+  "Give Stella a task and keep moving. It can work with your computer, browser, files, and apps.",
 )}
 Stella is your personal AI assistant that lives on your computer. One ongoing
 chat handles your computer, files, browser, apps, and media while Stella routes
@@ -72,18 +72,17 @@ reaches the same assistant on your computer.
 Ask once. Stella creates editable reports, spreadsheets, decks, and PDFs ready
 for the apps you already use (Word, Excel, PowerPoint, PDF).
 
-## Private and open source
-Stella runs locally, stays open source, and works with your agents, providers,
-keys, and models.
+## Local-first and flexible
+Stella keeps its main desktop database and local files on your computer and
+works with your agents, providers, keys, and models. Features such as managed
+AI, media generation, search, mobile access, and connected services send the
+data needed to provide them to Stella and its service providers.
 
-- **Runs on your machine** — Your chats and files stay on your device. Nothing is stored on our servers.
-- **Open source** — Apache-2.0, end to end. Read every line, fork it, and make it your own.
+- **Local workspace** — Your normal desktop chat database, files, and settings are stored on your device.
 - **Bring your own** — Your harness, your provider, your keys, your model. No lock-in, ever.
 
 Agents & harnesses: Claude Code, Codex, Cursor, OpenClaw, Hermes Agent.
 Models & providers: OpenAI, Anthropic, Google, xAI, DeepSeek, Moonshot AI.
-
-Source: https://github.com/ruuxi/stella-v2
 
 ## Explore
 - Learn More: ${abs("/learn-more.md")}
@@ -176,40 +175,39 @@ your speech into text is never gated. See ${abs("/pricing.md")}.
 /* ------------------------------------------------------------------ */
 
 const STORAGE_MD = `${header(
-  "Storage — your stuff stays on your computer",
+  "Storage — where Stella keeps your data",
   "/storage",
-  "Stella keeps your conversations on your own machine, not on our servers. Only the things you choose to send ever leave.",
+  "Stella keeps its main desktop database on your computer. Cloud and provider-backed features process the data needed to fulfill your request.",
 )}
 ## Your conversations live on your laptop
-Every chat is saved in a single file on your computer. We can't read it, because
-it never reaches us. The only time your words go out is to the AI that writes
-the reply.
+Your normal desktop chat history is saved in a database on your computer.
+Content needed for model calls, media generation, search, mobile access,
+connected services, and other cloud features may be sent to Stella and the
+providers that fulfill those requests.
 
 ## Backups stay off until you ask
 If you ever want a safety copy, you can turn backups on. They get locked tight
-before they leave your computer, and they come with a paid plan — so nothing is
-ever backed up unless you opt in.
+before they leave your computer, and they come with a paid plan. Backups are off
+until you turn them on.
 
 ## Messages run through your own machine
 Connect Stella to your texts or chat apps and the work happens on your computer
-— it reads the message, does the task, and sends the reply. A message only
-passes through us long enough to find your machine, and phone numbers are always
-scrambled, never kept as-is.
+— it reads the message, does the task, and sends the reply. Stella's backend
+processes delivery and routing data needed to connect the service to your
+machine.
 
 ## Your phone talks straight to your desktop
 Use the app to drive your computer from anywhere. It connects right to your
-desktop through a private tunnel — we only keep track of which devices are
-paired, never what you say.
+desktop through a secure connection. Stella's backend may process and
+temporarily store request content and delivery state to route and complete the
+work.
 
-## The only things that leave are the ones you send
-Publishing an app to the Store or posting in the community are the moments you
-choose to share. When you publish, we get a tidied-up app — not your private
-chats. Posts you make are public, like any message board.
-
-## Private because it's on your machine
-No cloud database of your life, nothing kept on our servers by default. Your
-data is yours — on your computer, where you can open it, read it, and delete it
-whenever you want.
+## Local and cloud data are separate
+Your main desktop database remains local unless you enable a feature that stores
+content in the cloud. Stella stores account, billing, usage, device, pairing,
+and connected-service data needed to operate the service. Third-party AI,
+media, and search providers may process and retain submitted data under their
+own terms and configurations. See ${abs("/privacy.md")} for details.
 `;
 
 /* ------------------------------------------------------------------ */
@@ -217,22 +215,20 @@ whenever you want.
 /* ------------------------------------------------------------------ */
 
 const PRICING_MD = `${header(
-  "Pricing — simple, transparent pricing",
+  "Pricing — choose your plan",
   "/pricing",
-  "Free is a taste. Go is where the usage gets generous. Pro is a different product — the tier that can generate image, video, 3D, and voice, and run a whole team of agents at once.",
+  "Start free. Upgrade when you need more.",
 )}
 ## Plans
-- **Free** — $0. A one-time $0.50 of usage, not a monthly allowance: it does not refresh, and once it is used it is used. Includes the coding agent, personal assistant, and research/knowledge work, plus dictation. Text output only — no image, video, 3D, or voice generation, and no orchestrator mode.
-- **Go** — $5/mo. Everything in Free with dramatically higher limits: up to roughly $12 of model usage per 5 hours, ~$30 a week, and ~$60 a month, refreshing with your billing cycle. Still text output only (dictation included) — generation and orchestrator mode are on Pro.
-- **Pro** — $15/mo (most popular). Everything in Go, plus image, video, 3D, and voice generation, and orchestrator mode, where Stella runs many agents at once. This is the only tier that can create media or work in parallel. Note that dictation and speech-to-text are on every tier — what Pro adds is spoken replies (read-aloud) and live voice conversation.
+- **Free** — $0. Free to try. Includes the coding agent, personal assistant, research and knowledge work, and dictation. Media generation requires Pro.
+- **Go** — $5/mo. Everything in Free with 10× higher usage. Includes text output and dictation. Media generation requires Pro.
+- **Pro** — $15/mo. The highest usage limits, image, video, 3D and voice generation, and multiple agents working together.
 
 ## Every plan includes
-You are not paying for an API key. Every tier comes with the whole desktop app
-— the assistant, research, the browser, your files — and usage limits that hold
-their own at the price.
+Every tier includes the desktop app and support for your own models and API
+keys.
 
 - Runs on your computer
-- Private by default
 - Coding, assistant, and research in one app
 - Dictation and wake word on every tier
 - Customizable interface
@@ -251,13 +247,11 @@ const LEARN_MORE_MD = `${header(
   "Learn More — Stella, in detail",
   "/learn-more",
 )}
-A private, open-source desktop app that gives you one ongoing chat for your
-computer. Ask once, keep talking, and Stella figures out which agent, app, file,
+A desktop app that gives you one ongoing chat for your computer. Ask once, keep
+talking, and Stella figures out which agent, app, file,
 browser, model, or tool should handle the work. Background agents can handle
 independent work and report progress inline without making you manage separate
 threads.
-
-Source: https://github.com/ruuxi/stella-v2
 
 ## A desktop app, not just a chat box
 Stella lives with your files, apps, browser, and local state, so it can help
@@ -296,8 +290,8 @@ conversation instead of becoming the project manager for your assistant.
 
 ## Local-first, with clear exceptions
 Your normal desktop chat history, files, memories, generated local artifacts,
-and app state live on your computer. We do not keep your desktop conversations
-or files on our servers by default.
+and app state live on your computer. Cloud-backed features can process relevant
+content without uploading the local database as a whole.
 
 Some features need a backend: sign-in, billing, plan limits, managed model
 access, connected app setup, mobile pairing, Store catalog data, push
@@ -312,21 +306,23 @@ Stella does not need a cloud copy of your whole desktop life to work.
 - **Connected app metadata** — The minimum connection records needed to know which account is linked to which Stella user and provider. Some connection secrets are encrypted.
 - **Remote delivery state** — When you message Stella from a phone or connector, the backend may store request text, delivery metadata, request state, and routing info so the desktop can claim, cancel, complete, and deliver the work.
 - **Optional cloud content** — Cloud backups, Store publishing, social or collaboration surfaces, and other hosted features store the data required to provide those features.
+- **Provider processing** — Model, media, and search providers process submitted prompts, files, outputs, queries, and metadata. Their retention depends on provider policies and Stella's configuration.
 
-### What we do not store by default
-- Your local desktop files.
-- Your normal local desktop chat database.
-- Your local memory markdown and runtime state.
+### Data ordinarily kept local
+- Your local desktop files merely because they exist on your device.
+- Your normal local desktop chat database as a whole.
+- Your local memory markdown and runtime state unless submitted to a cloud-backed feature.
 - Your local provider API keys.
-- A persistent copy of managed-model prompts and responses for the Stella Provider path.
 - BYOK model traffic when the model call goes directly from your device to your provider.
 
 ## Use Stella, BYOK, local models, or Claude Code
-Stella has a simple path for convenience and a private-control path for people
+Stella has a managed path for convenience and a provider-control path for people
 who want to bring their own providers. Stella Provider lets you install the app
 and start using strong models without setting up accounts everywhere. Requests
 pass through Stella's infrastructure in transit so billing and limits can work,
-but prompt and response text is not persistently stored for that model path.
+and responses may be buffered briefly to support stream recovery. The model
+providers that fulfill requests may process and retain submitted data under
+their own policies and Stella's configuration.
 
 You can also add your own provider credentials, use local runtimes, and use
 Claude Code directly as the assistant engine. In those paths, Stella is acting
@@ -479,16 +475,14 @@ export function renderLlmsTxt(): string {
   const lines = [
     "# Stella",
     "",
-    "> Stella is a private, open-source desktop AI assistant. One ongoing chat",
+    "> Stella is a desktop AI assistant. One ongoing chat",
     "> coordinates work across your computer, files, browser, apps, and media.",
-    "> Everything stays on your machine by",
-    "> default. Each page below has a clean markdown version for agents.",
+    "> Each page below has a clean markdown version for agents.",
     "",
     "## Pages",
   ];
   for (const page of AGENT_PAGES) {
     lines.push(`- [${page.label}](${abs(page.mdPath)}): ${page.description}`);
   }
-  lines.push("", "## Source", "- [GitHub](https://github.com/ruuxi/stella-v2)");
   return `${lines.join("\n")}\n`;
 }

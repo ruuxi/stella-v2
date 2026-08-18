@@ -57,11 +57,11 @@ type SuggestionChip = {
  * Logos come from simpleicons; preview images are stable Unsplash URLs. */
 const SUGGESTIONS: ReadonlyArray<SuggestionChip> = [
   {
-    id: "github",
+    id: "chrome",
     kind: "tab",
     name: "Chrome",
-    detail: "github.com/ruuxi/stella-v2/pull/214",
-    iconUrl: "https://cdn.simpleicons.org/github/181717",
+    detail: "docs.google.com/document/d/weekly-plan",
+    iconUrl: "https://cdn.simpleicons.org/googlechrome/4285F4",
     iconTint: "#f2f2f4",
     previewUrl:
       "https://images.unsplash.com/photo-1556075798-4825dfaaf498?w=900&q=80&auto=format&fit=crop",
@@ -89,7 +89,7 @@ const SUGGESTIONS: ReadonlyArray<SuggestionChip> = [
 ];
 
 /** Shown in the suggestion row at ≤640px; Slack stays desktop-only. */
-const MOBILE_SUGGESTION_IDS = new Set(["github", "notion"]);
+const MOBILE_SUGGESTION_IDS = new Set(["chrome", "notion"]);
 
 export function ComposerSection() {
   return (

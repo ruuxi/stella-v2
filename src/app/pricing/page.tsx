@@ -10,7 +10,7 @@ import { StellaMark } from "@/components/stella-mark";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Stella pricing — Free to try, Go for generous everyday usage, Pro for image, video, 3D and voice generation plus orchestrator mode.",
+    "Choose a Stella plan: Free to try, Go with 10x higher usage, or Pro with the highest usage limits, media generation, and multiple agents.",
   alternates: { canonical: "/pricing" },
 };
 
@@ -31,48 +31,45 @@ const plans: {
   features: string[];
   /** Muted line under the checklist — used to state what a tier does *not* do. */
   note?: string;
-  featured?: boolean;
 }[] = [
   {
     name: "Free",
     price: 0,
-    tagline: "$0.50 of usage to try Stella — once, not every month",
+    tagline: "Free to try.",
     features: [
       "Coding agent",
       "Personal assistant",
       "Research and knowledge work",
     ],
-    note: "A one-time credit. It does not refresh — once it is used, it is used. Dictation included; text output only.",
+    note: "Includes text output and dictation. Media generation requires Pro.",
   },
   {
     name: "Go",
     price: 5,
-    tagline: "Room to actually work, every day",
+    tagline: "10× higher usage",
     features: [
       "Everything in Free",
-      "Up to ~$12 of model usage per 5 hours",
-      "~$30 a week, ~$60 a month",
-      "Refreshes with your billing cycle",
+      "10× higher usage limits",
+      "Text output and dictation",
     ],
-    note: "Dictation included; text output only. Generation and orchestrator mode are on Pro.",
+    note: "Media generation requires Pro.",
   },
   {
     name: "Pro",
     price: 15,
-    tagline: "Everything Stella can make, not just more of it",
-    featured: true,
+    tagline: "The highest usage limits",
     features: [
       "Everything in Go",
+      "Highest usage limits",
       "Image, video, 3D and voice generation",
-      "Orchestrator mode — many agents at once",
+      "Multiple agents working together",
     ],
-    note: "The only tier that can create media and run work in parallel. Dictation is on every tier — Pro adds spoken replies and live conversation.",
+    note: "For media generation and multi-agent workflows.",
   },
 ];
 
 const included = [
   "Runs on your computer",
-  "Private by default",
   "Coding, assistant and research in one app",
   "Dictation and wake word on every tier",
   "Customizable interface",
@@ -89,13 +86,9 @@ export default function Pricing() {
         {/* ── Hero ─────────────────────────────────── */}
         <section className="grid-shell pr-hero section-border">
           <div className="pr-article">
-            <h1 className="pr-title reveal">
-              <span>Simple,</span> transparent pricing
-            </h1>
+            <h1 className="pr-title reveal">Choose your plan</h1>
             <p className="pr-subtitle reveal reveal-delay-1">
-              Free is a taste. Go is where the usage gets generous. Pro is a
-              different product — the tier that can generate image, video, 3D
-              and voice, and run a whole team of agents at once.
+              Start free. Upgrade when you need more.
             </p>
           </div>
         </section>
@@ -107,13 +100,9 @@ export default function Pricing() {
               {plans.map((plan, i) => (
                 <div
                   key={plan.name}
-                  className={`pr-card reveal${plan.featured ? " pr-card--featured" : ""}`}
+                  className="pr-card reveal"
                   style={{ animationDelay: `${i * 60}ms` }}
                 >
-                  {plan.featured && (
-                    <span className="pr-card__badge">Popular</span>
-                  )}
-
                   <div className="pr-card__head">
                     <h3 className="pr-card__name">{plan.name}</h3>
                     {typeof plan.introFirstMonthPriceUsd === "number" &&
@@ -170,9 +159,8 @@ export default function Pricing() {
           <div className="pr-article">
             <h2>Every plan includes</h2>
             <p className="pr-note">
-              You are not paying for an API key. Every tier comes with the whole
-              desktop app — the assistant, research, the browser, your files —
-              and usage limits that hold their own at the price.
+              Every tier includes the desktop app — the assistant, research,
+              browser, and file tools — with different usage limits.
             </p>
             <ul className="pr-included">
               {included.map((item) => (

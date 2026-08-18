@@ -23,7 +23,7 @@ export function HomeHero() {
 
           <p className={styles.intro}>
             Give Stella a task and keep moving. It can work with your computer,
-            browser, files, and apps while your work stays local.
+            browser, files, and apps from one ongoing conversation.
           </p>
 
           <div className={styles.cta}>

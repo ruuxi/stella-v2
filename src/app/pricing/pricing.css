@@ -83,30 +83,6 @@
   backdrop-filter: blur(12px);
 }
 
-.pr-card--featured {
-  border-color: var(--page-accent);
-  box-shadow:
-    0 0 0 1px var(--page-accent),
-    0 8px 24px rgba(29, 120, 242, 0.1);
-}
-
-/* ── Popular badge ───────────────────────────────── */
-
-.pr-card__badge {
-  position: absolute;
-  top: -0.55rem;
-  left: 1.25rem;
-  padding: 0.15rem 0.6rem;
-  border-radius: 999px;
-  background: var(--page-accent);
-  color: var(--page-accent-foreground);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.62rem;
-  font-weight: 500;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
 /* ── Card header ─────────────────────────────────── */
 
 .pr-card__head {

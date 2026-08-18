@@ -16,12 +16,12 @@ Every public claim on this page should be checked against the current Stella rep
 
 - Stella is a desktop app for macOS and Windows. The public launcher is a small installed app that sets up and starts the local desktop runtime.
 - The launcher downloads the current desktop release archive and native helpers, writes the local environment file and launch script, installs what is needed, initializes the local repo state, and starts the desktop with `bun run electron:dev`.
-- Stella is intentionally not a sealed black-box app. The installed desktop is a local repo-style runtime that can be inspected, edited, updated, and repaired.
+- The installed desktop is a local repo-style runtime that can be edited, updated, and repaired.
 - Stella has a single main chat surface. The orchestrator keeps the conversation going and delegates work to specialized agents instead of making the user manage many threads.
 - Stella can use the computer, browser, files, Office-style documents, PDFs, spreadsheets, generated media, schedules, voice, dictation, connected apps, and local or managed models.
 - Stella can change its own UI and behavior when the user asks. Renderer changes go through Vite HMR where possible, with a morph cover over visible refreshes. Deeper changes may require a reload or relaunch.
 - Stella stores the normal desktop chat, files, memory, and runtime state locally on the user's computer.
-- Stella's managed model provider routes prompts and responses through Stella infrastructure in transit, but does not persistently store prompt or response text for that provider path. It does keep usage metadata for billing, limits, and abuse prevention.
+- Stella's managed model provider routes prompts and responses through Stella infrastructure and third-party providers. Stella does not intentionally retain provider request content as a model-training product, but may temporarily buffer responses and retains usage metadata for billing, limits, security, and reliability. Providers may retain submitted data under their own policies and configurations.
 - BYOK and local model paths avoid the Stella managed model proxy for those model calls. Local credentials are stored locally in encrypted form.
 - Anonymous managed-model usage is limited server-side with a salted hash of a device or client identifier plus request counts. Current retention for that anonymous usage row is seven days from last use.
 - Phone chat to a paired desktop is not identical to local-only desktop chat. A signed-in phone sends the message through Stella's backend so the desktop can pick it up. The backend stores delivery state and request text needed to route, cancel, recover, and complete the remote turn. The desktop reply row used by the mobile app is short-lived, deleted after the phone acknowledges it, and otherwise expires after about two minutes.
@@ -34,7 +34,7 @@ Every public claim on this page should be checked against the current Stella rep
 
 # Learn More
 
-Stella is a private, open-source desktop app that gives you one ongoing chat for your computer. Ask once, keep talking, and Stella figures out which agent, app, file, browser, model, or tool should handle the work.
+Stella is a desktop app that gives you one ongoing chat for your computer. Ask once, keep talking, and Stella figures out which agent, app, file, browser, model, or tool should handle the work.
 
 The unusual part is not just that Stella can use your computer. It is that the desktop app itself can change. Stella can learn your preferences, adjust the interface, add workflows, and turn the app into something closer to your own operating space.
 
@@ -48,7 +48,7 @@ You can use Stella for normal assistant work: research, writing, spreadsheets, P
 
 Most agent products make you choose a mode, start a new thread, pick a specialist, then remember where everything went. Stella is built around one continuous chat. You keep talking in the same place.
 
-Behind the scenes, Stella can split work into smaller jobs, run specialized agents, keep track of active threads, and bring the result back into the conversation. The point is simple: you should not have to become a project manager for your assistant. Running that crew in parallel is orchestrator mode, which comes with the Pro plan.
+Behind the scenes, Stella can split work into smaller jobs, run specialized agents, keep track of active threads, and bring the result back into the conversation. The point is that you should not have to become a project manager for your assistant. Pro is designed for heavier multi-agent workflows.
 
 ### What Stella Can Do
 
@@ -84,9 +84,9 @@ Behind the scenes, Stella can split work into smaller jobs, run specialized agen
 
 ### Privacy In Plain English
 
-Stella is local-first. Your normal desktop chat history, files, memories, generated local artifacts, and app state live on your computer. We do not keep your desktop conversations or files on our servers by default.
+Stella is local-first. Your normal desktop chat history, files, memories, generated local artifacts, and app state live on your computer. Cloud-backed features send the content and metadata needed to fulfill a request to Stella and relevant service providers.
 
-Some features need a backend. Sign-in, billing, plan limits, managed model access, connected app setup, mobile pairing, Store catalog data, push notifications, and optional cloud features all require small server-side records. The important boundary is that Stella does not need a cloud copy of your whole desktop life to work.
+Some features need a backend. Sign-in, billing, plan limits, managed model access, connected app setup, mobile pairing, Store catalog data, push notifications, and optional cloud features require server-side records. Model, media, and search providers may process and retain submitted prompts, outputs, files, or metadata under their own policies and configurations.
 
 ### What We Store
 
@@ -104,22 +104,22 @@ Some features need a backend. Sign-in, billing, plan limits, managed model acces
 
 **Optional cloud content.** If you enable cloud-backed features such as backups, shared Store publishing, social or collaboration surfaces, or other hosted features, those features store the data required to provide them.
 
-### What We Do Not Store By Default
+### Data Ordinarily Kept Local
 
 - Your local desktop files.
 - Your normal local desktop chat database.
 - Your local memory markdown and runtime state.
 - Your local provider API keys.
-- A persistent copy of managed-model prompts and responses for the Stella Provider path.
-- BYOK model traffic, when the model call goes directly from your device to your provider.
+- The desktop chat database as a whole. Relevant context may still be submitted for a cloud-backed request.
+- Direct BYOK traffic may bypass Stella's relay, but the selected provider still processes the request.
 
 ### Models And Providers
 
 Stella has two model paths.
 
-The simple path is Stella Provider. It is managed for convenience, so you can install the app and start using strong models without setting up accounts everywhere. Requests pass through Stella's infrastructure in transit so billing and limits can work, but prompt and response text is not persistently stored for that model path.
+The managed path is Stella Provider, so you can install the app and use supported models without setting up provider accounts. Requests pass through Stella's infrastructure and third-party providers. Stella may temporarily buffer response data for streaming recovery, and providers may retain submitted data under their own policies and configurations.
 
-The private-control path is bring your own provider or local models. You can add your own provider credentials, use local runtimes, and use Claude Code directly as the assistant engine. In those paths, Stella is acting as the desktop app and runtime you control, not as the model vendor.
+The provider-control path is bring your own provider or local models. You can add your own provider credentials, use local runtimes, and use Claude Code directly as the assistant engine. Direct provider requests remain subject to that provider's data practices.
 
 ### The Technical Install Model
 
@@ -127,7 +127,7 @@ Stella ships through a launcher. The launcher is the installed wrapper that hand
 
 The desktop app itself is a local runtime. The launcher downloads the platform desktop release archive and native helpers, writes `.env.local`, creates a launch script, installs dependencies as needed, initializes the local Git state, and launches the desktop with `bun run electron:dev`.
 
-That is intentional. Stella is open source, inspectable, and changeable. The app can update itself, but you can also inspect the repo, keep your local changes, and recover from bad self-changes.
+That is intentional. Stella can update itself while keeping local changes and recovery paths available when a self-change goes wrong.
 
 ### How Self-Change Works
 
@@ -167,4 +167,4 @@ Stella now has a simpler composer model picker for normal use, more detailed mod
 
 ### Short Positioning
 
-Stella is not just another chat box. It is a private, open-source desktop app that can use your computer, keep one continuous conversation, and reshape its own interface around how you work.
+Stella is a desktop app that can use your computer, keep one continuous conversation, and reshape its own interface around how you work.

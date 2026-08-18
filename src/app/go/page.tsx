@@ -7,7 +7,6 @@ import {
   Code2,
   FileText,
   Globe2,
-  Github,
   Laptop,
 } from "lucide-react";
 import { DownloadButton } from "@/components/download-button";
@@ -21,7 +20,7 @@ import { StellaMark } from "@/components/stella-mark";
 export const metadata: Metadata = {
   title: "AI coding agent and personal assistant",
   description:
-    "Stella is an open-source AI agent for coding, research, documents, browsers, files, and desktop apps. Start free or use managed AI for $5/month.",
+    "Stella is an AI agent for coding, research, documents, browsers, files, and desktop apps. Start free or choose a paid plan for higher usage.",
   alternates: { canonical: "/go" },
 };
 
@@ -44,7 +43,6 @@ const work = [
 ];
 
 const included = [
-  "Open source",
   "Local-first desktop app",
   "Mac, Windows, and Linux",
   "Bring your own AI models",
@@ -78,8 +76,7 @@ export default function GoPage() {
             </div>
             <WindowsInstallNote />
             <p className="go-offer">
-              Free comes with a one-time $0.50 of usage. Managed AI is
-              $5/month.
+              Free to try. Go includes 10× higher usage.
             </p>
           </div>
 
@@ -140,9 +137,8 @@ export default function GoPage() {
             <p className="go-eyebrow">Your models, or ours</p>
             <h2>Use Stella without another required subscription.</h2>
             <p>
-              Bring supported provider keys and use the open-source app for
-              free, or choose Stella&apos;s managed models when you want one account
-              and no provider setup.
+              Bring supported provider keys, or choose Stella&apos;s managed models
+              when you want one account and no provider setup.
             </p>
           </div>
           <div className="go-choice__cards">
@@ -163,19 +159,10 @@ export default function GoPage() {
           <div>
             <p className="go-eyebrow">Ready when you are</p>
             <h2>Give Stella the task. Keep moving.</h2>
-            <p>Download the open-source desktop app and start free.</p>
+            <p>Download the desktop app and start free.</p>
           </div>
           <div className="go-cta__actions">
             <DownloadButton />
-            <a
-              className="button button--ghost"
-              href="https://github.com/ruuxi/stella-v2"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Github size={16} />
-              View source
-            </a>
           </div>
           <WindowsInstallNote />
         </section>

@@ -111,16 +111,14 @@ Recommended account-level sitelinks:
 | Pricing | `/pricing` | Start free with Stella | Go is $5 the first month |
 | How Stella Works | `/learn-more` | See what Stella can do | Browser, files, apps and more |
 | AI Agents | `/agents` | Delegate complete tasks | Keep background work moving |
-| Voice | `/voice` | Talk and dictate naturally | Private on-device dictation |
-| Private and Local | `/storage` | Your work stays on device | Local-first by design |
-| Open Source | `https://github.com/ruuxi/stella-v2` | Read Stella's source | Local-first desktop assistant |
+| Voice | `/voice` | Talk and dictate naturally | On-device dictation on Mac |
+| Data and Privacy | `/storage` | See what is stored locally | Understand cloud processing |
 
 Callouts:
 
 - Start Free
 - $5 First Month
-- Open Source
-- Local First
+- Local Desktop Database
 - Bring Your Own Models
 - Mac and Windows
 - Browser and Computer Use
@@ -169,8 +167,8 @@ as `alternative`, `vs`, or `pricing`.
 - The transition upload applied 72 of 72 spreadsheet rows successfully.
 - The new campaign uses Google Search only, United States presence-only,
   desktop-only traffic, exact/phrase match, and Maximize Clicks.
-- The six active account sitelinks cover Pricing, How Stella Works, AI Agents,
-  Voice, Private and Local, and Open Source. The older Coding and Agents asset
+- The five current account sitelinks cover Pricing, How Stella Works, AI Agents,
+  Voice, and Data and Privacy. The older Coding and Agents asset
   is paused.
 - Image and logo assets have not been uploaded. Generated concepts require
   approval before account changes.

@@ -16,10 +16,6 @@ const HomePhoneConnectors = lazy(() =>
 const HomeDocuments = lazy(() =>
   import("./home-documents").then((module) => ({ default: module.HomeDocuments })),
 );
-const HomeOpenPrivate = lazy(() =>
-  import("./home-open-private").then((module) => ({ default: module.HomeOpenPrivate })),
-);
-
 function DeferredSection({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(false);
@@ -53,7 +49,6 @@ export function HomeDeferredSections() {
       <DeferredSection><HomeComputerUse /></DeferredSection>
       <DeferredSection><HomePhoneConnectors /></DeferredSection>
       <DeferredSection><HomeDocuments /></DeferredSection>
-      <DeferredSection><HomeOpenPrivate /></DeferredSection>
     </>
   );
 }

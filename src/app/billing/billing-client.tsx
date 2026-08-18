@@ -127,24 +127,28 @@ const STATIC_PLAN_DISPLAY: Record<
 // in `src/lib/agent-pages.ts` so /billing, /pricing and /pricing.md always
 // describe the same plans.
 const PLAN_USAGE_TAGLINE: Record<BillingPlan, string> = {
-  free: "$0.50 of usage, once — it doesn't refresh",
-  go: "Room to actually work, every day",
-  pro: "Everything Stella can make, not just more of it",
+  free: "Free to try.",
+  go: "10× higher usage",
+  pro: "The highest usage limits",
 };
 
-// Free and Go are the same product at different volumes; Pro is a different
-// product — generation and orchestrator mode live there and nowhere else.
 const PLAN_FEATURES: Record<BillingPlan, readonly string[]> = {
-  free: ["Coding agent", "Personal assistant", "Research and knowledge work"],
+  free: [
+    "Coding agent",
+    "Personal assistant",
+    "Research and knowledge work",
+    "Dictation",
+  ],
   go: [
     "Everything in Free",
-    "Up to ~$12 of model usage per 5 hours",
-    "~$30 a week, ~$60 a month",
+    "10× higher usage limits",
+    "Text output and dictation",
   ],
   pro: [
     "Everything in Go",
+    "Highest usage limits",
     "Image, video, 3D and voice generation",
-    "Orchestrator mode — many agents at once",
+    "Multiple agents working together",
   ],
 };
 
@@ -188,17 +192,13 @@ const toUsagePercent = (usedUsd: number, limitUsd: number) => {
 // Round to a whole percent for display while keeping the meter bar at the
 // precise sub-percent width — avoids "0%" reading next to a visibly non-empty
 // bar (and vice versa) at the edges.
-const formatUsagePercent = (usedUsd: number, limitUsd: number) => {
-  const pct = toUsagePercent(usedUsd, limitUsd);
+const formatUsagePercent = (pct: number) => {
   if (pct > 0 && pct < 1) return "<1%";
   return `${Math.round(pct)}%`;
 };
 
 type UsageMeter = {
-  key: "rolling" | "weekly" | "monthly";
-  label: string;
-  usedUsd: number;
-  limitUsd: number;
+  percent: number;
 };
 
 const getBillingReturnUrl = () => {
@@ -448,36 +448,15 @@ function BillingInteractive() {
     }
   }, [hasAccount, openPortal]);
 
-  // Guard against a backend `plans` payload that's missing the current plan
-  // entry — e.g. an older deploy where the validator omitted `ultra`. Fall
-  // back to a sane window length instead of crashing the whole `/billing`
-  // page on `undefined.rollingWindowHours`.
-  const currentPlanCatalogEntry = planCatalog?.[currentPlan];
-  const rollingWindowHours =
-    currentPlanCatalogEntry?.rollingWindowHours ?? 5;
-
-  const usageMeters: UsageMeter[] | null =
+  const usageMeter: UsageMeter | null =
     usage && planCatalog && usagePolicy?.kind === "managed_cost"
-      ? [
-          {
-            key: "rolling",
-            label: `Last ${rollingWindowHours}h`,
-            usedUsd: usage.rollingUsedUsd,
-            limitUsd: usage.rollingLimitUsd,
-          },
-          {
-            key: "weekly",
-            label: "This week",
-            usedUsd: usage.weeklyUsedUsd,
-            limitUsd: usage.weeklyLimitUsd,
-          },
-          {
-            key: "monthly",
-            label: "This month",
-            usedUsd: usage.monthlyUsedUsd,
-            limitUsd: usage.monthlyLimitUsd,
-          },
-        ]
+      ? {
+          percent: Math.max(
+            toUsagePercent(usage.rollingUsedUsd, usage.rollingLimitUsd),
+            toUsagePercent(usage.weeklyUsedUsd, usage.weeklyLimitUsd),
+            toUsagePercent(usage.monthlyUsedUsd, usage.monthlyLimitUsd),
+          ),
+        }
       : null;
   const anonymousUsagePolicy =
     usagePolicy?.kind === "anonymous_requests" ? usagePolicy : null;
@@ -564,33 +543,23 @@ function BillingInteractive() {
             <div className="billing-anonymous-policy">
               <div className="billing-status-meter-label">
                 <span>Anonymous preview</span>
-                <span>{anonymousUsagePolicy.requestLimit} requests</span>
               </div>
-              <p>
-                Shared network cap: {anonymousUsagePolicy.perIpRequestLimit}
-                {" requests. "}Allowance resets after{" "}
-                {anonymousUsagePolicy.resetAfterInactivityDays} days without a
-                request. Sign in to claim the one-time Free usage credit.
-              </p>
+              <p>Sign in to continue with the Free plan.</p>
             </div>
-          ) : usageMeters ? (
+          ) : usageMeter ? (
             <div className="billing-account-meters">
-              {usageMeters.map((meter) => (
-                <div key={meter.key} className="billing-status-meter">
-                  <div className="billing-status-meter-label">
-                    <span>{meter.label}</span>
-                    <span>{formatUsagePercent(meter.usedUsd, meter.limitUsd)}</span>
-                  </div>
-                  <div className="billing-meter-track">
-                    <div
-                      className="billing-meter-fill"
-                      style={{
-                        width: `${toUsagePercent(meter.usedUsd, meter.limitUsd)}%`,
-                      }}
-                    />
-                  </div>
+              <div className="billing-status-meter">
+                <div className="billing-status-meter-label">
+                  <span>Plan usage</span>
+                  <span>{formatUsagePercent(usageMeter.percent)}</span>
                 </div>
-              ))}
+                <div className="billing-meter-track">
+                  <div
+                    className="billing-meter-fill"
+                    style={{ width: `${usageMeter.percent}%` }}
+                  />
+                </div>
+              </div>
             </div>
           ) : null}
         </section>
@@ -733,9 +702,7 @@ function BillingInteractive() {
             <div className="billing-section-head">
               <h2 className="billing-section-title">Extra usage credit</h2>
               <p className="billing-section-sub">
-                One-time top-up. Stella spends it automatically once your
-                plan&apos;s included usage is gone. On Go and Pro your included
-                usage comes back next cycle; the Free credit does not.
+                Add credit for usage beyond your plan&apos;s limits.
               </p>
             </div>
             {creditStatus?.authenticated ? (

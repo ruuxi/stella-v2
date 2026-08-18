@@ -130,7 +130,7 @@ const jsonLd = {
       name: "Stella",
       url: siteUrl.origin,
       logo: new URL("/stella-logo.png", siteUrl).href,
-      sameAs: ["https://x.com/stella", "https://github.com/ruuxi/stella-v2"],
+      sameAs: ["https://x.com/stella"],
     },
     {
       "@type": "SoftwareApplication",

@@ -346,9 +346,8 @@ const sitelinks = [
   ["Pricing", "https://stella.sh/pricing", "Start free with Stella", "Go is $5 the first month"],
   ["How Stella Works", "https://stella.sh/learn-more", "See what Stella can do", "Browser, files, apps and more"],
   ["AI Agents", "https://stella.sh/agents", "Delegate complete tasks", "Keep background work moving"],
-  ["Voice", "https://stella.sh/voice", "Talk and dictate naturally", "Private on-device dictation"],
-  ["Private and Local", "https://stella.sh/storage", "Your work stays on device", "Local-first by design"],
-  ["Open Source", "https://github.com/ruuxi/stella-v2", "Read Stella's source", "Local-first desktop assistant"],
+  ["Voice", "https://stella.sh/voice", "Talk and dictate naturally", "On-device dictation on Mac"],
+  ["Data and Privacy", "https://stella.sh/storage", "See what is stored locally", "Understand cloud processing"],
 ];
 for (const [text, url, description1, description2] of sitelinks) {
   assertLength("Sitelink text", text, 25);
@@ -367,8 +366,7 @@ for (const [text, url, description1, description2] of sitelinks) {
 for (const callout of [
   "Start Free",
   "$5 First Month",
-  "Open Source",
-  "Local First",
+  "Local Desktop Database",
   "Bring Your Own Models",
   "Mac and Windows",
   "Browser and Computer Use",

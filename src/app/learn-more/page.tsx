@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRight, Github } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { DownloadButton } from "@/components/download-button";
 import { WindowsInstallNote } from "@/components/windows-install-note";
 import { LearnSidebar } from "./learn-sidebar";
@@ -104,14 +104,17 @@ const storedItems = [
     title: "Optional cloud content",
     body: "Cloud backups, Store publishing, social or collaboration surfaces, and other hosted features store the data required to provide those features.",
   },
+  {
+    title: "Provider processing",
+    body: "Model, media, and search providers process submitted prompts, files, outputs, queries, and metadata. Their retention depends on provider policies and Stella's configuration.",
+  },
 ];
 
 const notStoredItems = [
-  "Your local desktop files.",
-  "Your normal local desktop chat database.",
-  "Your local memory markdown and runtime state.",
+  "Your local desktop files merely because they exist on your device.",
+  "Your normal local desktop chat database as a whole.",
+  "Your local memory markdown and runtime state unless submitted to a cloud-backed feature.",
   "Your local provider API keys.",
-  "A persistent copy of managed-model prompts and responses for the Stella Provider path.",
   "BYOK model traffic when the model call goes directly from your device to your provider.",
 ];
 
@@ -146,10 +149,10 @@ export default function LearnMore() {
                 Stella, <span className="learn-hero__accent">in detail</span>.
               </h1>
               <p>
-                A private, open-source desktop app that gives you one ongoing
-                chat for your computer. Ask once, keep talking, and Stella
-                figures out which agent, app, file, browser, model, or tool
-                should handle the work.
+                A desktop app that gives you one ongoing chat for your
+                computer. Ask once, keep talking, and Stella figures out which
+                agent, app, file, browser, model, or tool should handle the
+                work.
               </p>
               <p>
                 Background agents can handle independent work and report
@@ -157,15 +160,6 @@ export default function LearnMore() {
               </p>
               <div className="learn-hero__actions">
                 <DownloadButton />
-                <a
-                  className="button button--ghost"
-                  href="https://github.com/ruuxi/stella-v2"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Github size={16} />
-                  View source
-                </a>
               </div>
               <WindowsInstallNote />
             </div>
@@ -242,16 +236,17 @@ export default function LearnMore() {
               <p>
                 Your normal desktop chat history, files, memories, generated
                 local artifacts, and app state live on your computer. We do not
-                keep your desktop conversations or files on our servers by
-                default.
+                do not routinely upload your local database as a whole.
               </p>
             </SectionHeader>
 
             <div className="learn-callout">
               <p>
                 Some features need a backend: sign-in, billing, plan limits,
-                managed model access, connected app setup, mobile pairing, Store
-                catalog data, push notifications, and optional cloud features.
+                managed model access, connected app setup, mobile pairing, push
+                notifications, and optional cloud features. Third-party model,
+                media, and search providers process submitted content under
+                their own policies and configurations.
                 The important boundary is that Stella does not need a cloud copy
                 of your whole desktop life to work.
               </p>
@@ -267,7 +262,7 @@ export default function LearnMore() {
               ))}
             </div>
 
-            <h3 className="learn-subheading">What we do not store by default</h3>
+            <h3 className="learn-subheading">Data ordinarily kept local</h3>
             <ul className="learn-checklist">
               {notStoredItems.map((item) => (
                 <li key={item}>{item}</li>
@@ -278,7 +273,7 @@ export default function LearnMore() {
           <section id="models" className="learn-section section-border">
             <SectionHeader eyebrow="Models" title="Use Stella, BYOK, local models, or Claude Code">
               <p>
-                Stella has a simple path for convenience and a private-control
+                Stella has a managed path for convenience and a provider-control
                 path for people who want to bring their own providers.
               </p>
             </SectionHeader>
@@ -286,9 +281,9 @@ export default function LearnMore() {
               <p>
                 Stella Provider lets you install the app and start using strong
                 models without setting up accounts everywhere. Requests pass
-                through Stella&apos;s infrastructure in transit so billing and
-                limits can work, but prompt and response text is not
-                persistently stored for that model path.
+                through Stella&apos;s infrastructure so billing and limits can
+                work. Responses may be buffered briefly for stream recovery,
+                and providers may retain submitted data under their policies.
               </p>
               <p>
                 You can also add your own provider credentials, use local
@@ -314,9 +309,8 @@ export default function LearnMore() {
                 machine.
               </p>
               <p>
-                The application is open source and inspectable. Projects Stella
-                creates are ordinary local web apps under its workspace, kept
-                separate from the packaged application itself.
+                Projects Stella creates are ordinary local web apps under its
+                workspace, kept separate from the packaged application itself.
               </p>
             </div>
           </section>
@@ -340,9 +334,7 @@ export default function LearnMore() {
 
           <section className="learn-cta">
             <h2>Stella is your desktop app.</h2>
-            <p>
-              Private, open source, and ready to work across your computer.
-            </p>
+            <p>Ready to work across your computer.</p>
             <Link className="button button--primary" href="/">
               Get Stella
               <ArrowRight size={16} />

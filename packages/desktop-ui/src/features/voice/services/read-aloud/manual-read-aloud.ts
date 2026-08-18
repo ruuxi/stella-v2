@@ -12,8 +12,13 @@
  */
 import { useSyncExternalStore } from "react";
 import { stripMarkdownForTts } from "./markdown-strip";
-import { fetchReadAloudAudio } from "./tts-client";
-import { playReadAloud, stopReadAloud } from "./read-aloud-player";
+import { fetchReadAloudAudio, openReadAloudStream } from "./tts-client";
+import {
+  canStreamReadAloud,
+  playReadAloud,
+  playReadAloudStream,
+  stopReadAloud,
+} from "./read-aloud-player";
 import { resolveReadAloudVoicePrefs } from "./read-aloud-voice-prefs";
 
 export type ManualReadAloudStatus = "idle" | "loading" | "playing";
@@ -69,9 +74,40 @@ export async function toggleManualReadAloud(
   }
 
   setState({ key, status: "loading" });
+  const onEnded = () => {
+    if (token === requestToken) goIdle();
+  };
   try {
     const prefs = await resolveReadAloudVoicePrefs();
     if (token !== requestToken) return;
+
+    // Prefer progressive Inworld streaming so audio starts before the whole
+    // reply is synthesized. Fall back to one-shot synthesis for the OpenAI
+    // voice family, unsupported runtimes, or a stream that fails before any
+    // audio arrives.
+    if (prefs.family === "inworld" && canStreamReadAloud()) {
+      try {
+        const response = await openReadAloudStream({
+          text: clean,
+          voice: prefs.voice,
+          speed: prefs.speed,
+        });
+        if (token !== requestToken) {
+          await response.body?.cancel().catch(() => undefined);
+          return;
+        }
+        await playReadAloudStream(response, { onEnded });
+        if (token === requestToken) setState({ key, status: "playing" });
+        return;
+      } catch (streamErr) {
+        console.warn(
+          "[manual-read-aloud] streaming failed, falling back:",
+          streamErr,
+        );
+        if (token !== requestToken) return;
+      }
+    }
+
     const { audio } = await fetchReadAloudAudio({
       text: clean,
       voiceProvider: prefs.family,
@@ -80,11 +116,7 @@ export async function toggleManualReadAloud(
     });
     if (token !== requestToken) return;
     setState({ key, status: "playing" });
-    await playReadAloud(audio, {
-      onEnded: () => {
-        if (token === requestToken) goIdle();
-      },
-    });
+    await playReadAloud(audio, { onEnded });
   } catch (err) {
     console.warn("[manual-read-aloud] playback failed:", err);
     if (token === requestToken) goIdle();

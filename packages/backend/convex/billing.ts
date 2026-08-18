@@ -29,6 +29,7 @@ import {
   type TokenPriceConfig,
   computeRealtimeUsageCostMicroCents,
   computeTtsUsageCostMicroCents,
+  computeInworldTtsCostMicroCents,
   computeUsageCostMicroCents,
   dollarsToMicroCents,
   microCentsToDollars,
@@ -1258,6 +1259,142 @@ export const recordVoiceTtsUsage = internalMutation({
       recorded: true,
       costMicroCents,
     };
+  },
+});
+
+/**
+ * Internal-only TTS/read-aloud spend ledger.
+ *
+ * Read-aloud is free on every plan, so — unlike `recordVoiceTtsUsage` above —
+ * this mutation deliberately does NOT call `persistManagedUsage`. It never
+ * touches the user's usage windows, credit balance, `usage_logs`, or any plan
+ * entitlement. It only writes a row to `internal_tts_usage` capturing provider
+ * spend, including for interrupted/partial/failed generations, so internal
+ * cost reporting stays accurate without ever charging a user.
+ */
+export const recordInternalTtsUsage = internalMutation({
+  args: {
+    ownerId: v.string(),
+    provider: v.union(v.literal("inworld"), v.literal("openai")),
+    model: v.string(),
+    voice: v.optional(v.string()),
+    conversationId: v.optional(v.id("conversations")),
+    streaming: v.boolean(),
+    status: v.union(
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("interrupted"),
+      v.literal("partial"),
+    ),
+    requestChars: v.number(),
+    synthesizedChars: v.number(),
+    audioBytes: v.number(),
+    textInputTokens: v.optional(v.number()),
+    audioOutputTokens: v.optional(v.number()),
+    durationMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const requestChars = Math.max(0, Math.floor(args.requestChars));
+    const synthesizedChars = Math.max(
+      0,
+      Math.min(requestChars, Math.floor(args.synthesizedChars)),
+    );
+    const audioBytes = Math.max(0, Math.floor(args.audioBytes));
+    const textInputTokens = Math.max(
+      0,
+      Math.floor(
+        args.textInputTokens ?? Math.ceil(synthesizedChars / 4),
+      ),
+    );
+    const audioOutputTokens = Math.max(
+      0,
+      Math.floor(args.audioOutputTokens ?? 0),
+    );
+
+    const costMicroCents =
+      args.provider === "inworld"
+        ? computeInworldTtsCostMicroCents({
+            model: args.model,
+            chars: synthesizedChars,
+          })
+        : computeTtsUsageCostMicroCents({
+            model: args.model,
+            textInputTokens,
+            audioOutputTokens,
+          });
+
+    const usageId = await ctx.db.insert("internal_tts_usage", {
+      ownerId: args.ownerId,
+      provider: args.provider,
+      model: args.model,
+      ...(args.voice ? { voice: args.voice } : {}),
+      ...(args.conversationId ? { conversationId: args.conversationId } : {}),
+      streaming: args.streaming,
+      status: args.status,
+      requestChars,
+      synthesizedChars,
+      audioBytes,
+      textInputTokens,
+      audioOutputTokens,
+      costMicroCents,
+      durationMs: Math.max(0, Math.floor(args.durationMs ?? 0)),
+      createdAt: Date.now(),
+    });
+
+    return { recorded: true, costMicroCents, usageId };
+  },
+});
+
+/**
+ * Finalize a streaming TTS ledger row created up front.
+ *
+ * A streaming synthesis inserts a pessimistic "interrupted" row before it
+ * begins, then updates it to the real terminal status when the stream ends.
+ * If the client disconnects mid-stream the serving action is terminated and
+ * this update never runs — the row is left as "interrupted", which is exactly
+ * the correct accounting (the provider received the full text and the client
+ * stopped early). Cost is recomputed from the final synthesized-character
+ * count so a clean completion is billed exactly.
+ */
+export const finalizeInternalTtsUsage = internalMutation({
+  args: {
+    usageId: v.id("internal_tts_usage"),
+    status: v.union(
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("interrupted"),
+      v.literal("partial"),
+    ),
+    synthesizedChars: v.number(),
+    audioBytes: v.number(),
+    durationMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.usageId);
+    if (!row) return { updated: false };
+    const synthesizedChars = Math.max(
+      0,
+      Math.min(row.requestChars, Math.floor(args.synthesizedChars)),
+    );
+    const costMicroCents =
+      row.provider === "inworld"
+        ? computeInworldTtsCostMicroCents({
+            model: row.model,
+            chars: synthesizedChars,
+          })
+        : computeTtsUsageCostMicroCents({
+            model: row.model,
+            textInputTokens: row.textInputTokens,
+            audioOutputTokens: row.audioOutputTokens,
+          });
+    await ctx.db.patch(args.usageId, {
+      status: args.status,
+      synthesizedChars,
+      audioBytes: Math.max(0, Math.floor(args.audioBytes)),
+      durationMs: Math.max(0, Math.floor(args.durationMs)),
+      costMicroCents,
+    });
+    return { updated: true, costMicroCents };
   },
 });
 

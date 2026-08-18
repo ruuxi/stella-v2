@@ -105,6 +105,30 @@ const DEFAULT_TTS_PRICE_CATALOG: Record<
   },
 };
 
+// Inworld TTS is billed per million *input characters synthesized* (a
+// different meter from OpenAI's text-in / audio-out token split). On-demand
+// list prices from inworld.ai/pricing: TTS-2 $25/1M, TTS-2 Flash $15/1M,
+// TTS-1.5 Mini $15/1M, TTS-1 $5/1M. These feed the internal spend ledger
+// only and are never charged to the user.
+const DEFAULT_INWORLD_TTS_PER_MILLION_CHARS_USD: Record<string, number> = {
+  "inworld-tts-2": 25,
+  "inworld-tts-2-flash": 15,
+  "inworld-tts-1.5-mini": 15,
+  "inworld-tts-1": 5,
+};
+
+const lookupInworldTtsPerMillionCharsUsd = (model: string): number => {
+  const direct = DEFAULT_INWORLD_TTS_PER_MILLION_CHARS_USD[model];
+  if (typeof direct === "number") return direct;
+  if (model.startsWith("inworld-tts-2-flash")) return 15;
+  if (model.startsWith("inworld-tts-2")) return 25;
+  if (model.startsWith("inworld-tts-1.5")) return 15;
+  if (model.startsWith("inworld-tts-1")) return 5;
+  // Unknown Inworld TTS model: fall back to the most expensive on-demand rate
+  // so internal spend is never silently underestimated.
+  return 25;
+};
+
 const lookupRealtimePriceConfig = (
   model: string,
 ): RealtimePriceConfig | undefined =>
@@ -497,4 +521,18 @@ export const computeTtsUsageCostMicroCents = (args: {
     price.audioOutputPerMillionUsd;
 
   return dollarsToMicroCents(textInputUsd + audioOutputUsd);
+};
+
+/**
+ * Internal provider-cost estimate for Inworld TTS, priced per synthesized
+ * input character. Used only for the internal spend ledger — read-aloud is
+ * free to the user, so this is never billed against a usage window.
+ */
+export const computeInworldTtsCostMicroCents = (args: {
+  model: string;
+  chars: number;
+}) => {
+  const perMillionUsd = lookupInworldTtsPerMillionCharsUsd(args.model);
+  const usd = (Math.max(0, args.chars) / 1_000_000) * perMillionUsd;
+  return dollarsToMicroCents(usd);
 };

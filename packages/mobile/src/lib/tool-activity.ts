@@ -135,6 +135,10 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
     category: "memory",
     phrase: plural("saved a note", (n) => `saved ${n} notes`),
   },
+  forget: {
+    category: "memory",
+    phrase: plural("removed a note", (n) => `removed ${n} notes`),
+  },
   schedule: { category: "schedule", phrase: () => "updated scheduling" },
   cronadd: { category: "schedule", phrase: () => "updated schedules" },
   cronupdate: { category: "schedule", phrase: () => "updated schedules" },

@@ -144,6 +144,7 @@ import type * as media_image_limits from "../media_image_limits.js";
 import type * as media_image_submission from "../media_image_submission.js";
 import type * as media_jobs from "../media_jobs.js";
 import type * as media_lyria from "../media_lyria.js";
+import type * as media_openrouter_stt from "../media_openrouter_stt.js";
 import type * as mobile_access from "../mobile_access.js";
 import type * as mobile_auth from "../mobile_auth.js";
 import type * as mobile_bridge from "../mobile_bridge.js";
@@ -370,6 +371,7 @@ declare const fullApi: ApiFromModules<{
   media_image_submission: typeof media_image_submission;
   media_jobs: typeof media_jobs;
   media_lyria: typeof media_lyria;
+  media_openrouter_stt: typeof media_openrouter_stt;
   mobile_access: typeof mobile_access;
   mobile_auth: typeof mobile_auth;
   mobile_bridge: typeof mobile_bridge;

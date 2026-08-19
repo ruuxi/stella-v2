@@ -613,6 +613,7 @@ export const createPiTools = (opts) => {
                 toolOutputArtifact: preservedText.artifact,
               }
             : formatted.details,
+                    isError: Boolean(toolResult.error),
                     ...(typeof toolResult.modelOutputTokens === "number"
                         ? { modelOutputTokens: toolResult.modelOutputTokens }
                         : {}),

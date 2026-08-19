@@ -300,6 +300,8 @@ export interface AgentToolResult<T> {
 	content: (TextContent | ImageContent)[];
 	// Details to be displayed in a UI or logged
 	details: T;
+	// Native adapters set this when execution completed with a tool-level failure.
+	isError?: boolean;
 	// Optional model-facing text budget; durable content remains raw.
 	modelOutputTokens?: number;
 }

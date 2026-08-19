@@ -24,6 +24,7 @@ import { normalizeRetiredAgentType } from "@stella/contracts/agent-runtime";
 import { DreamInboxStore } from "../memory/dream-inbox-store.js";
 import {
   CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
+  PINNED_INSTRUCTION_ENTRY_ID_MARKER,
   RESIDENT_FOLD_ENTRY_ID_MARKER,
   parseResidentFold,
   residentIdentityForCustomMessage,
@@ -775,9 +776,27 @@ const buildRawThreadMessages = (path) =>
   path
     .map((entry) => toThreadMessageRecord(entry))
     .filter((message) => message !== null);
+/**
+ * Validate a `pinnedUserInstruction` recovered from a persisted compaction
+ * entry's `details` (written by `maybeCompactRuntimeThread`). Returns
+ * `{ text }` or null when absent/malformed.
+ */
+const parsePinnedUserInstruction = (details) => {
+  const pinned =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? details.pinnedUserInstruction
+      : undefined;
+  const text =
+    pinned && typeof pinned === "object" && typeof pinned.text === "string"
+      ? pinned.text.trim()
+      : "";
+  return text ? { text } : null;
+};
+
 const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const timestamp = Date.parse(compaction.timestamp) || Date.now();
   const residentFold = parseResidentFold(compaction.details);
+  const pinnedUserInstruction = parsePinnedUserInstruction(compaction.details);
   if (compaction.fromEntryId && compaction.toEntryId) {
     return {
       id: compaction.id,
@@ -786,6 +805,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
       toEntryId: compaction.toEntryId,
       timestamp,
       ...(residentFold ? { residentFold } : {}),
+      ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
     };
   }
   if (!compaction.firstKeptEntryId) {
@@ -809,6 +829,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
     toEntryId,
     timestamp,
     ...(residentFold ? { residentFold } : {}),
+    ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
   };
 };
 const buildThreadCompactionOverlays = (path, rawMessages) =>
@@ -904,6 +925,25 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
           role: "assistant",
           content: formatThreadCheckpointMessage(overlay.summary),
         });
+        // Re-emit the pinned latest-user-instruction copy carried on the
+        // overlay right after its checkpoint, so the current instruction
+        // stays model-visible verbatim even though its original turn was
+        // summarized into the middle. Synthetic entryId — span boundaries
+        // never land on it (see thread-runtime split guards).
+        if (overlay.pinnedUserInstruction) {
+          result.push({
+            entryId: `${overlay.id}${PINNED_INSTRUCTION_ENTRY_ID_MARKER}`,
+            threadKey: "",
+            timestamp: overlay.timestamp,
+            role: "user",
+            content: overlay.pinnedUserInstruction.text,
+            payload: {
+              role: "user",
+              content: overlay.pinnedUserInstruction.text,
+              timestamp: overlay.timestamp,
+            },
+          });
+        }
         index = endIndex + 1;
         continue;
       }

@@ -2077,6 +2077,96 @@ describe("session-store", () => {
     });
   });
 
+  it("re-emits a pinned latest user instruction right after the checkpoint", () => {
+    const { store } = createTestContext();
+    const conversationId = "conv-pinned-instruction";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "general",
+    });
+
+    const turns = [
+      { role: "user" as const, content: "Spawn prompt" },
+      { role: "assistant" as const, content: "Working on it" },
+      { role: "user" as const, content: "Task update: do the other thing" },
+      { role: "assistant" as const, content: "Switching over" },
+      { role: "assistant" as const, content: "Recent tail reply" },
+    ];
+    for (const [index, turn] of turns.entries()) {
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: 6_000 + index,
+        role: turn.role,
+        content: turn.content,
+        payload:
+          turn.role === "user"
+            ? {
+                role: "user",
+                content: turn.content,
+                timestamp: 6_000 + index,
+              }
+            : {
+                role: "assistant",
+                content: [{ type: "text", text: turn.content }],
+                api: "openai-responses",
+                provider: "openai",
+                model: "gpt-5.4",
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    total: 0,
+                  },
+                },
+                stopReason: "stop",
+                timestamp: 6_000 + index,
+              },
+      });
+    }
+
+    const before = store.loadThreadMessages(threadId);
+    store.compactThread({
+      threadKey: threadId,
+      summary: "Condensed: task switched per the update",
+      fromEntryId: before[1]!.entryId!,
+      toEntryId: before[3]!.entryId!,
+      tokensBefore: 400,
+      timestamp: 6_100,
+      details: {
+        pinnedUserInstruction: {
+          text: "Task update: do the other thing",
+        },
+      },
+    });
+
+    const after = store.loadThreadMessages(threadId);
+    // Order: protected head, checkpoint, pinned instruction copy, kept tail.
+    expect(
+      after.map((message) => ({ role: message.role, content: message.content })),
+    ).toEqual([
+      { role: "user", content: "Spawn prompt" },
+      {
+        role: "assistant",
+        content: expect.stringContaining("[[THREAD_CHECKPOINT]]"),
+      },
+      { role: "user", content: "Task update: do the other thing" },
+      { role: "assistant", content: "Recent tail reply" },
+    ]);
+    const pinned = after[2]!;
+    expect(pinned.entryId).toContain("::pinned-instruction");
+    expect(pinned.payload).toMatchObject({
+      role: "user",
+      content: "Task update: do the other thing",
+    });
+  });
+
   it("truncates oversized persisted tool results to stay under SQLite row limits", () => {
     const { store } = createTestContext();
     const conversationId = "conv-big-tool-result";

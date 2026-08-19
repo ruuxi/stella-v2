@@ -51,6 +51,14 @@ export const CONTEXT_DELTA_CUSTOM_TYPE_PREFIX = "runtime.context_delta.";
  */
 export const RESIDENT_FOLD_ENTRY_ID_MARKER = "::resident:";
 
+/**
+ * Marker inside the synthetic entryId of the pinned latest-user-instruction
+ * message a compaction overlay re-emits right after its checkpoint
+ * (`<overlayEntryId>::pinned-instruction`). Exists only in the materialized
+ * view — compaction span boundaries must never land on it.
+ */
+export const PINNED_INSTRUCTION_ENTRY_ID_MARKER = "::pinned-instruction";
+
 export const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
 export const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
 export const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";

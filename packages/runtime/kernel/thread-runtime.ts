@@ -16,6 +16,7 @@ import {
   isThreadCompactionForced,
 } from "./agent-runtime/context-budget.js";
 import {
+  PINNED_INSTRUCTION_ENTRY_ID_MARKER,
   RESIDENT_FOLD_ENTRY_ID_MARKER,
   buildResidentFold,
 } from "./agent-runtime/resident-context.js";
@@ -46,6 +47,12 @@ const THREAD_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
  */
 const THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT = 0.1;
 const THREAD_COMPACTION_MIN_TAIL_MESSAGES = 2;
+/**
+ * Char cap for the pinned copy of the latest user instruction carried
+ * verbatim across a compaction checkpoint (~3-4k tokens). The pin never
+ * moves the tail cut — its cost is exactly one capped message.
+ */
+const THREAD_COMPACTION_PINNED_INSTRUCTION_MAX_CHARS = 12_000;
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
 const MIN_TRIGGER_TOKENS = 8_000;
 const MAX_BLOCK_CHARS = 100_000;
@@ -78,6 +85,14 @@ export type ThreadCompactionPlan = {
   fromEntryId: string;
   toEntryId: string;
   middleMessages: StoredThreadMessage[];
+  /**
+   * The latest role=user message of the thread when it falls inside the
+   * summarized middle (a follow-up `description\n\nmessage` turn or an
+   * active-steer `Task update:` turn). The overlay re-emits a capped verbatim
+   * copy of it right after the checkpoint so the agent never loses its
+   * current instruction to a summary. The tail cut is never moved for it.
+   */
+  latestUserMessage?: StoredThreadMessage;
 };
 
 const truncateWithSuffix = (
@@ -279,6 +294,30 @@ const isCompactionMessage = (message: StoredThreadMessage): boolean =>
   message.role === "assistant" &&
   parseThreadCheckpoint(message.content) !== null;
 
+/**
+ * A pinned latest-user-instruction copy materialized by a previous overlay.
+ * Like checkpoint messages, these are overlay artifacts: they are excluded
+ * from the summarized middle (their content already reached the summarizer
+ * the first time around) and must never anchor a compaction span.
+ */
+const isPinnedInstructionMessage = (message: StoredThreadMessage): boolean =>
+  message.entryId?.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER) ?? false;
+
+/** Plain text of a user message, preferring the persisted payload blocks. */
+const extractUserMessageText = (message: StoredThreadMessage): string => {
+  if (message.payload?.role === "user") {
+    const content = message.payload.content;
+    if (typeof content === "string") {
+      return content;
+    }
+    return content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n");
+  }
+  return message.content;
+};
+
 const hasToolCalls = (message: StoredThreadMessage): boolean =>
   message.role === "assistant" &&
   message.payload?.role === "assistant" &&
@@ -421,9 +460,28 @@ export const splitThreadMessagesForCompaction = (
 
   const middleMessages = messages
     .slice(compressionStart, tailStartIndex)
-    .filter((message) => !isCompactionMessage(message));
+    .filter(
+      (message) =>
+        !isCompactionMessage(message) && !isPinnedInstructionMessage(message),
+    );
   if (middleMessages.length === 0) {
     return null;
+  }
+
+  // The latest user instruction must survive compaction verbatim, but with
+  // bounded cost: when it sits inside the summarized middle it is carried
+  // across the checkpoint as one capped pinned copy (re-emitted by the
+  // overlay materializer) — the tail cut is never moved back for it.
+  let latestUserMessage: StoredThreadMessage | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.role !== "user") {
+      continue;
+    }
+    if (index >= compressionStart && index < tailStartIndex) {
+      latestUserMessage = message;
+    }
+    break;
   }
 
   const previousSummary = messages
@@ -443,7 +501,9 @@ export const splitThreadMessagesForCompaction = (
   // makes a corrupt overlay impossible even in degenerate splits.
   if (
     fromEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
-    toEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER)
+    toEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
+    fromEntryId.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER) ||
+    toEntryId.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER)
   ) {
     return null;
   }
@@ -453,6 +513,7 @@ export const splitThreadMessagesForCompaction = (
     fromEntryId,
     toEntryId,
     middleMessages,
+    ...(latestUserMessage ? { latestUserMessage } : {}),
   };
 };
 
@@ -623,6 +684,7 @@ const buildSummaryGuidelines = (hasDurableMemoryReference: boolean): string =>
     '- Thread ids: delegated/background work appears in the conversation as spawn_agent / send_input / check-status tool calls and results carrying a `thread_id`. Name that exact thread_id alongside every workstream you mention (e.g. "shell redesign polish — thread_id: shell-redesign-v2-full-polish") so follow-ups after this checkpoint route to the existing thread instead of spawning a duplicate.',
     "- Pending user decisions: any question posed to the user that was not yet answered by the end of the conversation goes under Open Items with the exact question quoted verbatim; if the user gave a partial or nuanced answer, quote the user's exact relevant words too. Never paraphrase half-answered decisions — quote them.",
     "- Resume-critical state: preserve the task objective and constraints; every working path, branch, and commit SHA; every child thread id with its status and concrete result; completed and unresolved work; and the latest user instruction. Quote the latest user instruction verbatim when its wording affects how work must resume.",
+    '- Current task/instruction: the newest user message in the conversation (a follow-up request or a "Task update:" steer) defines what the agent is doing RIGHT NOW. Preserve it faithfully — quote it verbatim (or near-verbatim if very long) under Current State or Open Items so the agent resumes exactly that work after compaction, not an earlier task.',
     "- Never return an empty or near-empty summary. After compaction this summary is the only carrier of the compacted span's thread-specific context, so it must stand alone: even if most of the conversation is already covered by durable memory or the previous summary, restate the thread-specific workstreams, decisions, current state, and open items. A bare heading or a one-line fragment is never an acceptable summary.",
     // The durable-memory rule only applies when the always-loaded docs are
     // actually injected for this agent (orchestrator); for other agents the
@@ -1052,6 +1114,23 @@ export const maybeCompactRuntimeThread = async (args: {
     });
   }
 
+  // Pin the latest user instruction across the checkpoint: the middle
+  // (including that instruction) is summarized as usual, but the overlay
+  // additionally re-emits one capped verbatim copy of it right after the
+  // checkpoint message. Bounded by construction — the tail cut never moves.
+  const pinnedInstructionText = splitMessages.latestUserMessage
+    ? truncateForSummary(
+        extractUserMessageText(splitMessages.latestUserMessage).trim(),
+        THREAD_COMPACTION_PINNED_INSTRUCTION_MAX_CHARS,
+      )
+    : "";
+  const details = {
+    ...(residentFold ? { residentFold } : {}),
+    ...(pinnedInstructionText
+      ? { pinnedUserInstruction: { text: pinnedInstructionText } }
+      : {}),
+  };
+
   for (
     let attempt = 0;
     attempt <= COMPACTION_STORE_WRITE_RETRY_DELAYS_MS.length;
@@ -1067,7 +1146,7 @@ export const maybeCompactRuntimeThread = async (args: {
         fromEntryId: splitMessages.fromEntryId,
         toEntryId: splitMessages.toEntryId,
         tokensBefore: totalTokens,
-        ...(residentFold ? { details: { residentFold } } : {}),
+        ...(Object.keys(details).length > 0 ? { details } : {}),
       });
       args.store.updateThreadSummary(args.threadKey, summary);
       return { compacted: true };

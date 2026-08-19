@@ -1649,6 +1649,9 @@
       "activity": "Aktivitas",
       "viewFiles": {
         "other": "Lihat {count} berkas"
+      },
+      "moreFiles": {
+        "other": "{count} more files"
       }
     },
     "updatePill": {

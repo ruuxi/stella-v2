@@ -1685,6 +1685,11 @@
         "one": "Vezi {count} fișier",
         "few": "Vezi {count} fișiere",
         "other": "Vezi {count} de fișiere"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "few": "{count} more files",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

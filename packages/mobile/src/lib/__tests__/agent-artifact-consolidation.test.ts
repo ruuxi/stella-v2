@@ -304,16 +304,16 @@ describe("settledAgentWorkCards", () => {
   ): AgentWorkChatArtifact =>
     agentWork("grp", state, agents) as AgentWorkChatArtifact;
 
-  test("keeps a running multi-agent group as one aggregate card", () => {
+  test("splits a running multi-agent group into independently keyed cards", () => {
     const cards = settledAgentWorkCards(
       grouped("running", [
         section("a1", "Task A", "/Users/u/.stella/outputs/a.pdf"),
         section("a2", "Task B", "/Users/u/.stella/outputs/b.pdf"),
       ]),
     );
-    expect(cards).toHaveLength(1);
-    expect(cards[0]?.key).toBe("grp");
-    expect(cards[0]?.payload.title).toBe("Research task");
+    expect(cards).toHaveLength(2);
+    expect(cards.map((card) => card.key)).toEqual(["grp", "agent-work:a2"]);
+    expect(cards.map((card) => card.payload.title)).toEqual(["Task A", "Task B"]);
   });
 
   test("keeps a single-agent settled card as one grouped card", () => {
@@ -336,7 +336,7 @@ describe("settledAgentWorkCards", () => {
     expect(cards).toHaveLength(2);
     // The first completion retains the running aggregate's mounted identity;
     // only the additional completion enters as a new sibling card.
-    expect(cards.map((card) => card.key)).toEqual(["grp", "grp:a2"]);
+    expect(cards.map((card) => card.key)).toEqual(["grp", "agent-work:a2"]);
     for (const card of cards) {
       expect(card.payload.state).toBe("done");
       expect(card.payload.total).toBe(1);

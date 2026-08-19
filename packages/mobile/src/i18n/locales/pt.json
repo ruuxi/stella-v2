@@ -1685,6 +1685,11 @@
         "one": "Ver {count} arquivo",
         "many": "Ver {count} arquivos",
         "other": "Ver {count} arquivos"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "many": "{count} more files",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

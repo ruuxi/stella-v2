@@ -1738,6 +1738,14 @@
         "few": "اعرض {count} ملفات",
         "many": "اعرض {count} ملفًا",
         "other": "اعرض {count} ملف"
+      },
+      "moreFiles": {
+        "zero": "{count} more files",
+        "one": "{count} more file",
+        "two": "{count} more files",
+        "few": "{count} more files",
+        "many": "{count} more files",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

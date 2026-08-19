@@ -1649,6 +1649,9 @@
       "activity": "アクティビティ",
       "viewFiles": {
         "other": "{count} 個のファイルを表示"
+      },
+      "moreFiles": {
+        "other": "{count} more files"
       }
     },
     "updatePill": {

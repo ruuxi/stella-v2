@@ -97,7 +97,11 @@ export const mediaSchema = {
     jobId: v.string(),
     capability: v.string(),
     profile: v.string(),
-    provider: v.union(v.literal("fal"), v.literal("google_lyria")),
+    provider: v.union(
+      v.literal("fal"),
+      v.literal("google_lyria"),
+      v.literal("openrouter"),
+    ),
     endpointId: v.string(),
     request: mediaRequestSummaryValidator,
     /**

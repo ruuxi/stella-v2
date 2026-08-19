@@ -327,6 +327,29 @@ export const meterCompletedMediaJob = (args: {
         unitPriceUsd: 0.4,
         meteredFrom: "request",
       });
+    case "nvidia/parakeet-tdt-0.6b-v3": {
+      const usageSeconds =
+        isRecord(args.output) && isRecord(args.output.usage)
+          ? asNumber(args.output.usage.seconds)
+          : null;
+      const lastWordEndSeconds = findMaxNumericField(args.output, "end");
+      const durationSeconds = usageSeconds ?? lastWordEndSeconds;
+      if (durationSeconds === null) {
+        return {
+          supported: false,
+          reason:
+            "Transcription output did not include usage.seconds or segment end timestamps.",
+        };
+      }
+      return buildBillingRecord({
+        endpointId: args.endpointId,
+        billingUnit: "minute",
+        quantity: durationSeconds / 60,
+        unitPriceUsd: 0.0015,
+        meteredFrom: "output",
+        note: "OpenRouter NVIDIA Parakeet TDT 0.6B v3 at $0.0015/minute.",
+      });
+    }
     case "fal-ai/elevenlabs/speech-to-text/scribe-v2": {
       const lastWordEndSeconds = findMaxNumericField(args.output, "end");
       if (lastWordEndSeconds === null) {

@@ -368,6 +368,21 @@ const alignBoundaryBackward = (
   return nextIndex;
 };
 
+const isUserInstructionMessage = (
+  message: StoredThreadMessage,
+): boolean => message.role === "user";
+
+const findLatestUserInstructionIndex = (
+  messages: StoredThreadMessage[],
+): number => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (isUserInstructionMessage(messages[index]!)) {
+      return index;
+    }
+  }
+  return -1;
+};
+
 const findTailStartIndexByTokenBudget = (
   messages: StoredThreadMessage[],
   headEnd: number,
@@ -409,12 +424,24 @@ export const splitThreadMessagesForCompaction = (
 
   let compressionStart = Math.min(protectHeadMessages, messages.length);
   compressionStart = alignBoundaryForward(messages, compressionStart);
-  const tailStartIndex = findTailStartIndexByTokenBudget(
+  let tailStartIndex = findTailStartIndexByTokenBudget(
     messages,
     compressionStart,
     keepRecentTokens,
     minTailMessages,
   );
+  // Overlays replace one contiguous middle span. If the current user
+  // instruction sits in that span, reconstruction leaves only the older
+  // protected spawn as a live role=user message and the model re-anchors
+  // on it. Keep the latest user turn (completed-path follow-up or
+  // active-steer "Task update:") in the tail.
+  const latestUserIndex = findLatestUserInstructionIndex(messages);
+  if (
+    latestUserIndex >= compressionStart &&
+    latestUserIndex < tailStartIndex
+  ) {
+    tailStartIndex = latestUserIndex;
+  }
   if (tailStartIndex <= compressionStart) {
     return null;
   }

@@ -7,11 +7,15 @@
  * selection global by default: the last pick applies to every tab.
  *
  * This store records the selection subset per conversation id so the multi-tab
- * (direct / orchestrator-off) experience can mirror the global preferences to
- * whichever tab is active. It persists through `uiState` — the same durable
- * key/value store the conversation tabs themselves use — so selections survive
- * tab switches within a session and app restarts, matching how open tabs
- * persist.
+ * chat experience can mirror the global preferences to whichever conversation
+ * is active. It persists through `uiState` — the same durable key/value store
+ * the conversation tabs themselves use — so selections survive tab switches,
+ * history replacing a tab, and app restarts.
+ *
+ * Snapshots are keyed by conversation id, not by open-tab lifetime. Closing a
+ * tab (or replacing it from history) must not forget that conversation's pick;
+ * reopening it later restores the same engine/model/reasoning. Only an explicit
+ * delete, or the bounded LRU, drops a snapshot.
  *
  * Only the model-routing subset is captured. Everything else in local
  * preferences (agent concurrency, image/voice providers, working mode, memory,
@@ -153,7 +157,11 @@ export const conversationModelSelections = {
     load();
     if (memory.delete(conversationId)) persist();
   },
-  /** Drop snapshots for conversations that no longer have an open tab. */
+  /**
+   * Drop snapshots for conversations that no longer have an open tab.
+   * Kept for callers that want a strict open-tab cache; the live hook no
+   * longer prunes on close so history can restore a conversation's pick.
+   */
   pruneToOpenConversations(openConversationIds) {
     load();
     let changed = false;
@@ -164,5 +172,10 @@ export const conversationModelSelections = {
       }
     }
     if (changed) persist();
+  },
+  reset() {
+    memory.clear();
+    loaded = false;
+    uiState.removeItem(CONVERSATION_MODEL_SELECTIONS_STORAGE_KEY);
   },
 };

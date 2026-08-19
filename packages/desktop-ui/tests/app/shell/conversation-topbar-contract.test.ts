@@ -415,4 +415,27 @@ describe("conversation top-bar contracts", () => {
       "getLocalChatApi().createNewDefaultConversationId()",
     );
   });
+
+  it("opens history in the current tab and only appends from New chat", () => {
+    const source = fs.readFileSync(
+      path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
+      "utf8",
+    );
+    const store = fs.readFileSync(
+      path.join(
+        SOURCE_ROOT,
+        "features/chat/services/conversation-tabs-store.ts",
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain("const openHistoryConversation = useCallback(");
+    expect(source).toContain("conversationTabs.replaceConversation(");
+    expect(source).toContain("openHistoryConversation(summary.conversationId");
+    expect(source).toContain("conversationModelSelections.delete");
+    expect(source).not.toMatch(
+      /onMouseDown=\{[\s\S]*navigateToConversation\(summary\.conversationId/,
+    );
+    expect(store).toContain("replaceConversation(");
+  });
 });

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { StellaBrowserBridgeService } from "@stella/desktop/electron/services/stella-browser-bridge-service.js";
+import {
+  buildWindowsBundledBrowserProcessQuery,
+  StellaBrowserBridgeService,
+} from "@stella/desktop/electron/services/stella-browser-bridge-service.js";
 
 type SendCommand = (
   command: Record<string, unknown>,
@@ -22,6 +25,22 @@ const mockSendCommand = (
     .mockResolvedValue(response);
 
 describe("StellaBrowserBridgeService browser bootstrap API", () => {
+  it("builds a valid Windows orphan query for active and legacy binaries", () => {
+    const query = buildWindowsBundledBrowserProcessQuery([
+      "C:\\Users\\Test\\Stella\\resources\\stella-browser\\out\\win-x64\\stella-browser.exe",
+      "C:\\Users\\Test's PC\\Stella\\resources\\stella-browser\\bin\\stella-browser-win32-x64.exe",
+    ]);
+
+    expect(query).toContain("$targets = @(");
+    expect(query).toContain("Test''s PC");
+    expect(query).toContain(
+      "Get-CimInstance Win32_Process | Where-Object",
+    );
+    expect(query).toContain("$targets -contains $_.ExecutablePath");
+    expect(query).toContain("-notlike '*chrome-extension://*'");
+    expect(query).not.toContain("; | Where-Object");
+  });
+
   it("reads extension connection state through a daemon-local command", async () => {
     const service = createService();
     const sendCommand = mockSendCommand(service, {

@@ -3,8 +3,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 export const TOOL_OUTPUT_SPILL_DIR = "tool-output-artifacts";
-export const DEFAULT_TOOL_OUTPUT_SPILL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
-export const DEFAULT_TOOL_OUTPUT_SPILL_QUOTA_BYTES = 256 * 1024 * 1024;
+export const DEFAULT_TOOL_OUTPUT_SPILL_MAX_AGE_MS = 48 * 60 * 60 * 1_000;
+export const DEFAULT_TOOL_OUTPUT_SPILL_QUOTA_BYTES = 32 * 1024 * 1024;
 
 const safeSegment = (value, fallback) => {
   const normalized = String(value ?? "")

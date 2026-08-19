@@ -307,6 +307,7 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
+      "include": "packages/desktop/build/installer.nsh",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },

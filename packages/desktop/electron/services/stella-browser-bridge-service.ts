@@ -60,6 +60,22 @@ const parseProcessRows = (output: string): ProcessRow[] =>
       Boolean(row && Number.isFinite(row.pid) && Number.isFinite(row.ppid)),
     );
 
+export const buildWindowsBundledBrowserProcessQuery = (
+  binaryPaths: readonly string[],
+): string => {
+  const targets = binaryPaths
+    .map((binaryPath) => `'${binaryPath.replace(/'/g, "''")}'`)
+    .join(", ");
+  return [
+    `$targets = @(${targets})`,
+    [
+      "Get-CimInstance Win32_Process",
+      "| Where-Object { $_.ExecutablePath -and ($targets -contains $_.ExecutablePath) -and $_.ProcessId -ne $PID -and $_.CommandLine -notlike '*chrome-extension://*' }",
+      "| Select-Object -ExpandProperty ProcessId -Unique",
+    ].join(" "),
+  ].join("; ");
+};
+
 const findOrphanedBundledDaemonPids = async (): Promise<number[]> => {
   const activeBinaryPath = resolveStellaBrowserBinaryPath();
   const legacyBinaryPath = resolveLegacyStellaBrowserBinaryPath();
@@ -67,31 +83,26 @@ const findOrphanedBundledDaemonPids = async (): Promise<number[]> => {
     (value): value is string => Boolean(value),
   );
   if (process.platform === "win32") {
-    const binaryPath = activeBinaryPath ?? legacyBinaryPath;
-    if (!binaryPath) return [];
-    const quotedBinaryPath = binaryPath.replace(/'/g, "''");
-    const quotedBinaryName = path.basename(binaryPath).replace(/'/g, "''");
+    if (binaryPaths.length === 0) return [];
     try {
       // Exclude Chrome-spawned native messaging hosts: Chrome passes the
       // extension origin (chrome-extension://...) as an argument and owns
       // their lifecycle. Killing them disconnects the extension's native
-      // port and kicks off its respawn/reconnect loop.
+      // port and kicks off its respawn/reconnect loop. The NSIS installer
+      // kills those browser-owned hosts immediately before replacing files.
       const { stdout } = await execFileAsync(
         "powershell",
         [
           "-NoProfile",
+          "-NonInteractive",
           "-Command",
-          [
-            `$target = '${quotedBinaryPath}'`,
-            `Get-CimInstance Win32_Process -Filter "Name = '${quotedBinaryName}'"`,
-            "| Where-Object { $_.ExecutablePath -eq $target -and $_.ProcessId -ne $PID -and $_.CommandLine -notlike '*chrome-extension://*' }",
-            "| Select-Object -ExpandProperty ProcessId -Unique",
-          ].join("; "),
+          buildWindowsBundledBrowserProcessQuery(binaryPaths),
         ],
         {
           encoding: "utf8",
           windowsHide: true,
           maxBuffer: 1024 * 1024,
+          timeout: 1_500,
         },
       );
       return stdout
@@ -562,7 +573,13 @@ export class StellaBrowserBridgeService {
         );
       }
 
+      // stop() can run while native-host registration or stale-session cleanup
+      // is awaiting Windows I/O. Do not spawn a fresh daemon after shutdown has
+      // already completed its process sweep.
+      if (this.stopped) return;
+
       await this.closeExistingSession();
+      if (this.stopped) return;
       this.spawnDaemon();
       await this.waitForDaemonReady();
       await this.sendCommand({

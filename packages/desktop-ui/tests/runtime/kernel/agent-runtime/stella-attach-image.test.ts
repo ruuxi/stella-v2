@@ -419,6 +419,13 @@ describe("native tool-result persistence boundary", () => {
     expect(persistedText.length).toBeLessThanOrEqual(30_000);
     expect(persistedText).toContain("Tool output truncated");
     expect(persistedText.startsWith("HEAD-")).toBe(true);
-    expect(persistedText.endsWith("-TAIL")).toBe(true);
+    // The tail preview survives, but no longer terminates the text: the
+    // spill-to-artifact boundary appends a TOOL_OUTPUT_TRUNCATED pointer to
+    // the preserved complete output after it.
+    expect(persistedText).toContain("-TAIL");
+    expect(persistedText).toContain(
+      "TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved",
+    );
+    expect(persistedText.endsWith("]")).toBe(true);
   });
 });

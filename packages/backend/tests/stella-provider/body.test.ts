@@ -8,6 +8,7 @@ const RESOLVED_MODELS: Record<ManagedGatewayProvider, string> = {
   anthropic: "anthropic/claude-opus-5",
   fireworks: "accounts/fireworks/models/kimi-k2p6",
   deepseek: "deepseek/deepseek-v4-flash",
+  crof: "crof/deepseek-v4-flash-0731",
   google: "google/gemini-3.6-flash",
   meta: "meta/muse-spark-1.1",
   openai: "openai/gpt-5.5",
@@ -19,6 +20,7 @@ const UPSTREAM_MODELS: Record<ManagedGatewayProvider, string> = {
   anthropic: "claude-opus-5",
   fireworks: "accounts/fireworks/models/kimi-k2p6",
   deepseek: "deepseek-v4-flash",
+  crof: "deepseek-v4-flash-0731",
   google: "gemini-3.6-flash",
   meta: "muse-spark-1.1",
   openai: "gpt-5.5",
@@ -483,6 +485,35 @@ describe("direct DeepSeek relay", () => {
     expect(body.max_completion_tokens).toBe(256);
     expect(body.thinking).toEqual({ type: "disabled" });
     expect(body.reasoning_effort).toBeUndefined();
+  });
+});
+
+describe("CrofAI DeepSeek relay", () => {
+  it("uses chat completions, the dated model slug, and Crof reasoning levels", () => {
+    expect(
+      upstreamUrl(
+        "crof",
+        requestFor("/api/stella/crof/v1/chat/completions"),
+        "deepseek-v4-flash-0731",
+      ),
+    ).toBe("https://crof.ai/v1/chat/completions");
+
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("crof", {
+          model: "stella/default",
+          messages: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "xhigh" },
+          stream: true,
+        }),
+        "crof",
+        requestFor("/api/stella/crof/v1/chat/completions"),
+      ),
+    );
+    expect(body.model).toBe("deepseek-v4-flash-0731");
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.reasoning).toBeUndefined();
+    expect(body.stream_options).toEqual({ include_usage: true });
   });
 });
 

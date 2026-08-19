@@ -44,6 +44,7 @@ export const STELLA_GOOGLE_MODELS_PATH_PREFIX = `${STELLA_API_BASE_PATH}/google/
 export const STELLA_FIREWORKS_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/fireworks/v1/responses`;
 export const STELLA_DEEPSEEK_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/deepseek/v1/responses`;
 export const STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/deepseek/v1/chat/completions`;
+export const STELLA_CROF_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/crof/v1/chat/completions`;
 export const STELLA_XAI_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/xai/v1/chat/completions`;
 export const STELLA_XAI_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/xai/v1/responses`;
 export const STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openrouter/api/v1/chat/completions`;

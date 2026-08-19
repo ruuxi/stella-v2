@@ -103,19 +103,32 @@ const gatewayOptions = (
 });
 
 /**
- * Which upstream serves DeepSeek V4 Flash. Flip to `"fireworks"` to route the
- * whole catalog back through the Fireworks gateway — every public mode and the
- * legacy-id alias below follow this constant, so no other edit is needed. The
- * inactive gateway stays fully registered but idle.
+ * Which upstream serves DeepSeek V4 Flash. Every public mode and legacy-id
+ * alias follows this constant, so rolling back to DeepSeek or Fireworks needs
+ * no other model-routing edit. Inactive gateways stay registered but idle.
  */
-type DeepSeekV4FlashRoute = "deepseek" | "fireworks";
-const DEEPSEEK_V4_FLASH_ROUTE: DeepSeekV4FlashRoute = "deepseek";
+type DeepSeekV4FlashRoute = "crof" | "deepseek" | "fireworks";
+const DEEPSEEK_V4_FLASH_ROUTE: DeepSeekV4FlashRoute = "crof";
 
 /** Fireworks-hosted V4 Flash. Retained as the one-constant rollback target. */
 export const DEEPSEEK_V4_FLASH_FIREWORKS_MODEL =
   "accounts/fireworks/models/deepseek-v4-flash-0731";
 /** DeepSeek first-party V4 Flash. DeepSeek rejects the dated `-0731` suffix. */
 export const DEEPSEEK_V4_FLASH_DIRECT_MODEL = "deepseek/deepseek-v4-flash";
+/** CrofAI-hosted V4 Flash 0731. */
+export const DEEPSEEK_V4_FLASH_CROF_MODEL =
+  "crof/deepseek-v4-flash-0731";
+
+const DEEPSEEK_V4_FLASH_CROF_CONFIG: ModeConfig = {
+  model: DEEPSEEK_V4_FLASH_CROF_MODEL,
+  managedGatewayProvider: "crof",
+  temperature: 1.0,
+  providerOptions: {
+    openai: {
+      reasoningEffort: "xhigh",
+    },
+  },
+};
 
 const DEEPSEEK_V4_FLASH_FIREWORKS_CONFIG: ModeConfig = {
   model: DEEPSEEK_V4_FLASH_FIREWORKS_MODEL,
@@ -144,6 +157,7 @@ const DEEPSEEK_V4_FLASH_DIRECT_CONFIG: ModeConfig = {
 };
 
 const DEEPSEEK_V4_FLASH_CONFIGS = {
+  crof: DEEPSEEK_V4_FLASH_CROF_CONFIG,
   fireworks: DEEPSEEK_V4_FLASH_FIREWORKS_CONFIG,
   deepseek: DEEPSEEK_V4_FLASH_DIRECT_CONFIG,
 } satisfies Record<DeepSeekV4FlashRoute, ModeConfig>;
@@ -280,6 +294,7 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
   new Set<string>([
     "stella/light",
+    `stella/${DEEPSEEK_V4_FLASH_CROF_MODEL}`,
     `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`,
     `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`,
   ]);
@@ -290,6 +305,7 @@ const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
  * idle one at a price row nothing keeps warm.
  */
 export const resolveManagedModelRouteAlias = (model: string): string =>
+  model === DEEPSEEK_V4_FLASH_CROF_MODEL ||
   model === DEEPSEEK_V4_FLASH_FIREWORKS_MODEL ||
   model === DEEPSEEK_V4_FLASH_DIRECT_MODEL
     ? DEEPSEEK_V4_FLASH_MODEL_CONFIG.model

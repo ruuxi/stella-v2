@@ -6,12 +6,12 @@ export const STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/
 export const STELLA_DEFAULT_MODEL = "stella/default";
 export const STELLA_STANDARD_MODEL = "stella/standard";
 /**
- * V4 Flash on DeepSeek's own API. The older Fireworks spelling
+ * V4 Flash 0731 on CrofAI. The older DeepSeek and Fireworks spellings
  * (`accounts/fireworks/models/deepseek-v4-flash-0731`) stays routable through
  * the verbatim `stella/<provider>/<model>` path so a backend rollback needs no
  * client change — see `DEEPSEEK_V4_FLASH_ROUTE` in `convex/agent/model.ts`.
  */
-export const STELLA_DEFAULT_UPSTREAM_MODEL = "deepseek/deepseek-v4-flash";
+export const STELLA_DEFAULT_UPSTREAM_MODEL = "crof/deepseek-v4-flash-0731";
 
 /** True for every routed spelling of the DeepSeek V4 Flash family. */
 export const isDeepSeekV4FlashModel = (
@@ -25,6 +25,7 @@ export const STELLA_RELAY_PROVIDERS = [
   "google",
   "fireworks",
   "deepseek",
+  "crof",
   "openrouter",
 ] as const;
 export type StellaRelayProvider = (typeof STELLA_RELAY_PROVIDERS)[number];
@@ -39,7 +40,7 @@ export const normalizeStellaSiteUrl = (value: string): string =>
     .replace(/\/api\/stella\/v1\/?$/i, "")
     .replace(/\/api\/stella\/relay(?:\/.*)?$/i, "")
     .replace(
-      /\/api\/stella\/(?:anthropic|openai|fireworks|deepseek)(?:\/v1)?\/?$/i,
+      /\/api\/stella\/(?:anthropic|openai|fireworks|deepseek|crof)(?:\/v1)?\/?$/i,
       "",
     )
     .replace(/\/api\/stella\/google\/v1beta\/?$/i, "")

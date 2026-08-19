@@ -51,6 +51,7 @@ export type StellaDefaultEntry = {
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
+  "crof/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",
 };

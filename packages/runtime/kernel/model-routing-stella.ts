@@ -54,6 +54,7 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["anthropic/", "anthropic"],
   ["google/", "google"],
   ["deepseek/", "deepseek"],
+  ["crof/", "crof"],
 ] as const satisfies readonly (readonly [string, ManagedGatewayProvider])[];
 
 export const inferManagedGatewayProviderFromModel = (
@@ -83,6 +84,7 @@ export const resolveManagedStellaRegistryMatches = (
       case "anthropic":
       case "google":
       case "deepseek":
+      case "crof":
       case "openrouter":
         return [`${registryProvider}/${model.id}`];
       case "fireworks":
@@ -172,7 +174,8 @@ const providerNativeModelId = (
     (provider === "openai" ||
       provider === "anthropic" ||
       provider === "google" ||
-      provider === "deepseek") &&
+      provider === "deepseek" ||
+      provider === "crof") &&
     resolvedModelId.startsWith(`${provider}/`)
   ) {
     return resolvedModelId.slice(provider.length + 1);
@@ -195,6 +198,8 @@ const apiForRelay = (
     case "fireworks":
     case "deepseek":
       return "openai-responses";
+    case "crof":
+      return "openai-completions";
     case "openrouter":
       return "openai-completions";
     case "openai":
@@ -263,16 +268,25 @@ const createRelayModel = (args: {
       ? {
           thinkingLevelMap: {
             ...registryModel?.thinkingLevelMap,
-            // V4 Flash's native ladder is low | high | max, so Stella's five
-            // levels collapse onto three. Stella runs this model at `max`
-            // unless the user asked for something cheaper. The relay applies
-            // the same clamp for older builds without this map compiled in.
-            minimal: "low",
-            low: "low",
-            medium: "high",
-            high: "max",
-            xhigh: "max",
-            off: "none",
+            ...(args.provider === "crof"
+              ? {
+                  minimal: "low",
+                  low: "low",
+                  medium: "medium",
+                  high: "high",
+                  xhigh: "high",
+                  off: "none",
+                }
+              : {
+                  // DeepSeek's native ladder is low | high | max. The relay
+                  // applies the same clamp for older builds without this map.
+                  minimal: "low",
+                  low: "low",
+                  medium: "high",
+                  high: "max",
+                  xhigh: "max",
+                  off: "none",
+                }),
           },
         }
       : {}),

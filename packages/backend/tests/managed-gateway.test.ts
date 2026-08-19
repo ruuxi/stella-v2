@@ -44,6 +44,15 @@ describe("managed gateway", () => {
     expect(config.apiKeyEnvVar).toBe("DEEPSEEK_API_KEY");
   });
 
+  it("routes CrofAI models to its OpenAI-compatible API", () => {
+    expect(
+      inferManagedGatewayProviderFromModel("crof/deepseek-v4-flash-0731"),
+    ).toBe("crof");
+    const config = getManagedGatewayConfig("crof");
+    expect(config.baseURL).toBe("https://crof.ai/v1");
+    expect(config.apiKeyEnvVar).toBe("CROF_API_KEY");
+  });
+
   it("infers meta from the meta/ model prefix", () => {
     expect(inferManagedGatewayProviderFromModel("meta/muse-spark-1.1")).toBe(
       "meta",

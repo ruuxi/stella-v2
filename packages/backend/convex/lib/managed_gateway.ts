@@ -2,6 +2,7 @@ export const MANAGED_GATEWAY_PROVIDERS = [
   "openrouter",
   "fireworks",
   "deepseek",
+  "crof",
   "xai",
   "openai",
   "anthropic",
@@ -48,6 +49,12 @@ const MANAGED_GATEWAY_CONFIGS: Record<
     baseURL: "https://api.deepseek.com",
     apiKeyEnvVar: "DEEPSEEK_API_KEY",
   },
+  // CrofAI (nahcrof) exposes an OpenAI-compatible Chat Completions API.
+  crof: {
+    provider: "crof",
+    baseURL: "https://crof.ai/v1",
+    apiKeyEnvVar: "CROF_API_KEY",
+  },
   xai: {
     provider: "xai",
     baseURL: "https://api.x.ai/v1",
@@ -86,6 +93,7 @@ const FIREWORKS_MODEL_PREFIXES = [
 
 const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["deepseek/", "deepseek"],
+  ["crof/", "crof"],
   ["x-ai/", "xai"],
   ["xai/", "xai"],
   ["openai/", "openai"],

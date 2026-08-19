@@ -256,6 +256,39 @@ const reconcileGeneratedImages = (
   return updates;
 };
 
+const dedupeGeneratedImageResults = (
+  artifacts: ChatArtifact[],
+): ChatArtifact[] => {
+  const output: ChatArtifact[] = [];
+  const indexByPaths = new Map<string, number>();
+  for (const artifact of artifacts) {
+    if (
+      !isGeneratedImage(artifact) ||
+      artifact.payload.kind !== "media" ||
+      artifact.payload.asset.kind !== "image" ||
+      artifact.payload.asset.filePaths.length === 0
+    ) {
+      output.push(artifact);
+      continue;
+    }
+    const pathKey = [...artifact.payload.asset.filePaths].sort().join("\n");
+    const existingIndex = indexByPaths.get(pathKey);
+    if (existingIndex === undefined) {
+      indexByPaths.set(pathKey, output.length);
+      output.push(artifact);
+      continue;
+    }
+    const existing = output[existingIndex]!;
+    if (
+      artifact.id.startsWith("image-gen:") &&
+      !existing.id.startsWith("image-gen:")
+    ) {
+      output[existingIndex] = artifact;
+    }
+  }
+  return output.length === artifacts.length ? artifacts : output;
+};
+
 /** Keep card identity/order stable and never make an already-visible artifact
  * disappear because an intermediate projection omitted it. Same-id payloads
  * (running -> done) update in place; genuinely new artifacts append. */
@@ -324,7 +357,8 @@ const mergeArtifacts = (
     next.push(artifact);
     changed = true;
   }
-  return changed || base !== existing ? next : existing;
+  const deduped = dedupeGeneratedImageResults(next);
+  return changed || base !== existing || deduped !== next ? deduped : existing;
 };
 
 const reuseEqualMessage = (

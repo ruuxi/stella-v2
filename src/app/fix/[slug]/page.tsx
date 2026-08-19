@@ -4,11 +4,13 @@ import { notFound } from "next/navigation";
 import { ArrowRight, Check } from "lucide-react";
 import { AuroraCanvas } from "@/components/aurora-canvas";
 import { DownloadButton } from "@/components/download-button";
+import { FixHowItWorks } from "@/components/fix-how-it-works";
 import { WindowsInstallNote } from "@/components/windows-install-note";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
 import { StellaMark } from "@/components/stella-mark";
+import { getFixPageDemo } from "@/lib/fix-page-demos";
 import { FIX_PAGES, getFixPage } from "@/lib/fix-pages";
 import "../fix.css";
 
@@ -85,42 +87,7 @@ export default async function FixPage({
           </ul>
         </section>
 
-        <section className="fix-section section-border">
-          <header className="fix-section__header">
-            <p className="fix-eyebrow">How it works</p>
-            <h2>Tell Stella. It works your computer. Done.</h2>
-            <p>
-              Stella is a desktop AI agent that can actually use your computer
-              — your apps, your browser, your files. You describe the problem
-              in plain words; it does the fixing.
-            </p>
-          </header>
-
-          <div className="fix-steps">
-            <article className="fix-step">
-              <span className="fix-step__num">1</span>
-              <h3>Tell Stella the problem</h3>
-              <p>In your own words. No settings to hunt for, no forum-speak.</p>
-              <p className="fix-prompt">&ldquo;{page.prompt}&rdquo;</p>
-            </article>
-            <article className="fix-step">
-              <span className="fix-step__num">2</span>
-              <h3>Stella works your computer</h3>
-              <p>
-                It opens what needs opening, reads the real errors, and does
-                the actual fix — while you watch every step it takes.
-              </p>
-            </article>
-            <article className="fix-step">
-              <span className="fix-step__num">3</span>
-              <h3>Done — and you saw all of it</h3>
-              <p>
-                Stella confirms the fix worked and shows you what changed.
-                Anything destructive waits for your OK first.
-              </p>
-            </article>
-          </div>
-        </section>
+        <FixHowItWorks prompt={page.prompt} exchanges={getFixPageDemo(page.slug)} />
 
         <section className="fix-section section-border">
           <header className="fix-section__header">
@@ -135,10 +102,6 @@ export default async function FixPage({
               </li>
             ))}
           </ul>
-          <aside className="fix-scope">
-            <h3>Honest scope</h3>
-            <p>{page.scope}</p>
-          </aside>
         </section>
 
         <section className="fix-cta">

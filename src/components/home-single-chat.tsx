@@ -9,10 +9,7 @@ import {
   Send,
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import { useSceneLoop } from "@/lib/use-scene-loop";
-import { HomeMiniChatMock } from "./home-desktop-mock";
-import mock from "./home-desktop-mock.module.css";
-import { Composer } from "./home-mock-composer";
+import { StellaMiniChat } from "./stella-mini-chat";
 import styles from "./home-single-chat.module.css";
 
 type Exchange = {
@@ -56,73 +53,14 @@ const EXCHANGES: Exchange[] = [
   },
 ];
 
-type Message = { role: "user" | "assistant"; text: string };
-
 export function HomeSingleChat() {
   const sectionRef = useRef<HTMLElement>(null);
   // Chips: < activeIndex are done, === activeIndex is firing, > are idle.
   const [activeIndex, setActiveIndex] = useState(-1);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [composerTyped, setComposerTyped] = useState("");
-  const [clearing, setClearing] = useState(false);
-
-  const reset = useCallback(() => {
-    setActiveIndex(-1);
-    setMessages([]);
-    setComposerTyped("");
-    setClearing(false);
+  const onActiveIndexChange = useCallback((index: number) => {
+    setActiveIndex(index);
   }, []);
-
-  const { reduced } = useSceneLoop(
-    sectionRef,
-    async ({ sleep, type }) => {
-      for (let k = 0; k < EXCHANGES.length; k += 1) {
-        const exchange = EXCHANGES[k];
-        setActiveIndex(k);
-        await sleep(420);
-        await type(exchange.user, setComposerTyped, 22);
-        await sleep(240);
-        setComposerTyped("");
-        setMessages((prev) => [
-          ...prev,
-          { role: "user", text: exchange.user },
-        ]);
-        await sleep(380);
-        // The reply streams into one stable node: it mounts empty (showing
-        // the thinking dots), then fills word by word — never remounted, so
-        // its entry animation only ever runs once.
-        setMessages((prev) => [...prev, { role: "assistant", text: "" }]);
-        await sleep(820);
-        const words = exchange.reply.split(" ");
-        for (let w = 1; w <= words.length; w += 1) {
-          const text = words.slice(0, w).join(" ");
-          setMessages((prev) => {
-            const next = prev.slice();
-            next[next.length - 1] = { role: "assistant", text };
-            return next;
-          });
-          await sleep(34);
-        }
-        await sleep(420);
-      }
-      setActiveIndex(EXCHANGES.length);
-      await sleep(3200);
-      // Fade the conversation out before the loop resets it, so the
-      // restart reads as a deliberate beat instead of a snap.
-      setClearing(true);
-      await sleep(450);
-    },
-    reset,
-  );
-
-  // Reduced motion: settled frame — all chips done, full conversation.
-  const shownMessages = reduced
-    ? EXCHANGES.flatMap((exchange): Message[] => [
-        { role: "user", text: exchange.user },
-        { role: "assistant", text: exchange.reply },
-      ])
-    : messages;
-  const shownIndex = reduced ? EXCHANGES.length : activeIndex;
+  const shownIndex = activeIndex;
 
   return (
     <section
@@ -213,45 +151,16 @@ export function HomeSingleChat() {
 
             <div className={styles.frame}>
               <span className={styles.merge} aria-hidden="true" />
-              <HomeMiniChatMock className={styles.miniWindow} themeId="sage">
-                <div className={styles.liveChat}>
-                  <div
-                    className={styles.liveTranscript}
-                    data-clearing={clearing || undefined}
-                  >
-                    {shownMessages.map((message, i) => (
-                      <div key={i} className={styles.entry}>
-                        <div className={styles.entryInner}>
-                          {message.role === "user" ? (
-                            <div className={mock.userMessage}>
-                              {message.text}
-                            </div>
-                          ) : (
-                            <div className={mock.assistantRow}>
-                              {message.text ? (
-                                <p className={mock.assistantMessage}>
-                                  {message.text}
-                                </p>
-                              ) : (
-                                <span className={styles.thinking}>
-                                  <i />
-                                  <i />
-                                  <i />
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <Composer
-                    showContext={false}
-                    typed={composerTyped}
-                    className={mock.chatComposerWrap}
-                  />
-                </div>
-              </HomeMiniChatMock>
+              <StellaMiniChat
+                className={styles.miniWindow}
+                themeId="sage"
+                exchanges={EXCHANGES.map((exchange) => ({
+                  user: exchange.user,
+                  reply: exchange.reply,
+                }))}
+                onActiveIndexChange={onActiveIndexChange}
+                observeRef={sectionRef}
+              />
             </div>
           </div>
         </div>

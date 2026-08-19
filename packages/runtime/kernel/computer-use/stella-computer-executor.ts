@@ -1224,6 +1224,12 @@ const runAutomationDaemonCommand = async (
     };
     const onAbort = () => {
       const reason = signal?.reason;
+      // Helper-style requests share the same serial daemon as typed
+      // operations. Revoke it on cancellation as well, otherwise a blocked
+      // helper remains at the head of the queue and wedges the next call.
+      const pid = readPidFile(automationPidPath(sessionPaths));
+      killDetachedProcess(pid);
+      resetAutomationDaemonFiles(sessionPaths);
       settle({
         status: 1,
         stdout: "",

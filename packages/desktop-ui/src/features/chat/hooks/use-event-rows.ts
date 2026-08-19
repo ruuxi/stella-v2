@@ -840,6 +840,15 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         const isIntraTurn = isIntraTurnAssistantRuntime(runtimeMetadata);
         const isFadingOut =
           runtimeMetadata?.assistantTextTransition === "fading";
+        // A direct-mode slot the handoff controller already replaced. Its
+        // overlay stays unlocked (so it keeps masking the persisted preamble
+        // row), but it must not read as "streaming" to the timeline:
+        // `eventRowRendersContent` keeps every streaming row as a placeholder
+        // item, so each replaced slot would otherwise stack 1px + the
+        // assistant-run gap of blank space above the live message — one line
+        // per replacement across a tool-heavy turn.
+        const isHiddenTransition =
+          runtimeMetadata?.assistantTextTransition === "hidden";
         // Inline artifact cards (generated images, html/canvas + tool-output
         // resource previews, office files, source diffs, and the web-search
         // image strip) only render once their owning
@@ -860,7 +869,9 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           // never renders as markdown.
           text: voiceSession ? "" : text,
           cacheKey: stableKey,
-          ...(isStreamingOverlay ? { isStreaming: true } : {}),
+          ...(isStreamingOverlay && !isHiddenTransition
+            ? { isStreaming: true }
+            : {}),
           ...(isFadingOut ? { isFadingOut: true } : {}),
           ...(isIntraTurn ? { isIntraTurn: true } : {}),
           ...(responseTarget ? { responseTarget } : {}),

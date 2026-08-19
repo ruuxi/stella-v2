@@ -20,7 +20,7 @@ import { StellaMark } from "@/components/stella-mark";
 export const metadata: Metadata = {
   title: "AI coding agent and personal assistant",
   description:
-    "Stella is an AI agent for coding, research, documents, browsers, files, and desktop apps. Start free or choose a paid plan for higher usage.",
+    "Stella is an AI agent for coding, research, documents, browsers, files, and desktop apps, with paid plans for higher usage.",
   alternates: { canonical: "/go" },
 };
 
@@ -76,7 +76,7 @@ export default function GoPage() {
             </div>
             <WindowsInstallNote />
             <p className="go-offer">
-              Free to try. Go includes 10× higher usage.
+              Free. No credit card, no trial. Go includes 10× higher usage.
             </p>
           </div>
 
@@ -159,12 +159,15 @@ export default function GoPage() {
           <div>
             <p className="go-eyebrow">Ready when you are</p>
             <h2>Give Stella the task. Keep moving.</h2>
-            <p>Download the desktop app and start free.</p>
+            <p>Download the desktop app and give it a task.</p>
           </div>
           <div className="go-cta__actions">
             <DownloadButton />
           </div>
           <WindowsInstallNote />
+          <p className="download-reassurance">
+            Free. No credit card, no trial.
+          </p>
         </section>
       </main>
 

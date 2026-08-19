@@ -14,7 +14,7 @@ import "./fix.css";
 export const metadata: Metadata = {
   title: "Things Stella just fixes",
   description:
-    "Broken apps, full disks, mod chaos, spreadsheet drudgery — Stella is a desktop AI agent that works your computer and just fixes it. Free to start.",
+    "Broken apps, full disks, mod chaos, spreadsheet drudgery — Stella is a desktop AI agent that works your computer and just fixes it.",
   alternates: { canonical: "/fix" },
 };
 
@@ -45,8 +45,7 @@ export default function FixIndexPage() {
             </div>
             <WindowsInstallNote />
             <p className="fix-offer">
-              Free to start — no setup, no API keys. Go is $5/mo, Pro is
-              $15/mo.
+              Free. No credit card, no trial. Go is $5/mo, Pro is $15/mo.
             </p>
           </div>
         </section>

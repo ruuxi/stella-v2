@@ -925,6 +925,13 @@ html[data-embedded="true"] .site-header {
   margin-top: 0.5rem;
 }
 
+.download-reassurance {
+  margin: 0.75rem 0 0;
+  color: color-mix(in oklch, var(--page-foreground) 70%, transparent);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
 .install-panels {
   display: grid;
   gap: 1rem;

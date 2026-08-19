@@ -66,8 +66,7 @@ export default async function FixPage({
             </div>
             <WindowsInstallNote />
             <p className="fix-offer">
-              Free to start — no setup, no API keys. Go is $5/mo, Pro is
-              $15/mo.
+              Free. No credit card, no trial. Go is $5/mo, Pro is $15/mo.
             </p>
           </div>
         </section>
@@ -109,8 +108,7 @@ export default async function FixPage({
             <p className="fix-eyebrow">Ready when you are</p>
             <h2>{page.ctaHeadline}</h2>
             <p>
-              Download Stella free for Mac or Windows and tell it what&apos;s
-              broken.
+              Download Stella for Mac or Windows and tell it what&apos;s broken.
             </p>
           </div>
           <div className="fix-actions">
@@ -121,6 +119,9 @@ export default async function FixPage({
             </Link>
           </div>
           <WindowsInstallNote />
+          <p className="download-reassurance">
+            Free. No credit card, no trial.
+          </p>
         </section>
       </main>
 

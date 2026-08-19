@@ -10,7 +10,7 @@ import { StellaMark } from "@/components/stella-mark";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Choose a Stella plan: Free to try, Go with 10x higher usage, or Pro with the highest usage limits, media generation, and multiple agents.",
+    "Choose a Stella plan: Free, Go with 10x higher usage, or Pro with the highest usage limits, media generation, and multiple agents.",
   alternates: { canonical: "/pricing" },
 };
 
@@ -34,7 +34,7 @@ const plans: {
   {
     name: "Free",
     price: 0,
-    tagline: "Free to try.",
+    tagline: "No credit card, no trial.",
     features: [
       "Coding agent",
       "Personal assistant",
@@ -80,7 +80,7 @@ export default function Pricing() {
           <div className="pr-article">
             <h1 className="pr-title reveal">Choose your plan</h1>
             <p className="pr-subtitle reveal reveal-delay-1">
-              Start free. Upgrade when you need more.
+              Pick the usage and capabilities you need.
             </p>
           </div>
         </section>
@@ -168,9 +168,9 @@ export default function Pricing() {
         {/* ── CTA ──────────────────────────────────── */}
         <section className="grid-shell pr-cta-section">
           <div className="pr-article pr-cta reveal">
-            <h2>Start with Stella for free</h2>
+            <h2>Choose Stella and get started</h2>
             <p>
-              No credit card required. Download Stella and try it today.
+              Free. No credit card, no trial.
             </p>
             <Link className="button button--primary" href="/">
               Get Started

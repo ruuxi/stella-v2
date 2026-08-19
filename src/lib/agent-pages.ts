@@ -130,8 +130,8 @@ comes with the Pro plan.
 ## Ask once. Let the team handle the rest
 You get the simplicity of a single assistant with the muscle of a whole crew
 working in the background — on your models or hers. Orchestrator mode, where
-Stella runs that crew in parallel, comes with Pro; Free and Go run a single
-agent. See ${abs("/pricing.md")}.
+Stella runs that crew in parallel, comes with Pro; other plans run a single
+agent at a time. See ${abs("/pricing.md")}.
 `;
 
 /* ------------------------------------------------------------------ */
@@ -166,7 +166,7 @@ Talk back and forth like a phone call. Stella hears you in real time, answers
 out loud, and can even take a look at your screen when you ask her to.
 
 Live conversation and having Stella read her replies aloud come with the Pro
-plan. Dictation and "Hey Stella" are on every tier, including Free — turning
+plan. Dictation and "Hey Stella" are on every tier — turning
 your speech into text is never gated. See ${abs("/pricing.md")}.
 `;
 
@@ -217,10 +217,10 @@ own terms and configurations. See ${abs("/privacy.md")} for details.
 const PRICING_MD = `${header(
   "Pricing — choose your plan",
   "/pricing",
-  "Start free. Upgrade when you need more.",
+  "Pick the usage and capabilities you need.",
 )}
 ## Plans
-- **Free** — $0. Free to try. Includes the coding agent, personal assistant, research and knowledge work, dictation, and read-aloud.
+- **Free** — $0. No credit card, no trial. Includes the coding agent, personal assistant, research and knowledge work, dictation, and read-aloud.
 - **Go** — $5/mo. 10× higher usage. Includes coding, assistant and research features, dictation, and read-aloud.
 - **Pro** — $15/mo. The highest usage limits, image, video, 3D and voice generation, and multiple agents working together.
 
@@ -235,8 +235,8 @@ keys.
 - Desktop and mobile access
 - Bring your own models and keys
 
-## Start with Stella for free
-No credit card required. Download Stella and try it today.
+## Choose Stella and get started
+Free. No credit card, no trial. Download Stella and try it today.
 `;
 
 /* ------------------------------------------------------------------ */

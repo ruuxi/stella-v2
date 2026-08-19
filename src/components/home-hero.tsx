@@ -30,6 +30,9 @@ export function HomeHero() {
             <DownloadButton />
           </div>
           <WindowsInstallNote />
+          <p className="download-reassurance">
+            Free. No credit card, no trial.
+          </p>
         </div>
       </section>
     </main>

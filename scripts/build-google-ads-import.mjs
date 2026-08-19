@@ -343,7 +343,7 @@ for (const ad of ads.values()) {
 }
 
 const sitelinks = [
-  ["Pricing", "https://stella.sh/pricing", "Start free with Stella", "Go is $5 the first month"],
+  ["Pricing", "https://stella.sh/pricing", "Free. No card or trial.", "Go is $5 the first month"],
   ["How Stella Works", "https://stella.sh/learn-more", "See what Stella can do", "Browser, files, apps and more"],
   ["AI Agents", "https://stella.sh/agents", "Delegate complete tasks", "Keep background work moving"],
   ["Voice", "https://stella.sh/voice", "Talk and dictate naturally", "On-device dictation on Mac"],
@@ -364,7 +364,7 @@ for (const [text, url, description1, description2] of sitelinks) {
 }
 
 for (const callout of [
-  "Start Free",
+  "AI That Takes Action",
   "$5 First Month",
   "Local Desktop Database",
   "Bring Your Own Models",

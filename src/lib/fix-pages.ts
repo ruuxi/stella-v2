@@ -41,7 +41,7 @@ export const FIX_PAGES: FixPage[] = [
     eyebrow: "Fix it with Stella · Local AI tools",
     metaTitle: "ComfyUI broken after an update? Stella fixes it",
     metaDescription:
-      "ComfyUI won't start, custom nodes failing to import, torch/CUDA mismatch, xformers errors — Stella reads the actual error and repairs your setup without a reinstall. Free to start.",
+      "ComfyUI won't start, custom nodes failing to import, torch/CUDA mismatch, xformers errors — Stella reads the actual error and repairs your setup without a reinstall.",
     headline: "ComfyUI broke again.",
     headlineAccent: "Stella fixes it.",
     lede: "Torch/CUDA mismatch, custom nodes that won't import, xformers errors after every update. Tell Stella what happened — it reads the actual error, repairs your environment, and keeps your workflows. Your setup, fixed — not replaced.",
@@ -71,7 +71,7 @@ export const FIX_PAGES: FixPage[] = [
     eyebrow: "Fix it with Stella · Browser cleanup",
     metaTitle: "Stop fake virus alert pop-ups and notification spam",
     metaDescription:
-      "Fake 'your PC is infected' pop-ups are browser notifications, not a virus. Stella opens your browser settings, revokes every rogue site's permission, and blocks new ones. Free to start.",
+      "Fake 'your PC is infected' pop-ups are browser notifications, not a virus. Stella opens your browser settings, revokes every rogue site's permission, and blocks new ones.",
     headline: "Those “virus” pop-ups?",
     headlineAccent: "Not a virus. Gone.",
     lede: "That “Your PC is infected” alert in the corner of your screen is almost always a browser notification a website tricked you into allowing — not malware. Stella opens your browser's settings, revokes every rogue site's permission, and flips the default so no site can ask again.",
@@ -166,7 +166,7 @@ export const FIX_PAGES: FixPage[] = [
     lede: "Stop retyping transactions line by line. Drop the PDFs on Stella — it extracts every transaction, categorizes them, and files a clean spreadsheet. And because Stella runs on your computer, your statements never get uploaded to some converter website.",
     symptoms: [
       "convert bank statement pdf to excel",
-      "bank statement to csv free",
+      "bank statement to csv",
       "extract transactions from pdf statement",
       "get transactions from chase pdf statement",
       "scan receipts into quickbooks automatically",

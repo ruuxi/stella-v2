@@ -248,7 +248,7 @@ export default function VoicePage() {
               <p className={styles.planNote}>
                 Live conversation and having Stella read her replies aloud come
                 with the <Link href="/pricing">Pro plan</Link>. Dictation and
-                &quot;Hey Stella&quot; are on every tier, including Free.
+                &quot;Hey Stella&quot; are on every tier.
               </p>
             </div>
 
@@ -293,6 +293,9 @@ export default function VoicePage() {
               <DownloadButton />
             </div>
             <WindowsInstallNote />
+            <p className="download-reassurance">
+              Free. No credit card, no trial.
+            </p>
           </div>
         </section>
       </main>

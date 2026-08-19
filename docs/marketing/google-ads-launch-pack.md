@@ -108,7 +108,7 @@ Recommended account-level sitelinks:
 
 | Sitelink | URL | Description 1 | Description 2 |
 | --- | --- | --- | --- |
-| Pricing | `/pricing` | Start free with Stella | Go is $5 the first month |
+| Pricing | `/pricing` | Free. No card or trial. | Go is $5 the first month |
 | How Stella Works | `/learn-more` | See what Stella can do | Browser, files, apps and more |
 | AI Agents | `/agents` | Delegate complete tasks | Keep background work moving |
 | Voice | `/voice` | Talk and dictate naturally | On-device dictation on Mac |
@@ -116,7 +116,7 @@ Recommended account-level sitelinks:
 
 Callouts:
 
-- Start Free
+- AI That Takes Action
 - $5 First Month
 - Local Desktop Database
 - Bring Your Own Models

@@ -162,6 +162,9 @@ export default function LearnMore() {
                 <DownloadButton />
               </div>
               <WindowsInstallNote />
+              <p className="download-reassurance">
+                Free. No credit card, no trial.
+              </p>
             </div>
           </section>
 
@@ -339,6 +342,9 @@ export default function LearnMore() {
               Get Stella
               <ArrowRight size={16} />
             </Link>
+            <p className="download-reassurance">
+              Free. No credit card, no trial.
+            </p>
           </section>
       </article>
     </main>

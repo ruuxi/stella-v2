@@ -127,7 +127,7 @@ const STATIC_PLAN_DISPLAY: Record<
 // in `src/lib/agent-pages.ts` so /billing, /pricing and /pricing.md always
 // describe the same plans.
 const PLAN_USAGE_TAGLINE: Record<BillingPlan, string> = {
-  free: "Free to try.",
+  free: "No credit card, no trial.",
   go: "10× higher usage",
   pro: "The highest usage limits",
 };

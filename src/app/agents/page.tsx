@@ -285,13 +285,16 @@ export default function AgentsPage() {
               You get the simplicity of a single assistant with the muscle of a
               whole crew working in the background — on your models or hers.
               Orchestrator mode, where Stella runs that crew in parallel, comes
-              with <Link href="/pricing">Pro</Link>; Free and Go run a single
-              agent.
+              with <Link href="/pricing">Pro</Link>; other plans run a single
+              agent at a time.
             </p>
             <div className={styles.closingCta}>
               <DownloadButton />
             </div>
             <WindowsInstallNote />
+            <p className="download-reassurance">
+              Free. No credit card, no trial.
+            </p>
           </div>
         </section>
       </main>

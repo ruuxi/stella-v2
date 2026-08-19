@@ -7,7 +7,6 @@
  * speak with the exact same voice the user picked.
  */
 import { resolveReadAloudProvider } from "@stella/contracts/local-preferences";
-import { getDefaultRealtimeVoice } from "@stella/contracts/realtime-voice-catalog";
 import type { ReadAloudVoiceFamily } from "./tts-client";
 
 export type ReadAloudVoicePrefs = {
@@ -29,12 +28,15 @@ export const resolveReadAloudVoicePrefs =
         readAloudProvider: rt?.readAloudProvider,
       });
       const stored = rt?.voices?.[family];
-      // Fall back to the catalog default (e.g. Olivia for Inworld) rather
-      // than letting the backend pick its own default voice.
+      // Defaults are server-authoritative: forward only an explicit user
+      // selection. When the user never picked a voice, leave this undefined
+      // so the client omits the field and the backend applies its own
+      // default (e.g. Brooke for Inworld). This keeps future default changes
+      // backend-deploy-only rather than requiring a client release.
       const voice =
         typeof stored === "string" && stored.trim().length > 0
           ? stored.trim()
-          : getDefaultRealtimeVoice(family);
+          : undefined;
       const speed = family === "inworld" ? rt?.inworldSpeed : undefined;
       return {
         family,

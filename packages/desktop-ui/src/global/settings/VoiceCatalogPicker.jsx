@@ -56,6 +56,11 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
         stellaSubProvider,
     });
     const catalog = getRealtimeVoiceCatalog(underlyingProvider);
+    // DISPLAY-ONLY: which voice to highlight when the user hasn't picked one.
+    // The real default is server-authoritative (the client omits the voice and
+    // the backend applies it), so this bundled constant only affects which chip
+    // is pre-highlighted in the picker — never what actually gets synthesized.
+    // If it drifts from the server default, only the badge is wrong, not audio.
     const fallback = getDefaultRealtimeVoice(underlyingProvider);
     const activeVoiceId = selectedVoices?.[underlyingProvider]?.trim() || fallback;
     const activeIndex = useMemo(() => {

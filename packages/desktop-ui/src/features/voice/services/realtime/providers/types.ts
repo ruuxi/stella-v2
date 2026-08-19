@@ -54,6 +54,15 @@ export interface VoiceSessionToken {
    * inworld-webrtc transport; other transports ignore it.
    */
   speed?: number;
+  /**
+   * Server-authoritative Inworld TTS model id (e.g. `inworld-tts-2-flash`)
+   * returned by the Stella session mint, used in the client-sent
+   * `session.update`. Only present on the Stella-managed inworld path; BYOK
+   * and older backends leave it undefined and the transport falls back to the
+   * bundled default. Making the backend the source lets the default change
+   * ship as a backend deploy rather than a client release.
+   */
+  ttsModel?: string;
 }
 
 export interface ProviderTokenContext {

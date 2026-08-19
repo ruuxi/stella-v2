@@ -166,21 +166,32 @@ describe("media capability gating", () => {
     expect(response.status).not.toBe(402);
   });
 
-  it("denies music and text-to-speech as generative audio", async () => {
+  it("denies music generation but leaves read-aloud open to every plan", async () => {
     ensureEnv();
-    for (const [path, body] of [
-      ["/api/music/stream", { prompt: "a slow waltz" }],
-      ["/api/voice/tts", { text: "hello" }],
-    ] as const) {
-      const t = createTest();
-      const owner = await onPlan(t, "go");
-      const response = await owner.fetch(path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      await expectDenial(response, "audio_generation", "go");
-    }
+    const musicTest = createTest();
+    const musicOwner = await onPlan(musicTest, "go");
+    const musicResponse = await musicOwner.fetch("/api/music/stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "a slow waltz" }),
+    });
+    await expectDenial(musicResponse, "audio_generation", "go");
+
+    const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "content-type": "audio/mpeg" },
+      }),
+    );
+    const ttsTest = createTest();
+    const ttsOwner = await onPlan(ttsTest, "go");
+    const ttsResponse = await ttsOwner.fetch("/api/voice/tts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" }),
+    });
+    expect(ttsResponse.status).not.toBe(402);
+    expect(providerFetch).toHaveBeenCalledTimes(1);
   });
 
   it("denies a realtime voice session before minting an upstream session", async () => {

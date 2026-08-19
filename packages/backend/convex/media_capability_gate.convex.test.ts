@@ -27,6 +27,7 @@ const asOwner = (t: ReturnType<typeof createTest>) =>
 const ensureEnv = () => {
   const values: Record<string, string> = {
     FAL_KEY: "test-fal-key",
+    OPENROUTER_API_KEY: "test-openrouter-key",
     GEMINI_API_KEY: "test-gemini-key",
     OPENAI_API_KEY: "test-openai-key",
     INWORLD_API_KEY: "test-inworld-key",
@@ -134,12 +135,25 @@ describe("media capability gating", () => {
     ensureEnv();
     const t = createTest();
     const owner = await onPlan(t, "free");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          text: "hello",
+          usage: { seconds: 1.5, cost: 0.0000375 },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
     const response = await owner.fetch("/api/media/v1/generate", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         capability: "speech_to_text",
-        sourceUrl: "https://example.test/clip.mp3",
+        sourceUrl:
+          "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=",
       }),
     });
     // Whatever happens downstream, it must not be an entitlement denial.

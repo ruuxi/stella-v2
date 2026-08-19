@@ -48,6 +48,11 @@ import {
   parseMusicStreamRequest,
 } from "../media_lyria";
 import { checkManagedUsageLimit } from "../lib/managed_billing";
+import {
+  getManagedGatewayConfig,
+  resolveManagedGatewayApiKey,
+} from "../lib/managed_gateway";
+import { transcribeOpenRouterSpeechToText } from "../media_openrouter_stt";
 import { capabilityForMediaCapabilityId } from "../capability_contract";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import { requireSignedInAccountAction } from "../http_shared/auth";
@@ -840,11 +845,23 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               origin,
             );
           }
-          const apiKey = getFalApiKey();
-          if (!apiKey)
+          const provider = resolved.profile.provider;
+          const falApiKey = provider === "fal" ? getFalApiKey() : null;
+          const openRouterApiKey =
+            provider === "openrouter"
+              ? (resolveManagedGatewayApiKey(getManagedGatewayConfig("openrouter")) ??
+                null)
+              : null;
+          if (provider === "fal" && !falApiKey)
             return errorResponse(
               503,
               "Media generation is not configured yet.",
+              origin,
+            );
+          if (provider === "openrouter" && !openRouterApiKey)
+            return errorResponse(
+              503,
+              "Speech-to-text is not configured yet.",
               origin,
             );
 
@@ -1088,7 +1105,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             );
           }
 
-          if (resolved.profile.provider === "google_lyria") {
+          if (provider === "google_lyria") {
             const parsedMusic = parseMusicStreamRequest(submissionInput);
             if (!parsedMusic) {
               await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
@@ -1199,9 +1216,69 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             }
           }
 
+          if (provider === "openrouter") {
+            try {
+              const result = await transcribeOpenRouterSpeechToText({
+                apiKey: openRouterApiKey!,
+                endpointId: resolved.profile.endpointId,
+                input: submissionInput,
+              });
+              const output = {
+                text: result.text,
+                ...(result.usage ? { usage: result.usage } : {}),
+              };
+              const billing = meterCompletedMediaJob({
+                endpointId: resolved.profile.endpointId,
+                request: storedRequest,
+                output,
+              });
+              const meteredBilling =
+                billing && !("supported" in billing) ? billing : undefined;
+              if (billing && "supported" in billing) {
+                console.error(
+                  `[media/generate] Failed to meter ${resolved.profile.endpointId}: ${billing.reason}`,
+                );
+              }
+              await ctx.runMutation(internal.media_jobs.markGenerated, {
+                jobId,
+                upstreamStatus: "OK",
+                output: output as never,
+                ...(meteredBilling ? { billing: meteredBilling as never } : {}),
+              });
+              const accepted = createMediaGenerateAcceptedResponse({
+                jobId,
+                capability: resolved.capability.id,
+                profile: resolved.profile.id,
+                status: "succeeded",
+                upstreamStatus: "OK",
+                subscription: {
+                  query: MEDIA_SUBSCRIPTION_QUERY,
+                  args: { jobId },
+                },
+              });
+              return jsonResponse({ ...accepted, output }, 202, origin);
+            } catch (error) {
+              await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
+                jobId,
+                upstreamStatus: "ERROR",
+                error: (createMediaJobError({
+                  value: (error as Error).message,
+                  fallbackMessage: "Speech-to-text failed upstream.",
+                }) ?? {
+                  message: "Speech-to-text failed upstream.",
+                }) as never,
+              });
+              return errorResponse(
+                502,
+                `Speech-to-text failed: ${(error as Error).message || "Unknown error"}`,
+                origin,
+              );
+            }
+          }
+
           try {
             const submitted = await submitFalRequest({
-              apiKey,
+              apiKey: falApiKey!,
               endpointId: resolved.profile.endpointId,
               input: submissionInput,
               webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}`,
@@ -1228,7 +1305,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             );
             if (submissionState.cancelRequested) {
               await cancelFalRequest({
-                apiKey,
+                apiKey: falApiKey!,
                 endpointId: resolved.profile.endpointId,
                 requestId: submitted.requestId,
               }).catch((cancelError) => {

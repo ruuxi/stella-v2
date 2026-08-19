@@ -1,4 +1,4 @@
-export type MediaProvider = "fal" | "google_lyria";
+export type MediaProvider = "fal" | "google_lyria" | "openrouter";
 
 export type MediaProfile = {
   id: string;
@@ -42,10 +42,11 @@ export const MEDIA_CAPABILITIES: MediaCapability[] = [
       {
         id: "default",
         name: "Default",
-        description: "Balanced speech transcription via ElevenLabs Scribe v2.",
-        provider: "fal",
-        endpointId: "fal-ai/elevenlabs/speech-to-text/scribe-v2",
-        docsUrl: falModelUrl("fal-ai/elevenlabs/speech-to-text/scribe-v2"),
+        description:
+          "NVIDIA Parakeet TDT 0.6B v3 via OpenRouter — cheaper multilingual batch transcription.",
+        provider: "openrouter",
+        endpointId: "nvidia/parakeet-tdt-0.6b-v3",
+        docsUrl: "https://openrouter.ai/nvidia/parakeet-tdt-0.6b-v3",
         isDefault: true,
       },
     ],

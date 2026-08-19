@@ -1,7 +1,7 @@
+/* Hero is full-bleed like the homepage so the aurora can reach the viewport
+ * edges. Copy and later sections keep the original page-margin inset. */
 .fix-page main {
-  width: min(100%, var(--page-max-width));
-  margin-inline: auto;
-  padding-inline: var(--page-margin);
+  width: 100%;
 }
 
 .fix-hero {
@@ -9,6 +9,7 @@
   display: grid;
   align-items: center;
   padding-block: clamp(3.5rem, 8vw, 7rem);
+  padding-inline: var(--page-margin);
 }
 
 .fix-hero__copy {
@@ -129,7 +130,10 @@
 
 .fix-section,
 .fix-cta {
+  width: min(100%, var(--page-max-width));
+  margin-inline: auto;
   padding-block: clamp(3.5rem, 7vw, 6rem);
+  padding-inline: var(--page-margin);
 }
 
 .fix-section__header {

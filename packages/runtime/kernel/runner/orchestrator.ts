@@ -278,7 +278,8 @@ export const createOrchestratorController = (
     });
   };
 
-  const agentHealthCheck = () => getOrchestratorHealth(context, deps);
+  const agentHealthCheck = (modelOverride?: string) =>
+    getOrchestratorHealth(context, deps, modelOverride);
 
   const getCallbacksForTarget = (args: {
     conversationId: string;
@@ -865,7 +866,9 @@ export const createOrchestratorController = (
     connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
     userMessageEventId?: string;
   }): Promise<AutomationTurnResult> => {
-    const health = agentHealthCheck();
+    // Gate on the model this turn will actually run (a pinned override must
+    // not be blocked because the default orchestrator route is unavailable).
+    const health = agentHealthCheck(payload.modelOverride);
     if (!health.ready) {
       return createAutomationErrorResult(
         health.reason ?? "Stella runtime not ready",

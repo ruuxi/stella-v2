@@ -156,6 +156,16 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Making it happen",
     "Just a sec",
   ],
+  node_repl: [
+    "Running code",
+    "Working on it",
+    "Writing some code",
+    "Getting it done",
+    "On it",
+    "Handling it",
+    "Making it happen",
+    "Just a sec",
+  ],
   bash: [
     "Running it",
     "Working on it",
@@ -298,6 +308,20 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Mocking it up",
     "Drafting the page",
   ],
+  computer_use: [
+    "Using the computer",
+    "Working on the desktop",
+    "Driving the computer",
+    "Handling it",
+    "On it",
+  ],
+  browser: [
+    "Using the browser",
+    "Looking it up",
+    "Browsing",
+    "Checking the page",
+    "On it",
+  ],
   task: [
     "On it",
     "Handling it",
@@ -401,6 +425,58 @@ const toToolStatusKey = (value: string): string =>
     .replace(/:+$/g, "")
     .toLowerCase();
 
+const looksLikeJsonBlob = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return true;
+  if (trimmed.includes("\n") && /[{[]/.test(trimmed)) return true;
+  return /"(?:session_id|exit_code|wall_time_seconds|original_token_count)"\s*:/.test(
+    trimmed,
+  );
+};
+
+const tryFriendlyExecCommandStatus = (value: string): string | undefined => {
+  if (!looksLikeJsonBlob(value)) return undefined;
+  const looksLikeExecPayload =
+    /"session_id"\s*:/.test(value) &&
+    (/"command"\s*:/.test(value) ||
+      /"exit_code"\s*:/.test(value) ||
+      /"running"\s*:/.test(value));
+  if (!looksLikeExecPayload) return undefined;
+  try {
+    const parsed = JSON.parse(value) as {
+      running?: unknown;
+      exit_code?: unknown;
+    };
+    if (
+      parsed.running !== true &&
+      typeof parsed.exit_code === "number" &&
+      parsed.exit_code !== 0
+    ) {
+      return "Command failed";
+    }
+  } catch {
+    // Truncated or pretty-printed payloads still must not render raw.
+  }
+  return computeWorkingIndicatorStatus({ toolName: "exec_command", seed: "" });
+};
+
+const looksLikeRawToolIdentifier = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  return (
+    /^[a-z][a-z0-9]*(?:_{1,2}[a-z0-9]+)+$/.test(trimmed) ||
+    /^[A-Z][a-zA-Z0-9]+(?:[A-Z][a-zA-Z0-9]+)+$/.test(trimmed)
+  );
+};
+
+const looksLikeMachineStatus = (value: string): boolean => {
+  if (looksLikeJsonBlob(value)) return true;
+  if (value.length > 120) return true;
+  if (value.includes("\n")) return true;
+  if (looksLikeRawToolIdentifier(value)) return true;
+  return false;
+};
+
 const hashSeed = (seed: string): number => {
   let hash = 0x811c9dc5;
   for (let i = 0; i < seed.length; i += 1) {
@@ -429,14 +505,37 @@ export function normalizeDisplayStatusText(
   if (!statusText) return undefined;
   const trimmed = statusText.trim();
   if (!trimmed) return undefined;
+
+  const execStatus = tryFriendlyExecCommandStatus(trimmed);
+  if (execStatus) return execStatus;
+
   const match = RAW_TOOL_STATUS_PATTERN.exec(trimmed);
-  if (!match) return trimmed;
-  const rawToolName = match[1]!;
-  const toolName = toToolStatusKey(rawToolName);
-  if (rawToolName.includes(" ") && !TOOL_STATUS_BY_NAME[toolName]) {
-    return trimmed;
+  if (match) {
+    const rawToolName = match[1]!;
+    const toolName = toToolStatusKey(rawToolName);
+    if (TOOL_STATUS_BY_NAME[toolName]) {
+      return computeWorkingIndicatorStatus({ toolName, seed: "" });
+    }
+    const firstToken = toToolStatusKey(rawToolName.split(/\s+/)[0] ?? "");
+    if (firstToken && TOOL_STATUS_BY_NAME[firstToken]) {
+      return computeWorkingIndicatorStatus({ toolName: firstToken, seed: "" });
+    }
+    if (rawToolName.includes(" ") && !looksLikeMachineStatus(rawToolName)) {
+      return trimmed;
+    }
+    return computeWorkingIndicatorStatus({ toolName, seed: "" });
   }
-  return computeWorkingIndicatorStatus({ toolName, seed: "" });
+
+  const bareToolName = toToolStatusKey(trimmed);
+  if (!/\s/.test(trimmed) && TOOL_STATUS_BY_NAME[bareToolName]) {
+    return computeWorkingIndicatorStatus({ toolName: bareToolName, seed: "" });
+  }
+
+  if (looksLikeMachineStatus(trimmed)) {
+    return computeWorkingIndicatorStatus({ toolName: "unknown", seed: trimmed });
+  }
+
+  return trimmed;
 }
 
 export function computeWorkingIndicatorStatus({

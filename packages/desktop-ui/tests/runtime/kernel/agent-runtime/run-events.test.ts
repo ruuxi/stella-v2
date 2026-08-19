@@ -1182,4 +1182,60 @@ describe("sensitive runtime event payloads", () => {
     expect(decoration?.statusText).not.toContain("status-secret");
     __privateTaskDecorationStore.resetForTests();
   });
+
+  it("does not publish exec_command session JSON as working-indicator status", () => {
+    const listeners = new Set<(event: AgentEvent) => void>();
+    const agent = {
+      state: { messages: [] },
+      subscribe: (listener: (event: AgentEvent) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const statusEvents: RuntimeStatusEvent[] = [];
+    subscribeRuntimeAgentEvents({
+      agent,
+      runId: "run-exec-update",
+      agentType: AGENT_IDS.GENERAL,
+      recorder: createRunEventRecorder({
+        store: { recordRunEvent: () => undefined } as never,
+        runId: "run-exec-update",
+        conversationId: "conversation-exec-update",
+        agentType: AGENT_IDS.GENERAL,
+        userMessageId: "user-exec-update",
+      }),
+      callbacks: {
+        onStatus: (event) => {
+          statusEvents.push(event);
+        },
+      },
+    });
+
+    const payload = {
+      session_id: null,
+      running: false,
+      exit_code: 127,
+      output: "",
+      wall_time_seconds: 45.209,
+      original_token_count: 0,
+      cwd: "C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Programs\\\\Stella\\\\resources",
+      command: "wsl -e bash -lc \"nvcc --version\"",
+    };
+    for (const listener of listeners) {
+      listener({
+        type: "tool_execution_update",
+        toolCallId: "call-exec",
+        toolName: "exec_command",
+        args: { cmd: payload.command },
+        partialResult: {
+          content: [
+            { type: "text", text: JSON.stringify(payload, null, 2) },
+          ],
+          details: payload,
+        },
+      });
+    }
+
+    expect(statusEvents).toEqual([]);
+  });
 });

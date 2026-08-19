@@ -37,16 +37,17 @@ export const MEDIA_CAPABILITIES: MediaCapability[] = [
     category: "audio",
     sourceUrlKey: "audio_url",
     inputHints: ["audio_url"],
-    outputHints: ["text", "segments", "language"],
+    outputHints: ["text"],
     profiles: [
       {
         id: "default",
         name: "Default",
         description:
-          "NVIDIA Parakeet TDT 0.6B v3 via OpenRouter — cheaper multilingual batch transcription.",
+          "NVIDIA Nemotron 3.5 ASR via OpenRouter — cheaper multilingual batch transcription.",
         provider: "openrouter",
-        endpointId: "nvidia/parakeet-tdt-0.6b-v3",
-        docsUrl: "https://openrouter.ai/nvidia/parakeet-tdt-0.6b-v3",
+        endpointId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+        docsUrl:
+          "https://openrouter.ai/nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
         isDefault: true,
       },
     ],

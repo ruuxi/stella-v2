@@ -5,15 +5,37 @@ import { resolveMediaProfile } from "../../convex/media_catalog";
 import { resolveOpenRouterAudioInput } from "../../convex/media_openrouter_stt";
 
 describe("speech_to_text catalog", () => {
-  it("defaults to OpenRouter Parakeet TDT 0.6B v3", () => {
+  it("defaults to OpenRouter Nemotron 3.5 ASR", () => {
     const resolved = resolveMediaProfile("speech_to_text");
     expect(resolved?.profile.provider).toBe("openrouter");
-    expect(resolved?.profile.endpointId).toBe("nvidia/parakeet-tdt-0.6b-v3");
+    expect(resolved?.profile.endpointId).toBe(
+      "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+    );
   });
 });
 
 describe("speech_to_text billing", () => {
-  it("meters Parakeet from OpenRouter usage.seconds at $0.0015/minute", () => {
+  it("meters Nemotron from OpenRouter usage.seconds at $0.000003/second", () => {
+    const billing = meterCompletedMediaJob({
+      endpointId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+      request: { input: { audio_url: "https://example.test/clip.mp3" } },
+      output: {
+        text: "hello",
+        usage: { seconds: 60, cost: 0.00018 },
+      },
+    });
+
+    expect(billing).toMatchObject({
+      endpointId: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b",
+      billingUnit: "second",
+      quantity: 60,
+      unitPriceUsd: 0.000003,
+      costMicroCents: 18_000,
+      meteredFrom: "output",
+    });
+  });
+
+  it("keeps Parakeet TDT v3 metering for leftover jobs", () => {
     const billing = meterCompletedMediaJob({
       endpointId: "nvidia/parakeet-tdt-0.6b-v3",
       request: { input: { audio_url: "https://example.test/clip.mp3" } },

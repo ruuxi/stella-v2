@@ -306,7 +306,7 @@ const releaseHostLock = async (
  * used, so source checkouts can still fall back to the normal PATH lookup.
  */
 let cachedBunBinaryPath: string | null = null;
-const resolveBunBinaryPath = (): string => {
+export const resolveBunBinaryPath = (): string => {
   if (cachedBunBinaryPath) return cachedBunBinaryPath;
   const candidates: string[] = [];
   const add = (value: string | undefined) => {

@@ -3,22 +3,26 @@
  *
  * The renderer captures microphone audio locally, WAV-encodes it (LINEAR16
  * PCM, 16 kHz mono), and POSTs the base64'd container here on stop. This
- * route forwards the request to Inworld's sync STT endpoint with Basic
- * auth so `INWORLD_API_KEY` never leaves the backend.
+ * route forwards the request to OpenRouter Nemotron 3.5 ASR (one-shot) so
+ * `OPENROUTER_API_KEY` never leaves the backend.
  *
- * We deliberately use the sync endpoint instead of the streaming
- * WebSocket: Inworld's WebSocket only honours JWTs in the
- * `Authorization` header, and browser WebSockets cannot set custom
- * headers, so the streaming variant would either expose the key or
- * require a stateful WebSocket proxy that Convex doesn't run.
+ * Default is OpenRouter one-shot because OpenRouter STT does not emit
+ * incremental partials. Set `DICTATION_STT_PROVIDER=inworld` to roll back
+ * to Inworld's sync STT endpoint (`INWORLD_API_KEY`, Basic auth).
  *
- * Billing: Inworld bills $0.28/hr of transcribed audio. We require sign-in,
- * gate on the user's managed-usage limit, then meter the actual
- * `transcribedAudioMs` Inworld returns and log it through `logManagedUsage`
- * with `costMicroCents` so it counts against the user's plan windows.
+ * We deliberately stay on sync HTTP. Inworld's WebSocket only honours JWTs
+ * in the `Authorization` header, and browser WebSockets cannot set custom
+ * headers. OpenRouter's STT API is also one-shot JSON.
+ *
+ * Billing: Nemotron is $0.000003/second on OpenRouter (~$0.0108/hr). We
+ * require sign-in, gate on the user's managed-usage limit, then meter
+ * `usage.cost` when OpenRouter returns it, otherwise `usage.seconds` at
+ * the list rate, and log it through `logManagedUsage` with
+ * `costMicroCents` so it counts against the user's plan windows. The
+ * Inworld rollback still meters `transcribedAudioMs` at $0.28/hr.
  */
 import type { HttpRouter } from "convex/server";
-import { httpAction } from "../_generated/server";
+import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
   errorResponse,
@@ -34,6 +38,10 @@ import {
   scheduleManagedUsage,
 } from "../lib/managed_billing";
 import { dollarsToMicroCents } from "../lib/billing_money";
+import {
+  getManagedGatewayConfig,
+  resolveManagedGatewayApiKey,
+} from "../lib/managed_gateway";
 
 const DICTATION_RATE_LIMIT = 30; // per minute
 const DICTATION_RATE_WINDOW_MS = 60_000;
@@ -41,25 +49,56 @@ const DICTATION_RATE_WINDOW_MS = 60_000;
 const INWORLD_TRANSCRIBE_URL = "https://api.inworld.ai/stt/v1/transcribe";
 const INWORLD_DEFAULT_MODEL = "inworld/inworld-stt-1";
 const INWORLD_DEFAULT_LANGUAGE = "en-US";
+// Inworld STT pricing as of 2026-05. Kept for the env rollback path.
+const INWORLD_USD_PER_HOUR = 0.28;
+const INWORLD_USD_PER_MS = INWORLD_USD_PER_HOUR / (60 * 60 * 1000);
+
+const OPENROUTER_TRANSCRIPTIONS_URL =
+  "https://openrouter.ai/api/v1/audio/transcriptions";
+export const OPENROUTER_DICTATION_MODEL =
+  "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b";
+const OPENROUTER_USD_PER_SECOND = 0.000003;
 
 // Convex HTTP actions cap request bodies at ~20MB; base64 inflates by 33%
 // so this keeps a comfortable margin for the JSON envelope.
 const MAX_AUDIO_BASE64_BYTES = 14 * 1024 * 1024;
 
-// Inworld STT pricing as of 2026-05.
-const INWORLD_USD_PER_HOUR = 0.28;
-const INWORLD_USD_PER_MS = INWORLD_USD_PER_HOUR / (60 * 60 * 1000);
-
 type TranscribeRequestBody = {
   audioBase64?: string;
   /**
-   * Container/encoding hint for Inworld. Defaults to AUTO_DETECT so we can
-   * accept whatever the renderer wraps the PCM in (today: WAV).
+   * Container/encoding hint. Desktop WAV uploads send AUTO_DETECT or
+   * LINEAR16; OpenRouter needs a concrete format, so AUTO_DETECT maps to wav.
    */
   audioEncoding?: "AUTO_DETECT" | "LINEAR16" | "MP3" | "OGG_OPUS" | "FLAC";
   language?: string;
   modelId?: string;
 };
+
+const resolveDictationProvider = (): "openrouter" | "inworld" => {
+  const configured = process.env.DICTATION_STT_PROVIDER?.trim().toLowerCase();
+  if (configured === "inworld") return "inworld";
+  return "openrouter";
+};
+
+const formatFromAudioEncoding = (
+  encoding: TranscribeRequestBody["audioEncoding"],
+): string => {
+  switch (encoding) {
+    case "MP3":
+      return "mp3";
+    case "OGG_OPUS":
+      return "ogg";
+    case "FLAC":
+      return "flac";
+    case "LINEAR16":
+    case "AUTO_DETECT":
+    default:
+      return "wav";
+  }
+};
+
+const asFiniteNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
 export const registerDictationRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, ["/api/dictation/transcribe"]);
@@ -69,7 +108,7 @@ export const registerDictationRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        // Inworld is paid by the second; require a connected account so every
+        // Cloud STT is paid by the second; require a connected account so every
         // transcription rolls up to a real user's plan window.
         const auth = await requireSignedInAccountAction(ctx, origin, {
           message: "Sign in to Stella to use dictation.",
@@ -102,8 +141,25 @@ export const registerDictationRoutes = (http: HttpRouter) => {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
 
-        const apiKey = process.env.INWORLD_API_KEY;
-        if (!apiKey) {
+        const provider = resolveDictationProvider();
+        const openRouterKey =
+          provider === "openrouter"
+            ? (resolveManagedGatewayApiKey(
+                getManagedGatewayConfig("openrouter"),
+              ) ?? null)
+            : null;
+        const inworldKey =
+          provider === "inworld"
+            ? (process.env.INWORLD_API_KEY?.trim() || null)
+            : null;
+        if (provider === "openrouter" && !openRouterKey) {
+          return errorResponse(
+            503,
+            "Dictation is not configured (missing OPENROUTER_API_KEY).",
+            origin,
+          );
+        }
+        if (provider === "inworld" && !inworldKey) {
           return errorResponse(
             503,
             "Dictation is not configured (missing INWORLD_API_KEY).",
@@ -130,108 +186,249 @@ export const registerDictationRoutes = (http: HttpRouter) => {
           );
         }
 
-        const modelId = body.modelId ?? INWORLD_DEFAULT_MODEL;
-        const inworldBody = {
-          transcribe_config: {
-            model_id: modelId,
-            language: body.language ?? INWORLD_DEFAULT_LANGUAGE,
-            audio_encoding: body.audioEncoding ?? "AUTO_DETECT",
-          },
-          audio_data: { content: audioBase64 },
-        };
-
-        const startedAt = Date.now();
-        try {
-          const inworldResponse = await fetch(INWORLD_TRANSCRIBE_URL, {
-            method: "POST",
-            headers: {
-              Authorization: `Basic ${apiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(inworldBody),
-          });
-          const text = await inworldResponse.text();
-          if (!inworldResponse.ok) {
-            console.error(
-              "[dictation/transcribe] Inworld STT returned",
-              inworldResponse.status,
-              text,
-            );
-            await scheduleManagedUsage(ctx, {
-              ownerId,
-              agentType: "service:dictation",
-              model: modelId,
-              durationMs: Date.now() - startedAt,
-              success: false,
-            });
-            return errorResponse(
-              502,
-              "Failed to transcribe audio",
-              origin,
-            );
-          }
-          let parsed: {
-            transcription?: {
-              transcript?: string;
-              isFinal?: boolean;
-            };
-            usage?: { transcribedAudioMs?: number; modelId?: string };
-          };
-          try {
-            parsed = JSON.parse(text);
-          } catch {
-            await scheduleManagedUsage(ctx, {
-              ownerId,
-              agentType: "service:dictation",
-              model: modelId,
-              durationMs: Date.now() - startedAt,
-              success: false,
-            });
-            return errorResponse(
-              502,
-              "Inworld returned a non-JSON transcription response",
-              origin,
-            );
-          }
-
-          const transcribedAudioMs = parsed.usage?.transcribedAudioMs ?? 0;
-          const costMicroCents = dollarsToMicroCents(
-            Math.max(0, transcribedAudioMs) * INWORLD_USD_PER_MS,
-          );
-          await scheduleManagedUsage(ctx, {
-            ownerId,
-            agentType: "service:dictation",
-            model: parsed.usage?.modelId ?? modelId,
-            durationMs: Date.now() - startedAt,
-            success: true,
-            costMicroCents,
-          });
-
-          return jsonResponse(
-            {
-              transcript: parsed.transcription?.transcript ?? "",
-              isFinal: parsed.transcription?.isFinal ?? true,
-              transcribedAudioMs: parsed.usage?.transcribedAudioMs ?? null,
-              modelId: parsed.usage?.modelId ?? null,
-            },
-            200,
+        if (provider === "inworld") {
+          return transcribeWithInworld({
+            ctx,
             origin,
-          );
-        } catch (error) {
-          console.error(
-            "[dictation/transcribe] Failed to contact Inworld:",
-            (error as Error).message,
-          );
-          await scheduleManagedUsage(ctx, {
             ownerId,
-            agentType: "service:dictation",
-            model: modelId,
-            durationMs: Date.now() - startedAt,
-            success: false,
+            inworldKey: inworldKey!,
+            body,
+            audioBase64,
           });
-          return errorResponse(502, "Failed to transcribe audio", origin);
         }
+
+        return transcribeWithOpenRouter({
+          ctx,
+          origin,
+          ownerId,
+          openRouterKey: openRouterKey!,
+          body,
+          audioBase64,
+        });
       }),
     ),
   });
+};
+
+const transcribeWithOpenRouter = async (args: {
+  ctx: ActionCtx;
+  origin: string | null;
+  ownerId: string;
+  openRouterKey: string;
+  body: TranscribeRequestBody;
+  audioBase64: string;
+}) => {
+  const modelId = args.body.modelId ?? OPENROUTER_DICTATION_MODEL;
+  const language = args.body.language?.trim();
+  const format = formatFromAudioEncoding(args.body.audioEncoding);
+  const startedAt = Date.now();
+  try {
+    const upstream = await fetch(OPENROUTER_TRANSCRIPTIONS_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.openRouterKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://stella.sh",
+        "X-OpenRouter-Title": "Stella",
+      },
+      body: JSON.stringify({
+        model: modelId,
+        input_audio: {
+          data: args.audioBase64,
+          format,
+        },
+        ...(language ? { language } : {}),
+      }),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      console.error(
+        "[dictation/transcribe] OpenRouter STT returned",
+        upstream.status,
+        text.slice(0, 400),
+      );
+      await scheduleManagedUsage(args.ctx, {
+        ownerId: args.ownerId,
+        agentType: "service:dictation",
+        model: modelId,
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return errorResponse(502, "Failed to transcribe audio", args.origin);
+    }
+    let parsed: {
+      text?: unknown;
+      usage?: {
+        seconds?: unknown;
+        cost?: unknown;
+      };
+    };
+    try {
+      parsed = JSON.parse(text) as typeof parsed;
+    } catch {
+      await scheduleManagedUsage(args.ctx, {
+        ownerId: args.ownerId,
+        agentType: "service:dictation",
+        model: modelId,
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return errorResponse(
+        502,
+        "OpenRouter returned a non-JSON transcription response",
+        args.origin,
+      );
+    }
+
+    const transcript = typeof parsed.text === "string" ? parsed.text : "";
+    const usageSeconds = asFiniteNumber(parsed.usage?.seconds);
+    const usageCost = asFiniteNumber(parsed.usage?.cost);
+    const transcribedAudioMs =
+      usageSeconds !== undefined ? Math.round(usageSeconds * 1000) : null;
+    const costUsd =
+      usageCost !== undefined
+        ? Math.max(0, usageCost)
+        : usageSeconds !== undefined
+          ? Math.max(0, usageSeconds) * OPENROUTER_USD_PER_SECOND
+          : 0;
+    await scheduleManagedUsage(args.ctx, {
+      ownerId: args.ownerId,
+      agentType: "service:dictation",
+      model: modelId,
+      durationMs: Date.now() - startedAt,
+      success: true,
+      costMicroCents: dollarsToMicroCents(costUsd),
+    });
+
+    return jsonResponse(
+      {
+        transcript,
+        isFinal: true,
+        transcribedAudioMs,
+        modelId,
+      },
+      200,
+      args.origin,
+    );
+  } catch (error) {
+    console.error(
+      "[dictation/transcribe] Failed to contact OpenRouter:",
+      (error as Error).message,
+    );
+    await scheduleManagedUsage(args.ctx, {
+      ownerId: args.ownerId,
+      agentType: "service:dictation",
+      model: modelId,
+      durationMs: Date.now() - startedAt,
+      success: false,
+    });
+    return errorResponse(502, "Failed to transcribe audio", args.origin);
+  }
+};
+
+const transcribeWithInworld = async (args: {
+  ctx: ActionCtx;
+  origin: string | null;
+  ownerId: string;
+  inworldKey: string;
+  body: TranscribeRequestBody;
+  audioBase64: string;
+}) => {
+  const modelId = args.body.modelId ?? INWORLD_DEFAULT_MODEL;
+  const inworldBody = {
+    transcribe_config: {
+      model_id: modelId,
+      language: args.body.language ?? INWORLD_DEFAULT_LANGUAGE,
+      audio_encoding: args.body.audioEncoding ?? "AUTO_DETECT",
+    },
+    audio_data: { content: args.audioBase64 },
+  };
+
+  const startedAt = Date.now();
+  try {
+    const inworldResponse = await fetch(INWORLD_TRANSCRIBE_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${args.inworldKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(inworldBody),
+    });
+    const text = await inworldResponse.text();
+    if (!inworldResponse.ok) {
+      console.error(
+        "[dictation/transcribe] Inworld STT returned",
+        inworldResponse.status,
+        text,
+      );
+      await scheduleManagedUsage(args.ctx, {
+        ownerId: args.ownerId,
+        agentType: "service:dictation",
+        model: modelId,
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return errorResponse(502, "Failed to transcribe audio", args.origin);
+    }
+    let parsed: {
+      transcription?: {
+        transcript?: string;
+        isFinal?: boolean;
+      };
+      usage?: { transcribedAudioMs?: number; modelId?: string };
+    };
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      await scheduleManagedUsage(args.ctx, {
+        ownerId: args.ownerId,
+        agentType: "service:dictation",
+        model: modelId,
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return errorResponse(
+        502,
+        "Inworld returned a non-JSON transcription response",
+        args.origin,
+      );
+    }
+
+    const transcribedAudioMs = parsed.usage?.transcribedAudioMs ?? 0;
+    const costMicroCents = dollarsToMicroCents(
+      Math.max(0, transcribedAudioMs) * INWORLD_USD_PER_MS,
+    );
+    await scheduleManagedUsage(args.ctx, {
+      ownerId: args.ownerId,
+      agentType: "service:dictation",
+      model: parsed.usage?.modelId ?? modelId,
+      durationMs: Date.now() - startedAt,
+      success: true,
+      costMicroCents,
+    });
+
+    return jsonResponse(
+      {
+        transcript: parsed.transcription?.transcript ?? "",
+        isFinal: parsed.transcription?.isFinal ?? true,
+        transcribedAudioMs: parsed.usage?.transcribedAudioMs ?? null,
+        modelId: parsed.usage?.modelId ?? null,
+      },
+      200,
+      args.origin,
+    );
+  } catch (error) {
+    console.error(
+      "[dictation/transcribe] Failed to contact Inworld:",
+      (error as Error).message,
+    );
+    await scheduleManagedUsage(args.ctx, {
+      ownerId: args.ownerId,
+      agentType: "service:dictation",
+      model: modelId,
+      durationMs: Date.now() - startedAt,
+      success: false,
+    });
+    return errorResponse(502, "Failed to transcribe audio", args.origin);
+  }
 };

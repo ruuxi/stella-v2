@@ -446,6 +446,138 @@ describe("orchestrator thread compaction failure handling", () => {
     }
   });
 
+  it("pins a buried follow-up instruction with bounded cost instead of an unbounded tail", async () => {
+    // A follow-up user instruction buried deep in a huge middle (~145k
+    // estimated tokens after it). The rejected design started the verbatim
+    // tail AT that message, keeping ~145k tokens verbatim; the bounded design
+    // summarizes the middle as usual, keeps only the token-budgeted recent
+    // tail, and carries one capped verbatim copy of the instruction on the
+    // overlay.
+    const followUpText = `Follow-up task\n\nNow migrate the parser ${"y".repeat(30_000)}`;
+    const messages = [
+      { entryId: "entry-1", timestamp: 1_000, role: "user", content: "spawn" },
+      { entryId: "entry-2", timestamp: 1_001, role: "assistant", content: "ok" },
+      { entryId: "entry-3", timestamp: 1_002, role: "assistant", content: "ok" },
+      {
+        entryId: "entry-4",
+        timestamp: 1_003,
+        role: "user",
+        content: followUpText,
+      },
+      ...Array.from({ length: 58 }, (_, index) => ({
+        entryId: `entry-${index + 5}`,
+        timestamp: 1_004 + index,
+        role: "assistant",
+        content: `work chunk ${index} ${"x".repeat(10_000)}`,
+      })),
+    ];
+    const { store, compactCalls } = createFakeStore(messages);
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "buried-follow-up",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "general",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    expect(compactCalls).toHaveLength(1);
+    const call = compactCalls[0]! as {
+      fromEntryId: string;
+      toEntryId: string;
+      summary: string;
+      details?: { pinnedUserInstruction?: { text: string } };
+    };
+
+    // The instruction was summarized into the middle...
+    const fromIndex = messages.findIndex((m) => m.entryId === call.fromEntryId);
+    const toIndex = messages.findIndex((m) => m.entryId === call.toEntryId);
+    const followUpIndex = messages.findIndex((m) => m.entryId === "entry-4");
+    expect(followUpIndex).toBeGreaterThanOrEqual(fromIndex);
+    expect(followUpIndex).toBeLessThanOrEqual(toIndex);
+
+    // ...and carried across the checkpoint as one capped pinned copy.
+    const pinned = call.details?.pinnedUserInstruction?.text;
+    expect(pinned).toBeDefined();
+    expect(pinned).toContain("Follow-up task");
+    expect(pinned).toContain("more characters truncated");
+    expect(pinned!.length).toBeLessThan(12_100);
+
+    // Boundedness proof: post-compaction size = summary + pinned copy +
+    // token-budgeted tail — a fraction of the ~150k-token original, and the
+    // verbatim tail alone obeys the ~20k keep-recent budget.
+    const estimate = (text: string) => Math.ceil(text.length / 4);
+    const tailTokens = messages
+      .slice(toIndex + 1)
+      .reduce((sum, m) => sum + estimate(m.content), 0);
+    expect(tailTokens).toBeLessThanOrEqual(23_000);
+    const afterTokens =
+      estimate(call.summary) +
+      estimate(pinned!) +
+      tailTokens +
+      messages.slice(0, fromIndex).reduce((s, m) => s + estimate(m.content), 0);
+    expect(afterTokens).toBeLessThan(35_000);
+  });
+
+  it("pins an active-steer Task update turn and skips pinning when the instruction is already in the tail", async () => {
+    const buildMessages = (latestUserAtTail: boolean) => [
+      { entryId: "entry-1", timestamp: 1_000, role: "user", content: "spawn" },
+      { entryId: "entry-2", timestamp: 1_001, role: "assistant", content: "ok" },
+      { entryId: "entry-3", timestamp: 1_002, role: "assistant", content: "ok" },
+      {
+        entryId: "entry-4",
+        timestamp: 1_003,
+        role: "user",
+        content: "Task update: focus on the failing suite only",
+      },
+      ...Array.from({ length: 48 }, (_, index) => ({
+        entryId: `entry-${index + 5}`,
+        timestamp: 1_004 + index,
+        role: "assistant",
+        content: `work chunk ${index} ${"x".repeat(10_000)}`,
+      })),
+      ...(latestUserAtTail
+        ? [
+            {
+              entryId: "entry-tail-user",
+              timestamp: 2_000,
+              role: "user",
+              content: "Task update: newest steer, still in the tail",
+            },
+          ]
+        : []),
+    ];
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const buried = createFakeStore(buildMessages(false));
+    await maybeCompactRuntimeThread({
+      store: buried.store,
+      threadKey: "task-update-buried",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "general",
+    });
+    expect(buried.compactCalls[0]).toMatchObject({
+      details: {
+        pinnedUserInstruction: {
+          text: "Task update: focus on the failing suite only",
+        },
+      },
+    });
+
+    const inTail = createFakeStore(buildMessages(true));
+    await maybeCompactRuntimeThread({
+      store: inTail.store,
+      threadKey: "task-update-in-tail",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "general",
+    });
+    const details = inTail.compactCalls[0]!.details as
+      | { pinnedUserInstruction?: unknown }
+      | undefined;
+    expect(details?.pinnedUserInstruction).toBeUndefined();
+  });
+
   it("does not spuriously compact when the effective context fits the target model's window", async () => {
     // Repro for the model-switch spurious-compaction bug. A conversation whose
     // effective (post-checkpoint) context comfortably fits the target model

@@ -1946,7 +1946,14 @@ export function useChatThread(opts: {
             textSmoother.push(delta);
           },
           onArtifacts: (artifacts) => {
-            if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
+            const stopped = stoppedDispatchIdsRef.current.has(item.dispatchId);
+            const hasCanceledImage = artifacts.some(
+              (artifact) =>
+                artifact.payload.kind === "media" &&
+                artifact.payload.asset.kind === "image" &&
+                artifact.payload.generationState === "canceled",
+            );
+            if (stopped && !hasCanceledImage) return;
             setMessages((m) =>
               m.map((msg) =>
                 msg.id === replyId ? { ...msg, artifacts } : msg,

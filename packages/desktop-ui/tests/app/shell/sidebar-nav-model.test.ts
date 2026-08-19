@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   PANEL_SIDEBAR_SECTIONS,
@@ -12,11 +14,15 @@ import {
   SIDEBAR_SECTION_META,
 } from "@/shell/sidebar-sections/section-meta";
 import { displayTabs } from "@/features/workspace-display/tab-store";
+import { FileSidebarTabExistenceReconciler } from "@/shell/sidebar-sections/FileSidebarTabExistenceReconciler";
 
 describe("right-sidebar navigation model (browser-tab style)", () => {
   beforeEach(() => {
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
     sidebarSections.reset();
-    displayTabs.setPanelOpen(false);
+    displayTabs.reset();
   });
 
   it("exposes Home + Quick chat as real panel sections", () => {
@@ -116,5 +122,42 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
     expect(
       sidebarSections.getSnapshot().tabs.map((tab) => tab.kind),
     ).toEqual(["home"]);
+  });
+
+  it("reactively closes a file tab when its display-tab backing is removed", () => {
+    displayTabs.openTab({
+      id: "file-a",
+      kind: "text",
+      title: "file-a.txt",
+      render: () => null,
+    });
+    sidebarSections.openLocation("files", "file-a");
+    sidebarSections.openHomeLauncher();
+    sidebarSections.openLocation("browser", null);
+    const browserTabId = sidebarSections.getSnapshot().activeTabId;
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    act(() => root.render(createElement(FileSidebarTabExistenceReconciler)));
+
+    act(() => displayTabs.closeTab("file-a"));
+
+    expect(
+      sidebarSections.getSnapshot().tabs.map((tab) => tab.kind),
+    ).toEqual(["browser"]);
+    expect(sidebarSections.getSnapshot().activeTabId).toBe(browserTabId);
+    act(() => root.unmount());
+  });
+
+  it("does not close a file tab merely because its backing has not registered yet", () => {
+    sidebarSections.openLocation("files", "still-loading");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    act(() => root.render(createElement(FileSidebarTabExistenceReconciler)));
+
+    expect(sidebarSections.getSnapshot().tabs[0]).toMatchObject({
+      kind: "files",
+      location: "still-loading",
+    });
+    act(() => root.unmount());
   });
 });

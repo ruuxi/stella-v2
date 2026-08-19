@@ -17,7 +17,7 @@ import { PersistentUserAppsHost } from "@/app/apps/PersistentUserAppsHost";
 import { listUserApps, useRequestUserApp, } from "@/app/apps/user-app-library";
 import { getServerSnapshot, getSnapshot, refreshUserApps, stopUserApp, subscribe, } from "@/app/apps/user-apps-registry";
 import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
-import { sidebarSections, useActiveSidebarSection, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
+import { sidebarSections, useActiveSidebarSection, useSidebarOpenTabs, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
 import { AppWindowMac, LoaderCircle, Power } from "@/ui/icons";
 import "./apps-section.css";
@@ -25,19 +25,22 @@ export function AppsSection() {
     const registry = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
     const apps = registry.apps;
     const openSlug = useSidebarSectionLocation("apps");
+    const sidebarTabs = useSidebarOpenTabs();
     const activeSection = useActiveSidebarSection();
     const panelOpen = useDisplayPanelOpen();
-    // A remembered slug can outlive its file — locations persist across
-    // launches, the registry does not — so an app that no longer exists falls
-    // back to the library.
     const openApp = openSlug
         ? (apps.find((app) => app.slug === openSlug) ?? null)
         : null;
     useEffect(() => {
-        if (registry.phase === "ready" && openSlug && !openApp) {
-            sidebarSections.clearLocation("apps");
-        }
-    }, [openApp, openSlug, registry.phase]);
+        if (registry.phase !== "ready")
+            return;
+        const installedSlugs = new Set(apps.map((app) => app.slug));
+        const removedTabIds = sidebarTabs
+            .filter((tab) => tab.kind === "apps" && tab.location && !installedSlugs.has(tab.location))
+            .map((tab) => tab.id);
+        for (const tabId of removedTabIds)
+            sidebarSections.closeTab(tabId);
+    }, [apps, registry.phase, sidebarTabs]);
     // The list counts as "seen" only when the user can actually see it: every
     // section stays mounted, so mounting alone says nothing about attention.
     const listVisible = panelOpen && activeSection === "apps" && !openApp;

@@ -121,7 +121,7 @@ describe("AppsSection external-app states", () => {
     expect(registry.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("opens a listed app and clears a removed app only after a ready refresh", () => {
+  it("opens a listed app and closes its tab only after a ready removal", () => {
     registry.set({
       phase: "ready",
       apps: [ledger],
@@ -134,6 +134,9 @@ describe("AppsSection external-app states", () => {
     );
     act(() => card?.click());
     expect(sidebarSections.getActiveTab()?.location).toBe("ledger");
+    const appTabId = sidebarSections.getSnapshot().activeTabId;
+    act(() => sidebarSections.openLocation("browser", null));
+    const browserTabId = sidebarSections.getSnapshot().activeTabId;
 
     act(() =>
       registry.set({
@@ -143,7 +146,10 @@ describe("AppsSection external-app states", () => {
         refreshing: false,
       }),
     );
-    expect(sidebarSections.getActiveTab()?.location).toBe("ledger");
+    expect(
+      sidebarSections.getSnapshot().tabs.some((tab) => tab.id === appTabId),
+    ).toBe(true);
+    expect(sidebarSections.getSnapshot().activeTabId).toBe(browserTabId);
 
     act(() =>
       registry.set({
@@ -153,7 +159,12 @@ describe("AppsSection external-app states", () => {
         refreshing: false,
       }),
     );
-    expect(sidebarSections.getActiveTab()?.location).toBeNull();
+    expect(sidebarSections.getSnapshot().tabs).toHaveLength(1);
+    expect(sidebarSections.getActiveTab()).toMatchObject({
+      id: browserTabId,
+      kind: "browser",
+      location: null,
+    });
   });
 
   it("shows runtime status and shuts down a running app", async () => {

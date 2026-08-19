@@ -19,6 +19,7 @@ import {
 } from "@/features/workspace-display/sidebar-sections";
 import { AppsSection } from "./AppsSection";
 import { BrowserSection } from "./BrowserSection";
+import { FileSidebarTabExistenceReconciler } from "./FileSidebarTabExistenceReconciler";
 import { FilesSection } from "./FilesSection";
 import { HomeLauncherSection } from "./HomeLauncherSection";
 import { QuickChatSection } from "./QuickChatSection";
@@ -54,6 +55,7 @@ export function SidebarSectionBody() {
 
   return (
     <>
+      <FileSidebarTabExistenceReconciler />
       {tabs.map((tab) => {
         const Body = PER_ITEM_BODIES[tab.kind];
         if (!Body) return null; // apps / browser handled by shared instances

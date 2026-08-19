@@ -28,6 +28,7 @@ import {
   type ConversationTitleCursor,
   useConversationTabs,
 } from "@/features/chat/services/conversation-tabs-store";
+import { conversationModelSelections } from "@/features/chat/services/conversation-model-selection";
 import {
   conversationTitleFromUpdate,
   createNewLocalConversationId,
@@ -304,6 +305,30 @@ export function ConversationTopBar() {
       });
     },
     [router],
+  );
+
+  /**
+   * History is in-place navigation: the current tab becomes the selected
+   * session. New Chat (+) is the only action that appends a tab.
+   */
+  const openHistoryConversation = useCallback(
+    (
+      conversationId: string,
+      title?: string,
+      cursor?: ConversationTitleCursor,
+    ) => {
+      conversationTabs.replaceConversation(
+        activeConversationId,
+        conversationId,
+        title,
+        cursor,
+      );
+      void router.navigate({
+        to: "/chat",
+        search: { c: conversationId },
+      });
+    },
+    [activeConversationId, router],
   );
 
   const createConversation = useCallback(async () => {
@@ -616,6 +641,7 @@ export function ConversationTopBar() {
       try {
         const deleted = await deleteLocalConversation(summary.conversationId);
         if (!deleted) return;
+        conversationModelSelections.delete(summary.conversationId);
         setHistory((current) =>
           current.filter(
             (item) => item.conversationId !== summary.conversationId,
@@ -791,7 +817,7 @@ export function ConversationTopBar() {
             onMouseDown={(event) => {
               if (event.button !== 0) return;
               disarmHistoryDelete();
-              navigateToConversation(summary.conversationId, summary.title, {
+              openHistoryConversation(summary.conversationId, summary.title, {
                 latestMessageAt: summary.latestMessageAt ?? summary.updatedAt,
                 latestMessageId: summary.latestMessageId ?? "",
               });
@@ -800,7 +826,7 @@ export function ConversationTopBar() {
             onClick={(event) => {
               if (!isKeyboardClick(event)) return;
               disarmHistoryDelete();
-              navigateToConversation(summary.conversationId, summary.title, {
+              openHistoryConversation(summary.conversationId, summary.title, {
                 latestMessageAt: summary.latestMessageAt ?? summary.updatedAt,
                 latestMessageId: summary.latestMessageId ?? "",
               });
@@ -869,7 +895,7 @@ export function ConversationTopBar() {
       historyDeleteArmedId,
       historyDeleteErrorId,
       historyDeletingId,
-      navigateToConversation,
+      openHistoryConversation,
       t,
     ],
   );

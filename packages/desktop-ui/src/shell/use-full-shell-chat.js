@@ -413,12 +413,14 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         };
     }, []);
     const isOrchestratedMode = assistantWorkingMode === "orchestrated";
-    // Per-tab (per-conversation) model selection: mirror the global model
-    // preferences to whichever tab is active so each tab remembers its own
-    // engine/model/reasoning pick. Inert in orchestrated single-chat mode.
+    // Per-conversation model selection: mirror the global model preferences
+    // to whichever conversation is active so each tab remembers its own
+    // engine/model/reasoning pick. Runs in both working modes — orchestrated
+    // still has a conversation strip / history replace, and the picker is
+    // the same global preference surface.
     useConversationModelSelection({
         activeConversationId,
-        enabled: !isOrchestratedMode,
+        enabled: true,
     });
     // Per-user-message quick actions (Fork / Rewind) exposed to the deeply
     // nested action row. The callbacks are stable and read live state

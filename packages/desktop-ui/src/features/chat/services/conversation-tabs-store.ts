@@ -179,6 +179,47 @@ export const conversationTabs = {
         : tabs,
     );
   },
+  /**
+   * Browser-like in-place navigation: swap the current tab's conversation for
+   * another one without growing the tab strip. New Chat (+) is the only path
+   * that should append a tab.
+   *
+   * - If `nextConversationId` is already open, just updates that existing
+   *   tab's title/cursor (caller still navigates to it).
+   * - If there is no current tab, falls back to `openConversation`.
+   * - Otherwise the current slot is overwritten in place, keeping order.
+   */
+  replaceConversation(
+    currentConversationIdInput: string | null,
+    nextConversationIdInput: string,
+    titleInput?: string,
+    cursorInput?: ConversationTitleCursor,
+  ): void {
+    const nextConversationId = normalizeId(nextConversationIdInput);
+    if (!nextConversationId) return;
+    const currentConversationId = normalizeId(currentConversationIdInput);
+    const existingIndex = findTabIndex(nextConversationId);
+    if (existingIndex >= 0) {
+      this.openConversation(nextConversationId, titleInput, cursorInput);
+      return;
+    }
+    const currentIndex = currentConversationId
+      ? findTabIndex(currentConversationId)
+      : -1;
+    if (currentIndex < 0) {
+      this.openConversation(nextConversationId, titleInput, cursorInput);
+      return;
+    }
+    const title = normalizeConversationTabTitle(titleInput);
+    const cursor = normalizeTitleCursor(cursorInput ?? {});
+    emit(
+      snapshot.tabs.map((tab, index) =>
+        index === currentIndex
+          ? { conversationId: nextConversationId, title, ...(cursor ?? {}) }
+          : tab,
+      ),
+    );
+  },
   updateTitle(
     conversationIdInput: string,
     titleInput: string,

@@ -153,5 +153,39 @@ describe("conversationTabs", () => {
       { conversationId: open, title: "Current latest" },
     ]);
   });
+
+  it("replaces the current tab in place and only appends when there is no slot", () => {
+    const first = conversationId("A");
+    const second = conversationId("B");
+    const third = conversationId("C");
+    conversationTabs.openConversation(first, "First");
+    conversationTabs.openConversation(second, "Second");
+
+    conversationTabs.replaceConversation(second, third, "From history", {
+      latestMessageAt: 10,
+      latestMessageId: "message-c",
+    });
+
+    expect(conversationTabs.getSnapshot().tabs).toEqual([
+      { conversationId: first, title: "First" },
+      {
+        conversationId: third,
+        title: "From history",
+        latestMessageAt: 10,
+        latestMessageId: "message-c",
+      },
+    ]);
+
+    conversationTabs.replaceConversation(third, first, "Already open");
+    expect(conversationTabs.getSnapshot().tabs.map((tab) => tab.conversationId)).toEqual(
+      [first, third],
+    );
+
+    conversationTabs.reset();
+    conversationTabs.replaceConversation(null, first, "Fresh");
+    expect(conversationTabs.getSnapshot().tabs).toEqual([
+      { conversationId: first, title: "Fresh" },
+    ]);
+  });
 });
 

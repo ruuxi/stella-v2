@@ -14,7 +14,7 @@ import {
   resolveStellaModelSelection,
 } from "../../convex/stella_models";
 
-const FLASH_MODEL = "deepseek/deepseek-v4-flash";
+const FLASH_MODEL = "crof/deepseek-v4-flash-0731";
 const FLASH_SELECTION = `stella/${FLASH_MODEL}`;
 /** Pre-DeepSeek-direct spelling; still accepted, always coerced to the above. */
 const LEGACY_FIREWORKS_MODEL =
@@ -25,17 +25,17 @@ const SYNTHESIS_SELECTION = `openrouter/${SYNTHESIS_MODEL}`;
 const IMAGE_DESCRIPTION_MODEL = "google/gemini-3.1-flash-lite";
 
 describe("managed model config", () => {
-  it("routes every Stella mode to DeepSeek and synthesis to CoreWeave Kimi", () => {
+  it("routes every Stella mode to CrofAI and synthesis to CoreWeave Kimi", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       for (const mode of MODEL_MODES) {
         expect(getModeConfig(mode, audience)).toMatchObject({
           model: FLASH_MODEL,
-          managedGatewayProvider: "deepseek",
+          managedGatewayProvider: "crof",
           providerOptions: {
             openai: { reasoningEffort: "xhigh" },
           },
         });
-        // No `gateway.order` — DeepSeek is a direct upstream, not a router.
+        // No `gateway.order` — CrofAI is a direct upstream, not a router.
         expect(
           getModeConfig(mode, audience).providerOptions?.gateway,
         ).toBeUndefined();
@@ -89,7 +89,7 @@ describe("managed model config", () => {
       expect(listStellaCatalogModels(audience)).toEqual([
         {
           id: FLASH_SELECTION,
-          name: "DeepSeek V4 Flash",
+          name: "DeepSeek V4 Flash 0731",
           provider: "stella",
           upstreamModel: FLASH_MODEL,
           type: "language",
@@ -111,7 +111,7 @@ describe("managed model config", () => {
       FLASH_MODEL,
     );
     // A preference saved while V4 Flash was on Fireworks stays valid, but
-    // resolves onto the active DeepSeek route rather than reviving Fireworks.
+    // resolves onto the active CrofAI route rather than reviving Fireworks.
     expect(resolveStellaModelSelection(LEGACY_FIREWORKS_SELECTION, "pro")).toBe(
       FLASH_MODEL,
     );

@@ -31,6 +31,7 @@ import { createRelayUsageParser } from "./stella_provider/relay_usage";
 import {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
+  STELLA_CROF_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_RESPONSES_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
@@ -50,6 +51,7 @@ import {
 export {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
+  STELLA_CROF_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_RESPONSES_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
@@ -213,6 +215,8 @@ export const upstreamUrl = (
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
+    case "crof":
+      return `${base}/chat/completions`;
     case "xai":
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
@@ -539,6 +543,36 @@ const deepSeekReasoningEffort = (raw: unknown): string => {
   }
 };
 
+const crofReasoningEffort = (raw: unknown): string => {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  switch (value) {
+    case "none":
+    case "off":
+      return "none";
+    case "minimal":
+    case "low":
+      return "low";
+    case "medium":
+      return "medium";
+    default:
+      return "high";
+  }
+};
+
+const normalizeCrofBody = (body: Record<string, unknown>): void => {
+  const reasoning =
+    body.reasoning &&
+    typeof body.reasoning === "object" &&
+    !Array.isArray(body.reasoning)
+      ? (body.reasoning as Record<string, unknown>)
+      : null;
+  body.reasoning_effort = crofReasoningEffort(
+    reasoning?.effort ?? body.reasoning_effort,
+  );
+  delete body.reasoning;
+  delete body.thinking;
+};
+
 const normalizeDeepSeekBody = (
   body: Record<string, unknown>,
   isResponses: boolean,
@@ -652,6 +686,9 @@ export const bodyForUpstream = (
       normalizeChatCompletionsBody(body, authorized.resolvedModel);
     }
     normalizeDeepSeekBody(body, !pathIsChatCompletions);
+  } else if (provider === "crof") {
+    normalizeChatCompletionsBody(body, authorized.resolvedModel);
+    normalizeCrofBody(body);
   } else if (
     provider === "openrouter" ||
     ((provider === "meta" || provider === "xai") && pathIsChatCompletions)
@@ -863,6 +900,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               cachedInputTokens: usage?.cachedInputTokens,
               cacheWriteInputTokens: usage?.cacheWriteInputTokens,
               reasoningTokens: usage?.reasoningTokens,
+              costMicroCents: usage?.costMicroCents,
             });
           } catch (error) {
             console.error("[stella-provider] Relay stream failed:", error);

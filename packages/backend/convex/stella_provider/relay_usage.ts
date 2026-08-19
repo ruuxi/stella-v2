@@ -13,6 +13,8 @@ export type RelayUsage = {
   cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
   reasoningTokens?: number;
+  /** Exact upstream-reported spend, normalized to Stella's micro-cent unit. */
+  costMicroCents?: number;
   model?: string;
 };
 
@@ -55,8 +57,20 @@ const parseOpenAIUsage = (usage: unknown): RelayUsage => {
       toInt(promptDetails?.cached_tokens) ??
       toInt(record.prompt_cache_hit_tokens),
     cacheWriteInputTokens: toInt(promptDetails?.cache_write_tokens),
-    reasoningTokens: toInt(completionDetails?.reasoning_tokens),
+    reasoningTokens:
+      toInt(completionDetails?.reasoning_tokens) ??
+      toInt(record.reasoning_tokens),
   };
+};
+
+const parseCrofCost = (usage: unknown): Pick<RelayUsage, "costMicroCents"> => {
+  const record = asRecord(usage);
+  const costUsd = record?.cost;
+  if (typeof costUsd !== "number" || !Number.isFinite(costUsd) || costUsd < 0) {
+    return {};
+  }
+  // 1 USD = 100 cents = 100,000,000 micro-cents.
+  return { costMicroCents: Math.round(costUsd * 100_000_000) };
 };
 
 const parseResponsesUsage = (usage: unknown): RelayUsage => {
@@ -241,6 +255,14 @@ export function createRelayUsageParser(
           : parseOpenAIUsage(usage)),
       };
     });
+  }
+
+  if (provider === "crof") {
+    return createSseParser((event) => ({
+      model: typeof event.model === "string" ? event.model : undefined,
+      ...parseOpenAIUsage(event.usage),
+      ...parseCrofCost(event.usage),
+    }));
   }
 
   if (provider === "openai" || provider === "fireworks") {

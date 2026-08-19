@@ -190,33 +190,33 @@ describe("Stella relay route shape", () => {
   it("retired Stella aliases resolve to the Flash relay", () => {
     const route = makeRoute("stella/designer");
     const model = route!.model;
-    expect(model.api).toBe("openai-responses");
-    expect(model.provider).toBe("deepseek");
+    expect(model.api).toBe("openai-completions");
+    expect(model.provider).toBe("crof");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
-  it("Stella alias (light) resolves to the DeepSeek relay", () => {
+  it("Stella alias (light) resolves to the CrofAI relay", () => {
     const route = makeRoute("stella/light");
     const model = route!.model;
-    expect(model.api).toBe("openai-responses");
-    expect(model.provider).toBe("deepseek");
+    expect(model.api).toBe("openai-completions");
+    expect(model.provider).toBe("crof");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
   it("Stella default resolves to V4 Flash with the native effort ladder", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
-    expect(model.provider).toBe("deepseek");
+    expect(model.provider).toBe("crof");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("deepseek-v4-flash");
-    // V4 Flash only understands low | high | max.
+    ).toBe("deepseek-v4-flash-0731");
+    // CrofAI accepts none | low | medium | high.
     expect(model.thinkingLevelMap).toMatchObject({
       minimal: "low",
       low: "low",
-      medium: "high",
-      high: "max",
-      xhigh: "max",
+      medium: "medium",
+      high: "high",
+      xhigh: "high",
       off: "none",
     });
   });
@@ -224,11 +224,11 @@ describe("Stella relay route shape", () => {
   it("Stella standard compatibility alias resolves to V4 Flash", () => {
     const route = makeRoute("stella/standard");
     const model = route!.model;
-    expect(model.api).toBe("openai-responses");
-    expect(model.provider).toBe("deepseek");
+    expect(model.api).toBe("openai-completions");
+    expect(model.provider).toBe("crof");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("deepseek-v4-flash");
+    ).toBe("deepseek-v4-flash-0731");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 

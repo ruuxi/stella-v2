@@ -22,8 +22,8 @@ describe("resolveModelConfig single-model enforcement", () => {
         undefined,
         { audience },
       );
-      expect(resolved.model).toBe("deepseek/deepseek-v4-flash");
-      expect(resolved.managedGatewayProvider).toBe("deepseek");
+      expect(resolved.model).toBe("crof/deepseek-v4-flash-0731");
+      expect(resolved.managedGatewayProvider).toBe("crof");
     }
   });
 
@@ -37,8 +37,8 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe("deepseek/deepseek-v4-flash");
-    expect(resolved.managedGatewayProvider).toBe("deepseek");
+    expect(resolved.model).toBe("crof/deepseek-v4-flash-0731");
+    expect(resolved.managedGatewayProvider).toBe("crof");
   });
 
   it("rejects a retired explicit upstream override even for Pro", async () => {
@@ -51,13 +51,13 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe("deepseek/deepseek-v4-flash");
-    expect(resolved.managedGatewayProvider).toBe("deepseek");
+    expect(resolved.model).toBe("crof/deepseek-v4-flash-0731");
+    expect(resolved.managedGatewayProvider).toBe("crof");
   });
 
   it("ignores a mode override a restricted tier may not pick", async () => {
     // free can't override designer → falls back to the primary agent's
-    // backend default (DeepSeek V4 Flash, direct).
+    // backend default (DeepSeek V4 Flash on CrofAI).
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,
@@ -67,7 +67,7 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "free",
       },
     );
-    expect(resolved.model).toBe("deepseek/deepseek-v4-flash");
-    expect(resolved.managedGatewayProvider).toBe("deepseek");
+    expect(resolved.model).toBe("crof/deepseek-v4-flash-0731");
+    expect(resolved.managedGatewayProvider).toBe("crof");
   });
 });

@@ -203,6 +203,20 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesOutput?: string[];
   }
 > = {
+  // CrofAI's /v1/models rates for DeepSeek V4 Flash 0731. The relay prefers
+  // Crof's exact per-request `usage.cost`; these cover preflight reservations
+  // and responses that omit exact cost.
+  "crof/deepseek-v4-flash-0731": {
+    sourceProvider: "crof",
+    sourceModelId: "deepseek-v4-flash-0731",
+    inputPerMillionUsd: 0.12,
+    outputPerMillionUsd: 0.21,
+    cacheReadPerMillionUsd: 0.003,
+    cacheWritePerMillionUsd: 0,
+    reasoningPerMillionUsd: 0.21,
+    modalitiesInput: ["text"],
+    modalitiesOutput: ["text"],
+  },
   "meta/muse-spark-1.2": {
     sourceProvider: "meta",
     sourceModelId: "muse-spark-1.2",

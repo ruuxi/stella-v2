@@ -6,6 +6,23 @@ import {
 } from "../convex/lib/models_dev";
 
 describe("managed model price entries", () => {
+  it("uses CrofAI's published V4 Flash 0731 rates", () => {
+    const { entries: [entry] } = buildManagedModelPriceEntries({
+      modelIds: ["crof/deepseek-v4-flash-0731"],
+      data: {},
+      syncedAt: 123,
+    });
+    expect(entry).toMatchObject({
+      source: "static",
+      sourceProvider: "crof",
+      sourceModelId: "deepseek-v4-flash-0731",
+      inputPerMillionUsd: 0.12,
+      outputPerMillionUsd: 0.21,
+      cacheReadPerMillionUsd: 0.003,
+      reasoningPerMillionUsd: 0.21,
+    });
+  });
+
   it("resolves Gemini 3.1 Flash Lite directly from Google's catalog", () => {
     const model = "google/gemini-3.1-flash-lite";
     const result = buildManagedModelPriceEntries({

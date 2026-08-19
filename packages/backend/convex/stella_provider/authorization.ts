@@ -37,6 +37,7 @@ function stellaProviderErrorResponse(
 
 const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
   deepseek: "deepseek/",
+  crof: "crof/",
   xai: "x-ai/",
   anthropic: "anthropic/",
   google: "google/",

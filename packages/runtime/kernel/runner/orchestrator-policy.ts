@@ -47,6 +47,13 @@ const normalizeAttachments = (
 export const getOrchestratorHealth = (
   context: RunnerContext,
   deps: OrchestratorRuntimeDeps,
+  /**
+   * Model the upcoming turn will actually run on (automation turns pin one).
+   * When set, readiness is judged against it instead of the configured
+   * orchestrator default — a pinned engine-CLI model must not be blocked
+   * because the default model's credentials are unavailable.
+   */
+  modelOverride?: string,
 ): AgentHealth => {
   if (!context.state.isRunning) {
     return {
@@ -62,10 +69,12 @@ export const getOrchestratorHealth = (
       engine: "stella",
     };
   }
-  const orchestratorModel = deps.getConfiguredModel(
-    AGENT_IDS.ORCHESTRATOR,
-    deps.resolveAgent(AGENT_IDS.ORCHESTRATOR),
-  );
+  const orchestratorModel =
+    modelOverride?.trim() ||
+    deps.getConfiguredModel(
+      AGENT_IDS.ORCHESTRATOR,
+      deps.resolveAgent(AGENT_IDS.ORCHESTRATOR),
+    );
   if (canResolveRunnerLlmRoute(context, orchestratorModel)) {
     return { ready: true, engine: "pi" };
   }

@@ -759,6 +759,24 @@ const resetAutomationDaemonFiles = (sessionPaths: SessionPaths) => {
   fs.rmSync(automationHostPidPath(sessionPaths), { force: true });
 };
 
+const recoverAutomationDaemon = (sessionPaths: SessionPaths) => {
+  const pid = readPidFile(automationPidPath(sessionPaths));
+  killDetachedProcess(pid);
+  resetAutomationDaemonFiles(sessionPaths);
+  return pid;
+};
+
+export const __testOnlyRecoverAutomationDaemon = (sessionId: string) => {
+  const sessionPaths = resolveSessionPaths(sessionId);
+  const pid = recoverAutomationDaemon(sessionPaths);
+  return {
+    pid,
+    pidPath: automationPidPath(sessionPaths),
+    socketPath: automationSocketPath(sessionPaths),
+    hostPidPath: automationHostPidPath(sessionPaths),
+  };
+};
+
 const writeAutomationHostPid = (sessionPaths: SessionPaths, pid: number) => {
   try {
     fs.writeFileSync(automationHostPidPath(sessionPaths), String(pid), "utf8");
@@ -1227,9 +1245,7 @@ const runAutomationDaemonCommand = async (
       // Helper-style requests share the same serial daemon as typed
       // operations. Revoke it on cancellation as well, otherwise a blocked
       // helper remains at the head of the queue and wedges the next call.
-      const pid = readPidFile(automationPidPath(sessionPaths));
-      killDetachedProcess(pid);
-      resetAutomationDaemonFiles(sessionPaths);
+      recoverAutomationDaemon(sessionPaths);
       settle({
         status: 1,
         stdout: "",
@@ -1244,9 +1260,7 @@ const runAutomationDaemonCommand = async (
       });
     };
     const timer = setTimeout(() => {
-      const pid = readPidFile(automationPidPath(sessionPaths));
-      killDetachedProcess(pid);
-      resetAutomationDaemonFiles(sessionPaths);
+      recoverAutomationDaemon(sessionPaths);
       settle({
         status: 1,
         stdout: "",
@@ -1351,9 +1365,7 @@ const runAutomationDaemonTypedOperation = async (
       // The daemon serves requests serially. Dropping only this socket leaves
       // a wedged native operation blocking every later request, so revoke the
       // daemon generation and let the next call start a clean process.
-      const pid = readPidFile(automationPidPath(sessionPaths));
-      killDetachedProcess(pid);
-      resetAutomationDaemonFiles(sessionPaths);
+      recoverAutomationDaemon(sessionPaths);
       settle(
         reason instanceof Error
           ? reason
@@ -1361,9 +1373,7 @@ const runAutomationDaemonTypedOperation = async (
       );
     };
     const timer = setTimeout(() => {
-      const pid = readPidFile(automationPidPath(sessionPaths));
-      killDetachedProcess(pid);
-      resetAutomationDaemonFiles(sessionPaths);
+      recoverAutomationDaemon(sessionPaths);
       settle(
         new Error(`desktop_automation daemon timed out after ${timeoutMs}ms`),
       );

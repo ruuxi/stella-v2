@@ -1685,6 +1685,11 @@
         "one": "הצג קובץ {count}",
         "two": "הצג {count} קבצים",
         "other": "הצג {count} קבצים"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "two": "{count} more files",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

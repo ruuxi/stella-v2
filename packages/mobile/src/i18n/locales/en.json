@@ -651,6 +651,8 @@
     }
   },
   "billing": {
+    "heading": "Choose your plan",
+    "subtitle": "Start free. Upgrade when you need more.",
     "plans": {
       "free": {
         "tagline": "Free to try."
@@ -728,9 +730,7 @@
       "errorRetry": "Try again",
       "alreadySubscribedTitle": "You already have a subscription",
       "footnote": "Billed by Stella via Stripe. Renews monthly until canceled; cancel anytime."
-    },
-    "heading": "Choose your plan",
-    "subtitle": "Start free. Upgrade when you need more."
+    }
   },
   "chat": {
     "stoppedReply": "Stella couldn't start this reply",

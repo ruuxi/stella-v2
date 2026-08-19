@@ -1685,6 +1685,11 @@
         "one": "Vedi {count} file",
         "many": "Vedi {count} file",
         "other": "Vedi {count} file"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "many": "{count} more files",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

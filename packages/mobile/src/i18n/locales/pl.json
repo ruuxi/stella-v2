@@ -1703,6 +1703,12 @@
         "few": "Zobacz {count} pliki",
         "many": "Zobacz {count} plików",
         "other": "Zobacz {count} pliku"
+      },
+      "moreFiles": {
+        "one": "{count} more file",
+        "few": "{count} more files",
+        "many": "{count} more files",
+        "other": "{count} more files"
       }
     },
     "updatePill": {

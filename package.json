@@ -42,6 +42,7 @@
     "packaging:verify-social": "node packages/desktop/scripts/verify-packaged-social-session.mjs",
     "postinstall": "node packages/desktop/scripts/postinstall-dist-electron.mjs && node packages/desktop/scripts/ensure-stella-browser.mjs --allow-build-fallback --best-effort",
     "check:boundary": "node packages/runtime/scripts/check-boundary.mjs",
+    "runtime:headless": "bun packages/runtime/headless/cli.ts",
     "verify:source-exports": "node packages/desktop/scripts/verify-source-package-exports.mjs",
     "verify:source-identifiers": "node packages/desktop/scripts/verify-packaged-identifiers.mjs --source",
     "verify:local-named-imports": "node packages/desktop/scripts/verify-local-named-imports.mjs",

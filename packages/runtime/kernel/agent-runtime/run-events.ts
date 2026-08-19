@@ -439,6 +439,16 @@ const buildHookRuntimeContext = (args: {
   isUserTurn: args.uiVisibility !== "hidden",
 });
 
+const looksLikeMachineStatusText = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return true;
+  if (trimmed.includes("\n") && /[{[]/.test(trimmed)) return true;
+  return /"(?:session_id|exit_code|wall_time_seconds|original_token_count)"\s*:/.test(
+    trimmed,
+  );
+};
+
 const extractToolUpdateStatusText = (
   event: Extract<AgentEvent, { type: "tool_execution_update" }>,
 ): string | undefined => {
@@ -448,14 +458,19 @@ const extractToolUpdateStatusText = (
       ? (event.partialResult.details as { statusText?: unknown })
       : null;
   if (typeof details?.statusText === "string" && details.statusText.trim()) {
-    return details.statusText.trim();
+    const explicit = details.statusText.trim();
+    return looksLikeMachineStatusText(explicit) ? undefined : explicit;
   }
   const firstTextBlock = event.partialResult.content.find(
     (block) => block.type === "text" && block.text.trim().length > 0,
   );
-  return firstTextBlock?.type === "text"
-    ? firstTextBlock.text.trim()
-    : undefined;
+  if (firstTextBlock?.type !== "text") {
+    return undefined;
+  }
+  const text = firstTextBlock.text.trim();
+  // Progress payloads (exec_command session JSON, pretty-printed objects)
+  // are model-facing, not working-indicator copy.
+  return looksLikeMachineStatusText(text) ? undefined : text;
 };
 
 export const subscribeRuntimeAgentEvents = ({

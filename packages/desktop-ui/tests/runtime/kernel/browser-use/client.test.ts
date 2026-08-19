@@ -774,6 +774,26 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
+  it("uses an explicit canonical chain timeout in transport and runtime execution", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: { results: [], completed: 0, total: 0 },
+    }));
+    await daemon.start();
+    const client = createClient(daemon, { commandTimeoutMs: 30 });
+    try {
+      await client.chain([{ action: "url" }], { timeoutMs: 120_000 });
+      expect(daemon.requests.at(-1)).toMatchObject({
+        action: "chain",
+        timeout: 120_000,
+      });
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
   it("allows owner lifecycle actions only through the top-level command surface", async () => {
     const daemon = createTestDaemon((request) => ({
       id: request.id,

@@ -1267,6 +1267,9 @@ class NodeReplKernel {
         : undefined;
     const chainOptions: BrowserChainOptions = {
       signal: active.controller.signal,
+      ...(wireOptions.timeout === undefined
+        ? {}
+        : { timeoutMs: wireOptions.timeout as number }),
       ...(wireOptions.abortOnError === undefined
         ? {}
         : { abortOnError: wireOptions.abortOnError as boolean }),

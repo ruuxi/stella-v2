@@ -1112,7 +1112,13 @@ describe("sensitive runtime event payloads", () => {
         output: `Authorization: Bearer detail-secret ${jwt}`,
         password: "object-secret",
       },
+      isError: true,
     });
+
+    expect(toolEnd.isError).toBe(true);
+    expect(store.recordRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ isError: true }),
+    );
 
     const serialized = JSON.stringify({
       reasoning,

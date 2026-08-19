@@ -339,6 +339,9 @@ const buildFallbackThreadPayload = (message) => {
     };
   }
   if (message.role === "toolResult") {
+    const legacyIsError = /^\s*Error:\s*(?:\[TOOL_ERROR\])?/i.test(
+      message.content,
+    );
     return {
       role: "toolResult",
       toolCallId: message.toolCallId ?? "",
@@ -347,7 +350,7 @@ const buildFallbackThreadPayload = (message) => {
         message.content.trim().length > 0
           ? [{ type: "text", text: message.content }]
           : [],
-      isError: false,
+      isError: legacyIsError,
       timestamp: message.timestamp,
     };
   }

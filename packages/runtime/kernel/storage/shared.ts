@@ -108,9 +108,7 @@ export type LocalChatSyncMessage = {
 };
 
 export type PersistedRuntimeThreadPayload =
-  | UserMessage
-  | AssistantMessage
-  | Omit<ToolResultMessage, "details">;
+  UserMessage | AssistantMessage | Omit<ToolResultMessage, "details">;
 
 export const RUNTIME_THREAD_SESSION_VERSION = 3;
 
@@ -210,8 +208,7 @@ export type RuntimeThreadSessionEntry =
   | RuntimeThreadSessionInfoEntry;
 
 export type RuntimeThreadSessionFileEntry =
-  | RuntimeThreadSessionHeader
-  | RuntimeThreadSessionEntry;
+  RuntimeThreadSessionHeader | RuntimeThreadSessionEntry;
 
 export type RuntimeThreadMessage = {
   timestamp: number;
@@ -244,6 +241,8 @@ export type RuntimeRunEvent = {
   toolCallId?: string;
   toolName?: string;
   resultPreview?: string;
+  /** Optional for compatibility with historical run-event rows. */
+  isError?: boolean;
   error?: string;
   fatal?: boolean;
   finalText?: string;

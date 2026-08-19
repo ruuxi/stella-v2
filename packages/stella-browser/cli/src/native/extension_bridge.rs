@@ -293,6 +293,22 @@ impl ExtensionBridge {
         guard.connected
     }
 
+    /// Return the live connection generation only after a command-level
+    /// health exchange. A transport socket alone is not authorization: the
+    /// extension service worker may have restarted while native messaging
+    /// still appears connected.
+    pub async fn verified_connection_generation(&self) -> Option<u64> {
+        let (alive, generation) = self.verify_connection().await;
+        if alive {
+            generation
+        } else {
+            if let Some(stale_generation) = generation {
+                deactivate_connection(&self.inner, stale_generation).await;
+            }
+            None
+        }
+    }
+
     /// Send a command to the extension and wait for the response.
     pub async fn execute_command(&self, command: &Value) -> Result<Value, String> {
         // Wait for connection if not connected

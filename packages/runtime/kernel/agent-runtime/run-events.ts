@@ -128,9 +128,7 @@ export const createRunEventRecorder = ({
       text: trimmedText,
       timestamp,
       ...(responseTarget ? { responseTarget } : {}),
-      ...(currentUiVisibility
-        ? { uiVisibility: currentUiVisibility }
-        : {}),
+      ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
     };
   };
 
@@ -145,9 +143,7 @@ export const createRunEventRecorder = ({
         queuedUserMessageStarts.push({
           userMessageId: trimmed,
           ...(onStart ? { onStart } : {}),
-          ...(nextUiVisibility
-            ? { uiVisibility: nextUiVisibility }
-            : {}),
+          ...(nextUiVisibility ? { uiVisibility: nextUiVisibility } : {}),
         });
       }
     },
@@ -169,9 +165,7 @@ export const createRunEventRecorder = ({
         seq: nextSeq(),
         userMessageId: currentUserMessageId,
         ...(responseTarget ? { responseTarget } : {}),
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
 
@@ -216,9 +210,7 @@ export const createRunEventRecorder = ({
         chunk,
         userMessageId: currentUserMessageId,
         ...(responseTarget ? { responseTarget } : {}),
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
 
@@ -232,9 +224,7 @@ export const createRunEventRecorder = ({
         chunk: redactSensitiveText(chunk),
         userMessageId: currentUserMessageId,
         ...(responseTarget ? { responseTarget } : {}),
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
 
@@ -249,9 +239,7 @@ export const createRunEventRecorder = ({
         seq,
         statusState,
         statusText: redactSensitiveText(statusText),
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
 
@@ -288,9 +276,7 @@ export const createRunEventRecorder = ({
           ? { statusText: redactSensitiveText(args.statusText) }
           : {}),
         args: sanitizedArgs,
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
 
@@ -299,6 +285,7 @@ export const createRunEventRecorder = ({
       toolName: string;
       result: unknown;
       details?: unknown;
+      isError?: boolean;
     }): RuntimeToolEndEvent {
       const toolCallId = redactSensitiveText(args.toolCallId);
       const toolName = redactSensitiveText(args.toolName);
@@ -323,6 +310,7 @@ export const createRunEventRecorder = ({
         toolCallId,
         toolName,
         resultPreview,
+        isError: args.isError === true,
       });
       const fileChanges =
         fileChangesFromDetails(args.details) ??
@@ -337,12 +325,11 @@ export const createRunEventRecorder = ({
         toolCallId,
         toolName,
         resultPreview,
+        isError: args.isError === true,
         ...(args.details !== undefined ? { details: sanitizedDetails } : {}),
         ...(fileChanges ? { fileChanges } : {}),
         ...(producedFiles ? { producedFiles } : {}),
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
 
@@ -368,9 +355,7 @@ export const createRunEventRecorder = ({
         finalText: args.finalText,
         persisted: true,
         ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
 
@@ -392,9 +377,7 @@ export const createRunEventRecorder = ({
         seq,
         error,
         fatal: true,
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
 
@@ -416,9 +399,7 @@ export const createRunEventRecorder = ({
         seq,
         userMessageId: currentUserMessageId,
         reason,
-        ...(currentUiVisibility
-          ? { uiVisibility: currentUiVisibility }
-          : {}),
+        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },
   };
@@ -662,6 +643,7 @@ export const subscribeRuntimeAgentEvents = ({
         toolName: event.toolName,
         result: event.result,
         details: event.result.details,
+        isError: event.isError,
       });
       logger.debug("tool.end", {
         agentType,

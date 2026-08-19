@@ -38,6 +38,7 @@ import {
   extractAttachImageBlocks,
   getRuntimeToolMetadata,
   truncateModelVisibleToolText,
+  preserveModelVisibleToolText,
 } from "./tool-adapters.js";
 import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
 import {
@@ -187,13 +188,20 @@ const buildToolResultContent = async (
     error?: string;
   },
   imageCapTarget: ImageCapTarget = {},
+  spillContext?: Readonly<{
+    stellaDataDir: string;
+    runId: string;
+    toolCallId: string;
+  }>,
 ): Promise<(TextContent | ImageContent)[]> => {
   const rawText = buildToolResultText(toolResult);
   const { text, images } = await extractAttachImageBlocks(
     rawText,
     imageCapTarget,
   );
-  const truncatedText = truncateModelVisibleToolText(text);
+  const truncatedText = spillContext
+    ? await preserveModelVisibleToolText(text, spillContext)
+    : truncateModelVisibleToolText(text);
   const content: (TextContent | ImageContent)[] = [];
   if (truncatedText.text || images.length === 0) {
     content.push({ type: "text", text: truncatedText.text });
@@ -203,9 +211,7 @@ const buildToolResultContent = async (
 };
 
 type ExternalEngineSessionKind =
-  | "claude_code_local"
-  | "claude_code_local_vanilla"
-  | "codex_cli";
+  "claude_code_local" | "claude_code_local_vanilla" | "codex_cli";
 
 type ExternalOrchestratorEngine = "claude_code_local";
 
@@ -768,6 +774,7 @@ const runClaudeHostedTurn = async (args: {
         toolName,
         result: toolResult,
         details: toolResult.details,
+        isError: Boolean(toolResult.error),
       }),
     );
     const sanitizedToolResult = sanitizeSensitiveData(toolResult) as ToolResult;
@@ -780,6 +787,11 @@ const runClaudeHostedTurn = async (args: {
         content: await buildToolResultContent(
           sanitizedToolResult,
           imageCapTarget,
+          {
+            stellaDataDir: args.opts.stellaDataDir,
+            runId: args.opts.runId,
+            toolCallId,
+          },
         ),
         isError: Boolean(toolResult.error),
         timestamp: now(),
@@ -1134,6 +1146,7 @@ const runCodexHostedTurn = async (args: {
         toolName,
         result: toolResult,
         details: toolResult.details,
+        isError: Boolean(toolResult.error),
       }),
     );
     const sanitizedToolResult = sanitizeSensitiveData(toolResult) as ToolResult;
@@ -1146,6 +1159,11 @@ const runCodexHostedTurn = async (args: {
         content: await buildToolResultContent(
           sanitizedToolResult,
           imageCapTarget,
+          {
+            stellaDataDir: args.opts.stellaDataDir,
+            runId: args.opts.runId,
+            toolCallId,
+          },
         ),
         isError: Boolean(toolResult.error),
         timestamp: now(),
@@ -1198,6 +1216,9 @@ const runCodexHostedTurn = async (args: {
             : {}),
         },
         details,
+        isError:
+          activity.status === "failed" ||
+          (activity.exitCode !== undefined && activity.exitCode !== 0),
       }),
     );
   };

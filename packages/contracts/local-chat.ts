@@ -195,6 +195,8 @@ export type BrowserUseResponseMeta = {
 
 export type ToolResultPayload = {
   toolName: string;
+  /** Absent on historical rows; false must not be inferred from absence. */
+  isError?: boolean;
   result?: unknown;
   resultPreview?: string;
   error?: string;

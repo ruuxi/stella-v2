@@ -2121,6 +2121,42 @@ describe("session-store", () => {
     });
   });
 
+  it("reconstructs explicit legacy tool errors without changing successful rows", () => {
+    const { store } = createTestContext();
+    const conversationId = "conv-legacy-tool-errors";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "general",
+    });
+
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_100,
+      role: "toolResult",
+      content: "Error: [TOOL_ERROR] native command failed",
+      toolCallId: "failed-call",
+    });
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_200,
+      role: "toolResult",
+      content: "The Error: field was documented successfully",
+      toolCallId: "successful-call",
+    });
+
+    const loaded = store.loadThreadMessages(threadId);
+    expect(loaded[0]?.payload).toMatchObject({
+      role: "toolResult",
+      toolCallId: "failed-call",
+      isError: true,
+    });
+    expect(loaded[1]?.payload).toMatchObject({
+      role: "toolResult",
+      toolCallId: "successful-call",
+      isError: false,
+    });
+  });
+
   it("lazily registers implicit orchestrator thread keys", () => {
     const { db, store } = createTestContext();
     const conversationId = "01kp5755c8mz3dpc22zas71d97";

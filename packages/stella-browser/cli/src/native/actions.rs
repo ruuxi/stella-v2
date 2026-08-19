@@ -2668,11 +2668,16 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
 }
 
 async fn handle_extension_status(state: &DaemonState) -> Value {
-    let connected = match state.extension_bridge.as_ref() {
-        Some(bridge) => bridge.is_connected().await,
-        None => false,
+    let connection_generation = match state.extension_bridge.as_ref() {
+        Some(bridge) => bridge.verified_connection_generation().await,
+        None => None,
     };
-    json!({ "connected": connected })
+    json!({
+        "connected": connection_generation.is_some(),
+        "authorized": connection_generation.is_some(),
+        "connectionGeneration": connection_generation,
+        "daemonGeneration": std::process::id(),
+    })
 }
 
 const COOKIE_EXPORT_URL_LIMIT: usize = 10_000;
@@ -9756,6 +9761,9 @@ mod tests {
         let result = execute_command(&cmd, &mut state).await;
         assert_eq!(result["success"], true);
         assert_eq!(result["data"]["connected"], false);
+        assert_eq!(result["data"]["authorized"], false);
+        assert!(result["data"]["connectionGeneration"].is_null());
+        assert!(result["data"]["daemonGeneration"].is_u64());
     }
 
     #[tokio::test]

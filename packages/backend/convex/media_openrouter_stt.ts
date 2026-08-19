@@ -2,6 +2,8 @@ import { isRecord } from "./shared_validators";
 
 export const OPENROUTER_PARAKEET_TDT_V3_ENDPOINT_ID =
   "nvidia/parakeet-tdt-0.6b-v3";
+export const OPENROUTER_NEMOTRON_ASR_ENDPOINT_ID =
+  "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b";
 
 const OPENROUTER_TRANSCRIPTIONS_URL =
   "https://openrouter.ai/api/v1/audio/transcriptions";

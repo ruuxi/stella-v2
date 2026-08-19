@@ -327,6 +327,29 @@ export const meterCompletedMediaJob = (args: {
         unitPriceUsd: 0.4,
         meteredFrom: "request",
       });
+    case "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b": {
+      const usageSeconds =
+        isRecord(args.output) && isRecord(args.output.usage)
+          ? asNumber(args.output.usage.seconds)
+          : null;
+      const lastWordEndSeconds = findMaxNumericField(args.output, "end");
+      const durationSeconds = usageSeconds ?? lastWordEndSeconds;
+      if (durationSeconds === null) {
+        return {
+          supported: false,
+          reason:
+            "Transcription output did not include usage.seconds or segment end timestamps.",
+        };
+      }
+      return buildBillingRecord({
+        endpointId: args.endpointId,
+        billingUnit: "second",
+        quantity: durationSeconds,
+        unitPriceUsd: 0.000003,
+        meteredFrom: "output",
+        note: "OpenRouter NVIDIA Nemotron 3.5 ASR at $0.000003/second.",
+      });
+    }
     case "nvidia/parakeet-tdt-0.6b-v3": {
       const usageSeconds =
         isRecord(args.output) && isRecord(args.output.usage)

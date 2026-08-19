@@ -17,6 +17,7 @@ import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } fr
 import { createRuntimeUnavailableError, } from "@stella/contracts/protocol/rpc-peer";
 import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
 import { buildUdsConnectionFactory, killDetachedWorker, retireDetachedWorkerRoot, } from "./uds-connection.js";
+import { buildStdioConnectionFactory } from "./stdio-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
 import { computeRuntimeBuildStamp, RUNTIME_BUILD_STAMP_UNAVAILABLE, } from "../worker/runtime-build-stamp.js";
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
@@ -77,6 +78,7 @@ export const shouldAckWorkerRunEvent = (event) => {
 };
 export class StellaRuntimeHost {
     options;
+    workerMode = "detached";
     events = new EventEmitter();
     agentEventBuffers = new Map();
     workerController;
@@ -154,28 +156,48 @@ export class StellaRuntimeHost {
     constructor(options) {
         this.options = options;
         const stellaAppDir = this.options.initializeParams.stellaAppDir;
-        const udsFactory = buildUdsConnectionFactory({
-            stellaAppDir,
-            ...(process.env.STELLA_BUN_PATH?.trim()
-                ? { bunBinaryPath: process.env.STELLA_BUN_PATH.trim() }
-                : {}),
-            expectedProtocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
-            hostExecutablePath: process.execPath,
-            onError: (error) => {
-                console.error("[runtime-host] worker RPC error:", error);
-            },
-        });
+        // "detached" (default): shared self-supervising UDS worker keyed by
+        // stellaAppDir — the desktop topology. "child": a private stdio worker
+        // owned by this host process, used by headless/test hosts so they never
+        // attach to (or restart) a live desktop's detached worker.
+        this.workerMode = this.options.workerMode === "child" ? "child" : "detached";
+        const onWorkerRpcError = (error) => {
+            console.error("[runtime-host] worker RPC error:", error);
+        };
+        const createConnectionAsync = this.workerMode === "child"
+            ? buildStdioConnectionFactory({
+                ...(process.env.STELLA_BUN_PATH?.trim()
+                    ? { bunBinaryPath: process.env.STELLA_BUN_PATH.trim() }
+                    : {}),
+                onError: onWorkerRpcError,
+            })
+            : buildUdsConnectionFactory({
+                stellaAppDir,
+                ...(process.env.STELLA_BUN_PATH?.trim()
+                    ? { bunBinaryPath: process.env.STELLA_BUN_PATH.trim() }
+                    : {}),
+                expectedProtocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,
+                hostExecutablePath: process.execPath,
+                onError: onWorkerRpcError,
+            });
         this.workerController = new RuntimeWorkerLifecycleController({
             workerEntryPath: resolveDefaultWorkerEntryPath(this.options),
             isHostStarted: () => this.started,
             // Worker self-supervises in the UDS path. Closing the IPC channel
             // (stop "stopped" / "idle") leaves the worker running for the next
-            // host to attach; only "restart" actually kills the pid.
-            killWorkerOnStop: (reason) => reason === "restart",
-            killWorker: async () => {
-                await killDetachedWorker(stellaAppDir);
-            },
-            createConnectionAsync: udsFactory,
+            // host to attach; only "restart" actually kills the pid. A "child"
+            // worker is owned by this process, so every stop kills it.
+            killWorkerOnStop: this.workerMode === "child"
+                ? () => true
+                : (reason) => reason === "restart",
+            ...(this.workerMode === "child"
+                ? {}
+                : {
+                    killWorker: async () => {
+                        await killDetachedWorker(stellaAppDir);
+                    },
+                }),
+            createConnectionAsync,
             initializeConnection: async (connection) => {
                 this.registerHostHandlers(connection.peer);
                 this.registerNotifications(connection.peer);
@@ -354,6 +376,13 @@ export class StellaRuntimeHost {
      * health snapshot is cached.
      */
     async evaluateWorkerStalenessOnConnect(connection) {
+        if (this.workerMode === "child") {
+            // A stdio child always runs the current on-disk code and the
+            // on-disk pending-restart bookkeeping belongs to the detached
+            // supervisor topology — leave those control files alone so an
+            // ephemeral headless host can't clear a desktop host's deferral.
+            return;
+        }
         if (connection.attachedToExistingWorker !== true) {
             // Freshly spawned worker loaded the current on-disk code; any deferred
             // restart bookkeeping from a previous generation is now satisfied.
@@ -1590,6 +1619,13 @@ export class StellaRuntimeHost {
         await this.stopHostServices();
         this.deviceIdentity = await this.options.hostHandlers.getDeviceIdentity();
         this.ensureHostRemoteTurnBridge();
+        if (this.options.disableLocalScheduler) {
+            // Ephemeral hosts (headless CLI, tests) must not run a second
+            // scheduler over the same data dir as a live desktop host — a
+            // duplicate scheduler could double-fire due cron jobs.
+            this.hostReady = true;
+            return;
+        }
         const showNotificationHandler = this.options.hostHandlers.showNotification;
         const scheduler = new LocalSchedulerService({
             stellaDataDir: this.options.initializeParams.stellaDataDirPath,

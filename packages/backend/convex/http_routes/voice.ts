@@ -283,7 +283,7 @@ const estimateTtsAudioOutputTokens = (
 
 const INWORLD_TTS_STREAM_URL = "https://api.inworld.ai/tts/v1/voice:stream";
 const DEFAULT_INWORLD_TTS_MODEL = "inworld-tts-2-flash";
-const DEFAULT_INWORLD_TTS_VOICE = "Evelyn";
+const DEFAULT_INWORLD_TTS_VOICE = "Brooke";
 const TTS_MAX_INPUT_CHARS = 8000;
 // Read-aloud fires per assistant message; give it more headroom than session
 // mints but still cap to prevent accidental loops.
@@ -1107,7 +1107,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             );
           }
           const inworldModel = body.model ?? "openai/gpt-4o-mini";
-          const inworldVoice = body.voice ?? "Evelyn";
+          const inworldVoice = body.voice ?? "Brooke";
           const lease = (await ctx.runMutation(
             internal.billing.prepareVoiceRealtimeLease,
             {
@@ -1886,7 +1886,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               origin,
             );
           }
-          const voiceId = body?.voice?.trim() || "Evelyn";
+          const voiceId = body?.voice?.trim() || "Brooke";
           const modelId = body?.model?.trim() || "inworld-tts-2-flash";
           try {
             const inworldResponse = await fetch(

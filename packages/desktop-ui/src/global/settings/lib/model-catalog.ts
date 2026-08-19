@@ -3,6 +3,7 @@ import type {
   RuntimeModelCatalogModel,
   RuntimeModelCatalogSnapshot,
 } from "@stella/contracts/model-catalog";
+import { STELLA_DEFAULT_UPSTREAM_MODEL } from "@/shared/stella-api";
 // Provider display names live in a shared, browser-safe runtime module so the
 // model picker and the runtime route-error toasts can't drift apart.
 import { getProviderDisplayName } from "@stella/contracts/provider-display";
@@ -88,10 +89,10 @@ const STELLA_PRESET_FALLBACK_DEFS: ReadonlyArray<{
   upstreamModel: string;
 }> = [
   {
-    id: "stella/deepseek/deepseek-v4-flash",
-    modelId: "deepseek/deepseek-v4-flash",
-    name: "DeepSeek V4 Flash",
-    upstreamModel: "deepseek/deepseek-v4-flash",
+    id: `stella/${STELLA_DEFAULT_UPSTREAM_MODEL}`,
+    modelId: STELLA_DEFAULT_UPSTREAM_MODEL,
+    name: "DeepSeek V4 Flash 0731",
+    upstreamModel: STELLA_DEFAULT_UPSTREAM_MODEL,
   },
 ];
 
@@ -107,20 +108,16 @@ export const STELLA_PRESET_FALLBACK_MODELS: readonly CatalogModel[] =
   }));
 
 /**
- * Merge the fixed Stella fallback under the fetched catalog; the matching
- * fetched entry (carrying authoritative metadata) overrides it.
+ * Use the fixed fallback only until the authoritative catalog has loaded.
+ * Merging both sources by id leaks a retired fallback whenever the backend
+ * switches a model's upstream id, producing two picker rows for one model.
  */
 export function withStellaPresetFallbacks(
   stellaModels: readonly CatalogModel[],
 ): CatalogModel[] {
-  const byId = new Map<string, CatalogModel>();
-  for (const preset of STELLA_PRESET_FALLBACK_MODELS) {
-    byId.set(preset.id, preset);
-  }
-  for (const model of stellaModels) {
-    byId.set(model.id, model);
-  }
-  return Array.from(byId.values());
+  return stellaModels.length > 0
+    ? [...stellaModels]
+    : [...STELLA_PRESET_FALLBACK_MODELS];
 }
 
 function compareCatalogModels(a: CatalogModel, b: CatalogModel): number {

@@ -9,6 +9,7 @@ import {
   normalizeRuntimeCatalogModels,
   normalizeStellaCatalogModels,
   searchCatalogModels,
+  withStellaPresetFallbacks,
 } from "../../../src/global/settings/lib/model-catalog";
 import {
   buildModelDefaultsMap,
@@ -19,7 +20,36 @@ import {
 describe("settings model catalog", () => {
   it("scaffolds only DeepSeek V4 Flash while the backend catalog loads", () => {
     expect(STELLA_PRESET_FALLBACK_MODELS.map((model) => model.id)).toEqual([
-      "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+      "stella/crof/deepseek-v4-flash-0731",
+    ]);
+  });
+
+  it("replaces the offline fallback instead of listing it beside the fetched model", () => {
+    const fetched = normalizeStellaCatalogModels([
+      {
+        id: "stella/crof/deepseek-v4-flash-0731",
+        name: "DeepSeek V4 Flash 0731",
+        provider: "stella",
+        upstreamModel: "crof/deepseek-v4-flash-0731",
+      },
+    ]);
+
+    expect(withStellaPresetFallbacks([]).map((model) => model.id)).toEqual([
+      "stella/crof/deepseek-v4-flash-0731",
+    ]);
+    const pickerGroups = groupCatalogModelsByProvider(
+      mergeCatalogModels(withStellaPresetFallbacks(fetched), []),
+    );
+    const stellaRows = pickerGroups.find(
+      (group) => group.provider === "stella",
+    )?.models;
+
+    expect(withStellaPresetFallbacks(fetched)).toEqual(fetched);
+    expect(stellaRows?.map((model) => model.id)).toEqual([
+      "stella/crof/deepseek-v4-flash-0731",
+    ]);
+    expect(stellaRows?.map(getStellaResolvedModelName)).toEqual([
+      "DeepSeek V4 Flash 0731",
     ]);
   });
 

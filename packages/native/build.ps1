@@ -21,7 +21,10 @@ $targets = @(
     @{ kind = "cpp"; src = "src\selected_text.cpp"; out = (Join-Path $outputDir "selected_text.exe"); libs = $defaultLibs; gccLibs = $defaultGccLibs },
     @{ kind = "cpp"; src = "src\dictation_bridge.cpp"; out = (Join-Path $outputDir "dictation_bridge.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "user32.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-luser32") },
     @{ kind = "cpp"; src = "src\stella_computer_helper.cpp"; out = (Join-Path $outputDir "stella-computer-helper.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "user32.lib", "gdi32.lib", "gdiplus.lib", "shell32.lib", "advapi32.lib", "dwmapi.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-luser32", "-lgdi32", "-lgdiplus", "-lshell32", "-ladvapi32", "-ldwmapi") },
-    @{ kind = "cpp"; src = "src\meeting_capture.cpp"; out = (Join-Path $outputDir "meeting_capture.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "shell32.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-lshell32") }
+    @{ kind = "cpp"; src = "src\meeting_capture.cpp"; out = (Join-Path $outputDir "meeting_capture.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "shell32.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-lshell32") },
+    # GUI subsystem (no console window): /SUBSYSTEM:WINDOWS for MSVC via the
+    # link-args list, -mwindows for MinGW/clang via the gcc-args list.
+    @{ kind = "cpp"; src = "src\update_splash.cpp"; out = (Join-Path $outputDir "stella-update-splash.exe"); libs = @("user32.lib", "gdi32.lib", "gdiplus.lib", "shell32.lib", "dwmapi.lib", "ole32.lib", "/SUBSYSTEM:WINDOWS"); gccLibs = @("-luser32", "-lgdi32", "-lgdiplus", "-lshell32", "-ldwmapi", "-lole32", "-mwindows") }
 )
 
 function Build-WithMSVC($vcvars, $srcFile, $outFile, $libs) {

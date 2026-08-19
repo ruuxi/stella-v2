@@ -179,6 +179,7 @@ export type BrowserChainStep = Readonly<{
 
 export type BrowserChainOptions = BrowserCommandOptions &
   Readonly<{
+    timeoutMs?: number;
     abortOnError?: boolean;
     delay?: Readonly<{
       minMs?: number;
@@ -257,8 +258,7 @@ export interface BrowserSessionClient {
 }
 
 export type BrowserSessionCommandErrorCode =
-  | "command_failed"
-  | "execution_failed";
+  "command_failed" | "execution_failed";
 
 export class BrowserSessionCommandError extends Error {
   readonly code: BrowserSessionCommandErrorCode;
@@ -322,8 +322,7 @@ type ResolvedExecutionConfig = Readonly<{
   bridgeSessionId: string;
   env: NodeJS.ProcessEnv;
   endpoint:
-    | Readonly<{ path: string }>
-    | Readonly<{ host: string; port: number }>;
+    Readonly<{ path: string }> | Readonly<{ host: string; port: number }>;
 }>;
 
 type PendingResponse = {
@@ -768,6 +767,15 @@ const validateChainOptions = (
     value.waitTimeoutMs === undefined
       ? undefined
       : requirePositiveInteger(value.waitTimeoutMs, "waitTimeoutMs");
+  const timeoutMs =
+    value.timeoutMs === undefined
+      ? undefined
+      : requirePositiveInteger(value.timeoutMs, "timeoutMs");
+  if (timeoutMs !== undefined && timeoutMs > MAX_BROWSER_CHAIN_TIMEOUT_MS) {
+    throw new RangeError(
+      `timeoutMs must be at most ${MAX_BROWSER_CHAIN_TIMEOUT_MS}.`,
+    );
+  }
   let delay: BrowserChainOptions["delay"];
   if (value.delay !== undefined) {
     if (
@@ -794,6 +802,7 @@ const validateChainOptions = (
   }
   return Object.freeze({
     signal: value.signal,
+    timeoutMs,
     abortOnError: value.abortOnError,
     delay,
     waitForSelector: value.waitForSelector,
@@ -907,6 +916,7 @@ const getChainTimeoutMs = (
   steps: readonly BrowserChainStep[],
   options: BrowserChainOptions,
 ): number => {
+  if (options.timeoutMs !== undefined) return options.timeoutMs;
   const selectorWaitSteps =
     options.waitForSelector === false
       ? 0
@@ -1491,9 +1501,7 @@ export class BrowserSession implements BrowserSessionClient {
       for (;;) {
         attempts += 1;
         try {
-          if (
-            !BROWSER_OWNER_LIFECYCLE_ACTIONS.has(action)
-          ) {
+          if (!BROWSER_OWNER_LIFECYCLE_ACTIONS.has(action)) {
             config = await this.ensureInAppBrowserReady(
               config,
               turn,
@@ -1655,9 +1663,7 @@ export class BrowserSession implements BrowserSessionClient {
     return config;
   }
 
-  private markManagedCapabilityForRecovery(
-    cause: unknown,
-  ): void {
+  private markManagedCapabilityForRecovery(cause: unknown): void {
     if (
       !(cause instanceof BrowserTransportError) ||
       (!cause.retryable && cause.code !== "timeout") ||

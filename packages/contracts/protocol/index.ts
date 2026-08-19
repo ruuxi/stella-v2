@@ -69,10 +69,7 @@ export type JsonRpcFailure = {
 };
 
 export type JsonRpcMessage =
-  | JsonRpcRequest
-  | JsonRpcNotification
-  | JsonRpcSuccess
-  | JsonRpcFailure;
+  JsonRpcRequest | JsonRpcNotification | JsonRpcSuccess | JsonRpcFailure;
 
 export const RPC_ERROR_CODES = {
   PARSE_ERROR: -32_700,
@@ -344,11 +341,7 @@ export type HostLlmCredentialsResult =
   | { ok: false; reason: string };
 
 export type RuntimeAuthRefreshSource =
-  | "heartbeat"
-  | "subscription"
-  | "register"
-  | "stella_provider"
-  | "connector";
+  "heartbeat" | "subscription" | "register" | "stella_provider" | "connector";
 
 export type HostRuntimeAuthRefreshParams = {
   source: RuntimeAuthRefreshSource;
@@ -612,6 +605,7 @@ export type RuntimeAgentEventPayload = {
   toolName?: string;
   args?: Record<string, unknown>;
   resultPreview?: string;
+  isError?: boolean;
   details?: unknown;
   error?: string;
   fatal?: boolean;

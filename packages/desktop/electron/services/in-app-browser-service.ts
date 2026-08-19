@@ -370,7 +370,22 @@ export class InAppBrowserService {
       ownerId === undefined ? undefined : this.resolveOwnerId(ownerId);
     if (this.disposed) return this.snapshot(resolvedOwnerId);
     if (this.hasSeededOnce) {
-      this.updateConnection("connected");
+      // A completed seed is durable profile state, not a live transport
+      // handshake. Re-probe the daemon/extension generation so the UI cannot
+      // remain green while a fresh agent call is unauthorized.
+      try {
+        if (await this.options.getExtensionStatus()) {
+          this.updateConnection("connected");
+        } else {
+          this.updateUnavailableConnection(
+            this.readConnectionFailure("extension_disconnected"),
+          );
+        }
+      } catch {
+        this.updateUnavailableConnection(
+          this.readConnectionFailure("transient_failure"),
+        );
+      }
       return this.snapshot(resolvedOwnerId);
     }
     const setupRequirement = this.readSetupRequirement();
@@ -406,8 +421,7 @@ export class InAppBrowserService {
   async requestExtensionConnect(): Promise<BrowserViewState> {
     if (this.disposed) throw new Error("The in-app browser has been closed.");
     if (this.hasSeededOnce) {
-      this.updateConnection("connected");
-      return this.snapshot();
+      return await this.getState();
     }
     const setupRequirement = this.readSetupRequirement({ extension: false });
     if (setupRequirement) {
@@ -466,8 +480,7 @@ export class InAppBrowserService {
     profileId?: string;
   }): Promise<BrowserViewState> {
     if (this.hasSeededOnce) {
-      this.updateConnection("connected");
-      return this.snapshot();
+      return await this.getState();
     }
     const setupRequirement = this.readSetupRequirement();
     if (setupRequirement) {
@@ -992,8 +1005,7 @@ export class InAppBrowserService {
 
   private async seedCookies(cookies: StellaBrowserExportedCookie[]) {
     const browserSession = this.browserSession;
-    if (!browserSession)
-      throw new Error("Browser session is unavailable.");
+    if (!browserSession) throw new Error("Browser session is unavailable.");
     let failed = 0;
     let partitioned = 0;
     let preserved = 0;
@@ -1196,7 +1208,9 @@ export class InAppBrowserService {
           } catch (error) {
             const message = errorMessage(error);
             if (
-              !/unknown (?:command|action): cookies_export_all/i.test(message) ||
+              !/unknown (?:command|action): cookies_export_all/i.test(
+                message,
+              ) ||
               !this.options.exportCookiesForUrls
             ) {
               throw error;
@@ -1442,9 +1456,7 @@ export class InAppBrowserService {
         if (
           !familyKey ||
           !this.knownMirroredPartitionedCookieFamilies.has(familyKey) ||
-          sourceIdentityKeys
-            .get(familyKey)
-            ?.has(cookieIdentityKey(existing))
+          sourceIdentityKeys.get(familyKey)?.has(cookieIdentityKey(existing))
         ) {
           continue;
         }
@@ -1676,9 +1688,7 @@ export class InAppBrowserService {
 
   private readSetupRequirement(
     options: { extension?: boolean } = {},
-  ):
-    | { reason: BrowserViewUnavailableReason; error?: string }
-    | undefined {
+  ): { reason: BrowserViewUnavailableReason; error?: string } | undefined {
     const setup = this.options.getBrowserSetupStatus?.();
     if (!setup) return undefined;
     if (!setup.bridgeBinaryInstalled) {

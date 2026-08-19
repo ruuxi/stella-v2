@@ -1,9 +1,33 @@
 import { describe, expect, it } from "vitest";
 
-import { executeStellaComputerCommand } from "@stella/runtime/kernel/computer-use/stella-computer-executor";
+import {
+  __testOnlyComputerRequestDeadlineMs,
+  executeStellaComputerCommand,
+} from "@stella/runtime/kernel/computer-use/stella-computer-executor";
 import { runStellaComputerCli } from "@stella/runtime/kernel/cli/stella-computer";
 
 describe("shared Stella computer executor", () => {
+  it("bounds silent observation operations well below the historical 600-second watchdog", () => {
+    const base = {
+      schemaVersion: 1,
+      protocolVersion: 1,
+      requestId: "request-1",
+      sessionId: "session-1",
+    } as const;
+    expect(
+      __testOnlyComputerRequestDeadlineMs(
+        { ...base, type: "get_app_state", target: { app: "Simulator" } },
+        600_000,
+      ),
+    ).toBe(25_000);
+    expect(
+      __testOnlyComputerRequestDeadlineMs(
+        { ...base, type: "list_windows" },
+        600_000,
+      ),
+    ).toBe(10_000);
+  });
+
   it("returns help through the in-process result contract", async () => {
     const result = await executeStellaComputerCommand(["--help"]);
 

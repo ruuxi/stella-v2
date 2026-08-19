@@ -11,6 +11,7 @@ export type BrowserWorkerChainStep = Readonly<{
 }>;
 
 export type BrowserWorkerChainOptions = Readonly<{
+  timeout?: number;
   delay?: Readonly<{ min?: number; max?: number }>;
   waitForSelector?: boolean;
   waitTimeout?: number;
@@ -2321,6 +2322,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     assertKnownKeys(
       value,
       [
+        "timeout",
         "delay",
         "waitForSelector",
         "waitTimeout",
@@ -2331,6 +2333,9 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       "chain options",
     );
     const result: Record<string, unknown> = {};
+    if (value.timeout !== undefined) {
+      result.timeout = timeoutParam(value.timeout, "timeout", 240_000);
+    }
     for (const key of [
       "waitForSelector",
       "abortOnError",

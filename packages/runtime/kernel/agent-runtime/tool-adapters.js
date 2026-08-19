@@ -10,6 +10,7 @@ import { formatDimensionNote, resizeImage } from "../shared/image-resize.js";
 import { detectImageMediaType, isCompleteImage, MAX_IMAGE_BASE64_BYTES, } from "../../ai/utils/image-payload.js";
 import { resolveImageCaps, } from "../../ai/utils/image-caps.js";
 import { buildCatalogSection } from "../tools/code-catalog.js";
+import { spillSanitizedToolOutput } from "./tool-output-spill.js";
 export const STELLA_LOCAL_TOOLS = [
     ...DEVICE_TOOL_NAMES,
     TOOL_IDS.NO_RESPONSE,
@@ -119,6 +120,23 @@ export const truncateModelVisibleToolText = (text, maxChars = MODEL_VISIBLE_TOOL
         truncated: true,
         originalChars,
     };
+};
+export const preserveModelVisibleToolText = async (text, context, maxChars = MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS) => {
+  const truncated = truncateModelVisibleToolText(text, maxChars);
+  if (!truncated.truncated) return { ...truncated, artifact: undefined };
+  const artifact = await spillSanitizedToolOutput({
+    text,
+    stellaDataDir: context.stellaDataDir,
+    runId: context.runId,
+    toolCallId: context.toolCallId,
+  });
+  const marker = `\n\n[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved: artifact=${artifact.path} bytes=${artifact.bytes} sha256=${artifact.sha256} encoding=${artifact.encoding} lines=${artifact.lineCount}. Read more with Read({ file_path: ${JSON.stringify(artifact.path)}, offset: 1, limit: 200 }); offsets are 1-based lines; complete byte range is [0, ${artifact.bytes}).]`;
+  const previewBudget = Math.max(0, maxChars - marker.length);
+  return {
+    ...truncated,
+    text: `${truncateModelVisibleToolText(text, previewBudget).text}${marker}`,
+    artifact,
+  };
 };
 // Inline-image attach contract used by diagnostic tool output and other
 // runtime emitters: when tool output contains a substring of the form
@@ -558,7 +576,12 @@ export const createPiTools = (opts) => {
                 // read the referenced PNG(s) into image content blocks. The model sees
                 // the screenshot on the very next turn with no extra Read step.
         const { text: forwardedText, images: legacyImages } = await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
-        const truncatedText = truncateModelVisibleToolText(forwardedText).text;
+        const preservedText = await preserveModelVisibleToolText(forwardedText, {
+          stellaDataDir: opts.stellaDataDir,
+          runId: opts.runId,
+          toolCallId,
+        });
+        const truncatedText = preservedText.text;
                 const content = [];
                 const screenshotNote = legacyImages.length > 0
                     ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
@@ -578,7 +601,18 @@ export const createPiTools = (opts) => {
                 content.push(...legacyImages);
                 return {
                     content,
-                    details: formatted.details,
+                    details: preservedText.artifact
+            ? {
+                ...(formatted.details &&
+                typeof formatted.details === "object" &&
+                !Array.isArray(formatted.details)
+                  ? formatted.details
+                  : formatted.details === undefined
+                    ? {}
+                    : { result: formatted.details }),
+                toolOutputArtifact: preservedText.artifact,
+              }
+            : formatted.details,
                     ...(typeof toolResult.modelOutputTokens === "number"
                         ? { modelOutputTokens: toolResult.modelOutputTokens }
                         : {}),

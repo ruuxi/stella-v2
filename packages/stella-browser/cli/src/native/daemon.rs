@@ -1247,6 +1247,7 @@ mod tests {
             owner_lease_id: Some("lease-1".to_string()),
             owner_lease_issued_at: Some(1_000),
             capability_expires_at_ms: Some(expires_at),
+            extension_delegations: Arc::new(StdMutex::new(HashMap::new())),
         }
     }
 

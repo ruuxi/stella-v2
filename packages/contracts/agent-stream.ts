@@ -32,6 +32,8 @@ export type AgentStreamEvent = {
   toolName?: string;
   args?: Record<string, unknown>;
   resultPreview?: string;
+  /** Absent only on historical tool-end events. */
+  isError?: boolean;
   details?: unknown;
   error?: string;
   fatal?: boolean;

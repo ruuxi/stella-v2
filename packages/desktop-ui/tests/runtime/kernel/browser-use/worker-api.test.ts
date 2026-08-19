@@ -1114,11 +1114,15 @@ describe("browser worker API", () => {
       { action: "title", params: { tabId: 4 } },
     ];
 
-    await browser.chain(steps, { abortOnError: true, waitForSelector: false });
+    await browser.chain(steps, {
+      timeout: 120_000,
+      abortOnError: true,
+      waitForSelector: false,
+    });
 
     expect(callBrowser).toHaveBeenCalledWith("chain", [
       steps,
-      { abortOnError: true, waitForSelector: false },
+      { timeout: 120_000, abortOnError: true, waitForSelector: false },
     ]);
     await expect(
       browser.chain([{ action: "chain", params: { tabId: 4 } }]),

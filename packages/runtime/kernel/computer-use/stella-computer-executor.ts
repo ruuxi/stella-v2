@@ -1342,6 +1342,12 @@ const runAutomationDaemonTypedOperation = async (
     };
     const onAbort = () => {
       const reason = signal?.reason;
+      // The daemon serves requests serially. Dropping only this socket leaves
+      // a wedged native operation blocking every later request, so revoke the
+      // daemon generation and let the next call start a clean process.
+      const pid = readPidFile(automationPidPath(sessionPaths));
+      killDetachedProcess(pid);
+      resetAutomationDaemonFiles(sessionPaths);
       settle(
         reason instanceof Error
           ? reason
@@ -3738,6 +3744,23 @@ const executeMacComputerUseRequest = async (
   };
 };
 
+const requestDeadlineMs = (
+  request: ComputerUseRequest,
+  configuredMs: number,
+): number => {
+  const operationLimit =
+    request.type === "get_app_state"
+      ? 25_000
+      : request.type === "list_apps" ||
+          request.type === "list_windows" ||
+          request.type === "resolve_target"
+        ? 10_000
+        : configuredMs;
+  return Math.max(1, Math.min(configuredMs, operationLimit));
+};
+
+export const __testOnlyComputerRequestDeadlineMs = requestDeadlineMs;
+
 export const createMacComputerUseSession = (options: {
   sessionId: string;
   commandTimeoutMs?: number;
@@ -3758,11 +3781,14 @@ export const createMacComputerUseSession = (options: {
         );
       }
       const signal = requestOptions?.signal ?? options.getSignal?.();
+      const timeoutMs = requestDeadlineMs(
+        request,
+        options.commandTimeoutMs ?? automationDaemonRequestTimeoutMs,
+      );
       const result = await runWithComputerExecutionContext(
         {
           signal,
-          timeoutMs:
-            options.commandTimeoutMs ?? automationDaemonRequestTimeoutMs,
+          timeoutMs,
           ...(options.cliBridgeSocketPath
             ? {
                 env: {

@@ -380,6 +380,24 @@ describe("InAppBrowserService", () => {
     expect((await harness.service.getState()).connection).toBe("connected");
   });
 
+  it("does not report a seeded profile as connected after live authorization is lost", async () => {
+    let connected = true;
+    const status = vi.fn(async () => connected);
+    const harness = createHarness(status);
+    await expect(harness.service.connect()).resolves.toMatchObject({
+      connection: "connected",
+    });
+
+    connected = false;
+    await vi.waitFor(async () => {
+      expect(await harness.service.getState()).toMatchObject({
+        connection: "disconnected",
+        unavailableReason: "extension_disconnected",
+      });
+    });
+    expect(status.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("re-mirrors cookies on navigation (reconcile-on-navigation)", async () => {
     const harness = createHarness(async () => true, {
       navigationReseedThrottleMs: 0,

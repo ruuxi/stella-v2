@@ -110,7 +110,10 @@ const streamMessage = (
   return stream;
 };
 
-const runToolStatusIntegration = async (toolName: string) => {
+const runToolStatusIntegration = async (
+  toolName: string,
+  toolResult: { result?: unknown; error?: string } = { result: "ok" },
+) => {
   const runId = `run-${toolName}`;
   const conversationId = `conversation-${toolName}`;
   const userMessageId = `user-${toolName}`;
@@ -173,9 +176,7 @@ const runToolStatusIntegration = async (toolName: string) => {
       },
     ],
     store: store as never,
-    toolExecutor: async () => ({
-      result: "ok",
-    }),
+    toolExecutor: async () => toolResult,
   });
 
   let callCount = 0;
@@ -284,6 +285,7 @@ const runToolStatusIntegration = async (toolName: string) => {
     rawStatusText: statusEvent.statusText as string,
     rawToolStartStatusText: toolStartEvent.statusText,
     rawToolEndName: toolEndEvent.toolName,
+    rawToolEndIsError: toolEndEvent.isError,
     activeBeforeTool,
     activeDuringTool,
     activeAfterToolBeforeAnswer,
@@ -294,11 +296,32 @@ const runToolStatusIntegration = async (toolName: string) => {
         event !== null &&
         (event as { type?: unknown }).type === "tool_start",
     ),
+    persistedToolEndEvent: recordedRunEvents.find(
+      (event) =>
+        typeof event === "object" &&
+        event !== null &&
+        (event as { type?: unknown }).type === "tool_end",
+    ),
     displayStatus: displayStatusDuringTool,
   };
 };
 
 describe("subscribeRuntimeAgentEvents", () => {
+  it("persists native tool failures with an explicit error result envelope", async () => {
+    const failed = await runToolStatusIntegration("native_failure", {
+      error: "[TOOL_ERROR] isolated native failure",
+    });
+
+    expect(failed.rawToolEndIsError).toBe(true);
+    expect(failed.persistedToolEndEvent).toEqual(
+      expect.objectContaining({
+        type: "tool_end",
+        isError: true,
+        resultPreview: expect.stringContaining("[TOOL_ERROR] isolated native failure"),
+      }),
+    );
+  });
+
   it("displays real runtime tool status text with friendly working indicator copy", async () => {
     const web = await runToolStatusIntegration("web");
     expect(web.rawStatusText).toBe("Running Web");

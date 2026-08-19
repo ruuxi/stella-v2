@@ -266,6 +266,18 @@ describe("media capability gating", () => {
     ensureEnv();
     const t = createTest();
     const owner = await onPlan(t, "free");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          text: "hello",
+          usage: { seconds: 1.2, cost: 0.0000036 },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
     const response = await owner.fetch("/api/dictation/transcribe", {
       method: "POST",
       headers: { "content-type": "application/json" },

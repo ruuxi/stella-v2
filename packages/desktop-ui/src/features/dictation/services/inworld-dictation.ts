@@ -1,14 +1,13 @@
 /**
  * InworldDictationSession — captures the microphone, buffers downsampled
  * 16 kHz mono PCM, and on stop ships a single WAV-encoded request to our
- * `/api/dictation/transcribe` proxy. The backend forwards to Inworld's
- * sync STT endpoint with Basic auth, so the API key never leaves the
- * server.
+ * `/api/dictation/transcribe` proxy. The backend forwards to OpenRouter
+ * Nemotron 3.5 ASR (one-shot) by default so the API key never leaves the
+ * server. Set `DICTATION_STT_PROVIDER=inworld` on the backend to roll back.
  *
- * Why sync HTTP and not the WebSocket: Inworld's STT WebSocket only
- * accepts JWTs in the `Authorization` HEADER. Browser/Electron renderer
- * WebSockets cannot set custom headers, so the streaming flow would
- * either expose the API key or require a stateful WebSocket proxy.
+ * Why sync HTTP and not a live stream: OpenRouter STT is one-shot JSON,
+ * and Inworld's STT WebSocket only accepts JWTs in the `Authorization`
+ * HEADER. Browser/Electron renderer WebSockets cannot set custom headers.
  */
 
 import { postServiceJson } from "@/platform/http/service-request";
@@ -98,7 +97,7 @@ type TranscribeResponse = {
 
 type DictationTranscriptResult = {
   transcript: string;
-  source: "local" | "inworld";
+  source: "local" | "cloud";
   /** True when at least one segment failed but others succeeded — the
    *  transcript holds the recovered parts. */
   partial?: boolean;
@@ -659,7 +658,7 @@ export class InworldDictationSession {
     }
     return {
       transcript: parts.join(" ").trim(),
-      source: "inworld",
+      source: "cloud",
       partial: failures > 0 && parts.length > 0,
       // Surface an error only when nothing came back at all; a partial
       // success keeps its recovered text and is flagged via `partial`.

@@ -622,9 +622,6 @@ const streamOfflineReply = async (args: {
             finalMessage = event.error;
           }
         }
-        controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
-        controller.close();
-
         await scheduleManagedUsage(args.ctx, {
           ownerId: args.ownerId,
           agentType: "service:offline_chat",
@@ -633,6 +630,12 @@ const streamOfflineReply = async (args: {
           success: true,
           usage: usageSummaryFromAssistant(finalMessage),
         });
+
+        // Keep the action alive until metering is durably scheduled. Closing
+        // the response first can end a streaming HTTP action before this await
+        // runs, leaving successful mobile turns unmetered.
+        controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+        controller.close();
       } catch (error) {
         console.error("[mobile/offline-chat-stream] Error:", error);
         controller.enqueue(encodeSseData({ error: "Stream failed" }));

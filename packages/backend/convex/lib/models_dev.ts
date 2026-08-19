@@ -66,6 +66,13 @@ const MODELS_DEV_ALIASES: Record<string, string[]> = {
   "x-ai/grok-4.5": ["xai/grok-4.5", "vercel/xai/grok-4.5"],
 };
 
+// Some managed slugs identify the model vendor rather than the serving
+// provider. Prefer the serving provider's row so billing matches what Stella
+// actually pays instead of the vendor's first-party rate.
+const MODELS_DEV_PREFERRED_ALIASES: Record<string, string[]> = {
+  "google/gemini-3.7-flash": ["openrouter/google/gemini-3.7-flash"],
+};
+
 const stripSnapshotSuffix = (model: string): string | null => {
   const withoutIsoDate = model.replace(/-\d{4}-\d{2}-\d{2}$/u, "");
   if (withoutIsoDate !== model) return withoutIsoDate;
@@ -112,6 +119,7 @@ const resolveModelsDevModel = (
   for (const lookupModel of listManagedModelPriceLookupCandidates(model)) {
     const direct = parseCandidatePath(lookupModel);
     candidates.push(
+      ...(MODELS_DEV_PREFERRED_ALIASES[lookupModel] ?? []),
       `vercel/${lookupModel}`,
       lookupModel,
       ...(MODELS_DEV_ALIASES[lookupModel] ?? []),
@@ -267,6 +275,20 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     cacheWritePerMillionUsd: 0,
     reasoningPerMillionUsd: 0.28,
     modalitiesInput: ["text"],
+    modalitiesOutput: ["text"],
+  },
+  // OpenRouter's Gemini 3.7 Flash rates. The preferred models.dev alias above
+  // normally supplies these; this keeps reservations and billing correct if
+  // the remote catalog is unavailable.
+  "google/gemini-3.7-flash": {
+    sourceProvider: "openrouter",
+    sourceModelId: "google/gemini-3.7-flash",
+    inputPerMillionUsd: 0.375,
+    outputPerMillionUsd: 1.875,
+    cacheReadPerMillionUsd: 0.0375,
+    cacheWritePerMillionUsd: 0.020833,
+    reasoningPerMillionUsd: 1.875,
+    modalitiesInput: ["text", "image", "audio", "video", "pdf"],
     modalitiesOutput: ["text"],
   },
   // Gemini 3.6 Flash GA rates: $1.50 / $7.50 per 1M tokens, with cached

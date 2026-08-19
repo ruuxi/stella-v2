@@ -188,8 +188,24 @@ const GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG: ModelConfig = {
   providerOptions: gatewayOptions("google"),
 };
 
+/** OpenRouter-hosted Gemini 3.7 Flash for mobile cloud chat. */
+export const GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL =
+  "google/gemini-3.7-flash";
+
+const GEMINI_3_7_FLASH_OFFLINE_RESPONDER_CONFIG: ModelConfig = {
+  model: GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
+  managedGatewayProvider: "openrouter",
+  maxOutputTokens: 65536,
+  providerOptions: {
+    openai: {
+      reasoningEffort: "low",
+    },
+  },
+};
+
 const INTERNAL_MODEL_CONFIGS = {
   image_description: GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG,
+  offline_responder: GEMINI_3_7_FLASH_OFFLINE_RESPONDER_CONFIG,
   synthesis: KIMI_K2_6_SYNTHESIS_CONFIG,
 } as const satisfies Record<string, ModelConfig>;
 
@@ -343,6 +359,9 @@ export const isStellaModelAllowedForAudience = (
  */
 export const LOCKED_AGENT_TYPES: ReadonlySet<string> = new Set<string>([
   "chronicle",
+  // Mobile cloud chat is a backend service route, not a user-selected Stella
+  // mode. Ignore stale mobileModel values when the desktop is disconnected.
+  AGENT_IDS.OFFLINE_RESPONDER,
   // Image descriptions must stay on a vision-capable Google route. Treating
   // this utility pass as General lets restricted audiences coerce the model
   // back to DeepSeek while the desktop still serializes a Google request.
@@ -350,7 +369,7 @@ export const LOCKED_AGENT_TYPES: ReadonlySet<string> = new Set<string>([
 ]);
 
 export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
-  [AGENT_IDS.OFFLINE_RESPONDER]: "light",
+  [AGENT_IDS.OFFLINE_RESPONDER]: "offline_responder",
   [AGENT_IDS.ORCHESTRATOR]: "light",
   [AGENT_IDS.GENERAL]: "light",
   [AGENT_IDS.INSTALL_UPDATE]: "light",

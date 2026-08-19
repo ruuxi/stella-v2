@@ -80,6 +80,7 @@ import {
 } from "./WorkingIndicator";
 import type { WorkingIndicatorState } from "./working-indicator-state";
 import { useDictation } from "../lib/dictation";
+import { canSubmitFinalizedDictation } from "../lib/dictation-send";
 import { hasAiConsent, requestAiConsent } from "../lib/ai-consent";
 import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol";
 import type { StoredPhoneAccess } from "../lib/phone-access";
@@ -3226,6 +3227,8 @@ export function ChatPane({
   // rather than racing the (separately-committed) status → idle update.
   const pendingVoiceSendRef = useRef(false);
   const voiceSendTargetRef = useRef<string | null>(null);
+  const voiceSendResultReadyRef = useRef(false);
+  const [voiceSendResultVersion, setVoiceSendResultVersion] = useState(0);
 
   const appendTranscript = useCallback(
     (text: string) => {
@@ -3246,7 +3249,12 @@ export function ChatPane({
   const isListening = dictation.isRecording;
 
   const toggleVoice = useCallback(async () => {
-    if (dictation.status === "idle") tapLight();
+    if (dictation.status === "idle") {
+      tapLight();
+      // In-flight progressive TTS can otherwise apply Expo's playback audio
+      // mode after recording starts. On iOS that mode stops every recorder.
+      stopReadAloud();
+    }
     await dictation.toggle();
   }, [dictation]);
 
@@ -3274,27 +3282,57 @@ export function ChatPane({
   // fire submit on the render where the transcript has committed and dictation
   // has returned to idle.
   const stopAndSendVoice = useCallback(() => {
+    if (pendingVoiceSendRef.current) return;
     pendingVoiceSendRef.current = true;
     voiceSendTargetRef.current = null;
-    void dictation.stop();
+    voiceSendResultReadyRef.current = false;
+    void dictation
+      .stop()
+      .then((transcript) => {
+        if (!pendingVoiceSendRef.current) return;
+        // Never send a stale typed prefix when recording/transcription failed.
+        if (transcript && voiceSendTargetRef.current !== null) {
+          voiceSendResultReadyRef.current = true;
+          // The transcript callback updates parent-owned draft state. Force one
+          // render after stop() has fully resolved so the effect can verify that
+          // exact target was committed before calling submit.
+          setVoiceSendResultVersion((version) => version + 1);
+          return;
+        }
+        pendingVoiceSendRef.current = false;
+        voiceSendTargetRef.current = null;
+      })
+      .catch(() => {
+        pendingVoiceSendRef.current = false;
+        voiceSendTargetRef.current = null;
+      });
   }, [dictation]);
 
   useEffect(() => {
-    if (!pendingVoiceSendRef.current) return;
-    // Wait until transcription has fully finished (idle), not just stopped.
-    if (dictation.status !== "idle") return;
-    // If a transcript landed, hold off until the draft state actually reflects
-    // it — `appendTranscript` and the status update can commit separately.
     const target = voiceSendTargetRef.current;
-    if (target !== null && draft !== target) return;
-    pendingVoiceSendRef.current = false;
-    voiceSendTargetRef.current = null;
-    // A too-short clip or failed transcription leaves nothing new to send;
-    // don't fire on an empty composer.
-    if (draft.trim().length > 0 || (attachments?.length ?? 0) > 0) {
-      submit();
+    if (
+      !canSubmitFinalizedDictation({
+        armed: pendingVoiceSendRef.current,
+        resultReady: voiceSendResultReadyRef.current,
+        status: dictation.status,
+        draft,
+        target,
+        attachmentCount: attachments?.length ?? 0,
+      })
+    ) {
+      return;
     }
-  }, [dictation.status, draft, attachments, submit]);
+    pendingVoiceSendRef.current = false;
+    voiceSendResultReadyRef.current = false;
+    voiceSendTargetRef.current = null;
+    submit();
+  }, [
+    dictation.status,
+    draft,
+    attachments,
+    submit,
+    voiceSendResultVersion,
+  ]);
 
   const pickImage = useCallback(async () => {
     if (!enableAttachments || !onChangeAttachments) return;
@@ -4446,8 +4484,7 @@ export function ChatPane({
               <View style={styles.formPill}>
                 {plusButton}
                 <DictationRecordingBar
-                  levels={dictation.levels}
-                  elapsedMs={dictation.elapsedMs}
+                  recorder={dictation.recorder}
                   onCancel={() => void dictation.cancel()}
                   onConfirm={() => void dictation.stop()}
                   onSend={stopAndSendVoice}
@@ -4582,8 +4619,7 @@ export function ChatPane({
                 {dictationBelow ? (
                   <View style={styles.dictationRow}>
                     <DictationRecordingBar
-                      levels={dictation.levels}
-                      elapsedMs={dictation.elapsedMs}
+                      recorder={dictation.recorder}
                       onCancel={() => void dictation.cancel()}
                       onConfirm={() => void dictation.stop()}
                       onSend={stopAndSendVoice}

@@ -8,16 +8,13 @@ import {
   View,
   type LayoutChangeEvent,
 } from "react-native";
-import {
-  setAudioModeAsync,
-  useAudioPlayer,
-  useAudioPlayerStatus,
-} from "expo-audio";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { LinearGradient } from "expo-linear-gradient";
 import { Icon } from "./Icon";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
+import { configurePlaybackAudioSession } from "../lib/mobile-audio-session";
 
 type AudioPlayerViewProps = {
   /** `file://` URI of the decoded clip — see `writeArtifactMediaFile`. */
@@ -63,7 +60,7 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
   // Playback should be audible with the ringer switch flipped, the same way
   // read-aloud configures the session.
   useEffect(() => {
-    void setAudioModeAsync({ playsInSilentMode: true }).catch(() => undefined);
+    void configurePlaybackAudioSession().catch(() => undefined);
   }, []);
 
   const duration =
@@ -81,6 +78,7 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
   const trackWidthRef = useRef(0);
   const durationRef = useRef(0);
   const seekableRef = useRef(false);
+  const playRequestRef = useRef(0);
   durationRef.current = duration;
   seekableRef.current = seekable;
 
@@ -127,8 +125,9 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
     });
   }, [player]);
 
-  const togglePlayback = useCallback(() => {
+  const togglePlayback = useCallback(async () => {
     if (status.playing) {
+      playRequestRef.current += 1;
       player.pause();
       return;
     }
@@ -137,7 +136,13 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
     if (duration > 0 && status.currentTime >= duration - 0.25) {
       seekTo(0);
     }
-    player.play();
+    const request = ++playRequestRef.current;
+    if (
+      (await configurePlaybackAudioSession()) &&
+      request === playRequestRef.current
+    ) {
+      player.play();
+    }
   }, [duration, player, seekTo, status.currentTime, status.playing]);
 
   const skip = useCallback(

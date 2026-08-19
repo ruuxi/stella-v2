@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   createAudioPlayer,
-  setAudioModeAsync,
   type AudioPlayer,
 } from "expo-audio";
 import { File, Paths } from "expo-file-system";
 import { env } from "../config/env";
 import { assert } from "./assert";
 import { getConvexToken } from "./auth-token";
+import { configurePlaybackAudioSession } from "./mobile-audio-session";
 
 const READ_ALOUD_KEY = "stella-mobile.read-aloud-enabled";
 const TTS_PATH = "/api/voice/tts";
@@ -403,7 +403,22 @@ export async function speakReply(text: string, messageId?: string) {
       return;
     }
 
-    await setAudioModeAsync({ playsInSilentMode: true });
+    if (!(await configurePlaybackAudioSession())) {
+      try {
+        file.delete();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (generation !== playbackGeneration) {
+      try {
+        file.delete();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     const player = createAudioPlayer({ uri: file.uri });
     currentFile = file;
     currentPlayer = player;
@@ -444,7 +459,10 @@ async function tryStreamReply(
   // the first segment instead of waiting for the whole clip.
   const uri = `${env.convexSiteUrl}${ttsStreamHlsPlaylistPath(ticket)}`;
 
-  await setAudioModeAsync({ playsInSilentMode: true });
+  if (!(await configurePlaybackAudioSession())) {
+    cancelStreamSession(ticket);
+    return true;
+  }
   if (generation !== playbackGeneration) {
     cancelStreamSession(ticket);
     return true;

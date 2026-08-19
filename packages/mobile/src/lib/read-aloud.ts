@@ -19,8 +19,11 @@ const TTS_STREAM_CANCEL_PATH = "/api/voice/tts/stream/cancel";
 // segments live under this prefix.
 const ttsStreamHlsPlaylistPath = (ticket: string) =>
   `/api/voice/tts/stream/hls/${encodeURIComponent(ticket)}/playlist.m3u8`;
-const INWORLD_READ_ALOUD_VOICE = "Wendy";
-const INWORLD_READ_ALOUD_MODEL = "inworld-tts-2-flash";
+// Voice and model for read-aloud are server-authoritative: the client omits
+// them so the backend applies its default (Brooke / inworld-tts-2-flash),
+// keeping mobile in lockstep with desktop. Only send an explicit value once
+// the user can pick a voice here. (Removed the pinned "Wendy" voice that had
+// drifted from the server default.)
 // Safety net: if progressive playback has not begun within this window we
 // abandon it and fall back to the one-shot buffered request.
 const STREAM_START_TIMEOUT_MS = 8000;
@@ -229,8 +232,6 @@ async function fetchInworldReadAloudAudio(text: string) {
     body: JSON.stringify({
       text,
       voiceProvider: "inworld",
-      voice: INWORLD_READ_ALOUD_VOICE,
-      model: INWORLD_READ_ALOUD_MODEL,
     }),
   });
 
@@ -263,8 +264,6 @@ async function prepareInworldReadAloudStream(text: string): Promise<string> {
       body: JSON.stringify({
         text,
         voiceProvider: "inworld",
-        voice: INWORLD_READ_ALOUD_VOICE,
-        model: INWORLD_READ_ALOUD_MODEL,
       }),
     },
   );

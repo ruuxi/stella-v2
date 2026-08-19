@@ -108,6 +108,8 @@ type StellaSessionResponse = {
   clientSecret?: unknown;
   model?: unknown;
   voice?: unknown;
+  /** Server-authoritative Inworld TTS model id (inworld path only). */
+  ttsModel?: unknown;
   expiresAt?: unknown;
   sessionId?: unknown;
   stellaSessionId?: unknown;
@@ -211,6 +213,10 @@ export const stellaProvider: ProviderModule = {
         typeof raw.leaseExpiresAt === "number" ? raw.leaseExpiresAt : undefined,
       iceServers: normalizeIceServers(raw.iceServers),
       speed: inworldSpeed,
+      ttsModel:
+        typeof raw.ttsModel === "string" && raw.ttsModel.trim().length > 0
+          ? raw.ttsModel.trim()
+          : undefined,
     };
   },
 
@@ -243,6 +249,7 @@ export const stellaProvider: ProviderModule = {
           instructions: ctx.instructions,
           tools: ctx.tools,
           speed: token.speed,
+          ttsModel: token.ttsModel,
         }),
         iceServers: token.iceServers,
         waitForIceGathering: true,
@@ -275,6 +282,12 @@ export const buildInworldSessionConfig = (opts: {
   tools?: RealtimeSessionTool[];
   /** TTS playback speed. Defaults to DEFAULT_INWORLD_REALTIME_SPEED. */
   speed?: number;
+  /**
+   * Inworld TTS model id. The Stella-managed path passes the server-supplied
+   * value so the default is backend-owned; BYOK/omitted falls back to the
+   * bundled default constant (drift there only affects BYOK, never managed).
+   */
+  ttsModel?: string;
 }): Record<string, unknown> => ({
   type: "realtime",
   model: opts.model,
@@ -299,7 +312,7 @@ export const buildInworldSessionConfig = (opts: {
     },
     output: {
       voice: opts.voice,
-      model: DEFAULT_INWORLD_REALTIME_TTS_MODEL,
+      model: opts.ttsModel ?? DEFAULT_INWORLD_REALTIME_TTS_MODEL,
       speed: opts.speed ?? DEFAULT_INWORLD_REALTIME_SPEED,
     },
   },

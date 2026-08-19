@@ -919,6 +919,8 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           conversationId?: string;
           voice?: string;
           model?: string;
+          /** Inworld realtime TTS model; server default applied when omitted. */
+          ttsModel?: string;
           tools?: unknown;
           turnDetection?: "semantic_vad" | "server_vad";
           turnEagerness?: "low" | "medium" | "high";
@@ -1108,6 +1110,13 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
           const inworldModel = body.model ?? "openai/gpt-4o-mini";
           const inworldVoice = body.voice ?? "Brooke";
+          // TTS model is server-authoritative: honor an explicit override
+          // (backward compat) but default here so the renderer's session.update
+          // uses the backend's default without needing a client release.
+          const inworldTtsModel =
+            typeof body.ttsModel === "string" && body.ttsModel.trim().length > 0
+              ? body.ttsModel.trim()
+              : DEFAULT_INWORLD_TTS_MODEL;
           const lease = (await ctx.runMutation(
             internal.billing.prepareVoiceRealtimeLease,
             {
@@ -1174,6 +1183,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               clientSecret: "",
               model: inworldModel,
               voice: inworldVoice,
+              ttsModel: inworldTtsModel,
               iceServers,
               stellaSessionId: lease.stellaSessionId,
               leaseExpiresAt: lease.leaseExpiresAt,

@@ -466,15 +466,15 @@ describe("managed model billing", () => {
       ctx.db
         .query("billing_model_prices")
         .withIndex("by_model", (q) =>
-          q.eq("model", "deepseek/deepseek-v4-flash"),
+          q.eq("model", "crof/deepseek-v4-flash-0731"),
         )
         .unique(),
     );
     expect(staticRow).toMatchObject({
-      model: "deepseek/deepseek-v4-flash",
+      model: "crof/deepseek-v4-flash-0731",
       source: "static",
-      inputPerMillionUsd: 0.14,
-      outputPerMillionUsd: 0.28,
+      inputPerMillionUsd: 0.12,
+      outputPerMillionUsd: 0.21,
     });
   });
 });

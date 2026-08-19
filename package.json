@@ -193,6 +193,14 @@
         "to": "stella-tray.ico"
       },
       {
+        "from": "packages/desktop-ui/public/stella-logo.png",
+        "to": "update-splash/stella-logo.png"
+      },
+      {
+        "from": "packages/desktop-ui/src/assets/fonts/cormorant-garamond-italic.ttf",
+        "to": "update-splash/cormorant-garamond-italic.ttf"
+      },
+      {
         "from": "packages/desktop/resources/audio",
         "to": "audio",
         "filter": [

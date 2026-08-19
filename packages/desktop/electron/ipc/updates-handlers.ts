@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { copyFileSync, mkdirSync } from "node:fs";
 import { app, ipcMain, type IpcMainInvokeEvent } from "electron";
 import electronUpdater from "electron-updater";
 import {
@@ -13,6 +15,8 @@ import {
   DesktopUpdater,
   type DesktopUpdaterClient,
 } from "../updates/desktop-updater.js";
+import { launchWindowsUpdateSplash } from "../updates/update-splash.js";
+import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { isOwnedWindowMainFrameSender } from "./owned-window-sender.js";
 
 const { autoUpdater } = electronUpdater;
@@ -64,7 +68,33 @@ export const registerUpdatesHandlers = (
     currentVersion: app.getVersion(),
     enabled: app.isPackaged,
     onStateChanged: broadcast,
-    onBeforeRestart: options.onBeforeRestart,
+    onBeforeRestart: () => {
+      // Windows installs run the NSIS installer fully silent (/S), so this
+      // detached, staged-outside-the-install-dir splash is the only thing on
+      // screen while the install directory is swapped. Best-effort by design:
+      // launchWindowsUpdateSplash never throws and is a no-op off Windows.
+      launchWindowsUpdateSplash({
+        platform: process.platform,
+        resolveHelperPath: resolveNativeHelperPath,
+        resourcesPath: process.resourcesPath ?? null,
+        stagingRoot: app.getPath("temp"),
+        execPath: process.execPath,
+        pid: process.pid,
+        mkdirSync: (dir) => {
+          mkdirSync(dir, { recursive: true });
+        },
+        copyFileSync,
+        spawnDetached: (command, args) => {
+          spawn(command, args, { detached: true, stdio: "ignore" }).unref();
+        },
+        log: {
+          info: (message) =>
+            logger?.process("desktop-updater.info", { message }),
+          warn: (message) => logger?.warn("desktop-updater.warn", { message }),
+        },
+      });
+      options.onBeforeRestart?.();
+    },
     log: {
       info: (message) => logger?.process("desktop-updater.info", { message }),
       warn: (message) => logger?.warn("desktop-updater.warn", { message }),

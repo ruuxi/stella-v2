@@ -328,10 +328,12 @@ export class DesktopUpdater {
     // installer UI. Run it silent (`/S`): no native "Stella Setup" window may
     // ever appear — the app quits, installs invisibly, and `--force-run`
     // relaunches Stella when the swap finishes, matching the macOS flow.
-    // Swapping the ~1 GB install can take NSIS 30-60+ seconds of nothing on
-    // screen; that gap is accepted (2026-08-18) in preference to the native
-    // installer window a non-silent run shows. MacUpdater and AppImageUpdater
-    // ignore the first argument and keep their native update flows.
+    // The 30-60+ second install gap is covered by the Stella-branded splash
+    // helper (stella-update-splash.exe) that the onBeforeRestart wiring
+    // spawns detached before the quit; if that helper is unavailable the gap
+    // is simply blank — never fall back to a non-silent install (owner
+    // decision, 2026-08-18). MacUpdater and AppImageUpdater ignore the first
+    // argument and keep their native update flows.
     setImmediate(() => this.client.quitAndInstall(true, true));
     return { accepted: true };
   }

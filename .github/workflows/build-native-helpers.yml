@@ -233,7 +233,7 @@ jobs:
           # Hard-fail if Defender (or anything else) ate a binary the
           # build script said it produced; surface the regression in CI
           # rather than shipping a broken Windows tarball.
-          required=("window_info.exe" "window_text.exe" "selected_text.exe" "dictation_bridge.exe" "stella-computer-helper.exe" "meeting_capture.exe" "wakeword_listener.exe" "parakeet_cpp_transcriber.exe")
+          required=("window_info.exe" "window_text.exe" "selected_text.exe" "dictation_bridge.exe" "stella-computer-helper.exe" "meeting_capture.exe" "wakeword_listener.exe" "parakeet_cpp_transcriber.exe" "stella-update-splash.exe")
           missing=0
           for name in "${required[@]}"; do
             if [ ! -f "$OUT/$name" ]; then

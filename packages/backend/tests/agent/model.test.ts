@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   getModelConfig,
   getModeConfig,
+  GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
   listManagedModelIds,
   MANAGED_MODEL_AUDIENCES,
   MODEL_MODES,
@@ -11,6 +12,7 @@ import {
   listStellaDefaultSelections,
   listStellaCatalogModels,
   parseStellaModelSelection,
+  resolveStellaModelConfigForSelection,
   resolveStellaModelSelection,
 } from "../../convex/stella_models";
 
@@ -25,7 +27,7 @@ const SYNTHESIS_SELECTION = `openrouter/${SYNTHESIS_MODEL}`;
 const IMAGE_DESCRIPTION_MODEL = "google/gemini-3.1-flash-lite";
 
 describe("managed model config", () => {
-  it("routes every Stella mode to CrofAI and synthesis to CoreWeave Kimi", () => {
+  it("routes mobile cloud chat to Gemini 3.7 Flash on OpenRouter", () => {
     for (const audience of MANAGED_MODEL_AUDIENCES) {
       for (const mode of MODEL_MODES) {
         expect(getModeConfig(mode, audience)).toMatchObject({
@@ -46,9 +48,11 @@ describe("managed model config", () => {
         const expectedModel =
           entry.agentType === "synthesis"
             ? SYNTHESIS_MODEL
-            : entry.agentType === "image_description"
-              ? IMAGE_DESCRIPTION_MODEL
-              : FLASH_MODEL;
+            : entry.agentType === "offline_responder"
+              ? GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL
+              : entry.agentType === "image_description"
+                ? IMAGE_DESCRIPTION_MODEL
+                : FLASH_MODEL;
         expect(getModelConfig(entry.agentType, audience).model).toBe(
           expectedModel,
         );
@@ -57,7 +61,9 @@ describe("managed model config", () => {
           resolvedModel:
             entry.agentType === "synthesis"
               ? SYNTHESIS_SELECTION
-              : expectedModel,
+              : entry.agentType === "offline_responder"
+                ? `openrouter/${GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL}`
+                : expectedModel,
         });
       }
 
@@ -75,6 +81,14 @@ describe("managed model config", () => {
         },
       });
       expect(getModelConfig("synthesis", audience).fallback).toBeUndefined();
+      expect(getModelConfig("offline_responder", audience)).toMatchObject({
+        model: GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
+        managedGatewayProvider: "openrouter",
+        maxOutputTokens: 65536,
+        providerOptions: {
+          openai: { reasoningEffort: "low" },
+        },
+      });
       expect(getModelConfig("image_description", audience)).toMatchObject({
         model: IMAGE_DESCRIPTION_MODEL,
         managedGatewayProvider: "google",
@@ -138,10 +152,27 @@ describe("managed model config", () => {
     );
   });
 
+  it("keeps stale mobile model selections from overriding cloud chat", () => {
+    expect(
+      resolveStellaModelConfigForSelection(
+        FLASH_SELECTION,
+        "offline_responder",
+        "pro",
+      ),
+    ).toMatchObject({
+      applied: false,
+      config: {
+        model: GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
+        managedGatewayProvider: "openrouter",
+      },
+    });
+  });
+
   it("price-syncs the public and internal utility models", () => {
     expect(listManagedModelIds()).toEqual([
       FLASH_MODEL,
       IMAGE_DESCRIPTION_MODEL,
+      GEMINI_3_7_FLASH_OFFLINE_RESPONDER_MODEL,
       SYNTHESIS_MODEL,
     ]);
   });

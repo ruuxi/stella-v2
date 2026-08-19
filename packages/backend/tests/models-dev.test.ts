@@ -6,8 +6,61 @@ import {
 } from "../convex/lib/models_dev";
 
 describe("managed model price entries", () => {
+  it("uses OpenRouter pricing for Gemini 3.7 Flash", () => {
+    const model = "google/gemini-3.7-flash";
+    const { entries, missingModels } = buildManagedModelPriceEntries({
+      data: {
+        google: {
+          models: {
+            "gemini-3.7-flash": {
+              id: "gemini-3.7-flash",
+              cost: { input: 0.75, output: 3.75, cache_read: 0.075 },
+            },
+          },
+        },
+        openrouter: {
+          models: {
+            [model]: {
+              id: model,
+              cost: {
+                input: 0.375,
+                output: 1.875,
+                reasoning: 1.875,
+                cache_read: 0.0375,
+                cache_write: 0.020833,
+              },
+              modalities: {
+                input: ["text", "image", "audio", "video", "pdf"],
+                output: ["text"],
+              },
+              last_updated: "2026-08-13",
+            },
+          },
+        },
+      },
+      modelIds: [model],
+      syncedAt: 1,
+    });
+
+    expect(missingModels).toEqual([]);
+    expect(entries[0]).toMatchObject({
+      model,
+      source: "models.dev",
+      sourceProvider: "openrouter",
+      sourceModelId: model,
+      inputPerMillionUsd: 0.375,
+      outputPerMillionUsd: 1.875,
+      cacheReadPerMillionUsd: 0.0375,
+      cacheWritePerMillionUsd: 0.020833,
+      reasoningPerMillionUsd: 1.875,
+      modalitiesInput: ["text", "image", "audio", "video", "pdf"],
+    });
+  });
+
   it("uses CrofAI's published V4 Flash 0731 rates", () => {
-    const { entries: [entry] } = buildManagedModelPriceEntries({
+    const {
+      entries: [entry],
+    } = buildManagedModelPriceEntries({
       modelIds: ["crof/deepseek-v4-flash-0731"],
       data: {},
       syncedAt: 123,

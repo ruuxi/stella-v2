@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { preserveModelVisibleToolText } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
 import {
   cleanupToolOutputSpills,
+  DEFAULT_TOOL_OUTPUT_SPILL_MAX_AGE_MS,
+  DEFAULT_TOOL_OUTPUT_SPILL_QUOTA_BYTES,
   spillSanitizedToolOutput,
 } from "@stella/runtime/kernel/agent-runtime/tool-output-spill";
 
@@ -20,6 +22,11 @@ afterEach(async () => {
 });
 
 describe("durable oversized tool output", () => {
+  it("uses the bounded 48-hour and 32 MiB retention policy", () => {
+    expect(DEFAULT_TOOL_OUTPUT_SPILL_MAX_AGE_MS).toBe(48 * 60 * 60 * 1_000);
+    expect(DEFAULT_TOOL_OUTPUT_SPILL_QUOTA_BYTES).toBe(32 * 1024 * 1024);
+  });
+
   it("atomically preserves complete post-sanitization output with read metadata", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "stella-spill-"));
     roots.push(root);

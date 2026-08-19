@@ -1921,20 +1921,29 @@ export async function sendDesktopBridgeChat({
         artifact.payload.asset.filePaths.length > 0
       ) {
         const generatedPayload = artifact.payload;
-        const pendingCandidates = [...artifactById.values()].filter(
+        const placeholderCandidates = [...artifactById.values()].filter(
           (candidate) =>
             isGeneratedImage(candidate) &&
             candidate.payload.kind === "media" &&
-            candidate.payload.generationState === "running",
+            candidate.payload.asset.kind === "image" &&
+            candidate.payload.asset.filePaths.length === 0,
         );
         const pending =
-          pendingCandidates.find(
+          placeholderCandidates.find(
             (candidate) =>
               candidate.payload.kind === "media" &&
               Boolean(generatedPayload.toolCallId) &&
               candidate.payload.toolCallId === generatedPayload.toolCallId,
           ) ??
-          (pendingCandidates.length === 1 ? pendingCandidates[0] : undefined);
+          placeholderCandidates.find(
+            (candidate) =>
+              candidate.payload.kind === "media" &&
+              Boolean(generatedPayload.prompt) &&
+              candidate.payload.prompt === generatedPayload.prompt,
+          ) ??
+          (placeholderCandidates.length === 1
+            ? placeholderCandidates[0]
+            : undefined);
         if (pending?.payload.kind === "media") {
           artifactById.delete(pending.id);
           artifact = {

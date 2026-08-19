@@ -189,6 +189,73 @@ const messagesShareAgentWork = (
   );
 };
 
+const isGeneratedImage = (artifact: ChatArtifact): boolean =>
+  artifact.payload.kind === "media" &&
+  artifact.payload.asset.kind === "image" &&
+  artifact.payload.presentation === "inline-image";
+
+const reconcileGeneratedImages = (
+  existing: ChatArtifact[],
+  incoming: ChatArtifact[],
+): ChatArtifact[] => {
+  let updates = incoming;
+  const completed = incoming.filter(
+    (artifact) =>
+      isGeneratedImage(artifact) &&
+      artifact.payload.kind === "media" &&
+      artifact.payload.asset.kind === "image" &&
+      artifact.payload.asset.filePaths.length > 0,
+  );
+  for (const result of completed) {
+    if (result.payload.kind !== "media") continue;
+    const resultPayload = result.payload;
+    const placeholders = [...existing, ...updates].filter(
+      (artifact) =>
+        artifact.id !== result.id &&
+        isGeneratedImage(artifact) &&
+        artifact.payload.kind === "media" &&
+        artifact.payload.asset.kind === "image" &&
+        artifact.payload.asset.filePaths.length === 0,
+    );
+    const placeholder =
+      placeholders.find(
+        (artifact) =>
+          artifact.payload.kind === "media" &&
+          Boolean(resultPayload.toolCallId) &&
+          artifact.payload.toolCallId === resultPayload.toolCallId,
+      ) ??
+      placeholders.find(
+        (artifact) =>
+          artifact.payload.kind === "media" &&
+          Boolean(resultPayload.prompt) &&
+          artifact.payload.prompt === resultPayload.prompt,
+      ) ??
+      (placeholders.length === 1 ? placeholders[0] : undefined);
+    if (placeholder?.payload.kind !== "media") continue;
+    const reconciled: ChatArtifact = {
+      ...result,
+      id: placeholder.id,
+      payload: {
+        ...result.payload,
+        generationState: "completed",
+        ...(placeholder.payload.toolCallId
+          ? { toolCallId: placeholder.payload.toolCallId }
+          : {}),
+        ...(typeof placeholder.payload.textOffset === "number"
+          ? { textOffset: placeholder.payload.textOffset }
+          : {}),
+      },
+    };
+    updates = updates
+      .filter(
+        (artifact) =>
+          artifact.id !== placeholder.id && artifact.id !== result.id,
+      )
+      .concat(reconciled);
+  }
+  return updates;
+};
+
 /** Keep card identity/order stable and never make an already-visible artifact
  * disappear because an intermediate projection omitted it. Same-id payloads
  * (running -> done) update in place; genuinely new artifacts append. */
@@ -238,6 +305,7 @@ const mergeArtifacts = (
       }
     }
   }
+  updates = reconcileGeneratedImages(base, updates);
   const incomingById = new Map(
     updates.map((artifact) => [artifact.id, artifact]),
   );

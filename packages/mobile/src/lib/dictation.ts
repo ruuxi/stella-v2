@@ -2,37 +2,30 @@
  * Push-to-talk dictation that records audio with expo-audio, ships it to the
  * Stella backend (`/api/mobile/transcribe`), and returns the transcript text.
  *
- * Mirrors desktop's dictation UX: while recording we surface a level buffer
- * (for the waveform) plus elapsed ms, and on stop we wait for the transcript
+ * Mirrors desktop's dictation UX: while recording the leaf recording bar polls
+ * this recorder for its waveform/timer, and on stop we wait for the transcript
  * before resolving so the caller can paste it into the composer.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AudioModule,
+  type AudioRecorder,
   RecordingPresets,
-  setAudioModeAsync,
   useAudioRecorder,
-  useAudioRecorderState,
 } from "expo-audio";
 import { File } from "expo-file-system";
 import { Alert, Linking, Platform } from "react-native";
 import { postJson, postJsonAnonymous } from "./http";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
+import {
+  acquireRecordingAudioSession,
+  releaseRecordingAudioSession,
+  type RecordingAudioLease,
+} from "./mobile-audio-session";
 
-const LEVEL_BUFFER_LENGTH = 64;
-/** Update tick for the waveform/timer. ~12 Hz feels right and matches desktop. */
-const RECORDER_TICK_MS = 80;
 /** Minimum elapsed time before we bother round-tripping audio to the server. */
 const MIN_RECORDING_MS = 300;
-
-/** Map expo-audio metering (dBFS, -160…0) to a 0…1 visual amplitude. */
-const normalizeMetering = (db: number | undefined): number => {
-  if (db === undefined || !isFinite(db)) return 0;
-  // -50 dBFS is roughly the noise floor we care about; 0 dBFS is peak.
-  const clamped = Math.max(-50, Math.min(0, db));
-  return (clamped + 50) / 50;
-};
 
 export type DictationStatus = "idle" | "recording" | "transcribing";
 
@@ -51,12 +44,12 @@ export type UseDictationResult = {
   status: DictationStatus;
   isRecording: boolean;
   isTranscribing: boolean;
-  levels: number[];
-  elapsedMs: number;
+  recorder: AudioRecorder;
   /** Resolves `true` only if recording actually began (consent + mic granted). */
   start: () => Promise<boolean>;
-  stop: () => Promise<void>;
-  cancel: () => Promise<void>;
+  /** Resolves with the complete committed transcript, or null on no result. */
+  stop: () => Promise<string | null>;
+  cancel: () => Promise<string | null>;
   toggle: () => Promise<void>;
 };
 
@@ -66,67 +59,40 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     undefined,
   );
   const [status, setStatus] = useState<DictationStatus>("idle");
-  // expo-audio's `useAudioRecorderState` only sets up its polling interval
-  // once on `[recorder.id]`, so changing the interval after status flips to
-  // "recording" is silently ignored — that's why the waveform never moved.
-  // Poll at a steady high rate; while idle `getStatus()` returns the static
-  // idle snapshot, which is cheap, and the cleanup `clearInterval` covers
-  // unmount before the native shared object is disposed.
-  const recorderState = useAudioRecorderState(recorder, RECORDER_TICK_MS);
-
-  const [levels, setLevels] = useState<number[]>([]);
-  const [elapsedMs, setElapsedMs] = useState(0);
   const cancelledRef = useRef(false);
   const startedAtRef = useRef(0);
   const mountedRef = useRef(true);
+  const statusRef = useRef<DictationStatus>("idle");
+  const operationInFlightRef = useRef(false);
+  const recordingLeaseRef = useRef<RecordingAudioLease | null>(null);
 
   const safeSetStatus = useCallback((next: DictationStatus) => {
+    statusRef.current = next;
     if (mountedRef.current) setStatus(next);
   }, []);
 
-  const safeResetVisuals = useCallback(() => {
-    if (!mountedRef.current) return;
-    setLevels([]);
-    setElapsedMs(0);
-  }, []);
-
-  // Drive the visual buffer off the recorder's polling state so the waveform
-  // ticks even when no other re-render is happening.
-  useEffect(() => {
-    if (!mountedRef.current || status !== "recording" || !recorderState.isRecording) {
-      return;
-    }
-    setElapsedMs(Date.now() - startedAtRef.current);
-    const amp = normalizeMetering(recorderState.metering);
-    setLevels((prev) => {
-      const next = prev.length >= LEVEL_BUFFER_LENGTH
-        ? prev.slice(prev.length - LEVEL_BUFFER_LENGTH + 1)
-        : prev.slice();
-      next.push(amp);
-      return next;
-    });
-  }, [
-    status,
-    recorderState.isRecording,
-    recorderState.metering,
-    recorderState.durationMillis,
-  ]);
-
   const releaseAudioMode = useCallback(async () => {
+    const lease = recordingLeaseRef.current;
+    if (lease === null) return;
+    recordingLeaseRef.current = null;
     try {
-      await setAudioModeAsync({ allowsRecording: false });
+      await releaseRecordingAudioSession(lease);
     } catch {
       // best-effort; the OS will reset on app suspension regardless.
     }
   }, []);
 
   const start = useCallback(async (): Promise<boolean> => {
-    if (status !== "idle") return false;
+    if (statusRef.current !== "idle" || operationInFlightRef.current) {
+      return false;
+    }
+    operationInFlightRef.current = true;
     // Apple 5.1.1(i): voice audio is sent to a third-party AI transcription
     // service (Mistral Voxtral). Don't even start the recorder until the
     // user has explicitly agreed to the data-sharing disclosure.
     if (!hasAiConsent()) {
       requestAiConsent();
+      operationInFlightRef.current = false;
       return false;
     }
     try {
@@ -156,13 +122,25 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
                 },
               ],
         );
+        operationInFlightRef.current = false;
+        return false;
+      }
+      if (!mountedRef.current) {
+        operationInFlightRef.current = false;
         return false;
       }
 
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-      });
+      const lease = await acquireRecordingAudioSession();
+      if (lease === null) {
+        operationInFlightRef.current = false;
+        return false;
+      }
+      recordingLeaseRef.current = lease;
+      if (!mountedRef.current) {
+        await releaseAudioMode();
+        operationInFlightRef.current = false;
+        return false;
+      }
 
       await recorder.prepareToRecordAsync({
         ...RecordingPresets.HIGH_QUALITY,
@@ -172,24 +150,30 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
       cancelledRef.current = false;
       startedAtRef.current = Date.now();
-      setLevels([]);
-      setElapsedMs(0);
       safeSetStatus("recording");
+      operationInFlightRef.current = false;
       return true;
     } catch (error) {
       console.warn("[dictation] start failed", error);
       await releaseAudioMode();
+      operationInFlightRef.current = false;
       Alert.alert(
         "Voice input",
         "Couldn't start recording. Try again in a moment.",
       );
       return false;
     }
-  }, [recorder, releaseAudioMode, safeSetStatus, status]);
+  }, [recorder, releaseAudioMode, safeSetStatus]);
 
   const finalize = useCallback(
-    async (commit: boolean) => {
-      if (status !== "recording") return;
+    async (commit: boolean): Promise<string | null> => {
+      if (
+        statusRef.current !== "recording" ||
+        operationInFlightRef.current
+      ) {
+        return null;
+      }
+      operationInFlightRef.current = true;
       const durationMs = Date.now() - startedAtRef.current;
       cancelledRef.current = !commit;
       safeSetStatus(commit ? "transcribing" : "idle");
@@ -205,7 +189,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
       if (!commit || !uri || durationMs < MIN_RECORDING_MS) {
         safeSetStatus("idle");
-        safeResetVisuals();
         // Cleanup the empty/cancelled clip best-effort.
         if (uri) {
           try {
@@ -214,13 +197,23 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
             /* ignore */
           }
         }
-        return;
+        operationInFlightRef.current = false;
+        return null;
       }
 
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) {
+        try {
+          new File(uri).delete();
+        } catch {
+          /* ignore */
+        }
+        operationInFlightRef.current = false;
+        return null;
+      }
 
+      let file: File | null = null;
       try {
-        const file = new File(uri);
+        file = new File(uri);
         const audio = await file.base64();
         const format = inferAudioFormat(uri);
 
@@ -239,12 +232,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
               timeoutMs: 60_000,
             });
 
-        try {
-          file.delete();
-        } catch {
-          /* ignore */
-        }
-
         const text =
           response && typeof response === "object" &&
           typeof (response as { text?: unknown }).text === "string"
@@ -252,7 +239,9 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
             : "";
         if (text && !cancelledRef.current) {
           options.onTranscript(text);
+          return text;
         }
+        return null;
       } catch (error) {
         console.warn("[dictation] transcription failed", error);
         Alert.alert(
@@ -261,12 +250,18 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
             ? error.message
             : "Could not transcribe that audio. Try again.",
         );
+        return null;
       } finally {
+        try {
+          file?.delete();
+        } catch {
+          /* ignore */
+        }
         safeSetStatus("idle");
-        safeResetVisuals();
+        operationInFlightRef.current = false;
       }
     },
-    [recorder, releaseAudioMode, safeResetVisuals, safeSetStatus, status, options],
+    [recorder, releaseAudioMode, safeSetStatus, options],
   );
 
   const stop = useCallback(() => finalize(true), [finalize]);
@@ -288,6 +283,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      statusRef.current = "idle";
       void releaseAudioMode();
     };
   }, [releaseAudioMode]);
@@ -296,8 +292,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     status,
     isRecording: status === "recording",
     isTranscribing: status === "transcribing",
-    levels,
-    elapsedMs,
+    recorder,
     start,
     stop,
     cancel,

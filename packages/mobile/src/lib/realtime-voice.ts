@@ -1,4 +1,4 @@
-import { AudioModule, setAudioModeAsync } from "expo-audio";
+import { AudioModule } from "expo-audio";
 import type {
   MediaStream,
   RTCPeerConnection as NativeRTCPeerConnection,
@@ -25,6 +25,12 @@ import {
   type DesktopRealtimeVoice,
 } from "./desktop-realtime-voice";
 import { REALTIME_VOICE_AUDIO_MODE } from "./realtime-voice-audio";
+import {
+  acquireRecordingAudioSession,
+  refreshRecordingAudioSession,
+  releaseRecordingAudioSession,
+  type RecordingAudioLease,
+} from "./mobile-audio-session";
 
 const OPENAI_REALTIME_SDP_URL = "https://api.openai.com/v1/realtime/calls";
 const DATA_CHANNEL_OPEN_TIMEOUT_MS = 15_000;
@@ -34,8 +40,6 @@ const SESSION_UPDATE_TIMEOUT_MS = 10_000;
 const SDP_NEGOTIATION_TIMEOUT_MS = 20_000;
 const DISCONNECTED_GRACE_MS = 10_000;
 const GOODBYE_DRAIN_FALLBACK_MS = 1_200;
-
-let audioSessionGeneration = 0;
 
 type VoiceSessionToken = {
   voiceProvider?: "openai";
@@ -180,7 +184,7 @@ export class MobileRealtimeVoiceSession {
   private stopped = false;
   private stopEvent: "ended" | "lost" | "expired" = "ended";
   private leaseTerminalReported = false;
-  private audioGeneration = 0;
+  private audioLease: RecordingAudioLease | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private leaseExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private goodbyeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -247,8 +251,12 @@ export class MobileRealtimeVoiceSession {
       const permission = await AudioModule.requestRecordingPermissionsAsync();
       if (!permission.granted) throw new RealtimeVoicePermissionError();
 
-      this.audioGeneration = ++audioSessionGeneration;
-      await setAudioModeAsync(REALTIME_VOICE_AUDIO_MODE);
+      this.audioLease = await acquireRecordingAudioSession(
+        REALTIME_VOICE_AUDIO_MODE,
+      );
+      if (this.audioLease === null) {
+        throw new Error("Another microphone session replaced realtime voice.");
+      }
       // Keep the native module lazy so an older binary receiving the JS bundle
       // can still launch and show a useful upgrade error instead of crashing
       // when ChatPane is imported.
@@ -872,8 +880,10 @@ export class MobileRealtimeVoiceSession {
   }
 
   private async ensureLoudspeakerRoute(): Promise<void> {
+    const lease = this.audioLease;
+    if (lease === null) return;
     try {
-      await setAudioModeAsync(REALTIME_VOICE_AUDIO_MODE);
+      await refreshRecordingAudioSession(lease, REALTIME_VOICE_AUDIO_MODE);
     } catch (error) {
       // A transient OS route failure should not tear down an otherwise healthy
       // Realtime session; the next assistant response retries the route.
@@ -1020,13 +1030,11 @@ export class MobileRealtimeVoiceSession {
       this.localStream.release();
       this.localStream = null;
     }
-    const ownsAudioSession =
-      this.audioGeneration !== 0 &&
-      this.audioGeneration === audioSessionGeneration;
-    this.audioGeneration = 0;
-    if (ownsAudioSession) {
+    const audioLease = this.audioLease;
+    this.audioLease = null;
+    if (audioLease !== null) {
       try {
-        await setAudioModeAsync({ allowsRecording: false });
+        await releaseRecordingAudioSession(audioLease);
       } catch {
         // The OS resets its audio session when the app leaves the foreground.
       }

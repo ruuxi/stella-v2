@@ -468,6 +468,81 @@ describe("StellaBrowserBridgeService browser bootstrap API", () => {
     expect(stopAgentBackend).toHaveBeenCalledOnce();
   });
 
+  it("rebinding a successor lease replaces endpoint and authorization together", async () => {
+    const service = createService();
+    const spawnAgentBackend = vi
+      .spyOn(
+        service as unknown as {
+          spawnAgentBackend: (
+            input: Record<string, unknown>,
+          ) => Promise<unknown>;
+        },
+        "spawnAgentBackend",
+      )
+      .mockImplementationOnce(async (input) => ({
+        ...input,
+        bridgeSessionId: "agent-turn-1",
+        capabilityExpiresAt: Date.now() + 60_000,
+        controlToken: "control-1",
+        process: { exitCode: null, killed: false },
+      }))
+      .mockImplementationOnce(async (input) => ({
+        ...input,
+        bridgeSessionId: "agent-turn-2",
+        capabilityExpiresAt: Date.now() + 60_000,
+        controlToken: "control-2",
+        process: { exitCode: null, killed: false },
+      }));
+    const stopAgentBackend = vi
+      .spyOn(
+        service as unknown as {
+          stopAgentBackend: (backend: unknown) => Promise<void>;
+        },
+        "stopAgentBackend",
+      )
+      .mockResolvedValue();
+
+    await expect(
+      service.connectAgentCdp(
+        {
+          ownerId: "agent-thread-1",
+          turnId: "turn-1",
+          ownerLeaseId: "lease-1",
+          ownerLeaseIssuedAt: 1_000,
+        },
+        "ws://127.0.0.1:9000/owner-cap",
+      ),
+    ).resolves.toMatchObject({ bridgeSessionId: "agent-turn-1" });
+    await expect(
+      service.connectAgentCdp(
+        {
+          ownerId: "agent-thread-1",
+          turnId: "turn-2",
+          ownerLeaseId: "lease-2",
+          ownerLeaseIssuedAt: 2_000,
+        },
+        "ws://127.0.0.1:9000/owner-cap",
+      ),
+    ).resolves.toMatchObject({ bridgeSessionId: "agent-turn-2" });
+
+    expect(stopAgentBackend).toHaveBeenCalledOnce();
+    expect(spawnAgentBackend).toHaveBeenNthCalledWith(1, {
+      ownerId: "agent-thread-1",
+      turnId: "turn-1",
+      ownerLeaseId: "lease-1",
+      ownerLeaseIssuedAt: 1_000,
+      cdpUrl: "ws://127.0.0.1:9000/owner-cap",
+    });
+    expect(spawnAgentBackend).toHaveBeenNthCalledWith(2, {
+      ownerId: "agent-thread-1",
+      turnId: "turn-2",
+      ownerLeaseId: "lease-2",
+      ownerLeaseIssuedAt: 2_000,
+      cdpUrl: "ws://127.0.0.1:9000/owner-cap",
+    });
+  });
+
+
   it("invalidates an in-flight agent backend when the service stops", async () => {
     const service = createService();
     let releaseSpawn!: (backend: unknown) => void;

@@ -1,80 +1,20 @@
-import { useEffect, useRef } from 'react'
-import { showToast } from '@/ui/toast'
-import { useT, useTPlural } from '@/shared/i18n'
-
-const formatRetryDelay = (
-  retryMs: number | undefined,
-  tPlural: (
-    key: string,
-    count: number,
-    params?: Record<string, string | number>,
-  ) => string,
-) => {
-  if (!retryMs || retryMs <= 0) {
-    return ''
-  }
-
-  const seconds = Math.max(1, Math.round(retryMs / 1000))
-  // Leading space: this is appended straight onto the preceding sentence.
-  return ` ${tPlural('features.browserBridge.retryDelay', seconds)}`
-}
-
-const formatErrorWithRetry = (error: string, retryDelay: string) => {
-  const message = error.trim()
-  return `${message}${/[.!?]$/.test(message) ? '' : '.'}${retryDelay}`
-}
+import { useEffect } from "react";
+import { shouldEmitBrowserBridgeGlobalToast } from "@stella/contracts/browser-bridge-status";
 
 export const useStellaBrowserBridgeToast = () => {
-  const t = useT()
-  const tPlural = useTPlural()
-  const lastToastKeyRef = useRef<string | null>(null)
-
   useEffect(() => {
-    const browserApi = window.electronAPI?.browser
+    const browserApi = window.electronAPI?.browser;
     if (!browserApi?.onBridgeStatus) {
-      return
+      return;
     }
 
     return browserApi.onBridgeStatus((status) => {
-      if (status.state === 'connected') {
-        lastToastKeyRef.current = null
-        return
+      // Optional bridge absence, disconnect, and retry are never a global
+      // toast. Keep this listener so a stale notifyUser flag from older
+      // hosts cannot resurrect the old error toast.
+      if (!shouldEmitBrowserBridgeGlobalToast(status)) {
+        return;
       }
-
-      if (!status.notifyUser) {
-        return
-      }
-
-      const toastKey = `${status.state}:${status.attempt}:${status.error ?? ''}`
-      if (lastToastKeyRef.current === toastKey) {
-        return
-      }
-
-      lastToastKeyRef.current = toastKey
-
-      if (status.state === 'host_registration_failed') {
-        showToast({
-          title: t('features.browserBridge.unavailableTitle'),
-          description:
-            status.error ??
-            t('features.browserBridge.unavailableBody'),
-          variant: 'error',
-          duration: 9000,
-        })
-        return
-      }
-
-      const retryDelay = formatRetryDelay(status.nextRetryMs, tPlural)
-      const description = status.error
-        ? formatErrorWithRetry(status.error, retryDelay)
-        : `${t('features.browserBridge.disconnected')}${retryDelay}`
-
-      showToast({
-        title: t('features.browserBridge.connectionLostTitle'),
-        description,
-        variant: 'error',
-        duration: 7000,
-      })
-    })
-  }, [t, tPlural])
-}
+    });
+  }, []);
+};

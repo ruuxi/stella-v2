@@ -6,6 +6,7 @@
   "exports": {
     ".": "./index.ts",
     "./browser-extension": "./browser-extension.js",
+    "./browser-bridge-status": "./browser-bridge-status.ts",
     "./model-mentions": "./model-mentions.js",
     "./protocol": "./protocol/index.ts",
     "./protocol/*": "./protocol/*.ts",

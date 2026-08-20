@@ -1,6 +1,5 @@
 import { ProcessRuntime } from "../process-runtime.js";
 import {
-  isStellaExtensionInstalled,
   StellaBrowserBridgeService,
   type StellaBrowserAgentBackend,
   type StellaBrowserAgentCapability,
@@ -8,29 +7,15 @@ import {
 } from "../services/stella-browser-bridge-service.js";
 import { createManagedResource } from "../managed-resource.js";
 import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
+import {
+  shouldEmitBrowserBridgeGlobalToast,
+  type StellaBrowserBridgeFailureReason,
+  type StellaBrowserBridgeStatus,
+} from "@stella/contracts/browser-bridge-status";
 
-const TOAST_AFTER_RETRY_ATTEMPTS = 3;
-
-type StellaBrowserBridgeState =
-  | "idle"
-  | "connecting"
-  | "connected"
-  | "reconnecting"
-  | "host_registration_failed";
-
-export type StellaBrowserBridgeFailureReason =
-  | "bridge_missing"
-  | "authorization_failed"
-  | "connection_lost"
-  | "transient_failure";
-
-export type StellaBrowserBridgeStatus = {
-  state: StellaBrowserBridgeState;
-  attempt: number;
-  nextRetryMs?: number;
-  error?: string;
-  reason?: StellaBrowserBridgeFailureReason;
-  notifyUser?: boolean;
+export type {
+  StellaBrowserBridgeFailureReason,
+  StellaBrowserBridgeStatus,
 };
 
 export type StellaBrowserBridgeResource = {
@@ -62,11 +47,13 @@ export const createStellaBrowserBridgeResource = (options: {
     attempt: 0,
   };
   let hasConnected = false;
-  let toastShownForCurrentOutage = false;
 
   const publishStatus = (status: StellaBrowserBridgeStatus) => {
-    currentStatus = status;
-    options.onStatus(status);
+    currentStatus = {
+      ...status,
+      notifyUser: shouldEmitBrowserBridgeGlobalToast(status),
+    };
+    options.onStatus(currentStatus);
   };
 
   const classifyFailure = (error: string): StellaBrowserBridgeFailureReason => {
@@ -88,11 +75,6 @@ export const createStellaBrowserBridgeResource = (options: {
     }
     return hasConnected ? "connection_lost" : "transient_failure";
   };
-
-  const shouldNotifyForOutage = (attempt: number) =>
-    !toastShownForCurrentOutage &&
-    attempt > TOAST_AFTER_RETRY_ATTEMPTS &&
-    (hasConnected || isStellaExtensionInstalled());
 
   return createManagedResource<
     StellaBrowserBridgeService,
@@ -124,19 +106,15 @@ export const createStellaBrowserBridgeResource = (options: {
       },
       onStarted: () => {
         hasConnected = true;
-        toastShownForCurrentOutage = false;
         publishStatus({ state: "connected", attempt: 0 });
       },
       onRetry: ({ attempt, delayMs, error }) => {
-        const notifyUser = shouldNotifyForOutage(attempt);
-        if (notifyUser) toastShownForCurrentOutage = true;
         publishStatus({
           state: "reconnecting",
           attempt,
           nextRetryMs: delayMs,
           error,
           reason: classifyFailure(error),
-          notifyUser,
         });
       },
       onError: (error) => {
@@ -147,14 +125,11 @@ export const createStellaBrowserBridgeResource = (options: {
         if (!isHostRegistration) {
           return;
         }
-        const reason = classifyFailure(error);
-        const notifyUser = hasConnected || isStellaExtensionInstalled();
         publishStatus({
           state: "host_registration_failed",
           attempt: 0,
           error,
-          reason,
-          notifyUser,
+          reason: classifyFailure(error),
         });
       },
     },

@@ -16,6 +16,14 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^@\//, replacement: `${path.resolve(__dirname, './src')}/` },
+      {
+        find: /^@stella\/contracts\/browser-bridge-status$/,
+        replacement: path.resolve(__dirname, '../contracts/browser-bridge-status.ts'),
+      },
+      {
+        find: /^@stella\/desktop(\/.*)$/,
+        replacement: `${path.resolve(__dirname, '../desktop')}$1`,
+      },
     ],
   },
 });

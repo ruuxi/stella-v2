@@ -8,11 +8,19 @@
 }
 
 .ask-stella-selection-chip {
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--text-base);
+  /* Opaque backstop first: colorful themes give `--card` an alpha channel,
+     and a lone `background: var(--overlay-surface)` would still let selected
+     text bleed through if a theme ever reassigns the token to a translucent
+     mix. The solid `--background` layer keeps the silhouette filled. */
+  border: 1px solid var(--overlay-border);
+  background-color: var(--background);
+  background-image: linear-gradient(
+    var(--overlay-surface),
+    var(--overlay-surface)
+  );
+  color: var(--text-strong);
   cursor: default;
-  box-shadow: var(--shadow-overlay);
+  box-shadow: var(--overlay-shadow);
   transition:
     background 120ms ease,
     border-color 120ms ease;
@@ -25,19 +33,43 @@
 }
 
 .ask-stella-selection-chip:hover {
-  background: color-mix(in srgb, var(--foreground) 6%, var(--card));
-  border-color: var(--border-strong);
+  background-color: var(--background);
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--foreground) 6%, var(--overlay-surface)),
+    color-mix(in srgb, var(--foreground) 6%, var(--overlay-surface))
+  );
+  border-color: var(--overlay-border-strong);
   transform: translateY(-1px);
 }
 
 .ask-stella-selection-chip:active {
-  background: color-mix(in srgb, var(--foreground) 10%, var(--card));
+  background-color: var(--background);
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--foreground) 10%, var(--overlay-surface)),
+    color-mix(in srgb, var(--foreground) 10%, var(--overlay-surface))
+  );
+  border-color: var(--overlay-border-strong);
   transform: translateY(0);
 }
 
 .ask-stella-selection-chip:focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
+  border-color: var(--overlay-border-strong);
+  box-shadow: var(--overlay-shadow), var(--focus-ring);
+}
+
+.ask-stella-selection-chip:disabled {
+  color: var(--text-weak);
+  border-color: var(--overlay-border);
+  background-color: var(--background);
+  background-image: linear-gradient(
+    var(--overlay-surface),
+    var(--overlay-surface)
+  );
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+  cursor: default;
 }
 
 @keyframes ask-stella-selection-chip-in {

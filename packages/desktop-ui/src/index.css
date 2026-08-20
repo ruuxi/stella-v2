@@ -153,6 +153,19 @@
   --surface-raised-hover: color-mix(in srgb, var(--foreground) 4%, var(--card));
   --surface-raised-stronger-non-alpha: var(--card);
 
+  /* Floating chrome that must stay discoverable over live content.
+     `--card` / `--border` track the page too closely (and several colorful
+     themes give `--card` an alpha channel), so overlays that sit on selected
+     text need a dedicated opaque surface + high-contrast silhouette. */
+  --overlay-surface: var(--background-strong);
+  --overlay-border: color-mix(in srgb, var(--foreground) 32%, var(--background));
+  --overlay-border-strong: color-mix(
+    in srgb,
+    var(--foreground) 44%,
+    var(--background)
+  );
+  --overlay-shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.28);
+
   /* Text hierarchy — SOLID, opaque colors mixed toward the background so
      contrast is deterministic (always WCAG-checked), never composited over a
      moving substrate. Still theme-tracking via --foreground/--background. */
@@ -394,6 +407,15 @@
   --surface-raised: var(--card);
   --surface-raised-hover: color-mix(in srgb, var(--foreground) 6%, var(--card));
   --surface-raised-stronger-non-alpha: var(--card);
+
+  --overlay-surface: var(--background-strong);
+  --overlay-border: color-mix(in srgb, var(--foreground) 42%, var(--background));
+  --overlay-border-strong: color-mix(
+    in srgb,
+    var(--foreground) 56%,
+    var(--background)
+  );
+  --overlay-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.5);
 
   /* Solid, theme-tracking text ramp (mixed toward the dark background). */
   --text-strong: var(--foreground);

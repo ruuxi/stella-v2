@@ -139,41 +139,63 @@ export class ChatHistoryPaginationGate {
   }
 }
 
+export type ChatPrependAnchorRow = {
+  rowId: string;
+  viewportOffset: number;
+};
+
 export type ChatPrependAnchor = {
   rowId: string;
   viewportOffset: number;
   scrollTop: number;
   viewportHeight: number;
   contentHeight: number;
+  extraRows: ChatPrependAnchorRow[];
 };
 
 const chatRows = (node: HTMLElement): HTMLElement[] =>
   Array.from(node.querySelectorAll<HTMLElement>("[data-chat-row-id]"));
 
-/** Capture the first painted row intersecting the viewport's top edge. */
-export const captureChatPrependAnchor = (
-  node: HTMLElement,
-): ChatPrependAnchor | null => {
+const MAX_CAPTURED_ANCHOR_ROWS = 8;
+const MVCP_UNAPPLIED_SCROLL_PX = 1;
+
+const paintedRowsFromTop = (node: HTMLElement) => {
   const viewport = node.getBoundingClientRect();
-  const rows = chatRows(node)
+  return chatRows(node)
     .map((candidate) => ({
       candidate,
       rect: candidate.getBoundingClientRect(),
     }))
-    .filter(({ rect }) => rect.bottom > viewport.top)
-    .sort((a, b) => a.rect.top - b.rect.top);
+    .filter(({ rect }) => rect.bottom > viewport.top + 0.5)
+    .sort((a, b) => a.rect.top - b.rect.top)
+    .map(({ candidate, rect }) => ({
+      rowId: candidate.dataset.chatRowId ?? "",
+      viewportOffset: rect.top - viewport.top,
+      candidate,
+    }))
+    .filter((row) => row.rowId.length > 0);
+};
+
+/** Capture the first painted row intersecting the viewport's top edge. */
+export const captureChatPrependAnchor = (
+  node: HTMLElement,
+): ChatPrependAnchor | null => {
   // Recycled Legend containers are not guaranteed to remain in visual DOM
   // order, so geometry — not querySelector order — chooses the top anchor.
-  const row = rows[0]?.candidate;
-  const rowId = row?.dataset.chatRowId;
-  if (!row || !rowId) return null;
+  const painted = paintedRowsFromTop(node);
+  const top = painted[0];
+  if (!top) return null;
 
   return {
-    rowId,
-    viewportOffset: row.getBoundingClientRect().top - viewport.top,
+    rowId: top.rowId,
+    viewportOffset: top.viewportOffset,
     scrollTop: node.scrollTop,
     viewportHeight: node.clientHeight,
     contentHeight: node.scrollHeight,
+    extraRows: painted.slice(1, MAX_CAPTURED_ANCHOR_ROWS).map((row) => ({
+      rowId: row.rowId,
+      viewportOffset: row.viewportOffset,
+    })),
   };
 };
 
@@ -184,35 +206,18 @@ export type ChatPrependAnchorRestore = {
   scrollTopAfter: number;
   viewportOffsetAfter: number | null;
   contentHeightAfter: number;
+  strategy: "row" | "content-delta" | "miss";
 };
 
-/**
- * Correct any residual MVCP error after a prepend. Legend remains the primary
- * anchor owner; this only writes when the captured row's painted viewport
- * offset differs, so an exact MVCP result is a zero-write no-op.
- */
-export const restoreChatPrependAnchor = (
+const restoreFromMountedRow = (
   node: HTMLElement,
-  anchor: ChatPrependAnchor,
+  row: HTMLElement,
+  targetOffset: number,
 ): ChatPrependAnchorRestore => {
-  const row = chatRows(node).find(
-    (candidate) => candidate.dataset.chatRowId === anchor.rowId,
-  );
   const scrollTopBefore = node.scrollTop;
-  if (!row) {
-    return {
-      found: false,
-      adjustment: 0,
-      scrollTopBefore,
-      scrollTopAfter: node.scrollTop,
-      viewportOffsetAfter: null,
-      contentHeightAfter: node.scrollHeight,
-    };
-  }
-
   const viewport = node.getBoundingClientRect();
   const offsetBefore = row.getBoundingClientRect().top - viewport.top;
-  const adjustment = offsetBefore - anchor.viewportOffset;
+  const adjustment = offsetBefore - targetOffset;
   if (Math.abs(adjustment) > 0.1) node.scrollTop += adjustment;
 
   const viewportOffsetAfter =
@@ -224,6 +229,71 @@ export const restoreChatPrependAnchor = (
     scrollTopAfter: node.scrollTop,
     viewportOffsetAfter,
     contentHeightAfter: node.scrollHeight,
+    strategy: "row",
+  };
+};
+
+const mvcpLooksUnapplied = (node: HTMLElement, anchor: ChatPrependAnchor) =>
+  Math.abs(node.scrollTop - anchor.scrollTop) <= MVCP_UNAPPLIED_SCROLL_PX;
+
+/**
+ * Correct any residual MVCP error after a prepend. Legend remains the primary
+ * anchor owner; this only writes when a captured row's painted viewport offset
+ * differs, so an exact MVCP result is a zero-write no-op.
+ *
+ * Legend recycles containers, so the top row from capture may be unmounted by
+ * the time the older page lands. Extra captured rows and the content-height
+ * delta are last resorts for that miss, and only when scrollTop still matches
+ * the pre-prepend value — meaning MVCP did not move the viewport. Applying
+ * them after an MVCP shift (or after continued user scrolling) fights the
+ * user and produces multi-thousand-pixel jumps.
+ */
+export const restoreChatPrependAnchor = (
+  node: HTMLElement,
+  anchor: ChatPrependAnchor,
+): ChatPrependAnchorRestore => {
+  const mounted = chatRows(node);
+  const primary = mounted.find((item) => item.dataset.chatRowId === anchor.rowId);
+  if (primary) {
+    return restoreFromMountedRow(node, primary, anchor.viewportOffset);
+  }
+
+  const unapplied = mvcpLooksUnapplied(node, anchor);
+  if (unapplied) {
+    for (const candidate of anchor.extraRows ?? []) {
+      const row = mounted.find(
+        (item) => item.dataset.chatRowId === candidate.rowId,
+      );
+      if (row) {
+        return restoreFromMountedRow(node, row, candidate.viewportOffset);
+      }
+    }
+  }
+
+  const scrollTopBefore = node.scrollTop;
+  const contentHeightAfter = node.scrollHeight;
+  const contentDelta = contentHeightAfter - anchor.contentHeight;
+  if (unapplied && contentDelta > 0.5) {
+    node.scrollTop = scrollTopBefore + contentDelta;
+    return {
+      found: false,
+      adjustment: contentDelta,
+      scrollTopBefore,
+      scrollTopAfter: node.scrollTop,
+      viewportOffsetAfter: null,
+      contentHeightAfter,
+      strategy: "content-delta",
+    };
+  }
+
+  return {
+    found: false,
+    adjustment: 0,
+    scrollTopBefore,
+    scrollTopAfter: node.scrollTop,
+    viewportOffsetAfter: null,
+    contentHeightAfter,
+    strategy: "miss",
   };
 };
 

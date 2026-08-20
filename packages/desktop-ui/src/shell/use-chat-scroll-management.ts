@@ -552,7 +552,7 @@ export function useChatScrollManagement({
       }
       attempts += 1;
       const result = restoreChatPrependAnchor(current.node, current.anchor);
-      if (!result.found && attempts < 8) {
+      if (result.strategy === "miss" && attempts < 8) {
         prependRestoreRafRef.current = requestAnimationFrame(restore);
         return;
       }

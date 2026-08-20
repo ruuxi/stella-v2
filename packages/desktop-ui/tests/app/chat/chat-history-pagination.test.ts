@@ -220,6 +220,7 @@ describe("prepend anchor preservation", () => {
       scrollTop: 100,
       viewportHeight: 600,
       contentHeight: 2_000,
+      extraRows: [],
     });
 
     rowDocumentTop += 500;
@@ -233,6 +234,7 @@ describe("prepend anchor preservation", () => {
       scrollTopAfter: 600,
       viewportOffsetAfter: 20,
       contentHeightAfter: 2_500,
+      strategy: "row",
     });
     viewport.remove();
   });
@@ -264,6 +266,108 @@ describe("prepend anchor preservation", () => {
     expect(restored.scrollTopBefore).toBe(600);
     expect(restored.scrollTopAfter).toBe(600);
     expect(restored.viewportOffsetAfter).toBe(20);
+    expect(restored.strategy).toBe("row");
+    viewport.remove();
+  });
+
+  it("falls back to another captured visible row when the top row is recycled", () => {
+    const viewport = document.createElement("div");
+    const top = document.createElement("div");
+    const next = document.createElement("div");
+    top.dataset.chatRowId = "message-top";
+    next.dataset.chatRowId = "message-next";
+    viewport.append(top, next);
+    document.body.appendChild(viewport);
+
+    viewport.scrollTop = 100;
+    Object.defineProperty(viewport, "clientHeight", { value: 600 });
+    let contentHeight = 2_000;
+    Object.defineProperty(viewport, "scrollHeight", {
+      get: () => contentHeight,
+    });
+    viewport.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    top.getBoundingClientRect = () => ({ top: 20, bottom: 100 }) as DOMRect;
+    next.getBoundingClientRect = () => ({ top: 120, bottom: 200 }) as DOMRect;
+
+    const anchor = captureChatPrependAnchor(viewport)!;
+    expect(anchor.rowId).toBe("message-top");
+    expect(anchor.extraRows).toEqual([
+      { rowId: "message-next", viewportOffset: 120 },
+    ]);
+
+    top.remove();
+    contentHeight = 2_500;
+    next.getBoundingClientRect = () => ({ top: 620, bottom: 700 }) as DOMRect;
+
+    const restored = restoreChatPrependAnchor(viewport, anchor);
+    expect(restored.found).toBe(true);
+    expect(restored.strategy).toBe("row");
+    expect(restored.adjustment).toBe(500);
+    expect(viewport.scrollTop).toBe(600);
+    viewport.remove();
+  });
+
+  it("applies the content-height delta only when MVCP left scrollTop unmoved", () => {
+    const viewport = document.createElement("div");
+    document.body.appendChild(viewport);
+    viewport.scrollTop = 100;
+    Object.defineProperty(viewport, "clientHeight", { value: 600 });
+    let contentHeight = 2_000;
+    Object.defineProperty(viewport, "scrollHeight", {
+      get: () => contentHeight,
+    });
+    viewport.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+
+    const unmountedAnchor = {
+      rowId: "gone",
+      viewportOffset: -24,
+      scrollTop: 100,
+      viewportHeight: 600,
+      contentHeight: 2_000,
+      extraRows: [],
+    };
+    contentHeight = 52_000;
+    const restored = restoreChatPrependAnchor(viewport, unmountedAnchor);
+    expect(restored.strategy).toBe("content-delta");
+    expect(restored.found).toBe(false);
+    expect(restored.adjustment).toBe(50_000);
+    expect(viewport.scrollTop).toBe(50_100);
+
+    viewport.scrollTop = 50_100;
+    const alreadyMoved = restoreChatPrependAnchor(viewport, {
+      ...unmountedAnchor,
+      contentHeight: 2_000,
+    });
+    expect(alreadyMoved.strategy).toBe("miss");
+    expect(alreadyMoved.adjustment).toBe(0);
+    expect(viewport.scrollTop).toBe(50_100);
+    viewport.remove();
+  });
+
+  it("does not apply extra-row restore after MVCP already moved scrollTop", () => {
+    const viewport = document.createElement("div");
+    const next = document.createElement("div");
+    next.dataset.chatRowId = "message-next";
+    viewport.append(next);
+    document.body.appendChild(viewport);
+
+    viewport.scrollTop = 50_100;
+    Object.defineProperty(viewport, "clientHeight", { value: 600 });
+    Object.defineProperty(viewport, "scrollHeight", { value: 52_000 });
+    viewport.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    next.getBoundingClientRect = () => ({ top: 3_800, bottom: 3_900 }) as DOMRect;
+
+    const restored = restoreChatPrependAnchor(viewport, {
+      rowId: "gone",
+      viewportOffset: -24,
+      scrollTop: 100,
+      viewportHeight: 600,
+      contentHeight: 2_000,
+      extraRows: [{ rowId: "message-next", viewportOffset: 120 }],
+    });
+    expect(restored.strategy).toBe("miss");
+    expect(restored.adjustment).toBe(0);
+    expect(viewport.scrollTop).toBe(50_100);
     viewport.remove();
   });
 });

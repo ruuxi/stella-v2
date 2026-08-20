@@ -226,41 +226,39 @@ type TimelineListItem = ChatTimelineItem & {
 };
 
 /**
- * Keep the first list paint close to Legend's default, then use idle time to
- * mount a wider runway around the viewport before the user scrolls. Chat rows
- * are unusually expensive virtual items (Streamdown markdown, cards, images,
- * and variable-height measurement), so a 300px cold runway can be exhausted
- * within one trackpad frame and briefly expose an unpainted recycled
- * container. Warming to roughly two viewports keeps that work ahead of direct
- * input without adding it to the conversation's initial render.
+ * Keep the first list paint close to Legend's default, then widen the
+ * virtualization runway after the first user scroll. Chat rows are unusually
+ * expensive (markdown, cards, images), so a 300px cold runway can be exhausted
+ * in one trackpad frame. Warming immediately on idle still pays that cost on
+ * the first upward flick of a long conversation. Waiting for input keeps the
+ * initial settle cheap and only mounts the extra runway once scrolling starts.
  */
-export const CHAT_DRAW_DISTANCE_COLD_PX = 900;
+export const CHAT_DRAW_DISTANCE_COLD_PX = 300;
 export const CHAT_DRAW_DISTANCE_WARM_PX = 1_800;
-const CHAT_DRAW_DISTANCE_FALLBACK_DELAY_MS = 240;
 
 const useChatDrawDistance = (dataKey: string | null): number => {
   const [warmedDataKey, setWarmedDataKey] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!dataKey || warmedDataKey === dataKey) return;
-    const scheduleIdle =
-      window.requestIdleCallback ??
-      ((callback: IdleRequestCallback) =>
-        window.setTimeout(
-          () =>
-            callback({
-              didTimeout: false,
-              timeRemaining: () => 0,
-            }),
-          CHAT_DRAW_DISTANCE_FALLBACK_DELAY_MS,
-        ));
-    const cancelIdle =
-      window.cancelIdleCallback ??
-      ((handle: number) => window.clearTimeout(handle));
-    const handle = scheduleIdle(() => {
+    if (!dataKey) {
+      setWarmedDataKey(null);
+      return;
+    }
+    if (warmedDataKey === dataKey) return;
+    const warm = () => {
       startTransition(() => setWarmedDataKey(dataKey));
-    });
-    return () => cancelIdle(handle as number);
+    };
+    const options = { capture: true, passive: true } as const;
+    window.addEventListener("wheel", warm, options);
+    window.addEventListener("pointerdown", warm, options);
+    window.addEventListener("keydown", warm, options);
+    window.addEventListener("touchstart", warm, options);
+    return () => {
+      window.removeEventListener("wheel", warm, options);
+      window.removeEventListener("pointerdown", warm, options);
+      window.removeEventListener("keydown", warm, options);
+      window.removeEventListener("touchstart", warm, options);
+    };
   }, [dataKey, warmedDataKey]);
 
   return warmedDataKey === dataKey

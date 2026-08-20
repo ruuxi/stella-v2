@@ -127,7 +127,7 @@ describe("persistent Node REPL kernels", () => {
     expect(
       isBunNodeReplRuntime({
         ...process.versions,
-        bun: "1.3.14",
+        bun: "1.4.0",
       }),
     ).toBe(true);
     expect(isBunNodeReplRuntime({ ...process.versions })).toBe(false);

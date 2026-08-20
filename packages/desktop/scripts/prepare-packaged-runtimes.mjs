@@ -24,9 +24,9 @@ const GIT_MANIFEST_URL = `https://pub-a319aaada8144dc9be5a83625033769c.r2.dev/gi
 const PLATFORM_ASSETS = {
   "darwin-arm64": {
     bun: {
-      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-aarch64.zip",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-darwin-aarch64.zip",
       sha256:
-        "d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620",
+        "c669e97f6164e1c96e0701748db98dfa77492908cbd8394c7557134a735de381",
       archive: "zip",
       executable: "bun-darwin-aarch64/bun",
     },
@@ -61,9 +61,9 @@ const PLATFORM_ASSETS = {
   },
   "darwin-x64": {
     bun: {
-      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-x64.zip",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-darwin-x64.zip",
       sha256:
-        "4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633",
+        "1d0211b8f1dc991182344687ad15e72ee86f154845a5f7fa477994cd341dd9b0",
       archive: "zip",
       executable: "bun-darwin-x64/bun",
     },
@@ -98,9 +98,9 @@ const PLATFORM_ASSETS = {
   },
   "win-x64": {
     bun: {
-      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-windows-x64.zip",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip",
       sha256:
-        "0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922",
+        "e6f093d39da486b20262ca8cdd5ed6a9e8bc9c2f275b78e6d3a0c5b28cc95901",
       archive: "zip",
       executable: "bun-windows-x64/bun.exe",
     },
@@ -135,9 +135,9 @@ const PLATFORM_ASSETS = {
   },
   "linux-x64": {
     bun: {
-      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip",
+      url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip",
       sha256:
-        "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f",
+        "2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452",
       archive: "zip",
       executable: "bun-linux-x64/bun",
     },

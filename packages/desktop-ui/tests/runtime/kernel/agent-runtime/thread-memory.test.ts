@@ -10,7 +10,11 @@ import {
   buildHistorySource,
   buildStartupPromptMessages,
 } from "@stella/runtime/kernel/agent-runtime/thread-memory.js";
-import { readMemorySummaryDoc } from "@stella/runtime/kernel/runner/shared";
+import {
+  buildResidentFold,
+  parseResidentFold,
+} from "@stella/runtime/kernel/agent-runtime/resident-context.js";
+import { readMemoryMapDoc } from "@stella/runtime/kernel/runner/shared";
 
 const readStartupDocBody = (text: string): string => {
   const match = text.match(/<startup_doc[^>]*>\n([\s\S]*)\n<\/startup_doc>/);
@@ -92,7 +96,7 @@ describe("buildStartupPromptMessages", () => {
     expect(promptText).toContain("***");
   });
 
-  it("push-injects the resident user profile and focus summary as startup docs", async () => {
+  it("push-injects the resident user profile and memory map as startup docs", async () => {
     const messages = await buildStartupPromptMessages({
       context: {
         systemPrompt: "system",
@@ -100,16 +104,15 @@ describe("buildStartupPromptMessages", () => {
         maxAgentDepth: 1,
         threadHistory: [],
         userProfile: "# User Profile\n\n- The user goes by Bob",
-        memorySummary:
-          "# Memory summary\n\n- Shipping the resident-memory rewire",
+        memoryMap: "# Memory map\n\n- Stella v2; source: memory",
       },
     });
 
     const promptText = messages.map((message) => message.text).join("\n");
     expect(promptText).toContain('path="~/.stella/memories/profile.md"');
     expect(promptText).toContain("The user goes by Bob");
-    expect(promptText).toContain('path="~/.stella/memories/memory_summary.md"');
-    expect(promptText).toContain("resident-memory rewire");
+    expect(promptText).toContain('path="~/.stella/memories/memory_map.md"');
+    expect(promptText).toContain("Stella v2; source: memory");
     expect(
       messages.every((m) => m.customType === "bootstrap.startup_doc"),
     ).toBe(true);
@@ -119,7 +122,7 @@ describe("buildStartupPromptMessages", () => {
     { chars: 12_000, truncated: false },
     { chars: 12_001, truncated: true },
   ])(
-    "caps a $chars-character combined resident memory block at 12,000 characters",
+    "caps a $chars-character resident memory map at 12,000 characters",
     async ({ chars, truncated }) => {
       const messages = await buildStartupPromptMessages({
         context: {
@@ -127,33 +130,33 @@ describe("buildStartupPromptMessages", () => {
           dynamicContext: "",
           maxAgentDepth: 1,
           threadHistory: [],
-          memorySummary: "x".repeat(chars),
+          memoryMap: "x".repeat(chars),
         },
       });
 
       const body = readStartupDocBody(messages[0]?.text ?? "");
       expect(body).toHaveLength(12_000);
-      expect(body.includes("resident memory summary truncated")).toBe(
-        truncated,
-      );
+      expect(body.includes("resident memory map truncated")).toBe(truncated);
     },
   );
 
-  it("defense-in-depth caps the combined summary and routing index", async () => {
+  it("reads only the bounded current memory map when a legacy summary still exists", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "stella-resident-memory-"));
     try {
       const memoriesDir = path.join(root, "memories");
       await mkdir(memoriesDir, { recursive: true });
       await writeFile(
         path.join(memoriesDir, "memory_summary.md"),
-        "s".repeat(7_000),
+        "LEGACY_RETIRED_SUMMARY",
       );
       await writeFile(
-        path.join(memoriesDir, "memory_index.md"),
-        `${"i".repeat(6_000 - "TAIL_SENTINEL".length)}TAIL_SENTINEL`,
+        path.join(memoriesDir, "memory_map.md"),
+        `${"m".repeat(6_000 - "MAP_SENTINEL".length)}MAP_SENTINEL`,
       );
-      const combined = readMemorySummaryDoc(root);
-      expect(combined?.length).toBeGreaterThan(12_000);
+      const memoryMap = readMemoryMapDoc(root);
+      expect(memoryMap).toHaveLength(6_000);
+      expect(memoryMap).toContain("MAP_SENTINEL");
+      expect(memoryMap).not.toContain("LEGACY_RETIRED_SUMMARY");
 
       const messages = await buildStartupPromptMessages({
         context: {
@@ -161,13 +164,16 @@ describe("buildStartupPromptMessages", () => {
           dynamicContext: "",
           maxAgentDepth: 1,
           threadHistory: [],
-          memorySummary: combined,
+          memoryMap,
         },
       });
       const body = readStartupDocBody(messages[0]?.text ?? "");
-      expect(body).toHaveLength(12_000);
-      expect(body).toContain("resident memory summary truncated");
-      expect(body).not.toContain("TAIL_SENTINEL");
+      expect(messages[0]?.text).toContain(
+        'path="~/.stella/memories/memory_map.md"',
+      );
+      expect(body).toHaveLength(6_000);
+      expect(body).toContain("MAP_SENTINEL");
+      expect(body).not.toContain("LEGACY_RETIRED_SUMMARY");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -317,6 +323,53 @@ describe("buildStartupPromptMessages", () => {
   });
 });
 
+describe("resident memory compaction", () => {
+  const startupDoc = (displayPath: string, text: string) => ({
+    role: "runtimeInternal",
+    customMessage: {
+      customType: "bootstrap.startup_doc",
+      content: `<startup_doc path="${displayPath}">\n${text}\n</startup_doc>`,
+    },
+  });
+
+  it("excludes a legacy summary while retaining current memory in fold plans", () => {
+    const fold = buildResidentFold({
+      messages: [
+        startupDoc(
+          "~/.stella/memories/memory_summary.md",
+          "LEGACY_RETIRED_SUMMARY",
+        ),
+        startupDoc("~/.stella/memories/profile.md", "current profile"),
+        startupDoc("~/.stella/memories/memory_map.md", "current map"),
+      ],
+    });
+
+    expect(JSON.stringify(fold)).not.toContain("LEGACY_RETIRED_SUMMARY");
+    expect(JSON.stringify(fold)).toContain("current profile");
+    expect(JSON.stringify(fold)).toContain("current map");
+  });
+
+  it("discards a legacy summary embedded in a persisted fold", () => {
+    const parsed = parseResidentFold({
+      residentFold: {
+        docs: [
+          {
+            customType: "bootstrap.startup_doc",
+            text: '<startup_doc path="~/.stella/memories/memory_summary.md">\nLEGACY_RETIRED_SUMMARY\n</startup_doc>',
+          },
+          {
+            customType: "bootstrap.startup_doc",
+            text: '<startup_doc path="~/.stella/memories/memory_map.md">\ncurrent map\n</startup_doc>',
+          },
+        ],
+      },
+    });
+
+    expect(JSON.stringify(parsed)).not.toContain("LEGACY_RETIRED_SUMMARY");
+    expect(JSON.stringify(parsed)).toContain("current map");
+  });
+});
+
 describe("buildSubagentPromptMessages", () => {
   it("omits the registry startup doc for General subagent prompts", async () => {
     const stellaDataDir = await mkdtemp(path.join(tmpdir(), "stella-general-"));
@@ -435,8 +488,8 @@ describe("buildHistorySource", () => {
         : null,
     ).toBe(assistantText);
   });
-  // Retaining older bootstrap entries keeps the prompt-cache prefix stable.
-  it("retains all persisted memory bundle entries in chronological order", () => {
+  // Retaining current bootstrap entries keeps the prompt-cache prefix stable.
+  it("drops legacy summaries while retaining current memory entries in chronological order", () => {
     const history = buildHistorySource({
       systemPrompt: "system",
       dynamicContext: "",
@@ -452,6 +505,21 @@ describe("buildHistorySource", () => {
               {
                 type: "text",
                 text: '<memory_file path="~/.stella/memories/memory_summary.md">\nold summary\n</memory_file>',
+              },
+            ],
+            display: false,
+          },
+        },
+        {
+          role: "runtimeInternal",
+          content: "old map",
+          timestamp: 1.5,
+          customMessage: {
+            customType: "bootstrap.memory_file",
+            content: [
+              {
+                type: "text",
+                text: '<memory_file path="~/.stella/memories/memory_map.md">\nold map\n</memory_file>',
               },
             ],
             display: false,
@@ -494,6 +562,21 @@ describe("buildHistorySource", () => {
         },
         {
           role: "runtimeInternal",
+          content: "new map",
+          timestamp: 4.5,
+          customMessage: {
+            customType: "bootstrap.memory_file",
+            content: [
+              {
+                type: "text",
+                text: '<memory_file path="~/.stella/memories/memory_map.md">\nnew map\n</memory_file>',
+              },
+            ],
+            display: false,
+          },
+        },
+        {
+          role: "runtimeInternal",
           content: "new memory",
           timestamp: 5,
           customMessage: {
@@ -521,13 +604,15 @@ describe("buildHistorySource", () => {
       })
       .join("\n");
 
-    expect(replayedText).toContain("old summary");
+    expect(replayedText).not.toContain("old summary");
+    expect(replayedText).toContain("old map");
     expect(replayedText).toContain("old user");
-    expect(replayedText).toContain("new summary");
+    expect(replayedText).not.toContain("new summary");
+    expect(replayedText).toContain("new map");
     expect(replayedText).toContain("new memory");
 
-    expect(replayedText.indexOf("old summary")).toBeLessThan(
-      replayedText.indexOf("new summary"),
+    expect(replayedText.indexOf("old map")).toBeLessThan(
+      replayedText.indexOf("new map"),
     );
     expect(replayedText.indexOf("old user")).toBeLessThan(
       replayedText.indexOf("new memory"),

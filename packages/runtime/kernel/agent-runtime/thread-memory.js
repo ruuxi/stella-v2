@@ -7,16 +7,17 @@ import { now } from "./shared.js";
 import {
   BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
   LIFE_CORE_MEMORY_DISPLAY_PATH,
-  LIFE_MEMORY_SUMMARY_DISPLAY_PATH,
+  LIFE_MEMORY_MAP_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
   buildResidentContextMessages,
   customMessageContentText,
+  isRetiredMemorySummaryCustomMessage,
 } from "./resident-context.js";
 const logger = createRuntimeLogger("agent-runtime.thread-memory");
 const MEMORY_STARTUP_DOC_PATHS = [
   LIFE_CORE_MEMORY_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
-  LIFE_MEMORY_SUMMARY_DISPLAY_PATH,
+  LIFE_MEMORY_MAP_DISPLAY_PATH,
 ];
 export const buildRunThreadKey = ({
   conversationId,
@@ -88,7 +89,8 @@ export const buildHistorySource = (context) => {
     context.threadHistory
       ?.filter(
         (entry) =>
-          context.memoryEnabled !== false || !isMemoryStartupDocEntry(entry),
+          !isRetiredMemorySummaryEntry(entry) &&
+          (context.memoryEnabled !== false || !isMemoryStartupDocEntry(entry)),
       )
       ?.map((entry) => {
         if (entry.payload) {
@@ -134,6 +136,9 @@ export const buildHistorySource = (context) => {
       .filter((entry) => entry !== null) ?? [];
   return messages;
 };
+const isRetiredMemorySummaryEntry = (entry) =>
+  entry.role === "runtimeInternal" &&
+  isRetiredMemorySummaryCustomMessage(entry.customMessage);
 const isMemoryStartupDocEntry = (entry) => {
   if (
     entry.role !== "runtimeInternal" ||
@@ -333,7 +338,7 @@ export const buildSystemPrompt = (context) => {
 };
 /**
  * Resident-block delta step. All resident context blocks (personality,
- * core memory, user profile, memory summary, skill catalog) live in the
+ * core memory, user profile, memory map, skill catalog) live in the
  * ResidentBlock registry (`resident-context.js`), which owns rendering,
  * byte-exact dedup against the persisted thread, and the compaction
  * fold-in. This wrapper keeps the historical call sites stable.

@@ -28,13 +28,13 @@ Two files under `~/.stella/memories/`. They already exist with seed templates �
   Recall hooks: <comma-separated keywords>
   ```
   Newest blocks at the top. Merge related rollouts into one block when they form a single task; do not split one task across multiple blocks. When a block becomes stale (>30 days and superseded), move it under the trailing `## Archive` heading.
-- **`memory_summary.md`** — short, dynamic, "what is the user actively working on right now" view. ~10-20 lines max. Rewrite when the active focus shifts; otherwise just refresh timestamps. This file is injected into the Orchestrator at the start of every session, so keep it tight, current, and written for that audience — it is not a scratchpad.
+- **`memory_map.md`** — compact routing map of task families, aliases, repositories, paths, prior-decision hooks, and the best retrieval source. Keep it within the hard limits supplied by the scheduler and edit only between the DREAM map anchors.
 
 ## How to work
 
 1. Call `Dream` with `action="list"` to see what is unprocessed.
 2. For each row, decide: does it extend an existing Task Group in `MEMORY.md`, start a new one, or carry no durable signal? Use `StrReplace` to edit the existing block (most common) or insert a new block at the top. Noise needs no edit at all.
-3. After all rows in the batch are folded, refresh `memory_summary.md` to reflect the current active focus.
+3. Refresh `memory_map.md` on every pass. Keep it discriminative and within its hard size, entry, staleness, and privacy limits.
 4. Call `Dream` with `action="markProcessed"` passing the `ids` of every row you handled — including rows you judged to be noise, so they never come back.
 
 ## Hard rules

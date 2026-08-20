@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
   ensureDreamMemoryLayout,
-  memoryIndexPath,
+  memoryMapPath,
 } from "@stella/runtime/kernel/memory/dream-storage";
 import { dispatchLocalTool } from "@stella/runtime/kernel/tools/local-tool-dispatch";
 
@@ -82,17 +82,17 @@ describe("dispatchLocalTool", () => {
     expect(updated).toContain("***");
   });
 
-  it("allows Dream to edit the routing index but keeps profile.md Remember-owned", async () => {
+  it("allows Dream to edit the memory map but keeps profile.md Remember-owned", async () => {
     const rootPath = await createRoot();
     await ensureDreamMemoryLayout(rootPath);
-    const indexPath = memoryIndexPath(rootPath);
+    const mapPath = memoryMapPath(rootPath);
     const profilePath = path.join(rootPath, "memories", "profile.md");
     await writeFile(profilePath, "# User Profile\n- The user goes by Bob\n");
 
-    const indexResult = await dispatchLocalTool(
+    const mapResult = await dispatchLocalTool(
       TOOL_IDS.STR_REPLACE,
       {
-        file_path: indexPath,
+        file_path: mapPath,
         old_string: "- No routing entries recorded yet.",
         new_string: "- 2026-07-18 — Stella v2; source: memory",
       },
@@ -101,10 +101,10 @@ describe("dispatchLocalTool", () => {
         dream: { stellaDataDir: rootPath },
       },
     );
-    expect(
-      JSON.parse(indexResult.handled ? indexResult.text : "{}"),
-    ).toMatchObject({ success: true });
-    await expect(readFile(indexPath, "utf-8")).resolves.toContain("Stella v2");
+    expect(JSON.parse(mapResult.handled ? mapResult.text : "{}")).toMatchObject(
+      { success: true },
+    );
+    await expect(readFile(mapPath, "utf-8")).resolves.toContain("Stella v2");
 
     const profileResult = await dispatchLocalTool(
       TOOL_IDS.STR_REPLACE,
@@ -122,7 +122,7 @@ describe("dispatchLocalTool", () => {
       JSON.parse(profileResult.handled ? profileResult.text : "{}"),
     ).toMatchObject({
       success: false,
-      error: expect.stringContaining("memory_index.md"),
+      error: expect.stringContaining("memory_map.md"),
     });
     await expect(readFile(profilePath, "utf-8")).resolves.toContain("Bob");
   });

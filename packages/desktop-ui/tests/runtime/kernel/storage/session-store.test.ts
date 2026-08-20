@@ -1995,6 +1995,66 @@ describe("session-store", () => {
     });
   });
 
+  it("removes legacy memory summaries from compaction overlays", () => {
+    const { store } = createTestContext();
+    const conversationId = "conv-retired-memory-overlay";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "general",
+    });
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 4_000,
+      role: "user",
+      content: "Keep working",
+      payload: { role: "user", content: "Keep working", timestamp: 4_000 },
+    });
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 4_001,
+      customType: "bootstrap.startup_doc",
+      content:
+        '<startup_doc path="~/.stella/memories/memory_summary.md">\nLEGACY_RETIRED_SUMMARY\n</startup_doc>',
+      display: false,
+    });
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 4_002,
+      customType: "bootstrap.startup_doc",
+      content:
+        '<startup_doc path="~/.stella/memories/memory_map.md">\ncurrent map\n</startup_doc>',
+      display: false,
+    });
+
+    const beforeCompaction = store.loadThreadMessages(threadId);
+    store.compactThread({
+      threadKey: threadId,
+      summary: "Continue from the checkpoint",
+      fromEntryId: beforeCompaction[0]!.entryId!,
+      toEntryId: beforeCompaction[0]!.entryId!,
+      tokensBefore: 100,
+      timestamp: 4_100,
+      details: {
+        residentFold: {
+          docs: [
+            {
+              customType: "bootstrap.startup_doc",
+              text: '<startup_doc path="~/.stella/memories/memory_summary.md">\nLEGACY_RETIRED_SUMMARY\n</startup_doc>',
+            },
+            {
+              customType: "bootstrap.startup_doc",
+              text: '<startup_doc path="~/.stella/memories/memory_map.md">\ncurrent map\n</startup_doc>',
+            },
+          ],
+        },
+      },
+    });
+
+    const compacted = JSON.stringify(store.loadThreadMessages(threadId));
+    expect(compacted).not.toContain("LEGACY_RETIRED_SUMMARY");
+    expect(compacted).toContain("current map");
+  });
+
   it("applies later compaction overlays over the same raw message range", () => {
     const { store } = createTestContext();
     const conversationId = "conv-compact-overlay";
@@ -2149,7 +2209,10 @@ describe("session-store", () => {
     const after = store.loadThreadMessages(threadId);
     // Order: protected head, checkpoint, pinned instruction copy, kept tail.
     expect(
-      after.map((message) => ({ role: message.role, content: message.content })),
+      after.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
     ).toEqual([
       { role: "user", content: "Spawn prompt" },
       {

@@ -117,10 +117,10 @@ const waitFor = async (
 };
 
 describe("buildDreamSystemPrompt", () => {
-  it("requires bounded, usage-aware, sensitive-data-safe index maintenance", () => {
+  it("requires bounded, usage-aware, sensitive-data-safe map maintenance", () => {
     const prompt = buildDreamSystemPrompt(createRoot());
 
-    expect(prompt).toContain("memory_index.md on every consolidation pass");
+    expect(prompt).toContain("memory_map.md on every consolidation pass");
     expect(prompt).toContain("at most 80 entries and 6000 characters");
     expect(prompt).toContain("prune entries older than 90 days");
     expect(prompt).toContain("higher usage_count or recent last_usage");

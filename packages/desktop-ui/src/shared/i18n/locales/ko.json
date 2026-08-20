@@ -706,7 +706,30 @@
       "lapseDescription": "{plan} 요금제는 {date}까지 이용할 수 있습니다. 그 이후에는 Stella가 멈춥니다 — Free 요금제의 사용량은 일회성이고, 이미 모두 사용하셨습니다."
     },
     "heading": "요금제 선택",
-    "subtitle": "무료로 시작하세요. 더 필요할 때 업그레이드하세요."
+    "subtitle": "무료로 시작하세요. 더 필요할 때 업그레이드하세요.",
+    "mobile": {
+      "sectionTitle": "구독",
+      "currentPlanLabel": "현재 요금제",
+      "planValue": "Stella {plan}",
+      "manage": "구독 관리",
+      "manageWebNote": "이 구독은 웹의 Stella(stella.sh)에서 관리하거나 취소할 수 있습니다.",
+      "renews": "{date}에 갱신",
+      "accessEnds": "{date}에 이용 종료",
+      "chooseHeading": "요금제 선택",
+      "subscribe": "구독하기",
+      "perMonth": "{price}/월",
+      "introLine": "첫 달 {introPrice}, 이후 {price}/월",
+      "signInToSubscribe": "구독하려면 로그인하세요",
+      "startingCheckout": "시작 중…",
+      "pendingTitle": "구매를 마무리하는 중",
+      "pendingBody": "브라우저에서 결제를 완료하세요. 결제가 확인되면 요금제가 여기에서 자동으로 업데이트됩니다. 다시 시작할 필요가 없습니다.",
+      "pendingDismiss": "나중에",
+      "successTitle": "Stella {plan}을 이용 중입니다",
+      "successBody": "구독이 활성화되었습니다. 늘어난 한도를 마음껏 사용하세요.",
+      "errorRetry": "다시 시도",
+      "alreadySubscribedTitle": "이미 구독 중입니다",
+      "footnote": "Stripe를 통해 Stella가 청구합니다. 취소할 때까지 매월 갱신되며 언제든 취소할 수 있습니다."
+    }
   },
   "chat": {
     "stoppedReply": "Stella가 이 응답을 시작하지 못했습니다",

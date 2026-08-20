@@ -706,7 +706,30 @@
       "lapseDescription": "Paket {plan} Anda berlaku sampai {date}. Setelah itu Stella berhenti — kuota paket Free hanya diberikan sekali dan milik Anda sudah terpakai."
     },
     "heading": "Pilih paket Anda",
-    "subtitle": "Mulai gratis. Tingkatkan saat Anda membutuhkan lebih banyak."
+    "subtitle": "Mulai gratis. Tingkatkan saat Anda membutuhkan lebih banyak.",
+    "mobile": {
+      "sectionTitle": "Langganan",
+      "currentPlanLabel": "Paket saat ini",
+      "planValue": "Stella {plan}",
+      "manage": "Kelola langganan",
+      "manageWebNote": "Kelola atau batalkan langganan ini dari Stella di web di stella.sh.",
+      "renews": "Diperpanjang {date}",
+      "accessEnds": "Akses berakhir {date}",
+      "chooseHeading": "Pilih paketmu",
+      "subscribe": "Berlangganan",
+      "perMonth": "{price}/bln",
+      "introLine": "{introPrice} bulan pertama, lalu {price}/bln",
+      "signInToSubscribe": "Masuk untuk berlangganan",
+      "startingCheckout": "Memulai…",
+      "pendingTitle": "Menyelesaikan pembelianmu",
+      "pendingBody": "Selesaikan pembayaran di browser. Paketmu diperbarui di sini secara otomatis setelah pembayaran dikonfirmasi — tidak perlu memulai ulang.",
+      "pendingDismiss": "Nanti saja",
+      "successTitle": "Kamu menggunakan Stella {plan}",
+      "successBody": "Langgananmu aktif. Nikmati batas yang lebih tinggi.",
+      "errorRetry": "Coba lagi",
+      "alreadySubscribedTitle": "Kamu sudah memiliki langganan",
+      "footnote": "Ditagih oleh Stella melalui Stripe. Diperpanjang setiap bulan hingga dibatalkan; batalkan kapan saja."
+    }
   },
   "chat": {
     "stoppedReply": "Stella tidak dapat memulai balasan ini",

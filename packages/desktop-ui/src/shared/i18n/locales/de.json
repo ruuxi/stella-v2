@@ -707,7 +707,30 @@
       "lapseDescription": "Dein Tarif {plan} läuft noch bis {date}. Danach stoppt Stella — das Guthaben des Tarifs Free gibt es nur einmal, und deins ist schon aufgebraucht."
     },
     "heading": "Wähle deinen Tarif",
-    "subtitle": "Starte kostenlos. Führe ein Upgrade durch, wenn du mehr brauchst."
+    "subtitle": "Starte kostenlos. Führe ein Upgrade durch, wenn du mehr brauchst.",
+    "mobile": {
+      "sectionTitle": "Abo",
+      "currentPlanLabel": "Aktueller Tarif",
+      "planValue": "Stella {plan}",
+      "manage": "Abo verwalten",
+      "manageWebNote": "Verwalte oder kündige dieses Abo bei Stella im Web unter stella.sh.",
+      "renews": "Verlängert sich am {date}",
+      "accessEnds": "Zugriff endet am {date}",
+      "chooseHeading": "Wähle deinen Tarif",
+      "subscribe": "Abonnieren",
+      "perMonth": "{price}/Mon.",
+      "introLine": "{introPrice} im ersten Monat, danach {price}/Mon.",
+      "signInToSubscribe": "Zum Abonnieren anmelden",
+      "startingCheckout": "Wird gestartet…",
+      "pendingTitle": "Kauf wird abgeschlossen",
+      "pendingBody": "Schließe die Zahlung im Browser ab. Dein Tarif wird hier automatisch aktualisiert, sobald die Zahlung bestätigt ist — kein Neustart nötig.",
+      "pendingDismiss": "Jetzt nicht",
+      "successTitle": "Du nutzt jetzt Stella {plan}",
+      "successBody": "Dein Abo ist aktiv. Viel Spaß mit den höheren Limits.",
+      "errorRetry": "Erneut versuchen",
+      "alreadySubscribedTitle": "Du hast bereits ein Abo",
+      "footnote": "Abgerechnet von Stella über Stripe. Verlängert sich monatlich bis zur Kündigung; jederzeit kündbar."
+    }
   },
   "chat": {
     "stoppedReply": "Stella konnte diese Antwort nicht starten",

@@ -708,7 +708,30 @@
       "lapseDescription": "Il tuo piano {plan} resta attivo fino al {date}. Dopo, Stella si ferma: il credito del piano Free è una tantum e il tuo è già esaurito."
     },
     "heading": "Scegli il tuo piano",
-    "subtitle": "Inizia gratis. Passa a un piano superiore quando ti serve di più."
+    "subtitle": "Inizia gratis. Passa a un piano superiore quando ti serve di più.",
+    "mobile": {
+      "sectionTitle": "Abbonamento",
+      "currentPlanLabel": "Piano attuale",
+      "planValue": "Stella {plan}",
+      "manage": "Gestisci abbonamento",
+      "manageWebNote": "Gestisci o annulla questo abbonamento da Stella sul web, su stella.sh.",
+      "renews": "Si rinnova il {date}",
+      "accessEnds": "L'accesso termina il {date}",
+      "chooseHeading": "Scegli il tuo piano",
+      "subscribe": "Abbonati",
+      "perMonth": "{price}/mese",
+      "introLine": "{introPrice} il primo mese, poi {price}/mese",
+      "signInToSubscribe": "Accedi per abbonarti",
+      "startingCheckout": "Avvio…",
+      "pendingTitle": "Completamento dell'acquisto",
+      "pendingBody": "Completa il pagamento nel browser. Il tuo piano si aggiorna qui automaticamente non appena il pagamento è confermato: non serve riavviare.",
+      "pendingDismiss": "Non ora",
+      "successTitle": "Ora hai Stella {plan}",
+      "successBody": "Il tuo abbonamento è attivo. Goditi i limiti più alti.",
+      "errorRetry": "Riprova",
+      "alreadySubscribedTitle": "Hai già un abbonamento",
+      "footnote": "Fatturato da Stella tramite Stripe. Si rinnova ogni mese fino all'annullamento; annulla quando vuoi."
+    }
   },
   "chat": {
     "stoppedReply": "Stella non è riuscita ad avviare questa risposta",

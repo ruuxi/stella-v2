@@ -708,7 +708,30 @@
       "lapseDescription": "Seu plano {plan} vai até {date}. Depois disso a Stella para — o saldo do plano Free é único e o seu já foi usado."
     },
     "heading": "Escolha seu plano",
-    "subtitle": "Comece grátis. Mude de plano quando precisar de mais."
+    "subtitle": "Comece grátis. Mude de plano quando precisar de mais.",
+    "mobile": {
+      "sectionTitle": "Assinatura",
+      "currentPlanLabel": "Plano atual",
+      "planValue": "Stella {plan}",
+      "manage": "Gerenciar assinatura",
+      "manageWebNote": "Gerencie ou cancele esta assinatura no Stella na web, em stella.sh.",
+      "renews": "Renova em {date}",
+      "accessEnds": "O acesso termina em {date}",
+      "chooseHeading": "Escolha seu plano",
+      "subscribe": "Assinar",
+      "perMonth": "{price}/mês",
+      "introLine": "{introPrice} no primeiro mês e depois {price}/mês",
+      "signInToSubscribe": "Entre para assinar",
+      "startingCheckout": "Iniciando…",
+      "pendingTitle": "Concluindo sua compra",
+      "pendingBody": "Conclua o pagamento no navegador. Seu plano é atualizado aqui automaticamente assim que o pagamento for confirmado — não precisa reiniciar.",
+      "pendingDismiss": "Agora não",
+      "successTitle": "Você está no Stella {plan}",
+      "successBody": "Sua assinatura está ativa. Aproveite os limites maiores.",
+      "errorRetry": "Tentar novamente",
+      "alreadySubscribedTitle": "Você já tem uma assinatura",
+      "footnote": "Cobrado pela Stella via Stripe. Renova mensalmente até o cancelamento; cancele quando quiser."
+    }
   },
   "chat": {
     "stoppedReply": "A Stella não conseguiu iniciar esta resposta",

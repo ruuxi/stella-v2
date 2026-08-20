@@ -706,7 +706,30 @@
       "lapseDescription": "你的 {plan} 套餐可用到 {date}。之后 Stella 将停止服务 — Free 套餐的额度只发放一次，你的已经用完了。"
     },
     "heading": "选择你的套餐",
-    "subtitle": "免费开始。需要更多时再升级。"
+    "subtitle": "免费开始。需要更多时再升级。",
+    "mobile": {
+      "sectionTitle": "订阅",
+      "currentPlanLabel": "当前套餐",
+      "planValue": "Stella {plan}",
+      "manage": "管理订阅",
+      "manageWebNote": "可在网页版 Stella（stella.sh）管理或取消此订阅。",
+      "renews": "{date} 续订",
+      "accessEnds": "使用权限于 {date} 结束",
+      "chooseHeading": "选择你的套餐",
+      "subscribe": "订阅",
+      "perMonth": "{price}/月",
+      "introLine": "首月 {introPrice}，之后 {price}/月",
+      "signInToSubscribe": "登录后订阅",
+      "startingCheckout": "正在开始…",
+      "pendingTitle": "正在完成购买",
+      "pendingBody": "请在浏览器中完成付款。付款确认后，套餐会在此自动更新，无需重启。",
+      "pendingDismiss": "暂不",
+      "successTitle": "你已订阅 Stella {plan}",
+      "successBody": "订阅已生效。尽情享受更高的额度。",
+      "errorRetry": "重试",
+      "alreadySubscribedTitle": "你已有订阅",
+      "footnote": "由 Stella 通过 Stripe 收费。每月续订，直至取消；可随时取消。"
+    }
   },
   "chat": {
     "stoppedReply": "Stella 无法开始此次回复",

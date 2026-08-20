@@ -707,7 +707,30 @@
       "lapseDescription": "Din {plan}-plan gäller till {date}. Efter det stannar Stella — Free-planens saldo ges bara en gång och ditt är redan förbrukat."
     },
     "heading": "Välj din plan",
-    "subtitle": "Börja gratis. Uppgradera när du behöver mer."
+    "subtitle": "Börja gratis. Uppgradera när du behöver mer.",
+    "mobile": {
+      "sectionTitle": "Prenumeration",
+      "currentPlanLabel": "Nuvarande plan",
+      "planValue": "Stella {plan}",
+      "manage": "Hantera prenumeration",
+      "manageWebNote": "Hantera eller avsluta den här prenumerationen i Stella på webben på stella.sh.",
+      "renews": "Förnyas {date}",
+      "accessEnds": "Åtkomsten upphör {date}",
+      "chooseHeading": "Välj din plan",
+      "subscribe": "Prenumerera",
+      "perMonth": "{price}/mån",
+      "introLine": "{introPrice} första månaden, sedan {price}/mån",
+      "signInToSubscribe": "Logga in för att prenumerera",
+      "startingCheckout": "Startar…",
+      "pendingTitle": "Slutför ditt köp",
+      "pendingBody": "Slutför betalningen i webbläsaren. Din plan uppdateras här automatiskt så snart betalningen har bekräftats – du behöver inte starta om.",
+      "pendingDismiss": "Inte nu",
+      "successTitle": "Du har Stella {plan}",
+      "successBody": "Din prenumeration är aktiv. Njut av de högre gränserna.",
+      "errorRetry": "Försök igen",
+      "alreadySubscribedTitle": "Du har redan en prenumeration",
+      "footnote": "Debiteras av Stella via Stripe. Förnyas varje månad tills du säger upp; avsluta när du vill."
+    }
   },
   "chat": {
     "stoppedReply": "Stella kunde inte starta det här svaret",

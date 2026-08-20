@@ -354,7 +354,6 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
   const sessionId = requireString(options.sessionId, "sessionId");
   const session = options.session;
   const deliveredInstructions = new Set<string>();
-  const sessionApprovedBundleIds = new Set<string>();
   const signal = () => options.getSignal?.() ?? options.signal;
   const envelope = () => ({
     schemaVersion: COMPUTER_USE_SCHEMA_VERSION,
@@ -380,11 +379,7 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
     return response.policy;
   };
 
-  const authorizePolicy = async (
-    policy: ComputerUseAppPolicy,
-    selector: ComputerUseAppSelector,
-  ) => {
-    const canonicalId = policy.bundleIdentifier.toLocaleLowerCase();
+  const authorizePolicy = async (policy: ComputerUseAppPolicy) => {
     if (policy.decision === "forbidden") {
       throw new Error(
         `${policy.displayName} is forbidden by computer-use policy.`,
@@ -395,25 +390,11 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
         `${policy.displayName} is denied by computer-use policy.`,
       );
     }
-    if (sessionApprovedBundleIds.has(canonicalId)) return;
-    if (!options.authorizeApp) {
-      return;
-    }
-    const approved = await options.authorizeApp(policy, {
-      selector,
-      signal: signal(),
-    });
-    if (!approved) {
-      throw new Error(
-        `Computer-use authorization denied for ${policy.displayName}.`,
-      );
-    }
-    sessionApprovedBundleIds.add(canonicalId);
   };
 
   const authorizeTarget = async (target: ComputerUseTarget) => {
     const policy = await resolveTarget(target);
-    await authorizePolicy(policy, target);
+    await authorizePolicy(policy);
     return policy;
   };
 
@@ -479,10 +460,7 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
       if (!Array.isArray(actions)) throw new Error("actions must be an array.");
       const commands = actions.map(actionCommand);
       const policiesBySelector = new Map<string, ComputerUseAppPolicy>();
-      const authorizationByBundle = new Map<
-        string,
-        { policy: ComputerUseAppPolicy; selector: ComputerUseAppSelector }
-      >();
+      const authorizationByBundle = new Map<string, ComputerUseAppPolicy>();
       for (const command of commands) {
         const selectorKey = JSON.stringify(command.target);
         let policy = policiesBySelector.get(selectorKey);
@@ -492,14 +470,11 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
         }
         const bundleKey = policy.bundleIdentifier.toLocaleLowerCase();
         if (!authorizationByBundle.has(bundleKey)) {
-          authorizationByBundle.set(bundleKey, {
-            policy,
-            selector: command.target,
-          });
+          authorizationByBundle.set(bundleKey, policy);
         }
       }
-      for (const { policy, selector } of authorizationByBundle.values()) {
-        await authorizePolicy(policy, selector);
+      for (const policy of authorizationByBundle.values()) {
+        await authorizePolicy(policy);
       }
       const response = await execute({
         ...envelope(),

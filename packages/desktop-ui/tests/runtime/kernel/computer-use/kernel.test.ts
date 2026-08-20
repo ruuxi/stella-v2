@@ -1348,7 +1348,7 @@ describe("persistent Node REPL kernels", () => {
         };
       },
     );
-    const authorizeApp = vi.fn(async () => true);
+    const authorizeApp = vi.fn(async () => false);
     const registry = new NodeReplKernelRegistry({
       sessionFactory,
       authorizeApp,
@@ -1381,7 +1381,7 @@ describe("persistent Node REPL kernels", () => {
       const batches = requests.filter((request) => request.type === "batch");
       expect(batches).toHaveLength(1);
       expect(batches[0]?.commands).toHaveLength(1);
-      expect(authorizeApp).toHaveBeenCalledTimes(1);
+      expect(authorizeApp).not.toHaveBeenCalled();
       expect(sessionFactory).toHaveBeenCalledTimes(1);
       expect(factoryOptions[0]).toMatchObject({
         sessionId: expect.stringContaining("agent-a"),

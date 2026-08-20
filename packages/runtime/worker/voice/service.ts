@@ -29,6 +29,10 @@ import type { ChatStore } from "../../kernel/storage/chat-store.js";
 import type { ToolContext, ToolResult } from "../../kernel/tools/types.js";
 import { textFromUnknown } from "../../kernel/agent-runtime/shared.js";
 import {
+  MODEL_VISIBLE_TOOL_RESULT_MAX_BYTES,
+  truncateModelVisibleToolText,
+} from "../../kernel/agent-runtime/tool-adapters.js";
+import {
   sanitizeToolError,
   sanitizeToolResult,
   sanitizeToolVisibleText,
@@ -101,7 +105,6 @@ const normalizeError = (error: unknown) =>
     : new Error(String(error ?? "Unknown voice runtime error"));
 
 const VOICE_TOOL_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
-const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = 30_000;
 const THREAD_VISIBLE_JSON_MAX_CHARS = 12_000;
 
 const truncate = (value: string, maxChars: number): string =>
@@ -123,10 +126,10 @@ const formatModelVisibleToolOutput = (result: ToolResult): string => {
     return `Error: ${sanitizeToolError(result.error)}`;
   }
   return sanitizeToolVisibleText(
-    truncate(
+    truncateModelVisibleToolText(
       textFromUnknown(sanitizeToolResult(result.result)),
-      MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS,
-    ),
+      MODEL_VISIBLE_TOOL_RESULT_MAX_BYTES,
+    ).text,
   );
 };
 

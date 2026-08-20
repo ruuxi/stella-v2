@@ -12,9 +12,16 @@ import { createRuntimeLogger } from "../debug.js";
 import picomatch from "picomatch";
 import { z } from "zod";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
+import {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+  truncateHead,
+  truncateStringToBytesFromStart,
+} from "./truncate.js";
 
 // Constants
-export const MAX_OUTPUT = 30_000;
+export const MAX_OUTPUT = DEFAULT_MAX_BYTES;
+export const MAX_OUTPUT_LINES = DEFAULT_MAX_LINES;
 export const MAX_FILE_BYTES = 1_000_000;
 
 const logger = createRuntimeLogger("tools");
@@ -67,8 +74,19 @@ export const expandHomePath = (value: string) => {
 };
 
 // String utilities
-export const truncate = (value: string, max = MAX_OUTPUT) =>
-  value.length > max ? `${value.slice(0, max)}\n\n... (truncated)` : value;
+export const truncate = (
+  value: string,
+  max = MAX_OUTPUT,
+  maxLines = MAX_OUTPUT_LINES,
+) => {
+  const result = truncateHead(value, { maxBytes: max, maxLines });
+  if (!result.truncated) return value;
+  const content = result.firstLineExceedsLimit
+    ? truncateStringToBytesFromStart(value, max)
+    : result.content;
+  const omittedBytes = Math.max(0, result.totalBytes - Buffer.byteLength(content, "utf8"));
+  return `${content}\n\n... (${omittedBytes} bytes truncated)`;
+};
 
 // Edit-diff utilities shared by the Stella runtime.
 export function detectLineEnding(content: string): "\r\n" | "\n" {

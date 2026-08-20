@@ -321,6 +321,8 @@ describe("truncateModelVisibleToolText", () => {
       text: "short output",
       truncated: false,
       originalChars: "short output".length,
+      originalBytes: "short output".length,
+      originalLines: 1,
     });
   });
 
@@ -331,6 +333,7 @@ describe("truncateModelVisibleToolText", () => {
     expect(result.truncated).toBe(true);
     expect(result.originalChars).toBe(text.length);
     expect(result.text.length).toBeLessThanOrEqual(120);
+    expect(Buffer.byteLength(result.text, "utf8")).toBeLessThanOrEqual(120);
     expect(result.text).toContain("Tool output truncated");
     expect(result.text).toContain("Total output lines: 2");
     expect(result.text.startsWith("a")).toBe(true);
@@ -390,7 +393,7 @@ describe("native tool-result persistence boundary", () => {
   });
 
   it("truncates tool text once before it enters durable history", async () => {
-    const rawText = `HEAD-${"x".repeat(40_000)}-TAIL`;
+    const rawText = `HEAD-${"x".repeat(60_000)}-TAIL`;
     const [tool] = createPiTools({
       runId: "run-raw-tool-output",
       rootRunId: "run-raw-tool-output",
@@ -416,7 +419,7 @@ describe("native tool-result persistence boundary", () => {
     const persistedText = text?.type === "text" ? text.text : "";
 
     expect(persistedText).not.toBe(rawText);
-    expect(persistedText.length).toBeLessThanOrEqual(30_000);
+    expect(persistedText.length).toBeLessThanOrEqual(50 * 1024);
     expect(persistedText).toContain("Tool output truncated");
     expect(persistedText.startsWith("HEAD-")).toBe(true);
     // The tail preview survives, but no longer terminates the text: the

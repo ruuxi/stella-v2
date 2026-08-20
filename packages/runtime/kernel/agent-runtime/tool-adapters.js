@@ -11,6 +11,15 @@ import { detectImageMediaType, isCompleteImage, MAX_IMAGE_BASE64_BYTES, } from "
 import { resolveImageCaps, } from "../../ai/utils/image-caps.js";
 import { buildCatalogSection } from "../tools/code-catalog.js";
 import { spillSanitizedToolOutput } from "./tool-output-spill.js";
+import {
+    DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_LINES,
+    splitLinesForCounting,
+    truncateHead,
+    truncateTail,
+    truncateStringToBytesFromStart,
+    utf8ByteLength,
+} from "../tools/truncate.js";
 export const STELLA_LOCAL_TOOLS = [
     ...DEVICE_TOOL_NAMES,
     TOOL_IDS.NO_RESPONSE,
@@ -92,37 +101,105 @@ const formatToolResult = (toolResult) => {
 };
 // Model-visible tool text is bounded once, before the tool-result message is
 // appended to history. That exact content is then reused until compaction.
-export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = 30_000;
-export const truncateModelVisibleToolText = (text, maxChars = MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS) => {
-    const originalChars = text.length;
-    if (originalChars <= maxChars) {
-        return { text, truncated: false, originalChars };
+// Dual limits match the Pi harness: 2000 lines or 50KB UTF-8, first hit wins.
+export const MODEL_VISIBLE_TOOL_RESULT_MAX_LINES = DEFAULT_MAX_LINES;
+export const MODEL_VISIBLE_TOOL_RESULT_MAX_BYTES = DEFAULT_MAX_BYTES;
+export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = DEFAULT_MAX_BYTES;
+
+const resolveModelVisibleLimits = (limits) => {
+    if (typeof limits === "number") {
+        return { maxBytes: Math.max(0, limits), maxLines: Number.MAX_SAFE_INTEGER };
     }
-    const lineCount = text.length > 0 ? text.split("\n").length : 0;
-    const marker = `\n\n[Tool output truncated to ${maxChars} characters. Total output lines: ${lineCount}.]\n\n`;
-    const available = maxChars - marker.length;
-    if (available <= 0) {
-        return {
-            text: text.slice(0, Math.max(0, maxChars)),
-            truncated: true,
-            originalChars,
-        };
-    }
-    const headChars = Math.ceil(available / 2);
-    const tailChars = Math.floor(available / 2);
-    const omittedChars = originalChars - headChars - tailChars;
-    const finalMarker = `\n\n[Tool output truncated: ${omittedChars} characters omitted. Total output lines: ${lineCount}.]\n\n`;
-    const finalAvailable = maxChars - finalMarker.length;
-    const finalHeadChars = Math.ceil(finalAvailable / 2);
-    const finalTailChars = Math.floor(finalAvailable / 2);
     return {
-        text: `${text.slice(0, finalHeadChars)}${finalMarker}${text.slice(-finalTailChars)}`,
-        truncated: true,
-        originalChars,
+        maxBytes: limits?.maxBytes ?? DEFAULT_MAX_BYTES,
+        maxLines: limits?.maxLines ?? DEFAULT_MAX_LINES,
     };
 };
-export const preserveModelVisibleToolText = async (text, context, maxChars = MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS) => {
-  const truncated = truncateModelVisibleToolText(text, maxChars);
+
+const buildTruncationNotice = (totalBytes, totalLines, outputBytes) => {
+    const omittedBytes = Math.max(0, totalBytes - outputBytes);
+    return `\n\n[Tool output truncated: ${omittedBytes} bytes omitted. Total output lines: ${totalLines}.]\n\n`;
+};
+
+const previewHead = (text, maxBytes, maxLines) => {
+    if (maxBytes <= 0 || maxLines <= 0)
+        return "";
+    const head = truncateHead(text, { maxBytes, maxLines });
+    if (head.firstLineExceedsLimit) {
+        return truncateStringToBytesFromStart(text, maxBytes);
+    }
+    return head.content;
+};
+
+const previewTail = (text, maxBytes, maxLines) => {
+    if (maxBytes <= 0 || maxLines <= 0)
+        return "";
+    return truncateTail(text, { maxBytes, maxLines }).content;
+};
+
+const windowsOverlap = (text, head, tail) => {
+    if (!head || !tail)
+        return false;
+    const headAt = text.indexOf(head);
+    const tailAt = text.lastIndexOf(tail);
+    return headAt >= 0 && tailAt >= 0 && headAt + head.length >= tailAt;
+};
+
+export const truncateModelVisibleToolText = (text, limits) => {
+    const originalChars = text.length;
+    const { maxBytes, maxLines } = resolveModelVisibleLimits(limits);
+    const originalBytes = utf8ByteLength(text);
+    const originalLines = splitLinesForCounting(text).length;
+    if (originalBytes <= maxBytes && originalLines <= maxLines) {
+        return {
+            text,
+            truncated: false,
+            originalChars,
+            originalBytes,
+            originalLines,
+        };
+    }
+    let notice = buildTruncationNotice(originalBytes, originalLines, 0);
+    let head = "";
+    let tail = "";
+    for (let attempt = 0; attempt < 4; attempt++) {
+        const available = maxBytes - utf8ByteLength(notice);
+        if (available <= 0) {
+            head = "";
+            tail = "";
+            break;
+        }
+        const headBytes = Math.ceil(available / 2);
+        const tailBytes = Math.floor(available / 2);
+        const headLines = Math.ceil(maxLines / 2);
+        const tailLines = Math.floor(maxLines / 2);
+        head = previewHead(text, headBytes, headLines);
+        tail = previewTail(text, tailBytes, tailLines);
+        if (windowsOverlap(text, head, tail)) {
+            tail = "";
+        }
+        const outputBytes = utf8ByteLength(head) + utf8ByteLength(tail);
+        notice = buildTruncationNotice(originalBytes, originalLines, outputBytes);
+        if (utf8ByteLength(head) + utf8ByteLength(notice) + utf8ByteLength(tail) <= maxBytes) {
+            break;
+        }
+    }
+    let rendered = `${head}${notice}${tail}`;
+    if (utf8ByteLength(rendered) > maxBytes) {
+        const fallback = previewHead(text, maxBytes, maxLines);
+        rendered = fallback.length > 0 ? fallback : text.slice(0, Math.max(0, maxBytes));
+    }
+    return {
+        text: rendered,
+        truncated: true,
+        originalChars,
+        originalBytes,
+        originalLines,
+    };
+};
+export const preserveModelVisibleToolText = async (text, context, limits) => {
+  const resolved = resolveModelVisibleLimits(limits);
+  const truncated = truncateModelVisibleToolText(text, resolved);
   if (!truncated.truncated) return { ...truncated, artifact: undefined };
   const artifact = await spillSanitizedToolOutput({
     text,
@@ -131,10 +208,10 @@ export const preserveModelVisibleToolText = async (text, context, maxChars = MOD
     toolCallId: context.toolCallId,
   });
   const marker = `\n\n[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved: artifact=${artifact.path} bytes=${artifact.bytes} sha256=${artifact.sha256} encoding=${artifact.encoding} lines=${artifact.lineCount}. Read more with Read({ file_path: ${JSON.stringify(artifact.path)}, offset: 1, limit: 200 }); offsets are 1-based lines; complete byte range is [0, ${artifact.bytes}).]`;
-  const previewBudget = Math.max(0, maxChars - marker.length);
+  const previewBudget = Math.max(0, resolved.maxBytes - utf8ByteLength(marker));
   return {
     ...truncated,
-    text: `${truncateModelVisibleToolText(text, previewBudget).text}${marker}`,
+    text: `${truncateModelVisibleToolText(text, { maxBytes: previewBudget, maxLines: resolved.maxLines }).text}${marker}`,
     artifact,
   };
 };

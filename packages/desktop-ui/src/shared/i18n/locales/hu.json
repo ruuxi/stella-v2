@@ -707,7 +707,30 @@
       "lapseDescription": "A(z) {plan} csomagod eddig tart: {date}. Utána a Stella leáll — a Free csomag kerete egyszeri, és a tiédet már elhasználtad."
     },
     "heading": "Válaszd ki a csomagodat",
-    "subtitle": "Kezdd ingyen. Válts magasabb csomagra, amikor többre van szükséged."
+    "subtitle": "Kezdd ingyen. Válts magasabb csomagra, amikor többre van szükséged.",
+    "mobile": {
+      "sectionTitle": "Előfizetés",
+      "currentPlanLabel": "Jelenlegi csomag",
+      "planValue": "Stella {plan}",
+      "manage": "Előfizetés kezelése",
+      "manageWebNote": "Ezt az előfizetést a Stella webes felületén, a stella.sh címen kezelheted vagy mondhatod le.",
+      "renews": "Megújul: {date}",
+      "accessEnds": "A hozzáférés lejár: {date}",
+      "chooseHeading": "Válaszd ki a csomagod",
+      "subscribe": "Előfizetés",
+      "perMonth": "{price}/hó",
+      "introLine": "{introPrice} az első hónapban, utána {price}/hó",
+      "signInToSubscribe": "Jelentkezz be az előfizetéshez",
+      "startingCheckout": "Indítás…",
+      "pendingTitle": "A vásárlás befejezése",
+      "pendingBody": "Fejezd be a fizetést a böngészőben. A csomagod itt automatikusan frissül, amint a fizetés megerősítést nyer – nem kell újraindítani.",
+      "pendingDismiss": "Most nem",
+      "successTitle": "A Stella {plan} csomagot használod",
+      "successBody": "Az előfizetésed aktív. Élvezd a magasabb korlátokat.",
+      "errorRetry": "Újra",
+      "alreadySubscribedTitle": "Már van előfizetésed",
+      "footnote": "A Stella számláz a Stripe-on keresztül. Lemondásig havonta megújul; bármikor lemondható."
+    }
   },
   "chat": {
     "stoppedReply": "A Stella nem tudta elindítani ezt a választ",

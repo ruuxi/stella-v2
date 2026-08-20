@@ -711,7 +711,30 @@
       "lapseDescription": "تستمر خطة {plan} حتى {date}. بعد ذلك يتوقف Stella — رصيد خطة Free يُمنح مرة واحدة، ورصيدك استُهلك بالفعل."
     },
     "heading": "اختر خطتك",
-    "subtitle": "ابدأ مجانًا. قم بالترقية عندما تحتاج إلى المزيد."
+    "subtitle": "ابدأ مجانًا. قم بالترقية عندما تحتاج إلى المزيد.",
+    "mobile": {
+      "sectionTitle": "الاشتراك",
+      "currentPlanLabel": "الخطة الحالية",
+      "planValue": "Stella {plan}",
+      "manage": "إدارة الاشتراك",
+      "manageWebNote": "يمكنك إدارة هذا الاشتراك أو إلغاؤه من Stella على الويب على stella.sh.",
+      "renews": "يتجدد في {date}",
+      "accessEnds": "ينتهي الوصول في {date}",
+      "chooseHeading": "اختر خطتك",
+      "subscribe": "اشترك",
+      "perMonth": "{price}/شهر",
+      "introLine": "{introPrice} للشهر الأول، ثم {price}/شهر",
+      "signInToSubscribe": "سجّل الدخول للاشتراك",
+      "startingCheckout": "جارٍ البدء…",
+      "pendingTitle": "جارٍ إتمام عملية الشراء",
+      "pendingBody": "أكمل الدفع في المتصفح. ستُحدَّث خطتك هنا تلقائيًا بمجرد تأكيد الدفع — لا حاجة لإعادة التشغيل.",
+      "pendingDismiss": "ليس الآن",
+      "successTitle": "أنت الآن على Stella {plan}",
+      "successBody": "اشتراكك نشط. استمتع بالحدود الأعلى.",
+      "errorRetry": "أعد المحاولة",
+      "alreadySubscribedTitle": "لديك اشتراك بالفعل",
+      "footnote": "تُصدر الفاتورة من Stella عبر Stripe. يتجدد شهريًا حتى الإلغاء؛ ألغِ في أي وقت."
+    }
   },
   "chat": {
     "stoppedReply": "لم تستطع Stella بدء هذا الرد",

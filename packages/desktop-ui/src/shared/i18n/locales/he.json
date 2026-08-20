@@ -708,7 +708,30 @@
       "lapseDescription": "תוכנית {plan} שלך פעילה עד {date}. אחרי כן Stella תפסיק לפעול — המכסה של תוכנית Free ניתנת פעם אחת, ואת שלך כבר ניצלת."
     },
     "heading": "בחרו את התוכנית שלכם",
-    "subtitle": "התחילו בחינם. שדרגו כשתצטרכו יותר."
+    "subtitle": "התחילו בחינם. שדרגו כשתצטרכו יותר.",
+    "mobile": {
+      "sectionTitle": "מנוי",
+      "currentPlanLabel": "התוכנית הנוכחית",
+      "planValue": "Stella {plan}",
+      "manage": "ניהול המנוי",
+      "manageWebNote": "אפשר לנהל או לבטל את המנוי הזה ב‑Stella באתר, בכתובת stella.sh.",
+      "renews": "מתחדש ב-{date}",
+      "accessEnds": "הגישה מסתיימת ב-{date}",
+      "chooseHeading": "בחרו את התוכנית שלכם",
+      "subscribe": "הרשמה למנוי",
+      "perMonth": "{price}/חודש",
+      "introLine": "{introPrice} בחודש הראשון, אחר כך {price}/חודש",
+      "signInToSubscribe": "היכנסו כדי להירשם למנוי",
+      "startingCheckout": "מתחיל…",
+      "pendingTitle": "משלימים את הרכישה שלך",
+      "pendingBody": "השלימו את התשלום בדפדפן. התוכנית שלכם תתעדכן כאן אוטומטית ברגע שהתשלום יאושר — אין צורך להפעיל מחדש.",
+      "pendingDismiss": "לא עכשיו",
+      "successTitle": "יש לך Stella {plan}",
+      "successBody": "המנוי שלך פעיל. תיהנו מהמגבלות הגבוהות יותר.",
+      "errorRetry": "נסו שוב",
+      "alreadySubscribedTitle": "כבר יש לך מנוי",
+      "footnote": "החיוב מתבצע על ידי Stella דרך Stripe. מתחדש מדי חודש עד לביטול; ניתן לבטל בכל עת."
+    }
   },
   "chat": {
     "stoppedReply": "Stella לא הצליחה להתחיל את התגובה הזו",

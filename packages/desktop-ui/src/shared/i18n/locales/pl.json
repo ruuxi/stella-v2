@@ -709,7 +709,30 @@
       "lapseDescription": "Twój plan {plan} działa do {date}. Potem Stella przestanie działać — limit planu Free przyznawany jest raz, a Twój został już wykorzystany."
     },
     "heading": "Wybierz swój plan",
-    "subtitle": "Zacznij bezpłatnie. Ulepsz plan, gdy potrzebujesz więcej."
+    "subtitle": "Zacznij bezpłatnie. Ulepsz plan, gdy potrzebujesz więcej.",
+    "mobile": {
+      "sectionTitle": "Subskrypcja",
+      "currentPlanLabel": "Bieżący plan",
+      "planValue": "Stella {plan}",
+      "manage": "Zarządzaj subskrypcją",
+      "manageWebNote": "Zarządzaj tą subskrypcją lub anuluj ją w Stella w internecie pod adresem stella.sh.",
+      "renews": "Odnawia się {date}",
+      "accessEnds": "Dostęp kończy się {date}",
+      "chooseHeading": "Wybierz swój plan",
+      "subscribe": "Subskrybuj",
+      "perMonth": "{price}/mies.",
+      "introLine": "{introPrice} przez pierwszy miesiąc, potem {price}/mies.",
+      "signInToSubscribe": "Zaloguj się, aby subskrybować",
+      "startingCheckout": "Uruchamianie…",
+      "pendingTitle": "Finalizowanie zakupu",
+      "pendingBody": "Dokończ płatność w przeglądarce. Twój plan zaktualizuje się tutaj automatycznie po potwierdzeniu płatności — nie trzeba ponownie uruchamiać.",
+      "pendingDismiss": "Nie teraz",
+      "successTitle": "Masz teraz Stella {plan}",
+      "successBody": "Twoja subskrypcja jest aktywna. Korzystaj z wyższych limitów.",
+      "errorRetry": "Spróbuj ponownie",
+      "alreadySubscribedTitle": "Masz już subskrypcję",
+      "footnote": "Rozliczane przez Stella za pośrednictwem Stripe. Odnawia się co miesiąc do czasu anulowania; anuluj w dowolnej chwili."
+    }
   },
   "chat": {
     "stoppedReply": "Stella nie mogła rozpocząć tej odpowiedzi",

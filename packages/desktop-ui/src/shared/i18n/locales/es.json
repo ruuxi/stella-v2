@@ -708,7 +708,30 @@
       "lapseDescription": "Tu plan {plan} sigue activo hasta el {date}. Después, Stella se detiene: el saldo del plan Free es único y el tuyo ya está agotado."
     },
     "heading": "Elige tu plan",
-    "subtitle": "Empieza gratis. Mejora tu plan cuando necesites más."
+    "subtitle": "Empieza gratis. Mejora tu plan cuando necesites más.",
+    "mobile": {
+      "sectionTitle": "Suscripción",
+      "currentPlanLabel": "Plan actual",
+      "planValue": "Stella {plan}",
+      "manage": "Gestionar suscripción",
+      "manageWebNote": "Gestiona o cancela esta suscripción desde Stella en la web, en stella.sh.",
+      "renews": "Se renueva el {date}",
+      "accessEnds": "El acceso termina el {date}",
+      "chooseHeading": "Elige tu plan",
+      "subscribe": "Suscribirse",
+      "perMonth": "{price}/mes",
+      "introLine": "{introPrice} el primer mes y luego {price}/mes",
+      "signInToSubscribe": "Inicia sesión para suscribirte",
+      "startingCheckout": "Empezando…",
+      "pendingTitle": "Completando tu compra",
+      "pendingBody": "Termina el pago en el navegador. Tu plan se actualizará aquí automáticamente en cuanto se confirme el pago; no hace falta reiniciar.",
+      "pendingDismiss": "Ahora no",
+      "successTitle": "Ya tienes Stella {plan}",
+      "successBody": "Tu suscripción está activa. Disfruta de los límites más altos.",
+      "errorRetry": "Reintentar",
+      "alreadySubscribedTitle": "Ya tienes una suscripción",
+      "footnote": "Facturado por Stella a través de Stripe. Se renueva mensualmente hasta que la canceles; cancela cuando quieras."
+    }
   },
   "chat": {
     "stoppedReply": "Stella no pudo iniciar esta respuesta",

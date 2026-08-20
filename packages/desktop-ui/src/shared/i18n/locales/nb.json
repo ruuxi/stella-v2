@@ -707,7 +707,30 @@
       "lapseDescription": "{plan}-planen din varer til {date}. Etter det stopper Stella — Free-planens saldo gis bare én gang, og din er allerede brukt opp."
     },
     "heading": "Velg planen din",
-    "subtitle": "Start gratis. Oppgrader når du trenger mer."
+    "subtitle": "Start gratis. Oppgrader når du trenger mer.",
+    "mobile": {
+      "sectionTitle": "Abonnement",
+      "currentPlanLabel": "Nåværende abonnement",
+      "planValue": "Stella {plan}",
+      "manage": "Administrer abonnement",
+      "manageWebNote": "Administrer eller si opp dette abonnementet i Stella på nettet på stella.sh.",
+      "renews": "Fornyes {date}",
+      "accessEnds": "Tilgangen slutter {date}",
+      "chooseHeading": "Velg abonnementet ditt",
+      "subscribe": "Abonner",
+      "perMonth": "{price}/md.",
+      "introLine": "{introPrice} første måned, deretter {price}/md.",
+      "signInToSubscribe": "Logg inn for å abonnere",
+      "startingCheckout": "Starter…",
+      "pendingTitle": "Fullfører kjøpet ditt",
+      "pendingBody": "Fullfør betalingen i nettleseren. Abonnementet oppdateres her automatisk så snart betalingen er bekreftet – du trenger ikke starte på nytt.",
+      "pendingDismiss": "Ikke nå",
+      "successTitle": "Du har Stella {plan}",
+      "successBody": "Abonnementet ditt er aktivt. Nyt de høyere grensene.",
+      "errorRetry": "Prøv igjen",
+      "alreadySubscribedTitle": "Du har allerede et abonnement",
+      "footnote": "Fakturert av Stella via Stripe. Fornyes månedlig til du sier opp; si opp når som helst."
+    }
   },
   "chat": {
     "stoppedReply": "Stella klarte ikke å starte dette svaret",

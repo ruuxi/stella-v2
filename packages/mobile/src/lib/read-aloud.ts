@@ -88,6 +88,23 @@ export type ReadAloudState = {
 };
 
 let playbackState: ReadAloudState | null = null;
+let playbackAbort: AbortController | null = null;
+
+const abortPlaybackWork = () => {
+  playbackAbort?.abort();
+  playbackAbort = null;
+};
+
+const beginPlaybackWork = (): AbortSignal => {
+  abortPlaybackWork();
+  const controller = new AbortController();
+  playbackAbort = controller;
+  return controller.signal;
+};
+
+const fetchReadAloud = (input: string, init: RequestInit, signal: AbortSignal) =>
+  fetch(input, { ...init, signal });
+
 const speakingListeners = new Set<() => void>();
 const emitSpeaking = () => {
   for (const listener of speakingListeners) listener();
@@ -117,6 +134,11 @@ const speakingStore = {
     return playbackState;
   },
 };
+
+/** Current read-aloud playback state, or `null` when nothing is loaded. */
+export function getReadAloudPlaybackState() {
+  return playbackState;
+}
 
 /** Current read-aloud playback state, or `null` when nothing is loaded. */
 export function useReadAloudState() {
@@ -220,20 +242,25 @@ const createAudioFile = (audio: ArrayBuffer, contentType: string) => {
   return file;
 };
 
-async function fetchInworldReadAloudAudio(text: string) {
+async function fetchInworldReadAloudAudio(text: string, signal: AbortSignal) {
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   const token = await getConvexToken();
-  const response = await fetch(`${env.convexSiteUrl}${TTS_PATH}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  const response = await fetchReadAloud(
+    `${env.convexSiteUrl}${TTS_PATH}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        voiceProvider: "inworld",
+      }),
     },
-    body: JSON.stringify({
-      text,
-      voiceProvider: "inworld",
-    }),
-  });
+    signal,
+  );
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
@@ -250,10 +277,14 @@ async function fetchInworldReadAloudAudio(text: string) {
 // Ask the backend to synthesize a read-aloud reply and hold it under an opaque
 // ticket, so the native audio player can progressively stream it from a GET
 // URL. The (long) assistant text is POSTed here and never appears in the URL.
-async function prepareInworldReadAloudStream(text: string): Promise<string> {
+async function prepareInworldReadAloudStream(
+  text: string,
+  signal: AbortSignal,
+): Promise<string> {
   assert(env.convexSiteUrl, "EXPO_PUBLIC_CONVEX_SITE_URL is not configured.");
   const token = await getConvexToken();
-  const response = await fetch(
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  const response = await fetchReadAloud(
     `${env.convexSiteUrl}${TTS_STREAM_PREPARE_PATH}`,
     {
       method: "POST",
@@ -266,6 +297,7 @@ async function prepareInworldReadAloudStream(text: string): Promise<string> {
         voiceProvider: "inworld",
       }),
     },
+    signal,
   );
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
@@ -301,6 +333,7 @@ function cancelStreamSession(ticket: string) {
 
 export function stopReadAloud() {
   playbackGeneration += 1;
+  abortPlaybackWork();
   clearHlsWatchdog();
   hlsResume = null;
   setPlaybackState(null);
@@ -328,6 +361,19 @@ export function stopReadAloud() {
       /* ignore */
     }
   }
+}
+
+/** Terminal stop used when dictation begins. Never a pause; nothing resumes. */
+export function stopReadAloudForDictation() {
+  stopReadAloud();
+}
+
+/** Stop/cancel every TTS path first, then start dictation. */
+export async function startAfterStoppingReadAloud<T>(
+  start: () => T | Promise<T>,
+): Promise<T> {
+  stopReadAloudForDictation();
+  return await start();
 }
 
 /** Pause the active clip, keeping it loaded so it can resume in place. */
@@ -371,6 +417,7 @@ export async function speakReply(text: string, messageId?: string) {
 
   stopReadAloud();
   const generation = playbackGeneration;
+  const signal = beginPlaybackWork();
   const id = messageId ?? null;
   // Mark the message as loading right away so its button reflects the active
   // request — without this, a second tap during generation would start a whole
@@ -381,19 +428,23 @@ export async function speakReply(text: string, messageId?: string) {
   // synthesized. Fall back to a one-shot buffered clip if streaming is
   // unavailable or fails before any audio is audible.
   try {
-    const streamed = await tryStreamReply(spoken, id, generation);
+    const streamed = await tryStreamReply(spoken, id, generation, signal);
     if (streamed) return;
   } catch (error) {
+    if (generation !== playbackGeneration || signal.aborted) return;
     console.warn("[read-aloud] streaming failed, falling back", error);
   }
-  if (generation !== playbackGeneration) return;
+  if (generation !== playbackGeneration || signal.aborted) return;
 
   try {
-    const { audio, contentType } = await fetchInworldReadAloudAudio(spoken);
-    if (generation !== playbackGeneration) return;
+    const { audio, contentType } = await fetchInworldReadAloudAudio(
+      spoken,
+      signal,
+    );
+    if (generation !== playbackGeneration || signal.aborted) return;
 
     const file = createAudioFile(audio, contentType);
-    if (generation !== playbackGeneration) {
+    if (generation !== playbackGeneration || signal.aborted) {
       try {
         file.delete();
       } catch {
@@ -410,7 +461,7 @@ export async function speakReply(text: string, messageId?: string) {
       }
       return;
     }
-    if (generation !== playbackGeneration) {
+    if (generation !== playbackGeneration || signal.aborted) {
       try {
         file.delete();
       } catch {
@@ -430,8 +481,10 @@ export async function speakReply(text: string, messageId?: string) {
     setPlaybackState({ messageId: id, status: "playing" });
     player.play();
   } catch (error) {
-    if (generation === playbackGeneration) setPlaybackState(null);
-    console.warn("[read-aloud] playback failed", error);
+    if (generation === playbackGeneration && !signal.aborted) {
+      setPlaybackState(null);
+      console.warn("[read-aloud] playback failed", error);
+    }
   }
 }
 
@@ -443,9 +496,10 @@ async function tryStreamReply(
   text: string,
   id: string | null,
   generation: number,
+  signal: AbortSignal,
 ): Promise<boolean> {
-  const ticket = await prepareInworldReadAloudStream(text);
-  if (generation !== playbackGeneration) {
+  const ticket = await prepareInworldReadAloudStream(text, signal);
+  if (generation !== playbackGeneration || signal.aborted) {
     // Superseded before playback began — end the background synthesis so it
     // does not run to completion unheard.
     cancelStreamSession(ticket);
@@ -462,7 +516,7 @@ async function tryStreamReply(
     cancelStreamSession(ticket);
     return true;
   }
-  if (generation !== playbackGeneration) {
+  if (generation !== playbackGeneration || signal.aborted) {
     cancelStreamSession(ticket);
     return true;
   }

@@ -51,7 +51,7 @@ import {
 } from "../lib/voice-target";
 import { useChatThread, type ChatTransport } from "../lib/use-chat-thread";
 import { useDictation } from "../lib/dictation";
-import { speakReply, stopReadAloud, useReadAloudState } from "../lib/read-aloud";
+import { speakReply, startAfterStoppingReadAloud, stopReadAloud, useReadAloudState } from "../lib/read-aloud";
 import { carPlayLog, carPlaySession, type CarPlayPhase } from "./carplay-session";
 import { RECENT_REPLY_COUNT, type RecentReply } from "./carplay-home";
 import { pickTurnReply } from "./turn-reply";
@@ -356,7 +356,6 @@ function CarPlayVoiceLoop({
   // interrupts the read-back and starts listening (barge-in).
   const onTalk = useCallback(() => {
     if (dictation.status === "idle") {
-      if (phaseRef.current === "speaking") stopReadAloud();
       carPlayLog("dictation start requested");
       goPhase("listening");
       // If recording never actually begins (AI consent not yet granted, mic
@@ -364,7 +363,7 @@ function CarPlayVoiceLoop({
       // status stays "idle" — so the status-driven safety net below never
       // re-fires and would strand the listening overlay on the head unit.
       // Reconcile straight off the start() result instead.
-      void dictation.start().then((started) => {
+      void startAfterStoppingReadAloud(() => dictation.start()).then((started) => {
         carPlayLog(`dictation started=${started}`);
         if (!started && phaseRef.current === "listening") goPhase("idle");
       });

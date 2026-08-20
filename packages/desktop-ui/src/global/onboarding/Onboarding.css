@@ -749,13 +749,14 @@
  * blob palette the shifting gradient paints, at the same five positions. The
  * name moves to the caption below, which tracks the cursor. */
 
-/* A fixed 8 columns rather than free wrapping. Left to flex-wrap the sixteen
- * themes break wherever the panel happens to end — 9 and 7 — which reads as a
- * mistake. Eight gives an even 8x2, and a seventeenth (a populated Custom)
- * lands as a short third row instead of reflowing everything. */
+/* Cap the normal desktop layout at eight columns for an intentional 8x2, then
+ * let the grid shed columns as its pane narrows. Fixed-size tracks preserve the
+ * swatches while auto-fit moves overflow into additional rows. */
 .onboarding-theme-grid--orbs {
   display: grid;
-  grid-template-columns: repeat(8, 38px);
+  grid-template-columns: repeat(auto-fit, 38px);
+  width: 100%;
+  max-width: 388px;
   justify-content: start;
   gap: 12px;
 }

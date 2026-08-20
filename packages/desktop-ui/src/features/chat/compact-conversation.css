@@ -193,11 +193,9 @@
   color: var(--text-base);
 }
 
-/* Tighter clamp for compact surfaces where bubbles
-   are narrower and a smaller chunk reads better. */
-.chat-conversation-surface .event-user-body {
-  --user-message-clamp-lines: 8;
-}
+/* Compact surfaces inherit the same 4-line user-message clamp as the
+   full chat. Width-driven wrap still decides overflow; we do not raise
+   the line count just because the bubble is narrower. */
 
 .chat-conversation-surface--orb .event-item.assistant .text-shimmer {
   background-image: linear-gradient(

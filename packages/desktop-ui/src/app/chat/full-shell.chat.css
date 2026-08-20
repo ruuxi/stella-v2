@@ -484,11 +484,11 @@
   letter-spacing: var(--chat-text-tracking);
 }
 
-/* Long user-message truncation. Per-surface line counts are set via the
-   `--user-message-clamp-lines` variable; defaults below match the full chat
-   bubble. */
+/* Long user-message truncation. Every chat surface — full, compact, and
+   Store — clamps to 4 rendered lines so a long prompt never dominates the
+   transcript. Overflow is measured from the laid-out box in JS. */
 .event-user-body {
-  --user-message-clamp-lines: 12;
+  --user-message-clamp-lines: 4;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -507,12 +507,13 @@
 }
 
 .event-user-toggle {
-  margin-top: 8px;
+  margin-top: 6px;
   align-self: flex-end;
   appearance: none;
   background: transparent;
   border: 0;
-  padding: 2px 6px;
+  padding: 2px 0;
+  min-height: 1.2em;
   font: inherit;
   font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);

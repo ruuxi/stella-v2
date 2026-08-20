@@ -17,6 +17,7 @@ export default defineConfig({
         test: {
           name: 'runtime',
           environment: 'node',
+          setupFiles: [path.resolve(__dirname, './tests/setup/hermetic-env.ts')],
           include: [
             'tests/runtime/**/*.{test,spec}.{ts,tsx}',
             'tests/app/**/*.{test,spec}.{ts,tsx}',

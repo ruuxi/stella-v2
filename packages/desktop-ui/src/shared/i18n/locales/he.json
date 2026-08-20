@@ -1095,8 +1095,7 @@
         "attachFiles": "צרף קבצים…",
         "capture": "צילום",
         "context": "הקשר",
-        "recent": "אחרונים",
-        "selectArea": "בחר אזור"
+        "recent": "אחרונים"
       },
       "agentCompletion": {
         "openNamedThread": "פתח את שרשור הסוכן {title}",

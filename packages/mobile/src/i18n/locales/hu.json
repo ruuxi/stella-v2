@@ -1090,8 +1090,7 @@
         "attachFiles": "Fájlok csatolása…",
         "capture": "Rögzítés",
         "context": "Kontextus",
-        "recent": "Legutóbbi",
-        "selectArea": "Terület kijelölése"
+        "recent": "Legutóbbi"
       },
       "agentCompletion": {
         "openNamedThread": "Ügynökszál megnyitása: {title}",

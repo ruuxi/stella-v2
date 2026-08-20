@@ -1085,8 +1085,7 @@
         "attachFiles": "ファイルを添付…",
         "capture": "キャプチャ",
         "context": "コンテキスト",
-        "recent": "最近",
-        "selectArea": "範囲を選択"
+        "recent": "最近"
       },
       "agentCompletion": {
         "openNamedThread": "{title} のエージェントスレッドを開く",

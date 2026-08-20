@@ -1095,8 +1095,7 @@
         "attachFiles": "Atașează fișiere…",
         "capture": "Captură",
         "context": "Context",
-        "recent": "Recente",
-        "selectArea": "Selectează o zonă"
+        "recent": "Recente"
       },
       "agentCompletion": {
         "openNamedThread": "Deschide firul agentului {title}",

@@ -1100,8 +1100,7 @@
         "attachFiles": "Připojit soubory…",
         "capture": "Snímek",
         "context": "Kontext",
-        "recent": "Nedávné",
-        "selectArea": "Vybrat oblast"
+        "recent": "Nedávné"
       },
       "agentCompletion": {
         "openNamedThread": "Otevřít vlákno agenta {title}",

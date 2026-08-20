@@ -1110,8 +1110,7 @@
         "attachFiles": "أرفق ملفات…",
         "capture": "التقاط",
         "context": "السياق",
-        "recent": "الأخيرة",
-        "selectArea": "حدّد منطقة"
+        "recent": "الأخيرة"
       },
       "agentCompletion": {
         "openNamedThread": "افتح مسار وكيل {title}",

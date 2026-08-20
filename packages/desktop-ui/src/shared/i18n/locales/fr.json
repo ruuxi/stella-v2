@@ -1095,8 +1095,7 @@
         "attachFiles": "Joindre des fichiers…",
         "capture": "Capturer",
         "context": "Contexte",
-        "recent": "Récent",
-        "selectArea": "Sélectionner une zone"
+        "recent": "Récent"
       },
       "agentCompletion": {
         "openNamedThread": "Ouvrir le fil d’agent {title}",

@@ -1090,8 +1090,7 @@
         "attachFiles": "Bifoga filer…",
         "capture": "Fånga",
         "context": "Kontext",
-        "recent": "Senaste",
-        "selectArea": "Välj område"
+        "recent": "Senaste"
       },
       "agentCompletion": {
         "openNamedThread": "Öppna agenttråden {title}",

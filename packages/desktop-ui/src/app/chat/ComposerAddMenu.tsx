@@ -6,8 +6,8 @@
  *   2. Capture         → region/window capture.
  *
  * Menu order (top → bottom): optional recent files, optional context,
- * then capture, select area, and attach files at the bottom (nearest the +
- * button). No dividers between rows.
+ * then capture and attach files at the bottom (nearest the + button).
+ * No dividers between rows.
  *
  * The menu owns its own state (file input ref + recent-files store), so
  * both the home full-chat composer and the sidebar composer can reuse it
@@ -15,7 +15,7 @@
  */
 import { useCallback, useRef, useState } from "react";
 import type { ChangeEvent, Dispatch, SetStateAction } from "react";
-import { Camera, File, Paperclip, Scan } from "@/ui/icons";
+import { Camera, File, Paperclip } from "@/ui/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,7 +39,6 @@ type ComposerAddMenuProps = {
   setChatContext: Dispatch<SetStateAction<ChatContext | null>>;
   className?: string;
   title?: string;
-  onSelectArea?: () => void;
   contextSuggestions?: ComposerContextSuggestion[];
   onSelectContextSuggestion?: (suggestion: ComposerContextSuggestion) => void;
 };
@@ -80,7 +79,6 @@ export function ComposerAddMenu({
   setChatContext,
   className,
   title,
-  onSelectArea,
   contextSuggestions = [],
   onSelectContextSuggestion,
 }: ComposerAddMenuProps) {
@@ -120,11 +118,6 @@ export function ComposerAddMenu({
       console.warn("[composer-add-menu] capture failed:", error);
     }
   }, []);
-
-  const handleSelectArea = useCallback(() => {
-    setMenuOpen(false);
-    onSelectArea?.();
-  }, [onSelectArea]);
 
   const handleRecentClick = useCallback(
     (file: ChatContextFile) => {
@@ -207,14 +200,6 @@ export function ComposerAddMenu({
             </span>
             {t("app.chat.addMenu.capture")}
           </DropdownMenuItem>
-          {onSelectArea ? (
-            <DropdownMenuItem onSelect={handleSelectArea}>
-              <span data-slot="dropdown-menu-item-icon">
-                <Scan size={16} strokeWidth={1.75} />
-              </span>
-              {t("app.chat.addMenu.selectArea")}
-            </DropdownMenuItem>
-          ) : null}
           <DropdownMenuItem onSelect={handleAttachFiles}>
             <span data-slot="dropdown-menu-item-icon">
               <Paperclip size={16} strokeWidth={1.75} />

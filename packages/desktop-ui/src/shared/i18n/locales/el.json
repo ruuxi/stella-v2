@@ -1090,8 +1090,7 @@
         "attachFiles": "Επισύναψη αρχείων…",
         "capture": "Λήψη",
         "context": "Πλαίσιο",
-        "recent": "Πρόσφατα",
-        "selectArea": "Επιλογή περιοχής"
+        "recent": "Πρόσφατα"
       },
       "agentCompletion": {
         "openNamedThread": "Άνοιγμα νήματος πράκτορα {title}",

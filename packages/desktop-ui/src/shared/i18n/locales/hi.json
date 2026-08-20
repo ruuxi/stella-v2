@@ -1090,8 +1090,7 @@
         "attachFiles": "फ़ाइलें संलग्न करें…",
         "capture": "कैप्चर",
         "context": "संदर्भ",
-        "recent": "हाल के",
-        "selectArea": "क्षेत्र चुनें"
+        "recent": "हाल के"
       },
       "agentCompletion": {
         "openNamedThread": "{title} एजेंट थ्रेड खोलें",

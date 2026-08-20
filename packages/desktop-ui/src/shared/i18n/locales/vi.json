@@ -1085,8 +1085,7 @@
         "attachFiles": "Đính kèm tệp…",
         "capture": "Chụp",
         "context": "Ngữ cảnh",
-        "recent": "Gần đây",
-        "selectArea": "Chọn vùng"
+        "recent": "Gần đây"
       },
       "agentCompletion": {
         "openNamedThread": "Mở luồng tác nhân {title}",

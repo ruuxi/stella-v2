@@ -27,7 +27,12 @@ export function normalizeChatContext(
   const hasBrowserUrl = Boolean(normalized.browserUrl)
   const hasSelectedText = Boolean(normalized.selectedText)
   const hasActivity = Boolean(normalized.activity?.id)
-  const hasAppSelection = Boolean(normalized.appSelection?.snapshot)
+  const hasAppSelection = Boolean(
+    normalized.appSelection?.snapshot ||
+      normalized.appSelections?.some((selection) =>
+        Boolean(selection?.snapshot),
+      ),
+  )
   const hasScreenshots = Boolean(normalized.regionScreenshots?.length)
   const hasFiles = Boolean(normalized.files?.length)
   const hasPastedTexts = Boolean(normalized.pastedTexts?.length)

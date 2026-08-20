@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { attachComposerAppSelectionContext, deriveComposerState, } from "@/features/chat/composer-context";
+import { deriveComposerState, } from "@/features/chat/composer-context";
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { useConversationActivity } from "@/features/chat/hooks/use-conversation-activity";
 import { useConversationDisplayMessages } from "@/features/chat/hooks/use-conversation-display-messages";
@@ -45,9 +45,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     // transcript sitting in the composer unsent. See use-composer-message-state.
     const { message, setMessage, messageRef: latestMessageRef, } = useComposerMessageState();
     const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
-    const annotationIdRef = useRef(0);
-    const annotationTargetRef = useRef(null);
-    const [annotationTarget, setAnnotationTarget] = useState(null);
     const { chatContext, setChatContext, selectedText, setSelectedText } = useCapturedChatContext();
     const composerMemoryByConversationRef = useRef(new Map());
     const scrollMemoryByConversationRef = useRef(new Map());
@@ -162,33 +159,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         sendContextlessMessage,
         sendAgentInputMessage,
     });
-    const startAnnotation = useCallback((options) => {
-        const nextTarget = {
-            id: ++annotationIdRef.current,
-            submit: options.submit,
-        };
-        annotationTargetRef.current = nextTarget;
-        setAnnotationTarget(nextTarget);
-    }, []);
-    const cancelAnnotation = useCallback(() => {
-        annotationTargetRef.current = null;
-        setAnnotationTarget(null);
-    }, []);
-    const submitAnnotation = useCallback((selection, requestId) => {
-        const activeTarget = annotationTargetRef.current;
-        const target = activeTarget && (requestId == null || activeTarget.id === requestId)
-            ? activeTarget
-            : null;
-        if (!target)
-            return;
-        try {
-            target.submit(selection);
-        }
-        finally {
-            annotationTargetRef.current = null;
-            setAnnotationTarget(null);
-        }
-    }, []);
     /**
      * Scroll: backed by Legend List (web entry). The list owns scrolling
      * and content geometry; the hook adapts list state into the surface
@@ -373,12 +343,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         setSelectedText,
         showHomeContent,
     ]);
-    const attachFullChatAnnotation = useCallback((selection) => {
-        enterChatSurfaceForInteraction();
-        resetIdleTimer();
-        attachComposerAppSelectionContext(selection, setChatContext);
-        setComposerFocusRequestId((id) => id + 1);
-    }, [enterChatSurfaceForInteraction, resetIdleTimer, setChatContext]);
     const { canSubmit } = deriveComposerState({
         message,
         chatContext,
@@ -584,7 +548,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         canSubmit,
         focusRequestId: composerFocusRequestId,
         requestFocus: () => setComposerFocusRequestId((id) => id + 1),
-        onSelectArea: () => startAnnotation({ submit: attachFullChatAnnotation }),
         onSend: handleSend,
         onStop: cancelCurrentStream,
     }), [
@@ -596,8 +559,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         setSelectedText,
         canSubmit,
         composerFocusRequestId,
-        startAnnotation,
-        attachFullChatAnnotation,
         handleSend,
         cancelCurrentStream,
     ]);
@@ -665,18 +626,10 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         handleSend,
         handleStop: cancelCurrentStream,
     }), [chatColumnComposer, handleSend, cancelCurrentStream]);
-    const annotation = useMemo(() => ({
-        active: Boolean(annotationTarget),
-        requestId: annotationTarget?.id ?? null,
-        start: startAnnotation,
-        cancel: cancelAnnotation,
-        submit: submitAnnotation,
-    }), [annotationTarget, startAnnotation, cancelAnnotation, submitAnnotation]);
     const runtime = useMemo(() => ({
         conversation,
         composer,
         scroll: chatColumnScroll,
-        annotation,
         messageActions,
         showHomeContent,
         dismissHome,
@@ -685,7 +638,6 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         conversation,
         composer,
         chatColumnScroll,
-        annotation,
         messageActions,
         showHomeContent,
         dismissHome,

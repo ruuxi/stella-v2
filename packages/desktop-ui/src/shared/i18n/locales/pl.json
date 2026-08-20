@@ -1100,8 +1100,7 @@
         "attachFiles": "Załącz pliki…",
         "capture": "Zrzut",
         "context": "Kontekst",
-        "recent": "Ostatnie",
-        "selectArea": "Zaznacz obszar"
+        "recent": "Ostatnie"
       },
       "agentCompletion": {
         "openNamedThread": "Otwórz wątek agenta {title}",

@@ -1085,8 +1085,7 @@
         "attachFiles": "파일 첨부…",
         "capture": "캡처",
         "context": "컨텍스트",
-        "recent": "최근",
-        "selectArea": "영역 선택"
+        "recent": "최근"
       },
       "agentCompletion": {
         "openNamedThread": "{title} 에이전트 스레드 열기",

@@ -1113,8 +1113,7 @@
         "attachFiles": "Attach files…",
         "capture": "Capture",
         "context": "Context",
-        "recent": "Recent",
-        "selectArea": "Select area"
+        "recent": "Recent"
       },
       "agentCompletion": {
         "openNamedThread": "Open {title} agent thread",

@@ -1095,8 +1095,7 @@
         "attachFiles": "Allega file…",
         "capture": "Cattura",
         "context": "Contesto",
-        "recent": "Recenti",
-        "selectArea": "Seleziona area"
+        "recent": "Recenti"
       },
       "agentCompletion": {
         "openNamedThread": "Apri il thread dell'agente {title}",

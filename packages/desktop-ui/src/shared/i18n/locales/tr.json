@@ -1090,8 +1090,7 @@
         "attachFiles": "Dosya ekle…",
         "capture": "Yakala",
         "context": "Bağlam",
-        "recent": "Son kullanılanlar",
-        "selectArea": "Alan seç"
+        "recent": "Son kullanılanlar"
       },
       "agentCompletion": {
         "openNamedThread": "{title} aracı iş parçacığını aç",

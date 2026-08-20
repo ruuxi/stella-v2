@@ -1085,8 +1085,7 @@
         "attachFiles": "附加文件…",
         "capture": "截取",
         "context": "上下文",
-        "recent": "最近",
-        "selectArea": "选择区域"
+        "recent": "最近"
       },
       "agentCompletion": {
         "openNamedThread": "打开 {title} 智能体线程",

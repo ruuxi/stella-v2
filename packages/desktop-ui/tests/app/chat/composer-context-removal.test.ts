@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Dispatch, SetStateAction } from "react";
 import type { ChatContext } from "@/shared/types/electron";
-import { clearComposerWindowContext } from "@/features/chat/composer-context";
+import {
+  clearComposerAppSelectionContext,
+  clearComposerWindowContext,
+  getComposerAppSelections,
+  removeComposerAppSelectionContext,
+} from "@/features/chat/composer-context";
 import { normalizeChatContext } from "@/shell/use-captured-chat-context";
 
 const screenshot = (dataUrl: string) => ({
@@ -81,5 +86,52 @@ describe("composer context removal", () => {
       capturePending: false,
       windowContextEnabled: undefined,
     });
+  });
+
+  it("keeps leftover selected-area chips from persisted context and lets them be removed", () => {
+    const leftover: NonNullable<ChatContext["appSelection"]> = {
+      label: "Old settings panel",
+      snapshot: "[button] Save",
+    };
+    let current: ChatContext | null = {
+      window: null,
+      browserUrl: null,
+      selectedText: null,
+      regionScreenshots: [],
+      appSelections: [leftover],
+      appSelection: leftover,
+    };
+
+    expect(normalizeChatContext(current)).toMatchObject({
+      appSelections: [leftover],
+      appSelection: leftover,
+    });
+    expect(getComposerAppSelections(current)).toEqual([leftover]);
+
+    const setChatContext: Dispatch<SetStateAction<ChatContext | null>> = (
+      value,
+    ) => {
+      current = typeof value === "function" ? value(current) : value;
+    };
+
+    removeComposerAppSelectionContext(0, setChatContext);
+    expect(getComposerAppSelections(current)).toEqual([]);
+    expect(current?.appSelection).toBeNull();
+    expect(normalizeChatContext(current)).toBeNull();
+
+    current = {
+      window: null,
+      browserUrl: null,
+      selectedText: null,
+      regionScreenshots: [],
+      appSelections: [leftover],
+      appSelection: leftover,
+    };
+    clearComposerAppSelectionContext(setChatContext);
+    expect(current).toMatchObject({
+      appSelection: null,
+      appSelections: [],
+    });
+    expect(normalizeChatContext(current)).toBeNull();
   });
 });

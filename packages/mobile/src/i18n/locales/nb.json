@@ -1090,8 +1090,7 @@
         "attachFiles": "Legg ved filer…",
         "capture": "Ta opptak",
         "context": "Kontekst",
-        "recent": "Nylige",
-        "selectArea": "Velg område"
+        "recent": "Nylige"
       },
       "agentCompletion": {
         "openNamedThread": "Åpne agenttråden {title}",

@@ -95,7 +95,6 @@ export type ChatColumnComposer = {
   canSubmit: boolean;
   focusRequestId?: number;
   requestFocus?: () => void;
-  onSelectArea?: () => void;
   onSend: () => void;
   onStop: () => void;
 };

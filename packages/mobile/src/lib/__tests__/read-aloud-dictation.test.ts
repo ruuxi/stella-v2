@@ -1,6 +1,18 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 (globalThis as Record<string, unknown>).__DEV__ = false;
+const preferenceStore = new Map<string, string>();
+(globalThis as Record<string, unknown>).window = {
+  localStorage: {
+    getItem: (key: string) => preferenceStore.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      preferenceStore.set(key, value);
+    },
+    removeItem: (key: string) => {
+      preferenceStore.delete(key);
+    },
+  },
+};
 
 const deferred = <T = void>() => {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -74,14 +86,6 @@ mock.module("expo-file-system", () => ({
     delete() {
       this.deleted = true;
     }
-  },
-}));
-
-mock.module("@react-native-async-storage/async-storage", () => ({
-  default: {
-    getItem: async () => null,
-    setItem: async () => undefined,
-    removeItem: async () => undefined,
   },
 }));
 

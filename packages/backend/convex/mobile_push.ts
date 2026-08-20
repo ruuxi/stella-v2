@@ -17,6 +17,11 @@ const MAX_PLATFORM_LENGTH = 32;
 const MAX_TITLE_LENGTH = 120;
 const MAX_BODY_LENGTH = 400;
 const MAX_TOKENS_PER_OWNER = 25;
+// How stale a token row's `updatedAt` may get before an otherwise-unchanged
+// re-registration bothers to refresh it. Keeps the "last seen" stamp roughly
+// current for future pruning without turning every repeat registration into a
+// write (and thus an OCC-conflict risk) on the hot device row.
+const TOKEN_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Stable shape for the structured `data` payload tapped on a notification —
@@ -125,11 +130,25 @@ export const upsertToken = internalMutation({
       .unique();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        expoPushToken,
-        ...(platform ? { platform } : {}),
-        updatedAt: args.nowMs,
-      });
+      // The mobile client re-registers the same (owner, device, token) on every
+      // launch/foreground. Blindly patching `updatedAt` each time makes every
+      // one of those calls a write on the same row, so concurrent registrations
+      // from the same device collide as OCC write conflicts (observed on prod:
+      // repeated conflicts on a single `mobile_push_tokens` row). Only write
+      // when something the readers care about actually changed, or when the
+      // freshness stamp is stale enough to be worth refreshing — the common
+      // "nothing changed" path then stays read-only and can't conflict.
+      const nextPlatform = platform ?? existing.platform;
+      const tokenChanged = existing.expoPushToken !== expoPushToken;
+      const platformChanged = existing.platform !== nextPlatform;
+      const stampStale = args.nowMs - existing.updatedAt > TOKEN_REFRESH_INTERVAL_MS;
+      if (tokenChanged || platformChanged || stampStale) {
+        await ctx.db.patch(existing._id, {
+          expoPushToken,
+          ...(platform ? { platform } : {}),
+          updatedAt: args.nowMs,
+        });
+      }
       return null;
     }
 

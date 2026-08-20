@@ -1,7 +1,11 @@
 import { app } from "electron";
 import { runLifecycleVerificationFromArgs } from "./lifecycle-verification.js";
+import { configureLinuxGraphics } from "./linux-graphics.js";
 import { configureLinuxProtectedStorage } from "./linux-protected-storage.js";
 
+configureLinuxGraphics({
+  disableHardwareAcceleration: () => app.disableHardwareAcceleration(),
+});
 configureLinuxProtectedStorage({ commandLine: app.commandLine });
 
 const main = async () => {

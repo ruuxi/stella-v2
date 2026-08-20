@@ -12,7 +12,6 @@ import {
   type CSSProperties,
   type RefObject,
 } from "react";
-import type { LegendListRef } from "@legendapp/list/react";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import { useEventRows } from "@/features/chat/hooks/use-event-rows";
 import { ChatTimeline } from "./ChatTimeline";
@@ -20,6 +19,7 @@ import type { InlineWorkingIndicatorMountProps } from "./InlineWorkingIndicator"
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { hasQueuedMessageEntryPlayed } from "@/features/chat/lib/message-entry-animation-state";
+import type { ChatScrollListRef } from "./chat-timeline-list-types";
 
 const USER_MESSAGE_ENTER_MS = 360;
 
@@ -45,8 +45,9 @@ type Props = {
   hasOlderMessages?: boolean;
   isLoadingOlder?: boolean;
   isLoadingHistory?: boolean;
-  /** Threaded through to `<ChatTimeline>` → `<LegendList>`. */
-  listRef?: RefObject<LegendListRef | null>;
+  /** Threaded through to the selected timeline virtualizer. */
+  listRef?: RefObject<ChatScrollListRef | null>;
+  useIncrementalVirtualizer?: boolean;
   className?: string;
   contentContainerStyle?: CSSProperties;
   estimatedItemSize?: number;
@@ -118,6 +119,7 @@ export const ConversationEvents = memo(function ConversationEvents({
   isLoadingOlder,
   isLoadingHistory,
   listRef,
+  useIncrementalVirtualizer,
   className,
   contentContainerStyle,
   estimatedItemSize,
@@ -160,6 +162,7 @@ export const ConversationEvents = memo(function ConversationEvents({
       onCancelQueued={onCancelQueued}
       indicator={indicator}
       listRef={listRef}
+      useIncrementalVirtualizer={useIncrementalVirtualizer}
       className={className}
       contentContainerStyle={contentContainerStyle}
       estimatedItemSize={estimatedItemSize}

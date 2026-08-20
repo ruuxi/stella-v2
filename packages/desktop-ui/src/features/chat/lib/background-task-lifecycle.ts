@@ -167,6 +167,25 @@ const completionFor = (
   };
 };
 
+const BACKGROUND_TASK_LIFECYCLE_EVENT_TYPES = new Set([
+  "agent-started",
+  "agent-progress",
+  "agent-completed",
+  "agent-failed",
+  "agent-canceled",
+]);
+
+export const collectBackgroundTaskLifecycleEvents = (
+  events: ReadonlyArray<EventRecord>,
+): EventRecord[] => {
+  const unique = new Map<string, EventRecord>();
+  for (const event of events) {
+    if (!BACKGROUND_TASK_LIFECYCLE_EVENT_TYPES.has(event.type)) continue;
+    unique.set(event._id, event);
+  }
+  return [...unique.values()];
+};
+
 /**
  * Fold lifecycle events into spawn-anchored card state.
  *
@@ -179,9 +198,7 @@ const completionFor = (
 export const buildBackgroundTaskLifecycleIndex = (
   events: ReadonlyArray<EventRecord>,
 ): BackgroundTaskLifecycleIndex => {
-  const unique = new Map<string, EventRecord>();
-  for (const event of events) unique.set(event._id, event);
-  const ordered = [...unique.values()].sort(eventOrder);
+  const ordered = collectBackgroundTaskLifecycleEvents(events).sort(eventOrder);
 
   const mutableByStart = new Map<string, BackgroundTaskCardState>();
   const latestStartByCorrelation = new Map<string, string>();

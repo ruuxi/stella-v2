@@ -19,6 +19,7 @@ import {
 } from "@/features/chat/lib/derive-turn-resource";
 import {
   buildBackgroundTaskLifecycleIndex,
+  collectBackgroundTaskLifecycleEvents,
   followUpReplacesActivePredecessor,
   resolveBackgroundTaskCardLifecycle,
   type BackgroundTaskLifecycleIndex,
@@ -526,6 +527,238 @@ const coalesceVoiceSessionRows = (
   return out;
 };
 
+const computeEventRowProjectionArtifacts = (
+  toolEvents: EventRecord[],
+  text: string,
+  developerResourcesEnabled: boolean,
+) => ({
+  resourcePayload: deriveTurnResource(
+    toolEvents,
+    text,
+    getCwd(toolEvents),
+    { developerResourcesEnabled },
+  ),
+  inlineImagePayloads: deriveTurnInlineImagePayloads(toolEvents),
+  webSearchResults: deriveTurnWebSearchResults(toolEvents),
+  mapArtifacts: deriveTurnMapArtifacts(toolEvents),
+  sourceDiffPayloads: collectTurnSourceDiffPayloads(toolEvents, {
+    developerResourcesEnabled,
+  }),
+  scheduleReceipt: getScheduleReceipt(toolEvents),
+  officePreviewRef: getOfficePreviewRef(toolEvents),
+  backgroundWorks: getBackgroundWorks(toolEvents),
+});
+
+type EventRowProjectionArtifacts = ReturnType<
+  typeof computeEventRowProjectionArtifacts
+>;
+
+const eventRowProjectionCache = new WeakMap<
+  EventRecord[],
+  {
+    standard?: { text: string; artifacts: EventRowProjectionArtifacts };
+    developer?: { text: string; artifacts: EventRowProjectionArtifacts };
+  }
+>();
+
+type PrimedLifecycleProjection = {
+  firstMessageId: string;
+  lastMessage: MessageRecord;
+  length: number;
+  toolEventsByIndex: ReadonlyArray<readonly EventRecord[]>;
+  lifecycleEvents: EventRecord[];
+  result: BackgroundTaskLifecycleIndex;
+};
+
+const MAX_PRIMED_LIFECYCLE_PROJECTIONS = 2;
+const primedLifecycleProjections = new Map<
+  string,
+  PrimedLifecycleProjection
+>();
+
+const lifecycleProjectionKey = (
+  firstMessageId: string,
+  lastMessageId: string,
+  length: number,
+) => `${length}:${firstMessageId}:${lastMessageId}`;
+
+const takePrimedLifecycleProjection = (
+  messages: readonly MessageRecord[],
+): PrimedLifecycleProjection | null => {
+  const first = messages[0];
+  const last = messages.at(-1);
+  if (!first || !last) return null;
+  const key = lifecycleProjectionKey(first._id, last._id, messages.length);
+  const primed = primedLifecycleProjections.get(key);
+  if (!primed) return null;
+  primedLifecycleProjections.delete(key);
+  return primed;
+};
+
+const eventRowProjectionArtifacts = (
+  toolEvents: EventRecord[],
+  text: string,
+  developerResourcesEnabled: boolean,
+): EventRowProjectionArtifacts => {
+  const variants = eventRowProjectionCache.get(toolEvents);
+  const cached = developerResourcesEnabled
+    ? variants?.developer
+    : variants?.standard;
+  if (cached?.text === text) return cached.artifacts;
+
+  const artifacts = computeEventRowProjectionArtifacts(
+    toolEvents,
+    text,
+    developerResourcesEnabled,
+  );
+  const next = variants ?? {};
+  next[developerResourcesEnabled ? "developer" : "standard"] = {
+    text,
+    artifacts,
+  };
+  if (!variants) eventRowProjectionCache.set(toolEvents, next);
+  return artifacts;
+};
+
+const yieldRendererTask = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof MessageChannel === "undefined") {
+      globalThis.setTimeout(resolve, 0);
+      return;
+    }
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      channel.port2.close();
+      resolve();
+    };
+    channel.port2.postMessage(undefined);
+  });
+
+const primeStandardEventRowArtifacts = async (
+  toolEvents: EventRecord[],
+  text: string,
+  signal?: AbortSignal,
+): Promise<void> => {
+  const cached = eventRowProjectionCache.get(toolEvents)?.standard;
+  if (cached?.text === text) return;
+  let sliceStarted = performance.now();
+  const checkpoint = async () => {
+    if (signal?.aborted) return false;
+    if (performance.now() - sliceStarted >= 2) {
+      await yieldRendererTask();
+      sliceStarted = performance.now();
+    }
+    return !signal?.aborted;
+  };
+
+  const resourcePayload = deriveTurnResource(toolEvents, text, getCwd(toolEvents), {
+    developerResourcesEnabled: false,
+  });
+  if (!(await checkpoint())) return;
+  const inlineImagePayloads = deriveTurnInlineImagePayloads(toolEvents);
+  if (!(await checkpoint())) return;
+  const webSearchResults = deriveTurnWebSearchResults(toolEvents);
+  if (!(await checkpoint())) return;
+  const mapArtifacts = deriveTurnMapArtifacts(toolEvents);
+  if (!(await checkpoint())) return;
+  const sourceDiffPayloads = collectTurnSourceDiffPayloads(toolEvents, {
+    developerResourcesEnabled: false,
+  });
+  if (!(await checkpoint())) return;
+  const scheduleReceipt = getScheduleReceipt(toolEvents);
+  if (!(await checkpoint())) return;
+  const officePreviewRef = getOfficePreviewRef(toolEvents);
+  if (!(await checkpoint())) return;
+  const backgroundWorks = getBackgroundWorks(toolEvents);
+  if (signal?.aborted) return;
+
+  const variants = eventRowProjectionCache.get(toolEvents) ?? {};
+  variants.standard = {
+    text,
+    artifacts: {
+      resourcePayload,
+      inlineImagePayloads,
+      webSearchResults,
+      mapArtifacts,
+      sourceDiffPayloads,
+      scheduleReceipt,
+      officePreviewRef,
+      backgroundWorks,
+    },
+  };
+  if (!eventRowProjectionCache.has(toolEvents)) {
+    eventRowProjectionCache.set(toolEvents, variants);
+  }
+};
+
+/** Prime expensive immutable per-message projections before a prefetched page publishes. */
+export const primeEventRowProjection = async (
+  messages: readonly MessageRecord[],
+  signal?: AbortSignal,
+): Promise<void> => {
+  let sliceStarted = performance.now();
+  for (const message of messages) {
+    if (signal?.aborted) return;
+    const text = isAssistantMessage(message)
+      ? getDisplayMessageText(message)
+      : "";
+    // Prime the normal transcript variant only. Retaining a second complete
+    // artifact graph for the developer-only preview mode nearly doubles the
+    // cost and heap of event-heavy history pages; that opt-in variant derives
+    // on demand when enabled.
+    await primeStandardEventRowArtifacts(message.toolEvents, text, signal);
+    if (signal?.aborted) return;
+    if (performance.now() - sliceStarted >= 2) {
+      await yieldRendererTask();
+      sliceStarted = performance.now();
+    }
+  }
+  if (signal?.aborted) return;
+  await yieldRendererTask();
+
+  const lifecycleEvents: EventRecord[] = [];
+  const toolEventsByIndex: Array<readonly EventRecord[]> = [];
+  sliceStarted = performance.now();
+  for (const message of messages) {
+    if (signal?.aborted) return;
+    toolEventsByIndex.push(message.toolEvents);
+    lifecycleEvents.push(
+      ...collectBackgroundTaskLifecycleEvents(message.toolEvents),
+    );
+    if (performance.now() - sliceStarted < 2) continue;
+    await yieldRendererTask();
+    sliceStarted = performance.now();
+  }
+  if (signal?.aborted) return;
+  await yieldRendererTask();
+  const result = buildBackgroundTaskLifecycleIndex(lifecycleEvents);
+  if (signal?.aborted) return;
+  const firstMessage = messages[0];
+  const lastMessage = messages.at(-1);
+  if (firstMessage && lastMessage) {
+    const key = lifecycleProjectionKey(
+      firstMessage._id,
+      lastMessage._id,
+      messages.length,
+    );
+    primedLifecycleProjections.set(key, {
+      firstMessageId: firstMessage._id,
+      lastMessage,
+      length: messages.length,
+      toolEventsByIndex,
+      lifecycleEvents,
+      result,
+    });
+    while (primedLifecycleProjections.size > MAX_PRIMED_LIFECYCLE_PROJECTIONS) {
+      const oldestKey = primedLifecycleProjections.keys().next().value;
+      if (typeof oldestKey !== "string") break;
+      primedLifecycleProjections.delete(oldestKey);
+    }
+  }
+  await yieldRendererTask();
+};
+
 export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
   const developerResourcePreviewsEnabled =
     useDeveloperResourcePreviewsEnabled();
@@ -544,31 +777,60 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
    */
   const lifecycleCacheRef = useRef<{
     toolEventsByIndex: ReadonlyArray<readonly EventRecord[]>;
+    lifecycleEvents: EventRecord[];
     result: BackgroundTaskLifecycleIndex;
   } | null>(null);
   const lifecycleIndex = useMemo<BackgroundTaskLifecycleIndex>(() => {
+    const primed = takePrimedLifecycleProjection(messages);
+    if (primed) {
+      lifecycleCacheRef.current = primed;
+      return primed.result;
+    }
+    const sameToolEvents = (
+      prior: readonly EventRecord[] | undefined,
+      next: readonly EventRecord[],
+    ) => prior === next || (prior?.length === 0 && next.length === 0);
+    const collectLifecycle = (source: readonly MessageRecord[]) => {
+      const events: EventRecord[] = [];
+      const toolEventsByIndex: Array<readonly EventRecord[]> = [];
+      for (const message of source) {
+        toolEventsByIndex.push(message.toolEvents);
+        events.push(...collectBackgroundTaskLifecycleEvents(message.toolEvents));
+      }
+      return { events, toolEventsByIndex };
+    };
     const cache = lifecycleCacheRef.current;
     if (
       cache &&
       cache.toolEventsByIndex.length === messages.length &&
-      messages.every((message, index) => {
-        const prior = cache.toolEventsByIndex[index];
-        return (
-          prior === message.toolEvents ||
-          (prior?.length === 0 && message.toolEvents.length === 0)
-        );
-      })
+      messages.every((message, index) =>
+        sameToolEvents(cache.toolEventsByIndex[index], message.toolEvents),
+      )
     ) {
       return cache.result;
     }
-    const events: EventRecord[] = [];
-    const toolEventsByIndex: Array<readonly EventRecord[]> = [];
-    for (const message of messages) {
-      toolEventsByIndex.push(message.toolEvents);
-      for (const event of message.toolEvents) events.push(event);
+    let events: EventRecord[];
+    let toolEventsByIndex: Array<readonly EventRecord[]>;
+    const prefixLength = messages.length - (cache?.toolEventsByIndex.length ?? 0);
+    const isPurePrepend =
+      cache !== null &&
+      prefixLength > 0 &&
+      cache.toolEventsByIndex.every((prior, index) => {
+        const message = messages[prefixLength + index];
+        return Boolean(message) && sameToolEvents(prior, message.toolEvents);
+      });
+    if (isPurePrepend && cache) {
+      const prefix = collectLifecycle(messages.slice(0, prefixLength));
+      events = [...prefix.events, ...cache.lifecycleEvents];
+      toolEventsByIndex = [
+        ...prefix.toolEventsByIndex,
+        ...cache.toolEventsByIndex,
+      ];
+    } else {
+      ({ events, toolEventsByIndex } = collectLifecycle(messages));
     }
     const result = buildBackgroundTaskLifecycleIndex(events);
-    lifecycleCacheRef.current = { toolEventsByIndex, result };
+    lifecycleCacheRef.current = { toolEventsByIndex, lifecycleEvents: events, result };
     return result;
   }, [messages]);
 
@@ -618,8 +880,8 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
     // Spawn-anchored card descriptor. Terminal/progress payloads may live on a
     // much later message, but the lifecycle selector resolves them back to the
     // exact persisted start event represented by this card.
-    const buildBackgroundWorks = (toolEvents: readonly EventRecord[]) =>
-      getBackgroundWorks(toolEvents).map((base) => ({
+    const buildBackgroundWorks = (artifacts: EventRowProjectionArtifacts) =>
+      artifacts.backgroundWorks.map((base) => ({
         ...base,
         ...resolveBackgroundTaskCardLifecycle(
           base.threadIds,
@@ -754,7 +1016,12 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         // Surface the card on a synthetic assistant row right under it so
         // background work is still visible (the working indicator steps
         // aside once a task is running).
-        const userBackgroundWorks = buildBackgroundWorks(message.toolEvents);
+        const userArtifacts = eventRowProjectionArtifacts(
+          message.toolEvents,
+          "",
+          developerResourcePreviewsEnabled,
+        );
+        const userBackgroundWorks = buildBackgroundWorks(userArtifacts);
         const userBackgroundWork = userBackgroundWorks[0];
         if (userBackgroundWork) {
           const activityKey = `assistant-agent-activity-${message._id}`;
@@ -813,22 +1080,22 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
             ? assistantScrollFollowKey(replyToUserMessageId, indexWithinTurn)
             : message._id;
         const toolEvents = message.toolEvents;
-        const resourcePayload = deriveTurnResource(
+        const artifacts = eventRowProjectionArtifacts(
           toolEvents,
           text,
-          getCwd(toolEvents),
-          { developerResourcesEnabled: developerResourcePreviewsEnabled },
+          developerResourcePreviewsEnabled,
         );
-        const inlineImagePayloads = deriveTurnInlineImagePayloads(toolEvents);
-        const webSearchResults = deriveTurnWebSearchResults(toolEvents);
-        const mapArtifacts = deriveTurnMapArtifacts(toolEvents);
-        const sourceDiffPayloads = collectTurnSourceDiffPayloads(toolEvents, {
-          developerResourcesEnabled: developerResourcePreviewsEnabled,
-        });
-        const scheduleReceipt = getScheduleReceipt(toolEvents);
-        const officePreviewRef = getOfficePreviewRef(toolEvents);
+        const {
+          resourcePayload,
+          inlineImagePayloads,
+          webSearchResults,
+          mapArtifacts,
+          sourceDiffPayloads,
+          scheduleReceipt,
+          officePreviewRef,
+        } = artifacts;
         const voiceSession = payload?.metadata?.voiceSession;
-        const backgroundWorks = buildBackgroundWorks(toolEvents);
+        const backgroundWorks = buildBackgroundWorks(artifacts);
         const backgroundWork = backgroundWorks[0];
         const agentCompletionSections = projectAgentCompletionSections(
           toolEvents,

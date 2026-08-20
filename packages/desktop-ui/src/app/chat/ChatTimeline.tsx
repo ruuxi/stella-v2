@@ -54,6 +54,8 @@ import {
   type LegendListRef,
   type LegendListRenderItemProps,
 } from "@legendapp/list/react";
+import { ChatTimelineList } from "./ChatTimelineList";
+import type { ChatScrollListRef } from "./chat-timeline-list-types";
 import {
   AssistantMessageRow,
   UserMessageRow,
@@ -68,7 +70,10 @@ import {
   buildChatTimelineItems,
   type ChatTimelineItem,
 } from "@/features/chat/lib/chat-timeline-items";
-import { getChatTimelineItemType } from "@/app/chat/chat-timeline-item-size";
+import {
+  getChatTimelineItemSize,
+  getChatTimelineItemType,
+} from "@/app/chat/chat-timeline-item-size";
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { LoaderCircle } from "@/ui/icons";
@@ -107,7 +112,9 @@ type ChatTimelineProps = {
    * sidebar) own their own scroll-management hook and forward the ref
    * here so the hook can call `scrollToEnd`/`getState` etc.
    */
-  listRef?: RefObject<LegendListRef | null>;
+  listRef?: RefObject<ChatScrollListRef | null>;
+  /** Use the prepend-aware web layout on the full desktop transcript only. */
+  useIncrementalVirtualizer?: boolean;
   /**
    * Per-surface row recycling toggle. Defaults to `true` — recycling
    * reuses outer item containers as rows scroll out of the
@@ -319,6 +326,7 @@ export const ChatTimeline = memo(function ChatTimeline({
   onCancelQueued,
   indicator,
   listRef,
+  useIncrementalVirtualizer = false,
   recycleItems = true,
   alignItemsAtEnd = false,
   estimatedItemSize = 120,
@@ -448,9 +456,37 @@ export const ChatTimeline = memo(function ChatTimeline({
     );
   }
 
+  if (useIncrementalVirtualizer) {
+    return (
+      <ChatTimelineList<TimelineListItem>
+        listRef={listRef}
+        resetKey={conversationId ?? null}
+        data={listItems}
+        keyExtractor={keyExtractor}
+        renderItem={({ item }) => (
+          <>
+            {renderItem({ item } as LegendListRenderItemProps<TimelineListItem>)}
+            <ItemSeparator leadingItem={item} />
+          </>
+        )}
+        estimateItemSize={(item) =>
+          getChatTimelineItemSize(item, estimatedItemSize) + item.gapAfter
+        }
+        drawDistance={drawDistance}
+        alignItemsAtEnd={alignItemsAtEnd}
+        initialScrollAtEnd
+        ListHeaderComponent={ListHeader ?? undefined}
+        ListFooterComponent={ListFooter}
+        className={className}
+        contentContainerStyle={contentContainerStyle}
+        style={{ height: "100%", width: "100%" }}
+      />
+    );
+  }
+
   return (
     <LegendList<TimelineListItem>
-      ref={listRef}
+      ref={listRef as RefObject<LegendListRef | null>}
       data={listItems}
       keyExtractor={keyExtractor}
       renderItem={renderItem}

@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import type { LegendListRef } from "@legendapp/list/react";
+import type { ChatScrollListRef } from "@/app/chat/chat-timeline-list-types";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import type {
   EventRecord,
@@ -108,7 +108,7 @@ export type ChatColumnComposer = {
  * tracking, and `scrollToBottom` via the list's imperative API.
  */
 export type ChatColumnScroll = {
-  listRef: RefObject<LegendListRef | null>;
+  listRef: RefObject<ChatScrollListRef | null>;
   showScrollButton: boolean;
   /** True when the user is at (or within ~1px of) the newest-content edge. */
   isAtBottom: boolean;

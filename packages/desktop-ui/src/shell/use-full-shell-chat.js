@@ -93,7 +93,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             }
         }
     }), []);
-    const { messages: persistedMessages, hasOlderMessages, isLoadingOlder: isLoadingOlderMessages, isInitialLoading: isInitialLoadingMessages, loadOlder: loadOlderMessages, } = useConversationMessages(activeConversationId ?? undefined);
+    const { messages: persistedMessages, hasOlderMessages, isLoadingOlder: isLoadingOlderMessages, isInitialLoading: isInitialLoadingMessages, loadOlder: loadOlderMessages, prefetchOlder: prefetchOlderMessages, } = useConversationMessages(activeConversationId ?? undefined);
     const { activities, hasOlderActivity, isLoadingOlder: isLoadingOlderActivity, loadOlder: loadOlderActivity, } = useConversationActivity(activeConversationId ?? undefined);
     const { files: persistedFiles, hasOlderFiles, isLoadingOlder: isLoadingOlderFiles, loadOlder: loadOlderFiles, } = useConversationFiles(activeConversationId ?? undefined);
     const { records: threadActivityRecords } = useThreadActivity(activeConversationId ?? undefined);
@@ -168,6 +168,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         hasOlderEvents: hasOlderMessages,
         isLoadingOlder: isLoadingOlderMessages,
         onLoadOlder: loadOlderMessages,
+        onPrefetchOlder: prefetchOlderMessages,
     });
     useLayoutEffect(() => {
         const conversationId = activeConversationId;

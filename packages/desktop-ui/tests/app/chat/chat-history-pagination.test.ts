@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 import {
   captureChatPrependAnchor,
   ChatHistoryPaginationGate,
+  HISTORY_PREFETCH_MAX_VIEWPORTS,
+  HISTORY_PREFETCH_MIN_VIEWPORTS,
+  resolveHistoryPrefetchLeadPx,
   restoreChatPrependAnchor,
   type HistoryPaginationMetrics,
 } from "@/shell/chat-history-pagination";
@@ -23,6 +26,31 @@ const outsideLead: HistoryPaginationMetrics = {
 };
 
 const guards = { hasMore: true, isLoading: false };
+
+describe("history prefetch lead", () => {
+  it("grows with observed velocity and latency while remaining bounded", () => {
+    const viewportHeight = 600;
+    const slow = resolveHistoryPrefetchLeadPx({
+      viewportHeight,
+      upwardVelocityPxPerMs: 0,
+      pageLatencyMs: 200,
+    });
+    const fast = resolveHistoryPrefetchLeadPx({
+      viewportHeight,
+      upwardVelocityPxPerMs: 12,
+      pageLatencyMs: 300,
+    });
+    const extreme = resolveHistoryPrefetchLeadPx({
+      viewportHeight,
+      upwardVelocityPxPerMs: 100,
+      pageLatencyMs: 2_000,
+    });
+
+    expect(slow).toBe(viewportHeight * HISTORY_PREFETCH_MIN_VIEWPORTS);
+    expect(fast).toBeGreaterThan(slow);
+    expect(extreme).toBe(viewportHeight * HISTORY_PREFETCH_MAX_VIEWPORTS);
+  });
+});
 
 describe("ChatHistoryPaginationGate", () => {
   it("loads exactly one page for the first deliberate upward threshold action", () => {

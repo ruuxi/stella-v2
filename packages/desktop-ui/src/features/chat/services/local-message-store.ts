@@ -179,6 +179,37 @@ export const MAX_CACHED_VISIBLE_MESSAGES = 2_400;
 
 const localMessageWindows = new Map<string, LocalMessageWindowEntry>();
 
+type PrefetchedOlderPage = {
+  cursor: string;
+  pageSize: number;
+  window: LocalMessageWindow;
+};
+
+/** One bounded page for each of the two most recently prefetched chats. */
+const MAX_PREFETCHED_CONVERSATIONS = 2;
+const MAX_IN_FLIGHT_OLDER_PAGE_FETCHES = 4;
+const prefetchedOlderPages = new Map<string, PrefetchedOlderPage>();
+const olderPageFetches = new Map<string, Promise<LocalMessageWindow>>();
+
+const olderPageFetchKey = (
+  conversationId: string,
+  cursor: string,
+  pageSize: number,
+) => `${conversationId}\n${cursor}\n${pageSize}`;
+
+const rememberPrefetchedOlderPage = (
+  conversationId: string,
+  page: PrefetchedOlderPage,
+) => {
+  prefetchedOlderPages.delete(conversationId);
+  prefetchedOlderPages.set(conversationId, page);
+  while (prefetchedOlderPages.size > MAX_PREFETCHED_CONVERSATIONS) {
+    const oldest = prefetchedOlderPages.keys().next().value;
+    if (!oldest) break;
+    prefetchedOlderPages.delete(oldest);
+  }
+};
+
 /**
  * Last successfully-loaded window per conversation, bridging the entry
  * teardown→setup gap. Growing the window (`loadOlder`) bumps
@@ -564,6 +595,62 @@ export const subscribeToLocalMessageWindow = (
 const messageCursorKey = (message: { timestamp: number; _id: string }) =>
   `${message.timestamp}:${message._id}`;
 
+const entriesForConversation = (conversationId: string) =>
+  [...localMessageWindows.values()].filter(
+    (entry) => entry.conversationId === conversationId,
+  );
+
+const resolveOlderPageSource = (conversationId: string) => {
+  const entries = entriesForConversation(conversationId);
+  const source =
+    entries.find((entry) => entry.snapshot.hasLoaded) ?? entries[0];
+  if (!source) return { ok: false as const, reason: "no-window" as const };
+  const oldest = source.snapshot.window.messages[0];
+  if (!oldest) return { ok: false as const, reason: "empty" as const };
+  if (
+    source.snapshot.hasOlder === false ||
+    source.snapshot.window.visibleMessageCount >= MAX_CACHED_VISIBLE_MESSAGES
+  ) {
+    return { ok: false as const, reason: "end-of-history" as const };
+  }
+  return {
+    ok: true as const,
+    entries,
+    source,
+    oldest,
+    cursor: messageCursorKey(oldest),
+  };
+};
+
+const fetchOlderPage = async (
+  conversationId: string,
+  oldest: { timestamp: number; _id: string },
+  cursor: string,
+  pageSize: number,
+): Promise<LocalMessageWindow> => {
+  const key = olderPageFetchKey(conversationId, cursor, pageSize);
+  const current = olderPageFetches.get(key);
+  if (current) return current;
+  while (olderPageFetches.size >= MAX_IN_FLIGHT_OLDER_PAGE_FETCHES) {
+    await Promise.race(
+      [...olderPageFetches.values()].map((pending) =>
+        pending.catch(() => undefined),
+      ),
+    );
+    const shared = olderPageFetches.get(key);
+    if (shared) return shared;
+  }
+  const pending = listLocalMessagesBefore(conversationId, {
+    beforeTimestampMs: oldest.timestamp,
+    beforeId: oldest._id,
+    maxVisibleMessages: pageSize,
+  }).finally(() => {
+    if (olderPageFetches.get(key) === pending) olderPageFetches.delete(key);
+  });
+  olderPageFetches.set(key, pending);
+  return pending;
+};
+
 const prependOlderMessages = (
   current: LocalMessageWindow,
   older: LocalMessageWindow,
@@ -591,6 +678,74 @@ export type RequestOlderLocalMessagesResult = {
   prepended: number;
 };
 
+export type PrefetchOlderLocalMessagesResult = {
+  accepted: boolean;
+  reason:
+    | "accepted"
+    | "cached"
+    | "in-flight"
+    | "aborted"
+    | "end-of-history"
+    | "empty"
+    | "no-window"
+    | "error";
+  messages?: readonly MessageRecord[];
+};
+
+/**
+ * Read, but do not publish, the next older page. At most one page per
+ * conversation (and two conversations globally) is retained, and the fetch
+ * promise is shared with the foreground request to prevent request storms.
+ */
+export const prefetchOlderLocalMessages = async (
+  conversationId: string,
+  pageSize: number,
+  signal?: AbortSignal,
+): Promise<PrefetchOlderLocalMessagesResult> => {
+  if (signal?.aborted) return { accepted: false, reason: "aborted" };
+  const resolved = resolveOlderPageSource(conversationId);
+  if (!resolved.ok) return { accepted: false, reason: resolved.reason };
+  const { source, oldest, cursor } = resolved;
+  if (source.prependInFlight) {
+    return { accepted: false, reason: "in-flight" };
+  }
+  const cached = prefetchedOlderPages.get(conversationId);
+  if (cached?.cursor === cursor && cached.pageSize === pageSize) {
+    return {
+      accepted: false,
+      reason: "cached",
+      messages: cached.window.messages,
+    };
+  }
+  if (cached) prefetchedOlderPages.delete(conversationId);
+
+  try {
+    const window = await fetchOlderPage(
+      conversationId,
+      oldest,
+      cursor,
+      pageSize,
+    );
+    if (signal?.aborted) return { accepted: false, reason: "aborted" };
+    const current = resolveOlderPageSource(conversationId);
+    if (!current.ok || current.cursor !== cursor) {
+      return { accepted: false, reason: "empty" };
+    }
+    rememberPrefetchedOlderPage(conversationId, {
+      cursor,
+      pageSize,
+      window,
+    });
+    return {
+      accepted: true,
+      reason: "accepted",
+      messages: window.messages,
+    };
+  } catch {
+    return { accepted: false, reason: "error" };
+  }
+};
+
 /**
  * Fetch one older page via `listMessagesBefore` and prepend it onto every
  * live window for the conversation. Dedupes by the current oldest-message
@@ -600,31 +755,14 @@ export const requestOlderLocalMessages = async (
   conversationId: string,
   pageSize: number,
 ): Promise<RequestOlderLocalMessagesResult> => {
-  const entries = [...localMessageWindows.values()].filter(
-    (entry) => entry.conversationId === conversationId,
-  );
-  const source =
-    entries.find((entry) => entry.snapshot.hasLoaded) ?? entries[0];
-  if (!source) {
-    return { accepted: false, reason: "no-window", prepended: 0 };
+  const resolved = resolveOlderPageSource(conversationId);
+  if (!resolved.ok) {
+    return { accepted: false, reason: resolved.reason, prepended: 0 };
   }
+  const { entries, source, oldest, cursor } = resolved;
   if (source.prependInFlight) {
     return { accepted: false, reason: "in-flight", prepended: 0 };
   }
-  const oldest = source.snapshot.window.messages[0];
-  if (!oldest) {
-    return { accepted: false, reason: "empty", prepended: 0 };
-  }
-  if (source.snapshot.hasOlder === false) {
-    return { accepted: false, reason: "end-of-history", prepended: 0 };
-  }
-  if (
-    source.snapshot.window.visibleMessageCount >= MAX_CACHED_VISIBLE_MESSAGES
-  ) {
-    return { accepted: false, reason: "end-of-history", prepended: 0 };
-  }
-
-  const cursor = messageCursorKey(oldest);
   for (const entry of entries) {
     entry.prependInFlight = cursor;
     setSnapshot(entry, {
@@ -634,14 +772,31 @@ export const requestOlderLocalMessages = async (
   }
 
   try {
-    const older = await listLocalMessagesBefore(conversationId, {
-      beforeTimestampMs: oldest.timestamp,
-      beforeId: oldest._id,
-      maxVisibleMessages: pageSize,
-    });
-    const liveEntries = [...localMessageWindows.values()].filter(
-      (entry) => entry.conversationId === conversationId,
-    );
+    const prefetched = prefetchedOlderPages.get(conversationId);
+    const cacheHit =
+      prefetched?.cursor === cursor && prefetched.pageSize === pageSize;
+    if (prefetched && !cacheHit) prefetchedOlderPages.delete(conversationId);
+    if (cacheHit) {
+      prefetchedOlderPages.delete(conversationId);
+      // Preserve a visible loading transition for the pagination gate even
+      // when applying an already-resolved page.
+      await Promise.resolve();
+    }
+    const older = cacheHit
+      ? prefetched.window
+      : await fetchOlderPage(conversationId, oldest, cursor, pageSize);
+    const liveEntries = entriesForConversation(conversationId);
+    const liveSource =
+      liveEntries.find((entry) => entry.snapshot.hasLoaded) ?? liveEntries[0];
+    const liveOldest = liveSource?.snapshot.window.messages[0];
+    if (!liveOldest || messageCursorKey(liveOldest) !== cursor) {
+      for (const entry of liveEntries) {
+        if (entry.prependInFlight !== cursor) continue;
+        entry.prependInFlight = null;
+        setSnapshot(entry, { ...entry.snapshot, loadingOlder: false });
+      }
+      return { accepted: false, reason: "empty", prepended: 0 };
+    }
     let prepended = 0;
     for (const entry of liveEntries) {
       const merged = prependOlderMessages(entry.snapshot.window, older);
@@ -661,11 +816,10 @@ export const requestOlderLocalMessages = async (
         loadingOlder: false,
       });
     }
+    prefetchedOlderPages.delete(conversationId);
     return { accepted: true, reason: "accepted", prepended };
   } catch (error) {
-    const liveEntries = [...localMessageWindows.values()].filter(
-      (entry) => entry.conversationId === conversationId,
-    );
+    const liveEntries = entriesForConversation(conversationId);
     for (const entry of liveEntries) {
       entry.prependInFlight = null;
       setSnapshot(entry, {
@@ -688,6 +842,7 @@ export const trimLocalMessageWindowToNewestPage = (
   conversationId: string,
   pageSize: number,
 ): void => {
+  prefetchedOlderPages.delete(conversationId);
   for (const entry of localMessageWindows.values()) {
     if (entry.conversationId !== conversationId) continue;
     if (entry.prependInFlight) continue;
@@ -710,5 +865,7 @@ export const __privateLocalMessageStore = {
     unsubscribeLocalChatUpdates = null;
     localMessageWindows.clear();
     lastLoadedWindowByConversation.clear();
+    prefetchedOlderPages.clear();
+    olderPageFetches.clear();
   },
 };

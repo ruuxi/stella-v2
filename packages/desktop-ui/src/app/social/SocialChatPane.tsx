@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type RefObject,
+} from "react";
 import { useQuery } from "convex/react";
 import {
   LegendList,
+  type LegendListRef,
   type LegendListRenderItemProps,
 } from "@legendapp/list/react";
 import { api } from "@/convex/api";
@@ -599,7 +606,7 @@ export function SocialChatPane({
           </div>
         ) : (
           <LegendList
-            ref={socialScroll.listRef}
+            ref={socialScroll.listRef as RefObject<LegendListRef | null>}
             data={messageGroups}
             keyExtractor={groupKeyExtractor}
             renderItem={renderGroup}

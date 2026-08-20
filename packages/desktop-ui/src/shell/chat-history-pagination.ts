@@ -1,4 +1,31 @@
 export const HISTORY_START_THRESHOLD_VIEWPORTS = 4;
+export const HISTORY_PREFETCH_MIN_VIEWPORTS = 6;
+export const HISTORY_PREFETCH_MAX_VIEWPORTS = 16;
+
+/**
+ * Bounded lead for an upward-moving reader. Six viewports covers a normal
+ * wheel/trackpad approach; observed renderer page latency and current upward
+ * velocity add travel distance, capped at sixteen viewports so one prefetched
+ * page never turns into an enormous parked region or request cascade.
+ */
+export const resolveHistoryPrefetchLeadPx = ({
+  viewportHeight,
+  upwardVelocityPxPerMs,
+  pageLatencyMs,
+}: {
+  viewportHeight: number;
+  upwardVelocityPxPerMs: number;
+  pageLatencyMs: number;
+}): number => {
+  const viewport = Math.max(1, viewportHeight);
+  const minimum = viewport * HISTORY_PREFETCH_MIN_VIEWPORTS;
+  const maximum = viewport * HISTORY_PREFETCH_MAX_VIEWPORTS;
+  const travel =
+    Math.max(0, upwardVelocityPxPerMs) *
+    Math.max(0, pageLatencyMs) *
+    1.5;
+  return Math.min(maximum, Math.max(minimum, minimum + travel));
+};
 
 export type HistoryScrollDirection = "up" | "down" | "none";
 

@@ -28,7 +28,7 @@
  *     motion rather than fighting it.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LegendListRef } from "@legendapp/list/react";
+import type { ChatScrollListRef } from "@/app/chat/chat-timeline-list-types";
 import {
   clearAssistantScrollFollow,
   getAssistantScrollFollowKey,
@@ -52,6 +52,7 @@ import {
   captureChatPrependAnchor,
   ChatHistoryPaginationGate,
   emitChatHistoryPaginationDebug,
+  resolveHistoryPrefetchLeadPx,
   restoreChatPrependAnchor,
   type ChatPrependAnchor,
   type HistoryPaginationMetrics,
@@ -153,10 +154,16 @@ type ChatScrollSurface = keyof typeof TRAILING_REGION_MIN_PX;
 type ChatScrollManagementOptions = {
   hasOlderEvents?: boolean;
   isLoadingOlder?: boolean;
-  onLoadOlder?: () => boolean | void;
+  onLoadOlder?: () => boolean | void | Promise<unknown>;
+  onPrefetchOlder?: () => boolean | void;
   /** Compact chat surfaces use the compact trailing-region min-height. */
   surface?: ChatScrollSurface;
 };
+
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
+  (typeof value === "object" || typeof value === "function") &&
+  value !== null &&
+  typeof (value as { then?: unknown }).then === "function";
 
 type FollowTargetOptions = {
   /** Post-send positioning may scroll up to reveal a tall user bubble. */
@@ -190,19 +197,22 @@ export function useChatScrollManagement({
   hasOlderEvents = false,
   isLoadingOlder = false,
   onLoadOlder,
+  onPrefetchOlder,
   surface = "full",
 }: ChatScrollManagementOptions = {}) {
   const trailingRegionMinPx = TRAILING_REGION_MIN_PX[surface];
   const followRearmThreshold = followRearmThresholdPx(trailingRegionMinPx);
   const responseSpacerBottomInsetPx =
     surface === "full" ? CHAT_VIEWPORT_BOTTOM_FADE_PX : 0;
-  const listRef = useRef<LegendListRef | null>(null);
+  const listRef = useRef<ChatScrollListRef | null>(null);
   const attachedScrollNodeRef = useRef<HTMLElement | null>(null);
   const responseSpacerHeightRef = useRef<number>(trailingRegionMinPx);
   const responseSpacerTargetHeightRef = useRef<number>(trailingRegionMinPx);
   const responseSpacerExpandedRef = useRef(false);
   const paginationGateRef = useRef(new ChatHistoryPaginationGate());
   const paginationActionIdRef = useRef(0);
+  const historyRequestStartedAtRef = useRef<number | null>(null);
+  const historyPageLatencyMsRef = useRef(180);
   const prependAnchorRef = useRef<{
     node: HTMLElement;
     anchor: ChatPrependAnchor;
@@ -213,11 +223,13 @@ export function useChatScrollManagement({
     hasOlderEvents,
     isLoadingOlder,
     onLoadOlder,
+    onPrefetchOlder,
   });
   historyOptionsRef.current = {
     hasOlderEvents,
     isLoadingOlder,
     onLoadOlder,
+    onPrefetchOlder,
   };
   const [isAtBottom, setIsAtBottom] = useState(true);
   /**
@@ -509,6 +521,23 @@ export function useChatScrollManagement({
       hasMore: hasOlderEvents,
       isLoading: isLoadingOlder,
     });
+    if (transition.requestStarted) {
+      historyRequestStartedAtRef.current = performance.now();
+    }
+    if (
+      transition.requestSettled &&
+      historyRequestStartedAtRef.current !== null
+    ) {
+      const observed = performance.now() - historyRequestStartedAtRef.current;
+      historyRequestStartedAtRef.current = null;
+      historyPageLatencyMsRef.current = Math.max(
+        16,
+        Math.min(
+          2_000,
+          historyPageLatencyMsRef.current * 0.7 + observed * 0.3,
+        ),
+      );
+    }
     emitChatHistoryPaginationDebug({
       type: "guards",
       surface,
@@ -779,7 +808,11 @@ export function useChatScrollManagement({
 
       const WHEEL_ACTION_IDLE_MS = 160;
       const INTENT_ACTIVE_MS = 240;
+      const PREFETCH_RETRY_MS = 2_000;
       let lastObservedScrollTop = node.scrollTop;
+      let lastObservedScrollAt = performance.now();
+      let upwardVelocityPxPerMs = 0;
+      let lastPrefetchAt = -Infinity;
       let wheelActionId: number | null = null;
       let lastWheelAt = -Infinity;
       let lastWheelDirection: HistoryScrollDirection = "none";
@@ -855,7 +888,9 @@ export function useChatScrollManagement({
         });
         if (!decision.request || !options.onLoadOlder) return;
 
-        const anchor = captureChatPrependAnchor(node);
+        const anchor = listRef.current?.preservesPrependAnchor
+          ? null
+          : captureChatPrependAnchor(node);
         if (anchor) {
           prependAnchorRef.current = {
             node,
@@ -873,6 +908,31 @@ export function useChatScrollManagement({
           if (accepted === false) {
             paginationGateRef.current.rejectRequest();
             prependAnchorRef.current = null;
+          } else if (isPromiseLike(accepted)) {
+            // A prefetched cache hit can publish and clear `loadingOlder`
+            // inside one React batch. The request promise is the authoritative
+            // completion signal when the gate never observes an intermediate
+            // loading render, and prevents that completed action from leaving
+            // every later page stuck in `awaiting-loading`.
+            void Promise.resolve(accepted)
+              .catch((error) => {
+                emitChatHistoryPaginationDebug({
+                  type: "request-error",
+                  surface,
+                  detail: {
+                    message:
+                      error instanceof Error ? error.message : String(error),
+                  },
+                });
+              })
+              .finally(() => {
+                if (
+                  paginationGateRef.current.snapshot().requestPhase ===
+                  "awaiting-loading"
+                ) {
+                  paginationGateRef.current.rejectRequest();
+                }
+              });
           }
         } catch (error) {
           paginationGateRef.current.rejectRequest();
@@ -885,6 +945,44 @@ export function useChatScrollManagement({
             },
           });
         }
+      };
+      const attemptHistoryPrefetch = (
+        direction: HistoryScrollDirection,
+        source: string,
+      ) => {
+        if (direction !== "up") return;
+        const options = historyOptionsRef.current;
+        if (
+          !options.hasOlderEvents ||
+          options.isLoadingOlder ||
+          !options.onPrefetchOlder
+        ) {
+          return;
+        }
+        const metrics = readPaginationMetrics();
+        if (!metrics) return;
+        const leadPx = resolveHistoryPrefetchLeadPx({
+          viewportHeight: metrics.viewportHeight,
+          upwardVelocityPxPerMs,
+          pageLatencyMs: historyPageLatencyMsRef.current,
+        });
+        if (metrics.scrollTop > leadPx) return;
+        const now = performance.now();
+        if (now - lastPrefetchAt < PREFETCH_RETRY_MS) return;
+        lastPrefetchAt = now;
+        const accepted = options.onPrefetchOlder();
+        emitChatHistoryPaginationDebug({
+          type: "prefetch",
+          surface,
+          detail: {
+            source,
+            accepted: accepted !== false,
+            leadPx,
+            upwardVelocityPxPerMs,
+            pageLatencyMs: historyPageLatencyMsRef.current,
+            ...metrics,
+          },
+        });
       };
 
       // ---- continuous spring follow loop ---------------------------
@@ -1336,10 +1434,17 @@ export function useChatScrollManagement({
         }
         lastWheelAt = now;
         lastWheelDirection = direction;
+        if (direction === "up") {
+          upwardVelocityPxPerMs = Math.max(
+            upwardVelocityPxPerMs,
+            Math.max(0, -event.deltaY) / 16,
+          );
+        }
         markActiveIntent(wheelActionId, direction);
         cancelPendingAnchorForUserScroll(direction);
         if (direction === "up") {
           releaseLocalFollow();
+          attemptHistoryPrefetch(direction, "wheel");
           attemptHistoryLoad(wheelActionId, direction, "wheel");
         } else {
           if (direction === "down") followRearmBlockedRef.current = false;
@@ -1428,11 +1533,19 @@ export function useChatScrollManagement({
         const metrics = readPaginationMetrics();
         if (!metrics) return;
         const delta = metrics.scrollTop - lastObservedScrollTop;
+        const observedAt = performance.now();
+        const elapsed = Math.max(1, observedAt - lastObservedScrollAt);
         const direction: HistoryScrollDirection =
           delta < -0.5 ? "up" : delta > 0.5 ? "down" : "none";
         lastObservedScrollTop = metrics.scrollTop;
+        lastObservedScrollAt = observedAt;
+        const sampledUpwardVelocity = Math.max(0, -delta / elapsed);
+        upwardVelocityPxPerMs =
+          direction === "up"
+            ? upwardVelocityPxPerMs * 0.6 + sampledUpwardVelocity * 0.4
+            : upwardVelocityPxPerMs * 0.5;
 
-        const now = performance.now();
+        const now = observedAt;
         let intent =
           activeIntent && activeIntent.expiresAt >= now ? activeIntent : null;
         if (direction !== "none" && pointerActionId !== null) {
@@ -1442,6 +1555,7 @@ export function useChatScrollManagement({
         if (direction === "up" && intent?.direction === "up") {
           releaseLocalFollow();
           consumeResponseSpacer(-delta);
+          attemptHistoryPrefetch(direction, "native-scroll");
           attemptHistoryLoad(intent.id, direction, "native-scroll");
         } else if (direction === "down" && intent?.direction === "down") {
           followRearmBlockedRef.current = false;

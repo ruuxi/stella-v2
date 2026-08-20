@@ -25,6 +25,7 @@ import {
 } from "react";
 import { useChatStore } from "@/context/chat-store-context";
 import {
+  prefetchOlderLocalMessages,
   requestOlderLocalMessages,
   subscribeToLocalMessageWindow,
   trimLocalMessageWindowToNewestPage,
@@ -34,6 +35,7 @@ import {
   stabilizeMessageList,
   type StableMessageListState,
 } from "@/features/chat/lib/stable-rows";
+import { primeEventRowProjection } from "@/features/chat/hooks/use-event-rows";
 import { showToast } from "@/ui/toast";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 
@@ -96,7 +98,8 @@ export type ConversationMessagesFeed = {
   hasOlderMessages: boolean;
   isLoadingOlder: boolean;
   isInitialLoading: boolean;
-  loadOlder: () => boolean;
+  loadOlder: () => false | Promise<void>;
+  prefetchOlder: () => boolean;
 };
 
 export const useConversationMessages = (
@@ -118,9 +121,17 @@ export const useConversationMessages = (
   const lastLocalLoadToastAtRef = useRef(0);
   const [localRetryTick, setLocalRetryTick] = useState(0);
   const inFlightRef = useRef(false);
+  const prefetchInFlightRef = useRef(false);
+  const prefetchProjectionRef = useRef<Promise<void> | null>(null);
+  const prefetchProjectionAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    prefetchProjectionAbortRef.current?.abort();
     inFlightRef.current = false;
+    prefetchInFlightRef.current = false;
+    prefetchProjectionRef.current = null;
+    prefetchProjectionAbortRef.current = null;
+    return () => prefetchProjectionAbortRef.current?.abort();
   }, [visitToken]);
 
   useEffect(() => {
@@ -213,18 +224,77 @@ export const useConversationMessages = (
     if (!hasOlderMessages) return false;
     if (inFlightRef.current || activeSnapshot.loadingOlder) return false;
     inFlightRef.current = true;
-    void requestOlderLocalMessages(conversationId, MESSAGE_PAGE_SIZE).finally(
-      () => {
-        inFlightRef.current = false;
-      },
-    );
-    return true;
+    return (async () => {
+      try {
+        await prefetchProjectionRef.current;
+      } catch {
+        // Projection priming is an optimization; foreground history still loads.
+      }
+      await requestOlderLocalMessages(conversationId, MESSAGE_PAGE_SIZE);
+    })().finally(() => {
+      inFlightRef.current = false;
+    });
   }, [
     activeSnapshot.loadingOlder,
     conversationId,
     hasOlderMessages,
     isLocalMode,
   ]);
+
+  const prefetchOlder = useCallback(() => {
+    if (!conversationId || !isLocalMode) return false;
+    if (!hasOlderMessages || activeSnapshot.loadingOlder) return false;
+    if (prefetchInFlightRef.current) return false;
+    prefetchInFlightRef.current = true;
+    const controller = new AbortController();
+    prefetchProjectionAbortRef.current = controller;
+    const pending = prefetchOlderLocalMessages(
+      conversationId,
+      MESSAGE_PAGE_SIZE,
+      controller.signal,
+    ).then(async (result) => {
+      if (result.messages) {
+        await primeEventRowProjection(
+          [...result.messages, ...messages],
+          controller.signal,
+        );
+      }
+    });
+    prefetchProjectionRef.current = pending;
+    const finish = () => {
+      if (prefetchProjectionRef.current === pending) {
+        prefetchProjectionRef.current = null;
+      }
+      if (prefetchProjectionAbortRef.current === controller) {
+        prefetchProjectionAbortRef.current = null;
+      }
+      prefetchInFlightRef.current = false;
+    };
+    void pending.then(finish, finish);
+    return true;
+  }, [
+    activeSnapshot.loadingOlder,
+    conversationId,
+    hasOlderMessages,
+    isLocalMode,
+    messages,
+  ]);
+
+  // Prime exactly the next bounded page once the current window is idle. This
+  // removes first-contact projection work; later pages are primed again only
+  // after the preceding page actually publishes and changes the cursor.
+  useEffect(() => {
+    if (!hasOlderMessages || isLoadingOlder) return;
+    const run = () => {
+      prefetchOlder();
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(run, { timeout: 500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(run, 50);
+    return () => window.clearTimeout(id);
+  }, [hasOlderMessages, isLoadingOlder, prefetchOlder, visitToken]);
 
   // Decay the grown window back to one page once every chat surface has
   // been at the bottom continuously for the rest interval. At the bottom
@@ -271,5 +341,6 @@ export const useConversationMessages = (
     isLoadingOlder,
     isInitialLoading,
     loadOlder,
+    prefetchOlder,
   };
 };

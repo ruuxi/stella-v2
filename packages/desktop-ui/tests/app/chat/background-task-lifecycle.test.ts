@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import {
   buildBackgroundTaskLifecycleIndex,
+  collectBackgroundTaskLifecycleEvents,
   resolveBackgroundTaskCardLifecycle,
 } from "@/features/chat/lib/background-task-lifecycle";
 import {
@@ -71,6 +72,27 @@ const resolveCard = (starts: EventRecord[], allEvents: EventRecord[]) => {
 };
 
 describe("spawn-anchored background task lifecycle", () => {
+  it("filters non-lifecycle traffic and deduplicates persisted copies", () => {
+    const start = started({
+      id: "start-filtered",
+      at: 100,
+      agentId: "worker",
+      rootRunId: "run-filtered",
+      description: "Do work",
+    });
+    const noise = event("shell-output", 110, "tool-output", {
+      text: "large output",
+    });
+
+    expect(
+      collectBackgroundTaskLifecycleEvents([
+        noise,
+        start,
+        { ...start, payload: { ...start.payload } },
+      ]),
+    ).toEqual([start]);
+  });
+
   it("settles a spawn_manager card through the shared completion lifecycle", () => {
     const start = started({
       id: "manager-start",

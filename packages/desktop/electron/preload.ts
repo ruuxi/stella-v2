@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { ChatContext } from "@stella/contracts";
+import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
@@ -1629,23 +1630,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         body?: string;
       },
     ) => invokeBrowserFetch(IPC_BROWSER_FETCH_TEXT, { url, init }),
-    onBridgeStatus: onIpc<{
-      state:
-        | "idle"
-        | "connecting"
-        | "connected"
-        | "reconnecting"
-        | "host_registration_failed";
-      attempt: number;
-      nextRetryMs?: number;
-      error?: string;
-      reason?:
-        | "bridge_missing"
-        | "authorization_failed"
-        | "connection_lost"
-        | "transient_failure";
-      notifyUser?: boolean;
-    }>("browser:bridgeStatus"),
+    onBridgeStatus: onIpc<StellaBrowserBridgeStatus>("browser:bridgeStatus"),
   },
 
   browserView: {

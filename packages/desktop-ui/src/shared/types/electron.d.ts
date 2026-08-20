@@ -9,6 +9,7 @@
 import type { UiState } from "./ui";
 import type { Theme } from "@/shared/theme/themes/types";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
+import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
 import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
@@ -1147,23 +1148,7 @@ export type ElectronDiscoveryApi = {
 
 export type ElectronBrowserApi = {
   onBridgeStatus: (
-    callback: (status: {
-      state:
-        | "idle"
-        | "connecting"
-        | "connected"
-        | "reconnecting"
-        | "host_registration_failed";
-      attempt: number;
-      nextRetryMs?: number;
-      error?: string;
-      reason?:
-        | "bridge_missing"
-        | "authorization_failed"
-        | "connection_lost"
-        | "transient_failure";
-      notifyUser?: boolean;
-    }) => void,
+    callback: (status: StellaBrowserBridgeStatus) => void,
   ) => () => void;
   fetchJson: (
     url: string,

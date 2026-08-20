@@ -20,20 +20,22 @@ describe("mobile user message collapse contract", () => {
   test("clamps long user messages to four rendered lines", () => {
     expect(USER_MESSAGE_COLLAPSE_LINES).toBe(4);
     expect(chatPane).toContain("numberOfLines={clamp ? USER_MESSAGE_COLLAPSE_LINES : undefined}");
-    expect(chatPane).not.toMatch(/USER_MESSAGE_COLLAPSE_LINES\s*=\s*[68]/);
+    expect(/USER_MESSAGE_COLLAPSE_LINES\s*=\s*[68]/.test(chatPane)).toBe(false);
   });
 
   test("keeps the mobile type contract that four lines map to 17px at 1.52", () => {
-    expect(chatPane).toMatch(/fontSize:\s*17,/);
-    expect(chatPane).toMatch(/lineHeight:\s*17 \* 1\.52,/);
+    expect(/fontSize:\s*17,/.test(chatPane)).toBe(true);
+    expect(/lineHeight:\s*17 \* 1\.52,/.test(chatPane)).toBe(true);
     expect(USER_MESSAGE_MOBILE_FONT_SIZE_PX).toBe(17);
     expect(USER_MESSAGE_MOBILE_LINE_HEIGHT).toBe(1.52);
     expect(
-      collapsedUserMessageMaxHeight({
-        fontSizePx: USER_MESSAGE_MOBILE_FONT_SIZE_PX,
-        lineHeight: USER_MESSAGE_MOBILE_LINE_HEIGHT,
-      }),
-    ).toBeCloseTo(103.36, 5);
+      Math.abs(
+        collapsedUserMessageMaxHeight({
+          fontSizePx: USER_MESSAGE_MOBILE_FONT_SIZE_PX,
+          lineHeight: USER_MESSAGE_MOBILE_LINE_HEIGHT,
+        }) - 103.36,
+      ) < 1e-5,
+    ).toBe(true);
   });
 
   test("treats four exact lines as in-bounds and five as overflow", () => {
@@ -64,10 +66,12 @@ describe("mobile user message collapse contract", () => {
 
   test("scales the four-line cap with font size so Dynamic Type stays layout-based", () => {
     expect(
-      collapsedUserMessageMaxHeight({
-        fontSizePx: USER_MESSAGE_MOBILE_FONT_SIZE_PX * 2,
-        lineHeight: USER_MESSAGE_MOBILE_LINE_HEIGHT,
-      }),
-    ).toBeCloseTo(206.72, 5);
+      Math.abs(
+        collapsedUserMessageMaxHeight({
+          fontSizePx: USER_MESSAGE_MOBILE_FONT_SIZE_PX * 2,
+          lineHeight: USER_MESSAGE_MOBILE_LINE_HEIGHT,
+        }) - 206.72,
+      ) < 1e-5,
+    ).toBe(true);
   });
 });

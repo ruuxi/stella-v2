@@ -27,6 +27,7 @@ vi.mock("@stella/runtime/ai/stream", () => ({
 }));
 
 import {
+  formatThreadCheckpointMessage,
   maybeCompactRuntimeThread,
   setThreadSummaryRetryDelaysForTest,
 } from "@stella/runtime/kernel/thread-runtime";
@@ -437,10 +438,13 @@ describe("orchestrator thread compaction failure handling", () => {
         messages: Array<{ content: Array<{ type: string; text: string }> }>;
       };
       const subagentPrompt = subagentContext.messages[0]!.content[0]!.text;
+      expect(subagentPrompt).toContain("<conversation>");
+      expect(subagentPrompt).toContain("## Goal");
       expect(subagentPrompt).toContain("thread_id");
       expect(subagentPrompt).not.toContain("ALREADY KNOWN");
       expect(subagentPrompt).not.toContain("123 Elm Street");
       expect(subagentPrompt).not.toContain("Do not restate durable memory");
+      expect(subagentPrompt).not.toContain("CONVERSATION TO SUMMARIZE");
     } finally {
       fs.rmSync(stellaDataDir, { recursive: true, force: true });
     }
@@ -478,7 +482,7 @@ describe("orchestrator thread compaction failure handling", () => {
       store,
       threadKey: "buried-follow-up",
       resolvedLlm: createRoute(async () => "auth-token"),
-      agentType: "general",
+      agentType: "orchestrator",
     });
 
     expect(result).toEqual({ compacted: true });
@@ -555,7 +559,7 @@ describe("orchestrator thread compaction failure handling", () => {
       store: buried.store,
       threadKey: "task-update-buried",
       resolvedLlm: createRoute(async () => "auth-token"),
-      agentType: "general",
+      agentType: "orchestrator",
     });
     expect(buried.compactCalls[0]).toMatchObject({
       details: {
@@ -570,7 +574,7 @@ describe("orchestrator thread compaction failure handling", () => {
       store: inTail.store,
       threadKey: "task-update-in-tail",
       resolvedLlm: createRoute(async () => "auth-token"),
-      agentType: "general",
+      agentType: "orchestrator",
     });
     const details = inTail.compactCalls[0]!.details as
       | { pinnedUserInstruction?: unknown }
@@ -619,3 +623,215 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(completeSimpleMock).toHaveBeenCalled();
   });
 });
+
+describe("general/subagent compaction path", () => {
+  beforeEach(() => {
+    completeSimpleMock.mockReset();
+    setThreadSummaryRetryDelaysForTest([0, 0, 0, 0]);
+  });
+
+  afterEach(() => {
+    setThreadSummaryRetryDelaysForTest();
+  });
+
+  it("does not pin a buried latest user instruction for general agents", async () => {
+    const followUpText = `Follow-up task\n\nNow migrate the parser ${"y".repeat(30_000)}`;
+    const messages = [
+      { entryId: "entry-1", timestamp: 1_000, role: "user", content: "spawn" },
+      { entryId: "entry-2", timestamp: 1_001, role: "assistant", content: "ok" },
+      { entryId: "entry-3", timestamp: 1_002, role: "assistant", content: "ok" },
+      {
+        entryId: "entry-4",
+        timestamp: 1_003,
+        role: "user",
+        content: followUpText,
+      },
+      ...Array.from({ length: 58 }, (_, index) => ({
+        entryId: `entry-${index + 5}`,
+        timestamp: 1_004 + index,
+        role: "assistant",
+        content: `work chunk ${index} ${"x".repeat(10_000)}`,
+      })),
+    ];
+    const { store, compactCalls } = createFakeStore(messages);
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "general-no-pin",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "general",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    const details = compactCalls[0]!.details as
+      | { pinnedUserInstruction?: unknown }
+      | undefined;
+    expect(details?.pinnedUserInstruction).toBeUndefined();
+  });
+
+  it("uses the structured update prompt when a previous checkpoint exists", async () => {
+    const messages = [
+      { entryId: "h1", timestamp: 1, role: "user", content: "spawn" },
+      { entryId: "h2", timestamp: 2, role: "assistant", content: "ok" },
+      { entryId: "h3", timestamp: 3, role: "assistant", content: "ok" },
+      {
+        entryId: "checkpoint",
+        timestamp: 4,
+        role: "assistant",
+        content: formatThreadCheckpointMessage({
+          summary: "Earlier structured summary",
+        }),
+      },
+      {
+        entryId: "completed-user",
+        timestamp: 5,
+        role: "user",
+        content: "continue the work",
+      },
+      ...Array.from({ length: 50 }, (_, index) => ({
+        entryId: `mid-${index}`,
+        timestamp: 6 + index,
+        role: "assistant",
+        content: `chunk ${index} ${"x".repeat(8_000)}`,
+      })),
+      {
+        entryId: "tail-user",
+        timestamp: 60,
+        role: "user",
+        content: "keep this recent turn",
+      },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        entryId: `tail-${index}`,
+        timestamp: 61 + index,
+        role: "assistant",
+        content: `recent ${index} ${"x".repeat(8_000)}`,
+      })),
+    ];
+    completeSimpleMock.mockResolvedValue(successResponse());
+    const result = await maybeCompactRuntimeThread({
+      store: createFakeStore(messages).store,
+      threadKey: "general-update-prompt",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "general",
+    });
+    expect(result).toEqual({ compacted: true });
+
+    const context = completeSimpleMock.mock.calls[0]![1] as {
+      messages: Array<{ content: Array<{ type: string; text: string }> }>;
+    };
+    const prompt = context.messages[0]!.content[0]!.text;
+    expect(prompt).toContain("<previous-summary>");
+    expect(prompt).toContain("Earlier structured summary");
+    expect(prompt).toContain("NEW conversation messages");
+    expect(prompt).not.toContain("CONVERSATION TO SUMMARIZE");
+  });
+
+  it("summarizes a split-turn prefix separately from prior history", async () => {
+    const messages = [
+      { entryId: "h1", timestamp: 1, role: "user", content: "spawn" },
+      { entryId: "h2", timestamp: 2, role: "assistant", content: "ok" },
+      { entryId: "h3", timestamp: 3, role: "assistant", content: "ok" },
+      {
+        entryId: "older",
+        timestamp: 4,
+        role: "user",
+        content: "older ask",
+      },
+      {
+        entryId: "older-reply",
+        timestamp: 5,
+        role: "assistant",
+        content: `older work ${"x".repeat(8_000)}`,
+      },
+      {
+        entryId: "current-user",
+        timestamp: 6,
+        role: "user",
+        content: "do the current task",
+      },
+      {
+        entryId: "prefix",
+        timestamp: 7,
+        role: "assistant",
+        content: `early progress ${"x".repeat(4_000)}`,
+      },
+      ...Array.from({ length: 12 }, (_, index) => ({
+        entryId: `suffix-${index}`,
+        timestamp: 8 + index,
+        role: "assistant",
+        content: `recent suffix ${index} ${"x".repeat(8_000)}`,
+      })),
+    ];
+    completeSimpleMock.mockResolvedValue(successResponse());
+    const { store, compactCalls } = createFakeStore(messages);
+    const result = await withForcedThreadCompaction("general-split-turn", () =>
+      maybeCompactRuntimeThread({
+        store,
+        threadKey: "general-split-turn",
+        resolvedLlm: createRoute(async () => "auth-token"),
+        agentType: "general",
+      }),
+    );
+
+    expect(result).toEqual({ compacted: true });
+    expect(completeSimpleMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const prompts = completeSimpleMock.mock.calls.map((call) => {
+      const context = call[1] as {
+        messages: Array<{ content: Array<{ type: string; text: string }> }>;
+      };
+      return context.messages[0]!.content[0]!.text;
+    });
+    expect(prompts.some((prompt) => prompt.includes("PREFIX of a turn"))).toBe(
+      true,
+    );
+    expect(compactCalls[0]!.summary).toContain("Turn Context (split turn)");
+  });
+
+  it("still compacts on a tiny window without keeping an impossible 20k tail", async () => {
+    const messages = [
+      { entryId: "h1", timestamp: 1, role: "user", content: "spawn" },
+      { entryId: "h2", timestamp: 2, role: "assistant", content: "ok" },
+      { entryId: "h3", timestamp: 3, role: "assistant", content: "ok" },
+      {
+        entryId: "mid-user",
+        timestamp: 4,
+        role: "user",
+        content: `middle ${"x".repeat(20_000)}`,
+      },
+      {
+        entryId: "mid-assistant",
+        timestamp: 5,
+        role: "assistant",
+        content: `more ${"x".repeat(20_000)}`,
+      },
+      {
+        entryId: "tail-1",
+        timestamp: 6,
+        role: "assistant",
+        content: `recent ${"x".repeat(12_000)}`,
+      },
+      {
+        entryId: "tail-2",
+        timestamp: 7,
+        role: "assistant",
+        content: `recent more ${"x".repeat(12_000)}`,
+      },
+    ];
+    completeSimpleMock.mockResolvedValue(successResponse());
+    const { store, compactCalls } = createFakeStore(messages);
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "general-small-window",
+      resolvedLlm: createRoute(async () => "auth-token", 16_000),
+      agentType: "general",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    expect(compactCalls[0]).toMatchObject({
+      fromEntryId: "mid-user",
+      toEntryId: "mid-assistant",
+    });
+  });
+});
+

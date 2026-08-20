@@ -781,6 +781,96 @@ export const FIX_PAGES: FixPage[] = [
       "Enterprise or school-managed Adobe licenses can require your organization's admin console, which Stella can't reach — it will tell you if you're in that case. On a personal plan, the whole fix happens on your machine.",
     ctaHeadline: "Photoshop open by the time coffee's done.",
   },
+  {
+    slug: "photoshop-scratch-disk-full",
+    cluster: "Photoshop scratch disk full / temporary storage exhausted",
+    eyebrow: "Fix it with Stella · Photoshop",
+    metaTitle: "Photoshop scratch disk full? Clear it safely and reopen",
+    metaDescription:
+      "Stella finds what filled Photoshop's scratch disk, clears safe temporary files, selects usable storage, and relaunches Photoshop to verify the error is gone.",
+    headline: "Photoshop says the scratch disk is full?",
+    headlineAccent: "Make room without guessing.",
+    lede: "Photoshop can stop mid-project — or refuse to open — when its temporary workspace runs out. Stella checks the scratch-disk setting and real free space, separates disposable Photoshop temp files from your work, clears only what is safe, and relaunches the app to prove the error is gone.",
+    symptoms: [
+      "photoshop scratch disks full",
+      "scratch disks are full photoshop fix",
+      "photoshop won't open scratch disk full",
+      "clear photoshop scratch disk safely",
+      "change photoshop scratch disk",
+      "photoshop scratch disk full but hard drive has space",
+    ],
+    prompt:
+      "Photoshop won't open because it says the scratch disks are full. Fix it without deleting any of my project files.",
+    steps: [
+      "Checks Photoshop's active scratch disk and the free space actually available",
+      "Finds abandoned Photoshop temporary files and shows what is safe to remove",
+      "Clears only approved temporary data or moves the scratch disk to usable storage",
+      "Relaunches Photoshop and verifies a document opens without the warning",
+    ],
+    scope:
+      "Stella never treats your PSDs, photos, presets, or active project folders as cleanup. It shows the plan before removing temporary files. If the disk itself is failing or a document is already corrupt, Stella stops and explains the safer recovery path instead of claiming a storage cleanup can repair hardware or lost work.",
+    ctaHeadline: "Get Photoshop open again.",
+  },
+  {
+    slug: "microphone-not-working-windows",
+    cluster: "Windows microphone not working in Zoom, Discord, Teams, or recording apps",
+    eyebrow: "Fix it with Stella · Windows audio",
+    metaTitle: "Microphone not working in Windows? Test and fix the real cause",
+    metaDescription:
+      "Stella checks Windows microphone permissions, the selected input, levels, services, and drivers, then records a test to verify your mic works in the app you use.",
+    headline: "Windows can't hear your microphone?",
+    headlineAccent: "Find the setting that broke.",
+    lede: "The mic works in one app but not another. Zoom chose the laptop mic. Discord lost permission. Windows muted the input after an update. Stella checks the whole path — device, privacy access, app selection, levels, services, and driver — then makes a test recording so you know it is fixed before the next call.",
+    symptoms: [
+      "microphone not working windows 11",
+      "discord mic not working",
+      "zoom microphone not working",
+      "windows microphone detected but no sound",
+      "microphone permission on but not working",
+      "headset mic not showing up windows",
+    ],
+    prompt:
+      "My microphone works in Windows settings but nobody can hear me in Discord. Find the problem and test it.",
+    steps: [
+      "Identifies the active microphone and checks whether Windows receives a signal",
+      "Fixes system and per-app privacy access, default input, levels, and mute state",
+      "Restarts the audio path or repairs the driver only when the evidence points there",
+      "Records and plays back a test, then confirms the correct input inside your app",
+    ],
+    scope:
+      "Stella can repair the Windows and app configuration around a working microphone. It cannot mend a failed mic, cable, headset jack, or USB port. If the hardware never produces a signal, Stella proves that boundary and tells you exactly what to test next instead of cycling settings forever.",
+    ctaHeadline: "Be heard before the call starts.",
+  },
+  {
+    slug: "steam-game-wont-launch",
+    cluster: "Steam game will not launch / Preparing to Launch then stops",
+    eyebrow: "Fix it with Stella · PC gaming",
+    metaTitle: "Steam game won't launch? Read the failure and fix it",
+    metaDescription:
+      "Stella reads the game and Windows logs, verifies files, repairs runtimes and launch settings, disables the conflicting overlay, and relaunches to confirm it starts.",
+    headline: "Steam says “Launching” — then nothing?",
+    headlineAccent: "Read the failure. Start the game.",
+    lede: "No error, no window, just a green Play button again. Stella checks the game logs and Windows event that happened at launch, verifies the install, repairs the exact runtime or permission that failed, checks overlays and launch options, and starts the game again — without jumping straight to a full reinstall.",
+    symptoms: [
+      "steam game not launching",
+      "steam game won't launch",
+      "steam preparing to launch then stops",
+      "steam game says running then stops",
+      "steam game won't open no error",
+      "steam game launches then closes immediately",
+    ],
+    prompt:
+      "Steam says my game is launching for a few seconds, then the Play button comes back. Read whatever failed and get it running.",
+    steps: [
+      "Reads the game's latest logs and the matching Windows crash or event entry",
+      "Verifies local files and repairs only the missing Visual C++, DirectX, or .NET runtime",
+      "Checks launch options, permissions, overlays, antivirus blocks, and GPU selection",
+      "Relaunches the game and watches long enough to confirm the process stays up",
+    ],
+    scope:
+      "Stella fixes local launch failures it can observe: damaged files, runtimes, permissions, overlays, drivers, and configuration. It cannot fix a publisher outage, anti-cheat ban, unsupported hardware, or a broken game release. In those cases it identifies the real blocker and leaves your install intact.",
+    ctaHeadline: "Turn Play into playing.",
+  },
 ];
 
 export function getFixPage(slug: string): FixPage | undefined {

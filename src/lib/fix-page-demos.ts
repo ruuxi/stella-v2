@@ -295,6 +295,42 @@ export const FIX_PAGE_DEMOS: Record<string, StellaMiniChatExchange[]> = {
         "Didn't need to. Creative Cloud opens, Photoshop is signed in on your plan.",
     },
   ],
+  "photoshop-scratch-disk-full": [
+    {
+      user: "Photoshop won't open because it says the scratch disks are full. Fix it without deleting any of my project files.",
+      reply:
+        "Your PSDs are safe. The scratch disk has 38 GB of abandoned Photoshop temp files; I'll show you those before clearing anything.",
+    },
+    {
+      user: "Clear only the temp files and test it.",
+      reply:
+        "Approved temp files cleared. Photoshop reopened and a document loads without the scratch-disk warning.",
+    },
+  ],
+  "microphone-not-working-windows": [
+    {
+      user: "My microphone works in Windows settings but nobody can hear me in Discord. Find the problem and test it.",
+      reply:
+        "Windows has signal, but Discord is using the laptop mic and its app permission is off. I'll correct both.",
+    },
+    {
+      user: "Make sure people can actually hear it.",
+      reply:
+        "Discord now has the headset input. Test recording played back clearly at a healthy level.",
+    },
+  ],
+  "steam-game-wont-launch": [
+    {
+      user: "Steam says my game is launching for a few seconds, then the Play button comes back. Read whatever failed and get it running.",
+      reply:
+        "The crash event points to a missing Visual C++ runtime, not the game files. I'll repair the official runtime and relaunch.",
+    },
+    {
+      user: "Don't reinstall the whole game.",
+      reply:
+        "No reinstall. The runtime is repaired, the game reached its main menu, and the process is staying up.",
+    },
+  ],
 };
 
 const missingDemos = FIX_PAGES.filter((page) => !FIX_PAGE_DEMOS[page.slug]).map(

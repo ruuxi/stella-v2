@@ -293,6 +293,7 @@ export class BrowserSessionDisposedError extends Error {
 }
 
 type BrowserTransportErrorCode =
+  | "authorization_handoff"
   | "connection_closed"
   | "connection_failed"
   | "invalid_response"
@@ -459,6 +460,12 @@ const isUnavailableInitializerError = (error: Error) =>
   ["ENOENT", "ECONNREFUSED", "EADDRNOTAVAIL"].includes(
     String((error as NodeJS.ErrnoException).code),
   );
+
+const AUTHORIZATION_HANDOFF_ERROR =
+  /outside its authorized session|session capability expired|stale browser (?:turn|owner lease) rejected|extension delegation expired|does not match this owner session/i;
+
+const isAuthorizationHandoffError = (error: string | undefined): boolean =>
+  typeof error === "string" && AUTHORIZATION_HANDOFF_ERROR.test(error);
 
 export const initializeStellaInAppBrowser: InAppBrowserInitializer = async ({
   env,
@@ -1083,6 +1090,8 @@ export class BrowserSession implements BrowserSessionClient {
     }
     this.activeTurnBackends.clear();
     this.activeTurn = this.createTurnLease(validatedTurnId);
+    this.recoverInAppBrowserCapability = false;
+    this.resetOwnerBinding();
   }
 
   async endTurn(
@@ -1098,7 +1107,8 @@ export class BrowserSession implements BrowserSessionClient {
       } finally {
         if (this.activeTurn === turn) this.activeTurn = undefined;
         this.activeTurnBackends.clear();
-        this.ownerRoute = undefined;
+        this.recoverInAppBrowserCapability = false;
+        this.resetOwnerBinding();
         if (this.socket) {
           this.invalidateSocket(
             this.socket,
@@ -1379,6 +1389,18 @@ export class BrowserSession implements BrowserSessionClient {
     if (this.socket) this.invalidateSocket(this.socket, error);
   }
 
+  private isManagedBridge(config?: ResolvedExecutionConfig): boolean {
+    return (
+      (config ?? this.executionConfig ?? this.bootstrapExecutionConfig()).env
+        .STELLA_BROWSER_MANAGED_BRIDGE === "1"
+    );
+  }
+
+  private bootstrapExecutionConfig(): ResolvedExecutionConfig {
+    this.executionConfig = undefined;
+    return this.resolveExecutionConfig();
+  }
+
   private resolveExecutionConfig(): ResolvedExecutionConfig {
     if (this.executionConfig) return this.executionConfig;
 
@@ -1467,6 +1489,11 @@ export class BrowserSession implements BrowserSessionClient {
     return config;
   }
 
+  private resetOwnerBinding(): void {
+    this.ownerRoute = undefined;
+    this.executionConfig = undefined;
+  }
+
   private async execute<TData>(
     action: string,
     params: BrowserCommandParams,
@@ -1531,6 +1558,13 @@ export class BrowserSession implements BrowserSessionClient {
               { retryable: true },
             );
           }
+          if (!response.success && isAuthorizationHandoffError(response.error)) {
+            throw new BrowserTransportError(
+              "authorization_handoff",
+              response.error,
+              { retryable: true },
+            );
+          }
           break;
         } catch (cause) {
           this.assertOpen();
@@ -1543,6 +1577,7 @@ export class BrowserSession implements BrowserSessionClient {
             managedBridge &&
             requestDispatched &&
             cause instanceof BrowserTransportError &&
+            cause.code !== "authorization_handoff" &&
             !canReplayAfterManagedReplacement(action, params)
           ) {
             throw new BrowserTransportError(
@@ -1633,8 +1668,12 @@ export class BrowserSession implements BrowserSessionClient {
         "Browser command timed out during in-app initialization.",
       );
     }
+    const initConfig =
+      this.recoverInAppBrowserCapability && this.executionConfig
+        ? this.executionConfig
+        : this.bootstrapExecutionConfig();
     const initialized = await this.initializeInAppBrowser({
-      env: config.env,
+      env: initConfig.env,
       signal,
       timeoutMs: remainingMs,
       sessionId: this.sessionId,
@@ -1646,7 +1685,7 @@ export class BrowserSession implements BrowserSessionClient {
     if (initialized === true) {
       this.recoverInAppBrowserCapability = false;
       return this.bindOwnerRoute({
-        bridgeSessionId: config.bridgeSessionId,
+        bridgeSessionId: initConfig.bridgeSessionId,
         capabilityExpiresAt: Number.MAX_SAFE_INTEGER,
         turnId: turn.turnId,
         ownerLeaseId: turn.ownerLeaseId,
@@ -1660,6 +1699,13 @@ export class BrowserSession implements BrowserSessionClient {
         ownerLeaseId: turn.ownerLeaseId,
       });
     }
+    if (this.isManagedBridge(initConfig)) {
+      throw new BrowserTransportError(
+        "connection_failed",
+        "Managed browser initialization did not return an authorized successor endpoint.",
+        { retryable: true },
+      );
+    }
     return config;
   }
 
@@ -1667,7 +1713,7 @@ export class BrowserSession implements BrowserSessionClient {
     if (
       !(cause instanceof BrowserTransportError) ||
       (!cause.retryable && cause.code !== "timeout") ||
-      this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE !== "1"
+      !this.isManagedBridge()
     ) {
       return;
     }
@@ -1691,7 +1737,7 @@ export class BrowserSession implements BrowserSessionClient {
     } catch (initialError) {
       throwIfAborted(signal);
       if (
-        this.resolveExecutionConfig().env.STELLA_BROWSER_MANAGED_BRIDGE === "1"
+        this.isManagedBridge()
       ) {
         throw initialError;
       }

@@ -1034,6 +1034,288 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
+  it("rebinding after socket ENOENT uses the successor lease instead of the rediscovered shared bridge", async () => {
+    const sharedDaemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: false,
+      error: "Browser daemon rejected a request outside its authorized session",
+    }));
+    const agentDaemon = createTestDaemon(
+      (request) => ({
+        id: request.id,
+        success: true,
+        data: { tabs: [{ tabId: 7, url: "https://ads.google.com" }] },
+      }),
+      sharedDaemon.socketDir,
+    );
+    await Promise.all([sharedDaemon.start(), agentDaemon.start()]);
+    const initializeInAppBrowser = vi
+      .fn()
+      .mockResolvedValueOnce({
+        bridgeSessionId: agentDaemon.sessionId,
+        capabilityExpiresAt: Date.now() + 30_000,
+      })
+      .mockImplementationOnce(async () => {
+        await agentDaemon.stop();
+        return false;
+      })
+      .mockResolvedValue({
+        bridgeSessionId: agentDaemon.sessionId,
+        capabilityExpiresAt: Date.now() + 30_000,
+      });
+    const client = createClient(sharedDaemon, {
+      initializeInAppBrowser,
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_PROVIDER: "extension",
+        STELLA_BROWSER_SESSION: sharedDaemon.sessionId,
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: sharedDaemon.sessionId,
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+      ownerLeaseId: "lease-1",
+      ownerLeaseIssuedAt: 1_000,
+    });
+
+    try {
+      await client.selectBackend("external");
+      await expect(client.command("tab_list")).resolves.toMatchObject({
+        bridgeSessionId: agentDaemon.sessionId,
+        result: { success: true },
+      });
+
+      await agentDaemon.stop();
+      await new Promise((resolve) => setImmediate(resolve));
+      await expect(client.command("tab_list")).rejects.toMatchObject({
+        code: "execution_failed",
+        message: expect.stringMatching(/ENOENT|Failed to connect|did not return an authorized/),
+      });
+
+      await agentDaemon.start();
+      await expect(client.command("tab_list")).resolves.toMatchObject({
+        bridgeSessionId: agentDaemon.sessionId,
+        result: {
+          success: true,
+          data: { tabs: [{ tabId: 7, url: "https://ads.google.com" }] },
+        },
+      });
+
+      expect(sharedDaemon.requests).toHaveLength(0);
+      expect(
+        initializeInAppBrowser.mock.calls.every(
+          ([{ ownerLeaseId }]) => ownerLeaseId === "lease-1",
+        ),
+      ).toBe(true);
+      expect(agentDaemon.requests.at(-1)).toMatchObject({
+        action: "tab_list",
+        ownerLeaseId: "lease-1",
+        browserBackend: "extension",
+      });
+    } finally {
+      await client.dispose();
+      await agentDaemon.close();
+      await sharedDaemon.close();
+    }
+  });
+
+  it("atomically rebinds endpoint and lease for a valid successor turn", async () => {
+    const firstAgent = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: { tabs: [{ tabId: 1, url: "https://ads.google.com/turn-1" }] },
+    }));
+    const secondAgent = createTestDaemon(
+      (request) => ({
+        id: request.id,
+        success: true,
+        data: { tabs: [{ tabId: 1, url: "https://ads.google.com/turn-2" }] },
+      }),
+      firstAgent.socketDir,
+    );
+    await Promise.all([firstAgent.start(), secondAgent.start()]);
+    const initializeInAppBrowser = vi
+      .fn()
+      .mockResolvedValueOnce({
+        bridgeSessionId: firstAgent.sessionId,
+        capabilityExpiresAt: Date.now() + 30_000,
+      })
+      .mockResolvedValue({
+        bridgeSessionId: secondAgent.sessionId,
+        capabilityExpiresAt: Date.now() + 30_000,
+      });
+    const client = createClient(firstAgent, {
+      initializeInAppBrowser,
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_PROVIDER: "extension",
+        STELLA_BROWSER_SESSION: "bootstrap-session",
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+      ownerLeaseId: "lease-1",
+      ownerLeaseIssuedAt: 1_000,
+    });
+
+    try {
+      await client.selectBackend("external");
+      await client.command("tab_list");
+      await client.endTurn("test-turn-1", "retain-tabs");
+      client.beginTurn("test-turn-2");
+      await expect(client.command("tab_list")).resolves.toMatchObject({
+        bridgeSessionId: secondAgent.sessionId,
+        result: {
+          success: true,
+          data: { tabs: [{ tabId: 1, url: "https://ads.google.com/turn-2" }] },
+        },
+      });
+
+      expect(initializeInAppBrowser).toHaveBeenCalledTimes(2);
+      expect(initializeInAppBrowser).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          turnId: "test-turn-1",
+          ownerLeaseId: "lease-1",
+          env: expect.objectContaining({
+            STELLA_BROWSER_SESSION: "bootstrap-session",
+          }),
+        }),
+      );
+      expect(initializeInAppBrowser).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          turnId: "test-turn-2",
+          env: expect.objectContaining({
+            STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+          }),
+        }),
+      );
+      expect(initializeInAppBrowser.mock.calls[1]?.[0]?.ownerLeaseId).not.toBe(
+        "lease-1",
+      );
+      expect(firstAgent.requests.map((request) => request.action)).toEqual([
+        "tab_list",
+        "release_owner_lease",
+      ]);
+      expect(secondAgent.requests).toEqual([
+        expect.objectContaining({
+          action: "tab_list",
+          turnId: "test-turn-2",
+          browserBackend: "extension",
+        }),
+      ]);
+    } finally {
+      await client.dispose();
+      await secondAgent.close();
+      await firstAgent.close();
+    }
+  });
+
+  it("single-flights a racing successor rebind onto one authorized endpoint", async () => {
+    const agentDaemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: true,
+      data: { tabs: [{ tabId: 3 }] },
+    }));
+    await agentDaemon.start();
+    const releaseInitialization = deferred<{
+      bridgeSessionId: string;
+      capabilityExpiresAt: number;
+    }>();
+    const initializeInAppBrowser = vi.fn(
+      async () => await releaseInitialization.promise,
+    );
+    const client = createClient(agentDaemon, {
+      initializeInAppBrowser,
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_PROVIDER: "extension",
+        STELLA_BROWSER_SESSION: "bootstrap-session",
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: "bootstrap-session",
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+    });
+
+    try {
+      const first = client.command("tab_list");
+      const second = client.command("url");
+      await vi.waitFor(() =>
+        expect(initializeInAppBrowser).toHaveBeenCalledOnce(),
+      );
+      releaseInitialization.resolve({
+        bridgeSessionId: agentDaemon.sessionId,
+        capabilityExpiresAt: Date.now() + 30_000,
+      });
+      await Promise.all([first, second]);
+
+      expect(initializeInAppBrowser).toHaveBeenCalledOnce();
+      expect(agentDaemon.connections).toBe(1);
+      expect(agentDaemon.requests.map((request) => request.action)).toEqual([
+        "tab_list",
+        "url",
+      ]);
+    } finally {
+      await client.dispose();
+      await agentDaemon.close();
+    }
+  });
+
+  it("rejects a foreign session even after rediscovering the Chrome bridge", async () => {
+    const sharedDaemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: false,
+      error: "Browser daemon rejected a request outside its authorized session",
+    }));
+    await sharedDaemon.start();
+    const initializeInAppBrowser = vi.fn(async () => ({
+      bridgeSessionId: sharedDaemon.sessionId,
+      capabilityExpiresAt: Date.now() + 30_000,
+    }));
+    const owner = createClient(sharedDaemon, {
+      initializeInAppBrowser,
+      sessionId: "owner-session",
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_PROVIDER: "extension",
+        STELLA_BROWSER_SESSION: sharedDaemon.sessionId,
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: sharedDaemon.sessionId,
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+      ownerLeaseId: "owner-lease",
+      ownerLeaseIssuedAt: 1_000,
+    });
+    const foreign = createClient(sharedDaemon, {
+      initializeInAppBrowser,
+      sessionId: "foreign-session",
+      getBridgeEnv: () => ({
+        STELLA_BROWSER_PROVIDER: "extension",
+        STELLA_BROWSER_SESSION: sharedDaemon.sessionId,
+        STELLA_IN_APP_BROWSER_BOOTSTRAP_SESSION: sharedDaemon.sessionId,
+        STELLA_BROWSER_MANAGED_BRIDGE: "1",
+      }),
+      ownerLeaseId: "foreign-lease",
+      ownerLeaseIssuedAt: 2_000,
+    });
+
+    try {
+      await expect(owner.command("tab_list")).rejects.toMatchObject({
+        message: expect.stringContaining("outside its authorized session"),
+      });
+      await expect(foreign.command("tab_list")).rejects.toMatchObject({
+        message: expect.stringContaining("outside its authorized session"),
+      });
+      expect(sharedDaemon.requests.map((request) => request.sessionId)).toEqual(
+        expect.arrayContaining(["owner-session", "foreign-session"]),
+      );
+      expect(
+        sharedDaemon.requests.every((request) =>
+          ["owner-session", "foreign-session"].includes(
+            request.sessionId as string,
+          ),
+        ),
+      ).toBe(true);
+    } finally {
+      await owner.dispose();
+      await foreign.dispose();
+      await sharedDaemon.close();
+    }
+  });
+
+
   it("retains root tabs while releasing browser control at turn completion", async () => {
     const daemon = createTestDaemon((request) => ({
       id: request.id,

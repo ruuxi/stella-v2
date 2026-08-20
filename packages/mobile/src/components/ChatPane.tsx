@@ -104,6 +104,7 @@ import {
   resumeReadAloud,
   speakReply,
   stopReadAloud,
+  startAfterStoppingReadAloud,
   useReadAloudPreference,
   useReadAloudState,
 } from "../lib/read-aloud";
@@ -3253,7 +3254,8 @@ export function ChatPane({
       tapLight();
       // In-flight progressive TTS can otherwise apply Expo's playback audio
       // mode after recording starts. On iOS that mode stops every recorder.
-      stopReadAloud();
+      await startAfterStoppingReadAloud(() => dictation.start());
+      return;
     }
     await dictation.toggle();
   }, [dictation]);

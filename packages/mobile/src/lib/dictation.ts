@@ -23,6 +23,7 @@ import {
   releaseRecordingAudioSession,
   type RecordingAudioLease,
 } from "./mobile-audio-session";
+import { stopReadAloudForDictation } from "./read-aloud";
 
 /** Minimum elapsed time before we bother round-tripping audio to the server. */
 const MIN_RECORDING_MS = 300;
@@ -86,6 +87,9 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     if (statusRef.current !== "idle" || operationInFlightRef.current) {
       return false;
     }
+    // Terminal TTS stop before any permission/consent work so a late chunk
+    // cannot restart playback after the user has already asked to speak.
+    stopReadAloudForDictation();
     operationInFlightRef.current = true;
     // Apple 5.1.1(i): voice audio is sent to a third-party AI transcription
     // service (Mistral Voxtral). Don't even start the recorder until the

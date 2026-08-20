@@ -106,9 +106,13 @@ interface ChatPanelTabProps {
   /** Removes a still-queued follow-up from the shared send queue by id. */
   removeQueuedUserMessage?: (messageId: string) => void;
   hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
   isLoadingOlder: boolean;
+  isLoadingNewer: boolean;
   isInitialLoading: boolean;
-  onLoadOlder: () => void;
+  onLoadOlder: () => boolean | void | Promise<boolean>;
+  onLoadNewer: () => boolean | void | Promise<boolean>;
+  onLoadLatest: () => boolean | void | Promise<boolean>;
   onSend: (
     text: string,
     chatContext?: ChatContext | null,
@@ -142,9 +146,13 @@ export function ChatPanelTab({
   queuedUserMessages,
   removeQueuedUserMessage,
   hasOlderMessages,
+  hasNewerMessages,
   isLoadingOlder,
+  isLoadingNewer,
   isInitialLoading,
   onLoadOlder,
+  onLoadNewer,
+  onLoadLatest,
   onSend,
   onStop,
   isolated = false,
@@ -208,6 +216,11 @@ export function ChatPanelTab({
     hasOlderEvents: hasOlderMessages,
     isLoadingOlder,
     onLoadOlder,
+    hasNewerEvents: hasNewerMessages,
+    isLoadingNewer,
+    onLoadNewer,
+    onLoadLatest,
+    paginationKey: conversationId,
     surface: "compact",
   });
   const { scrollToBottom: scrollSidebarToBottom } = sidebarScroll;

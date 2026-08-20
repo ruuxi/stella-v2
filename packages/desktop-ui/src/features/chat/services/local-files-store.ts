@@ -189,7 +189,7 @@ const getOrCreateEntry = (
   // Seed from the largest already-loaded smaller window so growing
   // the limit (ActivityHistoryDialog files loadOlder) doesn't briefly
   // empty the visible list during the grow-fetch. Mirrors
-  // `local-message-store` / `local-activity-store`.
+  // `local-activity-store`.
   const seed = [...localFilesWindows.values()]
     .filter(
       (entry) =>

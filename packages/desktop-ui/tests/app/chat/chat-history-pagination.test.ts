@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   captureChatPrependAnchor,
   ChatHistoryPaginationGate,
+  ChatPrependAnchorStabilizer,
   restoreChatPrependAnchor,
   type HistoryPaginationMetrics,
 } from "@/shell/chat-history-pagination";
@@ -73,7 +74,7 @@ describe("ChatHistoryPaginationGate", () => {
       );
       expect(decision).toMatchObject({
         request: false,
-        reason: "not-upward",
+        reason: "wrong-direction",
       });
     }
   });
@@ -88,6 +89,16 @@ describe("ChatHistoryPaginationGate", () => {
       request: true,
       reason: "request",
     });
+  });
+
+  it("settles a fast request when the transient loading snapshot is batched away", () => {
+    const gate = new ChatHistoryPaginationGate();
+    expect(gate.consider(35, "up", nearTop, guards).request).toBe(true);
+
+    expect(gate.settleRequest()).toBe(true);
+    expect(gate.syncGuards(guards)).toMatchObject({ requestSettled: true });
+    expect(gate.syncGuards(guards)).toMatchObject({ requestSettled: false });
+    expect(gate.consider(36, "up", nearTop, guards).request).toBe(true);
   });
 
   it("dedupes every action that occurs while a page is in flight", () => {
@@ -149,6 +160,31 @@ describe("ChatHistoryPaginationGate", () => {
       request: true,
       reason: "request",
     });
+  });
+
+  it("prefetches newer pages two viewports before the end", () => {
+    const gate = new ChatHistoryPaginationGate("end");
+    const nearEnd = {
+      scrollTop: 10_100,
+      viewportHeight: 600,
+      contentHeight: 12_000,
+    };
+
+    expect(gate.consider(70, "down", nearEnd, guards)).toMatchObject({
+      request: false,
+      reason: "outside-threshold",
+      thresholdVisible: false,
+    });
+    expect(
+      gate.consider(70, "down", { ...nearEnd, scrollTop: 10_250 }, guards),
+    ).toMatchObject({
+      request: true,
+      reason: "request",
+      thresholdVisible: true,
+    });
+    expect(
+      gate.consider(71, "up", { ...nearEnd, scrollTop: 10_250 }, guards),
+    ).toMatchObject({ request: false, reason: "wrong-direction" });
   });
 });
 
@@ -228,6 +264,80 @@ describe("prepend anchor preservation", () => {
     expect(restored.scrollTopAfter).toBe(600);
     expect(restored.viewportOffsetAfter).toBe(20);
     viewport.remove();
+  });
+
+  it("holds the anchor through delayed row height changes and stops cleanly", () => {
+    const viewport = document.createElement("div");
+    const preceding = document.createElement("div");
+    const anchorRow = document.createElement("div");
+    preceding.dataset.chatRowId = "message-199";
+    anchorRow.dataset.chatRowId = "message-200";
+    viewport.append(preceding, anchorRow);
+    document.body.appendChild(viewport);
+
+    let anchorDocumentTop = 120;
+    viewport.scrollTop = 100;
+    Object.defineProperty(viewport, "clientHeight", { value: 600 });
+    Object.defineProperty(viewport, "scrollHeight", { value: 2_500 });
+    viewport.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    preceding.getBoundingClientRect = () =>
+      ({ top: -60, bottom: -1, height: 59 }) as DOMRect;
+    anchorRow.getBoundingClientRect = () =>
+      ({
+        top: anchorDocumentTop - viewport.scrollTop,
+        bottom: anchorDocumentTop - viewport.scrollTop + 80,
+        height: 80,
+      }) as DOMRect;
+
+    let resizeCallback: ResizeObserverCallback | null = null;
+    let disconnected = false;
+    const observed: Element[] = [];
+    class FakeResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe(element: Element) {
+        observed.push(element);
+      }
+      disconnect() {
+        disconnected = true;
+      }
+      unobserve() {}
+    }
+    const rafCallbacks: FrameRequestCallback[] = [];
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    globalThis.ResizeObserver = FakeResizeObserver as typeof ResizeObserver;
+    globalThis.requestAnimationFrame = (callback) => {
+      rafCallbacks.push(callback);
+      return rafCallbacks.length;
+    };
+    globalThis.cancelAnimationFrame = () => {};
+
+    try {
+      const anchor = captureChatPrependAnchor(viewport)!;
+      const stabilizer = new ChatPrependAnchorStabilizer(viewport, anchor);
+      stabilizer.start();
+      expect(observed).toEqual([preceding, anchorRow]);
+
+      anchorDocumentTop += 47.25;
+      resizeCallback?.([], {} as ResizeObserver);
+      rafCallbacks.shift()?.(performance.now());
+      expect(viewport.scrollTop).toBeCloseTo(147.25, 5);
+      expect(anchorRow.getBoundingClientRect().top).toBeCloseTo(20, 5);
+
+      stabilizer.stop();
+      expect(disconnected).toBe(true);
+      anchorDocumentTop += 20;
+      resizeCallback?.([], {} as ResizeObserver);
+      expect(rafCallbacks).toHaveLength(0);
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+      viewport.remove();
+    }
   });
 });
 

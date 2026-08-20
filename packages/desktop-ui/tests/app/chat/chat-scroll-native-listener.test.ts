@@ -18,6 +18,9 @@ describe("chat scroll performance contract", () => {
 
     expect(timeline).not.toContain("onScroll={onListScroll}");
     expect(social).not.toContain("onScroll={socialScroll.onListScroll}");
+    expect(readSource("src/app/chat/ChatColumn.tsx")).toContain(
+      "list.scrollToOffset({ offset: next, animated: false })",
+    );
   });
 
   it("tracks scroll state from a passive native listener instead", () => {
@@ -28,6 +31,9 @@ describe("chat scroll performance contract", () => {
     );
     expect(hook).toMatch(
       /attached\.removeEventListener\(["']scroll["'], scheduleScrollStateUpdate\)/,
+    );
+    expect(hook).toContain(
+      "showScrollButton: showScrollButton || hasNewerEvents",
     );
   });
 

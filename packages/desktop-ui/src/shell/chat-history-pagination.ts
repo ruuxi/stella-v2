@@ -17,7 +17,7 @@ export type HistoryPaginationDecision = {
   request: boolean;
   reason:
     | "request"
-    | "not-upward"
+    | "wrong-direction"
     | "outside-threshold"
     | "action-consumed"
     | "in-flight"
@@ -38,14 +38,22 @@ type RequestPhase = "idle" | "awaiting-loading" | "loading";
  * updates never create an action.
  */
 export class ChatHistoryPaginationGate {
+  private readonly edge: "start" | "end";
   private consumedActionIds = new Set<number>();
   private requestPhase: RequestPhase = "idle";
+  private settledSinceLastSync = false;
+
+  constructor(edge: "start" | "end" = "start") {
+    this.edge = edge;
+  }
 
   syncGuards(guards: HistoryPaginationGuards): {
     requestStarted: boolean;
     requestSettled: boolean;
   } {
     const previous = this.requestPhase;
+    const externallySettled = this.settledSinceLastSync;
+    this.settledSinceLastSync = false;
 
     // Subscription re-keying briefly reports `hasMore=false` while retaining
     // the prior rows. Loading wins over that transient so the accepted request
@@ -61,7 +69,9 @@ export class ChatHistoryPaginationGate {
     return {
       requestStarted:
         previous === "awaiting-loading" && this.requestPhase === "loading",
-      requestSettled: previous !== "idle" && this.requestPhase === "idle",
+      requestSettled:
+        externallySettled ||
+        (previous !== "idle" && this.requestPhase === "idle"),
     };
   }
 
@@ -73,12 +83,20 @@ export class ChatHistoryPaginationGate {
   ): HistoryPaginationDecision {
     this.syncGuards(guards);
 
+    const edgeDistance =
+      this.edge === "start"
+        ? metrics.scrollTop
+        : Math.max(
+            0,
+            metrics.contentHeight - metrics.viewportHeight - metrics.scrollTop,
+          );
     const thresholdVisible =
-      metrics.scrollTop <=
+      edgeDistance <=
       metrics.viewportHeight * HISTORY_START_THRESHOLD_VIEWPORTS;
 
-    if (direction !== "up" || actionId === null) {
-      return { request: false, reason: "not-upward", thresholdVisible };
+    const requiredDirection = this.edge === "start" ? "up" : "down";
+    if (direction !== requiredDirection || actionId === null) {
+      return { request: false, reason: "wrong-direction", thresholdVisible };
     }
     if (!thresholdVisible) {
       return {
@@ -126,6 +144,18 @@ export class ChatHistoryPaginationGate {
     if (this.requestPhase === "awaiting-loading") {
       this.requestPhase = "idle";
     }
+  }
+
+  /**
+   * Complete an accepted request even when React batched the transient
+   * loading=true snapshot away. The next guard sync still reports the
+   * settlement so anchor restoration runs exactly once.
+   */
+  settleRequest(): boolean {
+    if (this.requestPhase === "idle") return false;
+    this.requestPhase = "idle";
+    this.settledSinceLastSync = true;
+    return true;
   }
 
   snapshot() {
@@ -223,6 +253,63 @@ export const restoreChatPrependAnchor = (
     contentHeightAfter: node.scrollHeight,
   };
 };
+
+/**
+ * Keeps the captured reading row fixed while already-mounted content above it
+ * settles asynchronously (images, fonts, expanded tool cards, highlighted
+ * code). It observes only mounted rows at-or-before the anchor, so observer and
+ * callback work stays bounded by the virtual list's render window. A new user
+ * gesture must stop the stabilizer; scroll intent always wins over anchoring.
+ */
+export class ChatPrependAnchorStabilizer {
+  private resizeObserver: ResizeObserver | null = null;
+  private raf = 0;
+  private stopped = false;
+
+  constructor(
+    private readonly node: HTMLElement,
+    private readonly anchor: ChatPrependAnchor,
+    private readonly onRestore?: (result: ChatPrependAnchorRestore) => void,
+  ) {}
+
+  start(): void {
+    if (this.stopped || typeof ResizeObserver === "undefined") return;
+    const anchorRow = chatRows(this.node).find(
+      (row) => row.dataset.chatRowId === this.anchor.rowId,
+    );
+    if (!anchorRow) return;
+    const anchorTop = anchorRow.getBoundingClientRect().top;
+    this.resizeObserver = new ResizeObserver(() => this.scheduleRestore());
+    for (const row of chatRows(this.node)) {
+      if (row.getBoundingClientRect().top <= anchorTop + 0.5) {
+        this.resizeObserver.observe(row);
+      }
+    }
+  }
+
+  stop(): void {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  private scheduleRestore(): void {
+    if (this.stopped || this.raf) return;
+    this.raf = requestAnimationFrame(() => {
+      this.raf = 0;
+      if (this.stopped) return;
+      const result = restoreChatPrependAnchor(this.node, this.anchor);
+      if (!result.found) {
+        this.stop();
+        return;
+      }
+      this.onRestore?.(result);
+    });
+  }
+}
 
 export type ChatHistoryPaginationDebugEvent = {
   type: string;

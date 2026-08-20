@@ -115,9 +115,14 @@ export const ChatColumn = memo(function ChatColumn({
         0,
         Math.min(scrollRange, dragStartRef.current.scrollTop + scrollDelta),
       );
-      el.scrollTop = next;
+      const list = scroll.listRef.current;
+      if (list) {
+        void list.scrollToOffset({ offset: next, animated: false });
+      } else {
+        el.scrollTop = next;
+      }
     },
-    [getScrollNode, noteManualScroll],
+    [getScrollNode, noteManualScroll, scroll.listRef],
   );
 
   const handleThumbUp = useCallback(() => {

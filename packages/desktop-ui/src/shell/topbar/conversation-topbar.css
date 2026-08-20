@@ -12,9 +12,8 @@
 /*
  * Orchestrated (single-chat) mode has no tab strip and no standalone new-chat
  * control, so the 140px floor reserved for tabs would leave phantom empty space
- * to the right of the History/Home controls — pushing a visible gap in front of
- * the nav and the update pill. Collapse the reservation so the bar hugs its
- * actual content. Direct mode keeps the tab-strip floor untouched.
+ * to the right of the History/Home controls. Collapse the reservation so the
+ * bar hugs its actual content. Direct mode keeps the tab-strip floor untouched.
  */
 .conversation-topbar[data-working-mode="orchestrated"] {
   min-width: 0;
@@ -72,16 +71,10 @@
 
 .conversation-topbar__viewport {
   position: relative;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 28px;
-  max-width: calc(100% - 116px);
   height: var(--shell-topbar-height, 38px);
   overflow: hidden;
-}
-
-.conversation-topbar:has(.conversation-topbar__plus[data-compact="true"])
-  .conversation-topbar__viewport {
-  max-width: calc(100% - 68px);
 }
 
 .conversation-topbar__viewport::before,

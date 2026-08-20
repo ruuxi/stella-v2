@@ -69,12 +69,12 @@ export function ShellTopBarFull({ onSignIn }: ShellTopBarFullProps) {
       <div className="shell-topbar-full__left">
         <ConversationTopBar />
         <ShellTopBarPrimaryNav omitIds={OMITTED_NAV_IDS} />
-        <ShellTopBarUpdatePill />
       </div>
 
       <div className="shell-topbar-full__spacer" aria-hidden="true" />
 
       <div className="shell-topbar-full__right">
+        <ShellTopBarUpdatePill />
         <ShellTopBarAccount onSignIn={onSignIn} />
         {!panelOpen ? (
           <>

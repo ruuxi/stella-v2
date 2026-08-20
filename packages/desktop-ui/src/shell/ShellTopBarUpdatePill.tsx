@@ -7,6 +7,31 @@ import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import { useT } from "@/shared/i18n";
 import "./shell-topbar-update-pill.css";
 
+export const UPDATE_PILL_PERCENT_TOKEN = "{percent}";
+
+export const clampDesktopUpdatePercent = (percent: number): number =>
+  Math.max(0, Math.min(100, Math.round(percent)));
+
+/**
+ * Split a downloading template such as "Downloading {percent}%" so the
+ * numeric slot can keep a fixed tabular width while 9 → 10 → 99 → 100.
+ */
+export const splitUpdatePillDownloadingLabel = (
+  template: string,
+  percent: number,
+): { prefix: string; value: string; suffix: string } => {
+  const value = String(clampDesktopUpdatePercent(percent));
+  const index = template.indexOf(UPDATE_PILL_PERCENT_TOKEN);
+  if (index < 0) {
+    return { prefix: template, value, suffix: "" };
+  }
+  return {
+    prefix: template.slice(0, index),
+    value,
+    suffix: template.slice(index + UPDATE_PILL_PERCENT_TOKEN.length),
+  };
+};
+
 export const ShellTopBarUpdatePill = () => {
   const t = useT();
   const { snapshot: rawSnapshot } = useDesktopUpdate();
@@ -55,9 +80,15 @@ export const ShellTopBarUpdatePill = () => {
   const isDownloaded = snapshot.status === "downloaded";
   const isRestarting = snapshot.status === "restarting";
   const isError = snapshot.status === "error";
-  const percent = Math.round(snapshot.progress?.percent ?? 0);
-  const label = isDownloading
-    ? t("shell.updatePill.downloading", { percent })
+  const percent = clampDesktopUpdatePercent(snapshot.progress?.percent ?? 0);
+  const downloadingParts = isDownloading
+    ? splitUpdatePillDownloadingLabel(
+        t("shell.updatePill.downloading"),
+        percent,
+      )
+    : null;
+  const label = downloadingParts
+    ? `${downloadingParts.prefix}${downloadingParts.value}${downloadingParts.suffix}`
     : isRestarting
       ? t("shell.updatePill.restarting")
       : isDownloaded
@@ -122,7 +153,19 @@ export const ShellTopBarUpdatePill = () => {
             aria-hidden
           />
         )}
-        <span className="shell-topbar-update-pill__label">{label}</span>
+        <span className="shell-topbar-update-pill__label">
+          {downloadingParts ? (
+            <>
+              {downloadingParts.prefix}
+              <span className="shell-topbar-update-pill__percent">
+                {downloadingParts.value}
+              </span>
+              {downloadingParts.suffix}
+            </>
+          ) : (
+            label
+          )}
+        </span>
       </button>
     </div>
   );

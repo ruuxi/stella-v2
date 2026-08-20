@@ -62,7 +62,6 @@ type ComposerProps = {
   conversationId: string | null;
   onSend: () => void;
   onStop: () => void;
-  onSelectArea?: () => void;
   isDragOver?: boolean;
   replyPeek?: AssistantReplyPeekProps | null;
   suggestionsActive?: boolean;
@@ -81,7 +80,6 @@ function ComposerImpl({
   conversationId,
   onSend,
   onStop,
-  onSelectArea,
   isDragOver = false,
   replyPeek,
   suggestionsActive = true,
@@ -277,7 +275,6 @@ function ComposerImpl({
               className="composer-add-button"
               title={t("app.chat.composer.add")}
               setChatContext={setChatContext}
-              onSelectArea={onSelectArea}
               contextSuggestions={contextSuggestions.suggestions}
               onSelectContextSuggestion={contextSuggestions.selectSuggestion}
             />
@@ -361,7 +358,6 @@ function ComposerImpl({
                       className="composer-add-button composer-add-button--toolbar"
                       title={t("app.chat.composer.add")}
                       setChatContext={setChatContext}
-                      onSelectArea={onSelectArea}
                       contextSuggestions={contextSuggestions.suggestions}
                       onSelectContextSuggestion={
                         contextSuggestions.selectSuggestion

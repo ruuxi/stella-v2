@@ -1085,8 +1085,7 @@
         "attachFiles": "แนบไฟล์…",
         "capture": "จับภาพ",
         "context": "บริบท",
-        "recent": "ล่าสุด",
-        "selectArea": "เลือกพื้นที่"
+        "recent": "ล่าสุด"
       },
       "agentCompletion": {
         "openNamedThread": "เปิดเธรดเอเจนต์ {title}",

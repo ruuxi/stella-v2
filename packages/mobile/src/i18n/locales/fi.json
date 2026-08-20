@@ -1090,8 +1090,7 @@
         "attachFiles": "Liitä tiedostoja…",
         "capture": "Kaappaa",
         "context": "Konteksti",
-        "recent": "Viimeisimmät",
-        "selectArea": "Valitse alue"
+        "recent": "Viimeisimmät"
       },
       "agentCompletion": {
         "openNamedThread": "Avaa agenttisäie: {title}",

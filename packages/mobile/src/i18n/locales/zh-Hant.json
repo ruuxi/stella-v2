@@ -1085,8 +1085,7 @@
         "attachFiles": "附加檔案…",
         "capture": "擷取",
         "context": "情境",
-        "recent": "最近使用",
-        "selectArea": "選取區域"
+        "recent": "最近使用"
       },
       "agentCompletion": {
         "openNamedThread": "開啟 {title} 代理執行緒",

@@ -1090,8 +1090,7 @@
         "attachFiles": "Dateien anhängen…",
         "capture": "Aufnehmen",
         "context": "Kontext",
-        "recent": "Zuletzt verwendet",
-        "selectArea": "Bereich auswählen"
+        "recent": "Zuletzt verwendet"
       },
       "agentCompletion": {
         "openNamedThread": "Agenten-Thread {title} öffnen",

@@ -18,7 +18,6 @@ import { ChatRuntimeProvider } from "@/context/chat-runtime";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useUiState } from "@/context/ui-state";
 import { ChatColumn } from "@/app/chat/ChatColumn";
-import { ComposerAreaSelectOverlay } from "@/app/chat/ComposerAreaSelectOverlay";
 import { OPEN_CONNECT_DIALOG_EVENT } from "@/global/integrations/connect-action";
 import { setActiveLocalConversationId } from "@/features/chat/services/local-chat-store";
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
@@ -601,14 +600,6 @@ function RootChrome() {
           visibility follows the right-side Activity workspace so it never
           creates an empty right gutter when there is nothing on the right. */}
       <GlobalModelsControl visible={modelControlVisible} />
-
-
-      <ComposerAreaSelectOverlay
-        active={chat.annotation.active}
-        requestId={chat.annotation.requestId}
-        onCancel={chat.annotation.cancel}
-        onSelect={chat.annotation.submit}
-      />
 
       <FullShellDialogs
         activeDialog={activeDialog ?? null}

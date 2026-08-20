@@ -1090,8 +1090,7 @@
         "attachFiles": "Bestanden bijvoegen…",
         "capture": "Vastleggen",
         "context": "Context",
-        "recent": "Recent",
-        "selectArea": "Gebied selecteren"
+        "recent": "Recent"
       },
       "agentCompletion": {
         "openNamedThread": "Agent-thread {title} openen",

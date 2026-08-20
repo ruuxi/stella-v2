@@ -1090,8 +1090,7 @@
         "attachFiles": "Vedhæft filer…",
         "capture": "Optag",
         "context": "Kontekst",
-        "recent": "Seneste",
-        "selectArea": "Vælg område"
+        "recent": "Seneste"
       },
       "agentCompletion": {
         "openNamedThread": "Åbn agenttråden {title}",

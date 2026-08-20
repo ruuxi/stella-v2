@@ -1100,8 +1100,7 @@
         "attachFiles": "Прикрепить файлы…",
         "capture": "Снимок",
         "context": "Контекст",
-        "recent": "Недавние",
-        "selectArea": "Выбрать область"
+        "recent": "Недавние"
       },
       "agentCompletion": {
         "openNamedThread": "Открыть поток агента {title}",

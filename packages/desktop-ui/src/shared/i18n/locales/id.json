@@ -1085,8 +1085,7 @@
         "attachFiles": "Lampirkan berkas…",
         "capture": "Tangkap",
         "context": "Konteks",
-        "recent": "Terbaru",
-        "selectArea": "Pilih area"
+        "recent": "Terbaru"
       },
       "agentCompletion": {
         "openNamedThread": "Buka utas agen {title}",

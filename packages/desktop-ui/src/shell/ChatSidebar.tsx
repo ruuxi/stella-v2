@@ -25,7 +25,6 @@ import {
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
 import { DictationRecordingBar } from "@/features/dictation/components/DictationRecordingBar";
 import {
-  attachComposerAppSelectionContext,
   deriveComposerState,
   hasAttachedComposerChips,
 } from "@/features/chat/composer-context";
@@ -120,7 +119,7 @@ interface ChatPanelTabProps {
   wideLayout?: boolean;
   /**
    * Detach this surface from the shared main-chat runtime context: no activity
-   * pill, no cross-thread agent-model badges, no area-select annotation. Used
+   * pill, no cross-thread agent-model badges. Used
    * by the ephemeral Quick chat so it stays a self-contained side conversation.
    */
   isolated?: boolean;
@@ -192,12 +191,11 @@ export function ChatPanelTab({
   }, []);
   const mainChatRuntime = useContext(ChatRuntimeContext);
   // Isolated surfaces (Quick chat) ignore the shared main-chat runtime so they
-  // don't inherit its agents, activity pill, or area-select annotation.
+  // don't inherit its agents or activity pill.
   const chatRuntime = isolated ? null : mainChatRuntime;
   const agentModelConfigByThread = useAgentModelConfigs(
     chatRuntime?.conversation.tasks ?? [],
   );
-  const startAnnotation = chatRuntime?.annotation.start;
   const showActivityPill = Boolean(chatRuntime);
 
   /*
@@ -309,19 +307,6 @@ export function ChatPanelTab({
   });
 
   const submitFromDictationRef = useRef<() => void>(() => {});
-
-  const attachAnnotation = useCallback(
-    (selection: NonNullable<ChatContext["appSelection"]>) => {
-      attachComposerAppSelectionContext(selection, setChatContext);
-      requestAnimationFrame(() => inputRef.current?.focus());
-    },
-    [setChatContext],
-  );
-
-  const handleSelectArea = useMemo(() => {
-    if (!startAnnotation) return undefined;
-    return () => startAnnotation({ submit: attachAnnotation });
-  }, [startAnnotation, attachAnnotation]);
 
   const handleCancelQueued = useCallback(
     (message: QueuedUserMessage) => {
@@ -569,7 +554,6 @@ export function ChatPanelTab({
                       className="composer-add-button"
                       title={t("shell.chatSidebar.add")}
                       setChatContext={setChatContext}
-                      onSelectArea={handleSelectArea}
                       contextSuggestions={contextSuggestions.suggestions}
                       onSelectContextSuggestion={
                         contextSuggestions.selectSuggestion
@@ -626,7 +610,6 @@ export function ChatPanelTab({
                               className="composer-add-button composer-add-button--toolbar"
                               title={t("shell.chatSidebar.add")}
                               setChatContext={setChatContext}
-                              onSelectArea={handleSelectArea}
                               contextSuggestions={
                                 contextSuggestions.suggestions
                               }

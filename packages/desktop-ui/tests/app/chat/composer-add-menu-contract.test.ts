@@ -40,7 +40,6 @@ describe("composer add-menu contract", () => {
 
     expect(englishFor("app.chat.addMenu.context")).toBe("Context");
     expect(englishFor("app.chat.addMenu.capture")).toBe("Capture");
-    expect(englishFor("app.chat.addMenu.selectArea")).toBe("Select area");
     expect(englishFor("app.chat.addMenu.attachFiles")).toBe("Attach files…");
 
     // Whitespace-tolerant: prettier reflows this across lines once the
@@ -60,13 +59,14 @@ describe("composer add-menu contract", () => {
     expect(source).not.toContain("showToast");
 
     const captureIndex = source.indexOf('t("app.chat.addMenu.capture")');
-    const selectAreaIndex = source.indexOf('t("app.chat.addMenu.selectArea")');
     const attachFilesIndex = source.indexOf(
       't("app.chat.addMenu.attachFiles")',
     );
     expect(captureIndex).toBeGreaterThanOrEqual(0);
-    expect(selectAreaIndex).toBeGreaterThan(captureIndex);
-    expect(attachFilesIndex).toBeGreaterThan(selectAreaIndex);
+    expect(attachFilesIndex).toBeGreaterThan(captureIndex);
+    expect(source).not.toContain("selectArea");
+    expect(source).not.toContain("onSelectArea");
+    expect(source).not.toContain("Select area");
   });
 
   it("removes composer-only New chat wiring from both render variants", () => {

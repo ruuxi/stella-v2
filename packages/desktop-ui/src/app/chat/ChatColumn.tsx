@@ -302,7 +302,6 @@ export const ChatColumn = memo(function ChatColumn({
         conversationId={conversationId}
         onSend={composer.onSend}
         onStop={composer.onStop}
-        onSelectArea={composer.onSelectArea}
         isDragOver={isDragOver}
         replyPeek={replyPeek}
         suggestionsActive={isActiveSurface}

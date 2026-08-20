@@ -1,13 +1,12 @@
-/* Align with `.shell-edge-toggle` (24×24 @ top 9px). */
+/* Right-cluster action. Height matches the account / panel controls'
+   visual weight without the old left-cluster top offset. */
 .shell-topbar-update-pill {
   --shell-topbar-update-pill-height: 22px;
   position: relative;
   display: inline-flex;
   align-items: stretch;
+  flex: 0 0 auto;
   height: var(--shell-topbar-update-pill-height);
-  margin-left: 4px;
-  margin-top: 9px;
-  align-self: flex-start;
   border-radius: 999px;
   background: color-mix(in oklch, var(--foreground) 6%, transparent);
   border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
@@ -121,7 +120,20 @@
 }
 
 .shell-topbar-update-pill__label {
+  display: inline-flex;
+  align-items: baseline;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reserve the widest 0–100 digit run so 9 → 10 → 99 → 100 cannot
+   resize the pill. Tabular figures keep each digit the same width. */
+.shell-topbar-update-pill__percent {
+  display: inline-block;
+  min-width: 3ch;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 .shell-topbar-update-pill__icon {

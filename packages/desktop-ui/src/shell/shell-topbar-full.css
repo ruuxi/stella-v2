@@ -50,7 +50,7 @@ body[data-display-expanding="true"] .shell-topbar-full,
 }
 
 .shell-topbar-full__left {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   height: 100%;
   display: flex;
@@ -58,7 +58,15 @@ body[data-display-expanding="true"] .shell-topbar-full,
   gap: 8px;
   padding: 0 12px;
   box-sizing: border-box;
-  overflow: visible;
+  overflow: hidden;
+}
+
+/* With open tabs the left cluster takes leftover space so the strip
+   can shrink against the right-side updater / account actions. Without
+   tabs it hugs History/Home and the spacer remains the drag region. */
+.shell-topbar-full__left:has(.conversation-topbar__viewport) {
+  flex: 1 1 auto;
+  padding-right: 0;
 }
 
 /* Clears the macOS traffic lights. 84px matches `.shell-topbar-left` and
@@ -69,10 +77,14 @@ body[data-display-expanding="true"] .shell-topbar-full,
 }
 
 .shell-topbar-full__spacer {
-  flex: 1;
+  flex: 1 1 8px;
   min-width: 8px;
   height: 100%;
   -webkit-app-region: drag;
+}
+
+.shell-topbar-full:has(.conversation-topbar__viewport) .shell-topbar-full__spacer {
+  flex: 0 0 8px;
 }
 
 .shell-topbar-full__right {
@@ -80,10 +92,37 @@ body[data-display-expanding="true"] .shell-topbar-full,
   display: flex;
   align-items: center;
   gap: 4px;
+  flex: 0 0 auto;
   flex-shrink: 0;
   margin-left: auto;
   padding-right: 10px;
   -webkit-app-region: no-drag;
+}
+
+.shell-topbar-full__right .shell-topbar-update-pill {
+  flex: 0 0 auto;
+  margin-left: 0;
+  margin-top: 0;
+  align-self: center;
+}
+
+/* Tabs are the only shrinking middle content. Nav stays content-sized
+   so it is not the first thing to collapse when the window narrows. */
+.shell-topbar-full__left .conversation-topbar {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.shell-topbar-full__left:has(.conversation-topbar__viewport) .conversation-topbar {
+  flex: 1 1 auto;
+}
+
+.shell-topbar-full__left .shell-topbar-nav {
+  flex: 0 0 auto;
+}
+
+.shell-topbar-full__left .shell-topbar-nav:empty {
+  display: none;
 }
 
 .shell-topbar-full[data-platform="win"] .shell-topbar-full__right {

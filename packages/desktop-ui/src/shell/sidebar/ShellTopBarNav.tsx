@@ -169,6 +169,10 @@ export const ShellTopBarPrimaryNav = ({
     [newAppsHint.active],
   );
 
+  if (navApps.length === 0) {
+    return null;
+  }
+
   return (
     <nav className="shell-topbar-nav" aria-label={t("shell.sidebar.nav.apps")}>
       {navApps.map((app) => (

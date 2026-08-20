@@ -3,7 +3,7 @@
 // local/direct-provider route (no API key) reaches the model instead of
 // failing with "No Recall model credential is configured".
 
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -5,7 +5,9 @@ import type {
 } from "@stella/contracts/local-chat";
 import {
   __privateLocalMessageStore,
+  requestOlderLocalMessages,
   subscribeToLocalMessageWindow,
+  trimLocalMessageWindowToNewestPage,
   type LocalMessageWindowSnapshot,
 } from "@/features/chat/services/local-message-store";
 
@@ -29,6 +31,12 @@ type FakeElectronApi = {
       conversationId: string;
       afterTimestampMs: number;
       afterId: string;
+      maxVisibleMessages?: number;
+    }) => Promise<WindowPayload>;
+    listMessagesBefore?: (payload: {
+      conversationId: string;
+      beforeTimestampMs: number;
+      beforeId: string;
       maxVisibleMessages?: number;
     }) => Promise<WindowPayload>;
     onUpdated: (
@@ -822,6 +830,159 @@ describe("local-message-store", () => {
       await waitFor(() => expect(smallSnapshots.at(-1)?.hasLoaded).toBe(true));
 
       unsubscribeSmall();
+    } finally {
+      restore();
+    }
+  });
+
+  it("prepends older pages via listMessagesBefore and dedupes the same cursor", async () => {
+    const newestPage = [
+      makeMessage("u-3", 1_020, "three"),
+      makeMessage("a-4", 1_030, "four"),
+    ];
+    const olderPage = [
+      makeMessage("u-1", 1_000, "one"),
+      makeMessage("a-2", 1_010, "two"),
+    ];
+    const listMessages = vi.fn().mockResolvedValue(window(newestPage));
+    const listMessagesBefore = vi.fn().mockResolvedValue(window(olderPage));
+    const onUpdated = vi.fn().mockImplementation(() => () => undefined);
+    const restore = installFakeElectronApi({
+      localChat: { listMessages, listMessagesBefore, onUpdated },
+    });
+
+    try {
+      const snapshots: LocalMessageWindowSnapshot[] = [];
+      const unsubscribe = subscribeToLocalMessageWindow(
+        { conversationId: "c1", maxVisibleMessages: 2 },
+        (snapshot) => snapshots.push(snapshot),
+      );
+      await waitFor(() => expect(snapshots.at(-1)?.hasLoaded).toBe(true));
+      expect(snapshots.at(-1)?.hasOlder).toBe(true);
+
+      const first = await requestOlderLocalMessages("c1", 2);
+      expect(first).toMatchObject({ accepted: true, prepended: 2 });
+      await waitFor(() =>
+        expect(snapshots.at(-1)?.window.messages.map((message) => message._id)).toEqual([
+          "u-1",
+          "a-2",
+          "u-3",
+          "a-4",
+        ]),
+      );
+      expect(listMessagesBefore).toHaveBeenCalledTimes(1);
+
+      const second = await requestOlderLocalMessages("c1", 2);
+      expect(second.accepted).toBe(true);
+      expect(listMessagesBefore).toHaveBeenCalledTimes(2);
+
+      unsubscribe();
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not storm listMessagesBefore while a prepend is in flight", async () => {
+    const newestPage = [makeMessage("u-3", 1_020, "three")];
+    let releaseOlder: ((value: WindowPayload) => void) | null = null;
+    const listMessages = vi.fn().mockResolvedValue(window(newestPage));
+    const listMessagesBefore = vi.fn().mockImplementation(
+      () =>
+        new Promise<WindowPayload>((resolve) => {
+          releaseOlder = resolve;
+        }),
+    );
+    const onUpdated = vi.fn().mockImplementation(() => () => undefined);
+    const restore = installFakeElectronApi({
+      localChat: { listMessages, listMessagesBefore, onUpdated },
+    });
+
+    try {
+      const snapshots: LocalMessageWindowSnapshot[] = [];
+      const unsubscribe = subscribeToLocalMessageWindow(
+        { conversationId: "c1", maxVisibleMessages: 1 },
+        (snapshot) => snapshots.push(snapshot),
+      );
+      await waitFor(() => expect(snapshots.at(-1)?.hasLoaded).toBe(true));
+
+      const first = requestOlderLocalMessages("c1", 1);
+      await waitFor(() => expect(snapshots.at(-1)?.loadingOlder).toBe(true));
+      const second = await requestOlderLocalMessages("c1", 1);
+      expect(second).toMatchObject({ accepted: false, reason: "in-flight" });
+      expect(listMessagesBefore).toHaveBeenCalledTimes(1);
+
+      releaseOlder?.(window([makeMessage("u-1", 1_000, "one")]));
+      await expect(first).resolves.toMatchObject({ accepted: true, prepended: 1 });
+
+      unsubscribe();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps prepended older rows across a tail update and can trim back to one page", async () => {
+    const newestPage = [makeMessage("u-3", 1_020, "three")];
+    const listMessages = vi.fn().mockResolvedValue(window(newestPage));
+    const listMessagesBefore = vi
+      .fn()
+      .mockResolvedValue(window([makeMessage("u-1", 1_000, "one")]));
+    const listMessagesAfter = vi
+      .fn()
+      .mockResolvedValue(window([makeMessage("a-4", 1_030, "four")]));
+    let updateListener:
+      | ((payload: LocalChatUpdatedPayload | null) => void)
+      | null = null;
+    const onUpdated = vi.fn().mockImplementation((listener) => {
+      updateListener = listener;
+      return () => {
+        updateListener = null;
+      };
+    });
+    const restore = installFakeElectronApi({
+      localChat: {
+        listMessages,
+        listMessagesBefore,
+        listMessagesAfter,
+        onUpdated,
+      },
+    });
+
+    try {
+      const snapshots: LocalMessageWindowSnapshot[] = [];
+      const unsubscribe = subscribeToLocalMessageWindow(
+        { conversationId: "c1", maxVisibleMessages: 1 },
+        (snapshot) => snapshots.push(snapshot),
+      );
+      await waitFor(() => expect(snapshots.at(-1)?.hasLoaded).toBe(true));
+      await requestOlderLocalMessages("c1", 1);
+      await waitFor(() =>
+        expect(snapshots.at(-1)?.window.messages.map((message) => message._id)).toEqual([
+          "u-1",
+          "u-3",
+        ]),
+      );
+
+      updateListener?.({
+        conversationId: "c1",
+        event: { _id: "a-4", timestamp: 1_030, type: "assistant_message" },
+      });
+      await waitFor(() =>
+        expect(snapshots.at(-1)?.window.messages.map((message) => message._id)).toEqual([
+          "u-1",
+          "u-3",
+          "a-4",
+        ]),
+      );
+
+      trimLocalMessageWindowToNewestPage("c1", 1);
+      await waitFor(() =>
+        expect(snapshots.at(-1)?.window.messages.map((message) => message._id)).toEqual([
+          "a-4",
+        ]),
+      );
+      expect(snapshots.at(-1)?.hasOlder).toBe(true);
+
+      unsubscribe();
     } finally {
       restore();
     }

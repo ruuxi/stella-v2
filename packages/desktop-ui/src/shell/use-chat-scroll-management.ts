@@ -48,6 +48,7 @@ import {
 } from "@/shell/chat-follow-target";
 import { registerChatAtRestProbe } from "@/features/chat/hooks/use-conversation-messages";
 import {
+  HISTORY_START_THRESHOLD_VIEWPORTS,
   captureChatPrependAnchor,
   ChatHistoryPaginationGate,
   emitChatHistoryPaginationDebug,
@@ -563,7 +564,8 @@ export function useChatScrollManagement({
           before: current.anchor,
           after: result,
           thresholdVisible:
-            result.scrollTopAfter <= current.anchor.viewportHeight * 2,
+            result.scrollTopAfter <=
+            current.anchor.viewportHeight * HISTORY_START_THRESHOLD_VIEWPORTS,
           attempts,
         },
       });
@@ -802,7 +804,12 @@ export function useChatScrollManagement({
           expiresAt: performance.now() + INTENT_ACTIVE_MS,
         };
       };
-      const cancelPendingAnchorForUserScroll = () => {
+      const cancelPendingAnchorForUserScroll = (
+        direction: HistoryScrollDirection = "down",
+      ) => {
+        // Continued upward motion must not cancel the restore for the page
+        // that is about to prepend — that was the jump after a flick.
+        if (direction === "up") return;
         if (prependAnchorRef.current) {
           prependAnchorRef.current.cancelledByUser = true;
         }
@@ -1330,7 +1337,7 @@ export function useChatScrollManagement({
         lastWheelAt = now;
         lastWheelDirection = direction;
         markActiveIntent(wheelActionId, direction);
-        cancelPendingAnchorForUserScroll();
+        cancelPendingAnchorForUserScroll(direction);
         if (direction === "up") {
           releaseLocalFollow();
           attemptHistoryLoad(wheelActionId, direction, "wheel");
@@ -1345,7 +1352,6 @@ export function useChatScrollManagement({
         // re-arming until the finger actually moves toward history.
         setFollow(false);
         stopLoop();
-        cancelPendingAnchorForUserScroll();
         touchActionId = nextActionId();
         touchStartY = event.touches[0]?.clientY ?? null;
       };
@@ -1360,6 +1366,7 @@ export function useChatScrollManagement({
         if (direction === "up") {
           attemptHistoryLoad(touchActionId, direction, "touch");
         } else {
+          cancelPendingAnchorForUserScroll(direction);
           followRearmBlockedRef.current = false;
         }
       };
@@ -1382,7 +1389,6 @@ export function useChatScrollManagement({
           (event.key === " " && event.shiftKey)
         ) {
           releaseLocalFollow();
-          cancelPendingAnchorForUserScroll();
           if (!event.repeat || keyActionId === null)
             keyActionId = nextActionId();
           markActiveIntent(keyActionId, "up");

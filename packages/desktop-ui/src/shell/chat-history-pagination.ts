@@ -1,4 +1,4 @@
-export const HISTORY_START_THRESHOLD_VIEWPORTS = 2;
+export const HISTORY_START_THRESHOLD_VIEWPORTS = 4;
 
 export type HistoryScrollDirection = "up" | "down" | "none";
 
@@ -34,8 +34,12 @@ type RequestPhase = "idle" | "awaiting-loading" | "loading";
  * the start threshold remains visible. That behavior is useful for ordinary
  * feeds, but a prepend turns one chat scroll gesture into a request cascade.
  * This gate makes a user action, rather than content identity, the unit of
- * pagination: an action id can be consumed at most once, and render/layout
- * updates never create an action.
+ * pagination. An action id can be consumed at most once while a request is
+ * in flight. After that request settles, the same still-active upward
+ * flick may load the next older cursor so a continuous trackpad gesture
+ * is not starved by the 160ms wheel-idle split. Layout, measurement, and
+ * MVCP restore never create an action, so sitting still at the lead
+ * cannot cascade.
  */
 export class ChatHistoryPaginationGate {
   private consumedActionIds = new Set<number>();
@@ -87,20 +91,19 @@ export class ChatHistoryPaginationGate {
         thresholdVisible,
       };
     }
-    if (this.consumedActionIds.has(actionId)) {
+    if (this.consumedActionIds.has(actionId) && this.requestPhase !== "idle") {
       return {
         request: false,
-        reason: "action-consumed",
+        reason: "in-flight",
         thresholdVisible,
       };
     }
-
-    // Consume near-top actions even when a guard blocks them. A wheel burst
-    // that overlaps request completion must not become a second request.
-    this.consumedActionIds.add(actionId);
-    if (this.consumedActionIds.size > 64) {
-      const oldest = this.consumedActionIds.values().next().value;
-      if (oldest !== undefined) this.consumedActionIds.delete(oldest);
+    if (!this.consumedActionIds.has(actionId)) {
+      this.consumedActionIds.add(actionId);
+      if (this.consumedActionIds.size > 64) {
+        const oldest = this.consumedActionIds.values().next().value;
+        if (oldest !== undefined) this.consumedActionIds.delete(oldest);
+      }
     }
 
     if (guards.isLoading || this.requestPhase !== "idle") {

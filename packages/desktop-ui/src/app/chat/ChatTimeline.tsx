@@ -68,6 +68,7 @@ import {
   buildChatTimelineItems,
   type ChatTimelineItem,
 } from "@/features/chat/lib/chat-timeline-items";
+import { getChatTimelineItemType } from "@/app/chat/chat-timeline-item-size";
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { LoaderCircle } from "@/ui/icons";
@@ -228,13 +229,13 @@ type TimelineListItem = ChatTimelineItem & {
  * Keep the first list paint close to Legend's default, then use idle time to
  * mount a wider runway around the viewport before the user scrolls. Chat rows
  * are unusually expensive virtual items (Streamdown markdown, cards, images,
- * and variable-height measurement), so the library's 250px default can be
- * exhausted within one trackpad frame and briefly expose an unpainted recycled
+ * and variable-height measurement), so a 300px cold runway can be exhausted
+ * within one trackpad frame and briefly expose an unpainted recycled
  * container. Warming to roughly two viewports keeps that work ahead of direct
  * input without adding it to the conversation's initial render.
  */
-export const CHAT_DRAW_DISTANCE_COLD_PX = 300;
-export const CHAT_DRAW_DISTANCE_WARM_PX = 1_200;
+export const CHAT_DRAW_DISTANCE_COLD_PX = 900;
+export const CHAT_DRAW_DISTANCE_WARM_PX = 1_800;
 const CHAT_DRAW_DISTANCE_FALLBACK_DELAY_MS = 240;
 
 const useChatDrawDistance = (dataKey: string | null): number => {
@@ -367,6 +368,10 @@ export const ChatTimeline = memo(function ChatTimeline({
   );
 
   const keyExtractor = useCallback((item: TimelineListItem) => item.id, []);
+  const getItemType = useCallback(
+    (item: TimelineListItem) => getChatTimelineItemType(item),
+    [],
+  );
   const hasQueuedTimelineItem = listItems.some(
     (item) => item.type === "queued-users",
   );
@@ -451,6 +456,7 @@ export const ChatTimeline = memo(function ChatTimeline({
       data={listItems}
       keyExtractor={keyExtractor}
       renderItem={renderItem}
+      getItemType={getItemType}
       estimatedItemSize={estimatedItemSize}
       drawDistance={drawDistance}
       recycleItems={recycleItems}
@@ -463,7 +469,7 @@ export const ChatTimeline = memo(function ChatTimeline({
       // Do not use Legend's `onStartReached`: it deliberately re-enters on a
       // data change while the threshold is visible, so each prepend can load
       // the next page without another user action. The same passive native
-      // listener owns the intent-gated two-viewport threshold instead.
+      // listener owns the intent-gated four-viewport prefetch lead instead.
       ListHeaderComponent={ListHeader ?? undefined}
       ListFooterComponent={ListFooter}
       ItemSeparatorComponent={ItemSeparator}

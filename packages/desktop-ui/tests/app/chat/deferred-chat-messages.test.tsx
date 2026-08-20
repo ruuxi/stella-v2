@@ -102,6 +102,29 @@ describe("useDeferredChatMessages", () => {
     ).toBe("third");
   });
 
+  it("applies older-page prepends immediately while still deferring the tail", async () => {
+    expect(await render([message("mid"), message("newest")], false)).toBe(
+      "newest",
+    );
+    expect(
+      await render(
+        [message("older"), message("mid"), message("newest")],
+        true,
+      ),
+    ).toBe("newest");
+    expect(
+      await render(
+        [
+          message("older"),
+          message("mid"),
+          message("newest"),
+          message("stream-tail"),
+        ],
+        true,
+      ),
+    ).toBe("newest");
+  });
+
   it("switches conversations immediately even during scroll", async () => {
     expect(await render([message("first")], false, "conversation-a")).toBe(
       "first",

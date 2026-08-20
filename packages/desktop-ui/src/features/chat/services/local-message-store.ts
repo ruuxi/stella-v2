@@ -104,6 +104,13 @@ export type LocalMessageWindowSnapshot = {
   window: LocalMessageWindow;
   hasLoaded: boolean;
   error: Error | null;
+  /**
+   * Last observed "the requested page was full". Used by load-older so the
+   * hook does not have to grow `maxVisibleMessages` and re-key the
+   * subscription. Optional so older snapshot literals in tests stay valid.
+   */
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
 };
 
 type LocalMessageWindowOptions = {
@@ -143,16 +150,32 @@ type LocalMessageWindowEntry = LocalMessageWindowOptions & {
    * queued trigger required it.
    */
   pendingRefetch: RefreshMode | null;
+  /**
+   * Cursor currently being prepended (`timestamp:id`). Distinct from
+   * `loading` so a live tail refresh can still run while older history
+   * is in flight, and a second call for the same oldest message is a
+   * no-op.
+   */
+  prependInFlight: string | null;
 };
 
 const EMPTY_SNAPSHOT: LocalMessageWindowSnapshot = {
   window: EMPTY_WINDOW,
   hasLoaded: false,
   error: null,
+  hasOlder: false,
+  loadingOlder: false,
 };
 
 const RETAINED_CONVERSATION_LIMIT = 10;
 const RETAINED_VISIBLE_MESSAGE_LIMIT = 200;
+/**
+ * Soft bound on a prepended in-memory window. The virtualizer already
+ * bounds mounted DOM; this only keeps `useEventRows` from walking every
+ * historical tool event after the user has scrolled through many pages.
+ * The newest page is never trimmed by a prepend.
+ */
+export const MAX_CACHED_VISIBLE_MESSAGES = 2_400;
 
 const localMessageWindows = new Map<string, LocalMessageWindowEntry>();
 
@@ -234,6 +257,14 @@ const compareMessageOrder = (
 ): number => {
   if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
   return a._id.localeCompare(b._id);
+};
+
+const countVisibleMessages = (messages: MessageRecord[]): number => {
+  let visible = 0;
+  for (const message of messages) {
+    if (!isUiHiddenChatMessagePayload(message.payload ?? null)) visible += 1;
+  }
+  return visible;
 };
 
 /**
@@ -335,12 +366,46 @@ const trimWindowToVisibleCap = (
   };
 };
 
+const mergeLatestWindowPreservingOlder = (
+  existing: LocalMessageWindow,
+  latest: LocalMessageWindow,
+): LocalMessageWindow => {
+  if (existing.messages.length === 0 || latest.messages.length === 0) {
+    return latest;
+  }
+  const latestIds = new Set(latest.messages.map((message) => message._id));
+  const latestOldest = latest.messages[0];
+  if (!latestOldest) return latest;
+  const prefix = existing.messages.filter(
+    (message) =>
+      !latestIds.has(message._id) &&
+      compareMessageOrder(message, latestOldest) < 0,
+  );
+  if (prefix.length === 0) return latest;
+  const messages = [...prefix, ...latest.messages];
+  return {
+    messages,
+    visibleMessageCount: countVisibleMessages(messages),
+  };
+};
+
 const fullRefresh = async (entry: LocalMessageWindowEntry): Promise<void> => {
-  const window = await listLocalMessages(
+  const latest = await listLocalMessages(
     entry.conversationId,
     entry.maxVisibleMessages,
   );
-  setSnapshot(entry, { window, hasLoaded: true, error: null });
+  const window = mergeLatestWindowPreservingOlder(entry.snapshot.window, latest);
+  const exhaustedOlder =
+    entry.snapshot.hasLoaded && entry.snapshot.hasOlder === false;
+  setSnapshot(entry, {
+    window,
+    hasLoaded: true,
+    error: null,
+    hasOlder: exhaustedOlder
+      ? false
+      : latest.visibleMessageCount >= entry.maxVisibleMessages,
+    loadingOlder: Boolean(entry.prependInFlight),
+  });
 };
 
 const tailRefresh = async (entry: LocalMessageWindowEntry): Promise<void> => {
@@ -365,9 +430,17 @@ const tailRefresh = async (entry: LocalMessageWindowEntry): Promise<void> => {
   }
   const merged = trimWindowToVisibleCap(
     mergeChangedMessages(entry.snapshot.window, cursor, changed),
-    entry.maxVisibleMessages,
+    entry.snapshot.window.visibleMessageCount > entry.maxVisibleMessages
+      ? MAX_CACHED_VISIBLE_MESSAGES
+      : entry.maxVisibleMessages,
   );
-  setSnapshot(entry, { window: merged, hasLoaded: true, error: null });
+  setSnapshot(entry, {
+    window: merged,
+    hasLoaded: true,
+    error: null,
+    hasOlder: entry.snapshot.hasOlder,
+    loadingOlder: Boolean(entry.prependInFlight),
+  });
 };
 
 const refreshEntry = (
@@ -460,6 +533,7 @@ const getOrCreateEntry = (
     listeners: new Set(),
     loading: null,
     pendingRefetch: null,
+    prependInFlight: null,
   };
   localMessageWindows.set(key, entry);
   return entry;
@@ -485,6 +559,148 @@ export const subscribeToLocalMessageWindow = (
       unsubscribeLocalChatUpdates = null;
     }
   };
+};
+
+const messageCursorKey = (message: { timestamp: number; _id: string }) =>
+  `${message.timestamp}:${message._id}`;
+
+const prependOlderMessages = (
+  current: LocalMessageWindow,
+  older: LocalMessageWindow,
+): LocalMessageWindow => {
+  if (older.messages.length === 0) return current;
+  const existingIds = new Set(current.messages.map((message) => message._id));
+  const prefix = older.messages.filter((message) => !existingIds.has(message._id));
+  if (prefix.length === 0) return current;
+  const messages = [...prefix, ...current.messages];
+  return {
+    messages,
+    visibleMessageCount: countVisibleMessages(messages),
+  };
+};
+
+export type RequestOlderLocalMessagesResult = {
+  accepted: boolean;
+  reason:
+    | "accepted"
+    | "in-flight"
+    | "end-of-history"
+    | "empty"
+    | "no-window"
+    | "error";
+  prepended: number;
+};
+
+/**
+ * Fetch one older page via `listMessagesBefore` and prepend it onto every
+ * live window for the conversation. Dedupes by the current oldest-message
+ * cursor so a flick cannot storm the same page.
+ */
+export const requestOlderLocalMessages = async (
+  conversationId: string,
+  pageSize: number,
+): Promise<RequestOlderLocalMessagesResult> => {
+  const entries = [...localMessageWindows.values()].filter(
+    (entry) => entry.conversationId === conversationId,
+  );
+  const source =
+    entries.find((entry) => entry.snapshot.hasLoaded) ?? entries[0];
+  if (!source) {
+    return { accepted: false, reason: "no-window", prepended: 0 };
+  }
+  if (source.prependInFlight) {
+    return { accepted: false, reason: "in-flight", prepended: 0 };
+  }
+  const oldest = source.snapshot.window.messages[0];
+  if (!oldest) {
+    return { accepted: false, reason: "empty", prepended: 0 };
+  }
+  if (source.snapshot.hasOlder === false) {
+    return { accepted: false, reason: "end-of-history", prepended: 0 };
+  }
+  if (
+    source.snapshot.window.visibleMessageCount >= MAX_CACHED_VISIBLE_MESSAGES
+  ) {
+    return { accepted: false, reason: "end-of-history", prepended: 0 };
+  }
+
+  const cursor = messageCursorKey(oldest);
+  for (const entry of entries) {
+    entry.prependInFlight = cursor;
+    setSnapshot(entry, {
+      ...entry.snapshot,
+      loadingOlder: true,
+    });
+  }
+
+  try {
+    const older = await listLocalMessagesBefore(conversationId, {
+      beforeTimestampMs: oldest.timestamp,
+      beforeId: oldest._id,
+      maxVisibleMessages: pageSize,
+    });
+    const liveEntries = [...localMessageWindows.values()].filter(
+      (entry) => entry.conversationId === conversationId,
+    );
+    let prepended = 0;
+    for (const entry of liveEntries) {
+      const merged = prependOlderMessages(entry.snapshot.window, older);
+      const added = merged.messages.length - entry.snapshot.window.messages.length;
+      prepended = Math.max(prepended, added);
+      const bounded =
+        merged.visibleMessageCount > MAX_CACHED_VISIBLE_MESSAGES
+          ? trimWindowToVisibleCap(merged, MAX_CACHED_VISIBLE_MESSAGES)
+          : merged;
+      entry.prependInFlight = null;
+      setSnapshot(entry, {
+        window: bounded,
+        hasLoaded: true,
+        error: null,
+        hasOlder:
+          added > 0 && older.visibleMessageCount >= pageSize,
+        loadingOlder: false,
+      });
+    }
+    return { accepted: true, reason: "accepted", prepended };
+  } catch (error) {
+    const liveEntries = [...localMessageWindows.values()].filter(
+      (entry) => entry.conversationId === conversationId,
+    );
+    for (const entry of liveEntries) {
+      entry.prependInFlight = null;
+      setSnapshot(entry, {
+        ...entry.snapshot,
+        hasLoaded: true,
+        error: error instanceof Error ? error : new Error(String(error)),
+        loadingOlder: false,
+      });
+    }
+    return { accepted: false, reason: "error", prepended: 0 };
+  }
+};
+
+/**
+ * Drop prepended older pages back to the newest `pageSize` visible
+ * messages. Used by the at-rest window decay so `useEventRows` cost
+ * returns to one page without re-keying the live subscription.
+ */
+export const trimLocalMessageWindowToNewestPage = (
+  conversationId: string,
+  pageSize: number,
+): void => {
+  for (const entry of localMessageWindows.values()) {
+    if (entry.conversationId !== conversationId) continue;
+    if (entry.prependInFlight) continue;
+    const trimmed = trimWindowToVisibleCap(entry.snapshot.window, pageSize);
+    if (trimmed.messages === entry.snapshot.window.messages) continue;
+    setSnapshot(entry, {
+      window: trimmed,
+      hasLoaded: true,
+      error: null,
+      hasOlder: true,
+      loadingOlder: false,
+    });
+  }
 };
 
 export const __privateLocalMessageStore = {

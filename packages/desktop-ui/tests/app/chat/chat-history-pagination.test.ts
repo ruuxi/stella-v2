@@ -16,6 +16,12 @@ const nearTop: HistoryPaginationMetrics = {
   contentHeight: 12_000,
 };
 
+const outsideLead: HistoryPaginationMetrics = {
+  scrollTop: 2_500,
+  viewportHeight: 600,
+  contentHeight: 12_000,
+};
+
 const guards = { hasMore: true, isLoading: false };
 
 describe("ChatHistoryPaginationGate", () => {
@@ -23,39 +29,45 @@ describe("ChatHistoryPaginationGate", () => {
     const gate = new ChatHistoryPaginationGate();
 
     expect(
-      gate.consider(1, "up", { ...nearTop, scrollTop: 1_300 }, guards),
+      gate.consider(1, "up", outsideLead, guards),
     ).toMatchObject({
       request: false,
       reason: "outside-threshold",
       thresholdVisible: false,
     });
 
-    expect(gate.consider(1, "up", nearTop, guards)).toMatchObject({
+    expect(gate.consider(1, "up", { ...nearTop, scrollTop: 1_300 }, guards)).toMatchObject({
       request: true,
       reason: "request",
       thresholdVisible: true,
     });
     expect(gate.consider(1, "up", nearTop, guards)).toMatchObject({
       request: false,
-      reason: "action-consumed",
+      reason: "in-flight",
     });
   });
 
-  it("does not re-request when a prepend leaves the threshold visible", () => {
+  it("does not re-request from layout while a page is in flight, then re-arms the same flick after settle", () => {
     const gate = new ChatHistoryPaginationGate();
     expect(gate.consider(10, "up", nearTop, guards).request).toBe(true);
 
     gate.syncGuards({ hasMore: true, isLoading: true });
-    gate.syncGuards({ hasMore: true, isLoading: false });
-
     const stillVisibleAfterPrepend = {
       ...nearTop,
       scrollTop: 1_100,
       contentHeight: 20_000,
     };
     expect(
+      gate.consider(10, "up", stillVisibleAfterPrepend, {
+        hasMore: true,
+        isLoading: true,
+      }),
+    ).toMatchObject({ request: false, reason: "in-flight" });
+
+    gate.syncGuards({ hasMore: true, isLoading: false });
+    expect(
       gate.consider(10, "up", stillVisibleAfterPrepend, guards),
-    ).toMatchObject({ request: false, reason: "action-consumed" });
+    ).toMatchObject({ request: true, reason: "request" });
   });
 
   it("ignores repeated data/render/measurement updates without user intent", () => {
@@ -104,10 +116,13 @@ describe("ChatHistoryPaginationGate", () => {
 
     gate.syncGuards({ hasMore: true, isLoading: false });
     expect(gate.consider(41, "up", nearTop, guards)).toMatchObject({
-      request: false,
-      reason: "action-consumed",
+      request: true,
+      reason: "request",
     });
-    expect(gate.consider(42, "up", nearTop, guards).request).toBe(true);
+    expect(gate.consider(42, "up", nearTop, { hasMore: true, isLoading: true })).toMatchObject({
+      request: false,
+      reason: "in-flight",
+    });
   });
 
   it("does not settle on the transient hasMore=false subscription re-key", () => {
@@ -133,6 +148,28 @@ describe("ChatHistoryPaginationGate", () => {
       }),
     ).toMatchObject({ request: false, reason: "end-of-history" });
     expect(gate.snapshot().requestPhase).toBe("idle");
+  });
+
+  it("loads several pages across one continuous upward flick without cascading from layout", () => {
+    const gate = new ChatHistoryPaginationGate();
+    let requests = 0;
+    for (let page = 0; page < 6; page += 1) {
+      const decision = gate.consider(70, "up", nearTop, {
+        hasMore: true,
+        isLoading: false,
+      });
+      expect(decision.request).toBe(true);
+      requests += 1;
+      gate.syncGuards({ hasMore: true, isLoading: true });
+      expect(
+        gate.consider(null, "none", { ...nearTop, contentHeight: 12_000 + page * 8_000 }, {
+          hasMore: true,
+          isLoading: true,
+        }).request,
+      ).toBe(false);
+      gate.syncGuards({ hasMore: true, isLoading: false });
+    }
+    expect(requests).toBe(6);
   });
 
   it("settles an errored request and permits an explicit retry action", () => {

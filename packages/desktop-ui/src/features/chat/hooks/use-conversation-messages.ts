@@ -5,20 +5,18 @@
  * (each assistant message carrying its turn's tool/agent-completed
  * events) instead of walking a flat event stream.
  *
- * Window growth is purely visible-message-count based — no secondary raw-
- * event cap — so "load older" reliably surfaces more chat history
- * regardless of how tool-heavy any individual turn is. The previous
- * `MAX_RENDERED_EVENTS = 500` raw-event cap is what made `loadOlder` look
- * like a no-op for chats with even a handful of agent runs.
+ * The first page is the newest `MESSAGE_PAGE_SIZE` messages. Older pages
+ * are requested through `listMessagesBefore` and prepended in the
+ * renderer cache — the subscription stays keyed on the initial page size
+ * so growing history does not tear down the live-update listener or
+ * re-group the already-painted tail.
  *
- * `hasOlderMessages` is inferred from "did the latest fetch saturate the
- * requested window?" — exact only when the conversation has more messages
- * than the cap; harmless ~1-fetch false-positive when the count is exactly
- * the cap (a `loadOlder` will fetch and surface zero new rows, then latch
- * `hasOlderMessages` to `false`).
+ * `hasOlderMessages` is whatever the store last observed: the latest
+ * window (or prepended page) saturated its requested count. A short
+ * conversation whose visible count happens to equal the page size can
+ * still report true until the next prepend comes back empty.
  */
 import {
-  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -27,7 +25,9 @@ import {
 } from "react";
 import { useChatStore } from "@/context/chat-store-context";
 import {
+  requestOlderLocalMessages,
   subscribeToLocalMessageWindow,
+  trimLocalMessageWindowToNewestPage,
   type LocalMessageWindowSnapshot,
 } from "@/features/chat/services/local-message-store";
 import {
@@ -39,22 +39,20 @@ import type { MessageRecord } from "@stella/contracts/local-chat";
 
 export const MESSAGE_PAGE_SIZE = 200;
 /**
- * Hard ceiling on `loadOlder` window growth. A grown window costs memory
- * for every row it retains (and IPC on the full-refetch fallback paths),
- * so an unbounded window makes worst-case cost scale with how far the
- * user once scrolled. In practice users rarely scroll past a few hundred
- * rows; 1000 keeps deep history reachable while bounding the worst case.
+ * Soft ceiling on how far a single conversation window may grow in the
+ * renderer. The virtualizer already bounds mounted DOM; this only keeps
+ * `useEventRows` from walking every historical tool event after a very
+ * long upward scroll. The previous 1000-message cap made Rahul's 1593-
+ * message conversation look exhausted after five pages.
  */
-export const MAX_VISIBLE_MESSAGES = 1_000;
+export const MAX_VISIBLE_MESSAGES = 2_400;
 const LOCAL_MESSAGE_LOAD_RETRY_MS = 300;
 
 /**
- * Window decay: once the window has been grown via `loadOlder`, shrink it
- * back to one page after every chat surface has sat at the bottom of the
- * timeline for this long. The grown window only exists to serve a
- * scroll-up that's no longer happening; decaying frees the retained rows
- * and returns refresh cost to baseline. If the user scrolls up again
- * right after, `loadOlder` simply re-pages.
+ * Window decay: once older pages have been prepended, drop back to the
+ * newest page after every chat surface has sat at the bottom for this
+ * long. The grown window only exists to serve a scroll-up that's no
+ * longer happening. A later upward gesture simply re-pages.
  */
 const WINDOW_DECAY_AT_REST_MS = 90_000;
 const WINDOW_DECAY_CHECK_INTERVAL_MS = 5_000;
@@ -89,6 +87,8 @@ const EMPTY_SNAPSHOT: LocalMessageWindowSnapshot = {
   window: { messages: EMPTY_MESSAGES, visibleMessageCount: 0 },
   hasLoaded: false,
   error: null,
+  hasOlder: false,
+  loadingOlder: false,
 };
 
 export type ConversationMessagesFeed = {
@@ -108,23 +108,6 @@ export const useConversationMessages = (
   const visitKey = `${storageMode}:${conversationId ?? ""}`;
   const visitToken = useMemo(() => Symbol(visitKey), [visitKey]);
 
-  const [maxVisibleMessages, setMaxVisibleMessages] =
-    useState(MESSAGE_PAGE_SIZE);
-  const [pendingMaxVisibleMessages, setPendingMaxVisibleMessages] = useState<
-    number | null
-  >(null);
-  // Synchronous request lock shared by every mounted chat surface. React
-  // state does not update until the next render, so full chat + sidebar could
-  // otherwise both accept the same cursor/window bump in one event turn.
-  const pendingMaxVisibleMessagesRef = useRef<number | null>(null);
-
-  // Reset window size on conversation/storage-mode change.
-  useEffect(() => {
-    setMaxVisibleMessages(MESSAGE_PAGE_SIZE);
-    setPendingMaxVisibleMessages(null);
-    pendingMaxVisibleMessagesRef.current = null;
-  }, [visitToken]);
-
   const [snapshotState, setSnapshotState] = useState<{
     visitToken: symbol;
     snapshot: LocalMessageWindowSnapshot;
@@ -134,6 +117,11 @@ export const useConversationMessages = (
   });
   const lastLocalLoadToastAtRef = useRef(0);
   const [localRetryTick, setLocalRetryTick] = useState(0);
+  const inFlightRef = useRef(false);
+
+  useEffect(() => {
+    inFlightRef.current = false;
+  }, [visitToken]);
 
   useEffect(() => {
     if (!isLocalMode || !conversationId) {
@@ -143,6 +131,8 @@ export const useConversationMessages = (
           window: { messages: EMPTY_MESSAGES, visibleMessageCount: 0 },
           hasLoaded: true,
           error: null,
+          hasOlder: false,
+          loadingOlder: false,
         },
       });
       return;
@@ -160,7 +150,7 @@ export const useConversationMessages = (
       }, LOCAL_MESSAGE_LOAD_RETRY_MS);
     };
     const unsubscribe = subscribeToLocalMessageWindow(
-      { conversationId, maxVisibleMessages },
+      { conversationId, maxVisibleMessages: MESSAGE_PAGE_SIZE },
       (snapshot) => {
         if (cancelled) return;
         if (retryTimer !== null) {
@@ -189,13 +179,7 @@ export const useConversationMessages = (
       }
       unsubscribe();
     };
-  }, [
-    conversationId,
-    isLocalMode,
-    localRetryTick,
-    maxVisibleMessages,
-    visitToken,
-  ]);
+  }, [conversationId, isLocalMode, localRetryTick, visitToken]);
 
   const activeSnapshot =
     snapshotState.visitToken === visitToken
@@ -216,68 +200,42 @@ export const useConversationMessages = (
   const messages = stableMessagesState.result;
   const visibleMessageCount = activeSnapshot.window.visibleMessageCount;
 
-  // Inferred from "did the last fetch saturate the requested window?".
-  // Counted in visible messages (not raw `messages.length`) so UI-hidden
-  // system reminders / workspace requests inside the window don't
-  // misreport "older history available" forever. Latches off after a
-  // `loadOlder` that returned fewer visible messages than the new cap.
   const hasOlderMessages =
     activeSnapshot.hasLoaded &&
-    visibleMessageCount >= maxVisibleMessages &&
-    maxVisibleMessages < MAX_VISIBLE_MESSAGES;
+    (activeSnapshot.hasOlder ??
+      visibleMessageCount >= MESSAGE_PAGE_SIZE) &&
+    visibleMessageCount < MAX_VISIBLE_MESSAGES;
 
-  const isLoadingOlder =
-    pendingMaxVisibleMessages !== null &&
-    visibleMessageCount < pendingMaxVisibleMessages;
-
-  // Pending bumps that have been satisfied (we got back at least the
-  // requested number of visible rows) get cleared.
-  useEffect(() => {
-    if (pendingMaxVisibleMessages === null) return;
-    if (visibleMessageCount >= pendingMaxVisibleMessages) {
-      pendingMaxVisibleMessagesRef.current = null;
-      setPendingMaxVisibleMessages(null);
-      return;
-    }
-    if (activeSnapshot.hasLoaded && !hasOlderMessages) {
-      // Fetched fewer than requested — there are no more messages.
-      pendingMaxVisibleMessagesRef.current = null;
-      setPendingMaxVisibleMessages(null);
-    }
-  }, [
-    activeSnapshot.hasLoaded,
-    hasOlderMessages,
-    pendingMaxVisibleMessages,
-    visibleMessageCount,
-  ]);
+  const isLoadingOlder = Boolean(activeSnapshot.loadingOlder);
 
   const loadOlder = useCallback(() => {
     if (!conversationId || !isLocalMode) return false;
     if (!hasOlderMessages) return false;
-    if (pendingMaxVisibleMessagesRef.current !== null) return false;
-    if (maxVisibleMessages >= MAX_VISIBLE_MESSAGES) return false;
-    const next = Math.min(
-      maxVisibleMessages + MESSAGE_PAGE_SIZE,
-      MAX_VISIBLE_MESSAGES,
+    if (inFlightRef.current || activeSnapshot.loadingOlder) return false;
+    inFlightRef.current = true;
+    void requestOlderLocalMessages(conversationId, MESSAGE_PAGE_SIZE).finally(
+      () => {
+        inFlightRef.current = false;
+      },
     );
-    pendingMaxVisibleMessagesRef.current = next;
-    setPendingMaxVisibleMessages(next);
-    startTransition(() => {
-      setMaxVisibleMessages(next);
-    });
     return true;
-  }, [conversationId, hasOlderMessages, isLocalMode, maxVisibleMessages]);
+  }, [
+    activeSnapshot.loadingOlder,
+    conversationId,
+    hasOlderMessages,
+    isLocalMode,
+  ]);
 
   // Decay the grown window back to one page once every chat surface has
   // been at the bottom continuously for the rest interval. At the bottom
   // the visible rows are the newest page, so dropping the older prefix
   // changes nothing on screen (the virtualized list holds its end
-  // anchor); the re-keyed subscription seeds from the retained window
-  // sliced to the new cap, so there is no flash either.
-  const windowGrown = maxVisibleMessages > MESSAGE_PAGE_SIZE;
+  // anchor). Re-subscribing at the page size seeds from the retained
+  // newest-200 projection.
+  const windowGrown = visibleMessageCount > MESSAGE_PAGE_SIZE;
   useEffect(() => {
     if (!windowGrown || !isLocalMode || !conversationId) return;
-    if (pendingMaxVisibleMessages !== null) return;
+    if (activeSnapshot.loadingOlder) return;
     let atRestSince: number | null = null;
     const interval = window.setInterval(() => {
       if (!allChatSurfacesAtRest()) {
@@ -288,17 +246,15 @@ export const useConversationMessages = (
       atRestSince ??= now;
       if (now - atRestSince < WINDOW_DECAY_AT_REST_MS) return;
       window.clearInterval(interval);
-      startTransition(() => {
-        setMaxVisibleMessages(MESSAGE_PAGE_SIZE);
-      });
+      trimLocalMessageWindowToNewestPage(conversationId, MESSAGE_PAGE_SIZE);
     }, WINDOW_DECAY_CHECK_INTERVAL_MS);
     return () => {
       window.clearInterval(interval);
     };
   }, [
+    activeSnapshot.loadingOlder,
     conversationId,
     isLocalMode,
-    pendingMaxVisibleMessages,
     visitToken,
     windowGrown,
   ]);

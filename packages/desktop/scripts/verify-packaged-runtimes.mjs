@@ -107,7 +107,7 @@ const run = (name, command, commandArgs, expected) => {
 };
 
 const expectedArch = platform.endsWith("arm64") ? "arm64" : "x64";
-run("Bun", binaries.bun, ["--version"], /^1\.3\.14\b/mu);
+run("Bun", binaries.bun, ["--version"], /^1\.4\.0\b/mu);
 run(
   "Bun architecture",
   binaries.bun,

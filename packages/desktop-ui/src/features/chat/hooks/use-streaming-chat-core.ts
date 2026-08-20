@@ -58,8 +58,17 @@ const nextAnimationFrame = () =>
     requestAnimationFrame(() => resolve())
   })
 
-const buildContextMessageMetadata = (
+/**
+ * Bounded preview of quoted / "Ask Stella" context stored on the sent message.
+ * Mirrors the runtime's `QUOTED_TEXT_PREVIEW_MAX_CHARS` so the optimistic value
+ * matches what persistence recomputes, keeping the chip stable across the
+ * optimistic → persisted swap. See `runtime/kernel/chat-prompt-context.ts`.
+ */
+const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000
+
+export const buildContextMessageMetadata = (
   chatContext: SendMessageArgs['chatContext'],
+  selectedText: SendMessageArgs['selectedText'],
   base?: MessageMetadata,
 ): MessageMetadata | undefined => {
   const appSelectionLabels = getComposerAppSelections(chatContext)
@@ -73,7 +82,23 @@ const buildContextMessageMetadata = (
     .map((text) => text?.trim() ?? '')
     .filter((text) => text.length > 0)
     .map(toPastedTextDescriptor)
-  if (!appSelectionLabel && !activityLabel && pastedTexts.length === 0) {
+  // Quoted / "Ask Stella" selection. The runtime persists this same bounded
+  // preview onto the user message once it lands, but the optimistic row is
+  // rendered before then — without carrying it here the just-sent message drops
+  // its quoted-text chip until persistence catches up. Reads the composer's
+  // `selectedText` and falls back to `chatContext.selectedText`, matching the
+  // runtime's own resolution order.
+  const quotedSource =
+    selectedText?.trim() || chatContext?.selectedText?.trim() || ''
+  const quotedText = quotedSource
+    ? quotedSource.slice(0, QUOTED_TEXT_PREVIEW_MAX_CHARS)
+    : undefined
+  if (
+    !appSelectionLabel &&
+    !activityLabel &&
+    pastedTexts.length === 0 &&
+    !quotedText
+  ) {
     return base
   }
 
@@ -85,6 +110,7 @@ const buildContextMessageMetadata = (
       ...(appSelectionLabels.length > 0 ? { appSelectionLabels } : {}),
       ...(activityLabel ? { activityLabel } : {}),
       ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
+      ...(quotedText ? { quotedText } : {}),
     },
   }
 }
@@ -488,6 +514,7 @@ export function useStreamingChatCore({
         : []
       const messageMetadata = buildContextMessageMetadata(
         options.chatContext,
+        options.selectedText,
         options.metadata,
       )
       const platform = getPlatform()

@@ -158,7 +158,6 @@ export const createToolHost = ({
   cliBridgeSocketPath,
   requestCredential,
   requestBrowserExtensionConnect,
-  requestComputerUseAppApproval,
   requestConnectorConnection,
   agentApi,
   validateSpawnModel,
@@ -221,21 +220,6 @@ export const createToolHost = ({
         `Typed Computer Use is not available on ${process.platform}.`,
       );
     },
-    authorizeApp: requestComputerUseAppApproval
-      ? async (policy) => {
-          const result = await requestComputerUseAppApproval({
-            bundleIdentifier: policy.bundleIdentifier,
-            displayName: policy.displayName,
-            ...(policy.appPath ? { appPath: policy.appPath } : {}),
-            allowPersistentApproval: policy.allowPersistentApproval,
-            ...(policy.risk ? { risk: policy.risk } : {}),
-            ...(policy.warningSubtitle
-              ? { warningSubtitle: policy.warningSubtitle }
-              : {}),
-          });
-          return result.decision === "approved";
-        }
-      : undefined,
     disposeSession: async (sessionId) => {
       if (process.platform === "win32") {
         await cleanupWindowsStellaComputerSessionDaemon(sessionId);

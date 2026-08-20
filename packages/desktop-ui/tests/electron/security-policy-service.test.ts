@@ -67,123 +67,59 @@ beforeEach(() => {
 });
 
 describe("SecurityPolicyService Computer Use app approvals", () => {
-  it("keeps an unchecked approval for the current service session only", async () => {
-    mocks.showMessageBox.mockResolvedValue({
-      response: 0,
-      checkboxChecked: false,
+  it.each([
+    { bundleIdentifier: "com.apple.finder", displayName: "Finder" },
+    { bundleIdentifier: "com.apple.dock", displayName: "Dock" },
+    { bundleIdentifier: "com.spotify.client", displayName: "Spotify" },
+    { bundleIdentifier: "pid:4242", displayName: "Unknown App" },
+    { bundleIdentifier: "Spotify.exe", displayName: "Spotify.exe" },
+    { bundleIdentifier: "explorer.exe", displayName: "File Explorer" },
+  ])(
+    "never prompts for $displayName and always approves",
+    async ({ bundleIdentifier, displayName }) => {
+      mocks.showMessageBox.mockResolvedValue({
+        response: 1,
+        checkboxChecked: true,
+      });
+      const service = createService();
+
+      await expect(
+        service.ensureComputerUseAppApproval({
+          ...request,
+          bundleIdentifier,
+          displayName,
+        }),
+      ).resolves.toEqual({ decision: "approved", scope: "session" });
+
+      expect(mocks.showMessageBox).not.toHaveBeenCalled();
+      expect(mocks.writePrivateFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it("ignores remembered per-app approvals and never resurfaces a prompt", async () => {
+    mocks.policyFile = JSON.stringify({
+      version: 2,
+      approved: [],
+      computerUseAppApprovals: { "com.apple.finder": true },
     });
     const service = createService();
+    await service.loadPolicy();
 
-    await expect(
-      service.ensureComputerUseAppApproval(request),
-    ).resolves.toEqual({
-      decision: "approved",
-      scope: "session",
-    });
     await expect(
       service.ensureComputerUseAppApproval({
         ...request,
-        bundleIdentifier: "com.example.notes",
+        bundleIdentifier: "com.apple.finder",
+        displayName: "Finder",
       }),
     ).resolves.toEqual({ decision: "approved", scope: "session" });
-
-    expect(mocks.showMessageBox).toHaveBeenCalledOnce();
-    expect(mocks.showMessageBox).toHaveBeenCalledWith(
-      // The dialog is localized; the electron test harness has no catalog
-      // loaded, so `t()` passes its key through. Pin the keys.
-      expect.objectContaining({
-        type: "warning",
-        title: "desktop.security.confirmationTitle",
-        message: "desktop.security.computerUse.message",
-        detail:
-          "Computer Use can interact with this app.\n\ndesktop.security.computerUse.risk",
-        buttons: ["desktop.security.allow", "desktop.security.deny"],
-        checkboxLabel: "desktop.security.rememberDecision",
-      }),
-    );
-    expect(mocks.writePrivateFile).not.toHaveBeenCalled();
-
-    const restartedService = createService();
-    await restartedService.ensureComputerUseAppApproval(request);
-    expect(mocks.showMessageBox).toHaveBeenCalledTimes(2);
-  });
-
-  it("persists a remembered approval and restores it on load", async () => {
-    mocks.showMessageBox.mockResolvedValue({
-      response: 0,
-      checkboxChecked: true,
-    });
-    const service = createService();
-
-    await expect(
-      service.ensureComputerUseAppApproval(request),
-    ).resolves.toEqual({
-      decision: "approved",
-      scope: "persistent",
-    });
-    expect(JSON.parse(mocks.policyFile!)).toEqual({
-      version: 2,
-      approved: [],
-      computerUseAppApprovals: {
-        "com.example.notes": true,
-      },
-    });
-
-    const reloadedService = createService();
-    await reloadedService.loadPolicy();
-    mocks.showMessageBox.mockClear();
-    await expect(
-      reloadedService.ensureComputerUseAppApproval(request),
-    ).resolves.toEqual({
-      decision: "approved",
-      scope: "persistent",
-    });
     expect(mocks.showMessageBox).not.toHaveBeenCalled();
   });
 
-  it("does not cache or persist declines", async () => {
-    mocks.showMessageBox.mockResolvedValue({
-      response: 1,
-      checkboxChecked: true,
-    });
-    const service = createService();
-
-    await expect(
-      service.ensureComputerUseAppApproval(request),
-    ).resolves.toEqual({
-      decision: "declined",
-      scope: "none",
-    });
-    await service.ensureComputerUseAppApproval(request);
-
-    expect(mocks.showMessageBox).toHaveBeenCalledTimes(2);
-    expect(mocks.writePrivateFile).not.toHaveBeenCalled();
-  });
-
-  it("omits and ignores persistent approval when it is disallowed", async () => {
-    mocks.showMessageBox.mockResolvedValue({
-      response: 0,
-      checkboxChecked: true,
-    });
-    const service = createService();
-
-    await expect(
-      service.ensureComputerUseAppApproval({
-        ...request,
-        allowPersistentApproval: false,
-      }),
-    ).resolves.toEqual({ decision: "approved", scope: "session" });
-
-    const dialogOptions = mocks.showMessageBox.mock.calls[0]?.[0];
-    expect(dialogOptions).not.toHaveProperty("checkboxLabel");
-    expect(dialogOptions).not.toHaveProperty("checkboxChecked");
-    expect(mocks.writePrivateFile).not.toHaveBeenCalled();
-  });
-
-  it("loads legacy privileged-action approvals and retains them when migrating", async () => {
+  it("loads legacy privileged-action approvals and clears stale app approvals on persist", async () => {
     mocks.policyFile = JSON.stringify({
-      version: 1,
+      version: 2,
       approved: ["v1:reset-local-data", "invalid-entry"],
+      computerUseAppApprovals: { "com.example.notes": true },
     });
     const service = createService();
     await service.loadPolicy();
@@ -201,40 +137,42 @@ describe("SecurityPolicyService Computer Use app approvals", () => {
       response: 0,
       checkboxChecked: true,
     });
-    await service.ensureComputerUseAppApproval(request);
+    await expect(
+      service.ensureApproval(
+        "other-privileged-action",
+        "Do something risky?",
+        "This is unrelated to Computer Use.",
+      ),
+    ).resolves.toBe(true);
+    expect(mocks.showMessageBox).toHaveBeenCalledOnce();
     expect(JSON.parse(mocks.policyFile!)).toEqual({
       version: 2,
-      approved: ["v1:reset-local-data"],
-      computerUseAppApprovals: {
-        "com.example.notes": true,
-      },
+      approved: ["v1:other-privileged-action", "v1:reset-local-data"],
+      computerUseAppApprovals: {},
     });
   });
 
-  it("clearAll removes session and loaded persistent approvals from memory", async () => {
+  it("still prompts for unrelated privileged actions", async () => {
     mocks.showMessageBox.mockResolvedValue({
-      response: 0,
-      checkboxChecked: false,
+      response: 1,
+      checkboxChecked: true,
     });
     const service = createService();
-    await service.ensureComputerUseAppApproval(request);
-    service.clearAll();
-    await service.ensureComputerUseAppApproval(request);
-    expect(mocks.showMessageBox).toHaveBeenCalledTimes(2);
 
-    mocks.policyFile = JSON.stringify({
-      version: 2,
-      approved: [],
-      computerUseAppApprovals: { "com.example.calendar": true },
-    });
-    const loadedService = createService();
-    await loadedService.loadPolicy();
-    loadedService.clearAll();
-    await loadedService.ensureComputerUseAppApproval({
-      ...request,
-      bundleIdentifier: "com.example.calendar",
-      displayName: "Calendar",
-    });
-    expect(mocks.showMessageBox).toHaveBeenCalledTimes(3);
+    await expect(
+      service.ensureApproval(
+        "reset-local-data",
+        "Reset?",
+        "This deletes local data.",
+      ),
+    ).resolves.toBe(false);
+    expect(mocks.showMessageBox).toHaveBeenCalledOnce();
+    expect(mocks.showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Reset?",
+        detail: "This deletes local data.",
+        checkboxLabel: "desktop.security.rememberDecision",
+      }),
+    );
   });
 });

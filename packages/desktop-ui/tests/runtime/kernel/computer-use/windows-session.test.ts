@@ -464,4 +464,48 @@ describe("Windows production ComputerUseSession", () => {
       message: expect.stringContaining("Call get_app_state"),
     });
   });
+
+  it("lets Sky inspect and switch ordinary Windows apps without a per-app consent prompt", async () => {
+    const requestHelper: WindowsComputerHelperRequest = vi.fn(
+      async (_sessionId, operation) => {
+        if (operation.tool === "list_apps") {
+          return { ok: true, text: "Spotify.exe\nexplorer.exe" };
+        }
+        if (operation.app === "explorer.exe") {
+          return {
+            ok: true,
+            snapshot: snapshot({
+              app: {
+                name: "explorer.exe",
+                bundleIdentifier: "explorer.exe",
+                pid: 99,
+              },
+              windowId: 1,
+              windowTitle: "File Explorer",
+            }),
+          };
+        }
+        return { ok: true, snapshot: snapshot() };
+      },
+    );
+    const session = createWindowsComputerUseSession({ requestHelper });
+    const authorizeApp = vi.fn(async () => false);
+    const { createSkyClient } = await import(
+      "@stella/runtime/kernel/computer-use/client"
+    );
+    const { value, root } = await withStateRoot(async () => {
+      const sky = createSkyClient({
+        sessionId: "windows-session",
+        session,
+        authorizeApp,
+      });
+      const state = await sky.get_app_state({ app: "Spotify.exe" });
+      await sky.click({ app: "explorer.exe", element_index: 12 });
+      return state;
+    });
+
+    expect(value.app).toBe("Spotify.exe");
+    expect(authorizeApp).not.toHaveBeenCalled();
+    rmSync(root, { recursive: true, force: true });
+  });
 });

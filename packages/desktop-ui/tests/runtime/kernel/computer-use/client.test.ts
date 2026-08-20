@@ -115,9 +115,9 @@ const createInjectedSession = (
 };
 
 describe("typed Sky computer-use client", () => {
-  it("submits one background batch request and authorizes a canonical app once", async () => {
+  it("submits one background batch request without a per-app consent prompt", async () => {
     const { requests, session } = createInjectedSession();
-    const authorizeApp = vi.fn<AuthorizeApp>(async () => true);
+    const authorizeApp = vi.fn<AuthorizeApp>(async () => false);
     const sky = createSkyClient({
       sessionId: "general-task-agent-1",
       session,
@@ -176,11 +176,7 @@ describe("typed Sky computer-use client", () => {
     expect(JSON.stringify(batch)).not.toMatch(
       /argv|--raise|foreground|defer-observation|stdout/i,
     );
-    expect(authorizeApp).toHaveBeenCalledOnce();
-    expect(authorizeApp).toHaveBeenCalledWith(
-      expect.objectContaining({ bundleIdentifier: "com.apple.Notes" }),
-      expect.objectContaining({ selector: { type: "app", app: "Notes" } }),
-    );
+    expect(authorizeApp).not.toHaveBeenCalled();
   });
 
   it("encodes every strict action variant without foreground controls", async () => {
@@ -257,9 +253,80 @@ describe("typed Sky computer-use client", () => {
     }
   });
 
-  it("caches only callback-approved canonical bundle identifiers", async () => {
+  it("inspects Finder, Dock, unknown apps, and switches apps without Stella per-app prompts", async () => {
+    const { requests, session } = createInjectedSession({
+      policy: (target) => {
+        const label = targetLabel(target);
+        const normalized = label.toLocaleLowerCase();
+        if (normalized === "finder" || normalized === "com.apple.finder") {
+          return {
+            bundleIdentifier: "com.apple.finder",
+            displayName: "Finder",
+            decision: "allowed",
+            allowPersistentApproval: true,
+            warningSubtitle: "Stella can view and interact with this app.",
+          };
+        }
+        if (normalized === "dock" || normalized === "com.apple.dock") {
+          return {
+            bundleIdentifier: "com.apple.dock",
+            displayName: "Dock",
+            decision: "allowed",
+            allowPersistentApproval: true,
+            warningSubtitle: "Stella can view and interact with this app.",
+          };
+        }
+        if (normalized === "explorer.exe") {
+          return {
+            bundleIdentifier: "explorer.exe",
+            displayName: "File Explorer",
+            decision: "allowed",
+            allowPersistentApproval: true,
+          };
+        }
+        return {
+          bundleIdentifier: `pid:${normalized}`,
+          displayName: label,
+          decision: "allowed",
+          allowPersistentApproval: false,
+        };
+      },
+    });
+    const authorizeApp = vi.fn<AuthorizeApp>(async () => false);
+    const sky = createSkyClient({
+      sessionId: "session-no-app-prompt",
+      session,
+      authorizeApp,
+    });
+
+    await expect(
+      sky.get_app_state({ app: "Finder", screenshot_policy: "always" }),
+    ).resolves.toMatchObject({ app: "Finder" });
+    await expect(
+      sky.click({ app: "Dock", element_index: 1 }),
+    ).resolves.toMatchObject({ status: "accepted" });
+    await expect(
+      sky.get_app_state({ app: "Mystery App" }),
+    ).resolves.toMatchObject({ app: "Mystery App" });
+    await expect(
+      sky.type_text({ app: "explorer.exe", text: "docs" }),
+    ).resolves.toMatchObject({ status: "accepted" });
+
+    expect(
+      requests.filter((request) => request.type === "resolve_target"),
+    ).toHaveLength(4);
+    expect(
+      requests.filter(
+        (request) =>
+          request.type === "get_app_state" || request.type === "action",
+      ),
+    ).toHaveLength(4);
+    expect(authorizeApp).not.toHaveBeenCalled();
+  });
+
+  it("does not invoke authorizeApp when switching between ordinary apps", async () => {
     const { requests, session } = createInjectedSession();
-    const authorizeApp = vi.fn<AuthorizeApp>(async () => true);
+    const authorizeApp = vi.fn<AuthorizeApp>(async () => false);
     const sky = createSkyClient({
       sessionId: "session-policy",
       session,
@@ -273,15 +340,12 @@ describe("typed Sky computer-use client", () => {
     expect(
       requests.filter((request) => request.type === "resolve_target"),
     ).toHaveLength(3);
-    expect(authorizeApp).toHaveBeenCalledTimes(2);
-    expect(
-      authorizeApp.mock.calls.map(([policy]) => policy.bundleIdentifier),
-    ).toEqual(["com.apple.Notes", "test.calculator"]);
+    expect(authorizeApp).not.toHaveBeenCalled();
   });
 
-  it("authorizes each distinct canonical batch app once before one batch request", async () => {
+  it("authorizes each distinct batch app by policy only, without a consent callback", async () => {
     const { requests, session } = createInjectedSession();
-    const authorizeApp = vi.fn<AuthorizeApp>(async () => true);
+    const authorizeApp = vi.fn<AuthorizeApp>(async () => false);
     const sky = createSkyClient({
       sessionId: "session-batch-policy",
       session,
@@ -302,7 +366,7 @@ describe("typed Sky computer-use client", () => {
     expect(
       requests.filter((request) => request.type === "resolve_target"),
     ).toHaveLength(3);
-    expect(authorizeApp).toHaveBeenCalledTimes(2);
+    expect(authorizeApp).not.toHaveBeenCalled();
     expect(requests.filter((request) => request.type === "batch")).toHaveLength(
       1,
     );
@@ -392,21 +456,30 @@ describe("typed Sky computer-use client", () => {
     ).toHaveLength(0);
   });
 
-  it("does not cache callback denials", async () => {
-    const { session } = createInjectedSession();
-    const authorizeApp = vi.fn<AuthorizeApp>(async () => false);
+  it("still blocks forbidden and denied apps even if authorizeApp would approve", async () => {
+    const { requests, session } = createInjectedSession({
+      policy: (target) => ({
+        ...policyFor(target),
+        decision:
+          targetLabel(target) === "Keychain Access" ? "forbidden" : "denied",
+      }),
+    });
+    const authorizeApp = vi.fn<AuthorizeApp>(async () => true);
     const sky = createSkyClient({
-      sessionId: "session-callback-denied",
+      sessionId: "session-hard-policy",
       session,
       authorizeApp,
     });
 
-    await expect(sky.click({ app: "Notes", element_index: 1 })).rejects.toThrow(
-      "authorization denied",
-    );
     await expect(
-      sky.click({ app: "com.apple.Notes", element_index: 2 }),
-    ).rejects.toThrow("authorization denied");
-    expect(authorizeApp).toHaveBeenCalledTimes(2);
+      sky.press_key({ app: "Keychain Access", key: "ENTER" }),
+    ).rejects.toThrow("forbidden by computer-use policy");
+    await expect(sky.click({ app: "Notes", element_index: 1 })).rejects.toThrow(
+      "denied by computer-use policy",
+    );
+    expect(authorizeApp).not.toHaveBeenCalled();
+    expect(
+      requests.filter((request) => request.type === "action"),
+    ).toHaveLength(0);
   });
 });

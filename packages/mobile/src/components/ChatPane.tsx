@@ -109,6 +109,11 @@ import {
   useReadAloudState,
 } from "../lib/read-aloud";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
+import {
+  USER_MESSAGE_COLLAPSE_LINES,
+  isUserMessageTruncatable,
+  shouldRemeasureUserMessageWidth,
+} from "../lib/user-message-clamp";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fadeHex } from "../theme/oklch";
@@ -1003,13 +1008,6 @@ const AssistantActions = memo(function AssistantActions({
 type MessageMenuRequest = { message: ChatMessage; anchor: AnchorRect };
 
 /**
- * Line count at which a user message collapses behind a "Show more" toggle.
- * Deliberately tighter than the desktop cap (12 lines on the full chat surface,
- * 8 on the compact one) because phone bubbles have far less vertical room.
- */
-const USER_MESSAGE_COLLAPSE_LINES = 6;
-
-/**
  * Window after the first "Rewind here" tap during which a second tap commits the
  * destructive truncate. Mirrors the desktop MessageActions two-step confirm
  * (REWIND_CONFIRM_TIMEOUT_MS); the armed row auto-reverts once it elapses.
@@ -1022,9 +1020,9 @@ const REWIND_CONFIRM_TIMEOUT_MS = 3000;
  * exceeds `USER_MESSAGE_COLLAPSE_LINES`; a tappable "Show more" / "Show less"
  * toggle then reveals or re-hides the overflow.
  *
- * Overflow is detected by measuring the full line count on the first
- * (unclamped) text layout pass, after which `numberOfLines` clamps the
- * collapsed state.
+ * Overflow is detected from the native text-layout line boxes (not a
+ * character count). The first pass measures unclamped; later width changes
+ * remasure so wrap at a new bubble width can grow or shrink the toggle.
  */
 function UserMessageText({
   text,
@@ -1033,26 +1031,48 @@ function UserMessageText({
   text: string;
   styles: ChatStyles;
 }) {
+  const { width: windowWidth } = useWindowDimensions();
   const [expanded, setExpanded] = useState(false);
   const [totalLines, setTotalLines] = useState<number | null>(null);
+  const [forceUnclamped, setForceUnclamped] = useState(true);
+  const measuredWidthRef = useRef<number | null>(null);
 
   // Reset when the underlying message text changes (row reuse across items).
   useEffect(() => {
     setExpanded(false);
     setTotalLines(null);
+    setForceUnclamped(true);
+    measuredWidthRef.current = null;
   }, [text]);
+
+  // Remeasure from the viewport width, not the text box itself. User bubbles
+  // are width:fit-content, so clamping the first four lines can shrink the
+  // box and would otherwise oscillate if we keyed off the text layout width.
+  useEffect(() => {
+    if (shouldRemeasureUserMessageWidth(measuredWidthRef.current, windowWidth)) {
+      measuredWidthRef.current = windowWidth;
+      setForceUnclamped(true);
+      return;
+    }
+    if (measuredWidthRef.current === null) {
+      measuredWidthRef.current = windowWidth;
+    }
+  }, [windowWidth]);
 
   const handleTextLayout = useCallback(
     (event: NativeSyntheticEvent<TextLayoutEventData>) => {
       const lines = event.nativeEvent.lines.length;
-      setTotalLines((prev) => (prev === null ? lines : prev));
+      if (forceUnclamped || totalLines === null) {
+        setTotalLines(lines);
+        setForceUnclamped(false);
+      }
     },
-    [],
+    [forceUnclamped, totalLines],
   );
 
-  const isTruncatable =
-    totalLines !== null && totalLines > USER_MESSAGE_COLLAPSE_LINES;
-  const clamp = totalLines !== null && isTruncatable && !expanded;
+  const isTruncatable = isUserMessageTruncatable(totalLines);
+  const clamp =
+    !forceUnclamped && totalLines !== null && isTruncatable && !expanded;
 
   return (
     <>
@@ -4986,7 +5006,8 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.medium,
       fontSize: 13,
       letterSpacing: -0.1,
-      marginTop: 8,
+      lineHeight: 16,
+      marginTop: 6,
     },
     userTogglePressed: {
       color: colors.text,

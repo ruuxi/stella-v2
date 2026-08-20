@@ -537,7 +537,7 @@ describe("buildActivityTasks", () => {
 
     expect(tasks[0]).toMatchObject({
       description: "Chrome Web Store Stella Browser fresh retry",
-      statusText: "Running Node Repl",
+      statusText: "Running code",
       attemptGeneration: 2,
       runId: "run-2",
     });

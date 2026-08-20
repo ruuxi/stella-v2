@@ -7,6 +7,7 @@ import {
   BROWSER_PROFILE_KEY,
   BROWSER_SELECTION_KEY,
 } from "@stella/contracts/discovery";
+import { withI18n } from "../../helpers/i18n";
 
 type BrowserState = {
   connection: "checking" | "disconnected" | "connected";
@@ -218,7 +219,7 @@ describe("BrowserSection", () => {
 
   const render = async () => {
     await act(async () => {
-      root.render(<BrowserSection />);
+      root.render(withI18n(<BrowserSection />));
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -232,10 +233,10 @@ describe("BrowserSection", () => {
       profileId: "profile-1",
     });
     expect(api.setOwnerScope).toHaveBeenCalledWith({});
-    expect(container.textContent).toContain("Connect your browser");
+    expect(container.textContent).toContain("Stella for Chrome");
 
     const connectButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Connect browser"),
+      (button) => button.textContent?.includes("Get extension"),
     );
     await act(async () => connectButton?.click());
     expect(api.requestExtensionConnect).toHaveBeenCalledOnce();
@@ -422,7 +423,7 @@ describe("BrowserSection", () => {
     expect(api.show).toHaveBeenCalledOnce();
 
     mocks.activeSection = "apps";
-    await act(async () => root.render(<BrowserSection />));
+    await act(async () => root.render(withI18n(<BrowserSection />)));
     expect(api.hide).toHaveBeenCalled();
   });
 });

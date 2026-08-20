@@ -11,55 +11,57 @@ const SOURCE_ROOT = path.resolve(
 const readSource = (relativePath: string) =>
   fs.readFileSync(path.join(SOURCE_ROOT, relativePath), "utf8");
 
-describe("sidebar Models control placement", () => {
-  it("hosts Models as a footer popover anchored in Home", () => {
+describe("global Models control placement", () => {
+  it("hosts Models as a single top-level control, never in the sidebar footers", () => {
+    const root = readSource("routes/__root.tsx");
     const panel = readSource("shell/RightSidebar.tsx");
     const home = readSource("shell/WorkspaceHomeSurface.tsx");
     const work = readSource("shell/sidebar-sections/FilesSection.jsx");
-    const control = readSource(
-      "shell/sidebar-sections/SidebarModelsControl.jsx",
-    );
-    const styles = readSource("shell/sidebar-sections/files-section.css");
+    const control = readSource("shell/GlobalModelsControl.jsx");
+    const styles = readSource("shell/global-models-control.css");
 
+    // The control is mounted exactly once, at the shell root — always visible
+    // regardless of which sidebar tab is active or whether it is open/mounted.
+    // Its on-screen presence follows the right-side workspace visibility.
+    expect(root).toContain(
+      'import { GlobalModelsControl } from "@/shell/GlobalModelsControl"',
+    );
+    expect(root).toMatch(
+      /<GlobalModelsControl\s+visible=\{modelControlVisible\}\s*\/>/,
+    );
+
+    // The old per-sidebar-footer control is gone: no sidebar surface mounts a
+    // models control or the picker directly anymore.
     expect(panel).not.toContain("SidebarModelsControl");
+    expect(panel).not.toContain("GlobalModelsControl");
     expect(panel).not.toContain("right-sidebar-models-footer");
-    expect(home).toContain("<HomeSection />");
-    expect(home).not.toContain("AgentModelPicker");
 
-    // Both footers carry Models alone — Theme, Phone, Connectors and
-    // Feedback live behind the top bar's settings gear menu — and the
-    // Models button opens the popover in place instead of opening the panel.
+    // Home renders its section body and delegates Models to the global control.
+    expect(home).toContain("<HomeSection />");
+    expect(home).not.toContain("SidebarModelsControl");
+    expect(home).not.toContain("AgentModelPicker");
     expect(home).not.toContain("SidebarUtilityControls");
-    expect(home).toMatch(
-      /<SidebarModelsControl\s+active=\{!surfaceHidden\}\s*\/>/,
-    );
     expect(home).not.toContain("setPanelOpen");
 
-    // Home's footer is the popover anchor; the section body never swaps to
-    // an inline models panel, and it stays visible when the picker is
-    // opened externally while a viewer tab is showing.
-    expect(work).toContain('className="work-section__footer"');
-    expect(work).not.toContain("SidebarUtilityControls");
-    expect(work).toContain("<SidebarModelsControl active={modelsActive}/>");
-    expect(work).toContain("const showFooter = modelsOpen || !openTab;");
-    expect(work).toContain("{showFooter ?");
+    // The Files/Work footer no longer hosts the models button or picker.
+    expect(work).not.toContain("SidebarModelsControl");
     expect(work).not.toContain("AgentModelPicker");
+    expect(work).not.toContain("SidebarUtilityControls");
 
     // The picker renders inside the control's popover, driven by the shared
     // engine-overlay store so `openModelPicker()` and the
-    // `stella:open-model-picker` event keep working. The control itself
-    // never moves the sidebar, and `active` decides which of the two
-    // mounted footers anchors the shared popover.
+    // `stella:open-model-picker` event keep working. The control never touches
+    // the sidebar's open/section state.
     expect(control).toContain("PopoverTrigger");
     expect(control).toContain("AgentModelPicker");
     expect(control).toContain("engineOverlay.setOpen");
-    expect(control).toContain("const open = modelsPickerOpen && active;");
+    expect(control).toContain("useEngineOverlayOpen");
     expect(control).not.toContain("setPanelOpen");
     expect(control).not.toContain("setActiveSection");
 
-    expect(styles).toContain(".work-section__footer {");
+    // Styling ships with the always-mounted control, not the lazy sidebar.
+    expect(styles).toContain(".global-models-control {");
     expect(styles).toContain(".models-popover {");
-    expect(styles).toContain(".pill-btn.work-models-button[data-active]");
-    expect(styles).not.toContain(".work-models-panel {");
+    expect(styles).toContain(".pill-btn.work-models-button {");
   });
 });

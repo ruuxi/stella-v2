@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildGeneralSummaryPrompt,
   countLeadingBootstrapStartupDocs,
+  formatFileOperationsForSummary,
   formatThreadCheckpointMessage,
+  getCompactionTriggerTokens,
   resolveCompactionProtectHeadMessages,
+  resolveCompactionSplitPolicy,
+  resolveKeepRecentTokensForAgent,
+  splitGeneralThreadMessagesForCompaction,
   splitThreadMessagesForCompaction,
 } from "@stella/runtime/kernel/thread-runtime";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -503,3 +509,283 @@ describe("compaction head protection by agent role", () => {
     );
   });
 });
+
+describe("role-specific compaction policy", () => {
+  const route = (contextWindow: number) =>
+    ({ model: { contextWindow } }) as never;
+
+  it("keeps the orchestrator trigger at 50% and general/subagent at 60%", () => {
+    expect(resolveCompactionSplitPolicy(AGENT_IDS.ORCHESTRATOR)).toBe(
+      "orchestrator",
+    );
+    expect(resolveCompactionSplitPolicy(undefined)).toBe("orchestrator");
+    expect(resolveCompactionSplitPolicy(AGENT_IDS.GENERAL)).toBe("general");
+    expect(resolveCompactionSplitPolicy(AGENT_IDS.EXPLORE)).toBe("general");
+
+    expect(getCompactionTriggerTokens(route(1_000_000))).toBe(500_000);
+    expect(
+      getCompactionTriggerTokens(route(1_000_000), AGENT_IDS.ORCHESTRATOR),
+    ).toBe(500_000);
+    expect(getCompactionTriggerTokens(route(1_000_000), AGENT_IDS.GENERAL)).toBe(
+      600_000,
+    );
+    expect(getCompactionTriggerTokens(route(80_000), AGENT_IDS.GENERAL)).toBe(
+      48_000,
+    );
+    expect(getCompactionTriggerTokens(route(10_000), AGENT_IDS.GENERAL)).toBe(
+      8_000,
+    );
+  });
+
+  it("keeps a fixed 20k general tail across large windows and clamps only tiny ones", () => {
+    expect(
+      resolveKeepRecentTokensForAgent(route(1_000_000), AGENT_IDS.ORCHESTRATOR),
+    ).toBe(20_000);
+    expect(
+      resolveKeepRecentTokensForAgent(route(200_000), AGENT_IDS.ORCHESTRATOR),
+    ).toBe(20_000);
+    expect(
+      resolveKeepRecentTokensForAgent(route(80_000), AGENT_IDS.ORCHESTRATOR),
+    ).toBe(8_000);
+
+    expect(
+      resolveKeepRecentTokensForAgent(route(1_000_000), AGENT_IDS.GENERAL),
+    ).toBe(20_000);
+    expect(
+      resolveKeepRecentTokensForAgent(route(200_000), AGENT_IDS.GENERAL),
+    ).toBe(20_000);
+    expect(
+      resolveKeepRecentTokensForAgent(route(80_000), AGENT_IDS.GENERAL),
+    ).toBe(20_000);
+    expect(
+      resolveKeepRecentTokensForAgent(route(16_000), AGENT_IDS.GENERAL),
+    ).toBeLessThan(20_000);
+    expect(
+      resolveKeepRecentTokensForAgent(route(16_000), AGENT_IDS.GENERAL),
+    ).toBeGreaterThan(0);
+  });
+
+  it("never cuts a general plan on a tool result and keeps the tool pair together", () => {
+    const messages = [
+      {
+        entryId: "head",
+        timestamp: 1,
+        role: "user" as const,
+        content: "Head",
+        payload: createUserPayload("Head", 1),
+      },
+      {
+        entryId: "call",
+        timestamp: 2,
+        role: "assistant" as const,
+        content: "Read(src/example.ts)",
+        payload: createAssistantToolCallPayload("call-1", 2),
+      },
+      {
+        entryId: "result",
+        timestamp: 3,
+        role: "toolResult" as const,
+        content: "File contents",
+        toolCallId: "call-1",
+        payload: createToolResultPayload("call-1", "File contents", 3),
+      },
+      {
+        entryId: "tail-user",
+        timestamp: 4,
+        role: "user" as const,
+        content: "continue",
+        payload: createUserPayload("continue", 4),
+      },
+    ];
+
+    const plan = splitGeneralThreadMessagesForCompaction(messages, 1, 1);
+    expect(plan?.fromEntryId).toBe("call");
+    expect(plan?.toEntryId).toBe("result");
+    expect(plan?.isSplitTurn).toBeUndefined();
+    expect(plan?.middleMessages.map((message) => message.entryId)).toEqual([
+      "call",
+      "result",
+    ]);
+  });
+
+  it("summarizes a split-turn prefix when the cut is inside the current turn", () => {
+    const messages = [
+      {
+        entryId: "older",
+        timestamp: 1,
+        role: "user" as const,
+        content: "older ask",
+        payload: createUserPayload("older ask", 1),
+      },
+      {
+        entryId: "older-reply",
+        timestamp: 2,
+        role: "assistant" as const,
+        content: `older work ${"x".repeat(8_000)}`,
+        payload: createAssistantTextPayload(`older work ${"x".repeat(8_000)}`, 2),
+      },
+      {
+        entryId: "current-user",
+        timestamp: 3,
+        role: "user" as const,
+        content: "do the current task",
+        payload: createUserPayload("do the current task", 3),
+      },
+      {
+        entryId: "prefix-call",
+        timestamp: 4,
+        role: "assistant" as const,
+        content: "Read(src/example.ts)",
+        payload: createAssistantToolCallPayload("call-1", 4),
+      },
+      {
+        entryId: "prefix-result",
+        timestamp: 5,
+        role: "toolResult" as const,
+        content: "File contents",
+        toolCallId: "call-1",
+        payload: createToolResultPayload("call-1", "File contents", 5),
+      },
+      {
+        entryId: "suffix",
+        timestamp: 6,
+        role: "assistant" as const,
+        content: "recent suffix",
+        payload: createAssistantTextPayload("recent suffix", 6),
+      },
+    ];
+
+    const plan = splitGeneralThreadMessagesForCompaction(messages, 1, 4);
+    expect(plan?.isSplitTurn).toBe(true);
+    expect(plan?.middleMessages.map((message) => message.entryId)).toEqual([
+      "older-reply",
+    ]);
+    expect(plan?.turnPrefixMessages?.map((message) => message.entryId)).toEqual([
+      "current-user",
+      "prefix-call",
+      "prefix-result",
+    ]);
+    expect(plan?.latestUserMessage).toBeUndefined();
+  });
+
+  it("does not pin a buried latest user instruction for general agents", () => {
+    const messages = [
+      {
+        entryId: "spawn",
+        timestamp: 1,
+        role: "user" as const,
+        content: "Spawn prompt",
+        payload: createUserPayload("Spawn prompt", 1),
+      },
+      {
+        entryId: "buried",
+        timestamp: 2,
+        role: "user" as const,
+        content: "Follow-up buried deep",
+        payload: createUserPayload("Follow-up buried deep", 2),
+      },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        entryId: `mid-${index}`,
+        timestamp: 3 + index,
+        role: "assistant" as const,
+        content: `chunk ${index} ${"x".repeat(4_000)}`,
+        payload: createAssistantTextPayload(
+          `chunk ${index} ${"x".repeat(4_000)}`,
+          3 + index,
+        ),
+      })),
+    ];
+
+    const plan = splitGeneralThreadMessagesForCompaction(messages, 1, 100);
+    expect(plan?.latestUserMessage).toBeUndefined();
+    const summarized = [
+      ...(plan?.middleMessages ?? []),
+      ...(plan?.turnPrefixMessages ?? []),
+    ].map((message) => message.entryId);
+    expect(summarized).toContain("buried");
+  });
+
+  it("uses the previous-summary update prompt and file-op tags for general agents", () => {
+    const prompt = buildGeneralSummaryPrompt("new turns", "Earlier summary");
+    expect(prompt).toContain("<conversation>");
+    expect(prompt).toContain("<previous-summary>");
+    expect(prompt).toContain("Earlier summary");
+    expect(prompt).toContain("NEW conversation messages");
+    expect(prompt).toContain("## Goal");
+    expect(prompt).not.toContain("CONVERSATION TO SUMMARIZE");
+
+    expect(
+      formatFileOperationsForSummary(["src/a.ts"], ["src/b.ts"]),
+    ).toContain("<read-files>");
+    expect(
+      formatFileOperationsForSummary(["src/a.ts"], ["src/b.ts"]),
+    ).toContain("<modified-files>");
+  });
+
+  it("updates only post-checkpoint history on chained general compaction", () => {
+    const messages = [
+      {
+        entryId: "h1",
+        timestamp: 1,
+        role: "user" as const,
+        content: "spawn",
+        payload: createUserPayload("spawn", 1),
+      },
+      {
+        entryId: "h2",
+        timestamp: 2,
+        role: "assistant" as const,
+        content: "ok",
+        payload: createAssistantTextPayload("ok", 2),
+      },
+      {
+        entryId: "h3",
+        timestamp: 3,
+        role: "assistant" as const,
+        content: "ok",
+        payload: createAssistantTextPayload("ok", 3),
+      },
+      {
+        entryId: "checkpoint",
+        timestamp: 4,
+        role: "assistant" as const,
+        content: formatThreadCheckpointMessage({
+          summary: "Earlier structured summary",
+        }),
+      },
+      {
+        entryId: "new-user",
+        timestamp: 5,
+        role: "user" as const,
+        content: "continue the work",
+        payload: createUserPayload("continue the work", 5),
+      },
+      {
+        entryId: "new-work",
+        timestamp: 6,
+        role: "assistant" as const,
+        content: `new work ${"x".repeat(8_000)}`,
+        payload: createAssistantTextPayload(`new work ${"x".repeat(8_000)}`, 6),
+      },
+      {
+        entryId: "tail",
+        timestamp: 7,
+        role: "assistant" as const,
+        content: "recent",
+        payload: createAssistantTextPayload("recent", 7),
+      },
+    ];
+
+    const plan = splitGeneralThreadMessagesForCompaction(messages, 3, 1);
+    expect(plan?.previousSummary).toBe("Earlier structured summary");
+    expect(plan?.fromEntryId).toBe("new-user");
+    expect(
+      [
+        ...(plan?.middleMessages ?? []),
+        ...(plan?.turnPrefixMessages ?? []),
+      ].map((message) => message.entryId),
+    ).toEqual(["new-user", "new-work"]);
+  });
+});
+
+

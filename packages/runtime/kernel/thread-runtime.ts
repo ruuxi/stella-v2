@@ -44,6 +44,9 @@ const THREAD_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
  * Fraction of the model's window the kept tail may occupy. Bounds the fixed
  * keep-recent budget on small-window models so a compaction always frees
  * enough room for the retry to fit.
+ *
+ * Orchestrator-only. General/subagent compaction uses a fixed 20k tail
+ * (pi-mono) with a small-window safety clamp instead of this 10% policy.
  */
 const THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT = 0.1;
 const THREAD_COMPACTION_MIN_TAIL_MESSAGES = 2;
@@ -51,10 +54,28 @@ const THREAD_COMPACTION_MIN_TAIL_MESSAGES = 2;
  * Char cap for the pinned copy of the latest user instruction carried
  * verbatim across a compaction checkpoint (~3-4k tokens). The pin never
  * moves the tail cut — its cost is exactly one capped message.
+ *
+ * Orchestrator-only. General/subagent compaction follows pi-mono and does
+ * not emit a synthetic pin.
  */
 const THREAD_COMPACTION_PINNED_INSTRUCTION_MAX_CHARS = 12_000;
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
 const MIN_TRIGGER_TOKENS = 8_000;
+/**
+ * General/subagent compaction trigger. Deliberately not pi-mono's
+ * `window - 16k` and not the orchestrator's 50%.
+ */
+const GENERAL_COMPACTION_TRIGGER_PCT = 0.6;
+/** Fixed verbatim tail for general/subagent compaction (pi-mono). */
+const GENERAL_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
+/**
+ * Smallest compatibility guard for a fixed 20k tail on tiny windows: if
+ * keeping 20k would leave fewer than this many tokens for the checkpoint
+ * summary and remaining head, shrink the tail so compaction can still free
+ * space. Never used on typical 80k+ windows and not the orchestrator's 10%
+ * policy.
+ */
+const GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS = 4_096;
 const MAX_BLOCK_CHARS = 100_000;
 const TOOL_RESULT_MAX_CHARS = 2_000;
 const ESTIMATED_IMAGE_TOKENS = 1_200;
@@ -91,9 +112,21 @@ export type ThreadCompactionPlan = {
    * active-steer `Task update:` turn). The overlay re-emits a capped verbatim
    * copy of it right after the checkpoint so the agent never loses its
    * current instruction to a summary. The tail cut is never moved for it.
+   *
+   * Orchestrator-only. General/subagent compaction follows pi-mono and does
+   * not carry a synthetic pin.
    */
   latestUserMessage?: StoredThreadMessage;
+  /**
+   * General/subagent split-turn: messages from the current turn start up to
+   * (but not including) the retained tail. Summarized with the turn-prefix
+   * prompt; the suffix stays verbatim.
+   */
+  turnPrefixMessages?: StoredThreadMessage[];
+  isSplitTurn?: boolean;
 };
+
+export type ThreadCompactionSplitPolicy = "orchestrator" | "general";
 
 const truncateWithSuffix = (
   value: string,
@@ -276,11 +309,26 @@ const getContextWindow = (route: ResolvedLlmRoute): number => {
   return Math.floor(value);
 };
 
-export const getCompactionTriggerTokens = (route: ResolvedLlmRoute): number =>
-  Math.max(
+export const resolveCompactionSplitPolicy = (
+  agentType?: string,
+): ThreadCompactionSplitPolicy =>
+  !agentType || agentType === AGENT_IDS.ORCHESTRATOR
+    ? "orchestrator"
+    : "general";
+
+export const getCompactionTriggerTokens = (
+  route: ResolvedLlmRoute,
+  agentType?: string,
+): number => {
+  const triggerPct =
+    resolveCompactionSplitPolicy(agentType) === "general"
+      ? GENERAL_COMPACTION_TRIGGER_PCT
+      : THREAD_COMPACTION_TRIGGER_PCT;
+  return Math.max(
     MIN_TRIGGER_TOKENS,
-    Math.floor(getContextWindow(route) * THREAD_COMPACTION_TRIGGER_PCT),
+    Math.floor(getContextWindow(route) * triggerPct),
   );
+};
 
 export const getThreadTokenEstimate = (
   messages: StoredThreadMessage[],
@@ -514,6 +562,270 @@ export const splitThreadMessagesForCompaction = (
     toEntryId,
     middleMessages,
     ...(latestUserMessage ? { latestUserMessage } : {}),
+  };
+};
+
+const isValidGeneralCutMessage = (message: StoredThreadMessage): boolean => {
+  if (isCompactionMessage(message) || isPinnedInstructionMessage(message)) {
+    return false;
+  }
+  if (message.role === "toolResult") {
+    return false;
+  }
+  return (
+    message.role === "user" ||
+    message.role === "assistant" ||
+    message.role === "runtimeInternal" ||
+    Boolean(message.customMessage)
+  );
+};
+
+const findGeneralTurnStartIndex = (
+  messages: StoredThreadMessage[],
+  cutIndex: number,
+  startIndex: number,
+): number => {
+  for (let index = cutIndex; index >= startIndex; index -= 1) {
+    const message = messages[index];
+    if (!message) {
+      continue;
+    }
+    if (message.role === "user") {
+      return index;
+    }
+    if (message.customMessage) {
+      return index;
+    }
+  }
+  return -1;
+};
+
+const findGeneralCutPoint = (
+  messages: StoredThreadMessage[],
+  startIndex: number,
+  endIndex: number,
+  keepRecentTokens: number,
+): { firstKeptIndex: number; turnStartIndex: number; isSplitTurn: boolean } => {
+  const cutPoints: number[] = [];
+  for (let index = startIndex; index < endIndex; index += 1) {
+    const message = messages[index];
+    if (message && isValidGeneralCutMessage(message)) {
+      cutPoints.push(index);
+    }
+  }
+  if (cutPoints.length === 0) {
+    return {
+      firstKeptIndex: startIndex,
+      turnStartIndex: -1,
+      isSplitTurn: false,
+    };
+  }
+
+  let accumulatedTokens = 0;
+  let cutIndex = cutPoints[0]!;
+  if (keepRecentTokens <= 0) {
+    cutIndex = cutPoints[cutPoints.length - 1]!;
+  } else {
+    for (let index = endIndex - 1; index >= startIndex; index -= 1) {
+      const message = messages[index];
+      if (!message) {
+        continue;
+      }
+      accumulatedTokens += estimateStoredMessageTokens(message);
+      if (accumulatedTokens >= keepRecentTokens) {
+        for (const candidate of cutPoints) {
+          if (candidate >= index) {
+            cutIndex = candidate;
+            break;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  cutIndex = alignBoundaryForward(messages, cutIndex);
+  const cutMessage = messages[cutIndex];
+  const isUserMessage = cutMessage?.role === "user";
+  const turnStartIndex = isUserMessage
+    ? -1
+    : findGeneralTurnStartIndex(messages, cutIndex, startIndex);
+  return {
+    firstKeptIndex: cutIndex,
+    turnStartIndex,
+    isSplitTurn: !isUserMessage && turnStartIndex !== -1,
+  };
+};
+
+const extractFilePathFromToolArgs = (
+  args: Record<string, unknown> | undefined,
+): string | undefined => {
+  if (!args) {
+    return undefined;
+  }
+  for (const key of ["file_path", "path"]) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+};
+
+const extractFileOpsFromStoredMessage = (
+  message: StoredThreadMessage,
+  fileOps: { read: Set<string>; written: Set<string>; edited: Set<string> },
+): void => {
+  if (message.role !== "assistant" || message.payload?.role !== "assistant") {
+    return;
+  }
+  for (const block of message.payload.content) {
+    if (block.type !== "toolCall") {
+      continue;
+    }
+    const pathArg = extractFilePathFromToolArgs(
+      (block.arguments ?? {}) as Record<string, unknown>,
+    );
+    if (!pathArg) {
+      continue;
+    }
+    const name = block.name.toLowerCase();
+    if (name === "read") {
+      fileOps.read.add(pathArg);
+    } else if (name === "write") {
+      fileOps.written.add(pathArg);
+    } else if (name === "edit") {
+      fileOps.edited.add(pathArg);
+    }
+  }
+};
+
+const collectFileOperations = (
+  messages: StoredThreadMessage[],
+): { readFiles: string[]; modifiedFiles: string[] } => {
+  const fileOps = {
+    read: new Set<string>(),
+    written: new Set<string>(),
+    edited: new Set<string>(),
+  };
+  for (const message of messages) {
+    extractFileOpsFromStoredMessage(message, fileOps);
+  }
+  const modified = new Set([...fileOps.edited, ...fileOps.written]);
+  return {
+    readFiles: [...fileOps.read].filter((path) => !modified.has(path)).sort(),
+    modifiedFiles: [...modified].sort(),
+  };
+};
+
+export const formatFileOperationsForSummary = (
+  readFiles: string[],
+  modifiedFiles: string[],
+): string => {
+  const sections: string[] = [];
+  if (readFiles.length > 0) {
+    sections.push(`<read-files>\n${readFiles.join("\n")}\n</read-files>`);
+  }
+  if (modifiedFiles.length > 0) {
+    sections.push(
+      `<modified-files>\n${modifiedFiles.join("\n")}\n</modified-files>`,
+    );
+  }
+  if (sections.length === 0) {
+    return "";
+  }
+  return `\n\n${sections.join("\n\n")}`;
+};
+
+/**
+ * Pi-mono-style compaction plan for general agents and subagents.
+ * Never used by the orchestrator. Does not pin the latest user instruction.
+ */
+export const splitGeneralThreadMessagesForCompaction = (
+  messages: StoredThreadMessage[],
+  protectHeadMessages = THREAD_COMPACTION_PROTECT_HEAD_MESSAGES,
+  keepRecentTokens = GENERAL_COMPACTION_KEEP_RECENT_TOKENS,
+): ThreadCompactionPlan | null => {
+  if (messages.length <= protectHeadMessages + 1) {
+    return null;
+  }
+
+  let lastCheckpointIndex = -1;
+  let previousSummary: string | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const summary = parseThreadCheckpoint(messages[index]?.content ?? "")?.summary;
+    if (typeof summary === "string" && summary.trim().length > 0) {
+      lastCheckpointIndex = index;
+      previousSummary = summary;
+      break;
+    }
+  }
+
+  let compressionStart = Math.min(protectHeadMessages, messages.length);
+  if (lastCheckpointIndex >= compressionStart) {
+    // Chained compaction (pi-mono): only summarize messages after the latest
+    // checkpoint; the previous structured summary is updated in place.
+    compressionStart = lastCheckpointIndex + 1;
+  }
+  compressionStart = alignBoundaryForward(messages, compressionStart);
+  if (compressionStart >= messages.length) {
+    return null;
+  }
+
+  const cut = findGeneralCutPoint(
+    messages,
+    compressionStart,
+    messages.length,
+    keepRecentTokens,
+  );
+  if (cut.firstKeptIndex <= compressionStart) {
+    return null;
+  }
+
+  const historyEnd = cut.isSplitTurn ? cut.turnStartIndex : cut.firstKeptIndex;
+  const middleMessages = messages
+    .slice(compressionStart, historyEnd)
+    .filter(
+      (message) =>
+        !isCompactionMessage(message) && !isPinnedInstructionMessage(message),
+    );
+  const turnPrefixMessages = cut.isSplitTurn
+    ? messages
+        .slice(cut.turnStartIndex, cut.firstKeptIndex)
+        .filter(
+          (message) =>
+            !isCompactionMessage(message) &&
+            !isPinnedInstructionMessage(message),
+        )
+    : [];
+  const summarizedMessages = [...middleMessages, ...turnPrefixMessages];
+  if (summarizedMessages.length === 0) {
+    return null;
+  }
+
+  const fromEntryId = summarizedMessages[0]?.entryId?.trim();
+  const toEntryId =
+    summarizedMessages[summarizedMessages.length - 1]?.entryId?.trim();
+  if (!fromEntryId || !toEntryId) {
+    return null;
+  }
+  if (
+    fromEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
+    toEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
+    fromEntryId.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER) ||
+    toEntryId.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER)
+  ) {
+    return null;
+  }
+
+  return {
+    ...(previousSummary ? { previousSummary } : {}),
+    fromEntryId,
+    toEntryId,
+    middleMessages,
+    ...(cut.isSplitTurn && turnPrefixMessages.length > 0
+      ? { turnPrefixMessages, isSplitTurn: true }
+      : {}),
   };
 };
 
@@ -751,6 +1063,118 @@ ${SUMMARY_STRUCTURE}
 ${footer}`;
 };
 
+const GENERAL_SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
+
+Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`;
+
+const GENERAL_SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+
+Use this EXACT format:
+
+## Goal
+[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]
+
+## Constraints & Preferences
+- [Any constraints, preferences, or requirements mentioned by user]
+- [Or "(none)" if none were mentioned]
+
+## Progress
+### Done
+- [x] [Completed tasks/changes]
+
+### In Progress
+- [ ] [Current work]
+
+### Blocked
+- [Issues preventing progress, if any]
+
+## Key Decisions
+- **[Decision]**: [Brief rationale]
+
+## Next Steps
+1. [Ordered list of what should happen next]
+
+## Critical Context
+- [Any data, examples, or references needed to continue]
+- [Or "(none)" if not applicable]
+
+Keep each section concise. Preserve exact file paths, function names, and error messages.
+Preserve exact \`thread_id\` values from spawn_agent / send_input / check-status tool calls so follow-ups can resume existing threads.`;
+
+const GENERAL_UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
+
+Update the existing structured summary with new information. RULES:
+- PRESERVE all existing information from the previous summary
+- ADD new progress, decisions, and context from the new messages
+- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
+- UPDATE "Next Steps" based on what was accomplished
+- PRESERVE exact file paths, function names, and error messages
+- If something is no longer relevant, you may remove it
+
+Use this EXACT format:
+
+## Goal
+[Preserve existing goals, add new ones if the task expanded]
+
+## Constraints & Preferences
+- [Preserve existing, add new ones discovered]
+
+## Progress
+### Done
+- [x] [Include previously done items AND newly completed items]
+
+### In Progress
+- [ ] [Current work - update based on progress]
+
+### Blocked
+- [Current blockers - remove if resolved]
+
+## Key Decisions
+- **[Decision]**: [Brief rationale] (preserve all previous, add new)
+
+## Next Steps
+1. [Update based on current state]
+
+## Critical Context
+- [Preserve important context, add new if needed]
+
+Keep each section concise. Preserve exact file paths, function names, and error messages.
+Preserve exact \`thread_id\` values from spawn_agent / send_input / check-status tool calls so follow-ups can resume existing threads.`;
+
+const GENERAL_TURN_PREFIX_SUMMARIZATION_PROMPT = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
+
+Summarize the prefix to provide context for the retained suffix:
+
+## Original Request
+[What did the user ask for in this turn?]
+
+## Early Progress
+- [Key decisions and work done in the prefix]
+
+## Context for Suffix
+- [Information needed to understand the retained recent work]
+
+Be concise. Focus on what's needed to understand the kept suffix.`;
+
+export const buildGeneralSummaryPrompt = (
+  formattedConversation: string,
+  previousSummary?: string,
+): string => {
+  const basePrompt = previousSummary
+    ? GENERAL_UPDATE_SUMMARIZATION_PROMPT
+    : GENERAL_SUMMARIZATION_PROMPT;
+  let promptText = `<conversation>\n${formattedConversation}\n</conversation>\n\n`;
+  if (previousSummary) {
+    promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
+  }
+  return `${promptText}${basePrompt}`;
+};
+
+export const buildGeneralTurnPrefixPrompt = (
+  formattedConversation: string,
+): string =>
+  `<conversation>\n${formattedConversation}\n</conversation>\n\n${GENERAL_TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+
 // Per-doc cap for the ALREADY KNOWN reference. The docs are small
 // always-loaded files; the cap only guards against a runaway doc inflating
 // the compaction request.
@@ -814,13 +1238,20 @@ const generateThreadSummary = async (args: {
   previousSummary?: string;
   resolvedLlm: ResolvedLlmRoute;
   durableMemoryReference?: string;
+  policy?: ThreadCompactionSplitPolicy;
+  promptKind?: "history" | "turnPrefix";
 }): Promise<{ text: string | null; reason?: string }> => {
-  const systemPrompt = resolveThreadCompactionSystemPrompt();
+  const policy = args.policy ?? "orchestrator";
+  const systemPrompt =
+    policy === "general"
+      ? GENERAL_SUMMARIZATION_SYSTEM_PROMPT
+      : resolveThreadCompactionSystemPrompt();
   const previousSummary = args.previousSummary?.trim();
   const overheadChars = estimateSummaryOverheadChars({
     systemPromptChars: systemPrompt.length,
     previousSummary,
-    durableMemoryReference: args.durableMemoryReference,
+    durableMemoryReference:
+      policy === "general" ? undefined : args.durableMemoryReference,
   });
   const formattedConversation = capSummaryConversation(
     formatThreadMessagesForCompaction(args.messages).trim(),
@@ -833,12 +1264,17 @@ const generateThreadSummary = async (args: {
     };
   }
 
-  const promptBody = buildSummaryPrompt(
-    formattedConversation,
-    previousSummary,
-    computeSummaryBudget(args.messages),
-    args.durableMemoryReference,
-  );
+  const promptBody =
+    policy === "general"
+      ? args.promptKind === "turnPrefix"
+        ? buildGeneralTurnPrefixPrompt(formattedConversation)
+        : buildGeneralSummaryPrompt(formattedConversation, previousSummary)
+      : buildSummaryPrompt(
+          formattedConversation,
+          previousSummary,
+          computeSummaryBudget(args.messages),
+          args.durableMemoryReference,
+        );
 
   // Every failure mode is treated as transient and retried with backoff:
   // provider errors (429/overloaded/network/400), thrown transport errors,
@@ -986,11 +1422,44 @@ export const resolveCompactionProtectHeadMessages = (
  */
 const COMPACTION_STORE_WRITE_RETRY_DELAYS_MS = [250, 1_000];
 
-const resolveKeepRecentTokens = (route: ResolvedLlmRoute): number =>
-  Math.min(
-    THREAD_COMPACTION_KEEP_RECENT_TOKENS,
-    Math.floor(getContextWindow(route) * THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT),
+const resolveKeepRecentTokens = (
+  route: ResolvedLlmRoute,
+  policy: ThreadCompactionSplitPolicy = "orchestrator",
+): number => {
+  if (policy === "orchestrator") {
+    return Math.min(
+      THREAD_COMPACTION_KEEP_RECENT_TOKENS,
+      Math.floor(
+        getContextWindow(route) * THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT,
+      ),
+    );
+  }
+  const window = getContextWindow(route);
+  const triggerTokens = Math.max(
+    MIN_TRIGGER_TOKENS,
+    Math.floor(window * GENERAL_COMPACTION_TRIGGER_PCT),
   );
+  // Smallest compatibility guard: keep the fixed 20k tail on any window
+  // where that tail still leaves room under the 60% trigger. Only shrink
+  // when a 20k tail would itself sit at/above the trigger (tiny windows),
+  // so compaction can still free space. This is not the orchestrator's 10%
+  // policy.
+  const maxKeep = Math.max(
+    1,
+    window - GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS,
+  );
+  let keep = Math.min(GENERAL_COMPACTION_KEEP_RECENT_TOKENS, maxKeep);
+  if (keep >= triggerTokens) {
+    keep = Math.max(1, triggerTokens - GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS);
+  }
+  return keep;
+};
+
+export const resolveKeepRecentTokensForAgent = (
+  route: ResolvedLlmRoute,
+  agentType?: string,
+): number =>
+  resolveKeepRecentTokens(route, resolveCompactionSplitPolicy(agentType));
 
 export const maybeCompactRuntimeThread = async (args: {
   store: RuntimeStore;
@@ -1010,6 +1479,7 @@ export const maybeCompactRuntimeThread = async (args: {
     return { compacted: false };
   }
 
+  const policy = resolveCompactionSplitPolicy(args.agentType);
   const totalTokens = getThreadTokenEstimate(storedMessages);
   const forced = isThreadCompactionForced(args.threadKey);
   // The trigger measures what the provider actually receives: the last
@@ -1023,35 +1493,53 @@ export const maybeCompactRuntimeThread = async (args: {
   );
   if (
     !forced &&
-    measuredTokens < getCompactionTriggerTokens(args.resolvedLlm)
+    measuredTokens < getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
   ) {
     return { compacted: false };
   }
 
-  const preserveLastN =
-    Number.isFinite(args.preserveLastN) && args.preserveLastN !== undefined
-      ? Math.max(0, Math.floor(args.preserveLastN))
-      : THREAD_COMPACTION_MIN_TAIL_MESSAGES;
-  let splitMessages = splitThreadMessagesForCompaction(
+  const protectHead = resolveCompactionProtectHeadMessages(
+    args.agentType,
     storedMessages,
-    resolveCompactionProtectHeadMessages(args.agentType, storedMessages),
-    resolveKeepRecentTokens(args.resolvedLlm),
-    preserveLastN,
   );
+  const keepRecentTokens = resolveKeepRecentTokens(args.resolvedLlm, policy);
+  let splitMessages =
+    policy === "general"
+      ? splitGeneralThreadMessagesForCompaction(
+          storedMessages,
+          protectHead,
+          keepRecentTokens,
+        )
+      : splitThreadMessagesForCompaction(
+          storedMessages,
+          protectHead,
+          keepRecentTokens,
+          Number.isFinite(args.preserveLastN) && args.preserveLastN !== undefined
+            ? Math.max(0, Math.floor(args.preserveLastN))
+            : THREAD_COMPACTION_MIN_TAIL_MESSAGES,
+        );
   if (!splitMessages && forced) {
     // Emergency split for an overflow that the standard cut points cannot
     // relieve (e.g. a few enormous messages inside the protected head or
     // tail). Only the orchestrator's bootstrap docs stay pinned; everything
     // up to the last message is compactable.
-    splitMessages = splitThreadMessagesForCompaction(
-      storedMessages,
-      // Even in the emergency split, leading bootstrap docs stay pinned for
-      // every agent type — they are resident context, and cutting through
-      // them would anchor the overlay on a fold-synthetic entryId.
-      countLeadingBootstrapStartupDocs(storedMessages),
-      0,
-      1,
-    );
+    const emergencyHead = countLeadingBootstrapStartupDocs(storedMessages);
+    splitMessages =
+      policy === "general"
+        ? splitGeneralThreadMessagesForCompaction(
+            storedMessages,
+            emergencyHead,
+            0,
+          )
+        : splitThreadMessagesForCompaction(
+            storedMessages,
+            // Even in the emergency split, leading bootstrap docs stay pinned for
+            // every agent type — they are resident context, and cutting through
+            // them would anchor the overlay on a fold-synthetic entryId.
+            emergencyHead,
+            0,
+            1,
+          );
   }
   if (!splitMessages) {
     return { compacted: false };
@@ -1069,14 +1557,51 @@ export const maybeCompactRuntimeThread = async (args: {
     // route before the new route takes over. If an oversized middle still
     // reaches this point, `capSummaryConversation` bounds the request to the
     // window and discloses the elided span rather than failing.
-    const generated = await generateThreadSummary({
-      threadKey: args.threadKey,
-      messages: splitMessages.middleMessages,
-      previousSummary: splitMessages.previousSummary,
-      resolvedLlm: args.resolvedLlm,
-      durableMemoryReference,
-    });
+    const skipHistorySummary =
+      policy === "general" && splitMessages.middleMessages.length === 0;
+    const generated = skipHistorySummary
+      ? {
+          text: splitMessages.previousSummary?.trim() || null,
+          reason: splitMessages.previousSummary?.trim()
+            ? undefined
+            : "empty formatted conversation",
+        }
+      : await generateThreadSummary({
+          threadKey: args.threadKey,
+          messages: splitMessages.middleMessages,
+          previousSummary: splitMessages.previousSummary,
+          resolvedLlm: args.resolvedLlm,
+          durableMemoryReference,
+          policy,
+        });
     summary = generated.text;
+    if (
+      policy === "general" &&
+      splitMessages.isSplitTurn &&
+      (splitMessages.turnPrefixMessages?.length ?? 0) > 0
+    ) {
+      const prefix = await generateThreadSummary({
+        threadKey: args.threadKey,
+        messages: splitMessages.turnPrefixMessages ?? [],
+        resolvedLlm: args.resolvedLlm,
+        policy,
+        promptKind: "turnPrefix",
+      });
+      if (!prefix.text) {
+        logger.error("thread.compaction.summary-failed-final", {
+          threadKey: args.threadKey,
+          model: args.resolvedLlm.model.id,
+          reason: prefix.reason,
+          middleTokens: getThreadTokenEstimate(
+            splitMessages.turnPrefixMessages ?? [],
+          ),
+          totalTokens,
+        });
+        return { compacted: false };
+      }
+      const historyText = summary?.trim() || "No prior history.";
+      summary = `${historyText}\n\n---\n\n**Turn Context (split turn):**\n\n${prefix.text}`;
+    }
     if (!summary) {
       logger.error("thread.compaction.summary-failed-final", {
         threadKey: args.threadKey,
@@ -1086,6 +1611,16 @@ export const maybeCompactRuntimeThread = async (args: {
         totalTokens,
       });
       return { compacted: false };
+    }
+    if (policy === "general") {
+      const fileOps = collectFileOperations([
+        ...splitMessages.middleMessages,
+        ...(splitMessages.turnPrefixMessages ?? []),
+      ]);
+      summary += formatFileOperationsForSummary(
+        fileOps.readFiles,
+        fileOps.modifiedFiles,
+      );
     }
   }
 
@@ -1118,16 +1653,32 @@ export const maybeCompactRuntimeThread = async (args: {
   // (including that instruction) is summarized as usual, but the overlay
   // additionally re-emits one capped verbatim copy of it right after the
   // checkpoint message. Bounded by construction — the tail cut never moves.
-  const pinnedInstructionText = splitMessages.latestUserMessage
-    ? truncateForSummary(
-        extractUserMessageText(splitMessages.latestUserMessage).trim(),
-        THREAD_COMPACTION_PINNED_INSTRUCTION_MAX_CHARS,
-      )
-    : "";
+  // Orchestrator-only: general/subagent compaction follows pi-mono and
+  // does not emit a synthetic pin.
+  const pinnedInstructionText =
+    policy === "orchestrator" && splitMessages.latestUserMessage
+      ? truncateForSummary(
+          extractUserMessageText(splitMessages.latestUserMessage).trim(),
+          THREAD_COMPACTION_PINNED_INSTRUCTION_MAX_CHARS,
+        )
+      : "";
+  const generalFileOps =
+    policy === "general"
+      ? collectFileOperations([
+          ...splitMessages.middleMessages,
+          ...(splitMessages.turnPrefixMessages ?? []),
+        ])
+      : null;
   const details = {
     ...(residentFold ? { residentFold } : {}),
     ...(pinnedInstructionText
       ? { pinnedUserInstruction: { text: pinnedInstructionText } }
+      : {}),
+    ...(generalFileOps
+      ? {
+          readFiles: generalFileOps.readFiles,
+          modifiedFiles: generalFileOps.modifiedFiles,
+        }
       : {}),
   };
 

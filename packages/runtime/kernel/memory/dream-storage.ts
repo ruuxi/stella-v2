@@ -11,11 +11,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 export const MEMORY_FILE = "MEMORY.md";
-export const MEMORY_SUMMARY_FILE = "memory_summary.md";
-export const MEMORY_INDEX_FILE = "memory_index.md";
-export const MEMORY_INDEX_MAX_CHARS = 6_000;
-export const MEMORY_INDEX_MAX_ENTRIES = 80;
-export const MEMORY_INDEX_STALE_DAYS = 90;
+export const MEMORY_MAP_FILE = "memory_map.md";
+export const MEMORY_MAP_MAX_CHARS = 6_000;
+export const MEMORY_MAP_MAX_ENTRIES = 80;
+export const MEMORY_MAP_STALE_DAYS = 90;
 
 const MEMORY_TEMPLATE = `# MEMORY
 
@@ -41,30 +40,19 @@ const MEMORY_TEMPLATE = `# MEMORY
 <!-- DREAM:ARCHIVE_END -->
 `;
 
-const MEMORY_SUMMARY_TEMPLATE = `# Memory summary
-
-> Short, dynamic snapshot of the user's currently active focus. Rewritten by
-> the Dream agent when focus shifts. Target ~10-20 lines max. Loaded on every
-> Orchestrator turn.
-
-<!-- DREAM:SUMMARY_START -->
-- No active focus recorded yet.
-<!-- DREAM:SUMMARY_END -->
-`;
-
-const MEMORY_INDEX_TEMPLATE = `# Memory routing index
+const MEMORY_MAP_TEMPLATE = `# Memory map
 
 > Compact, discriminative routing map maintained by Dream. Keep task families,
 > aliases, repo names, paths, prior-decision hooks, and the best retrieval
 > source. Loaded on every Orchestrator turn and searched before deeper memory.
-> Maximum ${MEMORY_INDEX_MAX_ENTRIES} entries and ${MEMORY_INDEX_MAX_CHARS} characters. Each entry carries an
-> updated date; prune entries older than ${MEMORY_INDEX_STALE_DAYS} days unless recent usage shows they remain useful.
+> Maximum ${MEMORY_MAP_MAX_ENTRIES} entries and ${MEMORY_MAP_MAX_CHARS} characters. Each entry carries an
+> updated date; prune entries older than ${MEMORY_MAP_STALE_DAYS} days unless recent usage shows they remain useful.
 > Never store secrets, credentials, tokens, private keys, auth headers, or
 > sensitive personal data here. This file contains routing metadata only.
 
-<!-- DREAM:INDEX_START -->
+<!-- DREAM:MAP_START -->
 - No routing entries recorded yet.
-<!-- DREAM:INDEX_END -->
+<!-- DREAM:MAP_END -->
 `;
 
 export const memoriesRoot = (stellaDataDir: string): string =>
@@ -73,11 +61,8 @@ export const memoriesRoot = (stellaDataDir: string): string =>
 export const memoryFilePath = (stellaDataDir: string): string =>
   path.join(memoriesRoot(stellaDataDir), MEMORY_FILE);
 
-export const memorySummaryPath = (stellaDataDir: string): string =>
-  path.join(memoriesRoot(stellaDataDir), MEMORY_SUMMARY_FILE);
-
-export const memoryIndexPath = (stellaDataDir: string): string =>
-  path.join(memoriesRoot(stellaDataDir), MEMORY_INDEX_FILE);
+export const memoryMapPath = (stellaDataDir: string): string =>
+  path.join(memoriesRoot(stellaDataDir), MEMORY_MAP_FILE);
 
 const writeIfMissing = async (
   target: string,
@@ -96,11 +81,7 @@ export const ensureDreamMemoryLayout = async (
   const root = memoriesRoot(stellaDataDir);
   await fs.mkdir(root, { recursive: true });
   await writeIfMissing(memoryFilePath(stellaDataDir), MEMORY_TEMPLATE);
-  await writeIfMissing(
-    memorySummaryPath(stellaDataDir),
-    MEMORY_SUMMARY_TEMPLATE,
-  );
-  await writeIfMissing(memoryIndexPath(stellaDataDir), MEMORY_INDEX_TEMPLATE);
+  await writeIfMissing(memoryMapPath(stellaDataDir), MEMORY_MAP_TEMPLATE);
 };
 
 export const readMemoryFile = async (
@@ -113,21 +94,11 @@ export const readMemoryFile = async (
   }
 };
 
-export const readMemoryIndex = async (
+export const readMemoryMap = async (
   stellaDataDir: string,
 ): Promise<string | null> => {
   try {
-    return await fs.readFile(memoryIndexPath(stellaDataDir), "utf-8");
-  } catch {
-    return null;
-  }
-};
-
-export const readMemorySummary = async (
-  stellaDataDir: string,
-): Promise<string | null> => {
-  try {
-    return await fs.readFile(memorySummaryPath(stellaDataDir), "utf-8");
+    return await fs.readFile(memoryMapPath(stellaDataDir), "utf-8");
   } catch {
     return null;
   }

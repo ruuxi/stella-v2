@@ -13,7 +13,7 @@ import {
 import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
 import { redactMemoryText } from "../memory/redaction.js";
-import { MEMORY_INDEX_MAX_CHARS } from "../memory/dream-storage.js";
+import { MEMORY_MAP_MAX_CHARS } from "../memory/dream-storage.js";
 import { USER_PROFILE_INJECT_MAX_CHARS } from "../memory/user-profile-store.js";
 import { readRuntimePrompt } from "../prompts/home-prompts.js";
 import { boundParentAgentReport } from "./agent-report-bounds.js";
@@ -76,22 +76,13 @@ const readResidentMemoryDoc = (
 };
 
 /**
- * Dream's dynamic focus summary, read synchronously for resident injection.
- * Push-injected alongside core memory so the user's current active focus is
- * always in the Orchestrator's context (not only via the `Context` lookup).
+ * Dream's memory map, read synchronously for resident injection.
  */
-export const readMemorySummaryDoc = (
-  stellaDataDir: string,
-): string | undefined => {
-  const summary = readResidentMemoryDoc(
-    path.join(stellaDataDir, "memories", "memory_summary.md"),
+export const readMemoryMapDoc = (stellaDataDir: string): string | undefined =>
+  readResidentMemoryDoc(
+    path.join(stellaDataDir, "memories", "memory_map.md"),
+    MEMORY_MAP_MAX_CHARS,
   );
-  const routingIndex = readResidentMemoryDoc(
-    path.join(stellaDataDir, "memories", "memory_index.md"),
-    MEMORY_INDEX_MAX_CHARS,
-  );
-  return [summary, routingIndex].filter(Boolean).join("\n\n") || undefined;
-};
 
 /**
  * The durable user-profile facts written by the `Remember` tool, read

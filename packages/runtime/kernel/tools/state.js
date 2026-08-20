@@ -4,6 +4,7 @@
 import { deriveRuntimeThreadLiveState, formatRuntimeThreadAge, runtimeThreadLastActiveAt, } from "../runtime-threads.js";
 import { AGENT_PAUSE_CANCEL_REASON } from "../agents/local-agent-manager.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import { isRegisteredModelReference } from "../../ai/models.js";
 import { isOpenEndedModelReference, isRegisteredBareStellaModelReference, } from "../model-routing-matching.js";
 const toOptionalString = (value) => {
@@ -53,7 +54,7 @@ const splitSpawnReasoningSuffix = (raw) => {
         .toLowerCase();
     return { model, suffix };
 };
-const invalidSpawnReasoningSuffix = (suffix) => new Error(`Invalid spawn_agent model reasoning suffix ":${suffix}". Expected one of :low, :medium, :high, or :xhigh. Open-ended gateway references keep colons verbatim; use stella:<effort>, default:<effort>, codex[/<model>]:<effort>, or claude-code[/<model>]:<effort> for unambiguous effort control.`);
+const invalidSpawnReasoningSuffix = (suffix) => new Error(`Invalid spawn_agent model reasoning suffix ":${suffix}". Expected one of :low, :medium, :high, or :xhigh; open-ended gateway references keep colons verbatim.`);
 /**
  * Parses spawn_agent's optional `model` parameter:
  *
@@ -64,7 +65,8 @@ const invalidSpawnReasoningSuffix = (suffix) => new Error(`Invalid spawn_agent m
  *   - anything else                  → plain model reference, resolved through
  *                                      the normal model-routing path
  *
- * Any non-omitted form may end in `:low`, `:medium`, `:high`, or `:xhigh`.
+ * Closed known forms may end in `:low`, `:medium`, `:high`, or `:xhigh`.
+ * Open-ended provider model identifiers preserve colons verbatim.
  */
 export const parseSpawnAgentModel = (value, canResolveModel = () => false) => {
     const raw = toOptionalString(value);
@@ -82,6 +84,7 @@ export const parseSpawnAgentModel = (value, canResolveModel = () => false) => {
         const slash = suffixParts.model.indexOf("/");
         const head = (slash === -1 ? suffixParts.model : suffixParts.model.slice(0, slash)).toLowerCase();
         const baseIsKnownForm = suffixParts.model === "default" ||
+            suffixParts.model === STELLA_DEFAULT_MODEL ||
             suffixParts.model.toLowerCase() === "stella" ||
             Boolean(SPAWN_ENGINE_IDS[head]) ||
             isRegisteredModelReference(suffixParts.model) ||

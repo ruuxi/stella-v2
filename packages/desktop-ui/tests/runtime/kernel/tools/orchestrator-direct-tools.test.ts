@@ -18,8 +18,10 @@ import {
   createPiTools,
   getRuntimeToolMetadata,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
+import { buildSystemPrompt } from "@stella/runtime/kernel/agent-runtime/thread-memory.js";
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
+import { SPAWN_AGENT_MODEL_DESCRIPTION } from "@stella/runtime/kernel/tools/defs/task.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   ORCHESTRATED_ORCHESTRATOR_ID,
@@ -109,6 +111,65 @@ const makeOrchestratorContext = (): ToolContext => ({
 });
 
 describe("working orchestrator surface", () => {
+  it("assembles concise routing guidance without the retired memory summary", () => {
+    const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
+      (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
+    );
+    const prompt = buildSystemPrompt({
+      systemPrompt: orchestrator?.systemPrompt ?? "",
+      dynamicContext: "runtime context",
+      maxAgentDepth: orchestrator?.maxAgentDepth ?? 1,
+      threadHistory: [],
+      toolsAllowlist: orchestrator?.toolsAllowlist,
+    });
+
+    expect(prompt).toContain(
+      "The authoritative model and engine selector list is in the `spawn_agent.model` field description. Do not invent aliases.",
+    );
+    expect(prompt).toContain("injected profile and memory map");
+    expect(prompt).toContain("~/.stella/memories/memory_map.md");
+    expect(prompt).not.toContain("memory_summary.md");
+    expect(prompt).not.toContain("injected profile/summary");
+    expect(prompt).not.toContain("stella/gpt-5.6-sol");
+  });
+
+  it("exposes the canonical concise model selectors in the generated tool schema", async () => {
+    const { host } = await createTestHost();
+    const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
+      (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
+    );
+    const tools = createPiTools({
+      runId: "run-schema",
+      conversationId: "conv-schema",
+      agentType: AGENT_IDS.ORCHESTRATOR,
+      deviceId: "device-schema",
+      toolsAllowlist: orchestrator?.toolsAllowlist,
+      toolCatalog: host.getToolCatalog(AGENT_IDS.ORCHESTRATOR),
+      store: {} as never,
+      toolExecutor: async () => ({ result: "unused" }),
+    }) as Array<{
+      name: string;
+      parameters: {
+        properties?: { model?: { description?: string } };
+      };
+    }>;
+    const description = tools.find((tool) => tool.name === "spawn_agent")
+      ?.parameters.properties?.model?.description;
+
+    expect(description).toBe(SPAWN_AGENT_MODEL_DESCRIPTION);
+    expect(description).toContain("`stella/default`");
+    expect(description).toContain("`openrouter/<provider>/<model>`");
+    expect(description).toContain("`codex/gpt-5.6-sol`");
+    expect(description).toContain("`claude-code/fable`");
+    expect(description).toContain("`claude-code/opus`");
+    expect(description).toContain("`:low`, `:medium`, `:high`, or `:xhigh`");
+    expect(description).not.toContain("stella/light");
+    expect(description).not.toContain("stella/max");
+    expect(description).not.toContain("stella/gpt-5.6-sol");
+    expect(description).not.toContain("Terra");
+    expect(description).not.toContain("Luna");
+  });
+
   it("ships a bundled working-agent prompt and the General execution tools", () => {
     const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
       (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
@@ -178,8 +239,7 @@ describe("working orchestrator surface", () => {
     const { rootPath } = await createTestHost();
     const agents = loadStellaRuntimeAgents(rootPath, metadataDir);
     expect(
-      agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)
-        ?.systemPrompt,
+      agents.find((agent) => agent.id === AGENT_IDS.ORCHESTRATOR)?.systemPrompt,
     ).toContain(
       "You are Stella, the World's best Personal AI Assistant and Secretary.",
     );

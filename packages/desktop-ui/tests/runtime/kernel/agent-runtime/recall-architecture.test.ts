@@ -11,8 +11,8 @@ import {
   routeRecallIntent,
   runRecall,
 } from "@stella/runtime/kernel/agent-runtime/context-lookup";
-import { MEMORY_INDEX_MAX_CHARS } from "@stella/runtime/kernel/memory/dream-storage";
-import { readMemorySummaryDoc } from "@stella/runtime/kernel/runner/shared";
+import { MEMORY_MAP_MAX_CHARS } from "@stella/runtime/kernel/memory/dream-storage";
+import { readMemoryMapDoc } from "@stella/runtime/kernel/runner/shared";
 import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
@@ -64,17 +64,17 @@ describe("architectural Recall pipeline", () => {
     { chars: 6_000, truncated: false },
     { chars: 6_001, truncated: true },
   ])(
-    "deterministically caps a $chars-character resident routing index at injection",
+    "deterministically caps a $chars-character resident memory map at injection",
     async ({ chars, truncated }) => {
       const root = await createRoot();
       const sentinel = "TAIL_SENTINEL";
       await writeFile(
-        path.join(root, "memories", "memory_index.md"),
+        path.join(root, "memories", "memory_map.md"),
         `${"x".repeat(chars - sentinel.length)}${sentinel}`,
       );
 
-      const resident = readMemorySummaryDoc(root) ?? "";
-      expect(resident).toHaveLength(MEMORY_INDEX_MAX_CHARS);
+      const resident = readMemoryMapDoc(root) ?? "";
+      expect(resident).toHaveLength(MEMORY_MAP_MAX_CHARS);
       expect(resident.includes("resident memory truncated")).toBe(truncated);
       expect(resident.includes(sentinel)).toBe(!truncated);
     },
@@ -83,9 +83,9 @@ describe("architectural Recall pipeline", () => {
   it("routes common facts to memory and returns matched lines with zero model calls", async () => {
     const root = await createRoot();
     await writeFile(
-      path.join(root, "memories", "memory_index.md"),
+      path.join(root, "memories", "memory_map.md"),
       [
-        "# Memory routing index",
+        "# Memory map",
         "- Stella repo path: /Users/rahulnanda/projects/stella",
         "  hooks: stella repo, dev checkout, v1",
       ].join("\n"),
@@ -138,9 +138,9 @@ describe("architectural Recall pipeline", () => {
     // pure indexed ones. A fast lookup must never call the route resolver.
     const root = await createRoot();
     await writeFile(
-      path.join(root, "memories", "memory_index.md"),
+      path.join(root, "memories", "memory_map.md"),
       [
-        "# Memory routing index",
+        "# Memory map",
         "- Stella repo path: /Users/rahulnanda/projects/stella",
         "  hooks: stella repo, dev checkout, v1",
       ].join("\n"),
@@ -176,8 +176,8 @@ describe("architectural Recall pipeline", () => {
   it("uses delimiter-safe repository anchors and preserves bare stella", async () => {
     const falseRoot = await createRoot();
     await writeFile(
-      path.join(falseRoot, "memories", "memory_index.md"),
-      "# Memory routing index\n- stella-v20 repo path: /tmp/stella-v20",
+      path.join(falseRoot, "memories", "memory_map.md"),
+      "# Memory map\n- stella-v20 repo path: /tmp/stella-v20",
     );
     const makeArgs = (root: string, prompt: string, term: string) => ({
       conversationId: "conv-1",
@@ -220,8 +220,8 @@ describe("architectural Recall pipeline", () => {
     ]) {
       const adjacentRoot = await createRoot();
       await writeFile(
-        path.join(adjacentRoot, "memories", "memory_index.md"),
-        `# Memory routing index\n- ${adjacentEvidence} repo path: /tmp/rejected`,
+        path.join(adjacentRoot, "memories", "memory_map.md"),
+        `# Memory map\n- ${adjacentEvidence} repo path: /tmp/rejected`,
       );
       await expect(
         runRecall(makeArgs(adjacentRoot, "stella-v2", "stella-v2")),
@@ -230,8 +230,8 @@ describe("architectural Recall pipeline", () => {
 
     const trueRoot = await createRoot();
     await writeFile(
-      path.join(trueRoot, "memories", "memory_index.md"),
-      "# Memory routing index\n- stella repo path: /Users/rahulnanda/projects/stella",
+      path.join(trueRoot, "memories", "memory_map.md"),
+      "# Memory map\n- stella repo path: /Users/rahulnanda/projects/stella",
     );
     await expect(
       runRecall(makeArgs(trueRoot, "stella", "stella")),
@@ -292,8 +292,8 @@ describe("architectural Recall pipeline", () => {
   it("does not turn a generic one-token fallback hit into a false match", async () => {
     const root = await createRoot();
     await writeFile(
-      path.join(root, "memories", "memory_index.md"),
-      "# Memory routing index\n- unrelated work",
+      path.join(root, "memories", "memory_map.md"),
+      "# Memory map\n- unrelated work",
     );
     const store = makeStore() as any;
     store.searchTranscripts.mockReturnValue([
@@ -345,9 +345,9 @@ describe("architectural Recall pipeline", () => {
   it("requires anchors to co-occur inside one memory result", async () => {
     const root = await createRoot();
     await writeFile(
-      path.join(root, "memories", "memory_index.md"),
+      path.join(root, "memories", "memory_map.md"),
       [
-        "# Memory routing index",
+        "# Memory map",
         "- alpha-anchor belongs to one unrelated entry",
         "  filler one",
         "  filler two",
@@ -390,9 +390,9 @@ describe("architectural Recall pipeline", () => {
   it("rejects partial phrase anchors even when generic tokens overlap", async () => {
     const root = await createRoot();
     await writeFile(
-      path.join(root, "memories", "memory_index.md"),
+      path.join(root, "memories", "memory_map.md"),
       [
-        "# Memory routing index",
+        "# Memory map",
         "- Stella release verification covered a repository change.",
       ].join("\n"),
     );
@@ -435,8 +435,8 @@ describe("architectural Recall pipeline", () => {
   it("returns an exact-phrase result directly and accepts reformulated terms", async () => {
     const root = await createRoot();
     await writeFile(
-      path.join(root, "memories", "memory_index.md"),
-      "# Memory routing index\n- banana protocol belongs to the orchard repo",
+      path.join(root, "memories", "memory_map.md"),
+      "# Memory map\n- banana protocol belongs to the orchard repo",
     );
     const records: Array<{ modelCalls: number; fastPath?: boolean }> = [];
 

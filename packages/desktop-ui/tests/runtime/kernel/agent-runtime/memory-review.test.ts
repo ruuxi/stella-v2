@@ -214,11 +214,11 @@ describe("buildKnownMemoryContext", () => {
     ).toBe("");
   });
 
-  it("combines the consolidated summary with recent candidate notes", async () => {
+  it("combines the memory map with recent candidate notes", async () => {
     const { rootPath, store } = createTestContext();
     await mkdir(path.join(rootPath, "memories"), { recursive: true });
     await writeFile(
-      path.join(rootPath, "memories", "memory_summary.md"),
+      path.join(rootPath, "memories", "memory_map.md"),
       "- User prefers terse summaries.\n",
       "utf-8",
     );
@@ -234,7 +234,7 @@ describe("buildKnownMemoryContext", () => {
       stellaDataDir: rootPath,
       store: asRuntimeStore(store),
     });
-    expect(context).toContain("consolidated_memory");
+    expect(context).toContain("memory_map");
     expect(context).toContain("terse summaries");
     expect(context).toContain("recent_candidates");
     expect(context).toContain("dark mode as the default theme");
@@ -244,7 +244,7 @@ describe("buildKnownMemoryContext", () => {
     const { rootPath, store } = createTestContext();
     await mkdir(path.join(rootPath, "memories"), { recursive: true });
     await writeFile(
-      path.join(rootPath, "memories", "memory_summary.md"),
+      path.join(rootPath, "memories", "memory_map.md"),
       "- OPENAI_API_KEY=sk-testsecret12345678901234567890\n",
       "utf-8",
     );

@@ -5,7 +5,7 @@
  * A resident block is a piece of context that must sit at a byte-stable
  * position in the provider request for the lifetime of a thread so that
  * provider prompt caches keep hitting: the pinned startup docs (personality,
- * core memory, user profile, Dream memory summary) and the skill catalog.
+ * core memory, user profile, Dream memory map) and the skill catalog.
  * Every block registers here once and gets exactly two mutation paths:
  *
  *   1. Mid-thread delta (`buildResidentContextMessages`): each turn the
@@ -62,20 +62,19 @@ export const PINNED_INSTRUCTION_ENTRY_ID_MARKER = "::pinned-instruction";
 export const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
 export const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
 export const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
-export const LIFE_MEMORY_SUMMARY_DISPLAY_PATH =
+export const LIFE_MEMORY_MAP_DISPLAY_PATH = "~/.stella/memories/memory_map.md";
+export const RETIRED_MEMORY_SUMMARY_DISPLAY_PATH =
   "~/.stella/memories/memory_summary.md";
 
-export const MEMORY_SUMMARY_BOOTSTRAP_MAX_CHARS = 12_000;
-const MEMORY_SUMMARY_TRUNCATION_MARKER =
-  "\n...[resident memory summary truncated]";
+export const MEMORY_MAP_BOOTSTRAP_MAX_CHARS = 12_000;
+const MEMORY_MAP_TRUNCATION_MARKER = "\n...[resident memory map truncated]";
 
-const capMemorySummary = (text) =>
-  text.length > MEMORY_SUMMARY_BOOTSTRAP_MAX_CHARS
+const capMemoryMap = (text) =>
+  text.length > MEMORY_MAP_BOOTSTRAP_MAX_CHARS
     ? `${text.slice(
         0,
-        MEMORY_SUMMARY_BOOTSTRAP_MAX_CHARS -
-          MEMORY_SUMMARY_TRUNCATION_MARKER.length,
-      )}${MEMORY_SUMMARY_TRUNCATION_MARKER}`
+        MEMORY_MAP_BOOTSTRAP_MAX_CHARS - MEMORY_MAP_TRUNCATION_MARKER.length,
+      )}${MEMORY_MAP_TRUNCATION_MARKER}`
     : text;
 
 const buildStartupDocText = (displayPath, content) =>
@@ -135,20 +134,20 @@ export const RESIDENT_BLOCKS = [
       raw.trim() ? redactMemoryText(raw.trim()) || undefined : undefined,
   },
   {
-    id: "memory-summary",
+    id: "memory-map",
     customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
-    docPath: LIFE_MEMORY_SUMMARY_DISPLAY_PATH,
-    diskFile: path.join("memories", "memory_summary.md"),
+    docPath: LIFE_MEMORY_MAP_DISPLAY_PATH,
+    diskFile: path.join("memories", "memory_map.md"),
     memoryDoc: true,
     resolve: (context) => {
-      const raw = context.memorySummary
-        ? redactMemoryText(context.memorySummary.trim())
+      const raw = context.memoryMap
+        ? redactMemoryText(context.memoryMap.trim())
         : "";
-      return raw ? capMemorySummary(raw) : undefined;
+      return raw ? capMemoryMap(raw) : undefined;
     },
     renderDiskBody: (raw) => {
       const redacted = raw.trim() ? redactMemoryText(raw.trim()) : "";
-      return redacted ? capMemorySummary(redacted) : undefined;
+      return redacted ? capMemoryMap(redacted) : undefined;
     },
   },
   {
@@ -175,6 +174,15 @@ export const customMessageContentText = (content) => {
     .join("\n");
 };
 
+/** Legacy startup messages containing the retired summary must never replay. */
+export const isRetiredMemorySummaryCustomMessage = (customMessage) =>
+  Boolean(
+    customMessage &&
+      customMessageContentText(customMessage.content).includes(
+        RETIRED_MEMORY_SUMMARY_DISPLAY_PATH,
+      ),
+  );
+
 const hasPersistedResidentText = (context, customType, text) => {
   const needle = text.trim();
   return (
@@ -188,7 +196,7 @@ const hasPersistedResidentText = (context, customType, text) => {
       }
       // Match on the full block body, not just its identity. A resident
       // block whose content changed mid-thread (a Remember replace/remove,
-      // Dream refreshing memory_summary.md, a skill save) must re-append so
+      // Dream refreshing memory_map.md, a skill save) must re-append so
       // the thread sees the current version; the stale copy already in
       // history is left untouched until compaction folds it away.
       return customMessageContentText(customMessage.content).trim() === needle;
@@ -237,6 +245,7 @@ export const parseStartupDocPath = (text) => {
  */
 export const residentIdentityForCustomMessage = (customMessage) => {
   if (!customMessage) return null;
+  if (isRetiredMemorySummaryCustomMessage(customMessage)) return null;
   if (customMessage.customType === BOOTSTRAP_SKILLS_CUSTOM_TYPE) {
     return "skills";
   }
@@ -273,7 +282,7 @@ const MAX_FOLD_DOCS = 16;
  * that accumulated duplicate appends), then re-renders registered docs from
  * current disk state where possible:
  *
- *   - personality/core-memory/profile/memory-summary re-read their files
+ *   - personality/core-memory/profile/memory-map re-read their files
  *     (memory docs only when `refreshMemoryDocsFromDisk`), falling back to
  *     the newest in-thread copy when the file is missing/empty;
  *   - the skills block keeps the newest in-thread copy — its render options
@@ -293,6 +302,7 @@ export const buildResidentFold = (args) => {
     if (message.role !== "runtimeInternal" || !message.customMessage) {
       continue;
     }
+    if (isRetiredMemorySummaryCustomMessage(message.customMessage)) continue;
     const identity = residentIdentityForCustomMessage(message.customMessage);
     if (!identity) continue;
     if (!newestByIdentity.has(identity)) {
@@ -368,6 +378,14 @@ export const parseResidentFold = (details) => {
       !doc.customType.trim() ||
       typeof doc.text !== "string" ||
       !doc.text.trim()
+    ) {
+      continue;
+    }
+    if (
+      isRetiredMemorySummaryCustomMessage({
+        customType: doc.customType,
+        content: doc.text,
+      })
     ) {
       continue;
     }

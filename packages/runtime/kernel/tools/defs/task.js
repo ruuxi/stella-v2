@@ -29,6 +29,8 @@ export const AGENT_ORCHESTRATION_TOOL_NAMES = [
     "send_input",
     "pause_agent",
 ];
+export const SPAWN_AGENT_MODEL_DESCRIPTION =
+    "Optional model/engine override. Omit `model` to use the currently configured model and engine. Explicit selectors: `stella/default` for Stella; `openrouter/<provider>/<model>` for a provider model; `codex` for Codex with its configured model or `codex/gpt-5.6-sol` for GPT-5.6 SOL; `claude-code` for Claude Code with its configured model, `claude-code/fable` for Fable, or `claude-code/opus` for Opus. The listed Stella, Codex, and Claude Code selectors accept `:low`, `:medium`, `:high`, or `:xhigh` to override reasoning; omit the suffix to use the configured default.";
 export const createAgentTools = (stateContext) => [
     {
         name: "spawn_agent",
@@ -47,7 +49,7 @@ export const createAgentTools = (stateContext) => [
                 },
                 model: {
                     type: "string",
-                    description: "Optional model or engine for this one spawn. Omit (or pass `default`) to use the user's configured setup. Use `stella`, `codex`, or `claude-code` to explicitly select that engine with its configured model. A model reference (`stella/light`, `stella/max`, `anthropic/...`, `openrouter/<vendor>/<model>`) uses Stella's in-process engine even when Codex or Claude Code is selected globally; `codex/<model>` and `claude-code/<model>` pin an engine-native model. Closed model/engine forms may add `:low`, `:medium`, `:high`, or `:xhigh` for a per-spawn reasoning override (for example `stella:high`, `codex:xhigh`, or `stella/standard:medium`). Open-ended `openrouter/...`, `vercel-ai-gateway/...`, and `stella/<provider>/<model>` references keep colon segments verbatim, so effort suffixes are unavailable on those forms; use `stella:<effort>`, `default:<effort>`, or an engine-native `codex...` / `claude-code...` form when unambiguous effort control is required. Use ONLY when the user explicitly asked for it or has a recorded standing preference; when in doubt, omit.",
+                    description: SPAWN_AGENT_MODEL_DESCRIPTION,
                 },
             },
             required: ["description", "prompt"],

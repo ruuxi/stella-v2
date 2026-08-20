@@ -26,6 +26,7 @@ import {
   CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
   PINNED_INSTRUCTION_ENTRY_ID_MARKER,
   RESIDENT_FOLD_ENTRY_ID_MARKER,
+  isRetiredMemorySummaryCustomMessage,
   parseResidentFold,
   residentIdentityForCustomMessage,
 } from "../agent-runtime/resident-context.js";
@@ -865,6 +866,9 @@ const applyResidentFold = (messages, overlay) => {
   const swept = messages.filter((message) => {
     if (message.role !== "runtimeInternal" || !message.customMessage) {
       return true;
+    }
+    if (isRetiredMemorySummaryCustomMessage(message.customMessage)) {
+      return false;
     }
     if (message.timestamp > overlay.timestamp) {
       return true;

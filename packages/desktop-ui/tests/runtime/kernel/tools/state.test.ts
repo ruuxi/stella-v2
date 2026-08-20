@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODELS } from "@stella/contracts/models.generated";
-import {
-  registerModel,
-  unregisterModel,
-} from "@stella/runtime/ai/models";
+import { registerModel, unregisterModel } from "@stella/runtime/ai/models";
 import type { Model } from "@stella/runtime/ai/types";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
@@ -151,8 +148,7 @@ describe("state tools", () => {
     const created: AgentToolRequest[] = [];
     const generalSnapshot = {
       engine: "default" as const,
-      routeModel:
-        "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
+      routeModel: "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
       reasoningEffort: "xhigh" as const,
     };
     const captured: Array<Record<string, unknown>> = [];
@@ -310,6 +306,39 @@ describe("state tools", () => {
       kind: "engine",
       engine: { engine: "codex_cli" },
       reasoningEffort: "xhigh",
+    });
+  });
+
+  it("accepts effort suffixes on every documented closed selector", () => {
+    expect(parseSpawnAgentModel("stella/default:low")).toEqual({
+      kind: "model",
+      model: "stella/default",
+      reasoningEffort: "low",
+    });
+    expect(parseSpawnAgentModel("codex:medium")).toEqual({
+      kind: "engine",
+      engine: { engine: "codex_cli" },
+      reasoningEffort: "medium",
+    });
+    expect(parseSpawnAgentModel("codex/gpt-5.6-sol:high")).toEqual({
+      kind: "engine",
+      engine: { engine: "codex_cli", model: "gpt-5.6-sol" },
+      reasoningEffort: "high",
+    });
+    expect(parseSpawnAgentModel("claude-code:xhigh")).toEqual({
+      kind: "engine",
+      engine: { engine: "claude_code_local" },
+      reasoningEffort: "xhigh",
+    });
+    expect(parseSpawnAgentModel("claude-code/fable:low")).toEqual({
+      kind: "engine",
+      engine: { engine: "claude_code_local", model: "fable" },
+      reasoningEffort: "low",
+    });
+    expect(parseSpawnAgentModel("claude-code/opus:medium")).toEqual({
+      kind: "engine",
+      engine: { engine: "claude_code_local", model: "opus" },
+      reasoningEffort: "medium",
     });
   });
 

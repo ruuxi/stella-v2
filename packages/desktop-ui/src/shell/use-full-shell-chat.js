@@ -93,7 +93,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             }
         }
     }), []);
-    const { messages: persistedMessages, hasOlderMessages, isLoadingOlder: isLoadingOlderMessages, isInitialLoading: isInitialLoadingMessages, loadOlder: loadOlderMessages, } = useConversationMessages(activeConversationId ?? undefined);
+    const { messages: persistedMessages, hasOlderMessages, hasNewerMessages, isLoadingOlder: isLoadingOlderMessages, isLoadingNewer: isLoadingNewerMessages, isInitialLoading: isInitialLoadingMessages, loadOlder: loadOlderMessages, loadNewer: loadNewerMessages, loadLatest: loadLatestMessages, } = useConversationMessages(activeConversationId ?? undefined);
     const { activities, hasOlderActivity, isLoadingOlder: isLoadingOlderActivity, loadOlder: loadOlderActivity, } = useConversationActivity(activeConversationId ?? undefined);
     const { files: persistedFiles, hasOlderFiles, isLoadingOlder: isLoadingOlderFiles, loadOlder: loadOlderFiles, } = useConversationFiles(activeConversationId ?? undefined);
     const { records: threadActivityRecords } = useThreadActivity(activeConversationId ?? undefined);
@@ -168,6 +168,11 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         hasOlderEvents: hasOlderMessages,
         isLoadingOlder: isLoadingOlderMessages,
         onLoadOlder: loadOlderMessages,
+        hasNewerEvents: hasNewerMessages,
+        isLoadingNewer: isLoadingNewerMessages,
+        onLoadNewer: loadNewerMessages,
+        onLoadLatest: loadLatestMessages,
+        paginationKey: activeConversationId,
     });
     useLayoutEffect(() => {
         const conversationId = activeConversationId;
@@ -508,7 +513,9 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         },
         history: {
             hasOlderMessages,
+            hasNewerMessages,
             isLoadingOlder: isLoadingOlderMessages,
+            isLoadingNewer: isLoadingNewerMessages,
             isInitialLoading: isInitialLoadingMessages,
         },
     }), [
@@ -521,10 +528,12 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         hasOlderActivity,
         hasOlderFiles,
         hasOlderMessages,
+        hasNewerMessages,
         isInitialLoadingMessages,
         isLoadingOlderActivity,
         isLoadingOlderFiles,
         isLoadingOlderMessages,
+        isLoadingNewerMessages,
         tasks,
         loadOlderActivity,
         loadOlderFiles,
@@ -595,9 +604,13 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     const conversation = useMemo(() => ({
         ...chatColumnConversation,
         hasOlderMessages,
+        hasNewerMessages,
         isLoadingOlder: isLoadingOlderMessages,
+        isLoadingNewer: isLoadingNewerMessages,
         isInitialLoading: isInitialLoadingMessages,
         loadOlderMessages,
+        loadNewerMessages,
+        loadLatestMessages,
         reasoningText,
         isStreaming,
         pendingUserMessageId,
@@ -609,9 +622,13 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
     }), [
         chatColumnConversation,
         hasOlderMessages,
+        hasNewerMessages,
         isLoadingOlderMessages,
+        isLoadingNewerMessages,
         isInitialLoadingMessages,
         loadOlderMessages,
+        loadNewerMessages,
+        loadLatestMessages,
         reasoningText,
         isStreaming,
         pendingUserMessageId,

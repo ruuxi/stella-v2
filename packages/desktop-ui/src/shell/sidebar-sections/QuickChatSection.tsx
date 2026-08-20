@@ -36,9 +36,13 @@ function QuickChatConversation({
   const {
     messages: persistedMessages,
     hasOlderMessages,
+    hasNewerMessages,
     isLoadingOlder,
+    isLoadingNewer,
     isInitialLoading,
     loadOlder,
+    loadNewer,
+    loadLatest,
   } = useConversationMessages(conversationId);
 
   const {
@@ -114,9 +118,13 @@ function QuickChatConversation({
           queuedUserMessages={queuedUserMessages}
           removeQueuedUserMessage={removeQueuedUserMessage}
           hasOlderMessages={hasOlderMessages}
+          hasNewerMessages={hasNewerMessages}
           isLoadingOlder={isLoadingOlder}
+          isLoadingNewer={isLoadingNewer}
           isInitialLoading={isInitialLoading}
           onLoadOlder={loadOlder}
+          onLoadNewer={loadNewer}
+          onLoadLatest={loadLatest}
           onSend={handleSend}
           onStop={cancelCurrentStream}
         />

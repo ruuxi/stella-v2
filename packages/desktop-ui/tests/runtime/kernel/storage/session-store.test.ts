@@ -7,7 +7,7 @@ import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
-import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import { SessionStore } from "../../../../../runtime/kernel/storage/session-store.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 type TestContext = {
@@ -1149,6 +1149,49 @@ describe("session-store", () => {
       progress._id,
       failed._id,
     ]);
+  });
+
+  it("bounds listMessagesAfter storage work to the requested cursor page", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    const anchors = [];
+    for (let index = 0; index < 500; index += 1) {
+      anchors.push(
+        store.appendEvent({
+          conversationId,
+          type: index % 2 === 0 ? "user_message" : "assistant_message",
+          timestamp: 10_000 + index * 2,
+          payload: { text: `message ${index}` },
+        }),
+      );
+    }
+
+    const fetchedRowCounts: number[] = [];
+    const pageEnd = store.findVisibleMessagePageEndAfter(conversationId, 10, {
+      timestamp: anchors[0]!.timestamp,
+      id: anchors[0]!._id,
+    });
+    expect(pageEnd?.id).toBe(anchors[10]!._id);
+    expect(store.findMessageCursorAfter(conversationId, pageEnd!)?.id).toBe(
+      anchors[11]!._id,
+    );
+    const originalFetch = store.fetchTimelineRows.bind(store);
+    vi.spyOn(store, "fetchTimelineRows").mockImplementation((...args) => {
+      const rows = originalFetch(...args);
+      fetchedRowCounts.push(rows.length);
+      return rows;
+    });
+
+    const { messages } = store.listMessagesAfter(conversationId, {
+      afterTimestampMs: anchors[0]!.timestamp,
+      afterId: anchors[0]!._id,
+      maxVisibleMessages: 10,
+    });
+
+    expect(messages.map((message) => message.payload?.text)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `message ${index + 1}`),
+    );
+    expect(fetchedRowCounts).toEqual([11]);
   });
 
   it("keeps listMessages bounded when the requested visible window exceeds the scan ceiling", () => {

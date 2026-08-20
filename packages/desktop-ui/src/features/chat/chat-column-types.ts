@@ -80,7 +80,9 @@ export type ChatColumnConversation = {
   };
   history: {
     hasOlderMessages: boolean;
+    hasNewerMessages: boolean;
     isLoadingOlder: boolean;
+    isLoadingNewer: boolean;
     isInitialLoading: boolean;
   };
 };

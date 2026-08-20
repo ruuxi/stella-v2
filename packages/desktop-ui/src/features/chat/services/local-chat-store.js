@@ -1,7 +1,7 @@
 /**
  * Slim renderer-side wrappers for the few non-timeline consumers that
  * still need raw event-log access. The chat surfaces themselves read
- * from `local-message-store.ts` / `local-activity-store.ts` /
+ * from `local-message-timeline-store.ts` / `local-activity-store.ts` /
  * `local-files-store.ts` — this module is intentionally tiny:
  *
  *   - `getOrCreateLocalConversationId` — bootstrap helper used before

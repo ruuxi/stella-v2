@@ -46,10 +46,10 @@ import {
   resolveStreamFollowTarget,
   shouldPlaceLatestTurn,
 } from "@/shell/chat-follow-target";
-import { registerChatAtRestProbe } from "@/features/chat/hooks/use-conversation-messages";
 import {
   captureChatPrependAnchor,
   ChatHistoryPaginationGate,
+  ChatPrependAnchorStabilizer,
   emitChatHistoryPaginationDebug,
   restoreChatPrependAnchor,
   type ChatPrependAnchor,
@@ -147,12 +147,25 @@ const followRearmThresholdPx = (trailingRegionMinPx: number): number =>
 const followKeyTurnId = (followKey: string): string =>
   followKey.replace(/^assistant-/, "").replace(/-\d+$/, "");
 
+const isTextEditingTarget = (target: EventTarget | null): boolean =>
+  target instanceof Element &&
+  Boolean(
+    target.closest(
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+    ),
+  );
+
 type ChatScrollSurface = keyof typeof TRAILING_REGION_MIN_PX;
 
 type ChatScrollManagementOptions = {
   hasOlderEvents?: boolean;
   isLoadingOlder?: boolean;
-  onLoadOlder?: () => boolean | void;
+  onLoadOlder?: () => boolean | void | Promise<boolean>;
+  hasNewerEvents?: boolean;
+  isLoadingNewer?: boolean;
+  onLoadNewer?: () => boolean | void | Promise<boolean>;
+  onLoadLatest?: () => boolean | void | Promise<boolean>;
+  paginationKey?: string | null;
   /** Compact chat surfaces use the compact trailing-region min-height. */
   surface?: ChatScrollSurface;
 };
@@ -189,6 +202,11 @@ export function useChatScrollManagement({
   hasOlderEvents = false,
   isLoadingOlder = false,
   onLoadOlder,
+  hasNewerEvents = false,
+  isLoadingNewer = false,
+  onLoadNewer,
+  onLoadLatest,
+  paginationKey = null,
   surface = "full",
 }: ChatScrollManagementOptions = {}) {
   const trailingRegionMinPx = TRAILING_REGION_MIN_PX[surface];
@@ -197,28 +215,56 @@ export function useChatScrollManagement({
     surface === "full" ? CHAT_VIEWPORT_BOTTOM_FADE_PX : 0;
   const listRef = useRef<LegendListRef | null>(null);
   const attachedScrollNodeRef = useRef<HTMLElement | null>(null);
+  const mountedRef = useRef(false);
   const responseSpacerHeightRef = useRef<number>(trailingRegionMinPx);
   const responseSpacerTargetHeightRef = useRef<number>(trailingRegionMinPx);
   const responseSpacerExpandedRef = useRef(false);
   const paginationGateRef = useRef(new ChatHistoryPaginationGate());
+  const newerPaginationGateRef = useRef(new ChatHistoryPaginationGate("end"));
   const paginationActionIdRef = useRef(0);
   const prependAnchorRef = useRef<{
     node: HTMLElement;
     anchor: ChatPrependAnchor;
+    gate: ChatHistoryPaginationGate;
     cancelledByUser: boolean;
   } | null>(null);
   const prependRestoreRafRef = useRef<number | null>(null);
+  const anchorStabilizerRef = useRef<ChatPrependAnchorStabilizer | null>(null);
+  const jumpToLatestPendingRef = useRef(false);
   const historyOptionsRef = useRef({
     hasOlderEvents,
     isLoadingOlder,
     onLoadOlder,
+    hasNewerEvents,
+    isLoadingNewer,
+    onLoadNewer,
+    onLoadLatest,
   });
   historyOptionsRef.current = {
     hasOlderEvents,
     isLoadingOlder,
     onLoadOlder,
+    hasNewerEvents,
+    isLoadingNewer,
+    onLoadNewer,
+    onLoadLatest,
   };
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [paginationCompletionVersion, setPaginationCompletionVersion] =
+    useState(0);
+
+  useEffect(() => {
+    paginationGateRef.current = new ChatHistoryPaginationGate();
+    newerPaginationGateRef.current = new ChatHistoryPaginationGate("end");
+    prependAnchorRef.current = null;
+    jumpToLatestPendingRef.current = false;
+    anchorStabilizerRef.current?.stop();
+    anchorStabilizerRef.current = null;
+    if (prependRestoreRafRef.current !== null) {
+      cancelAnimationFrame(prependRestoreRafRef.current);
+      prependRestoreRafRef.current = null;
+    }
+  }, [paginationKey]);
   /**
    * A generous "at bottom" flag: true while the freshest turn is still on
    * screen (distance from the readable bottom within `AT_BOTTOM_TOLERANCE_PX`,
@@ -415,6 +461,38 @@ export function useChatScrollManagement({
       // so we don't write scrollTop on the same frame Legend does.
       followApi.current?.cancel();
       followApi.current?.clearResponseSpacer();
+      const history = historyOptionsRef.current;
+      if (history.hasNewerEvents) {
+        if (!history.onLoadLatest) return;
+        jumpToLatestPendingRef.current = true;
+        try {
+          const accepted = history.onLoadLatest();
+          if (accepted instanceof Promise) {
+            void accepted.then(
+              (succeeded) => {
+                if (!succeeded) jumpToLatestPendingRef.current = false;
+              },
+              () => {
+                jumpToLatestPendingRef.current = false;
+              },
+            );
+          } else if (
+            accepted === false &&
+            !history.isLoadingOlder &&
+            !history.isLoadingNewer &&
+            paginationGateRef.current.snapshot().requestPhase === "idle" &&
+            newerPaginationGateRef.current.snapshot().requestPhase === "idle"
+          ) {
+            jumpToLatestPendingRef.current = false;
+          }
+        } catch {
+          jumpToLatestPendingRef.current = false;
+        }
+        // Another cursor read may already be in flight. Do not jump to the
+        // end of this older bounded window and pretend it is the live tail.
+        // The guard effect retries this queued jump after that read settles.
+        return;
+      }
       void listRef.current?.scrollToEnd({ animated: behavior !== "instant" });
     },
     [setFollow],
@@ -476,14 +554,11 @@ export function useChatScrollManagement({
     return distanceFromBottomPx - spacerOveragePx <= AT_BOTTOM_TOLERANCE_PX;
   }, [trailingRegionMinPx]);
 
-  // Report this surface's at-bottom state to the message-window decay
-  // gate: the grown loadOlder window only shrinks back to one page while
-  // every mounted chat scroll surface sits at the bottom, so history a
-  // user is reading in *any* surface is never trimmed out from under them.
-  useEffect(() => registerChatAtRestProbe(() => isAtBottomRef.current), []);
-
+  // Clear observers and animation work owned outside the attach lifecycle.
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (thumbFadeRef.current) clearTimeout(thumbFadeRef.current);
       if (manualScrollTimerRef.current) {
         clearTimeout(manualScrollTimerRef.current);
@@ -497,31 +572,85 @@ export function useChatScrollManagement({
         cancelAnimationFrame(prependRestoreRafRef.current);
         prependRestoreRafRef.current = null;
       }
+      anchorStabilizerRef.current?.stop();
+      anchorStabilizerRef.current = null;
     };
   }, []);
 
-  // Track the request lifecycle independently of list data identity. A
-  // completed prepend gets one post-layout anchor verification; a failed load
-  // settles the same gate so the next deliberate upward action can retry.
+  // Track both cursor directions independently of list data identity. Older
+  // prepends and newer-page appends can each evict the opposite edge once the
+  // bounded window is full, so both settle through the same visual-anchor path.
   useEffect(() => {
-    const transition = paginationGateRef.current.syncGuards({
+    const olderTransition = paginationGateRef.current.syncGuards({
       hasMore: hasOlderEvents,
       isLoading: isLoadingOlder,
     });
+    const newerTransition = newerPaginationGateRef.current.syncGuards({
+      hasMore: hasNewerEvents,
+      isLoading: isLoadingNewer,
+    });
+    if (
+      jumpToLatestPendingRef.current &&
+      hasNewerEvents &&
+      !isLoadingOlder &&
+      !isLoadingNewer
+    ) {
+      const loadLatest = historyOptionsRef.current.onLoadLatest;
+      if (!loadLatest) {
+        jumpToLatestPendingRef.current = false;
+      } else {
+        try {
+          const accepted = loadLatest();
+          if (accepted instanceof Promise) {
+            void accepted.then(
+              (succeeded) => {
+                if (!succeeded) jumpToLatestPendingRef.current = false;
+              },
+              () => {
+                jumpToLatestPendingRef.current = false;
+              },
+            );
+          } else if (accepted === false) {
+            jumpToLatestPendingRef.current = false;
+          }
+        } catch {
+          jumpToLatestPendingRef.current = false;
+        }
+      }
+    }
+    if (jumpToLatestPendingRef.current && !hasNewerEvents && !isLoadingNewer) {
+      jumpToLatestPendingRef.current = false;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void listRef.current?.scrollToEnd({ animated: false });
+        });
+      });
+    }
     emitChatHistoryPaginationDebug({
       type: "guards",
       surface,
       detail: {
         hasMore: hasOlderEvents,
         isLoading: isLoadingOlder,
-        ...transition,
-        gate: paginationGateRef.current.snapshot(),
+        hasNewer: hasNewerEvents,
+        isLoadingNewer,
+        olderTransition,
+        newerTransition,
+        olderGate: paginationGateRef.current.snapshot(),
+        newerGate: newerPaginationGateRef.current.snapshot(),
       },
     });
 
-    if (!transition.requestSettled) return;
+    if (!olderTransition.requestSettled && !newerTransition.requestSettled)
+      return;
     const pending = prependAnchorRef.current;
     if (!pending) return;
+    const pendingRequestSettled =
+      (pending.gate === paginationGateRef.current &&
+        olderTransition.requestSettled) ||
+      (pending.gate === newerPaginationGateRef.current &&
+        newerTransition.requestSettled);
+    if (!pendingRequestSettled) return;
     if (
       pending.cancelledByUser ||
       pending.node !== attachedScrollNodeRef.current
@@ -537,6 +666,7 @@ export function useChatScrollManagement({
         },
       });
       prependAnchorRef.current = null;
+      anchorStabilizerRef.current?.stop();
       return;
     }
 
@@ -567,6 +697,19 @@ export function useChatScrollManagement({
           attempts,
         },
       });
+      anchorStabilizerRef.current?.stop();
+      anchorStabilizerRef.current = new ChatPrependAnchorStabilizer(
+        current.node,
+        current.anchor,
+        (lateResult) => {
+          emitChatHistoryPaginationDebug({
+            type: "anchor-late-restored",
+            surface,
+            detail: { rowId: current.anchor.rowId, after: lateResult },
+          });
+        },
+      );
+      anchorStabilizerRef.current.start();
       prependAnchorRef.current = null;
     };
 
@@ -575,7 +718,14 @@ export function useChatScrollManagement({
     prependRestoreRafRef.current = requestAnimationFrame(() => {
       prependRestoreRafRef.current = requestAnimationFrame(restore);
     });
-  }, [hasOlderEvents, isLoadingOlder, surface]);
+  }, [
+    hasNewerEvents,
+    hasOlderEvents,
+    isLoadingNewer,
+    isLoadingOlder,
+    paginationCompletionVersion,
+    surface,
+  ]);
 
   /**
    * Explicitly release the auto-follow latch. Surfaces call this from
@@ -803,6 +953,9 @@ export function useChatScrollManagement({
         };
       };
       const cancelPendingAnchorForUserScroll = () => {
+        anchorStabilizerRef.current?.stop();
+        anchorStabilizerRef.current = null;
+        jumpToLatestPendingRef.current = false;
         if (prependAnchorRef.current) {
           prependAnchorRef.current.cancelledByUser = true;
         }
@@ -821,19 +974,26 @@ export function useChatScrollManagement({
         actionId: number | null,
         direction: HistoryScrollDirection,
         source: string,
+        edge: "older" | "newer" = "older",
       ) => {
         const metrics = readPaginationMetrics();
         if (!metrics) return;
         const options = historyOptionsRef.current;
-        const decision = paginationGateRef.current.consider(
-          actionId,
-          direction,
-          metrics,
-          {
-            hasMore: options.hasOlderEvents && Boolean(options.onLoadOlder),
-            isLoading: options.isLoadingOlder,
-          },
-        );
+        const gate =
+          edge === "older"
+            ? paginationGateRef.current
+            : newerPaginationGateRef.current;
+        const hasMore =
+          edge === "older" ? options.hasOlderEvents : options.hasNewerEvents;
+        const isLoading =
+          edge === "older" ? options.isLoadingOlder : options.isLoadingNewer;
+        const load =
+          edge === "older" ? options.onLoadOlder : options.onLoadNewer;
+        const decision = gate.consider(actionId, direction, metrics, {
+          hasMore: hasMore && Boolean(load),
+          isLoading:
+            isLoading || options.isLoadingOlder || options.isLoadingNewer,
+        });
         emitChatHistoryPaginationDebug({
           type: "threshold-check",
           surface,
@@ -841,35 +1001,77 @@ export function useChatScrollManagement({
             source,
             actionId,
             direction,
+            edge,
             ...metrics,
             ...decision,
-            gate: paginationGateRef.current.snapshot(),
+            gate: gate.snapshot(),
           },
         });
-        if (!decision.request || !options.onLoadOlder) return;
+        if (!decision.request || !load) return;
 
+        anchorStabilizerRef.current?.stop();
+        anchorStabilizerRef.current = null;
         const anchor = captureChatPrependAnchor(node);
         if (anchor) {
           prependAnchorRef.current = {
             node,
             anchor,
+            gate,
             cancelledByUser: false,
           };
         }
         emitChatHistoryPaginationDebug({
           type: "request",
           surface,
-          detail: { source, actionId, metrics, anchor },
+          detail: { source, actionId, edge, metrics, anchor },
         });
         try {
-          const accepted = options.onLoadOlder();
+          const accepted = load();
           if (accepted === false) {
-            paginationGateRef.current.rejectRequest();
-            prependAnchorRef.current = null;
+            gate.rejectRequest();
+            if (prependAnchorRef.current?.gate === gate) {
+              prependAnchorRef.current = null;
+            }
+          } else if (accepted instanceof Promise) {
+            void accepted.then(
+              (succeeded) => {
+                if (!mountedRef.current) return;
+                const isCurrentGate =
+                  gate === paginationGateRef.current ||
+                  gate === newerPaginationGateRef.current;
+                if (!isCurrentGate) return;
+                const settled = gate.settleRequest();
+                if (
+                  (!succeeded || !node.isConnected) &&
+                  prependAnchorRef.current?.gate === gate
+                ) {
+                  prependAnchorRef.current = null;
+                }
+                if (settled) {
+                  setPaginationCompletionVersion((version) => version + 1);
+                }
+              },
+              () => {
+                if (!mountedRef.current) return;
+                const isCurrentGate =
+                  gate === paginationGateRef.current ||
+                  gate === newerPaginationGateRef.current;
+                if (!isCurrentGate) return;
+                const settled = gate.settleRequest();
+                if (prependAnchorRef.current?.gate === gate) {
+                  prependAnchorRef.current = null;
+                }
+                if (settled) {
+                  setPaginationCompletionVersion((version) => version + 1);
+                }
+              },
+            );
           }
         } catch (error) {
-          paginationGateRef.current.rejectRequest();
-          prependAnchorRef.current = null;
+          gate.rejectRequest();
+          if (prependAnchorRef.current?.gate === gate) {
+            prependAnchorRef.current = null;
+          }
           emitChatHistoryPaginationDebug({
             type: "request-error",
             surface,
@@ -1335,7 +1537,10 @@ export function useChatScrollManagement({
           releaseLocalFollow();
           attemptHistoryLoad(wheelActionId, direction, "wheel");
         } else {
-          if (direction === "down") followRearmBlockedRef.current = false;
+          if (direction === "down") {
+            followRearmBlockedRef.current = false;
+            attemptHistoryLoad(wheelActionId, direction, "wheel", "newer");
+          }
           stopLoop();
         }
       };
@@ -1361,9 +1566,13 @@ export function useChatScrollManagement({
           attemptHistoryLoad(touchActionId, direction, "touch");
         } else {
           followRearmBlockedRef.current = false;
+          attemptHistoryLoad(touchActionId, direction, "touch", "newer");
         }
       };
       const handleKeyDown = (event: KeyboardEvent) => {
+        // Arrow/Home/End keys inside interactive message content belong to the
+        // editor or control. They must not release follow or request history.
+        if (isTextEditingTarget(event.target)) return;
         if (
           event.key === "ArrowUp" ||
           event.key === "ArrowDown" ||
@@ -1395,6 +1604,15 @@ export function useChatScrollManagement({
             (event.key === " " && !event.shiftKey)
           ) {
             followRearmBlockedRef.current = false;
+            if (!event.repeat || keyActionId === null)
+              keyActionId = nextActionId();
+            markActiveIntent(keyActionId, "down");
+            attemptHistoryLoad(
+              keyActionId,
+              "down",
+              `key:${event.key}`,
+              "newer",
+            );
           }
           stopLoop();
         }
@@ -1439,6 +1657,7 @@ export function useChatScrollManagement({
           attemptHistoryLoad(intent.id, direction, "native-scroll");
         } else if (direction === "down" && intent?.direction === "down") {
           followRearmBlockedRef.current = false;
+          attemptHistoryLoad(intent.id, direction, "native-scroll", "newer");
         }
       };
       node.addEventListener("wheel", handleWheel, { passive: true });
@@ -1567,7 +1786,7 @@ export function useChatScrollManagement({
     isFollowingLatest,
     isUserScrolling,
     noteManualScroll,
-    showScrollButton,
+    showScrollButton: showScrollButton || hasNewerEvents,
     scrollToBottom,
     releaseFollow,
     nudgeAfterSend,

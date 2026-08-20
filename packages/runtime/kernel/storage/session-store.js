@@ -2300,6 +2300,19 @@ export class SessionStore {
         ? { sequence: args.afterSequence }
         : {}),
     });
+    const pageEnd = this.findVisibleMessagePageEndAfter(
+      conversationId,
+      maxVisibleMessages,
+      after,
+    );
+    // Stop immediately before the next turn anchor after the page. This keeps
+    // the page bounded while still including tool/lifecycle rows belonging to
+    // its final assistant message. With no newer visible message, leave the
+    // upper bound open so artifact-only updates to the current turn continue
+    // to refresh that already-loaded message.
+    const until = pageEnd
+      ? this.findMessageCursorAfter(conversationId, pageEnd)
+      : null;
     const fetchCutoff = this.findTurnFetchCutoff(conversationId, after);
     const rows = this.fetchTimelineRows(
       conversationId,
@@ -2307,6 +2320,7 @@ export class SessionStore {
       null,
       null,
       CUTOFF_SCAN_CEILING,
+      until,
     );
     const sourceEvents = rows.filter(
       (row) =>
@@ -2479,6 +2493,91 @@ export class SessionStore {
       before,
     );
   }
+  findVisibleMessagePageEndAfter(
+    conversationId,
+    maxVisibleMessages,
+    initialAfter,
+  ) {
+    const batchSize = Math.min(
+      CUTOFF_SCAN_BATCH_MAX,
+      Math.max(CUTOFF_SCAN_BATCH_MIN, maxVisibleMessages * 2),
+    );
+    let after = this.resolveCursorSequence(conversationId, initialAfter);
+    let scanned = 0;
+    let visible = 0;
+    let newestScanned = null;
+    while (scanned < CUTOFF_SCAN_CEILING) {
+      const limit = Math.min(batchSize, CUTOFF_SCAN_CEILING - scanned);
+      const afterKeyset = this.timelineKeyset("message", ">", after);
+      const rows = this.db
+        .prepare(
+          `
+        SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}, part.data_json AS payloadJson
+        FROM message
+        LEFT JOIN part
+          ON part.message_id = message.id
+         AND part.ord = 0
+        WHERE message.session_id = ?
+          AND message.type IN ('user_message', 'assistant_message')
+          AND ${afterKeyset.clause}
+        ORDER BY ${this.timelineOrderBy("message", "ASC")}
+        LIMIT ?
+      `,
+        )
+        .all(conversationId, ...afterKeyset.params, limit);
+      if (rows.length === 0) return newestScanned;
+      for (const row of rows) {
+        if (typeof row.timestamp !== "number" || typeof row.id !== "string") {
+          continue;
+        }
+        newestScanned = {
+          timestamp: row.timestamp,
+          id: row.id,
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
+        };
+        const payload = parseJsonRecord(row.payloadJson) ?? null;
+        if (isUiHiddenChatMessagePayload(payload)) continue;
+        visible += 1;
+        if (visible === maxVisibleMessages) return newestScanned;
+      }
+      scanned += rows.length;
+      if (rows.length < limit) return newestScanned;
+      if (!newestScanned) return null;
+      after = newestScanned;
+    }
+    return newestScanned;
+  }
+  findMessageCursorAfter(conversationId, initialAfter) {
+    const after = this.resolveCursorSequence(conversationId, initialAfter);
+    const afterKeyset = this.timelineKeyset("message", ">", after);
+    const row = this.db
+      .prepare(
+        `
+        SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
+        FROM message
+        WHERE message.session_id = ?
+          AND message.type IN ('user_message', 'assistant_message')
+          AND ${afterKeyset.clause}
+        ORDER BY ${this.timelineOrderBy("message", "ASC")}
+        LIMIT 1
+      `,
+      )
+      .get(conversationId, ...afterKeyset.params);
+    if (
+      !row ||
+      typeof row.timestamp !== "number" ||
+      typeof row.id !== "string"
+    ) {
+      return null;
+    }
+    return {
+      timestamp: row.timestamp,
+      id: row.id,
+      ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+    };
+  }
   findVisibleMessageCutoffPaged(
     conversationId,
     maxVisibleMessages,
@@ -2547,7 +2646,14 @@ export class SessionStore {
     }
     return oldestScanned;
   }
-  fetchTimelineRows(conversationId, cutoff, before, after = null, limit) {
+  fetchTimelineRows(
+    conversationId,
+    cutoff,
+    before,
+    after = null,
+    limit,
+    until = null,
+  ) {
     const clauses = [
       "message.session_id = ?",
       "message.type IN ('user_message', 'assistant_message', 'tool_request', 'tool_result', 'agent-started', 'agent-progress', 'agent-completed', 'agent-failed', 'agent-canceled')",
@@ -2576,6 +2682,15 @@ export class SessionStore {
         "message",
         ">",
         this.resolveCursorSequence(conversationId, after),
+      );
+      clauses.push(k.clause);
+      params.push(...k.params);
+    }
+    if (until) {
+      const k = this.timelineKeyset(
+        "message",
+        "<",
+        this.resolveCursorSequence(conversationId, until),
       );
       clauses.push(k.clause);
       params.push(...k.params);

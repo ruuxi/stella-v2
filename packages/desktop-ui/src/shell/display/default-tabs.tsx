@@ -58,9 +58,13 @@ function ChatDisplayTab({
         chat.conversation.streaming.removeQueuedUserMessage
       }
       hasOlderMessages={chat.conversation.hasOlderMessages}
+      hasNewerMessages={chat.conversation.hasNewerMessages}
       isLoadingOlder={chat.conversation.isLoadingOlder}
+      isLoadingNewer={chat.conversation.isLoadingNewer}
       isInitialLoading={chat.conversation.isInitialLoading}
       onLoadOlder={chat.conversation.loadOlderMessages}
+      onLoadNewer={chat.conversation.loadNewerMessages}
+      onLoadLatest={chat.conversation.loadLatestMessages}
       onSend={chat.conversation.sendMessageWithContext}
       onStop={chat.conversation.cancelCurrentStream}
     />

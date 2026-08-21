@@ -605,6 +605,12 @@ impl BrowserManager {
         self.enable_domains(session_id).await
     }
 
+    /// Default per-tab bootstrap. Deliberately excludes the Network domain:
+    /// most sessions only navigate, read, and click, and always-on network
+    /// instrumentation would make every default session carry per-request
+    /// devtools tracking. Callers that need Network events (network-idle
+    /// waits, request tracking, HAR capture, header/network-condition
+    /// emulation) enable it on demand via `ensure_network_domain`.
     async fn enable_domains(&self, session_id: &str) -> Result<(), String> {
         self.client
             .send_command_no_params("Page.enable", Some(session_id))
@@ -612,10 +618,25 @@ impl BrowserManager {
         self.client
             .send_command_no_params("Runtime.enable", Some(session_id))
             .await?;
+        Ok(())
+    }
+
+    /// Attach the CDP Network domain to a session on demand. Safe to call
+    /// repeatedly; Network.enable is idempotent.
+    pub async fn ensure_network_domain(&self, session_id: &str) -> Result<(), String> {
         self.client
             .send_command_no_params("Network.enable", Some(session_id))
             .await?;
         Ok(())
+    }
+
+    /// Best-effort release of on-demand network instrumentation so a session
+    /// returns to the uninstrumented default once a capture is finished.
+    pub async fn disable_network_domain(&self, session_id: &str) {
+        let _ = self
+            .client
+            .send_command_no_params("Network.disable", Some(session_id))
+            .await;
     }
 
     pub fn active_session_id(&self) -> Result<&str, String> {
@@ -627,6 +648,11 @@ impl BrowserManager {
 
     pub async fn navigate(&mut self, url: &str, wait_until: WaitUntil) -> Result<Value, String> {
         let session_id = self.active_session_id()?.to_string();
+        // Network events are opt-in; a network-idle wait needs them flowing
+        // before the navigation starts so the initial request burst is counted.
+        if matches!(wait_until, WaitUntil::NetworkIdle) {
+            self.ensure_network_domain(&session_id).await?;
+        }
         let mut lifecycle_rx = self.client.subscribe();
 
         let nav_result: PageNavigateResult = self
@@ -818,6 +844,10 @@ impl BrowserManager {
         wait_until: WaitUntil,
         session_id: &str,
     ) -> Result<(), String> {
+        // The Network domain is lazy; a network-idle wait needs its events.
+        if matches!(wait_until, WaitUntil::NetworkIdle) {
+            self.ensure_network_domain(session_id).await?;
+        }
         let mut rx = self.client.subscribe();
         self.wait_for_lifecycle(wait_until, session_id, &mut rx)
             .await
@@ -1878,6 +1908,108 @@ mod tests {
             pages[0].tab_generation,
             identity_check.tab_generation_for_target("tab-b")
         );
+
+        drop(manager);
+        server.abort();
+    }
+
+    /// Serve a single retained target, recording every CDP method received.
+    /// When `fail_network` is set, any Network-domain command is answered with
+    /// an error so a regression that re-adds Network.enable to bootstrap makes
+    /// connect fail loudly instead of silently re-instrumenting sessions.
+    async fn serve_recording_target(
+        listener: TcpListener,
+        records: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        fail_network: bool,
+    ) {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+
+        while let Some(Ok(Message::Text(text))) = socket.next().await {
+            let request: Value = serde_json::from_str(&text).unwrap();
+            let id = request["id"].as_u64().unwrap();
+            let method = request["method"].as_str().unwrap();
+            records.lock().unwrap().push(method.to_string());
+            let response = if method.starts_with("Network.") && fail_network {
+                json!({
+                    "id": id,
+                    "error": { "code": -32000, "message": "Network domain must stay detached by default" }
+                })
+            } else {
+                match method {
+                    "Target.getTargets" => json!({
+                        "id": id,
+                        "result": { "targetInfos": [
+                            { "targetId": "tab-a", "type": "page", "title": "A", "url": "https://a.example" }
+                        ] }
+                    }),
+                    "Target.attachToTarget" => {
+                        json!({ "id": id, "result": { "sessionId": "session-tab-a" } })
+                    }
+                    _ => json!({ "id": id, "result": {} }),
+                }
+            };
+            socket
+                .send(Message::Text(response.to_string()))
+                .await
+                .unwrap();
+        }
+    }
+
+    /// Default sessions must carry no network instrumentation: bootstrap may
+    /// enable Page/Runtime but must never enable the Network domain.
+    #[tokio::test]
+    async fn default_bootstrap_leaves_network_domain_detached() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let records = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let server = tokio::spawn(serve_recording_target(listener, records.clone(), true));
+
+        let manager = BrowserManager::connect_cdp(&format!("ws://{address}"))
+            .await
+            .expect("bootstrap must succeed without touching the Network domain");
+
+        let seen = records.lock().unwrap().clone();
+        assert!(
+            seen.iter().any(|method| method == "Page.enable"),
+            "bootstrap should still enable the Page domain, saw {seen:?}"
+        );
+        assert!(
+            !seen.iter().any(|method| method.starts_with("Network.")),
+            "default bootstrap must not attach the Network domain, saw {seen:?}"
+        );
+
+        drop(manager);
+        server.abort();
+    }
+
+    /// The on-demand path attaches the Network domain when a tool needs it and
+    /// detaches it again when the tool is done.
+    #[tokio::test]
+    async fn network_domain_attaches_on_demand_and_detaches() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let records = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let server = tokio::spawn(serve_recording_target(listener, records.clone(), false));
+
+        let manager = BrowserManager::connect_cdp(&format!("ws://{address}"))
+            .await
+            .unwrap();
+
+        manager
+            .ensure_network_domain("session-tab-a")
+            .await
+            .expect("on-demand Network.enable should succeed");
+        manager.disable_network_domain("session-tab-a").await;
+
+        let seen = records.lock().unwrap().clone();
+        let enable_index = seen.iter().position(|method| method == "Network.enable");
+        let disable_index = seen.iter().position(|method| method == "Network.disable");
+        assert!(
+            enable_index.is_some() && disable_index.is_some(),
+            "expected on-demand Network.enable then Network.disable, saw {seen:?}"
+        );
+        assert!(enable_index < disable_index);
 
         drop(manager);
         server.abort();

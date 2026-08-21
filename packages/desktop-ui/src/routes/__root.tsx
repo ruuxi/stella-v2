@@ -67,6 +67,7 @@ const SubscriptionUpgradeDialog = lazy(() =>
 );
 import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
 import { GlobalModelsControl } from "@/shell/GlobalModelsControl";
+import { useDeveloperModeEnabled } from "@/global/settings/hooks/use-developer-mode";
 import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
 import { useHasQualifyingActivity } from "@/shell/workspace/use-qualifying-activity";
 import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
@@ -207,6 +208,7 @@ function RootChrome() {
   const onQuickChatSurface =
     panelOpen && activeSidebarSection === "quickchat";
   const modelControlVisible = activityWorkspaceVisible && !onQuickChatSurface;
+  const developerModeEnabled = useDeveloperModeEnabled();
   const panelExpandedBeforeTakeoverRef = useRef<boolean | null>(null);
   const displayBreakpointTransitionTimeoutRef = useRef<number | null>(null);
 
@@ -598,8 +600,12 @@ function RootChrome() {
       {/* Global bottom-right Models control — top-level, not owned by the
           right sidebar (state/overlay/lifecycle stay global), but its on-screen
           visibility follows the right-side Activity workspace so it never
-          creates an empty right gutter when there is nothing on the right. */}
-      <GlobalModelsControl visible={modelControlVisible} />
+          creates an empty right gutter when there is nothing on the right.
+          Developer-mode gate: the whole control (and the picker popover it
+          anchors) is not mounted at all in the default experience. */}
+      {developerModeEnabled ? (
+        <GlobalModelsControl visible={modelControlVisible} />
+      ) : null}
 
       <FullShellDialogs
         activeDialog={activeDialog ?? null}

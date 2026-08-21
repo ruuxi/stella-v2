@@ -45,6 +45,7 @@ import {
 } from "./ComposerModelMentionMenu";
 import { ComposerModelMentionTextarea } from "./ModelMentionText";
 import { MiniModelPicker } from "./MiniModelPicker";
+import { useDeveloperModeEnabled } from "@/global/settings/hooks/use-developer-mode";
 import { useUiState } from "@/context/ui-state";
 import { useT } from "@/shared/i18n";
 import "./full-shell.composer.css";
@@ -163,7 +164,11 @@ function ComposerImpl({
   // `composerExpanded`, so the pin wins). Inline dictation replaces the
   // whole toolbar row, so the pin defers to it rather than expanding an
   // empty shell around the recording bar.
-  const modelPinned = useComposerModelPinned();
+  // Developer-mode gate: the mini picker and the @-model mention menu are
+  // power-user surfaces; with the flag off neither renders, even if a pin
+  // was saved while the flag was on.
+  const developerModeEnabled = useDeveloperModeEnabled();
+  const modelPinned = useComposerModelPinned() && developerModeEnabled;
   const isExpanded =
     composerExpanded || dictationBelow || (modelPinned && !dictationInline);
 
@@ -198,13 +203,13 @@ function ComposerImpl({
 
   const refreshModelMentionTrigger = useCallback(
     (value: string, caret: number | null) => {
-      if (!suggestionsActive) {
+      if (!suggestionsActive || !developerModeEnabled) {
         setModelMentionTrigger(null);
         return;
       }
       setModelMentionTrigger(findComposerModelMentionTrigger(value, caret));
     },
-    [suggestionsActive],
+    [developerModeEnabled, suggestionsActive],
   );
 
   const selectModelMention = useCallback(

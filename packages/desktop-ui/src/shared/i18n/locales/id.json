@@ -52,6 +52,10 @@
       "title": "Pratinjau berkas pengembang",
       "description": "Tampilkan perubahan kode di obrolan dan buka di panel samping."
     },
+    "developerMode": {
+      "title": "Mode pengembang",
+      "description": "Tampilkan kontrol lanjutan untuk model, mesin, dan penyedia, termasuk pengaturan kunci API Anda sendiri."
+    },
     "nativeFontSmoothing": {
       "title": "Penghalusan font asli",
       "description": "Merender teks seperti aplikasi macOS, dengan anti-aliasing skala abu-abu."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Mode orkestrator tidak tersedia di jendela ini.",
       "loadMemory": "Gagal memuat pengaturan memori.",
       "saveMemory": "Gagal memperbarui pengaturan memori.",
+      "saveDeveloperMode": "Gagal memperbarui mode pengembang.",
       "memoryUnavailable": "Pengaturan memori tidak tersedia di jendela ini.",
       "loadPermissions": "Gagal memuat status izin desktop.",
       "savePermission": "Gagal memperbarui izin {kind}.",

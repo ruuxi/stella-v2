@@ -1293,6 +1293,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         realtimeVoice: RealtimeVoicePreferences;
         assistantWorkingMode: AssistantWorkingMode;
         memoryEnabled: boolean;
+        developerModeEnabled: boolean;
       } | null>,
     setLocalModelPreferences: (payload: {
       defaultModels?: Record<string, string>;
@@ -1333,6 +1334,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       realtimeVoice?: RealtimeVoicePreferences;
       assistantWorkingMode?: AssistantWorkingMode;
       memoryEnabled?: boolean;
+      developerModeEnabled?: boolean;
     }) =>
       ipcRenderer.invoke(IPC_PREFERENCES_SET_MODELS, payload) as Promise<{
         defaultModels: Record<string, string>;
@@ -1373,6 +1375,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         realtimeVoice: RealtimeVoicePreferences;
         assistantWorkingMode: AssistantWorkingMode;
         memoryEnabled: boolean;
+        developerModeEnabled: boolean;
       } | null>,
     listCodexModels: () =>
       ipcRenderer.invoke(IPC_PREFERENCES_LIST_CODEX_MODELS) as Promise<{

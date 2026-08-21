@@ -52,6 +52,10 @@
       "title": "Náhledy souborů pro vývojáře",
       "description": "Zobrazí změny kódu v chatu a otevře je v bočním panelu."
     },
+    "developerMode": {
+      "title": "Režim pro vývojáře",
+      "description": "Zobrazit pokročilé ovládání modelů, enginů a poskytovatelů, včetně nastavení vlastního API klíče."
+    },
     "nativeFontSmoothing": {
       "title": "Nativní vyhlazování písma",
       "description": "Vykresluje text jako aplikace macOS, s vyhlazováním ve stupních šedi."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Režim orchestrátoru není v tomto okně k dispozici.",
       "loadMemory": "Nepodařilo se načíst nastavení paměti.",
       "saveMemory": "Nepodařilo se aktualizovat nastavení paměti.",
+      "saveDeveloperMode": "Nepodařilo se aktualizovat režim pro vývojáře.",
       "memoryUnavailable": "Nastavení paměti nejsou v tomto okně dostupná.",
       "loadPermissions": "Nepodařilo se načíst stav oprávnění plochy.",
       "savePermission": "Nepodařilo se aktualizovat oprávnění {kind}.",

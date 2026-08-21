@@ -448,7 +448,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     ).resolves.toMatchObject({
       result: {
         thread_id: task.threadId,
-        status: "updated",
+        status: "delivered_agent_still_working",
         delivered: true,
       },
     });

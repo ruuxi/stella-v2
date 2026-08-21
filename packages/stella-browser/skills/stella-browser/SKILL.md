@@ -11,7 +11,7 @@ Use `var` for reusable REPL bindings. Browser actions are not exposed through `e
 
 ## Production Workflow
 
-Acquire one task-owned tab, navigate that handle, keep its page and locator handles, and batch deterministic dependent actions in one cell:
+Acquire one task-owned tab, navigate that handle, keep its page and locator handles, and batch deterministic dependent actions in one cell. Reuse that one tab with `tab.goto()` for every navigation in the task — never open a new tab per page, and `close()` any extra tab as soon as it has served its purpose (stray tabs accumulate in the user's browser, especially in external mode):
 
 ```js
 var tab = await browser.tabs.new();

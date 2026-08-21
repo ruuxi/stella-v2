@@ -212,6 +212,9 @@ describe("browser worker API", () => {
       "multiple awaited browser actions",
     );
     expect(browser.documentation()).toContain("Do not add sleeps");
+    expect(browser.documentation()).toContain(
+      "never open a new tab per page",
+    );
   });
 
   it("normalizes tab payloads and preserves Tab identity across the graph", async () => {

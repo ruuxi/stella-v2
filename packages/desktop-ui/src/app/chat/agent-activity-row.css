@@ -38,6 +38,12 @@
   margin-top: 0;
 }
 
+.agent-activity-group__item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .agent-activity-row:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -140,10 +146,159 @@
   transform: translateX(1px);
 }
 
+/* ── Produced-file chips under a completed row ──
+   No card surface: a strip of pill-shaped chips sits directly beneath the
+   description line, indented to the title's left edge (glyph 16px + 8px
+   gap). Cap + "+N more" expand/collapse behave exactly like the old
+   completion card; only the chrome is gone and the chips are true pills. */
+.agent-activity-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 2px;
+  padding-left: 24px;
+  min-width: 0;
+}
+
+.agent-activity-files__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Individual file chip: icon + filename open target with a compact "+"
+   affordance for the "open in other ways" menu. Pill-shaped, hairline. */
+.agent-activity-files__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 1px 5px 1px 2px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-surface-border);
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.agent-activity-files__pill:hover {
+  border-color: var(--panel-surface-border-hover);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+.agent-activity-files__pill-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 2px 3px 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  cursor: default;
+  transition: color 120ms ease;
+}
+
+.agent-activity-files__pill-open:hover {
+  color: var(--text-strong);
+}
+
+.agent-activity-files__pill-open:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.agent-activity-files__pill-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-base);
+}
+
+.agent-activity-files__pill-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Overflow region past the pill cap — animated open/close via the
+   grid-template-rows 0fr -> 1fr technique (no JS measurement; stays
+   correct when the strip re-wraps on width changes). */
+.agent-activity-files__overflow {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.agent-activity-files__overflow[data-expanded="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.agent-activity-files__overflow-clip {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.agent-activity-files__pills--overflow {
+  padding-top: 6px;
+}
+
+.agent-activity-files__more {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-weak);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  cursor: default;
+  border-radius: 6px;
+  transition: color 120ms ease;
+}
+
+.agent-activity-files__more:hover {
+  color: var(--text-strong);
+}
+
+.agent-activity-files__more:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.agent-activity-files__more-chevron {
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.agent-activity-files__more-chevron[data-expanded="true"] {
+  transform: rotate(180deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  /* TextShimmer already stills its sweep; quiet the hover nudge too. */
+  /* TextShimmer already stills its sweep; quiet the hover nudge and the
+     file-strip expand/collapse motion too. */
   .agent-activity-row:hover .agent-activity-row__chevron,
   .agent-activity-row:focus-visible .agent-activity-row__chevron {
     transform: none;
+  }
+
+  .agent-activity-files__overflow,
+  .agent-activity-files__more-chevron {
+    transition: none;
   }
 }

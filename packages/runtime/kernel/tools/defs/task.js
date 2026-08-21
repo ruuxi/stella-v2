@@ -35,7 +35,7 @@ export const createAgentTools = (stateContext) => [
     {
         name: "spawn_agent",
         agentTypes: AGENT_SPAWNERS,
-        description: "Spawn a sub-agent for a well-scoped background task. Returns immediately with a durable `thread_id`; the agent is NOT finished yet.",
+        description: "Spawn a sub-agent for a well-scoped background task. Returns immediately with a durable `thread_id`; the agent is NOT finished yet. After it returns, wait for the [Agent completed] event before reporting results — do not narrate the task as if it never started, and do not immediately call send_input to check on it.",
         parameters: {
             type: "object",
             properties: {
@@ -59,7 +59,7 @@ export const createAgentTools = (stateContext) => [
     {
         name: "send_input",
         agentTypes: AGENT_SPAWNERS,
-        description: "Send a follow-up message to an existing sub-agent. The agent sees it right away. If you want the message to land after the agent has finished its current work, wait for the [Agent completed] event on that thread first.",
+        description: "Send a follow-up message to an existing sub-agent. The agent sees it right away. A successful result means the message was DELIVERED, not that the work is complete — the agent keeps working, so wait for the [Agent completed] event rather than re-checking. If you want the message to land after the agent has finished its current work, wait for the [Agent completed] event on that thread first.",
         parameters: {
             type: "object",
             properties: {

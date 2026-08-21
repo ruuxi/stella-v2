@@ -74,11 +74,12 @@ describe("state tools", () => {
     expect(createdRequest?.agentType).toBe(AGENT_IDS.GENERAL);
     expect(result).toEqual({
       result: {
+        status: "spawned_running_in_background",
         thread_id: "thread-1",
+        note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_input to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
         created: true,
         running_in_background: true,
         follow_up_on_completion: true,
-        note: "Task has started but is NOT finished yet. Wait for the completion event before telling the user it is done.",
         other_threads: [
           {
             thread_id: "thread-0",
@@ -89,6 +90,9 @@ describe("state tools", () => {
         ],
       },
     });
+    expect(Object.keys((result as { result: Record<string, unknown> }).result)[0]).toBe(
+      "status",
+    );
   });
 
   const createSpawnContext = (
@@ -821,8 +825,9 @@ describe("state tools", () => {
 
     expect(result).toEqual({
       result: {
+        status: "delivered_agent_still_working",
         thread_id: "thread-7",
-        status: "updated",
+        note: "Delivered. This does NOT mean the task is done — the agent is still working. Wait for the [Agent completed] event; do not immediately re-check status.",
         delivered: true,
       },
     });

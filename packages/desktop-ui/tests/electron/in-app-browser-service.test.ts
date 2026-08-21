@@ -55,6 +55,7 @@ class FakeWebContents extends EventEmitter {
   readonly getURL = vi.fn(() => this.url);
   readonly getTitle = vi.fn(() => this.title);
   readonly isDestroyed = vi.fn(() => this.destroyed);
+  readonly setUserAgent = vi.fn();
   readonly close = vi.fn(() => {
     this.destroyed = true;
     this.emit("destroyed");
@@ -127,7 +128,14 @@ const createHarness = (
       flushStore: vi.fn(async () => undefined),
     },
     flushStorageData: vi.fn(),
+    getUserAgent: vi.fn(
+      () =>
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) Stella/0.1.65 " +
+        "Chrome/150.0.7871.224 Electron/43.4.1 Safari/537.36",
+    ),
     setUserAgent: vi.fn(),
+    fetch: vi.fn(async () => new Response(null, { status: 404 })),
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     setDevicePermissionHandler: vi.fn(),
@@ -267,6 +275,51 @@ const createHarness = (
 };
 
 describe("InAppBrowserService", () => {
+  it("uses one runtime-derived UA for the session, tabs, and CDP facade", async () => {
+    const harness = createHarness(async () => true);
+
+    await harness.service.connect();
+    await harness.service.createTab({ url: "https://example.com" });
+
+    const expected =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/150.0.0.0 Safari/537.36";
+    expect(harness.fakeSession.setUserAgent).toHaveBeenCalledWith(expected);
+    expect(harness.views[0]?.webContents.setUserAgent).toHaveBeenCalledWith(
+      expected,
+    );
+    expect(harness.service.getDebuggerUserAgent()).toBe(expected);
+
+    harness.service.dispose();
+  });
+
+  it("loads favicons through the managed session and exposes only a data URL", async () => {
+    const harness = createHarness(async () => true);
+    const icon = new Uint8Array([0, 1, 2, 3]);
+    harness.fakeSession.fetch.mockResolvedValueOnce(
+      new Response(icon, { headers: { "content-type": "image/png" } }),
+    );
+    await harness.service.connect();
+    await harness.service.createTab({ url: "https://example.com" });
+
+    harness.views[0]?.webContents.emit("page-favicon-updated", {}, [
+      "https://example.com/favicon.png",
+    ]);
+
+    await vi.waitFor(async () => {
+      await expect(harness.service.getState()).resolves.toMatchObject({
+        tabs: [{ faviconUrl: "data:image/png;base64,AAECAw==" }],
+      });
+    });
+    expect(harness.fakeSession.fetch).toHaveBeenCalledWith(
+      "https://example.com/favicon.png",
+      { cache: "force-cache" },
+    );
+
+    harness.service.dispose();
+  });
+
   it("prepares an isolated profile, seeds cookies, and manages native tabs", async () => {
     const harness = createHarness(async () => true);
 

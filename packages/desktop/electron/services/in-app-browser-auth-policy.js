@@ -12,14 +12,50 @@
 // "no junk tabs / deny permissions" behavior. Add new providers to the lists
 // below — do not scatter host checks through the service.
 
+const fallbackPlatformToken = (platform) => {
+  switch (platform) {
+    case "win32":
+      return "Windows NT 10.0; Win64; x64";
+    case "linux":
+      return "X11; Linux x86_64";
+    default:
+      // Chrome uses this frozen platform token on both Intel and Apple Silicon.
+      return "Macintosh; Intel Mac OS X 10_15_7";
+  }
+};
+
 /**
- * Realistic, recent Chrome-on-macOS User-Agent presented by the managed browser
- * session (and mirrored in the CDP Browser.getVersion facade) so pages don't see
- * an Electron UA — which adds bot-fingerprint weight on risk engines like
- * Google's. Bump this single string when Chrome stable advances.
+ * Remove Electron/Stella product tokens from Electron's own runtime UA while
+ * retaining its real OS and Chromium major version. This must be derived at
+ * runtime: a static Chrome version disagrees with UA client hints as soon as
+ * Electron's embedded Chromium advances, which is a high-signal client
+ * inconsistency for Google and other risk engines.
  */
-export const IN_APP_BROWSER_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+export const buildInAppBrowserUserAgent = (
+  runtimeUserAgent,
+  chromiumVersion = process.versions.chrome,
+  platform = process.platform,
+) => {
+  const sanitized = String(runtimeUserAgent || "")
+    .replace(/(?:^|\s)(?:Electron|Stella)\/[^\s]+/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (/\b(?:Chrome|Chromium)\/\d+/i.test(sanitized)) {
+    // Match Chrome's UA reduction while client hints retain the full runtime
+    // version. The major remains identical across both surfaces.
+    return sanitized.replace(
+      /\b(Chrome|Chromium)\/(\d+)(?:\.\d+){0,3}/i,
+      "$1/$2.0.0.0",
+    );
+  }
+
+  const major = String(chromiumVersion || "").match(/^\d+/)?.[0] || "0";
+  return (
+    `Mozilla/5.0 (${fallbackPlatformToken(platform)}) ` +
+    "AppleWebKit/537.36 (KHTML, like Gecko) " +
+    `Chrome/${major}.0.0.0 Safari/537.36`
+  );
+};
 
 /**
  * Host suffixes whose window.open popups are genuine auth / reauth / OAuth flows

@@ -51,7 +51,11 @@ import {
   registerExtensionToolHandlers,
 } from "./registry.js";
 import { buildBuiltinTools } from "./defs/index.js";
-import { AGENT_ORCHESTRATION_TOOL_NAMES } from "./defs/task.js";
+import {
+  AGENT_ORCHESTRATION_TOOL_NAMES,
+  withoutSpawnAgentModelParam,
+} from "./defs/task.js";
+import { getDeveloperModeEnabled } from "../preferences/local-preferences.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { searchToolCatalog } from "./code-catalog.js";
@@ -174,6 +178,16 @@ export const createToolHost = ({
   contextProvider,
 }: ToolHostOptions) => {
   const stateRoot = stellaDataDir ?? stellaAppDir;
+
+  // Developer-mode assembly gate: with the flag off, spawn_agent is served
+  // without its `model` property so the model never sees an engine/model
+  // override parameter. Read per call (mtime-cached preferences) so toggling
+  // applies on the next turn without a host rebuild. Dev mode ON serves the
+  // untouched definitions — byte-for-byte today's behavior.
+  const applyDeveloperModeToolGate = (tool: ToolMetadata): ToolMetadata =>
+    getDeveloperModeEnabled(stateRoot)
+      ? tool
+      : (withoutSpawnAgentModelParam(tool) as ToolMetadata);
   const toolCatalog = new Map<string, ToolMetadata>();
 
   const shellState: ShellState = createShellState(stateRoot, {
@@ -235,7 +249,9 @@ export const createToolHost = ({
     // same REPL (see collectReplSearchableTools).
     searchTools: (query, context, limit) =>
       searchToolCatalog(
-        collectReplSearchableTools(toolCatalog.values(), context),
+        collectReplSearchableTools(toolCatalog.values(), context).map((tool) =>
+          applyDeveloperModeToolGate(tool),
+        ),
         query,
         limit,
       ),
@@ -562,7 +578,7 @@ export const createToolHost = ({
         return false;
       }
       return true;
-    });
+    }).map((tool) => applyDeveloperModeToolGate(tool));
   };
 
   // Track tool names that came from user-installable extensions so a

@@ -22,6 +22,7 @@ import { buildSystemPrompt } from "@stella/runtime/kernel/agent-runtime/thread-m
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
 import { SPAWN_AGENT_MODEL_DESCRIPTION } from "@stella/runtime/kernel/tools/defs/task.js";
+import { setDeveloperModeEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   ORCHESTRATED_ORCHESTRATOR_ID,
@@ -134,7 +135,10 @@ describe("working orchestrator surface", () => {
   });
 
   it("exposes the canonical concise model selectors in the generated tool schema", async () => {
-    const { host } = await createTestHost();
+    const { host, rootPath } = await createTestHost();
+    // The spawn_agent `model` parameter is a developer-mode surface; this
+    // test asserts the dev-mode (power-user) schema, so enable it explicitly.
+    setDeveloperModeEnabled(rootPath, true);
     const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
       (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
     );

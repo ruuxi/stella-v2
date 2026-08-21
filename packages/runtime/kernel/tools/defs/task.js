@@ -29,6 +29,33 @@ export const AGENT_ORCHESTRATION_TOOL_NAMES = [
     "send_input",
     "pause_agent",
 ];
+export const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
+/**
+ * Developer-mode-off view of a spawn_agent definition: the same tool with the
+ * `model` property removed from its schema so the model never sees a
+ * model/engine override parameter. Handlers are untouched — routing machinery
+ * stays intact and spawns keep using the configured default. Non-spawn tools
+ * and schemas without a `model` property pass through unchanged.
+ */
+export const withoutSpawnAgentModelParam = (tool) => {
+    if (tool.name !== SPAWN_AGENT_TOOL_NAME)
+        return tool;
+    const parameters = tool.parameters;
+    const properties = parameters?.properties;
+    if (!properties || !("model" in properties))
+        return tool;
+    const { model: _model, ...restProperties } = properties;
+    return {
+        ...tool,
+        parameters: {
+            ...parameters,
+            properties: restProperties,
+            ...(Array.isArray(parameters.required)
+                ? { required: parameters.required.filter((name) => name !== "model") }
+                : {}),
+        },
+    };
+};
 export const SPAWN_AGENT_MODEL_DESCRIPTION =
     "Optional model/engine override. Omit `model` to use the currently configured model and engine. Explicit selectors: `stella/default` for Stella; `openrouter/<provider>/<model>` for a provider model; `codex` for Codex with its configured model or `codex/gpt-5.6-sol` for GPT-5.6 SOL; `claude-code` for Claude Code with its configured model, `claude-code/fable` for Fable, or `claude-code/opus` for Opus. The listed Stella, Codex, and Claude Code selectors accept `:low`, `:medium`, `:high`, or `:xhigh` to override reasoning; omit the suffix to use the configured default.";
 export const createAgentTools = (stateContext) => [

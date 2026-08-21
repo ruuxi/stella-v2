@@ -15,7 +15,7 @@ import {
   type BrowserProfileImportResult,
 } from "./in-app-browser-profile.js";
 import {
-  IN_APP_BROWSER_USER_AGENT,
+  buildInAppBrowserUserAgent,
   isAuthOrigin,
   isAuthPermission,
   isAuthPopupUrl,
@@ -123,6 +123,7 @@ type ManagedTab = {
   view: WebContentsView;
   title: string;
   faviconUrl?: string;
+  faviconLoadId: number;
   loading: boolean;
 };
 
@@ -182,6 +183,7 @@ type InAppBrowserServiceOptions = {
   createId?: () => string;
   wait?: (delayMs: number) => Promise<void>;
   debuggerRecoveryTimeoutMs?: number;
+  runtimeUserAgent?: string;
 };
 
 const DEFAULT_URL = "about:blank";
@@ -214,6 +216,7 @@ const MIN_COOKIE_MIRROR_INTERVAL_MS = 5_000;
 // reseed already ran within this window, so rapid navigations don't each pull a
 // full cookie export.
 const DEFAULT_NAVIGATION_RESEED_THROTTLE_MS = 5_000;
+const MAX_FAVICON_BYTES = 256 * 1024;
 
 const cloneState = (state: BrowserViewState): BrowserViewState => ({
   ...state,
@@ -357,6 +360,7 @@ export class InAppBrowserService {
   private pendingPartitionedCookies: StellaBrowserExportedCookie[] = [];
   private connectionError: string | undefined;
   private connectionUnavailableReason: BrowserViewUnavailableReason | undefined;
+  private browserUserAgent = buildInAppBrowserUserAgent(undefined);
 
   constructor(options: InAppBrowserServiceOptions) {
     this.options = options;
@@ -609,9 +613,9 @@ export class InAppBrowserService {
         },
       });
     // Match the session UA on the tab's WebContents so navigator.userAgent and
-    // outgoing request headers present a real Chrome UA rather than Electron's.
+    // outgoing request headers present the same runtime Chromium version.
     try {
-      view.webContents.setUserAgent(IN_APP_BROWSER_USER_AGENT);
+      view.webContents.setUserAgent(this.browserUserAgent);
     } catch {
       // Injected/mock views in tests may not implement setUserAgent.
     }
@@ -620,6 +624,7 @@ export class InAppBrowserService {
       ownerId,
       view,
       title: "New Tab",
+      faviconLoadId: 0,
       loading: false,
     };
     this.tabs.set(id, tab);
@@ -880,6 +885,10 @@ export class InAppBrowserService {
     return () => this.debuggerListeners.delete(listener);
   }
 
+  getDebuggerUserAgent(): string {
+    return this.browserUserAgent;
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -920,10 +929,12 @@ export class InAppBrowserService {
         this.profilePath,
         { cache: true },
       );
-      // Present a real, current Chrome-on-macOS UA at the session level (not just
-      // the CDP Browser.getVersion facade) so pages don't see an Electron UA,
-      // which adds bot-fingerprint weight on risk engines like Google's.
-      this.browserSession.setUserAgent(IN_APP_BROWSER_USER_AGENT);
+      // Derive from Electron's actual runtime UA. A hardcoded Chrome version
+      // diverges from Sec-CH-UA as soon as Electron updates.
+      const runtimeUserAgent =
+        this.options.runtimeUserAgent ?? this.browserSession.getUserAgent?.();
+      this.browserUserAgent = buildInAppBrowserUserAgent(runtimeUserAgent);
+      this.browserSession.setUserAgent(this.browserUserAgent);
       // Permission policy: deny by default, but allow the WebAuthn / security-key
       // access that reauth needs and ONLY on trusted auth origins. Sensitive,
       // auth-irrelevant permissions (camera, microphone, geolocation,
@@ -1478,6 +1489,32 @@ export class InAppBrowserService {
     }
   }
 
+  private async loadFaviconDataUrl(url: string): Promise<string | undefined> {
+    const browserSession = this.browserSession;
+    if (!browserSession?.fetch) return undefined;
+    try {
+      const response = await browserSession.fetch(url, {
+        cache: "force-cache",
+      });
+      if (!response.ok) return undefined;
+      const mimeType = response.headers
+        .get("content-type")
+        ?.split(";", 1)[0]
+        ?.trim()
+        .toLowerCase();
+      if (!mimeType?.startsWith("image/")) return undefined;
+      const declaredSize = Number(response.headers.get("content-length"));
+      if (Number.isFinite(declaredSize) && declaredSize > MAX_FAVICON_BYTES) {
+        return undefined;
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.byteLength > MAX_FAVICON_BYTES) return undefined;
+      return `data:${mimeType};base64,${bytes.toString("base64")}`;
+    } catch {
+      return undefined;
+    }
+  }
+
   private bindTab(tab: ManagedTab) {
     const contents = tab.view.webContents;
     const refresh = () => this.syncState();
@@ -1502,8 +1539,22 @@ export class InAppBrowserService {
       refresh();
     });
     contents.on("page-favicon-updated", (_event, favicons) => {
-      tab.faviconUrl = favicons.find(isAllowedNavigationUrl);
+      const faviconUrl = favicons.find(isAllowedNavigationUrl);
+      const loadId = ++tab.faviconLoadId;
+      tab.faviconUrl = undefined;
       refresh();
+      if (!faviconUrl) return;
+      void this.loadFaviconDataUrl(faviconUrl).then((dataUrl) => {
+        if (
+          !dataUrl ||
+          this.tabs.get(tab.id) !== tab ||
+          tab.faviconLoadId !== loadId
+        ) {
+          return;
+        }
+        tab.faviconUrl = dataUrl;
+        refresh();
+      });
     });
     contents.on(
       "did-fail-load",

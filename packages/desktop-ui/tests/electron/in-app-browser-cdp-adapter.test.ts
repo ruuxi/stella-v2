@@ -70,6 +70,7 @@ const createController = () => {
   );
   const recoverDebuggerTarget = vi.fn(async () => "terminated" as const);
   const controller: InAppBrowserDebuggerController = {
+    getDebuggerUserAgent: () => "runtime-derived-user-agent",
     listDebuggerTargets: (ownerId) => targetsFor(ownerId),
     createDebuggerTarget: (url, ownerId) => {
       const targets = targetsFor(ownerId);
@@ -112,6 +113,12 @@ describe("InAppBrowserCdpAdapter", () => {
     const socket = await connect(
       (await adapter.createOwnerCapability("owner-test")).cdpUrl,
     );
+
+    await expect(
+      request(socket, 10, "Browser.getVersion"),
+    ).resolves.toMatchObject({
+      userAgent: "runtime-derived-user-agent",
+    });
 
     const targets = await request(socket, 1, "Target.getTargets");
     expect(targets).toEqual({

@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import {
   LegendList,
   type LegendListRenderItemProps,
@@ -7,9 +15,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArtifactCard } from "./ArtifactCard";
 import { ArtifactViewerContent } from "./ArtifactViewer";
-import { Icon } from "./Icon";
+import { BottomSheet } from "./BottomSheet";
+import { Icon, type IconName } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
-import { TopSheet } from "./TopSheet";
 import { filterHubArtifacts, filterHubTasks } from "../lib/activity-hub-search";
 import {
   activityHubGroupRowKey,
@@ -22,14 +30,38 @@ import {
   sortHubTasksByRecency,
   summarizeHubSubagents,
 } from "../lib/activity-hub-model";
+import {
+  fetchMobileSchedules,
+  mutateMobileSchedule,
+  type MobileSchedule,
+  type MobileScheduleAction,
+} from "../lib/desktop-schedules";
+import {
+  formatNextRun,
+  parseStoredSchedule,
+  summarizeSchedule,
+} from "../lib/schedule-format";
+import { tapLight } from "../lib/haptics";
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
+import { fadeHex } from "../theme/oklch";
 import type { ChatArtifact, MobileTask } from "../types";
 
 const SHIMMER_MS = 1900;
+
+type HubTab = "activity" | "schedule" | "search" | "files";
+
+const TAB_ORDER: HubTab[] = ["activity", "schedule", "search", "files"];
+
+const TAB_META: Record<HubTab, { label: string; icon: IconName }> = {
+  activity: { label: "Activity", icon: "waveform" },
+  schedule: { label: "Schedule", icon: "clock" },
+  search: { label: "Search", icon: "search" },
+  files: { label: "Files", icon: "file-text" },
+};
 
 const TERMINAL_SUBTITLE: Record<
   Exclude<MobileTask["status"], "running">,
@@ -226,7 +258,6 @@ function TaskGroupRow({
   );
 }
 
-
 function ConversationFilesRow({
   artifacts,
   colors,
@@ -274,6 +305,118 @@ function ConversationFilesRow({
   );
 }
 
+function ScheduleRow({
+  schedule,
+  nowMs,
+  busy,
+  styles,
+  colors,
+  onAction,
+}: {
+  schedule: MobileSchedule;
+  nowMs: number;
+  busy: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+  onAction: (action: MobileScheduleAction) => void;
+}) {
+  const shape = useMemo(
+    () =>
+      schedule.scheduleJson
+        ? parseStoredSchedule(schedule.scheduleJson)
+        : null,
+    [schedule.scheduleJson],
+  );
+  const cadence =
+    summarizeSchedule(shape, schedule.intervalMs) || "Custom schedule";
+  const paused = !schedule.enabled;
+  const nextRun = formatNextRun(schedule.nextRunAtMs, nowMs);
+
+  return (
+    <View style={[styles.taskGroup, busy && styles.scheduleRowBusy]}>
+      <View style={styles.taskRow}>
+        <View style={styles.taskGlyph}>
+          <Icon
+            name={schedule.kind === "heartbeat" ? "waveform" : "clock"}
+            size={15}
+            color={paused ? colors.textMuted : colors.accent}
+          />
+        </View>
+        <View style={styles.taskText}>
+          <Text
+            style={styles.taskTitle}
+            numberOfLines={1}
+            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+          >
+            {schedule.title}
+          </Text>
+          <Text
+            style={[
+              styles.taskSub,
+              ...(paused ? [styles.scheduleBadgePaused] : []),
+            ]}
+            numberOfLines={1}
+            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+          >
+            {[cadence, paused ? "Paused" : `Next ${nextRun}`]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
+          {!paused && schedule.lastError ? (
+            <Text
+              style={styles.taskReasoning}
+              numberOfLines={2}
+              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+            >
+              Last run failed: {schedule.lastError}
+            </Text>
+          ) : null}
+        </View>
+        {schedule.kind === "cron" ? (
+          <View style={styles.scheduleActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={paused ? "Resume schedule" : "Pause schedule"}
+              disabled={busy}
+              hitSlop={8}
+              onPress={() => {
+                tapLight();
+                onAction(paused ? "resume" : "pause");
+              }}
+              style={({ pressed }) => [
+                styles.scheduleActionButton,
+                pressed && styles.scheduleActionButtonPressed,
+              ]}
+            >
+              <Icon
+                name={paused ? "play" : "pause"}
+                size={14}
+                color={colors.textMuted}
+              />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Delete schedule"
+              disabled={busy}
+              hitSlop={8}
+              onPress={() => {
+                tapLight();
+                onAction("remove");
+              }}
+              style={({ pressed }) => [
+                styles.scheduleActionButton,
+                pressed && styles.scheduleActionButtonPressed,
+              ]}
+            >
+              <Icon name="x" size={14} color={colors.danger} />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 type ActivityHubSheetProps = {
   visible: boolean;
   onClose: () => void;
@@ -299,6 +442,8 @@ type ActivityHubListRow =
   | { kind: "task"; task: MobileTask; artifacts: ChatArtifact[] }
   | { kind: "conversation"; artifacts: ChatArtifact[] };
 
+type FileRow = { kind: "file"; artifact: ChatArtifact };
+
 const activityHubListRowKey = (row: ActivityHubListRow): string => {
   if (row.kind === "group") return activityHubGroupRowKey(row);
   if (row.kind === "task") return activityHubTaskRowKey(row.task);
@@ -306,16 +451,13 @@ const activityHubListRowKey = (row: ActivityHubListRow): string => {
 };
 
 /**
- * The activity hub — the unified top sheet the floating activity pill opens.
- * One searchable overview of the conversation's background work (running /
- * recent tasks with reasoning summaries) and its files (the artifacts list
- * that used to hide behind the settings menu). Tapping a file opens the
- * artifact viewer within the sheet. Content-sized: hugs sparse content, caps
- * at the same max height as the other top sheets.
- *
- * No schedule section: desktop schedules aren't synced into mobile (the only
- * schedule surface is the WebView shim's IPC passthrough for the desktop
- * frontend), so there's nothing native to list yet.
+ * The hub sheet the floating activity pill opens — a full-height bottom
+ * panel with its own tab bar (Activity / Schedule / Search / Files). The top
+ * of the screen carries no chrome: every control lives within thumb reach at
+ * the bottom. Tapping Search expands an input above the tab bar with the
+ * keyboard focused; Schedule lists the paired computer's local schedules (the
+ * same rows the desktop Schedules dialog shows) with pause/resume/delete for
+ * cron jobs. Tapping a file opens the artifact viewer within the sheet.
  */
 export function ActivityHubSheet({
   visible,
@@ -328,13 +470,19 @@ export function ActivityHubSheet({
 }: ActivityHubSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const styles = useMemo(
-    () => makeStyles(colors, insets.top),
-    [colors, insets.top],
-  );
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  const [tab, setTab] = useState<HubTab>("activity");
   const [query, setQuery] = useState("");
+  // True once Search is tapped — expands the input above the tab bar and
+  // focuses it. Leaving Search (or closing the sheet) collapses it again.
+  const [searchFocusedMode, setSearchFocusedMode] = useState(false);
   const [openArtifact, setOpenArtifact] = useState<ChatArtifact | null>(null);
+
+  const [schedules, setSchedules] = useState<MobileSchedule[]>([]);
+  const [schedulesLoading, setSchedulesLoading] = useState(false);
+  const [schedulesError, setSchedulesError] = useState<string | null>(null);
+  const [busyScheduleKey, setBusyScheduleKey] = useState<string | null>(null);
 
   const hubTasks = useMemo(() => sortHubTasksByRecency(tasks), [tasks]);
   // Group subagents under their parent agent (desktop-parity association):
@@ -363,15 +511,29 @@ export function ActivityHubSheet({
     });
   }, []);
 
-  // Fresh overview each open: clear search, any in-sheet artifact, the paging
-  // window, and every expanded subagent group.
+  const searchInputRef = useRef<TextInput>(null);
+
+  // Fresh overview each open: reset to Activity, clear search state, any
+  // in-sheet artifact, and every expanded subagent group.
   useEffect(() => {
     if (!visible) return;
+    setTab("activity");
+    setSearchFocusedMode(false);
     setQuery("");
     setOpenArtifact(null);
-    setActivityWindow(initialActivityWindow(latestGroupCountRef.current));
     setExpandedGroups(new Set());
+    setActivityWindow(initialActivityWindow(latestGroupCountRef.current));
   }, [visible]);
+
+  // Entering Search mode focuses the input once it has mounted; leaving it
+  // dismisses the keyboard so the sheet doesn't hold focus invisibly.
+  useEffect(() => {
+    if (searchFocusedMode) {
+      const timer = setTimeout(() => searchInputRef.current?.focus(), 60);
+      return () => clearTimeout(timer);
+    }
+    searchInputRef.current?.blur();
+  }, [searchFocusedMode]);
 
   useEffect(() => {
     setActivityWindow((current) =>
@@ -380,6 +542,77 @@ export function ActivityHubSheet({
         : rebaseActivityWindow(current, groupCount),
     );
   }, [groupCount]);
+
+  // Schedules load each time the sheet opens onto the Schedule tab — a cheap
+  // authenticated read through the desktop bridge, refreshed on every open so
+  // next-run stays current.
+  const loadSchedules = useCallback(async () => {
+    setSchedulesLoading(true);
+    setSchedulesError(null);
+    try {
+      setSchedules(await fetchMobileSchedules());
+    } catch (error) {
+      setSchedulesError(
+        error instanceof Error ? error.message : "Couldn’t load schedules.",
+      );
+    } finally {
+      setSchedulesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!visible || tab !== "schedule") return;
+    void loadSchedules();
+  }, [visible, tab, loadSchedules]);
+
+  const applyScheduleAction = useCallback(
+    async (schedule: MobileSchedule, action: MobileScheduleAction) => {
+      const key = `${schedule.kind}:${schedule.id}`;
+      setBusyScheduleKey(key);
+      try {
+        await mutateMobileSchedule(action, schedule);
+        // Re-read so enabled/nextRunAtMs come back authoritative.
+        setSchedules(await fetchMobileSchedules());
+      } catch (error) {
+        Alert.alert(
+          "Schedule",
+          error instanceof Error ? error.message : "That didn’t go through.",
+        );
+      } finally {
+        setBusyScheduleKey(null);
+      }
+    },
+    [],
+  );
+
+  const onScheduleAction = useCallback(
+    (schedule: MobileSchedule, action: MobileScheduleAction) => {
+      if (busyScheduleKey) return;
+      if (action === "remove") {
+        // Destructive actions confirm first — deleting stops future runs.
+        Alert.alert(
+          "Delete schedule",
+          `"${schedule.title}" will stop running.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Delete",
+              style: "destructive",
+              onPress: () => {
+                void applyScheduleAction(schedule, action);
+              },
+            },
+          ],
+        );
+        return;
+      }
+      void applyScheduleAction(schedule, action);
+    },
+    [busyScheduleKey, applyScheduleAction],
+  );
+
+  const searching =
+    (tab === "search" || searchFocusedMode) && query.trim().length > 0;
 
   const matchingTasks = useMemo(
     () => filterHubTasks(hubTasks, query),
@@ -390,7 +623,6 @@ export function ActivityHubSheet({
     [artifacts, query],
   );
 
-  const searching = query.trim().length > 0;
   const viewerOpen = openArtifact !== null;
   const matchingTaskIds = useMemo(
     () => new Set(matchingTasks.map((task) => task.id)),
@@ -410,7 +642,7 @@ export function ActivityHubSheet({
   );
   // Search flattens grouping back to individual matching rows (parents and
   // subagents alike), preserving the pre-existing flat search behavior.
-  const searchTaskRows = useMemo(() => {
+  const shownTasks = useMemo(() => {
     if (!searching) return [];
     return hubTasks.filter(
       (task) =>
@@ -438,7 +670,7 @@ export function ActivityHubSheet({
   const listRows = useMemo<ActivityHubListRow[]>(() => {
     const rows: ActivityHubListRow[] = [];
     if (searching) {
-      for (const task of searchTaskRows) {
+      for (const task of shownTasks) {
         rows.push({
           kind: "task",
           task,
@@ -469,12 +701,20 @@ export function ActivityHubSheet({
     return rows;
   }, [
     searching,
-    searchTaskRows,
+    shownTasks,
     shownGroups,
     artifactsByTaskId,
     matchingArtifactIds,
     shownConversationArtifacts,
   ]);
+
+  // Files tab: file cards aggregated into one browsable list — everything
+  // the conversation produced, newest first, noise already filtered by the
+  // collector. Search narrows it; otherwise show all.
+  const fileRows = useMemo<FileRow[]>(() => {
+    const source = searching ? matchingArtifacts : artifacts;
+    return source.map((artifact) => ({ kind: "file" as const, artifact }));
+  }, [artifacts, matchingArtifacts, searching]);
 
   const releasePagingLock = () => {
     setTimeout(() => {
@@ -498,111 +738,270 @@ export function ActivityHubSheet({
     releasePagingLock();
   };
 
+  const selectTab = (next: HubTab) => {
+    tapLight();
+    if (next === "search") {
+      // Search is a mode, not a list: expand the input above the tab bar
+      // (keyboard focuses via the effect) and show the combined results.
+      setSearchFocusedMode(true);
+      setTab("search");
+    } else {
+      if (searchFocusedMode) searchInputRef.current?.blur();
+      setSearchFocusedMode(false);
+      setQuery("");
+      setTab(next);
+    }
+  };
+
+  const renderSearchField = () => (
+    <View style={styles.searchWrap}>
+      <Icon name="search" size={15} color={colors.textMuted} />
+      <TextInput
+        ref={searchInputRef}
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Search activity and files"
+        placeholderTextColor={colors.textMuted}
+        style={styles.searchInput}
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+      />
+      {query.length > 0 ? (
+        <Pressable
+          accessibilityLabel="Clear search"
+          hitSlop={8}
+          onPress={() => setQuery("")}
+        >
+          <Icon name="x" size={14} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
+      <Pressable
+        accessibilityLabel="Close search"
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={() => selectTab("activity")}
+      >
+        <Icon name="x" size={16} color={colors.textMuted} />
+      </Pressable>
+    </View>
+  );
+
+  // Frozen per render pass so relative badges ("in 5m") don't flicker as the
+  // list re-renders; refreshed each time the schedule list reloads.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, [schedules]);
+
   return (
-    <TopSheet visible={visible} onClose={onClose} contentSized={!viewerOpen}>
+    <BottomSheet visible={visible} onClose={onClose}>
       {viewerOpen ? (
         // Artifact open in-sheet: full-height viewer (WebViews and media need
-        // real space), with a back chevron returning to the overview.
-        <ArtifactViewerContent
-          artifact={openArtifact}
-          access={access}
-          onBack={() => setOpenArtifact(null)}
-        />
-      ) : (
-        <View style={styles.root}>
-          <View style={styles.searchWrap}>
-            <Icon name="search" size={15} color={colors.textMuted} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search activity and files"
-              placeholderTextColor={colors.textMuted}
-              style={styles.searchInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-              clearButtonMode="while-editing"
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            />
-          </View>
-          <LegendList<ActivityHubListRow>
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            data={listRows}
-            keyExtractor={activityHubListRowKey}
-            renderItem={({
-              item,
-            }: LegendListRenderItemProps<ActivityHubListRow>) =>
-              item.kind === "group" ? (
-                <TaskGroupRow
-                  owner={item.owner}
-                  ownerArtifacts={item.ownerArtifacts}
-                  subagents={item.subagents}
-                  expanded={expandedGroups.has(item.owner.id)}
-                  onToggle={toggleGroup}
-                  onOpenArtifact={setOpenArtifact}
-                  colors={colors}
-                  styles={styles}
-                />
-              ) : item.kind === "task" ? (
-                <TaskRow
-                  task={item.task}
-                  artifacts={item.artifacts}
-                  onOpenArtifact={setOpenArtifact}
-                  colors={colors}
-                  styles={styles}
-                />
-              ) : (
-                <ConversationFilesRow
-                  artifacts={item.artifacts}
-                  colors={colors}
-                  styles={styles}
-                  onOpenArtifact={setOpenArtifact}
-                />
-              )
-            }
-            ListHeaderComponent={
-              <Text
-                style={styles.sectionLabel}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                Activity
-              </Text>
-            }
-            ListEmptyComponent={
-              <Text
-                style={styles.empty}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                {searching
-                  ? "No matching activity or files."
-                  : "No background work yet."}
-              </Text>
-            }
-            ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            showsVerticalScrollIndicator={false}
-            maintainVisibleContentPosition={{ data: true, size: true }}
-            onStartReached={loadNewer}
-            onStartReachedThreshold={0.15}
-            onEndReached={loadOlder}
-            onEndReachedThreshold={0.15}
-            estimatedItemSize={76}
-            recycleItems
+        // real space), with a back chevron returning to the previous list.
+        <View style={styles.sheetFill}>
+          <ArtifactViewerContent
+            artifact={openArtifact}
+            access={access}
+            onBack={() => setOpenArtifact(null)}
           />
         </View>
+      ) : (
+        <View style={styles.sheetFill}>
+          {searchFocusedMode ? renderSearchField() : null}
+
+          {tab === "schedule" ? (
+            schedulesLoading && schedules.length === 0 ? (
+              <View style={styles.centeredState}>
+                <ActivityIndicator color={colors.textMuted} />
+              </View>
+            ) : schedulesError && schedules.length === 0 ? (
+              <Text style={styles.empty}>{schedulesError}</Text>
+            ) : schedules.length === 0 ? (
+              <Text style={styles.empty}>
+                No schedules yet. Ask Stella on your computer to run something
+                regularly and it shows up here.
+              </Text>
+            ) : (
+              <LegendList<MobileSchedule>
+                style={styles.scroll}
+                contentContainerStyle={styles.scrollContent}
+                data={schedules}
+                keyExtractor={(row) => `${row.kind}:${row.id}`}
+                renderItem={({
+                  item,
+                }: LegendListRenderItemProps<MobileSchedule>) => (
+                  <ScheduleRow
+                    schedule={item}
+                    nowMs={nowMs}
+                    busy={busyScheduleKey === `${item.kind}:${item.id}`}
+                    styles={styles}
+                    colors={colors}
+                    onAction={(action) => onScheduleAction(item, action)}
+                  />
+                )}
+                ItemSeparatorComponent={() => (
+                  <View style={styles.rowSeparator} />
+                )}
+                showsVerticalScrollIndicator={false}
+                estimatedItemSize={64}
+                recycleItems
+              />
+            )
+          ) : tab === "files" ? (
+            fileRows.length === 0 ? (
+              <Text style={styles.empty}>
+                {searching
+                  ? "No files match."
+                  : "No files yet. Anything Stella produces shows up here."}
+              </Text>
+            ) : (
+              <LegendList<FileRow>
+                style={styles.scroll}
+                contentContainerStyle={styles.scrollContent}
+                data={fileRows}
+                keyExtractor={(row) => row.artifact.id}
+                renderItem={({ item }: LegendListRenderItemProps<FileRow>) => (
+                  <ArtifactCard
+                    artifact={item.artifact}
+                    colors={colors}
+                    onPress={setOpenArtifact}
+                  />
+                )}
+                ItemSeparatorComponent={() => (
+                  <View style={styles.rowSeparator} />
+                )}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                showsVerticalScrollIndicator={false}
+                estimatedItemSize={62}
+                recycleItems
+              />
+            )
+          ) : (
+            <LegendList<ActivityHubListRow>
+              style={styles.scroll}
+              contentContainerStyle={styles.scrollContent}
+              data={listRows}
+              keyExtractor={activityHubListRowKey}
+              renderItem={({
+                item,
+              }: LegendListRenderItemProps<ActivityHubListRow>) =>
+                item.kind === "group" ? (
+                  <TaskGroupRow
+                    owner={item.owner}
+                    ownerArtifacts={item.ownerArtifacts}
+                    subagents={item.subagents}
+                    expanded={expandedGroups.has(item.owner.id)}
+                    onToggle={toggleGroup}
+                    onOpenArtifact={setOpenArtifact}
+                    colors={colors}
+                    styles={styles}
+                  />
+                ) : item.kind === "task" ? (
+                  <TaskRow
+                    task={item.task}
+                    artifacts={item.artifacts}
+                    onOpenArtifact={setOpenArtifact}
+                    colors={colors}
+                    styles={styles}
+                  />
+                ) : (
+                  <ConversationFilesRow
+                    artifacts={item.artifacts}
+                    colors={colors}
+                    styles={styles}
+                    onOpenArtifact={setOpenArtifact}
+                  />
+                )
+              }
+              ListHeaderComponent={
+                !searching ? (
+                  <Text
+                    style={styles.sectionLabel}
+                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                  >
+                    Activity
+                  </Text>
+                ) : null
+              }
+              ListEmptyComponent={
+                <Text
+                  style={styles.empty}
+                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                >
+                  {searching
+                    ? "No matching activity or files."
+                    : "No background work yet."}
+                </Text>
+              }
+              ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+              maintainVisibleContentPosition={{ data: true, size: true }}
+              onStartReached={loadNewer}
+              onStartReachedThreshold={0.15}
+              onEndReached={loadOlder}
+              onEndReachedThreshold={0.15}
+              estimatedItemSize={76}
+              recycleItems
+            />
+          )}
+
+          {/* Bottom control bar — the only chrome in the sheet. Sits inside
+              the safe area so the home indicator never collides with it. */}
+          <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            <View style={styles.tabBarHairline} pointerEvents="none" />
+            {TAB_ORDER.map((entry) => {
+              const meta = TAB_META[entry];
+              const active = tab === entry;
+              return (
+                <Pressable
+                  key={entry}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={meta.label}
+                  onPress={() => selectTab(entry)}
+                  style={({ pressed }) => [
+                    styles.tabButton,
+                    pressed && styles.tabButtonPressed,
+                  ]}
+                >
+                  <Icon
+                    name={meta.icon}
+                    size={19}
+                    color={active ? colors.accent : colors.textMuted}
+                  />
+                  <Text
+                    style={[
+                      styles.tabLabel,
+                      active ? styles.tabLabelActive : null,
+                    ]}
+                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                  >
+                    {meta.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       )}
-    </TopSheet>
+    </BottomSheet>
   );
 }
 
-const makeStyles = (colors: Colors, topInset: number) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    root: {
-      flexShrink: 1,
-      paddingTop: topInset + 10,
+    sheetFill: {
+      flex: 1,
     },
+
+    // Search — rendered only while Search mode is active, docked above the
+    // tab bar at the bottom of the sheet (thumb reach).
     searchWrap: {
       alignItems: "center",
       backgroundColor: colors.panel,
@@ -611,7 +1010,9 @@ const makeStyles = (colors: Colors, topInset: number) =>
       borderWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
       gap: 8,
+      marginBottom: 10,
       marginHorizontal: 16,
+      marginTop: 12,
       paddingHorizontal: 11,
     },
     searchInput: {
@@ -622,16 +1023,22 @@ const makeStyles = (colors: Colors, topInset: number) =>
       letterSpacing: -0.2,
       paddingVertical: 10,
     },
-    // Hug content when sparse; shrink (and scroll) once the sheet hits its
-    // max-height cap.
+
+    // Hug content naturally; the sheet itself fills the screen and the lists
+    // scroll inside the region between any expanded field and the tab bar.
     scroll: {
-      flexGrow: 0,
+      flexGrow: 1,
       flexShrink: 1,
     },
     scrollContent: {
       paddingBottom: 24,
       paddingHorizontal: 16,
       paddingTop: 14,
+    },
+    centeredState: {
+      alignItems: "center",
+      flex: 1,
+      justifyContent: "center",
     },
     sectionLabel: {
       color: colors.textMuted,
@@ -644,12 +1051,13 @@ const makeStyles = (colors: Colors, topInset: number) =>
     },
     empty: {
       color: colors.textMuted,
+      flex: 1,
       fontFamily: fonts.sans.regular,
       fontSize: 14,
       lineHeight: 20,
-      paddingBottom: 10,
-      paddingHorizontal: 2,
-      paddingVertical: 6,
+      padding: 24,
+      textAlign: "center",
+      textAlignVertical: "center",
     },
     rowSeparator: {
       height: 4,
@@ -742,5 +1150,63 @@ const makeStyles = (colors: Colors, topInset: number) =>
       letterSpacing: -0.1,
       lineHeight: 16,
       marginTop: 2,
+    },
+
+    scheduleRowBusy: {
+      opacity: 0.5,
+    },
+    scheduleBadgePaused: {
+      color: colors.accent,
+    },
+    scheduleActions: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 6,
+    },
+    scheduleActionButton: {
+      alignItems: "center",
+      borderColor: colors.border,
+      borderRadius: 13,
+      borderWidth: StyleSheet.hairlineWidth,
+      height: 26,
+      justifyContent: "center",
+      width: 26,
+    },
+    scheduleActionButtonPressed: {
+      backgroundColor: fadeHex(colors.text, 0.08),
+    },
+
+    tabBar: {
+      flexDirection: "row",
+      paddingBottom: 10,
+      paddingHorizontal: 8,
+      paddingTop: 8,
+    },
+    tabBarHairline: {
+      backgroundColor: fadeHex(colors.border, 0.7),
+      height: StyleSheet.hairlineWidth,
+      left: 0,
+      position: "absolute",
+      right: 0,
+      top: 0,
+    },
+    tabButton: {
+      alignItems: "center",
+      borderRadius: 10,
+      flex: 1,
+      gap: 3,
+      paddingVertical: 4,
+    },
+    tabButtonPressed: {
+      opacity: 0.7,
+    },
+    tabLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 11,
+      letterSpacing: -0.1,
+    },
+    tabLabelActive: {
+      color: colors.accent,
     },
   });

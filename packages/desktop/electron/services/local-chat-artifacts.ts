@@ -100,6 +100,12 @@ export type MobileToolStep = {
   status: "completed" | "error";
   /** Pruned string args used only to build the per-call title (path, query…). */
   args?: Record<string, string>;
+  /**
+   * Bounded human-readable result preview, carried only for tools whose
+   * result the phone renders directly (Schedule receipts). The runtime
+   * already caps and redacts this value — never carry the raw result.
+   */
+  resultPreview?: string;
 };
 
 /**
@@ -1101,6 +1107,7 @@ export const deriveMobileToolSteps = (
     toolName: string;
     status: "running" | "completed" | "error";
     args?: Record<string, string>;
+    resultPreview?: string;
   };
   const order: string[] = [];
   const byId = new Map<string, Build>();
@@ -1124,6 +1131,18 @@ export const deriveMobileToolSteps = (
       const existing = byId.get(requestId);
       if (!existing) continue;
       existing.status = payload.error ? "error" : "completed";
+      // Schedule receipts ride the step so the phone can render the tool's
+      // human-readable result as a plain text line (desktop parity). The
+      // runtime's `resultPreview` is already bounded + redacted.
+      if (
+        typeof payload.toolName === "string" &&
+        payload.toolName.toLowerCase() === "schedule" &&
+        !payload.error &&
+        typeof payload.resultPreview === "string" &&
+        payload.resultPreview.trim()
+      ) {
+        existing.resultPreview = payload.resultPreview.trim();
+      }
     }
   }
   const steps: MobileToolStep[] = [];
@@ -1135,6 +1154,7 @@ export const deriveMobileToolSteps = (
       toolName: build.toolName,
       status: build.status,
       ...(build.args ? { args: build.args } : {}),
+      ...(build.resultPreview ? { resultPreview: build.resultPreview } : {}),
     });
   }
   return steps;

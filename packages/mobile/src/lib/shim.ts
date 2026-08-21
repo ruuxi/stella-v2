@@ -791,6 +791,8 @@ export function generateShimScript(
       listConversationEvents: function(p) { return invoke('schedule:listConversationEvents', p); },
       getConversationEventCount: function(p) { return invoke('schedule:getConversationEventCount', p); },
       onUpdated: function(cb) { return subscribe('schedule:updated', cb); },
+      updateCronJob: function(p) { return invoke('schedule:updateCronJob', p); },
+      removeCronJob: function(p) { return invoke('schedule:removeCronJob', p); },
     },
 
     // ── Store / self-mod ────────────────────────────────────────────────

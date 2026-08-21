@@ -1391,17 +1391,6 @@
         "dismiss": "أغلق المعاينة",
         "jumpToLatest": "انتقل إلى أحدث رد"
       },
-      "scheduleReceipt": {
-        "nextRun": "التالي {nextRun}",
-        "scheduleCount": {
-          "zero": "{count} جدولة",
-          "one": "{count} جدولة",
-          "two": "{count} جدولتان",
-          "few": "{count} جدولات",
-          "many": "{count} جدولة",
-          "other": "{count} جدولة"
-        }
-      },
       "screenshotPreview": {
         "alt": "معاينة لقطة الشاشة {index}"
       },

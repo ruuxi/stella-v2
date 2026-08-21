@@ -1369,15 +1369,6 @@
         "dismiss": "Zavřít náhled",
         "jumpToLatest": "Přejít na nejnovější odpověď"
       },
-      "scheduleReceipt": {
-        "nextRun": "příště {nextRun}",
-        "scheduleCount": {
-          "one": "{count} plán",
-          "few": "{count} plány",
-          "many": "{count} plánu",
-          "other": "{count} plánů"
-        }
-      },
       "screenshotPreview": {
         "alt": "Náhled snímku obrazovky {index}"
       },

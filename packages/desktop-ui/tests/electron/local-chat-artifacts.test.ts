@@ -4,8 +4,8 @@ import {
   buildMobileSyncMessages,
   decodeMobileSyncCursor,
   deriveMobileArtifactsForMessage,
+  deriveMobileToolSteps,
 } from "@stella/desktop/electron/services/local-chat-artifacts.js";
-import type { MessageRecord } from "@stella/contracts/local-chat";
 
 const baseMessage = (overrides: Partial<MessageRecord>): MessageRecord => ({
   _id: "message-1",
@@ -17,6 +17,84 @@ const baseMessage = (overrides: Partial<MessageRecord>): MessageRecord => ({
 });
 
 describe("local chat mobile artifacts", () => {
+  it("carries the bounded schedule receipt on settled Schedule tool steps", () => {
+    const message = baseMessage({
+      toolEvents: [
+        {
+          _id: "tool-1",
+          timestamp: 1_100,
+          type: "tool_request",
+          payload: { toolName: "Schedule", requestId: "req-1", args: {} },
+        },
+        {
+          _id: "tool-2",
+          timestamp: 1_200,
+          type: "tool_result",
+          payload: {
+            toolName: "Schedule",
+            requestId: "req-1",
+            resultPreview: "Set up daily morning and evening check-ins.",
+          },
+        },
+      ],
+    });
+
+    expect(deriveMobileToolSteps(message)).toEqual([
+      {
+        id: "req-1",
+        toolName: "Schedule",
+        status: "completed",
+        resultPreview: "Set up daily morning and evening check-ins.",
+      },
+    ]);
+  });
+
+  it("never carries a result preview for non-Schedule or failed tools", () => {
+    const message = baseMessage({
+      toolEvents: [
+        {
+          _id: "tool-1",
+          timestamp: 1_100,
+          type: "tool_request",
+          payload: { toolName: "web", requestId: "req-1", args: {} },
+        },
+        {
+          _id: "tool-2",
+          timestamp: 1_200,
+          type: "tool_result",
+          payload: {
+            toolName: "web",
+            requestId: "req-1",
+            resultPreview: "3 results about cron syntax",
+          },
+        },
+        {
+          _id: "tool-3",
+          timestamp: 1_300,
+          type: "tool_request",
+          payload: { toolName: "schedule", requestId: "req-2", args: {} },
+        },
+        {
+          _id: "tool-4",
+          timestamp: 1_400,
+          type: "tool_result",
+          payload: {
+            toolName: "schedule",
+            requestId: "req-2",
+            error: "Scheduling failed",
+            resultPreview: "should not ride an errored step",
+          },
+        },
+      ],
+    });
+
+    const steps = deriveMobileToolSteps(message);
+    expect(steps.map((step) => step.resultPreview)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("derives display payloads from file-producing tool events", () => {
     const artifacts = deriveMobileArtifactsForMessage(
       baseMessage({

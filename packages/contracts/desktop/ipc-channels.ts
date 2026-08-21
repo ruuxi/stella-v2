@@ -360,6 +360,13 @@ export const IPC_SCHEDULE_LIST_CONVERSATION_EVENTS =
 export const IPC_SCHEDULE_GET_EVENT_COUNT =
   "schedule:getConversationEventCount" as const;
 export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
+// Mobile-bridge mutation lanes: the phone's Schedule tab pauses/resumes and
+// removes cron jobs through the same privileged handlers the desktop dialog
+// uses (heartbeats stay read-only on mobile for now).
+export const IPC_SCHEDULE_UPDATE_CRON_JOB =
+  "schedule:updateCronJob" as const;
+export const IPC_SCHEDULE_REMOVE_CRON_JOB =
+  "schedule:removeCronJob" as const;
 
 // ── Store ───────────────────────────────────────────────────────────────────
 

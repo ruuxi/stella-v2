@@ -1336,12 +1336,6 @@
         "dismiss": "Đóng bản xem trước",
         "jumpToLatest": "Nhảy tới câu trả lời mới nhất"
       },
-      "scheduleReceipt": {
-        "nextRun": "lần tới {nextRun}",
-        "scheduleCount": {
-          "other": "{count} lịch"
-        }
-      },
       "screenshotPreview": {
         "alt": "Xem trước ảnh chụp màn hình {index}"
       },

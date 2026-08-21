@@ -1347,13 +1347,6 @@
         "dismiss": "Vorschau schließen",
         "jumpToLatest": "Zur neuesten Antwort springen"
       },
-      "scheduleReceipt": {
-        "nextRun": "nächster Lauf {nextRun}",
-        "scheduleCount": {
-          "one": "{count} Zeitplan",
-          "other": "{count} Zeitpläne"
-        }
-      },
       "screenshotPreview": {
         "alt": "Screenshot-Vorschau {index}"
       },

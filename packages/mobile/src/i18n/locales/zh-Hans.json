@@ -1336,12 +1336,6 @@
         "dismiss": "关闭预览",
         "jumpToLatest": "跳到最新回复"
       },
-      "scheduleReceipt": {
-        "nextRun": "下次 {nextRun}",
-        "scheduleCount": {
-          "other": "{count} 个日程"
-        }
-      },
       "screenshotPreview": {
         "alt": "截图预览 {index}"
       },

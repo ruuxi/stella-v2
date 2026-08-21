@@ -1336,12 +1336,6 @@
         "dismiss": "關閉預覽",
         "jumpToLatest": "跳到最新回覆"
       },
-      "scheduleReceipt": {
-        "nextRun": "下次 {nextRun}",
-        "scheduleCount": {
-          "other": "{count} 個排程"
-        }
-      },
       "screenshotPreview": {
         "alt": "螢幕截圖預覽 {index}"
       },

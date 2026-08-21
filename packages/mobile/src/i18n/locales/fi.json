@@ -1347,13 +1347,6 @@
         "dismiss": "Hylkää esikatselu",
         "jumpToLatest": "Siirry uusimpaan vastaukseen"
       },
-      "scheduleReceipt": {
-        "nextRun": "seuraava {nextRun}",
-        "scheduleCount": {
-          "one": "{count} ajastus",
-          "other": "{count} ajastusta"
-        }
-      },
       "screenshotPreview": {
         "alt": "Kuvakaappauksen esikatselu {index}"
       },

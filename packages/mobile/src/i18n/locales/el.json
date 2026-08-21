@@ -1347,13 +1347,6 @@
         "dismiss": "Απόρριψη προεπισκόπησης",
         "jumpToLatest": "Μετάβαση στην τελευταία απάντηση"
       },
-      "scheduleReceipt": {
-        "nextRun": "επόμενη {nextRun}",
-        "scheduleCount": {
-          "one": "{count} προγραμματισμός",
-          "other": "{count} προγραμματισμοί"
-        }
-      },
       "screenshotPreview": {
         "alt": "Προεπισκόπηση στιγμιότυπου {index}"
       },

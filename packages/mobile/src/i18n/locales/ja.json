@@ -1336,12 +1336,6 @@
         "dismiss": "プレビューを閉じる",
         "jumpToLatest": "最新の返信へ移動"
       },
-      "scheduleReceipt": {
-        "nextRun": "次回 {nextRun}",
-        "scheduleCount": {
-          "other": "{count} 件のスケジュール"
-        }
-      },
       "screenshotPreview": {
         "alt": "スクリーンショットのプレビュー {index}"
       },

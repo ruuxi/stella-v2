@@ -31,7 +31,13 @@ export type ToolStep = {
   toolName: string;
   status: ToolActivityStatus;
   /** Pruned string args used to build the per-call title. */
+  /** Pruned string args used to build the per-call title. */
   args?: Record<string, string>;
+  /**
+   * Bounded tool-result preview, carried only for tools whose result the UI
+   * renders directly (Schedule receipts). Never the raw unbounded result.
+   */
+  resultPreview?: string;
   /** Immutable character position where normal chat first observed the call. */
   textOffset?: number;
 };

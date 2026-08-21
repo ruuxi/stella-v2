@@ -6,8 +6,11 @@
  * `currentColor`. No WebGL, no animation; while a row is running the title
  * shimmer carries the motion, the star just sits quietly in the leading
  * slot.
+ *
+ * This is the locked-in "candidate A" from the glyph sampler — 13px, same
+ * path and muted ink as sampled.
  */
-export function StellaStarGlyph({ size = 14 }: { size?: number }) {
+export function StellaStarGlyph({ size = 13 }: { size?: number }) {
   return (
     <svg
       className="agent-activity-star"

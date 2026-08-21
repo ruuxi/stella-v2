@@ -121,11 +121,15 @@ export function ShimmerText({
   const dim = fadeHex(color, dimAlpha);
   const peak = fadeHex(color, PEAK_ALPHA);
   // Trough: a dim band crosses bright resting text. Highlight: inverted —
-  // dim resting text with a bright peak sweeping across it.
+  // dim resting text with a bright peak sweeping across it. The highlight's
+  // bright band is wider and softer-edged than the trough (a broad wave that
+  // clearly lights the glyphs as it passes, not a thin glint).
   const band: [string, string, string, string, string] =
     variant === "highlight"
       ? [dim, dim, peak, dim, dim]
       : [peak, peak, dim, peak, peak];
+  const bandLocations: [number, number, number, number, number] =
+    variant === "highlight" ? [0, 0.22, 0.5, 0.78, 1] : [0, 0.4, 0.5, 0.6, 1];
 
   return (
     <MaskedView
@@ -146,7 +150,7 @@ export function ShimmerText({
       >
         <LinearGradient
           colors={band}
-          locations={[0, 0.4, 0.5, 0.6, 1]}
+          locations={bandLocations}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={StyleSheet.absoluteFill}

@@ -695,6 +695,81 @@ export const listDueProviderCancellations = internalQuery({
       .take(Math.max(1, Math.min(args.limit, 100))),
 });
 
+/**
+ * Cheap cron gate for the three media cleanup retry queues. The drain
+ * `internalAction`s are expensive to spin up (Node isolates) yet their queues
+ * are empty in the overwhelming majority of sweeps, so mirror the
+ * `sweepOrphanedTurns` pattern: run the bounded "is there work?" index reads
+ * in a single mutation and only schedule a drain action when its queue
+ * actually has due rows. Preserves all real cleanup behavior — only the idle
+ * per-minute action spin is cut.
+ */
+export const sweepMediaCleanupQueues = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  returns: v.object({
+    blobCleanupDue: v.boolean(),
+    payloadManifestsDue: v.boolean(),
+    providerCancellationsDue: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    const blobDue = await ctx.db
+      .query("media_private_blob_cleanup")
+      .withIndex("by_state_and_nextAttemptAt", (q) =>
+        q.eq("state", "pending").lte("nextAttemptAt", now),
+      )
+      .first();
+
+    let manifestDue = false;
+    for (const state of ["pending", "uploading", "held"] as const) {
+      const row = await ctx.db
+        .query("media_private_payload_manifests")
+        .withIndex("by_state_and_nextAttemptAt", (q) =>
+          q.eq("state", state).lte("nextAttemptAt", now),
+        )
+        .first();
+      if (row) {
+        manifestDue = true;
+        break;
+      }
+    }
+
+    const cancellationDue = await ctx.db
+      .query("media_provider_cancellations")
+      .withIndex("by_nextAttemptAt", (q) => q.lte("nextAttemptAt", now))
+      .first();
+
+    if (blobDue) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.drainPrivateBlobCleanup,
+        { limit: args.limit },
+      );
+    }
+    if (manifestDue) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.drainPrivatePayloadManifests,
+        { limit: args.limit },
+      );
+    }
+    if (cancellationDue) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.media_image_submission.drainProviderCancellations,
+        { limit: args.limit },
+      );
+    }
+
+    return {
+      blobCleanupDue: Boolean(blobDue),
+      payloadManifestsDue: manifestDue,
+      providerCancellationsDue: Boolean(cancellationDue),
+    };
+  },
+});
+
 export const completeProviderCancellation = internalMutation({
   args: { jobId: v.string() },
   returns: v.null(),

@@ -221,6 +221,7 @@ import type * as stella_provider_billing from "../stella_provider/billing.js";
 import type * as stella_provider_relay_usage from "../stella_provider/relay_usage.js";
 import type * as stella_provider_request from "../stella_provider/request.js";
 import type * as stella_provider_shared from "../stella_provider/shared.js";
+import type * as telemetry_retention from "../telemetry_retention.js";
 import type * as tools_backend from "../tools/backend.js";
 import type * as tools_index from "../tools/index.js";
 import type * as tools_types from "../tools/types.js";
@@ -448,6 +449,7 @@ declare const fullApi: ApiFromModules<{
   "stella_provider/relay_usage": typeof stella_provider_relay_usage;
   "stella_provider/request": typeof stella_provider_request;
   "stella_provider/shared": typeof stella_provider_shared;
+  telemetry_retention: typeof telemetry_retention;
   "tools/backend": typeof tools_backend;
   "tools/index": typeof tools_index;
   "tools/types": typeof tools_types;

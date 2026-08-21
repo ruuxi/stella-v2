@@ -77,8 +77,16 @@
 }
 
 /* The running-state title shimmer clips to the same single line as the
-   plain title so a long description ellipses instead of overflowing. */
+   plain title so a long description ellipses instead of overflowing.
+
+   Polarity is INVERTED from the TextShimmer default: the resting text sits
+   dim (`--text-shimmer-from`, the row's muted ink) and the moving band
+   lights it up toward full strength (`--text-shimmer-via`) — light sweeping
+   across dim text, not a shadow crossing bright text. Under reduced motion
+   the sweep never renders, leaving just the dimmed base. */
 .agent-activity-row__title .text-shimmer {
+  --text-shimmer-from: var(--text-weak);
+  --text-shimmer-via: var(--text-strong);
   display: block;
   min-width: 0;
   overflow: hidden;

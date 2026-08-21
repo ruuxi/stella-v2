@@ -29,7 +29,6 @@ describe("assistantRowHasNonBackgroundContent", () => {
     ["inlineImagePayloads", { inlineImagePayloads: [{} as never] }],
     ["webSearchResults", { webSearchResults: [{} as never] }],
     ["sourceDiffPayloads", { sourceDiffPayloads: [{} as never] }],
-    ["scheduleReceipt", { scheduleReceipt: { affected: [] } }],
     ["voiceSession", { voiceSession: {} as never }],
     ["customSlot", { customSlot: {} as never }],
   ];
@@ -81,7 +80,6 @@ describe("assistantRowHasVisibleContent", () => {
     ["mapArtifacts", { mapArtifacts: [{} as never] }],
     ["sourceDiffPayloads", { sourceDiffPayloads: [{} as never] }],
     ["customSlot", { customSlot: {} as never }],
-    ["scheduleReceipt", { scheduleReceipt: { affected: [{} as never] } }],
     ["voiceSession", { voiceSession: {} as never }],
     [
       "backgroundWork",
@@ -118,7 +116,6 @@ describe("assistantRowHasVisibleContent", () => {
     expect(
       assistantRowHasVisibleContent({
         ...baseRow(),
-        scheduleReceipt: { affected: [] },
         agentCompletion: { sections: [] } as never,
         backgroundWork: {
           threadIds: [],

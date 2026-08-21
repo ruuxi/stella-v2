@@ -14,7 +14,6 @@ import type { ToolActivityGroup } from "@/features/chat/lib/tool-activity";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import type { VoiceSessionSummaryMetadata } from "@stella/contracts/local-chat";
-import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
 
 export type UserRowViewModel = {
   kind: "user";
@@ -93,16 +92,6 @@ export type AssistantRowViewModel = {
    */
   sourceDiffPayloads?: DisplayPayload[];
   selfModApplied?: SelfModApplied;
-  /**
-   * Inline "Scheduled" receipt chip shown after the orchestrator's
-   * `Schedule` tool returns. Carries the structured affected entries
-   * straight from the tool result so click -> dialog has no race with
-   * a separate IPC fetch.
-   */
-  scheduleReceipt?: {
-    affected: ScheduleToolAffectedRef[];
-    summary?: string;
-  };
   /**
    * Present on the visible assistant message a realtime voice session
    * writes when it ends. Renders the polished "Voice session" summary

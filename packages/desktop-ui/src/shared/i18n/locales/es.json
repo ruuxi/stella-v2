@@ -1358,14 +1358,6 @@
         "dismiss": "Descartar la vista previa",
         "jumpToLatest": "Ir a la última respuesta"
       },
-      "scheduleReceipt": {
-        "nextRun": "siguiente {nextRun}",
-        "scheduleCount": {
-          "one": "{count} programación",
-          "many": "{count} programaciones",
-          "other": "{count} programaciones"
-        }
-      },
       "screenshotPreview": {
         "alt": "Vista previa de la captura {index}"
       },

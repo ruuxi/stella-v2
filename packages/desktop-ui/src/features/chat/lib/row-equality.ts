@@ -71,25 +71,6 @@ const channelEnvelopeEqual = (
   );
 };
 
-const scheduleReceiptEqual = (
-  a: AssistantRowViewModel["scheduleReceipt"],
-  b: AssistantRowViewModel["scheduleReceipt"],
-): boolean => {
-  if (a === b) return true;
-  if (!a || !b) return a === b;
-  if ((a.summary ?? null) !== (b.summary ?? null)) return false;
-  if (a.affected.length !== b.affected.length) return false;
-  for (let i = 0; i < a.affected.length; i += 1) {
-    const left = a.affected[i];
-    const right = b.affected[i];
-    if (left.kind !== right.kind) return false;
-    if (left.id !== right.id) return false;
-    if (left.enabled !== right.enabled) return false;
-    if (left.nextRunAtMs !== right.nextRunAtMs) return false;
-  }
-  return true;
-};
-
 const resourcePayloadEqual = (
   a: DisplayPayload | undefined,
   b: DisplayPayload | undefined,
@@ -403,7 +384,6 @@ const assistantRowEqual = (
   sourceDiffPayloadsEqual(a.sourceDiffPayloads, b.sourceDiffPayloads) &&
   webSearchResultsEqual(a.webSearchResults, b.webSearchResults) &&
   mapArtifactsEqual(a.mapArtifacts, b.mapArtifacts) &&
-  scheduleReceiptEqual(a.scheduleReceipt, b.scheduleReceipt) &&
   backgroundWorkEqual(a.backgroundWork, b.backgroundWork) &&
   agentCompletionEqual(a.agentCompletion, b.agentCompletion) &&
   (a.voiceSession?.durationMs ?? null) ===

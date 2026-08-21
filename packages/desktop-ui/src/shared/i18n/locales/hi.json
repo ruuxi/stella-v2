@@ -1347,13 +1347,6 @@
         "dismiss": "पूर्वावलोकन हटाएँ",
         "jumpToLatest": "नवीनतम उत्तर पर जाएँ"
       },
-      "scheduleReceipt": {
-        "nextRun": "अगला {nextRun}",
-        "scheduleCount": {
-          "one": "{count} शेड्यूल",
-          "other": "{count} शेड्यूल"
-        }
-      },
       "screenshotPreview": {
         "alt": "स्क्रीनशॉट पूर्वावलोकन {index}"
       },

@@ -54,7 +54,6 @@ import { WebSearchResultsStrip } from "@/app/chat/WebSearchResultsStrip";
 import { MapRouteCards } from "@/app/chat/MapRouteCard";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
-import { ScheduleReceiptChip } from "@/app/chat/ScheduleReceiptChip";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
@@ -624,9 +623,6 @@ export const AssistantMessageRow = memo(
     const hasText = text.trim().length > 0;
     const hasWebSearchResults = (row.webSearchResults?.length ?? 0) > 0;
     const hasMapArtifacts = (row.mapArtifacts?.length ?? 0) > 0;
-    const hasScheduleReceipt = Boolean(
-      row.scheduleReceipt && row.scheduleReceipt.affected.length > 0,
-    );
     const hasVoiceSession = Boolean(row.voiceSession);
     const hasBackgroundWork = Boolean(
       row.backgroundWork && row.backgroundWork.threadIds.length > 0,
@@ -741,12 +737,6 @@ export const AssistantMessageRow = memo(
           ) : row.resourcePayload ? (
             <EndResourceCard payload={row.resourcePayload} />
           ) : null}
-          {hasScheduleReceipt && row.scheduleReceipt && (
-            <ScheduleReceiptChip
-              affected={row.scheduleReceipt.affected}
-              summary={row.scheduleReceipt.summary}
-            />
-          )}
           {row.customSlot ? row.customSlot : null}
           {hasText && !row.isIntraTurn && (
             // Only a turn's final assistant message carries the action strip.

@@ -1336,12 +1336,6 @@
         "dismiss": "ปิดตัวอย่าง",
         "jumpToLatest": "ไปที่คำตอบล่าสุด"
       },
-      "scheduleReceipt": {
-        "nextRun": "ครั้งถัดไป {nextRun}",
-        "scheduleCount": {
-          "other": "{count} กำหนดการ"
-        }
-      },
       "screenshotPreview": {
         "alt": "ตัวอย่างภาพหน้าจอ {index}"
       },

@@ -1369,15 +1369,6 @@
         "dismiss": "Скрыть предпросмотр",
         "jumpToLatest": "Перейти к последнему ответу"
       },
-      "scheduleReceipt": {
-        "nextRun": "следующий {nextRun}",
-        "scheduleCount": {
-          "one": "{count} расписание",
-          "few": "{count} расписания",
-          "many": "{count} расписаний",
-          "other": "{count} расписания"
-        }
-      },
       "screenshotPreview": {
         "alt": "Предпросмотр снимка экрана {index}"
       },

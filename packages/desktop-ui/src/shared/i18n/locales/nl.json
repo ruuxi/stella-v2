@@ -1347,13 +1347,6 @@
         "dismiss": "Voorbeeld sluiten",
         "jumpToLatest": "Naar nieuwste antwoord"
       },
-      "scheduleReceipt": {
-        "nextRun": "volgende {nextRun}",
-        "scheduleCount": {
-          "one": "{count} planning",
-          "other": "{count} planningen"
-        }
-      },
       "screenshotPreview": {
         "alt": "Voorbeeld schermafbeelding {index}"
       },

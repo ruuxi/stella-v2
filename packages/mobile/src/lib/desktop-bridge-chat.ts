@@ -2215,6 +2215,9 @@ export async function sendDesktopBridgeChat({
               createdAt: existingCreatedAt ?? Date.now(),
               textOffset: streamedChars,
               textOffsetsByAgentId: { [agentId]: streamedChars },
+              // A steer re-activation renders with the arrow tell once it
+              // settles; a fresh spawn resets the card to the plain variant.
+              ...(isFollowUp ? { followUp: true } : {}),
             },
           },
         ]);
@@ -2272,6 +2275,10 @@ export async function sendDesktopBridgeChat({
                 ? { textOffsetsByAgentId: basePayload.textOffsetsByAgentId }
                 : {}),
               ...(basePayload?.agents ? { agents: basePayload.agents } : {}),
+              ...(basePayload?.followUp ? { followUp: true } : {}),
+              // Failure/cancel settles the row plain — the card face keeps the
+              // star instead of flipping to the done check.
+              ...(event.type !== "agent-completed" ? { failed: true } : {}),
             },
           },
         ]);

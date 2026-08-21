@@ -32,6 +32,14 @@ export type MobileAgentWorkPayload = {
   title: string;
   /** Status line ("Working in background" / "N of M done" / "Finished"). */
   subtitle: string;
+  /**
+   * The single covered thread's latest activation was a `send_input`
+   * follow-up (a steer), not a fresh spawn — mobile's settled row shows the
+   * arrow tell instead of the done check, matching the desktop
+   * `BackgroundWorkCard`. Never set on multi-thread tallies. Additive; older
+   * mobile clients safely ignore it.
+   */
+  followUp?: boolean;
   createdAt: number;
   /**
    * Per-agent produced-file sections — the mobile analogue of the desktop
@@ -767,6 +775,12 @@ const deriveAgentWorkPayload = (
   // follow-up carries its title in `statusText`; a plain spawn in `description`.
   const descriptionAtMs: Record<string, number> = {};
   const spawnedAtMs: Record<string, number> = {};
+  // Whether each agent's LATEST activation was a `send_input` follow-up —
+  // a steer flips the card to its follow-up variant; a later fresh spawn
+  // resets it (matching desktop `getBackgroundWork` reading the latest
+  // occurrence).
+  const followUpByAgentId: Record<string, boolean> = {};
+  const activationAtMs: Record<string, number> = {};
   let createdAt = 0;
 
   for (const event of message.toolEvents) {
@@ -783,6 +797,10 @@ const deriveAgentWorkPayload = (
     if (label && event.timestamp >= (descriptionAtMs[agentId] ?? -1)) {
       descriptions[agentId] = label;
       descriptionAtMs[agentId] = event.timestamp;
+    }
+    if (event.timestamp >= (activationAtMs[agentId] ?? -1)) {
+      followUpByAgentId[agentId] = isFollowUp;
+      activationAtMs[agentId] = event.timestamp;
     }
     if (event.timestamp > (spawnedAtMs[agentId] ?? 0)) {
       spawnedAtMs[agentId] = event.timestamp;
@@ -855,6 +873,9 @@ const deriveAgentWorkPayload = (
       completed,
       title,
       subtitle,
+      ...(total === 1 && followUpByAgentId[threadIds[0]!] === true
+        ? { followUp: true }
+        : {}),
       createdAt,
       agents,
     },

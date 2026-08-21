@@ -20,10 +20,18 @@ const DEFAULT_DIM_ALPHA = 0.15;
 const PEAK_ALPHA = 1;
 
 /**
- * A single line of text with a left→right highlight sweep, mirroring the
- * desktop `TextShimmer` (masked gradient over the glyphs). Used for live /
+ * A single line of text with a left→right sweep, mirroring the desktop
+ * `TextShimmer` (masked gradient over the glyphs). Used for live /
  * in-progress labels. When `active` is false it renders as plain text, so the
  * same node can settle without remounting.
+ *
+ * Two polarities:
+ *   - `"trough"` (default): bright resting text with a dim band sweeping
+ *     across it — the original treatment.
+ *   - `"highlight"`: INVERTED — the resting glyphs sit dimmed (at `dimAlpha`
+ *     of `color`) and the moving band brightens them up to full strength as
+ *     it passes, reading as a light sweeping across dim text. Used by the
+ *     minimal agent activity rows (matches desktop's inverted shimmer).
  */
 export function ShimmerText({
   text,
@@ -32,6 +40,7 @@ export function ShimmerText({
   textStyle,
   durationMs = DEFAULT_DURATION_MS,
   dimAlpha = DEFAULT_DIM_ALPHA,
+  variant = "trough",
 }: {
   text: string;
   active: boolean;
@@ -40,6 +49,8 @@ export function ShimmerText({
   textStyle: TextStyle | TextStyle[];
   durationMs?: number;
   dimAlpha?: number;
+  /** Sweep polarity — see the component doc. */
+  variant?: "trough" | "highlight";
 }) {
   const shimmer = useRef(new Animated.Value(0)).current;
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -109,6 +120,12 @@ export function ShimmerText({
 
   const dim = fadeHex(color, dimAlpha);
   const peak = fadeHex(color, PEAK_ALPHA);
+  // Trough: a dim band crosses bright resting text. Highlight: inverted —
+  // dim resting text with a bright peak sweeping across it.
+  const band: [string, string, string, string, string] =
+    variant === "highlight"
+      ? [dim, dim, peak, dim, dim]
+      : [peak, peak, dim, peak, peak];
 
   return (
     <MaskedView
@@ -128,7 +145,7 @@ export function ShimmerText({
         }}
       >
         <LinearGradient
-          colors={[peak, peak, dim, peak, peak]}
+          colors={band}
           locations={[0, 0.4, 0.5, 0.6, 1]}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}

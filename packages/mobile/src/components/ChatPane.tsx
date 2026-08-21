@@ -1287,6 +1287,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onStartSelecting,
   onEndSelecting,
   onAskStella,
+  onOpenAgentActivity,
   desktopAccess,
 }: {
   item: ChatMessage;
@@ -1310,6 +1311,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onEndSelecting: () => void;
   /** Puts a selected assistant snippet into the composer ("Ask Stella"). */
   onAskStella: (text: string) => void;
+  /** Opens the activity hub — the tap-through target for agent rows. */
+  onOpenAgentActivity?: () => void;
   desktopAccess?: StoredPhoneAccess | null;
 }) {
   // The user bubble lifts (scales up + rises) while its long-press menu is open,
@@ -1476,17 +1479,14 @@ const ChatMessageRow = memo(function ChatMessageRow({
     );
   }
   const hasText = item.text.trim().length > 0;
-  // Desktop-parity consolidation: on a turn that delegated background work,
-  // the produced files fold INTO the agent-work card as pills (revealed
-  // together at completion) instead of popping as loose file cards; noise
-  // writes are filtered and declared deliverables lead. Rows without agent
-  // work keep the classic loose cards for orchestrator-direct outputs.
+  // Desktop-parity consolidation: agent lifecycle cards are expanded per
+  // agent, noise writes are filtered and declared deliverables lead. The
+  // minimal agent rows no longer surface file pills — agent-produced files
+  // stay reachable through the activity hub — so `agentFiles` is unused here.
   const {
     agentWork: agentWorkArtifacts,
     maps: mapArtifacts,
-    agentFiles,
     looseFiles,
-    agentWorkSettled,
   } = consolidated;
   const isStandIn = isStandInArtifactRow(item);
   // Agent-work is non-openable status UI, so it can mount as soon as the bridge
@@ -1494,13 +1494,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // streaming. File artifacts stay conservative: only show them once the
   // assistant row has finalized so tapping never races a partial artifact.
   const showAgentWork = !isStandIn && agentWorkArtifacts.length > 0;
-  // Agent-produced files reveal only once every covered agent settled — the
-  // files ride the run's completion, so they're complete by then.
-  const showAgentFiles =
-    showAgentWork &&
-    agentWorkSettled &&
-    Boolean(onOpenArtifact) &&
-    agentFiles.length > 0;
   // Map cards are self-contained payloads (no file to race), but wait for the
   // row to finalize so the card doesn't pop in mid-stream.
   const showMapArtifacts =
@@ -1698,18 +1691,29 @@ const ChatMessageRow = memo(function ChatMessageRow({
               ) : null;
             }
             const card = entry;
-            return (
-              <View key={card.artifact.id} style={styles.artifactGroup}>
-                <AgentWorkCard payload={card.payload} colors={colors} />
-                {inlineAgentWorkCardSections(card.artifact)?.map((section) => (
-                  <AgentCompletionCard
-                    key={`${card.artifact.id}:completion:${section.key}`}
-                    sections={[section]}
-                    colors={colors}
-                    {...(onOpenArtifact ? { onOpenArtifact } : {})}
-                  />
-                ))}
-              </View>
+            // The settled completion presentation REPLACES the spawn row in
+            // its slot (desktop parity) — per-agent check rows when the
+            // bridge shipped sections, otherwise the settled spawn row
+            // itself. A settled follow-up keeps the spawn row so its arrow
+            // tell survives.
+            const completionSections =
+              card.payload.state === "done" && card.payload.followUp !== true
+                ? (inlineAgentWorkCardSections(card.artifact) ?? [])
+                : [];
+            return completionSections.length > 0 ? (
+              <AgentCompletionCard
+                key={`${card.artifact.id}:completion`}
+                sections={completionSections}
+                colors={colors}
+                {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
+              />
+            ) : (
+              <AgentWorkCard
+                key={card.artifact.id}
+                payload={card.payload}
+                colors={colors}
+                {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
+              />
             );
           })}
         </View>,
@@ -1750,41 +1754,33 @@ const ChatMessageRow = memo(function ChatMessageRow({
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
         >
-          {groupAgentWorkArtifacts.flatMap((artifact, index) => {
-            // Two-card structural parity with desktop (BackgroundWorkCard +
-            // AgentCompletionCard): render the spawn/working card WITHOUT any
-            // sections (status only, persists after completion), then — once the
-            // work settles — a physically-separate completion card carrying the
-            // per-agent result summary and produced files.
-            const nodes = [
+          {groupAgentWorkArtifacts.map((artifact) => {
+            // Desktop parity: the settled completion presentation REPLACES
+            // the spawn row in its slot — per-agent check rows when the
+            // bridge shipped sections, otherwise the settled spawn row
+            // itself. A settled follow-up keeps the spawn row so its arrow
+            // tell survives. Rows carry the description only; produced files
+            // and result excerpts live in the activity hub.
+            const completionSections =
+              artifact.payload.state === "done" &&
+              artifact.payload.followUp !== true
+                ? (inlineAgentWorkCardSections(artifact) ?? [])
+                : [];
+            return completionSections.length > 0 ? (
+              <AgentCompletionCard
+                key={`${artifact.id}:completion`}
+                sections={completionSections}
+                colors={colors}
+                {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
+              />
+            ) : (
               <AgentWorkCard
                 key={artifact.id}
                 payload={artifact.payload}
                 colors={colors}
-              />,
-            ];
-            if (artifact.payload.state === "done") {
-              // Prefer the bridge's per-agent sections (desktop-computed
-              // attribution). Older desktops omit the field — fall back to
-              // folding the row's own files onto the last card's completion.
-              const bridgeSections = inlineAgentWorkCardSections(artifact);
-              const sections =
-                bridgeSections ??
-                (showAgentFiles && index === groupAgentWorkArtifacts.length - 1
-                  ? [{ key: `${artifact.id}:files`, files: agentFiles }]
-                  : []);
-              if (sections.length > 0) {
-                nodes.push(
-                  <AgentCompletionCard
-                    key={`${artifact.id}:completion`}
-                    sections={sections}
-                    colors={colors}
-                    {...(onOpenArtifact ? { onOpenArtifact } : {})}
-                  />,
-                );
-              }
-            }
-            return nodes;
+                {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
+              />
+            );
           })}
           {showMapArtifacts
             ? mapArtifacts.filter((artifact) => !inlineArtifactIds.has(artifact.id)).map((artifact) => (
@@ -3908,6 +3904,7 @@ export function ChatPane({
             onStartSelecting={startSelectingMessage}
             onEndSelecting={stopSelectingMessage}
             onAskStella={askStella}
+            onOpenAgentActivity={onOpenActivityHub}
             desktopAccess={realtimeVoiceDesktopAccess}
           />
         </FadeInMessage>
@@ -3927,6 +3924,7 @@ export function ChatPane({
       selectingMessageId,
       startSelectingMessage,
       stopSelectingMessage,
+      onOpenActivityHub,
       realtimeVoiceDesktopAccess,
     ],
   );

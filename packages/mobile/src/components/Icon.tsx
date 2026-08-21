@@ -16,6 +16,7 @@ export type IconName =
   | "chevron-right"
   | "arrow-up"
   | "arrow-up-right"
+  | "arrow-right"
   | "mic"
   | "mic-off"
   | "check"
@@ -71,6 +72,7 @@ const FEATHER_NAMES: Record<
   "chevron-right": "chevron-right",
   "arrow-up": "arrow-up",
   "arrow-up-right": "arrow-up-right",
+  "arrow-right": "arrow-right",
   mic: "mic",
   "mic-off": "mic-off",
   check: "check",
@@ -128,6 +130,7 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   "chevron-right": "chevron.right",
   "arrow-up": "arrow.up",
   "arrow-up-right": "arrow.up.right",
+  "arrow-right": "arrow.right",
   mic: "mic",
   "mic-off": "mic.slash",
   check: "checkmark",

@@ -107,6 +107,8 @@ const reconcileArtifact = (
       : "Working in background";
   return {
     ...artifact,
-    payload: { ...payload, state: "running", completed, subtitle },
+    // A card forced back to running sheds any stale settled-failure mark —
+    // its next terminal event re-derives the settled presentation.
+    payload: { ...payload, state: "running", completed, subtitle, failed: undefined },
   };
 };

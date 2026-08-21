@@ -1706,6 +1706,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 sections={completionSections}
                 colors={colors}
                 {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
+                {...(onOpenArtifact ? { onOpenArtifact } : {})}
               />
             ) : (
               <AgentWorkCard
@@ -1772,6 +1773,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 sections={completionSections}
                 colors={colors}
                 {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
+                {...(onOpenArtifact ? { onOpenArtifact } : {})}
               />
             ) : (
               <AgentWorkCard

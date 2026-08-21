@@ -14,8 +14,10 @@ import { fonts } from "../theme/fonts";
 const TITLE_SHIMMER_MS = 1900;
 
 /** Resting strength of the running title — the shimmer's bright band lifts
- *  the dimmed glyphs up to full ink as it passes (inverted polarity). */
-const RUNNING_REST_ALPHA = 0.45;
+ *  the dimmed glyphs up to full ink as it passes (inverted polarity).
+ *  Clearly legible on its own, just a touch dimmer than settled text so the
+ *  passing wave still reads as motion. */
+const RUNNING_REST_ALPHA = 0.7;
 
 /**
  * One minimal, chrome-less agent activity line — the mobile analogue of the

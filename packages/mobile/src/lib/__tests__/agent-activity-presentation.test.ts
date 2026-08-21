@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { deriveAgentActivityRow } from "../agent-activity-presentation";
+import {
+  FILE_PILL_CAP,
+  deriveAgentActivityRow,
+  deriveFilePillRow,
+} from "../agent-activity-presentation";
 
 const payload = (
   overrides: Partial<Parameters<typeof deriveAgentActivityRow>[0]> = {},
@@ -50,5 +54,32 @@ describe("deriveAgentActivityRow", () => {
     // Description-only contract: the model exposes nothing but the status
     // tell and the description — no subtitle, no provider, no excerpt.
     expect(Object.keys(row).sort()).toEqual(["glyph", "title", "working"]);
+  });
+});
+
+describe("deriveFilePillRow", () => {
+  const files = (count: number) =>
+    Array.from({ length: count }, (_, index) => `file-${index}`);
+
+  test("shows every produced file up to the cap with no overflow chip", () => {
+    const row = deriveFilePillRow(files(FILE_PILL_CAP), false);
+    expect(row.visible).toHaveLength(FILE_PILL_CAP);
+    expect(row.hiddenCount).toBe(0);
+  });
+
+  test("caps at FILE_PILL_CAP and reports the +N more overflow", () => {
+    const row = deriveFilePillRow(files(8), false);
+    expect(row.visible).toEqual(files(FILE_PILL_CAP));
+    expect(row.hiddenCount).toBe(8 - FILE_PILL_CAP);
+  });
+
+  test("expanding reveals the full list and clears the overflow chip", () => {
+    const row = deriveFilePillRow(files(8), true);
+    expect(row.visible).toHaveLength(8);
+    expect(row.hiddenCount).toBe(0);
+  });
+
+  test("keeps the pre-redesign cap of 5 chips (desktop PILL_CAP parity)", () => {
+    expect(FILE_PILL_CAP).toBe(5);
   });
 });

@@ -355,4 +355,55 @@ describe("settledAgentWorkCards", () => {
     expect(cards).toHaveLength(1);
     expect(cards[0]?.key).toBe("grp");
   });
+
+  test("marks a single settled card failed when its task errored or was canceled", () => {
+    const base = agentWork("agent-work:a1", "done") as AgentWorkChatArtifact;
+    for (const status of ["error", "canceled"] as const) {
+      const cards = settledAgentWorkCards(base, [
+        { id: "a1", title: "Task A", status, createdAt: 1 },
+      ]);
+      expect(cards).toHaveLength(1);
+      expect(cards[0]?.payload.failed).toBe(true);
+    }
+  });
+
+  test("does not mark failed for completed or still-running tasks", () => {
+    const done = agentWork("agent-work:a1", "done") as AgentWorkChatArtifact;
+    expect(
+      settledAgentWorkCards(done, [
+        { id: "a1", title: "Task A", status: "completed", createdAt: 1 },
+      ])[0]?.payload.failed,
+    ).toBe(undefined);
+    const running = agentWork(
+      "agent-work:a1",
+      "running",
+    ) as AgentWorkChatArtifact;
+    expect(
+      settledAgentWorkCards(running, [
+        { id: "a1", title: "Task A", status: "running", createdAt: 1 },
+      ])[0]?.payload.failed,
+    ).toBe(undefined);
+  });
+
+  test("split members carry their own failure and never inherit card-level flags", () => {
+    const cards = settledAgentWorkCards(
+      {
+        ...(grouped("done", [
+          section("a1", "Task A", "/Users/u/.stella/outputs/a.pdf"),
+          section("a2", "Task B", "/Users/u/.stella/outputs/b.pdf"),
+        ]) as AgentWorkChatArtifact),
+      },
+      [
+        { id: "a1", title: "Task A", status: "completed", createdAt: 1 },
+        { id: "a2", title: "Task B", status: "error", createdAt: 1 },
+      ],
+    );
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.payload.failed).toBe(undefined);
+    expect(cards[1]?.payload.failed).toBe(true);
+    // Multi-thread tallies are plain spawns — never the follow-up variant.
+    expect(cards.every((card) => card.payload.followUp === undefined)).toBe(
+      true,
+    );
+  });
 });

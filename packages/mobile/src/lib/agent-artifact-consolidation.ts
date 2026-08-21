@@ -226,10 +226,20 @@ export const settledAgentWorkCards = (
     ]),
   ];
   if (agentIds.length <= 1) {
+    // Presentation-only annotation: a card settled by failure/cancel keeps
+    // the plain star instead of the done check. The task rows carry the
+    // authoritative terminal status; the synced payload doesn't.
+    const singleTask = agentIds[0] ? taskById.get(agentIds[0]) : undefined;
+    const settledUnsuccessfully =
+      artifact.payload.state === "done" &&
+      (singleTask?.status === "error" || singleTask?.status === "canceled");
     return [
       {
         key: artifact.id,
-        payload: artifact.payload,
+        payload:
+          settledUnsuccessfully && artifact.payload.failed !== true
+            ? { ...artifact.payload, failed: true }
+            : artifact.payload,
         sections: inlineAgentWorkCardSections(artifact) ?? [],
       },
     ];
@@ -259,6 +269,14 @@ export const settledAgentWorkCards = (
       completed: done ? 1 : 0,
       title: task?.title || rawSection?.title || "Background work",
       subtitle,
+      // Failure/cancel settles this member's row plain (star, no check).
+      // Members never inherit card-level flags — a multi-thread card is a
+      // plain spawn tally (the follow-up variant is single-thread only).
+      followUp: undefined,
+      failed:
+        task && (task.status === "error" || task.status === "canceled")
+          ? true
+          : undefined,
       createdAt:
         task && task.createdAt > 0
           ? task.createdAt

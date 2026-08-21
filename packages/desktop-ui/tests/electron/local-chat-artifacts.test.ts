@@ -235,6 +235,86 @@ describe("local chat mobile artifacts", () => {
     });
   });
 
+  it("marks a single-thread card as a follow-up when its latest activation is a send_input steer", () => {
+    const now = Date.now();
+    const rows = buildMobileSyncMessages(
+      [
+        baseMessage({
+          _id: "a1",
+          timestamp: now,
+          payload: { text: "On it" },
+          toolEvents: [
+            {
+              _id: "as1",
+              timestamp: now - 3_000,
+              type: "agent-started",
+              payload: { agentId: "t1", description: "Book flights" },
+            },
+            {
+              _id: "as2",
+              timestamp: now - 1_000,
+              type: "agent-started",
+              payload: {
+                agentId: "t1",
+                isFollowUp: true,
+                description: "Book flights",
+                statusText: "Also check hotels",
+              },
+            },
+          ],
+        }),
+      ],
+      20,
+    );
+
+    expect(rows[0]?.artifacts?.[0]).toMatchObject({
+      id: "agent-work:t1",
+      payload: {
+        kind: "agent-work",
+        followUp: true,
+        title: "Also check hotels",
+      },
+    });
+  });
+
+  it("resets the follow-up mark when a fresh spawn is the latest activation", () => {
+    const now = Date.now();
+    const rows = buildMobileSyncMessages(
+      [
+        baseMessage({
+          _id: "a1",
+          timestamp: now,
+          payload: { text: "On it" },
+          toolEvents: [
+            {
+              _id: "as1",
+              timestamp: now - 3_000,
+              type: "agent-started",
+              payload: {
+                agentId: "t1",
+                isFollowUp: true,
+                statusText: "Also check hotels",
+              },
+            },
+            {
+              _id: "as2",
+              timestamp: now - 1_000,
+              type: "agent-started",
+              payload: { agentId: "t1", description: "Book flights" },
+            },
+          ],
+        }),
+      ],
+      20,
+    );
+
+    const payload = rows[0]?.artifacts?.[0]?.payload;
+    expect(payload).toMatchObject({ kind: "agent-work", title: "Book flights" });
+    expect(
+      payload && "followUp" in payload ? payload.followUp : undefined,
+    ).toBeUndefined();
+  });
+
   it("tallies multiple agents started in one turn", () => {
     const now = Date.now();
     const rows = buildMobileSyncMessages(

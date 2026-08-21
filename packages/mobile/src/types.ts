@@ -164,6 +164,19 @@ export type MobileDisplayPayload =
        * mobile falls back to row-scoped folding.
        */
       agents?: MobileAgentWorkFileSection[];
+      /**
+       * The card's latest activation was a `send_input` follow-up (a steer of
+       * an already-spawned thread) rather than a fresh spawn. Settled
+       * follow-up rows show the arrow tell instead of the done check,
+       * matching the desktop `BackgroundWorkCard`.
+       */
+      followUp?: boolean;
+      /**
+       * The work settled by failure/cancel rather than completing. Failed
+       * rows keep the plain star in the leading slot — no done check, no
+       * invented failure treatment (desktop parity).
+       */
+      failed?: boolean;
     }
   | {
       /**

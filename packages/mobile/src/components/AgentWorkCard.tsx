@@ -1,66 +1,38 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
-import { Icon, type IconName } from "./Icon";
-import { ShimmerText } from "./ShimmerText";
-import type { ChatArtifact, MobileDisplayPayload } from "../types";
-import { artifactIconName, artifactTitle } from "../lib/mobile-artifacts";
-import type { AgentWorkCardSection } from "../lib/agent-artifact-consolidation";
-import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
+import { useEffect, useMemo, useRef } from "react";
+import { Animated } from "react-native";
+import { AgentActivityRow } from "./AgentActivityRow";
+import type { MobileDisplayPayload } from "../types";
+import { deriveAgentActivityRow } from "../lib/agent-activity-presentation";
 import type { Colors } from "../theme/colors";
-import { fonts } from "../theme/fonts";
 
 type AgentWorkPayload = Extract<MobileDisplayPayload, { kind: "agent-work" }>;
 
-type AgentWorkCardProps = {
-  payload: AgentWorkPayload;
-  colors: Colors;
-  /**
-   * Produced-file pill groups folded into the card (the mobile analogue of
-   * the desktop `AgentCompletionCard`): one section per agent when the
-   * bridge ships per-agent attribution, or a single untitled section from
-   * the row-scoped fallback. Only passed once the files are revealable —
-   * reveal-at-completion, never mid-run.
-   */
-  sections?: AgentWorkCardSection[];
-  onOpenArtifact?: (artifact: ChatArtifact) => void;
-};
-
-/** Pills shown before the "+N more" toggle — mirrors the desktop PILL_CAP. */
-const PILL_CAP = 5;
-
-/** A touch quicker than the base shimmer so the in-progress state reads as
- *  lively — mirrors the desktop `BackgroundWorkCard` title sweep. */
-const TITLE_SHIMMER_MS = 1900;
-
 /**
  * Inline "background work" marker — work the computer kicked off in the
- * background. Mirrors the desktop `BackgroundWorkCard`: a quiet, elevated row
- * (not an openable artifact card) whose title shimmers while running and
- * settles to a check + status once everything wraps up. State is sync-time, so
- * a running row flips to its finished copy on the next sync.
+ * background. Mirrors the redesigned desktop `BackgroundWorkCard`: a minimal,
+ * chrome-less one-line row (no card surface, no badges, no provider icons)
+ * carrying the task DESCRIPTION only. The leading slot doubles as the status
+ * tell — static star while the shimmering title carries the running motion,
+ * a quiet grey check once done, an arrow for `send_input` follow-ups;
+ * failed/canceled rows settle plain with the star. State is live-reconciled,
+ * so a running row never fakes "finished" (see `applyLiveAgentWorkState`).
  */
 export function AgentWorkCard({
   payload,
   colors,
-  sections,
-  onOpenArtifact,
-}: AgentWorkCardProps) {
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  onPress,
+}: {
+  payload: AgentWorkPayload;
+  colors: Colors;
+  /** Opens the agent detail (activity hub). */
+  onPress?: () => void;
+}) {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(3)).current;
-  const [pillsExpanded, setPillsExpanded] = useState(false);
-  const running = payload.state === "running";
-  // Render a section when it has openable files OR a result excerpt — the
-  // fileless summary is the mobile analogue of the desktop AgentCompletionCard's
-  // result line, so a result-only completion still surfaces.
-  const fileSections = (sections ?? []).filter(
-    (section) =>
-      (onOpenArtifact && section.files.length > 0) ||
-      (section.summary?.length ?? 0) > 0,
+  const row = useMemo(
+    () => deriveAgentActivityRow(payload),
+    [payload],
   );
-  // Section headers earn their space only when the card carries several
-  // agents' files — a single group is already named by the card title.
-  const showSectionTitles = fileSections.length > 1;
 
   useEffect(() => {
     Animated.parallel([
@@ -80,219 +52,14 @@ export function AgentWorkCard({
   }, [opacity, translateY]);
 
   return (
-    <Animated.View
-      style={[styles.card, { opacity, transform: [{ translateY }] }]}
-      accessibilityRole="text"
-      accessibilityLabel={`${payload.title}. ${payload.subtitle}`}
-    >
-      <View style={styles.headerRow}>
-        {!running ? (
-          <View style={styles.glyph}>
-            <Icon name="check" size={16} color={colors.text} />
-          </View>
-        ) : null}
-        <View style={styles.text}>
-          <ShimmerText
-            text={payload.title}
-            active={running}
-            color={colors.text}
-            textStyle={styles.title}
-            durationMs={TITLE_SHIMMER_MS}
-            dimAlpha={0.32}
-          />
-          <Text
-            style={styles.subtitle}
-            numberOfLines={1}
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          >
-            {payload.subtitle}
-          </Text>
-        </View>
-      </View>
-      {fileSections.length > 0
-        ? fileSections.map((section) => {
-            const showPills =
-              Boolean(onOpenArtifact) && section.files.length > 0;
-            const visiblePills =
-              pillsExpanded || section.files.length <= PILL_CAP
-                ? section.files
-                : section.files.slice(0, PILL_CAP);
-            const hiddenPillCount = section.files.length - visiblePills.length;
-            return (
-              <View key={section.key}>
-                {showSectionTitles && section.title ? (
-                  <Text
-                    style={styles.sectionTitle}
-                    numberOfLines={1}
-                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                  >
-                    {section.title}
-                  </Text>
-                ) : null}
-                {section.summary && !showPills ? (
-                  // Desktop parity: the result excerpt is a stand-in shown ONLY
-                  // for a fileless completion; when files are present the pills
-                  // carry the completion and the summary is suppressed.
-                  <Text
-                    style={styles.summary}
-                    numberOfLines={4}
-                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                  >
-                    {section.summary}
-                  </Text>
-                ) : null}
-                {showPills ? (
-                <View
-                  style={[
-                    styles.pills,
-                    showSectionTitles && section.title
-                      ? styles.pillsTitled
-                      : null,
-                  ]}
-                >
-                  {visiblePills.map((artifact) => (
-                    <Pressable
-                      key={artifact.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Open ${artifactTitle(artifact.payload)}`}
-                      onPress={() => onOpenArtifact?.(artifact)}
-                      style={({ pressed }) => [
-                        styles.pill,
-                        pressed ? styles.pillPressed : null,
-                      ]}
-                    >
-                      <Icon
-                        name={artifactIconName(artifact.payload) as IconName}
-                        size={13}
-                        color={colors.textMuted}
-                      />
-                      <Text
-                        style={styles.pillLabel}
-                        numberOfLines={1}
-                        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                      >
-                        {artifactTitle(artifact.payload)}
-                      </Text>
-                    </Pressable>
-                  ))}
-                  {hiddenPillCount > 0 ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Show ${hiddenPillCount} more files`}
-                      onPress={() => setPillsExpanded(true)}
-                      style={({ pressed }) => [
-                        styles.pill,
-                        pressed ? styles.pillPressed : null,
-                      ]}
-                    >
-                      <Text
-                        style={styles.pillLabel}
-                        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                      >
-                        +{hiddenPillCount} more
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-                ) : null}
-              </View>
-            );
-          })
-        : null}
+    <Animated.View style={{ opacity, transform: [{ translateY }] }}>
+      <AgentActivityRow
+        title={row.title}
+        glyph={row.glyph}
+        working={row.working}
+        colors={colors}
+        {...(onPress ? { onPress } : {})}
+      />
     </Animated.View>
   );
 }
-
-const makeStyles = (colors: Colors) =>
-  StyleSheet.create({
-    card: {
-      alignSelf: "flex-start",
-      maxWidth: "100%",
-      minHeight: 44,
-      borderRadius: 12,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      backgroundColor: colors.panel,
-      paddingTop: 8,
-      paddingBottom: 8,
-      paddingLeft: 11,
-      paddingRight: 14,
-    },
-    headerRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 10,
-      minHeight: 28,
-    },
-    sectionTitle: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 11.5,
-      letterSpacing: 0.1,
-      marginTop: 8,
-    },
-    summary: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 12.5,
-      lineHeight: 17,
-      letterSpacing: -0.1,
-      marginTop: 6,
-    },
-    pills: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 6,
-      marginTop: 8,
-    },
-    pillsTitled: {
-      marginTop: 6,
-    },
-    pill: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 5,
-      maxWidth: "100%",
-      borderRadius: 8,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      paddingHorizontal: 8,
-      paddingVertical: 5,
-    },
-    pillPressed: {
-      opacity: 0.72,
-    },
-    pillLabel: {
-      color: colors.text,
-      flexShrink: 1,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12,
-      letterSpacing: -0.1,
-    },
-    glyph: {
-      width: 22,
-      height: 22,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    text: {
-      flexShrink: 1,
-      minWidth: 0,
-    },
-    title: {
-      color: colors.text,
-      fontFamily: fonts.sans.medium,
-      fontSize: 14,
-      lineHeight: 19,
-      letterSpacing: -0.2,
-    },
-    subtitle: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 11.5,
-      letterSpacing: 0.1,
-      marginTop: 1,
-      fontVariant: ["tabular-nums"],
-    },
-  });

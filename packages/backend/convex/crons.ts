@@ -46,23 +46,14 @@ crons.interval(
 );
 
 crons.interval(
-  "retry legacy encrypted media blob deletion",
-  { minutes: 1 },
-  internal.media_image_submission.drainPrivateBlobCleanup,
-  { limit: 100 },
-);
-
-crons.interval(
-  "retry encrypted media manifest deletion",
-  { minutes: 1 },
-  internal.media_image_submission.drainPrivatePayloadManifests,
-  { limit: 100 },
-);
-
-crons.interval(
-  "retry purged media provider cancellation",
-  { minutes: 1 },
-  internal.media_image_submission.drainProviderCancellations,
+  "media cleanup retry sweep",
+  { minutes: 5 },
+  // Cheap gating mutation replacing the three former per-minute drain-action
+  // crons (blob deletion, manifest deletion, provider cancellation). It only
+  // schedules a drain action when its retry queue has due rows. These queues
+  // are retries of already-failed cleanup with exponential backoff, so the
+  // relaxed cadence never delays first-attempt cleanup.
+  internal.media_jobs.sweepMediaCleanupQueues,
   { limit: 100 },
 );
 
@@ -118,6 +109,20 @@ crons.interval(
   { hours: 1 },
   internal.data.canvas_shares_actions.purgeExpiredShares,
   { batchSize: 200, maxBatches: 10 },
+);
+
+crons.interval(
+  "purge old usage logs",
+  { hours: 24 },
+  internal.telemetry_retention.purgeOldUsageLogs,
+  { batchSize: 500 },
+);
+
+crons.interval(
+  "purge old media job logs",
+  { hours: 24 },
+  internal.telemetry_retention.purgeOldMediaJobLogs,
+  { batchSize: 500 },
 );
 
 crons.interval(

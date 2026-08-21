@@ -518,9 +518,10 @@ export class InAppBrowserCdpAdapter {
         );
       }
 
-      // A replacement daemon enables these domains while attaching to every
-      // retained tab. Retry them once after terminating/reloading a poisoned
-      // renderer so bootstrap does not repeatedly kill healthy new daemons.
+      // A replacement daemon enables Page/Runtime while attaching to every
+      // retained tab, and network tooling enables Network on demand. Retry
+      // them once after terminating/reloading a poisoned renderer so
+      // bootstrap does not repeatedly kill healthy new daemons.
       if (BOOTSTRAP_PAGE_METHODS.has(method)) {
         return await send();
       }

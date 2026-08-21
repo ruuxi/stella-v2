@@ -7320,6 +7320,18 @@ async fn handle_har_stop(cmd: &Value, state: &mut DaemonState) -> Result<Value, 
     har_collect_pending_bodies(state).await;
     state.har_recording = false;
 
+    // HAR capture attached the Network domain on demand; release it again so
+    // the session returns to the uninstrumented default. Request tracking
+    // shares the same event stream, so keep the domain up while it is active.
+    if !state.request_tracking {
+        if let Some(mgr) = state.browser.as_ref() {
+            if let Ok(session_id) = mgr.active_session_id() {
+                let session_id = session_id.to_string();
+                mgr.disable_network_domain(&session_id).await;
+            }
+        }
+    }
+
     let bodies_captured = state
         .har_entries
         .iter()

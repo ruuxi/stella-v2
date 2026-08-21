@@ -14,6 +14,11 @@ pub async fn set_extra_headers(
         .collect::<serde_json::Map<String, Value>>()
         .into();
 
+    // Extra headers only apply while the Network agent is enabled; the domain
+    // is no longer part of default bootstrap, so attach it on demand here.
+    client
+        .send_command_no_params("Network.enable", Some(session_id))
+        .await?;
     client
         .send_command(
             "Network.setExtraHTTPHeaders",
@@ -30,6 +35,11 @@ pub async fn set_offline(
     session_id: &str,
     offline: bool,
 ) -> Result<(), String> {
+    // Condition emulation requires the Network agent, which default sessions
+    // no longer enable at bootstrap.
+    client
+        .send_command_no_params("Network.enable", Some(session_id))
+        .await?;
     client
         .send_command(
             "Network.emulateNetworkConditions",

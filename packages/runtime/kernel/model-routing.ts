@@ -35,6 +35,14 @@ export type ResolvedLlmRoute = {
   model: Model<Api>;
   toolPolicyModel?: Pick<Model<Api>, "api" | "provider" | "id" | "name">;
   route: "direct-provider" | "stella";
+  /**
+   * True only when the route is KNOWN safe to call with no key: the `local/`
+   * OpenAI-compatible provider or an origin-verified credentialless proxy
+   * whose auth travels entirely in configured headers. A baseUrl alone proves
+   * nothing — registry models carry their provider's default baseUrl (e.g.
+   * https://api.anthropic.com) and still require a credential.
+   */
+  credentialless?: boolean;
   getApiKey: () => Promise<string | undefined> | string | undefined;
   refreshApiKey?: () => Promise<string | undefined> | string | undefined;
 };
@@ -103,11 +111,19 @@ export const getResolvedLlmApiKey = async (
   return apiKey ? apiKey : undefined;
 };
 
+/**
+ * Conservative credentialless check: only routes that EXPLICITLY declare
+ * `credentialless` (the `local/` provider, origin-verified credentialless
+ * proxies) qualify. The previous heuristic — any direct-provider route with
+ * a non-empty baseUrl — matched every registry model (they all carry their
+ * provider's baseUrl, e.g. https://api.anthropic.com), so a missing or
+ * unreadable key silently fell through as "credentialless" and surfaced
+ * later as the provider's raw "No API key for provider: …" error.
+ */
 export const resolvedLlmSupportsCredentiallessCalls = (
   resolved: ResolvedLlmRoute,
 ): boolean =>
-  resolved.route === "direct-provider" &&
-  resolved.model.baseUrl.trim().length > 0;
+  resolved.route === "direct-provider" && resolved.credentialless === true;
 
 const hasLocalProviderAuth = (
   stellaAppDir: string,
@@ -342,6 +358,8 @@ const resolveDirectProviderRoute = (args: {
       route: {
         model: createLocalOpenAICompatibleModel(local.modelId, local.baseUrl),
         route: "direct-provider",
+        // A local OpenAI-compatible endpoint needs no credential by design.
+        credentialless: true,
         getApiKey: () => "",
       },
     };
@@ -436,6 +454,9 @@ const resolveDirectProviderRoute = (args: {
       route: {
         model: routedModel,
         route: "direct-provider",
+        // Origin-verified credentialless proxy (models.json origin, no auth
+        // requirement): authentication travels entirely in configured headers.
+        credentialless: true,
         getApiKey: () => {
           applyConfiguredHeaders();
           return "";

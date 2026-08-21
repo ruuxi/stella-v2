@@ -1,7 +1,7 @@
 // End-to-end proof that the architectural Recall pipeline actually RETURNS a
-// synthesized brief through the resolved model — and that a credentialless
-// local/direct-provider route (no API key) reaches the model instead of
-// failing with "No Recall model credential is configured".
+// synthesized brief through the resolved model — and that a route which
+// explicitly declares itself credentialless (local model, no API key) reaches
+// the model instead of failing with "No API key for provider: …".
 
 import { mkdir, rm } from "node:fs/promises";
 import os from "node:os";
@@ -67,7 +67,8 @@ const credentiallessRoute = () =>
     modelId: "local/llama",
     resolvedLlm: {
       route: "direct-provider",
-      // baseUrl present + no key = credentialless (local model).
+      // Only the local/ provider is constructed credentialless in production.
+      credentialless: true,
       model: {
         id: "llama",
         name: "llama",

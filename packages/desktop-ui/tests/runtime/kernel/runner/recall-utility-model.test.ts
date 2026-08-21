@@ -228,7 +228,12 @@ describe("resolveRunnerRecallLlmRoute", () => {
     expect(catalogMetadataCalls.count).toBe(0);
   });
 
-  it("uses the direct Anthropic provider when an independent credential exists", async () => {
+  it("regression: never resolves claude_code_local to the native Anthropic provider", async () => {
+    // Even with an Anthropic credential present, the deep-tier synthesis
+    // route for the Claude Code engine must stay on the CLI — a presence
+    // check is not a usability proof (stale/locked Keychain entries decrypt
+    // to nothing at call time and surfaced as "No API key for provider:
+    // anthropic" mid-lookup).
     credentials.set("anthropic", "anthropic-test-key");
     const { resolveRunnerRecallLlmRoute } = await loadModule();
     const stellaDataDir = tempDirs.create("recall-claude-direct-");
@@ -240,14 +245,11 @@ describe("resolveRunnerRecallLlmRoute", () => {
 
     const route = await resolveRunnerRecallLlmRoute(context, "orchestrator");
 
-    expect(route).toMatchObject({
+    expect(route).toEqual({
       activeEngine: "claude_code_local",
-      executionEngine: "native",
-      modelId: "anthropic/claude-haiku-4-5",
-      resolvedLlm: {
-        route: "direct-provider",
-        model: { provider: "anthropic", id: "claude-haiku-4-5" },
-      },
+      executionEngine: "claude-code",
+      modelId: "claude-code/haiku",
+      claudeCodeModel: "haiku",
     });
     expect(JSON.stringify(route)).not.toContain("anthropic-test-key");
   });

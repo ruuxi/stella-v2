@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { CreditCard, LogOut } from "@/ui/icons";
+import { CreditCard, LogOut, Settings } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
 import {
   preloadAuthDialog,
@@ -76,9 +76,7 @@ interface ShellTopBarAccountProps {
   onSignIn?: () => void;
 }
 
-export const ShellTopBarAccount = ({
-  onSignIn,
-}: ShellTopBarAccountProps) => {
+export const ShellTopBarAccount = ({ onSignIn }: ShellTopBarAccountProps) => {
   const t = useT();
   const { user: convexUser, hasConnectedAccount } = useCurrentUser();
   const { cacheScope, user: sessionUser } = useAuthSessionState();
@@ -233,6 +231,14 @@ export const ShellTopBarAccount = ({
                 </span>
               ) : null}
             </span>
+            {/* The gear is a pure clickability affordance — the whole button
+                is the single click target that opens the unified menu. */}
+            <span
+              className="shell-topbar-account-settings-icon"
+              aria-hidden="true"
+            >
+              <Settings size={14} strokeWidth={1.75} />
+            </span>
             {connectHint.active ? (
               <span className="shell-topbar-nav-hint-dot" aria-hidden="true" />
             ) : null}
@@ -245,28 +251,36 @@ export const ShellTopBarAccount = ({
           sideOffset={8}
           onCloseAutoFocus={handleDropdownCloseAutoFocus}
         >
-          {settingsDestinations.map(({ id, label, Icon, onSelect }, index) => (
-            <Fragment key={id}>
-              <DropdownMenuItem onSelect={onSelect}>
-                <span data-slot="dropdown-menu-item-icon">
-                  <Icon size={15} strokeWidth={1.75} />
-                </span>
-                {label}
-              </DropdownMenuItem>
-              {index === 0 ? (
-                <DropdownMenuItem
-                  onClick={() => setPlanUsageOpen(true)}
-                  onMouseEnter={preloadBillingScreen}
-                  onFocus={preloadBillingScreen}
-                >
+          {settingsDestinations.map(
+            ({ id, label, Icon, onSelect, hint }, index) => (
+              <Fragment key={id}>
+                <DropdownMenuItem onSelect={onSelect}>
                   <span data-slot="dropdown-menu-item-icon">
-                    <CreditCard size={15} strokeWidth={1.75} />
+                    <Icon size={15} strokeWidth={1.75} />
+                    {hint ? (
+                      <span
+                        className="shell-topbar-nav-hint-dot shell-settings-menu-item-hint-dot"
+                        aria-hidden="true"
+                      />
+                    ) : null}
                   </span>
-                  Plan &amp; usage
+                  {label}
                 </DropdownMenuItem>
-              ) : null}
-            </Fragment>
-          ))}
+                {index === 0 ? (
+                  <DropdownMenuItem
+                    onClick={() => setPlanUsageOpen(true)}
+                    onMouseEnter={preloadBillingScreen}
+                    onFocus={preloadBillingScreen}
+                  >
+                    <span data-slot="dropdown-menu-item-icon">
+                      <CreditCard size={15} strokeWidth={1.75} />
+                    </span>
+                    Plan &amp; usage
+                  </DropdownMenuItem>
+                ) : null}
+              </Fragment>
+            ),
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             data-variant="destructive"

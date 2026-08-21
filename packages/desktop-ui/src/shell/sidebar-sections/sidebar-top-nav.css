@@ -48,7 +48,11 @@
 .sidebar-top-nav__tabs {
   display: flex;
   align-items: flex-start;
-  flex: 1 1 auto;
+  /* Size to the tabs' own width (never grow to fill the strip) so the trailing
+     "+" sibling sits immediately to the right of the rightmost tab, browser
+     style, instead of being pushed to the sidebar's far edge. Still shrinks and
+     scrolls internally once the tabs outgrow the available width. */
+  flex: 0 1 auto;
   min-width: 0;
   height: var(--shell-topbar-height, 38px);
   gap: 0;

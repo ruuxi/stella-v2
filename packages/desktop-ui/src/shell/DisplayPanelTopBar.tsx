@@ -6,7 +6,6 @@ import {
 import { displaySearchStore } from "@/features/workspace-display/display-search-store";
 import { getPlatform } from "@/platform/electron/platform";
 import { SidebarTopNav } from "@/shell/sidebar-sections/SidebarTopNav";
-import { SettingsMenuButton } from "@/shell/SettingsMenuButton";
 import { PanelRight } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
 
@@ -30,10 +29,6 @@ export function DisplayPanelTopBar() {
       <div className="display-panel-topbar__tabs">
         <SidebarTopNav />
       </div>
-      <SettingsMenuButton
-        className="shell-topbar-account-settings"
-        showActiveState={panelOpen}
-      />
       <button
         type="button"
         className="shell-topbar-icon-btn"

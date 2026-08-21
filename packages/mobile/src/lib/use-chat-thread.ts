@@ -64,6 +64,7 @@ import {
   shouldSyncOnLocalChatPush,
 } from "./desktop-sync-policy";
 import { recordSyncDiagnostic } from "./sync-diagnostics";
+import { applyLiveAgentWorkState } from "./agent-work-live-state";
 import {
   collectConversationTasks,
   overlayDesktopThreadTasks,
@@ -2491,6 +2492,16 @@ export function useChatThread(opts: {
     );
   }, [desktopTaskDecoration, desktopThreadTasks, messages]);
 
+  // The transcript's agent-work cards must agree with the pill above: their
+  // synced `state` was settled desktop-side (where elapsed time counts as
+  // completion), so re-derive it from the same live task fold. A `send_input`
+  // follow-up steering a still-running thread renders as in-progress instead
+  // of a false "Finished". Render-only — the raw fold stays what persists.
+  const displayMessages = useMemo(
+    () => applyLiveAgentWorkState(messages, conversationTasks),
+    [conversationTasks, messages],
+  );
+
   const activityArtifactGroups = useMemo(
     () => groupActivityArtifacts(messages, conversationArtifacts),
     [conversationArtifacts, messages],
@@ -2538,7 +2549,7 @@ export function useChatThread(opts: {
 
   return {
     conversationId,
-    messages,
+    messages: displayMessages,
     draft,
     setDraft,
     attachments,

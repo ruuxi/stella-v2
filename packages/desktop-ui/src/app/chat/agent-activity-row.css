@@ -83,18 +83,44 @@
    plain title so a long description ellipses instead of overflowing.
 
    Polarity is INVERTED from the TextShimmer default: the resting text sits
-   dim (`--text-shimmer-from`, the row's muted ink) and the moving band
-   lights it up toward full strength (`--text-shimmer-via`) — light sweeping
-   across dim text, not a shadow crossing bright text. Under reduced motion
-   the sweep never renders, leaving just the dimmed base. */
+   dimmed but comfortably legible (`--text-shimmer-from` = the standard body
+   ink, a step below full strength) and the moving band lights it up to full
+   strength (`--text-shimmer-via` = --text-strong) — light sweeping across
+   dim text, not a shadow crossing bright text. Under reduced motion the
+   sweep never renders, leaving just the dimmed base. */
 .agent-activity-row__title .text-shimmer {
-  --text-shimmer-from: var(--text-weak);
+  --text-shimmer-from: var(--text-base);
   --text-shimmer-via: var(--text-strong);
   display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Stronger highlight: hold the sweep's mask near-opaque across most of its
+   window (soft shoulders only at the edges) so the bright wave is an
+   obvious lift, not a thin glint. Same window geometry as the base
+   TextShimmer (width/keyframes untouched) — only the mask profile widens. */
+.agent-activity-row__title .text-shimmer__sweep {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(0 0 0 / 45%) 10%,
+    #000 28%,
+    #000 72%,
+    rgb(0 0 0 / 45%) 90%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(0 0 0 / 45%) 10%,
+    #000 28%,
+    #000 72%,
+    rgb(0 0 0 / 45%) 90%,
+    transparent 100%
+  );
 }
 
 .agent-activity-row__chevron {

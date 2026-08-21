@@ -2,15 +2,13 @@
 /**
  * Rendered-output contract for the settled agent activity row.
  *
- * The completion presentation is a minimal, chrome-less row: the task
- * description alone, a leading glyph (Stella star or the provider's icon),
- * an UNCOLORED grey checkmark, and a trailing chevron. These tests pin
- * that shape:
+ * The completion presentation is a minimal, chrome-less row: an UNCOLORED
+ * grey checkmark in the leading slot, the task description alone, and a
+ * trailing chevron. These tests pin that shape:
  *   - description only — the truncated completion excerpt and the file
  *     pills must NOT render in the chat stream anymore;
  *   - the done tell is the muted check, not a colored badge;
- *   - Stella-native agents get the star glyph, external engines get the
- *     provider brand icon in the same slot;
+ *   - no provider icons on the rows, whatever engine ran the thread;
  *   - replay diagnostics identity data attributes stay intact.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -74,7 +72,7 @@ describe("AgentCompletionCard minimal row rendering", () => {
       row!.querySelector(".agent-activity-row__title")!.textContent,
     ).toBe("Restore composer activity pill");
     expect(
-      row!.querySelector(".agent-activity-row__status .stella-icon-check"),
+      row!.querySelector(".agent-activity-row__glyph .stella-icon-check"),
     ).not.toBeNull();
     expect(
       row!.querySelector(".agent-activity-row__chevron"),
@@ -155,22 +153,7 @@ describe("AgentCompletionCard minimal row rendering", () => {
     });
   });
 
-  it("shows the star glyph (no brand icon) for Stella-native models", async () => {
-    await renderCard({
-      sections: [filelessSection("Done.")],
-      modelConfigByThread: {
-        a1: {
-          engine: "default",
-          routeModel: "stella/standard",
-        },
-      },
-    });
-
-    expect(container.querySelector(".agent-activity-star")).not.toBeNull();
-    expect(container.querySelector("[data-brand]")).toBeNull();
-  });
-
-  it("shows the provider icon as the leading glyph for an external engine", async () => {
+  it("never shows provider icons — the check owns the leading slot", async () => {
     await renderCard({
       sections: [filelessSection("Done.")],
       modelConfigByThread: {
@@ -181,11 +164,11 @@ describe("AgentCompletionCard minimal row rendering", () => {
       },
     });
 
-    expect(
-      container.querySelector(
-        '.agent-activity-row__glyph [data-brand="openai"]',
-      ),
-    ).not.toBeNull();
+    expect(container.querySelector("[data-brand]")).toBeNull();
+    expect(container.querySelector(".agent-model-icon")).toBeNull();
     expect(container.querySelector(".agent-activity-star")).toBeNull();
+    expect(
+      container.querySelector(".agent-activity-row__glyph .stella-icon-check"),
+    ).not.toBeNull();
   });
 });

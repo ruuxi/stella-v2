@@ -6,13 +6,12 @@
  * creates a second completion-time row.
  *
  * Design — deliberately minimal, matching the running row:
- *   - No card chrome, no file pills, no completion excerpt. The task
- *     DESCRIPTION alone, on one quiet line.
- *   - A grey (uncolored) checkmark as the done tell, a leading glyph
- *     (Stella star, or the provider's icon for external engines — monochrome
- *     until hovered), and a trailing chevron as the click-through
- *     affordance. Clicking the row opens the agent's thread, where the full
- *     result and produced files live.
+ *   - No card chrome, no file pills, no provider icons, no completion
+ *     excerpt. The task DESCRIPTION alone, on one quiet line.
+ *   - A grey (uncolored) checkmark in the leading slot as the done tell,
+ *     and a trailing chevron as the click-through affordance. Clicking the
+ *     row opens the agent's thread, where the full result and produced
+ *     files live.
  *   - Several agents completing at the same point stack as sibling rows,
  *     never merged into one flat line.
  */
@@ -22,7 +21,6 @@ import { Check, ChevronRight } from "@/ui/icons";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
-import { AgentActivityGlyph } from "./AgentActivityGlyph";
 import { useT } from "@/shared/i18n";
 import "./agent-activity-row.css";
 
@@ -30,11 +28,12 @@ export function AgentCompletionCard({
   sections,
   cardId,
   conversationId,
-  modelConfigByThread,
 }: {
   sections: AgentCompletionSection[];
   cardId?: string;
   conversationId: string;
+  /** Accepted for call-site compatibility; the minimal rows no longer
+   *  surface provider icons. */
   modelConfigByThread?: AgentModelConfigsByThread;
 }) {
   const t = useT();
@@ -105,14 +104,9 @@ export function AgentCompletionCard({
           data-agent-id={section.agentId}
         >
           <span className="agent-activity-row__glyph" aria-hidden="true">
-            <AgentActivityGlyph
-              snapshot={modelConfigByThread?.[section.agentId]}
-            />
-          </span>
-          <span className="agent-activity-row__title">{section.title}</span>
-          <span className="agent-activity-row__status" aria-hidden="true">
             <Check size={13} strokeWidth={1.75} />
           </span>
+          <span className="agent-activity-row__title">{section.title}</span>
           <ChevronRight
             size={13}
             strokeWidth={1.75}

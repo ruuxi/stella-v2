@@ -1,20 +1,12 @@
 /**
- * Leading glyph for the minimal in-chat agent activity rows.
+ * Star glyph for the minimal in-chat agent activity rows.
  *
- * Stella's own agents get a lightweight vector echo of the aurora star —
- * the brand mark's six-ray pose (a tall vertical axis plus four shorter
- * diagonal arms, the shader's symmetrical rest pose) drawn as plain SVG
- * wedges in `currentColor`, no WebGL. When the agent runs on an external
- * provider (Claude / Codex / …) the provider's own icon takes the slot via
- * `AgentModelIcon`, which stays monochrome until the row is hovered.
+ * A lightweight static echo of the working-indicator's aurora star — a soft
+ * four-pointed sparkle with concave curved edges, drawn as plain SVG in
+ * `currentColor`. No WebGL, no animation; while a row is running the title
+ * shimmer carries the motion, the star just sits quietly in the leading
+ * slot.
  */
-import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
-import { AgentModelIcon, shouldShowAgentModelIcon } from "./AgentModelIcon";
-
-/** One tapered wedge, tip-out, core-in — see the aurora shader's `starArm`. */
-const AXIS_ARM = "M0 -11.2 L1.6 -1.7 L0 0 L-1.6 -1.7 Z";
-const DIAGONAL_ARM = "M0 -7.4 L1.45 -1.55 L0 0 L-1.45 -1.55 Z";
-
 export function StellaStarGlyph({ size = 14 }: { size?: number }) {
   return (
     <svg
@@ -25,28 +17,7 @@ export function StellaStarGlyph({ size = 14 }: { size?: number }) {
       fill="currentColor"
       aria-hidden="true"
     >
-      <g transform="translate(12 12)">
-        <path d={AXIS_ARM} />
-        <path transform="rotate(180)" d={AXIS_ARM} />
-        <path transform="rotate(45)" d={DIAGONAL_ARM} />
-        <path transform="rotate(135)" d={DIAGONAL_ARM} />
-        <path transform="rotate(225)" d={DIAGONAL_ARM} />
-        <path transform="rotate(315)" d={DIAGONAL_ARM} />
-      </g>
+      <path d="M12 2 C12.9 8.2 15.8 11.1 22 12 C15.8 12.9 12.9 15.8 12 22 C11.1 15.8 8.2 12.9 2 12 C8.2 11.1 11.1 8.2 12 2 Z" />
     </svg>
-  );
-}
-
-export function AgentActivityGlyph({
-  snapshot,
-  size = 14,
-}: {
-  snapshot?: AgentModelConfigSnapshot;
-  size?: number;
-}) {
-  return shouldShowAgentModelIcon(snapshot) ? (
-    <AgentModelIcon snapshot={snapshot} size={size} />
-  ) : (
-    <StellaStarGlyph size={size} />
   );
 }

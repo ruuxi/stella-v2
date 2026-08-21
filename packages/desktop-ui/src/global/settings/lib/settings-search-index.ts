@@ -114,6 +114,25 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
+    titleKey: "settings.developerMode.title",
+    descriptionKey: "settings.developerMode.description",
+    keywords: [
+      "developer mode",
+      "advanced",
+      "model",
+      "models",
+      "engine",
+      "engines",
+      "provider",
+      "providers",
+      "byok",
+      "api key",
+      "bring your own key",
+      "model picker",
+    ],
+  },
+  {
+    tab: "general",
     titleKey: "settings.nativeFontSmoothing.title",
     descriptionKey: "settings.nativeFontSmoothing.description",
     keywords: [

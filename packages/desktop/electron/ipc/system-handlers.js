@@ -13,6 +13,7 @@ import { coercePersonalityId, isKnownPersonalityId, } from "@stella/contracts/pe
 import { writePersonality } from "@stella/runtime/kernel/personality/personality";
 import { resetStellaCustomizations } from "@stella/runtime/kernel/home/reset-customizations";
 import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-prompt";
+import { applyDeveloperModePromptGate } from "@stella/runtime/kernel/agents/prompt-dev-mode";
 import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, readPromptPreset, savePromptPreset, } from "@stella/runtime/kernel/prompts/prompt-presets";
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { listCodexAppServerModels } from "@stella/runtime/kernel/integrations/codex-agent-runtime";
@@ -1168,7 +1169,9 @@ export const registerSystemHandlers = (options) => {
         // "default" reads the shipped prompt so the editor can seed a new
         // preset from what Stella actually ships.
         if (id === "default") {
-            const content = (await loadAgentSystemPrompt(agentId)) ?? "";
+            // Strip the developer-mode fence markers but keep their content:
+            // the preset editor seeds from the full shipped prompt.
+            const content = applyDeveloperModePromptGate((await loadAgentSystemPrompt(agentId)) ?? "", true);
             return { id: "default", name: "default", agentId, content };
         }
         return await readPromptPreset(dir, agentId, id);
@@ -1388,6 +1391,9 @@ export const registerSystemHandlers = (options) => {
         }
         if (payload?.memoryEnabled !== undefined) {
             patch.memoryEnabled = payload.memoryEnabled === true;
+        }
+        if (payload?.developerModeEnabled !== undefined) {
+            patch.developerModeEnabled = payload.developerModeEnabled === true;
         }
         const saved = updateLocalModelPreferences(stellaAppDir, patch);
         if (previousRealtimeVoice &&

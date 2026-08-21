@@ -12,6 +12,7 @@ import { listLocalEvents } from "@/features/chat/services/local-chat-store";
 import { LogIn, SlidersHorizontal, Smartphone } from "@/ui/icons";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { openModelPicker } from "@/features/workspace-display/default-tabs";
+import { useDeveloperModeEnabled } from "@/global/settings/hooks/use-developer-mode";
 import { uiState } from "@/platform/ui-state";
 import "./welcome-dialog.css";
 
@@ -61,6 +62,7 @@ export function WelcomeDialog({
   onSignIn,
 }: WelcomeDialogProps) {
   const { hasConnectedAccount } = useAuthSessionState();
+  const developerModeEnabled = useDeveloperModeEnabled();
   const [open, setOpen] = useState(
     () => uiState.getItem(WELCOME_DIALOG_SEEN_KEY) !== "true",
   );
@@ -108,27 +110,31 @@ export function WelcomeDialog({
           </p>
 
           <div className="welcome-dialog-cards">
-            <div
-              className="welcome-dialog-card welcome-dialog-card--interactive"
-              onClick={handleOpenModelPicker}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) =>
-                e.key === "Enter" && handleOpenModelPicker()
-              }
-            >
-              <div className="welcome-dialog-card-icon">
-                <SlidersHorizontal size={20} />
+            {/* Model choice is a developer-mode surface; default Stella is
+                just Stella, so the card is not rendered at all without it. */}
+            {developerModeEnabled ? (
+              <div
+                className="welcome-dialog-card welcome-dialog-card--interactive"
+                onClick={handleOpenModelPicker}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && handleOpenModelPicker()
+                }
+              >
+                <div className="welcome-dialog-card-icon">
+                  <SlidersHorizontal size={20} />
+                </div>
+                <div className="welcome-dialog-card-text">
+                  <h3>Pick your model</h3>
+                  <p>
+                    Choose the model that powers Stella. You can switch
+                    providers and reasoning at any time.
+                  </p>
+                </div>
+                <span className="welcome-dialog-card-arrow">&rsaquo;</span>
               </div>
-              <div className="welcome-dialog-card-text">
-                <h3>Pick your model</h3>
-                <p>
-                  Choose the model that powers Stella. You can switch providers
-                  and reasoning at any time.
-                </p>
-              </div>
-              <span className="welcome-dialog-card-arrow">&rsaquo;</span>
-            </div>
+            ) : null}
 
             <div
               className="welcome-dialog-card welcome-dialog-card--interactive"

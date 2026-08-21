@@ -52,6 +52,10 @@
       "title": "Podglądy plików dla deweloperów",
       "description": "Pokazuje zmiany w kodzie na czacie i otwiera je w panelu bocznym."
     },
+    "developerMode": {
+      "title": "Tryb programisty",
+      "description": "Pokaż zaawansowane ustawienia modeli, silników i dostawców, w tym konfigurację własnego klucza API."
+    },
     "nativeFontSmoothing": {
       "title": "Natywne wygładzanie czcionek",
       "description": "Renderuje tekst tak jak aplikacje macOS, z wygładzaniem w skali szarości."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Tryb orkiestratora jest niedostępny w tym oknie.",
       "loadMemory": "Nie udało się wczytać ustawienia pamięci.",
       "saveMemory": "Nie udało się zaktualizować ustawienia pamięci.",
+      "saveDeveloperMode": "Nie udało się zaktualizować trybu programisty.",
       "memoryUnavailable": "Ustawienia pamięci są niedostępne w tym oknie.",
       "loadPermissions": "Nie udało się wczytać statusu uprawnień pulpitu.",
       "savePermission": "Nie udało się zaktualizować uprawnienia {kind}.",

@@ -52,6 +52,10 @@
       "title": "Entwickler-Dateivorschauen",
       "description": "Zeigt Code-Änderungen im Chat an und öffnet sie im Seitenpanel."
     },
+    "developerMode": {
+      "title": "Entwicklermodus",
+      "description": "Erweiterte Modell-, Engine- und Anbieter-Einstellungen anzeigen, einschließlich der Einrichtung eigener API-Schlüssel."
+    },
     "nativeFontSmoothing": {
       "title": "Native Schriftglättung",
       "description": "Stellt Text so dar wie macOS-Apps, mit Graustufen-Kantenglättung."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Der Orchestrator-Modus ist in diesem Fenster nicht verfügbar.",
       "loadMemory": "Erinnerungseinstellung konnte nicht geladen werden.",
       "saveMemory": "Erinnerungseinstellung konnte nicht aktualisiert werden.",
+      "saveDeveloperMode": "Entwicklermodus konnte nicht aktualisiert werden.",
       "memoryUnavailable": "Erinnerungseinstellungen sind in diesem Fenster nicht verfügbar.",
       "loadPermissions": "Berechtigungsstatus des Desktops konnte nicht geladen werden.",
       "savePermission": "Berechtigung „{kind}“ konnte nicht aktualisiert werden.",

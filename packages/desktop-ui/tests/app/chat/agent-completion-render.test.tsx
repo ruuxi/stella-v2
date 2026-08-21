@@ -3,18 +3,29 @@
  * Rendered-output contract for the settled agent activity row.
  *
  * The completion presentation is a minimal, chrome-less row: an UNCOLORED
- * grey checkmark in the leading slot, the task description alone, and a
- * trailing chevron. These tests pin that shape:
- *   - description only — the truncated completion excerpt and the file
- *     pills must NOT render in the chat stream anymore;
+ * grey checkmark in the leading slot, the task description, a trailing
+ * chevron — and, when the agent produced files, a strip of pill-shaped
+ * chips directly under the row (cap + "+N more", no card surface). These
+ * tests pin that shape:
+ *   - the truncated completion excerpt must NOT render in the chat stream;
  *   - the done tell is the muted check, not a colored badge;
  *   - no provider icons on the rows, whatever engine ran the thread;
+ *   - file pills render under the row, cap at PILL_CAP with "+N more"
+ *     overflow, and open the file payload on click;
  *   - replay diagnostics identity data attributes stay intact.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
+
+const openDisplayPayloadTab = vi.fn();
+const openAgentThreadTab = vi.fn();
+vi.mock("@/features/workspace-display/open-payload", () => ({
+  openDisplayPayloadTab: (...args: unknown[]) => openDisplayPayloadTab(...args),
+  openAgentThreadTab: (...args: unknown[]) => openAgentThreadTab(...args),
+}));
+
 import { AgentCompletionCard } from "@/app/chat/AgentCompletionCard";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 
@@ -24,6 +35,17 @@ const filelessSection = (summary: string): AgentCompletionSection => ({
   completedAtMs: 42,
   files: [],
   summary,
+});
+
+const fileEntry = (path: string) => ({
+  path,
+  timestamp: 42,
+  payload: {
+    kind: "markdown" as const,
+    filePath: path,
+    title: path.split("/").pop()!,
+    createdAt: 42,
+  },
 });
 
 const SUMMARY =
@@ -79,30 +101,74 @@ describe("AgentCompletionCard minimal row rendering", () => {
     ).not.toBeNull();
   });
 
-  it("shows the description ONLY — no completion excerpt, no file pills, no card chrome", async () => {
+  it("never shows the completion excerpt or card chrome — files render as pills instead", async () => {
     await renderCard({
       sections: [
-        {
-          ...filelessSection(SUMMARY),
-          files: [
-            {
-              path: "/tmp/report.md",
-              timestamp: 42,
-              payload: {
-                kind: "markdown",
-                filePath: "/tmp/report.md",
-                title: "report.md",
-                createdAt: 42,
-              },
-            },
-          ],
-        },
+        { ...filelessSection(SUMMARY), files: [fileEntry("/tmp/report.md")] },
       ],
     });
     expect(container.textContent).not.toContain("Outcome: done.");
-    expect(container.textContent).not.toContain("report.md");
     expect(container.querySelector(".agent-completion-card")).toBeNull();
     expect(container.querySelector(".markdown")).toBeNull();
+    // The produced file surfaces as a pill chip under the row, not a card.
+    const pills = container.querySelector(
+      ".agent-activity-group__item .agent-activity-row + .agent-activity-files",
+    );
+    expect(pills).not.toBeNull();
+    expect(
+      pills!.querySelector(".agent-activity-files__pill-name")!.textContent,
+    ).toBe("report.md");
+  });
+
+  it("caps the pill strip and offers '+N more' overflow like the old card", async () => {
+    const files = Array.from({ length: 7 }, (_, index) =>
+      fileEntry(`/tmp/file-${index + 1}.md`),
+    );
+    await renderCard({ sections: [{ ...filelessSection("Done."), files }] });
+    // Five visible pills + two behind the animated overflow region.
+    const visiblePills = container.querySelectorAll(
+      ".agent-activity-files__pills:not(.agent-activity-files__pills--overflow) .agent-activity-files__pill",
+    );
+    expect(visiblePills).toHaveLength(5);
+    const overflow = container.querySelector(".agent-activity-files__overflow");
+    expect(overflow).not.toBeNull();
+    expect(overflow!.hasAttribute("inert")).toBe(true);
+    expect(
+      overflow!.querySelectorAll(".agent-activity-files__pill"),
+    ).toHaveLength(2);
+    const more = container.querySelector(
+      ".agent-activity-files__more",
+    ) as HTMLButtonElement;
+    expect(more.textContent).toContain("+2 more");
+    await act(async () => {
+      more.click();
+    });
+    expect(
+      container
+        .querySelector(".agent-activity-files__overflow")!
+        .getAttribute("data-expanded"),
+    ).toBe("true");
+    expect(more.textContent).toContain("Show less");
+  });
+
+  it("opens the file payload when a pill is clicked (row click-through untouched)", async () => {
+    await renderCard({
+      sections: [
+        { ...filelessSection("Done."), files: [fileEntry("/tmp/report.md")] },
+      ],
+    });
+    openDisplayPayloadTab.mockClear();
+    const open = container.querySelector(
+      ".agent-activity-files__pill-open",
+    ) as HTMLButtonElement;
+    await act(async () => {
+      open.click();
+    });
+    expect(openDisplayPayloadTab).toHaveBeenCalledTimes(1);
+    expect(openDisplayPayloadTab).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "markdown", filePath: "/tmp/report.md" }),
+    );
+    expect(openAgentThreadTab).not.toHaveBeenCalled();
   });
 
   it("stacks one row per section when several agents complete together", async () => {

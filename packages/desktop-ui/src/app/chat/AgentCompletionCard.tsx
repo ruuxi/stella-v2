@@ -6,23 +6,135 @@
  * creates a second completion-time row.
  *
  * Design — deliberately minimal, matching the running row:
- *   - No card chrome, no file pills, no provider icons, no completion
- *     excerpt. The task DESCRIPTION alone, on one quiet line.
- *   - A grey (uncolored) checkmark in the leading slot as the done tell,
- *     and a trailing chevron as the click-through affordance. Clicking the
- *     row opens the agent's thread, where the full result and produced
- *     files live.
- *   - Several agents completing at the same point stack as sibling rows,
- *     never merged into one flat line.
+ *   - No card chrome, no provider icons, no completion excerpt. The task
+ *     DESCRIPTION alone on one quiet line: a grey (uncolored) checkmark in
+ *     the leading slot, a trailing chevron opening the agent's thread.
+ *   - Produced files return as a strip of PILL-shaped chips directly under
+ *     the row — no card surface around them. Same behavior as the old card:
+ *     at most `PILL_CAP` pills, then an animated "+N more" expand/collapse;
+ *     the pill body opens the file (`openDisplayPayloadTab`) and the "+"
+ *     affordance opens the shared `OpenWithMenu`.
+ *   - Several agents completing at the same point stack as sibling
+ *     row+pills groups, never merged into one flat line.
  */
-import { useCallback, useLayoutEffect } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
-import { Check, ChevronRight } from "@/ui/icons";
+import { Check, ChevronDown, ChevronRight } from "@/ui/icons";
+import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
-import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
+import {
+  openAgentThreadTab,
+  openDisplayPayloadTab,
+} from "@/features/workspace-display/open-payload";
+import { displayTabKindForPayload } from "@/features/workspace-display/payload-kind";
+import {
+  basenameOf,
+  localFilePathForPayload,
+} from "@/features/workspace-display/path-to-viewer";
+import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
-import { useT } from "@/shared/i18n";
+import { OpenWithMenu } from "./OpenWithMenu";
+import { useT, useTPlural } from "@/shared/i18n";
 import "./agent-activity-row.css";
+
+/** Pills shown before the "+N more" control kicks in. */
+const PILL_CAP = 5;
+
+const FilePill = ({ entry }: { entry: ConversationFileEntry }) => {
+  const localFilePath = localFilePathForPayload(entry.payload);
+  return (
+    <span
+      className="agent-activity-files__pill"
+      title={entry.path}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="agent-activity-files__pill-open"
+        onClick={() => openDisplayPayloadTab(entry.payload)}
+      >
+        <span className="agent-activity-files__pill-icon" aria-hidden="true">
+          <DisplayTabIcon
+            kind={displayTabKindForPayload(entry.payload)}
+            size={14}
+          />
+        </span>
+        <span className="agent-activity-files__pill-name">
+          {basenameOf(entry.path)}
+        </span>
+      </button>
+      {localFilePath ? (
+        <OpenWithMenu filePath={localFilePath} variant="plus" />
+      ) : null}
+    </span>
+  );
+};
+
+/** The chip strip under a completed row — old card's cap + "+N more"
+ *  expand/collapse (grid-rows 0fr -> 1fr, no JS measurement), minus the
+ *  card chrome. */
+const FilePills = ({ files }: { files: ConversationFileEntry[] }) => {
+  const t = useT();
+  const tPlural = useTPlural();
+  const [expanded, setExpanded] = useState(false);
+  const total = files.length;
+  const capped = total > PILL_CAP;
+  const head = capped ? files.slice(0, PILL_CAP) : files;
+  const rest = capped ? files.slice(PILL_CAP) : [];
+  const hiddenCount = rest.length;
+  if (total === 0) return null;
+
+  return (
+    <div className="agent-activity-files">
+      <div className="agent-activity-files__pills">
+        {head.map((entry) => (
+          <FilePill key={entry.path} entry={entry} />
+        ))}
+      </div>
+      {capped ? (
+        // `inert` while collapsed keeps the hidden pills out of the tab
+        // order and away from screen readers.
+        <div
+          className="agent-activity-files__overflow"
+          data-expanded={expanded ? "true" : undefined}
+          inert={expanded ? undefined : true}
+        >
+          <div className="agent-activity-files__overflow-clip">
+            <div className="agent-activity-files__pills agent-activity-files__pills--overflow">
+              {rest.map((entry) => (
+                <FilePill key={entry.path} entry={entry} />
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {capped ? (
+        <button
+          type="button"
+          className="agent-activity-files__more"
+          onClick={(event) => {
+            event.stopPropagation();
+            setExpanded((value) => !value);
+          }}
+          aria-expanded={expanded}
+        >
+          <ChevronDown
+            size={13}
+            strokeWidth={2}
+            aria-hidden
+            className="agent-activity-files__more-chevron"
+            data-expanded={expanded ? "true" : undefined}
+          />
+          <span>
+            {expanded
+              ? t("app.chat.agentCompletion.showLess")
+              : tPlural("app.chat.agentCompletion.showMore", hiddenCount)}
+          </span>
+        </button>
+      ) : null}
+    </div>
+  );
+};
 
 export function AgentCompletionCard({
   sections,
@@ -55,7 +167,7 @@ export function AgentCompletionCard({
   );
 
   // Every completion renders — a fileless agent still finished its task, so
-  // the row must not depend on produced files (files live in the thread).
+  // the row must not depend on produced files (files only enrich it).
   const visible = sections;
   if (visible.length === 0) return null;
   const startEventIds = visible
@@ -84,35 +196,40 @@ export function AgentCompletionCard({
       {visible.map((section) => (
         <div
           key={section.startEventId ?? section.agentId}
-          className="agent-activity-row"
-          role="button"
-          tabIndex={0}
-          aria-label={t("app.chat.agentCompletion.openNamedThread", {
-            title: section.title,
-          })}
-          onClick={(event) => {
-            if ((event.target as Element).closest("button, a")) return;
-            openSection(section);
-          }}
-          onKeyDown={(event) => {
-            if (event.target !== event.currentTarget) return;
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            openSection(section);
-          }}
-          data-lifecycle-status="completed"
-          data-agent-id={section.agentId}
+          className="agent-activity-group__item"
         >
-          <span className="agent-activity-row__glyph" aria-hidden="true">
-            <Check size={13} strokeWidth={1.75} />
-          </span>
-          <span className="agent-activity-row__title">{section.title}</span>
-          <ChevronRight
-            size={13}
-            strokeWidth={1.75}
-            aria-hidden
-            className="agent-activity-row__chevron"
-          />
+          <div
+            className="agent-activity-row"
+            role="button"
+            tabIndex={0}
+            aria-label={t("app.chat.agentCompletion.openNamedThread", {
+              title: section.title,
+            })}
+            onClick={(event) => {
+              if ((event.target as Element).closest("button, a")) return;
+              openSection(section);
+            }}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              openSection(section);
+            }}
+            data-lifecycle-status="completed"
+            data-agent-id={section.agentId}
+          >
+            <span className="agent-activity-row__glyph" aria-hidden="true">
+              <Check size={13} strokeWidth={1.75} />
+            </span>
+            <span className="agent-activity-row__title">{section.title}</span>
+            <ChevronRight
+              size={13}
+              strokeWidth={1.75}
+              aria-hidden
+              className="agent-activity-row__chevron"
+            />
+          </div>
+          <FilePills files={section.files} />
         </div>
       ))}
     </div>

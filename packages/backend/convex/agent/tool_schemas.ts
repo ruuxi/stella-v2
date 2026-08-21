@@ -97,18 +97,33 @@ export const ApplyPatchSchema = z.object({
     ),
 });
 
-export const WebSchema = z.object({
-  query: z.string().optional().describe("Natural-language web search query."),
-  url: z.string().optional().describe("Specific URL to fetch."),
-  prompt: z
-    .string()
-    .optional()
-    .describe("Optional extraction prompt for a direct URL fetch."),
-  category: z
-    .enum(["company", "people", "research paper"])
-    .optional()
-    .describe("Optional search category for query mode."),
-});
+export const WebSchema = z
+  .object({
+    query: z.string().optional().describe("Natural-language web search query."),
+    url: z.string().optional().describe("Specific URL to fetch."),
+    prompt: z
+      .string()
+      .optional()
+      .describe("Optional extraction prompt for a direct URL fetch."),
+    category: z
+      .enum(["company", "people", "research paper"])
+      .optional()
+      .describe("Optional search category for query mode."),
+    format: z
+      .enum(["text", "markdown", "html"])
+      .optional()
+      .describe("Fetch output format. Defaults to text."),
+  })
+  .superRefine((value, context) => {
+    const hasQuery = Boolean(value.query?.trim());
+    const hasUrl = Boolean(value.url?.trim());
+    if (hasQuery === hasUrl) {
+      context.addIssue({
+        code: "custom",
+        message: "Pass exactly one of query or url.",
+      });
+    }
+  });
 
 export const MultiToolUseParallelSchema = z.object({
   tool_uses: z.array(
@@ -229,6 +244,7 @@ export const WebSearchSchema = z.object({
 export const WebFetchSchema = z.object({
   url: z.string().describe("URL to fetch."),
   prompt: z.string().optional(),
+  format: z.enum(["text", "markdown", "html"]).optional(),
 });
 
 export const AskUserQuestionSchema = z.object({
@@ -271,7 +287,7 @@ export const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Write characters to a live exec_command session and return fresh output. Pass empty chars to poll.",
   apply_patch:
     "Apply a Codex-style patch envelope (`*** Begin Patch` ... `*** End Patch`) to one or more files.",
-  web: "Unified web tool. Search the web with `query`, or fetch a specific page with `url`.",
+  web: "Search the live web with `query`, or fetch a specific page with `url`. Pass exactly one of query or url.",
   multi_tool_use_parallel:
     "Execute multiple independent tool calls concurrently. Use only when the calls do not depend on each other.",
   view_image:

@@ -104,17 +104,61 @@ export function getVoiceToolSchemas(): VoiceToolSchema[] {
   return [
     {
       type: "function",
+      name: "web",
+      description:
+        "Search the live web (provide query) or fetch a known URL (provide url). Pass exactly one of query or url. " +
+        "Use this for facts that change over time, recent news, current documentation, or any specific page you need to read.",
+      parameters: {
+        type: "object",
+        description:
+          "Either search the live web (provide query) or fetch a known URL (provide url). Pass exactly one of query or url.",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Web search query. Returns ranked results with title, URL, and snippet.",
+          },
+          url: {
+            type: "string",
+            description:
+              "URL to fetch. Returns the page rendered as readable text with HTML stripped.",
+          },
+          category: {
+            type: "string",
+            enum: ["company", "people", "research paper"],
+            description:
+              "Optional Exa category hint when using query. Most searches should omit it.",
+          },
+          prompt: {
+            type: "string",
+            description:
+              "Optional follow-up prompt used by the fetcher to extract just the relevant slice of a long page.",
+          },
+          format: {
+            type: "string",
+            enum: ["text", "markdown", "html"],
+            description:
+              "Fetch output format. Defaults to text. Only applies when url is provided.",
+          },
+        },
+      },
+    },
+    {
+      type: "function",
       name: "web_search",
       description:
-        "Search the web for current information. Use natural language queries, not keywords. " +
-        "Call this for any question needing up-to-date facts: news, prices, current events, people's roles, product info. " +
-        "Speak a concise summary of the key findings.",
+        "Legacy alias for web query mode. Search the web for current information using a natural-language query.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Natural language search query.",
+            description: "Natural-language web search query.",
+          },
+          category: {
+            type: "string",
+            enum: ["company", "people", "research paper"],
+            description: "Optional Exa category hint.",
           },
         },
         required: ["query"],

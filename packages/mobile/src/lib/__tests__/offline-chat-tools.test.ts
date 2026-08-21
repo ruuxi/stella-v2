@@ -53,9 +53,7 @@ describe("chat-recall FTS helpers", () => {
 
   test("buildFtsMatchQuery neutralizes FTS operators and punctuation", () => {
     // Quotes/operators are stripped by tokenization, so no FTS5 injection.
-    expect(buildFtsMatchQuery('cat AND "dog"')).toBe(
-      '"cat" OR "and" OR "dog"',
-    );
+    expect(buildFtsMatchQuery('cat AND "dog"')).toBe('"cat" OR "and" OR "dog"');
   });
 
   test("empty / stopword-only query has no match expression", () => {
@@ -91,7 +89,12 @@ describe("chat-recall FTS helpers", () => {
 
   test("formats hits into a readable block", () => {
     const hit = rowToHit(
-      { id: "4", role: "assistant", text: "Austin has great tacos", created_at: null },
+      {
+        id: "4",
+        role: "assistant",
+        text: "Austin has great tacos",
+        created_at: null,
+      },
       "austin",
       -1,
     );
@@ -131,12 +134,32 @@ describe("chat-tools.parseToolBlock", () => {
     expect(calls[1]).toMatchObject({ tool: "map", places: ["Blue Bottle SF"] });
   });
 
+  test("parses unified web search and fetch calls", () => {
+    const raw = [
+      TOOL_BLOCK_OPEN,
+      '{"tool":"web","query":"latest news","category":"news"}',
+      '{"tool":"web","url":"https://example.test","prompt":"pricing","format":"markdown"}',
+      TOOL_BLOCK_CLOSE,
+    ].join("\n");
+    expect(parseToolBlock(raw).calls).toEqual([
+      { tool: "web", query: "latest news", category: "news" },
+      {
+        tool: "web",
+        url: "https://example.test",
+        prompt: "pricing",
+        format: "markdown",
+      },
+    ]);
+  });
+
   test("drops malformed / invalid tool lines", () => {
     const raw = [
       "ok",
       TOOL_BLOCK_OPEN,
       "not json",
       '{"tool":"remember","key":""}',
+      '{"tool":"web"}',
+      '{"tool":"web","query":"news","url":"https://example.test"}',
       '{"tool":"nope"}',
       TOOL_BLOCK_CLOSE,
     ].join("\n");

@@ -61,14 +61,31 @@ export const pruneRecentModels = (
 };
 
 /**
+ * Namespaces whose model-id space is open-ended, so a typed custom id is
+ * valid WITHOUT appearing in the merged catalog. Pass-through gateways
+ * (OpenRouter, Vercel AI Gateway) accept arbitrary `<vendor>/<model>` slugs
+ * the baked/pi.dev-fed catalog has never heard of (stealth models are the
+ * canonical case), and `local/…` ids name user-configured local servers.
+ * Mirrors the runtime resolver's open-ended gateway set in
+ * `runtime/kernel/model-routing-matching.ts`, which synthesizes a route for
+ * exactly these ids.
+ */
+const OPEN_ENDED_ID_PREFIXES = [
+  "openrouter/",
+  "vercel-ai-gateway/",
+  "local/",
+] as const;
+
+/**
  * Availability predicate for override ids. `catalogModelIds` must cover the
  * FULL merged catalog (Stella + connected BYOK providers + local models) —
  * validating against the Stella subset alone would prune perfectly valid
  * `openrouter/…` / `anthropic/…` / `local/…` picks. Engine ids
  * (`claude-code/…`, `codex-cli/…`) are aliases resolved by the engine at
- * run time, so they stay valid independent of the catalog. An empty id set
- * means the catalog hasn't loaded (or failed, e.g. offline): everything
- * passes — never wipe or grey out recents on missing data.
+ * run time, and open-ended-namespace ids are valid by construction, so both
+ * stay valid independent of the catalog. An empty id set means the catalog
+ * hasn't loaded (or failed, e.g. offline): everything passes — never wipe
+ * or grey out recents on missing data.
  */
 export const createKnownModelIdPredicate = (
   catalogModelIds: ReadonlySet<string>,
@@ -79,6 +96,9 @@ export const createKnownModelIdPredicate = (
       modelId.startsWith("claude-code/") ||
       modelId.startsWith("codex-cli/")
     ) {
+      return true;
+    }
+    if (OPEN_ENDED_ID_PREFIXES.some((prefix) => modelId.startsWith(prefix))) {
       return true;
     }
     return catalogModelIds.has(modelId);

@@ -92,7 +92,15 @@ describe("recent models", () => {
     expect(isKnown("openrouter/qwen-3-coder")).toBe(true);
     expect(isKnown("anthropic/claude-opus-4-5")).toBe(true);
     expect(isKnown("local/http%3A%2F%2Flocalhost%3A1234/qwen2.5")).toBe(true);
-    expect(isKnown("openrouter/removed-model")).toBe(false);
+    // OpenRouter's namespace is open-ended: the custom-model input accepts
+    // arbitrary `vendor/model` slugs (stealth models never appear in the
+    // baked/pi.dev catalog), so an unlisted OpenRouter id must stay valid —
+    // the gateway is the authority and a bogus id fails loudly upstream.
+    expect(isKnown("openrouter/stealth/ox-alpha")).toBe(true);
+    expect(isKnown("openrouter/removed-model")).toBe(true);
+    // Direct vendor namespaces stay catalog-validated: their id formats are
+    // quirk-specific and encoded precisely in the registry.
+    expect(isKnown("anthropic/removed-model")).toBe(false);
 
     // Engine aliases resolve at run time; valid regardless of catalog.
     expect(isKnown("claude-code/opus")).toBe(true);
@@ -106,7 +114,7 @@ describe("recent models", () => {
   it("keeps BYOK and local recents when pruning against the merged catalog", () => {
     recordRecentModel("local/http%3A%2F%2Flocalhost%3A1234/qwen2.5");
     recordRecentModel("openrouter/qwen-3-coder");
-    recordRecentModel("openrouter/removed-model");
+    recordRecentModel("anthropic/removed-model");
     const isKnown = createKnownModelIdPredicate(
       new Set([
         "openrouter/qwen-3-coder",
@@ -117,6 +125,16 @@ describe("recent models", () => {
       "openrouter/qwen-3-coder",
       "local/http%3A%2F%2Flocalhost%3A1234/qwen2.5",
     ]);
+  });
+
+  it("never prunes a custom open-ended gateway slug from recents", () => {
+    // A stealth model typed into the OpenRouter custom input is a valid
+    // pick even though no catalog will ever list it.
+    recordRecentModel("openrouter/stealth/ox-alpha");
+    const isKnown = createKnownModelIdPredicate(
+      new Set(["openrouter/qwen-3-coder"]),
+    );
+    expect(pruneRecentModels(isKnown)).toEqual(["openrouter/stealth/ox-alpha"]);
   });
 
   it("omits the current slot when nothing is selected", () => {

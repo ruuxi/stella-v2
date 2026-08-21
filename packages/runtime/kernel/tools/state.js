@@ -177,11 +177,13 @@ export const handleSendInput = async (ctx, args, context) => {
     }
     return {
         result: {
+            status: "delivered_agent_still_working",
             thread_id: threadId,
-            status: "updated",
+            note: "Delivered. This does NOT mean the task is done — the agent is still working. Wait for the [Agent completed] event; do not immediately re-check status.",
             delivered: true,
         },
     };
+
 };
 export const handleSpawnAgent = async (ctx, args, context) => {
     const action = toOptionalString(args.action)?.toLowerCase();
@@ -374,14 +376,17 @@ export const handleSpawnAgent = async (ctx, args, context) => {
             : [];
         return {
             result: {
+                status: "spawned_running_in_background",
                 thread_id: created.threadId,
+                note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_input to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
+                // Back-compat booleans (kept after status/note so they can't read as "done").
                 created: true,
                 running_in_background: true,
                 follow_up_on_completion: true,
-                note: "Task has started but is NOT finished yet. Wait for the completion event before telling the user it is done.",
                 ...(otherThreads.length > 0 ? { other_threads: otherThreads } : {}),
             },
         };
+
     }
     // Fallback local in-memory task behavior (used only when no task manager is wired).
     const id = String(ctx.tasks.size + 1);
@@ -404,12 +409,15 @@ export const handleSpawnAgent = async (ctx, args, context) => {
         : [];
     return {
         result: {
+            status: "spawned_running_in_background",
             thread_id: id,
+            note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_input to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
+            // Back-compat booleans (kept after status/note so they can't read as "done").
             created: true,
             running_in_background: true,
             follow_up_on_completion: true,
-            note: "Task has started but is NOT finished yet. Wait for the completion event before telling the user it is done.",
             ...(otherThreads.length > 0 ? { other_threads: otherThreads } : {}),
         },
     };
+
 };

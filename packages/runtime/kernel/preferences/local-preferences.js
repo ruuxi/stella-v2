@@ -10,6 +10,8 @@ import { ensurePrivateDirSync, writePrivateFileSync, } from "../shared/private-f
 import { coerceAssistantWorkingMode, coerceRealtimeVoiceProvider, DEFAULT_ASSISTANT_WORKING_MODE } from "@stella/contracts/local-preferences";
 import { coerceAgentRuntimeEngine, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
 import { isKnownPersonalityId } from "@stella/contracts/personality";
+import { listLocalLlmCredentials } from "../storage/llm-credentials.js";
+import { listLocalLlmOAuthCredentials } from "../storage/llm-oauth-credentials.js";
 export { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
 export const DEFAULT_CLAUDE_CODE_MODEL = "default";
 export { resolveRealtimeUnderlyingProvider, resolveReadAloudProvider } from "@stella/contracts/local-preferences";
@@ -52,6 +54,12 @@ const DEFAULT_PREFERENCES = {
     readAloudEnabled: false,
     personalityVoiceId: undefined,
     promptPresetSelections: {},
+    // Tri-state on purpose: `undefined` means "never explicitly chosen", in
+    // which case developer mode is derived from existing power-user signals
+    // (BYOK credentials, a non-default engine, or model overrides) so an
+    // update never hides surfaces a user already relies on. A stored boolean
+    // is an explicit user choice and always wins.
+    developerModeEnabled: undefined,
 };
 /**
  * `{ <agentId>: <presetId> }`. Only well-formed slug pairs survive; anything
@@ -154,6 +162,9 @@ export const loadLocalPreferences = (stellaDataDir) => {
                 ? parsed.personalityVoiceId
                 : DEFAULT_PREFERENCES.personalityVoiceId,
             promptPresetSelections: normalizePromptPresetSelections(parsed.promptPresetSelections),
+            developerModeEnabled: typeof parsed.developerModeEnabled === "boolean"
+                ? parsed.developerModeEnabled
+                : undefined,
         };
         _cached = prefs;
         _cachedMtime = stat.mtimeMs;
@@ -237,6 +248,7 @@ export const getLocalModelPreferences = (stellaDataDir) => {
         realtimeVoice: { ...prefs.realtimeVoice },
         assistantWorkingMode: prefs.assistantWorkingMode,
         memoryEnabled: prefs.memoryEnabled,
+        developerModeEnabled: getDeveloperModeEnabled(stellaDataDir),
     };
 };
 export const updateLocalModelPreferences = (stellaDataDir, patch) => {
@@ -306,6 +318,9 @@ export const updateLocalModelPreferences = (stellaDataDir, patch) => {
         memoryEnabled: patch.memoryEnabled === undefined
             ? prefs.memoryEnabled
             : patch.memoryEnabled !== false,
+        developerModeEnabled: patch.developerModeEnabled === undefined
+            ? prefs.developerModeEnabled
+            : patch.developerModeEnabled === true,
     };
     saveLocalPreferences(stellaDataDir, next);
     return getLocalModelPreferences(stellaDataDir);
@@ -361,6 +376,69 @@ export const getPersonalityVoiceId = (stellaDataDir) => loadLocalPreferences(ste
 export const setPersonalityVoiceId = (stellaDataDir, id) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     saveLocalPreferences(stellaDataDir, { ...prefs, personalityVoiceId: id });
+};
+// ── Developer mode ────────────────────────────────────────────────────────
+//
+// One flag gates every power-user surface: the model/engine pickers, BYOK
+// provider configuration, the engine-routing prompt guidance, and the
+// spawn_agent `model` parameter. Machinery is never removed — it is only
+// surfaced when this resolves true.
+/**
+ * True when the user has already exercised a power-user feature: any BYOK
+ * API key or OAuth credential, a non-default agent engine, an explicit
+ * external-engine model, or any model/reasoning override. Used only while
+ * `developerModeEnabled` has never been explicitly set, so updating never
+ * silently hides features such a user depends on ("grandfathering").
+ */
+export const hasDeveloperModeSignals = (stellaDataDir) => {
+    const prefs = loadLocalPreferences(stellaDataDir);
+    if (prefs.agentRuntimeEngine !== "default")
+        return true;
+    if (prefs.useNativeCodexRuntime || prefs.useNativeClaudeCodeRuntime)
+        return true;
+    if (prefs.codexModelExplicit)
+        return true;
+    if (prefs.claudeCodeModel !== DEFAULT_CLAUDE_CODE_MODEL)
+        return true;
+    if (Object.keys(prefs.defaultModels).length > 0 ||
+        Object.keys(prefs.modelOverrides).length > 0 ||
+        Object.keys(prefs.stellaConversationModelOverrides).length > 0 ||
+        Object.keys(prefs.reasoningEfforts).length > 0) {
+        return true;
+    }
+    try {
+        if (listLocalLlmCredentials(stellaDataDir).length > 0)
+            return true;
+    }
+    catch {
+        // Unreadable credential store never blocks preference resolution.
+    }
+    try {
+        if (listLocalLlmOAuthCredentials(stellaDataDir).length > 0)
+            return true;
+    }
+    catch {
+        // Same: derive from what is readable.
+    }
+    return false;
+};
+/**
+ * Effective developer-mode state: the explicit stored boolean when the user
+ * has toggled it, otherwise derived from {@link hasDeveloperModeSignals}.
+ */
+export const getDeveloperModeEnabled = (stellaDataDir) => {
+    const prefs = loadLocalPreferences(stellaDataDir);
+    if (typeof prefs.developerModeEnabled === "boolean") {
+        return prefs.developerModeEnabled;
+    }
+    return hasDeveloperModeSignals(stellaDataDir);
+};
+export const setDeveloperModeEnabled = (stellaDataDir, enabled) => {
+    const prefs = loadLocalPreferences(stellaDataDir);
+    saveLocalPreferences(stellaDataDir, {
+        ...prefs,
+        developerModeEnabled: enabled === true,
+    });
 };
 export const getOnboardingCompleted = (stellaDataDir) => loadLocalPreferences(stellaDataDir).onboardingCompleted;
 export const setOnboardingCompleted = (stellaDataDir, completed) => {

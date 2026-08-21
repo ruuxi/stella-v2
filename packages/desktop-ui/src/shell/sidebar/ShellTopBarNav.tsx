@@ -6,7 +6,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { AppMetadata } from "@/app/_shared/app-metadata";
-import { useSocialBadges } from "@/app/social/hooks/use-social-badges";
 import {
   markAllUserAppsSeen,
   useNewUserAppsHint,
@@ -139,7 +138,6 @@ export const ShellTopBarPrimaryNav = ({
     [allApps, omitIds],
   );
 
-  const { totalBadge: socialBadge } = useSocialBadges();
   const newAppsHint = useNewUserAppsHint();
   const matchRoute = useMatchRoute();
   const onAppsRoute = Boolean(matchRoute({ to: "/apps", fuzzy: true }));
@@ -157,10 +155,10 @@ export const ShellTopBarPrimaryNav = ({
     }
   }, [newAppsHint.active, onAppsRoute]);
 
-  const badgeFor = useCallback(
-    (app: AppMetadata) => (app.id === "social" ? socialBadge : 0),
-    [socialBadge],
-  );
+  // No per-app badges while Social is unlinked. The old social unread badge
+  // kept `listRooms` + friend-request live queries warm from this always-
+  // mounted bar even though the badge was never rendered; re-add a badge
+  // source here (e.g. `useSocialBadges`) if the Social tab returns.
   const hintFor = useCallback(
     (app: AppMetadata) => {
       if (app.id === "apps") return newAppsHint.active;
@@ -180,7 +178,6 @@ export const ShellTopBarPrimaryNav = ({
           key={app.id}
           app={app}
           active={matchedId === app.id}
-          badgeCount={badgeFor(app)}
           showHintDot={hintFor(app)}
           onHintDismiss={() => {
             if (app.id === "apps") markAllUserAppsSeen();

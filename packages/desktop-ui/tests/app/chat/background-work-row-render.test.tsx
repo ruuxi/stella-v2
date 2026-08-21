@@ -67,15 +67,17 @@ describe("BackgroundWorkCard minimal row states", () => {
     });
   };
 
-  it("running: shimmers the description with a tiny spinner, no badges", async () => {
+  it("running: shimmers the description beside a static star — no spinner, no badges", async () => {
     await render();
     const row = container.querySelector('.agent-activity-row[role="button"]');
     expect(row).not.toBeNull();
     expect(row!.getAttribute("data-working")).toBe("true");
     expect(row!.querySelector(".text-shimmer")).not.toBeNull();
     expect(row!.textContent).toContain("Summarize the quarterly report");
+    // The shimmer alone carries progress; the leading slot holds the star.
+    expect(row!.querySelector(".stella-loader-circle")).toBeNull();
     expect(
-      row!.querySelector(".agent-activity-row__status .stella-loader-circle"),
+      row!.querySelector(".agent-activity-row__glyph .agent-activity-star"),
     ).not.toBeNull();
     expect(row!.querySelector(".agent-activity-row__chevron")).not.toBeNull();
     // No subtitle / completion prose — the description is the whole row
@@ -86,17 +88,18 @@ describe("BackgroundWorkCard minimal row states", () => {
     expect(row!.querySelector(".agent-activity-row__subtitle")).toBeNull();
   });
 
-  it("completed: settles into a calm row with an uncolored check", async () => {
+  it("completed: settles into a calm row with an uncolored check in the leading slot", async () => {
     await render({ completedThreadIds: ["thread-1"] });
     const row = container.querySelector(".agent-activity-row")!;
     expect(row.getAttribute("data-working")).toBeNull();
     expect(row.querySelector(".text-shimmer")).toBeNull();
     expect(
-      row.querySelector(".agent-activity-row__status .stella-icon-check"),
+      row.querySelector(".agent-activity-row__glyph .stella-icon-check"),
     ).not.toBeNull();
+    expect(row.querySelector(".agent-activity-star")).toBeNull();
   });
 
-  it("follow-up: shows the arrow status glyph once settled", async () => {
+  it("follow-up: shows the arrow in the leading slot once settled", async () => {
     await render({
       completedThreadIds: ["thread-1"],
       followUpThreadIds: ["thread-1"],
@@ -106,30 +109,31 @@ describe("BackgroundWorkCard minimal row states", () => {
     expect(row.getAttribute("data-state")).toBe("follow-up");
     expect(row.textContent).toContain("Also cover the appendix");
     expect(
-      row.querySelector(".agent-activity-row__status .stella-icon-arrow-right"),
+      row.querySelector(".agent-activity-row__glyph .stella-icon-arrow-right"),
     ).not.toBeNull();
     expect(
-      row.querySelector(".agent-activity-row__status .stella-icon-check"),
+      row.querySelector(".agent-activity-row__glyph .stella-icon-check"),
     ).toBeNull();
   });
 
-  it("failed: settles with no special status glyph", async () => {
+  it("failed: settles with the plain star, no status glyph", async () => {
     await render({ failedThreadIds: ["thread-1"] });
     const row = container.querySelector(".agent-activity-row")!;
     expect(row.getAttribute("data-state")).toBe("failed");
     expect(row.querySelector(".text-shimmer")).toBeNull();
-    expect(row.querySelector(".agent-activity-row__status")).toBeNull();
+    expect(
+      row.querySelector(".agent-activity-row__glyph .agent-activity-star"),
+    ).not.toBeNull();
+    expect(row.querySelector(".stella-icon-check")).toBeNull();
+    expect(row.querySelector(".stella-icon-arrow-right")).toBeNull();
   });
 
-  it("uses the star glyph by default and the provider icon for external engines", async () => {
-    await render();
-    expect(container.querySelector(".agent-activity-star")).not.toBeNull();
-
+  it("never shows provider icons, even when the thread runs on an external engine", async () => {
     threadActivityState.records = [
       {
         threadId: "thread-1",
         agentType: "Agent",
-        status: "completed",
+        status: "running",
         startedAt: 1,
         updatedAt: 1,
         modelConfigSnapshot: {
@@ -138,12 +142,9 @@ describe("BackgroundWorkCard minimal row states", () => {
         },
       },
     ];
-    await render({ completedThreadIds: ["thread-1"] });
-    expect(
-      container.querySelector(
-        '.agent-activity-row__glyph [data-brand="anthropic"]',
-      ),
-    ).not.toBeNull();
-    expect(container.querySelector(".agent-activity-star")).toBeNull();
+    await render();
+    expect(container.querySelector("[data-brand]")).toBeNull();
+    expect(container.querySelector(".agent-model-icon")).toBeNull();
+    expect(container.querySelector(".agent-activity-star")).not.toBeNull();
   });
 });

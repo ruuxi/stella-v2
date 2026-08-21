@@ -1,11 +1,12 @@
 /* ============================================================
    Minimal in-chat agent activity rows — the chrome-less treatment for
    spawned-agent work in the chat transcript. No card surface, no border,
-   no colored badges: a single line of text with a leading glyph (Stella
-   star or provider icon), status conveyed by motion (title shimmer + tiny
-   spinner while running, a quiet grey check once done, an arrow for
-   `send_input` follow-ups), and a trailing chevron as the click-through
-   affordance. Shared by BackgroundWorkCard and AgentCompletionCard.
+   no colored badges, no provider icons: a single line of text with a
+   leading slot that doubles as the status tell (static star while the
+   title shimmer carries the running motion, a quiet grey check once done,
+   an arrow for `send_input` follow-ups) and a trailing chevron as the
+   click-through affordance. Shared by BackgroundWorkCard and
+   AgentCompletionCard.
    ============================================================ */
 
 /* Several completions at one timeline slot stack as sibling rows. */
@@ -85,16 +86,6 @@
   white-space: nowrap;
 }
 
-/* Status tell: tiny spinner (running) / grey check (done) / arrow
-   (follow-up). Never colored — the muted ink is the whole treatment. */
-.agent-activity-row__status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: var(--text-weak);
-}
-
 .agent-activity-row__chevron {
   flex-shrink: 0;
   color: var(--text-weaker);
@@ -113,11 +104,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* TextShimmer already stills its sweep; quiet the rest of the motion. */
-  .agent-activity-row .stella-loader-circle {
-    animation: none;
-  }
-
+  /* TextShimmer already stills its sweep; quiet the hover nudge too. */
   .agent-activity-row:hover .agent-activity-row__chevron,
   .agent-activity-row:focus-visible .agent-activity-row__chevron {
     transform: none;

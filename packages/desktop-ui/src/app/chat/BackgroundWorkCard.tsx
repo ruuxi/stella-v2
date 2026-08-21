@@ -11,10 +11,10 @@
  * them as a count) rather than stacking a row per thread.
  *
  * Presentation is deliberately minimal — no card chrome, no badges, no
- * completion excerpt. One line: leading glyph (Stella star, or the
- * provider's icon for external engines), the task DESCRIPTION, a status
- * tell (shimmering title + tiny spinner while running; a quiet grey check
- * once done; an arrow for `send_input` follow-ups), and a trailing chevron.
+ * provider icons, no completion excerpt. One line: a leading glyph that
+ * doubles as the status tell (static star while the shimmering title
+ * carries the running motion; a quiet grey check once done; an arrow for
+ * `send_input` follow-ups), the task DESCRIPTION, and a trailing chevron.
  * Clicking anywhere opens the agent's thread tab.
  *
  * Two variants share the same surface:
@@ -40,8 +40,8 @@ import {
   deriveThreadAndOwnedPresentationStatus,
 } from "@/features/chat/lib/agent-activity-presentation";
 import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
-import { ArrowRight, Check, ChevronRight, LoaderCircle } from "@/ui/icons";
-import { AgentActivityGlyph } from "./AgentActivityGlyph";
+import { ArrowRight, Check, ChevronRight } from "@/ui/icons";
+import { StellaStarGlyph } from "./AgentActivityGlyph";
 import { useT, useTPlural } from "@/shared/i18n";
 import "./agent-activity-row.css";
 
@@ -212,13 +212,6 @@ export function BackgroundWorkCard({
   const terminalEventIds = threadIds
     .map((id) => terminalEventIdsByThread?.[id])
     .filter(Boolean);
-  // Leading glyph: the provider's icon when the primary thread runs on an
-  // external engine, Stella's star otherwise. `AgentModelIcon` stays
-  // monochrome until the row is hovered (see agent-model-icon.css).
-  const primarySnapshot = threadActivity.find(
-    (record) => record.threadId === primaryThreadId,
-  )?.modelConfigSnapshot;
-
   return (
     <div
       className="agent-activity-row"
@@ -245,8 +238,18 @@ export function BackgroundWorkCard({
       data-root-run-ids={rootRunIds.join(",")}
       data-terminal-event-ids={terminalEventIds.join(",")}
     >
+      {/* Leading slot doubles as the status tell: star while running (the
+          title shimmer alone carries progress — no spinner), an arrow for
+          `send_input` follow-ups, a quiet grey check once done, and the
+          star again for other settled rows (failed/paused stay plain). */}
       <span className="agent-activity-row__glyph" aria-hidden="true">
-        <AgentActivityGlyph snapshot={primarySnapshot} />
+        {!working && isFollowUp ? (
+          <ArrowRight size={13} strokeWidth={1.75} />
+        ) : !working && presentationStatus === "completed" ? (
+          <Check size={13} strokeWidth={1.75} />
+        ) : (
+          <StellaStarGlyph />
+        )}
       </span>
       <span className="agent-activity-row__title">
         {working ? (
@@ -255,23 +258,6 @@ export function BackgroundWorkCard({
           title
         )}
       </span>
-      {working ? (
-        <span className="agent-activity-row__status" aria-hidden="true">
-          <LoaderCircle
-            size={12}
-            strokeWidth={2}
-            className="stella-loader-circle"
-          />
-        </span>
-      ) : isFollowUp ? (
-        <span className="agent-activity-row__status" aria-hidden="true">
-          <ArrowRight size={12} strokeWidth={1.75} />
-        </span>
-      ) : presentationStatus === "completed" ? (
-        <span className="agent-activity-row__status" aria-hidden="true">
-          <Check size={13} strokeWidth={1.75} />
-        </span>
-      ) : null}
       <ChevronRight
         size={13}
         strokeWidth={1.75}

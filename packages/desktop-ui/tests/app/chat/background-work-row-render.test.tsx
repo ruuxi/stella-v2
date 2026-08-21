@@ -109,6 +109,13 @@ describe("BackgroundWorkCard minimal row states", () => {
     );
     expect(scope).toContain("--text-shimmer-from: var(--text-weak)");
     expect(scope).toContain("--text-shimmer-via: var(--text-strong)");
+    // Description size: one step above the row base (14px `--font-size-md`),
+    // matched by mobile — keep the two in sync if this changes.
+    const titleScope = css.slice(
+      css.indexOf(".agent-activity-row__title {"),
+      css.indexOf("}", css.indexOf(".agent-activity-row__title {")),
+    );
+    expect(titleScope).toContain("font-size: var(--font-size-md)");
   });
 
   it("completed: settles into a calm row with an uncolored check in the leading slot", async () => {

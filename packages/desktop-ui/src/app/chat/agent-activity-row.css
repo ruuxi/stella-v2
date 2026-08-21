@@ -63,6 +63,9 @@
 .agent-activity-row__title {
   min-width: 0;
   flex: 0 1 auto;
+  /* One type step above the row's 13px base — the description is the row's
+     whole content, so it earns the emphasized-body size. */
+  font-size: var(--font-size-md);
   font-weight: var(--weight-medium);
   color: var(--text-weak);
   white-space: nowrap;

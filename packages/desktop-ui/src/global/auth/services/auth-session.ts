@@ -31,6 +31,12 @@ type RefreshOptions = {
   // mount path. Sign-in / magic-link / deep-link callers leave this false so
   // they always observe the authoritative network result directly.
   allowCached?: boolean;
+  // Background revalidation (window focus / regain, network reconnect): keep the
+  // last-known session visible instead of flipping `isPending` to true, so the
+  // signed-in/out gating and UI don't flash "loading" while we re-check with the
+  // server. The committed result is still the authoritative revalidated session
+  // (it can downgrade to signed-out if the server rejected the session).
+  silent?: boolean;
 };
 
 export const refreshAuthSession = async (options: RefreshOptions = {}) => {
@@ -55,8 +61,10 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
     return;
   }
   const version = ++refreshVersion;
-  currentSession = { ...currentSession, isPending: true, error: null };
-  emit();
+  if (!options.silent) {
+    currentSession = { ...currentSession, isPending: true, error: null };
+    emit();
+  }
   inFlightRefresh = configurePiRuntime()
     .then(async () => {
       // First read. With optimistic hydration the host may return a persisted
@@ -139,6 +147,60 @@ function subscribeAuthSession(listener: () => void): () => void {
   };
 }
 
+// Background revalidation is event-driven rather than polled: the desktop
+// session store issues NO periodic `/api/auth/get-session` traffic while idle.
+// Instead we re-check the session on the events that can actually change auth
+// state out from under an idle window — the window/tab regaining focus and the
+// network coming back — plus the explicit auth mutations (sign-in / sign-out /
+// magic-link / deep-link) that already call `refreshAuthSession` directly. This
+// keeps sign-out (incl. from another device / server-side expiry) and
+// subscription/plan changes propagating promptly without a tight interval.
+//
+// Focus / visibility / online can fire in quick bursts (alt-tab storms, flaky
+// networks), so collapse them into at most one authoritative revalidation per
+// this window.
+const EVENT_REVALIDATE_THROTTLE_MS = 60_000;
+let lastEventRevalidateAt = 0;
+let revalidationListenersBound = false;
+
+const revalidateAuthSessionFromEvent = () => {
+  // Skip if a refresh (cold-start, mutation, or a prior event) is already in
+  // flight — that pending result is at least as fresh as this event.
+  if (inFlightRefresh) {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastEventRevalidateAt < EVENT_REVALIDATE_THROTTLE_MS) {
+    return;
+  }
+  lastEventRevalidateAt = now;
+  // Silent so the session gating never flashes back to "loading" on a routine
+  // focus/reconnect re-check.
+  void refreshAuthSession({ silent: true });
+};
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === "visible") {
+    revalidateAuthSessionFromEvent();
+  }
+};
+
+// Bind the focus/visibility/reconnect revalidation listeners exactly once for
+// this renderer. Intentionally never unbound: the listeners live for the app's
+// lifetime, and many components consume `useDesktopAuthSession`, so tying
+// removal to any single consumer's unmount would be wrong.
+function ensureAuthSessionRevalidationListeners() {
+  if (revalidationListenersBound || typeof window === "undefined") {
+    return;
+  }
+  revalidationListenersBound = true;
+  window.addEventListener("focus", revalidateAuthSessionFromEvent);
+  window.addEventListener("online", revalidateAuthSessionFromEvent);
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+  }
+}
+
 export function useDesktopAuthSession() {
   // useSyncExternalStore subscribes and reads the snapshot in one atomic step,
   // so an emit that lands between render and the mount effect can't be missed
@@ -156,6 +218,7 @@ export function useDesktopAuthSession() {
     if (currentSession.isPending && !inFlightRefresh) {
       void refreshAuthSession({ allowCached: true });
     }
+    ensureAuthSessionRevalidationListeners();
   }, []);
 
   return snapshot;

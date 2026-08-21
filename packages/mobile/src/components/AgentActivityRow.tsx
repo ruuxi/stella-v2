@@ -119,8 +119,10 @@ const makeStyles = (colors: Colors) =>
     title: {
       color: colors.textMuted,
       fontFamily: fonts.sans.medium,
-      fontSize: 14,
-      lineHeight: 19,
+      // Matches desktop's bumped row text size — one step up from the old
+      // 14pt so the description reads comfortably without moving the glyphs.
+      fontSize: 15,
+      lineHeight: 20,
       letterSpacing: -0.2,
     },
     chevron: {

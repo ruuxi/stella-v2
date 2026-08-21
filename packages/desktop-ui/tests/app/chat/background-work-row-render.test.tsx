@@ -1,0 +1,149 @@
+// @vitest-environment jsdom
+/**
+ * Rendered-output contract for the live (spawn-anchored) agent activity row.
+ *
+ * Status is conveyed by motion, not badges or color:
+ *   - running → the description shimmers (TextShimmer) beside a tiny
+ *     spinner;
+ *   - follow-up (`send_input`) → an arrow status glyph once settled;
+ *   - completed (without completion payload) → the quiet grey check;
+ *   - failed → no invented treatment, just the settled row.
+ * The leading glyph is Stella's star, or the provider's icon when the
+ * thread runs on an external engine.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { withI18n } from "../../helpers/i18n";
+
+const threadActivityState: { records: unknown[] } = { records: [] };
+
+vi.mock("@/features/chat/hooks/use-thread-activity", () => ({
+  useThreadActivity: () => ({
+    records: threadActivityState.records,
+    hasLoaded: true,
+    error: null,
+  }),
+}));
+
+vi.mock("@/features/workspace-display/open-payload", () => ({
+  openAgentThreadTab: vi.fn(),
+}));
+
+import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
+
+const baseProps = {
+  threadIds: ["thread-1"],
+  descriptions: { "thread-1": "Summarize the quarterly report" },
+  cardId: "agent-activity:start-1",
+  startEventIdsByThread: { "thread-1": "start-1" },
+  conversationId: "conversation-1",
+};
+
+describe("BackgroundWorkCard minimal row states", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    threadActivityState.records = [];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  const render = async (
+    props: Partial<Parameters<typeof BackgroundWorkCard>[0]> = {},
+  ) => {
+    await act(async () => {
+      root.render(withI18n(<BackgroundWorkCard {...baseProps} {...props} />));
+    });
+  };
+
+  it("running: shimmers the description with a tiny spinner, no badges", async () => {
+    await render();
+    const row = container.querySelector('.agent-activity-row[role="button"]');
+    expect(row).not.toBeNull();
+    expect(row!.getAttribute("data-working")).toBe("true");
+    expect(row!.querySelector(".text-shimmer")).not.toBeNull();
+    expect(row!.textContent).toContain("Summarize the quarterly report");
+    expect(
+      row!.querySelector(".agent-activity-row__status .stella-loader-circle"),
+    ).not.toBeNull();
+    expect(row!.querySelector(".agent-activity-row__chevron")).not.toBeNull();
+    // No subtitle / completion prose — the description is the whole row
+    // (the shimmer's aria-hidden sweep layer repeats the same string).
+    expect(row!.querySelector(".text-shimmer__base")!.textContent).toBe(
+      "Summarize the quarterly report",
+    );
+    expect(row!.querySelector(".agent-activity-row__subtitle")).toBeNull();
+  });
+
+  it("completed: settles into a calm row with an uncolored check", async () => {
+    await render({ completedThreadIds: ["thread-1"] });
+    const row = container.querySelector(".agent-activity-row")!;
+    expect(row.getAttribute("data-working")).toBeNull();
+    expect(row.querySelector(".text-shimmer")).toBeNull();
+    expect(
+      row.querySelector(".agent-activity-row__status .stella-icon-check"),
+    ).not.toBeNull();
+  });
+
+  it("follow-up: shows the arrow status glyph once settled", async () => {
+    await render({
+      completedThreadIds: ["thread-1"],
+      followUpThreadIds: ["thread-1"],
+      statusTexts: { "thread-1": "Also cover the appendix" },
+    });
+    const row = container.querySelector(".agent-activity-row")!;
+    expect(row.getAttribute("data-state")).toBe("follow-up");
+    expect(row.textContent).toContain("Also cover the appendix");
+    expect(
+      row.querySelector(".agent-activity-row__status .stella-icon-arrow-right"),
+    ).not.toBeNull();
+    expect(
+      row.querySelector(".agent-activity-row__status .stella-icon-check"),
+    ).toBeNull();
+  });
+
+  it("failed: settles with no special status glyph", async () => {
+    await render({ failedThreadIds: ["thread-1"] });
+    const row = container.querySelector(".agent-activity-row")!;
+    expect(row.getAttribute("data-state")).toBe("failed");
+    expect(row.querySelector(".text-shimmer")).toBeNull();
+    expect(row.querySelector(".agent-activity-row__status")).toBeNull();
+  });
+
+  it("uses the star glyph by default and the provider icon for external engines", async () => {
+    await render();
+    expect(container.querySelector(".agent-activity-star")).not.toBeNull();
+
+    threadActivityState.records = [
+      {
+        threadId: "thread-1",
+        agentType: "Agent",
+        status: "completed",
+        startedAt: 1,
+        updatedAt: 1,
+        modelConfigSnapshot: {
+          engine: "claude_code_local",
+          routeModel: "claude-code/opus",
+        },
+      },
+    ];
+    await render({ completedThreadIds: ["thread-1"] });
+    expect(
+      container.querySelector(
+        '.agent-activity-row__glyph [data-brand="anthropic"]',
+      ),
+    ).not.toBeNull();
+    expect(container.querySelector(".agent-activity-star")).toBeNull();
+  });
+});

@@ -4,7 +4,6 @@ import { shouldUseClaudeCodeAgentRuntime } from "../integrations/claude-code-age
 import { getAgentRuntimeEngine } from "../preferences/local-preferences.js";
 import {
   RECALL_CLAUDE_CODE_MODEL,
-  RECALL_CLAUDE_PROVIDER_MODEL,
   RECALL_CODEX_PROVIDER_MODEL,
   RECALL_STELLA_MODEL,
   type RecallModelRoute,
@@ -117,23 +116,12 @@ export const resolveRunnerRecallLlmRoute = async (
   const activeEngine =
     modelConfigSnapshot?.engine ?? getAgentRuntimeEngine(context.stellaDataDir);
   if (activeEngine === "claude_code_local") {
-    try {
-      const resolvedLlm = resolveRunnerLlmRoute(
-        context,
-        agentType,
-        RECALL_CLAUDE_PROVIDER_MODEL,
-      );
-      return {
-        activeEngine,
-        executionEngine: "native",
-        modelId: `${resolvedLlm.model.provider}/${resolvedLlm.model.id}`,
-        resolvedLlm,
-      };
-    } catch {
-      // Claude Code subscription auth belongs to the CLI and is not exposed
-      // as an Anthropic provider credential. Fall back to the authoritative
-      // Haiku CLI route when no independent provider credential is present.
-    }
+    // The Claude Code engine executes Recall synthesis through its own CLI
+    // subscription auth (Haiku light tier). A direct `anthropic/...` provider
+    // route is deliberately NOT attempted here: a saved Anthropic credential
+    // record can exist while its key is unreadable at call time (Keychain
+    // lock, stale entry), and the native adapter then fails with the raw
+    // "No API key for provider: anthropic" instead of degrading to the CLI.
     return {
       activeEngine,
       executionEngine: "claude-code",

@@ -1347,13 +1347,6 @@
         "dismiss": "Előnézet elvetése",
         "jumpToLatest": "Ugrás a legutóbbi válaszra"
       },
-      "scheduleReceipt": {
-        "nextRun": "következő: {nextRun}",
-        "scheduleCount": {
-          "one": "{count} ütemezés",
-          "other": "{count} ütemezés"
-        }
-      },
       "screenshotPreview": {
         "alt": "Képernyőkép-előnézet {index}"
       },

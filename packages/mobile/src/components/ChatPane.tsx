@@ -58,6 +58,7 @@ import { MapRouteCard } from "./MapRouteCard";
 import { ToolActivityTrace } from "./ToolActivityTrace";
 import { ActivityPill } from "./ActivityPill";
 import { deriveToolActivity } from "../lib/tool-activity";
+import { scheduleReceiptText } from "../lib/schedule-receipt-summary";
 import {
   deriveFloatingHidden,
   type FloatingScrollMetrics,
@@ -1390,6 +1391,18 @@ const ChatMessageRow = memo(function ChatMessageRow({
     },
     [item.text.length, item.toolSteps],
   );
+  // A Schedule tool result renders its human-readable summary as a plain
+  // text line in the flow (desktop parity — no chip/card). Unparseable or
+  // side-channel-JSON results render nothing.
+  const scheduleReceipt = useMemo(() => {
+    const step = (item.toolSteps ?? []).find(
+      (entry) =>
+        entry.toolName.toLowerCase() === "schedule" &&
+        entry.status !== "error",
+    );
+    if (!step) return undefined;
+    return scheduleReceiptText({ resultPreview: step.resultPreview });
+  }, [item.toolSteps]);
 
   if (item.role === "user") {
     const thumbs = item.thumbnailUris ?? [];
@@ -1750,6 +1763,14 @@ const ChatMessageRow = memo(function ChatMessageRow({
       ) : null}
       {toolActivity ? (
         <ToolActivityTrace group={toolActivity} colors={colors} />
+      ) : null}
+      {scheduleReceipt ? (
+        <Text
+          style={styles.scheduleReceipt}
+          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+        >
+          {scheduleReceipt}
+        </Text>
       ) : null}
       {showArtifacts ? (
         <View
@@ -5027,6 +5048,16 @@ const makeStyles = (colors: Colors) =>
     },
 
     assistantRow: { paddingVertical: 4 },
+    // Schedule tool receipt — a plain text line in the conversation flow
+    // (desktop parity: no chip or card), slightly quieter than reply prose.
+    scheduleReceipt: {
+      color: colors.text,
+      fontFamily: fonts.sans.regular,
+      fontSize: 14,
+      letterSpacing: -0.1,
+      lineHeight: 20,
+      marginTop: 6,
+    },
     artifactGroup: { gap: 10 },
     artifactGroupSpaced: { marginTop: 10 },
     messageActions: {

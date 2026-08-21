@@ -12,6 +12,11 @@ declare module "bun:test" {
     toHaveLength(expected: number): void;
     toMatchObject(expected: unknown): void;
     toBeNull(): void;
+    toBeUndefined(): void;
+    toBeInstanceOf(expected: unknown): void;
+    toBeGreaterThan(expected: number): void;
+    toBeLessThan(expected: number): void;
+    toBeLessThanOrEqual(expected: number): void;
     toBeInstanceOf(expected: unknown): void;
     toBeGreaterThan(expected: number): void;
     toBeLessThan(expected: number): void;

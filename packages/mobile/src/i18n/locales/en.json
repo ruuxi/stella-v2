@@ -1347,13 +1347,6 @@
         "dismiss": "Dismiss preview",
         "jumpToLatest": "Jump to latest reply"
       },
-      "scheduleReceipt": {
-        "nextRun": "next {nextRun}",
-        "scheduleCount": {
-          "one": "{count} schedule",
-          "other": "{count} schedules"
-        }
-      },
       "screenshotPreview": {
         "alt": "Screenshot preview {index}"
       },

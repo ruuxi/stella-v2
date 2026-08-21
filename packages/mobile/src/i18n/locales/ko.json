@@ -1336,12 +1336,6 @@
         "dismiss": "미리보기 닫기",
         "jumpToLatest": "최신 답변으로 이동"
       },
-      "scheduleReceipt": {
-        "nextRun": "다음 {nextRun}",
-        "scheduleCount": {
-          "other": "일정 {count}개"
-        }
-      },
       "screenshotPreview": {
         "alt": "스크린샷 미리보기 {index}"
       },

@@ -1358,14 +1358,6 @@
         "dismiss": "Chiudi l'anteprima",
         "jumpToLatest": "Vai all'ultima risposta"
       },
-      "scheduleReceipt": {
-        "nextRun": "prossima {nextRun}",
-        "scheduleCount": {
-          "one": "{count} pianificazione",
-          "many": "{count} pianificazioni",
-          "other": "{count} pianificazioni"
-        }
-      },
       "screenshotPreview": {
         "alt": "Anteprima dello screenshot {index}"
       },

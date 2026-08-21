@@ -1074,7 +1074,16 @@ function parseToolSteps(value: unknown): ToolStep[] {
       }
       if (Object.keys(collected).length > 0) args = collected;
     }
-    steps.push({ id, toolName, status, ...(args ? { args } : {}) });
+    // Schedule receipts ride the step so the chat can render the tool's
+    // human-readable result as a plain text line. Bounded desktop-side.
+    const resultPreview = asString(record.resultPreview).trim();
+    steps.push({
+      id,
+      toolName,
+      status,
+      ...(args ? { args } : {}),
+      ...(resultPreview ? { resultPreview } : {}),
+    });
   }
   return steps;
 }

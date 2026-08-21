@@ -107,7 +107,7 @@ describe("BackgroundWorkCard minimal row states", () => {
       css.indexOf(".agent-activity-row__title .text-shimmer {"),
       css.indexOf("}", css.indexOf(".agent-activity-row__title .text-shimmer {")),
     );
-    expect(scope).toContain("--text-shimmer-from: var(--text-weak)");
+    expect(scope).toContain("--text-shimmer-from: var(--text-base)");
     expect(scope).toContain("--text-shimmer-via: var(--text-strong)");
     // Description size: one step above the row base (14px `--font-size-md`),
     // matched by mobile — keep the two in sync if this changes.

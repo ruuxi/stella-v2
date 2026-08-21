@@ -326,6 +326,46 @@ describe("resolveLlmRoute", () => {
     }
   });
 
+  it("marks only genuinely credentialless routes as credentialless", async () => {
+    const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
+    const hasOrigin = vi
+      .spyOn(modelRuntime, "hasRuntimeProviderOrigin")
+      .mockReturnValue(true);
+    const allowsCredentialless = vi
+      .spyOn(modelRuntime, "allowsCredentiallessRouting")
+      .mockReturnValue(true);
+    try {
+      const { resolveLlmRoute } = await import(
+        "@stella/runtime/kernel/model-routing"
+      );
+      // Origin-verified credentialless proxy: baseUrl present AND the route
+      // is explicitly constructed credentialless.
+      const proxyRoute = resolveLlmRoute({
+        stellaAppDir: "/tmp/stella",
+        modelName: "moonshotai/config-moonshot",
+        agentType: "general",
+        site,
+      });
+      expect(proxyRoute.credentialless).toBe(true);
+
+      // A keyed direct-provider route with a baseUrl must NOT be treated as
+      // credentialless — the old heuristic inferred it from the baseUrl
+      // alone and let keyless requests reach providers that require keys.
+      credentials.set("anthropic", "anthropic-key");
+      const anthropicRoute = resolveLlmRoute({
+        stellaAppDir: "/tmp/stella",
+        modelName: "anthropic/claude-opus-4.6",
+        agentType: "general",
+        site,
+      });
+      expect(anthropicRoute.model.provider).toBe("anthropic");
+      expect(anthropicRoute.credentialless).toBeFalsy();
+    } finally {
+      hasOrigin.mockRestore();
+      allowsCredentialless.mockRestore();
+    }
+  });
+
   it("prefers an authenticated Moonshot extension origin over the legacy alias", async () => {
     const { modelRuntime } = await import("@stella/runtime/ai/model-runtime");
     const hasOrigin = vi

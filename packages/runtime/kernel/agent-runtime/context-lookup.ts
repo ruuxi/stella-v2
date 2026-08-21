@@ -55,11 +55,13 @@ export const recallSynthesisReasoning = (
 
 /**
  * Resolve the synthesis credential for a native (in-process) Recall route.
- * Mirrors the utility-route / one-shot contract: a direct-provider route that
- * carries a baseUrl (local or otherwise credentialless) needs no key, while
- * every other route must produce one. Returns the key (or undefined for a
- * credentialless route) and only throws the documented "no credential" error
- * when a key is genuinely required — never for a credentialless local model.
+ * Mirrors the utility-route / one-shot contract: only routes that explicitly
+ * declare `credentialless` (the `local/` provider, origin-verified proxies)
+ * need no key, while every other route must produce one. Returns the key
+ * (or undefined for a credentialless route) and throws an actionable error
+ * naming the model when a key is genuinely required — never a silent keyless
+ * request that would surface as the provider's raw
+ * "No API key for provider: …" failure.
  */
 export const resolveRecallSynthesisApiKey = async (
   resolvedLlm: ResolvedLlmRoute,
@@ -67,8 +69,11 @@ export const resolveRecallSynthesisApiKey = async (
   const apiKey = (await resolvedLlm.getApiKey())?.trim();
   if (apiKey) return apiKey;
   if (resolvedLlmSupportsCredentiallessCalls(resolvedLlm)) return undefined;
-  throw new Error("No Recall model credential is configured.");
+  throw new Error(
+    `Recall synthesis has no usable credential for model "${resolvedLlm.model.provider}/${resolvedLlm.model.id}". Add or repair the matching provider key in Settings → Models (or sign in to Stella) so the lookup can run.`,
+  );
 };
+
 const EAGER_MEMORY_FILE_CHAR_BUDGET = 4_000;
 /** Hard ceiling for the complete eager seed, including headings and request. */
 export const EAGER_RECALL_SEED_MAX_CHARS = 12_000;
@@ -1686,52 +1691,68 @@ const runArchitecturalRecall = async (args: {
     );
   }
   if (usable.length === 0) {
-    if (intent === "durable_memory") {
-      // A durable-index miss gets one transcript pass with the SAME concrete
-      // anchors. Broadening file terms creates false positives (for example,
-      // matching the generic word "project" in an unrelated memory block).
-      sourceKinds = ["episodic"];
-      // Transcript rows are timelines, not direct answers. A durable-memory
-      // miss may consult them, but only an explicit exact-phrase lookup can
-      // return a matched row without synthesis.
-      if (intentDecision.exactPhrases.length === 0) synthesisRequired = true;
+    // A focused-lane miss widens to a full sweep across every indexed source
+    // with the SAME concrete anchors before anything else happens — the
+    // pangram-style failure (a durable-classified lookup whose evidence only
+    // exists in past threads/transcripts) used to hard-return no_match here
+    // without ever consulting the other sources.
+    const widenedKinds = sourceKinds;
+    sourceKinds = args.memoryEnabled
+      ? (["durable_memory", "delegated_work", "episodic"] as const)
+      : (["delegated_work", "episodic"] as const);
+    const widened =
+      sourceKinds.length !== widenedKinds.length ||
+      sourceKinds.some((kind, index) => kind !== widenedKinds[index]);
+    if (widened) {
       ensureFtsReady();
       evidence = await retrieve(evidenceTerms);
-    } else {
-      const reformulated = deterministicReformulation(
-        args.lookupPrompt,
-        args.seedTerms,
-      );
-      if (reformulated.length > 0) {
-        evidenceTerms = reformulated;
-        evidence = await retrieve(evidenceTerms);
-      }
-    }
-    usable = selectUsableEvidence(evidence, evidenceTerms);
-    if (usable.length === 0 && classificationRequiresSynthesis) {
-      usable = evidence.filter(({ value }) =>
-        hasSubstantiveRecallEvidence(value),
-      );
+      usable = selectUsableEvidence(evidence, evidenceTerms);
     }
   }
-
   if (usable.length === 0) {
-    args.telemetry.setSeedChars(0);
-    args.onResultMetadata?.({ intent, fastPath: true, sources: [] });
-    args.emitTelemetry("no-match");
-    return RECALL_NO_MATCH_TEXT;
+    const reformulated = deterministicReformulation(
+      args.lookupPrompt,
+      args.seedTerms,
+    );
+    if (reformulated.length > 0) {
+      evidenceTerms = reformulated;
+      evidence = await retrieve(evidenceTerms);
+    }
+    usable = selectUsableEvidence(evidence, evidenceTerms);
+  }
+  if (usable.length === 0 && classificationRequiresSynthesis) {
+    usable = evidence.filter(({ value }) =>
+      hasSubstantiveRecallEvidence(value),
+    );
   }
 
   const assemblyStartedAt = performance.now();
-  const evidenceText = renderCappedRecallSeed(
-    usable.map(({ kind, value }) => ({
-      heading: `# ${kind.replaceAll("_", " ")}`,
-      body: value,
-      maxBodyChars: 8_500,
-    })),
-    usable.map((_, index) => index),
-  );
-  args.telemetry.setSeedChars(evidenceText.length);
+  // An empty sweep still gets the ONE light-tier synthesis pass — with an
+  // explicit no-evidence note instead of fabricated context — so the model,
+  // not the deterministic gate, owns the "nothing found" verdict. The old
+  // code hard-returned RECALL_NO_MATCH_TEXT here with fastPath:true, which
+  // is how a focused-lane miss surfaced as a confident miss without the
+  // documented fallback ever firing.
+  const evidenceText =
+    usable.length === 0
+      ? [
+          "# No indexed evidence",
+          "(The indexed sweep found no matching evidence for this request.)",
+        ].join("\n\n")
+      : renderCappedRecallSeed(
+          usable.map(({ kind, value }) => ({
+            heading: `# ${kind.replaceAll("_", " ")}`,
+            body: value,
+            maxBodyChars: 8_500,
+          })),
+          usable.map((_, index) => index),
+        );
+  if (usable.length === 0) {
+    synthesisRequired = true;
+    args.telemetry.setSeedChars(0);
+  } else {
+    args.telemetry.setSeedChars(evidenceText.length);
+  }
   args.telemetry.addAssemblyMs(performance.now() - assemblyStartedAt);
 
   const threadIds = new Set<string>();
@@ -1782,9 +1803,11 @@ const runArchitecturalRecall = async (args: {
   }
 
   args.telemetry.setIntent(intent, false);
-  // Only genuine multi-source episodic synthesis reaches here, so this is the
-  // first and only place a model/credential is required. Resolve the user's
-  // active Recall route now (never on the fast path).
+  // Synthesis is the documented fallback: it runs whenever the intent needs
+  // a model answer OR the indexed sweep came back empty, so a miss can never
+  // short-circuit into a deterministic no_match. This is the first and only
+  // place a model/credential is required — resolve the user's active Recall
+  // route now (never on the fast path).
   const recallRoute = await resolveRoute();
   const useClaudeCode = recallRoute.executionEngine === "claude-code";
   args.telemetry.setRoute(
@@ -1824,8 +1847,9 @@ const runArchitecturalRecall = async (args: {
       if (!resolvedLlm) {
         throw new Error("Recall light-tier route is unavailable.");
       }
-      // Credentialless local/direct-provider routes (baseUrl, no key) are
-      // valid — only routes that genuinely need a key and have none fail here.
+      // Only routes that explicitly declare credentialless (local provider,
+      // origin-verified proxies) run keyless; anything else must produce a
+      // key here or fail with the actionable error above.
       const apiKey = await resolveRecallSynthesisApiKey(resolvedLlm);
       const reasoning = recallSynthesisReasoning(resolvedLlm.model);
       const response = await completeSimple(
@@ -2014,8 +2038,8 @@ export const runRecall = async (args: {
       "Recall failed: the active engine's light-tier route is unavailable.",
     );
   }
-  // Credentialless local/direct-provider routes (baseUrl, no key) are valid;
-  // only a native route that genuinely needs a key and has none is unavailable.
+  // Only routes that explicitly declare credentialless (local provider,
+  // origin-verified proxies) run keyless; anything else must produce a key.
   const credentialless =
     !!resolvedLlm && resolvedLlmSupportsCredentiallessCalls(resolvedLlm);
   const apiKey =

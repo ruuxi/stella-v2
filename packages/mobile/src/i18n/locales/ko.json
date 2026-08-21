@@ -52,6 +52,10 @@
       "title": "개발자 파일 미리보기",
       "description": "코드 변경 사항을 채팅에 표시하고 사이드 패널에서 엽니다."
     },
+    "developerMode": {
+      "title": "개발자 모드",
+      "description": "모델, 엔진, 제공업체의 고급 설정을 표시합니다. 자체 API 키 설정도 포함됩니다."
+    },
     "nativeFontSmoothing": {
       "title": "네이티브 글꼴 매끄럽게 처리",
       "description": "macOS 앱처럼 회색조 안티앨리어싱으로 텍스트를 렌더링합니다."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "이 창에서는 오케스트레이터 모드를 사용할 수 없습니다.",
       "loadMemory": "메모리 설정을 불러오지 못했습니다.",
       "saveMemory": "메모리 설정을 업데이트하지 못했습니다.",
+      "saveDeveloperMode": "개발자 모드를 업데이트하지 못했습니다.",
       "memoryUnavailable": "이 창에서는 메모리 설정을 사용할 수 없습니다.",
       "loadPermissions": "데스크탑 권한 상태를 불러오지 못했습니다.",
       "savePermission": "{kind} 권한을 업데이트하지 못했습니다.",
@@ -706,7 +711,30 @@
       "lapseDescription": "{plan} 요금제는 {date}까지 이용할 수 있습니다. 그 이후에는 Stella가 멈춥니다 — Free 요금제의 사용량은 일회성이고, 이미 모두 사용하셨습니다."
     },
     "heading": "요금제 선택",
-    "subtitle": "무료로 시작하세요. 더 필요할 때 업그레이드하세요."
+    "subtitle": "무료로 시작하세요. 더 필요할 때 업그레이드하세요.",
+    "mobile": {
+      "sectionTitle": "구독",
+      "currentPlanLabel": "현재 요금제",
+      "planValue": "Stella {plan}",
+      "manage": "구독 관리",
+      "manageWebNote": "이 구독은 웹의 Stella(stella.sh)에서 관리하거나 취소할 수 있습니다.",
+      "renews": "{date}에 갱신",
+      "accessEnds": "{date}에 이용 종료",
+      "chooseHeading": "요금제 선택",
+      "subscribe": "구독하기",
+      "perMonth": "{price}/월",
+      "introLine": "첫 달 {introPrice}, 이후 {price}/월",
+      "signInToSubscribe": "구독하려면 로그인하세요",
+      "startingCheckout": "시작 중…",
+      "pendingTitle": "구매를 마무리하는 중",
+      "pendingBody": "브라우저에서 결제를 완료하세요. 결제가 확인되면 요금제가 여기에서 자동으로 업데이트됩니다. 다시 시작할 필요가 없습니다.",
+      "pendingDismiss": "나중에",
+      "successTitle": "Stella {plan}을 이용 중입니다",
+      "successBody": "구독이 활성화되었습니다. 늘어난 한도를 마음껏 사용하세요.",
+      "errorRetry": "다시 시도",
+      "alreadySubscribedTitle": "이미 구독 중입니다",
+      "footnote": "Stripe를 통해 Stella가 청구합니다. 취소할 때까지 매월 갱신되며 언제든 취소할 수 있습니다."
+    }
   },
   "chat": {
     "stoppedReply": "Stella가 이 응답을 시작하지 못했습니다",

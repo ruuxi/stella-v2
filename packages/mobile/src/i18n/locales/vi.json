@@ -52,6 +52,10 @@
       "title": "Xem trước tệp dành cho nhà phát triển",
       "description": "Hiển thị thay đổi mã trong trò chuyện và mở chúng trong bảng bên."
     },
+    "developerMode": {
+      "title": "Chế độ nhà phát triển",
+      "description": "Hiển thị các tùy chọn nâng cao về mô hình, engine và nhà cung cấp, bao gồm thiết lập khóa API của riêng bạn."
+    },
     "nativeFontSmoothing": {
       "title": "Làm mịn phông chữ gốc",
       "description": "Hiển thị văn bản như các ứng dụng macOS, với khử răng cưa thang độ xám."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Chế độ điều phối không khả dụng trong cửa sổ này.",
       "loadMemory": "Không tải được cài đặt bộ nhớ.",
       "saveMemory": "Không cập nhật được cài đặt bộ nhớ.",
+      "saveDeveloperMode": "Không thể cập nhật chế độ nhà phát triển.",
       "memoryUnavailable": "Cài đặt bộ nhớ không khả dụng trong cửa sổ này.",
       "loadPermissions": "Không tải được trạng thái quyền trên máy tính để bàn.",
       "savePermission": "Không cập nhật được quyền {kind}.",
@@ -706,7 +711,30 @@
       "lapseDescription": "Gói {plan} của bạn còn hiệu lực đến {date}. Sau đó Stella sẽ dừng — hạn mức của gói Free chỉ được cấp một lần và bạn đã dùng hết."
     },
     "heading": "Chọn gói của bạn",
-    "subtitle": "Bắt đầu miễn phí. Nâng cấp khi bạn cần nhiều hơn."
+    "subtitle": "Bắt đầu miễn phí. Nâng cấp khi bạn cần nhiều hơn.",
+    "mobile": {
+      "sectionTitle": "Gói đăng ký",
+      "currentPlanLabel": "Gói hiện tại",
+      "planValue": "Stella {plan}",
+      "manage": "Quản lý gói đăng ký",
+      "manageWebNote": "Quản lý hoặc hủy gói đăng ký này trên Stella phiên bản web tại stella.sh.",
+      "renews": "Gia hạn vào {date}",
+      "accessEnds": "Quyền truy cập kết thúc vào {date}",
+      "chooseHeading": "Chọn gói của bạn",
+      "subscribe": "Đăng ký",
+      "perMonth": "{price}/tháng",
+      "introLine": "{introPrice} tháng đầu, sau đó {price}/tháng",
+      "signInToSubscribe": "Đăng nhập để đăng ký",
+      "startingCheckout": "Đang bắt đầu…",
+      "pendingTitle": "Đang hoàn tất giao dịch của bạn",
+      "pendingBody": "Hoàn tất thanh toán trong trình duyệt. Gói của bạn sẽ tự động cập nhật tại đây ngay khi thanh toán được xác nhận — không cần khởi động lại.",
+      "pendingDismiss": "Để sau",
+      "successTitle": "Bạn đang dùng Stella {plan}",
+      "successBody": "Gói đăng ký của bạn đã hoạt động. Tận hưởng các giới hạn cao hơn.",
+      "errorRetry": "Thử lại",
+      "alreadySubscribedTitle": "Bạn đã có gói đăng ký",
+      "footnote": "Do Stella thu phí qua Stripe. Tự động gia hạn hằng tháng cho đến khi hủy; hủy bất cứ lúc nào."
+    }
   },
   "chat": {
     "stoppedReply": "Stella không thể bắt đầu phản hồi này",

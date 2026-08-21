@@ -510,7 +510,9 @@ function ComputerChatSurface({
 
   const composerModelPicker = useMemo(
     () => ({
-      pinned: composerModelPinned,
+      // The pinned composer picker is a developer-mode surface; an explicit
+      // "off" from the paired desktop unpins it regardless of local state.
+      pinned: composerModelPinned && modelSettings.developerModeEnabled !== false,
       label: modelSettings.selectedModelLabel,
       loading: modelSettings.loading && !modelSettings.snapshot,
       saving: modelSettings.saving,

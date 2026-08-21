@@ -52,6 +52,10 @@
       "title": "開發者檔案預覽",
       "description": "在聊天中顯示程式碼變更，並在側邊面板中開啟它們。"
     },
+    "developerMode": {
+      "title": "開發者模式",
+      "description": "顯示進階的模型、引擎與供應商控制項，包括自備 API 金鑰的設定。"
+    },
     "nativeFontSmoothing": {
       "title": "原生字體平滑",
       "description": "像 macOS App 那樣算繪文字，使用灰階反鋸齒。"
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "此視窗無法使用協調器模式。",
       "loadMemory": "載入記憶設定失敗。",
       "saveMemory": "更新記憶設定失敗。",
+      "saveDeveloperMode": "無法更新開發者模式。",
       "memoryUnavailable": "此視窗中無法使用記憶設定。",
       "loadPermissions": "載入桌面權限狀態失敗。",
       "savePermission": "更新「{kind}」權限失敗。",
@@ -706,7 +711,30 @@
       "lapseDescription": "你的 {plan} 方案可用到 {date}。之後 Stella 將停止服務 — Free 方案的額度只發放一次，你的已經用完了。"
     },
     "heading": "選擇你的方案",
-    "subtitle": "免費開始。需要更多時再升級。"
+    "subtitle": "免費開始。需要更多時再升級。",
+    "mobile": {
+      "sectionTitle": "訂閱",
+      "currentPlanLabel": "目前方案",
+      "planValue": "Stella {plan}",
+      "manage": "管理訂閱",
+      "manageWebNote": "可在網頁版 Stella（stella.sh）管理或取消此訂閱。",
+      "renews": "{date} 續訂",
+      "accessEnds": "使用權限於 {date} 結束",
+      "chooseHeading": "選擇你的方案",
+      "subscribe": "訂閱",
+      "perMonth": "{price}/月",
+      "introLine": "首月 {introPrice}，之後 {price}/月",
+      "signInToSubscribe": "登入後訂閱",
+      "startingCheckout": "正在開始…",
+      "pendingTitle": "正在完成購買",
+      "pendingBody": "請在瀏覽器中完成付款。付款確認後，方案會在此自動更新，無需重新啟動。",
+      "pendingDismiss": "暫不",
+      "successTitle": "你已訂閱 Stella {plan}",
+      "successBody": "訂閱已生效。盡情享受更高的額度。",
+      "errorRetry": "重試",
+      "alreadySubscribedTitle": "你已有訂閱",
+      "footnote": "由 Stella 透過 Stripe 收費。每月續訂，直到取消；可隨時取消。"
+    }
   },
   "chat": {
     "stoppedReply": "Stella 無法開始此次回覆",

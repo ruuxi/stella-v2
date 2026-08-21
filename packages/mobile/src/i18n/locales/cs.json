@@ -52,6 +52,10 @@
       "title": "Náhledy souborů pro vývojáře",
       "description": "Zobrazí změny kódu v chatu a otevře je v bočním panelu."
     },
+    "developerMode": {
+      "title": "Režim pro vývojáře",
+      "description": "Zobrazit pokročilé ovládání modelů, enginů a poskytovatelů, včetně nastavení vlastního API klíče."
+    },
     "nativeFontSmoothing": {
       "title": "Nativní vyhlazování písma",
       "description": "Vykresluje text jako aplikace macOS, s vyhlazováním ve stupních šedi."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Režim orchestrátoru není v tomto okně k dispozici.",
       "loadMemory": "Nepodařilo se načíst nastavení paměti.",
       "saveMemory": "Nepodařilo se aktualizovat nastavení paměti.",
+      "saveDeveloperMode": "Nepodařilo se aktualizovat režim pro vývojáře.",
       "memoryUnavailable": "Nastavení paměti nejsou v tomto okně dostupná.",
       "loadPermissions": "Nepodařilo se načíst stav oprávnění plochy.",
       "savePermission": "Nepodařilo se aktualizovat oprávnění {kind}.",
@@ -709,7 +714,30 @@
       "lapseDescription": "Váš plán {plan} běží do {date}. Poté Stella přestane fungovat — kredit plánu Free je jednorázový a ten svůj jste už vyčerpali."
     },
     "heading": "Vyberte si tarif",
-    "subtitle": "Začněte zdarma. Upgradujte, až budete potřebovat více."
+    "subtitle": "Začněte zdarma. Upgradujte, až budete potřebovat více.",
+    "mobile": {
+      "sectionTitle": "Předplatné",
+      "currentPlanLabel": "Aktuální plán",
+      "planValue": "Stella {plan}",
+      "manage": "Spravovat předplatné",
+      "manageWebNote": "Toto předplatné spravujte nebo zrušte ve Stelle na webu na stella.sh.",
+      "renews": "Obnoví se {date}",
+      "accessEnds": "Přístup končí {date}",
+      "chooseHeading": "Vyberte si plán",
+      "subscribe": "Předplatit",
+      "perMonth": "{price}/měs.",
+      "introLine": "{introPrice} první měsíc, poté {price}/měs.",
+      "signInToSubscribe": "Přihlaste se a předplaťte si",
+      "startingCheckout": "Spouštění…",
+      "pendingTitle": "Dokončujeme váš nákup",
+      "pendingBody": "Dokončete platbu v prohlížeči. Váš plán se zde po potvrzení platby automaticky aktualizuje – není třeba nic restartovat.",
+      "pendingDismiss": "Teď ne",
+      "successTitle": "Máte Stella {plan}",
+      "successBody": "Vaše předplatné je aktivní. Užijte si vyšší limity.",
+      "errorRetry": "Zkusit znovu",
+      "alreadySubscribedTitle": "Předplatné už máte",
+      "footnote": "Účtuje Stella prostřednictvím Stripe. Obnovuje se měsíčně až do zrušení; zrušit můžete kdykoli."
+    }
   },
   "chat": {
     "stoppedReply": "Stella nemohla zahájit tuto odpověď",

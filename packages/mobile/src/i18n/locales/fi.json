@@ -52,6 +52,10 @@
       "title": "Kehittäjän tiedostojen esikatselut",
       "description": "Näytä koodimuutokset chatissa ja avaa ne sivupaneelissa."
     },
+    "developerMode": {
+      "title": "Kehittäjätila",
+      "description": "Näytä mallien, moottorien ja palveluntarjoajien lisäasetukset, mukaan lukien oman API-avaimen määritys."
+    },
     "nativeFontSmoothing": {
       "title": "Natiivi fonttien pehmennys",
       "description": "Piirtää tekstin kuten macOS-sovellukset, harmaasävyreunanpehmennyksellä."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Orkestraattoritila ei ole käytettävissä tässä ikkunassa.",
       "loadMemory": "Muistiasetuksen lataaminen epäonnistui.",
       "saveMemory": "Muistiasetuksen päivitys epäonnistui.",
+      "saveDeveloperMode": "Kehittäjätilan päivitys epäonnistui.",
       "memoryUnavailable": "Muistiasetukset eivät ole käytettävissä tässä ikkunassa.",
       "loadPermissions": "Työpöydän käyttöoikeustilan lataaminen epäonnistui.",
       "savePermission": "Käyttöoikeuden {kind} päivitys epäonnistui.",
@@ -707,7 +712,30 @@
       "lapseDescription": "{plan}-tilauksesi on voimassa {date} asti. Sen jälkeen Stella pysähtyy — Free-tilauksen krediitti annetaan vain kerran, ja olet jo käyttänyt omasi."
     },
     "heading": "Valitse tilauksesi",
-    "subtitle": "Aloita ilmaiseksi. Päivitä, kun tarvitset enemmän."
+    "subtitle": "Aloita ilmaiseksi. Päivitä, kun tarvitset enemmän.",
+    "mobile": {
+      "sectionTitle": "Tilaus",
+      "currentPlanLabel": "Nykyinen tilaus",
+      "planValue": "Stella {plan}",
+      "manage": "Hallitse tilausta",
+      "manageWebNote": "Hallitse tai peruuta tämä tilaus Stellan verkkosivustolla osoitteessa stella.sh.",
+      "renews": "Uusiutuu {date}",
+      "accessEnds": "Käyttöoikeus päättyy {date}",
+      "chooseHeading": "Valitse tilauksesi",
+      "subscribe": "Tilaa",
+      "perMonth": "{price}/kk",
+      "introLine": "{introPrice} ensimmäinen kuukausi, sitten {price}/kk",
+      "signInToSubscribe": "Kirjaudu sisään tilataksesi",
+      "startingCheckout": "Aloitetaan…",
+      "pendingTitle": "Viimeistellään ostosta",
+      "pendingBody": "Maksa loppuun selaimessa. Tilauksesi päivittyy tähän automaattisesti heti, kun maksu on vahvistettu – uudelleenkäynnistystä ei tarvita.",
+      "pendingDismiss": "Ei nyt",
+      "successTitle": "Sinulla on Stella {plan}",
+      "successBody": "Tilauksesi on aktiivinen. Nauti suuremmista rajoista.",
+      "errorRetry": "Yritä uudelleen",
+      "alreadySubscribedTitle": "Sinulla on jo tilaus",
+      "footnote": "Laskuttaa Stella Stripen kautta. Uusiutuu kuukausittain, kunnes peruutat; voit peruuttaa milloin tahansa."
+    }
   },
   "chat": {
     "stoppedReply": "Stella ei pystynyt aloittamaan tätä vastausta",

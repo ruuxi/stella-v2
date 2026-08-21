@@ -52,6 +52,10 @@
       "title": "Fejlesztői fájl-előnézetek",
       "description": "Megjeleníti a kódmódosításokat a csevegésben, és megnyitja őket az oldalsó panelen."
     },
+    "developerMode": {
+      "title": "Fejlesztői mód",
+      "description": "Speciális modell-, motor- és szolgáltatóbeállítások megjelenítése, beleértve a saját API-kulcs beállítását."
+    },
     "nativeFontSmoothing": {
       "title": "Natív betűsimítás",
       "description": "Úgy jeleníti meg a szöveget, ahogy a macOS-alkalmazások, szürkeárnyalatos élsimítással."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Az orkesztrátor mód nem érhető el ebben az ablakban.",
       "loadMemory": "Nem sikerült betölteni a memóriabeállítást.",
       "saveMemory": "Nem sikerült frissíteni a memóriabeállítást.",
+      "saveDeveloperMode": "Nem sikerült frissíteni a fejlesztői módot.",
       "memoryUnavailable": "A memóriabeállítások nem érhetők el ebben az ablakban.",
       "loadPermissions": "Nem sikerült betölteni az asztali engedélyek állapotát.",
       "savePermission": "Nem sikerült frissíteni a(z) {kind} engedélyt.",
@@ -707,7 +712,30 @@
       "lapseDescription": "A(z) {plan} csomagod eddig tart: {date}. Utána a Stella leáll — a Free csomag kerete egyszeri, és a tiédet már elhasználtad."
     },
     "heading": "Válaszd ki a csomagodat",
-    "subtitle": "Kezdd ingyen. Válts magasabb csomagra, amikor többre van szükséged."
+    "subtitle": "Kezdd ingyen. Válts magasabb csomagra, amikor többre van szükséged.",
+    "mobile": {
+      "sectionTitle": "Előfizetés",
+      "currentPlanLabel": "Jelenlegi csomag",
+      "planValue": "Stella {plan}",
+      "manage": "Előfizetés kezelése",
+      "manageWebNote": "Ezt az előfizetést a Stella webes felületén, a stella.sh címen kezelheted vagy mondhatod le.",
+      "renews": "Megújul: {date}",
+      "accessEnds": "A hozzáférés lejár: {date}",
+      "chooseHeading": "Válaszd ki a csomagod",
+      "subscribe": "Előfizetés",
+      "perMonth": "{price}/hó",
+      "introLine": "{introPrice} az első hónapban, utána {price}/hó",
+      "signInToSubscribe": "Jelentkezz be az előfizetéshez",
+      "startingCheckout": "Indítás…",
+      "pendingTitle": "A vásárlás befejezése",
+      "pendingBody": "Fejezd be a fizetést a böngészőben. A csomagod itt automatikusan frissül, amint a fizetés megerősítést nyer – nem kell újraindítani.",
+      "pendingDismiss": "Most nem",
+      "successTitle": "A Stella {plan} csomagot használod",
+      "successBody": "Az előfizetésed aktív. Élvezd a magasabb korlátokat.",
+      "errorRetry": "Újra",
+      "alreadySubscribedTitle": "Már van előfizetésed",
+      "footnote": "A Stella számláz a Stripe-on keresztül. Lemondásig havonta megújul; bármikor lemondható."
+    }
   },
   "chat": {
     "stoppedReply": "A Stella nem tudta elindítani ezt a választ",

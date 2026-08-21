@@ -52,6 +52,10 @@
       "title": "Previzualizări de fișiere pentru dezvoltatori",
       "description": "Afișează modificările de cod în chat și le deschide în panoul lateral."
     },
+    "developerMode": {
+      "title": "Mod dezvoltator",
+      "description": "Afișează controale avansate pentru modele, motoare și furnizori, inclusiv configurarea propriei chei API."
+    },
     "nativeFontSmoothing": {
       "title": "Netezire nativă a fonturilor",
       "description": "Redă textul așa cum o fac aplicațiile macOS, cu anti-aliasing în tonuri de gri."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Modul orchestrator nu este disponibil în această fereastră.",
       "loadMemory": "Nu s-a putut încărca setarea de memorie.",
       "saveMemory": "Nu s-a putut actualiza setarea de memorie.",
+      "saveDeveloperMode": "Actualizarea modului dezvoltator a eșuat.",
       "memoryUnavailable": "Setările de memorie nu sunt disponibile în această fereastră.",
       "loadPermissions": "Nu s-a putut încărca starea permisiunilor desktopului.",
       "savePermission": "Nu s-a putut actualiza permisiunea {kind}.",
@@ -708,7 +713,30 @@
       "lapseDescription": "Planul tău {plan} este activ până pe {date}. După aceea Stella se oprește — creditul planului Free se acordă o singură dată, iar al tău a fost deja folosit."
     },
     "heading": "Alege-ți planul",
-    "subtitle": "Începe gratuit. Fă upgrade când ai nevoie de mai mult."
+    "subtitle": "Începe gratuit. Fă upgrade când ai nevoie de mai mult.",
+    "mobile": {
+      "sectionTitle": "Abonament",
+      "currentPlanLabel": "Planul actual",
+      "planValue": "Stella {plan}",
+      "manage": "Gestionează abonamentul",
+      "manageWebNote": "Gestionează sau anulează acest abonament din Stella pe web, la stella.sh.",
+      "renews": "Se reînnoiește pe {date}",
+      "accessEnds": "Accesul se încheie pe {date}",
+      "chooseHeading": "Alege-ți planul",
+      "subscribe": "Abonează-te",
+      "perMonth": "{price}/lună",
+      "introLine": "{introPrice} în prima lună, apoi {price}/lună",
+      "signInToSubscribe": "Conectează-te pentru a te abona",
+      "startingCheckout": "Se pornește…",
+      "pendingTitle": "Finalizăm achiziția ta",
+      "pendingBody": "Finalizează plata în browser. Planul tău se actualizează aici automat imediat ce plata este confirmată — nu e nevoie să repornești.",
+      "pendingDismiss": "Nu acum",
+      "successTitle": "Ai Stella {plan}",
+      "successBody": "Abonamentul tău este activ. Bucură-te de limitele mai mari.",
+      "errorRetry": "Încearcă din nou",
+      "alreadySubscribedTitle": "Ai deja un abonament",
+      "footnote": "Facturat de Stella prin Stripe. Se reînnoiește lunar până la anulare; anulează oricând."
+    }
   },
   "chat": {
     "stoppedReply": "Stella nu a putut începe acest răspuns",

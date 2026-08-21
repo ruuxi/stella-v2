@@ -104,6 +104,21 @@
   pointer-events: none;
 }
 
+/* The same nudge dot echoed inside the settings menu, anchored to the
+   "Stella on your phone" row's icon so the opened menu shows which item
+   clears the dot on the trigger. */
+.shell-settings-menu [data-slot="dropdown-menu-item-icon"] {
+  position: relative;
+}
+
+.shell-settings-menu-item-hint-dot {
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  box-shadow: 0 0 0 2px var(--popover, var(--surface-base));
+}
+
 /* ============================================
    Account cluster (avatar / sign-in)
    Sits just left of the display-tabs region, so
@@ -183,6 +198,27 @@
   color: var(--text-weak);
   white-space: nowrap;
   pointer-events: none;
+}
+
+/* Gear inside the signed-in account button: a clickability affordance only —
+   the whole button is one target that opens the unified account menu. */
+.shell-topbar-account-settings-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-weak);
+  pointer-events: none;
+  transition: color 0.12s ease;
+}
+
+.shell-topbar-account-trigger:hover .shell-topbar-account-settings-icon,
+.shell-topbar-account-trigger:focus-visible .shell-topbar-account-settings-icon,
+.shell-topbar-account-trigger[data-state="open"]
+  .shell-topbar-account-settings-icon {
+  color: var(--text-strong);
 }
 
 .shell-topbar-account-signin {

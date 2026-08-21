@@ -88,6 +88,9 @@ export function useSettingsMenu() {
       id: "connect",
       label: "Stella on your phone",
       Icon: Smartphone,
+      // Mirrors the trigger's hint dot inside the opened menu so the user can
+      // see which row clears it; selecting the row dismisses both.
+      hint: connectHint.active,
       onSelect: () => {
         if (connectHint.active) connectHint.dismiss();
         openPhoneDialog();

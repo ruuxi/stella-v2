@@ -59,10 +59,16 @@ export function SettingsMenuButton({ className, showActiveState = false }) {
             if (applyPendingPopover()) event.preventDefault();
           }}
         >
-          {destinations.map(({ id, label, Icon, onSelect }) => (
+          {destinations.map(({ id, label, Icon, onSelect, hint }) => (
             <DropdownMenuItem key={id} onSelect={onSelect}>
               <span data-slot="dropdown-menu-item-icon">
                 <Icon size={15} strokeWidth={1.75} />
+                {hint ? (
+                  <span
+                    className="shell-topbar-nav-hint-dot shell-settings-menu-item-hint-dot"
+                    aria-hidden="true"
+                  />
+                ) : null}
               </span>
               {label}
             </DropdownMenuItem>

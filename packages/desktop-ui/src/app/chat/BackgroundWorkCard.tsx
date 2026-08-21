@@ -1,14 +1,21 @@
 /**
- * Inline "background work" card — the live presentation of a stable,
+ * Inline "background work" row — the live presentation of a stable,
  * spawn-anchored task occurrence.
  *
  * Marks, in the chat flow itself, the spot where Stella kicked something
- * off in the background. The card records "this task was triggered here" at
+ * off in the background. The row records "this task was triggered here" at
  * spawn time and stays put as a historical anchor. Progress/failure update
  * this same surface; a fully completed occurrence switches to the settled
- * `AgentCompletionCard` presentation in the same row. Several pieces of work
- * started in the same turn collapse into this one card (it just tallies
- * them as a count) rather than stacking a card per thread.
+ * `AgentCompletionCard` presentation in the same slot. Several pieces of
+ * work started in the same turn collapse into this one row (it just tallies
+ * them as a count) rather than stacking a row per thread.
+ *
+ * Presentation is deliberately minimal — no card chrome, no badges, no
+ * completion excerpt. One line: leading glyph (Stella star, or the
+ * provider's icon for external engines), the task DESCRIPTION, a status
+ * tell (shimmering title + tiny spinner while running; a quiet grey check
+ * once done; an arrow for `send_input` follow-ups), and a trailing chevron.
+ * Clicking anywhere opens the agent's thread tab.
  *
  * Two variants share the same surface:
  *   - spawn ("started X" — `spawn_agent` kicked off new
@@ -16,7 +23,7 @@
  *   - follow-up ("update sent to X" — `send_input` advanced an already-
  *     spawned thread). A follow-up reuses the thread's original description,
  *     so the runtime carries the follow-up's own message on `statusText`;
- *     the card surfaces THAT (not the stale spawn description) and reads as a
+ *     the row surfaces THAT (not the stale spawn description) and reads as a
  *     distinct update breadcrumb. See `getBackgroundWork`.
  *
  * Presence/identity and the captured descriptions come from the spawning
@@ -28,17 +35,15 @@ import { useLayoutEffect, useMemo } from "react";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import { TextShimmer } from "@/app/chat/TextShimmer";
 import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
-import { selectLatestThreadAssistantSummary } from "@/features/chat/lib/agent-assistant-summary";
 import {
-  agentPresentationFallback,
   deriveAgentCardPresentationStatus,
   deriveThreadAndOwnedPresentationStatus,
 } from "@/features/chat/lib/agent-activity-presentation";
-import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecycleStatusIcon";
 import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
-import { AgentModelIcon, shouldShowAgentModelIcon } from "./AgentModelIcon";
+import { ArrowRight, Check, ChevronRight, LoaderCircle } from "@/ui/icons";
+import { AgentActivityGlyph } from "./AgentActivityGlyph";
 import { useT, useTPlural } from "@/shared/i18n";
-import "./background-work-card.css";
+import "./agent-activity-row.css";
 
 /** Sweep duration for the title shimmer — a touch quicker than the base
  *  TextShimmer so the in-progress state reads as lively. */
@@ -80,10 +85,10 @@ export function BackgroundWorkCard({
    *  decide whether the title still shimmers. */
   completedThreadIds?: string[];
   /** Subset paused since this card's spawn (latest `agent-canceled` wins) —
-   *  the shimmer stops and the subtitle reads "Paused" until a resume's
-   *  fresh `agent-started` supersedes this card. */
+   *  the shimmer stops and the row settles until a resume's fresh
+   *  `agent-started` supersedes this card. */
   pausedThreadIds?: string[];
-  /** Run-scoped failures. These settle the existing card in place. */
+  /** Run-scoped failures. These settle the existing row in place. */
   failedThreadIds?: string[];
   /** Subset a later turn's card now owns; frozen as settled here. */
   supersededThreadIds?: string[];
@@ -148,9 +153,9 @@ export function BackgroundWorkCard({
   ]);
   const working = presentationStatus === "running";
 
-  // The card mounting grows its row outside the streaming-text notify path
-  // (a spawn lands as a tool event, not a text chunk) — tell the scroll
-  // surfaces so auto-follow keeps the card in frame. See
+  // The row mounting grows its chat row outside the streaming-text notify
+  // path (a spawn lands as a tool event, not a text chunk) — tell the scroll
+  // surfaces so auto-follow keeps the row in frame. See
   // `notifyChatContentGrowth`.
   useLayoutEffect(() => {
     notifyChatContentGrowth();
@@ -171,7 +176,7 @@ export function BackgroundWorkCard({
 
   // Several threads in one turn collapse to a plain count instead of cycling
   // through descriptions — a single task shows its own description.
-  const lifecycleTitle = isFollowUp
+  const title = isFollowUp
     ? statusTexts?.[followUpId] ||
       resolved[0] ||
       t("app.chat.backgroundWork.followUp")
@@ -180,37 +185,7 @@ export function BackgroundWorkCard({
         tPlural("app.chat.backgroundWork.taskCount", threadIds.length)
       : resolved[0] || t("app.chat.backgroundWork.title");
 
-  // Attempt/root fencing keeps modern historical cards scoped to their own
-  // prose. Legacy cards without a generation still need the coarse exclusion
-  // so a newer follow-up cannot bleed text into the predecessor.
-  const assistantSummaryExcludedThreadIds = useMemo(
-    () =>
-      (supersededThreadIds ?? []).filter(
-        (threadId) => attemptGenerationsByThread?.[threadId] === undefined,
-      ),
-    [attemptGenerationsByThread, supersededThreadIds],
-  );
-
-  const latestAssistantSummary = useMemo(
-    () =>
-      selectLatestThreadAssistantSummary(threadActivity, {
-        threadIds,
-        excludedThreadIds: assistantSummaryExcludedThreadIds,
-        attemptGenerationsByThread,
-        rootRunIdsByThread,
-        startedAtMsByThread: spawnedAtMs,
-      }),
-    [
-      assistantSummaryExcludedThreadIds,
-      attemptGenerationsByThread,
-      rootRunIdsByThread,
-      spawnedAtMs,
-      threadActivity,
-      threadIds,
-    ],
-  );
   if (threadIds.length === 0) return null;
-  const title = lifecycleTitle;
   const openThread = (threadId: string) => {
     const record = threadActivity.find(
       (candidate) => candidate.threadId === threadId,
@@ -226,13 +201,8 @@ export function BackgroundWorkCard({
   };
   const primaryThreadId = threadIds[0]!;
 
-  // "Paused" only replaces the ACTIVE presentation: while any covered thread
-  // is still genuinely working the card keeps its shimmer + normal subtitle,
-  // and a settled card keeps its plain historical label.
   const failed = presentationStatus === "error";
   const showPaused = presentationStatus === "canceled";
-  const semanticFallback = agentPresentationFallback(presentationStatus);
-  const subtitle = latestAssistantSummary?.text ?? semanticFallback;
   const startEventIds = threadIds
     .map((id) => startEventIdsByThread[id])
     .filter(Boolean);
@@ -242,16 +212,16 @@ export function BackgroundWorkCard({
   const terminalEventIds = threadIds
     .map((id) => terminalEventIdsByThread?.[id])
     .filter(Boolean);
-  const visibleModelIcons = threadIds.flatMap((threadId) => {
-    const snapshot = threadActivity.find(
-      (record) => record.threadId === threadId,
-    )?.modelConfigSnapshot;
-    return shouldShowAgentModelIcon(snapshot) ? [{ threadId, snapshot }] : [];
-  });
+  // Leading glyph: the provider's icon when the primary thread runs on an
+  // external engine, Stella's star otherwise. `AgentModelIcon` stays
+  // monochrome until the row is hovered (see agent-model-icon.css).
+  const primarySnapshot = threadActivity.find(
+    (record) => record.threadId === primaryThreadId,
+  )?.modelConfigSnapshot;
 
   return (
     <div
-      className="background-work-card"
+      className="agent-activity-row"
       role="button"
       tabIndex={0}
       aria-label={t("app.chat.backgroundWork.openNamedThread", { title })}
@@ -267,7 +237,7 @@ export function BackgroundWorkCard({
       }}
       data-state={failed ? "failed" : isFollowUp ? "follow-up" : "started"}
       data-lifecycle-status={presentationStatus}
-      data-working={presentationStatus === "running" ? "true" : undefined}
+      data-working={working ? "true" : undefined}
       data-paused={showPaused ? "true" : undefined}
       data-activity-card-id={cardId}
       data-agent-ids={threadIds.join(",")}
@@ -275,41 +245,39 @@ export function BackgroundWorkCard({
       data-root-run-ids={rootRunIds.join(",")}
       data-terminal-event-ids={terminalEventIds.join(",")}
     >
-      <span className="background-work-card__glyph" aria-hidden="true">
-        <AgentLifecycleStatusIcon
-          status={presentationStatus}
-          size={16}
-          strokeWidth={1.75}
-        />
+      <span className="agent-activity-row__glyph" aria-hidden="true">
+        <AgentActivityGlyph snapshot={primarySnapshot} />
       </span>
-      <span className="background-work-card__text">
-        <span className="background-work-card__title">
-          {working ? (
-            <TextShimmer text={title} durationMs={TITLE_SHIMMER_MS} />
-          ) : (
-            title
-          )}
+      <span className="agent-activity-row__title">
+        {working ? (
+          <TextShimmer text={title} durationMs={TITLE_SHIMMER_MS} />
+        ) : (
+          title
+        )}
+      </span>
+      {working ? (
+        <span className="agent-activity-row__status" aria-hidden="true">
+          <LoaderCircle
+            size={12}
+            strokeWidth={2}
+            className="stella-loader-circle"
+          />
         </span>
-        <span className="background-work-card__subtitle">{subtitle}</span>
-      </span>
-      {visibleModelIcons.length > 0 ? (
-        <span className="background-work-card__actions">
-          {visibleModelIcons.map(({ threadId, snapshot }) => (
-            <button
-              key={threadId}
-              type="button"
-              className="background-work-card__chat"
-              onClick={(event) => {
-                event.stopPropagation();
-                openThread(threadId);
-              }}
-              aria-label={t("app.chat.backgroundWork.openThread")}
-            >
-              <AgentModelIcon snapshot={snapshot} />
-            </button>
-          ))}
+      ) : isFollowUp ? (
+        <span className="agent-activity-row__status" aria-hidden="true">
+          <ArrowRight size={12} strokeWidth={1.75} />
+        </span>
+      ) : presentationStatus === "completed" ? (
+        <span className="agent-activity-row__status" aria-hidden="true">
+          <Check size={13} strokeWidth={1.75} />
         </span>
       ) : null}
+      <ChevronRight
+        size={13}
+        strokeWidth={1.75}
+        aria-hidden
+        className="agent-activity-row__chevron"
+      />
     </div>
   );
 }

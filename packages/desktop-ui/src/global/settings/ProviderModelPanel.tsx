@@ -47,6 +47,7 @@ const REASONING_OPTIONS: ReadonlyArray<{
 ];
 const STELLA_PROVIDER_KEY = "stella";
 const LOCAL_PROVIDER_KEY = "local";
+const OPENROUTER_PROVIDER_KEY = "openrouter";
 const DEFAULT_TARGET = "__default__";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
 export type ProviderTab = {
@@ -229,9 +230,30 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             const sorted = favoriteScope
                 ? sortByFavorites(searched, favorites)
                 : searched;
-            const visibleModels = tab.key === STELLA_PROVIDER_KEY
+            let visibleModels = tab.key === STELLA_PROVIDER_KEY
                 ? dedupeStellaModels(sorted, value)
                 : sorted;
+            // OpenRouter's model-id namespace is open-ended: the custom-model
+            // input accepts any `vendor/model` slug, including ids the
+            // baked/pi.dev-fed catalog doesn't know (stealth models). Render
+            // the selected custom id as a real, checked row so the pick
+            // visibly sticks instead of the section looking unselected.
+            if (tab.key === OPENROUTER_PROVIDER_KEY &&
+                value.startsWith(`${OPENROUTER_PROVIDER_KEY}/`) &&
+                !tab.models.some((model) => model.id === value) &&
+                (!trimmed ||
+                    value.toLowerCase().includes(trimmed.toLowerCase()))) {
+                const customSlug = value.slice(`${OPENROUTER_PROVIDER_KEY}/`.length);
+                const customModel: CatalogModel = {
+                    id: value,
+                    name: customSlug,
+                    provider: OPENROUTER_PROVIDER_KEY,
+                    providerName: tab.label,
+                    modelId: customSlug,
+                    source: "local",
+                };
+                visibleModels = [customModel, ...visibleModels];
+            }
             // Hide sections with no matching models while searching so the list
             // narrows to relevant providers instead of leaving empty headers.
             if (trimmed && visibleModels.length === 0)

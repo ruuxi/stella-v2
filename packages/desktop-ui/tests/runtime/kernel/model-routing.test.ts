@@ -913,6 +913,30 @@ describe("resolveLlmRoute", () => {
     await expect(resolved.getApiKey()).resolves.toBe("openrouter-key");
   });
 
+  it("accepts a custom stealth slug end-to-end: correct openrouter id + BYOK key", async () => {
+    // The picker's custom OpenRouter input stores `openrouter/<slug>` for a
+    // slug no catalog lists (stealth models). The resolver must honor it:
+    // provider = openrouter, upstream model id = the verbatim multi-segment
+    // slug, and the user's OpenRouter BYOK key attached.
+    credentials.set("openrouter", "openrouter-key");
+    const { resolveLlmRoute } = await import(
+      "@stella/runtime/kernel/model-routing"
+    );
+
+    const resolved = resolveLlmRoute({
+      stellaAppDir: "/tmp/stella",
+      modelName: "openrouter/stealth/ox-alpha",
+      agentType: "general",
+      site,
+    });
+
+    expect(resolved.route).toBe("direct-provider");
+    expect(resolved.model.provider).toBe("openrouter");
+    expect(resolved.model.id).toBe("stealth/ox-alpha");
+    expect(resolved.model.baseUrl).toBe(OPENROUTER_TEMPLATE.baseUrl);
+    await expect(resolved.getApiKey()).resolves.toBe("openrouter-key");
+  });
+
   it("uses self-contained capacity defaults, never the template's limits, when synthesizing", async () => {
     // The cloned template (OPENROUTER_TEMPLATE) deliberately carries tiny
     // capacity (maxTokens 4096, contextWindow 8000), mirroring the real

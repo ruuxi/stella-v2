@@ -4,6 +4,7 @@ import {
   buildEngineReasoningPatch,
   buildEngineRoutingPatch,
   buildEngineTransitionReasoningPatch,
+  buildModelSelectionPatch,
   buildRecentModelSelectionPatch,
   DEFAULT_CHATGPT_MODEL,
   formatRecentEngineModelId,
@@ -110,6 +111,60 @@ describe("engine model routing", () => {
       claudeCodeModel: "opus",
       reasoningEfforts: {},
     });
+  });
+
+  it("accepts a custom OpenRouter slug and reverts a committed engine", () => {
+    // A slug typed into the OpenRouter custom input (e.g. a stealth model
+    // absent from every catalog) must select like any catalog pick: routed
+    // overrides on orchestrator+general and the engine back on default.
+    const committed = {
+      ...preferences,
+      reasoningEfforts: {},
+      stellaConversationReasoningEfforts: {},
+      codexReasoningEffort: "default" as const,
+      claudeCodeReasoningEffort: "medium" as const,
+      agentRuntimeEngine: "claude_code_local" as const,
+      claudeCodeModel: "opus",
+    };
+    const patch = buildModelSelectionPatch(
+      committed,
+      "openrouter/stealth/ox-alpha",
+      { assistant: true, configurableAgentKeys: ["orchestrator", "general"] },
+    );
+    expect(patch).toMatchObject({
+      agentRuntimeEngine: "default",
+      modelOverrides: {
+        orchestrator: "openrouter/stealth/ox-alpha",
+        general: "openrouter/stealth/ox-alpha",
+      },
+      stellaConversationModelOverrides: {
+        orchestrator: "openrouter/stealth/ox-alpha",
+        general: "openrouter/stealth/ox-alpha",
+      },
+    });
+  });
+
+  it("asserts the default engine even when the renderer view says default", () => {
+    // Regression: the renderer's preferences copy can lag the store (a
+    // per-conversation engine restore landing around the pick). When it
+    // wrongly reports "default" while the store holds a committed Claude
+    // Code engine, an overrides-only patch would leave that engine
+    // silently swallowing the new model — the pick "does not work". The
+    // patch must always carry the engine dimension.
+    const staleView = {
+      ...preferences,
+      reasoningEfforts: {},
+      stellaConversationReasoningEfforts: {},
+      codexReasoningEffort: "default" as const,
+      claudeCodeReasoningEffort: "default" as const,
+      agentRuntimeEngine: "default" as const,
+    };
+    const patch = buildModelSelectionPatch(
+      staleView,
+      "openrouter/stealth/ox-alpha",
+      { assistant: true, configurableAgentKeys: [] },
+    );
+    expect(patch.agentRuntimeEngine).toBe("default");
   });
 
   it("uses the runtime contract as the single ChatGPT default", () => {

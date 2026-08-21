@@ -363,6 +363,14 @@ export function buildModelSelectionPatch(
     }
     return {
         ...(engineRevertPatch ?? {}),
+        // Selection implies engine: a catalog / custom-id pick always routes
+        // through the default (Stella) runtime. Assert it unconditionally —
+        // not just when this renderer's copy of the preferences says an
+        // engine is committed — so a stale engine view (e.g. a
+        // per-conversation engine restore racing the pick) can never leave a
+        // committed Claude Code / ChatGPT engine silently swallowing the
+        // newly picked model.
+        agentRuntimeEngine: "default" as const,
         modelOverrides: nextOverrides,
         assistantPropagatedAgents: nextPropagated,
         stellaConversationModelOverrides: nextStellaConversationModelOverrides,

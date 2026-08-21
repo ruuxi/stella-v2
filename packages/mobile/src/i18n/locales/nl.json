@@ -52,6 +52,10 @@
       "title": "Bestandsvoorbeelden voor ontwikkelaars",
       "description": "Toon codewijzigingen in de chat en open ze in het zijpaneel."
     },
+    "developerMode": {
+      "title": "Ontwikkelaarsmodus",
+      "description": "Toon geavanceerde instellingen voor modellen, engines en providers, inclusief het instellen van je eigen API-sleutel."
+    },
     "nativeFontSmoothing": {
       "title": "Native lettertype-afronding",
       "description": "Geeft tekst weer zoals macOS-apps, met antialiasing in grijswaarden."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "De orkestratormodus is niet beschikbaar in dit venster.",
       "loadMemory": "Geheugeninstelling laden mislukt.",
       "saveMemory": "Geheugeninstelling bijwerken mislukt.",
+      "saveDeveloperMode": "Ontwikkelaarsmodus kon niet worden bijgewerkt.",
       "memoryUnavailable": "Geheugeninstellingen zijn niet beschikbaar in dit venster.",
       "loadPermissions": "Machtigingsstatus van bureaublad laden mislukt.",
       "savePermission": "Machtiging {kind} bijwerken mislukt.",
@@ -707,7 +712,30 @@
       "lapseDescription": "Je {plan}-abonnement loopt tot {date}. Daarna stopt Stella — het tegoed van het Free-abonnement krijg je maar één keer en dat van jou is al op."
     },
     "heading": "Kies je abonnement",
-    "subtitle": "Begin gratis. Upgrade wanneer je meer nodig hebt."
+    "subtitle": "Begin gratis. Upgrade wanneer je meer nodig hebt.",
+    "mobile": {
+      "sectionTitle": "Abonnement",
+      "currentPlanLabel": "Huidig abonnement",
+      "planValue": "Stella {plan}",
+      "manage": "Abonnement beheren",
+      "manageWebNote": "Beheer of annuleer dit abonnement via Stella op het web op stella.sh.",
+      "renews": "Verlengt op {date}",
+      "accessEnds": "Toegang eindigt op {date}",
+      "chooseHeading": "Kies je abonnement",
+      "subscribe": "Abonneren",
+      "perMonth": "{price}/mnd",
+      "introLine": "{introPrice} de eerste maand, daarna {price}/mnd",
+      "signInToSubscribe": "Log in om te abonneren",
+      "startingCheckout": "Bezig met starten…",
+      "pendingTitle": "Je aankoop wordt afgerond",
+      "pendingBody": "Rond de betaling af in de browser. Je abonnement wordt hier automatisch bijgewerkt zodra de betaling is bevestigd — opnieuw opstarten is niet nodig.",
+      "pendingDismiss": "Niet nu",
+      "successTitle": "Je hebt nu Stella {plan}",
+      "successBody": "Je abonnement is actief. Geniet van de hogere limieten.",
+      "errorRetry": "Opnieuw proberen",
+      "alreadySubscribedTitle": "Je hebt al een abonnement",
+      "footnote": "Gefactureerd door Stella via Stripe. Verlengt maandelijks tot je opzegt; je kunt altijd opzeggen."
+    }
   },
   "chat": {
     "stoppedReply": "Stella kon dit antwoord niet starten",

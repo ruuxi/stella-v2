@@ -52,6 +52,10 @@
       "title": "開発者向けファイルプレビュー",
       "description": "コードの変更をチャットに表示し、サイドパネルで開きます。"
     },
+    "developerMode": {
+      "title": "開発者モード",
+      "description": "モデル、エンジン、プロバイダーの高度な設定を表示します。独自の API キーの設定も含まれます。"
+    },
     "nativeFontSmoothing": {
       "title": "ネイティブのフォントスムージング",
       "description": "macOS アプリと同じように、グレースケールのアンチエイリアスでテキストを描画します。"
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "このウィンドウではオーケストレーターモードを利用できません。",
       "loadMemory": "メモリ設定を読み込めませんでした。",
       "saveMemory": "メモリ設定を更新できませんでした。",
+      "saveDeveloperMode": "開発者モードを更新できませんでした。",
       "memoryUnavailable": "このウィンドウではメモリ設定を利用できません。",
       "loadPermissions": "デスクトップのアクセス権の状態を読み込めませんでした。",
       "savePermission": "{kind} のアクセス権を更新できませんでした。",
@@ -706,7 +711,30 @@
       "lapseDescription": "{plan} プランは {date} まで利用できます。その後は Stella が止まります — Free プランの利用枠は一度きりで、すでに使い切っています。"
     },
     "heading": "プランを選択",
-    "subtitle": "無料で始めて、必要になったらアップグレード。"
+    "subtitle": "無料で始めて、必要になったらアップグレード。",
+    "mobile": {
+      "sectionTitle": "サブスクリプション",
+      "currentPlanLabel": "現在のプラン",
+      "planValue": "Stella {plan}",
+      "manage": "サブスクリプションを管理",
+      "manageWebNote": "このサブスクリプションの管理・解約は、ウェブ版 Stella（stella.sh）で行えます。",
+      "renews": "{date} に更新",
+      "accessEnds": "{date} に利用終了",
+      "chooseHeading": "プランを選択",
+      "subscribe": "登録する",
+      "perMonth": "{price}/月",
+      "introLine": "初月 {introPrice}、以降は {price}/月",
+      "signInToSubscribe": "登録するにはサインイン",
+      "startingCheckout": "開始中…",
+      "pendingTitle": "購入を完了しています",
+      "pendingBody": "ブラウザで支払いを完了してください。支払いが確認され次第、プランはここで自動的に更新されます。再起動は不要です。",
+      "pendingDismiss": "後で",
+      "successTitle": "Stella {plan} をご利用中です",
+      "successBody": "サブスクリプションが有効になりました。拡大された利用枠をお楽しみください。",
+      "errorRetry": "再試行",
+      "alreadySubscribedTitle": "すでにサブスクリプションをご利用中です",
+      "footnote": "Stripe を通じて Stella が請求します。解約するまで毎月更新され、いつでも解約できます。"
+    }
   },
   "chat": {
     "stoppedReply": "Stella はこの返信を開始できませんでした",

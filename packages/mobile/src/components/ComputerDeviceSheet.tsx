@@ -74,6 +74,9 @@ export function ComputerDeviceSheet({
   const router = useRouter();
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
+  // Follows the paired desktop's developer-mode flag: only an explicit "off"
+  // hides the Model row (and its sheet); unknown/older desktops keep it.
+  const modelControlsHidden = modelSettings.developerModeEnabled === false;
 
   const rows: {
     id: string;
@@ -92,16 +95,20 @@ export function ComputerDeviceSheet({
         router.push("/stella");
       },
     },
-    {
-      id: "model",
-      icon: "cpu",
-      label: "Model",
-      trailing: modelSettings.selectedModelLabel,
-      onPress: () => {
-        tapLight();
-        setModelSheetOpen(true);
-      },
-    },
+    ...(modelControlsHidden
+      ? []
+      : [
+          {
+            id: "model",
+            icon: "cpu" as IconName,
+            label: "Model",
+            trailing: modelSettings.selectedModelLabel,
+            onPress: () => {
+              tapLight();
+              setModelSheetOpen(true);
+            },
+          },
+        ]),
     {
       id: "pair",
       icon: "smartphone",
@@ -208,7 +215,7 @@ export function ComputerDeviceSheet({
       </ScrollView>
 
       <ComputerSettingsSheet
-        visible={modelSheetOpen}
+        visible={modelSheetOpen && !modelControlsHidden}
         onClose={() => setModelSheetOpen(false)}
         access={access}
         catalog={modelSettings.catalog}

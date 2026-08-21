@@ -52,6 +52,10 @@
       "title": "Aperçus de fichiers pour développeurs",
       "description": "Affiche les modifications de code dans le chat et ouvre-les dans le panneau latéral."
     },
+    "developerMode": {
+      "title": "Mode développeur",
+      "description": "Affiche les contrôles avancés des modèles, moteurs et fournisseurs, y compris la configuration de votre propre clé d'API."
+    },
     "nativeFontSmoothing": {
       "title": "Lissage des polices natif",
       "description": "Affiche le texte comme les apps macOS, avec un anticrénelage en niveaux de gris."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Le mode orchestrateur n'est pas disponible dans cette fenêtre.",
       "loadMemory": "Échec du chargement du réglage de mémoire.",
       "saveMemory": "Échec de la mise à jour du réglage de mémoire.",
+      "saveDeveloperMode": "Impossible de mettre à jour le mode développeur.",
       "memoryUnavailable": "Les réglages de mémoire ne sont pas disponibles dans cette fenêtre.",
       "loadPermissions": "Échec du chargement de l'état des autorisations du bureau.",
       "savePermission": "Échec de la mise à jour de l'autorisation {kind}.",
@@ -708,7 +713,30 @@
       "lapseDescription": "Votre plan {plan} reste actif jusqu'au {date}. Ensuite, Stella s'arrête : le crédit du plan Free est unique et vous avez déjà utilisé le vôtre."
     },
     "heading": "Choisissez votre forfait",
-    "subtitle": "Commencez gratuitement. Passez au forfait supérieur quand vous en avez besoin."
+    "subtitle": "Commencez gratuitement. Passez au forfait supérieur quand vous en avez besoin.",
+    "mobile": {
+      "sectionTitle": "Abonnement",
+      "currentPlanLabel": "Forfait actuel",
+      "planValue": "Stella {plan}",
+      "manage": "Gérer l'abonnement",
+      "manageWebNote": "Gérez ou résiliez cet abonnement depuis Stella sur le web, à l'adresse stella.sh.",
+      "renews": "Renouvellement le {date}",
+      "accessEnds": "Fin de l'accès le {date}",
+      "chooseHeading": "Choisissez votre forfait",
+      "subscribe": "S'abonner",
+      "perMonth": "{price}/mois",
+      "introLine": "{introPrice} le premier mois, puis {price}/mois",
+      "signInToSubscribe": "Connectez-vous pour vous abonner",
+      "startingCheckout": "Démarrage…",
+      "pendingTitle": "Finalisation de votre achat",
+      "pendingBody": "Terminez le paiement dans le navigateur. Votre forfait se met à jour ici automatiquement dès que le paiement est confirmé — pas besoin de redémarrer.",
+      "pendingDismiss": "Pas maintenant",
+      "successTitle": "Vous êtes sur Stella {plan}",
+      "successBody": "Votre abonnement est actif. Profitez des limites plus élevées.",
+      "errorRetry": "Réessayer",
+      "alreadySubscribedTitle": "Vous avez déjà un abonnement",
+      "footnote": "Facturé par Stella via Stripe. Renouvellement mensuel jusqu'à résiliation ; résiliez à tout moment."
+    }
   },
   "chat": {
     "stoppedReply": "Stella n'a pas pu démarrer cette réponse",

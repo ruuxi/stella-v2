@@ -293,8 +293,13 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
       }));
   }, [catalog, recentIds, snapshot]);
 
+  // Only an explicit desktop "off" hides model surfaces: `null` (no snapshot
+  // yet) and older desktops without the flag keep them visible.
+  const developerModeEnabled = snapshot ? snapshot.developerModeEnabled : null;
+
   return {
     catalog,
+    developerModeEnabled,
     loading,
     recentModels,
     refresh,

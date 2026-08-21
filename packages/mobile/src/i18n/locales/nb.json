@@ -52,6 +52,10 @@
       "title": "Filforhåndsvisninger for utviklere",
       "description": "Vis kodeendringer i chatten og åpne dem i sidepanelet."
     },
+    "developerMode": {
+      "title": "Utviklermodus",
+      "description": "Vis avanserte kontroller for modeller, motorer og leverandører, inkludert oppsett av din egen API-nøkkel."
+    },
     "nativeFontSmoothing": {
       "title": "Innebygd skriftutjevning",
       "description": "Gjengir tekst slik macOS-apper gjør, med kantutjevning i gråtoner."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Orkestratormodus er ikke tilgjengelig i dette vinduet.",
       "loadMemory": "Kunne ikke laste inn minneinnstillingen.",
       "saveMemory": "Kunne ikke oppdatere minneinnstillingen.",
+      "saveDeveloperMode": "Kunne ikke oppdatere utviklermodus.",
       "memoryUnavailable": "Minneinnstillinger er ikke tilgjengelige i dette vinduet.",
       "loadPermissions": "Kunne ikke laste inn tillatelsesstatus for skrivebordet.",
       "savePermission": "Kunne ikke oppdatere tillatelsen {kind}.",
@@ -707,7 +712,30 @@
       "lapseDescription": "{plan}-planen din varer til {date}. Etter det stopper Stella — Free-planens saldo gis bare én gang, og din er allerede brukt opp."
     },
     "heading": "Velg planen din",
-    "subtitle": "Start gratis. Oppgrader når du trenger mer."
+    "subtitle": "Start gratis. Oppgrader når du trenger mer.",
+    "mobile": {
+      "sectionTitle": "Abonnement",
+      "currentPlanLabel": "Nåværende abonnement",
+      "planValue": "Stella {plan}",
+      "manage": "Administrer abonnement",
+      "manageWebNote": "Administrer eller si opp dette abonnementet i Stella på nettet på stella.sh.",
+      "renews": "Fornyes {date}",
+      "accessEnds": "Tilgangen slutter {date}",
+      "chooseHeading": "Velg abonnementet ditt",
+      "subscribe": "Abonner",
+      "perMonth": "{price}/md.",
+      "introLine": "{introPrice} første måned, deretter {price}/md.",
+      "signInToSubscribe": "Logg inn for å abonnere",
+      "startingCheckout": "Starter…",
+      "pendingTitle": "Fullfører kjøpet ditt",
+      "pendingBody": "Fullfør betalingen i nettleseren. Abonnementet oppdateres her automatisk så snart betalingen er bekreftet – du trenger ikke starte på nytt.",
+      "pendingDismiss": "Ikke nå",
+      "successTitle": "Du har Stella {plan}",
+      "successBody": "Abonnementet ditt er aktivt. Nyt de høyere grensene.",
+      "errorRetry": "Prøv igjen",
+      "alreadySubscribedTitle": "Du har allerede et abonnement",
+      "footnote": "Fakturert av Stella via Stripe. Fornyes månedlig til du sier opp; si opp når som helst."
+    }
   },
   "chat": {
     "stoppedReply": "Stella klarte ikke å starte dette svaret",

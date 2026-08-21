@@ -52,6 +52,10 @@
       "title": "开发者文件预览",
       "description": "在聊天中显示代码更改，并在侧边面板中打开它们。"
     },
+    "developerMode": {
+      "title": "开发者模式",
+      "description": "显示高级的模型、引擎和提供商控制，包括自带 API 密钥的设置。"
+    },
     "nativeFontSmoothing": {
       "title": "原生字体平滑",
       "description": "像 macOS 应用那样渲染文本，使用灰度抗锯齿。"
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "此窗口中无法使用编排器模式。",
       "loadMemory": "加载记忆设置失败。",
       "saveMemory": "更新记忆设置失败。",
+      "saveDeveloperMode": "无法更新开发者模式。",
       "memoryUnavailable": "此窗口中无法使用记忆设置。",
       "loadPermissions": "加载桌面权限状态失败。",
       "savePermission": "更新「{kind}」权限失败。",
@@ -706,7 +711,30 @@
       "lapseDescription": "你的 {plan} 套餐可用到 {date}。之后 Stella 将停止服务 — Free 套餐的额度只发放一次，你的已经用完了。"
     },
     "heading": "选择你的套餐",
-    "subtitle": "免费开始。需要更多时再升级。"
+    "subtitle": "免费开始。需要更多时再升级。",
+    "mobile": {
+      "sectionTitle": "订阅",
+      "currentPlanLabel": "当前套餐",
+      "planValue": "Stella {plan}",
+      "manage": "管理订阅",
+      "manageWebNote": "可在网页版 Stella（stella.sh）管理或取消此订阅。",
+      "renews": "{date} 续订",
+      "accessEnds": "使用权限于 {date} 结束",
+      "chooseHeading": "选择你的套餐",
+      "subscribe": "订阅",
+      "perMonth": "{price}/月",
+      "introLine": "首月 {introPrice}，之后 {price}/月",
+      "signInToSubscribe": "登录后订阅",
+      "startingCheckout": "正在开始…",
+      "pendingTitle": "正在完成购买",
+      "pendingBody": "请在浏览器中完成付款。付款确认后，套餐会在此自动更新，无需重启。",
+      "pendingDismiss": "暂不",
+      "successTitle": "你已订阅 Stella {plan}",
+      "successBody": "订阅已生效。尽情享受更高的额度。",
+      "errorRetry": "重试",
+      "alreadySubscribedTitle": "你已有订阅",
+      "footnote": "由 Stella 通过 Stripe 收费。每月续订，直至取消；可随时取消。"
+    }
   },
   "chat": {
     "stoppedReply": "Stella 无法开始此次回复",

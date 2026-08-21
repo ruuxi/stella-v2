@@ -52,6 +52,10 @@
       "title": "Geliştirici dosya önizlemeleri",
       "description": "Kod değişikliklerini sohbette gösterir ve yan panelde açar."
     },
+    "developerMode": {
+      "title": "Geliştirici modu",
+      "description": "Kendi API anahtarınızı ekleme dahil olmak üzere gelişmiş model, motor ve sağlayıcı denetimlerini gösterir."
+    },
     "nativeFontSmoothing": {
       "title": "Yerel yazı tipi yumuşatma",
       "description": "Metni macOS uygulamaları gibi, gri tonlamalı kenar yumuşatmayla işler."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "Orkestratör modu bu pencerede kullanılamıyor.",
       "loadMemory": "Bellek ayarı yüklenemedi.",
       "saveMemory": "Bellek ayarı güncellenemedi.",
+      "saveDeveloperMode": "Geliştirici modu güncellenemedi.",
       "memoryUnavailable": "Bellek ayarları bu pencerede kullanılamıyor.",
       "loadPermissions": "Masaüstü izin durumu yüklenemedi.",
       "savePermission": "{kind} izni güncellenemedi.",
@@ -707,7 +712,30 @@
       "lapseDescription": "{plan} planınız {date} tarihine kadar geçerli. Sonrasında Stella durur — Free planının kullanım hakkı tek seferlik ve sizinki zaten kullanıldı."
     },
     "heading": "Planınızı seçin",
-    "subtitle": "Ücretsiz başlayın. Daha fazlasına ihtiyacınız olduğunda yükseltin."
+    "subtitle": "Ücretsiz başlayın. Daha fazlasına ihtiyacınız olduğunda yükseltin.",
+    "mobile": {
+      "sectionTitle": "Abonelik",
+      "currentPlanLabel": "Mevcut plan",
+      "planValue": "Stella {plan}",
+      "manage": "Aboneliği yönet",
+      "manageWebNote": "Bu aboneliği web'deki Stella'da stella.sh adresinden yönetin veya iptal edin.",
+      "renews": "{date} tarihinde yenilenir",
+      "accessEnds": "Erişim {date} tarihinde sona erer",
+      "chooseHeading": "Planını seç",
+      "subscribe": "Abone ol",
+      "perMonth": "{price}/ay",
+      "introLine": "İlk ay {introPrice}, sonrasında {price}/ay",
+      "signInToSubscribe": "Abone olmak için giriş yap",
+      "startingCheckout": "Başlatılıyor…",
+      "pendingTitle": "Satın alman tamamlanıyor",
+      "pendingBody": "Ödemeyi tarayıcıda tamamla. Ödeme onaylanır onaylanmaz planın burada otomatik olarak güncellenir — yeniden başlatmana gerek yok.",
+      "pendingDismiss": "Şimdi değil",
+      "successTitle": "Stella {plan} kullanıyorsun",
+      "successBody": "Aboneliğin etkin. Daha yüksek limitlerin keyfini çıkar.",
+      "errorRetry": "Tekrar dene",
+      "alreadySubscribedTitle": "Zaten bir aboneliğin var",
+      "footnote": "Stella tarafından Stripe aracılığıyla faturalandırılır. İptal edilene kadar aylık yenilenir; istediğin zaman iptal et."
+    }
   },
   "chat": {
     "stoppedReply": "Stella bu yanıtı başlatamadı",

@@ -67,6 +67,12 @@ export type DesktopModelSnapshot = {
   codexReasoningEffort: ReasoningEffort;
   claudeCodeModel: string;
   claudeCodeReasoningEffort: ReasoningEffort;
+  /**
+   * Desktop's developer-mode flag — the single gate for model/engine/BYOK
+   * surfaces. Defaults to true when the paired desktop predates the flag so
+   * older desktops keep their model controls.
+   */
+  developerModeEnabled: boolean;
 };
 
 export type DesktopModelPrefsPatch = Partial<DesktopModelSnapshot>;
@@ -242,6 +248,7 @@ const normalizeSnapshot = (raw: unknown): DesktopModelSnapshot => {
     claudeCodeModel:
       asString(record?.claudeCodeModel) || DEFAULT_CLAUDE_CODE_MODEL,
     claudeCodeReasoningEffort: normalizeEffort(record?.claudeCodeReasoningEffort),
+    developerModeEnabled: record?.developerModeEnabled !== false,
   };
 };
 

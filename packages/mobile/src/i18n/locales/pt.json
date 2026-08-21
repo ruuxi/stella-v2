@@ -52,6 +52,10 @@
       "title": "Pré-visualizações de arquivos para desenvolvedores",
       "description": "Mostra as alterações de código no chat e abre-as no painel lateral."
     },
+    "developerMode": {
+      "title": "Modo de desenvolvedor",
+      "description": "Mostra controles avançados de modelos, mecanismos e provedores, incluindo a configuração da sua própria chave de API."
+    },
     "nativeFontSmoothing": {
       "title": "Suavização de fontes nativa",
       "description": "Renderiza o texto como os apps do macOS, com suavização em escala de cinza."
@@ -383,6 +387,7 @@
       "workingModeUnavailable": "O modo orquestrador não está disponível nesta janela.",
       "loadMemory": "Falha ao carregar a configuração de memória.",
       "saveMemory": "Falha ao atualizar a configuração de memória.",
+      "saveDeveloperMode": "Falha ao atualizar o modo de desenvolvedor.",
       "memoryUnavailable": "As configurações de memória não estão disponíveis nesta janela.",
       "loadPermissions": "Falha ao carregar o status das permissões do desktop.",
       "savePermission": "Falha ao atualizar a permissão de {kind}.",
@@ -708,7 +713,30 @@
       "lapseDescription": "Seu plano {plan} vai até {date}. Depois disso a Stella para — o saldo do plano Free é único e o seu já foi usado."
     },
     "heading": "Escolha seu plano",
-    "subtitle": "Comece grátis. Mude de plano quando precisar de mais."
+    "subtitle": "Comece grátis. Mude de plano quando precisar de mais.",
+    "mobile": {
+      "sectionTitle": "Assinatura",
+      "currentPlanLabel": "Plano atual",
+      "planValue": "Stella {plan}",
+      "manage": "Gerenciar assinatura",
+      "manageWebNote": "Gerencie ou cancele esta assinatura no Stella na web, em stella.sh.",
+      "renews": "Renova em {date}",
+      "accessEnds": "O acesso termina em {date}",
+      "chooseHeading": "Escolha seu plano",
+      "subscribe": "Assinar",
+      "perMonth": "{price}/mês",
+      "introLine": "{introPrice} no primeiro mês e depois {price}/mês",
+      "signInToSubscribe": "Entre para assinar",
+      "startingCheckout": "Iniciando…",
+      "pendingTitle": "Concluindo sua compra",
+      "pendingBody": "Conclua o pagamento no navegador. Seu plano é atualizado aqui automaticamente assim que o pagamento for confirmado — não precisa reiniciar.",
+      "pendingDismiss": "Agora não",
+      "successTitle": "Você está no Stella {plan}",
+      "successBody": "Sua assinatura está ativa. Aproveite os limites maiores.",
+      "errorRetry": "Tentar novamente",
+      "alreadySubscribedTitle": "Você já tem uma assinatura",
+      "footnote": "Cobrado pela Stella via Stripe. Renova mensalmente até o cancelamento; cancele quando quiser."
+    }
   },
   "chat": {
     "stoppedReply": "A Stella não conseguiu iniciar esta resposta",

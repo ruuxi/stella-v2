@@ -115,7 +115,7 @@ const getMobileDeepLinkOrigins = () => {
   return [`${scheme}://auth`, `${scheme}://`, `${scheme}:///`];
 };
 
-const DEFAULT_JWT_EXPIRATION_SECONDS = 5 * 60;
+const DEFAULT_JWT_EXPIRATION_SECONDS = 30 * 60;
 
 /**
  * Parse a duration string like `"5m"`, `"300s"`, `"1h"`, or `"86400"` into

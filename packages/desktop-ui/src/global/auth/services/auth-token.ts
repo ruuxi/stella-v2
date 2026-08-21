@@ -16,7 +16,9 @@ let tokenExpiresAt = 0;
 let inflightTokenPromise: Promise<string | null> | null = null;
 let tokenRequestVersion = 0;
 
-// JWT lifetime is 5 minutes; refresh 60s early to avoid races
+// JWT lifetime is ~30 minutes (server-minted); refresh 60s before the token's
+// own `exp` (read dynamically below) to avoid races. The margin adapts to
+// whatever expiry the token actually carries.
 const REFRESH_MARGIN_MS = 60_000;
 
 type GetConvexTokenOptions = {

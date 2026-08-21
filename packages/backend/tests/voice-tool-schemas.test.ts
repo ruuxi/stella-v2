@@ -57,9 +57,29 @@ describe("voice tool schemas", () => {
     expect(normalizeVoiceToolSchemas([])).toBeNull();
   });
 
-  it("retains legacy schemas only for clients that omit tools", () => {
-    expect(
-      getVoiceToolSchemas().some((tool) => tool.name === "perform_action"),
-    ).toBe(true);
+  it("retains legacy controls but advertises the unified web contract", () => {
+    const tools = getVoiceToolSchemas();
+    expect(tools.some((tool) => tool.name === "perform_action")).toBe(true);
+    expect(tools.find((tool) => tool.name === "web_search")).toMatchObject({
+      parameters: { required: ["query"] },
+    });
+    expect(tools.find((tool) => tool.name === "web")).toMatchObject({
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          url: { type: "string" },
+          category: {
+            type: "string",
+            enum: ["company", "people", "research paper"],
+          },
+          prompt: { type: "string" },
+          format: {
+            type: "string",
+            enum: ["text", "markdown", "html"],
+          },
+        },
+      },
+    });
   });
 });

@@ -252,7 +252,12 @@ const restoreRewoundAttachments = async (
       // The send path (`toSendableImage`) sniffs the real mime type from these
       // bytes and only reads `uri`/`base64`, so a minimal asset is sufficient
       // for both the composer thumbnail and a faithful resend.
-      assets.push({ uri, base64, width: 0, height: 0 } as ImagePicker.ImagePickerAsset);
+      assets.push({
+        uri,
+        base64,
+        width: 0,
+        height: 0,
+      } as ImagePicker.ImagePickerAsset);
     } catch {
       // Skip an image whose backing file is gone rather than failing the rewind.
     }
@@ -965,7 +970,6 @@ export function useChatThread(opts: {
     [runDesktopSync],
   );
 
-
   // Re-arm the landing sync and invalidate any in-flight one whenever the
   // paired computer changes (or the surface unmounts), so the new computer
   // syncs on landing and a stale sync never persists the old cursor or merges
@@ -1149,7 +1153,9 @@ export function useChatThread(opts: {
         // empty-delta heal so a (re)connect that lands on a poisoned cursor
         // still converges instead of silently riding a zero-row delta.
         if (connected && storageLoadedRef.current) {
-          void runDesktopLiveSyncWithHeal(desktopLiveConnectionSyncPlan(details));
+          void runDesktopLiveSyncWithHeal(
+            desktopLiveConnectionSyncPlan(details),
+          );
         }
       },
     });
@@ -1413,7 +1419,9 @@ export function useChatThread(opts: {
           current.map((message) => {
             if (message.id !== replyId) return message;
             const steps = message.toolSteps ?? [];
-            const index = steps.findIndex((candidate) => candidate.id === step.id);
+            const index = steps.findIndex(
+              (candidate) => candidate.id === step.id,
+            );
             return {
               ...message,
               toolSteps:
@@ -1461,13 +1469,17 @@ export function useChatThread(opts: {
         );
       };
       // Resolve a map tool call and hang the interactive card off the reply.
-      const applyMapTool = async (call: {
-        places?: string[];
-        origin?: string;
-        destination?: string;
-        mode?: string;
-        title?: string;
-      }, toolCallId: string, textOffset: number) => {
+      const applyMapTool = async (
+        call: {
+          places?: string[];
+          origin?: string;
+          destination?: string;
+          mode?: string;
+          title?: string;
+        },
+        toolCallId: string,
+        textOffset: number,
+      ) => {
         const outcome = await resolveMap(call);
         if (!outcome.ok) {
           // Don't drop the failure silently: the model already told the user a
@@ -1492,11 +1504,15 @@ export function useChatThread(opts: {
       };
 
       // Generate a PDF on-device and hang the tappable file card off the reply.
-      const applyPdfTool = async (call: {
-        title?: string;
-        content: string;
-        filename?: string;
-      }, toolCallId: string, textOffset: number) => {
+      const applyPdfTool = async (
+        call: {
+          title?: string;
+          content: string;
+          filename?: string;
+        },
+        toolCallId: string,
+        textOffset: number,
+      ) => {
         const outcome = await generatePdf(call);
         if (!outcome.ok) {
           // The model already told the user a PDF was coming, so a missing file
@@ -1673,7 +1689,9 @@ export function useChatThread(opts: {
             if (call.tool !== "image_gen") {
               const args: Record<string, string> =
                 call.tool === "web"
-                  ? { query: call.query }
+                  ? call.query
+                    ? { query: call.query }
+                    : { url: call.url ?? "" }
                   : call.tool === "pdf"
                     ? { title: call.title ?? "PDF" }
                     : call.tool === "recall"
@@ -1694,16 +1712,38 @@ export function useChatThread(opts: {
             if (call.tool === "remember") {
               try {
                 await rememberFact(call.key, call.value);
-                upsertToolStep({ id: toolCallId, toolName: "remember", status: "completed", args: { title: call.key }, textOffset });
+                upsertToolStep({
+                  id: toolCallId,
+                  toolName: "remember",
+                  status: "completed",
+                  args: { title: call.key },
+                  textOffset,
+                });
               } catch {
-                upsertToolStep({ id: toolCallId, toolName: "remember", status: "error", args: { title: call.key }, textOffset });
+                upsertToolStep({
+                  id: toolCallId,
+                  toolName: "remember",
+                  status: "error",
+                  args: { title: call.key },
+                  textOffset,
+                });
               }
             } else if (call.tool === "forget") {
               try {
                 await forgetFact(call.key);
-                upsertToolStep({ id: toolCallId, toolName: "forget", status: "completed", textOffset });
+                upsertToolStep({
+                  id: toolCallId,
+                  toolName: "forget",
+                  status: "completed",
+                  textOffset,
+                });
               } catch {
-                upsertToolStep({ id: toolCallId, toolName: "forget", status: "error", textOffset });
+                upsertToolStep({
+                  id: toolCallId,
+                  toolName: "forget",
+                  status: "error",
+                  textOffset,
+                });
               }
             } else if (call.tool === "map") {
               await applyMapTool(call, toolCallId, textOffset);
@@ -1711,14 +1751,39 @@ export function useChatThread(opts: {
               await applyPdfTool(call, toolCallId, textOffset);
             } else if (call.tool === "recall") {
               recalls.push({ query: call.query });
-              upsertToolStep({ id: toolCallId, toolName: "recall", status: "completed", args: { query: call.query }, textOffset });
+              upsertToolStep({
+                id: toolCallId,
+                toolName: "recall",
+                status: "completed",
+                args: { query: call.query },
+                textOffset,
+              });
             } else if (call.tool === "web") {
+              const webArgs = {
+                ...(call.query ? { query: call.query } : {}),
+                ...(call.url ? { url: call.url } : {}),
+                ...(call.category ? { category: call.category } : {}),
+                ...(call.prompt ? { prompt: call.prompt } : {}),
+                ...(call.format ? { format: call.format } : {}),
+              };
               try {
-                const result = await searchChatWeb(call.query, call.category);
+                const result = await searchChatWeb(webArgs);
                 webResults.push(result.text);
-                upsertToolStep({ id: toolCallId, toolName: "web", status: "completed", args: { query: call.query }, textOffset });
+                upsertToolStep({
+                  id: toolCallId,
+                  toolName: "web",
+                  status: "completed",
+                  args: webArgs,
+                  textOffset,
+                });
               } catch {
-                upsertToolStep({ id: toolCallId, toolName: "web", status: "error", args: { query: call.query }, textOffset });
+                upsertToolStep({
+                  id: toolCallId,
+                  toolName: "web",
+                  status: "error",
+                  args: webArgs,
+                  textOffset,
+                });
               }
             } else if (call.tool === "image_gen") {
               await applyImageTool(call, toolCallId, textOffset);
@@ -2305,9 +2370,7 @@ export function useChatThread(opts: {
         clientRequestId: userMessageId,
         userMessageId,
         text,
-        ...(decoupleQuotes
-          ? { promptText, selectedText: rawQuotes }
-          : {}),
+        ...(decoupleQuotes ? { promptText, selectedText: rawQuotes } : {}),
         assets,
       };
       pendingEnqueueRef.current.add(userMessageId);

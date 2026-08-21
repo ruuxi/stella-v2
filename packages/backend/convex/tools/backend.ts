@@ -1,3 +1,5 @@
+import { parse, type DefaultTreeAdapterMap } from "parse5";
+import TurndownService from "turndown";
 import type { ActionCtx } from "../_generated/server";
 import { BACKEND_TOOL_IDS } from "../lib/agent_constants";
 import { truncateWithNotice } from "../lib/text_utils";
@@ -8,6 +10,232 @@ const MAX_WEB_SEARCH_RESULTS = 6;
 const MAX_WEB_SEARCH_HIGHLIGHT_CHARS = 400;
 const MAX_WEB_SEARCH_SNIPPET_CHARS = 300;
 const MAX_WEB_FETCH_REDIRECTS = 5;
+const MAX_WEB_FETCH_BODY_BYTES = 5 * 1024 * 1024;
+const HTML_MIME_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+const TEXTUAL_APPLICATION_MIME_TYPES = new Set([
+  "application/json",
+  "application/ld+json",
+  "application/xml",
+  "application/rss+xml",
+  "application/atom+xml",
+  "application/javascript",
+  "application/x-javascript",
+]);
+const SKIPPED_HTML_ELEMENTS = new Set([
+  "head",
+  "script",
+  "style",
+  "template",
+  "noscript",
+  "svg",
+  "canvas",
+]);
+const BLOCK_HTML_ELEMENTS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "br",
+  "dd",
+  "div",
+  "dl",
+  "dt",
+  "figcaption",
+  "figure",
+  "footer",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "li",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "td",
+  "th",
+  "tr",
+  "ul",
+]);
+type HtmlNode = DefaultTreeAdapterMap["node"];
+
+const htmlToText = (html: string): string => {
+  const document = parse(html);
+  const chunks: string[] = [];
+  const visit = (node: HtmlNode) => {
+    if ("nodeName" in node && SKIPPED_HTML_ELEMENTS.has(node.nodeName)) return;
+    if (node.nodeName === "#text" && "value" in node) {
+      chunks.push(node.value);
+      return;
+    }
+    const isBlock =
+      "nodeName" in node &&
+      BLOCK_HTML_ELEMENTS.has(node.nodeName.toLowerCase());
+    if (isBlock) chunks.push("\n");
+    if ("childNodes" in node) {
+      for (const child of node.childNodes) visit(child);
+    }
+    if (isBlock) chunks.push("\n");
+  };
+  visit(document);
+  return chunks
+    .join("")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
+const turndown = new TurndownService({
+  headingStyle: "atx",
+  bulletListMarker: "-",
+  codeBlockStyle: "fenced",
+});
+turndown.remove(["head", "script", "style", "template", "noscript", "canvas"]);
+turndown.addRule("removeSvg", {
+  filter: (node) => node.nodeName === "SVG",
+  replacement: () => "",
+});
+const htmlToMarkdown = (html: string): string =>
+  turndown
+    .turndown(html)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const isSupportedTextualMimeType = (contentType: string): boolean => {
+  const mimeType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return (
+    mimeType.startsWith("text/") ||
+    TEXTUAL_APPLICATION_MIME_TYPES.has(mimeType) ||
+    mimeType.endsWith("+json") ||
+    mimeType.endsWith("+xml")
+  );
+};
+
+const readTextBodyWithLimit = async (response: Response): Promise<string> => {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_WEB_FETCH_BODY_BYTES
+  ) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(
+      `Response body exceeds the ${MAX_WEB_FETCH_BODY_BYTES} byte limit.`,
+    );
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytesRead = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > MAX_WEB_FETCH_BODY_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new Error(
+          `Response body exceeds the ${MAX_WEB_FETCH_BODY_BYTES} byte limit.`,
+        );
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join("");
+  } finally {
+    reader.releaseLock();
+  }
+};
+
+const SECRET_TOKEN_RE =
+  /\b(?:sk-(?:proj-)?|sk-ant-|gh[pousr]_|github_pat_|xox[baprs]-|hf_|AKIA|AIza)[A-Za-z0-9._:=+/~-]{10,}\b/g;
+const redactSecretLikeText = (text: string): string =>
+  text.replace(
+    SECRET_TOKEN_RE,
+    (value) => `${value.slice(0, 6)}...${value.slice(-4)}`,
+  );
+
+const PROMPT_STOP_WORDS = new Set([
+  "about",
+  "after",
+  "before",
+  "check",
+  "current",
+  "extract",
+  "from",
+  "give",
+  "just",
+  "latest",
+  "official",
+  "page",
+  "relevant",
+  "that",
+  "this",
+  "what",
+  "with",
+]);
+const extractRelevantText = (text: string, prompt: string): string => {
+  const terms = Array.from(
+    new Set(
+      (prompt.toLowerCase().match(/[a-z0-9][a-z0-9._-]*/g) ?? []).filter(
+        (term) =>
+          !PROMPT_STOP_WORDS.has(term) && (term.length >= 3 || /\d/.test(term)),
+      ),
+    ),
+  );
+  if (terms.length === 0) return text;
+  const lines = text.split("\n");
+  const matches = lines
+    .map((line, index) => ({
+      index,
+      score: terms.reduce(
+        (total, term) =>
+          total + (line.toLowerCase().includes(term) ? term.length : 0),
+        0,
+      ),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort(
+      (left, right) => right.score - left.score || left.index - right.index,
+    );
+  if (matches.length === 0) return text;
+  const selected = new Set<number>();
+  for (const match of matches) {
+    for (
+      let index = Math.max(0, match.index - 5);
+      index <= Math.min(lines.length - 1, match.index + 5);
+      index += 1
+    ) {
+      selected.add(index);
+    }
+    if (
+      Array.from(selected).reduce(
+        (total, index) => total + (lines[index]?.length ?? 0),
+        0,
+      ) >= 15_000
+    )
+      break;
+  }
+  const excerpts: string[] = [];
+  let previous = -2;
+  for (const index of Array.from(selected).sort(
+    (left, right) => left - right,
+  )) {
+    if (index > previous + 1 && excerpts.length > 0) excerpts.push("[…]");
+    excerpts.push(lines[index] ?? "");
+    previous = index;
+  }
+  return `[Relevant excerpts for: ${prompt}]\n\n${excerpts.join("\n")}`;
+};
 
 const wrapExternalContent = (content: string, source: string): string =>
   `[External Content - Untrusted Source: ${source}]\n${content}\n[End External Content]`;
@@ -110,8 +338,7 @@ export const executeWebSearch = async (
       const snippet = result.highlights?.length
         ? result.highlights.join(" ... ")
         : (result.text ?? "");
-      const image =
-        typeof result.image === "string" ? result.image.trim() : "";
+      const image = typeof result.image === "string" ? result.image.trim() : "";
       const favicon =
         typeof result.favicon === "string" ? result.favicon.trim() : "";
       return {
@@ -147,8 +374,8 @@ const WEB_SEARCH_PARAMETERS = {
     },
     category: {
       type: "string",
-      enum: ["company", "people", "research paper"],
-      description: "Optional filter. Most queries should omit this.",
+      description:
+        "Optional Exa category hint. Most queries should omit this (for example 'news', 'company', or 'research_paper').",
     },
   },
   required: ["query"],
@@ -166,8 +393,13 @@ const WEB_FETCH_PARAMETERS = {
       type: "string",
       description: "What information you want from this page",
     },
+    format: {
+      type: "string",
+      enum: ["text", "markdown", "html"],
+      description: "Fetch output format. Defaults to text.",
+    },
   },
-  required: ["url", "prompt"],
+  required: ["url"],
 } as const;
 
 const EMPTY_PARAMETERS = {
@@ -180,14 +412,6 @@ export const createBackendTools = (
   ctx: ActionCtx,
   options: ToolOptions,
 ): BackendToolSet => {
-  const stripHtml = (html: string) =>
-    html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
   return {
     [BACKEND_TOOL_IDS.WEB_SEARCH]: {
       name: BACKEND_TOOL_IDS.WEB_SEARCH,
@@ -198,13 +422,14 @@ export const createBackendTools = (
         "CATEGORIES - use sparingly, most queries should omit:\n" +
         "- 'company': only for company research.\n" +
         "- 'people': only for non-public figures. Never for public figures or news about someone.\n" +
-        "- 'research paper': only for academic papers.\n" +
+        "- 'research_paper' (legacy 'research paper' is also accepted): only for academic papers.\n" +
         "For news, sports, general facts - do NOT set a category.",
       parameters: WEB_SEARCH_PARAMETERS,
       execute: async (args) => {
         const result = await executeWebSearch(ctx, String(args.query ?? ""), {
           ownerId: options.ownerId,
-          category: typeof args.category === "string" ? args.category : undefined,
+          category:
+            typeof args.category === "string" ? args.category : undefined,
         });
         return result.text;
       },
@@ -221,7 +446,12 @@ export const createBackendTools = (
       parameters: WEB_FETCH_PARAMETERS,
       execute: async (args) => {
         try {
-          let secureUrl = normalizeSafeExternalUrl(String(args.url ?? ""));
+          const requestedUrl = String(args.url ?? "");
+          SECRET_TOKEN_RE.lastIndex = 0;
+          if (SECRET_TOKEN_RE.test(requestedUrl)) {
+            return "Error: URL contains what appears to be an API key or token. Secrets must not be sent in URLs.";
+          }
+          let secureUrl = normalizeSafeExternalUrl(requestedUrl);
           let response: Response | null = null;
           for (
             let redirectCount = 0;
@@ -248,9 +478,9 @@ export const createBackendTools = (
             return "Failed to fetch (no response)";
           }
           if (
-            response.status >= 300
-            && response.status < 400
-            && response.headers.get("location")
+            response.status >= 300 &&
+            response.status < 400 &&
+            response.headers.get("location")
           ) {
             return `Failed to fetch (too many redirects, limit ${MAX_WEB_FETCH_REDIRECTS})`;
           }
@@ -258,14 +488,30 @@ export const createBackendTools = (
             return `Failed to fetch (${response.status} ${response.statusText})`;
           }
 
-          const text = await response.text();
           const contentType = response.headers.get("content-type") ?? "";
-          const body = contentType.includes("text/html")
-            ? stripHtml(text)
-            : text;
-
+          if (!isSupportedTextualMimeType(contentType)) {
+            await response.body?.cancel().catch(() => {});
+            const displayedType =
+              contentType.split(";", 1)[0]?.trim() || "missing";
+            return `Error: Unsupported or binary Content-Type: ${displayedType}`;
+          }
+          const rawBody = await readTextBodyWithLimit(response);
+          const mimeType =
+            contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+          const format =
+            args.format === "markdown" || args.format === "html"
+              ? args.format
+              : "text";
+          let body = rawBody;
+          if (HTML_MIME_TYPES.has(mimeType)) {
+            if (format === "text") body = htmlToText(rawBody);
+            if (format === "markdown") body = htmlToMarkdown(rawBody);
+          }
+          const prompt = String(args.prompt ?? "").trim();
+          if (prompt && format !== "html")
+            body = extractRelevantText(body, prompt);
           return wrapExternalContent(
-            `Content from ${secureUrl}\nPrompt: ${String(args.prompt ?? "")}\n\n${truncateWithNotice(body, 15_000)}`,
+            `Content from ${secureUrl}${prompt ? `\nPrompt: ${prompt}` : ""}\n\n${truncateWithNotice(redactSecretLikeText(body), 15_000)}`,
             secureUrl,
           );
         } catch (error) {

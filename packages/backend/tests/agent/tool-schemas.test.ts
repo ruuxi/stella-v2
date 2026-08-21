@@ -4,6 +4,8 @@ import {
   ExecCommandSchema,
   ImageGenSchema,
   MAX_IMAGE_GEN_REFERENCE_ITEMS,
+  WebSchema,
+  WebSearchSchema,
 } from "../../convex/agent/tool_schemas";
 
 describe("backend exec_command device-tool schema", () => {
@@ -13,6 +15,47 @@ describe("backend exec_command device-tool schema", () => {
     ).toBe(true);
     expect(
       ExecCommandSchema.safeParse({ cmd: "node", tty: "true" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("backend web device-tool schema", () => {
+  test("requires exactly one web mode", () => {
+    expect(WebSchema.safeParse({ query: "latest news" }).success).toBe(true);
+    expect(WebSchema.safeParse({ url: "https://example.test" }).success).toBe(
+      true,
+    );
+    expect(WebSchema.safeParse({}).success).toBe(false);
+    expect(
+      WebSchema.safeParse({
+        query: "latest news",
+        url: "https://example.test",
+      }).success,
+    ).toBe(false);
+  });
+
+  test("uses the canonical category spelling and fetch formats", () => {
+    expect(
+      WebSearchSchema.safeParse({
+        query: "new AI papers",
+        category: "research paper",
+      }).success,
+    ).toBe(true);
+    expect(
+      WebSearchSchema.safeParse({
+        query: "new AI papers",
+        category: "research_paper",
+      }).success,
+    ).toBe(false);
+    expect(
+      WebSchema.safeParse({
+        url: "https://example.test",
+        format: "markdown",
+      }).success,
+    ).toBe(true);
+    expect(
+      WebSchema.safeParse({ url: "https://example.test", format: "pdf" })
+        .success,
     ).toBe(false);
   });
 });

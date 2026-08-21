@@ -104,8 +104,13 @@ export const executeTool = action({
 
 export const webSearch = action({
   args: {
-    query: v.string(),
+    query: v.optional(v.string()),
+    url: v.optional(v.string()),
+    prompt: v.optional(v.string()),
     category: v.optional(v.string()),
+    format: v.optional(
+      v.union(v.literal("text"), v.literal("markdown"), v.literal("html")),
+    ),
     conversationId: v.optional(v.id("conversations")),
     agentType: v.optional(v.string()),
   },
@@ -130,15 +135,41 @@ export const webSearch = action({
       "agent_local_runtime_web_search",
       ownerId,
       RATE_EXPENSIVE,
-      "Too many web searches. Please wait a moment and try again.",
+      "Too many web requests. Please wait a moment and try again.",
     );
     if (args.conversationId) {
       await requireConversationOwnerAction(ctx, args.conversationId);
     }
-    return await executeWebSearch(ctx, args.query, {
-      ownerId,
-      category: args.category,
-    });
+    const query = args.query?.trim() ?? "";
+    const url = args.url?.trim() ?? "";
+    if (!query && !url) {
+      throw new ConvexError("Either query or url is required.");
+    }
+    if (query && url) {
+      throw new ConvexError("Pass either query or url, not both.");
+    }
+    if (query) {
+      return await executeWebSearch(ctx, query, {
+        ownerId,
+        category: args.category,
+      });
+    }
+
+    const text = await executeBackendTool(
+      ctx,
+      {
+        ownerId,
+        conversationId: args.conversationId,
+        agentType: args.agentType,
+      },
+      "WebFetch",
+      {
+        url,
+        ...(args.prompt?.trim() ? { prompt: args.prompt.trim() } : {}),
+        ...(args.format ? { format: args.format } : {}),
+      },
+    );
+    return { text, results: [] };
   },
 });
 
@@ -334,9 +365,13 @@ export const fashionRegisterOutfit = action({
       ...(args.themeDescription !== undefined
         ? { themeDescription: args.themeDescription }
         : {}),
-      ...(args.stylePrompt !== undefined ? { stylePrompt: args.stylePrompt } : {}),
+      ...(args.stylePrompt !== undefined
+        ? { stylePrompt: args.stylePrompt }
+        : {}),
       products: args.products,
-      ...(args.tryOnPrompt !== undefined ? { tryOnPrompt: args.tryOnPrompt } : {}),
+      ...(args.tryOnPrompt !== undefined
+        ? { tryOnPrompt: args.tryOnPrompt }
+        : {}),
     });
   },
 });
@@ -420,7 +455,9 @@ export const fashionGetOrchestratorContext = action({
     ),
     recentOutfitProductIds: v.array(v.string()),
   }),
-  handler: async (ctx): Promise<{
+  handler: async (
+    ctx,
+  ): Promise<{
     profile: {
       gender?: string;
       sizes?: Record<string, string>;

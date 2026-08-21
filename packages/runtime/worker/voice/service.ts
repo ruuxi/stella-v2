@@ -238,6 +238,7 @@ export class VoiceRuntimeService {
     const allowedToolNames = config.tools.map((tool) => tool.name);
     const allowed = new Set(allowedToolNames);
     const runId = payload.requestId || `voice:${payload.callId}`;
+    const executionName = payload.name === "web_search" ? "web" : payload.name;
 
     this.recordVoiceToolRequest(payload);
 
@@ -247,7 +248,7 @@ export class VoiceRuntimeService {
         error: `${payload.name} is not available to the voice orchestrator.`,
       };
     } else {
-      result = await runner.executeTool(payload.name, payload.args, {
+      result = await runner.executeTool(executionName, payload.args, {
         conversationId: payload.conversationId,
         deviceId: this.options.getDeviceId() ?? "unknown",
         requestId: payload.callId,

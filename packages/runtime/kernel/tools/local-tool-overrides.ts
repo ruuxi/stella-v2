@@ -7,11 +7,14 @@
  * - NoResponse: immediate return
  */
 
+import { parse, type DefaultTreeAdapterMap } from "parse5";
+import TurndownService from "turndown";
 import { normalizeSafeExternalUrl } from "./network-guards.js";
 import { containsSecretLikeToken, sanitizeToolVisibleText } from "./safety.js";
 
 export const MAX_FETCH_BODY_CHARS = 24_000;
 export const MAX_PROMPT_FETCH_BODY_CHARS = 16_000;
+export const MAX_FETCH_BODY_BYTES = 5 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_FETCH_REDIRECTS = 5;
 const PROMPT_CONTEXT_LINES = 5;
@@ -40,25 +43,161 @@ const PROMPT_STOP_WORDS = new Set([
 
 // WebFetch
 
-/**
- * Minimal HTML-to-text conversion. Strips tags and decodes common entities.
- * No external dependency needed for this basic extraction.
- */
-const htmlToText = (html: string): string => {
-  let text = html.replace(/<script[\s\S]*?<\/script>/gi, "");
-  text = text.replace(/<style[\s\S]*?<\/style>/gi, "");
-  text = text.replace(/<(?:br|p|div|li|h[1-6]|tr)[^>]*>/gi, "\n");
-  text = text.replace(/<[^>]+>/g, "");
-  text = text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-  text = text.replace(/[ \t]+/g, " ");
-  text = text.replace(/\n{3,}/g, "\n\n");
-  return text.trim();
+export type WebFetchFormat = "text" | "markdown" | "html";
+
+type HtmlNode = DefaultTreeAdapterMap["node"];
+
+const SKIPPED_HTML_ELEMENTS = new Set([
+  "head",
+  "script",
+  "style",
+  "template",
+  "noscript",
+  "svg",
+  "canvas",
+]);
+const BLOCK_HTML_ELEMENTS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "br",
+  "dd",
+  "div",
+  "dl",
+  "dt",
+  "figcaption",
+  "figure",
+  "footer",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "li",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "td",
+  "th",
+  "tr",
+  "ul",
+]);
+
+/** Parse HTML into a DOM tree before extracting visible text. */
+export const htmlToText = (html: string): string => {
+  const document = parse(html);
+  const chunks: string[] = [];
+  const visit = (node: HtmlNode) => {
+    if ("nodeName" in node && SKIPPED_HTML_ELEMENTS.has(node.nodeName)) return;
+    if (node.nodeName === "#text" && "value" in node) {
+      chunks.push(node.value);
+      return;
+    }
+    const isBlock =
+      "nodeName" in node &&
+      BLOCK_HTML_ELEMENTS.has(node.nodeName.toLowerCase());
+    if (isBlock) chunks.push("\n");
+    if ("childNodes" in node) {
+      for (const child of node.childNodes) visit(child);
+    }
+    if (isBlock) chunks.push("\n");
+  };
+  visit(document);
+  return chunks
+    .join("")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
+const turndown = new TurndownService({
+  headingStyle: "atx",
+  bulletListMarker: "-",
+  codeBlockStyle: "fenced",
+});
+turndown.remove([
+  "head",
+  "script",
+  "style",
+  "template",
+  "noscript",
+  "svg",
+  "canvas",
+]);
+
+/** Convert parsed HTML semantics to Markdown (links, lists, headings, code, etc.). */
+export const htmlToMarkdown = (html: string): string =>
+  turndown
+    .turndown(html)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const HTML_MIME_TYPES = new Set(["text/html", "application/xhtml+xml"]);
+const TEXTUAL_APPLICATION_MIME_TYPES = new Set([
+  "application/json",
+  "application/ld+json",
+  "application/xml",
+  "application/rss+xml",
+  "application/atom+xml",
+  "application/javascript",
+  "application/x-javascript",
+]);
+
+export const isSupportedTextualMimeType = (contentType: string): boolean => {
+  const mimeType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return (
+    mimeType.startsWith("text/") ||
+    TEXTUAL_APPLICATION_MIME_TYPES.has(mimeType) ||
+    mimeType.endsWith("+json") ||
+    mimeType.endsWith("+xml")
+  );
+};
+
+const readTextBodyWithLimit = async (response: Response): Promise<string> => {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_FETCH_BODY_BYTES
+  ) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(
+      `Response body exceeds the ${MAX_FETCH_BODY_BYTES} byte limit.`,
+    );
+  }
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytesRead = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > MAX_FETCH_BODY_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new Error(
+          `Response body exceeds the ${MAX_FETCH_BODY_BYTES} byte limit.`,
+        );
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join("");
+  } finally {
+    reader.releaseLock();
+  }
 };
 
 const promptSearchTerms = (prompt: string): string[] =>
@@ -147,6 +286,7 @@ export const extractRelevantWebText = (
 export const localWebFetch = async (args: {
   url: string;
   prompt?: string;
+  format?: WebFetchFormat;
 }): Promise<string> => {
   if (!args.url) return "Error: URL is required.";
   if (containsSecretLikeToken(args.url)) {
@@ -177,6 +317,7 @@ export const localWebFetch = async (args: {
 
       const location = response.headers.get("location");
       if (response.status >= 300 && response.status < 400 && location) {
+        await response.body?.cancel().catch(() => {});
         targetUrl = await normalizeSafeExternalUrl(
           new URL(location, targetUrl).toString(),
         );
@@ -201,19 +342,27 @@ export const localWebFetch = async (args: {
     }
 
     const contentType = response.headers.get("content-type") ?? "";
-    const rawBody = await response.text();
-
-    let text: string;
-    if (
-      contentType.includes("text/html") ||
-      contentType.includes("application/xhtml")
-    ) {
-      text = htmlToText(rawBody);
-    } else {
-      text = rawBody;
+    if (!isSupportedTextualMimeType(contentType)) {
+      await response.body?.cancel().catch(() => {});
+      const displayedType = contentType.split(";", 1)[0]?.trim() || "missing";
+      return `Error: Unsupported or binary Content-Type: ${displayedType}`;
     }
 
-    text = extractRelevantWebText(text, args.prompt);
+    const rawBody = await readTextBodyWithLimit(response);
+    const mimeType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    const format = args.format ?? "text";
+    let text = rawBody;
+    if (HTML_MIME_TYPES.has(mimeType)) {
+      if (format === "text") text = htmlToText(rawBody);
+      if (format === "markdown") text = htmlToMarkdown(rawBody);
+    }
+
+    // Prompt extraction is useful for readable text/Markdown, but would
+    // destroy the structural validity of callers explicitly requesting HTML.
+    text =
+      format === "html"
+        ? boundedText(text, MAX_FETCH_BODY_CHARS)
+        : extractRelevantWebText(text, args.prompt);
 
     if (!text.trim()) {
       return "The page returned no readable text content.";

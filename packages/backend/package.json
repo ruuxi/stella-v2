@@ -28,15 +28,18 @@
     "jose": "^6.2.3",
     "openai": "6.39.0",
     "partial-json": "^0.1.7",
+    "parse5": "^8.0.0",
     "pdf-parse": "^2.4.5",
     "pngjs": "^7.0.0",
     "stripe": "22.2.0",
+    "turndown": "^7.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
     "@types/node": "^25.9.1",
     "@types/pngjs": "^6.0.5",
+    "@types/turndown": "^5.0.6",
     "@typescript/native-preview": "^7.0.0-dev.20260527.2",
     "convex-helpers": "^0.1.123",
     "convex-test": "^0.0.56",

@@ -99,6 +99,36 @@ describe("VoiceRuntimeService direct tool execution", () => {
     );
   });
 
+  it("routes the legacy web_search alias through the unified web tool", async () => {
+    const { service, runner } = makeService();
+    runner.getVoiceOrchestratorConfig.mockResolvedValueOnce({
+      instructions: "orchestrator instructions",
+      tools: [
+        {
+          type: "function" as const,
+          name: "web_search",
+          description: "Legacy web search alias.",
+          parameters: { type: "object" },
+        },
+      ],
+    });
+
+    await service.getOrchestratorConfig({ conversationId: "conv-1" });
+    await service.executeTool({
+      requestId: "voice-session-1",
+      conversationId: "conv-1",
+      callId: "call-legacy-web",
+      name: "web_search",
+      args: { query: "latest Stella news" },
+    });
+
+    expect(runner.executeTool).toHaveBeenCalledWith(
+      "web",
+      { query: "latest Stella news" },
+      expect.objectContaining({ allowedToolNames: ["web_search"] }),
+    );
+  });
+
   it("returns an error for tools outside the resolved catalog", async () => {
     const { service, runner } = makeService();
 

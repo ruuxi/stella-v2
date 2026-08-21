@@ -1358,14 +1358,6 @@
         "dismiss": "Dispensar a prévia",
         "jumpToLatest": "Ir para a resposta mais recente"
       },
-      "scheduleReceipt": {
-        "nextRun": "próxima {nextRun}",
-        "scheduleCount": {
-          "one": "{count} agendamento",
-          "many": "{count} agendamentos",
-          "other": "{count} agendamentos"
-        }
-      },
       "screenshotPreview": {
         "alt": "Prévia da captura {index}"
       },

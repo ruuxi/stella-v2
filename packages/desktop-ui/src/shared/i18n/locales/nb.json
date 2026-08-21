@@ -1347,13 +1347,6 @@
         "dismiss": "Lukk forhåndsvisning",
         "jumpToLatest": "Gå til siste svar"
       },
-      "scheduleReceipt": {
-        "nextRun": "neste {nextRun}",
-        "scheduleCount": {
-          "one": "{count} planlegging",
-          "other": "{count} planlegginger"
-        }
-      },
       "screenshotPreview": {
         "alt": "Forhåndsvisning av skjermbilde {index}"
       },

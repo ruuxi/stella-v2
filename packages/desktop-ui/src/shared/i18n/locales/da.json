@@ -1347,13 +1347,6 @@
         "dismiss": "Afvis forhåndsvisning",
         "jumpToLatest": "Gå til seneste svar"
       },
-      "scheduleReceipt": {
-        "nextRun": "næste {nextRun}",
-        "scheduleCount": {
-          "one": "{count} tidsplan",
-          "other": "{count} tidsplaner"
-        }
-      },
       "screenshotPreview": {
         "alt": "Forhåndsvisning af skærmbillede {index}"
       },

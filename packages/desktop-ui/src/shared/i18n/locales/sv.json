@@ -1347,13 +1347,6 @@
         "dismiss": "Stäng förhandsvisning",
         "jumpToLatest": "Hoppa till senaste svaret"
       },
-      "scheduleReceipt": {
-        "nextRun": "nästa {nextRun}",
-        "scheduleCount": {
-          "one": "{count} schema",
-          "other": "{count} scheman"
-        }
-      },
       "screenshotPreview": {
         "alt": "Förhandsvisning av skärmbild {index}"
       },

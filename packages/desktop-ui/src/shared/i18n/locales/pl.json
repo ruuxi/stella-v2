@@ -1369,15 +1369,6 @@
         "dismiss": "Zamknij podgląd",
         "jumpToLatest": "Przejdź do najnowszej odpowiedzi"
       },
-      "scheduleReceipt": {
-        "nextRun": "następne {nextRun}",
-        "scheduleCount": {
-          "one": "{count} harmonogram",
-          "few": "{count} harmonogramy",
-          "many": "{count} harmonogramów",
-          "other": "{count} harmonogramu"
-        }
-      },
       "screenshotPreview": {
         "alt": "Podgląd zrzutu ekranu {index}"
       },

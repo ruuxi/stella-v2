@@ -47,4 +47,32 @@ describe("pickScheduleToolSummary", () => {
       }),
     ).toBe("Set up daily morning and evening check-ins.");
   });
+
+  it("extracts the text field from a serialized tool-result envelope", () => {
+    const humanText =
+      "All registered for conversation conv-1:\n\n1. **Morning Anchor** — daily at 09:00";
+    expect(
+      pickScheduleToolSummary({
+        resultPreview: JSON.stringify({
+          content: [{ type: "text", text: humanText }],
+        }),
+      }),
+    ).toBe(humanText);
+  });
+
+  it("passes an already-clean string through unchanged", () => {
+    const clean = "Registered one reminder for tomorrow at 3pm.";
+    expect(pickScheduleToolSummary({ resultPreview: clean })).toBe(clean);
+    expect(pickScheduleToolSummary({ resultPreview: ` ${clean}  ` })).toBe(
+      clean,
+    );
+  });
+
+  it("returns undefined for a tool-result envelope without usable text", () => {
+    expect(
+      pickScheduleToolSummary({
+        resultPreview: JSON.stringify({ content: [{ type: "text" }] }),
+      }),
+    ).toBeUndefined();
+  });
 });

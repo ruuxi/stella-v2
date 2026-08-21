@@ -1347,13 +1347,6 @@
         "dismiss": "Önizlemeyi kapat",
         "jumpToLatest": "En son yanıta git"
       },
-      "scheduleReceipt": {
-        "nextRun": "sonraki {nextRun}",
-        "scheduleCount": {
-          "one": "{count} zamanlama",
-          "other": "{count} zamanlama"
-        }
-      },
       "screenshotPreview": {
         "alt": "Ekran görüntüsü önizlemesi {index}"
       },

@@ -197,7 +197,6 @@ const isCardRow = (row: EventRowViewModel): boolean =>
     row.sourceDiffPayloads?.length ||
     row.inlineImagePayloads?.length ||
     row.officePreviewRef ||
-    row.scheduleReceipt ||
     row.backgroundWork ||
     row.customSlot,
   );

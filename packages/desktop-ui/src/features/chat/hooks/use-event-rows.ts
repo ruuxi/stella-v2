@@ -10,8 +10,6 @@ import {
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import { isOrchestratorReservedBuiltinAgentId } from "@stella/contracts/agent-runtime";
 import { isOfficePreviewRef } from "@stella/contracts/office-preview";
-import type { ScheduleToolAffectedRef } from "@stella/contracts/scheduling";
-import { pickScheduleToolSummary } from "@/global/schedule/schedule-receipt-summary";
 import {
   collectTurnSourceDiffPayloads,
   deriveTurnInlineImagePayloads,
@@ -72,43 +70,6 @@ const getOfficePreviewRef = (events: readonly EventRecord[]) => {
     const payload = event.payload as { officePreviewRef?: unknown } | undefined;
     const previewRef = payload?.officePreviewRef;
     if (isOfficePreviewRef(previewRef)) return previewRef;
-  }
-  return undefined;
-};
-
-/**
- * Pick out the latest `Schedule` tool_result on this assistant turn and
- * lift its structured `details.schedule.affected` payload (see
- * `ScheduleToolDetails` in `runtime/kernel/shared/scheduling.ts`). Returns
- * `undefined` for turns that didn't go through the Schedule tool, or
- * Schedule turns whose subagent reported "no_change".
- */
-const getScheduleReceipt = (
-  events: readonly EventRecord[],
-): { affected: ScheduleToolAffectedRef[]; summary?: string } | undefined => {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event.type !== "tool_result") continue;
-    const payload = event.payload as
-      | {
-          toolName?: string;
-          error?: string;
-          schedule?: { affected?: unknown };
-          resultPreview?: unknown;
-          result?: unknown;
-        }
-      | undefined;
-    if (!payload || payload.toolName !== "Schedule") continue;
-    if (typeof payload.error === "string" && payload.error) return undefined;
-    const schedule = payload.schedule;
-    if (!schedule || typeof schedule !== "object") continue;
-    const affected = (schedule as { affected?: unknown }).affected;
-    if (!Array.isArray(affected) || affected.length === 0) continue;
-    const summary = pickScheduleToolSummary(payload);
-    return {
-      affected: affected as ScheduleToolAffectedRef[],
-      ...(summary ? { summary } : {}),
-    };
   }
   return undefined;
 };
@@ -345,7 +306,6 @@ export const assistantRowHasNonBackgroundContent = (
   (row.webSearchResults?.length ?? 0) > 0 ||
   (row.mapArtifacts?.length ?? 0) > 0 ||
   (row.sourceDiffPayloads?.length ?? 0) > 0 ||
-  Boolean(row.scheduleReceipt) ||
   Boolean(row.voiceSession) ||
   (row.agentCompletion?.sections.length ?? 0) > 0 ||
   Boolean(row.customSlot);
@@ -435,7 +395,6 @@ const isImageOnlyInlineRow = (row: AssistantRowViewModel): boolean =>
   !row.officePreviewRef &&
   !row.resourcePayload &&
   !row.sourceDiffPayloads?.length &&
-  !row.scheduleReceipt &&
   !row.voiceSession &&
   !row.backgroundWork &&
   !row.agentCompletion?.sections.length &&
@@ -458,7 +417,6 @@ const coalesceInlineImageRows = (
       !prev.officePreviewRef &&
       !prev.resourcePayload &&
       !prev.sourceDiffPayloads?.length &&
-      !prev.scheduleReceipt &&
       !prev.backgroundWork &&
       !prev.agentCompletion?.sections.length &&
       !prev.customSlot
@@ -484,7 +442,6 @@ const isVoiceOnlyRow = (row: AssistantRowViewModel): boolean =>
   !row.resourcePayload &&
   !row.inlineImagePayloads?.length &&
   !row.sourceDiffPayloads?.length &&
-  !row.scheduleReceipt &&
   !row.backgroundWork &&
   !row.agentCompletion?.sections.length &&
   !row.customSlot;
@@ -825,7 +782,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         const sourceDiffPayloads = collectTurnSourceDiffPayloads(toolEvents, {
           developerResourcesEnabled: developerResourcePreviewsEnabled,
         });
-        const scheduleReceipt = getScheduleReceipt(toolEvents);
         const officePreviewRef = getOfficePreviewRef(toolEvents);
         const voiceSession = payload?.metadata?.voiceSession;
         const backgroundWorks = buildBackgroundWorks(toolEvents);
@@ -894,7 +850,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(showInlineArtifacts && sourceDiffPayloads.length > 0
             ? { sourceDiffPayloads }
             : {}),
-          ...(scheduleReceipt ? { scheduleReceipt } : {}),
           ...(voiceSession ? { voiceSession } : {}),
           ...(backgroundWork ? { backgroundWork } : {}),
           ...(agentCompletionSections.length > 0

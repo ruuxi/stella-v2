@@ -23,7 +23,6 @@ export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0
     (row.mapArtifacts?.length ?? 0) > 0 ||
     (row.sourceDiffPayloads?.length ?? 0) > 0 ||
     Boolean(row.customSlot) ||
-    (row.scheduleReceipt?.affected.length ?? 0) > 0 ||
     Boolean(row.voiceSession) ||
     (row.backgroundWork?.threadIds.length ?? 0) > 0 ||
     (row.agentCompletion?.sections.length ?? 0) > 0;

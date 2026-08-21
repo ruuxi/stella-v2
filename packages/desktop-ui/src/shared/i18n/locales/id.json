@@ -1336,12 +1336,6 @@
         "dismiss": "Tutup pratinjau",
         "jumpToLatest": "Lompat ke balasan terbaru"
       },
-      "scheduleReceipt": {
-        "nextRun": "berikutnya {nextRun}",
-        "scheduleCount": {
-          "other": "{count} jadwal"
-        }
-      },
       "screenshotPreview": {
         "alt": "Pratinjau tangkapan layar {index}"
       },

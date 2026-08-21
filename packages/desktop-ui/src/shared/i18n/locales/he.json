@@ -1358,14 +1358,6 @@
         "dismiss": "סגור תצוגה מקדימה",
         "jumpToLatest": "עבור לתשובה האחרונה"
       },
-      "scheduleReceipt": {
-        "nextRun": "הבא {nextRun}",
-        "scheduleCount": {
-          "one": "תזמון {count}",
-          "two": "{count} תזמונים",
-          "other": "{count} תזמונים"
-        }
-      },
       "screenshotPreview": {
         "alt": "תצוגה מקדימה של צילום מסך {index}"
       },

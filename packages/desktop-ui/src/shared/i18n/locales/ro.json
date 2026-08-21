@@ -1358,14 +1358,6 @@
         "dismiss": "Închide previzualizarea",
         "jumpToLatest": "Sari la cel mai recent răspuns"
       },
-      "scheduleReceipt": {
-        "nextRun": "următoarea {nextRun}",
-        "scheduleCount": {
-          "one": "{count} programare",
-          "few": "{count} programări",
-          "other": "{count} de programări"
-        }
-      },
       "screenshotPreview": {
         "alt": "Previzualizare captură de ecran {index}"
       },

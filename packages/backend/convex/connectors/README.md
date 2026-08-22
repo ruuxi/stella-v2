@@ -253,14 +253,54 @@ Reviewed native actions:
   create an issue.
 - Supabase: list/get projects, list organizations, and create a project.
 
-Snowflake remains blocked on account-scoped OAuth endpoints and a safe account
-origin capture/validation design. The API-key lifecycle can activate the small
-reviewed descriptor set for Firecrawl, Exa, SerpAPI, and Ashby, but only after
-the provider is in both `STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS` and
-`STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS`, the user has a live encrypted
-credential, and routing selects first party. All other API-key planner entries
-remain deferred: a request planner is not a live executor or a provider
-descriptor.
+The reviewed API-key execution catalog is below. `executor_ready` means the
+connector has a fixed-origin descriptor, exact action schemas, a request
+planner, and first-party dispatch. It does **not** mean that production routing
+is active: execution still independently requires the global kill switch, the
+provider in both deployment allowlists, an active owner-scoped encrypted
+credential, a verified representative call, and a first-party rollout.
+
+| Connector        | Fixed API origin                 | Credential placement                | Contract restriction                                                                                  |
+| ---------------- | -------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `firecrawl`      | `https://api.firecrawl.dev`      | `Authorization: Bearer`             | v2 reviewed actions only                                                                              |
+| `exa`            | `https://api.exa.ai`             | `X-Api-Key`                         | reviewed search/content/answer actions only                                                           |
+| `serpapi`        | `https://serpapi.com`            | `api_key` query parameter           | credential injected only after planning                                                               |
+| `ashby`          | `https://api.ashbyhq.com`        | HTTP Basic, empty username          | reviewed candidate/job actions only                                                                   |
+| `tavily`         | `https://api.tavily.com`         | `Authorization: Bearer`             | reviewed search/extract/map/crawl actions only                                                        |
+| `perplexityai`   | `https://api.perplexity.ai`      | `Authorization: Bearer`             | search and chat-completions actions only                                                              |
+| `posthog`        | `https://us.posthog.com`         | `Authorization: Bearer`             | US Cloud only; EU and self-hosted origins remain unsupported                                          |
+| `ably`           | `https://rest.ably.io`           | HTTP Basic `keyName:keySecret` pair | pair format is validated; it is never split into request input                                        |
+| `abuseipdb`      | `https://api.abuseipdb.com`      | `Key` header                        | report uses explicit form encoding; other reviewed actions use no body                                |
+| `peopledatalabs` | `https://api.peopledatalabs.com` | `X-Api-Key`                         | v5 reviewed person/company actions only                                                               |
+| `apollo`         | `https://api.apollo.io`          | `X-Api-Key`                         | reviewed people/org/contact/task actions only                                                         |
+| `2chat`          | `https://api.p.2chat.io`         | `X-User-API-Key`                    | reviewed `/open` WhatsApp actions only                                                                |
+| `7shifts`        | `https://api.7shifts.com`        | `Authorization: Bearer`             | long-lived access-token model; supports exact `SEVENSHIFTS_*` and existing `7SHIFTS_*` public actions |
+| `abyssale`       | `https://api.abyssale.com`       | `X-API-KEY`                         | reviewed template/generation actions only                                                             |
+| `0codekit`       | `https://prod.0codekit.com`      | `auth` header                       | reviewed PDF actions only                                                                             |
+| `44api`          | `https://api.44api.dev`          | `X-API-Key`                         | exact public `44API_*` names are preserved and canonically mapped internally                          |
+
+No descriptor accepts a caller-supplied origin, path authority, authentication
+header, or request encoding. The only accepted authentication placements are
+the enumerated placements above. The executor performs one request, follows no
+redirect, redacts every credential representation, and never retries a write.
+
+These connectors remain planner-only and are deliberately absent from API-key
+descriptors and first-party dispatch:
+
+| Connector   | Remaining gap                                                                                                                                                                                                                                                                                                                                                               |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `1password` | 1Password Connect uses a customer-deployed account origin. There is no safe universal suffix or credential-bound origin field in the current lifecycle.                                                                                                                                                                                                                     |
+| `21risk`    | No reviewed primary documentation establishes a production API origin and static credential placement.                                                                                                                                                                                                                                                                      |
+| `abstract`  | Abstract issues product-specific keys across the explicit `emailvalidation.abstractapi.com`, `phonevalidation.abstractapi.com`, and `ipgeolocation.abstractapi.com` origins; the current one-credential-per-connector contract cannot represent that truthfully.                                                                                                            |
+| `snowflake` | The SQL API requires an account-specific origin, and the reviewed Snowflake contract has OAuth/key-pair/PAT semantics rather than a proven single static API key for this product surface. The existing relative SQL planners and strict `*.snowflakecomputing.com` origin validator are non-executable until account-origin capture and the credential model are designed. |
+
+That Snowflake disposition follows the primary [SQL API endpoint
+contract](https://docs.snowflake.com/en/developer-guide/sql-api/about-endpoints)
+and [authentication
+contract](https://docs.snowflake.com/en/developer-guide/sql-api/authenticating):
+the statement URL is account-scoped and the accepted models are OAuth, key-pair
+JWT, or PAT. None is silently treated as the single opaque API-key model used by
+this lifecycle.
 
 API keys are intentionally not modeled as OAuth tokens. There is no expiry,
 refresh token, scope grant, or refresh retry. Replacement uses an optimistic
@@ -272,10 +312,10 @@ uncertain write returns `ambiguous_write` and is never replayed automatically.
 Connect and disconnect are owner-rate-limited sensitive actions; clients do
 not automatically retry either mutation.
 
-The Store publisher keeps Composio authoritative for these externally blocked
-toolkits and publishes the auth schemes Composio reports. `44api` is preserved
-as the public toolkit id, and its exact upstream `44API_*` action slugs are
-accepted only for that connector.
+The Store publisher keeps Composio authoritative for planner-only and
+not-enabled toolkits and publishes the auth schemes Composio reports. `44api`
+is preserved as the public toolkit id, and its exact upstream `44API_*` action
+slugs are accepted only for that connector.
 Composio Search, Browser Tool, and Codeinterpreter remain native capability
 aliases (`web`, `stella-browser`, and `exec_command`/`node_repl`) rather than
 third-party connector executors.

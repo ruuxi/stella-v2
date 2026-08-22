@@ -1187,6 +1187,13 @@ describe("deferred API-key provider request catalog", () => {
         start: "2026-01-01T09:00:00Z",
         end: "2026-01-01T17:00:00Z",
       },
+      "7SHIFTS_LIST_SHIFTS": { company_id: "company" },
+      "7SHIFTS_CREATE_DEPARTMENT": {
+        company_id: "company",
+        location_id: "location",
+        name: "Front of House",
+        default: false,
+      },
       APOLLO_PEOPLE_SEARCH: {},
       APOLLO_ORGANIZATION_SEARCH: {},
       APOLLO_PEOPLE_ENRICH: {},

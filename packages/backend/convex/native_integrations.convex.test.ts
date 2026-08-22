@@ -114,12 +114,21 @@ describe("Composio exact identifier policy", () => {
     ).toBeNull();
   });
 
-  it("accepts 44API action names only for the exact 44api connector", () => {
+  it("accepts digit-leading actions only for their exact connector", () => {
     expect(isSafeComposioActionName("44api", "44API_GET_RECORDS")).toBe(true);
     expect(isSafeComposioActionName("outlook", "44API_GET_RECORDS")).toBe(
       false,
     );
     expect(isSafeComposioActionName("44api", "44API_GET-RECORDS")).toBe(false);
+    expect(isSafeComposioActionName("7shifts", "7SHIFTS_LIST_SHIFTS")).toBe(
+      true,
+    );
+    expect(isSafeComposioActionName("outlook", "7SHIFTS_LIST_SHIFTS")).toBe(
+      false,
+    );
+    expect(isSafeComposioActionName("7shifts", "7SHIFTS_LIST-SHIFTS")).toBe(
+      false,
+    );
   });
 });
 
@@ -166,6 +175,9 @@ describe("Composio integration catalog and execution", () => {
       200,
     );
     expect(
+      (await publish("7shifts", "7shifts", "7SHIFTS_LIST_SHIFTS")).status,
+    ).toBe(200);
+    expect(
       (await publish("outlook", "outlook", "44API_GET_RECORDS")).status,
     ).toBe(400);
     expect(
@@ -186,6 +198,14 @@ describe("Composio integration catalog and execution", () => {
     expect(payload.integrations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          id: "44api",
+          connector: expect.objectContaining({ toolkit: "44api" }),
+        }),
+        expect.objectContaining({
+          id: "7shifts",
+          connector: expect.objectContaining({ toolkit: "7shifts" }),
+        }),
+        expect.objectContaining({
           id: "21risk",
           connector: expect.objectContaining({ toolkit: "_21risk" }),
         }),
@@ -202,6 +222,24 @@ describe("Composio integration catalog and execution", () => {
         name: "PDL_ENRICH",
       }),
     ).resolves.toMatchObject({ id: "peopledatalabs" });
+    await expect(
+      t.query(internal.data.integrations.getPublicIntegrationAction, {
+        id: "44api",
+        name: "44API_GET_RECORDS",
+      }),
+    ).resolves.toMatchObject({
+      id: "44api",
+      action: { name: "44API_GET_RECORDS" },
+    });
+    await expect(
+      t.query(internal.data.integrations.getPublicIntegrationAction, {
+        id: "7shifts",
+        name: "7SHIFTS_LIST_SHIFTS",
+      }),
+    ).resolves.toMatchObject({
+      id: "7shifts",
+      action: { name: "7SHIFTS_LIST_SHIFTS" },
+    });
   });
 
   it("ingests the publisher shape atomically and preserves old actions after rejection", async () => {

@@ -46,7 +46,12 @@ export const normalizeBackendComposioIdentity = (
 export const isSafeBackendComposioActionName = (
   idValue: string,
   actionName: string,
-): boolean =>
-  /^[A-Z][A-Z0-9_]{1,127}$/u.test(actionName) ||
-  (canonicalizeConnectorId(idValue) === "44api" &&
-    /^44API_[A-Z0-9_]{1,122}$/u.test(actionName));
+): boolean => {
+  if (/^[A-Z][A-Z0-9_]{1,127}$/u.test(actionName)) return true;
+  const connectorId = canonicalizeConnectorId(idValue);
+  return (
+    (connectorId === "44api" && /^44API_[A-Z0-9_]{1,122}$/u.test(actionName)) ||
+    (connectorId === "7shifts" &&
+      /^7SHIFTS_[A-Z0-9_]{1,120}$/u.test(actionName))
+  );
+};

@@ -32,7 +32,10 @@ import {
   firstPartyActionRequiredScopes,
 } from "./executors/first_party";
 import { executeApiKeyProviderAction } from "./api_keys/execute";
-import { apiKeyProviderForConnectorAction } from "./api_keys/providers";
+import {
+  apiKeyProviderForConnectorAction,
+  getApiKeyActionDescriptor,
+} from "./api_keys/providers";
 
 /**
  * Backend-owned first-party execution. This is the ONLY entrypoint that runs a
@@ -310,7 +313,10 @@ export const runFirstPartyConnectorAction = internalAction({
       );
       if (apiKeyDescriptor) {
         auditProvider = apiKeyDescriptor.providerKey;
-        const actionDescriptor = apiKeyDescriptor.actions[args.action];
+        const actionDescriptor = getApiKeyActionDescriptor(
+          apiKeyDescriptor,
+          args.action,
+        );
         if (!actionDescriptor) throw new ConnectorError("action_not_found");
 
         const [readiness, storedRollout] = await Promise.all([

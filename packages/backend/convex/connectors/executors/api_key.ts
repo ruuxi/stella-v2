@@ -4,6 +4,7 @@ export type ApiKeyProviderRequest = {
   method: "GET" | "POST";
   path: string;
   body?: Record<string, unknown>;
+  bodyEncoding?: "json" | "form";
   headers?: Record<string, string>;
 };
 
@@ -11,10 +12,7 @@ export type DeferredApiKeyProvider = {
   connectorId: string;
   providerKey: string;
   ownerFamily:
-    | "design_finance_ops"
-    | "developer_data"
-    | "social"
-    | "crm_recruiting_sales";
+    "design_finance_ops" | "developer_data" | "social" | "crm_recruiting_sales";
   fixedApiOrigin?: string;
   requiresTenantOrigin?: boolean;
   /**
@@ -34,9 +32,9 @@ export type DeferredApiKeyProvider = {
 };
 
 const API_KEY_CORE_BLOCKERS = [
-  "server-side per-user API-key vault and credential lifecycle",
-  "catalog schema publication",
-  "real credential and representative provider call",
+  "deployment provider enablement and independent verification allowlists",
+  "active encrypted owner-scoped credential",
+  "real credential and representative provider call before rollout",
 ] as const;
 
 const requiredString = (
@@ -48,6 +46,20 @@ const requiredString = (
     throw new ConnectorError("invalid_input");
   }
   return value.trim();
+};
+
+const requiredIdentifier = (
+  input: Record<string, unknown>,
+  key: string,
+): string => {
+  const value = input[key];
+  if (
+    (typeof value === "string" && value.trim()) ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return String(value).trim();
+  }
+  throw new ConnectorError("invalid_input");
 };
 
 const queryPath = (
@@ -98,10 +110,9 @@ const actions = (
 
 /**
  * 44API's public/upstream Composio action slugs are digit-leading (`44API_*`)
- * and cannot satisfy the strict internal safe-action invariant. Preserve the
- * exact upstream contract and canonicalize to the established `FORTYFOUR_API_*`
- * safe alias (mirrors packages/backend/convex/data/integrations.ts) for catalog
- * validation and planner dispatch. No public action name is renamed.
+ * while the deferred planner table uses the established
+ * `FORTYFOUR_API_*` aliases. Preserve the exact public contract and
+ * canonicalize only for planner lookup and dispatch.
  */
 export const canonicalizeDeferredActionName = (
   providerKey: string,
@@ -178,7 +189,7 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
     connectorId: "0codekit",
     providerKey: "0codekit",
     ownerFamily: "design_finance_ops",
-    fixedApiOrigin: "https://api.0codekit.com",
+    fixedApiOrigin: "https://prod.0codekit.com",
     actions: actions([
       ["ZEROCODEKIT_PDF_METADATA", "read"],
       ["ZEROCODEKIT_HTML_TO_PDF", "write"],
@@ -238,6 +249,8 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
       ["SEVENSHIFTS_LIST_USERS", "read"],
       ["SEVENSHIFTS_LIST_SHIFTS", "read"],
       ["SEVENSHIFTS_CREATE_SHIFT", "write"],
+      ["7SHIFTS_LIST_SHIFTS", "read"],
+      ["7SHIFTS_CREATE_DEPARTMENT", "write"],
     ]),
     activationBlockers: API_KEY_CORE_BLOCKERS,
   },
@@ -323,8 +336,9 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
       ["SNOWFLAKE_EXECUTE_SQL_QUERY", "write"],
     ]),
     activationBlockers: [
-      ...API_KEY_CORE_BLOCKERS,
+      "reviewed first-party Snowflake credential model matching the public product contract",
       "validated per-connection Snowflake account-scoped origin and OAuth token exchange",
+      "deployment enablement, independent representative-call verification, and rollout",
     ],
   },
   {
@@ -352,8 +366,7 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
     providerKey: "44api",
     ownerFamily: "developer_data",
     fixedApiOrigin: "https://api.44api.dev",
-    // Public/upstream slugs stay 44API_*; stored canonically as FORTYFOUR_API_*
-    // to satisfy the strict safe-action invariant without renaming the contract.
+    // Public/upstream slugs stay 44API_*; planner keys remain FORTYFOUR_API_*.
     actions: actions([
       ["FORTYFOUR_API_VALIDATE_VAT_NUMBER", "read"],
       ["FORTYFOUR_API_LIST_WHITELISTED_IPS", "read"],
@@ -560,7 +573,7 @@ export const buildApiKeyProviderRequest = (
       return {
         method: "GET",
         path: queryPath(
-          `/v2/company/${encodeURIComponent(requiredString(input, "companyId"))}/${resource}`,
+          `/v2/company/${encodeURIComponent(requiredIdentifier(input, "companyId"))}/${resource}`,
           input,
           ["limit", "cursor", "status", "start", "end", "location_id"],
         ),
@@ -568,7 +581,7 @@ export const buildApiKeyProviderRequest = (
       };
     }
     case "7shifts:SEVENSHIFTS_CREATE_SHIFT": {
-      requiredString(input, "companyId");
+      requiredIdentifier(input, "companyId");
       const { companyId, ...body } = input;
       for (const key of ["location_id", "user_id", "start", "end"]) {
         if (body[key] === undefined || body[key] === null) {
@@ -578,6 +591,43 @@ export const buildApiKeyProviderRequest = (
       return {
         method: "POST",
         path: `/v2/company/${encodeURIComponent(String(companyId))}/shifts`,
+        body,
+        headers: { "x-api-version": "2026-01-01" },
+      };
+    }
+    case "7shifts:7SHIFTS_LIST_SHIFTS": {
+      const companyId = requiredIdentifier(input, "company_id");
+      return {
+        method: "GET",
+        path: queryPath(
+          `/v2/company/${encodeURIComponent(companyId)}/shifts`,
+          input,
+          [
+            "location_id",
+            "department_id",
+            "role_id",
+            "user_id",
+            "start",
+            "end",
+            "limit",
+            "cursor",
+            "status",
+          ],
+        ),
+        headers: { "x-api-version": "2026-01-01" },
+      };
+    }
+    case "7shifts:7SHIFTS_CREATE_DEPARTMENT": {
+      const companyId = requiredIdentifier(input, "company_id");
+      const { company_id: _companyId, ...body } = input;
+      requiredIdentifier(body, "location_id");
+      requiredString(body, "name");
+      if (typeof body.default !== "boolean") {
+        throw new ConnectorError("invalid_input");
+      }
+      return {
+        method: "POST",
+        path: `/v2/company/${encodeURIComponent(companyId)}/departments`,
         body,
         headers: { "x-api-version": "2026-01-01" },
       };
@@ -697,7 +747,7 @@ export const buildApiKeyProviderRequest = (
       return {
         method: "GET",
         path: queryPath(
-          `/api/projects/${encodeURIComponent(requiredString(input, "project_id"))}/insights/`,
+          `/api/projects/${encodeURIComponent(requiredIdentifier(input, "project_id"))}/insights/`,
           input,
           ["limit", "offset", "short_id", "search"],
         ),
@@ -706,7 +756,7 @@ export const buildApiKeyProviderRequest = (
       return {
         method: "GET",
         path: queryPath(
-          `/api/projects/${encodeURIComponent(requiredString(input, "project_id"))}/feature_flags/`,
+          `/api/projects/${encodeURIComponent(requiredIdentifier(input, "project_id"))}/feature_flags/`,
           input,
           ["limit", "offset", "search"],
         ),
@@ -776,7 +826,12 @@ export const buildApiKeyProviderRequest = (
     case "abuseipdb:ABUSEIPDB_REPORT_IP":
       requiredString(input, "ip");
       requiredString(input, "categories");
-      return { method: "POST", path: "/api/v2/report", body: input };
+      return {
+        method: "POST",
+        path: "/api/v2/report",
+        body: input,
+        bodyEncoding: "form",
+      };
 
     case "snowflake:SNOWFLAKE_LIST_DATABASES":
       return {
@@ -920,7 +975,13 @@ export const validateDeferredApiKeyProviderCatalog = (): string[] => {
       problems.push(`${provider.connectorId} has no actions`);
     }
     for (const action of actionNames) {
-      if (!/^[A-Z][A-Z0-9_]*$/u.test(action)) {
+      if (
+        !/^[A-Z][A-Z0-9_]*$/u.test(action) &&
+        !(
+          provider.connectorId === "7shifts" &&
+          /^7SHIFTS_[A-Z0-9_]+$/u.test(action)
+        )
+      ) {
         problems.push(`${provider.connectorId} has unsafe action ${action}`);
       }
     }

@@ -2,6 +2,7 @@ const SAFE_PUBLIC_CONNECTOR_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
 const SAFE_TOOLKIT_SLUG = /^_?[a-z0-9][a-z0-9_-]{0,127}$/u;
 const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
 const SAFE_44API_ACTION_NAME = /^44API_[A-Z0-9_]{1,122}$/u;
+const SAFE_7SHIFTS_ACTION_NAME = /^7SHIFTS_[A-Z0-9_]{1,120}$/u;
 
 const PUBLIC_CONNECTOR_ID_ALIASES = new Map([
   ["people_data_labs", "peopledatalabs"],
@@ -65,8 +66,9 @@ export const normalizeComposioConnectorIdentity = (idValue, toolkitValue) => {
 export const isSafeComposioActionName = (idValue, actionName) => {
   if (typeof actionName !== "string" || actionName.length > 128) return false;
   if (SAFE_ACTION_NAME.test(actionName)) return true;
+  const connectorId = canonicalizePublicConnectorId(idValue);
   return (
-    canonicalizePublicConnectorId(idValue) === "44api" &&
-    SAFE_44API_ACTION_NAME.test(actionName)
+    (connectorId === "44api" && SAFE_44API_ACTION_NAME.test(actionName)) ||
+    (connectorId === "7shifts" && SAFE_7SHIFTS_ACTION_NAME.test(actionName))
   );
 };

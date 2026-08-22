@@ -69,6 +69,7 @@ import {
   IPC_SOCIAL_CONSUME_PENDING_INVITE,
   IPC_AUTH_DELETE_USER,
   IPC_AUTH_GET_CONVEX_TOKEN,
+  IPC_AUTH_CHANGED,
   IPC_AUTH_GET_SESSION,
   IPC_AUTH_RUNTIME_REFRESH_COMPLETE,
   IPC_AUTH_RUNTIME_REFRESH_REQUESTED,
@@ -1033,6 +1034,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       requestId: string;
       source: "heartbeat" | "subscription" | "register";
     }>(IPC_AUTH_RUNTIME_REFRESH_REQUESTED),
+    // P2: runtime AuthOwner state changed — renderers clear their token
+    // cache and re-pull instead of scheduling refreshes themselves.
+    onAuthChanged: onIpc<{
+      authenticated: boolean;
+      hasConnectedAccount: boolean;
+      reason: "import" | "refresh" | "signed-out";
+    }>(IPC_AUTH_CHANGED),
     quitForRestart: () =>
       ipcRenderer.invoke(IPC_APP_QUIT_FOR_RESTART) as Promise<{ ok: boolean }>,
     openFullDiskAccess: () => ipcRenderer.send(IPC_SYSTEM_OPEN_FDA),

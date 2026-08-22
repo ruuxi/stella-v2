@@ -84,6 +84,15 @@ export class AuthService {
   private hostAuthTokenMintPromise: Promise<string | null> | null = null;
   private runtimeAuthDualWriteTimer: ReturnType<typeof setTimeout> | null =
     null;
+  /**
+   * Single-writer / distribution mode latch (auth-inversion P2). Decided once
+   * per boot at worker attach — "runtime" when the worker's AuthOwner
+   * accepted the session import, "legacy" when the worker predates the auth
+   * RPCs or runs with STELLA_DISABLE_RUNTIME_AUTH_OWNER=1. The latch never
+   * flips mid-session so the desktop and worker can't interleave
+   * cookie-mutating requests within one boot.
+   */
+  private runtimeAuthMode: "unknown" | "runtime" | "legacy" = "unknown";
 
   /**
    * Better Auth client core with the desktop's safeStorage-backed store and
@@ -229,16 +238,39 @@ export class AuthService {
   async syncRuntimeAuthStore(): Promise<void> {
     const runner = this.options.runnerTarget.getRunner();
     if (!runner?.importAuthSession) {
+      if (this.runtimeAuthMode === "unknown") {
+        this.runtimeAuthMode = "legacy";
+      }
       return;
     }
     try {
       await runner.importAuthSession(this.getRuntimeSessionExport());
+      if (this.runtimeAuthMode === "unknown") {
+        this.runtimeAuthMode = "runtime";
+      }
     } catch (error) {
+      if (this.runtimeAuthMode === "unknown") {
+        // Version skew (old worker without the RPC) or a disabled AuthOwner:
+        // stay in legacy desktop-owned mode for this whole boot.
+        this.runtimeAuthMode = "legacy";
+      }
       console.debug(
         "[auth] Runtime auth-store sync skipped:",
         (error as Error).message,
       );
     }
+  }
+
+  isRuntimeAuthOwnerActive(): boolean {
+    return this.runtimeAuthMode === "runtime";
+  }
+
+  /** Mirror the AuthOwner's connected-account derivation from the session blob. */
+  private deriveHasConnectedAccount(): boolean {
+    const session = this.authCore.readPersistedSession() as {
+      user?: { isAnonymous?: unknown };
+    } | null;
+    return Boolean(session?.user) && session?.user?.isAnonymous !== true;
   }
 
   /**
@@ -260,6 +292,21 @@ export class AuthService {
   // ---------------------------------------------------------------------
 
   async getBetterAuthSession(): Promise<unknown | null> {
+    // P2: the runtime AuthOwner is the live session reader; the desktop copy
+    // is a legacy fallback for skewed/disabled workers and restart windows.
+    if (this.isRuntimeAuthOwnerActive()) {
+      const runner = this.options.runnerTarget.getRunner();
+      if (runner?.getRuntimeAuthSession) {
+        try {
+          return await runner.getRuntimeAuthSession();
+        } catch (error) {
+          console.debug(
+            "[auth] Runtime session read failed; using legacy store:",
+            (error as Error).message,
+          );
+        }
+      }
+    }
     return await this.authCore.getSession();
   }
 
@@ -295,7 +342,53 @@ export class AuthService {
     return this.authCore.applySessionCookie(sessionCookie);
   }
 
+  /**
+   * P2: pull the Convex JWT from the runtime AuthOwner (single refresh
+   * scheduler lives in the worker), keeping the last-known token as a proxy
+   * cache for worker-restart windows. Falls back to the legacy cookie mint
+   * for skewed/disabled workers.
+   */
+  private async getConvexTokenFromRuntime(options?: {
+    forceRefresh?: boolean;
+  }): Promise<string | null> {
+    if (!this.isRuntimeAuthOwnerActive()) {
+      return null;
+    }
+    const runner = this.options.runnerTarget.getRunner();
+    if (!runner?.getRuntimeConvexToken) {
+      return null;
+    }
+    try {
+      const result = await runner.getRuntimeConvexToken(options);
+      const token = result?.token?.trim() || null;
+      if (token) {
+        this.hostAuthToken = token;
+        this.hostAuthAuthenticated = true;
+        this.hostHasConnectedAccount = result.hasConnectedAccount;
+      }
+      return token;
+    } catch (error) {
+      console.debug(
+        "[auth] Runtime token pull failed; using legacy mint:",
+        (error as Error).message,
+      );
+      return null;
+    }
+  }
+
   async getConvexAuthToken() {
+    const fromRuntime = await this.getConvexTokenFromRuntime();
+    if (fromRuntime) {
+      return fromRuntime;
+    }
+    if (this.isRuntimeAuthOwnerActive()) {
+      // Worker briefly down or mint failed: serve the last-known JWT proxy
+      // cache before falling back to a legacy cookie mint.
+      const cached = this.hostAuthToken?.trim() || null;
+      if (cached && this.isHostAuthTokenFresh(cached)) {
+        return cached;
+      }
+    }
     return await this.authCore.mintConvexToken();
   }
 
@@ -544,10 +637,11 @@ export class AuthService {
   }
 
   /**
-   * Mint a fresh Convex JWT directly from the main process using the stored
-   * Better Auth session cookie. Single-flight so concurrent callers (bridge
-   * auth sync, tunnel token fetch, runtime refresh fallback) share one
-   * network round-trip.
+   * LEGACY path: mint a fresh Convex JWT directly from the main process using
+   * the stored Better Auth session cookie. Used when the runtime AuthOwner is
+   * unavailable (version skew, disabled owner, worker restart windows).
+   * Single-flight so concurrent callers (bridge auth sync, tunnel token
+   * fetch, runtime refresh fallback) share one network round-trip.
    */
   private async mintHostAuthToken(): Promise<string | null> {
     if (this.hostAuthTokenMintPromise) {
@@ -555,7 +649,7 @@ export class AuthService {
     }
     this.hostAuthTokenMintPromise = (async () => {
       try {
-        const fresh = await this.getConvexAuthToken();
+        const fresh = await this.authCore.mintConvexToken();
         if (fresh && fresh !== this.hostAuthToken) {
           this.hostAuthToken = fresh;
           this.options.runnerTarget.getRunner()?.setAuthToken(fresh);
@@ -591,6 +685,12 @@ export class AuthService {
     if (cached && this.isHostAuthTokenFresh(cached)) {
       return cached;
     }
+    // P2: pull from the runtime AuthOwner first (call sites unchanged —
+    // mobile bridge, tunnel, native integrations all land here).
+    const fromRuntime = await this.getConvexTokenFromRuntime();
+    if (fromRuntime) {
+      return fromRuntime;
+    }
     if (!this.getAuthCookieHeader()) {
       return cached;
     }
@@ -598,6 +698,23 @@ export class AuthService {
     // Fall back to the stale cached token when minting fails so a transient
     // network blip doesn't read as "signed out" and tear down bridge access.
     return fresh?.trim() || cached;
+  }
+
+  /**
+   * P2: answer the worker's legacy HOST_RUNTIME_AUTH_REFRESH fallback
+   * directly from the main process (the renderer no longer runs a token
+   * scheduler to bounce through). Only skewed/disabled workers hit this.
+   */
+  async answerRuntimeAuthRefresh(
+    _source: RuntimeAuthRefreshSource,
+  ): Promise<HostRuntimeAuthRefreshResult> {
+    await this.refreshHostAuthTokenIfStale();
+    const token = this.hostAuthToken?.trim() || null;
+    return {
+      authenticated: Boolean(token),
+      token,
+      hasConnectedAccount: token ? this.deriveHasConnectedAccount() : false,
+    };
   }
 
   getBetterAuthIssuerUrlForStore(): string | null {

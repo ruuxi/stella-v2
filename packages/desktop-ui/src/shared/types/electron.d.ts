@@ -684,6 +684,13 @@ export type ElectronSystemApi = {
       source: "heartbeat" | "subscription" | "register";
     }) => void,
   ) => () => void;
+  onAuthChanged: (
+    callback: (data: {
+      authenticated: boolean;
+      hasConnectedAccount: boolean;
+      reason: "import" | "refresh" | "signed-out";
+    }) => void,
+  ) => () => void;
   quitForRestart: () => Promise<{ ok: boolean }>;
   openFullDiskAccess: () => void;
   getPermissionStatus: () => Promise<{

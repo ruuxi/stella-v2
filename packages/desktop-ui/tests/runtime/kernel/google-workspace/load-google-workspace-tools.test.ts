@@ -4,6 +4,10 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadGoogleWorkspaceTools } from "@stella/runtime/kernel/google-workspace/load-google-workspace-tools";
+import {
+  GOOGLE_WORKSPACE_TOOL_ALLOWLIST,
+  toGoogleWorkspaceToolRegistrationName,
+} from "@stella/runtime/kernel/google-workspace/tool-allowlist";
 import { saveConnectorTokenPayload } from "@stella/runtime/kernel/connectors/oauth";
 import {
   installTestSafeStorage,
@@ -31,6 +35,39 @@ describe("loadGoogleWorkspaceTools", () => {
       expect("result" in tz).toBe(true);
       expect(String((tz as { result?: unknown }).result)).toContain("timeZone");
 
+      await disconnect();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("registers every allowlisted tool (metadata + handler wired) including Sheets and Tasks", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "stella-gw-"));
+    try {
+      const { tools, disconnect } = await loadGoogleWorkspaceTools({
+        stellaAppDir: dir,
+      });
+      const registered = new Set(tools.map((tool) => tool.name));
+      for (const toolName of GOOGLE_WORKSPACE_TOOL_ALLOWLIST) {
+        expect(registered.has(toGoogleWorkspaceToolRegistrationName(toolName))).toBe(
+          true,
+        );
+      }
+      for (const name of [
+        "sheets_create",
+        "sheets_updateValues",
+        "sheets_getValues",
+        "sheets_appendValues",
+        "sheets_addSheet",
+        "sheets_getSpreadsheet",
+        "tasks_listTaskLists",
+        "tasks_list",
+        "tasks_create",
+        "tasks_update",
+        "tasks_complete",
+      ]) {
+        expect(registered.has(name)).toBe(true);
+      }
       await disconnect();
     } finally {
       await rm(dir, { recursive: true, force: true });

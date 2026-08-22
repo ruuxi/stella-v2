@@ -29,6 +29,8 @@ import type { DocsService } from "./DocsService.js";
 import type { CalendarService } from "./CalendarService.js";
 import type { GmailService } from "./GmailService.js";
 import type { PeopleService } from "./PeopleService.js";
+import type { SheetsService } from "./SheetsService.js";
+import type { TasksService } from "./TasksService.js";
 // TimeService is googleapis-free, so it stays an eager value import.
 import { TimeService } from "./TimeService.js";
 import { formatGoogleWorkspaceCallToolResult } from "./format-google-workspace-result.js";
@@ -52,6 +54,8 @@ function buildHandlers(
   calendar: CalendarService,
   gmail: GmailService,
   people: PeopleService,
+  sheets: SheetsService,
+  tasks: TasksService,
   time: TimeService,
 ): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
   return {
@@ -178,6 +182,24 @@ function buildHandlers(
     "time.getCurrentTime": () => time.getCurrentTime(),
     "time.getTimeZone": () => time.getTimeZone(),
     "people.getMe": () => people.getMe(),
+    "sheets.create": (args) =>
+      sheets.create(args as { title: string; sheetTitles?: string[] }),
+    "sheets.getSpreadsheet": (args) =>
+      sheets.getSpreadsheet(args as { spreadsheetId: string }),
+    "sheets.getValues": (args) =>
+      sheets.getValues(args as { spreadsheetId: string; range: string }),
+    "sheets.updateValues": (args) =>
+      sheets.updateValues(args as never),
+    "sheets.appendValues": (args) =>
+      sheets.appendValues(args as never),
+    "sheets.addSheet": (args) =>
+      sheets.addSheet(args as { spreadsheetId: string; title: string }),
+    "tasks.listTaskLists": () => tasks.listTaskLists(),
+    "tasks.list": (args) => tasks.list(args as never),
+    "tasks.create": (args) => tasks.create(args as never),
+    "tasks.update": (args) => tasks.update(args as never),
+    "tasks.complete": (args) =>
+      tasks.complete(args as { tasklist?: string; taskId: string }),
   };
 }
 
@@ -204,6 +226,8 @@ export const loadGoogleWorkspaceTools = async (options: {
     { CalendarService },
     { GmailService },
     { PeopleService },
+    { SheetsService },
+    { TasksService },
   ] = await Promise.all([
     import("./AuthManager.js"),
     import("./DriveService.js"),
@@ -211,6 +235,8 @@ export const loadGoogleWorkspaceTools = async (options: {
     import("./CalendarService.js"),
     import("./GmailService.js"),
     import("./PeopleService.js"),
+    import("./SheetsService.js"),
+    import("./TasksService.js"),
   ]);
 
   const authManager = new AuthManager(SCOPES);
@@ -219,6 +245,8 @@ export const loadGoogleWorkspaceTools = async (options: {
   const calendar = new CalendarService(authManager);
   const gmail = new GmailService(authManager);
   const people = new PeopleService(authManager);
+  const sheets = new SheetsService(authManager);
+  const tasks = new TasksService(authManager);
   const time = new TimeService();
   const handlers = buildHandlers(
     authManager,
@@ -227,6 +255,8 @@ export const loadGoogleWorkspaceTools = async (options: {
     calendar,
     gmail,
     people,
+    sheets,
+    tasks,
     time,
   );
 

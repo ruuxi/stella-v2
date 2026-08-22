@@ -41,7 +41,20 @@ export const GOOGLE_WORKSPACE_TOOL_ALLOWLIST = [
   "gmail.sendDraft",
   "gmail.listLabels",
   "gmail.createLabel",
-  // Time helpers
+  "gmail.createLabel",
+  // Sheets (write-capable; no destructive batch ops in v1)
+  "sheets.create",
+  "sheets.getSpreadsheet",
+  "sheets.getValues",
+  "sheets.updateValues",
+  "sheets.appendValues",
+  "sheets.addSheet",
+  // Tasks (no delete in v1)
+  "tasks.listTaskLists",
+  "tasks.list",
+  "tasks.create",
+  "tasks.update",
+  "tasks.complete",
   "time.getCurrentDate",
   "time.getCurrentTime",
   "time.getTimeZone",

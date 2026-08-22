@@ -49,13 +49,52 @@ afterEach(async () => {
 describe("native integration execution policy", () => {
   it("enumerates only shipped Google Workspace entries as production-ready local implementations", () => {
     const catalog = buildNativeConnectorCatalog();
-    for (const id of ["gmail", "googlecalendar", "googledocs", "googledrive"]) {
+    for (const id of [
+      "gmail",
+      "googlecalendar",
+      "googledocs",
+      "googledrive",
+      "googlesheets",
+      "googletasks",
+    ]) {
       const entry = catalog.find((candidate) => candidate.id === id);
       expect(entry).toMatchObject({
         provider: "google-workspace",
         localExecution: "production-ready",
       });
       expect(getNativeConnectorTools(entry!).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("ships the one-tap Google Workspace bundle under the googlesuper id exposing every tool", () => {
+    const catalog = buildNativeConnectorCatalog();
+    const bundle = catalog.find((candidate) => candidate.id === "googlesuper");
+    expect(bundle).toMatchObject({
+      id: "googlesuper",
+      name: "Google Workspace",
+      provider: "google-workspace",
+      localExecution: "production-ready",
+      connectable: true,
+    });
+    // User-visible text must not carry the legacy "Google Super" name.
+    expect(bundle?.name).not.toContain("Super");
+    expect(bundle?.description ?? "").not.toContain("Super");
+    // The bundle exposes the full allowlist, not a single service prefix.
+    expect(getNativeConnectorTools(bundle!).length).toBe(
+      getNativeConnectorCatalogActions(bundle!).length,
+    );
+    expect(getNativeConnectorTools(bundle!).length).toBeGreaterThan(
+      getNativeConnectorTools(
+        catalog.find((candidate) => candidate.id === "gmail")!,
+      ).length,
+    );
+  });
+
+  it("keeps all user-visible Google Workspace catalog text free of the legacy bundle name", () => {
+    for (const entry of buildNativeConnectorCatalog()) {
+      if (entry.provider !== "google-workspace") continue;
+      expect(entry.name).not.toContain("Super");
+      expect(entry.description ?? "").not.toContain("Super");
     }
   });
 

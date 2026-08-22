@@ -195,6 +195,7 @@ describe("working orchestrator surface", () => {
         "spawn_agent",
         "send_input",
         "pause_agent",
+        "agent_status",
       ]),
     );
   });
@@ -219,6 +220,7 @@ describe("working orchestrator surface", () => {
         "spawn_agent",
         "send_input",
         "pause_agent",
+        "agent_status",
       ]),
     );
     expect(orchestrated?.toolsAllowlist).not.toEqual(
@@ -301,9 +303,19 @@ describe("working orchestrator surface", () => {
       "spawn_agent",
       "send_input",
       "pause_agent",
+      "agent_status",
     ]) {
       expect(orchestrator.has(toolName), toolName).toBe(true);
     }
+
+    // A top-level (root-spawned) General agent is in orchestrator mode: it
+    // owns subagents, so it gets the orchestration tools including the
+    // read-only agent_status.
+    const topLevelGeneral = advertised(AGENT_IDS.GENERAL);
+    expect(topLevelGeneral.has("spawn_agent")).toBe(true);
+    expect(topLevelGeneral.has("send_input")).toBe(true);
+    expect(topLevelGeneral.has("pause_agent")).toBe(true);
+    expect(topLevelGeneral.has("agent_status")).toBe(true);
 
     const childGeneral = advertised(AGENT_IDS.GENERAL, true);
     expect(childGeneral.has("exec_command")).toBe(true);
@@ -312,6 +324,7 @@ describe("working orchestrator surface", () => {
     expect(childGeneral.has("spawn_agent")).toBe(false);
     expect(childGeneral.has("send_input")).toBe(false);
     expect(childGeneral.has("pause_agent")).toBe(false);
+    expect(childGeneral.has("agent_status")).toBe(false);
   });
 
   it("keeps demoted connector tools out of the working orchestrator's direct list but direct for the coordinator", async () => {

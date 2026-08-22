@@ -19,7 +19,11 @@ import type {
   LocalHeartbeatConfigRecord,
   LocalHeartbeatUpsertInput,
 } from "@stella/contracts/scheduling";
-import type { RuntimeThreadRecord } from "../runtime-threads.js";
+import type {
+  RuntimeThreadLiveState,
+  RuntimeThreadRecord,
+} from "../runtime-threads.js";
+import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { RecallLookupResult } from "../agent-runtime/recall-run-cache.js";
 
 export type ToolContext = {
@@ -202,7 +206,43 @@ export type AgentToolSnapshot = {
   }>;
 };
 
+/** One durable thread-store row surfaced to the `agent_status` projection. */
+export type AgentThreadStatusMessage = {
+  timestamp: number;
+  role: string;
+  content: string;
+  payload?: PersistedRuntimeThreadPayload;
+};
+
+/**
+ * Raw, read-only view of one agent thread backing the `agent_status` tool.
+ * Produced entirely from existing durable reads (`runtime_agents` +
+ * `loadThreadMessages`); building it never messages, resumes, or otherwise
+ * steers the target thread.
+ */
+export type AgentThreadStatusRead = {
+  /** Live execution state from the same signal as `other_threads`. */
+  status: RuntimeThreadLiveState;
+  /** Roster-style label, e.g. "active" or "paused (last run errored)". */
+  statusLabel: string;
+  /** `runtime_agents.status` detail (running / completed / error / ...). */
+  agentStatus?: TaskLifecycleStatus | string;
+  description?: string;
+  /** External engine the thread runs on (e.g. "codex_cli"); absent = default. */
+  engine?: string;
+  /** When the agent record was last written (turn start / terminal). */
+  lastActiveAt?: number;
+  messages: AgentThreadStatusMessage[];
+};
+
 export type AgentToolApi = {
+  /**
+   * Read-only snapshot backing `agent_status`. Implementations must not
+   * deliver input to, resume, or cancel the thread. `null` = unknown thread.
+   */
+  readAgentThreadStatus?: (
+    threadId: string,
+  ) => Promise<AgentThreadStatusRead | null>;
   createAgent: (request: AgentToolRequest) => Promise<{
     threadId: string;
     activeThreads?: RuntimeThreadRecord[];

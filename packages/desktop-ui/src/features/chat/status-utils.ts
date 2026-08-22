@@ -106,6 +106,14 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   ],
   spawn_agent: AGENT_WORK_VARIATIONS,
   send_input: AGENT_WORK_VARIATIONS,
+  agent_status: [
+    "Checking on it",
+    "Seeing how it's going",
+    "Peeking at progress",
+    "Checking in",
+    "Taking a look",
+    "Getting a status read",
+  ],
   pause_agent: [
     "Pausing",
     "Holding up",

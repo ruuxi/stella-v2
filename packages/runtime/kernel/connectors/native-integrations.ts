@@ -299,8 +299,8 @@ const getNativeConnectorCatalog = (): NativeConnectorCatalogEntry[] => {
 };
 
 /**
- * Bundled catalog with optional server entries overlaid (server wins by
- * id; new server entries are appended). The overlay deliberately does
+ * Bundled catalog with optional server entries overlaid (server wins unless
+ * the bundled entry has a production-ready local executor). The overlay does
  * NOT replace the bundled catalog: locally-owned entries (Google
  * Workspace, recovered OAuth providers) must stay resolvable even when
  * the backend catalog only carries its Composio set — otherwise Gmail
@@ -316,6 +316,7 @@ export const buildNativeConnectorCatalog = (
   }
   const byId = new Map(base.map((entry) => [entry.id, entry]));
   for (const entry of serverCatalog) {
+    if (byId.get(entry.id)?.localExecution === "production-ready") continue;
     byId.set(entry.id, entry);
   }
   return [...byId.values()];

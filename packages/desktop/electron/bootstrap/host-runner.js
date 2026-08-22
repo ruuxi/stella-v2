@@ -349,6 +349,11 @@ export const initializeStellaHostRunner = async (context) => {
     context.state.officePreviewBridgeStop = null;
     await lifecycle.getRunner()?.stop();
     lifecycle.setRunner(createStellaHostRunner({
+        ...(context.config.useDevServer
+            ? {
+                workerEntryPath: path.join(stellaAppDir, "packages", "desktop", "dist-electron", "runtime", "worker", "entry.js"),
+            }
+            : {}),
         initializeParams: {
             clientName: "stella-electron-host",
             clientVersion: app.getVersion(),

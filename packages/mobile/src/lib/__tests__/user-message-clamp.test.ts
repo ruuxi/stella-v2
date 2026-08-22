@@ -3,12 +3,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   USER_MESSAGE_COLLAPSE_LINES,
+  USER_MESSAGE_MEASURE_LINES,
   USER_MESSAGE_MOBILE_FONT_SIZE_PX,
   USER_MESSAGE_MOBILE_LINE_HEIGHT,
   collapsedUserMessageMaxHeight,
   isUserMessageTruncatable,
   shouldRemeasureUserMessageWidth,
   shouldShowUserMessageToggle,
+  userMessageNumberOfLines,
 } from "../user-message-clamp";
 
 const chatPane = readFileSync(
@@ -19,8 +21,53 @@ const chatPane = readFileSync(
 describe("mobile user message collapse contract", () => {
   test("clamps long user messages to four rendered lines", () => {
     expect(USER_MESSAGE_COLLAPSE_LINES).toBe(4);
-    expect(chatPane).toContain("numberOfLines={clamp ? USER_MESSAGE_COLLAPSE_LINES : undefined}");
+    expect(chatPane).toContain("numberOfLines={userMessageNumberOfLines({");
     expect(/USER_MESSAGE_COLLAPSE_LINES\s*=\s*[68]/.test(chatPane)).toBe(false);
+  });
+
+  test("never paints a long message unclamped — measures at collapse + 1", () => {
+    expect(USER_MESSAGE_MEASURE_LINES).toBe(USER_MESSAGE_COLLAPSE_LINES + 1);
+    // The measuring pass renders at the measure cap, not unclamped, so a
+    // >4-line send never inflates the row (and the post-send scroll anchor)
+    // with a full-height first paint.
+    expect(
+      userMessageNumberOfLines({
+        expanded: false,
+        measuring: true,
+        truncatable: false,
+      }),
+    ).toBe(USER_MESSAGE_MEASURE_LINES);
+    expect(
+      userMessageNumberOfLines({
+        expanded: false,
+        measuring: false,
+        truncatable: true,
+      }),
+    ).toBe(USER_MESSAGE_COLLAPSE_LINES);
+    expect(
+      userMessageNumberOfLines({
+        expanded: false,
+        measuring: false,
+        truncatable: false,
+      }),
+    ).toBeUndefined();
+    expect(
+      userMessageNumberOfLines({
+        expanded: true,
+        measuring: false,
+        truncatable: true,
+      }),
+    ).toBeUndefined();
+    // An expanded remeasure (width change) must lay out the full text.
+    expect(
+      userMessageNumberOfLines({
+        expanded: true,
+        measuring: true,
+        truncatable: true,
+      }),
+    ).toBeUndefined();
+    // A five-line measurement is still distinguishable as overflow.
+    expect(isUserMessageTruncatable(USER_MESSAGE_MEASURE_LINES)).toBe(true);
   });
 
   test("keeps the mobile type contract that four lines map to 17px at 1.52", () => {

@@ -95,7 +95,7 @@ import { useChatSearch } from "../lib/chat-search";
 import { resolveComposerExpanded } from "../lib/composer-model-layout";
 import {
   consumeResponseSpacerHeight,
-  resolvePostSendTarget,
+  resolvePostSendPlacement,
   resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
 } from "../lib/chat-response-spacer";
@@ -111,9 +111,9 @@ import {
 } from "../lib/read-aloud";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import {
-  USER_MESSAGE_COLLAPSE_LINES,
   isUserMessageTruncatable,
   shouldRemeasureUserMessageWidth,
+  userMessageNumberOfLines,
 } from "../lib/user-message-clamp";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -227,6 +227,13 @@ const FOLLOW_MIN_STEP_PX = 0.5;
  * over on the same loop instead of fighting.
  */
 const FOLLOW_GENTLE_LERP_FACTOR = 0.12;
+/**
+ * How long after a send the latest user row's layout changes may re-run the
+ * post-send placement. Covers the four-line clamp collapsing a long message a
+ * few frames after the anchor was first computed, without letting much later
+ * layout churn (e.g. a "Show more" tap) yank the scroll position around.
+ */
+const POST_SEND_REANCHOR_WINDOW_MS = 1500;
 
 const EDGE_FADE = 48;
 const MESSAGE_LIST_GAP = 20;
@@ -322,8 +329,6 @@ function useChatScroll(
   onClearResponseSpacer: () => void,
 ) {
   const listRef = useRef<LegendListRef>(null);
-  const listTrailingSlackRef = useRef(listTrailingSlackPx);
-  listTrailingSlackRef.current = listTrailingSlackPx;
   const responseSpacerHeightRef = useRef(responseSpacerHeightPx);
   responseSpacerHeightRef.current = responseSpacerHeightPx;
   const [awayFromBottom, setAwayFromBottom] = useState(false);
@@ -342,6 +347,19 @@ function useChatScroll(
   const latestUserLayoutRef = useRef<{ id: string; height: number } | null>(
     null,
   );
+  /**
+   * Live post-send anchor. Placement re-runs from the latest user row's own
+   * `onLayout` until its height settles (the four-line clamp can collapse a
+   * tall row a few frames after the first paint), so the committed scroll
+   * target always matches the row's final height instead of a pre-clamp one.
+   */
+  const pendingSendAnchorRef = useRef<{
+    userMessageId: string;
+    trailingSlackPx: number;
+    placedRowHeightPx: number | null;
+    staleAtMs: number;
+  } | null>(null);
+  const placeLatestTurnRafRef = useRef(0);
   const trailingMessageIdRef = useRef(trailingMessageId);
   trailingMessageIdRef.current = trailingMessageId;
   /** Content height before the next assistant-driven layout pass. */
@@ -382,6 +400,9 @@ function useChatScroll(
       stopFollowLoop();
       if (manualScrollSettleTimerRef.current) {
         clearTimeout(manualScrollSettleTimerRef.current);
+      }
+      if (placeLatestTurnRafRef.current) {
+        cancelAnimationFrame(placeLatestTurnRafRef.current);
       }
     },
     [stopFollowLoop],
@@ -468,6 +489,7 @@ function useChatScroll(
   }, [stopFollowLoop]);
 
   const releaseFollow = useCallback(() => {
+    pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = true;
     followArmedRef.current = false;
     stopFollowLoop();
@@ -478,6 +500,9 @@ function useChatScroll(
   const onScrollBeginDrag = useCallback(() => {
     isDraggingRef.current = true;
     manualScrollActiveRef.current = true;
+    // The user owns the scroll now — a late post-send re-anchor must not
+    // fight the gesture.
+    pendingSendAnchorRef.current = null;
     if (manualScrollSettleTimerRef.current) {
       clearTimeout(manualScrollSettleTimerRef.current);
       manualScrollSettleTimerRef.current = null;
@@ -504,16 +529,6 @@ function useChatScroll(
   const prepareAssistantLayoutFollow = useCallback(() => {
     assistantLayoutBaselineRef.current = contentHeightRef.current;
   }, []);
-
-  const onLatestUserLayout = useCallback(
-    (messageId: string, event: LayoutChangeEvent) => {
-      latestUserLayoutRef.current = {
-        id: messageId,
-        height: event.nativeEvent.layout.height,
-      };
-    },
-    [],
-  );
 
   // Drive the list to `offset` directly (no native animation) — the spring owns
   // the motion, so each frame just commits the integrated position. We treat the
@@ -725,6 +740,7 @@ function useChatScroll(
   );
 
   const scrollToBottom = useCallback(() => {
+    pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = false;
     onClearResponseSpacer();
     resetAssistantAutoScroll();
@@ -747,52 +763,99 @@ function useChatScroll(
   }, []);
 
   /**
-   * After send, place the newest user row above the viewport-derived response
-   * spacer. The same gentle loop owns this motion and streaming follow, so the
-   * two movements blend if reply text arrives before placement settles.
+   * Place the newest user row above the pending post-send anchor's trailing
+   * slack (response spacer + reserved bottom inset). The same gentle loop owns
+   * this motion and streaming follow, so the two movements blend if reply text
+   * arrives before placement settles.
    */
+  const placeLatestTurn = useCallback(() => {
+    const pending = pendingSendAnchorRef.current;
+    if (!pending) return;
+    const metrics = metricsRef.current;
+    const contentHeight = contentHeightRef.current;
+    const maxOffset = Math.max(0, contentHeight - metrics.layoutHeight);
+    const measurement = latestUserLayoutRef.current;
+    const isInitialPlacement = pending.placedRowHeightPx === null;
+
+    // If the optimistic row is no longer the list tail (for example, an
+    // assistant placeholder landed immediately after it), settling forward
+    // once is safer than using another row's height and framing the wrong
+    // turn — and later row-height changes must not re-anchor either.
+    if (trailingMessageIdRef.current !== pending.userMessageId) {
+      pendingSendAnchorRef.current = null;
+      if (isInitialPlacement) setFollowTarget(maxOffset, true);
+      return;
+    }
+
+    // The row hasn't reported its layout yet — `onLatestUserLayout` schedules
+    // placement again as soon as (and whenever) its height commits.
+    if (measurement?.id !== pending.userMessageId) return;
+
+    pending.placedRowHeightPx = measurement.height;
+    const target = resolvePostSendPlacement({
+      contentHeightPx: contentHeight,
+      viewportHeightPx: metrics.layoutHeight,
+      trailingSlackPx: pending.trailingSlackPx,
+      rowHeightPx: measurement.height,
+    });
+
+    // Gentle one-shot ease-out on the shared spring loop. If the reply starts
+    // streaming mid-nudge, its (non-gentle) target update takes over the same
+    // loop — the two motions blend instead of fighting separate animations.
+    setFollowTarget(target, true);
+  }, [setFollowTarget]);
+
+  /** Coalesced two-frame delay so placement reads post-layout list metrics. */
+  const schedulePlaceLatestTurn = useCallback(() => {
+    if (placeLatestTurnRafRef.current) {
+      cancelAnimationFrame(placeLatestTurnRafRef.current);
+    }
+    placeLatestTurnRafRef.current = requestAnimationFrame(() => {
+      placeLatestTurnRafRef.current = requestAnimationFrame(() => {
+        placeLatestTurnRafRef.current = 0;
+        placeLatestTurn();
+      });
+    });
+  }, [placeLatestTurn]);
+
+  const onLatestUserLayout = useCallback(
+    (messageId: string, event: LayoutChangeEvent) => {
+      const height = event.nativeEvent.layout.height;
+      latestUserLayoutRef.current = { id: messageId, height };
+      const pending = pendingSendAnchorRef.current;
+      if (!pending || pending.userMessageId !== messageId) return;
+      if (Date.now() > pending.staleAtMs) return;
+      // First layout after a send, or a post-anchor height change (the
+      // four-line clamp collapsing a long message) — (re)place against the
+      // settled height so the committed target never outlives the geometry
+      // it was computed from.
+      if (
+        pending.placedRowHeightPx === null ||
+        Math.abs(pending.placedRowHeightPx - height) > 1
+      ) {
+        schedulePlaceLatestTurn();
+      }
+    },
+    [schedulePlaceLatestTurn],
+  );
+
   const nudgeAfterSend = useCallback(
-    (userMessageId: string, responseSpacerHeightPx: number) => {
-      latestUserLayoutRef.current = null;
-      listTrailingSlackRef.current = responseSpacerHeightPx;
+    (userMessageId: string, trailingSlackPx: number) => {
+      pendingSendAnchorRef.current = {
+        userMessageId,
+        trailingSlackPx,
+        placedRowHeightPx: null,
+        staleAtMs: Date.now() + POST_SEND_REANCHOR_WINDOW_MS,
+      };
       followRearmBlockedRef.current = false;
       followArmedRef.current = true;
       stopFollowLoop();
-
-      const placeLatestTurn = () => {
-        const metrics = metricsRef.current;
-        const height = contentHeightRef.current;
-        const maxOffset = Math.max(0, height - metrics.layoutHeight);
-        const measurement = latestUserLayoutRef.current;
-
-        // If the optimistic row is no longer the list tail (for example, an
-        // assistant placeholder landed immediately after it), settling forward
-        // is safer than using another row's height and framing the wrong turn.
-        let target = maxOffset;
-        if (
-          trailingMessageIdRef.current === userMessageId &&
-          measurement?.id === userMessageId
-        ) {
-          const responseSpacerHeightPx = listTrailingSlackRef.current;
-          const rowBottom = Math.max(0, height - responseSpacerHeightPx);
-          const rowTop = Math.max(0, rowBottom - measurement.height);
-          target = resolvePostSendTarget({
-            rowTop,
-            rowBottom,
-            viewportHeight: metrics.layoutHeight,
-            responseSpacerHeightPx,
-          });
-        }
-
-        // Gentle one-shot ease-out on the shared spring loop. If the reply starts
-        // streaming mid-nudge, its (non-gentle) target update takes over the same
-        // loop — the two motions blend instead of fighting separate animations.
-        setFollowTarget(target, true);
-      };
-
-      requestAnimationFrame(() => requestAnimationFrame(placeLatestTurn));
+      // The row may already be mounted and measured (a keyboard-deferred
+      // nudge runs well after the optimistic append), in which case no new
+      // `onLayout` will arrive — so kick off the first placement from here.
+      schedulePlaceLatestTurn();
     },
-    [setFollowTarget, stopFollowLoop],
+    [schedulePlaceLatestTurn, stopFollowLoop],
   );
 
   return {
@@ -1022,8 +1085,12 @@ const REWIND_CONFIRM_TIMEOUT_MS = 3000;
  * toggle then reveals or re-hides the overflow.
  *
  * Overflow is detected from the native text-layout line boxes (not a
- * character count). The first pass measures unclamped; later width changes
- * remasure so wrap at a new bubble width can grow or shrink the toggle.
+ * character count). The measuring pass renders at the collapse cap plus one
+ * line — enough to distinguish "fits" from "overflows" without ever painting
+ * a long message at full height (a full-height first paint used to inflate
+ * the row after send and skew the post-send scroll anchor). Later width
+ * changes remeasure so wrap at a new bubble width can grow or shrink the
+ * toggle.
  */
 function UserMessageText({
   text,
@@ -1035,14 +1102,14 @@ function UserMessageText({
   const { width: windowWidth } = useWindowDimensions();
   const [expanded, setExpanded] = useState(false);
   const [totalLines, setTotalLines] = useState<number | null>(null);
-  const [forceUnclamped, setForceUnclamped] = useState(true);
+  const [measuring, setMeasuring] = useState(true);
   const measuredWidthRef = useRef<number | null>(null);
 
   // Reset when the underlying message text changes (row reuse across items).
   useEffect(() => {
     setExpanded(false);
     setTotalLines(null);
-    setForceUnclamped(true);
+    setMeasuring(true);
     measuredWidthRef.current = null;
   }, [text]);
 
@@ -1052,7 +1119,7 @@ function UserMessageText({
   useEffect(() => {
     if (shouldRemeasureUserMessageWidth(measuredWidthRef.current, windowWidth)) {
       measuredWidthRef.current = windowWidth;
-      setForceUnclamped(true);
+      setMeasuring(true);
       return;
     }
     if (measuredWidthRef.current === null) {
@@ -1063,17 +1130,15 @@ function UserMessageText({
   const handleTextLayout = useCallback(
     (event: NativeSyntheticEvent<TextLayoutEventData>) => {
       const lines = event.nativeEvent.lines.length;
-      if (forceUnclamped || totalLines === null) {
+      if (measuring || totalLines === null) {
         setTotalLines(lines);
-        setForceUnclamped(false);
+        setMeasuring(false);
       }
     },
-    [forceUnclamped, totalLines],
+    [measuring, totalLines],
   );
 
   const isTruncatable = isUserMessageTruncatable(totalLines);
-  const clamp =
-    !forceUnclamped && totalLines !== null && isTruncatable && !expanded;
 
   return (
     <>
@@ -1081,7 +1146,11 @@ function UserMessageText({
         style={styles.userText}
         maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
         onTextLayout={handleTextLayout}
-        numberOfLines={clamp ? USER_MESSAGE_COLLAPSE_LINES : undefined}
+        numberOfLines={userMessageNumberOfLines({
+          expanded,
+          measuring,
+          truncatable: isTruncatable,
+        })}
       >
         {text}
       </Text>
@@ -3000,9 +3069,12 @@ export function ChatPane({
   );
   const listTrailingSlackPx = listBottomInsetPx + chatTailHeightPx;
   const responseSpacerHeightPx = Math.max(0, chatTailHeightPx - CHAT_TAIL_GAP);
-  const activateResponseSpacer = useCallback(() => {
-    setChatTailHeightPx(chatTailTargetHeightPx);
-  }, [chatTailTargetHeightPx]);
+  // Accepts an explicit chat-tail height: a send activates the spacer against
+  // the keyboard-DOWN inset (it dismisses the keyboard in the same breath), so
+  // it cannot use this render's keyboard-inflated `chatTailTargetHeightPx`.
+  const activateResponseSpacer = useCallback((chatTailPx: number) => {
+    setChatTailHeightPx(Math.max(CHAT_TAIL_GAP, chatTailPx));
+  }, []);
   const clearResponseSpacer = useCallback(() => {
     setChatTailHeightPx(CHAT_TAIL_GAP);
   }, []);
@@ -3143,6 +3215,40 @@ export function ChatPane({
     scroll.listRef.current?.scrollToEnd({ animated: true });
   }, [keyboardExtra, scroll.listRef]);
 
+  // A send anchors its scroll target against the keyboard-DOWN inset (submit
+  // dismisses the keyboard), but the list's padding only sheds `keyboardExtra`
+  // once the dismissal commits. Nudging immediately would measure content that
+  // still carries the keyboard-inflated padding and land ~keyboard-height past
+  // the tail — the same race `pinTailForKeyboardRef` above solves for the
+  // keyboard rising. Record the intent here and fire the nudge on the render
+  // where the inset has actually collapsed.
+  const pendingSendNudgeRef = useRef<{
+    userMessageId: string;
+    trailingSlackPx: number;
+  } | null>(null);
+  useEffect(() => {
+    const pending = pendingSendNudgeRef.current;
+    if (!pending || keyboardExtra > 0) return;
+    pendingSendNudgeRef.current = null;
+    scroll.nudgeAfterSend(pending.userMessageId, pending.trailingSlackPx);
+  }, [keyboardExtra, scroll.nudgeAfterSend]);
+
+  // LegendList's `dataChange` auto-pin fires on the optimistic send append —
+  // `streaming` is often still false at that render (always over the computer
+  // bridge) — and scrolls to the literal content end, full response spacer
+  // included, fighting the custom post-send nudge that owns the tail. Suppress
+  // it while a send-nudge is in flight; streaming or the next appended row
+  // (the reply) releases it.
+  const [sendPinSuppressForId, setSendPinSuppressForId] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    if (!sendPinSuppressForId) return;
+    if (streaming || lastMessage?.id !== sendPinSuppressForId) {
+      setSendPinSuppressForId(null);
+    }
+  }, [sendPinSuppressForId, streaming, lastMessage?.id]);
+
   useEffect(() => {
     const grew = visibleMessages.length > prevLenRef.current;
     prevLenRef.current = visibleMessages.length;
@@ -3231,11 +3337,29 @@ export function ChatPane({
     const shouldPlaceLatestTurn = scroll.getShouldPlaceLatestTurn();
     const submitted = onSubmit();
     if (submitted && shouldPlaceLatestTurn) {
-      activateResponseSpacer();
-      scroll.nudgeAfterSend(
-        submitted.userMessageId,
-        responseSpacerTargetHeightPx,
-      );
+      // Spacer and scroll anchor are computed against the keyboard-DOWN
+      // inset: `Keyboard.dismiss()` below collapses `keyboardExtra` a few
+      // frames from now, and a target derived from the inflated inset would
+      // be left ~keyboard-height past the content end once the padding
+      // shrinks.
+      const restingBottomInsetPx = EDGE_FADE + footerHeight;
+      const restingSpacerTargetPx = resolveResponseSpacerHeight({
+        viewportHeight: listViewportHeight,
+        bottomInsetPx: restingBottomInsetPx,
+        minimumHeightPx: restingBottomInsetPx + CHAT_TAIL_GAP,
+      });
+      activateResponseSpacer(restingSpacerTargetPx - restingBottomInsetPx);
+      setSendPinSuppressForId(submitted.userMessageId);
+      if (keyboardExtra > 0) {
+        // Defer the nudge until the keyboard-driven inset change commits
+        // (the `pendingSendNudgeRef` effect above).
+        pendingSendNudgeRef.current = {
+          userMessageId: submitted.userMessageId,
+          trailingSlackPx: restingSpacerTargetPx,
+        };
+      } else {
+        scroll.nudgeAfterSend(submitted.userMessageId, restingSpacerTargetPx);
+      }
     } else if (submitted) {
       clearResponseSpacer();
       scroll.releaseFollow();
@@ -3245,7 +3369,9 @@ export function ChatPane({
     onSubmit,
     activateResponseSpacer,
     clearResponseSpacer,
-    responseSpacerTargetHeightPx,
+    footerHeight,
+    keyboardExtra,
+    listViewportHeight,
     scroll.getShouldPlaceLatestTurn,
     scroll.nudgeAfterSend,
     scroll.releaseFollow,
@@ -4192,25 +4318,18 @@ export function ChatPane({
               // target and snapping the user back down whenever they try to
               // scroll up. The custom follow loop already keeps the tail in view
               // during streaming, so disable the built-in pin for that window.
-              maintainScrollAtEnd={
-                streaming
-                  ? {
-                      animated: false,
-                      on: {
-                        dataChange: false,
-                        itemLayout: false,
-                        layout: false,
-                      },
-                    }
-                  : {
-                      animated: false,
-                      on: {
-                        dataChange: true,
-                        itemLayout: false,
-                        layout: false,
-                      },
-                    }
-              }
+              // The pin is also suppressed while a post-send nudge is in flight
+              // (`sendPinSuppressForId`): the optimistic append is a data change
+              // too, and pinning to the literal end — full response spacer
+              // included — would fight the nudge that owns the tail.
+              maintainScrollAtEnd={{
+                animated: false,
+                on: {
+                  dataChange: !streaming && sendPinSuppressForId === null,
+                  itemLayout: false,
+                  layout: false,
+                },
+              }}
             />
             {/* Top taper — fades the list into the surface at the top edge so
                 messages scrolling under the top bar dissolve instead of

@@ -92,3 +92,33 @@ export function resolvePostSendTarget({
     ? rowBottom - viewportHeight + responseSpacerHeightPx
     : rowTop;
 }
+
+/**
+ * Post-send anchor for the latest user row, derived from live list geometry.
+ * `trailingSlackPx` is everything below the row (response spacer + reserved
+ * bottom inset), so `contentHeightPx - trailingSlackPx` is the row's bottom.
+ *
+ * Recomputed whenever the row's measured height settles (e.g. the four-line
+ * user-message clamp collapsing a tall row after its first unclamped-ish
+ * paint), so the committed scroll target always matches the final geometry.
+ */
+export function resolvePostSendPlacement({
+  contentHeightPx,
+  viewportHeightPx,
+  trailingSlackPx,
+  rowHeightPx,
+}: {
+  contentHeightPx: number;
+  viewportHeightPx: number;
+  trailingSlackPx: number;
+  rowHeightPx: number;
+}) {
+  const rowBottom = Math.max(0, contentHeightPx - trailingSlackPx);
+  const rowTop = Math.max(0, rowBottom - rowHeightPx);
+  return resolvePostSendTarget({
+    rowTop,
+    rowBottom,
+    viewportHeight: viewportHeightPx,
+    responseSpacerHeightPx: trailingSlackPx,
+  });
+}

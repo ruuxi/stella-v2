@@ -44,6 +44,23 @@ const truncateOutput = (value: string): string => {
   return `${head}\n…[${dropped} bytes truncated]`
 }
 
+export const createScheduleScriptAuthEnv = (
+  auth:
+    | { baseUrl?: string | null; authToken?: string | null }
+    | null
+    | undefined,
+): Record<string, string> | null => {
+  const baseUrl = auth?.baseUrl?.trim() || null
+  const authToken = auth?.authToken?.trim() || null
+  if (!baseUrl || !authToken) return null
+  return {
+    STELLA_SITE_BASE_URL: baseUrl,
+    STELLA_SITE_AUTH_TOKEN: authToken,
+    STELLA_X_API_BASE_URL: baseUrl,
+    STELLA_X_API_AUTH_TOKEN: authToken,
+  }
+}
+
 /**
  * Run a schedule script via `bun run` with the contract documented in
  * `LocalCronPayload['script']`. Centralizes timeout, capture limits, and
@@ -52,7 +69,10 @@ const truncateOutput = (value: string): string => {
  */
 export const runScheduleScript = (
   scriptPath: string,
-  options?: { signal?: AbortSignal },
+  options?: {
+    signal?: AbortSignal
+    env?: Record<string, string>
+  },
 ): Promise<ScriptRunResult> =>
   new Promise((resolve) => {
     const startedAt = Date.now()
@@ -61,6 +81,7 @@ export const runScheduleScript = (
       cwd: path.dirname(scriptPath),
       env: {
         ...process.env,
+        ...(options?.env ?? {}),
         STELLA_SCHEDULE_SCRIPT_PATH: scriptPath,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

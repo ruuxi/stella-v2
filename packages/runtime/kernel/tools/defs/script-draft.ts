@@ -27,6 +27,7 @@ import path from "node:path";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { ensurePrivateDir, writePrivateFile } from "../../shared/private-fs.js";
 import {
+  createScheduleScriptAuthEnv,
   runScheduleScript,
   scheduleScriptsDir,
   SCRIPT_RUN_TIMEOUT_MS,
@@ -36,6 +37,7 @@ import type { ToolDefinition } from "../types.js";
 export type ScriptDraftToolOptions = {
   /** Stella home root (e.g. `~/.stella`). Required. */
   stellaDataDir: string;
+  getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
 };
 
 const formatResult = (params: {
@@ -92,7 +94,13 @@ export const createScriptDraftTool = (
     const scriptPath = path.join(dir, `${crypto.randomUUID()}.ts`);
     await writePrivateFile(scriptPath, code);
 
-    const runResult = await runScheduleScript(scriptPath);
+    const authEnv = createScheduleScriptAuthEnv(
+      options.getStellaSiteAuth?.() ?? null,
+    );
+    const runResult = await runScheduleScript(
+      scriptPath,
+      authEnv ? { env: authEnv } : undefined,
+    );
     return {
       result: formatResult({
         scriptPath,

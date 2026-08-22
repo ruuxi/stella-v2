@@ -8,6 +8,7 @@ import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
 import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
 import { getFileLogger } from "../observability/file-logger.js";
 import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
+import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
 import { getConvexErrorCode, isConvexDeviceKeyMismatchError, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
@@ -1629,6 +1630,10 @@ export class StellaRuntimeHost {
         const showNotificationHandler = this.options.hostHandlers.showNotification;
         const scheduler = new LocalSchedulerService({
             stellaDataDir: this.options.initializeParams.stellaDataDirPath,
+            getScriptAuthEnv: async () => {
+                const auth = await this.options.hostHandlers.getScheduleScriptAuth?.();
+                return createScheduleScriptAuthEnv(auth);
+            },
             runnerTarget: {
                 getRunner: () => ({
                     runAutomationTurn: async (payload) => await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, payload, {

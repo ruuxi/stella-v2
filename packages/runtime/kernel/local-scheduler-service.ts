@@ -62,6 +62,28 @@ type LocalSchedulerServiceOptions = {
   stellaDataDir: string
   runnerTarget: StellaHostRunnerTarget
   showNotification?: LocalSchedulerNotifier
+  getScriptAuthEnv?: () => Promise<Record<string, string> | null>
+}
+
+const SCRIPT_AUTH_ENV_TIMEOUT_MS = 5_000
+
+const resolveScriptAuthEnv = async (
+  getter: LocalSchedulerServiceOptions['getScriptAuthEnv'],
+): Promise<Record<string, string> | null> => {
+  if (!getter) return null
+  let timeout: NodeJS.Timeout | null = null
+  try {
+    return await Promise.race([
+      getter(),
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(() => resolve(null), SCRIPT_AUTH_ENV_TIMEOUT_MS)
+      }),
+    ])
+  } catch {
+    return null
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
 }
 
 type LocalSchedulerRunner = ReturnType<StellaHostRunnerTarget['getRunner']>
@@ -1237,9 +1259,13 @@ export class LocalSchedulerService {
   ): Promise<'done'> {
     if (active.payload.kind !== 'script') return 'done'
     const scriptPath = active.payload.scriptPath
+    const authEnv = await resolveScriptAuthEnv(this.options.getScriptAuthEnv)
     let runResult
     try {
-      runResult = await runScheduleScript(scriptPath)
+      runResult = await runScheduleScript(
+        scriptPath,
+        authEnv ? { env: authEnv } : undefined,
+      )
     } catch (error) {
       runResult = {
         exitCode: -1,

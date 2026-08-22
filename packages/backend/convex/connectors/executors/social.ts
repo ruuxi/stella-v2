@@ -13,7 +13,8 @@ const stringInput = (
   ...keys: string[]
 ): string | undefined => {
   for (const key of keys) {
-    if (typeof input[key] === "string" && input[key]) return input[key] as string;
+    if (typeof input[key] === "string" && input[key])
+      return input[key] as string;
   }
   return undefined;
 };
@@ -35,7 +36,11 @@ const withQuery = (
   const url = new URL(path, "https://request.invalid");
   for (const key of keys) {
     const value = input[key];
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
       url.searchParams.set(key, String(value));
     }
   }
@@ -68,6 +73,39 @@ export const SOCIAL_ACTION_OPERATIONS: Readonly<
   linkedin: {
     LINKEDIN_GET_MY_INFO: "read",
     LINKEDIN_CREATE_LINKED_IN_POST: "write",
+  },
+};
+
+export const SOCIAL_ACTION_REQUIRED_SCOPES: Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+> = {
+  twitter: {
+    TWITTER_USER_LOOKUP_ME: ["tweet.read", "users.read"],
+    TWITTER_CREATION_OF_A_POST: ["tweet.read", "tweet.write", "users.read"],
+  },
+  youtube: {
+    YOUTUBE_LIST_USER_PLAYLISTS: [
+      "https://www.googleapis.com/auth/youtube.readonly",
+    ],
+    YOUTUBE_CREATE_PLAYLIST: [
+      "https://www.googleapis.com/auth/youtube.force-ssl",
+    ],
+  },
+  reddit: {
+    REDDIT_GET_ME_PREFS: ["identity", "read"],
+    REDDIT_CREATE_REDDIT_POST: ["submit"],
+  },
+  meta: {
+    FACEBOOK_LIST_MANAGED_PAGES: ["pages_show_list"],
+    FACEBOOK_CREATE_POST: ["pages_manage_posts"],
+    INSTAGRAM_GET_USER_INFO: ["instagram_basic"],
+    INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH: ["instagram_content_publish"],
+    METAADS_GET_AD_ACCOUNTS: ["ads_read"],
+    METAADS_UPDATE_CAMPAIGN: ["ads_management"],
+  },
+  linkedin: {
+    LINKEDIN_GET_MY_INFO: ["openid", "profile"],
+    LINKEDIN_CREATE_LINKED_IN_POST: ["w_member_social"],
   },
 };
 
@@ -109,7 +147,10 @@ export const buildSocialProviderRequest = (
       };
 
     case "reddit:REDDIT_GET_ME_PREFS":
-      return { method: "GET", path: withQuery("/api/v1/me/prefs", input, ["fields"]) };
+      return {
+        method: "GET",
+        path: withQuery("/api/v1/me/prefs", input, ["fields"]),
+      };
     case "reddit:REDDIT_CREATE_REDDIT_POST":
       return {
         method: "POST",
@@ -125,7 +166,9 @@ export const buildSocialProviderRequest = (
             (typeof input.url === "string" ? "link" : "self"),
           ...(typeof input.text === "string" ? { text: input.text } : {}),
           ...(typeof input.url === "string" ? { url: input.url } : {}),
-          ...(typeof input.flair_id === "string" ? { flair_id: input.flair_id } : {}),
+          ...(typeof input.flair_id === "string"
+            ? { flair_id: input.flair_id }
+            : {}),
         },
       };
 
@@ -134,7 +177,11 @@ export const buildSocialProviderRequest = (
     case "meta:FACEBOOK_CREATE_POST": {
       const pageId = requiredString(input, "page_id", "pageId");
       const { page_id: _pageId, pageId: _pageIdCamel, ...body } = input;
-      return { method: "POST", path: `/${encodeURIComponent(pageId)}/feed`, body };
+      return {
+        method: "POST",
+        path: `/${encodeURIComponent(pageId)}/feed`,
+        body,
+      };
     }
     case "meta:INSTAGRAM_GET_USER_INFO": {
       const userId = requiredString(input, "ig_user_id", "igUserId", "user_id");
@@ -154,9 +201,23 @@ export const buildSocialProviderRequest = (
     case "meta:METAADS_GET_AD_ACCOUNTS":
       return { method: "GET", path: "/me/adaccounts" };
     case "meta:METAADS_UPDATE_CAMPAIGN": {
-      const campaignId = requiredString(input, "campaign_id", "campaignId", "id");
-      const { campaign_id: _campaignId, campaignId: _campaignIdCamel, id: _id, ...body } = input;
-      return { method: "POST", path: `/${encodeURIComponent(campaignId)}`, body };
+      const campaignId = requiredString(
+        input,
+        "campaign_id",
+        "campaignId",
+        "id",
+      );
+      const {
+        campaign_id: _campaignId,
+        campaignId: _campaignIdCamel,
+        id: _id,
+        ...body
+      } = input;
+      return {
+        method: "POST",
+        path: `/${encodeURIComponent(campaignId)}`,
+        body,
+      };
     }
 
     case "linkedin:LINKEDIN_GET_MY_INFO":

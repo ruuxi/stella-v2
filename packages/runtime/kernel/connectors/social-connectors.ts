@@ -3,9 +3,9 @@
  *
  * Scope: the in-scope providers of Stella's first-party connector program,
  * limited to the current Composio popularity pages 1-2 social entries —
- * Twitter/X, Instagram, YouTube, Reddit, Facebook, Meta Ads, and LinkedIn.
- * (WhatsApp is intentionally excluded: it is not in the current top 60 and is
- * handled by backend-owned communication services elsewhere.)
+ * Twitter/X, Instagram, YouTube, Reddit, Facebook, Meta Ads, LinkedIn, and
+ * 2Chat. 2Chat is API-key based rather than OAuth and remains metadata-only
+ * until the backend gains a user API-key credential flow.
  *
  * These adapters are deliberately NARROW. The shared first-party OAuth
  * execution core (see `native-oauth-provider-config.ts` /
@@ -23,7 +23,7 @@
  * execution route and writes are never dual-executed.
  *
  * IDs are the canonical catalog IDs (`twitter`, `instagram`, `youtube`,
- * `reddit`, `facebook`, `metaads`, `linkedin`) and must be preserved.
+ * `reddit`, `facebook`, `metaads`, `linkedin`, `2chat`) and must be preserved.
  */
 
 import {
@@ -362,6 +362,46 @@ const METAADS_ADAPTER: SocialConnectorAdapter = {
   ],
 };
 
+const TWOCHAT_ADAPTER: SocialConnectorAdapter = {
+  id: "2chat",
+  name: "2Chat",
+  category: "communication",
+  providerConfigId: "2chat",
+  readScopes: ["api_key"],
+  writeScopes: ["api_key"],
+  actions: [
+    {
+      name: "_2CHAT_LIST_CONTACTS",
+      title: "List contacts",
+      description: "List contacts in the connected 2Chat account.",
+      access: "read",
+      method: "GET",
+      path: "/open/contacts",
+      requiredScopes: ["api_key"],
+    },
+    {
+      name: "_2CHAT_CREATE_CONTACT",
+      title: "Create contact",
+      description: "Create a contact in the connected 2Chat account.",
+      access: "write",
+      method: "POST",
+      path: "/open/contacts",
+      requiredScopes: ["api_key"],
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["first_name", "contact_detail"],
+        properties: {
+          first_name: { type: "string" },
+          last_name: { type: "string" },
+          contact_detail: { type: "array", minItems: 1 },
+          profile_pic_url: { type: "string" },
+        },
+      },
+    },
+  ],
+};
+
 const SOCIAL_CONNECTOR_ADAPTERS: readonly SocialConnectorAdapter[] = [
   TWITTER_ADAPTER,
   INSTAGRAM_ADAPTER,
@@ -370,6 +410,7 @@ const SOCIAL_CONNECTOR_ADAPTERS: readonly SocialConnectorAdapter[] = [
   FACEBOOK_ADAPTER,
   METAADS_ADAPTER,
   LINKEDIN_ADAPTER,
+  TWOCHAT_ADAPTER,
 ];
 
 const SOCIAL_CONNECTOR_BY_ID = new Map(
@@ -411,8 +452,7 @@ const missingScopes = (
  * enforces, so the two routes can never both fire for one call.
  */
 export type SocialConnectorExecutionRoute =
-  | "composio-fallback"
-  | "native-first-party";
+  "composio-fallback" | "native-first-party";
 
 export type SocialConnectorActionStatus = {
   name: string;

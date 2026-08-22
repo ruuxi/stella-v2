@@ -28,6 +28,7 @@ import {
   executeFirstPartyAction,
   firstPartyActionBelongsToConnector,
   firstPartyActionOperation,
+  firstPartyActionRequiredScopes,
 } from "./executors/first_party";
 
 /**
@@ -87,7 +88,10 @@ export const getAccessTokenForAccount = internalAction({
     accessToken: v.string(),
     resourceOrigin: v.optional(v.string()),
   }),
-  handler: async (ctx, args): Promise<{ accessToken: string; resourceOrigin?: string }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ accessToken: string; resourceOrigin?: string }> => {
     const cred = await ctx.runQuery(
       internal.connectors.oauth.vault.getCredentialForRefresh,
       { accountId: args.accountId },
@@ -113,7 +117,10 @@ export const getAccessTokenForAccount = internalAction({
     if (
       accessTokenIsFresh(cred.accessTokenExpiresAt, manifest.refreshSkewMs, now)
     ) {
-      return { accessToken: tokenSet.accessToken, resourceOrigin: tokenSet.resourceOrigin };
+      return {
+        accessToken: tokenSet.accessToken,
+        resourceOrigin: tokenSet.resourceOrigin,
+      };
     }
     if (!tokenSet.refreshToken) {
       await ctx.runMutation(
@@ -356,10 +363,16 @@ export const runFirstPartyConnectorAction = internalAction({
         }
       }
 
-      const requiredScopes =
+      const connectorRequiredScopes =
         readiness.requiredScopeGroups.length > 0
           ? scopesForGroups(manifest, readiness.requiredScopeGroups)
           : [];
+      const requiredScopes = [
+        ...new Set([
+          ...connectorRequiredScopes,
+          ...firstPartyActionRequiredScopes(manifest.key, args.action),
+        ]),
+      ];
 
       const { accessToken, resourceOrigin } = await ctx.runAction(
         internal.connectors.execute.getAccessTokenForAccount,

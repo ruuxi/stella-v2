@@ -1107,6 +1107,7 @@ describe("21RISK fixed-origin OData contract", () => {
     const descriptor = getApiKeyProviderDescriptor("21risk")!;
     const prepared = buildAuthenticatedApiKeyRequest({
       descriptor,
+      action: "TWENTY_ONE_RISK_GET_REPORTS",
       apiKey: TWENTY_ONE_RISK_KEY,
       request: { method: "GET", path: "/odata/v5/reports?%24top=5" },
     });
@@ -1127,6 +1128,7 @@ describe("21RISK fixed-origin OData contract", () => {
       expect(() =>
         buildAuthenticatedApiKeyRequest({
           descriptor,
+          action: "TWENTY_ONE_RISK_GET_REPORTS",
           apiKey: TWENTY_ONE_RISK_KEY,
           request: { method: "GET", path },
         }),

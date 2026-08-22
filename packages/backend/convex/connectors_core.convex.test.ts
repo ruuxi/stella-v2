@@ -528,7 +528,10 @@ describe("Microsoft provider family", () => {
       ...IDENTITY,
       ...TEAMS,
     ]);
-    expect(scopesForGroups(manifest, ["excel"])).toEqual([...IDENTITY, ...EXCEL]);
+    expect(scopesForGroups(manifest, ["excel"])).toEqual([
+      ...IDENTITY,
+      ...EXCEL,
+    ]);
 
     // One consent screen requests the full deduped union for every member.
     const union = scopesForGroups(manifest, ["microsoft_all"]);
@@ -1060,6 +1063,14 @@ describe("deferred API-key provider request catalog", () => {
         "7shifts",
         "apollo",
         "ashby",
+        "firecrawl",
+        "tavily",
+        "exa",
+        "serpapi",
+        "perplexityai",
+        "posthog",
+        "ably",
+        "abuseipdb",
       ].sort(),
     );
     expect(new Set(ids).size).toBe(ids.length);
@@ -1100,6 +1111,31 @@ describe("deferred API-key provider request catalog", () => {
     expect(() =>
       buildApiKeyProviderRequest("0codekit", "ZEROCODEKIT_MERGE_PDF", {}),
     ).toThrow();
+    expect(
+      buildApiKeyProviderRequest("serpapi", "SERPAPI_NEWS_SEARCH", {
+        q: "coffee",
+      }),
+    ).toEqual({ method: "GET", path: "/search?engine=google_news&q=coffee" });
+    expect(
+      buildApiKeyProviderRequest("abuseipdb", "ABUSEIPDB_CHECK_IP", {
+        ipAddress: "8.8.8.8",
+        maxAgeInDays: 90,
+      }),
+    ).toEqual({
+      method: "GET",
+      path: "/api/v2/check?ipAddress=8.8.8.8&maxAgeInDays=90",
+    });
+    expect(
+      buildApiKeyProviderRequest("ably", "ABLY_GET_CHANNEL_HISTORY", {
+        channel: "my room",
+        limit: 10,
+      }),
+    ).toEqual({ method: "GET", path: "/channels/my%20room/messages?limit=10" });
+    expect(
+      buildApiKeyProviderRequest("firecrawl", "FIRECRAWL_CRAWL_GET", {
+        id: "job-1",
+      }),
+    ).toEqual({ method: "GET", path: "/v2/crawl/job-1" });
   });
 
   it("has a relative-path request builder for every catalog action", () => {
@@ -1159,6 +1195,36 @@ describe("deferred API-key provider request catalog", () => {
       ASHBY_CREATE_CANDIDATE: { name: "Ada Lovelace" },
       ASHBY_LIST_JOBS: {},
       ASHBY_CREATE_NOTE: { candidateId: "candidate", note: "Follow up" },
+      FIRECRAWL_SCRAPE_EXTRACT_DATA_LLM: { url: "https://example.com" },
+      FIRECRAWL_SEARCH: { query: "stella" },
+      FIRECRAWL_CRAWL: { url: "https://example.com" },
+      FIRECRAWL_CRAWL_GET: { id: "job-1" },
+      TAVILY_SEARCH: { query: "stella" },
+      TAVILY_EXTRACT: { urls: ["https://example.com"] },
+      TAVILY_MAP: { url: "https://example.com" },
+      TAVILY_CRAWL: { url: "https://example.com" },
+      EXA_SEARCH: { query: "stella" },
+      EXA_GET_CONTENTS_ACTION: { urls: ["https://example.com"] },
+      EXA_ANSWER: { query: "who is ada lovelace" },
+      SERPAPI_SEARCH: { q: "coffee" },
+      SERPAPI_NEWS_SEARCH: { q: "coffee" },
+      SERPAPI_BING_SEARCH: { q: "coffee" },
+      PERPLEXITYAI_SEARCH: { query: "stella" },
+      PERPLEXITYAI_CREATE_CHAT_COMPLETION: {
+        model: "sonar",
+        messages: [{ role: "user", content: "hi" }],
+      },
+      POSTHOG_LIST_PROJECTS: {},
+      POSTHOG_GET_INSIGHTS: { project_id: "1" },
+      POSTHOG_LIST_FEATURE_FLAGS: { project_id: "1" },
+      ABLY_GET_CHANNEL_HISTORY: { channel: "room" },
+      ABLY_LIST_CHANNELS: {},
+      ABLY_GET_STATS: {},
+      ABLY_PUBLISH_MESSAGE: { channel: "room", name: "greeting", data: "hi" },
+      ABUSEIPDB_CHECK_IP: { ipAddress: "8.8.8.8" },
+      ABUSEIPDB_GET_BLACKLIST: {},
+      ABUSEIPDB_CHECK_BLOCK: { network: "8.8.8.0/24" },
+      ABUSEIPDB_REPORT_IP: { ip: "8.8.8.8", categories: "18" },
     };
 
     for (const provider of DEFERRED_API_KEY_PROVIDERS) {

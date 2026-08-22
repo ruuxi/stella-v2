@@ -209,6 +209,105 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
     ]),
     activationBlockers: API_KEY_CORE_BLOCKERS,
   },
+  {
+    connectorId: "firecrawl",
+    providerKey: "firecrawl",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://api.firecrawl.dev",
+    actions: actions([
+      ["FIRECRAWL_SCRAPE_EXTRACT_DATA_LLM", "read"],
+      ["FIRECRAWL_SEARCH", "read"],
+      ["FIRECRAWL_CRAWL", "write"],
+      ["FIRECRAWL_CRAWL_GET", "read"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
+    connectorId: "tavily",
+    providerKey: "tavily",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://api.tavily.com",
+    actions: actions([
+      ["TAVILY_SEARCH", "read"],
+      ["TAVILY_EXTRACT", "read"],
+      ["TAVILY_MAP", "read"],
+      ["TAVILY_CRAWL", "write"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
+    connectorId: "exa",
+    providerKey: "exa",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://api.exa.ai",
+    actions: actions([
+      ["EXA_SEARCH", "read"],
+      ["EXA_GET_CONTENTS_ACTION", "read"],
+      ["EXA_ANSWER", "read"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
+    connectorId: "serpapi",
+    providerKey: "serpapi",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://serpapi.com",
+    actions: actions([
+      ["SERPAPI_SEARCH", "read"],
+      ["SERPAPI_NEWS_SEARCH", "read"],
+      ["SERPAPI_BING_SEARCH", "read"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
+    connectorId: "perplexityai",
+    providerKey: "perplexityai",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://api.perplexity.ai",
+    actions: actions([
+      ["PERPLEXITYAI_SEARCH", "read"],
+      ["PERPLEXITYAI_CREATE_CHAT_COMPLETION", "read"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
+    connectorId: "posthog",
+    providerKey: "posthog",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://us.posthog.com",
+    actions: actions([
+      ["POSTHOG_LIST_PROJECTS", "read"],
+      ["POSTHOG_GET_INSIGHTS", "read"],
+      ["POSTHOG_LIST_FEATURE_FLAGS", "read"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
+    connectorId: "ably",
+    providerKey: "ably",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://rest.ably.io",
+    actions: actions([
+      ["ABLY_GET_CHANNEL_HISTORY", "read"],
+      ["ABLY_LIST_CHANNELS", "read"],
+      ["ABLY_GET_STATS", "read"],
+      ["ABLY_PUBLISH_MESSAGE", "write"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
+    connectorId: "abuseipdb",
+    providerKey: "abuseipdb",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://api.abuseipdb.com",
+    actions: actions([
+      ["ABUSEIPDB_CHECK_IP", "read"],
+      ["ABUSEIPDB_GET_BLACKLIST", "read"],
+      ["ABUSEIPDB_CHECK_BLOCK", "read"],
+      ["ABUSEIPDB_REPORT_IP", "write"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
 ];
 
 export const buildApiKeyProviderRequest = (
@@ -403,6 +502,166 @@ export const buildApiKeyProviderRequest = (
       requiredString(input, "candidateId");
       requiredString(input, "note");
       return { method: "POST", path: "/candidate.createNote", body: input };
+
+    case "firecrawl:FIRECRAWL_SCRAPE_EXTRACT_DATA_LLM":
+      requiredString(input, "url");
+      return { method: "POST", path: "/v2/scrape", body: input };
+    case "firecrawl:FIRECRAWL_SEARCH":
+      requiredString(input, "query");
+      return { method: "POST", path: "/v2/search", body: input };
+    case "firecrawl:FIRECRAWL_CRAWL":
+      requiredString(input, "url");
+      return { method: "POST", path: "/v2/crawl", body: input };
+    case "firecrawl:FIRECRAWL_CRAWL_GET":
+      return {
+        method: "GET",
+        path: `/v2/crawl/${encodeURIComponent(requiredString(input, "id"))}`,
+      };
+
+    case "tavily:TAVILY_SEARCH":
+      requiredString(input, "query");
+      return { method: "POST", path: "/search", body: input };
+    case "tavily:TAVILY_EXTRACT":
+      return { method: "POST", path: "/extract", body: input };
+    case "tavily:TAVILY_MAP":
+      requiredString(input, "url");
+      return { method: "POST", path: "/map", body: input };
+    case "tavily:TAVILY_CRAWL":
+      requiredString(input, "url");
+      return { method: "POST", path: "/crawl", body: input };
+
+    case "exa:EXA_SEARCH":
+      requiredString(input, "query");
+      return { method: "POST", path: "/search", body: input };
+    case "exa:EXA_GET_CONTENTS_ACTION":
+      return { method: "POST", path: "/contents", body: input };
+    case "exa:EXA_ANSWER":
+      requiredString(input, "query");
+      return { method: "POST", path: "/answer", body: input };
+
+    case "serpapi:SERPAPI_SEARCH":
+    case "serpapi:SERPAPI_NEWS_SEARCH":
+    case "serpapi:SERPAPI_BING_SEARCH": {
+      requiredString(input, "q");
+      const engine =
+        action === "SERPAPI_NEWS_SEARCH"
+          ? "google_news"
+          : action === "SERPAPI_BING_SEARCH"
+            ? "bing"
+            : "google";
+      return {
+        method: "GET",
+        path: queryPath("/search", { ...input, engine }, [
+          "engine",
+          "q",
+          "location",
+          "google_domain",
+          "gl",
+          "hl",
+          "num",
+          "start",
+          "device",
+          "safe",
+        ]),
+      };
+    }
+
+    case "perplexityai:PERPLEXITYAI_SEARCH":
+      requiredString(input, "query");
+      return { method: "POST", path: "/search", body: input };
+    case "perplexityai:PERPLEXITYAI_CREATE_CHAT_COMPLETION":
+      if (!Array.isArray(input.messages) || input.messages.length === 0) {
+        throw new ConnectorError("invalid_input");
+      }
+      return { method: "POST", path: "/chat/completions", body: input };
+
+    case "posthog:POSTHOG_LIST_PROJECTS":
+      return { method: "GET", path: "/api/projects/" };
+    case "posthog:POSTHOG_GET_INSIGHTS":
+      return {
+        method: "GET",
+        path: queryPath(
+          `/api/projects/${encodeURIComponent(requiredString(input, "project_id"))}/insights/`,
+          input,
+          ["limit", "offset", "short_id", "search"],
+        ),
+      };
+    case "posthog:POSTHOG_LIST_FEATURE_FLAGS":
+      return {
+        method: "GET",
+        path: queryPath(
+          `/api/projects/${encodeURIComponent(requiredString(input, "project_id"))}/feature_flags/`,
+          input,
+          ["limit", "offset", "search"],
+        ),
+      };
+
+    case "ably:ABLY_GET_CHANNEL_HISTORY":
+      return {
+        method: "GET",
+        path: queryPath(
+          `/channels/${encodeURIComponent(requiredString(input, "channel"))}/messages`,
+          input,
+          ["start", "end", "direction", "limit"],
+        ),
+      };
+    case "ably:ABLY_LIST_CHANNELS":
+      return {
+        method: "GET",
+        path: queryPath("/channels", input, ["limit", "prefix", "by"]),
+      };
+    case "ably:ABLY_GET_STATS":
+      return {
+        method: "GET",
+        path: queryPath("/stats", input, [
+          "start",
+          "end",
+          "direction",
+          "limit",
+          "unit",
+        ]),
+      };
+    case "ably:ABLY_PUBLISH_MESSAGE": {
+      const channel = encodeURIComponent(requiredString(input, "channel"));
+      const { channel: _channel, ...body } = input;
+      return { method: "POST", path: `/channels/${channel}/messages`, body };
+    }
+
+    case "abuseipdb:ABUSEIPDB_CHECK_IP":
+      requiredString(input, "ipAddress");
+      return {
+        method: "GET",
+        path: queryPath("/api/v2/check", input, [
+          "ipAddress",
+          "maxAgeInDays",
+          "verbose",
+        ]),
+      };
+    case "abuseipdb:ABUSEIPDB_GET_BLACKLIST":
+      return {
+        method: "GET",
+        path: queryPath("/api/v2/blacklist", input, [
+          "confidenceMinimum",
+          "limit",
+          "onlyCountries",
+          "exceptCountries",
+          "ipVersion",
+        ]),
+      };
+    case "abuseipdb:ABUSEIPDB_CHECK_BLOCK":
+      requiredString(input, "network");
+      return {
+        method: "GET",
+        path: queryPath("/api/v2/check-block", input, [
+          "network",
+          "maxAgeInDays",
+        ]),
+      };
+    case "abuseipdb:ABUSEIPDB_REPORT_IP":
+      requiredString(input, "ip");
+      requiredString(input, "categories");
+      return { method: "POST", path: "/api/v2/report", body: input };
+
     default:
       return null;
   }

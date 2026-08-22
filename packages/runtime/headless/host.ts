@@ -13,6 +13,7 @@ import {
   resolveRuntimeStatePath,
   resolveStellaAppDir,
 } from "../kernel/home/stella-paths.js";
+import { createAuthOwner } from "../kernel/auth/auth-owner.js";
 
 /**
  * Headless host for the runtime kernel: everything a host must provide to
@@ -35,11 +36,18 @@ import {
  *     auth token is provided by the caller.
  *   - UI affordances (display updates, notifications, windows, connect
  *     cards, permission prompts)           -> no-ops / "unsupported"
- *   - auth refresh                          -> identity stays an input; we
- *     return whatever token the caller handed us and never mint tokens.
+ *   - auth refresh                          -> `--auth-token` override wins;
+ *     otherwise an AuthOwner over the shared runtime auth store mints the
+ *     user's real identity natively (auth-inversion P4).
  */
 export type HeadlessAuthInput = {
-  /** Convex auth token minted elsewhere (desktop session, CI secret, ...). */
+  /**
+   * Convex auth token override (CI secret, remote session, ...). When unset,
+   * the headless host attaches an AuthOwner to the shared runtime auth store
+   * (`{dataDir}/auth/session.json`) and mints the user's real identity
+   * natively (auth-inversion P4). Minting is a cookie-read, never a session
+   * rotation, so a concurrent desktop worker sharing the store stays safe.
+   */
   authToken?: string | null;
 };
 
@@ -82,6 +90,7 @@ export const createHeadlessHostHandlers = (
   auth: HeadlessAuthInput = {},
 ) => {
   const identity = createEphemeralDeviceIdentity();
+  let authOwner: ReturnType<typeof createAuthOwner> | null = null;
   const publicIdentity = () => ({
     deviceId: identity.deviceId,
     publicKey: identity.publicKey,
@@ -93,11 +102,31 @@ export const createHeadlessHostHandlers = (
       signature: signDeviceHeartbeat(identity, signedAtMs),
     }),
     requestRuntimeAuthRefresh: async () => {
-      const token = auth.authToken?.trim() || null;
+      // Explicit override (CI / remote token) always wins.
+      const override = auth.authToken?.trim() || null;
+      if (override) {
+        return {
+          authenticated: true,
+          token: override,
+          hasConnectedAccount: false,
+        };
+      }
+      // Native identity from the shared session store (auth-inversion P4).
+      // Lazy so hosts that never need Stella-managed auth pay nothing.
+      const owner = (authOwner ??= createAuthOwner({
+        stellaDataDir: paths.stellaDataDirPath,
+        // Site URL falls back to the stored cookie's JWT issuer inside
+        // auth-core when no env override is configured.
+        getBaseUrl: () =>
+          process.env.STELLA_CONVEX_SITE_URL?.trim() ||
+          process.env.STELLA_LLM_PROXY_URL?.trim() ||
+          null,
+      }));
+      const result = await owner.getConvexToken({ forceRefresh: true });
       return {
-        authenticated: Boolean(token),
-        token,
-        hasConnectedAccount: false,
+        authenticated: Boolean(result.token),
+        token: result.token,
+        hasConnectedAccount: result.hasConnectedAccount,
       };
     },
     // Credential presence (provider names) is plain metadata and drives

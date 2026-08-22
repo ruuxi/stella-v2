@@ -1685,6 +1685,33 @@ export class StellaRuntimeHost {
         const showNotificationHandler = this.options.hostHandlers.showNotification;
         const scheduler = new LocalSchedulerService({
             stellaDataDir: this.options.initializeParams.stellaDataDirPath,
+            // Auth-inversion P4: scheduled scripts get the user's identity at
+            // fire time. Pull a fresh JWT from the worker AuthOwner, falling
+            // back to the host's configured token (legacy mode / worker
+            // restart windows). Null (signed out / unconfigured) runs the
+            // script without auth env.
+            getScriptAuthEnv: async () => {
+                const baseUrl = this.configCache.convexSiteUrl?.trim() || null;
+                if (!baseUrl) {
+                    return null;
+                }
+                let token = null;
+                try {
+                    const result = await this.authGetConvexToken({});
+                    token = result?.token?.trim() || null;
+                }
+                catch {
+                    token = null;
+                }
+                token ||= this.getConfiguredHostAuthToken();
+                if (!token) {
+                    return null;
+                }
+                return {
+                    STELLA_SITE_BASE_URL: baseUrl,
+                    STELLA_SITE_AUTH_TOKEN: token,
+                };
+            },
             runnerTarget: {
                 getRunner: () => ({
                     runAutomationTurn: async (payload) => await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, payload, {

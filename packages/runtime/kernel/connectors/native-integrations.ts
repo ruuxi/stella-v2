@@ -19,6 +19,10 @@ import {
 } from "./native-oauth-provider-config.js";
 import { getOAuthProviderCatalog } from "./oauth-provider-catalog.js";
 import { clearConnectorDecline } from "./connect-preferences.js";
+import {
+  canonicalizeConnectorId,
+  compatibleConnectorIds,
+} from "./connector-identifiers.js";
 import { getConnectorStateRoot } from "./state.js";
 import type { ConnectorToolInfo } from "./types.js";
 import type { OAuthCatalogTool } from "./oauth-provider-catalog.js";
@@ -301,22 +305,26 @@ const getNativeConnectorCatalog = (): NativeConnectorCatalogEntry[] => {
 /**
  * Bundled catalog with optional server entries overlaid (server wins unless
  * the bundled entry has a production-ready local executor). The overlay does
- * NOT replace the bundled catalog: locally-owned entries (Google
- * Workspace, recovered OAuth providers) must stay resolvable even when
- * the backend catalog only carries its Composio set — otherwise Gmail
- * could be offered by discovery yet fail to resolve in the Store/connect
- * paths that pass the server catalog through.
+ * NOT replace the bundled catalog: locally-owned entries (Google Workspace,
+ * recovered OAuth providers) stay resolvable when the backend omits them.
  */
 export const buildNativeConnectorCatalog = (
   serverCatalog?: NativeConnectorCatalogOverride,
 ): NativeConnectorCatalogEntry[] => {
   const base = getNativeConnectorCatalog();
+  const normalizedBase = base.map((entry) => {
+    const id = canonicalizeConnectorId(entry.id);
+    return id === entry.id ? entry : { ...entry, id };
+  });
   if (serverCatalog === undefined || serverCatalog.length === 0) {
-    return [...base];
+    return normalizedBase;
   }
-  const byId = new Map(base.map((entry) => [entry.id, entry]));
-  for (const entry of serverCatalog) {
-    if (byId.get(entry.id)?.localExecution === "production-ready") continue;
+  const byId = new Map(normalizedBase.map((entry) => [entry.id, entry]));
+  for (const rawEntry of serverCatalog) {
+    const id = canonicalizeConnectorId(rawEntry.id);
+    const entry = id === rawEntry.id ? rawEntry : { ...rawEntry, id };
+    const bundled = byId.get(id);
+    if (bundled?.localExecution === "production-ready") continue;
     byId.set(entry.id, entry);
   }
   return [...byId.values()];
@@ -350,17 +358,46 @@ const writeState = async (
   await fs.writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
 };
 
+const getStoredConnectorState = (
+  state: NativeConnectorStateFile,
+  id: string,
+): NativeConnectorStateEntry | undefined => {
+  for (const compatibleId of compatibleConnectorIds(id)) {
+    const stored = state.integrations[compatibleId];
+    if (stored) return stored;
+  }
+  return undefined;
+};
+
+const removeLegacyConnectorState = (
+  state: NativeConnectorStateFile,
+  canonicalId: string,
+) => {
+  for (const compatibleId of compatibleConnectorIds(canonicalId)) {
+    if (compatibleId !== canonicalId) delete state.integrations[compatibleId];
+  }
+};
+
 export const getNativeConnectorCatalogEntry = (
   id: string,
   catalog: NativeConnectorCatalogOverride = getNativeConnectorCatalog(),
-) => catalog.find((entry) => entry.id === id);
+) => {
+  const canonicalId = canonicalizeConnectorId(id);
+  return catalog.find(
+    (entry) => canonicalizeConnectorId(entry.id) === canonicalId,
+  );
+};
 
 export const getNativeConnectorOAuthConfig = (
   entry: NativeConnectorCatalogEntry,
 ) => entry.oauthConfig ?? getNativeOAuthProviderConfig(entry.id);
 
-const getOAuthCatalogProvider = (id: string) =>
-  getOAuthProviderCatalog().find((entry) => entry.id === id);
+const getOAuthCatalogProvider = (id: string) => {
+  const canonicalId = canonicalizeConnectorId(id);
+  return getOAuthProviderCatalog().find(
+    (entry) => canonicalizeConnectorId(entry.id) === canonicalId,
+  );
+};
 
 /**
  * Compact one-line parameter summary for an action's input schema
@@ -675,7 +712,7 @@ export const listNativeConnectors = async (
 ) => {
   const state = await readState(stellaAppDir);
   return buildNativeConnectorCatalog(catalogOverride).map((entry) => {
-    const stored = state.integrations[entry.id];
+    const stored = getStoredConnectorState(state, entry.id);
     const setup = getNativeConnectorOAuthSetup(entry, options);
     return {
       ...entry,
@@ -698,7 +735,7 @@ export const isNativeConnectorEnabled = async (
   id: string,
 ) => {
   const state = await readState(stellaAppDir);
-  return state.integrations[id]?.enabled === true;
+  return getStoredConnectorState(state, id)?.enabled === true;
 };
 
 /**
@@ -857,17 +894,29 @@ export const enableNativeConnector = async (
   const skillPath = await writeNativeConnectorSkill(stellaAppDir, entry);
   const state = await readState(stellaAppDir);
   const now = Date.now();
-  state.integrations[id] = {
+  const canonicalId = entry.id;
+  const stored = getStoredConnectorState(state, canonicalId);
+  state.integrations[canonicalId] = {
     enabled: true,
-    enabledAt: state.integrations[id]?.enabledAt ?? now,
+    enabledAt: stored?.enabledAt ?? now,
     updatedAt: now,
     source,
     skillPath,
   };
+  removeLegacyConnectorState(state, canonicalId);
   await writeState(stellaAppDir, state);
+  await Promise.all(
+    compatibleConnectorIds(canonicalId)
+      .filter((compatibleId) => compatibleId !== canonicalId)
+      .map((compatibleId) => removeGeneratedSkill(stellaAppDir, compatibleId)),
+  );
   // Enabling — from the Store, the CLI, or an accepted in-chat connect
   // card — supersedes any earlier "don't re-offer this in chat" decline.
-  await clearConnectorDecline(stellaAppDir, id).catch(() => undefined);
+  await Promise.all(
+    compatibleConnectorIds(canonicalId).map((compatibleId) =>
+      clearConnectorDecline(stellaAppDir, compatibleId).catch(() => undefined),
+    ),
+  );
   // `toolCount` mirrors what `listNativeConnectors` returns so the
   // website can drop the updated entry straight into its local state
   // without re-listing. Omitting it would briefly render "undefined
@@ -898,13 +947,19 @@ export const disableNativeConnector = async (
   if (!entry) throw new Error(`Unknown native integration: ${id}`);
   const state = await readState(stellaAppDir);
   const now = Date.now();
-  state.integrations[id] = {
-    ...(state.integrations[id] ?? { updatedAt: now }),
+  const canonicalId = entry.id;
+  state.integrations[canonicalId] = {
+    ...(getStoredConnectorState(state, canonicalId) ?? { updatedAt: now }),
     enabled: false,
     updatedAt: now,
   };
+  removeLegacyConnectorState(state, canonicalId);
   await writeState(stellaAppDir, state);
-  await removeGeneratedSkill(stellaAppDir, id);
+  await Promise.all(
+    compatibleConnectorIds(canonicalId).map((compatibleId) =>
+      removeGeneratedSkill(stellaAppDir, compatibleId),
+    ),
+  );
   return {
     ...entry,
     ...getNativeConnectorOAuthSetup(entry, options),

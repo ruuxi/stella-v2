@@ -58,7 +58,7 @@ export const TWENTY_ONE_RISK_ADAPTER: ConnectorAdapter = {
   docsUrl: "https://21risk.com/docs",
   actions: [
     {
-      name: "_21RISK_GET_REPORTS",
+      name: "TWENTY_ONE_RISK_GET_REPORTS",
       title: "Get Reports",
       description:
         "Retrieve audit reports (draft, published, scheduled) via OData.",
@@ -67,7 +67,7 @@ export const TWENTY_ONE_RISK_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => odata("Reports", input),
     },
     {
-      name: "_21RISK_GET_COMPLIANCE",
+      name: "TWENTY_ONE_RISK_GET_COMPLIANCE",
       title: "Get Compliance",
       description:
         "Retrieve compliance data for sites, categories, or questions via OData.",
@@ -76,7 +76,7 @@ export const TWENTY_ONE_RISK_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => odata("Compliance", input),
     },
     {
-      name: "_21RISK_GET_ORGANIZATIONS",
+      name: "TWENTY_ONE_RISK_GET_ORGANIZATIONS",
       title: "Get Organizations",
       description: "Retrieve organizations via OData.",
       kind: "read",
@@ -84,7 +84,7 @@ export const TWENTY_ONE_RISK_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => odata("Organizations", input),
     },
     {
-      name: "_21RISK_GET_PROPERTIES",
+      name: "TWENTY_ONE_RISK_GET_PROPERTIES",
       title: "Get Properties",
       description:
         "Retrieve site properties, including COPE information, via OData.",
@@ -93,7 +93,7 @@ export const TWENTY_ONE_RISK_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => odata("Properties", input),
     },
     {
-      name: "_21RISK_GET_RISK_MODELS",
+      name: "TWENTY_ONE_RISK_GET_RISK_MODELS",
       title: "Get Risk Models",
       description: "Retrieve risk models used for audits and compliance.",
       kind: "read",

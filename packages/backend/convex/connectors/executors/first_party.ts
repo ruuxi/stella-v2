@@ -17,6 +17,24 @@ import {
   CRM_ACTION_REQUIRED_SCOPES,
   CRM_PROVIDER_CONNECTOR_ACTIONS,
 } from "./crm";
+import {
+  buildDesignFinanceProviderRequest,
+  DESIGN_FINANCE_ACTION_OPERATIONS,
+  DESIGN_FINANCE_ACTION_REQUIRED_SCOPES,
+  DESIGN_FINANCE_PROVIDER_CONNECTOR_ACTIONS,
+} from "./design_finance";
+import {
+  buildDeveloperDataProviderRequest,
+  DEVELOPER_DATA_ACTION_OPERATIONS,
+  DEVELOPER_DATA_ACTION_REQUIRED_SCOPES,
+  DEVELOPER_DATA_PROVIDER_CONNECTOR_ACTIONS,
+} from "./developer_data";
+import {
+  buildProductivityProviderRequest,
+  PRODUCTIVITY_ACTION_OPERATIONS,
+  PRODUCTIVITY_ACTION_REQUIRED_SCOPES,
+  PRODUCTIVITY_PROVIDER_CONNECTOR_ACTIONS,
+} from "./productivity";
 
 /**
  * First-party executor. Provider-family modules register a handler here that
@@ -89,6 +107,28 @@ const readBoundedJson = async (
   }
 };
 
+const formBody = (body: Record<string, unknown>): string => {
+  const params = new URLSearchParams();
+  const append = (key: string, value: unknown): void => {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      for (const entry of value) append(`${key}[]`, entry);
+      return;
+    }
+    if (typeof value === "object") {
+      for (const [childKey, childValue] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        append(`${key}[${childKey}]`, childValue);
+      }
+      return;
+    }
+    params.append(key, String(value));
+  };
+  for (const [key, value] of Object.entries(body)) append(key, value);
+  return params.toString();
+};
+
 /**
  * Fixed-origin authenticated fetch. `path` is appended to the manifest's
  * `apiOrigin`; a handler can never target an arbitrary host. Provider errors are
@@ -96,7 +136,7 @@ const readBoundedJson = async (
  */
 export const providerFetchJson = async (args: {
   ctx: FirstPartyExecuteContext;
-  method: "GET" | "POST" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   body?: unknown;
   bodyEncoding?: "json" | "form";
@@ -138,14 +178,7 @@ export const providerFetchJson = async (args: {
       args.body === undefined
         ? undefined
         : args.bodyEncoding === "form"
-          ? new URLSearchParams(
-              Object.entries(args.body as Record<string, unknown>).flatMap(
-                ([key, value]) =>
-                  value === undefined || value === null
-                    ? []
-                    : [[key, String(value)]],
-              ),
-            ).toString()
+          ? formBody(args.body as Record<string, unknown>)
           : JSON.stringify(args.body);
     const response = await fetch(url.toString(), {
       method,
@@ -223,6 +256,36 @@ const crmHandler: ProviderExecuteHandler = async (ctx) => {
   return providerFetchJson({ ctx, ...request });
 };
 
+const designFinanceHandler: ProviderExecuteHandler = async (ctx) => {
+  const request = buildDesignFinanceProviderRequest(
+    ctx.manifest.key,
+    ctx.action,
+    ctx.input,
+  );
+  if (!request) throw new ConnectorError("action_not_found");
+  return providerFetchJson({ ctx, ...request });
+};
+
+const developerDataHandler: ProviderExecuteHandler = async (ctx) => {
+  const request = buildDeveloperDataProviderRequest(
+    ctx.manifest.key,
+    ctx.action,
+    ctx.input,
+  );
+  if (!request) throw new ConnectorError("action_not_found");
+  return providerFetchJson({ ctx, ...request });
+};
+
+const productivityHandler: ProviderExecuteHandler = async (ctx) => {
+  const request = buildProductivityProviderRequest(
+    ctx.manifest.key,
+    ctx.action,
+    ctx.input,
+  );
+  if (!request) throw new ConnectorError("action_not_found");
+  return providerFetchJson({ ctx, ...request });
+};
+
 const PROVIDER_HANDLERS: Readonly<Record<string, ProviderExecuteHandler>> = {
   [MOCK_PROVIDER_KEY]: mockHandler,
   microsoft: createMicrosoftHandler(providerFetchJson),
@@ -236,6 +299,20 @@ const PROVIDER_HANDLERS: Readonly<Record<string, ProviderExecuteHandler>> = {
   pipedrive: crmHandler,
   salesforce: crmHandler,
   attio: crmHandler,
+  figma: designFinanceHandler,
+  stripe: designFinanceHandler,
+  github: developerDataHandler,
+  supabase: developerDataHandler,
+  notion: productivityHandler,
+  slack: productivityHandler,
+  airtable: productivityHandler,
+  asana: productivityHandler,
+  clickup: productivityHandler,
+  monday: productivityHandler,
+  linear: productivityHandler,
+  atlassian: productivityHandler,
+  canvas: productivityHandler,
+  "7shifts": productivityHandler,
 };
 
 /**
@@ -254,6 +331,9 @@ const PROVIDER_ACTION_OPERATIONS: Readonly<
   microsoft: MICROSOFT_ACTION_OPERATIONS,
   ...SOCIAL_ACTION_OPERATIONS,
   ...CRM_ACTION_OPERATIONS,
+  ...DESIGN_FINANCE_ACTION_OPERATIONS,
+  ...DEVELOPER_DATA_ACTION_OPERATIONS,
+  ...PRODUCTIVITY_ACTION_OPERATIONS,
 };
 
 const PROVIDER_ACTION_REQUIRED_SCOPES: Readonly<
@@ -261,6 +341,9 @@ const PROVIDER_ACTION_REQUIRED_SCOPES: Readonly<
 > = {
   ...SOCIAL_ACTION_REQUIRED_SCOPES,
   ...CRM_ACTION_REQUIRED_SCOPES,
+  ...DESIGN_FINANCE_ACTION_REQUIRED_SCOPES,
+  ...DEVELOPER_DATA_ACTION_REQUIRED_SCOPES,
+  ...PRODUCTIVITY_ACTION_REQUIRED_SCOPES,
 };
 
 export const firstPartyActionOperation = (
@@ -275,6 +358,9 @@ const PROVIDER_CONNECTOR_ACTIONS: Readonly<
   microsoft: MICROSOFT_CONNECTOR_ACTIONS,
   ...SOCIAL_PROVIDER_CONNECTOR_ACTIONS,
   ...CRM_PROVIDER_CONNECTOR_ACTIONS,
+  ...DESIGN_FINANCE_PROVIDER_CONNECTOR_ACTIONS,
+  ...DEVELOPER_DATA_PROVIDER_CONNECTOR_ACTIONS,
+  ...PRODUCTIVITY_PROVIDER_CONNECTOR_ACTIONS,
 };
 
 export const firstPartyActionBelongsToConnector = (

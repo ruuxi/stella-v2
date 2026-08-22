@@ -1,5 +1,5 @@
 import { mkdtempSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
   enableNativeConnector,
   getNativeConnectorCatalogActions,
   getNativeConnectorTools,
+  isNativeConnectorEnabled,
   listNativeConnectors,
   type NativeConnectorCatalogEntry,
 } from "@stella/runtime/kernel/connectors/native-integrations";
@@ -168,18 +169,16 @@ describe("native integration execution policy", () => {
     ]);
   });
 
-  it("always lets an authoritative server identity win a same-id collision", () => {
+  it("keeps production-ready native execution authoritative on a same-id collision", () => {
     const serverGmail = backendEntry("gmail", "Gmail");
     const resolved = buildNativeConnectorCatalog([serverGmail]).find(
       (entry) => entry.id === "gmail",
     );
     expect(resolved).toMatchObject({
-      provider: "backend-composio",
-      backendConnector: { toolkit: "GMAIL" },
+      provider: "google-workspace",
+      localExecution: "production-ready",
     });
-    expect(getNativeConnectorTools(resolved!)).toEqual([
-      expect.objectContaining({ name: "GMAIL_RUN_ACTION" }),
-    ]);
+    expect(getNativeConnectorTools(resolved!).length).toBeGreaterThan(1);
   });
 
   it("keeps backend-only Store connectors enableable and writes their action skill", async () => {
@@ -200,6 +199,42 @@ describe("native integration execution policy", () => {
     await expect(
       disableNativeConnector(root, entry.id, {}, [entry]),
     ).resolves.toMatchObject({ id: entry.id, enabled: false });
+  });
+
+  it("reads legacy People Data Labs state and lazily migrates it on write", async () => {
+    const root = createRoot();
+    const statePath = path.join(root, "connectors", "native-integrations.json");
+    await mkdir(path.dirname(statePath), { recursive: true });
+    await writeFile(
+      statePath,
+      JSON.stringify({
+        version: 1,
+        integrations: {
+          people_data_labs: {
+            enabled: true,
+            enabledAt: 123,
+            updatedAt: 123,
+            source: "store",
+          },
+        },
+      }),
+    );
+    const entry = backendEntry("peopledatalabs", "People Data Labs");
+
+    expect(await isNativeConnectorEnabled(root, "people_data_labs")).toBe(true);
+    expect(await isNativeConnectorEnabled(root, "peopledatalabs")).toBe(true);
+    expect(
+      (await listNativeConnectors(root, {}, [entry])).find(
+        (candidate) => candidate.id === "peopledatalabs",
+      ),
+    ).toMatchObject({ enabled: true, enabledAt: 123 });
+
+    await enableNativeConnector(root, "people_data_labs", "store", {}, [entry]);
+    const migrated = JSON.parse(await readFile(statePath, "utf8")) as {
+      integrations: Record<string, unknown>;
+    };
+    expect(migrated.integrations).toHaveProperty("peopledatalabs");
+    expect(migrated.integrations).not.toHaveProperty("people_data_labs");
   });
 
   it("preserves recovered catalog actions for planning only", () => {

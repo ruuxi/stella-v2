@@ -1,4 +1,9 @@
-import { mutation, internalMutation, internalQuery, query } from "../_generated/server";
+import {
+  mutation,
+  internalMutation,
+  internalQuery,
+  query,
+} from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { v, ConvexError, type Infer } from "convex/values";
 import { requireUserId } from "../auth";
@@ -15,6 +20,12 @@ import {
   MAX_PUBLISHED_INTEGRATION_ACTIONS,
 } from "../lib/native_integration_limits";
 import {
+  canonicalizePublicConnectorId,
+  compatiblePublicConnectorIds,
+  isSafeComposioActionName,
+  normalizeComposioConnectorIdentity,
+} from "../lib/composio_identifiers.js";
+import {
   buildXAuthorizationUrl,
   buildXCodeChallenge,
   generateXCodeVerifier,
@@ -25,7 +36,6 @@ import {
   X_PROVIDER_ID,
 } from "../lib/x_oauth";
 
-
 const storeIntegrationConnectorValidator = v.object({
   type: v.literal("composio"),
   toolkit: v.string(),
@@ -35,6 +45,7 @@ const storeIntegrationConnectorValidator = v.object({
 
 const publishedIntegrationActionValidator = v.object({
   name: v.string(),
+  providerActionName: v.optional(v.string()),
   title: v.optional(v.string()),
   description: v.optional(v.string()),
   // Kept as a string because real JSON schemas can be much deeper than the
@@ -43,8 +54,7 @@ const publishedIntegrationActionValidator = v.object({
   inputSchemaJson: v.string(),
 });
 
-const SAFE_INTEGRATION_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
-const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
+const SAFE_PROVIDER_ACTION_NAME = /^[A-Z0-9][A-Z0-9_]{1,127}$/u;
 
 type ComposioConnector = {
   type: "composio";
@@ -77,22 +87,25 @@ const isExecutableStoreIntegration = (record: {
 
 const storeIntegrationStatusValues = new Set(["ready", "hidden"]);
 
-const normalizePublicIntegration = (record: {
-  id: string;
-  name?: string;
-  provider: string;
-  category?: string;
-  auth?: string[];
-  catalogToolCount?: number;
-  actionCount?: number;
-  description?: string;
-  sourceUrl?: string;
-  iconUrl?: string;
-  connector?: Record<string, unknown>;
-  enabled: boolean;
-  usagePolicy: string;
-  updatedAt: number;
-}, options?: { includeConnector?: boolean }) => {
+const normalizePublicIntegration = (
+  record: {
+    id: string;
+    name?: string;
+    provider: string;
+    category?: string;
+    auth?: string[];
+    catalogToolCount?: number;
+    actionCount?: number;
+    description?: string;
+    sourceUrl?: string;
+    iconUrl?: string;
+    connector?: Record<string, unknown>;
+    enabled: boolean;
+    usagePolicy: string;
+    updatedAt: number;
+  },
+  options?: { includeConnector?: boolean },
+) => {
   const status = storeIntegrationStatusValues.has(record.usagePolicy)
     ? record.usagePolicy
     : record.enabled
@@ -232,16 +245,19 @@ export const upsertPublicIntegration = internalMutation({
   },
   returns: v.object({ actionCount: v.number() }),
   handler: async (ctx, args) => {
-    const id = args.id.trim().toLowerCase();
-    if (!SAFE_INTEGRATION_ID.test(id)) {
+    const identity = normalizeComposioConnectorIdentity(
+      args.id,
+      args.connector.toolkit,
+    );
+    const id = identity?.id ?? "";
+    if (!identity) {
       throw new ConvexError({
         code: "INVALID_ARGUMENT",
-        message: "Integration id is invalid.",
+        message: "Integration id or toolkit is invalid.",
       });
     }
     if (
       args.provider.trim().toLowerCase() !== "composio" ||
-      args.connector.toolkit.trim().toLowerCase() !== id ||
       (args.connector.provider &&
         args.connector.provider.trim().toLowerCase() !== "composio")
     ) {
@@ -264,10 +280,26 @@ export const upsertPublicIntegration = internalMutation({
     }
     const actionNames = new Set<string>();
     for (const action of args.actions) {
-      if (!SAFE_ACTION_NAME.test(action.name) || actionNames.has(action.name)) {
+      if (
+        !isSafeComposioActionName(id, action.name) ||
+        actionNames.has(action.name)
+      ) {
         throw new ConvexError({
           code: "INVALID_ARGUMENT",
           message: `Integration action name is invalid or duplicated: ${action.name}`,
+        });
+      }
+      if (
+        action.providerActionName &&
+        (!SAFE_PROVIDER_ACTION_NAME.test(action.providerActionName) ||
+          id !== "44api" ||
+          !action.providerActionName.startsWith("44API_") ||
+          action.providerActionName.replace(/^44API_/u, "FORTYFOUR_API_") !==
+            action.name)
+      ) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Integration provider action alias is invalid: ${action.name}`,
         });
       }
       actionNames.add(action.name);
@@ -300,27 +332,29 @@ export const upsertPublicIntegration = internalMutation({
 
     const existingActions = await ctx.db
       .query("integration_actions")
-      .withIndex("by_integrationId_and_name", (q) =>
-        q.eq("integrationId", id),
-      )
+      .withIndex("by_integrationId_and_name", (q) => q.eq("integrationId", id))
       .take(MAX_PUBLISHED_INTEGRATION_ACTIONS + 1);
     if (existingActions.length > MAX_PUBLISHED_INTEGRATION_ACTIONS) {
       throw new ConvexError({
         code: "INTERNAL_ERROR",
-        message: "Existing integration action set exceeds the replacement bound.",
+        message:
+          "Existing integration action set exceeds the replacement bound.",
       });
     }
 
     // Convex mutations are transactional. Validate the full new set above,
     // then replace children and parent together so readers see either the old
     // complete publication or the new complete publication, never a partial.
-    await Promise.all(existingActions.map((action) => ctx.db.delete(action._id)));
+    await Promise.all(
+      existingActions.map((action) => ctx.db.delete(action._id)),
+    );
     const now = Date.now();
     await Promise.all(
       args.actions.map((action) =>
         ctx.db.insert("integration_actions", {
           integrationId: id,
           name: action.name,
+          providerActionName: action.providerActionName,
           title: action.title,
           description: action.description,
           searchText: [action.name, action.title, action.description]
@@ -343,7 +377,11 @@ export const upsertPublicIntegration = internalMutation({
         description: args.description,
         sourceUrl: args.sourceUrl,
         iconUrl: args.iconUrl,
-        connector: { ...args.connector, toolkit: id, provider: "composio" },
+        connector: {
+          ...args.connector,
+          toolkit: identity.toolkit,
+          provider: "composio",
+        },
         enabled: args.enabled,
         usagePolicy: args.usagePolicy,
         updatedAt: now,
@@ -362,7 +400,11 @@ export const upsertPublicIntegration = internalMutation({
       description: args.description,
       sourceUrl: args.sourceUrl,
       iconUrl: args.iconUrl,
-      connector: { ...args.connector, toolkit: id, provider: "composio" },
+      connector: {
+        ...args.connector,
+        toolkit: identity.toolkit,
+        provider: "composio",
+      },
       enabled: args.enabled,
       usagePolicy: args.usagePolicy,
       updatedAt: now,
@@ -436,7 +478,10 @@ export const createXConnectUrl = mutation({
     const convexSiteUrl = configuredOAuthSiteUrl();
 
     if (!clientId || !convexSiteUrl) {
-      throw new ConvexError({ code: "INTERNAL_ERROR", message: "X OAuth is not configured" });
+      throw new ConvexError({
+        code: "INTERNAL_ERROR",
+        message: "X OAuth is not configured",
+      });
     }
 
     const now = Date.now();
@@ -517,7 +562,9 @@ export const upsertXOAuthTokensForOwner = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const encryptedTokenSet = await encryptSecret(JSON.stringify(args.tokenSet));
+    const encryptedTokenSet = await encryptSecret(
+      JSON.stringify(args.tokenSet),
+    );
     const existing = await ctx.db
       .query("x_oauth_tokens")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
@@ -626,7 +673,9 @@ export const updateXOAuthTokenSetForOwner = internalMutation({
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
       .unique();
     if (!existing) return null;
-    const encryptedTokenSet = await encryptSecret(JSON.stringify(args.tokenSet));
+    const encryptedTokenSet = await encryptSecret(
+      JSON.stringify(args.tokenSet),
+    );
     await ctx.db.patch(existing._id, {
       encryptedTokenSet: JSON.stringify(encryptedTokenSet),
       tokenKeyVersion: encryptedTokenSet.keyVersion,
@@ -658,7 +707,10 @@ export const purgeExpiredXOAuthStates = internalMutation({
   },
   returns: v.object({ deleted: v.number(), hasMore: v.boolean() }),
   handler: async (ctx, args) => {
-    const batchSize = Math.min(Math.max(Math.floor(args.batchSize ?? 200), 1), 1000);
+    const batchSize = Math.min(
+      Math.max(Math.floor(args.batchSize ?? 200), 1),
+      1000,
+    );
     const now = Date.now();
     const expired = await ctx.db
       .query("x_oauth_states")
@@ -706,17 +758,21 @@ export const listXConnections = query({
   },
 });
 
-const getPublicIntegrationByIdHandler = async (ctx: Pick<QueryCtx, "db">, args: { id: string }) => {
-  const record = await ctx.db
-    .query("integrations_public")
-    .withIndex("by_integrationId", (q) => q.eq("id", args.id))
-    .unique();
-  if (!record || !isExecutableStoreIntegration(record)) {
-    return null;
+const getPublicIntegrationByIdHandler = async (
+  ctx: Pick<QueryCtx, "db">,
+  args: { id: string },
+) => {
+  for (const id of compatiblePublicConnectorIds(args.id)) {
+    const record = await ctx.db
+      .query("integrations_public")
+      .withIndex("by_integrationId", (q) => q.eq("id", id))
+      .unique();
+    if (record && isExecutableStoreIntegration(record)) {
+      return record;
+    }
   }
-  return record;
+  return null;
 };
-
 
 export const getPublicIntegrationById = internalQuery({
   args: {
@@ -730,6 +786,7 @@ export const getPublicIntegrationById = internalQuery({
 
 const storedIntegrationActionValidator = v.object({
   name: v.string(),
+  providerActionName: v.optional(v.string()),
   title: v.optional(v.string()),
   description: v.optional(v.string()),
   inputSchemaJson: v.string(),
@@ -754,9 +811,10 @@ export const listPublicIntegrationActions = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    const id = args.id.trim().toLowerCase();
+    const id = canonicalizePublicConnectorId(args.id) ?? "";
     const integration = await getPublicIntegrationByIdHandler(ctx, { id });
     if (!integration || !isExecutableStoreIntegration(integration)) return null;
+    const storageId = integration.id;
     const limit = Math.min(
       Math.max(Math.floor(args.limit), 1),
       MAX_INTEGRATION_ACTIONS_PAGE_SIZE,
@@ -766,13 +824,13 @@ export const listPublicIntegrationActions = internalQuery({
       ? await ctx.db
           .query("integration_actions")
           .withSearchIndex("search_searchText", (q) =>
-            q.search("searchText", search).eq("integrationId", id),
+            q.search("searchText", search).eq("integrationId", storageId),
           )
           .paginate({ numItems: limit, cursor: args.cursor })
       : await ctx.db
           .query("integration_actions")
           .withIndex("by_integrationId_and_name", (q) =>
-            q.eq("integrationId", id),
+            q.eq("integrationId", storageId),
           )
           .paginate({ numItems: limit, cursor: args.cursor });
     return {
@@ -783,6 +841,7 @@ export const listPublicIntegrationActions = internalQuery({
       continueCursor: page.continueCursor,
       actions: page.page.map((action) => ({
         name: action.name,
+        providerActionName: action.providerActionName,
         title: action.title,
         description: action.description,
         inputSchemaJson: action.inputSchemaJson,
@@ -802,13 +861,13 @@ export const getPublicIntegrationAction = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    const id = args.id.trim().toLowerCase();
+    const id = canonicalizePublicConnectorId(args.id) ?? "";
     const integration = await getPublicIntegrationByIdHandler(ctx, { id });
     if (!integration || !isExecutableStoreIntegration(integration)) return null;
     const action = await ctx.db
       .query("integration_actions")
       .withIndex("by_integrationId_and_name", (q) =>
-        q.eq("integrationId", id).eq("name", args.name),
+        q.eq("integrationId", integration.id).eq("name", args.name),
       )
       .unique();
     return action && isComposioConnector(integration.connector)
@@ -817,6 +876,7 @@ export const getPublicIntegrationAction = internalQuery({
           connector: integration.connector,
           action: {
             name: action.name,
+            providerActionName: action.providerActionName,
             title: action.title,
             description: action.description,
             inputSchemaJson: action.inputSchemaJson,
@@ -833,12 +893,19 @@ export const getUserIntegrationByOwnerAndProvider = internalQuery({
   },
   returns: v.union(v.null(), userIntegrationDocumentValidator),
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("user_integrations")
-      .withIndex("by_ownerId_and_provider", (q) =>
-        q.eq("ownerId", args.ownerId).eq("provider", args.provider),
-      )
-      .unique();
+    const providerIds = compatiblePublicConnectorIds(args.provider);
+    for (const provider of providerIds.length > 0
+      ? providerIds
+      : [args.provider]) {
+      const record = await ctx.db
+        .query("user_integrations")
+        .withIndex("by_ownerId_and_provider", (q) =>
+          q.eq("ownerId", args.ownerId).eq("provider", provider),
+        )
+        .unique();
+      if (record) return record;
+    }
+    return null;
   },
 });
 

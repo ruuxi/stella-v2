@@ -186,12 +186,13 @@ const STRIPE: FirstPartyAdapterDescriptor = {
   category: "finance & accounting",
   composioToolkit: "STRIPE",
   baseUrl: "https://api.stripe.com",
+  // The Store and existing native OAuth catalog both expose Stripe Connect
+  // OAuth. Treating this as an API-key connector would create a second,
+  // incompatible ownership path for the same public connector id.
   auth: {
-    kind: "api_key",
-    headerName: "Authorization",
-    scheme: "bearer",
-    tokenKey: firstPartyAdapterTokenKey("stripe"),
-    credentialLabel: "Stripe secret key (sk_live_… or a restricted key)",
+    kind: "oauth2",
+    tokenKey: "native-oauth:stripe",
+    scopes: ["read_write"],
   },
   actions: [
     {

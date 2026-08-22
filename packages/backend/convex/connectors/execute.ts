@@ -160,10 +160,13 @@ export const getAccessTokenForAccount = internalAction({
           refreshToken: tokenSet.refreshToken,
         }),
       });
-      const response = await fetch(manifest.tokenEndpoint, {
-        method: "POST",
-        ...tokenRequest,
-      });
+      const response = await fetch(
+        manifest.refreshEndpoint ?? manifest.tokenEndpoint,
+        {
+          method: "POST",
+          ...tokenRequest,
+        },
+      );
       const payload = await readSmallJson(response);
       if (!response.ok || payload.error) {
         const classified = classifyTokenEndpointError(payload.error);

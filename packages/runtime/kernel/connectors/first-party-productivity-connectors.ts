@@ -10,9 +10,9 @@ import {
  * First-party productivity & collaboration connector registry.
  *
  * This is the deliberately NARROW interface for the in-scope productivity
- * connectors while the shared first-party execution core is still pending
- * (`feat/first-party-connector-core`). It only *describes* each connector and
- * *derives* readiness from the existing native OAuth provider config — it does
+ * connectors. It describes each connector, publishes the canonical comparison
+ * actions, and derives readiness from the existing native OAuth provider
+ * config. Backend planners are registered separately, but this registry does
  * NOT open a second execution path.
  *
  * Invariants enforced by tests:
@@ -26,10 +26,7 @@ import {
  *     deliberate, separately-reviewed change in native-oauth-provider-config.ts.
  */
 
-export type FirstPartyConnectorAuthKind =
-  | "oauth2"
-  | "oauth2_bot"
-  | "api_key";
+export type FirstPartyConnectorAuthKind = "oauth2" | "oauth2_bot" | "api_key";
 
 /**
  * Whether the provider's marketplace/app requires review before Stella's app
@@ -43,6 +40,11 @@ export type FirstPartyConnectorReviewRequirement =
   | "required";
 
 export type FirstPartyConnectorExecutionOwner = "native" | "composio";
+
+export type FirstPartyProductivityAction = {
+  name: string;
+  operation: "read" | "write" | "destructive";
+};
 
 export type FirstPartyProductivityConnector = {
   /** Stable connector id (matches the Store/catalog id). */
@@ -93,7 +95,7 @@ const CONNECTORS: readonly FirstPartyProductivityConnector[] = [
     providerConfigId: "airtable",
     composioToolkit: "AIRTABLE",
     reviewRequirement: "none",
-    note: "PKCE public client; token exchange can run on-device without a secret.",
+    note: "Airtable supports PKCE. The unverified shared-backend manifest currently combines PKCE with confidential client authentication and must be checked against the recovered app before activation.",
   },
   {
     id: "asana",
@@ -113,7 +115,7 @@ const CONNECTORS: readonly FirstPartyProductivityConnector[] = [
     providerConfigId: "linear",
     composioToolkit: "LINEAR",
     reviewRequirement: "none",
-    note: "GraphQL API; exposes a dedicated LINEAR_RUN_QUERY_OR_MUTATION tool alongside the generic API request tool when native execution is enabled.",
+    note: "GraphQL API; the disabled shared backend has narrow issue-list and issue-create request planners.",
   },
   {
     id: "jira",
@@ -124,7 +126,7 @@ const CONNECTORS: readonly FirstPartyProductivityConnector[] = [
     composioToolkit: "JIRA",
     sharesOAuthAppWith: "confluence",
     reviewRequirement: "recommended",
-    note: "Uses the shared Atlassian 3LO app (provider 'atlassian'); confidential client with server-side token exchange. Cloud id resolved via /oauth/token/accessible-resources.",
+    note: "Uses the shared Atlassian 3LO app (provider 'atlassian'); confidential client with server-side token exchange. Native activation still needs an account-owned cloud-id selection resolved from /oauth/token/accessible-resources.",
   },
   {
     id: "clickup",
@@ -166,7 +168,69 @@ const CONNECTORS: readonly FirstPartyProductivityConnector[] = [
     reviewRequirement: "required",
     note: "Per-institution developer key: native config only resolves once STELLA_NATIVE_OAUTH_CANVAS_CLIENT_ID and _INSTALL_URL are present. Each Canvas instance issues its own key/approval.",
   },
+  {
+    id: "7shifts",
+    displayName: "7shifts",
+    authKind: "api_key",
+    officialApi: "https://api.7shifts.com/v2",
+    composioToolkit: "7SHIFTS",
+    reviewRequirement: "required",
+    note: "Partner API access token. The existing local adapter remains disabled until an approved credential and representative company/location calls are verified.",
+  },
 ] as const;
+
+/**
+ * Narrow, audited action names used to compare native execution with the
+ * existing Composio boundary. This catalog does not route or execute actions.
+ */
+export const FIRST_PARTY_PRODUCTIVITY_ACTIONS: Readonly<
+  Record<string, readonly FirstPartyProductivityAction[]>
+> = Object.freeze({
+  notion: [
+    { name: "NOTION_SEARCH_NOTION_PAGE", operation: "read" },
+    { name: "NOTION_CREATE_NOTION_PAGE", operation: "write" },
+  ],
+  slack: [
+    { name: "SLACK_FETCH_CONVERSATION_HISTORY", operation: "read" },
+    { name: "SLACK_SEND_MESSAGE", operation: "write" },
+  ],
+  airtable: [
+    { name: "AIRTABLE_LIST_RECORDS", operation: "read" },
+    { name: "AIRTABLE_CREATE_RECORDS", operation: "write" },
+  ],
+  asana: [
+    { name: "ASANA_GET_MULTIPLE_TASKS", operation: "read" },
+    { name: "ASANA_CREATE_A_TASK", operation: "write" },
+  ],
+  clickup: [
+    { name: "CLICKUP_GET_TASKS", operation: "read" },
+    { name: "CLICKUP_CREATE_TASK", operation: "write" },
+  ],
+  slackbot: [
+    { name: "SLACKBOT_FIND_CHANNELS", operation: "read" },
+    { name: "SLACKBOT_SEND_MESSAGE", operation: "write" },
+  ],
+  monday: [
+    { name: "MONDAY_BOARDS", operation: "read" },
+    { name: "MONDAY_CREATE_ITEM", operation: "write" },
+  ],
+  linear: [
+    { name: "LINEAR_LIST_LINEAR_ISSUES", operation: "read" },
+    { name: "LINEAR_CREATE_LINEAR_ISSUE", operation: "write" },
+  ],
+  jira: [
+    { name: "JIRA_GET_ISSUE", operation: "read" },
+    { name: "JIRA_CREATE_ISSUE", operation: "write" },
+  ],
+  canvas: [
+    { name: "CANVAS_LIST_COURSES", operation: "read" },
+    { name: "CANVAS_CREATE_COURSE", operation: "write" },
+  ],
+  "7shifts": [
+    { name: "7SHIFTS_LIST_SHIFTS", operation: "read" },
+    { name: "7SHIFTS_CREATE_DEPARTMENT", operation: "write" },
+  ],
+});
 
 export const FIRST_PARTY_PRODUCTIVITY_CONNECTORS: Readonly<
   Record<string, FirstPartyProductivityConnector>

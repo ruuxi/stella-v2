@@ -134,9 +134,9 @@ When credentials exist, set production values only with a redacted
 `convex env set --prod` flow; never place or print the secret in source, shell
 history, test output, or documentation.
 
-The publisher owns narrow compatibility schemas for the 15 reviewed Microsoft
-actions only when Composio's tools API omits a compilable schema. If Composio
-returns a valid schema, that upstream schema remains authoritative.
+The publisher owns narrow compatibility schemas for reviewed actions only when
+Composio's tools API omits a compilable schema. If Composio returns a valid
+schema, that upstream schema remains authoritative.
 
 The reviewed slugs are:
 
@@ -149,6 +149,35 @@ The reviewed slugs are:
   `MICROSOFT_TEAMS_TEAMS_POST_CHANNEL_MESSAGE`.
 - Excel: `EXCEL_LIST_WORKSHEETS`, `EXCEL_GET_RANGE`, `EXCEL_UPDATE_RANGE`,
   `EXCEL_LIST_TABLES`, `EXCEL_ADD_TABLE_ROW`.
+
+## Developer/data/utility reconciliation
+
+GitHub and Supabase are registered in `oauth/providers.ts` with hosted PKCE
+flows, versioned client-secret custody, stable identity resolution, fixed API
+origins, exact connector/action ownership, and representative read/write
+executors. Their manifests deliberately remain `unverified`; they are disabled
+unless explicitly included in `STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS`, and
+the default rollout remains `composio_only`.
+
+Reviewed native actions:
+
+- GitHub: list/get/search repositories, list pull requests, search issues, and
+  create an issue.
+- Supabase: list/get projects, list organizations, and create a project.
+
+Snowflake remains blocked on account-scoped OAuth endpoints and a safe account
+origin capture/validation design. Firecrawl, Tavily, Exa, SerpAPI, Perplexity
+AI, PostHog, 0CodeKit, 44API, Ably, Abstract, and AbuseIPDB remain blocked on
+encrypted per-user API-key custody in the shared backend. Their declarative
+runtime request planners are not executors.
+
+The Store publisher keeps Composio authoritative for these externally blocked
+toolkits and publishes the auth schemes Composio reports. `44api` is preserved
+as the public toolkit id, and its exact upstream `44API_*` action slugs are
+accepted only for that connector.
+Composio Search, Browser Tool, and Codeinterpreter remain native capability
+aliases (`web`, `stella-browser`, and `exec_command`/`node_repl`) rather than
+third-party connector executors.
 
 ## Rollout modes (`connector_rollouts.mode`)
 

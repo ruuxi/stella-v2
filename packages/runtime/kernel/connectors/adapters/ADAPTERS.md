@@ -75,7 +75,10 @@ flow (auth hints of type `api_key`). Auth shape per provider:
 - `ashby` — HTTP Basic, key as username, blank password (store
   `base64(apiKey + ":")`, scheme `basic`). All endpoints POST.
 - `apollo` — `X-Api-Key` header (`authHeaderName`).
-- `21risk` — API key; OData read-only. **Confirm the tenant OData base path**
+- `21risk` — API key; OData read-only. First-party action names use the safe
+  `TWENTY_ONE_RISK_*` prefix because the shared catalog rejects letterless
+  prefixes; the connector id/toolkit fallback remain `21risk` / `_21RISK`.
+  **Confirm the tenant OData base path**
   (currently `https://api.21risk.com` + `/odata/<Entity>`) before activation.
   Composio toolkit slug is `_21RISK`; the Stella id is `21risk` (leading
   underscores are not valid catalog ids).

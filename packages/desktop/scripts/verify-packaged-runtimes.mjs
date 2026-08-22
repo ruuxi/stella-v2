@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { verifyPackagedConnectorCatalogAssets } from "./verify-packaged-connector-catalog.mjs";
 
 const args = process.argv.slice(2);
 const valueFor = (name) => {
@@ -48,6 +49,8 @@ const binaries = {
   rg: executable(["bin", "rg"], ["bin", "rg.exe"]),
   uv: executable(["bin", "uv"], ["bin", "uv.exe"]),
 };
+const { smokePath: connectorCatalogSmoke } =
+  verifyPackagedConnectorCatalogAssets({ resources });
 
 const gitRoot = path.join(resources, "runtimes", "git");
 const runtimePath = [
@@ -68,6 +71,8 @@ const runtimePath = [
 const env = {
   ...process.env,
   PATH: runtimePath,
+  STELLA_APP_DIR: resources,
+  STELLA_APP_RESOURCES_PATH: resources,
   PIP_USER: "1",
   PYTHONDONTWRITEBYTECODE: "1",
   // Linux ships no bundled git runtime; pointing git env at the (empty)
@@ -113,6 +118,12 @@ run(
   binaries.bun,
   ["-e", "console.log(process.arch)"],
   new RegExp(`^${expectedArch}$`, "mu"),
+);
+run(
+  "Connector catalog",
+  binaries.bun,
+  ["run", connectorCatalogSmoke],
+  /"check":"packaged-connector-catalog"/mu,
 );
 run("ripgrep", binaries.rg, ["--version"], /^ripgrep 15\.1\.0\b/mu);
 run("uv", binaries.uv, ["--version"], /^uv 0\.11\.32\b/mu);

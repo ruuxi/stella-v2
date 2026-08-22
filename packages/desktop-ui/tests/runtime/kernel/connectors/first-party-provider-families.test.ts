@@ -4,6 +4,7 @@ import {
   FIRST_PARTY_PROVIDER_FAMILY_STATUS,
   getFirstPartyProviderFamilyStatus,
 } from "@stella/runtime/kernel/connectors/first-party-provider-families";
+import { AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP } from "@stella/runtime/kernel/connectors/first-party-connector-ownership";
 
 const SAFE_CONNECTOR_ID = /^[a-z0-9][a-z0-9_-]*$/u;
 const EXPECTED_IDS = [
@@ -27,7 +28,7 @@ const EXPECTED_IDS = [
   "exa",
   "serpapi",
   "perplexityai",
-  "people_data_labs",
+  "peopledatalabs",
   "snowflake",
   "posthog",
   "ably",
@@ -41,6 +42,21 @@ const EXPECTED_IDS = [
   "abyssale",
   "0codekit",
   "2chat",
+  "twitter",
+  "instagram",
+  "youtube",
+  "reddit",
+  "facebook",
+  "metaads",
+  "linkedin",
+  "21risk",
+  "apollo",
+  "ashby",
+  "gong",
+  "pipedrive",
+  "attio",
+  "hubspot",
+  "salesforce",
 ] as const;
 
 describe("reconciled first-party provider-family contract", () => {
@@ -83,5 +99,36 @@ describe("reconciled first-party provider-family contract", () => {
     expect(getFirstPartyProviderFamilyStatus("0codekit")?.toolkitId).toBe(
       "0CODEKIT",
     );
+    for (const id of ["facebook", "instagram", "metaads"]) {
+      expect(getFirstPartyProviderFamilyStatus(id)?.providerKey).toBe("meta");
+    }
+    expect(getFirstPartyProviderFamilyStatus("youtube")?.toolkitId).toBe(
+      "YOUTUBE",
+    );
+    expect(getFirstPartyProviderFamilyStatus("7shifts")).toMatchObject({
+      toolkitId: "7SHIFTS",
+      auth: "api_key",
+      adapterSurface: "request_planner",
+      fallbackStatus: "live",
+      activationStatus: "external_blocked",
+    });
+  });
+
+  it("assigns every authoritative pages 1-2 connector to exactly one family", () => {
+    const ownershipIds = AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP.map(
+      (entry) => entry.connectorId,
+    );
+    expect(new Set(ownershipIds).size).toBe(15);
+
+    for (const ownership of AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP) {
+      const status = getFirstPartyProviderFamilyStatus(ownership.connectorId);
+      expect(status?.ownerFamily, ownership.connectorId).toBe(
+        ownership.ownerFamily,
+      );
+      expect(status?.toolkitId, ownership.connectorId).toBe(
+        ownership.toolkitId,
+      );
+      expect(status?.auth, ownership.connectorId).toBe(ownership.auth);
+    }
   });
 });

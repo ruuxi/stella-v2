@@ -22,6 +22,11 @@ import {
   buildNativeConnectorCatalog,
   type NativeConnectorCatalogEntry,
 } from "./native-integrations.js";
+import {
+  canonicalizeConnectorId,
+  isSafeBackendComposioActionName,
+  normalizeBackendComposioIdentity,
+} from "./connector-identifiers.js";
 import { getConnectorStateRoot } from "./state.js";
 
 const CACHE_FILE = "catalog-cache.json";
@@ -45,11 +50,16 @@ const entrySources = (
   serverEntries: readonly NativeConnectorCatalogEntry[],
   serverSource: "live" | "cache",
 ) => {
-  const serverIds = new Set(serverEntries.map((entry) => entry.id));
+  const serverIds = new Set(
+    serverEntries.map((entry) => canonicalizeConnectorId(entry.id)),
+  );
   return Object.fromEntries(
     entries.map((entry) => [
       entry.id,
-      serverIds.has(entry.id) ? serverSource : "bundled",
+      entry.provider === "backend-composio" &&
+      serverIds.has(canonicalizeConnectorId(entry.id))
+        ? serverSource
+        : "bundled",
     ]),
   ) as Record<string, NativeCatalogSource>;
 };
@@ -66,13 +76,13 @@ const readStringArray = (value: unknown): string[] | undefined => {
   return entries.length > 0 ? entries : undefined;
 };
 
-const readActions = (value: unknown) => {
+const readActions = (value: unknown, integrationId: string) => {
   if (!Array.isArray(value)) return undefined;
   const actions = value.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const record = item as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name.trim() : "";
-    if (!/^[A-Z][A-Z0-9_]{1,127}$/u.test(name)) return [];
+    if (!isSafeBackendComposioActionName(integrationId, name)) return [];
     const inputSchema =
       record.inputSchema &&
       typeof record.inputSchema === "object" &&
@@ -111,16 +121,16 @@ export const toBackendComposioEntry = (
       ? (record.connector as Record<string, unknown>)
       : null;
   if (connector?.type !== "composio") return null;
-  const id =
+  const rawId =
     typeof record.id === "string" ? record.id.trim().toLowerCase() : "";
   const name = typeof record.name === "string" ? record.name.trim() : "";
   const description =
     typeof record.description === "string" ? record.description.trim() : "";
-  const toolkit =
-    typeof connector.toolkit === "string"
-      ? connector.toolkit.trim().toUpperCase()
-      : "";
-  if (!id || !name || !description || !toolkit) return null;
+  const rawToolkit =
+    typeof connector.toolkit === "string" ? connector.toolkit.trim() : "";
+  const identity = normalizeBackendComposioIdentity(rawId, rawToolkit);
+  if (!identity || !name || !description) return null;
+  const { id, toolkit } = identity;
   return {
     id,
     name,
@@ -145,8 +155,8 @@ export const toBackendComposioEntry = (
       type: "composio",
       toolkit,
     },
-    ...(readActions(record.actions ?? record.tools)
-      ? { actions: readActions(record.actions ?? record.tools) }
+    ...(readActions(record.actions ?? record.tools, id)
+      ? { actions: readActions(record.actions ?? record.tools, id) }
       : {}),
   };
 };
@@ -225,9 +235,9 @@ export const buildMergedConnectorCatalog = (
   buildNativeConnectorCatalog(serverEntries ? [...serverEntries] : undefined);
 
 /**
- * One catalog policy for every native-connector consumer. Server entries must
- * win by id even when they came from disk: their provider selects the actual
- * dispatcher, so replacing one with a bundled fallback changes semantics.
+ * One catalog policy for every native-connector consumer. Server entries win
+ * for incomplete bundled metadata, while production-ready local Google
+ * execution stays authoritative.
  */
 export const resolveNativeConnectorCatalog = async (options: {
   stellaDataDir: string;

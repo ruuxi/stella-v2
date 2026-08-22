@@ -26,12 +26,28 @@ import {
   generateOAuthState,
   buildTokenEndpointRequest,
   resolveProviderResourceOrigin,
+  parseScopeString,
 } from "./connectors/oauth/providers";
 import {
   buildCrmProviderRequest,
   CRM_ACTION_OPERATIONS,
   CRM_ACTION_REQUIRED_SCOPES,
 } from "./connectors/executors/crm";
+import {
+  buildDesignFinanceProviderRequest,
+  DESIGN_FINANCE_ACTION_OPERATIONS,
+  DESIGN_FINANCE_ACTION_REQUIRED_SCOPES,
+} from "./connectors/executors/design_finance";
+import {
+  buildApiKeyProviderRequest,
+  DEFERRED_API_KEY_PROVIDERS,
+  validateDeferredApiKeyProviderCatalog,
+} from "./connectors/executors/api_key";
+import {
+  buildProductivityProviderRequest,
+  PRODUCTIVITY_ACTION_OPERATIONS,
+  PRODUCTIVITY_ACTION_REQUIRED_SCOPES,
+} from "./connectors/executors/productivity";
 import {
   mergeTokenSet,
   unionScopes,
@@ -55,6 +71,11 @@ import {
   SOCIAL_ACTION_OPERATIONS,
   SOCIAL_ACTION_REQUIRED_SCOPES,
 } from "./connectors/executors/social";
+import {
+  buildDeveloperDataProviderRequest,
+  DEVELOPER_DATA_ACTION_OPERATIONS,
+  DEVELOPER_DATA_ACTION_REQUIRED_SCOPES,
+} from "./connectors/executors/developer_data";
 
 const modules = import.meta.glob("./**/*.ts");
 const ownerId = "https://issuer.test|connector-owner";
@@ -150,6 +171,136 @@ describe("provider manifests", () => {
     }
   });
 
+  it("registers design and finance OAuth providers without enabling them", () => {
+    for (const provider of ["figma", "stripe"]) {
+      expect(getProviderManifest(provider)?.verificationStatus).toBe(
+        "unverified",
+      );
+      expect(() => requireEnabledProvider(provider)).toThrow(
+        /provider_disabled/,
+      );
+    }
+    const figma = getProviderManifest("figma")!;
+    expect(figma.refreshEndpoint).toBe(
+      "https://api.figma.com/v1/oauth/refresh",
+    );
+    expect(figma.tokenEndpointAuth).toBe("client_secret_basic");
+    expect(getProviderManifest("stripe")?.tokenEndpointAuth).toBe(
+      "client_secret_basic",
+    );
+    const url = new URL(
+      buildAuthorizationUrl({
+        manifest: figma,
+        clientId: "client",
+        redirectUri:
+          "https://connect.stella.test/api/connectors/oauth/callback",
+        state: "state",
+        codeChallenge: "unused",
+        scopes: ["current_user:read", "file_content:read"],
+      }),
+    );
+    expect(url.searchParams.get("scope")).toBe(
+      "current_user:read,file_content:read",
+    );
+  });
+
+  it("registers GitHub and Supabase without enabling unverified manifests", () => {
+    const github = getProviderManifest("github")!;
+    expect(github.apiOrigin).toBe("https://api.github.com");
+    expect(github.accessTokensExpire).toBe(false);
+    expect(Object.keys(github.connectorBindings ?? {})).toEqual(["github"]);
+
+    const supabase = getProviderManifest("supabase")!;
+    expect(supabase.apiOrigin).toBe("https://api.supabase.com");
+    expect(supabase.sendsScopesInAuthorization).toBe(false);
+    expect(supabase.tokenEndpointAuth).toBe("client_secret_basic");
+
+    for (const provider of ["github", "supabase"]) {
+      expect(getProviderManifest(provider)?.verificationStatus).toBe(
+        "unverified",
+      );
+      expect(() => requireEnabledProvider(provider)).toThrow(
+        /provider_disabled/,
+      );
+    }
+  });
+
+  it("registers productivity OAuth manifests without enabling them", () => {
+    for (const provider of [
+      "notion",
+      "slack",
+      "airtable",
+      "asana",
+      "clickup",
+      "monday",
+      "linear",
+      "atlassian",
+      "canvas",
+    ]) {
+      expect(getProviderManifest(provider)?.verificationStatus).toBe(
+        "unverified",
+      );
+      expect(() => requireEnabledProvider(provider)).toThrow(
+        /provider_disabled/,
+      );
+    }
+  });
+
+  it("uses provider-specific token and scope encodings", () => {
+    const notion = getProviderManifest("notion")!;
+    const request = buildTokenEndpointRequest({
+      manifest: notion,
+      clientId: "client",
+      clientSecret: "secret",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: "client",
+        client_secret: "secret",
+        code: "code",
+      }).toString(),
+    });
+    expect(request.headers["content-type"]).toBe("application/json");
+    expect(request.headers.authorization).toMatch(/^Basic /u);
+    expect(JSON.parse(request.body)).toEqual({
+      grant_type: "authorization_code",
+      code: "code",
+    });
+
+    for (const provider of ["clickup", "atlassian"]) {
+      const jsonRequest = buildTokenEndpointRequest({
+        manifest: getProviderManifest(provider)!,
+        clientId: "client",
+        clientSecret: "secret",
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: "client",
+          client_secret: "secret",
+          code: "code",
+        }).toString(),
+      });
+      expect(jsonRequest.headers["content-type"]).toBe("application/json");
+      expect(JSON.parse(jsonRequest.body)).toMatchObject({
+        client_id: "client",
+        client_secret: "secret",
+        code: "code",
+      });
+    }
+
+    const linear = getProviderManifest("linear")!;
+    const url = new URL(
+      buildAuthorizationUrl({
+        manifest: linear,
+        clientId: "client",
+        redirectUri:
+          "https://connect.stella.test/api/connectors/oauth/callback",
+        state: "state",
+        codeChallenge: "unused",
+        scopes: ["read", "write"],
+      }),
+    );
+    expect(url.searchParams.get("scope")).toBe("read,write");
+  });
+
   it("omits dynamic scope parameters for app-scoped providers", () => {
     const manifest = getProviderManifest("pipedrive")!;
     const url = new URL(
@@ -232,6 +383,41 @@ describe("provider manifests", () => {
     expect(request.headers.authorization).toMatch(/^Basic /);
     expect(new URLSearchParams(request.body).has("client_id")).toBe(false);
     expect(new URLSearchParams(request.body).has("client_secret")).toBe(false);
+  });
+
+  it("requests GitHub JSON tokens and omits Supabase's deprecated dynamic scope", () => {
+    const github = getProviderManifest("github")!;
+    const tokenRequest = buildTokenEndpointRequest({
+      manifest: github,
+      clientId: "github-client",
+      clientSecret: "github-secret",
+      body: new URLSearchParams({
+        code: "code",
+        client_id: "github-client",
+        client_secret: "github-secret",
+      }).toString(),
+    });
+    expect(tokenRequest.headers.accept).toBe("application/json");
+    expect(new URLSearchParams(tokenRequest.body).get("client_id")).toBe(
+      "github-client",
+    );
+
+    const supabase = getProviderManifest("supabase")!;
+    const authorizationUrl = new URL(
+      buildAuthorizationUrl({
+        manifest: supabase,
+        clientId: "supabase-client",
+        redirectUri:
+          "https://connect.stella.test/api/connectors/oauth/callback",
+        state: "state",
+        codeChallenge: "challenge",
+        scopes: ["all"],
+      }),
+    );
+    expect(authorizationUrl.searchParams.has("scope")).toBe(false);
+    expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
   });
 
   it("accepts only allowlisted provider-issued tenant origins", () => {
@@ -541,6 +727,22 @@ describe("combined provider-family ownership", () => {
       ),
     ).toBe(false);
   });
+
+  it("keeps Figma and Stripe actions in separate provider families", () => {
+    expect(
+      firstPartyProviderForConnectorAction("figma", "FIGMA_GET_FILE"),
+    ).toBe("figma");
+    expect(
+      firstPartyProviderForConnectorAction("stripe", "STRIPE_CREATE_REFUND"),
+    ).toBe("stripe");
+    expect(
+      firstPartyActionBelongsToConnector(
+        "stripe",
+        "figma",
+        "STRIPE_CREATE_REFUND",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("social first-party request adapters", () => {
@@ -636,6 +838,36 @@ describe("CRM provider request adapters", () => {
         values: { name: "Ada" },
       }),
     ).toMatchObject({ method: "POST", path: "/v2/objects/people/records" });
+    expect(
+      buildCrmProviderRequest("gong", "GONG_GET_CALL_TRANSCRIPT", {
+        filter: { callIds: ["call-1"] },
+      }),
+    ).toMatchObject({ method: "POST", path: "/v2/calls/transcript" });
+    expect(
+      buildCrmProviderRequest("pipedrive", "PIPEDRIVE_DEALS_UPDATE_DEAL", {
+        id: 42,
+        fields: { title: "Renewal" },
+      }),
+    ).toMatchObject({ method: "PUT", path: "/api/v1/deals/42" });
+    expect(
+      buildCrmProviderRequest("salesforce", "SALESFORCE_UPDATE_RECORD", {
+        sobject: "Account",
+        id: "001xx",
+        fields: { Name: "Acme" },
+      }),
+    ).toMatchObject({
+      method: "PATCH",
+      path: "/services/data/v61.0/sobjects/Account/001xx",
+    });
+    expect(
+      buildCrmProviderRequest("attio", "ATTIO_QUERY_RECORDS", {
+        object: "people",
+        limit: 10,
+      }),
+    ).toMatchObject({
+      method: "POST",
+      path: "/v2/objects/people/records/query",
+    });
   });
 
   it("rejects missing fields and unsafe Salesforce object paths", () => {
@@ -651,11 +883,565 @@ describe("CRM provider request adapters", () => {
   });
 });
 
+describe("design and finance provider request adapters", () => {
+  it("catalogs read and write actions with required scopes", () => {
+    for (const [provider, actions] of Object.entries(
+      DESIGN_FINANCE_ACTION_OPERATIONS,
+    )) {
+      expect(Object.values(actions)).toContain("read");
+      expect(Object.values(actions)).toContain("write");
+      for (const action of Object.keys(actions)) {
+        expect(
+          DESIGN_FINANCE_ACTION_REQUIRED_SCOPES[provider]?.[action]?.length,
+        ).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("builds only fixed-origin relative request plans", () => {
+    expect(
+      buildDesignFinanceProviderRequest("figma", "FIGMA_GET_FILE", {
+        file_key: "a/b",
+        depth: 2,
+      }),
+    ).toEqual({ method: "GET", path: "/v1/files/a%2Fb?depth=2" });
+    expect(
+      buildDesignFinanceProviderRequest("stripe", "STRIPE_CREATE_CUSTOMER", {
+        email: "person@example.com",
+        metadata: { source: "stella" },
+      }),
+    ).toMatchObject({
+      method: "POST",
+      path: "/v1/customers",
+      bodyEncoding: "form",
+    });
+    expect(() =>
+      buildDesignFinanceProviderRequest("stripe", "STRIPE_CREATE_REFUND", {
+        amount: 500,
+      }),
+    ).toThrow(/invalid_input/);
+  });
+
+  it("executes Stripe form bodies at the manifest origin without token egress", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ id: "cus_test" }));
+    const result = await executeFirstPartyAction({
+      manifest: getProviderManifest("stripe")!,
+      accessToken: "stripe-access",
+      action: "STRIPE_CREATE_CUSTOMER",
+      input: {
+        email: "person@example.com",
+        metadata: { source: "stella" },
+      },
+      operation: "write",
+    });
+    expect(result.output).toEqual({ id: "cus_test" });
+    const [rawUrl, init] = fetchMock.mock.calls[0]!;
+    expect(String(rawUrl)).toBe("https://api.stripe.com/v1/customers");
+    expect((init?.headers as Record<string, string>).authorization).toBe(
+      "Bearer stripe-access",
+    );
+    const body = new URLSearchParams(String(init?.body));
+    expect(body.get("email")).toBe("person@example.com");
+    expect(body.get("metadata[source]")).toBe("stella");
+  });
+});
+
+describe("deferred API-key provider request catalog", () => {
+  it("validates every deferred provider and keeps ownership unique", () => {
+    expect(validateDeferredApiKeyProviderCatalog()).toEqual([]);
+    const ids = DEFERRED_API_KEY_PROVIDERS.map(
+      (provider) => provider.connectorId,
+    );
+    expect(ids.sort()).toEqual(
+      [
+        "1password",
+        "abyssale",
+        "peopledatalabs",
+        "21risk",
+        "2chat",
+        "7shifts",
+        "apollo",
+        "ashby",
+      ].sort(),
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("builds representative plans without accepting an origin or token", () => {
+    expect(
+      buildApiKeyProviderRequest(
+        "peopledatalabs",
+        "PEOPLEDATALABS_ENRICH_PERSON_DATA",
+        { email: "person@example.com" },
+      ),
+    ).toEqual({
+      method: "GET",
+      path: "/v5/person/enrich?email=person%40example.com",
+    });
+    expect(
+      buildApiKeyProviderRequest("21risk", "TWENTY_ONE_RISK_GET_REPORTS", {
+        top: 10,
+        filter: "status eq 'open'",
+      }),
+    ).toEqual({
+      method: "GET",
+      path: "/odata/Reports?%24top=10&%24filter=status+eq+%27open%27",
+    });
+    expect(buildApiKeyProviderRequest("2chat", "TWOCHAT_GET_INFO", {})).toEqual(
+      { method: "GET", path: "/open/info" },
+    );
+  });
+
+  it("has a relative-path request builder for every catalog action", () => {
+    const samples: Record<string, Record<string, unknown>> = {
+      ONEPASSWORD_LIST_VAULTS: {},
+      ONEPASSWORD_LIST_ITEMS: { vaultUuid: "vault" },
+      ONEPASSWORD_GET_ITEM: { vaultUuid: "vault", itemUuid: "item" },
+      ONEPASSWORD_CREATE_ITEM: {
+        vaultUuid: "vault",
+        category: "LOGIN",
+        title: "Example",
+      },
+      ABYSSALE_LIST_TEMPLATES: {},
+      ABYSSALE_GET_TEMPLATE: { templateId: "template" },
+      ABYSSALE_GENERATE_IMAGE: { templateId: "template" },
+      ABYSSALE_GENERATE_IMAGE_ASYNC: { templateId: "template" },
+      PEOPLEDATALABS_ENRICH_PERSON_DATA: { email: "person@example.com" },
+      PEOPLEDATALABS_PEOPLE_SEARCH_ELASTIC: {},
+      PEOPLEDATALABS_ENRICH_COMPANY_DATA: { website: "example.com" },
+      PEOPLEDATALABS_SEARCH_COMPANY_ELASTIC: {},
+      TWENTY_ONE_RISK_GET_REPORTS: {},
+      TWENTY_ONE_RISK_GET_COMPLIANCE: {},
+      TWENTY_ONE_RISK_GET_ORGANIZATIONS: {},
+      TWENTY_ONE_RISK_GET_PROPERTIES: {},
+      TWENTY_ONE_RISK_GET_RISK_MODELS: {},
+      TWOCHAT_GET_INFO: {},
+      TWOCHAT_LIST_WHATSAPP_NUMBERS: {},
+      TWOCHAT_SEND_WHATSAPP_MESSAGE: {
+        to_number: "+10000000000",
+        from_number: "+19999999999",
+        text: "hello",
+      },
+      SEVENSHIFTS_WHOAMI: {},
+      SEVENSHIFTS_LIST_USERS: { companyId: "company" },
+      SEVENSHIFTS_LIST_SHIFTS: { companyId: "company" },
+      SEVENSHIFTS_CREATE_SHIFT: {
+        companyId: "company",
+        location_id: 1,
+        user_id: 2,
+        start: "2026-01-01T09:00:00Z",
+        end: "2026-01-01T17:00:00Z",
+      },
+      APOLLO_PEOPLE_SEARCH: {},
+      APOLLO_ORGANIZATION_SEARCH: {},
+      APOLLO_PEOPLE_ENRICH: {},
+      APOLLO_CREATE_CONTACT: { first_name: "Ada", last_name: "Lovelace" },
+      APOLLO_CREATE_TASK: {
+        priority: "high",
+        type: "email",
+        contact_ids: ["contact"],
+      },
+      ASHBY_LIST_CANDIDATES: {},
+      ASHBY_SEARCH_CANDIDATES: {},
+      ASHBY_CREATE_CANDIDATE: { name: "Ada Lovelace" },
+      ASHBY_LIST_JOBS: {},
+      ASHBY_CREATE_NOTE: { candidateId: "candidate", note: "Follow up" },
+    };
+
+    for (const provider of DEFERRED_API_KEY_PROVIDERS) {
+      for (const action of Object.keys(provider.actions)) {
+        const request = buildApiKeyProviderRequest(
+          provider.providerKey,
+          action,
+          samples[action] ?? {},
+        );
+        expect(request, `${provider.connectorId}:${action}`).not.toBeNull();
+        expect(request?.path, `${provider.connectorId}:${action}`).toMatch(
+          /^\/(?!\/)/u,
+        );
+        expect(request?.headers?.authorization).toBeUndefined();
+      }
+    }
+  });
+});
+
+describe("developer-data provider request adapters", () => {
+  it("owns exact GitHub and Supabase actions with server-side operations", () => {
+    for (const [provider, actions] of Object.entries(
+      DEVELOPER_DATA_ACTION_OPERATIONS,
+    )) {
+      expect(Object.values(actions)).toContain("read");
+      expect(Object.values(actions)).toContain("write");
+      for (const action of Object.keys(actions)) {
+        expect(
+          DEVELOPER_DATA_ACTION_REQUIRED_SCOPES[provider]?.[action]?.length,
+        ).toBeGreaterThan(0);
+      }
+    }
+    expect(
+      firstPartyProviderForConnectorAction("github", "GITHUB_CREATE_AN_ISSUE"),
+    ).toBe("github");
+    expect(
+      firstPartyActionBelongsToConnector(
+        "supabase",
+        "github",
+        "SUPABASE_GET_PROJECT",
+      ),
+    ).toBe(false);
+  });
+
+  it("builds fixed GitHub paths and strips path identifiers from bodies", () => {
+    expect(
+      buildDeveloperDataProviderRequest("github", "GITHUB_LIST_PULL_REQUESTS", {
+        owner: "stella ai",
+        repo: "desktop/client",
+        state: "open",
+        page: 2,
+      }),
+    ).toMatchObject({
+      method: "GET",
+      path: "/repos/stella%20ai/desktop%2Fclient/pulls?state=open&page=2",
+      headers: {
+        accept: "application/vnd.github+json",
+        "x-github-api-version": "2022-11-28",
+      },
+    });
+    expect(
+      buildDeveloperDataProviderRequest("github", "GITHUB_CREATE_AN_ISSUE", {
+        owner: "stella",
+        repo: "desktop",
+        title: "Bug",
+        body: "Details",
+        ignored: "not forwarded",
+      }),
+    ).toMatchObject({
+      method: "POST",
+      path: "/repos/stella/desktop/issues",
+      body: { title: "Bug", body: "Details" },
+    });
+  });
+
+  it("builds Supabase Management API requests and fails closed", () => {
+    expect(
+      buildDeveloperDataProviderRequest("supabase", "SUPABASE_GET_PROJECT", {
+        ref: "project/ref",
+      }),
+    ).toEqual({ method: "GET", path: "/v1/projects/project%2Fref" });
+    expect(
+      buildDeveloperDataProviderRequest(
+        "supabase",
+        "SUPABASE_CREATE_A_PROJECT",
+        {
+          name: "Project",
+          organization_id: "org",
+          region: "us-east-1",
+          db_pass: "secret",
+          ignored: true,
+        },
+      ),
+    ).toEqual({
+      method: "POST",
+      path: "/v1/projects",
+      body: {
+        name: "Project",
+        organization_id: "org",
+        region: "us-east-1",
+        db_pass: "secret",
+      },
+    });
+    expect(() =>
+      buildDeveloperDataProviderRequest("github", "GITHUB_GET_A_REPOSITORY", {
+        owner: "stella",
+      }),
+    ).toThrow(/invalid_input/);
+    expect(
+      buildDeveloperDataProviderRequest("github", "GITHUB_UNKNOWN", {}),
+    ).toBeNull();
+  });
+});
+
+describe("productivity provider request adapters", () => {
+  it("owns one canonical read and write for all eleven connectors", () => {
+    const connectors = new Set<string>();
+    for (const [provider, actions] of Object.entries(
+      PRODUCTIVITY_ACTION_OPERATIONS,
+    )) {
+      expect(Object.values(actions)).toContain("read");
+      expect(Object.values(actions)).toContain("write");
+      for (const action of Object.keys(actions)) {
+        expect(
+          PRODUCTIVITY_ACTION_REQUIRED_SCOPES[provider]?.[action],
+        ).toBeDefined();
+      }
+    }
+    for (const [connector, action] of [
+      ["notion", "NOTION_SEARCH_NOTION_PAGE"],
+      ["slack", "SLACK_FETCH_CONVERSATION_HISTORY"],
+      ["airtable", "AIRTABLE_LIST_RECORDS"],
+      ["asana", "ASANA_GET_MULTIPLE_TASKS"],
+      ["clickup", "CLICKUP_GET_TASKS"],
+      ["slackbot", "SLACKBOT_FIND_CHANNELS"],
+      ["monday", "MONDAY_BOARDS"],
+      ["linear", "LINEAR_LIST_LINEAR_ISSUES"],
+      ["jira", "JIRA_GET_ISSUE"],
+      ["canvas", "CANVAS_LIST_COURSES"],
+      ["7shifts", "7SHIFTS_LIST_SHIFTS"],
+    ] as const) {
+      connectors.add(connector);
+      expect(
+        firstPartyProviderForConnectorAction(connector, action),
+      ).not.toBeNull();
+    }
+    expect(connectors.size).toBe(11);
+  });
+
+  it("builds fixed provider paths and headers", () => {
+    expect(
+      buildProductivityProviderRequest("notion", "NOTION_SEARCH_NOTION_PAGE", {
+        query: "roadmap",
+      }),
+    ).toMatchObject({
+      method: "POST",
+      path: "/v1/search",
+      headers: { "notion-version": "2022-06-28" },
+    });
+    expect(
+      buildProductivityProviderRequest("airtable", "AIRTABLE_LIST_RECORDS", {
+        baseId: "app/unsafe",
+        tableIdOrName: "Tasks & Notes",
+        pageSize: 25,
+      })?.path,
+    ).toBe("/v0/app%2Funsafe/Tasks%20%26%20Notes?pageSize=25");
+    expect(
+      buildProductivityProviderRequest("atlassian", "JIRA_GET_ISSUE", {
+        cloudId: "cloud/id",
+        issueIdOrKey: "ENG/1",
+      })?.path,
+    ).toBe("/ex/jira/cloud%2Fid/rest/api/3/issue/ENG%2F1");
+    expect(
+      buildProductivityProviderRequest("7shifts", "7SHIFTS_LIST_SHIFTS", {
+        company_id: "42",
+      }),
+    ).toMatchObject({
+      method: "GET",
+      path: "/v2/company/42/shifts",
+      headers: { "x-api-version": "2026-01-01" },
+    });
+  });
+
+  it("plans every published action without accepting an origin or auth header", () => {
+    const cases: readonly [string, string, Record<string, unknown>][] = [
+      ["notion", "NOTION_SEARCH_NOTION_PAGE", { query: "roadmap" }],
+      [
+        "notion",
+        "NOTION_CREATE_NOTION_PAGE",
+        { parent_id: "page", title: "Roadmap" },
+      ],
+      ["slack", "SLACK_FETCH_CONVERSATION_HISTORY", { channel: "C123" }],
+      [
+        "slack",
+        "SLACK_SEND_MESSAGE",
+        { channel: "C123", markdown_text: "Hello" },
+      ],
+      [
+        "airtable",
+        "AIRTABLE_LIST_RECORDS",
+        { baseId: "app123", tableIdOrName: "Tasks" },
+      ],
+      [
+        "airtable",
+        "AIRTABLE_CREATE_RECORDS",
+        {
+          baseId: "app123",
+          tableIdOrName: "Tasks",
+          records: [{ fields: { Name: "Hi" } }],
+        },
+      ],
+      ["asana", "ASANA_GET_MULTIPLE_TASKS", { project: "project" }],
+      [
+        "asana",
+        "ASANA_CREATE_A_TASK",
+        { data: { name: "Ship", projects: ["project"] } },
+      ],
+      ["clickup", "CLICKUP_GET_TASKS", { list_id: "list" }],
+      ["clickup", "CLICKUP_CREATE_TASK", { list_id: "list", name: "Ship" }],
+      ["slack", "SLACKBOT_FIND_CHANNELS", {}],
+      [
+        "slack",
+        "SLACKBOT_SEND_MESSAGE",
+        { channel: "C123", markdown_text: "Hello" },
+      ],
+      ["monday", "MONDAY_BOARDS", { limit: 10 }],
+      ["monday", "MONDAY_CREATE_ITEM", { board_id: "123", item_name: "Ship" }],
+      ["linear", "LINEAR_LIST_LINEAR_ISSUES", { first: 10 }],
+      [
+        "linear",
+        "LINEAR_CREATE_LINEAR_ISSUE",
+        { team_id: "team", title: "Ship" },
+      ],
+      [
+        "atlassian",
+        "JIRA_GET_ISSUE",
+        { cloudId: "cloud", issueIdOrKey: "ENG-1" },
+      ],
+      [
+        "atlassian",
+        "JIRA_CREATE_ISSUE",
+        {
+          cloudId: "cloud",
+          project_key: "ENG",
+          summary: "Ship",
+          issue_type: "Task",
+        },
+      ],
+      ["canvas", "CANVAS_LIST_COURSES", {}],
+      ["canvas", "CANVAS_CREATE_COURSE", { account_id: "1", name: "Writing" }],
+      ["7shifts", "7SHIFTS_LIST_SHIFTS", { company_id: "1" }],
+      [
+        "7shifts",
+        "7SHIFTS_CREATE_DEPARTMENT",
+        {
+          company_id: "1",
+          location_id: 2,
+          name: "Front",
+          default: false,
+        },
+      ],
+    ];
+
+    for (const [provider, action, input] of cases) {
+      const request = buildProductivityProviderRequest(provider, action, {
+        ...input,
+        origin: "https://attacker.invalid",
+        authorization: "Bearer attacker",
+      });
+      expect(request, action).not.toBeNull();
+      expect(request!.path, action).toMatch(/^\//u);
+      expect(request!.path, action).not.toContain("attacker.invalid");
+      expect(
+        Object.keys(request!.headers ?? {}).map((key) => key.toLowerCase()),
+        action,
+      ).not.toContain("authorization");
+    }
+  });
+
+  it("rejects missing identifiers and unregistered actions", () => {
+    expect(() =>
+      buildProductivityProviderRequest("clickup", "CLICKUP_CREATE_TASK", {
+        name: "unsafe without a list",
+      }),
+    ).toThrow(/invalid_input/u);
+    expect(
+      buildProductivityProviderRequest("linear", "LINEAR_DELETE_ISSUE", {}),
+    ).toBeNull();
+    expect(
+      firstPartyActionBelongsToConnector(
+        "slack",
+        "slackbot",
+        "SLACK_SEND_MESSAGE",
+      ),
+    ).toBe(false);
+    expect(() =>
+      buildProductivityProviderRequest("7shifts", "7SHIFTS_CREATE_DEPARTMENT", {
+        company_id: "1",
+        name: "Front",
+      }),
+    ).toThrow(/invalid_input/u);
+  });
+
+  it("maps canonical action inputs to provider-native request bodies", () => {
+    expect(
+      buildProductivityProviderRequest("slack", "SLACK_SEND_MESSAGE", {
+        channel: "C123",
+        markdown_text: "Hello",
+      })?.body,
+    ).toEqual({ channel: "C123", text: "Hello" });
+    expect(
+      buildProductivityProviderRequest("linear", "LINEAR_CREATE_LINEAR_ISSUE", {
+        team_id: "team",
+        title: "Ship",
+        state_id: "state",
+        label_ids: ["label"],
+      })?.body,
+    ).toMatchObject({
+      variables: {
+        input: {
+          teamId: "team",
+          title: "Ship",
+          stateId: "state",
+          labelIds: ["label"],
+        },
+      },
+    });
+    expect(
+      buildProductivityProviderRequest("atlassian", "JIRA_CREATE_ISSUE", {
+        cloudId: "cloud",
+        project_key: "ENG",
+        summary: "Ship",
+        issue_type: "Task",
+        description: "Details",
+        additional_properties: JSON.stringify({
+          summary: "must not override",
+          resolution: { name: "Done" },
+          customfield_10001: "allowed",
+        }),
+      })?.body,
+    ).toMatchObject({
+      fields: {
+        project: { key: "ENG" },
+        summary: "Ship",
+        issuetype: { name: "Task" },
+        description: { type: "doc", version: 1 },
+        customfield_10001: "allowed",
+      },
+    });
+    expect(
+      (
+        buildProductivityProviderRequest("atlassian", "JIRA_CREATE_ISSUE", {
+          cloudId: "cloud",
+          project_key: "ENG",
+          summary: "Ship",
+          issue_type: "Task",
+          additional_properties: JSON.stringify({ resolution: "Done" }),
+        })?.body as { fields: Record<string, unknown> }
+      ).fields,
+    ).not.toHaveProperty("resolution");
+    expect(
+      buildProductivityProviderRequest("monday", "MONDAY_CREATE_ITEM", {
+        board_id: "123",
+        item_name: "Ship",
+        column_values: { status: { label: "Done" } },
+      })?.body,
+    ).toMatchObject({
+      variables: {
+        columns: JSON.stringify({ status: { label: "Done" } }),
+      },
+    });
+    expect(
+      buildProductivityProviderRequest("canvas", "CANVAS_CREATE_COURSE", {
+        account_id: "1",
+        name: "Writing",
+        offer: true,
+      })?.body,
+    ).toEqual({ course: { name: "Writing" }, offer: true });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Pure unit: token-set merge rules
 // ---------------------------------------------------------------------------
 
 describe("token set merge", () => {
+  it("parses both whitespace- and comma-delimited provider scope strings", () => {
+    expect(parseScopeString("repo, read:user user:email")).toEqual([
+      "repo",
+      "read:user",
+      "user:email",
+    ]);
+  });
+
   it("preserves an omitted refresh token and unions scopes", () => {
     const existing = {
       accessToken: "old",

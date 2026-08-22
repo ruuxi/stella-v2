@@ -129,7 +129,10 @@ export const APOLLO_ADAPTER: ConnectorAdapter = {
         },
       },
       buildRequest: (input) => {
-        if (!Array.isArray(input.contact_ids) || input.contact_ids.length === 0) {
+        if (
+          !Array.isArray(input.contact_ids) ||
+          input.contact_ids.length === 0
+        ) {
           throw new Error("APOLLO_CREATE_TASK requires a `contact_ids` array.");
         }
         return {

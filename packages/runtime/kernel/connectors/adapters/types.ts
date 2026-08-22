@@ -18,7 +18,11 @@ export type ConnectorAdapterAuth = "oauth" | "api_key";
 export type ConnectorAdapterActionKind = "read" | "write";
 
 export type ConnectorAdapterHttpMethod =
-  "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "PATCH"
+  | "DELETE";
 
 /**
  * A single outbound HTTP request against the provider's official API. `path`

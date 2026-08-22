@@ -29,7 +29,11 @@ export const ATTIO_ADAPTER: ConnectorAdapter = {
       description: "List the objects (schemas) configured in the workspace.",
       kind: "read",
       scopes: ["object_configuration:read"],
-      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {},
+      },
       buildRequest: () => ({ method: "GET", path: "/v2/objects" }),
     },
     {
@@ -87,7 +91,8 @@ export const ATTIO_ADAPTER: ConnectorAdapter = {
     {
       name: "ATTIO_CREATE_RECORD",
       title: "Create Record",
-      description: "Create a record for an object from an attribute values map.",
+      description:
+        "Create a record for an object from an attribute values map.",
       kind: "write",
       scopes: ["record_permission:read-write"],
       inputSchema: {

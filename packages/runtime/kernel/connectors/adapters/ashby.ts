@@ -71,7 +71,8 @@ export const ASHBY_ADAPTER: ConnectorAdapter = {
     {
       name: "ASHBY_CREATE_CANDIDATE",
       title: "Create Candidate",
-      description: "Create a candidate with a name and optional contact fields.",
+      description:
+        "Create a candidate with a name and optional contact fields.",
       kind: "write",
       inputSchema: {
         type: "object",
@@ -134,11 +135,7 @@ export const ASHBY_ADAPTER: ConnectorAdapter = {
         method: "POST",
         path: "/candidate.createNote",
         body: {
-          candidateId: requireString(
-            input,
-            "candidateId",
-            "ASHBY_CREATE_NOTE",
-          ),
+          candidateId: requireString(input, "candidateId", "ASHBY_CREATE_NOTE"),
           note: requireString(input, "note", "ASHBY_CREATE_NOTE"),
           ...(typeof input.sendNotifications === "boolean"
             ? { sendNotifications: input.sendNotifications }

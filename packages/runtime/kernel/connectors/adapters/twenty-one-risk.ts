@@ -1,4 +1,7 @@
-import { type ConnectorAdapter, type ConnectorAdapterRequest } from "./types.js";
+import {
+  type ConnectorAdapter,
+  type ConnectorAdapterRequest,
+} from "./types.js";
 
 /**
  * 21RISK OData API — https://21risk.com/docs

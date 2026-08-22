@@ -34,13 +34,17 @@ export const parseTokenSet = (raw: string): TokenSet => {
   return {
     accessToken: record.accessToken,
     tokenType: record.tokenType,
-    refreshToken: isString(record.refreshToken) ? record.refreshToken : undefined,
+    refreshToken: isString(record.refreshToken)
+      ? record.refreshToken
+      : undefined,
     accessTokenExpiresAt:
       typeof record.accessTokenExpiresAt === "number"
         ? record.accessTokenExpiresAt
         : undefined,
     scope: isString(record.scope) ? record.scope : undefined,
-    resourceOrigin: isString(record.resourceOrigin) ? record.resourceOrigin : undefined,
+    resourceOrigin: isString(record.resourceOrigin)
+      ? record.resourceOrigin
+      : undefined,
   };
 };
 

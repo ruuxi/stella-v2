@@ -70,7 +70,8 @@ const fetchProviderIdentity = async (
   accessToken: string,
   resourceOrigin: string,
 ): Promise<ProviderIdentity | null> => {
-  const endpoint = manifest.userinfoEndpoint ??
+  const endpoint =
+    manifest.userinfoEndpoint ??
     (manifest.userinfoPath
       ? new URL(manifest.userinfoPath, `${resourceOrigin}/`).toString()
       : null);
@@ -98,7 +99,7 @@ const fetchProviderIdentity = async (
   };
   const subject = manifest.identityPaths?.subject
     ? readPath(manifest.identityPaths.subject)
-    : payload.sub ?? payload.id;
+    : (payload.sub ?? payload.id);
   const sub =
     typeof subject === "string"
       ? subject
@@ -241,7 +242,9 @@ export const handleOAuthCallback = internalAction({
       if (!accessToken) throw new ConnectorError("code_exchange_failed");
 
       const candidateResourceOrigin =
-        payload.api_base_url_for_customer ?? payload.instance_url ?? payload.api_domain;
+        payload.api_base_url_for_customer ??
+        payload.instance_url ??
+        payload.api_domain;
       const resourceOrigin = resolveProviderResourceOrigin(
         manifest,
         candidateResourceOrigin,
@@ -250,7 +253,11 @@ export const handleOAuthCallback = internalAction({
       if (!manifest.userinfoEndpoint && !manifest.userinfoPath) {
         throw new ConnectorError("identity_unavailable");
       }
-      const identity = await fetchProviderIdentity(manifest, accessToken, resourceOrigin);
+      const identity = await fetchProviderIdentity(
+        manifest,
+        accessToken,
+        resourceOrigin,
+      );
       if (!identity) throw new ConnectorError("identity_unavailable");
 
       // Prefer the provider-issued scope string; otherwise treat the requested
@@ -299,7 +306,9 @@ export const handleOAuthCallback = internalAction({
                 : undefined,
             accessTokenExpiresAt: expiryFromExpiresIn(payload.expires_in, now),
             scopes: grantedScopes,
-            ...(resourceOrigin !== manifest.apiOrigin ? { resourceOrigin } : {}),
+            ...(resourceOrigin !== manifest.apiOrigin
+              ? { resourceOrigin }
+              : {}),
           },
         },
       );

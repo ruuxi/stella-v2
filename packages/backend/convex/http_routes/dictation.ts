@@ -29,20 +29,14 @@
  */
 import type { HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
-import { internal } from "../_generated/api";
 import {
   errorResponse,
   jsonResponse,
-  withCors,
   handleCorsRequest,
   registerCorsOptions,
 } from "../http_shared/cors";
 import { requireSignedInAccountAction } from "../http_shared/auth";
-import { rateLimitResponse } from "../http_shared/webhook_controls";
-import {
-  checkManagedUsageLimit,
-  scheduleManagedUsage,
-} from "../lib/managed_billing";
+import { meterManagedUsage, runManagedGate } from "../lib/gate_and_meter";
 import { dollarsToMicroCents } from "../lib/billing_money";
 import {
   getManagedGatewayConfig,
@@ -160,24 +154,22 @@ export const registerDictationRoutes = (http: HttpRouter) => {
         // Go, and Pro users all reach the same transcription path. See
         // `capabilityForMediaCapabilityId` in `capability_contract.ts`, which
         // leaves `speech_to_text` ungated for the same reason.
-        const usageLimitCheck = await checkManagedUsageLimit(ctx, ownerId);
-        if (!usageLimitCheck.allowed) {
-          return errorResponse(429, usageLimitCheck.message, origin);
-        }
-
-        const rateLimit = await ctx.runMutation(
-          internal.rate_limits.consumeWebhookRateLimit,
-          {
+        // Both spend gates in a single transaction/commit, evaluated in the
+        // same order as before (usage-limit first, then rate-limit) so the
+        // 429 a client sees is unchanged. Both are still enforced pre-spend.
+        const gate = await runManagedGate(ctx, origin, {
+          ownerId,
+          order: ["usage", "rate"],
+          usage: {},
+          rateLimit: {
             scope: "dictation_transcribe",
             key: ownerId,
             limit: DICTATION_RATE_LIMIT,
             windowMs: DICTATION_RATE_WINDOW_MS,
             blockMs: DICTATION_RATE_WINDOW_MS,
           },
-        );
-        if (!rateLimit.allowed) {
-          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
-        }
+        });
+        if (!gate.ok) return gate.response;
 
         const provider = resolveDictationProvider();
         // Same org key the realtime Grok Voice path uses (voice.ts); it
@@ -342,7 +334,7 @@ const transcribeWithXai = async (args: {
         upstream.status,
         text.slice(0, 400),
       );
-      await scheduleManagedUsage(args.ctx, {
+      await meterManagedUsage(args.ctx, {
         ownerId: args.ownerId,
         agentType: "service:dictation",
         model: modelId,
@@ -358,7 +350,7 @@ const transcribeWithXai = async (args: {
     try {
       parsed = JSON.parse(text) as typeof parsed;
     } catch {
-      await scheduleManagedUsage(args.ctx, {
+      await meterManagedUsage(args.ctx, {
         ownerId: args.ownerId,
         agentType: "service:dictation",
         model: modelId,
@@ -380,7 +372,7 @@ const transcribeWithXai = async (args: {
       durationSeconds !== undefined
         ? Math.max(0, durationSeconds) * XAI_USD_PER_SECOND
         : 0;
-    await scheduleManagedUsage(args.ctx, {
+    await meterManagedUsage(args.ctx, {
       ownerId: args.ownerId,
       agentType: "service:dictation",
       model: modelId,
@@ -404,7 +396,7 @@ const transcribeWithXai = async (args: {
       "[dictation/transcribe] Failed to contact xAI:",
       (error as Error).message,
     );
-    await scheduleManagedUsage(args.ctx, {
+    await meterManagedUsage(args.ctx, {
       ownerId: args.ownerId,
       agentType: "service:dictation",
       model: modelId,
@@ -452,7 +444,7 @@ const transcribeWithOpenRouter = async (args: {
         upstream.status,
         text.slice(0, 400),
       );
-      await scheduleManagedUsage(args.ctx, {
+      await meterManagedUsage(args.ctx, {
         ownerId: args.ownerId,
         agentType: "service:dictation",
         model: modelId,
@@ -471,7 +463,7 @@ const transcribeWithOpenRouter = async (args: {
     try {
       parsed = JSON.parse(text) as typeof parsed;
     } catch {
-      await scheduleManagedUsage(args.ctx, {
+      await meterManagedUsage(args.ctx, {
         ownerId: args.ownerId,
         agentType: "service:dictation",
         model: modelId,
@@ -496,7 +488,7 @@ const transcribeWithOpenRouter = async (args: {
         : usageSeconds !== undefined
           ? Math.max(0, usageSeconds) * OPENROUTER_USD_PER_SECOND
           : 0;
-    await scheduleManagedUsage(args.ctx, {
+    await meterManagedUsage(args.ctx, {
       ownerId: args.ownerId,
       agentType: "service:dictation",
       model: modelId,
@@ -520,7 +512,7 @@ const transcribeWithOpenRouter = async (args: {
       "[dictation/transcribe] Failed to contact OpenRouter:",
       (error as Error).message,
     );
-    await scheduleManagedUsage(args.ctx, {
+    await meterManagedUsage(args.ctx, {
       ownerId: args.ownerId,
       agentType: "service:dictation",
       model: modelId,
@@ -566,7 +558,7 @@ const transcribeWithInworld = async (args: {
         inworldResponse.status,
         text,
       );
-      await scheduleManagedUsage(args.ctx, {
+      await meterManagedUsage(args.ctx, {
         ownerId: args.ownerId,
         agentType: "service:dictation",
         model: modelId,
@@ -585,7 +577,7 @@ const transcribeWithInworld = async (args: {
     try {
       parsed = JSON.parse(text);
     } catch {
-      await scheduleManagedUsage(args.ctx, {
+      await meterManagedUsage(args.ctx, {
         ownerId: args.ownerId,
         agentType: "service:dictation",
         model: modelId,
@@ -603,7 +595,7 @@ const transcribeWithInworld = async (args: {
     const costMicroCents = dollarsToMicroCents(
       Math.max(0, transcribedAudioMs) * INWORLD_USD_PER_MS,
     );
-    await scheduleManagedUsage(args.ctx, {
+    await meterManagedUsage(args.ctx, {
       ownerId: args.ownerId,
       agentType: "service:dictation",
       model: parsed.usage?.modelId ?? modelId,
@@ -627,7 +619,7 @@ const transcribeWithInworld = async (args: {
       "[dictation/transcribe] Failed to contact Inworld:",
       (error as Error).message,
     );
-    await scheduleManagedUsage(args.ctx, {
+    await meterManagedUsage(args.ctx, {
       ownerId: args.ownerId,
       agentType: "service:dictation",
       model: modelId,

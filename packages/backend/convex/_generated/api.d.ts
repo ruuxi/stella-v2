@@ -108,6 +108,7 @@ import type * as lib_crypto_utils from "../lib/crypto_utils.js";
 import type * as lib_email_i18n from "../lib/email_i18n.js";
 import type * as lib_email_templates from "../lib/email_templates.js";
 import type * as lib_error_classification from "../lib/error_classification.js";
+import type * as lib_gate_and_meter from "../lib/gate_and_meter.js";
 import type * as lib_http_utils from "../lib/http_utils.js";
 import type * as lib_json from "../lib/json.js";
 import type * as lib_managed_billing from "../lib/managed_billing.js";
@@ -336,6 +337,7 @@ declare const fullApi: ApiFromModules<{
   "lib/email_i18n": typeof lib_email_i18n;
   "lib/email_templates": typeof lib_email_templates;
   "lib/error_classification": typeof lib_error_classification;
+  "lib/gate_and_meter": typeof lib_gate_and_meter;
   "lib/http_utils": typeof lib_http_utils;
   "lib/json": typeof lib_json;
   "lib/managed_billing": typeof lib_managed_billing;

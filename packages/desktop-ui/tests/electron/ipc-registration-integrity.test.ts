@@ -285,5 +285,19 @@ describe("Electron IPC registration integrity", () => {
     // The services object must expose it for ipc.js / host-runner.js /
     // resets.js consumers.
     expect(services).toMatch(/return \{[\s\S]*connectorCredentialService,/);
+
+    const ipc = readFileSync(
+      path.join(repoRoot, "packages/desktop/electron/bootstrap/ipc.js"),
+      "utf8",
+    );
+    expect(ipc).toContain(
+      "services.connectorCredentialService.requestPreregisteredOAuth(payload)",
+    );
+    expect(ipc).toContain(
+      "services.connectorCredentialService.requestDeviceOAuth(payload)",
+    );
+    expect(ipc).toContain(
+      "services.connectorOAuthService.requestExternalOAuthApproval(payload)",
+    );
   });
 });

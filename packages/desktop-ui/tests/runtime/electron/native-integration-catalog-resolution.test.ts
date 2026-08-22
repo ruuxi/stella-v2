@@ -84,4 +84,24 @@ describe("desktop native integration catalog resolution", () => {
       provider: "backend-composio",
     });
   });
+
+  it("keeps locally bundled connectors resolvable beside cached server entries", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "stella-desktop-catalog-"));
+    roots.push(root);
+    await writeCachedServerCatalog(root, [
+      backendEntry("desktop_backend_only", "Desktop Backend Only"),
+    ]);
+
+    const resolved = await resolveDesktopNativeConnectorEntry(
+      {},
+      root,
+      "googlesuper",
+    );
+    expect(resolved.catalog.sources.googlesuper).toBe("bundled");
+    expect(resolved.entry).toMatchObject({
+      id: "googlesuper",
+      name: "Google Workspace",
+      provider: "google-workspace",
+    });
+  });
 });

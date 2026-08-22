@@ -10,7 +10,6 @@ import {
   getNativeCapabilityAlias,
   isFirstPartyLocalExecutionEnabled,
   isNativeCapabilityAlias,
-  type FirstPartyConnectorAdapter,
 } from "@stella/runtime/kernel/connectors/first-party-connectors";
 import {
   buildNativeConnectorCatalog,
@@ -43,6 +42,7 @@ const EXPECTED_IDS = [
   "ably",
   "abuseipdb",
   "abstract",
+  "people_data_labs",
   "44api",
 ];
 
@@ -59,7 +59,9 @@ describe("first-party connector adapters", () => {
   it("keeps the id aligned with the lowercased Composio fallback toolkit", () => {
     for (const adapter of FIRST_PARTY_CONNECTOR_ADAPTERS) {
       expect(adapter.composio.toolkit).toBeTruthy();
-      expect(adapter.composio.toolkit).toBe(adapter.composio.toolkit.toUpperCase());
+      expect(adapter.composio.toolkit).toBe(
+        adapter.composio.toolkit.toUpperCase(),
+      );
       expect(adapter.id).toBe(adapter.composio.toolkit.toLowerCase());
     }
   });
@@ -84,7 +86,9 @@ describe("first-party connector adapters", () => {
     // GitHub (device flow) and Supabase ship real Stella client ids.
     for (const id of ["github", "supabase"]) {
       const adapter = getFirstPartyConnectorAdapter(id)!;
-      const config = getNativeOAuthProviderConfig(adapter.oauth!.providerConfigId);
+      const config = getNativeOAuthProviderConfig(
+        adapter.oauth!.providerConfigId,
+      );
       expect(config, `${id} provider config`).toBeTruthy();
       expect(config?.clientId?.trim()).toBeTruthy();
     }
@@ -95,7 +99,11 @@ describe("first-party connector adapters", () => {
       expect(adapter.representativeActions.length).toBeGreaterThan(0);
       for (const action of adapter.representativeActions) {
         expect(action.name).toMatch(COMPOSIO_ACTION_SLUG);
-        expect(action.name.startsWith(`${adapter.composio.toolkit}_`)).toBe(true);
+        const expectedPrefix =
+          adapter.id === "44api"
+            ? "FORTYFOUR_API_"
+            : `${adapter.composio.toolkit}_`;
+        expect(action.name.startsWith(expectedPrefix)).toBe(true);
         expect(action.title).toBeTruthy();
         expect(action.description).toBeTruthy();
       }
@@ -103,7 +111,15 @@ describe("first-party connector adapters", () => {
   });
 
   it("marks at least one mutating action for state-changing toolkits", () => {
-    for (const id of ["github", "supabase", "snowflake", "posthog", "ably", "abuseipdb", "44api"]) {
+    for (const id of [
+      "github",
+      "supabase",
+      "snowflake",
+      "posthog",
+      "ably",
+      "abuseipdb",
+      "44api",
+    ]) {
       const adapter = getFirstPartyConnectorAdapter(id)!;
       expect(
         adapter.representativeActions.some((a) => a.mutating === true),
@@ -144,9 +160,9 @@ describe("credential/scope-aware status", () => {
     const snowflake = getFirstPartyConnectorAdapter("snowflake")!;
     expect(firstPartyConnectorStatus(snowflake)).toBe("missing_oauth_app");
     // Explicit override path is honored too.
-    expect(
-      firstPartyConnectorStatus(github, { hasOAuthApp: false }),
-    ).toBe("missing_oauth_app");
+    expect(firstPartyConnectorStatus(github, { hasOAuthApp: false })).toBe(
+      "missing_oauth_app",
+    );
   });
 
   it("drives API-key adapters off a stored credential", () => {
@@ -217,9 +233,9 @@ describe("Composio fallback catalog overlay", () => {
       catalogToolCount: 99,
     };
     const catalog = buildNativeConnectorCatalog([authoritative]);
-    expect(getNativeConnectorCatalogEntry("exa", catalog)?.catalogToolCount).toBe(
-      99,
-    );
+    expect(
+      getNativeConnectorCatalogEntry("exa", catalog)?.catalogToolCount,
+    ).toBe(99);
   });
 });
 
@@ -245,23 +261,26 @@ describe("Composio-owned tools mapped to native capabilities", () => {
   });
 
   it("resolves aliases case-insensitively", () => {
-    expect(getNativeCapabilityAlias("COMPOSIO_SEARCH")?.nativeToolId).toBe("web");
+    expect(getNativeCapabilityAlias("COMPOSIO_SEARCH")?.nativeToolId).toBe(
+      "web",
+    );
     expect(getNativeCapabilityAlias("unknown")).toBeUndefined();
   });
 });
 
-describe("known backend-publish constraint", () => {
-  it("documents that 44API action slugs cannot pass the backend SAFE_ACTION_NAME gate", () => {
-    const isTaxToolkit = (a: FirstPartyConnectorAdapter) => a.id === "44api";
+describe("backend-publish action contract", () => {
+  it("uses letter-leading action names even when the public toolkit id starts with a digit", () => {
     for (const adapter of FIRST_PARTY_CONNECTOR_ADAPTERS) {
       for (const action of adapter.representativeActions) {
-        if (isTaxToolkit(adapter)) {
-          // 44API_* begins with a digit -> rejected by SAFE_ACTION_NAME.
-          expect(action.name).not.toMatch(SAFE_ACTION_NAME);
-        } else {
-          expect(action.name).toMatch(SAFE_ACTION_NAME);
-        }
+        expect(action.name).toMatch(SAFE_ACTION_NAME);
       }
     }
+    const taxToolkit = getFirstPartyConnectorAdapter("44api")!;
+    expect(taxToolkit.composio.toolkit).toBe("44API");
+    expect(
+      taxToolkit.representativeActions.every((action) =>
+        action.name.startsWith("FORTYFOUR_API_"),
+      ),
+    ).toBe(true);
   });
 });

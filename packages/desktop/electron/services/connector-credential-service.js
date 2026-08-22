@@ -448,6 +448,7 @@ export class ConnectorCredentialService {
                 await connectPreregisteredConnectorOAuth(args.stellaAppDir, {
                     tokenKey: args.tokenKey,
                     clientId: args.clientId,
+                    clientSecret: args.clientSecret,
                     authorizationEndpoint: args.authorizationEndpoint,
                     tokenEndpoint: args.tokenEndpoint,
                     responseType: args.responseType,

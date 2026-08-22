@@ -37,15 +37,17 @@ describe("buildNativeConnectorCatalog server-catalog overlay", () => {
     expect(gmail).toBeDefined();
     expect(gmail?.provider).toBe("google-workspace");
     expect(gmail?.connectable).toBe(true);
-    expect(getNativeConnectorCatalogEntry("notion", catalog)).toBeDefined();
+    expect(getNativeConnectorCatalogEntry("notion", catalog)?.provider).toBe(
+      "backend-composio",
+    );
   });
 
-  it("lets server entries override bundled entries by id", () => {
+  it("keeps production-ready local executors ahead of stale server entries", () => {
     const override = composioEntry("gmail", "Gmail (backend)");
     const catalog = buildNativeConnectorCatalog([override]);
     const gmail = getNativeConnectorCatalogEntry("gmail", catalog);
-    expect(gmail?.provider).toBe("backend-composio");
-    expect(gmail?.name).toBe("Gmail (backend)");
+    expect(gmail?.provider).toBe("google-workspace");
+    expect(gmail?.name).toBe("Gmail");
     // No duplicate ids after the overlay.
     expect(catalog.filter((entry) => entry.id === "gmail")).toHaveLength(1);
   });

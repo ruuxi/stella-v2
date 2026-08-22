@@ -99,6 +99,27 @@ export const CRM_ACTION_REQUIRED_SCOPES: Readonly<
   },
 };
 
+/** Exact public connector ids owned by each CRM provider action. */
+export const CRM_PROVIDER_CONNECTOR_ACTIONS: Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+> = {
+  hubspot: {
+    hubspot: ["HUBSPOT_LIST_CONTACTS", "HUBSPOT_CREATE_CONTACT"],
+  },
+  gong: {
+    gong: ["GONG_LIST_ALL_USERS_V2_USERS", "GONG_ADD_NEW_CALL_V2_CALLS"],
+  },
+  pipedrive: {
+    pipedrive: ["PIPEDRIVE_GET_ALL_DEALS", "PIPEDRIVE_ADD_A_DEAL"],
+  },
+  salesforce: {
+    salesforce: ["SALESFORCE_RUN_SOQL_QUERY", "SALESFORCE_CREATE_A_RECORD"],
+  },
+  attio: {
+    attio: ["ATTIO_LIST_OBJECTS", "ATTIO_CREATE_RECORD"],
+  },
+};
+
 export const buildCrmProviderRequest = (
   providerKey: string,
   action: string,

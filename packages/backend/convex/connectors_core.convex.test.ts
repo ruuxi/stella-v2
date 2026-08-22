@@ -25,7 +25,6 @@ import {
   pkceChallengeS256,
   generateOAuthState,
   buildTokenEndpointRequest,
-  buildAuthorizationUrl,
   resolveProviderResourceOrigin,
 } from "./connectors/oauth/providers";
 import {
@@ -492,6 +491,55 @@ describe("Microsoft provider family", () => {
     expect(JSON.parse(String(excelInit?.body))).toEqual({
       values: [["a", "b"]],
     });
+  });
+});
+
+describe("combined provider-family ownership", () => {
+  it("preserves exact social toolkit ids and rejects sibling Meta actions", () => {
+    expect(
+      firstPartyProviderForConnectorAction(
+        "facebook",
+        "FACEBOOK_LIST_MANAGED_PAGES",
+      ),
+    ).toBe("meta");
+    expect(
+      firstPartyProviderForConnectorAction(
+        "instagram",
+        "INSTAGRAM_GET_USER_INFO",
+      ),
+    ).toBe("meta");
+    expect(
+      firstPartyProviderForConnectorAction(
+        "metaads",
+        "METAADS_GET_AD_ACCOUNTS",
+      ),
+    ).toBe("meta");
+    expect(
+      firstPartyActionBelongsToConnector(
+        "meta",
+        "instagram",
+        "FACEBOOK_CREATE_POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves exact CRM toolkit ids and rejects cross-connector actions", () => {
+    expect(
+      firstPartyProviderForConnectorAction(
+        "salesforce",
+        "SALESFORCE_RUN_SOQL_QUERY",
+      ),
+    ).toBe("salesforce");
+    expect(
+      firstPartyProviderForConnectorAction("attio", "ATTIO_CREATE_RECORD"),
+    ).toBe("attio");
+    expect(
+      firstPartyActionBelongsToConnector(
+        "hubspot",
+        "gong",
+        "HUBSPOT_LIST_CONTACTS",
+      ),
+    ).toBe(false);
   });
 });
 

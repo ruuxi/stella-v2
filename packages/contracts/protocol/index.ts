@@ -38,7 +38,11 @@ export type {
   RuntimeModelCatalogSnapshot,
 };
 
-export const STELLA_RUNTIME_PROTOCOL_VERSION = "v1";
+// v2: adds the runtime AuthOwner RPCs (auth-inversion). Bumping the version
+// makes an old detached worker that predates these methods fail the connect
+// handshake and get replaced, instead of silently passing negotiation and
+// latching the desktop into legacy auth ownership for the whole app session.
+export const STELLA_RUNTIME_PROTOCOL_VERSION = "v2";
 export const STELLA_RUNTIME_READY_METHOD = "internal.worker.readyz";
 
 export type JsonRpcId = number | string;
@@ -372,6 +376,13 @@ export type HostRuntimeAuthRefreshResult = {
   authenticated: boolean;
   token: string | null;
   hasConnectedAccount: boolean;
+  /**
+   * True when the runtime AuthOwner's store holds session material,
+   * independent of whether a token was successfully minted. Lets the desktop
+   * migration detect a live runtime store without misreading a transient mint
+   * failure (null token) as "no store" and re-importing a stale snapshot.
+   */
+  hasSession?: boolean;
 };
 
 /** Auth-inversion P1: desktop -> worker session import (migration/dual-write). */

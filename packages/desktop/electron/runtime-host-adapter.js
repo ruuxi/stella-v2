@@ -442,6 +442,14 @@ export class RuntimeHostAdapter {
     async getRuntimeAuthSession() {
         return await this.host.authGetSession();
     }
+    /**
+     * Monotonic worker-generation counter from the host. Lets the desktop auth
+     * service detect a stale-worker replacement and re-evaluate ownership mode
+     * instead of latching a legacy decision until the next app restart.
+     */
+    getWorkerGeneration() {
+        return this.host.workerGeneration;
+    }
     /** P2: runtime AuthOwner state-change events (token minted, sign-out). */
     onAuthChanged(listener) {
         return this.host.on("auth-changed", listener);

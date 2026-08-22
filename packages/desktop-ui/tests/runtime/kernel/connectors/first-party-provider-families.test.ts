@@ -94,25 +94,24 @@ describe("reconciled first-party provider-family contract", () => {
       FIRST_PARTY_PROVIDER_FAMILY_STATUS,
       (entry) => entry.codeStatus,
     );
-    expect(counts.executor_ready).toHaveLength(45);
-    expect(counts.planner_ready).toHaveLength(4);
+    expect(counts.executor_ready).toHaveLength(46);
+    expect(counts.planner_ready).toHaveLength(3);
     expect(counts.metadata_only ?? []).toHaveLength(0);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "external_blocked",
       ),
-    ).toHaveLength(45);
+    ).toHaveLength(46);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "code_blocked",
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(3);
     const plannerReady = FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
       (entry) => entry.codeStatus === "planner_ready",
     );
     expect(plannerReady.map((entry) => entry.connectorId).sort()).toEqual([
       "1password",
-      "21risk",
       "abstract",
       "snowflake",
     ]);
@@ -138,6 +137,7 @@ describe("reconciled first-party provider-family contract", () => {
       "2chat",
       "apollo",
       "ashby",
+      "21risk",
     ]) {
       expect(getFirstPartyProviderFamilyStatus(id)?.codeStatus, id).toBe(
         "executor_ready",

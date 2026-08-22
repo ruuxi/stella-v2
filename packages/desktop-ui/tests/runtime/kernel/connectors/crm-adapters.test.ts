@@ -191,7 +191,7 @@ describe("CRM/recruiting/sales adapter registry", () => {
       }),
     ).toEqual({
       method: "GET",
-      path: "/odata/Reports",
+      path: "/odata/v5/reports",
       query: { $top: 5, $filter: "Report Status eq 'published'" },
     });
   });

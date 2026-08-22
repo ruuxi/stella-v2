@@ -1100,7 +1100,7 @@ describe("deferred API-key provider request catalog", () => {
       }),
     ).toEqual({
       method: "GET",
-      path: "/odata/Reports?%24top=10&%24filter=status+eq+%27open%27",
+      path: "/odata/v5/reports?%24top=10&%24filter=status+eq+%27open%27",
     });
     expect(buildApiKeyProviderRequest("2chat", "TWOCHAT_GET_INFO", {})).toEqual(
       { method: "GET", path: "/open/info" },
@@ -1235,10 +1235,7 @@ describe("deferred API-key provider request catalog", () => {
       PEOPLEDATALABS_ENRICH_COMPANY_DATA: { website: "example.com" },
       PEOPLEDATALABS_SEARCH_COMPANY_ELASTIC: {},
       TWENTY_ONE_RISK_GET_REPORTS: {},
-      TWENTY_ONE_RISK_GET_COMPLIANCE: {},
       TWENTY_ONE_RISK_GET_ORGANIZATIONS: {},
-      TWENTY_ONE_RISK_GET_PROPERTIES: {},
-      TWENTY_ONE_RISK_GET_RISK_MODELS: {},
       TWOCHAT_GET_INFO: {},
       TWOCHAT_LIST_WHATSAPP_NUMBERS: {},
       TWOCHAT_SEND_WHATSAPP_MESSAGE: {

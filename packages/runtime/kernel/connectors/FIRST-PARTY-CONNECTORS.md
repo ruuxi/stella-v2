@@ -68,13 +68,23 @@ proprietary Composio APIs. Prefer the native tool in all cases.
   placement-aware credential injection for `firecrawl`, `tavily`, `exa`,
   `serpapi`, `perplexityai`, `posthog` (US Cloud), `ably`, `abuseipdb`,
   `peopledatalabs`, `44api`, `7shifts`, `abyssale`, `0codekit`, `2chat`,
-  `apollo`, and `ashby`. These are `executor_ready`, not activated: every call
+  `apollo`, `ashby`, and `21risk`. These are `executor_ready`, not activated: every call
   still needs independent deployment enablement, representative-call
   verification, an active encrypted owner credential, and rollout selection.
-- `1password`, `21risk`, `abstract`, and `snowflake` remain `planner_ready` and
+- `1password`, `abstract`, and `snowflake` remain `planner_ready` and
   Composio-owned. Their remaining blockers are documented in the backend
   connector README; no descriptor or readiness claim fakes an executable
   credential model.
+- `21risk` is `executor_ready` on a **verified fixed-origin** contract: origin
+  `https://21risk.com` (`www` 307-redirects to the apex), `/odata/v5/<entity>`
+  reads, and `Authorization: Bearer <api-key>` (keys prefixed `21RISK.ND.`, per
+  the apex OData service's own 401 challenge). The first-party executor is a
+  curated subset limited to the entity paths verified against the published
+  integration surface (`reports`, `organizations`); the remaining OData entities
+  (compliance, properties, risk models, items, …) stay Composio-served until the
+  auth-gated `$metadata` entity model is confirmed. It is not activated:
+  execution still requires deployment enablement, an active encrypted owner
+  credential, and rollout selection.
 - The planner catalog retains these safety boundaries:
   - **Snowflake account-scoped origin** — `requiresTenantOrigin` plus a
     `tenantOriginSuffix` (`.snowflakecomputing.com`) bound only through

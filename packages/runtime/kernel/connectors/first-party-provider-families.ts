@@ -93,10 +93,10 @@ const EXECUTOR_READY_CONNECTOR_IDS = new Set([
   "attio",
   "hubspot",
   "salesforce",
+  "21risk",
 ]);
 
 const PLANNER_READY_CONNECTOR_IDS = new Set([
-  "21risk",
   "1password",
   "snowflake",
   "abstract",
@@ -288,9 +288,6 @@ const crmStatus = (
     activationBlockers: [
       ...plannerImplementationBlockers(codeStatus),
       ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
-      ...(adapter.id === "21risk"
-        ? ["tenant-specific 21RISK OData origin and base-path confirmation"]
-        : []),
     ],
   };
 };

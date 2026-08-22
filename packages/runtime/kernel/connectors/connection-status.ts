@@ -12,12 +12,17 @@ import {
   type NativeConnectorCatalogEntry,
 } from "./native-integrations.js";
 import { getNativeOAuthProviderConfig } from "./native-oauth-provider-config.js";
-import { loadConnectorAccessToken } from "./oauth.js";
+import { loadConnectorAccessToken, loadConnectorTokenPayload } from "./oauth.js";
+import {
+  getRequiredScopesForIntegration,
+  hasRequiredScopes,
+} from "../google-workspace/scopes.js";
 
 export type NativeConnectorAuthStatus =
   | "connected"
   | "backend_managed_unverified"
   | "local_implementation_incomplete"
+  | "scope_upgrade_required"
   | "not_logged_in"
   | "unsupported";
 
@@ -32,9 +37,23 @@ export const nativeConnectorAuthStatus = async (
   entry: NativeConnectorCatalogEntry,
 ): Promise<NativeConnectorAuthStatus> => {
   if (entry.provider === "google-workspace") {
-    return (await loadConnectorAccessToken(stellaDataDir, "google-workspace"))
+    // The shared Google grant covers every Workspace service, so status is
+    // scope-aware. A valid grant that predates a service's scope (e.g.
+    // Sheets or Tasks added later) is NOT "not_logged_in" — the account is
+    // linked — it needs an incremental scope upgrade, surfaced explicitly as
+    // "scope_upgrade_required" so the reconnect unions in the missing scope.
+    // Only the absence of any usable token is "not_logged_in".
+    const payload = await loadConnectorTokenPayload(
+      stellaDataDir,
+      "google-workspace",
+    );
+    if (!payload?.accessToken) return "not_logged_in";
+    return hasRequiredScopes(
+      payload.scopes,
+      getRequiredScopesForIntegration(entry.id),
+    )
       ? "connected"
-      : "not_logged_in";
+      : "scope_upgrade_required";
   }
   if (entry.provider === "backend-composio")
     return "backend_managed_unverified";
@@ -78,7 +97,10 @@ export const getNativeConnectorConnectionState = async (
       enabled &&
       (authStatus === "connected" ||
         authStatus === "backend_managed_unverified"),
-    accountVerified: authStatus === "connected",
+    // A valid grant is a verified account even when it lacks a service's
+    // scope (scope_upgrade_required); it just isn't executable yet.
+    accountVerified:
+      authStatus === "connected" || authStatus === "scope_upgrade_required",
   };
 };
 

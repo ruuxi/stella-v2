@@ -258,6 +258,27 @@ const normalizeScopes = (scopes?: string[]) => {
   return normalized;
 };
 
+/**
+ * Reads the stored token payload WITHOUT triggering a refresh. Used when a
+ * fresh grant lands so we can union incrementally-granted scopes with the
+ * existing grant and preserve a still-valid refresh token that the provider
+ * omitted from the new response (Google returns one only on first consent).
+ */
+const readStoredConnectorTokenPayload = async (
+  stellaAppDir: string,
+  tokenKey: string,
+): Promise<ConnectorTokenPayload | null> => {
+  if (tokenStoreBroker) {
+    return await tokenStoreBroker.load(tokenKey).catch(() => null);
+  }
+  try {
+    const store = await readTokenStore(stellaAppDir);
+    return decodeTokenPayload(tokenKey, store.tokens[tokenKey]);
+  } catch {
+    return null;
+  }
+};
+
 const tokenExpiresAt = (value: unknown) => {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Date.now() + value * 1000;
@@ -1123,20 +1144,33 @@ export const connectPreregisteredConnectorOAuth = async (
   await args.openUrl(authorizationUrl.toString());
 
   const callbackResult = await callbackPromise;
+  const existingPayload = await readStoredConnectorTokenPayload(
+    stellaAppDir,
+    args.tokenKey,
+  );
   if (responseType === "token") {
     if (!callbackResult.accessToken) {
       throw new Error("OAuth callback did not include an access token.");
     }
+    const grantedScopes = callbackResult.scope
+      ? normalizeScopes(callbackResult.scope.split(/\s+/u))
+      : scopes;
     await saveConnectorTokenPayload(stellaAppDir, args.tokenKey, {
       accessToken: callbackResult.accessToken,
+      // Preserve a still-valid refresh token the implicit response omitted.
+      ...(existingPayload?.refreshToken
+        ? { refreshToken: existingPayload.refreshToken }
+        : {}),
       expiresAt: callbackResult.expiresIn
         ? Date.now() + callbackResult.expiresIn * 1000
         : undefined,
       clientId: args.clientId,
       resourceUrl: args.resourceUrl,
-      scopes: callbackResult.scope
-        ? normalizeScopes(callbackResult.scope.split(/\s+/u))
-        : scopes,
+      // Union incremental grants with any previously granted scopes.
+      scopes: normalizeScopes([
+        ...(existingPayload?.scopes ?? []),
+        ...grantedScopes,
+      ]),
     });
     return { tokenKey: args.tokenKey };
   }
@@ -1219,9 +1253,14 @@ export const connectPreregisteredConnectorOAuth = async (
   };
 
   const token = await exchangeToken();
+  const grantedScopes = token.scope
+    ? normalizeScopes(token.scope.split(/\s+/u))
+    : scopes;
   await saveConnectorTokenPayload(stellaAppDir, args.tokenKey, {
     accessToken: token.access_token,
-    refreshToken: token.refresh_token,
+    // Preserve a still-valid refresh token when the provider omits one on an
+    // incremental grant (Google returns it only on first consent).
+    refreshToken: token.refresh_token ?? existingPayload?.refreshToken,
     expiresAt: firstTokenExpiresAt(token.expires_in, token.expires),
     clientId: args.clientId,
     tokenEndpoint:
@@ -1240,7 +1279,11 @@ export const connectPreregisteredConnectorOAuth = async (
       token.instance_url ??
       token.api_base_url_for_customer ??
       args.resourceUrl,
-    scopes: token.scope ? normalizeScopes(token.scope.split(/\s+/u)) : scopes,
+    // Union incremental grants with any previously granted scopes.
+    scopes: normalizeScopes([
+      ...(existingPayload?.scopes ?? []),
+      ...grantedScopes,
+    ]),
   });
   return { tokenKey: args.tokenKey };
 };

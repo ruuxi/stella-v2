@@ -287,6 +287,9 @@ export const ensureNativeCredential = async (
       authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenEndpoint: "https://oauth2.googleapis.com/token",
       scopes: GOOGLE_WORKSPACE_SCOPES,
+      // Google incremental auth: carry forward already-granted scopes so a
+      // reconnect to upgrade one service returns the union, not a shrunk set.
+      authorizationParams: { include_granted_scopes: "true" },
       tokenExchange: {
         type: "backend",
         provider: "google-workspace",

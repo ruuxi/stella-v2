@@ -258,6 +258,64 @@ export const createConnectorStatusTool = (
       };
     }
 
+    if (state.authStatus === "scope_upgrade_required") {
+      // A valid shared Google grant exists but is missing this service's
+      // scope (e.g. Sheets/Tasks added after the account was linked). This
+      // is NOT a first-time connect: surface it explicitly and drive an
+      // incremental reconnect that unions in the missing scope.
+      if (!entry.connectable || !options.requestConnectorConnection) {
+        return {
+          result: `${entry.name} is connected, but this Google account's grant is missing the permission ${entry.name} needs. Reconnect ${entry.name} from the Store to grant it.`,
+          details: {
+            ...diagnostics,
+            status: "scope_upgrade_required",
+            reason: "missing_scope",
+          },
+        };
+      }
+      const upgradeOutcome = await options.requestConnectorConnection(
+        {
+          id: entry.id,
+          name: entry.name,
+          ...(entry.description ? { description: entry.description } : {}),
+          ...(entry.iconUrl ? { iconUrl: entry.iconUrl } : {}),
+          ...(entry.category ? { category: entry.category } : {}),
+          reason:
+            reason ??
+            `Reconnect ${entry.name} to grant the additional Google access it now needs.`,
+          ...(context?.conversationId
+            ? { conversationId: context.conversationId }
+            : {}),
+        },
+        extras?.signal,
+      );
+      if (upgradeOutcome.ok) {
+        return {
+          result: `${entry.name} access was upgraded — the user approved the reconnect and the missing Google scope is now granted. Continue the original task immediately; agents use it inside node_repl via \`await connect.call("${entry.id}", …)\`.`,
+          details: { id: entry.id, status: "connected", reason: "scope_upgraded" },
+        };
+      }
+      if (upgradeOutcome.reason === "declined") {
+        return {
+          result: `The user declined re-granting ${entry.name} access, so it stays without the extra permission. Proceed via the browser/computer fallback.`,
+          details: {
+            id: entry.id,
+            status: "scope_upgrade_required",
+            reason: "scope_upgrade_declined",
+          },
+        };
+      }
+      return {
+        result: `The ${entry.name} scope upgrade was not completed (${upgradeOutcome.reason}). Proceed via the browser/computer fallback.`,
+        details: {
+          ...diagnostics,
+          status: "scope_upgrade_required",
+          reason: upgradeOutcome.reason,
+        },
+      };
+    }
+
+
     const priorDecline = await getConnectorDecline(
       options.stellaDataDir,
       entry.id,

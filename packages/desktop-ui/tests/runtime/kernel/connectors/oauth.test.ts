@@ -14,6 +14,7 @@ import {
   loadConnectorAccessToken,
   loadConnectorTokenPayload,
   saveConnectorAccessToken,
+  saveConnectorTokenPayload,
   setConnectorTokenStoreBroker,
 } from "@stella/runtime/kernel/connectors/oauth";
 import {
@@ -860,6 +861,66 @@ describe("connector OAuth credentials", () => {
       await expect(loadConnectorAccessToken(root, "miro-demo")).resolves.toBe(
         "miro-access",
       );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("unions incremental grant scopes and preserves an omitted refresh token", async () => {
+    const root = createRoot();
+    // Seed a prior grant: scope-a + a refresh token the provider won't resend.
+    await saveConnectorTokenPayload(root, "incremental-demo", {
+      accessToken: "old-access",
+      refreshToken: "keep-refresh",
+      expiresAt: Date.now() + 3_600_000,
+      clientId: "client-1",
+      tokenEndpoint: "https://example.test/token",
+      scopes: ["scope-a"],
+    });
+    const server = await startServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/token") {
+        const body = await parseFormBody(req);
+        expect(body.get("grant_type")).toBe("authorization_code");
+        // Incremental consent returns only the newly added scope and NO
+        // refresh token (Google behaviour on re-consent).
+        res.writeHead(200, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            access_token: "new-access",
+            expires_in: 3600,
+            scope: "scope-b",
+          }),
+        );
+        return;
+      }
+      res.writeHead(404).end();
+    });
+    try {
+      await connectPreregisteredConnectorOAuth(root, {
+        tokenKey: "incremental-demo",
+        clientId: "client-1",
+        authorizationEndpoint: `${server.baseUrl}/authorize`,
+        tokenEndpoint: `${server.baseUrl}/token`,
+        scopes: ["scope-b"],
+        openUrl: async (url) => {
+          const authorizationUrl = new URL(url);
+          const redirectUri = new URL(
+            authorizationUrl.searchParams.get("redirect_uri")!,
+          );
+          redirectUri.searchParams.set("code", "code-1");
+          redirectUri.searchParams.set(
+            "state",
+            authorizationUrl.searchParams.get("state")!,
+          );
+          await fetch(redirectUri);
+        },
+      });
+
+      const payload = await loadConnectorTokenPayload(root, "incremental-demo");
+      expect(payload?.accessToken).toBe("new-access");
+      // Refresh token from the prior grant is preserved.
+      expect(payload?.refreshToken).toBe("keep-refresh");
+      // Scopes are the union of the prior and incremental grants.
+      expect([...(payload?.scopes ?? [])].sort()).toEqual(["scope-a", "scope-b"]);
     } finally {
       await server.close();
     }

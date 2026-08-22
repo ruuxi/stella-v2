@@ -13,6 +13,8 @@ export type TokenSet = {
   accessTokenExpiresAt?: number;
   /** Provider-issued scope string, space-delimited. */
   scope?: string;
+  /** Validated tenant API origin from the provider token response, if any. */
+  resourceOrigin?: string;
 };
 
 const isString = (value: unknown): value is string => typeof value === "string";
@@ -38,6 +40,7 @@ export const parseTokenSet = (raw: string): TokenSet => {
         ? record.accessTokenExpiresAt
         : undefined,
     scope: isString(record.scope) ? record.scope : undefined,
+    resourceOrigin: isString(record.resourceOrigin) ? record.resourceOrigin : undefined,
   };
 };
 
@@ -67,6 +70,7 @@ export const mergeTokenSet = (
     tokenType?: string;
     accessTokenExpiresAt?: number;
     scopes?: readonly string[];
+    resourceOrigin?: string;
   },
 ): { tokenSet: TokenSet; grantedScopes: string[] } => {
   const existingScopes = existing?.scope
@@ -80,6 +84,7 @@ export const mergeTokenSet = (
     tokenType: incoming.tokenType ?? existing?.tokenType ?? "Bearer",
     accessTokenExpiresAt: incoming.accessTokenExpiresAt,
     scope: grantedScopes.join(" ") || undefined,
+    resourceOrigin: incoming.resourceOrigin ?? existing?.resourceOrigin,
   };
   return { tokenSet, grantedScopes };
 };

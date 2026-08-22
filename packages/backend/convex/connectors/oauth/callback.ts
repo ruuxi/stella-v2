@@ -10,6 +10,7 @@ import {
   connectorBindingsSatisfiedByScopes,
   getProviderManifest,
   parseScopeString,
+  resolveProviderResourceOrigin,
   scopesForGroups,
   sha256Hex,
 } from "./providers";
@@ -33,6 +34,9 @@ type TokenPayload = {
   expires_in?: unknown;
   scope?: unknown;
   id_token?: unknown;
+  instance_url?: unknown;
+  api_domain?: unknown;
+  api_base_url_for_customer?: unknown;
   error?: unknown;
 };
 
@@ -64,9 +68,14 @@ type ProviderIdentity = { sub: string; email?: string; name?: string };
 const fetchProviderIdentity = async (
   manifest: NonNullable<ReturnType<typeof getProviderManifest>>,
   accessToken: string,
+  resourceOrigin: string,
 ): Promise<ProviderIdentity | null> => {
-  if (!manifest.userinfoEndpoint) return null;
-  const response = await fetch(manifest.userinfoEndpoint, {
+  const endpoint = manifest.userinfoEndpoint ??
+    (manifest.userinfoPath
+      ? new URL(manifest.userinfoPath, `${resourceOrigin}/`).toString()
+      : null);
+  if (!endpoint) return null;
+  const response = await fetch(endpoint, {
     method: "GET",
     headers: {
       accept: "application/json",
@@ -79,7 +88,11 @@ const fetchProviderIdentity = async (
   const readPath = (path: string | undefined): unknown => {
     if (!path) return undefined;
     return path.split(".").reduce<unknown>((value, segment) => {
-      if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+      if (!value || typeof value !== "object") return undefined;
+      if (Array.isArray(value)) {
+        const index = Number(segment);
+        return Number.isInteger(index) ? value[index] : undefined;
+      }
       return (value as Record<string, unknown>)[segment];
     }, payload);
   };
@@ -227,9 +240,17 @@ export const handleOAuthCallback = internalAction({
         typeof payload.access_token === "string" ? payload.access_token : null;
       if (!accessToken) throw new ConnectorError("code_exchange_failed");
 
-      const userinfoEndpoint = manifest.userinfoEndpoint;
-      if (!userinfoEndpoint) throw new ConnectorError("identity_unavailable");
-      const identity = await fetchProviderIdentity(manifest, accessToken);
+      const candidateResourceOrigin =
+        payload.api_base_url_for_customer ?? payload.instance_url ?? payload.api_domain;
+      const resourceOrigin = resolveProviderResourceOrigin(
+        manifest,
+        candidateResourceOrigin,
+      );
+
+      if (!manifest.userinfoEndpoint && !manifest.userinfoPath) {
+        throw new ConnectorError("identity_unavailable");
+      }
+      const identity = await fetchProviderIdentity(manifest, accessToken, resourceOrigin);
       if (!identity) throw new ConnectorError("identity_unavailable");
 
       // Prefer the provider-issued scope string; otherwise treat the requested
@@ -278,6 +299,7 @@ export const handleOAuthCallback = internalAction({
                 : undefined,
             accessTokenExpiresAt: expiryFromExpiresIn(payload.expires_in, now),
             scopes: grantedScopes,
+            ...(resourceOrigin !== manifest.apiOrigin ? { resourceOrigin } : {}),
           },
         },
       );

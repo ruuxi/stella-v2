@@ -32,6 +32,8 @@ export type ProviderManifest = {
   tokenEndpointAuth?: "client_secret_post" | "client_secret_basic";
   revocationEndpoint?: string;
   userinfoEndpoint?: string;
+  /** Relative userinfo path when the token response supplies a tenant API origin. */
+  userinfoPath?: string;
   /** Dot paths for providers whose userinfo response is not OpenID-shaped. */
   identityPaths?: { subject: string; email?: string; name?: string };
   userinfoHeaders?: Record<string, string>;
@@ -49,6 +51,8 @@ export type ProviderManifest = {
   callbackPath: string;
   /** Fixed origin first-party executors are allowed to call. Prevents SSRF. */
   apiOrigin: string;
+  /** Allowlisted tenant host suffixes for provider-issued API origins. */
+  resourceOriginHostSuffixes?: readonly string[];
   scopeGroups: Readonly<Record<string, ProviderScopeGroup>>;
   /** Optional provider-family connector registry for shared-account grants. */
   connectorBindings?: Readonly<Record<string, ProviderConnectorBinding>>;
@@ -475,6 +479,35 @@ export const getProviderManifest = (
   return manifest;
 };
 
+/** Validate a provider-issued tenant URL before it can influence any fetch. */
+export const resolveProviderResourceOrigin = (
+  manifest: ProviderManifest,
+  candidate: unknown,
+): string => {
+  if (typeof candidate !== "string" || !candidate.trim()) return manifest.apiOrigin;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    throw new ConnectorError("code_exchange_failed");
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new ConnectorError("code_exchange_failed");
+  }
+  const suffixes = manifest.resourceOriginHostSuffixes ?? [];
+  const hostname = url.hostname.toLowerCase();
+  if (
+    suffixes.length === 0 ||
+    !suffixes.some((suffix) => {
+      const normalized = suffix.toLowerCase().replace(/^\./u, "");
+      return hostname === normalized || hostname.endsWith(`.${normalized}`);
+    })
+  ) {
+    throw new ConnectorError("code_exchange_failed");
+  }
+  return url.origin;
+};
+
 /**
  * Resolve a manifest and confirm it is enabled for use (present + in the env
  * allowlist). Throws a classified error otherwise. Fails closed.
@@ -701,6 +734,9 @@ export const validateManifest = (manifest: ProviderManifest): string[] => {
   httpsOnly("apiOrigin", manifest.apiOrigin);
   if (!manifest.callbackPath.startsWith("/")) {
     problems.push(`${manifest.key}.callbackPath must be an absolute path`);
+  }
+  if (manifest.userinfoPath && !manifest.userinfoPath.startsWith("/")) {
+    problems.push(`${manifest.key}.userinfoPath must be an absolute path`);
   }
   if (Object.keys(manifest.scopeGroups).length === 0) {
     problems.push(`${manifest.key} has no scope groups`);

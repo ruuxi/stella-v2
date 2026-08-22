@@ -25,6 +25,7 @@ import {
   pkceChallengeS256,
   generateOAuthState,
   buildTokenEndpointRequest,
+  resolveProviderResourceOrigin,
 } from "./connectors/oauth/providers";
 import {
   mergeTokenSet,
@@ -188,6 +189,19 @@ describe("provider manifests", () => {
     expect(request.headers.authorization).toMatch(/^Basic /);
     expect(new URLSearchParams(request.body).has("client_id")).toBe(false);
     expect(new URLSearchParams(request.body).has("client_secret")).toBe(false);
+  });
+
+  it("accepts only allowlisted provider-issued tenant origins", () => {
+    const manifest = {
+      ...getProviderManifest("mock")!,
+      resourceOriginHostSuffixes: ["api.gong.io"],
+    };
+    expect(resolveProviderResourceOrigin(manifest, "https://acme.api.gong.io/v2"))
+      .toBe("https://acme.api.gong.io");
+    expect(() => resolveProviderResourceOrigin(manifest, "https://api.gong.io.evil.test"))
+      .toThrow(/code_exchange_failed/);
+    expect(() => resolveProviderResourceOrigin(manifest, "http://acme.api.gong.io"))
+      .toThrow(/code_exchange_failed/);
   });
 });
 

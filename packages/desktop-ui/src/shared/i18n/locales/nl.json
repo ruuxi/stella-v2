@@ -2155,6 +2155,60 @@
       "emptyPrompt": "Vraag Stella wat je wilt",
       "composerPlaceholder": "Bericht aan Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Activiteit",
+        "schedule": "Planning",
+        "search": "Zoeken",
+        "files": "Bestanden"
+      },
+      "task": {
+        "finished": "Voltooid",
+        "failed": "Kon niet worden voltooid",
+        "stopped": "Gestopt",
+        "working": "Werkt op de achtergrond"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} subagent",
+          "other": "{count} subagents"
+        },
+        "done": {
+          "other": "{count} klaar"
+        }
+      },
+      "conversation": {
+        "title": "Dit gesprek",
+        "subtitle": "Bestanden gemaakt door de hoofdthread"
+      },
+      "schedule": {
+        "customCadence": "Aangepast schema",
+        "paused": "Gepauzeerd",
+        "next": "Volgende {when}",
+        "lastRunFailed": "Laatste run mislukt: {error}",
+        "pauseSchedule": "Schema pauzeren",
+        "resumeSchedule": "Schema hervatten",
+        "deleteSchedule": "Schema verwijderen",
+        "deleteConfirm": "‘{title}’ wordt niet meer uitgevoerd.",
+        "alertTitle": "Planning",
+        "actionFailed": "Dat is niet gelukt.",
+        "loadFailed": "Kon planningen niet laden.",
+        "empty": "Nog geen planningen. Vraag Stella op je computer om iets regelmatig uit te voeren en het verschijnt hier."
+      },
+      "search": {
+        "placeholder": "Zoek in activiteit en bestanden",
+        "clear": "Zoekopdracht wissen",
+        "close": "Zoeken sluiten"
+      },
+      "files": {
+        "empty": "Nog geen bestanden. Alles wat Stella maakt verschijnt hier.",
+        "emptyFiltered": "Geen bestanden gevonden."
+      },
+      "activity": {
+        "empty": "Nog geen achtergrondwerk.",
+        "emptyFiltered": "Geen overeenkomende activiteit of bestanden."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Je computer binnen handbereik",
       "guestHeroBody": "Vraag Stella om dingen te doen op je computer — het web verkennen, bestanden beheren, taken uitvoeren en meer.",

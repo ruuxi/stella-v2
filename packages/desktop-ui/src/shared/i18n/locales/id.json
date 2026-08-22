@@ -2127,6 +2127,59 @@
       "emptyPrompt": "Tanya Stella apa saja",
       "composerPlaceholder": "Pesan untuk Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Aktivitas",
+        "schedule": "Jadwal",
+        "search": "Cari",
+        "files": "File"
+      },
+      "task": {
+        "finished": "Selesai",
+        "failed": "Tidak dapat diselesaikan",
+        "stopped": "Dihentikan",
+        "working": "Bekerja di latar belakang"
+      },
+      "subagents": {
+        "count": {
+          "other": "{count} subagen"
+        },
+        "done": {
+          "other": "{count} selesai"
+        }
+      },
+      "conversation": {
+        "title": "Percakapan ini",
+        "subtitle": "File yang dibuat oleh thread utama"
+      },
+      "schedule": {
+        "customCadence": "Jadwal kustom",
+        "paused": "Dijeda",
+        "next": "Berikutnya {when}",
+        "lastRunFailed": "Eksekusi terakhir gagal: {error}",
+        "pauseSchedule": "Jeda jadwal",
+        "resumeSchedule": "Lanjutkan jadwal",
+        "deleteSchedule": "Hapus jadwal",
+        "deleteConfirm": "“{title}” akan berhenti berjalan.",
+        "alertTitle": "Jadwal",
+        "actionFailed": "Tidak berhasil.",
+        "loadFailed": "Tidak dapat memuat jadwal.",
+        "empty": "Belum ada jadwal. Minta Stella di komputermu menjalankan sesuatu secara rutin, nanti muncul di sini."
+      },
+      "search": {
+        "placeholder": "Cari aktivitas dan file",
+        "clear": "Bersihkan pencarian",
+        "close": "Tutup pencarian"
+      },
+      "files": {
+        "empty": "Belum ada file. Semua yang dibuat Stella muncul di sini.",
+        "emptyFiltered": "Tidak ada file yang cocok."
+      },
+      "activity": {
+        "empty": "Belum ada pekerjaan latar belakang.",
+        "emptyFiltered": "Tidak ada aktivitas atau file yang cocok."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Komputer Anda, dalam genggaman",
       "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",

@@ -2181,6 +2181,61 @@
       "emptyPrompt": "Întreab-o pe Stella orice",
       "composerPlaceholder": "Scrie-i Stellei"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Activitate",
+        "schedule": "Program",
+        "search": "Căutare",
+        "files": "Fișiere"
+      },
+      "task": {
+        "finished": "Finalizat",
+        "failed": "Nu s-a putut finaliza",
+        "stopped": "Oprit",
+        "working": "Lucrează în fundal"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} subagent",
+          "few": "{count} subagenți",
+          "other": "{count} de subagenți"
+        },
+        "done": {
+          "other": "finalizate: {count}"
+        }
+      },
+      "conversation": {
+        "title": "Această conversație",
+        "subtitle": "Fișiere create de firul principal"
+      },
+      "schedule": {
+        "customCadence": "Program personalizat",
+        "paused": "Întrerupt",
+        "next": "Următoarea rulare {when}",
+        "lastRunFailed": "Ultima rulare a eșuat: {error}",
+        "pauseSchedule": "Întrerupe programul",
+        "resumeSchedule": "Reia programul",
+        "deleteSchedule": "Șterge programul",
+        "deleteConfirm": "„{title}” nu va mai rula.",
+        "alertTitle": "Program",
+        "actionFailed": "Nu a reușit.",
+        "loadFailed": "Programele nu au putut fi încărcate.",
+        "empty": "Încă nu există programe. Cere-i Stellei de pe computer să ruleze ceva regulat și va apărea aici."
+      },
+      "search": {
+        "placeholder": "Caută în activitate și fișiere",
+        "clear": "Șterge căutarea",
+        "close": "Închide căutarea"
+      },
+      "files": {
+        "empty": "Încă nu există fișiere. Tot ce produce Stella apare aici.",
+        "emptyFiltered": "Niciun fișier nu se potrivește."
+      },
+      "activity": {
+        "empty": "Încă nu există muncă în fundal.",
+        "emptyFiltered": "Nicio activitate sau fișier care să se potrivească."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Computerul tău, la îndemână",
       "guestHeroBody": "Cere-i Stellei să facă lucruri pe computerul tău — să navigheze pe web, să gestioneze fișiere, să ruleze sarcini și multe altele.",

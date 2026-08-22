@@ -2155,6 +2155,60 @@
       "emptyPrompt": "Kérdezz bármit a Stellától",
       "composerPlaceholder": "Írj a Stellának"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Tevékenység",
+        "schedule": "Ütemezés",
+        "search": "Keresés",
+        "files": "Fájlok"
+      },
+      "task": {
+        "finished": "Kész",
+        "failed": "Nem sikerült befejezni",
+        "stopped": "Leállítva",
+        "working": "A háttérben dolgozik"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} alügynök",
+          "other": "{count} alügynök"
+        },
+        "done": {
+          "other": "{count} kész"
+        }
+      },
+      "conversation": {
+        "title": "Ez a beszélgetés",
+        "subtitle": "A fő szál által létrehozott fájlok"
+      },
+      "schedule": {
+        "customCadence": "Egyéni ütemezés",
+        "paused": "Szüneteltetve",
+        "next": "Következő futás {when}",
+        "lastRunFailed": "Az utolsó futás nem sikerült: {error}",
+        "pauseSchedule": "Ütemezés szüneteltetése",
+        "resumeSchedule": "Ütemezés folytatása",
+        "deleteSchedule": "Ütemezés törlése",
+        "deleteConfirm": "A(z) „{title}” többé nem fut.",
+        "alertTitle": "Ütemezés",
+        "actionFailed": "Nem sikerült.",
+        "loadFailed": "Az ütemezéseket nem sikerült betölteni.",
+        "empty": "Még nincs ütemezés. Kérd meg Stellát a számítógépeden, hogy futtasson valamit rendszeresen, és itt megjelenik."
+      },
+      "search": {
+        "placeholder": "Keresés a tevékenységben és a fájlokban",
+        "clear": "Keresés törlése",
+        "close": "Keresés bezárása"
+      },
+      "files": {
+        "empty": "Még nincsenek fájlok. Minden, amit Stella készít, itt jelenik meg.",
+        "emptyFiltered": "Nincs egyező fájl."
+      },
+      "activity": {
+        "empty": "Még nincs háttérmunka.",
+        "emptyFiltered": "Nincs egyező tevékenység vagy fájl."
+      }
+    },
     "computer": {
       "guestHeroTitle": "A számítógéped kéznyújtásnyira",
       "guestHeroBody": "Kérd meg a Stellát, hogy csináljon dolgokat a számítógépeden — böngésszen, kezelje a fájlokat, futtasson feladatokat és még sok mást.",

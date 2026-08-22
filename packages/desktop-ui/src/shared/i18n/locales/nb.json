@@ -2155,6 +2155,61 @@
       "emptyPrompt": "Spør Stella om hva som helst",
       "composerPlaceholder": "Skriv til Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Aktivitet",
+        "schedule": "Planlegging",
+        "search": "Søk",
+        "files": "Filer"
+      },
+      "task": {
+        "finished": "Fullført",
+        "failed": "Kunne ikke fullføres",
+        "stopped": "Stoppet",
+        "working": "Jobber i bakgrunnen"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} underagent",
+          "other": "{count} underagenter"
+        },
+        "done": {
+          "one": "{count} ferdig",
+          "other": "{count} ferdige"
+        }
+      },
+      "conversation": {
+        "title": "Denne samtalen",
+        "subtitle": "Filer opprettet av hovedtråden"
+      },
+      "schedule": {
+        "customCadence": "Tilpasset tidsplan",
+        "paused": "Satt på pause",
+        "next": "Neste {when}",
+        "lastRunFailed": "Siste kjøring mislyktes: {error}",
+        "pauseSchedule": "Sett tidsplan på pause",
+        "resumeSchedule": "Gjenoppta tidsplan",
+        "deleteSchedule": "Slett tidsplan",
+        "deleteConfirm": "«{title}» slutter å kjøre.",
+        "alertTitle": "Tidsplan",
+        "actionFailed": "Det gikk ikke.",
+        "loadFailed": "Kunne ikke laste tidsplaner.",
+        "empty": "Ingen tidsplaner ennå. Be Stella på datamaskinen din om å kjøre noe regelmessig, så dukker det opp her."
+      },
+      "search": {
+        "placeholder": "Søk i aktivitet og filer",
+        "clear": "Tøm søket",
+        "close": "Lukk søket"
+      },
+      "files": {
+        "empty": "Ingen filer ennå. Alt Stella lager dukker opp her.",
+        "emptyFiltered": "Ingen filer samsvarer."
+      },
+      "activity": {
+        "empty": "Ingen bakgrunnsarbeid ennå.",
+        "emptyFiltered": "Ingen samsvarende aktivitet eller filer."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Datamaskinen din, rett ved hånden",
       "guestHeroBody": "Be Stella gjøre ting på datamaskinen din — surfe på nettet, håndtere filer, kjøre oppgaver og mer.",

@@ -2181,6 +2181,61 @@
       "emptyPrompt": "Demandez ce que vous voulez à Stella",
       "composerPlaceholder": "Écrire à Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Activité",
+        "schedule": "Planification",
+        "search": "Recherche",
+        "files": "Fichiers"
+      },
+      "task": {
+        "finished": "Terminé",
+        "failed": "N’a pas pu aboutir",
+        "stopped": "Arrêté",
+        "working": "Travaille en arrière-plan"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} sous-agent",
+          "other": "{count} sous-agents"
+        },
+        "done": {
+          "one": "{count} terminé",
+          "other": "{count} terminés"
+        }
+      },
+      "conversation": {
+        "title": "Cette conversation",
+        "subtitle": "Fichiers créés par le fil principal"
+      },
+      "schedule": {
+        "customCadence": "Planification personnalisée",
+        "paused": "En pause",
+        "next": "Prochaine exécution {when}",
+        "lastRunFailed": "Échec de la dernière exécution : {error}",
+        "pauseSchedule": "Mettre la planification en pause",
+        "resumeSchedule": "Reprendre la planification",
+        "deleteSchedule": "Supprimer la planification",
+        "deleteConfirm": "« {title} » ne s’exécutera plus.",
+        "alertTitle": "Planification",
+        "actionFailed": "Ça n’a pas fonctionné.",
+        "loadFailed": "Impossible de charger les planifications.",
+        "empty": "Aucune planification pour l’instant. Demandez à Stella sur votre ordinateur d’exécuter quelque chose régulièrement et elle apparaîtra ici."
+      },
+      "search": {
+        "placeholder": "Rechercher dans l’activité et les fichiers",
+        "clear": "Effacer la recherche",
+        "close": "Fermer la recherche"
+      },
+      "files": {
+        "empty": "Aucun fichier pour l’instant. Tout ce que Stella produit apparaît ici.",
+        "emptyFiltered": "Aucun fichier ne correspond."
+      },
+      "activity": {
+        "empty": "Aucun travail en arrière-plan pour l’instant.",
+        "emptyFiltered": "Aucune activité ni aucun fichier ne correspond."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Votre ordinateur à portée de main",
       "guestHeroBody": "Demandez à Stella d'agir sur votre ordinateur : naviguer sur le web, gérer des fichiers, exécuter des tâches et bien plus.",

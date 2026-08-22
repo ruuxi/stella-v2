@@ -2127,6 +2127,59 @@
       "emptyPrompt": "Hỏi Stella bất cứ điều gì",
       "composerPlaceholder": "Nhắn cho Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Hoạt động",
+        "schedule": "Lịch trình",
+        "search": "Tìm kiếm",
+        "files": "Tệp"
+      },
+      "task": {
+        "finished": "Đã xong",
+        "failed": "Không thể hoàn thành",
+        "stopped": "Đã dừng",
+        "working": "Đang làm việc trong nền"
+      },
+      "subagents": {
+        "count": {
+          "other": "{count} tác nhân phụ"
+        },
+        "done": {
+          "other": "{count} đã xong"
+        }
+      },
+      "conversation": {
+        "title": "Cuộc trò chuyện này",
+        "subtitle": "Tệp do luồng chính tạo"
+      },
+      "schedule": {
+        "customCadence": "Lịch trình tùy chỉnh",
+        "paused": "Đã tạm dừng",
+        "next": "Lần chạy tiếp theo {when}",
+        "lastRunFailed": "Lần chạy gần nhất thất bại: {error}",
+        "pauseSchedule": "Tạm dừng lịch trình",
+        "resumeSchedule": "Tiếp tục lịch trình",
+        "deleteSchedule": "Xóa lịch trình",
+        "deleteConfirm": "“{title}” sẽ ngừng chạy.",
+        "alertTitle": "Lịch trình",
+        "actionFailed": "Không thực hiện được.",
+        "loadFailed": "Không tải được lịch trình.",
+        "empty": "Chưa có lịch trình nào. Hãy nhờ Stella trên máy tính chạy việc gì đó định kỳ, nó sẽ hiện ở đây."
+      },
+      "search": {
+        "placeholder": "Tìm trong hoạt động và tệp",
+        "clear": "Xóa tìm kiếm",
+        "close": "Đóng tìm kiếm"
+      },
+      "files": {
+        "empty": "Chưa có tệp nào. Mọi thứ Stella tạo ra sẽ hiện ở đây.",
+        "emptyFiltered": "Không có tệp nào khớp."
+      },
+      "activity": {
+        "empty": "Chưa có công việc nền nào.",
+        "emptyFiltered": "Không có hoạt động hay tệp nào khớp."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Máy tính của bạn, trong tầm tay",
       "guestHeroBody": "Nhờ Stella làm việc trên máy tính của bạn — duyệt web, quản lý tệp, chạy tác vụ và hơn thế nữa.",

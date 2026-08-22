@@ -425,6 +425,15 @@ export class RuntimeHostAdapter {
     setAuthToken(value) {
         this.queueRuntimeConfigPatch({ authToken: value });
     }
+    /**
+     * Auth-inversion P1: mirror the desktop-owned Better Auth session into
+     * the runtime worker's AuthOwner store (migration import + dual-write).
+     * Rejects when the connected worker lacks the RPC (version skew);
+     * callers treat that as legacy mode.
+     */
+    async importAuthSession(payload) {
+        return await this.host.authImport(payload);
+    }
     setHasConnectedAccount(value) {
         this.queueRuntimeConfigPatch({ hasConnectedAccount: value });
     }

@@ -302,6 +302,13 @@ const connectHostRunner = async (context) => {
     // runs from the deferred-startup sequence). The worker self-warms its model
     // catalog on init, so the first chat stays fast without a blocking warm.
     await runner.ensureWorkerStarted();
+    // Auth-inversion P1: hand the desktop-owned Better Auth session to the
+    // worker's AuthOwner (one-time migration; idempotent re-import on every
+    // attach keeps the stores converged during the dual-write phase). An
+    // older detached worker without the RPC leaves us in legacy mode.
+    void services.authService
+        .syncRuntimeAuthStore()
+        .catch(() => undefined);
     const workerStartedAt = Math.round(process.uptime() * 1000);
     logger?.process("startup.host-runner.worker-spawned", {
         elapsedMs: workerStartedAt,

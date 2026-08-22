@@ -177,11 +177,11 @@
 .agent-activity-files__pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   max-width: 100%;
-  /* Enough side padding that the label and the circular "+" trigger sit
-     comfortably inside the pill instead of pressing against its edges. */
-  padding: 2px 6px 2px 4px;
+  /* Balanced for the chrome-less chevron trigger: its own 2px padding plus
+     this side padding keeps comfortable air inside the pill. */
+  padding: 2px 4px;
   border-radius: 999px;
   /* Outline strength tracks the label ink: clearly visible (the old
      panel-surface hairline all but disappeared on the chat background) but

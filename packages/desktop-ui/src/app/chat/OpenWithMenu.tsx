@@ -8,7 +8,7 @@
  * auto-flips to a drop-down when the card is near the top.
  */
 
-import { ChevronDown, Plus } from "@/ui/icons";
+import { ChevronDown } from "@/ui/icons";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -34,7 +34,7 @@ export const OpenWithMenu = ({
   filePath: string;
   /**
    * `"button"` — the default slim "Open ▾" pill used by `EndResourceCard`.
-   * `"plus"` — a compact circular "+" trigger used by the file pills on the
+   * `"plus"` — a bare chrome-less chevron trigger used by the file pills on the
    * agent completion card, where the pill body itself is the primary open
    * target and the "+" only exposes the "open in other ways" menu.
    */
@@ -90,12 +90,12 @@ export const OpenWithMenu = ({
         {variant === "plus" ? (
           <button
             type="button"
-            className="open-with-menu__trigger open-with-menu__trigger--plus"
+            className="open-with-menu__trigger open-with-menu__trigger--chevron"
             onClick={(event) => event.stopPropagation()}
             title={t("app.chat.openWith.otherWaysTitle")}
             aria-label={t("app.chat.openWith.otherWaysLabel")}
           >
-            <Plus size={11} strokeWidth={2} aria-hidden />
+            <ChevronDown size={12} strokeWidth={2} aria-hidden />
           </button>
         ) : (
           <button

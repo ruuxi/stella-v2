@@ -76,24 +76,19 @@ describe("agent-activity file pills", () => {
     expect(pill).not.toContain("--panel-surface-border");
   });
 
-  it("renders the + trigger circular, transparent, hairline-bordered", () => {
-    const plus = blockFor(openWithCss, ".open-with-menu__trigger--plus");
-    expect(plus).toContain("border-radius: 999px");
-    expect(plus).toContain("background: transparent");
-    expect(plus).toContain("border: 1px solid var(--text-weaker)");
-    expect(plus).toContain("box-shadow: none");
-    // Small enough to sit inside the pill with visible air around it.
-    const width = /width:\s*(\d+)px/.exec(plus);
-    expect(width).not.toBeNull();
-    expect(Number(width![1])).toBeLessThanOrEqual(17);
-  });
-
-  it("gives the pill enough side padding to breathe around the + trigger", () => {
-    const pill = blockFor(activityCss, ".agent-activity-files__pill");
-    const padding = /padding:\s*\d+px (\d+)px \d+px (\d+)px/.exec(pill);
-    expect(padding).not.toBeNull();
-    expect(Number(padding![1])).toBeGreaterThanOrEqual(6);
-    expect(Number(padding![2])).toBeGreaterThanOrEqual(4);
+  it("renders the menu trigger as a bare chevron — no border, no fill", () => {
+    const chevron = blockFor(openWithCss, ".open-with-menu__trigger--chevron");
+    expect(chevron).toContain("border: none");
+    expect(chevron).toContain("background: transparent");
+    expect(chevron).toContain("box-shadow: none");
+    expect(chevron).toContain("color: var(--text-weak)");
+    // Quiet at rest, obviously interactive on hover.
+    expect(chevron).toMatch(/transition:.*color/);
+    const hover = blockFor(
+      openWithCss,
+      ".open-with-menu__trigger--chevron:hover",
+    );
+    expect(hover).toContain("color: var(--text-strong)");
   });
 });
 

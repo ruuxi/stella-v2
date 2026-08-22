@@ -82,6 +82,18 @@ describe("agent-activity file pills", () => {
     expect(plus).toContain("background: transparent");
     expect(plus).toContain("border: 1px solid var(--text-weaker)");
     expect(plus).toContain("box-shadow: none");
+    // Small enough to sit inside the pill with visible air around it.
+    const width = /width:\s*(\d+)px/.exec(plus);
+    expect(width).not.toBeNull();
+    expect(Number(width![1])).toBeLessThanOrEqual(17);
+  });
+
+  it("gives the pill enough side padding to breathe around the + trigger", () => {
+    const pill = blockFor(activityCss, ".agent-activity-files__pill");
+    const padding = /padding:\s*\d+px (\d+)px \d+px (\d+)px/.exec(pill);
+    expect(padding).not.toBeNull();
+    expect(Number(padding![1])).toBeGreaterThanOrEqual(6);
+    expect(Number(padding![2])).toBeGreaterThanOrEqual(4);
   });
 });
 

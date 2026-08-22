@@ -42,8 +42,8 @@
    pill. */
 .open-with-menu__trigger--plus {
   padding: 0;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   border: 1px solid var(--text-weaker);
   background: transparent;

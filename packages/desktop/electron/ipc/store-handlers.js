@@ -3,6 +3,7 @@ import path from "node:path";
 import { ipcMain } from "electron";
 import { waitForConnectedRunner } from "./runtime-availability.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
+const NATIVE_INTEGRATION_BRIDGE_TIMEOUT_MS = 6 * 60_000;
 const listInstalledThemes = async (stellaDataDir) => {
     const themesDir = path.join(stellaDataDir, "themes");
     try {
@@ -29,6 +30,12 @@ const listInstalledThemes = async (stellaDataDir) => {
     }
 };
 export const registerStoreHandlers = (options) => {
+    let nativeIntegrationMutationTail = Promise.resolve();
+    const enqueueNativeIntegrationMutation = (action) => {
+        const result = nativeIntegrationMutationTail.then(action, action);
+        nativeIntegrationMutationTail = result.then(() => undefined, () => undefined);
+        return result;
+    };
     const waitForRunner = (timeoutMs = 10_000) => waitForConnectedRunner(options.getStellaHostRunner, {
         timeoutMs,
         unavailableMessage: "Store backend is unavailable.",
@@ -57,6 +64,9 @@ export const registerStoreHandlers = (options) => {
     });
     ipcMain.handle("storeWeb:listNativeIntegrations", async (event) => {
         assertStoreWebRequest(event, "storeWeb:listNativeIntegrations");
+        if (options.listNativeIntegrations) {
+            return await options.listNativeIntegrations();
+        }
         if (!options.dispatchStoreWebLocalAction) {
             throw new Error("The local Store bridge is unavailable.");
         }
@@ -64,23 +74,29 @@ export const registerStoreHandlers = (options) => {
     });
     ipcMain.handle("storeWeb:connectNativeIntegration", async (event, payload) => {
         assertStoreWebRequest(event, "storeWeb:connectNativeIntegration");
+        if (options.connectNativeIntegration) {
+            return await enqueueNativeIntegrationMutation(() => options.connectNativeIntegration(payload));
+        }
         if (!options.dispatchStoreWebLocalAction) {
             throw new Error("The local Store bridge is unavailable.");
         }
-        return await options.dispatchStoreWebLocalAction({
+        return await enqueueNativeIntegrationMutation(() => options.dispatchStoreWebLocalAction({
             type: "connectNativeIntegration",
             payload,
-        }, { timeoutMs: 2 * 60_000 });
+        }, { timeoutMs: NATIVE_INTEGRATION_BRIDGE_TIMEOUT_MS }));
     });
     ipcMain.handle("storeWeb:disconnectNativeIntegration", async (event, payload) => {
         assertStoreWebRequest(event, "storeWeb:disconnectNativeIntegration");
+        if (options.disconnectNativeIntegration) {
+            return await enqueueNativeIntegrationMutation(() => options.disconnectNativeIntegration(payload));
+        }
         if (!options.dispatchStoreWebLocalAction) {
             throw new Error("The local Store bridge is unavailable.");
         }
-        return await options.dispatchStoreWebLocalAction({
+        return await enqueueNativeIntegrationMutation(() => options.dispatchStoreWebLocalAction({
             type: "disconnectNativeIntegration",
             payload,
-        });
+        }));
     });
     ipcMain.handle("storeWeb:openSignIn", async (event) => {
         assertStoreWebRequest(event, "storeWeb:openSignIn");

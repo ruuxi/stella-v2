@@ -115,6 +115,18 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
     activationBlockers: API_KEY_CORE_BLOCKERS,
   },
   {
+    connectorId: "0codekit",
+    providerKey: "0codekit",
+    ownerFamily: "design_finance_ops",
+    fixedApiOrigin: "https://api.0codekit.com",
+    actions: actions([
+      ["ZEROCODEKIT_PDF_METADATA", "read"],
+      ["ZEROCODEKIT_HTML_TO_PDF", "write"],
+      ["ZEROCODEKIT_MERGE_PDF", "write"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
     connectorId: "peopledatalabs",
     providerKey: "peopledatalabs",
     ownerFamily: "developer_data",
@@ -258,6 +270,16 @@ export const buildApiKeyProviderRequest = (
         body,
       };
     }
+
+    case "0codekit:ZEROCODEKIT_PDF_METADATA":
+      return { method: "POST", path: "/pdf/metadata/info", body: input };
+    case "0codekit:ZEROCODEKIT_HTML_TO_PDF":
+      return { method: "POST", path: "/pdf/html", body: input };
+    case "0codekit:ZEROCODEKIT_MERGE_PDF":
+      if (!Array.isArray(input.files) || input.files.length === 0) {
+        throw new ConnectorError("invalid_input");
+      }
+      return { method: "POST", path: "/pdf/merge", body: input };
 
     case "peopledatalabs:PEOPLEDATALABS_ENRICH_PERSON_DATA":
       return {

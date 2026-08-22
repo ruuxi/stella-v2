@@ -44,6 +44,12 @@ export const AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP = [
     auth: "api_key",
   },
   {
+    connectorId: "0codekit",
+    toolkitId: "0CODEKIT",
+    ownerFamily: "design_finance_ops",
+    auth: "api_key",
+  },
+  {
     connectorId: "peopledatalabs",
     toolkitId: "PEOPLEDATALABS",
     ownerFamily: "developer_data",

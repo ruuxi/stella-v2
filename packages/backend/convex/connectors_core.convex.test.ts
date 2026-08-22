@@ -1053,6 +1053,7 @@ describe("deferred API-key provider request catalog", () => {
       [
         "1password",
         "abyssale",
+        "0codekit",
         "peopledatalabs",
         "21risk",
         "2chat",
@@ -1087,6 +1088,18 @@ describe("deferred API-key provider request catalog", () => {
     expect(buildApiKeyProviderRequest("2chat", "TWOCHAT_GET_INFO", {})).toEqual(
       { method: "GET", path: "/open/info" },
     );
+    expect(
+      buildApiKeyProviderRequest("0codekit", "ZEROCODEKIT_MERGE_PDF", {
+        files: ["https://example.com/a.pdf"],
+      }),
+    ).toEqual({
+      method: "POST",
+      path: "/pdf/merge",
+      body: { files: ["https://example.com/a.pdf"] },
+    });
+    expect(() =>
+      buildApiKeyProviderRequest("0codekit", "ZEROCODEKIT_MERGE_PDF", {}),
+    ).toThrow();
   });
 
   it("has a relative-path request builder for every catalog action", () => {
@@ -1103,6 +1116,9 @@ describe("deferred API-key provider request catalog", () => {
       ABYSSALE_GET_TEMPLATE: { templateId: "template" },
       ABYSSALE_GENERATE_IMAGE: { templateId: "template" },
       ABYSSALE_GENERATE_IMAGE_ASYNC: { templateId: "template" },
+      ZEROCODEKIT_PDF_METADATA: { url: "https://example.com/a.pdf" },
+      ZEROCODEKIT_HTML_TO_PDF: { html: "<p>hi</p>" },
+      ZEROCODEKIT_MERGE_PDF: { files: ["https://example.com/a.pdf"] },
       PEOPLEDATALABS_ENRICH_PERSON_DATA: { email: "person@example.com" },
       PEOPLEDATALABS_PEOPLE_SEARCH_ELASTIC: {},
       PEOPLEDATALABS_ENRICH_COMPANY_DATA: { website: "example.com" },

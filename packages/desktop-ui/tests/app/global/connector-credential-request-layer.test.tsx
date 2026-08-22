@@ -189,6 +189,35 @@ describe("ConnectorCredentialRequestLayer", () => {
     expect(document.body.textContent).not.toContain("Google Workspace");
   });
 
+  it("cancels while waiting and advances to the next queued authorization", async () => {
+    await renderLayer();
+    await sendRequest({
+      requestId: "google-request",
+      tokenKey: "google-workspace",
+      displayName: "Google Workspace",
+      mode: "oauth",
+      completionMode: "wait",
+    });
+    await sendRequest({
+      requestId: "outlook-request",
+      tokenKey: "outlook",
+      displayName: "Outlook",
+      mode: "oauth",
+      completionMode: "wait",
+    });
+
+    await clickButton("Open browser");
+    expect(document.body.textContent).toContain("Waiting for Google Workspace");
+    expect(document.body.textContent).not.toContain("Outlook");
+
+    await clickButton("Cancel");
+    expect(cancelConnectorCredential).toHaveBeenCalledWith({
+      requestId: "google-request",
+    });
+    expect(document.body.textContent).not.toContain("Waiting for Google Workspace");
+    expect(document.body.textContent).toContain("Connect Outlook");
+  });
+
   it("submits API keys directly through ConnectorCredentialService", async () => {
     await renderLayer();
     await sendRequest({

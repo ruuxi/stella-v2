@@ -459,52 +459,106 @@ export const ensureNativeCredential = async (
   );
 };
 
+export const listDesktopNativeIntegrations = async (
+  options: NativeIntegrationHandlersOptions,
+) => {
+  const configuredOAuthProviders = await loadConfiguredOAuthProviders(options);
+  const stellaAppDir = requireRoot(options);
+  const catalog = await resolveDesktopNativeConnectorCatalog(
+    options,
+    stellaAppDir,
+  );
+  return await listNativeConnectors(
+    stellaAppDir,
+    {
+      configuredBackendProviders: configuredOAuthProviders.backend,
+      configuredExternalCallbackProviders:
+        configuredOAuthProviders.externalCallback,
+    },
+    catalog.entries,
+  );
+};
+
+export const enableDesktopNativeIntegration = async (
+  options: NativeIntegrationHandlersOptions,
+  payload: unknown,
+) => {
+  const stellaAppDir = requireRoot(options);
+  const id = readId(payload);
+  await ensureNativeCredential(options, stellaAppDir, id);
+  const configuredOAuthProviders = await loadConfiguredOAuthProviders(options);
+  const catalog = await resolveDesktopNativeConnectorCatalog(
+    options,
+    stellaAppDir,
+  );
+  return await enableNativeConnector(
+    stellaAppDir,
+    id,
+    "store",
+    {
+      configuredBackendProviders: configuredOAuthProviders.backend,
+      configuredExternalCallbackProviders:
+        configuredOAuthProviders.externalCallback,
+    },
+    catalog.entries,
+  );
+};
+
+export const disableDesktopNativeIntegration = async (
+  options: NativeIntegrationHandlersOptions,
+  payload: unknown,
+) => {
+  const stellaAppDir = requireRoot(options);
+  const id = readId(payload);
+  const configuredOAuthProviders = await loadConfiguredOAuthProviders(options);
+  const catalog = await resolveDesktopNativeConnectorCatalog(
+    options,
+    stellaAppDir,
+  );
+  const result = await disableNativeConnector(
+    stellaAppDir,
+    id,
+    {
+      configuredBackendProviders: configuredOAuthProviders.backend,
+      configuredExternalCallbackProviders:
+        configuredOAuthProviders.externalCallback,
+    },
+    catalog.entries,
+  );
+  const entry = getNativeConnectorCatalogEntry(id, catalog.entries);
+  if (
+    entry?.provider === "google-workspace" &&
+    options.disconnectGoogleWorkspace
+  ) {
+    const remaining = await listNativeConnectors(
+      stellaAppDir,
+      {},
+      catalog.entries,
+    );
+    const stillEnabledGoogle = remaining.some(
+      (connector) =>
+        connector.provider === "google-workspace" && connector.enabled,
+    );
+    if (!stillEnabledGoogle) {
+      await options.disconnectGoogleWorkspace();
+    }
+  }
+  return result;
+};
+
 export const registerNativeIntegrationHandlers = (
   options: NativeIntegrationHandlersOptions,
 ) => {
   ipcMain.handle("nativeIntegrations:list", async (event) => {
     assertPrivilegedRequest(options, event, "nativeIntegrations:list");
-    const configuredOAuthProviders =
-      await loadConfiguredOAuthProviders(options);
-    const catalog = await resolveDesktopNativeConnectorCatalog(
-      options,
-      requireRoot(options),
-    );
-    return await listNativeConnectors(
-      requireRoot(options),
-      {
-        configuredBackendProviders: configuredOAuthProviders.backend,
-        configuredExternalCallbackProviders:
-          configuredOAuthProviders.externalCallback,
-      },
-      catalog.entries,
-    );
+    return await listDesktopNativeIntegrations(options);
   });
 
   ipcMain.handle(
     "nativeIntegrations:enable",
     async (event, payload: unknown) => {
       assertPrivilegedRequest(options, event, "nativeIntegrations:enable");
-      const stellaAppDir = requireRoot(options);
-      const id = readId(payload);
-      await ensureNativeCredential(options, stellaAppDir, id);
-      const configuredOAuthProviders =
-        await loadConfiguredOAuthProviders(options);
-      const catalog = await resolveDesktopNativeConnectorCatalog(
-        options,
-        stellaAppDir,
-      );
-      return await enableNativeConnector(
-        stellaAppDir,
-        id,
-        "store",
-        {
-          configuredBackendProviders: configuredOAuthProviders.backend,
-          configuredExternalCallbackProviders:
-            configuredOAuthProviders.externalCallback,
-        },
-        catalog.entries,
-      );
+      return await enableDesktopNativeIntegration(options, payload);
     },
   );
 
@@ -512,43 +566,7 @@ export const registerNativeIntegrationHandlers = (
     "nativeIntegrations:disable",
     async (event, payload: unknown) => {
       assertPrivilegedRequest(options, event, "nativeIntegrations:disable");
-      const stellaAppDir = requireRoot(options);
-      const id = readId(payload);
-      const configuredOAuthProviders =
-        await loadConfiguredOAuthProviders(options);
-      const catalog = await resolveDesktopNativeConnectorCatalog(
-        options,
-        stellaAppDir,
-      );
-      const result = await disableNativeConnector(
-        stellaAppDir,
-        id,
-        {
-          configuredBackendProviders: configuredOAuthProviders.backend,
-          configuredExternalCallbackProviders:
-            configuredOAuthProviders.externalCallback,
-        },
-        catalog.entries,
-      );
-      const entry = getNativeConnectorCatalogEntry(id, catalog.entries);
-      if (
-        entry?.provider === "google-workspace" &&
-        options.disconnectGoogleWorkspace
-      ) {
-        const remaining = await listNativeConnectors(
-          stellaAppDir,
-          {},
-          catalog.entries,
-        );
-        const stillEnabledGoogle = remaining.some(
-          (connector) =>
-            connector.provider === "google-workspace" && connector.enabled,
-        );
-        if (!stillEnabledGoogle) {
-          await options.disconnectGoogleWorkspace();
-        }
-      }
-      return result;
+      return await disableDesktopNativeIntegration(options, payload);
     },
   );
 };

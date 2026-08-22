@@ -10,7 +10,7 @@ import { registerHomeHandlers } from "../ipc/home-handlers.js";
 import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
 import { registerMobileHelloHandlers } from "../ipc/mobile-hello-handlers.js";
 import { registerMorphHandlers } from "../ipc/morph-handlers.js";
-import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
+import { disableDesktopNativeIntegration, enableDesktopNativeIntegration, listDesktopNativeIntegrations, registerNativeIntegrationHandlers, } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
 import { registerPetHandlers } from "../ipc/pet-handlers.js";
 import { ipcMain, shell } from "electron";
@@ -379,6 +379,15 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         windowManager: state.windowManager,
         getOverlayController: () => state.overlayController,
     });
+    const nativeIntegrationOptions = {
+        getStellaAppDir: lifecycle.getStellaDataDir,
+        requestPreregisteredOAuth: (payload) => services.connectorCredentialService.requestPreregisteredOAuth(payload),
+        requestDeviceOAuth: (payload) => services.connectorCredentialService.requestDeviceOAuth(payload),
+        requestExternalOAuthApproval: (payload) => services.connectorOAuthService.requestExternalOAuthApproval(payload),
+        getConvexAuthToken: () => services.authService.getConvexAuthToken(),
+        getConvexSiteUrl: () => services.authService.getConvexSiteUrl(),
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
+    };
     registerStoreHandlers({
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
@@ -399,6 +408,9 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         },
         getStoreAuthToken: () => services.authService.getConvexAuthToken(),
         getStoreWebEmbedConfig: () => state.windowManager?.getStoreWebEmbedConfig() ?? null,
+        listNativeIntegrations: () => listDesktopNativeIntegrations(nativeIntegrationOptions),
+        connectNativeIntegration: (payload) => enableDesktopNativeIntegration(nativeIntegrationOptions, payload),
+        disconnectNativeIntegration: (payload) => disableDesktopNativeIntegration(nativeIntegrationOptions, payload),
         dispatchStoreWebLocalAction,
     });
     registerFashionHandlers({
@@ -408,15 +420,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
-    registerNativeIntegrationHandlers({
-        getStellaAppDir: lifecycle.getStellaDataDir,
-        requestPreregisteredOAuth: (payload) => services.connectorCredentialService.requestPreregisteredOAuth(payload),
-        requestDeviceOAuth: (payload) => services.connectorCredentialService.requestDeviceOAuth(payload),
-        requestExternalOAuthApproval: (payload) => services.connectorOAuthService.requestExternalOAuthApproval(payload),
-        getConvexAuthToken: () => services.authService.getConvexAuthToken(),
-        getConvexSiteUrl: () => services.authService.getConvexSiteUrl(),
-        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-    });
+    registerNativeIntegrationHandlers(nativeIntegrationOptions);
     registerUpdatesHandlers({
         getAllWindows: () => getAllWindows(context),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),

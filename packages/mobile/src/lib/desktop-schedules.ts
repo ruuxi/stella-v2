@@ -12,6 +12,12 @@
  * Live updates ride the bridge's `schedule:updated` broadcast.
  */
 
+import {
+  formatNextRun,
+  parseStoredSchedule,
+  summarizeSchedule,
+} from "./schedule-format";
+
 export type MobileSchedule = {
   kind: "cron" | "heartbeat";
   id: string;
@@ -99,8 +105,10 @@ const readHeartbeatRow = (value: unknown): MobileSchedule | null => {
 
 /**
  * Defensive parse of the bridge's two lists — a bad row drops itself instead
- * of failing the tab. Sorted next-run first (paused rows sink), matching the
- * desktop Schedules dialog ordering.
+ * of failing the tab. Sorted next-run first with paused rows sunk to the
+ * bottom. This deliberately differs from the desktop's Up-next hook
+ * (`use-conversation-schedules.ts`), which DROPS disabled entries outright:
+ * on the phone a paused row must stay visible so it can be resumed.
  */
 export const parseMobileSchedules = (payload: {
   cronJobs?: unknown;
@@ -132,6 +140,36 @@ export const parseMobileSchedules = (payload: {
     return a.nextRunAtMs - b.nextRunAtMs;
   });
 };
+
+/**
+ * The two row-rendering decisions the Schedule tab makes per row, extracted
+ * so they are testable production code rather than inline JSX ternaries.
+ */
+export type ScheduleRowBadge =
+  | { kind: "paused" }
+  | { kind: "next"; label: string };
+
+/** Paused rows show a Paused badge; active rows show the next-run label. */
+export const scheduleRowBadge = (
+  schedule: Pick<MobileSchedule, "enabled" | "nextRunAtMs">,
+  nowMs: number,
+): ScheduleRowBadge =>
+  schedule.enabled
+    ? { kind: "next", label: formatNextRun(schedule.nextRunAtMs, nowMs) }
+    : { kind: "paused" };
+
+/**
+ * Natural-language cadence line for a row — stored cron/at/every JSON for
+ * crons, the interval for heartbeats. Empty string when the shape is too
+ * custom to summarize (the UI falls back to its localized "custom" copy).
+ */
+export const scheduleCadence = (
+  schedule: Pick<MobileSchedule, "scheduleJson" | "intervalMs">,
+): string =>
+  summarizeSchedule(
+    schedule.scheduleJson ? parseStoredSchedule(schedule.scheduleJson) : null,
+    schedule.intervalMs,
+  );
 
 /** Load every schedule on the paired computer through the desktop bridge. */
 export async function fetchMobileSchedules(): Promise<MobileSchedule[]> {
@@ -183,4 +221,54 @@ export async function mutateMobileSchedule(
     "schedule:updateCronJob",
     [{ jobId: schedule.id, patch: { enabled: action === "resume" } }],
   );
+}
+
+/**
+ * Subscribe to the desktop's `schedule:updated` push while the Schedule tab
+ * is on screen. Fires `onUpdate` on every broadcast (the payload carries no
+ * data — callers refetch the authoritative lists). Deliberately simpler than
+ * `desktop-bridge-live`: no reconnect loop — the tab refetches on every
+ * open/switch anyway, so a dropped socket only costs liveness until then.
+ * The returned close() is idempotent and also cancels an in-flight connect.
+ */
+export function subscribeMobileScheduleUpdates(
+  onUpdate: () => void,
+): { close: () => void } {
+  let closed = false;
+  let socket: { close: () => void } | null = null;
+  void (async () => {
+    try {
+      const { resolveDesktopBridge, openDesktopBridgeEventSocket } =
+        await import("./desktop-bridge-chat");
+      const { listStoredPairedPhoneAccess } = await import("./phone-access");
+      const paired = await listStoredPairedPhoneAccess();
+      const access = paired[0];
+      if (!access || closed) return;
+      const bridge = await resolveDesktopBridge(access);
+      if (closed) return;
+      const opened = await openDesktopBridgeEventSocket(bridge, {
+        channels: ["schedule:updated"],
+        onEvent: (channel) => {
+          if (channel === "schedule:updated" && !closed) onUpdate();
+        },
+        onClose: () => {
+          socket = null;
+        },
+      });
+      if (closed) {
+        opened.close();
+        return;
+      }
+      socket = opened;
+    } catch {
+      // No pairing / unreachable desktop — the tab still works via refetch.
+    }
+  })();
+  return {
+    close: () => {
+      closed = true;
+      socket?.close();
+      socket = null;
+    },
+  };
 }

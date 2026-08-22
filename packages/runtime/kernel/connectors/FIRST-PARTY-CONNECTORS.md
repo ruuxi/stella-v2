@@ -64,6 +64,19 @@ proprietary Composio APIs. Prefer the native tool in all cases.
 - The Store publisher now admits the reviewed developer/data/utility toolkits
   using the auth schemes reported by Composio. API-key toolkits remain
   Composio-managed; Stella does not ingest or custody their keys natively.
+- The API-key developer/data connectors `firecrawl`, `tavily`, `exa`,
+  `serpapi`, `perplexityai`, `posthog`, `ably`, and `abuseipdb` now carry
+  server-side **fixed-origin request planners**
+  (`connectors/executors/api_key.ts` `DEFERRED_API_KEY_PROVIDERS` /
+  `buildApiKeyProviderRequest`) alongside `peopledatalabs`, and are recorded as
+  their canonical `developer_data` owner in
+  `first-party-connector-ownership.ts` (`planner_ready`). These planners emit
+  only relative paths and static, non-secret headers; they are **not** wired
+  into the executor dispatch and cannot run until the per-user API-key vault and
+  placement-aware injection land, so no key is custodied and Composio stays
+  authoritative. `snowflake` (account-scoped origin), `abstract` (per-product
+  host), and `44api` (digit-leading `44API_*` actions) remain `metadata_only`
+  pending their own origin/action-shape resolution.
 - `FIRST_PARTY_LOCAL_EXECUTION_ENABLED` is **empty by design** — the deliberate
   switch that would let a future native dispatcher run. It mirrors the equally
   empty `PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS` in

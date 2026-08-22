@@ -79,8 +79,8 @@ describe("reconciled first-party provider-family contract", () => {
       (entry) => entry.codeStatus,
     );
     expect(counts.executor_ready).toHaveLength(30);
-    expect(counts.planner_ready).toHaveLength(8);
-    expect(counts.metadata_only).toHaveLength(11);
+    expect(counts.planner_ready).toHaveLength(16);
+    expect(counts.metadata_only).toHaveLength(3);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "external_blocked",
@@ -133,7 +133,7 @@ describe("reconciled first-party provider-family contract", () => {
     const ownershipIds = AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP.map(
       (entry) => entry.connectorId,
     );
-    expect(new Set(ownershipIds).size).toBe(16);
+    expect(new Set(ownershipIds).size).toBe(24);
 
     for (const ownership of AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP) {
       const status = getFirstPartyProviderFamilyStatus(ownership.connectorId);

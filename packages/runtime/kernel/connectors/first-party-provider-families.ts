@@ -89,6 +89,14 @@ const PLANNER_READY_CONNECTOR_IDS = new Set([
   "0codekit",
   "1password",
   "abyssale",
+  "firecrawl",
+  "tavily",
+  "exa",
+  "serpapi",
+  "perplexityai",
+  "posthog",
+  "ably",
+  "abuseipdb",
 ]);
 
 const codeStatusFor = (

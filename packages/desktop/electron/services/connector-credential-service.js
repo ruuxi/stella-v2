@@ -31,13 +31,14 @@ export class ConnectorCredentialService {
     }
     async requestBackendApiKey(payload) {
         return await this.enqueueRequest({
-            tokenKey: `backend-api-key:${payload.connectorId}`,
+            tokenKey: `backend-api-key:${payload.connectorId}:${payload.credentialSlot ?? "default"}`,
             displayName: payload.displayName,
             authType: "api_key",
             description: `Enter your ${payload.credentialLabel}. Stella encrypts it in your server-side vault and never exposes it to agents.`,
             placeholder: payload.credentialLabel,
             backendApiKey: {
                 connectorId: payload.connectorId,
+                credentialSlot: payload.credentialSlot,
                 expectedGeneration: payload.expectedGeneration,
             },
             kind: "credential",
@@ -586,6 +587,7 @@ export class ConnectorCredentialService {
                     body: JSON.stringify({
                         id: meta.backendApiKey.connectorId,
                         apiKey: rawValue,
+                        credentialSlot: meta.backendApiKey.credentialSlot,
                         expectedGeneration: meta.backendApiKey.expectedGeneration,
                     }),
                     signal: AbortSignal.timeout(30_000),

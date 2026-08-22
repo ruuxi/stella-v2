@@ -277,6 +277,7 @@ credential, a verified representative call, and a first-party rollout.
 | `7shifts`        | `https://api.7shifts.com`        | `Authorization: Bearer`             | long-lived access-token model; supports exact `SEVENSHIFTS_*` and existing `7SHIFTS_*` public actions |
 | `abyssale`       | `https://api.abyssale.com`       | `X-API-KEY`                         | reviewed template/generation actions only                                                             |
 | `0codekit`       | `https://prod.0codekit.com`      | `auth` header                       | reviewed PDF actions only                                                                             |
+| `abstract`       | product-specific (below)         | `api_key` query parameter           | each public action is compile-time bound to one official origin and one encrypted credential slot     |
 | `44api`          | `https://api.44api.dev`          | `X-API-Key`                         | exact public `44API_*` names are preserved and canonically mapped internally                          |
 | `21risk`         | `https://21risk.com`             | `Authorization: Bearer`             | OData v5 read-only; only verified entity paths (`reports`, `organizations`)                           |
 
@@ -284,6 +285,28 @@ No descriptor accepts a caller-supplied origin, path authority, authentication
 header, or request encoding. The only accepted authentication placements are
 the enumerated placements above. The executor performs one request, follows no
 redirect, redacts every credential representation, and never retries a write.
+
+### Abstract multi-product credential contract
+
+Abstract remains one public connector (`abstract`) and preserves its exact public
+action IDs. It uses three owner-scoped encrypted credential slots; neither an
+action input nor a connect request can choose an origin:
+
+| Public action                 | Fixed API origin                          | Credential slot    |
+| ----------------------------- | ----------------------------------------- | ------------------ |
+| `ABSTRACT_VALIDATE_EMAIL`     | `https://emailvalidation.abstractapi.com` | `email_validation` |
+| `ABSTRACT_VALIDATE_PHONE`     | `https://phonevalidation.abstractapi.com` | `phone_validation` |
+| `ABSTRACT_GET_IP_GEOLOCATION` | `https://ipgeolocation.abstractapi.com`   | `ip_geolocation`   |
+
+Connect/status responses contain only slot names, labels, connection state,
+generation, and timestamps. The protected desktop main-process prompt submits a
+key directly to the authenticated vault endpoint. Raw keys, encrypted envelopes,
+and authentication headers never enter renderer or runtime-worker state. A
+connector-level status is `incomplete` until all three slots are active, while
+execution readiness is action-specific and requires only the action's compiled
+slot. Disconnect physically deletes all three slot rows. Abstract remains absent
+from deployment allowlists and has no rollout row; Composio/default routing stays
+authoritative until each product receives a representative live verification.
 
 ### Apollo action contract
 
@@ -360,7 +383,6 @@ descriptors and first-party dispatch:
 | Connector   | Remaining gap                                                                                                                                                                                                                                                                                                                                                               |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `1password` | 1Password Connect uses a customer-deployed account origin. There is no safe universal suffix or credential-bound origin field in the current lifecycle.                                                                                                                                                                                                                     |
-| `abstract`  | Abstract issues product-specific keys across the explicit `emailvalidation.abstractapi.com`, `phonevalidation.abstractapi.com`, and `ipgeolocation.abstractapi.com` origins; the current one-credential-per-connector contract cannot represent that truthfully.                                                                                                            |
 | `snowflake` | The SQL API requires an account-specific origin, and the reviewed Snowflake contract has OAuth/key-pair/PAT semantics rather than a proven single static API key for this product surface. The existing relative SQL planners and strict `*.snowflakecomputing.com` origin validator are non-executable until account-origin capture and the credential model are designed. |
 
 That Snowflake disposition follows the primary [SQL API endpoint
@@ -425,11 +447,14 @@ first_party_canary(1/5/25%) → first_party_preferred → first_party_only`.
 
 ### API-key migration and rollback
 
-The schema change is additive and needs no data backfill. Existing Composio
-connections remain authoritative because an absent rollout still means
+The schema changes are additive. Pre-slot `api_key_credentials` rows are read as
+the `default` slot and materialize that slot on their next generation-checked
+replacement, so no eager credential rewrite or decrypt/re-encrypt backfill is
+required. Multi-slot providers have no ambiguous legacy fallback. Existing
+Composio connections remain authoritative because an absent rollout still means
 `composio_only`; existing desktop-local connector tokens are never imported or
-uploaded. Users explicitly submit a new key through the protected API-key prompt
-when their connector is selected for first-party setup.
+uploaded. Users explicitly submit each required key through the protected API-key
+prompt when their connector is selected for first-party setup.
 
 Migration order:
 
@@ -453,10 +478,12 @@ Rollback order:
 2. Remove the provider from the API-key verified allowlist and then the general
    enabled-provider allowlist. Do not rely on a missing key to trigger OAuth
    refresh or executor fallback; neither exists for this path.
-3. Leave `api_key_credentials` and all referenced master-key versions in place
-   during code rollback. The additive table is harmless to an older executor
-   and preserves reversibility. Do not remove a master-key version until the
-   rotation sweep reports no envelopes using it.
+3. Leave `api_key_credentials` (including its optional `credentialSlot`) and all
+   referenced master-key versions in place during code rollback. A rollback
+   build must retain the additive slot field in its schema even if it restores
+   the older executor. The older executor has no Abstract descriptor and will
+   not consume those rows. Do not remove a master-key version until the rotation
+   sweep reports no envelopes using it.
 4. If credentials must be destroyed rather than preserved for a later retry,
    use the authenticated disconnect flow per owner (account deletion also drains
    the table). Only remove the table in a later, separately reviewed migration
@@ -468,6 +495,9 @@ Rollback order:
   `oauth_credentials`, `api_key_credentials`, `connector_account_bindings`, and
   `connector_audit_events` (`account_deletion.ts`). `connector_rollouts` is
   global config and intentionally not owner-scoped.
+- API-key disconnect drains every owner/provider slot. The encryption-key rotation
+  sweep re-wraps each slot independently without changing its slot identity or
+  generation.
 - Crons: `purge expired connector oauth attempts` (hourly),
   `purge expired connector audit events` (daily).
 

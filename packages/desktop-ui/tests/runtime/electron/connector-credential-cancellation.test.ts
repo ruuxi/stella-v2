@@ -83,8 +83,8 @@ describe("ConnectorCredentialService OAuth cancellation", () => {
       requestId: request.requestId,
       value: "open",
     });
-    await waitFor(() =>
-      mocks.connectPreregisteredConnectorOAuth.mock.calls.length > 0,
+    await waitFor(
+      () => mocks.connectPreregisteredConnectorOAuth.mock.calls.length > 0,
     );
     const signal = mocks.connectPreregisteredConnectorOAuth.mock.calls[0]?.[1]
       .signal as AbortSignal;
@@ -98,14 +98,11 @@ describe("ConnectorCredentialService OAuth cancellation", () => {
       ok: false,
       reason: "cancelled",
     });
-    expect(mocks.send).toHaveBeenCalledWith(
-      "connector-credential:complete",
-      {
-        requestId: request.requestId,
-        ok: false,
-        reason: "cancelled",
-      },
-    );
+    expect(mocks.send).toHaveBeenCalledWith("connector-credential:complete", {
+      requestId: request.requestId,
+      ok: false,
+      reason: "cancelled",
+    });
   });
 });
 
@@ -124,9 +121,10 @@ describe("ConnectorCredentialService backend API-key custody", () => {
       windowManagerTarget: { getWindowManager: () => null },
     });
     const connected = service.requestBackendApiKey({
-      connectorId: "firecrawl",
-      displayName: "Firecrawl",
-      credentialLabel: "Firecrawl API key",
+      connectorId: "abstract",
+      displayName: "Abstract",
+      credentialLabel: "Abstract Phone Validation API key",
+      credentialSlot: "phone_validation",
       expectedGeneration: 3,
     });
     await waitFor(() => mocks.send.mock.calls.length > 0);
@@ -137,7 +135,7 @@ describe("ConnectorCredentialService backend API-key custody", () => {
 
     const submitted = await service.submitCredential({
       requestId: request.requestId,
-      value: "firecrawl-key-sentinel",
+      value: "abstract-phone-key-sentinel",
     });
 
     expect(submitted).toEqual({ ok: true });
@@ -153,13 +151,14 @@ describe("ConnectorCredentialService backend API-key custody", () => {
       "content-type": "application/json",
     });
     expect(JSON.parse(String(init?.body))).toEqual({
-      id: "firecrawl",
-      apiKey: "firecrawl-key-sentinel",
+      id: "abstract",
+      apiKey: "abstract-phone-key-sentinel",
+      credentialSlot: "phone_validation",
       expectedGeneration: 3,
     });
     expect(mocks.saveConnectorAccessToken).not.toHaveBeenCalled();
     expect(JSON.stringify(mocks.send.mock.calls)).not.toContain(
-      "firecrawl-key-sentinel",
+      "abstract-phone-key-sentinel",
     );
   });
 

@@ -49,6 +49,7 @@ const makeService = (root: string, withSiteAuth = false) => {
     requestPreregisteredOAuth: vi.fn(),
     requestExternalOAuthApproval: vi.fn(),
     requestDeviceOAuth: vi.fn(),
+    requestBackendApiKey: vi.fn(),
   };
   const service = new ConnectorConnectService({
     getStellaAppDir: () => root,
@@ -355,6 +356,88 @@ describe("ConnectorConnectService canonical guards", () => {
       connected: true,
       executable: true,
     });
+  });
+
+  it("prompts only for missing Abstract product credential slots", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "stella-connect-service-"));
+    roots.push(root);
+    await writeCachedServerCatalog(root, [
+      { ...backendEntry("abstract", "Abstract"), auth: ["API_KEY"] },
+    ]);
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.endsWith("/api/native-oauth/providers")) {
+        return new Response(JSON.stringify({ providers: [] }), { status: 200 });
+      }
+      if (value.endsWith("/api/native-integrations/connect-link")) {
+        return new Response(
+          JSON.stringify({
+            authType: "api_key",
+            credentialLabel: "Abstract product API keys",
+            credentialProfiles: [
+              {
+                credentialSlot: "email_validation",
+                credentialLabel: "Abstract Email Validation API key",
+                connected: true,
+                expectedGeneration: 4,
+              },
+              {
+                credentialSlot: "phone_validation",
+                credentialLabel: "Abstract Phone Validation API key",
+                connected: false,
+              },
+              {
+                credentialSlot: "ip_geolocation",
+                credentialLabel: "Abstract IP Geolocation API key",
+                connected: false,
+                expectedGeneration: 2,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (value.includes("/api/native-integrations/status")) {
+        return new Response(JSON.stringify({ connected: true }), {
+          status: 200,
+        });
+      }
+      return new Response("offline", { status: 503 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { service, credentialService } = makeService(root, true);
+    credentialService.requestBackendApiKey.mockResolvedValue({ ok: true });
+
+    const outcome = service.requestConnection({
+      id: "abstract",
+      name: "spoofed",
+    });
+    await waitFor(() => send.mock.calls.length === 1);
+    const card = send.mock.calls[0]![1] as { requestId: string; name: string };
+    expect(card.name).toBe("Abstract");
+    service.respond({ requestId: card.requestId, action: "accept" });
+
+    await expect(outcome).resolves.toEqual({ ok: true, status: "connected" });
+    expect(credentialService.requestBackendApiKey.mock.calls).toEqual([
+      [
+        {
+          connectorId: "abstract",
+          displayName: "Abstract",
+          credentialLabel: "Abstract Phone Validation API key",
+          credentialSlot: "phone_validation",
+          expectedGeneration: undefined,
+        },
+      ],
+      [
+        {
+          connectorId: "abstract",
+          displayName: "Abstract",
+          credentialLabel: "Abstract IP Geolocation API key",
+          credentialSlot: "ip_geolocation",
+          expectedGeneration: 2,
+        },
+      ],
+    ]);
   });
 
   it("backstops a wedged connecting flow at the card timeout", async () => {

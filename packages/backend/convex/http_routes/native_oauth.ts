@@ -18,6 +18,8 @@ import {
 } from "../connectors/executors/first_party";
 import {
   apiKeyProviderForConnectorAction,
+  getApiKeyCredentialProfile,
+  getApiKeyCredentialProfiles,
   getApiKeyProviderDescriptor,
   isApiKeyProviderVerified,
 } from "../connectors/api_keys/providers";
@@ -75,6 +77,7 @@ type NativeIntegrationRequestBody = {
   action?: unknown;
   input?: unknown;
   apiKey?: unknown;
+  credentialSlot?: unknown;
   expectedGeneration?: unknown;
 };
 
@@ -569,6 +572,7 @@ const resolveNativeExecutionRoute = async (
       ? ctx.runQuery(internal.connectors.api_keys.vault.getApiKeyReadiness, {
           ownerId,
           connectorId,
+          action,
         })
       : ctx.runQuery(internal.connectors.oauth.accounts.getConnectorReadiness, {
           ownerId,
@@ -930,6 +934,19 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 credentialLabel: descriptor.credentialLabel,
                 expectedGeneration: status?.generation,
                 connected: status?.connected ?? false,
+                credentialProfiles: (status?.credentialProfiles ?? []).map(
+                  (profile) => ({
+                    credentialSlot: profile.credentialSlot,
+                    credentialLabel: profile.credentialLabel,
+                    connected: profile.connected,
+                    expectedGeneration: profile.generation,
+                  }),
+                ),
+                missingCredentialSlots:
+                  status?.missingCredentialSlots ??
+                  getApiKeyCredentialProfiles(descriptor).map(
+                    (profile) => profile.credentialSlot,
+                  ),
               },
               200,
               origin,
@@ -1033,6 +1050,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           );
         }
         const expectedGeneration = body.expectedGeneration;
+        const credentialSlot = readString(body.credentialSlot);
         if (
           expectedGeneration !== undefined &&
           (typeof expectedGeneration !== "number" ||
@@ -1052,6 +1070,18 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           return errorResponse(
             400,
             "Integration does not accept an API key.",
+            origin,
+          );
+        }
+        const profiles = getApiKeyCredentialProfiles(descriptor);
+        if (
+          (credentialSlot &&
+            !getApiKeyCredentialProfile(descriptor, credentialSlot)) ||
+          (!credentialSlot && profiles.length > 1)
+        ) {
+          return errorResponse(
+            400,
+            "Select a valid product credential for this integration.",
             origin,
           );
         }
@@ -1083,6 +1113,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             {
               connectorId: connector.id,
               apiKey: body.apiKey,
+              credentialSlot: credentialSlot ?? undefined,
               expectedGeneration:
                 typeof expectedGeneration === "number"
                   ? expectedGeneration
@@ -1094,6 +1125,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               connected: result.connected,
               executor: "first_party",
               provider: result.provider,
+              credentialSlot: result.credentialSlot,
               generation: result.generation,
               replaced: result.replaced,
             },
@@ -1216,6 +1248,16 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               authType?: "api_key";
               providerEnabled?: boolean;
               providerVerified?: boolean;
+              credentialProfiles?: Array<{
+                credentialSlot: string;
+                credentialLabel: string;
+                connected: boolean;
+                configured: boolean;
+                accountStatus: string;
+                generation?: number;
+                updatedAt?: number;
+              }>;
+              missingCredentialSlots?: string[];
             }
           | undefined;
         if (firstPartyTarget) {
@@ -1262,6 +1304,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                       authType: "api_key",
                       configured: apiKeyReadiness.configured,
                       generation: apiKeyReadiness.generation,
+                      credentialProfiles: apiKeyReadiness.credentialProfiles,
+                      missingCredentialSlots:
+                        apiKeyReadiness.missingCredentialSlots,
                       providerEnabled: apiKeyReadiness.providerEnabled,
                       providerVerified: apiKeyReadiness.providerVerified,
                     }
@@ -1287,6 +1332,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                     authType: "api_key",
                     providerEnabled: apiKeyReadiness.providerEnabled,
                     providerVerified: apiKeyReadiness.providerVerified,
+                    credentialProfiles: apiKeyReadiness.credentialProfiles,
+                    missingCredentialSlots:
+                      apiKeyReadiness.missingCredentialSlots,
                   }
                 : {}),
             };
@@ -1310,6 +1358,8 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 authType: "api_key",
                 providerEnabled: readiness.providerEnabled,
                 providerVerified: readiness.providerVerified,
+                credentialProfiles: readiness.credentialProfiles,
+                missingCredentialSlots: readiness.missingCredentialSlots,
               };
             }
           }

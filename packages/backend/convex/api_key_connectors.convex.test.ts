@@ -8,6 +8,8 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import {
   API_KEY_PROVIDER_DESCRIPTORS,
+  getApiKeyActionTarget,
+  getApiKeyCredentialProfiles,
   getApiKeyProviderDescriptor,
   isApiKeyProviderVerified,
   requireReadyApiKeyProvider,
@@ -242,6 +244,11 @@ const MASTER_KEY = btoa(
     ...Array.from({ length: 32 }, (_, index) => (index * 11 + 5) & 0xff),
   ),
 );
+const ROTATED_MASTER_KEY = btoa(
+  String.fromCharCode(
+    ...Array.from({ length: 32 }, (_, index) => (index * 7 + 19) & 0xff),
+  ),
+);
 
 const createTest = () => {
   const test = convexTest(schema, modules);
@@ -270,9 +277,9 @@ const setApiKeyEnv = () => {
   process.env.STELLA_SECRETS_MASTER_KEY_VERSION = "1";
   process.env.STELLA_FIRST_PARTY_CONNECTOR_EXECUTION_ENABLED = "1";
   process.env.STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS =
-    "firecrawl,exa,serpapi,ashby";
+    "firecrawl,exa,serpapi,ashby,abstract";
   process.env.STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS =
-    "firecrawl,exa,serpapi,ashby";
+    "firecrawl,exa,serpapi,ashby,abstract";
 };
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -292,6 +299,19 @@ const connectFirecrawl = async (
     expectedGeneration,
   });
 
+const connectAbstract = async (
+  test: ReturnType<typeof createTest>,
+  credentialSlot: string,
+  apiKey: string,
+  expectedGeneration?: number,
+) =>
+  asOwner(test).action(api.connectors.api_keys.vault.connectApiKey, {
+    connectorId: "abstract",
+    credentialSlot,
+    apiKey,
+    expectedGeneration,
+  });
+
 const enableFirecrawlFirstParty = async (
   test: ReturnType<typeof createTest>,
 ) => {
@@ -301,11 +321,15 @@ const enableFirecrawlFirstParty = async (
   });
 };
 
-const publishFirecrawl = async (test: ReturnType<typeof createTest>) => {
-  const descriptor = getApiKeyProviderDescriptor("firecrawl")!;
+const publishApiKeyConnector = async (
+  test: ReturnType<typeof createTest>,
+  connectorId: string,
+  name: string,
+) => {
+  const descriptor = getApiKeyProviderDescriptor(connectorId)!;
   await test.mutation(internal.data.integrations.upsertPublicIntegration, {
-    id: "firecrawl",
-    name: "Firecrawl",
+    id: connectorId,
+    name,
     provider: "composio",
     category: "developer-tools",
     auth: ["API_KEY"],
@@ -315,16 +339,22 @@ const publishFirecrawl = async (test: ReturnType<typeof createTest>) => {
       title: name,
       inputSchemaJson: JSON.stringify(action.inputSchema),
     })),
-    description: "Connect Firecrawl to Stella.",
+    description: `Connect ${name} to Stella.`,
     connector: {
       type: "composio",
-      toolkit: "firecrawl",
+      toolkit: connectorId,
       provider: "composio",
     },
     enabled: true,
     usagePolicy: "ready",
   });
 };
+
+const publishFirecrawl = (test: ReturnType<typeof createTest>) =>
+  publishApiKeyConnector(test, "firecrawl", "Firecrawl");
+
+const publishAbstract = (test: ReturnType<typeof createTest>) =>
+  publishApiKeyConnector(test, "abstract", "Abstract");
 
 const runFirecrawl = (
   test: ReturnType<typeof createTest>,
@@ -372,7 +402,7 @@ describe("API-key provider descriptors", () => {
     expect(
       API_KEY_PROVIDER_DESCRIPTORS.map((descriptor) => [
         descriptor.connectorId,
-        descriptor.apiOrigin,
+        "apiOrigin" in descriptor ? descriptor.apiOrigin : undefined,
         descriptor.auth.type,
       ]),
     ).toEqual([
@@ -391,6 +421,7 @@ describe("API-key provider descriptors", () => {
       ["7shifts", "https://api.7shifts.com", "bearer"],
       ["abyssale", "https://api.abyssale.com", "header"],
       ["0codekit", "https://prod.0codekit.com", "header"],
+      ["abstract", undefined, "query"],
       ["44api", "https://api.44api.dev", "header"],
       ["21risk", "https://21risk.com", "bearer"],
     ]);
@@ -580,6 +611,7 @@ describe("API-key auth placement and egress controls", () => {
     const cases = [
       {
         connectorId: "firecrawl",
+        action: "FIRECRAWL_SEARCH",
         path: "/v2/search",
         expectedOrigin: "https://api.firecrawl.dev",
         assertAuth: (url: URL, headers: Headers) => {
@@ -589,6 +621,7 @@ describe("API-key auth placement and egress controls", () => {
       },
       {
         connectorId: "exa",
+        action: "EXA_SEARCH",
         path: "/search",
         expectedOrigin: "https://api.exa.ai",
         assertAuth: (url: URL, headers: Headers) => {
@@ -599,6 +632,7 @@ describe("API-key auth placement and egress controls", () => {
       },
       {
         connectorId: "serpapi",
+        action: "SERPAPI_SEARCH",
         path: "/search.json?q=stella",
         expectedOrigin: "https://serpapi.com",
         assertAuth: (url: URL, headers: Headers) => {
@@ -609,6 +643,7 @@ describe("API-key auth placement and egress controls", () => {
       },
       {
         connectorId: "ashby",
+        action: "ASHBY_LIST_CANDIDATES",
         path: "/candidate.list",
         expectedOrigin: "https://api.ashbyhq.com",
         assertAuth: (url: URL, headers: Headers) => {
@@ -624,6 +659,7 @@ describe("API-key auth placement and egress controls", () => {
       const descriptor = getApiKeyProviderDescriptor(testCase.connectorId)!;
       const prepared = buildAuthenticatedApiKeyRequest({
         descriptor,
+        action: testCase.action,
         apiKey: API_KEY,
         request: { method: "POST", path: testCase.path, body: { value: 1 } },
       });
@@ -759,6 +795,77 @@ describe("API-key auth placement and egress controls", () => {
     }
   });
 
+  it("binds every Abstract action to its product host and credential slot", async () => {
+    const descriptor = getApiKeyProviderDescriptor("abstract")!;
+    expect(descriptor.connectorId).toBe("abstract");
+    expect(Object.keys(descriptor.actions)).toEqual([
+      "ABSTRACT_VALIDATE_EMAIL",
+      "ABSTRACT_VALIDATE_PHONE",
+      "ABSTRACT_GET_IP_GEOLOCATION",
+    ]);
+    expect(getApiKeyCredentialProfiles(descriptor)).toEqual([
+      {
+        credentialSlot: "email_validation",
+        credentialLabel: "Abstract Email Validation API key",
+      },
+      {
+        credentialSlot: "phone_validation",
+        credentialLabel: "Abstract Phone Validation API key",
+      },
+      {
+        credentialSlot: "ip_geolocation",
+        credentialLabel: "Abstract IP Geolocation API key",
+      },
+    ]);
+    const cases = [
+      {
+        action: "ABSTRACT_VALIDATE_EMAIL",
+        input: { email: "owner@example.com", auto_correct: true },
+        origin: "https://emailvalidation.abstractapi.com",
+        slot: "email_validation",
+      },
+      {
+        action: "ABSTRACT_VALIDATE_PHONE",
+        input: { phone: "+14155550100", country: "US" },
+        origin: "https://phonevalidation.abstractapi.com",
+        slot: "phone_validation",
+      },
+      {
+        action: "ABSTRACT_GET_IP_GEOLOCATION",
+        input: { ip_address: "203.0.113.9", fields: "city,country" },
+        origin: "https://ipgeolocation.abstractapi.com",
+        slot: "ip_geolocation",
+      },
+    ] as const;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => jsonResponse({ ok: true }));
+
+    for (const testCase of cases) {
+      expect(getApiKeyActionTarget(descriptor, testCase.action)).toEqual({
+        apiOrigin: testCase.origin,
+        credentialSlot: testCase.slot,
+      });
+      fetchMock.mockClear();
+      await executeApiKeyProviderAction({
+        descriptor,
+        apiKey: API_KEY,
+        action: testCase.action,
+        input: { ...testCase.input },
+        operation: "read",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [requestUrl, requestInit] = fetchMock.mock.calls[0]!;
+      const url = new URL(String(requestUrl));
+      expect(url.origin).toBe(testCase.origin);
+      expect(url.pathname).toBe("/v1/");
+      expect(url.searchParams.get("api_key")).toBe(API_KEY);
+      expect(requestInit?.redirect).toBe("manual");
+      expect((requestInit?.headers as Headers).get("authorization")).toBeNull();
+      expect(String(requestInit?.body ?? "")).not.toContain(API_KEY);
+    }
+  });
+
   it("rejects cross-origin paths and provider-supplied arbitrary headers", () => {
     for (const descriptor of API_KEY_PROVIDER_DESCRIPTORS) {
       for (const path of [
@@ -769,6 +876,7 @@ describe("API-key auth placement and egress controls", () => {
         expect(() =>
           buildAuthenticatedApiKeyRequest({
             descriptor,
+            action: Object.keys(descriptor.actions)[0]!,
             apiKey:
               descriptor.providerKey === "ably" ? "id:secret-value" : API_KEY,
             request: { method: "GET", path },
@@ -780,6 +888,7 @@ describe("API-key auth placement and egress controls", () => {
     expect(() =>
       buildAuthenticatedApiKeyRequest({
         descriptor,
+        action: "FIRECRAWL_SEARCH",
         apiKey: API_KEY,
         request: {
           method: "GET",
@@ -1102,6 +1211,7 @@ describe("encrypted API-key vault lifecycle", () => {
     expect(await connectFirecrawl(test)).toEqual({
       connected: true,
       provider: "firecrawl",
+      credentialSlot: "default",
       generation: 1,
       replaced: false,
     });
@@ -1117,6 +1227,7 @@ describe("encrypted API-key vault lifecycle", () => {
     expect(row?.encryptedKey).toBeTruthy();
     expect(row?.encryptedKey).not.toContain(API_KEY);
     expect(row?.keyVersion).toBe(1);
+    expect(row?.credentialSlot).toBe("default");
 
     const status = await asOwner(test).query(
       api.connectors.api_keys.vault.getApiKeyConnectionStatus,
@@ -1139,6 +1250,7 @@ describe("encrypted API-key vault lifecycle", () => {
       test.action(internal.connectors.api_keys.vault.loadApiKeyForExecution, {
         ownerId: otherOwnerId,
         connectorId: "firecrawl",
+        action: "FIRECRAWL_SEARCH",
       }),
     ).rejects.toThrow(/not_connected/);
 
@@ -1192,9 +1304,42 @@ describe("encrypted API-key vault lifecycle", () => {
     ).rejects.toThrow(/credential_generation_conflict/);
     const loaded = await test.action(
       internal.connectors.api_keys.vault.loadApiKeyForExecution,
-      { ownerId, connectorId: "firecrawl" },
+      {
+        ownerId,
+        connectorId: "firecrawl",
+        action: "FIRECRAWL_SEARCH",
+      },
     );
     expect(loaded.apiKey).toBe(replacement);
+  });
+
+  it("reads legacy default rows and upgrades their slot on replacement", async () => {
+    const test = createTest();
+    await connectFirecrawl(test);
+    const legacyId = await test.run(async (ctx) => {
+      const row = await ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", ownerId).eq("provider", "firecrawl"),
+        )
+        .unique();
+      await ctx.db.patch(row!._id, { credentialSlot: undefined });
+      return row!._id;
+    });
+
+    const legacyStatus = await asOwner(test).query(
+      api.connectors.api_keys.vault.getApiKeyConnectionStatus,
+      { connectorId: "firecrawl" },
+    );
+    expect(legacyStatus).toMatchObject({
+      connected: true,
+      generation: 1,
+      missingCredentialSlots: [],
+    });
+    await connectFirecrawl(test, "fc-migrated-secret-123456789", 1);
+    const migrated = await test.run(async (ctx) => ctx.db.get(legacyId));
+    expect(migrated?.credentialSlot).toBe("default");
+    expect(migrated?.generation).toBe(2);
   });
 
   it("disconnect physically deletes the encrypted credential", async () => {
@@ -1215,6 +1360,284 @@ describe("encrypted API-key vault lifecycle", () => {
       { connectorId: "firecrawl" },
     );
     expect(status).toMatchObject({ connected: false, configured: false });
+  });
+
+  it("isolates Abstract product slots for readiness, loading, and replacement", async () => {
+    const test = createTest();
+    const emailKey = "abstract-email-key-123456789";
+    const phoneKey = "abstract-phone-key-123456789";
+    const replacementPhoneKey = "abstract-phone-key-replacement-987654321";
+
+    await expect(
+      asOwner(test).action(api.connectors.api_keys.vault.connectApiKey, {
+        connectorId: "abstract",
+        apiKey: emailKey,
+      }),
+    ).rejects.toThrow(/invalid_input/);
+    await connectAbstract(test, "email_validation", emailKey);
+
+    const partial = await asOwner(test).query(
+      api.connectors.api_keys.vault.getApiKeyConnectionStatus,
+      { connectorId: "abstract" },
+    );
+    expect(partial).toMatchObject({
+      connected: false,
+      configured: true,
+      accountStatus: "incomplete",
+      ready: false,
+      missingCredentialSlots: ["phone_validation", "ip_geolocation"],
+    });
+    expect(JSON.stringify(partial)).not.toContain(emailKey);
+
+    const emailReadiness = await test.query(
+      internal.connectors.api_keys.vault.getApiKeyReadiness,
+      {
+        ownerId,
+        connectorId: "abstract",
+        action: "ABSTRACT_VALIDATE_EMAIL",
+      },
+    );
+    const phoneReadiness = await test.query(
+      internal.connectors.api_keys.vault.getApiKeyReadiness,
+      {
+        ownerId,
+        connectorId: "abstract",
+        action: "ABSTRACT_VALIDATE_PHONE",
+      },
+    );
+    expect(emailReadiness).toMatchObject({
+      connected: true,
+      ready: true,
+      generation: 1,
+      missingCredentialSlots: [],
+    });
+    expect(phoneReadiness).toMatchObject({
+      connected: false,
+      ready: false,
+      missingCredentialSlots: ["phone_validation"],
+    });
+
+    const loadedEmail = await test.action(
+      internal.connectors.api_keys.vault.loadApiKeyForExecution,
+      {
+        ownerId,
+        connectorId: "abstract",
+        action: "ABSTRACT_VALIDATE_EMAIL",
+      },
+    );
+    expect(loadedEmail).toEqual({
+      apiKey: emailKey,
+      provider: "abstract",
+      credentialSlot: "email_validation",
+      generation: 1,
+    });
+    await expect(
+      test.action(internal.connectors.api_keys.vault.loadApiKeyForExecution, {
+        ownerId,
+        connectorId: "abstract",
+        action: "ABSTRACT_VALIDATE_PHONE",
+      }),
+    ).rejects.toThrow(/not_connected/);
+    await expect(
+      test.action(internal.connectors.api_keys.vault.loadApiKeyForExecution, {
+        ownerId: otherOwnerId,
+        connectorId: "abstract",
+        action: "ABSTRACT_VALIDATE_EMAIL",
+      }),
+    ).rejects.toThrow(/not_connected/);
+
+    await connectAbstract(test, "phone_validation", phoneKey);
+    const beforeReplacement = await test.run(async (ctx) =>
+      ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", ownerId).eq("provider", "abstract"),
+        )
+        .collect(),
+    );
+    const emailEnvelope = beforeReplacement.find(
+      (row) => row.credentialSlot === "email_validation",
+    )?.encryptedKey;
+    const phoneEnvelope = beforeReplacement.find(
+      (row) => row.credentialSlot === "phone_validation",
+    )?.encryptedKey;
+    await expect(
+      connectAbstract(test, "phone_validation", replacementPhoneKey, 1),
+    ).resolves.toMatchObject({
+      credentialSlot: "phone_validation",
+      generation: 2,
+      replaced: true,
+    });
+
+    const afterReplacement = await test.run(async (ctx) =>
+      ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", ownerId).eq("provider", "abstract"),
+        )
+        .collect(),
+    );
+    expect(afterReplacement).toHaveLength(2);
+    expect(
+      afterReplacement.find((row) => row.credentialSlot === "email_validation")
+        ?.encryptedKey,
+    ).toBe(emailEnvelope);
+    expect(
+      afterReplacement.find((row) => row.credentialSlot === "phone_validation")
+        ?.encryptedKey,
+    ).not.toBe(phoneEnvelope);
+    expect(JSON.stringify(afterReplacement)).not.toContain(phoneKey);
+    expect(JSON.stringify(afterReplacement)).not.toContain(replacementPhoneKey);
+
+    const loadedPhone = await test.action(
+      internal.connectors.api_keys.vault.loadApiKeyForExecution,
+      {
+        ownerId,
+        connectorId: "abstract",
+        action: "ABSTRACT_VALIDATE_PHONE",
+      },
+    );
+    expect(loadedPhone.apiKey).toBe(replacementPhoneKey);
+    expect(loadedPhone.credentialSlot).toBe("phone_validation");
+    const loadedEmailAgain = await test.action(
+      internal.connectors.api_keys.vault.loadApiKeyForExecution,
+      {
+        ownerId,
+        connectorId: "abstract",
+        action: "ABSTRACT_VALIDATE_EMAIL",
+      },
+    );
+    expect(loadedEmailAgain.apiKey).toBe(emailKey);
+  });
+
+  it("disconnect destroys every Abstract product credential", async () => {
+    const test = createTest();
+    await connectAbstract(
+      test,
+      "email_validation",
+      "abstract-email-delete-123456789",
+    );
+    await connectAbstract(
+      test,
+      "phone_validation",
+      "abstract-phone-delete-123456789",
+    );
+    await connectAbstract(
+      test,
+      "ip_geolocation",
+      "abstract-ip-delete-123456789",
+    );
+    await expect(
+      asOwner(test).action(api.connectors.api_keys.vault.disconnectApiKey, {
+        connectorId: "abstract",
+      }),
+    ).resolves.toEqual({ connected: false, disconnected: true });
+    const rows = await test.run(async (ctx) =>
+      ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", ownerId).eq("provider", "abstract"),
+        )
+        .collect(),
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("account deletion drains every product slot without touching another owner", async () => {
+    const test = createTest();
+    const first = asOwner(test);
+    const second = asOtherOwner(test);
+    for (const [credentialSlot, apiKey] of [
+      ["email_validation", "abstract-email-owner-a"],
+      ["phone_validation", "abstract-phone-owner-a"],
+      ["ip_geolocation", "abstract-ip-owner-a"],
+    ] as const) {
+      await first.action(api.connectors.api_keys.vault.connectApiKey, {
+        connectorId: "abstract",
+        credentialSlot,
+        apiKey,
+      });
+    }
+    await second.action(api.connectors.api_keys.vault.connectApiKey, {
+      connectorId: "abstract",
+      credentialSlot: "email_validation",
+      apiKey: "abstract-email-owner-b",
+    });
+
+    await test.mutation(internal.account_deletion._deleteExtraTableBatch, {
+      ownerId,
+      table: "api_key_credentials",
+    });
+
+    const firstRows = await test.run(async (ctx) =>
+      ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", ownerId).eq("provider", "abstract"),
+        )
+        .collect(),
+    );
+    expect(firstRows).toEqual([]);
+    const secondRows = await test.run(async (ctx) =>
+      ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", otherOwnerId).eq("provider", "abstract"),
+        )
+        .collect(),
+    );
+    expect(secondRows).toHaveLength(1);
+    expect(secondRows[0]?.credentialSlot).toBe("email_validation");
+  });
+
+  it("rotates every Abstract product slot without changing slot selection", async () => {
+    const test = createTest();
+    const keys = {
+      email_validation: "abstract-email-rotate-123456789",
+      phone_validation: "abstract-phone-rotate-123456789",
+      ip_geolocation: "abstract-ip-rotate-123456789",
+    } as const;
+    for (const [credentialSlot, apiKey] of Object.entries(keys)) {
+      await connectAbstract(test, credentialSlot, apiKey);
+    }
+    process.env.STELLA_SECRETS_MASTER_KEYS_JSON = JSON.stringify({
+      "1": MASTER_KEY,
+      "2": ROTATED_MASTER_KEY,
+    });
+    process.env.STELLA_SECRETS_MASTER_KEY_VERSION = "2";
+    await expect(
+      test.mutation(
+        internal.connectors.api_keys.vault.rotateApiKeyCredentialsBatch,
+        { batchSize: 10 },
+      ),
+    ).resolves.toMatchObject({
+      activeKeyVersion: 2,
+      rotated: 3,
+      failed: 0,
+    });
+    const rows = await test.run(async (ctx) =>
+      ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", ownerId).eq("provider", "abstract"),
+        )
+        .collect(),
+    );
+    expect(rows).toHaveLength(3);
+    expect(rows.every((row) => row.keyVersion === 2)).toBe(true);
+
+    for (const [action, credentialSlot] of [
+      ["ABSTRACT_VALIDATE_EMAIL", "email_validation"],
+      ["ABSTRACT_VALIDATE_PHONE", "phone_validation"],
+      ["ABSTRACT_GET_IP_GEOLOCATION", "ip_geolocation"],
+    ] as const) {
+      const loaded = await test.action(
+        internal.connectors.api_keys.vault.loadApiKeyForExecution,
+        { ownerId, connectorId: "abstract", action },
+      );
+      expect(loaded.credentialSlot).toBe(credentialSlot);
+      expect(loaded.apiKey).toBe(keys[credentialSlot]);
+    }
   });
 });
 
@@ -1271,6 +1694,158 @@ describe("API-key routing and execution", () => {
     );
   });
 
+  it("gates Abstract activation and couples each action's slot to its host", async () => {
+    const test = createTest();
+    const cases = [
+      {
+        action: "ABSTRACT_VALIDATE_EMAIL",
+        input: { email: "owner@example.com" },
+        credentialSlot: "email_validation",
+        apiKey: "abstract-email-egress-123456789",
+        origin: "https://emailvalidation.abstractapi.com",
+      },
+      {
+        action: "ABSTRACT_VALIDATE_PHONE",
+        input: { phone: "+14155550100", country: "US" },
+        credentialSlot: "phone_validation",
+        apiKey: "abstract-phone-egress-123456789",
+        origin: "https://phonevalidation.abstractapi.com",
+      },
+      {
+        action: "ABSTRACT_GET_IP_GEOLOCATION",
+        input: { ip_address: "203.0.113.9" },
+        credentialSlot: "ip_geolocation",
+        apiKey: "abstract-ip-egress-123456789",
+        origin: "https://ipgeolocation.abstractapi.com",
+      },
+    ] as const;
+    for (const testCase of cases) {
+      await connectAbstract(test, testCase.credentialSlot, testCase.apiKey);
+    }
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => jsonResponse({ ok: true }));
+    await expect(
+      test.action(internal.connectors.execute.runFirstPartyConnectorAction, {
+        ownerId,
+        connectorId: "abstract",
+        action: cases[0].action,
+        inputJson: JSON.stringify(cases[0].input),
+      }),
+    ).rejects.toThrow(/route_not_first_party/);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await test.mutation(internal.connectors.rollouts.setConnectorRollout, {
+      connectorId: "abstract",
+      mode: "first_party_only",
+    });
+    for (const testCase of cases) {
+      fetchMock.mockClear();
+      await expect(
+        test.action(internal.connectors.execute.runFirstPartyConnectorAction, {
+          ownerId,
+          connectorId: "abstract",
+          action: testCase.action,
+          inputJson: JSON.stringify(testCase.input),
+        }),
+      ).resolves.toMatchObject({
+        executor: "first_party",
+        output: { ok: true },
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [requestUrl, requestInit] = fetchMock.mock.calls[0]!;
+      const url = new URL(String(requestUrl));
+      expect(url.origin).toBe(testCase.origin);
+      expect(url.searchParams.get("api_key")).toBe(testCase.apiKey);
+      for (const otherCase of cases) {
+        if (otherCase === testCase) continue;
+        expect(String(requestUrl)).not.toContain(otherCase.apiKey);
+      }
+      expect(JSON.stringify(requestInit)).not.toContain(testCase.apiKey);
+    }
+  });
+
+  it("invalidates only the rejected Abstract product slot and redacts every product key", async () => {
+    const test = createTest();
+    const keys = {
+      email_validation: "abstract-email-reject-123456789",
+      phone_validation: "abstract-phone-reject-123456789",
+      ip_geolocation: "abstract-ip-reject-123456789",
+    } as const;
+    for (const [credentialSlot, apiKey] of Object.entries(keys)) {
+      await connectAbstract(test, credentialSlot, apiKey);
+    }
+    await test.mutation(internal.connectors.rollouts.setConnectorRollout, {
+      connectorId: "abstract",
+      mode: "first_party_only",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(
+        {
+          error: `rejected ${keys.email_validation} ${keys.phone_validation} ${keys.ip_geolocation}`,
+        },
+        401,
+      ),
+    );
+
+    await expect(
+      test.action(internal.connectors.execute.runFirstPartyConnectorAction, {
+        ownerId,
+        connectorId: "abstract",
+        action: "ABSTRACT_VALIDATE_PHONE",
+        inputJson: JSON.stringify({ phone: "+14155550100", country: "US" }),
+      }),
+    ).rejects.toThrow(/invalid_credential/);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const requestUrl = String(fetchMock.mock.calls[0]![0]);
+    expect(new URL(requestUrl).origin).toBe(
+      "https://phonevalidation.abstractapi.com",
+    );
+    expect(requestUrl).toContain(keys.phone_validation);
+    expect(requestUrl).not.toContain(keys.email_validation);
+    expect(requestUrl).not.toContain(keys.ip_geolocation);
+
+    const rows = await test.run(async (ctx) =>
+      ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", ownerId).eq("provider", "abstract"),
+        )
+        .collect(),
+    );
+    const bySlot = Object.fromEntries(
+      rows.map((row) => [row.credentialSlot, row]),
+    );
+    expect(bySlot.phone_validation).toMatchObject({
+      encryptedKey: "",
+      keyVersion: 0,
+      status: "invalid",
+      generation: 2,
+    });
+    expect(bySlot.email_validation).toMatchObject({
+      status: "active",
+      generation: 1,
+    });
+    expect(bySlot.ip_geolocation).toMatchObject({
+      status: "active",
+      generation: 1,
+    });
+    for (const apiKey of Object.values(keys)) {
+      expect(JSON.stringify(rows)).not.toContain(apiKey);
+    }
+    const events = await test.run(async (ctx) =>
+      ctx.db
+        .query("connector_audit_events")
+        .withIndex("by_ownerId_and_createdAt", (query) =>
+          query.eq("ownerId", ownerId),
+        )
+        .collect(),
+    );
+    for (const apiKey of Object.values(keys)) {
+      expect(JSON.stringify(events)).not.toContain(apiKey);
+    }
+  });
+
   it("destroys rejected credentials and redacts audit and error surfaces", async () => {
     const test = createTest();
     await connectFirecrawl(test);
@@ -1310,8 +1885,127 @@ describe("API-key routing and execution", () => {
     expect(JSON.stringify(events)).not.toContain(API_KEY);
   });
 
+  it("reports and fills missing Abstract product credentials through the authenticated HTTP lifecycle", async () => {
+    const test = createTest();
+    await publishAbstract(test);
+    await test.mutation(internal.connectors.rollouts.setConnectorRollout, {
+      connectorId: "abstract",
+      mode: "first_party_only",
+    });
+    const keys = {
+      email_validation: "abstract-email-http-123456789",
+      phone_validation: "abstract-phone-http-123456789",
+      ip_geolocation: "abstract-ip-http-123456789",
+    } as const;
+
+    const initialPrompt = await asOwner(test).fetch(
+      "/api/native-integrations/connect-link",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "abstract" }),
+      },
+    );
+    const initialPromptText = await initialPrompt.text();
+    expect(initialPrompt.status, initialPromptText).toBe(200);
+    const initialPromptBody = JSON.parse(initialPromptText);
+    expect(initialPromptBody).toMatchObject({
+      authType: "api_key",
+      connected: false,
+      missingCredentialSlots: [
+        "email_validation",
+        "phone_validation",
+        "ip_geolocation",
+      ],
+      credentialProfiles: [
+        { credentialSlot: "email_validation", connected: false },
+        { credentialSlot: "phone_validation", connected: false },
+        { credentialSlot: "ip_geolocation", connected: false },
+      ],
+    });
+    for (const apiKey of Object.values(keys)) {
+      expect(initialPromptText).not.toContain(apiKey);
+    }
+
+    const missingSlot = await asOwner(test).fetch(
+      "/api/native-integrations/api-key",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "abstract", apiKey: keys.email_validation }),
+      },
+    );
+    expect(missingSlot.status).toBe(400);
+    expect(await missingSlot.text()).not.toContain(keys.email_validation);
+
+    for (const [credentialSlot, apiKey] of Object.entries(keys)) {
+      const response = await asOwner(test).fetch(
+        "/api/native-integrations/api-key",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: "abstract", credentialSlot, apiKey }),
+        },
+      );
+      const responseText = await response.text();
+      expect(response.status, responseText).toBe(200);
+      expect(responseText).not.toContain(apiKey);
+      expect(JSON.parse(responseText)).toMatchObject({
+        connected: true,
+        credentialSlot,
+      });
+    }
+
+    const statusResponse = await asOwner(test).fetch(
+      "/api/native-integrations/status?id=abstract",
+      { method: "GET" },
+    );
+    const statusText = await statusResponse.text();
+    expect(statusResponse.status, statusText).toBe(200);
+    expect(JSON.parse(statusText)).toMatchObject({
+      connected: true,
+      executor: "first_party",
+      authType: "api_key",
+      configured: true,
+      accountStatus: "active",
+      missingCredentialSlots: [],
+      credentialProfiles: [
+        { credentialSlot: "email_validation", connected: true },
+        { credentialSlot: "phone_validation", connected: true },
+        { credentialSlot: "ip_geolocation", connected: true },
+      ],
+    });
+    for (const apiKey of Object.values(keys)) {
+      expect(statusText).not.toContain(apiKey);
+    }
+
+    const disconnectResponse = await asOwner(test).fetch(
+      "/api/native-integrations/disconnect",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "abstract" }),
+      },
+    );
+    expect(disconnectResponse.status).toBe(200);
+    expect(await disconnectResponse.json()).toMatchObject({
+      connected: false,
+      disconnected: true,
+    });
+    const rows = await test.run(async (ctx) =>
+      ctx.db
+        .query("api_key_credentials")
+        .withIndex("by_owner_provider", (query) =>
+          query.eq("ownerId", ownerId).eq("provider", "abstract"),
+        )
+        .collect(),
+    );
+    expect(rows).toEqual([]);
+  });
+
   it("supports authenticated HTTP connect, status, and disconnect without returning key material", async () => {
     const test = createTest();
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     await publishFirecrawl(test);
     await enableFirecrawlFirstParty(test);
     const connectResponse = await asOwner(test).fetch(
@@ -1354,6 +2048,8 @@ describe("API-key routing and execution", () => {
     );
     expect(malformedResponse.status).toBe(400);
     expect(await malformedResponse.text()).not.toContain("malformed-key");
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(API_KEY);
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain("malformed-key");
 
     const statusResponse = await asOwner(test).fetch(
       "/api/native-integrations/status?id=firecrawl",

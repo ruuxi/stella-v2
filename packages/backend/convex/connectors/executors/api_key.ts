@@ -427,10 +427,7 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
       ["ABSTRACT_VALIDATE_PHONE", "read"],
       ["ABSTRACT_GET_IP_GEOLOCATION", "read"],
     ]),
-    activationBlockers: [
-      ...API_KEY_CORE_BLOCKERS,
-      "per-product Abstract host selection and per-product API-key custody",
-    ],
+    activationBlockers: API_KEY_CORE_BLOCKERS,
   },
   {
     connectorId: "44api",

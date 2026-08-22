@@ -86,6 +86,7 @@ const EXECUTOR_READY_CONNECTOR_IDS = new Set([
   "facebook",
   "metaads",
   "linkedin",
+  "abstract",
   "apollo",
   "ashby",
   "gong",
@@ -99,7 +100,6 @@ const EXECUTOR_READY_CONNECTOR_IDS = new Set([
 const PLANNER_READY_CONNECTOR_IDS = new Set([
   "1password",
   "snowflake",
-  "abstract",
 ]);
 
 const codeStatusFor = (
@@ -241,9 +241,6 @@ const developerDataStatus = (
       ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
       ...(adapter.id === "snowflake"
         ? ["tenant-specific Snowflake account origin and OAuth app"]
-        : []),
-      ...(adapter.id === "abstract"
-        ? ["per-product Abstract API-key custody"]
         : []),
     ],
   };

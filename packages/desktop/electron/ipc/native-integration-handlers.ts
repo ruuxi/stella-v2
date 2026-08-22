@@ -79,6 +79,7 @@ export type NativeIntegrationHandlersOptions = {
     connectorId: string;
     displayName: string;
     credentialLabel: string;
+    credentialSlot?: string;
     expectedGeneration?: number;
   }) => Promise<
     | { ok: true }
@@ -212,13 +213,17 @@ const createBackendIntegrationConnectTarget = async (
   ).catch(() => {
     // Distinguishes a hung/failed request from an HTTP error below; the
     // connect flow surfaces this on the card instead of hanging.
-    throw new Error("Stella's backend did not respond while creating the connection link.");
+    throw new Error(
+      "Stella's backend did not respond while creating the connection link.",
+    );
   });
   const payload = (await response.json().catch(() => null)) as {
     url?: unknown;
     authType?: unknown;
     credentialLabel?: unknown;
+    credentialProfiles?: unknown;
     expectedGeneration?: unknown;
+    connected?: unknown;
     error?: unknown;
     message?: unknown;
   } | null;
@@ -237,6 +242,7 @@ const createBackendIntegrationConnectTarget = async (
         ? payload.credentialLabel.trim()
         : "";
     const expectedGeneration = payload.expectedGeneration;
+    const rawProfiles = payload.credentialProfiles;
     if (
       !credentialLabel ||
       (expectedGeneration !== undefined &&
@@ -246,11 +252,72 @@ const createBackendIntegrationConnectTarget = async (
     ) {
       throw new Error("Stella backend returned an invalid API-key prompt.");
     }
+    const credentialProfiles = Array.isArray(rawProfiles)
+      ? rawProfiles.map((raw) => {
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+            throw new Error(
+              "Stella backend returned an invalid API-key prompt.",
+            );
+          }
+          const profile = raw as Record<string, unknown>;
+          const credentialSlot =
+            typeof profile.credentialSlot === "string"
+              ? profile.credentialSlot.trim()
+              : "";
+          const profileLabel =
+            typeof profile.credentialLabel === "string"
+              ? profile.credentialLabel.trim()
+              : "";
+          const profileGeneration = profile.expectedGeneration;
+          if (
+            !/^[a-z][a-z0-9_]{0,63}$/u.test(credentialSlot) ||
+            !profileLabel ||
+            typeof profile.connected !== "boolean" ||
+            (profileGeneration !== undefined &&
+              (typeof profileGeneration !== "number" ||
+                !Number.isSafeInteger(profileGeneration) ||
+                profileGeneration < 1))
+          ) {
+            throw new Error(
+              "Stella backend returned an invalid API-key prompt.",
+            );
+          }
+          return {
+            credentialSlot,
+            credentialLabel: profileLabel,
+            connected: profile.connected,
+            expectedGeneration:
+              typeof profileGeneration === "number"
+                ? profileGeneration
+                : undefined,
+          };
+        })
+      : [];
+    if (
+      new Set(credentialProfiles.map((profile) => profile.credentialSlot))
+        .size !== credentialProfiles.length
+    ) {
+      throw new Error("Stella backend returned an invalid API-key prompt.");
+    }
     return {
       authType: "api_key" as const,
       credentialLabel,
       expectedGeneration:
         typeof expectedGeneration === "number" ? expectedGeneration : undefined,
+      credentialProfiles:
+        credentialProfiles.length > 0
+          ? credentialProfiles
+          : [
+              {
+                credentialSlot: undefined,
+                credentialLabel,
+                connected: payload.connected === true,
+                expectedGeneration:
+                  typeof expectedGeneration === "number"
+                    ? expectedGeneration
+                    : undefined,
+              },
+            ],
     };
   }
   const url = typeof payload?.url === "string" ? payload.url.trim() : "";
@@ -392,14 +459,22 @@ export const ensureNativeCredential = async (
       if (!options.requestBackendApiKey) {
         throw new Error(`${entry.name} API-key connection is unavailable.`);
       }
-      const connected = await options.requestBackendApiKey({
-        connectorId: id,
-        displayName: entry.name,
-        credentialLabel: target.credentialLabel,
-        expectedGeneration: target.expectedGeneration,
-      });
-      if (!connected.ok) {
-        throw new Error(`Could not connect ${entry.name}: ${connected.reason}`);
+      const missingProfiles = target.credentialProfiles.filter(
+        (profile) => !profile.connected,
+      );
+      for (const profile of missingProfiles) {
+        const connected = await options.requestBackendApiKey({
+          connectorId: id,
+          displayName: entry.name,
+          credentialLabel: profile.credentialLabel,
+          credentialSlot: profile.credentialSlot,
+          expectedGeneration: profile.expectedGeneration,
+        });
+        if (!connected.ok) {
+          throw new Error(
+            `Could not connect ${entry.name} (${profile.credentialLabel}): ${connected.reason}`,
+          );
+        }
       }
       return;
     }

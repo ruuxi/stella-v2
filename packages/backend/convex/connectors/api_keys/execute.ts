@@ -2,6 +2,7 @@ import { ConnectorError } from "../errors";
 import {
   buildDescriptorRequest,
   getApiKeyActionDescriptor,
+  getApiKeyActionTarget,
   type ApiKeyProviderDescriptor,
 } from "./providers";
 
@@ -103,15 +104,12 @@ export const redactApiKeyMaterial = (
   return visit(value, 0);
 };
 
-const assertFixedRequestPath = (
-  descriptor: ApiKeyProviderDescriptor,
-  path: string,
-): URL => {
+const assertFixedRequestPath = (apiOrigin: string, path: string): URL => {
   if (!path.startsWith("/") || path.startsWith("//") || /[\r\n]/u.test(path)) {
     throw new ConnectorError("normalization_error");
   }
-  const url = new URL(path, `${descriptor.apiOrigin}/`);
-  if (url.origin !== descriptor.apiOrigin) {
+  const url = new URL(path, `${apiOrigin}/`);
+  if (url.origin !== apiOrigin) {
     throw new ConnectorError("normalization_error");
   }
   return url;
@@ -119,6 +117,7 @@ const assertFixedRequestPath = (
 
 export const buildAuthenticatedApiKeyRequest = (args: {
   descriptor: ApiKeyProviderDescriptor;
+  action: string;
   apiKey: string;
   request: {
     method: "GET" | "POST";
@@ -129,8 +128,10 @@ export const buildAuthenticatedApiKeyRequest = (args: {
   };
   signal?: AbortSignal;
 }): { url: string; init: RequestInit } => {
-  const { descriptor, apiKey, request } = args;
-  const url = assertFixedRequestPath(descriptor, request.path);
+  const { descriptor, action, apiKey, request } = args;
+  const target = getApiKeyActionTarget(descriptor, action);
+  if (!target) throw new ConnectorError("action_not_found");
+  const url = assertFixedRequestPath(target.apiOrigin, request.path);
   const providerHeaders = request.headers ?? {};
   for (const [name, value] of Object.entries(providerHeaders)) {
     if (
@@ -262,6 +263,7 @@ export const executeApiKeyProviderAction = async (args: {
   );
   const prepared = buildAuthenticatedApiKeyRequest({
     descriptor: args.descriptor,
+    action: args.action,
     apiKey: args.apiKey,
     request,
     signal: controller.signal,

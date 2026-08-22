@@ -23,6 +23,7 @@ import {
   type NativeConnectorCatalogEntry,
 } from "@stella/runtime/kernel/connectors/native-integrations";
 import { setConnectorTokenStoreBroker } from "@stella/runtime/kernel/connectors/oauth";
+import { SCOPES as GOOGLE_WORKSPACE_SCOPES } from "@stella/runtime/kernel/google-workspace/scopes";
 import { ConnectorConnectService } from "@stella/desktop/electron/services/connector-connect-service.js";
 
 const roots: string[] = [];
@@ -167,21 +168,27 @@ describe("ConnectorConnectService canonical guards", () => {
     expect(credentialService.requestDeviceOAuth).not.toHaveBeenCalled();
   });
 
-  it("blocks a same-id backend Gmail to bundled Google Workspace provider swap", async () => {
+  it("keeps bundled Google Workspace authoritative over a same-id backend entry", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "stella-connect-service-"));
     roots.push(root);
-    await writeCachedServerCatalog(root, [backendEntry("gmail", "Gmail")]);
+    await writeCachedServerCatalog(root, [
+      backendEntry("gmail", "Backend Gmail"),
+    ]);
     const { service, credentialService } = makeService(root);
 
     const outcome = service.requestConnection({ id: "gmail", name: "Gmail" });
     await waitFor(() => send.mock.calls.length === 1);
-    const card = send.mock.calls[0]![1] as { requestId: string };
+    const card = send.mock.calls[0]![1] as {
+      requestId: string;
+      name: string;
+    };
+    expect(card.name).toBe("Gmail");
     await unlink(path.join(root, "connectors/catalog-cache.json"));
     service.respond({ requestId: card.requestId, action: "accept" });
 
-    await expect(outcome).resolves.toMatchObject({
+    await expect(outcome).resolves.toEqual({
       ok: false,
-      reason: expect.stringContaining("connector changed"),
+      reason: "Google Workspace secure connection is not ready yet.",
     });
     expect(credentialService.requestPreregisteredOAuth).not.toHaveBeenCalled();
     expect(
@@ -189,7 +196,7 @@ describe("ConnectorConnectService canonical guards", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("blocks a same-provider backend toolkit semantic change", async () => {
+  it("blocks a same-provider backend catalog semantic change", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "stella-connect-service-"));
     roots.push(root);
     await writeCachedServerCatalog(root, [backendEntry("notion", "Notion")]);
@@ -201,7 +208,7 @@ describe("ConnectorConnectService canonical guards", () => {
     await writeCachedServerCatalog(root, [
       {
         ...backendEntry("notion", "Notion"),
-        backendConnector: { type: "composio", toolkit: "NOTION_V2" },
+        catalogToolCount: 13,
       },
     ]);
     service.respond({ requestId: card.requestId, action: "accept" });
@@ -219,7 +226,7 @@ describe("ConnectorConnectService canonical guards", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "stella-connect-service-"));
     roots.push(root);
     await enableNativeConnector(root, "gmail", "store");
-    let token: { accessToken: string } | null = null;
+    let token: { accessToken: string; scopes: string[] } | null = null;
     setConnectorTokenStoreBroker({
       load: async () => token,
       save: async () => undefined,
@@ -238,7 +245,10 @@ describe("ConnectorConnectService canonical guards", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { service, credentialService } = makeService(root, true);
     credentialService.requestPreregisteredOAuth.mockImplementation(async () => {
-      token = { accessToken: "restored-token" };
+      token = {
+        accessToken: "restored-token",
+        scopes: [...GOOGLE_WORKSPACE_SCOPES],
+      };
       return { ok: true };
     });
 
@@ -249,6 +259,12 @@ describe("ConnectorConnectService canonical guards", () => {
     service.respond({ requestId: card.requestId, action: "accept" });
     await expect(outcome).resolves.toEqual({ ok: true, status: "connected" });
     expect(credentialService.requestPreregisteredOAuth).toHaveBeenCalledOnce();
+    expect(
+      credentialService.requestPreregisteredOAuth.mock.calls[0]![0],
+    ).toMatchObject({
+      tokenKey: "google-workspace",
+      scopes: GOOGLE_WORKSPACE_SCOPES,
+    });
     expect(
       fetchMock.mock.calls.filter(([url]) =>
         String(url).endsWith("/api/native-integrations/catalog"),
@@ -275,9 +291,7 @@ describe("ConnectorConnectService canonical guards", () => {
     // locally enabled/executable for subsequent connector_status checks.
     const root = mkdtempSync(path.join(os.tmpdir(), "stella-connect-service-"));
     roots.push(root);
-    await writeCachedServerCatalog(root, [
-      backendEntry("googledocs", "Google Docs"),
-    ]);
+    await writeCachedServerCatalog(root, [backendEntry("notion", "Notion")]);
     const statusCalls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -290,7 +304,9 @@ describe("ConnectorConnectService canonical guards", () => {
         }
         if (value.endsWith("/api/native-integrations/connect-link")) {
           return new Response(
-            JSON.stringify({ url: "https://dashboard.composio.dev/link/lk_test" }),
+            JSON.stringify({
+              url: "https://dashboard.composio.dev/link/lk_test",
+            }),
             { status: 200 },
           );
         }
@@ -309,15 +325,17 @@ describe("ConnectorConnectService canonical guards", () => {
     });
 
     const outcome = service.requestConnection({
-      id: "googledocs",
-      name: "Google Docs",
+      id: "notion",
+      name: "Notion",
     });
     await waitFor(() => send.mock.calls.length === 1);
     const card = send.mock.calls[0]![1] as { requestId: string };
     service.respond({ requestId: card.requestId, action: "accept" });
 
     await expect(outcome).resolves.toEqual({ ok: true, status: "connected" });
-    expect(credentialService.requestExternalOAuthApproval).toHaveBeenCalledOnce();
+    expect(
+      credentialService.requestExternalOAuthApproval,
+    ).toHaveBeenCalledOnce();
     expect(
       credentialService.requestExternalOAuthApproval.mock.calls[0]![0],
     ).toMatchObject({
@@ -325,13 +343,13 @@ describe("ConnectorConnectService canonical guards", () => {
       presentation: "headless",
     });
     expect(statusCalls.length).toBeGreaterThan(0);
-    expect(statusCalls[0]).toContain("id=googledocs");
+    expect(statusCalls[0]).toContain("id=notion");
     const phases = send.mock.calls
       .filter(([channel]) => channel === "connector-connect:update")
       .map(([, payload]) => (payload as { phase: string }).phase);
     expect(phases).toEqual(["connecting", "connected"]);
     await expect(
-      getNativeConnectorReadiness(root, backendEntry("googledocs", "Google Docs")),
+      getNativeConnectorReadiness(root, backendEntry("notion", "Notion")),
     ).resolves.toMatchObject({
       enabled: true,
       connected: true,
@@ -352,9 +370,7 @@ describe("ConnectorConnectService canonical guards", () => {
         path.join(os.tmpdir(), "stella-connect-service-"),
       );
       roots.push(root);
-      await writeCachedServerCatalog(root, [
-        backendEntry("googledocs", "Google Docs"),
-      ]);
+      await writeCachedServerCatalog(root, [backendEntry("notion", "Notion")]);
       vi.stubGlobal(
         "fetch",
         vi.fn(async (url: string | URL | Request) => {
@@ -385,8 +401,8 @@ describe("ConnectorConnectService canonical guards", () => {
       });
 
       const outcome = service.requestConnection({
-        id: "googledocs",
-        name: "Google Docs",
+        id: "notion",
+        name: "Notion",
       });
       await flushUntil(() => send.mock.calls.length === 1);
       const card = send.mock.calls[0]![1] as { requestId: string };

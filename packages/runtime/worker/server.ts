@@ -588,9 +588,13 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
 
   /**
    * 401 recovery: mint locally from the AuthOwner's session store when it has
-   * one (no IPC hops), otherwise fall back to the legacy desktop round-trip
-   * (worker -> host -> renderer -> host). The fallback also covers boots that
-   * predate the desktop's first `auth.import` and disabled-owner mode.
+   * one (no IPC hops). This is a FORCED recovery — the current JWT was
+   * rejected — so when the owner has a session we return its result directly
+   * and NEVER fall through to the legacy host token: that token is distributed
+   * from the same source and is very likely the exact JWT the server just
+   * rejected (and a rejected JWT can still be temporally fresh), which would
+   * spin a 401 loop. The legacy host round-trip is reserved for boots with no
+   * runtime session (pre-`auth.import` / disabled-owner / headless).
    */
   const refreshRuntimeAuth = async (
     payload: HostRuntimeAuthRefreshParams,
@@ -598,12 +602,11 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     const owner = state.authOwner;
     if (owner?.hasSession()) {
       const local = await owner.getConvexToken({ forceRefresh: true });
-      if (local.token) {
-        applyRuntimeAuthResult(local);
-        return local;
-      }
-      // Mint failed (network blip or revoked cookie) — the desktop may still
-      // hold a live session; fall through to the legacy path.
+      // Commit whatever the owner produced (a fresh token, or null when the
+      // cookie was revoked / the network is down). Do NOT fall back to the
+      // host's possibly-rejected token.
+      applyRuntimeAuthResult(local);
+      return local;
     }
     const result = (await peer.request(
       METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH,
@@ -3032,6 +3035,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       cookie: typeof payload?.cookie === "string" ? payload.cookie : null,
       sessionData:
         typeof payload?.sessionData === "string" ? payload.sessionData : null,
+      onlyIfEmpty: payload?.onlyIfEmpty === true,
     });
   });
 

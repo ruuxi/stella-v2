@@ -43,6 +43,13 @@ export type ManagedProtocol =
 export type ManagedModelConfig = {
   model: string;
   managedGatewayProvider?: ManagedGatewayProvider;
+  /**
+   * Explicit wire-protocol override. When omitted, the protocol is inferred
+   * from the gateway provider; set it for gateways that serve different
+   * models over different APIs (OpenRouter: Muse Spark 1.2 Contributor on
+   * the Responses API, everything else Chat Completions).
+   */
+  api?: ManagedProtocol;
   temperature?: number;
   maxOutputTokens?: number;
   serviceTier?: string;
@@ -173,6 +180,9 @@ function providerFromBaseUrl(baseUrl: string): string {
   if (baseUrl.includes("openrouter.ai")) {
     return "openrouter";
   }
+  if (baseUrl.includes("pass.wafer.ai")) {
+    return "wafer";
+  }
   if (baseUrl.includes("api.fireworks.ai")) {
     return "fireworks";
   }
@@ -204,6 +214,15 @@ function modelIdForGateway(model: string, provider: string): string {
   if (provider === "deepseek" && model.startsWith("deepseek/")) {
     return model.slice("deepseek/".length);
   }
+  if (provider === "wafer") {
+    const stripped = model.startsWith("wafer/")
+      ? model.slice("wafer/".length)
+      : model;
+    // Wafer's catalog advertises capitalized slugs; send the exact casing.
+    return stripped === "deepseek-v4-flash-0731-fast"
+      ? "DeepSeek-V4-Flash-0731-Fast"
+      : stripped;
+  }
   if (provider === "xai" && model.startsWith("x-ai/")) {
     return model.slice("x-ai/".length);
   }
@@ -222,6 +241,12 @@ function resolveManagedProtocol(args: {
 }): ManagedProtocol {
   if (args.api) {
     return args.api;
+  }
+  // Per-model override from the mode/pin resolution (see
+  // `MANAGED_MODEL_API_OVERRIDES`). Wins over provider inference because
+  // routers like OpenRouter host a mix of protocols.
+  if (args.config.api) {
+    return args.config.api;
   }
   const gateway = resolveManagedGatewayConfig({
     model: args.config.model,
@@ -534,6 +559,13 @@ export function buildManagedModel<TApi extends Api>(
   ) {
     defaultHeaders["HTTP-Referer"] ??= "https://stella.sh";
     defaultHeaders["X-OpenRouter-Title"] ??= "Stella";
+  }
+  // Per-gateway requirements (Wafer's per-request ZDR opt-in) come from the
+  // gateway config so the runtime and the relay share one definition.
+  for (const [key, value] of Object.entries(
+    managedGateway.extraHeaders ?? {},
+  )) {
+    defaultHeaders[key] ??= value;
   }
   return {
     id: modelId,

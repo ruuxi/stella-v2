@@ -178,7 +178,20 @@ export function estimateRequestTokens(
   };
 }
 
+/**
+ * The OpenRouter-hosted contributor variant shares the `meta/` prefix with
+ * its first-party Muse Spark sibling but stays text-only until OpenRouter
+ * documents multimodal support for it — matching its static billing
+ * modalities in `STATIC_MANAGED_MODEL_PRICE_OVERRIDES`.
+ */
+const TEXT_ONLY_MANAGED_MODEL_EXACT_IDS = [
+  "meta/muse-spark-1.2-contributor",
+] as const;
+
 const managedRelayModelSupportsImageInput = (resolvedModel: string): boolean =>
+  !(TEXT_ONLY_MANAGED_MODEL_EXACT_IDS as readonly string[]).includes(
+    resolvedModel,
+  ) &&
   IMAGE_CAPABLE_MANAGED_MODEL_PREFIXES.some((prefix) =>
     resolvedModel.startsWith(prefix),
   );

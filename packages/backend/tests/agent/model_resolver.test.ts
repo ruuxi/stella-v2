@@ -7,7 +7,7 @@ import { AGENT_IDS } from "../../convex/lib/agent_constants";
 const ctx = { runQuery: async () => null } as never;
 
 describe("resolveModelConfig single-model enforcement", () => {
-  it("uses DeepSeek V4 Flash for every audience's General default", async () => {
+  it("uses Muse Spark 1.2 Contributor for every audience's General default", async () => {
     for (const audience of [
       "anonymous",
       "free",
@@ -22,8 +22,8 @@ describe("resolveModelConfig single-model enforcement", () => {
         undefined,
         { audience },
       );
-      expect(resolved.model).toBe("crof/deepseek-v4-flash-0731");
-      expect(resolved.managedGatewayProvider).toBe("crof");
+      expect(resolved.model).toBe("meta/muse-spark-1.2-contributor");
+      expect(resolved.managedGatewayProvider).toBe("openrouter");
     }
   });
 
@@ -37,8 +37,8 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe("crof/deepseek-v4-flash-0731");
-    expect(resolved.managedGatewayProvider).toBe("crof");
+    expect(resolved.model).toBe("meta/muse-spark-1.2-contributor");
+    expect(resolved.managedGatewayProvider).toBe("openrouter");
   });
 
   it("rejects a retired explicit upstream override even for Pro", async () => {
@@ -51,13 +51,13 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "pro",
       },
     );
-    expect(resolved.model).toBe("crof/deepseek-v4-flash-0731");
-    expect(resolved.managedGatewayProvider).toBe("crof");
+    expect(resolved.model).toBe("meta/muse-spark-1.2-contributor");
+    expect(resolved.managedGatewayProvider).toBe("openrouter");
   });
 
   it("ignores a mode override a restricted tier may not pick", async () => {
     // free can't override designer → falls back to the primary agent's
-    // backend default (DeepSeek V4 Flash on CrofAI).
+    // backend default (Muse Spark 1.2 Contributor on OpenRouter).
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,
@@ -67,7 +67,7 @@ describe("resolveModelConfig single-model enforcement", () => {
         audience: "free",
       },
     );
-    expect(resolved.model).toBe("crof/deepseek-v4-flash-0731");
-    expect(resolved.managedGatewayProvider).toBe("crof");
+    expect(resolved.model).toBe("meta/muse-spark-1.2-contributor");
+    expect(resolved.managedGatewayProvider).toBe("openrouter");
   });
 });

@@ -3,15 +3,30 @@ export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
 export const STELLA_RELAY_PATH_PREFIX = `${STELLA_API_BASE_PATH}/relay`;
 export const STELLA_CHAT_COMPLETIONS_PATH = `${STELLA_RELAY_PATH_PREFIX}/chat/completions`;
 export const STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openrouter/api/v1/chat/completions`;
+export const STELLA_OPENROUTER_RESPONSES_PATH = `${STELLA_API_BASE_PATH}/openrouter/api/v1/responses`;
 export const STELLA_DEFAULT_MODEL = "stella/default";
 export const STELLA_STANDARD_MODEL = "stella/standard";
 /**
- * V4 Flash 0731 on CrofAI. The older DeepSeek and Fireworks spellings
- * (`accounts/fireworks/models/deepseek-v4-flash-0731`) stays routable through
- * the verbatim `stella/<provider>/<model>` path so a backend rollback needs no
- * client change — see `DEEPSEEK_V4_FLASH_ROUTE` in `convex/agent/model.ts`.
+ * Muse Spark 1.2 Contributor on OpenRouter. Released today, so it is not yet in
+ * models.dev — the backend carries a static price override until catalogs
+ * catch up (see `STATIC_MANAGED_MODEL_PRICE_OVERRIDES`).
  */
-export const STELLA_DEFAULT_UPSTREAM_MODEL = "crof/deepseek-v4-flash-0731";
+export const STELLA_DEFAULT_UPSTREAM_MODEL = "meta/muse-spark-1.2-contributor";
+/**
+ * Former default: V4 Flash 0731 on CrofAI. Fully supported and still
+ * selectable; the older DeepSeek and Fireworks spellings
+ * (`accounts/fireworks/models/deepseek-v4-flash-0731`) stay routable through
+ * the verbatim `stella/<provider>/<model>` path — see
+ * `DEEPSEEK_V4_FLASH_ROUTE` in `convex/agent/model.ts`.
+ */
+export const STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL =
+  "crof/deepseek-v4-flash-0731";
+/**
+ * Wafer-hosted Fast variant of V4 Flash 0731. A separate selectable option
+ * (never a default); ZDR is enforced per request at the relay.
+ */
+export const STELLA_WAFER_V4_FLASH_FAST_UPSTREAM_MODEL =
+  "wafer/deepseek-v4-flash-0731-fast";
 
 /** True for every routed spelling of the DeepSeek V4 Flash family. */
 export const isDeepSeekV4FlashModel = (
@@ -19,6 +34,13 @@ export const isDeepSeekV4FlashModel = (
 ): boolean =>
   typeof modelId === "string" &&
   modelId.toLowerCase().includes("deepseek-v4-flash");
+
+/** True for the OpenRouter-hosted Muse Spark 1.2 Contributor default. */
+export const isMuseSpark12ContributorModel = (
+  modelId: string | null | undefined,
+): boolean =>
+  typeof modelId === "string" &&
+  modelId.toLowerCase().includes("muse-spark-1.2-contributor");
 export const STELLA_RELAY_PROVIDERS = [
   "anthropic",
   "openai",
@@ -26,6 +48,7 @@ export const STELLA_RELAY_PROVIDERS = [
   "fireworks",
   "deepseek",
   "crof",
+  "wafer",
   "openrouter",
 ] as const;
 export type StellaRelayProvider = (typeof STELLA_RELAY_PROVIDERS)[number];
@@ -40,7 +63,7 @@ export const normalizeStellaSiteUrl = (value: string): string =>
     .replace(/\/api\/stella\/v1\/?$/i, "")
     .replace(/\/api\/stella\/relay(?:\/.*)?$/i, "")
     .replace(
-      /\/api\/stella\/(?:anthropic|openai|fireworks|deepseek|crof)(?:\/v1)?\/?$/i,
+      /\/api\/stella\/(?:anthropic|openai|fireworks|deepseek|crof|wafer)(?:\/v1)?\/?$/i,
       "",
     )
     .replace(/\/api\/stella\/google\/v1beta\/?$/i, "")

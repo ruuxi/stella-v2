@@ -91,7 +91,7 @@ const STELLA_PRESET_FALLBACK_DEFS: ReadonlyArray<{
   {
     id: `stella/${STELLA_DEFAULT_UPSTREAM_MODEL}`,
     modelId: STELLA_DEFAULT_UPSTREAM_MODEL,
-    name: "DeepSeek V4 Flash 0731",
+    name: "Muse Spark 1.2 Contributor",
     upstreamModel: STELLA_DEFAULT_UPSTREAM_MODEL,
   },
 ];
@@ -316,7 +316,10 @@ export function getStellaSubtitle(model: CatalogModel): string | null {
 }
 
 const STELLA_UPSTREAM_MODEL_NAMES = new Map<string, string>([
+  ["meta/muse-spark-1.2-contributor", "Muse Spark 1.2 Contributor"],
   ["deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"],
+  ["crof/deepseek-v4-flash-0731", "DeepSeek V4 Flash 0731"],
+  ["wafer/deepseek-v4-flash-0731-fast", "DeepSeek V4 Flash 0731 Fast"],
   [
     "accounts/fireworks/models/deepseek-v4-flash-0731",
     "DeepSeek V4 Flash 0731",

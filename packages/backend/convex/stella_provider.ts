@@ -32,6 +32,7 @@ import {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
   STELLA_CROF_CHAT_COMPLETIONS_PATH,
+  STELLA_WAFER_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_RESPONSES_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
@@ -42,6 +43,7 @@ import {
   STELLA_META_CHAT_COMPLETIONS_PATH,
   STELLA_META_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
+  STELLA_OPENROUTER_RESPONSES_PATH,
   STELLA_XAI_CHAT_COMPLETIONS_PATH,
   STELLA_XAI_RESPONSES_PATH,
   STELLA_RELAY_PATH_PREFIX,
@@ -52,6 +54,7 @@ export {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_API_BASE_PATH,
   STELLA_CROF_CHAT_COMPLETIONS_PATH,
+  STELLA_WAFER_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_RESPONSES_PATH,
   STELLA_FIREWORKS_RESPONSES_PATH,
@@ -62,6 +65,7 @@ export {
   STELLA_META_CHAT_COMPLETIONS_PATH,
   STELLA_META_RESPONSES_PATH,
   STELLA_OPENROUTER_CHAT_COMPLETIONS_PATH,
+  STELLA_OPENROUTER_RESPONSES_PATH,
   STELLA_XAI_CHAT_COMPLETIONS_PATH,
   STELLA_XAI_RESPONSES_PATH,
   STELLA_RELAY_PATH_PREFIX,
@@ -143,7 +147,7 @@ export const stellaProviderModels = httpAction(async (ctx, request) =>
   }),
 );
 
-const cloneForwardHeaders = (
+export const cloneForwardHeaders = (
   request: Request,
   provider: ManagedGatewayProvider,
   apiKey: string,
@@ -178,6 +182,15 @@ const cloneForwardHeaders = (
   if (provider === "openrouter") {
     headers.set("HTTP-Referer", "https://stella.sh");
     headers.set("X-OpenRouter-Title", "Stella");
+  }
+
+  // Per-gateway requirements (Wafer's per-request ZDR opt-in) come from the
+  // gateway config so the relay and runtime_ai share one definition.
+  const extraHeaders = getManagedGatewayConfig(provider).extraHeaders;
+  if (extraHeaders) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      headers.set(key, value);
+    }
   }
 
   return headers;
@@ -217,12 +230,22 @@ export const upstreamUrl = (
         : `${base}/responses`;
     case "crof":
       return `${base}/chat/completions`;
+    case "wafer":
+      // Wafer is OpenAI-compatible chat completions only.
+      return `${base}/chat/completions`;
     case "xai":
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
     case "openrouter":
-      return `${base}/chat/completions`;
+      // OpenRouter serves both APIs under /api/v1. Muse Spark 1.2
+      // Contributor (the Stella default) goes through the Responses API;
+      // every other OpenRouter-hosted model stays on chat completions.
+      // Honor whichever the client asked for, mirroring the deepseek/xai
+      // dual-API handling.
+      return requestUrl.pathname.endsWith("/chat/completions")
+        ? `${base}/chat/completions`
+        : `${base}/responses`;
     case "meta":
       // Meta Model API is OpenAI-compatible. Prefer chat/completions when the
       // client asked for it; otherwise use Responses (Meta's agentic default).
@@ -245,7 +268,11 @@ const isResponsesRequest = (
     provider !== "fireworks" &&
     provider !== "deepseek" &&
     provider !== "xai" &&
-    provider !== "meta"
+    provider !== "meta" &&
+    // OpenRouter hosts the Responses API for Muse Spark 1.2 Contributor;
+    // the request path (not the model) decides, so any OpenRouter client
+    // that asks for /responses gets Responses end to end.
+    provider !== "openrouter"
   ) {
     return false;
   }
@@ -670,9 +697,11 @@ export const bodyForUpstream = (
   }
   if (isResponsesRequest(provider, request)) {
     normalizeResponsesBody(body);
-    if (provider !== "deepseek") {
+    if (provider !== "deepseek" && provider !== "openrouter") {
       // Keep provider-side response state available for Responses
-      // continuations. DeepSeek is stateless and ignores `store` entirely.
+      // continuations. DeepSeek is stateless and ignores `store` entirely;
+      // OpenRouter's stateful behavior is unverified for this model, so the
+      // relayed body stays limited to the verified request shape.
       body.store = true;
     }
   }
@@ -680,15 +709,25 @@ export const bodyForUpstream = (
   const pathIsChatCompletions = new URL(request.url).pathname.endsWith(
     "/chat/completions",
   );
-  const isChatCompletions = provider === "openrouter" || pathIsChatCompletions;
+  const isChatCompletions = pathIsChatCompletions;
   if (provider === "deepseek") {
     if (pathIsChatCompletions) {
       normalizeChatCompletionsBody(body, authorized.resolvedModel);
     }
     normalizeDeepSeekBody(body, !pathIsChatCompletions);
-  } else if (provider === "crof") {
+  } else if (provider === "crof" || provider === "wafer") {
+    // Wafer serves the same DeepSeek V4 Flash family over an OpenAI-
+    // compatible chat completions API, so it shares Crof's effort ladder
+    // and body normalization.
     normalizeChatCompletionsBody(body, authorized.resolvedModel);
     normalizeCrofBody(body);
+  } else if (provider === "openrouter" && !pathIsChatCompletions) {
+    // OpenRouter Responses (Muse Spark 1.2 Contributor): nested `reasoning`
+    // only, same as Meta/xAI Responses. `normalizeChatReasoning` keeps the
+    // model's mandatory reasoning present (mapping none/off to a safe low)
+    // and materializes both wire forms; drop the chat-only one.
+    normalizeChatReasoning(body, authorized.resolvedModel);
+    delete body.reasoning_effort;
   } else if (
     provider === "openrouter" ||
     ((provider === "meta" || provider === "xai") && pathIsChatCompletions)

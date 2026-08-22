@@ -3,6 +3,7 @@ export const MANAGED_GATEWAY_PROVIDERS = [
   "fireworks",
   "deepseek",
   "crof",
+  "wafer",
   "xai",
   "openai",
   "anthropic",
@@ -26,6 +27,12 @@ export type ManagedGatewayConfig = {
    * namespaced `META_MODEL_API_KEY`.
    */
   apiKeyEnvVarFallbacks?: readonly string[];
+  /**
+   * Static headers sent on every request to this gateway. Used for
+   * provider-specific requirements like Wafer's per-request zero-data-
+   * retention opt-in, which has no request-body equivalent.
+   */
+  extraHeaders?: Record<string, string>;
 };
 
 const MANAGED_GATEWAY_CONFIGS: Record<
@@ -54,6 +61,14 @@ const MANAGED_GATEWAY_CONFIGS: Record<
     provider: "crof",
     baseURL: "https://crof.ai/v1",
     apiKeyEnvVar: "CROF_API_KEY",
+  },
+  // Wafer exposes an OpenAI-compatible Chat Completions API. ZDR is opted
+  // into per request — every call must carry the header below.
+  wafer: {
+    provider: "wafer",
+    baseURL: "https://pass.wafer.ai/v1",
+    apiKeyEnvVar: "WAFER_API_KEY",
+    extraHeaders: { "Wafer-ZDR": "required" },
   },
   xai: {
     provider: "xai",
@@ -94,12 +109,20 @@ const FIREWORKS_MODEL_PREFIXES = [
 const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["deepseek/", "deepseek"],
   ["crof/", "crof"],
+  ["wafer/", "wafer"],
   ["x-ai/", "xai"],
   ["xai/", "xai"],
   ["openai/", "openai"],
   ["anthropic/", "anthropic"],
   ["google/", "google"],
+  // `meta/muse-spark-1.2` (first-party Meta Model API) belongs here, but the
+  // OpenRouter-hosted `-contributor` variant must NOT match this prefix — its
+  // mode config pins `managedGatewayProvider: "openrouter"`, which
+  // `resolveManagedGatewayProvider` honors over prefix inference.
   ["meta/", "meta"],
+  // OpenRouter-namespaced slugs (e.g. `openrouter/<vendor>/<model>`)
+  // pass through the OpenRouter gateway verbatim.
+  ["openrouter/", "openrouter"],
 ] as const;
 
 export function getManagedGatewayConfig(

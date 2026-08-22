@@ -71,6 +71,13 @@ const MODELS_DEV_ALIASES: Record<string, string[]> = {
 // actually pays instead of the vendor's first-party rate.
 const MODELS_DEV_PREFERRED_ALIASES: Record<string, string[]> = {
   "google/gemini-3.7-flash": ["openrouter/google/gemini-3.7-flash"],
+  // The Muse Spark contributor tier is served through OpenRouter, so its
+  // models.dev row (once published) will live under the openrouter provider
+  // namespace keyed by the full vendor/model slug — not Meta's first-party
+  // namespace. Prefer it so billing matches what Stella actually pays.
+  "meta/muse-spark-1.2-contributor": [
+    "openrouter/meta/muse-spark-1.2-contributor",
+  ],
 };
 
 const stripSnapshotSuffix = (model: string): string | null => {
@@ -211,6 +218,23 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesOutput?: string[];
   }
 > = {
+  // OpenRouter's Muse Spark 1.2 Contributor (not yet on models.dev). Rates
+  // verified against OpenRouter's live /api/v1/models catalog: the
+  // contributor tier is far cheaper than the first-party muse-spark-1.2
+  // family row below — $0.10 input / $0.20 output / $0.002 cache-read per 1M
+  // tokens, reasoning billed at the output rate. OpenRouter also documents
+  // full multimodal input (text, image, video, file, audio). models.dev wins
+  // once it lists the model.
+  "meta/muse-spark-1.2-contributor": {
+    sourceProvider: "openrouter",
+    sourceModelId: "muse-spark-1.2-contributor",
+    inputPerMillionUsd: 0.1,
+    outputPerMillionUsd: 0.2,
+    cacheReadPerMillionUsd: 0.002,
+    reasoningPerMillionUsd: 0.2,
+    modalitiesInput: ["text", "image", "video", "file", "audio"],
+    modalitiesOutput: ["text"],
+  },
   // CrofAI's /v1/models rates for DeepSeek V4 Flash 0731. The relay prefers
   // Crof's exact per-request `usage.cost`; these cover preflight reservations
   // and responses that omit exact cost.
@@ -222,6 +246,20 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     cacheReadPerMillionUsd: 0.003,
     cacheWritePerMillionUsd: 0,
     reasoningPerMillionUsd: 0.21,
+    modalitiesInput: ["text"],
+    modalitiesOutput: ["text"],
+  },
+  // Wafer's own /v1/models lists live rates for the Fast variant; this static
+  // entry mirrors them ($0.28 in / $0.56 out / $0.07 cache-read per 1M,
+  // reasoning billed within completion tokens at the output rate). Wafer
+  // publishes no separate cache-write price. Text-only upstream.
+  "wafer/deepseek-v4-flash-0731-fast": {
+    sourceProvider: "wafer",
+    sourceModelId: "deepseek-v4-flash-0731-fast",
+    inputPerMillionUsd: 0.28,
+    outputPerMillionUsd: 0.56,
+    cacheReadPerMillionUsd: 0.07,
+    reasoningPerMillionUsd: 0.56,
     modalitiesInput: ["text"],
     modalitiesOutput: ["text"],
   },

@@ -18,7 +18,10 @@ import { BrandIcon } from "@/ui/brand-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
 import { Switch } from "@/ui/switch";
 import { openModelPicker } from "@/features/workspace-display/default-tabs";
-import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
+import {
+  isDeepSeekV4FlashModel,
+  isMuseSpark12ContributorModel,
+} from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
 import { getStellaResolvedModelName } from "@/global/settings/lib/model-catalog";
@@ -165,8 +168,10 @@ export function MiniModelPicker() {
     const selectedStellaCatalogModel = allModels.find((model) => model.id === selectedStellaModelId ||
         model.upstreamModel === selectedStellaModelId);
     const selectedModelDefaultsToXhigh = committedEngine === "default" &&
-        (isDeepSeekV4FlashModel(selectedStellaModelId) ||
-            isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel));
+        ((isDeepSeekV4FlashModel(selectedStellaModelId) ||
+            isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel)) ||
+            (isMuseSpark12ContributorModel(selectedStellaModelId) ||
+                isMuseSpark12ContributorModel(selectedStellaCatalogModel?.upstreamModel)));
     // Mirrors the sidebar picker's `effectiveDefaultReasoningEffort`: a
     // live-reported ChatGPT default wins when it maps to a known option.
     const effectiveDefaultReasoningEffort = reasoningEffortOptions.some((option) => option.id === reportedDefaultReasoningEffort)

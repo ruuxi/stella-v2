@@ -44,13 +44,17 @@ export const isRestrictedModelOverrideAudience = (
  * Desktop-side mirror of the backend's
  * `RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS`.
  *
- * Restricted audiences cannot freely override Stella-managed models. Raw
- * DeepSeek V4 Flash is the sole public choice; the Light alias and the older
- * Fireworks-hosted spelling remain valid for saved preferences. Keep in sync
- * with `isStellaModelAllowedForAudience` in `backend/convex/agent/model.ts`.
+ * Restricted audiences cannot freely override Stella-managed models. The
+ * OpenRouter Muse default, raw DeepSeek V4 Flash (CrofAI), and the Wafer
+ * Fast variant are the public choices; the Light alias and the older
+ * Fireworks/DeepSeek spellings remain valid for saved preferences. Keep in sync with
+ * `isStellaModelAllowedForAudience` in `backend/convex/agent/model.ts`.
  */
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS = new Set<string>([
   "stella/light",
+  "stella/meta/muse-spark-1.2-contributor",
+  "stella/crof/deepseek-v4-flash-0731",
+  "stella/wafer/deepseek-v4-flash-0731-fast",
   "stella/deepseek/deepseek-v4-flash",
   "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
 ]);

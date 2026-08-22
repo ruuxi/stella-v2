@@ -588,8 +588,9 @@ describe("resolveLlmRoute", () => {
 
     expect(resolved.route).toBe("stella");
     expect(resolved.model.id).toBe("stella/default");
-    expect(resolved.model.api).toBe("openai-completions");
-    expect(resolved.model.provider).toBe("crof");
+    // The OpenRouter-hosted Muse default rides the Responses API.
+    expect(resolved.model.api).toBe("openai-responses");
+    expect(resolved.model.provider).toBe("openrouter");
   });
 
   it("routes explicit `stella/<provider>/<model>` ids through Stella unchanged", async () => {

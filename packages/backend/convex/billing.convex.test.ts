@@ -476,5 +476,41 @@ describe("managed model billing", () => {
       inputPerMillionUsd: 0.12,
       outputPerMillionUsd: 0.21,
     });
+
+    // The Wafer-hosted Fast variant persists the same way.
+    const waferRow = await t.run(async (ctx) =>
+      ctx.db
+        .query("billing_model_prices")
+        .withIndex("by_model", (q) =>
+          q.eq("model", "wafer/deepseek-v4-flash-0731-fast"),
+        )
+        .unique(),
+    );
+    expect(waferRow).toMatchObject({
+      model: "wafer/deepseek-v4-flash-0731-fast",
+      source: "static",
+      sourceProvider: "wafer",
+      inputPerMillionUsd: 0.28,
+      outputPerMillionUsd: 0.56,
+      cacheReadPerMillionUsd: 0.07,
+    });
+
+    // The new default is not on models.dev yet; its static override must
+    // persist the same way so billing never falls back to $0.
+    const museRow = await t.run(async (ctx) =>
+      ctx.db
+        .query("billing_model_prices")
+        .withIndex("by_model", (q) =>
+          q.eq("model", "meta/muse-spark-1.2-contributor"),
+        )
+        .unique(),
+    );
+    expect(museRow).toMatchObject({
+      model: "meta/muse-spark-1.2-contributor",
+      source: "static",
+      sourceProvider: "openrouter",
+      inputPerMillionUsd: 0.1,
+      outputPerMillionUsd: 0.2,
+    });
   });
 });

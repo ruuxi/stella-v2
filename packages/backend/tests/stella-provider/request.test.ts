@@ -218,6 +218,41 @@ describe("downgradeUnsupportedRequestImages", () => {
       ),
     ).toBe(body);
   });
+
+  it("downgrades images for the OpenRouter-hosted contributor despite its meta/ prefix", () => {
+    // The slug shares the `meta/` prefix with the image-capable first-party
+    // Muse Spark models but is text-only until OpenRouter documents
+    // multimodal support for the contributor tier.
+    const body = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "what is this?" },
+            {
+              type: "image_url",
+              image_url: { url: "data:image/png;base64,abc" },
+            },
+          ],
+        },
+      ],
+    };
+
+    const downgraded = downgradeUnsupportedRequestImages(
+      body,
+      "meta/muse-spark-1.2-contributor",
+    );
+    expect(downgraded).not.toBe(body);
+    expect((downgraded.messages as unknown[])[0]).toMatchObject({
+      content: [
+        { type: "text", text: "what is this?" },
+        {
+          type: "text",
+          text: "(image omitted: model does not support images)",
+        },
+      ],
+    });
+  });
 });
 
 describe("estimateRequestTokens", () => {
@@ -316,7 +351,7 @@ describe("estimateRequestTokens", () => {
 });
 
 describe("resolveRequestedStellaModel", () => {
-  it("routes missing free, anonymous, and Go General requests to DeepSeek Light", () => {
+  it("routes missing free, anonymous, and Go General requests to the Muse default", () => {
     for (const audience of [
       "anonymous",
       "free",
@@ -325,8 +360,8 @@ describe("resolveRequestedStellaModel", () => {
     ] as const) {
       const resolved = resolveRequestedStellaModel("general", {}, audience);
       expect(resolved.requestedModel).toBe("stella/default");
-      expect(resolved.resolvedModel).toBe("crof/deepseek-v4-flash-0731");
-      expect(resolved.config.managedGatewayProvider).toBe("crof");
+      expect(resolved.resolvedModel).toBe("meta/muse-spark-1.2-contributor");
+      expect(resolved.config.managedGatewayProvider).toBe("openrouter");
     }
   });
 
@@ -336,7 +371,7 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.resolvedModel).toBe(
       getModelConfig("orchestrator", "pro").model,
     );
-    expect(resolved.config.managedGatewayProvider).toBe("crof");
+    expect(resolved.config.managedGatewayProvider).toBe("openrouter");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
@@ -346,7 +381,7 @@ describe("resolveRequestedStellaModel", () => {
     expect(resolved.resolvedModel).toBe(
       getModelConfig("chronicle", "pro").model,
     );
-    expect(resolved.config.managedGatewayProvider).toBe("crof");
+    expect(resolved.config.managedGatewayProvider).toBe("openrouter");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
@@ -409,8 +444,8 @@ describe("resolveRequestedStellaModel", () => {
       "pro",
     );
     expect(resolved.requestedModel).toBe("stella/default");
-    expect(resolved.resolvedModel).toBe("crof/deepseek-v4-flash-0731");
-    expect(resolved.config.managedGatewayProvider).toBe("crof");
+    expect(resolved.resolvedModel).toBe("meta/muse-spark-1.2-contributor");
+    expect(resolved.config.managedGatewayProvider).toBe("openrouter");
     expect(resolved.config.fallback).toBeUndefined();
   });
 
@@ -487,7 +522,20 @@ describe("resolveRequestedStellaModel", () => {
     );
   });
 
-  it("allows Go and lower audiences to pick only V4 Flash", () => {
+  it("accepts the raw Wafer Fast pick and routes it to the wafer gateway", () => {
+    const resolved = resolveRequestedStellaModel(
+      "orchestrator",
+      { model: "stella/wafer/deepseek-v4-flash-0731-fast" },
+      "pro",
+    );
+    expect(resolved.requestedModel).toBe(
+      "stella/wafer/deepseek-v4-flash-0731-fast",
+    );
+    expect(resolved.resolvedModel).toBe("wafer/deepseek-v4-flash-0731-fast");
+    expect(resolved.config.managedGatewayProvider).toBe("wafer");
+  });
+
+  it("allows Go and lower audiences to pick V4 Flash or the Muse default only", () => {
     for (const audience of [
       "anonymous",
       "free",
@@ -501,6 +549,30 @@ describe("resolveRequestedStellaModel", () => {
       );
       expect(flash.requestedModel).toBe("stella/deepseek/deepseek-v4-flash");
       expect(flash.resolvedModel).toBe("crof/deepseek-v4-flash-0731");
+
+      // The Wafer-hosted Fast variant is public-catalog too.
+      const waferFast = resolveRequestedStellaModel(
+        "orchestrator",
+        { model: "stella/wafer/deepseek-v4-flash-0731-fast" },
+        audience,
+      );
+      expect(waferFast.requestedModel).toBe(
+        "stella/wafer/deepseek-v4-flash-0731-fast",
+      );
+      expect(waferFast.resolvedModel).toBe("wafer/deepseek-v4-flash-0731-fast");
+      expect(waferFast.config.managedGatewayProvider).toBe("wafer");
+
+      // The Muse default is explicitly pinnable for restricted audiences too.
+      const muse = resolveRequestedStellaModel(
+        "orchestrator",
+        { model: "stella/meta/muse-spark-1.2-contributor" },
+        audience,
+      );
+      expect(muse.requestedModel).toBe(
+        "stella/meta/muse-spark-1.2-contributor",
+      );
+      expect(muse.resolvedModel).toBe("meta/muse-spark-1.2-contributor");
+      expect(muse.config.managedGatewayProvider).toBe("openrouter");
 
       for (const blockedModel of [
         "stella/standard",

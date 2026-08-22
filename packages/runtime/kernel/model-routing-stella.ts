@@ -12,6 +12,7 @@ import {
   STELLA_RELAY_PROVIDERS,
   STELLA_STANDARD_MODEL,
   isDeepSeekV4FlashModel,
+  isMuseSpark12ContributorModel,
   stellaManagedRelayBaseUrlFromSiteUrl,
   type StellaRelayProvider,
 } from "@stella/contracts/stella-api";
@@ -55,6 +56,7 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["google/", "google"],
   ["deepseek/", "deepseek"],
   ["crof/", "crof"],
+  ["wafer/", "wafer"],
 ] as const satisfies readonly (readonly [string, ManagedGatewayProvider])[];
 
 export const inferManagedGatewayProviderFromModel = (
@@ -85,6 +87,7 @@ export const resolveManagedStellaRegistryMatches = (
       case "google":
       case "deepseek":
       case "crof":
+      case "wafer":
       case "openrouter":
         return [`${registryProvider}/${model.id}`];
       case "fireworks":
@@ -175,7 +178,8 @@ const providerNativeModelId = (
       provider === "anthropic" ||
       provider === "google" ||
       provider === "deepseek" ||
-      provider === "crof") &&
+      provider === "crof" ||
+      provider === "wafer") &&
     resolvedModelId.startsWith(`${provider}/`)
   ) {
     return resolvedModelId.slice(provider.length + 1);
@@ -189,6 +193,7 @@ const registryProviderForRelay = (provider: ManagedGatewayProvider): string =>
 const apiForRelay = (
   provider: ManagedGatewayProvider,
   registryModel: Model<Api> | null,
+  resolvedModelId?: string,
 ): Api => {
   switch (provider) {
     case "anthropic":
@@ -200,8 +205,17 @@ const apiForRelay = (
       return "openai-responses";
     case "crof":
       return "openai-completions";
-    case "openrouter":
+    case "wafer":
+      // Wafer is OpenAI-compatible chat completions only.
       return "openai-completions";
+    case "openrouter":
+      // OpenRouter hosts a mix of protocols: Muse Spark 1.2 Contributor
+      // (the Stella default) requires the Responses API; every other
+      // OpenRouter-hosted model (kimi synthesis, custom picks) stays on
+      // chat completions.
+      return resolvedModelId && isMuseSpark12ContributorModel(resolvedModelId)
+        ? "openai-responses"
+        : "openai-completions";
     case "openai":
       return registryModel?.api ?? "openai-responses";
     default: {
@@ -262,14 +276,15 @@ const createRelayModel = (args: {
     id: args.requestedModelId,
     name: modelName(args.requestedModelId),
     provider: registryModel?.provider ?? args.provider,
-    api: apiForRelay(args.provider, registryModel),
+    api: apiForRelay(args.provider, registryModel, args.resolvedModelId),
     baseUrl: stellaManagedRelayBaseUrlFromSiteUrl(args.siteBaseUrl),
     ...(isDeepSeekV4FlashModel(args.resolvedModelId)
       ? {
           thinkingLevelMap: {
             ...registryModel?.thinkingLevelMap,
-            ...(args.provider === "crof"
+            ...(args.provider === "crof" || args.provider === "wafer"
               ? {
+                  // CrofAI and Wafer accept none | low | medium | high.
                   minimal: "low",
                   low: "low",
                   medium: "medium",
@@ -288,6 +303,17 @@ const createRelayModel = (args: {
                   off: "none",
                 }),
           },
+        }
+      : {}),
+    ...(isMuseSpark12ContributorModel(args.resolvedModelId)
+      ? {
+          // Muse Spark 1.2 Contributor accepts xhigh on the Responses API
+          // and reasoning is mandatory for it. Without this map the runtime
+          // clamps Stella's default `xhigh` effort down to `high`.
+          thinkingLevelMap: {
+            ...registryModel?.thinkingLevelMap,
+            xhigh: "xhigh",
+          } as NonNullable<Model<Api>["thinkingLevelMap"]>,
         }
       : {}),
     headers: {

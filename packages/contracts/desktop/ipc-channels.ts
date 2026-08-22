@@ -207,6 +207,10 @@ export const IPC_SOCIAL_CONSUME_PENDING_INVITE =
 // Auth-inversion P2: runtime AuthOwner state changes fan out to renderers so
 // they re-pull tokens/sessions instead of running their own refresh timers.
 export const IPC_AUTH_CHANGED = "auth:changed" as const;
+// Auth-inversion P3: magic link runs through main -> runtime AuthOwner; the
+// raw sessionCookie never transits the renderer.
+export const IPC_AUTH_MAGIC_LINK_SEND = "auth:magicLinkSend" as const;
+export const IPC_AUTH_MAGIC_LINK_STATUS = "auth:magicLinkStatus" as const;
 export const IPC_AUTH_RUNTIME_REFRESH_REQUESTED =
   "auth:runtimeRefreshRequested" as const;
 export const IPC_AUTH_RUNTIME_REFRESH_COMPLETE =

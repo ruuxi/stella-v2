@@ -52,6 +52,50 @@ export const isAuthTokenFresh = (token: string, marginMs: number): boolean => {
   return Date.now() < expiryMs - marginMs;
 };
 
+/**
+ * Trusted deep-link shapes for auth callbacks (`{protocol}://auth?ott=...`,
+ * `{protocol}://oauth/callback/...`). Re-hosted from the desktop so the
+ * runtime revalidates every forwarded URL itself (defense in depth — the
+ * desktop keeps its capture-time pre-filter).
+ */
+export const isTrustedAuthCallbackUrl = (
+  value: string,
+  protocol: string,
+): boolean => {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol.toLowerCase() !== `${protocol.toLowerCase()}:`) {
+      return false;
+    }
+    const host = parsed.hostname.trim().toLowerCase();
+    if (host === "oauth") {
+      const normalizedPath = parsed.pathname.replace(/\/+$/g, "") || "/";
+      if (!normalizedPath.startsWith("/callback/")) {
+        return false;
+      }
+      const state = parsed.searchParams.get("state");
+      const code = parsed.searchParams.get("code");
+      const error = parsed.searchParams.get("error");
+      return Boolean(state && (code || error));
+    }
+    if (host !== "auth") {
+      return false;
+    }
+    const normalizedPath = parsed.pathname.replace(/\/+$/g, "") || "/";
+    if (
+      normalizedPath !== "/" &&
+      normalizedPath !== "/auth" &&
+      normalizedPath !== "/callback"
+    ) {
+      return false;
+    }
+    const token = parsed.searchParams.get("ott");
+    return Boolean(token && AUTH_CALLBACK_TOKEN_PATTERN.test(token));
+  } catch {
+    return false;
+  }
+};
+
 export type AuthCoreStorage = {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string | null) => void;

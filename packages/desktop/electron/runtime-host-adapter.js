@@ -446,6 +446,28 @@ export class RuntimeHostAdapter {
     onAuthChanged(listener) {
         return this.host.on("auth-changed", listener);
     }
+    // P3: sign-in mutations proxied to the worker AuthOwner (single writer).
+    async authSignInAnonymous() {
+        return await this.host.authSignInAnonymous();
+    }
+    async authSignOut() {
+        return await this.host.authSignOut();
+    }
+    async authDeleteUser() {
+        return await this.host.authDeleteUser();
+    }
+    async authApplySessionCookie(payload) {
+        return await this.host.authApplySessionCookie(payload);
+    }
+    async authHandleCallback(payload) {
+        return await this.host.authHandleCallback(payload);
+    }
+    async authMagicLinkSend(payload) {
+        return await this.host.authMagicLinkSend(payload);
+    }
+    async authMagicLinkStatus(payload) {
+        return await this.host.authMagicLinkStatus(payload);
+    }
     setHasConnectedAccount(value) {
         this.queueRuntimeConfigPatch({ hasConnectedAccount: value });
     }

@@ -289,6 +289,17 @@ export const METHOD_NAMES = {
   AUTH_IMPORT: "internal.worker.auth.import",
   AUTH_GET_CONVEX_TOKEN: "internal.worker.auth.getConvexToken",
   AUTH_GET_SESSION: "internal.worker.auth.getSession",
+  /**
+   * Auth-inversion P3: sign-in mutations execute in the worker so the
+   * AuthOwner is the single writer for every /api/auth/* mutation.
+   */
+  AUTH_SIGN_IN_ANONYMOUS: "internal.worker.auth.signInAnonymous",
+  AUTH_SIGN_OUT: "internal.worker.auth.signOut",
+  AUTH_DELETE_USER: "internal.worker.auth.deleteUser",
+  AUTH_APPLY_SESSION_COOKIE: "internal.worker.auth.applySessionCookie",
+  AUTH_HANDLE_CALLBACK: "internal.worker.auth.handleCallback",
+  AUTH_MAGIC_LINK_SEND: "internal.worker.auth.magicLink.send",
+  AUTH_MAGIC_LINK_STATUS: "internal.worker.auth.magicLink.status",
 } as const;
 
 export const NOTIFICATION_NAMES = {
@@ -384,6 +395,24 @@ export type RuntimeAuthChangedEvent = {
   authenticated: boolean;
   hasConnectedAccount: boolean;
   reason: "import" | "refresh" | "signed-out";
+};
+
+/** P3: raw deep link forwarded to the worker for validation + OTT exchange. */
+export type RuntimeAuthHandleCallbackParams = {
+  url: string;
+  /** The desktop's registered auth protocol (e.g. "stella"). */
+  protocol: string;
+};
+
+export type RuntimeAuthMagicLinkSendResult =
+  | { ok: true; requestId: string }
+  | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
+  | { ok: false; code: "send_failed"; error?: string };
+
+export type RuntimeAuthMagicLinkStatusResult = {
+  status: "pending" | "completed" | "expired";
+  /** True when a completed link's session cookie was applied to the store. */
+  applied: boolean;
 };
 
 import type { ChatContext } from "@stella/contracts";

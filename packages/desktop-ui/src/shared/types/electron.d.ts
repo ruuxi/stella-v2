@@ -661,6 +661,15 @@ export type ElectronSystemApi = {
   deleteAuthUser: () => Promise<{ ok: boolean }>;
   verifyAuthCallbackUrl: (url: string) => Promise<{ ok: boolean }>;
   applyAuthSessionCookie: (sessionCookie: string) => Promise<{ ok: boolean }>;
+  sendMagicLink: (email: string) => Promise<
+    | { ok: true; requestId: string }
+    | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
+    | { ok: false; code: "send_failed"; error?: string }
+  >;
+  getMagicLinkStatus: (requestId: string) => Promise<{
+    status: "pending" | "completed" | "expired";
+    applied: boolean;
+  }>;
   getConvexAuthToken: () => Promise<string | null>;
   completeRuntimeAuthRefresh: (payload: {
     requestId: string;

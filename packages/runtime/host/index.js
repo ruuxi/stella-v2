@@ -1451,6 +1451,42 @@ export class StellaRuntimeHost {
             ensureWorker: true,
         });
     }
+    // P3: sign-in mutations execute inside the worker's AuthOwner.
+    async authSignInAnonymous() {
+        return await this.requestWorker(METHOD_NAMES.AUTH_SIGN_IN_ANONYMOUS, undefined, {
+            ensureWorker: true,
+        });
+    }
+    async authSignOut() {
+        return await this.requestWorker(METHOD_NAMES.AUTH_SIGN_OUT, undefined, {
+            ensureWorker: true,
+        });
+    }
+    async authDeleteUser() {
+        return await this.requestWorker(METHOD_NAMES.AUTH_DELETE_USER, undefined, {
+            ensureWorker: true,
+        });
+    }
+    async authApplySessionCookie(payload) {
+        return await this.requestWorker(METHOD_NAMES.AUTH_APPLY_SESSION_COOKIE, payload, {
+            ensureWorker: true,
+        });
+    }
+    async authHandleCallback(payload) {
+        return await this.requestWorker(METHOD_NAMES.AUTH_HANDLE_CALLBACK, payload, {
+            ensureWorker: true,
+        });
+    }
+    async authMagicLinkSend(payload) {
+        return await this.requestWorker(METHOD_NAMES.AUTH_MAGIC_LINK_SEND, payload, {
+            ensureWorker: true,
+        });
+    }
+    async authMagicLinkStatus(payload) {
+        return await this.requestWorker(METHOD_NAMES.AUTH_MAGIC_LINK_STATUS, payload, {
+            ensureWorker: true,
+        });
+    }
     async webSearch(query, options) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_WEB_SEARCH, { query, ...options }, {
             ensureWorker: true,

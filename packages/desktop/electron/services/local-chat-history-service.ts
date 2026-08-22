@@ -259,10 +259,9 @@ export class LocalChatHistoryService {
    * payload that omits `event`, forcing a full window re-read so removed
    * rows drop out of the visible timeline.
    */
-  truncateConversation(args: {
-    conversationId: string;
-    eventId: string;
-  }): { removed: number } {
+  truncateConversation(args: { conversationId: string; eventId: string }): {
+    removed: number;
+  } {
     const result = this.getStore().truncateConversationAtEvent(
       args.conversationId,
       args.eventId,

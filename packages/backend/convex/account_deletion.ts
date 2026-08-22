@@ -175,6 +175,11 @@ const EXTRA_TABLES = [
   "secrets",
   "secret_access_audit",
   "user_integrations",
+  "oauth_connect_attempts",
+  "oauth_provider_accounts",
+  "oauth_credentials",
+  "connector_account_bindings",
+  "connector_audit_events",
   "agents",
   "media_jobs",
   "media_job_logs",
@@ -257,6 +262,46 @@ async function deleteOneExtraTableBatch(
       const rows = await ctx.db
         .query("user_integrations")
         .withIndex("by_ownerId_and_provider", (q) => q.eq("ownerId", ownerId))
+        .take(batch);
+      ids = rows.map((r) => r._id);
+      break;
+    }
+    case "oauth_connect_attempts": {
+      const rows = await ctx.db
+        .query("oauth_connect_attempts")
+        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
+        .take(batch);
+      ids = rows.map((r) => r._id);
+      break;
+    }
+    case "oauth_provider_accounts": {
+      const rows = await ctx.db
+        .query("oauth_provider_accounts")
+        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
+        .take(batch);
+      ids = rows.map((r) => r._id);
+      break;
+    }
+    case "oauth_credentials": {
+      const rows = await ctx.db
+        .query("oauth_credentials")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .take(batch);
+      ids = rows.map((r) => r._id);
+      break;
+    }
+    case "connector_account_bindings": {
+      const rows = await ctx.db
+        .query("connector_account_bindings")
+        .withIndex("by_ownerId_and_connectorId", (q) => q.eq("ownerId", ownerId))
+        .take(batch);
+      ids = rows.map((r) => r._id);
+      break;
+    }
+    case "connector_audit_events": {
+      const rows = await ctx.db
+        .query("connector_audit_events")
+        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
         .take(batch);
       ids = rows.map((r) => r._id);
       break;

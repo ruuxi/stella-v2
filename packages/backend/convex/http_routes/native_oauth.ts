@@ -1,6 +1,7 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { composioPathBlocked } from "../connectors/routing";
 import {
   errorResponse,
   handleCorsRequest,
@@ -453,6 +454,23 @@ const loadPublicIntegration = async (ctx: ActionCtx, id: string) =>
     id,
   })) as StoreIntegrationRecord | null;
 
+/**
+ * Once a connector's rollout reaches `first_party_only` (or `disabled`), the
+ * Composio connect/run path must refuse it so the two executors never run the
+ * same connector. Absence of a rollout row means the default `composio_only`
+ * mode, so unmigrated connectors are entirely unaffected.
+ */
+const isComposioPathBlocked = async (
+  ctx: ActionCtx,
+  connectorId: string,
+): Promise<boolean> => {
+  const rollout = await ctx.runQuery(
+    internal.connectors.rollouts.getConnectorRollout,
+    { connectorId },
+  );
+  return rollout ? composioPathBlocked(rollout.mode) : false;
+};
+
 export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/native-integrations/catalog",
@@ -700,6 +718,13 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         if (!connector) {
           return errorResponse(400, "Integration is not Composio-backed.", origin);
         }
+        if (await isComposioPathBlocked(ctx, connector.id)) {
+          return errorResponse(
+            409,
+            "This integration now uses Stella's first-party connector.",
+            origin,
+          );
+        }
         const composio = requireComposioConfig();
         if (!composio.config) return withCors(composio.response, origin);
         try {
@@ -816,6 +841,13 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         const connector = resolved ? readComposioConnector(resolved) : null;
         if (!resolved || !connector) {
           return errorResponse(400, "Integration action is not allowed.", origin);
+        }
+        if (await isComposioPathBlocked(ctx, connector.id)) {
+          return errorResponse(
+            409,
+            "This integration now uses Stella's first-party connector.",
+            origin,
+          );
         }
         let inputValidation: "valid" | "invalid" | "invalid_schema";
         try {

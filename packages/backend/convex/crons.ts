@@ -105,6 +105,21 @@ crons.interval(
 
 
 crons.interval(
+  "purge expired connector oauth attempts",
+  { hours: 1 },
+  internal.connectors.oauth.attempts.purgeExpiredConnectAttempts,
+  { batchSize: 200 },
+);
+
+crons.interval(
+  "purge expired connector audit events",
+  { hours: 24 },
+  internal.connectors.audit.purgeExpiredConnectorAuditEvents,
+  { batchSize: 500 },
+);
+
+
+crons.interval(
   "purge expired canvas shares",
   { hours: 1 },
   internal.data.canvas_shares_actions.purgeExpiredShares,

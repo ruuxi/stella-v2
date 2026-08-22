@@ -43,6 +43,30 @@ const API_KEY_BLOCKERS = [
   "real connect and representative provider call",
 ] as const;
 
+const MICROSOFT_BLOCKERS = [
+  "contact@fromyou.ai Microsoft identity or existing tenant membership",
+  "owner-confirmed country/region and date of birth if consumer signup is used",
+  "Entra app-registration permission and any tenant-required admin consent",
+  "production OAuth app credentials and callback verification",
+  "representative read and write for each Microsoft connector",
+] as const;
+
+const MICROSOFT_STATUS: readonly FirstPartyProviderFamilyStatus[] = [
+  ["outlook", "OUTLOOK"],
+  ["microsoft_teams", "MICROSOFT_TEAMS"],
+  ["excel", "EXCEL"],
+].map(([connectorId, toolkitId]) => ({
+  connectorId,
+  toolkitId,
+  providerKey: "microsoft",
+  auth: "oauth",
+  adapterSurface: "request_planner",
+  fallbackStatus: "live",
+  codeStatus: "code_ready",
+  activationStatus: "external_blocked",
+  activationBlockers: MICROSOFT_BLOCKERS,
+}));
+
 const providerKeyForProductivity = (
   connector: FirstPartyProductivityConnector,
 ): string => {
@@ -111,6 +135,7 @@ const designFinanceStatus = (
 
 export const FIRST_PARTY_PROVIDER_FAMILY_STATUS: readonly FirstPartyProviderFamilyStatus[] =
   [
+    ...MICROSOFT_STATUS,
     ...Object.values(FIRST_PARTY_PRODUCTIVITY_CONNECTORS).map(
       productivityStatus,
     ),

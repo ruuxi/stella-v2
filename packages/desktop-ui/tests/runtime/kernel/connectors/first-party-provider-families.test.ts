@@ -7,6 +7,9 @@ import {
 
 const SAFE_CONNECTOR_ID = /^[a-z0-9][a-z0-9_-]*$/u;
 const EXPECTED_IDS = [
+  "outlook",
+  "microsoft_teams",
+  "excel",
   "notion",
   "slack",
   "slackbot",
@@ -66,6 +69,13 @@ describe("reconciled first-party provider-family contract", () => {
     expect(getFirstPartyProviderFamilyStatus("jira")?.providerKey).toBe(
       "atlassian",
     );
+    for (const id of ["outlook", "microsoft_teams", "excel"]) {
+      const status = getFirstPartyProviderFamilyStatus(id);
+      expect(status?.providerKey).toBe("microsoft");
+      expect(status?.activationBlockers).toContain(
+        "contact@fromyou.ai Microsoft identity or existing tenant membership",
+      );
+    }
     expect(getFirstPartyProviderFamilyStatus("44api")?.toolkitId).toBe("44API");
     expect(getFirstPartyProviderFamilyStatus("1password")?.toolkitId).toBe(
       "_1PASSWORD",

@@ -694,6 +694,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           kind: "user",
           id: message._id,
           text: getDisplayUserText(message),
+          timestampMs: message.timestamp,
           ...(windowLabel ? { windowLabel } : {}),
           ...(windowPreviewImageUrl ? { windowPreviewImageUrl } : {}),
           ...(appSelectionLabels.length > 0 ? { appSelectionLabels } : {}),
@@ -824,6 +825,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           // so the raw "Voice session\n\nDuration: …" model-history fallback
           // never renders as markdown.
           text: voiceSession ? "" : text,
+          timestampMs: message.timestamp,
           cacheKey: stableKey,
           ...(isStreamingOverlay && !isHiddenTransition
             ? { isStreaming: true }

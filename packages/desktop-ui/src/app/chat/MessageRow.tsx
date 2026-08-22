@@ -595,6 +595,7 @@ export const UserMessageRow = memo(
             text={text}
             messageKey={row.id}
             align="end"
+            timestampMs={row.timestampMs}
             onRewind={messageActions ? handleRewind : undefined}
             onFork={forkAction ? handleFork : undefined}
             actionsDisabled={actionsBusy}
@@ -746,6 +747,7 @@ export const AssistantMessageRow = memo(
               messageKey={row.id}
               showReadAloud
               align="start"
+              timestampMs={row.timestampMs}
               streaming={Boolean(row.isStreaming)}
             />
           )}

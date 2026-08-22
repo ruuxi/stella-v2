@@ -46,6 +46,13 @@ const roleLabelKey = (role: AgentThreadMessageRecord["role"]): string => {
   }
 };
 
+/** Local-timezone "h:mm AM/PM" for the hover timestamp gutter. */
+const formatMessageTime = (timestampMs: number): string =>
+  new Date(timestampMs).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
 const compactPreview = (value: string, maxChars = 120): string => {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > maxChars
@@ -509,6 +516,14 @@ export function AgentThreadChatTab({
                 className="agent-thread-chat__message"
                 data-role={message.role}
               >
+                {Number.isFinite(message.timestamp) ? (
+                  <span
+                    className="agent-thread-chat__timestamp"
+                    aria-hidden="true"
+                  >
+                    {formatMessageTime(message.timestamp)}
+                  </span>
+                ) : null}
                 {message.role === "lifecycle" && message.lifecycleEvent ? (
                   <ThreadLifecycleCard
                     state={

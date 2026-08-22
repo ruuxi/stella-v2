@@ -129,6 +129,21 @@
   pointer-events: auto;
 }
 
+/* Muted created-time stamp riding along with the action buttons. It shares
+   the strip's hover-only opacity fade and its fixed 24px height, so it never
+   changes row geometry. */
+.message-actions__timestamp {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 4px;
+  color: var(--text-weaker);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
+}
+
 .message-actions__spinner {
   animation: message-actions-spin 0.8s linear infinite;
 }

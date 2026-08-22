@@ -8,7 +8,8 @@
  * slot.
  *
  * This is the locked-in "candidate A" from the glyph sampler — 13px, same
- * path and muted ink as sampled.
+ * path as sampled; ink comes from the glyph slot's solid full-strength
+ * `color` (see `.agent-activity-row__glyph` in agent-activity-row.css).
  */
 export function StellaStarGlyph({ size = 13 }: { size?: number }) {
   return (

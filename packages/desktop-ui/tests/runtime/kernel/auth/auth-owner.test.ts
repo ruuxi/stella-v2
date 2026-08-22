@@ -265,3 +265,137 @@ describe("auth owner", () => {
     owner.stop();
   });
 });
+
+const jsonResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+
+describe("auth owner — sign-out / refresh races (regression)", () => {
+  it("fences a mint that was in flight when sign-out landed (no resurrection)", async () => {
+    const jwt = makeJwt({ exp: Math.floor(Date.now() / 1000) + 1800 });
+    let gateMints = false;
+    let releaseMint = () => {};
+    let signalMintStarted = () => {};
+    const mintGate = new Promise<void>((resolve) => {
+      releaseMint = resolve;
+    });
+    const mintStarted = new Promise<void>((resolve) => {
+      signalMintStarted = resolve;
+    });
+    fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("/convex/token")) {
+          if (gateMints) {
+            signalMintStarted();
+            await mintGate;
+          }
+          return jsonResponse({ token: jwt });
+        }
+        // /sign-out and everything else succeed immediately.
+        return jsonResponse({ ok: true });
+      });
+
+    const changes: string[] = [];
+    const owner = createAuthOwner({
+      stellaDataDir: tmpDir,
+      getBaseUrl: () => "https://example.convex.site",
+      onAuthChanged: (event) => changes.push(event.reason),
+    });
+    // Seed a live session; the first mint resolves immediately.
+    await owner.importSession({
+      cookie: sessionCookie,
+      sessionData: JSON.stringify({ user: { id: "u1", isAnonymous: false } }),
+    });
+    expect(owner.hasSession()).toBe(true);
+
+    // Now gate future mints and kick off a force-refresh mint we can suspend.
+    gateMints = true;
+    const refreshPromise = owner.getConvexToken({ forceRefresh: true });
+    await mintStarted;
+
+    // Sign out while the mint is suspended: this destroys the cookie and bumps
+    // the epoch, so the in-flight mint must not commit when it completes.
+    const signOut = await owner.signOut();
+    expect(signOut.ok).toBe(true);
+
+    releaseMint();
+    const refreshResult = await refreshPromise;
+
+    // The deferred mint was fenced: it did not resurrect the token or session.
+    expect(refreshResult.token).toBeNull();
+    expect(owner.hasSession()).toBe(false);
+    const after = await owner.getConvexToken();
+    expect(after.token).toBeNull();
+
+    // No "refresh" was emitted after the "signed-out" event.
+    const signedOutIndex = changes.lastIndexOf("signed-out");
+    expect(signedOutIndex).toBeGreaterThanOrEqual(0);
+    expect(changes.slice(signedOutIndex)).not.toContain("refresh");
+    owner.stop();
+  });
+
+  it("force-refresh never falls back to the rejected cached JWT (401 recovery)", async () => {
+    const jwt = makeJwt({ exp: Math.floor(Date.now() / 1000) + 1800 });
+    let mintOk = true;
+    fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("/convex/token")) {
+          return mintOk
+            ? jsonResponse({ token: jwt })
+            : new Response("", { status: 500 });
+        }
+        return jsonResponse({ ok: true });
+      });
+    const owner = createAuthOwner({
+      stellaDataDir: tmpDir,
+      getBaseUrl: () => "https://example.convex.site",
+    });
+    await owner.importSession({
+      cookie: sessionCookie,
+      sessionData: JSON.stringify({ user: { id: "u1" } }),
+    });
+    // The server now rejects the current JWT and minting fails.
+    mintOk = false;
+    const forced = await owner.getConvexToken({ forceRefresh: true });
+    // Must NOT hand back the rejected cached token.
+    expect(forced.token).toBeNull();
+    // A non-forced read may still serve the still-fresh cache (server judges).
+    const cached = await owner.getConvexToken();
+    expect(cached.token).toBe(jwt);
+    owner.stop();
+  });
+});
+
+describe("auth session store — multi-writer CAS (regression)", () => {
+  it("a stale second writer cannot restore a signed-out session", () => {
+    const writerA = createAuthSessionStore({ stellaDataDir: tmpDir });
+    const writerB = createAuthSessionStore({ stellaDataDir: tmpDir });
+
+    writerA.setItem(BETTER_AUTH_COOKIE_STORAGE_KEY, sessionCookie);
+    // B loads the current (signed-in) state into its cache.
+    expect(writerB.getItem(BETTER_AUTH_COOKIE_STORAGE_KEY)).toBe(sessionCookie);
+
+    // A signs out — deletes the cookie and advances the store generation.
+    writerA.setItem(BETTER_AUTH_COOKIE_STORAGE_KEY, null);
+
+    // B, holding a stale cache, writes an unrelated key. Without the CAS
+    // reload this would persist B's stale {cookie} map and resurrect the
+    // signed-out session.
+    writerB.setItem(
+      BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
+      '{"user":{"id":"u1"}}',
+    );
+
+    const reopened = createAuthSessionStore({ stellaDataDir: tmpDir });
+    expect(reopened.getItem(BETTER_AUTH_COOKIE_STORAGE_KEY)).toBeNull();
+    expect(reopened.getItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY)).toBe(
+      '{"user":{"id":"u1"}}',
+    );
+  });
+});

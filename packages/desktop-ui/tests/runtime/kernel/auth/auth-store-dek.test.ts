@@ -37,9 +37,8 @@ vi.mock("node:child_process", () => ({
 const { createAuthSessionStore } = await import(
   "@stella/runtime/kernel/auth/store"
 );
-const { BETTER_AUTH_COOKIE_STORAGE_KEY } = await import(
-  "@stella/runtime/kernel/auth/auth-core"
-);
+const { BETTER_AUTH_COOKIE_STORAGE_KEY, BETTER_AUTH_SESSION_DATA_STORAGE_KEY } =
+  await import("@stella/runtime/kernel/auth/auth-core");
 
 const sessionCookie = JSON.stringify({
   "better-auth.session_token": { value: "cookie-token" },
@@ -88,5 +87,32 @@ describe("auth session store — DEK custody (regression)", () => {
     keychain.mode = "ok";
     const after = createAuthSessionStore({ stellaDataDir: tmpDir });
     expect(after.getItem(BETTER_AUTH_COOKIE_STORAGE_KEY)).toBe(sessionCookie);
+  });
+
+  it("refuses to write through a DEK-poisoned store instance (no session erase)", () => {
+    // Seed a session with a healthy keychain.
+    const first = createAuthSessionStore({ stellaDataDir: tmpDir });
+    first.setItem(BETTER_AUTH_COOKIE_STORAGE_KEY, sessionCookie);
+    const storedDek = keychain.value;
+
+    // A fresh instance whose keychain read fails: an unrelated write MUST throw
+    // rather than persist an empty map over the valid (undecryptable-right-now)
+    // session, and must not replace the DEK.
+    keychain.mode = "error";
+    const poisoned = createAuthSessionStore({ stellaDataDir: tmpDir });
+    expect(() =>
+      poisoned.setItem(
+        BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
+        '{"user":{"id":"u1"}}',
+      ),
+    ).toThrow();
+    expect(keychain.value).toBe(storedDek);
+
+    // After recovery the original session is intact and the poisoned write
+    // never landed.
+    keychain.mode = "ok";
+    const after = createAuthSessionStore({ stellaDataDir: tmpDir });
+    expect(after.getItem(BETTER_AUTH_COOKIE_STORAGE_KEY)).toBe(sessionCookie);
+    expect(after.getItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY)).toBeNull();
   });
 });

@@ -26,6 +26,30 @@ const KEYCHAIN_SERVICE = "stella-runtime-auth-dek";
 const KEYCHAIN_ACCOUNT = "stella";
 const DEK_BYTES = 32;
 
+// Inter-process advisory lock for the session file. Every mutating transaction
+// (read -> decrypt -> mutate -> seal -> rename) runs while holding this lock so
+// two processes can't both read generation N and both rename N+1 (a
+// check-then-act race where the later stale rename wins).
+const LOCK_FILE_SUFFIX = ".lock";
+const LOCK_ACQUIRE_TIMEOUT_MS = 5_000;
+// A lock older than this is treated as abandoned (holder crashed) and reaped.
+const LOCK_STALE_MS = 30_000;
+const LOCK_RETRY_MS = 20;
+
+// Synchronous sleep (the store API is sync). Atomics.wait blocks the thread
+// without spinning; fall back to a bounded busy-wait if SharedArrayBuffer is
+// unavailable.
+const sleepSync = (ms: number) => {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      // busy-wait fallback
+    }
+  }
+};
+
 type SealedEnvelope = {
   version: 1;
   alg: "aes-256-gcm";
@@ -162,6 +186,61 @@ export const createAuthSessionStore = (options: {
     fs.mkdirSync(storeDir, { recursive: true, mode: 0o700 });
   };
 
+  const lockPath = `${sessionPath}${LOCK_FILE_SUFFIX}`;
+
+  // Run `fn` while holding an exclusive on-disk lock. Uses O_EXCL create
+  // (atomic across processes on the same filesystem) with a bounded retry, and
+  // reaps a stale lock left by a crashed holder.
+  const withFileLock = <T>(fn: () => T): T => {
+    ensureStoreDir();
+    const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
+    let fd: number | null = null;
+    for (;;) {
+      try {
+        fd = fs.openSync(lockPath, "wx", 0o600);
+        break;
+      } catch (error) {
+        if ((error as { code?: string } | null)?.code !== "EEXIST") {
+          throw error;
+        }
+        let stale = false;
+        try {
+          stale = Date.now() - fs.statSync(lockPath).mtimeMs > LOCK_STALE_MS;
+        } catch {
+          // Lock vanished between open and stat — retry immediately.
+          continue;
+        }
+        if (stale) {
+          try {
+            fs.rmSync(lockPath, { force: true });
+          } catch {
+            // Another process reaped it first; retry.
+          }
+          continue;
+        }
+        if (Date.now() >= deadline) {
+          throw new Error("Timed out acquiring the auth session store lock.");
+        }
+        sleepSync(LOCK_RETRY_MS);
+      }
+    }
+    try {
+      fs.writeSync(fd, `${process.pid}:${Date.now()}`);
+      return fn();
+    } finally {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // already closed
+      }
+      try {
+        fs.rmSync(lockPath, { force: true });
+      } catch {
+        // best effort
+      }
+    }
+  };
+
   // Durable write: stage to a temp file then rename, so a crash mid-write can
   // never leave a truncated/half-encrypted envelope (or DEK) on disk.
   const writeFileAtomic = (
@@ -279,99 +358,133 @@ export const createAuthSessionStore = (options: {
     }
   };
 
-  const readValues = (): Record<string, string> => {
+  // Read the authoritative on-disk state. `ok:false` means the file exists but
+  // is currently unreadable (transient DEK/keychain error, or corruption) — the
+  // caller MUST NOT treat that as an empty session and overwrite it. A genuinely
+  // absent file returns ok:true with an empty map.
+  type ReadResult =
+    | { ok: true; values: Record<string, string>; generation: number }
+    | { ok: false };
+
+  const readState = (): ReadResult => {
+    let raw: string;
     try {
-      const raw = fs.readFileSync(sessionPath, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
-      if (!isSealedEnvelope(parsed)) {
-        return {};
+      raw = fs.readFileSync(sessionPath, "utf8");
+    } catch (error) {
+      if ((error as { code?: string } | null)?.code === "ENOENT") {
+        return { ok: true, values: {}, generation: 0 };
       }
-      const plaintext = unseal(parsed);
-      if (!plaintext) {
-        return {};
-      }
-      const values = JSON.parse(plaintext) as Record<string, unknown>;
-      const next: Record<string, string> = {};
-      for (const [key, value] of Object.entries(values)) {
-        if (typeof value === "string") {
-          next[key] = value;
-        }
-      }
-      return next;
-    } catch {
-      return {};
+      // Transient read error — preserve whatever is on disk.
+      return { ok: false };
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { ok: false };
+    }
+    if (!isSealedEnvelope(parsed)) {
+      return { ok: false };
+    }
+    const generation =
+      typeof parsed.generation === "number" ? parsed.generation : 0;
+    let plaintext: string | null;
+    try {
+      // A DEK/keychain read failure throws inside loadDek; treat it as
+      // "unreadable", never as "empty".
+      plaintext = unseal(parsed);
+    } catch {
+      return { ok: false };
+    }
+    if (plaintext === null) {
+      // Decrypt failed (wrong/unavailable DEK) — do NOT treat as empty.
+      return { ok: false };
+    }
+    let values: Record<string, unknown>;
+    try {
+      values = JSON.parse(plaintext) as Record<string, unknown>;
+    } catch {
+      return { ok: false };
+    }
+    const next: Record<string, string> = {};
+    for (const [key, value] of Object.entries(values)) {
+      if (typeof value === "string") {
+        next[key] = value;
+      }
+    }
+    return { ok: true, values: next, generation };
   };
 
+  // In-memory read cache. Populated ONLY from a successful read; a transient
+  // read failure never caches an empty map (which a later write would persist,
+  // erasing a valid session — the DEK-poison bug).
   let cache: Record<string, string> | null = null;
-  // Generation the current `cache` was loaded at, for cross-process CAS.
-  let cacheGeneration = 0;
 
-  // Read just the envelope's generation counter without decrypting, so a write
-  // can cheaply detect that another process advanced the store.
-  const readDiskGeneration = (): number => {
-    try {
-      const raw = fs.readFileSync(sessionPath, "utf8");
-      const parsed = JSON.parse(raw) as { generation?: unknown };
-      return typeof parsed.generation === "number" ? parsed.generation : 0;
-    } catch {
-      return 0;
+  const ensureCache = (): Record<string, string> | null => {
+    if (cache) {
+      return cache;
     }
-  };
-
-  const loadCache = (): Record<string, string> => {
-    cache = readValues();
-    cacheGeneration = readDiskGeneration();
+    const state = readState();
+    if (!state.ok) {
+      return null;
+    }
+    cache = state.values;
     return cache;
   };
 
-  const values = (): Record<string, string> => cache ?? loadCache();
-
-  const persist = () => {
-    ensureStoreDir();
-    const nextGeneration = cacheGeneration + 1;
-    const envelope: SealedEnvelope = {
-      ...seal(JSON.stringify(cache ?? {})),
-      generation: nextGeneration,
-    };
-    writeFileAtomic(sessionPath, JSON.stringify(envelope, null, 2), 0o600);
-    cacheGeneration = nextGeneration;
-  };
-
   return {
-    getItem: (key) => values()[key] ?? null,
+    getItem: (key) => {
+      const current = ensureCache();
+      return current ? (current[key] ?? null) : null;
+    },
     setItem: (key, value) => {
-      let current = values();
-      // Cross-process reconcile: if another writer advanced the on-disk
-      // generation since we loaded, reload the latest state before mutating so
-      // our stale in-memory copy can't clobber a newer write (e.g. resurrect a
-      // session that another process just signed out).
-      const diskGeneration = readDiskGeneration();
-      if (diskGeneration > cacheGeneration) {
-        current = loadCache();
-      }
-      if (typeof value === "string") {
-        if (current[key] === value) {
-          return;
+      withFileLock(() => {
+        // Re-read the authoritative on-disk state INSIDE the lock so the whole
+        // read -> decrypt -> mutate -> seal -> rename transaction is atomic
+        // across processes (no check-then-act stale-rename race).
+        const state = readState();
+        if (!state.ok) {
+          // The session file exists but is currently unreadable (transient DEK
+          // / keychain error). Writing would erase a valid session, so refuse
+          // and drop the cache until a successful reload proves the state.
+          cache = null;
+          throw new Error(
+            "Auth session store is temporarily unreadable; refusing to write.",
+          );
         }
-        current[key] = value;
-      } else {
-        if (!(key in current)) {
-          return;
+        const current = state.values;
+        if (typeof value === "string") {
+          if (current[key] === value) {
+            cache = current;
+            return;
+          }
+          current[key] = value;
+        } else {
+          if (!(key in current)) {
+            cache = current;
+            return;
+          }
+          delete current[key];
         }
-        delete current[key];
-      }
-      persist();
+        const nextGeneration = state.generation + 1;
+        const envelope: SealedEnvelope = {
+          ...seal(JSON.stringify(current)),
+          generation: nextGeneration,
+        };
+        writeFileAtomic(sessionPath, JSON.stringify(envelope, null, 2), 0o600);
+        cache = current;
+      });
     },
     exists: () => fs.existsSync(sessionPath),
     clear: () => {
-      cache = {};
-      cacheGeneration = 0;
-      try {
-        fs.rmSync(sessionPath, { force: true });
-      } catch {
-        // best effort
-      }
+      withFileLock(() => {
+        cache = {};
+        try {
+          fs.rmSync(sessionPath, { force: true });
+        } catch {
+          // best effort
+        }
+      });
     },
     get dekSource() {
       return dekSource;

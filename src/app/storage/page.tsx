@@ -1,23 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  CheckCircle2,
-  Cloud,
-  FileLock,
-  HardDrive,
-  Hash,
-  Laptop,
-  Lock,
-  MessageSquare,
-  Send,
-  ShieldCheck,
-  Smartphone,
-  Upload,
-  Users,
-} from "lucide-react";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
+import {
+  StorageBackupsMock,
+  StorageConnectorMock,
+  StorageLocalChatMock,
+  StoragePhoneMock,
+  StorageRoutingMock,
+} from "@/components/product-mocks/storage-mocks";
 import styles from "./storage.module.css";
 import { StellaMark } from "@/components/stella-mark";
 
@@ -37,7 +29,6 @@ export default function StoragePage() {
         <section className={`grid-shell ${styles.heroSection}`}>
           <div className={styles.hero}>
             <span className={styles.eyebrow}>
-              <ShieldCheck size={15} strokeWidth={1.9} aria-hidden="true" />
               Storage
             </span>
             <h1>Where Stella keeps your data.</h1>
@@ -50,11 +41,10 @@ export default function StoragePage() {
         </section>
 
         {/* Local-first chat */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={styles.row}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <HardDrive size={14} strokeWidth={1.9} aria-hidden="true" />
                 On your device
               </span>
               <h2>Your conversations live on your laptop.</h2>
@@ -65,40 +55,22 @@ export default function StoragePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.device}>
-                  <div className={styles.deviceBar}>
-                    <i />
-                    <i />
-                    <i />
-                  </div>
-                  <div className={styles.deviceBody}>
-                    <span className={styles.deviceIcon}>
-                      <FileLock size={16} />
-                    </span>
-                    <div className={styles.deviceText}>
-                      <strong>your chat</strong>
-                      <em>one file on this computer</em>
-                    </div>
-                  </div>
-                </div>
-                <span className={styles.down} />
-                <div className={styles.crossed}>
-                  <Cloud size={14} />
-                  cloud features are handled separately
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <StorageLocalChatMock />
             </div>
           </div>
         </section>
 
         {/* Backups */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={`${styles.row} ${styles["row--flip"]}`}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <Cloud size={14} strokeWidth={1.9} aria-hidden="true" />
                 Backups
               </span>
               <h2>Backups stay off until you ask.</h2>
@@ -109,37 +81,22 @@ export default function StoragePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.toggle}>
-                  <span className={styles.toggleLabel}>
-                    <Cloud size={15} />
-                    Backups
-                  </span>
-                  <span className={styles.switch} data-state="off">
-                    <i />
-                  </span>
-                </div>
-                <span className={styles.toggleHint}>off until you turn it on</span>
-                <span className={styles.down} />
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Lock size={18} />
-                  </span>
-                  <strong>an encrypted copy</strong>
-                  <em>scrambled before it leaves · paid, opt-in</em>
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <StorageBackupsMock />
             </div>
           </div>
         </section>
 
         {/* Connectors */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={styles.row}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <MessageSquare size={14} strokeWidth={1.9} aria-hidden="true" />
                 Texts &amp; chat apps
               </span>
               <h2>Messages run through your own machine.</h2>
@@ -152,41 +109,22 @@ export default function StoragePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.bubble}>
-                  <MessageSquare size={15} />
-                  a message comes in
-                </div>
-                <span className={styles.down} />
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Laptop size={18} />
-                  </span>
-                  <strong>handled on your computer</strong>
-                  <em>reads it, does the task, replies</em>
-                </div>
-                <span className={styles.down} />
-                <div className={`${styles.bubble} ${styles["bubble--reply"]}`}>
-                  <Send size={15} />
-                  reply sent straight back out
-                </div>
-                <div className={styles.hashRow}>
-                  <span className={styles.hashRaw}>+1 555 0148</span>
-                  <Hash size={12} />
-                  <span className={styles.hashOut}>scrambled</span>
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <StorageConnectorMock />
             </div>
           </div>
         </section>
 
         {/* Phone control */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={`${styles.row} ${styles["row--flip"]}`}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <Smartphone size={14} strokeWidth={1.9} aria-hidden="true" />
                 From your phone
               </span>
               <h2>Your phone can reach your desktop.</h2>
@@ -197,37 +135,22 @@ export default function StoragePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.tunnel}>
-                  <span className={styles.endpoint}>
-                    <Smartphone size={20} />
-                    <em>your phone</em>
-                  </span>
-                  <span className={styles.tunnelLink}>
-                    <Lock size={12} />
-                  </span>
-                  <span className={styles.endpoint}>
-                    <Laptop size={20} />
-                    <em>your desktop</em>
-                  </span>
-                </div>
-                <span className={styles.down} />
-                <div className={styles.pile}>
-                  <CheckCircle2 size={13} aria-hidden="true" />
-                  pairing and delivery state connect your devices
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <StoragePhoneMock />
             </div>
           </div>
         </section>
 
         {/* Sharing */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={styles.row}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <Send size={14} strokeWidth={1.9} aria-hidden="true" />
                 Cloud features
               </span>
               <h2>Some features need remote processing.</h2>
@@ -239,23 +162,13 @@ export default function StoragePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.shareGrid}>
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Upload size={18} />
-                  </span>
-                  <strong>content you submit</strong>
-                  <em>sent to the service you use</em>
-                </div>
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Users size={18} />
-                  </span>
-                  <strong>provider processing</strong>
-                  <em>subject to provider policies</em>
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <StorageRoutingMock />
             </div>
           </div>
         </section>
@@ -264,7 +177,6 @@ export default function StoragePage() {
         <section className={`grid-shell section-border ${styles.closingSection}`}>
           <div className={styles.closing}>
             <span className={styles.eyebrow}>
-              <ShieldCheck size={14} strokeWidth={1.9} aria-hidden="true" />
               Learn more
             </span>
             <h2>Local storage and cloud processing are separate.</h2>

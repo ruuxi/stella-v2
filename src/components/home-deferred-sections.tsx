@@ -5,6 +5,14 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 const HomeSingleChat = lazy(() =>
   import("./home-single-chat").then((module) => ({ default: module.HomeSingleChat })),
 );
+const HomeOrchestration = lazy(() =>
+  import("./home-orchestration").then((module) => ({
+    default: module.HomeOrchestration,
+  })),
+);
+const HomeRealWork = lazy(() =>
+  import("./home-real-work").then((module) => ({ default: module.HomeRealWork })),
+);
 const HomeComputerUse = lazy(() =>
   import("./home-computer-use").then((module) => ({ default: module.HomeComputerUse })),
 );
@@ -46,6 +54,8 @@ export function HomeDeferredSections() {
   return (
     <>
       <DeferredSection><HomeSingleChat /></DeferredSection>
+      <DeferredSection><HomeOrchestration /></DeferredSection>
+      <DeferredSection><HomeRealWork /></DeferredSection>
       <DeferredSection><HomeComputerUse /></DeferredSection>
       <DeferredSection><HomePhoneConnectors /></DeferredSection>
       <DeferredSection><HomeDocuments /></DeferredSection>

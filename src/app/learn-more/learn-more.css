@@ -119,13 +119,17 @@
   margin-top: 0.5rem;
 }
 
+/* Shares the site-wide kicker system (see .site-kicker in globals.css). */
 .learn-eyebrow {
   display: block;
-  color: color-mix(in oklch, var(--page-foreground) 62%, transparent);
-  font-family: var(--font-display), serif;
-  font-size: 0.86rem;
+  margin: 0;
+  color: color-mix(in oklch, var(--page-foreground) 64%, transparent);
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.1rem, 1rem + 0.45vw, 1.35rem);
   font-style: italic;
-  letter-spacing: -0.025em;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0;
 }
 
 .learn-section {

@@ -41,15 +41,16 @@
   transform: none;
 }
 
-/* Messages land one by one whenever a platform takes the stage; toggling
-   data-active off resets them so each return replays the thread. */
+/* Messages land one by one whenever the phone takes the stage (each row
+   carries its landing time in --t, ms); toggling data-active off resets them
+   so each return replays the thread. */
 .slot [data-beat] {
   opacity: 0;
 }
 
 .slot[data-active] [data-beat] {
   animation: beatIn 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(300ms + var(--b) * 420ms);
+  animation-delay: calc(var(--t) * 1ms);
 }
 
 @keyframes beatIn {
@@ -276,12 +277,6 @@
   gap: 0.32rem;
 }
 
-.signal {
-  width: 1.05rem;
-  height: 0.62rem;
-  fill: currentColor;
-}
-
 .wifi {
   width: 0.95rem;
   height: 0.68rem;
@@ -329,158 +324,567 @@
   flex-direction: column;
 }
 
-.thread {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 0.42rem;
-  padding: 0.82rem 0.74rem 0.64rem;
-  overflow: hidden;
-  justify-content: flex-start;
-}
-
 /* ================================================================== */
-/*  Stella app                                                        */
+/*  Stella app — faithful to stella-mobile on the default Pearl theme  */
+/*  (white flat canvas, Manrope, accent #2563eb). Every dimension is   */
+/*  expressed in --u = 1pt of a 393pt iPhone screen, so the type scale */
+/*  and spacing match a real screenshot shrunk to the phone frame.     */
 /* ================================================================== */
 .stella {
+  /* 393pt logical width; the frame's 0.42rem bezel sits on each side. */
+  --u: calc((var(--phone-w) - 0.84rem) / 393);
+  --st-bg: #ffffff;
+  --st-text: #111111;
+  --st-muted: #737373;
+  --st-accent: #2563eb;
+  --st-accent-soft: #ebedf8; /* soften(accent, bg, 0.12) */
+  --st-border: #e8e8e8;
+  --st-border-strong: #dcdcdc;
   position: relative;
-  background: #0f1622;
-  color: #eaf0f7;
+  background: var(--st-bg);
+  color: var(--st-text);
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
 }
 
-.stGradient {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(
-      80% 55% at 20% 8%,
-      rgba(96, 140, 220, 0.48),
-      transparent 60%
-    ),
-    radial-gradient(
-      70% 50% at 88% 30%,
-      rgba(80, 172, 196, 0.28),
-      transparent 60%
-    ),
-    radial-gradient(
-      90% 60% at 70% 100%,
-      rgba(58, 110, 180, 0.42),
-      transparent 60%
-    ),
-    linear-gradient(170deg, #17213a 0%, #111b2c 55%, #0d1422 100%);
-}
-
-.stHeader {
-  position: relative;
-  z-index: 1;
+/* Top bar: safe-area inset (59pt) + 36pt bar; hamburger in a 44pt hit box,
+   4pt from the left edge. Cloud chat shows nothing centered. */
+.stTopBar {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 2.28rem 0.86rem 0.68rem;
+  flex: none;
+  align-items: flex-end;
+  height: calc(95 * var(--u));
+  padding: 0 calc(4 * var(--u));
 }
 
-.stMenu {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 0.18rem;
+.stHamburger {
+  display: grid;
+  width: calc(44 * var(--u));
+  height: calc(44 * var(--u));
+  place-items: center;
+  color: var(--st-text);
 }
 
-.stMenu i {
-  width: 1.05rem;
-  height: 1.6px;
-  border-radius: 2px;
-  background: rgba(234, 240, 247, 0.8);
+.stHamburger svg {
+  width: calc(22 * var(--u));
+  height: calc(22 * var(--u));
 }
 
-.stMenu i:nth-child(2) {
-  width: 0.75rem;
-}
-
-.stBrand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.34rem;
-  margin: 0 auto;
-  font-size: 0.82rem;
-  font-weight: 300;
-}
-
-.stModel {
-  padding: 0.16rem 0.46rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  font-size: 0.62rem;
-  font-weight: 300;
-}
-
+/* Message list: 12pt gutters, 80pt top pad (+4pt content pad), 20pt gaps.
+   Short threads read top-down (no end alignment), as in the app. */
 .stThread {
-  position: relative;
-  z-index: 1;
-  gap: 0.58rem;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(20 * var(--u));
+  min-height: 0;
+  padding: calc(84 * var(--u)) calc(12 * var(--u)) 0;
+  overflow: hidden;
 }
 
+/* User bubble: accentSoft fill, hairline borderStrong, 18pt radius with a
+   4pt bottom-right corner, 12pt padding, 17pt/1.52 Manrope. */
 .stYou {
   align-self: flex-end;
-  max-width: 80%;
-  padding: 0.5rem 0.7rem;
-  border-radius: 16px 16px 5px 16px;
-  background: linear-gradient(
-    180deg,
-    rgba(128, 174, 255, 0.34),
-    rgba(88, 129, 214, 0.24)
-  );
-  border: 1px solid rgba(150, 185, 250, 0.25);
-  color: #eef4fd;
-  font-size: 0.69rem;
-  line-height: 1.36;
+  max-width: 92%;
+  padding: calc(12 * var(--u));
+  border-radius: calc(18 * var(--u));
+  border-bottom-right-radius: calc(4 * var(--u));
+  background: var(--st-accent-soft);
+  box-shadow: 0 0 0 0.5px var(--st-border-strong);
+  color: var(--st-text);
+  font-size: calc(17 * var(--u));
+  letter-spacing: 0.03em;
+  line-height: 1.52;
 }
 
+/* Assistant reply: bubble-less prose, same 17pt/1.52 scale, 4pt row pad. */
 .stAssistant {
-  align-self: flex-start;
-  max-width: 90%;
   margin: 0;
-  color: rgba(234, 240, 247, 0.92);
-  font-size: 0.7rem;
-  line-height: 1.46;
+  padding: calc(4 * var(--u)) 0;
+  color: var(--st-text);
+  font-size: calc(17 * var(--u));
+  letter-spacing: 0.03em;
+  line-height: 1.52;
 }
 
-.stComposer {
-  position: relative;
-  z-index: 1;
+/* Fixed-height chat tail that hosts the working indicator
+   (WORKING_INDICATOR_SLOT_HEIGHT = 34pt viewport, + 12pt, 4pt top pad). */
+.stTail {
+  flex: none;
+  min-height: calc(46 * var(--u));
+  padding-top: calc(4 * var(--u));
+}
+
+.stWorking {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin: 0 0.68rem 1.48rem;
-  padding: 0.44rem 0.52rem 0.44rem 0.42rem;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(234, 240, 247, 0.5);
-  font-size: 0.72rem;
+  gap: calc(8 * var(--u));
+  height: calc(34 * var(--u));
+  opacity: 0;
 }
 
-.stComposer span {
-  flex: 1;
+/* Working-indicator star (stella-v2 aurora "star-spin"): 30pt canvas centred
+   in a 34pt viewport — no circular crop, the shader's frame fade keeps the
+   fringes soft. Geometry in pt × --u: STAR_SCALE 0.42 × 15pt half-canvas =
+   6.3pt arm reach; horizontal arms 0.95 long, half-width 0.31 at the root
+   (STAR_GIRTH 1.55, taper (1-t)^1.7); axis 1.0 up / 0.95 down; hub r 0.18. */
+.stStar {
+  position: relative;
+  flex: none;
+  width: calc(34 * var(--u));
+  height: calc(34 * var(--u));
+}
+
+.stStar > * {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+}
+
+/* Ambient bloom: exp(-rad·2.4) × ~0.11 — the star sits in light. */
+.stStarBloom {
+  width: calc(24 * var(--u));
+  height: calc(24 * var(--u));
+  margin: calc(-12 * var(--u)) 0 0 calc(-12 * var(--u));
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(113, 129, 189, 0.22) 0%,
+    rgba(113, 129, 189, 0.08) 42%,
+    rgba(113, 129, 189, 0) 70%
+  );
+}
+
+/* One opposite pair of horizontal arms as a double wedge, 12pt tip to tip
+   and 3.9pt across at the root; the keyframes rotate it to the projected
+   direction (atan2(sin a·0.30, cos a)) and foreshorten it by the projected
+   length, exactly as the shader's starArm() does per frame. */
+.stStarArms {
+  width: calc(12 * var(--u));
+  height: calc(3.9 * var(--u));
+  margin: calc(-1.95 * var(--u)) 0 0 calc(-6 * var(--u));
+  background: linear-gradient(90deg, #7587bb, #6a6fab 50%, #7587bb);
+  clip-path: polygon(
+    50% 0%,
+    62.5% 19.2%,
+    75% 34.6%,
+    87.5% 45.3%,
+    100% 50%,
+    87.5% 54.7%,
+    75% 65.4%,
+    62.5% 80.8%,
+    50% 100%,
+    37.5% 80.8%,
+    25% 65.4%,
+    12.5% 54.7%,
+    0% 50%,
+    12.5% 45.3%,
+    25% 34.6%,
+    37.5% 19.2%
+  );
+  transform-origin: 50% 50%;
+  /* Resting pose (an eighth turn, arms on the diagonals). */
+  transform: rotate(-16.7deg) scale(0.702, 0.882);
+}
+
+.stStarArmsB {
+  transform: rotate(-163.3deg) scale(0.702, 0.882);
+}
+
+/* Upright axis (up 6.3pt, down 6pt) + hub, ramped teal-ish low → rose-ish
+   high like the shader's height-weighted hue axis. */
+.stStarAxis {
+  width: calc(30 * var(--u));
+  height: calc(30 * var(--u));
+  margin: calc(-15 * var(--u)) 0 0 calc(-15 * var(--u));
+  overflow: visible;
+}
+
+/* ShimmerText: glyphs stay fully inked while a dim trough (alpha 0.15, 10 %
+   of a 3×-wide strip) sweeps left → right once every 1.6 s, linear. */
+.stStatus {
+  font-size: calc(14 * var(--u));
+  font-weight: 500;
+  letter-spacing: -0.007em;
+  line-height: calc(20 * var(--u));
+  color: var(--st-text);
+  background: linear-gradient(
+    90deg,
+    var(--st-text) 0%,
+    var(--st-text) 40%,
+    rgba(17, 17, 17, 0.15) 50%,
+    var(--st-text) 60%,
+    var(--st-text) 100%
+  );
+  background-size: 300% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Composer: 12pt gutters, 12pt top / 6pt bottom pad + 34pt home inset. */
+.stComposerWrap {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(12 * var(--u)) calc(12 * var(--u)) calc(40 * var(--u));
+}
+
+/* Glass pill: surface tint, hairline border at 60 %, 0 8 24 @ 8 % shadow,
+   50pt min height, 8pt padding and gaps. */
+.stComposer {
+  display: flex;
+  width: 100%;
+  min-height: calc(50 * var(--u));
+  align-items: center;
+  gap: calc(8 * var(--u));
+  padding: calc(8 * var(--u));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 0 0 0.5px rgba(232, 232, 232, 0.6),
+    0 calc(8 * var(--u)) calc(24 * var(--u)) rgba(0, 0, 0, 0.08);
+}
+
+.stPlus,
+.stMic,
+.stVoice {
+  display: grid;
+  flex: none;
+  width: calc(32 * var(--u));
+  height: calc(32 * var(--u));
+  place-items: center;
+  border-radius: 50%;
 }
 
 .stPlus {
-  display: inline-flex;
-  width: 1.4rem;
-  height: 1.4rem;
+  background: rgba(17, 17, 17, 0.06);
+  color: var(--st-muted);
+}
+
+.stPlus svg {
+  width: calc(17 * var(--u));
+  height: calc(17 * var(--u));
+}
+
+.stPlaceholder {
+  flex: 1;
+  min-width: 0;
+  padding: 0 calc(4 * var(--u));
+  color: rgba(115, 115, 115, 0.35);
+  font-size: calc(16 * var(--u));
+  letter-spacing: -0.0125em;
+  line-height: calc(22 * var(--u));
+  white-space: nowrap;
+}
+
+.stTrailing {
+  display: flex;
+  flex: none;
   align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(234, 240, 247, 0.8);
-  font-size: 0.85rem;
-  font-style: normal;
+  gap: calc(6 * var(--u));
 }
 
 .stMic {
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  color: var(--st-muted);
+}
+
+.stMic svg {
+  width: calc(20 * var(--u));
+  height: calc(20 * var(--u));
+}
+
+.stVoice {
+  color: var(--st-text);
+}
+
+.stVoice svg {
+  width: calc(19 * var(--u));
+  height: calc(19 * var(--u));
+}
+
+/* Working indicator choreography: enters ~0.7s after the user sends, holds
+   while Stella "thinks" (~2.5s), then fades as the final reply lands
+   (exitImmediately in the app). Runs only while the slot is active. */
+.slot[data-active] .stWorking {
+  animation: workingBeat 2900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--t) * 1ms);
+}
+
+.slot[data-active] .stStatus {
+  animation: statusShimmer 1600ms linear infinite;
+}
+
+/* The staged turn: STAR_CYCLE 3.2s, one revolution per cycle, keyframes
+   sampled from starTurn() (dense through the whip and the sprung landing),
+   linear between samples so the easing is the curve's own. */
+.slot[data-active] .stStarArmsA {
+  animation: starArmsA 3200ms linear infinite;
+}
+
+.slot[data-active] .stStarArmsB {
+  animation: starArmsB 3200ms linear infinite;
+}
+
+@keyframes workingBeat {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  11% {
+    opacity: 1;
+    transform: none;
+  }
+  86% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes statusShimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+@keyframes starArmsA {
+  0% { transform: rotate(-16.70deg) scale(0.702, 0.882); }
+  2% { transform: rotate(-16.82deg) scale(0.700, 0.879); }
+  4% { transform: rotate(-17.15deg) scale(0.695, 0.875); }
+  6% { transform: rotate(-17.71deg) scale(0.685, 0.869); }
+  8% { transform: rotate(-18.48deg) scale(0.672, 0.861); }
+  10% { transform: rotate(-19.47deg) scale(0.655, 0.852); }
+  12% { transform: rotate(-20.69deg) scale(0.635, 0.842); }
+  14% { transform: rotate(-22.15deg) scale(0.612, 0.830); }
+  16% { transform: rotate(-23.88deg) scale(0.587, 0.817); }
+  18% { transform: rotate(-25.91deg) scale(0.559, 0.804); }
+  20% { transform: rotate(-28.27deg) scale(0.530, 0.790); }
+  22% { transform: rotate(-31.00deg) scale(0.499, 0.775); }
+  24% { transform: rotate(-34.16deg) scale(0.468, 0.761); }
+  26% { transform: rotate(-37.79deg) scale(0.437, 0.747); }
+  28% { transform: rotate(-41.93deg) scale(0.408, 0.733); }
+  30% { transform: rotate(-46.60deg) scale(0.380, 0.721); }
+  32% { transform: rotate(-51.77deg) scale(0.356, 0.710); }
+  34% { transform: rotate(-57.37deg) scale(0.335, 0.700); }
+  36% { transform: rotate(-63.22deg) scale(0.318, 0.693); }
+  38% { transform: rotate(-69.11deg) scale(0.305, 0.688); }
+  40% { transform: rotate(-74.74deg) scale(0.296, 0.684); }
+  42% { transform: rotate(-79.81deg) scale(0.290, 0.683); }
+  44% { transform: rotate(-84.06deg) scale(0.287, 0.683); }
+  46% { transform: rotate(-87.28deg) scale(0.286, 0.683); }
+  48% { transform: rotate(-89.30deg) scale(0.285, 0.684); }
+  50% { transform: rotate(-90.00deg) scale(0.287, 0.679); }
+  52% { transform: rotate(-83.56deg) scale(0.288, 0.681); }
+  54% { transform: rotate(-79.34deg) scale(0.290, 0.685); }
+  55% { transform: rotate(-78.04deg) scale(0.291, 0.686); }
+  56% { transform: rotate(-77.26deg) scale(0.292, 0.688); }
+  57% { transform: rotate(-77.01deg) scale(0.293, 0.682); }
+  58% { transform: rotate(-80.07deg) scale(0.294, 0.670); }
+  59% { transform: rotate(-89.50deg) scale(0.293, 0.657); }
+  60% { transform: rotate(-105.05deg) scale(0.306, 0.649); }
+  61% { transform: rotate(-123.61deg) scale(0.352, 0.656); }
+  62% { transform: rotate(-140.27deg) scale(0.445, 0.680); }
+  63% { transform: rotate(-152.84deg) scale(0.578, 0.718); }
+  64% { transform: rotate(-161.99deg) scale(0.734, 0.762); }
+  65% { transform: rotate(-168.97deg) scale(0.887, 0.803); }
+  66% { transform: rotate(-174.78deg) scale(0.998, 0.844); }
+  67% { transform: rotate(-179.75deg) scale(1.036, 0.863); }
+  68% { transform: rotate(-184.54deg) scale(1.002, 0.856); }
+  69% { transform: rotate(-189.82deg) scale(0.906, 0.825); }
+  70% { transform: rotate(-196.50deg) scale(0.763, 0.775); }
+  71% { transform: rotate(-206.36deg) scale(0.593, 0.713); }
+  72% { transform: rotate(-223.58deg) scale(0.425, 0.652); }
+  73% { transform: rotate(-255.92deg) scale(0.315, 0.612); }
+  74% { transform: rotate(-296.23deg) scale(0.337, 0.624); }
+  75% { transform: rotate(-321.44deg) scale(0.457, 0.676); }
+  76% { transform: rotate(-334.66deg) scale(0.599, 0.736); }
+  77% { transform: rotate(-342.51deg) scale(0.730, 0.793); }
+  78% { transform: rotate(-347.86deg) scale(0.837, 0.841); }
+  79% { transform: rotate(-351.90deg) scale(0.916, 0.879); }
+  80% { transform: rotate(-355.21deg) scale(0.968, 0.905); }
+  81% { transform: rotate(-358.10deg) scale(0.993, 0.921); }
+  82% { transform: rotate(-360.74deg) scale(0.995, 0.927); }
+  83% { transform: rotate(-363.27deg) scale(0.977, 0.925); }
+  84% { transform: rotate(-365.77deg) scale(0.944, 0.916); }
+  85% { transform: rotate(-368.30deg) scale(0.898, 0.902); }
+  86% { transform: rotate(-370.93deg) scale(0.844, 0.883); }
+  87% { transform: rotate(-373.72deg) scale(0.784, 0.863); }
+  88% { transform: rotate(-376.70deg) scale(0.720, 0.847); }
+  89% { transform: rotate(-379.37deg) scale(0.661, 0.844); }
+  90% { transform: rotate(-380.71deg) scale(0.632, 0.847); }
+  91% { transform: rotate(-380.52deg) scale(0.641, 0.837); }
+  92% { transform: rotate(-379.30deg) scale(0.664, 0.841); }
+  93% { transform: rotate(-377.77deg) scale(0.691, 0.855); }
+  94% { transform: rotate(-376.47deg) scale(0.712, 0.872); }
+  95% { transform: rotate(-375.65deg) scale(0.723, 0.887); }
+  96% { transform: rotate(-375.35deg) scale(0.728, 0.892); }
+  97% { transform: rotate(-375.48deg) scale(0.728, 0.887); }
+  98% { transform: rotate(-375.89deg) scale(0.720, 0.882); }
+  100% { transform: rotate(-376.70deg) scale(0.702, 0.882); }
+}
+
+@keyframes starArmsB {
+  0% { transform: rotate(-163.30deg) scale(0.702, 0.882); }
+  2% { transform: rotate(-163.42deg) scale(0.705, 0.881); }
+  4% { transform: rotate(-163.75deg) scale(0.711, 0.883); }
+  6% { transform: rotate(-164.26deg) scale(0.722, 0.886); }
+  8% { transform: rotate(-164.93deg) scale(0.735, 0.891); }
+  10% { transform: rotate(-165.72deg) scale(0.751, 0.897); }
+  12% { transform: rotate(-166.59deg) scale(0.769, 0.904); }
+  14% { transform: rotate(-167.53deg) scale(0.788, 0.912); }
+  16% { transform: rotate(-168.51deg) scale(0.808, 0.920); }
+  18% { transform: rotate(-169.50deg) scale(0.828, 0.929); }
+  20% { transform: rotate(-170.50deg) scale(0.848, 0.938); }
+  22% { transform: rotate(-171.48deg) scale(0.866, 0.946); }
+  24% { transform: rotate(-172.45deg) scale(0.883, 0.954); }
+  26% { transform: rotate(-173.38deg) scale(0.899, 0.961); }
+  28% { transform: rotate(-174.28deg) scale(0.913, 0.968); }
+  30% { transform: rotate(-175.13deg) scale(0.924, 0.973); }
+  32% { transform: rotate(-175.94deg) scale(0.933, 0.978); }
+  34% { transform: rotate(-176.70deg) scale(0.941, 0.983); }
+  36% { transform: rotate(-177.40deg) scale(0.946, 0.986); }
+  38% { transform: rotate(-178.03deg) scale(0.950, 0.989); }
+  40% { transform: rotate(-178.59deg) scale(0.952, 0.991); }
+  42% { transform: rotate(-179.07deg) scale(0.953, 0.993); }
+  44% { transform: rotate(-179.46deg) scale(0.952, 0.995); }
+  46% { transform: rotate(-179.75deg) scale(0.952, 0.997); }
+  48% { transform: rotate(-179.94deg) scale(0.951, 0.999); }
+  50% { transform: rotate(-180.00deg) scale(0.956, 0.991); }
+  52% { transform: rotate(-179.42deg) scale(0.954, 0.993); }
+  54% { transform: rotate(-179.03deg) scale(0.951, 0.996); }
+  55% { transform: rotate(-178.91deg) scale(0.950, 0.997); }
+  56% { transform: rotate(-178.83deg) scale(0.948, 0.998); }
+  57% { transform: rotate(-178.81deg) scale(0.953, 0.991); }
+  58% { transform: rotate(-179.10deg) scale(0.965, 0.975); }
+  59% { transform: rotate(-179.95deg) scale(0.976, 0.958); }
+  60% { transform: rotate(-181.39deg) scale(0.984, 0.941); }
+  61% { transform: rotate(-183.42deg) scale(0.980, 0.918); }
+  62% { transform: rotate(-186.18deg) scale(0.954, 0.887); }
+  63% { transform: rotate(-189.95deg) scale(0.893, 0.842); }
+  64% { transform: rotate(-195.47deg) scale(0.785, 0.782); }
+  65% { transform: rotate(-204.78deg) scale(0.623, 0.705); }
+  66% { transform: rotate(-224.55deg) scale(0.425, 0.631); }
+  67% { transform: rotate(-267.27deg) scale(0.311, 0.592); }
+  68% { transform: rotate(-311.42deg) scale(0.400, 0.628); }
+  69% { transform: rotate(-332.52deg) scale(0.581, 0.701); }
+  70% { transform: rotate(-343.10deg) scale(0.755, 0.772); }
+  71% { transform: rotate(-349.71deg) scale(0.892, 0.829); }
+  72% { transform: rotate(-354.60deg) scale(0.980, 0.868); }
+  73% { transform: rotate(-358.71deg) scale(1.018, 0.888); }
+  74% { transform: rotate(-362.54deg) scale(1.008, 0.889); }
+  75% { transform: rotate(-366.44deg) scale(0.956, 0.874); }
+  76% { transform: rotate(-370.76deg) scale(0.870, 0.845); }
+  77% { transform: rotate(-375.94deg) scale(0.760, 0.806); }
+  78% { transform: rotate(-382.70deg) scale(0.636, 0.760); }
+  79% { transform: rotate(-392.30deg) scale(0.509, 0.712); }
+  80% { transform: rotate(-407.04deg) scale(0.395, 0.669); }
+  81% { transform: rotate(-429.74deg) scale(0.317, 0.640); }
+  82% { transform: rotate(-458.21deg) scale(0.302, 0.637); }
+  83% { transform: rotate(-482.42deg) scale(0.347, 0.659); }
+  84% { transform: rotate(-498.30deg) scale(0.423, 0.695); }
+  85% { transform: rotate(-508.33deg) scale(0.508, 0.735); }
+  86% { transform: rotate(-515.02deg) scale(0.588, 0.773); }
+  87% { transform: rotate(-519.76deg) scale(0.661, 0.809); }
+  88% { transform: rotate(-523.30deg) scale(0.720, 0.847); }
+  89% { transform: rotate(-525.64deg) scale(0.755, 0.887); }
+  90% { transform: rotate(-526.61deg) scale(0.766, 0.910); }
+  91% { transform: rotate(-526.48deg) scale(0.771, 0.896); }
+  92% { transform: rotate(-525.58deg) scale(0.756, 0.883); }
+  93% { transform: rotate(-524.32deg) scale(0.730, 0.873); }
+  94% { transform: rotate(-523.07deg) scale(0.703, 0.868); }
+  95% { transform: rotate(-522.19deg) scale(0.683, 0.868); }
+  96% { transform: rotate(-521.85deg) scale(0.676, 0.868); }
+  97% { transform: rotate(-522.00deg) scale(0.681, 0.865); }
+  98% { transform: rotate(-522.46deg) scale(0.690, 0.868); }
+  100% { transform: rotate(-523.30deg) scale(0.702, 0.882); }
+}
+
+
+/* Hairlines: 0.5px reads as a true hairline on retina; fall back to a full
+   device pixel on low-density screens so the edges never vanish. */
+@media (max-resolution: 1.5dppx) {
+  .stYou {
+    box-shadow: 0 0 0 1px var(--st-border-strong);
+  }
+
+  .stComposer {
+    box-shadow:
+      0 0 0 1px rgba(232, 232, 232, 0.6),
+      0 calc(8 * var(--u)) calc(24 * var(--u)) rgba(0, 0, 0, 0.08);
+  }
+}
+
+/* ---- App Store link ------------------------------------------------------ */
+/* Same voice as `.button--download` (Cormorant italic, glow wash, quiet
+   border) but shaped like a store badge: Apple mark + two-line label. */
+.storeLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.6rem;
+  padding: 0.55rem 1.25rem 0.55rem 0.95rem;
+  border: 1px solid var(--page-border);
+  border-radius: 0.45rem;
+  background:
+    radial-gradient(circle at top left, var(--page-glow-cyan), transparent 28%),
+    radial-gradient(circle at 82% 10%, var(--page-glow-blue), transparent 26%),
+    radial-gradient(circle at 50% 100%, var(--page-glow-mint), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.18)),
+    var(--page-background);
+  color: var(--page-accent);
+  text-decoration: none;
+  transition:
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.storeLink:hover {
+  border-color: var(--page-border-strong);
+  transform: translateY(-1px);
+}
+
+.storeLink:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: 2px;
+}
+
+.storeLink > svg {
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: none;
+  opacity: 0.85;
+}
+
+.storeLinkText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1;
+}
+
+.storeLinkEyebrow {
+  color: var(--atlas-muted, var(--page-muted));
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.storeLinkName {
+  margin-top: 0.12rem;
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: 1.45rem;
+  font-style: italic;
+  font-weight: 300;
+  letter-spacing: -0.005em;
 }
 
 /* ---- Responsive -------------------------------------------------------- */
@@ -499,6 +903,25 @@
   .slot[data-active] [data-beat] {
     animation: none;
     opacity: 1;
+  }
+
+  /* Static mock: thread fully shown, no "thinking" choreography. */
+  .stWorking,
+  .slot[data-active] .stWorking,
+  .slot[data-active] .stStatus,
+  .slot[data-active] .stStarArmsA,
+  .slot[data-active] .stStarArmsB {
+    animation: none;
+  }
+
+  .stWorking {
+    display: none;
+  }
+
+  .storeLink,
+  .storeLink:hover {
+    transition: none;
+    transform: none;
   }
 
   .pill[data-active]::after {

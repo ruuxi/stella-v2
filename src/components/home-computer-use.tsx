@@ -1,6 +1,5 @@
 "use client";
 
-import { Monitor } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { useSceneLoop } from "@/lib/use-scene-loop";
 import styles from "./home-computer-use.module.css";
@@ -333,7 +332,6 @@ export function HomeComputerUse() {
           style={{ ["--reveal-index" as string]: 2 }}
         >
           <span className="home-atlas-kicker">
-            <Monitor size={15} strokeWidth={1.9} aria-hidden="true" />
             Computer use
           </span>
           <p>

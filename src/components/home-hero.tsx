@@ -22,17 +22,13 @@ export function HomeHero() {
           </h1>
 
           <p className={styles.intro}>
-            Give Stella a task and keep moving. It can work with your computer,
-            browser, files, and apps from one ongoing conversation.
+            The AI that does anything. Free to use.
           </p>
 
           <div className={styles.cta}>
             <DownloadButton />
           </div>
           <WindowsInstallNote />
-          <p className="download-reassurance">
-            Free. No credit card, no trial.
-          </p>
         </div>
       </section>
     </main>

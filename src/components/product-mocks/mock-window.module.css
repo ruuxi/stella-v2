@@ -1,0 +1,179 @@
+/* ------------------------------------------------------------------ *
+ *  Shared product-mock chrome.
+ *
+ *  One window recipe for every marketing mini-mock on the product
+ *  pages, matched to the desktop mock the landing page ships
+ *  (`home-desktop-mock.module.css`): hairline border, 12px radius,
+ *  the same two-stop shadow, macOS traffic lights, and a titlebar that
+ *  reads as real app chrome rather than a decorative box.
+ * ------------------------------------------------------------------ */
+
+.window {
+  --mw-font:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+  --mw-mono: var(--font-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --mw-ink: #101a2b;
+  --mw-ink-weak: #56657e;
+  --mw-ink-faint: #5f6e85;
+  --mw-line: rgba(15, 30, 60, 0.09);
+  --mw-line-strong: rgba(15, 30, 60, 0.15);
+  --mw-surface: #ffffff;
+  --mw-sunken: #f5f8fc;
+  --mw-hover: rgba(15, 30, 60, 0.045);
+  /* One blue for every mock: the site's own accent, so the surfaces never
+     introduce a third hue next to the CTAs. */
+  --mw-accent: #1d78f2;
+  --mw-accent-soft: rgba(29, 120, 242, 0.1);
+  --mw-good: #17915b;
+  --mw-warn: #c2761a;
+
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 12px;
+  background: var(--mw-surface);
+  color: var(--mw-ink);
+  font-family: var(--mw-font);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  line-height: 1.35;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.07),
+    0 22px 54px -26px rgba(12, 22, 38, 0.46);
+  isolation: isolate;
+}
+
+/* A second, smaller window layered behind/beside the main one. */
+.window[data-tone="sunken"] {
+  background: var(--mw-sunken);
+}
+
+.window[data-tone="dark"] {
+  --mw-ink: #e9f1fb;
+  --mw-ink-weak: rgba(233, 241, 251, 0.66);
+  --mw-ink-faint: rgba(233, 241, 251, 0.42);
+  --mw-line: rgba(233, 241, 251, 0.1);
+  --mw-line-strong: rgba(8, 15, 28, 0.75);
+  --mw-surface: #0f1726;
+  --mw-sunken: #0b1220;
+  --mw-hover: rgba(233, 241, 251, 0.07);
+  --mw-accent: #7db4ff;
+  --mw-accent-soft: rgba(125, 180, 255, 0.14);
+  --mw-good: #4ed39a;
+}
+
+.titlebar {
+  position: relative;
+  display: flex;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--mw-line);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--mw-surface) 100%, white 0%),
+    var(--mw-sunken)
+  );
+  user-select: none;
+}
+
+.lights {
+  position: relative;
+  display: block;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: #ff5f57;
+  box-shadow:
+    16px 0 #ffbd2e,
+    32px 0 #28c840,
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.16),
+    16px 0 0 0 rgba(0, 0, 0, 0.1),
+    32px 0 0 0 rgba(0, 0, 0, 0.1);
+}
+
+.lights::after {
+  content: "";
+  display: block;
+  width: 42px;
+}
+
+.title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-inline: auto;
+  padding-inline: 8px;
+  color: var(--mw-ink-weak);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title svg {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+/* Balances the traffic lights so `.title` sits optically centred. */
+.trail {
+  display: flex;
+  min-width: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--mw-ink-faint);
+}
+
+.body {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+@media (max-width: 600px) {
+  .window {
+    font-size: 12.5px;
+  }
+
+  .titlebar {
+    height: 30px;
+  }
+
+  .lights {
+    width: 9px;
+    height: 9px;
+    box-shadow:
+      14px 0 #ffbd2e,
+      28px 0 #28c840,
+      inset 0 0 0 0.5px rgba(0, 0, 0, 0.16),
+      14px 0 0 0 rgba(0, 0, 0, 0.1),
+      28px 0 0 0 rgba(0, 0, 0, 0.1);
+  }
+
+  .lights::after {
+    width: 36px;
+  }
+
+  .trail {
+    min-width: 36px;
+  }
+}

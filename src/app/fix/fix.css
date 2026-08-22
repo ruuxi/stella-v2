@@ -18,6 +18,43 @@
   max-width: 52rem;
 }
 
+/* Index hero: the landing-page hero's presentation (see home-hero.module.css
+ * `.hero`) — one left-aligned copy block vertically centred over the aurora
+ * pouring in from the right, tall enough that the problem grid below peeks
+ * into the first screen, the whole block revealing together on landing. */
+.fix-hero--index {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 82svh;
+  padding-block: clamp(1.5rem, 4svh, 3rem) clamp(2.5rem, 6svh, 4rem);
+}
+
+.fix-hero--index .fix-hero__copy {
+  max-width: 44rem;
+  opacity: 0;
+  filter: blur(5px);
+  transform: translateY(1.4rem);
+  animation: fixHeroReveal 1000ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+  will-change: opacity, filter, transform;
+}
+
+@keyframes fixHeroReveal {
+  0% {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(1.4rem);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
 /* Aurora — same canvas the homepage hero mounts (see home-hero.module.css
  * `.aurora`): absolutely positioned behind the copy, fixed 100svh visual
  * height, dissolved toward the left so the headline reads on clean white.
@@ -73,15 +110,81 @@
   }
 }
 
+/* Soft lower echo of the aurora, same recipe as the homepage hero's
+ * `.auroraReflection`: a static mirrored gradient rather than a live copy of
+ * the canvas, so the reflection never costs a second GPU surface per frame. */
+.fix-aurora-reflection {
+  position: absolute;
+  top: 84svh;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  height: 84svh;
+  pointer-events: none;
+  contain: strict;
+  transform: scaleY(-1);
+  background:
+    radial-gradient(
+      130% 78% at 118% 12%,
+      rgba(244, 114, 182, 0.26),
+      transparent 64%
+    ),
+    radial-gradient(
+      135% 84% at 120% 38%,
+      rgba(135, 110, 248, 0.28),
+      transparent 66%
+    ),
+    radial-gradient(
+      135% 88% at 110% 62%,
+      rgba(46, 162, 246, 0.29),
+      transparent 68%
+    ),
+    radial-gradient(
+      130% 84% at 98% 88%,
+      rgba(22, 202, 152, 0.24),
+      transparent 66%
+    );
+  -webkit-mask-image:
+    linear-gradient(to right, transparent 0%, #000 42%),
+    linear-gradient(to bottom, transparent 0%, #000 18%, transparent 86%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent 0%, #000 42%),
+    linear-gradient(to bottom, transparent 0%, #000 18%, transparent 86%);
+  mask-composite: intersect;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fix-hero--index .fix-hero__copy {
+    animation: none;
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+
+  .fix-aurora:not([data-webgl="on"]) {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .fix-hero--index {
+    min-height: 88svh;
+  }
+}
+
+/* Shares the site-wide kicker system (see .site-kicker in globals.css). */
 .fix-eyebrow {
   margin: 0;
-  color: color-mix(in oklch, var(--page-foreground) 58%, transparent);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  line-height: 1.5;
-  text-transform: uppercase;
+  color: color-mix(in oklch, var(--page-foreground) 64%, transparent);
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.1rem, 1rem + 0.45vw, 1.35rem);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-transform: none;
 }
 
 .fix-hero h1 {
@@ -116,7 +219,7 @@
 .fix-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: stretch;
   gap: 0.75rem;
   margin-top: 1.75rem;
 }
@@ -346,6 +449,13 @@ ul.fix-symptoms {
   font-size: clamp(2.1rem, 5vw, 3.8rem);
 }
 
+.fix-actions > .button--ghost {
+  /* Same height as the primary beside it on one line, and the same height
+     again once the row wraps at narrow widths. */
+  align-self: stretch;
+  padding-block: clamp(0.84rem, 1.15vw, 1.03rem);
+}
+
 .fix-cta .fix-actions {
   margin-top: 0;
 }
@@ -353,6 +463,7 @@ ul.fix-symptoms {
 /* /fix index. */
 .fix-index-grid {
   display: grid;
+  grid-auto-rows: 1fr;
   gap: 1px;
   margin-block: clamp(2rem, 5vw, 3.5rem);
   border: 1px solid var(--page-border);
@@ -360,21 +471,69 @@ ul.fix-symptoms {
 }
 
 .fix-index-card {
-  display: block;
+  position: relative;
+  display: flex;
   min-width: 0;
+  flex-direction: column;
+  gap: 0.45rem;
   padding: clamp(1.2rem, 2.6vw, 1.8rem);
   background: color-mix(in oklch, var(--page-panel) 92%, white);
   color: inherit;
   text-decoration: none;
-  transition: background 150ms ease;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.fix-index-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: #3e6fdc;
+  opacity: 0;
+  transition: opacity 160ms ease;
 }
 
 .fix-index-card:hover {
   background: color-mix(in oklch, #6892ed 7%, white);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.fix-index-card:hover::before {
+  opacity: 1;
+}
+
+.fix-index-card__go {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: auto;
+  padding-top: 0.55rem;
+  color: #3e6fdc;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+}
+
+.fix-index-card__go svg {
+  transition: transform 160ms ease;
+}
+
+.fix-index-card:hover .fix-index-card__go svg {
+  transform: translateX(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fix-index-card,
+  .fix-index-card::before,
+  .fix-index-card__go svg {
+    transition: none;
+  }
 }
 
 .fix-index-card h2 {
-  margin: 0 0 0.45rem;
+  margin: 0 0 0.1rem;
   font-family: var(--font-display), serif;
   font-size: 1.45rem;
   font-weight: 500;

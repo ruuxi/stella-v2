@@ -23,6 +23,13 @@ const nextConfig: NextConfig = {
     // controlled separately below because public source filenames are mutable.
     minimumCacheTTL: 31536000,
   },
+  async redirects() {
+    return [
+      // The "Agents" page was renamed to "One chat"; keep old links alive.
+      { source: "/agents", destination: "/one-chat", permanent: true },
+      { source: "/agents.md", destination: "/one-chat.md", permanent: true },
+    ];
+  },
   async headers() {
     return [
       {

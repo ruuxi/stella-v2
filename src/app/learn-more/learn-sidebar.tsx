@@ -14,7 +14,6 @@ const sections: SectionLink[] = [
   { kind: "anchor", label: "Access", anchor: "#access" },
   { kind: "anchor", label: "Privacy", anchor: "#privacy" },
   { kind: "anchor", label: "Models", anchor: "#models" },
-  { kind: "anchor", label: "Technical notes", anchor: "#technical" },
   { kind: "route", label: "What's new", href: "whats-new" },
 ];
 

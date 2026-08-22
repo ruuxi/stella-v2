@@ -15,22 +15,19 @@
   grid-column: 1 / -1;
 }
 
+/* Shares the site-wide kicker system (see .site-kicker in globals.css). */
 .eyebrow {
-  display: inline-flex;
+  display: block;
   width: max-content;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--blue);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.8rem;
+  max-width: 100%;
+  margin: 0;
+  color: color-mix(in oklch, var(--ink) 64%, transparent);
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.1rem, 1rem + 0.45vw, 1.35rem);
+  font-style: italic;
   font-weight: 500;
-}
-
-.eyebrow::after {
-  content: "";
-  width: clamp(2.5rem, 7vw, 6rem);
-  height: 1px;
-  background: rgba(82, 104, 134, 0.24);
+  line-height: 1.25;
+  letter-spacing: 0;
 }
 
 /* ── Hero ────────────────────────────────────────────── */
@@ -152,7 +149,7 @@
 
 .stella,
 .bubble,
-.helper,
+.piece,
 .runStack,
 .engineTile,
 .chip {
@@ -236,20 +233,20 @@
   text-align: center;
 }
 
-/* ── Delegation: fan-out ─────────────────────────────── */
+/* ── Nothing lost: gather-in ─────────────────────────── */
 
-.fan {
+.gather {
   position: relative;
   width: 1px;
   height: 2.1rem;
-  background: linear-gradient(180deg, rgba(37, 99, 235, 0.42), rgba(37, 99, 235, 0.1));
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.42));
 }
 
-.fan::before {
+.gather::before {
   content: "";
   position: absolute;
   left: 50%;
-  bottom: 0;
+  top: 0;
   width: clamp(8rem, 70%, 16rem);
   height: 1px;
   transform: translateX(-50%);
@@ -264,7 +261,7 @@
   width: 100%;
 }
 
-.helper {
+.piece {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -273,11 +270,11 @@
   font-size: 0.76rem;
 }
 
-.helper svg {
+.piece svg {
   color: var(--blue);
 }
 
-/* ── Parallel: running stack ─────────────────────────── */
+/* ── Background work: running stack ──────────────────── */
 
 .runStack {
   display: grid;

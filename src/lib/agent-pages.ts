@@ -86,7 +86,7 @@ Models & providers: OpenAI, Anthropic, Google, xAI, DeepSeek, Moonshot AI.
 
 ## Explore
 - Learn More: ${abs("/learn-more.md")}
-- Agents: ${abs("/agents.md")}
+- One chat: ${abs("/one-chat.md")}
 - Voice: ${abs("/voice.md")}
 - Storage: ${abs("/storage.md")}
 - Pricing: ${abs("/pricing.md")}
@@ -94,28 +94,29 @@ Models & providers: OpenAI, Anthropic, Google, xAI, DeepSeek, Moonshot AI.
 `;
 
 /* ------------------------------------------------------------------ */
-/*  Agents — /agents.md                                                */
+/*  One chat — /one-chat.md                                            */
 /* ------------------------------------------------------------------ */
 
-const AGENTS_MD = `${header(
-  "Agents — one Stella, a whole team behind her",
-  "/agents",
-  "You talk to one assistant. Behind the scenes she hands work to a team of helpers that run in the background.",
+const ONE_CHAT_MD = `${header(
+  "One chat — everything in it",
+  "/one-chat",
+  "Other chat apps spread your life across a dozen threads. Stella is one ongoing conversation — ask, follow up, get results, come back tomorrow. It's all right here.",
 )}
-## You only ever talk to Stella
-No juggling a dozen bots. Each chat has one assistant. Everything you ask goes
-to Stella, and she figures out who should do what — you see the work and its
-progress inline.
+## Everything you ask lives in one place
+Most chatbots want a fresh thread for every question, so your history ends up
+scattered and the context goes with it. In Stella there's just one
+conversation. The trip you planned last week, the email from this morning, the
+thing you're about to ask — same place, same Stella.
 
-## She hands the work to helpers
-Instead of doing everything herself, Stella spins up little helpers for each job
-and sets them loose. Each one tackles its own task, then reports back to her
-when it's done.
+## Work runs in the background. Your chat stays open
+Ask for something big and Stella gets going on it without freezing the
+conversation. Keep typing, ask something else, step away — she brings the
+result back into the same chat the moment it's ready.
 
-## Keep chatting while the work runs
-When Stella sends off a task, she doesn't sit and wait — and neither do you.
-Lots of jobs can run at the same time, and Stella tells you the moment each one
-is finished.
+## No threads. So nothing falls between them
+There's no hunting for the chat where you asked that thing. Follow-ups,
+results, reminders, and scheduled work all land in the one conversation you
+already have — with the context still intact.
 
 ## Nothing to set up — or bring your own
 Out of the box, Stella runs on her own models. No keys, no accounts, no setup —
@@ -127,11 +128,10 @@ Ask Stella to make an image, a video, a song, or a spoken reading, and she just
 does it. It runs on the house models with nothing extra to wire up, and it
 comes with the Pro plan.
 
-## Ask once. Let the team handle the rest
-You get the simplicity of a single assistant with the muscle of a whole crew
-working in the background — on your models or hers. Orchestrator mode, where
-Stella runs that crew in parallel, comes with Pro; other plans run a single
-agent at a time. See ${abs("/pricing.md")}.
+## Ask once. Keep talking
+One ongoing chat, with the work happening behind it — on Stella's models or
+yours. Running several jobs at once in the background comes with Pro; other
+plans work through one at a time. See ${abs("/pricing.md")}.
 `;
 
 /* ------------------------------------------------------------------ */
@@ -427,11 +427,11 @@ export const AGENT_PAGES: AgentPage[] = [
     markdown: PRICING_MD,
   },
   {
-    route: "/agents",
-    mdPath: "/agents.md",
-    label: "Agents",
-    description: "One assistant that delegates to background helpers.",
-    markdown: AGENTS_MD,
+    route: "/one-chat",
+    mdPath: "/one-chat.md",
+    label: "One chat",
+    description: "One ongoing conversation: everything you ask, in one place.",
+    markdown: ONE_CHAT_MD,
   },
   {
     route: "/voice",

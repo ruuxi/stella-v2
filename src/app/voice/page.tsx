@@ -1,21 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  AudioLines,
-  CheckCircle2,
-  Cloud,
-  Ear,
-  Keyboard,
-  Laptop,
-  Mic,
-  Type,
-  Waves,
-} from "lucide-react";
 import { DownloadButton } from "@/components/download-button";
 import { WindowsInstallNote } from "@/components/windows-install-note";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
+import {
+  VoiceAnywhereMock,
+  VoiceDictationMock,
+  VoiceEveryComputerMock,
+  VoiceLiveMock,
+  VoiceWakeWordMock,
+} from "@/components/product-mocks/voice-mocks";
 import styles from "./voice.module.css";
 import { StellaMark } from "@/components/stella-mark";
 
@@ -35,7 +31,6 @@ export default function VoicePage() {
         <section className={`grid-shell ${styles.heroSection}`}>
           <div className={styles.hero}>
             <span className={styles.eyebrow}>
-              <AudioLines size={15} strokeWidth={1.9} aria-hidden="true" />
               Voice
             </span>
             <h1>Talk to Stella out loud.</h1>
@@ -48,11 +43,10 @@ export default function VoicePage() {
         </section>
 
         {/* On-device dictation */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={styles.row}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <Mic size={14} strokeWidth={1.9} aria-hidden="true" />
                 On-device
               </span>
               <h2>Your voice becomes text instantly.</h2>
@@ -63,53 +57,22 @@ export default function VoicePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Mic size={18} />
-                  </span>
-                  <strong>you speak</strong>
-                  <em>right into the mic</em>
-                </div>
-                <span className={styles.down} />
-                <div className={styles.wave}>
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                </div>
-                <span className={styles.down} />
-                <div className={styles.device}>
-                  <div className={styles.deviceBar}>
-                    <i />
-                    <i />
-                    <i />
-                  </div>
-                  <div className={styles.deviceBody}>
-                    <span className={styles.deviceIcon}>
-                      <Type size={16} />
-                    </span>
-                    <div className={styles.deviceText}>
-                      <strong>becomes text</strong>
-                      <em>the moment you stop</em>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <VoiceDictationMock />
             </div>
           </div>
         </section>
 
         {/* Dictate anywhere */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={`${styles.row} ${styles["row--flip"]}`}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <Keyboard size={14} strokeWidth={1.9} aria-hidden="true" />
                 Anywhere
               </span>
               <h2>Talk to type in any app.</h2>
@@ -120,38 +83,22 @@ export default function VoicePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.pill}>
-                  <div className={styles.miniWave}>
-                    <i />
-                    <i />
-                    <i />
-                    <i />
-                    <i />
-                  </div>
-                  <span className={styles.timer}>0:07</span>
-                </div>
-                <span className={styles.toggleHint}>a quiet bar by the dock</span>
-                <span className={styles.down} />
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Type size={18} />
-                  </span>
-                  <strong>dropped where you&apos;re typing</strong>
-                  <em>into whatever field is focused</em>
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <VoiceAnywhereMock />
             </div>
           </div>
         </section>
 
         {/* Cloud fallback */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={styles.row}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <Cloud size={14} strokeWidth={1.9} aria-hidden="true" />
                 Every computer
               </span>
               <h2>It works on every computer.</h2>
@@ -162,39 +109,22 @@ export default function VoicePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Laptop size={18} />
-                  </span>
-                  <strong>Windows &amp; older Macs</strong>
-                  <em>covered too</em>
-                </div>
-                <span className={styles.down} />
-                <div className={styles.bubble}>
-                  <Cloud size={15} />
-                  turned into text in the cloud
-                </div>
-                <span className={styles.down} />
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Type size={18} />
-                  </span>
-                  <strong>same dictation, everywhere</strong>
-                  <em>Windows and Mac alike</em>
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <VoiceEveryComputerMock />
             </div>
           </div>
         </section>
 
         {/* Hey Stella wake word */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={`${styles.row} ${styles["row--flip"]}`}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <Ear size={14} strokeWidth={1.9} aria-hidden="true" />
                 Wake word
               </span>
               <h2>Just say &quot;Hey Stella.&quot;</h2>
@@ -206,37 +136,22 @@ export default function VoicePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.toggle}>
-                  <span className={styles.toggleLabel}>
-                    <Ear size={15} />
-                    Hey Stella
-                  </span>
-                  <span className={styles.switch} data-state="off">
-                    <i />
-                  </span>
-                </div>
-                <span className={styles.toggleHint}>off by default</span>
-                <span className={styles.down} />
-                <div className={styles.node}>
-                  <span className={styles.nodeIcon}>
-                    <Mic size={18} />
-                  </span>
-                  <strong>listens on your desktop</strong>
-                  <em>ready the moment you call</em>
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <VoiceWakeWordMock />
             </div>
           </div>
         </section>
 
         {/* Live voice conversation */}
-        <section className={`grid-shell section-border ${styles.section}`}>
+        <section className={`grid-shell section-border ${styles.section}`} data-reveal>
           <div className={styles.row}>
-            <div className={styles.copy}>
+            <div className={styles.copy} data-reveal-child>
               <span className={styles.eyebrow}>
-                <Waves size={14} strokeWidth={1.9} aria-hidden="true" />
                 Live conversation
               </span>
               <h2>Have a real conversation.</h2>
@@ -252,27 +167,13 @@ export default function VoicePage() {
               </p>
             </div>
 
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.tunnel}>
-                  <span className={styles.endpoint}>
-                    <Mic size={20} />
-                    <em>you</em>
-                  </span>
-                  <span className={styles.tunnelLink}>
-                    <Waves size={13} />
-                  </span>
-                  <span className={styles.endpoint}>
-                    <AudioLines size={20} />
-                    <em>the voice AI</em>
-                  </span>
-                </div>
-                <span className={styles.down} />
-                <div className={styles.pile}>
-                  <CheckCircle2 size={13} aria-hidden="true" />
-                  real-time, back and forth
-                </div>
-              </div>
+            <div
+              className={styles.visual}
+              aria-hidden="true"
+              data-reveal-child
+              style={{ ["--reveal-index" as string]: 1 }}
+            >
+              <VoiceLiveMock />
             </div>
           </div>
         </section>
@@ -281,7 +182,6 @@ export default function VoicePage() {
         <section className={`grid-shell section-border ${styles.closingSection}`}>
           <div className={styles.closing}>
             <span className={styles.eyebrow}>
-              <Mic size={14} strokeWidth={1.9} aria-hidden="true" />
               Just talk
             </span>
             <h2>Type less. Say more.</h2>

@@ -17,6 +17,32 @@ const MAX_RENDER_DPR = 1;
  */
 const VIRTUAL_HEIGHT = 900;
 const FRAME_INTERVAL_MS = 1000 / 30;
+/**
+ * How many render failures we tolerate per mount before giving up on WebGL
+ * for good. The first failure gets one rebuild of the GL scene (covers a
+ * transient context loss / a driver hiccup); a second failure means the
+ * environment can't run the shader and the CSS gradient takes over.
+ */
+const MAX_RENDER_FAILURES = 2;
+
+/**
+ * Marks which AuroraCanvas mount currently owns a canvas element.
+ *
+ * React can re-run this effect on the very same <canvas> without ever
+ * unmounting the DOM node — StrictMode's simulated unmount/remount in dev, and
+ * Fast Refresh. A canvas only ever has one WebGL context object: once
+ * `WEBGL_lose_context.loseContext()` has been called on it, every later
+ * `getContext()` hands back that same, permanently lost object. If the
+ * cleanup released the context synchronously, the next mount would build the
+ * whole ogl scene on a lost context — shaders silently fail to link, ogl's
+ * Program never gets its uniform table, and the first frame throws inside
+ * `Program.use()`. So cleanup defers the release by a tick and skips it when
+ * a new mount has claimed the canvas in the meantime. The claim lives on the
+ * element itself (under a registry symbol, so it survives this module being
+ * re-evaluated by Fast Refresh) rather than in module state.
+ */
+const OWNER = Symbol.for("stella.aurora-canvas.owner");
+type OwnedCanvas = HTMLCanvasElement & { [OWNER]?: symbol };
 
 const vertex = /* glsl */ `
   attribute vec2 uv;
@@ -128,39 +154,38 @@ const fragment = /* glsl */ `
   }
 `;
 
-/* Aurora — WebGL noise field rendered to a full-bleed canvas. Ported from
- * fromyou-ai's landing page (src/aurora.js). The CSS fallback gradient on
- * `.aurora-canvas` only shows when WebGL is unavailable; the shader clears
- * it via JS the moment it takes over. */
-export function AuroraCanvas({ className }: { className?: string }) {
-  const ref = useRef<HTMLCanvasElement | null>(null);
+type Scene = {
+  renderer: Renderer;
+  gl: Renderer["gl"];
+  program: Program;
+  mesh: Mesh;
+  loseContext: WEBGL_lose_context | null;
+};
 
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
+type BuildResult =
+  | { ok: true; scene: Scene }
+  /* `lost`: the canvas's context exists but is in the lost state; `failed`:
+   * no context, or the shader didn't compile/link on this GPU. */
+  | { ok: false; reason: "lost" | "failed" };
 
-    // No real GPU (or a software rasterizer / memory-starved device): skip
-    // WebGL entirely and let the animated CSS gradient fallback carry the hero.
-    // Running the FBM shader through SwiftShader looks broken — a few fps or a
-    // blank canvas — so we never blank the fallback in that case.
-    if (!shouldRunAuroraShader()) return;
-
-    let renderer: Renderer;
-    try {
-      renderer = new Renderer({
-        canvas,
-        alpha: true,
-        premultipliedAlpha: false,
-        // The FBM shader runs five four-octave noise fields per pixel. Retina
-        // resolution is invisible in this deliberately soft effect, but at
-        // DPR 2 it quadruples the fragment work for no useful visual gain.
-        dpr: Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR),
-      });
-    } catch {
-      return;
-    }
-
+/* Build the whole ogl stack for a canvas. Never throws. Every failure mode of
+ * `new Renderer` / `new Program` on a dead or unsuitable context is reported
+ * as a result instead of surfacing later as an exception in the frame loop. */
+function buildScene(canvas: HTMLCanvasElement): BuildResult {
+  try {
+    const renderer = new Renderer({
+      canvas,
+      alpha: true,
+      premultipliedAlpha: false,
+      // The FBM shader runs five four-octave noise fields per pixel. Retina
+      // resolution is invisible in this deliberately soft effect, but at
+      // DPR 2 it quadruples the fragment work for no useful visual gain.
+      dpr: Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR),
+    });
     const gl = renderer.gl;
+    if (!gl) return { ok: false, reason: "failed" };
+    if (gl.isContextLost()) return { ok: false, reason: "lost" };
+
     gl.clearColor(0, 0, 0, 0);
 
     const program = new Program(gl, {
@@ -174,16 +199,117 @@ export function AuroraCanvas({ className }: { className?: string }) {
         uScale: { value: 1 },
       },
     });
-    const mesh = new Mesh(gl, { geometry: new Triangle(gl), program });
+    // ogl's Program returns early from setShaders() when the program fails to
+    // link (shader compile error on this GPU, or the context dropping out
+    // mid-construction) and leaves `uniformLocations`/`attributeLocations`
+    // undefined — the first render() would then throw
+    // "Cannot read properties of undefined (reading 'forEach')" from
+    // Program.use(). Catch that here, where it can be handled.
+    if (
+      !gl.getProgramParameter(program.program, gl.LINK_STATUS) ||
+      !program.uniformLocations
+    ) {
+      program.remove();
+      return { ok: false, reason: gl.isContextLost() ? "lost" : "failed" };
+    }
 
-    // The shader now owns the pixels: drop the CSS fallback gradient and stop
-    // its drift animation (gated on `[data-webgl="on"]`).
-    canvas.style.background = "none";
-    canvas.dataset.webgl = "on";
+    const mesh = new Mesh(gl, { geometry: new Triangle(gl), program });
+    return {
+      ok: true,
+      scene: {
+        renderer,
+        gl,
+        program,
+        mesh,
+        loseContext: gl.getExtension("WEBGL_lose_context"),
+      },
+    };
+  } catch {
+    return { ok: false, reason: "failed" };
+  }
+}
+
+function disposeScene(scene: Scene) {
+  try {
+    scene.mesh.geometry.remove();
+    scene.program.remove();
+    scene.gl.deleteShader(scene.program.vertexShader);
+    scene.gl.deleteShader(scene.program.fragmentShader);
+  } catch {
+    // A lost context makes these no-ops; anything else is not worth surfacing.
+  }
+}
+
+/* Aurora — WebGL noise field rendered to a full-bleed canvas. Ported from
+ * fromyou-ai's landing page (src/aurora.js). The CSS fallback gradient on
+ * `.aurora-canvas` only shows when WebGL is unavailable; the shader clears
+ * it via JS the moment it takes over — and hands it back if WebGL ever stops
+ * working (context loss that isn't restored, repeated render failures). */
+export function AuroraCanvas({ className }: { className?: string }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+
+    // No real GPU (or a software rasterizer / memory-starved device): skip
+    // WebGL entirely and let the animated CSS gradient fallback carry the hero.
+    // Running the FBM shader through SwiftShader looks broken — a few fps or a
+    // blank canvas — so we never blank the fallback in that case.
+    if (!shouldRunAuroraShader()) return;
+
+    const owner = Symbol("aurora");
+    (canvas as OwnedCanvas)[OWNER] = owner;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+    let scene: Scene | null = null;
+    /* Cleanup has run — nothing may touch the canvas or schedule work again. */
+    let disposed = false;
+    /* WebGL has been given up on for this mount: the CSS gradient owns the
+     * pixels and no frame will ever be scheduled again. */
+    let abandoned = false;
+    let failures = 0;
+    let raf = 0;
+    let lastRenderTime = -FRAME_INTERVAL_MS;
+    let inView = true;
+
+    // The shader owns the pixels: drop the CSS fallback gradient and stop its
+    // drift animation (gated on `[data-webgl="on"]`). `showFallback` is the
+    // exact inverse, used whenever WebGL stops being able to draw.
+    const showShader = () => {
+      canvas.style.background = "none";
+      canvas.dataset.webgl = "on";
+    };
+    const showFallback = () => {
+      canvas.style.background = "";
+      delete canvas.dataset.webgl;
+      // ogl's setSize pins the element's CSS size in px; while the stylesheet
+      // owns the pixels again, let it own the box too (otherwise a viewport
+      // change after falling back would leave a stale px width behind).
+      canvas.style.width = "";
+      canvas.style.height = "";
+    };
+
+    const pause = () => {
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
+    };
+
+    const abandon = () => {
+      abandoned = true;
+      pause();
+      if (scene) {
+        disposeScene(scene);
+        scene = null;
+      }
+      showFallback();
+    };
+
     const resize = () => {
+      if (!scene) return;
       const parent = canvas.parentElement;
       const w = parent?.clientWidth || window.innerWidth;
       /* Height is decoupled from the parent so the aurora stays at its
@@ -191,51 +317,140 @@ export function AuroraCanvas({ className }: { className?: string }) {
        * locks canvas.style.height in pixels, so we drive it from the viewport
        * instead of measuring the canvas (which would lock to its own px). */
       const h = window.innerHeight;
-      renderer.setSize(w, h);
+      scene.renderer.setSize(w, h);
       canvas.style.height = `${h}px`;
-      program.uniforms.uAspect.value = w / Math.max(h, 1);
-      program.uniforms.uStrength.value = w < 640 ? 0.72 : 1.0;
-      program.uniforms.uScale.value = h / VIRTUAL_HEIGHT;
-      if (reduceMotion.matches) renderer.render({ scene: mesh });
+      scene.program.uniforms.uAspect.value = w / Math.max(h, 1);
+      scene.program.uniforms.uStrength.value = w < 640 ? 0.72 : 1.0;
+      scene.program.uniforms.uScale.value = h / VIRTUAL_HEIGHT;
+      if (reduceMotion.matches) renderStill();
     };
-    resize();
-    const ro = new ResizeObserver(resize);
-    if (canvas.parentElement) ro.observe(canvas.parentElement);
-    window.addEventListener("resize", resize);
 
-    let raf = 0;
-    let lastRenderTime = -FRAME_INTERVAL_MS;
+    /* Draw one frame at the given shader time. Returns false when the draw
+     * failed — the failure has already been dealt with (rebuild or abandon),
+     * so callers must not touch `scene` afterwards. */
+    const render = (time: number): boolean => {
+      if (!scene || abandoned || disposed) return false;
+      if (scene.gl.isContextLost()) {
+        // Nothing can be drawn until `webglcontextrestored`; that handler
+        // rebuilds the scene and resumes. Stop burning frames meanwhile.
+        pause();
+        return false;
+      }
+      try {
+        scene.program.uniforms.uTime.value = time;
+        scene.renderer.render({ scene: scene.mesh });
+        return true;
+      } catch (error) {
+        onRenderFailure(error);
+        return false;
+      }
+    };
+
+    const renderStill = () => {
+      render(8.0);
+    };
+
+    const frame = (t: number) => {
+      raf = 0;
+      if (disposed || abandoned) return;
+      if (t - lastRenderTime >= FRAME_INTERVAL_MS) {
+        lastRenderTime = t;
+        if (!render(t * 0.001)) return;
+      }
+      raf = requestAnimationFrame(frame);
+    };
     // Only render while the hero is actually on screen, and cap this decorative
     // background at 30fps. The motion is intentionally slow, so rendering at
     // the display's full refresh rate only burns GPU time and competes with
     // scrolling and the hero entrance animation.
-    let inView = true;
-    const frame = (t: number) => {
-      if (t - lastRenderTime >= FRAME_INTERVAL_MS) {
-        lastRenderTime = t;
-        program.uniforms.uTime.value = t * 0.001;
-        renderer.render({ scene: mesh });
-      }
-      raf = requestAnimationFrame(frame);
-    };
     const play = () => {
-      if (!raf && !reduceMotion.matches && inView && !document.hidden) {
+      if (
+        !raf &&
+        scene &&
+        !disposed &&
+        !abandoned &&
+        !reduceMotion.matches &&
+        inView &&
+        !document.hidden
+      ) {
         raf = requestAnimationFrame(frame);
       }
     };
-    const pause = () => {
-      if (raf) {
-        cancelAnimationFrame(raf);
-        raf = 0;
-      }
-    };
-    const renderStill = () => {
-      program.uniforms.uTime.value = 8.0;
-      renderer.render({ scene: mesh });
+
+    /* Resume after a (re)build: a still frame under reduced motion, the loop
+     * otherwise. */
+    const start = () => {
+      if (reduceMotion.matches) renderStill();
+      else play();
     };
 
-    if (reduceMotion.matches) renderStill();
-    else play();
+    /* Replace the GL scene (after a context restore or a failed frame). */
+    const rebuild = (): boolean => {
+      if (scene) {
+        disposeScene(scene);
+        scene = null;
+      }
+      const result = buildScene(canvas);
+      if (!result.ok) return false;
+      scene = result.scene;
+      showShader();
+      resize();
+      return true;
+    };
+
+    function onRenderFailure(error: unknown) {
+      failures += 1;
+      pause();
+      if (failures < MAX_RENDER_FAILURES && rebuild()) {
+        start();
+        return;
+      }
+      console.warn(
+        "[aurora] WebGL rendering failed; falling back to the CSS gradient.",
+        error,
+      );
+      abandon();
+    }
+
+    // Context loss — GPU reset, driver crash, the browser reclaiming contexts
+    // on a tab-heavy machine, or WEBGL_lose_context. preventDefault() tells the
+    // browser we want the context back. Until then the canvas is blank, so
+    // the CSS gradient takes over; on restore every GL object is gone, so the
+    // scene is rebuilt from scratch before the loop resumes.
+    const onContextLost = (event: Event) => {
+      event.preventDefault();
+      pause();
+      showFallback();
+    };
+    const onContextRestored = () => {
+      if (disposed || abandoned) return;
+      if (rebuild()) start();
+      else abandon();
+    };
+    canvas.addEventListener("webglcontextlost", onContextLost);
+    canvas.addEventListener("webglcontextrestored", onContextRestored);
+
+    const initial = buildScene(canvas);
+    if (initial.ok) {
+      scene = initial.scene;
+      showShader();
+      resize();
+    } else if (initial.reason === "lost") {
+      // Someone lost this canvas's context before we got here. If it comes
+      // back, `webglcontextrestored` builds the scene; until then (or forever,
+      // if it never does) the CSS gradient is showing and nothing is scheduled.
+      showFallback();
+    } else {
+      // No usable context or the shader won't compile on this GPU: leave the
+      // CSS gradient alone and don't schedule anything.
+      abandoned = true;
+    }
+
+    const ro = new ResizeObserver(resize);
+    if (canvas.parentElement) ro.observe(canvas.parentElement);
+    window.addEventListener("resize", resize);
+
+    if (scene) start();
 
     const io = new IntersectionObserver(
       (entries) => {
@@ -264,13 +479,35 @@ export function AuroraCanvas({ className }: { className?: string }) {
     reduceMotion.addEventListener?.("change", onReduceChange);
 
     return () => {
+      disposed = true;
       pause();
       io.disconnect();
       ro.disconnect();
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", onVisibility);
       reduceMotion.removeEventListener?.("change", onReduceChange);
-      gl.getExtension("WEBGL_lose_context")?.loseContext();
+      canvas.removeEventListener("webglcontextlost", onContextLost);
+      canvas.removeEventListener("webglcontextrestored", onContextRestored);
+
+      const loseContext = scene?.loseContext ?? null;
+      if (scene) {
+        disposeScene(scene);
+        scene = null;
+      }
+      // Hand the element back with its CSS fallback in place. If this is a
+      // StrictMode / Fast Refresh remount, the same canvas is about to be
+      // taken over again and must not sit blank in between.
+      showFallback();
+
+      // Release the GPU context — but only if no new mount has claimed this
+      // canvas by the time the tick runs (see `canvasOwners`). A synchronous
+      // remount reuses the live context; a real unmount frees it right away
+      // instead of waiting for GC, so a busy tab can't run out of contexts.
+      setTimeout(() => {
+        if ((canvas as OwnedCanvas)[OWNER] !== owner) return;
+        delete (canvas as OwnedCanvas)[OWNER];
+        loseContext?.loseContext();
+      }, 0);
     };
   }, []);
 

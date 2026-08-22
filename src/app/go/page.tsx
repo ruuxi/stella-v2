@@ -1,19 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  ArrowRight,
-  Bot,
-  Check,
-  Code2,
-  FileText,
-  Globe2,
-  Laptop,
-} from "lucide-react";
+import { ArrowRight, Bot, Check, Laptop } from "lucide-react";
 import { DownloadButton } from "@/components/download-button";
 import { WindowsInstallNote } from "@/components/windows-install-note";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
+import {
+  GoCapturePreview,
+  GoDiffPreview,
+  GoFilesPreview,
+  GoHeroStack,
+} from "@/components/product-mocks/go-mocks";
 import "./go.css";
 import { StellaMark } from "@/components/stella-mark";
 
@@ -26,17 +24,17 @@ export const metadata: Metadata = {
 
 const work = [
   {
-    icon: Code2,
+    preview: GoDiffPreview,
     title: "Build and fix software",
     body: "Read repositories, edit code, run commands, debug failures, and hand independent work to background agents.",
   },
   {
-    icon: FileText,
+    preview: GoFilesPreview,
     title: "Create real deliverables",
     body: "Research a topic, then turn the result into editable documents, spreadsheets, presentations, and PDFs.",
   },
   {
-    icon: Globe2,
+    preview: GoCapturePreview,
     title: "Work across your computer",
     body: "Use your browser, files, and desktop apps to finish tasks instead of stopping at an answer in a chat box.",
   },
@@ -81,23 +79,7 @@ export default function GoPage() {
           </div>
 
           <div className="go-hero__visual" aria-label="Ways Stella can work">
-            <div className="go-orbit go-orbit--code">
-              <Code2 aria-hidden="true" />
-              <span>Code</span>
-            </div>
-            <div className="go-orbit go-orbit--browser">
-              <Globe2 aria-hidden="true" />
-              <span>Browser</span>
-            </div>
-            <div className="go-orbit go-orbit--files">
-              <FileText aria-hidden="true" />
-              <span>Files</span>
-            </div>
-            <div className="go-agent-mark">
-              <Bot aria-hidden="true" />
-              <strong>Stella</strong>
-              <span>one assistant</span>
-            </div>
+            <GoHeroStack />
           </div>
         </section>
 
@@ -110,7 +92,7 @@ export default function GoPage() {
           ))}
         </section>
 
-        <section className="go-section section-border" id="work">
+        <section className="go-section section-border" id="work" data-reveal>
           <header className="go-section__header">
             <p className="go-eyebrow">Coding is only the start</p>
             <h2>Keep one assistant for the whole job.</h2>
@@ -122,9 +104,9 @@ export default function GoPage() {
           </header>
 
           <div className="go-work-grid">
-            {work.map(({ icon: Icon, title, body }) => (
+            {work.map(({ preview: Preview, title, body }) => (
               <article className="go-work-card" key={title}>
-                <Icon size={22} strokeWidth={1.8} aria-hidden="true" />
+                <Preview />
                 <h3>{title}</h3>
                 <p>{body}</p>
               </article>
@@ -132,7 +114,7 @@ export default function GoPage() {
           </div>
         </section>
 
-        <section className="go-section go-choice section-border">
+        <section className="go-section go-choice section-border" data-reveal>
           <div>
             <p className="go-eyebrow">Your models, or ours</p>
             <h2>Use Stella without another required subscription.</h2>

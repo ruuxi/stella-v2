@@ -1,0 +1,426 @@
+/* Layout + motion specifics for the /voice mini-mocks. Surface primitives
+   come from `mock-ui.module.css`; the waveform, the OS-wide dictation pill
+   and the wake-word card are modelled on the real app
+   (`shell/overlay/overlays.css`, `features/dictation`, onboarding voice
+   phase). */
+
+.frame {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 33rem;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tall {
+  min-height: 17.5rem;
+}
+
+/* ── Waveform (canvas in the app; flex bars here) ───────────────── */
+
+/* The app draws the meter to a canvas sized to the composer, so it always
+   fills: 2px bars, 1px gaps, newest sample at the right edge. Here we render
+   enough bars to overflow any container, anchor them right, and fade the
+   oldest out on the left — full at 1440, full at 390, never a half-empty
+   trough or a hard-clipped edge. */
+.wave {
+  display: flex;
+  min-width: 0;
+  height: 22px;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%);
+  mask-image: linear-gradient(90deg, transparent, #000 14%);
+}
+
+.wave i {
+  display: block;
+  width: 2px;
+  min-height: 1px;
+  flex: 0 0 auto;
+  border-radius: 1px;
+  background: currentcolor;
+  transform-origin: 50% 50%;
+  animation: waveBar 1.15s ease-in-out infinite alternate;
+  animation-delay: calc(var(--i) * -47ms);
+}
+
+@keyframes waveBar {
+  from {
+    transform: scaleY(0.42);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave i {
+    animation: none;
+  }
+}
+
+/* ── 1 · In-app composer, dictating ─────────────────────────────── */
+
+.transcript {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 10px;
+}
+
+.ask {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: 7px 11px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 13px;
+  border-bottom-right-radius: 5px;
+  background: var(--mw-sunken);
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.reply {
+  max-width: 94%;
+  margin: 0;
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 12px 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 18px;
+  background: var(--mw-surface);
+  color: color-mix(in srgb, var(--mw-ink) 62%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.timer {
+  flex: 0 0 auto;
+  padding: 0 2px;
+  color: var(--mw-ink-weak);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctl {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--mw-ink) 75%, transparent);
+}
+
+.ctl[data-strong="true"] {
+  color: var(--mw-ink);
+}
+
+.ctl[data-send="true"] {
+  background: var(--mw-accent);
+  color: #fff;
+}
+
+.caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 0.95em;
+  margin-left: 1px;
+  background: var(--mw-accent);
+  vertical-align: -0.12em;
+  animation: caretBlink 1.05s steps(2, start) infinite;
+}
+
+@keyframes caretBlink {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    animation: none;
+  }
+}
+
+/* ── 2 · OS-wide pill over another app ──────────────────────────── */
+
+.desk {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  padding-bottom: 2.4rem;
+}
+
+.mailBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 0 14px;
+}
+
+.mailField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border-bottom: 1px solid var(--mw-line);
+  font-size: 12px;
+}
+
+.mailLabel {
+  width: 3.1rem;
+  flex: 0 0 auto;
+  color: var(--mw-ink-faint);
+}
+
+.mailValue {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mw-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailText {
+  margin: 0;
+  padding: 13px 14px 0;
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* The real overlay pill: 300px wide, fully round, opaque, hairline border
+   and one soft macOS drop shadow (`--shadow-overlay`). */
+.pill {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  width: min(300px, 100%);
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 5px 14px;
+  border: 1px solid rgba(15, 30, 60, 0.14);
+  border-radius: 9999px;
+  background: #fff;
+  color: rgba(86, 101, 126, 0.92);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 10px 30px -6px rgba(0, 0, 0, 0.16);
+  transform: translateX(-50%);
+}
+
+.pill .wave {
+  flex: 0 1 200px;
+  max-width: 210px;
+}
+
+/* ── 3 · Two machines ───────────────────────────────────────────── */
+
+.pair {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+@media (max-width: 620px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── 4 · Wake word ──────────────────────────────────────────────── */
+
+.wakeStack {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  padding-bottom: 2.9rem;
+}
+
+.wakeCard {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  width: min(20rem, 100%);
+  align-items: center;
+  gap: 11px;
+  padding: 10px 14px 10px 11px;
+  border: 1px solid rgba(15, 30, 60, 0.13);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 10px 30px -6px rgba(0, 0, 0, 0.16);
+  transform: translateX(-50%);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+}
+
+.wakeSprite {
+  position: relative;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #1d78f2;
+}
+
+.wakeRing {
+  position: absolute;
+  inset: 2px;
+  border: 1px solid rgba(29, 120, 242, 0.3);
+  border-radius: 999px;
+  animation: wakeRing 2s cubic-bezier(0.25, 0.1, 0.25, 1) infinite;
+}
+
+.wakeRing:nth-of-type(2) {
+  animation-delay: 0.7s;
+}
+
+@keyframes wakeRing {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  35% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wakeRing {
+    animation: none;
+    opacity: 0.5;
+    transform: scale(0.86);
+  }
+
+  /* Hold the two rings at different radii so the settled frame still reads
+     as concentric pulses rather than one hairline circle. */
+  .wakeRing:nth-of-type(2) {
+    opacity: 0.28;
+    transform: scale(1.16);
+  }
+}
+
+.wakeText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wakeSaid {
+  color: #101a2b;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.wakeReply {
+  color: rgba(86, 101, 126, 0.95);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+/* ── 5 · Voice session ──────────────────────────────────────────── */
+
+.sessionPill {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px 7px 11px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 999px;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.46),
+    var(--mw-sunken)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  font-size: 12.5px;
+  line-height: 1.2;
+}
+
+.sessionIcon {
+  flex: 0 0 auto;
+  color: var(--mw-ink-weak);
+}
+
+.sessionLabel {
+  overflow: hidden;
+  color: var(--mw-ink);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionMeta {
+  color: var(--mw-ink-weak);
+  font-variant-numeric: tabular-nums;
+}
+
+.voiceButton {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--mw-accent);
+  color: #fff;
+}
+
+.composerText {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--mw-ink-faint);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A settings row the app renders but greys out. */
+.frame [data-disabled="true"] {
+  opacity: 0.62;
+}

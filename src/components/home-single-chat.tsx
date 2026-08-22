@@ -5,7 +5,6 @@ import {
   Check,
   FileSpreadsheet,
   Loader,
-  MessageCircle,
   Send,
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
@@ -83,7 +82,6 @@ export function HomeSingleChat() {
           style={{ ["--reveal-index" as string]: 2 }}
         >
           <span className="home-atlas-kicker">
-            <MessageCircle size={15} strokeWidth={1.9} aria-hidden="true" />
             One chat
           </span>
           <p>

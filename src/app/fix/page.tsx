@@ -24,8 +24,9 @@ export default function FixIndexPage() {
       <SiteHeader />
 
       <main>
-        <section className="fix-hero section-border">
+        <section className="fix-hero fix-hero--index section-border">
           <AuroraCanvas className="fix-aurora" />
+          <div className="fix-aurora-reflection" aria-hidden="true" />
           <div className="fix-hero__copy">
             <p className="fix-eyebrow">Fix it with Stella</p>
             <h1>
@@ -50,7 +51,7 @@ export default function FixIndexPage() {
           </div>
         </section>
 
-        <section className="fix-section" aria-label="Problems Stella fixes">
+        <section className="fix-section" aria-label="Problems Stella fixes" data-reveal>
           <div className="fix-index-grid">
             {FIX_PAGES.map((page) => (
               <Link
@@ -62,6 +63,10 @@ export default function FixIndexPage() {
                   {page.headline} <em>{page.headlineAccent}</em>
                 </h2>
                 <p>{page.metaDescription}</p>
+                <span className="fix-index-card__go">
+                  Fix it
+                  <ArrowRight size={13} aria-hidden="true" />
+                </span>
               </Link>
             ))}
           </div>

@@ -1,6 +1,5 @@
 "use client";
 
-import { FileText } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useRef, useState } from "react";
 import { useSceneLoop } from "@/lib/use-scene-loop";
@@ -127,7 +126,6 @@ export function HomeDocuments() {
           style={{ ["--reveal-index" as string]: 2 }}
         >
           <span className="home-atlas-kicker">
-            <FileText size={15} strokeWidth={1.9} aria-hidden="true" />
             Documents
           </span>
           <p>

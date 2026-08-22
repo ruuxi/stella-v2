@@ -61,6 +61,13 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* While Lenis drives scrolling, native smooth scrolling must not fight its
+   per-frame positioning. Lenis only mounts outside reduced-motion, so users
+   who opt out keep the native smooth behavior above. */
+html.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
 /* The site sits on a flat `--page-background` color; ambient
  * decoration lives in `<PageBackground />` at the top of the document,
  * which paints a top blue wash + three blurred elongated triangles.
@@ -633,57 +640,24 @@ html[data-embedded="true"] .site-header {
   transform: translateY(-1px);
 }
 
+/* Primary CTAs wear the landing hero's "Download Stella" treatment: a pale
+   glass chip lit by the page's cyan/blue/mint glows, accent-blue display type,
+   hairline border, no drop shadow. `.button--download` is the same recipe —
+   kept as its own selector so the hero markup is unchanged — and every other
+   primary/accent CTA inherits it verbatim so the site has exactly one
+   primary button. */
 .button--primary,
-.button--accent {
-  /* Mirrors `.codex-frame` — sky-cyan → Stella accent → deep ocean —
-     so primary CTAs read as a saturated chip cut from the same cloth
-     as the gradient cards. */
-  background:
-    radial-gradient(
-      120% 140% at 8% 0%,
-      rgba(190, 228, 250, 0.92),
-      rgba(108, 178, 232, 0.85) 30%,
-      rgba(45, 132, 224, 0.95) 65%,
-      rgba(20, 86, 180, 1) 100%
-    ),
-    linear-gradient(180deg, #62b0e8, #155fb6);
-  color: var(--page-accent-foreground);
-  border-color: rgba(15, 60, 130, 0.32);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.28) inset,
-    0 6px 14px -6px rgba(20, 86, 180, 0.45);
-}
-
-.button--primary:hover,
-.button--accent:hover {
-  background:
-    radial-gradient(
-      120% 140% at 8% 0%,
-      rgba(170, 214, 244, 0.95),
-      rgba(82, 158, 220, 0.92) 30%,
-      rgba(30, 116, 210, 1) 65%,
-      rgba(14, 70, 156, 1) 100%
-    ),
-    linear-gradient(180deg, #4f9fda, #0f55a8);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.32) inset,
-    0 8px 18px -6px rgba(20, 86, 180, 0.55);
-}
-
-.button--primary {
-  align-self: flex-start;
-  padding: 0.95rem 1.3rem;
-  font-size: 1rem;
-}
-
+.button--accent,
 .button--download {
   gap: 0.55rem;
+  padding: 0.7rem 1.85rem;
+  border-radius: var(--page-radius);
+  border-color: var(--page-border);
   font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
   font-style: italic;
   font-weight: 300;
   font-size: 1.5rem;
   letter-spacing: -0.005em;
-  padding: 0.7rem 1.85rem;
   color: var(--page-accent);
   background:
     radial-gradient(circle at top left, var(--page-glow-cyan), transparent 28%),
@@ -695,10 +669,11 @@ html[data-embedded="true"] .site-header {
       rgba(255, 255, 255, 0.18)
     ),
     var(--page-background);
-  border-color: var(--page-border);
   box-shadow: none;
 }
 
+.button--primary:hover,
+.button--accent:hover,
 .button--download:hover {
   background:
     radial-gradient(circle at top left, var(--page-glow-cyan), transparent 26%),
@@ -714,6 +689,26 @@ html[data-embedded="true"] .site-header {
   box-shadow: none;
 }
 
+.button--primary,
+.button--accent {
+  align-self: flex-start;
+}
+
+/* One primary button on the whole site, at the landing hero's exact metrics:
+   the hero's own override in `home-hero.module.css` sets these same clamps,
+   so the hero is untouched and every other primary CTA — the replaced blue
+   ones and the "Download Stella" buttons alike — now matches it pixel for
+   pixel at any viewport. */
+.button--primary,
+.button--accent,
+.button--download {
+  padding-block: clamp(0.7rem, 1.1vw, 0.85rem);
+  padding-inline: clamp(1.7rem, 2.6vw, 2.3rem);
+  font-size: clamp(1.2rem, 1.4vw, 1.35rem);
+}
+
+.button--primary svg,
+.button--accent svg,
 .button--download svg {
   opacity: 0.85;
   margin-inline-start: 0.1rem;
@@ -1083,16 +1078,29 @@ html[data-embedded="true"] .site-header {
   justify-self: end;
 }
 
+/* Site-wide kicker / eyebrow system: the small line that introduces a
+   section heading. Cormorant italic, quiet ink, no badge chrome — the same
+   display voice as the hero and the download button, one step below the H2
+   it sits above. Page-level variants (.learn-eyebrow, .fix-eyebrow,
+   .go-eyebrow, the agents/storage/voice module eyebrows) share these rules;
+   only margins differ. */
+.site-kicker,
 .home-atlas-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 1.15rem;
-  color: var(--atlas-blue);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.82rem;
-  font-weight: 300;
+  display: block;
+  margin: 0;
+  color: color-mix(in oklch, var(--page-foreground) 64%, transparent);
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.1rem, 1rem + 0.45vw, 1.35rem);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.25;
   letter-spacing: 0;
+  text-transform: none;
+}
+
+.home-atlas-kicker {
+  margin-bottom: 1rem;
+  color: color-mix(in oklch, var(--atlas-ink) 64%, transparent);
 }
 
 .home-atlas-copy p {

@@ -1,0 +1,443 @@
+/* Visuals for /go. The hero is a layered stack of three real Stella
+   surfaces — a code diff, the in-app browser, and the chat driving both —
+   and each work card carries a small true-to-app preview strip. */
+
+.hero {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.heroSplit {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+}
+
+.chatPane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+
+.displayPane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-left: 1px solid var(--mw-line);
+  background: var(--mw-sunken);
+}
+
+.replyLine {
+  margin: 9px 12px 0;
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.diffFoot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--mw-line);
+}
+
+.diffTime {
+  margin-left: auto;
+  color: var(--mw-ink-faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Diff ───────────────────────────────────────────────────────── */
+
+.diff {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 8px 0 0;
+}
+
+.diffFile {
+  padding: 0 12px 7px;
+  color: var(--mw-ink-weak);
+  font-family: var(--mw-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diffLine {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 22px minmax(0, 1fr);
+  font-family: var(--mw-mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.diffLine span {
+  color: var(--mw-ink-faint);
+  text-align: center;
+  user-select: none;
+}
+
+.diffLine code {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 10px 0 6px;
+  color: var(--mw-ink-weak);
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.diffLine[data-kind="add"] {
+  background: rgba(23, 145, 91, 0.12);
+}
+
+.diffLine[data-kind="add"] span {
+  color: #17915b;
+}
+
+.diffLine[data-kind="add"] code {
+  color: #0d5b39;
+}
+
+.diffLine[data-kind="del"] {
+  background: rgba(200, 62, 52, 0.1);
+}
+
+.diffLine[data-kind="del"] span {
+  color: #c83e34;
+}
+
+.diffLine[data-kind="del"] code {
+  color: #8e2e26;
+}
+
+/* ── Browser ────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 8px 0;
+}
+
+.tab {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 9rem;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px 7px 0 0;
+  color: var(--mw-ink-faint);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab[data-active="true"] {
+  border-color: var(--mw-line);
+  border-bottom-color: transparent;
+  background: var(--mw-surface);
+  color: var(--mw-ink);
+}
+
+.urlbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 8px 8px;
+  padding: 4px 9px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 7px;
+  background: var(--mw-sunken);
+  color: var(--mw-ink-weak);
+  font-family: var(--mw-mono);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--mw-line);
+  font-size: 11.5px;
+}
+
+.formLabel {
+  width: 5.4rem;
+  flex: 0 0 auto;
+  color: var(--mw-ink-faint);
+}
+
+.formValue {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 5px;
+  background: var(--mw-surface);
+  color: var(--mw-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Chat + work rows ───────────────────────────────────────────── */
+
+.ask {
+  align-self: flex-end;
+  max-width: 90%;
+  margin: 12px 12px 0 auto;
+  padding: 7px 11px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 13px;
+  border-bottom-right-radius: 5px;
+  background: var(--mw-sunken);
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.work {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 12px;
+}
+
+.workRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.workRow span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mw-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spin,
+.spinStill,
+.tick {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.spin {
+  color: var(--mw-accent);
+  animation: spin 1.5s linear infinite;
+}
+
+.tick {
+  color: var(--mw-good);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinStill {
+  display: none;
+  color: var(--mw-ink-faint);
+}
+
+/* A frozen `Loader2` reads as a broken arc, so the settled frame swaps in a
+   complete dashed ring instead of stopping the spinner. */
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    display: none;
+  }
+
+  .spinStill {
+    display: inline-flex;
+  }
+}
+
+/* ── Work-card preview strips ───────────────────────────────────── */
+
+.preview {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 9rem;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(15, 30, 60, 0.12);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 14px 32px -20px rgba(12, 22, 38, 0.4);
+}
+
+.previewBar {
+  display: flex;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid rgba(15, 30, 60, 0.08);
+  background: #f5f8fc;
+  color: #4b5a72;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.previewDots {
+  position: relative;
+  display: block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #ff5f57;
+  box-shadow:
+    11px 0 #ffbd2e,
+    22px 0 #28c840;
+}
+
+.previewDots::after {
+  content: "";
+  display: block;
+  width: 28px;
+}
+
+.previewBody {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 9px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui,
+    sans-serif;
+}
+
+.fileChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.fileChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border: 1px solid rgba(15, 30, 60, 0.12);
+  border-radius: 999px;
+  background: #fff;
+  color: #101a2b;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+.fileChipStart {
+  align-self: flex-start;
+}
+
+.fileChip i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+}
+
+/* Region-capture overlay: dimmed screen, bright selection, hint bar. */
+.capture {
+  position: relative;
+  display: block;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, #eef3fa, #dfe8f4);
+}
+
+.captureRing {
+  position: absolute;
+  inset: 22% 16% 26% 12%;
+  border: 2px solid rgba(29, 120, 242, 0.82);
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 1px rgba(29, 120, 242, 0.45),
+    0 0 18px 4px rgba(29, 120, 242, 0.28),
+    inset 0 0 26px 8px rgba(29, 120, 242, 0.16);
+}
+
+.captureHint {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgba(15, 30, 60, 0.14);
+  border-radius: 6px;
+  background: #fff;
+  color: #4b5a72;
+  font-size: 10.5px;
+  line-height: 1.35;
+  letter-spacing: 0.1px;
+  text-wrap: pretty;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 10px 30px -6px rgba(0, 0, 0, 0.16);
+}
+
+.previewDiff {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+}
+
+@media (max-width: 620px) {
+  .heroSplit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .displayPane {
+    border-top: 1px solid var(--mw-line);
+    border-left: 0;
+  }
+}

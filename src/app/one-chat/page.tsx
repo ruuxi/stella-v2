@@ -1,19 +1,18 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import {
   AudioLines,
+  Bell,
   Box,
+  CalendarClock,
   Cpu,
+  FileText,
   Image as ImageIcon,
   KeyRound,
-  Layers,
+  MessageSquare,
   Mic,
-  MessageCircle,
   Music,
   Send,
-  Sparkles,
-  Users,
   Video,
 } from "lucide-react";
 import { DownloadButton } from "@/components/download-button";
@@ -21,17 +20,17 @@ import { WindowsInstallNote } from "@/components/windows-install-note";
 import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { SiteHeader } from "@/components/site-header";
-import styles from "./agents.module.css";
+import styles from "./one-chat.module.css";
 import { StellaMark } from "@/components/stella-mark";
 
 export const metadata: Metadata = {
-  title: "Agents",
+  title: "One chat",
   description:
-    "You talk to one Stella. Behind the scenes she hands work to a team of helpers that run in the background, so your chat never freezes. Power her with Stella's own zero-setup models or bring your own.",
-  alternates: { canonical: "/agents" },
+    "Stella is one ongoing conversation. Questions, tasks, follow-ups, results, and scheduled things all live in one place. Work runs in the background without freezing your chat, and nothing gets lost between threads — because there are no threads.",
+  alternates: { canonical: "/one-chat" },
 };
 
-export default function AgentsPage() {
+export default function OneChatPage() {
   return (
     <div className={`stella-page ${styles.page}`}>
       <SiteHeader />
@@ -40,47 +39,53 @@ export default function AgentsPage() {
         <section className={`grid-shell ${styles.heroSection}`}>
           <div className={styles.hero}>
             <span className={styles.eyebrow}>
-              <Sparkles size={15} strokeWidth={1.9} aria-hidden="true" />
-              Agents
+              One chat
             </span>
-            <h1>One Stella. A whole team behind her.</h1>
+            <h1>One chat. Everything in it.</h1>
             <p>
-              You talk to one assistant. Behind the scenes, she quietly hands
-              work to a team of helpers that run in the background — so you can
-              keep going while things get done.
+              Other chat apps spread your life across a dozen threads. Stella
+              is one ongoing conversation — ask, follow up, get results, come
+              back tomorrow. It&apos;s all right here.
             </p>
           </div>
         </section>
 
-        {/* One Stella */}
+        {/* One place */}
         <section className={`grid-shell section-border ${styles.section}`}>
           <div className={styles.row}>
             <div className={styles.copy}>
               <span className={styles.eyebrow}>
-                <MessageCircle size={14} strokeWidth={1.9} aria-hidden="true" />
-                One assistant
+                One place
               </span>
-              <h2>You only ever talk to Stella.</h2>
+              <h2>Everything you ask lives in one place.</h2>
               <p>
-                No juggling a dozen bots. Each chat has one assistant.
-                Everything you ask goes to Stella, and she figures out who
-                should do what — you see the work and its progress inline.
+                Most chatbots want a fresh thread for every question, so your
+                history ends up scattered and the context goes with it. In
+                Stella there&apos;s just one conversation. The trip you planned
+                last week, the email from this morning, the thing you&apos;re
+                about to ask — same place, same Stella.
               </p>
             </div>
 
             <div className={styles.visual} aria-hidden="true">
               <div className={styles.flow}>
                 <div className={`${styles.bubble} ${styles["bubble--you"]}`}>
-                  &ldquo;plan my trip and draft the emails&rdquo;
+                  &ldquo;plan my trip&rdquo;
+                </div>
+                <div className={`${styles.bubble} ${styles["bubble--you"]}`}>
+                  &ldquo;draft the emails&rdquo;
+                </div>
+                <div className={`${styles.bubble} ${styles["bubble--you"]}`}>
+                  &ldquo;actually, make it Thursday&rdquo;
                 </div>
                 <span className={styles.down} />
                 <div className={styles.stella}>
                   <span className={styles.stellaIcon}>
-                    <Sparkles size={18} />
+                    <StellaMark size={18} />
                   </span>
                   <div className={styles.stellaText}>
                     <strong>Stella</strong>
-                    <em>your one assistant</em>
+                    <em>one ongoing conversation</em>
                   </div>
                 </div>
               </div>
@@ -88,66 +93,19 @@ export default function AgentsPage() {
           </div>
         </section>
 
-        {/* Delegation */}
+        {/* Background work / non-blocking */}
         <section className={`grid-shell section-border ${styles.section}`}>
           <div className={`${styles.row} ${styles["row--flip"]}`}>
             <div className={styles.copy}>
               <span className={styles.eyebrow}>
-                <Users size={14} strokeWidth={1.9} aria-hidden="true" />
-                Behind the scenes
-              </span>
-              <h2>She hands the work to helpers.</h2>
-              <p>
-                Instead of doing everything herself, Stella spins up little
-                helpers for each job and sets them loose. Each one tackles its
-                own task, then reports back to her when it&apos;s done.
-              </p>
-            </div>
-
-            <div className={styles.visual} aria-hidden="true">
-              <div className={styles.flow}>
-                <div className={styles.stella}>
-                  <span className={styles.stellaIcon}>
-                    <Sparkles size={18} />
-                  </span>
-                  <div className={styles.stellaText}>
-                    <strong>Stella</strong>
-                    <em>splits up the work</em>
-                  </div>
-                </div>
-                <span className={styles.fan} />
-                <div className={styles.branchRow}>
-                  <span className={styles.helper}>
-                    <Users size={14} />
-                    research flights
-                  </span>
-                  <span className={styles.helper}>
-                    <Users size={14} />
-                    draft emails
-                  </span>
-                  <span className={styles.helper}>
-                    <Users size={14} />
-                    book a table
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Parallel / non-blocking */}
-        <section className={`grid-shell section-border ${styles.section}`}>
-          <div className={styles.row}>
-            <div className={styles.copy}>
-              <span className={styles.eyebrow}>
-                <Layers size={14} strokeWidth={1.9} aria-hidden="true" />
                 No waiting
               </span>
-              <h2>Keep chatting while the work runs.</h2>
+              <h2>Work runs in the background. Your chat stays open.</h2>
               <p>
-                When Stella sends off a task, she doesn&apos;t sit and wait —
-                and neither do you. Lots of jobs can run at the same time, and
-                Stella tells you the moment each one is finished.
+                Ask for something big and Stella gets going on it without
+                freezing the conversation. Keep typing, ask something else,
+                step away — she brings the result back into the same chat the
+                moment it&apos;s ready.
               </p>
             </div>
 
@@ -180,12 +138,62 @@ export default function AgentsPage() {
           </div>
         </section>
 
+        {/* Nothing lost */}
+        <section className={`grid-shell section-border ${styles.section}`}>
+          <div className={styles.row}>
+            <div className={styles.copy}>
+              <span className={styles.eyebrow}>
+                Nothing lost
+              </span>
+              <h2>No threads. So nothing falls between them.</h2>
+              <p>
+                There&apos;s no hunting for the chat where you asked that thing.
+                Follow-ups, results, reminders, and scheduled work all land in
+                the one conversation you already have — with the context still
+                intact.
+              </p>
+            </div>
+
+            <div className={styles.visual} aria-hidden="true">
+              <div className={styles.flow}>
+                <div className={styles.branchRow}>
+                  <span className={styles.piece}>
+                    <MessageSquare size={14} />
+                    follow-up
+                  </span>
+                  <span className={styles.piece}>
+                    <FileText size={14} />
+                    result
+                  </span>
+                  <span className={styles.piece}>
+                    <Bell size={14} />
+                    reminder
+                  </span>
+                  <span className={styles.piece}>
+                    <CalendarClock size={14} />
+                    scheduled check-in
+                  </span>
+                </div>
+                <span className={styles.gather} />
+                <div className={styles.stella}>
+                  <span className={styles.stellaIcon}>
+                    <StellaMark size={18} />
+                  </span>
+                  <div className={styles.stellaText}>
+                    <strong>Stella</strong>
+                    <em>all in the same chat</em>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Engines / BYOK / zero setup */}
         <section className={`grid-shell section-border ${styles.section}`}>
           <div className={`${styles.row} ${styles["row--flip"]}`}>
             <div className={styles.copy}>
               <span className={styles.eyebrow}>
-                <Cpu size={14} strokeWidth={1.9} aria-hidden="true" />
                 Any brain you like
               </span>
               <h2>Nothing to set up — or bring your own.</h2>
@@ -200,7 +208,7 @@ export default function AgentsPage() {
             <div className={styles.visual} aria-hidden="true">
               <div className={styles.engineGrid}>
                 <span className={`${styles.engineTile} ${styles["engineTile--lead"]}`}>
-                  <Sparkles size={18} />
+                  <StellaMark size={18} />
                   Stella
                   <em>zero setup</em>
                 </span>
@@ -230,7 +238,6 @@ export default function AgentsPage() {
           <div className={styles.row}>
             <div className={styles.copy}>
               <span className={styles.eyebrow}>
-                <ImageIcon size={14} strokeWidth={1.9} aria-hidden="true" />
                 Built in
               </span>
               <h2>Pictures, voice, and more — on Pro.</h2>
@@ -277,16 +284,14 @@ export default function AgentsPage() {
         <section className={`grid-shell section-border ${styles.closingSection}`}>
           <div className={styles.closing}>
             <span className={styles.eyebrow}>
-              <Sparkles size={14} strokeWidth={1.9} aria-hidden="true" />
-              One assistant, more done
+              One conversation, start to finish
             </span>
-            <h2>Ask once. Let the team handle the rest.</h2>
+            <h2>Ask once. Keep talking.</h2>
             <p>
-              You get the simplicity of a single assistant with the muscle of a
-              whole crew working in the background — on your models or hers.
-              Orchestrator mode, where Stella runs that crew in parallel, comes
-              with <Link href="/pricing">Pro</Link>; other plans run a single
-              agent at a time.
+              One ongoing chat, with the work happening behind it — on
+              Stella&apos;s models or yours. Running several jobs at once in
+              the background comes with <Link href="/pricing">Pro</Link>;
+              other plans work through one at a time.
             </p>
             <div className={styles.closingCta}>
               <DownloadButton />

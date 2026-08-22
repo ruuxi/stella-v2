@@ -297,27 +297,6 @@ export default function LearnMore() {
             </div>
           </section>
 
-          <section id="technical" className="learn-section section-border">
-            <SectionHeader eyebrow="Technical notes" title="A packaged, local-first desktop app">
-              <p>
-                Stella installs like a normal desktop app and keeps its runtime,
-                conversations, settings, and project state on your computer.
-              </p>
-            </SectionHeader>
-            <div className="learn-prose">
-              <p>
-                Signed macOS packages and Windows installers include the runtime
-                and native helpers they need. Stella updates from its isolated
-                desktop release channel without rebuilding itself on your
-                machine.
-              </p>
-              <p>
-                Projects Stella creates are ordinary local web apps under its
-                workspace, kept separate from the packaged application itself.
-              </p>
-            </div>
-          </section>
-
           <section id="whats-new-link" className="learn-section section-border">
             <SectionHeader eyebrow="What's new" title="A running changelog">
               <p>
@@ -338,10 +317,7 @@ export default function LearnMore() {
           <section className="learn-cta">
             <h2>Stella is your desktop app.</h2>
             <p>Ready to work across your computer.</p>
-            <Link className="button button--primary" href="/">
-              Get Stella
-              <ArrowRight size={16} />
-            </Link>
+            <DownloadButton />
             <p className="download-reassurance">
               Free. No credit card, no trial.
             </p>

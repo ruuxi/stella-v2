@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { Hourglass, Package, Smile, Sparkles } from "lucide-react";
+import { Hourglass, Package, PawPrint, Smile } from "lucide-react";
 import {
   getPublicPackage,
   listMyEmojiPacks,
@@ -192,7 +192,7 @@ export function LibraryTab({
       ) : null}
 
       <LibrarySection
-        icon={<Sparkles size={16} aria-hidden />}
+        icon={<PawPrint size={16} aria-hidden />}
         title="Pets"
         count={myPetCards.length}
         loading={loadingPets}

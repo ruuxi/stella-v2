@@ -1,0 +1,545 @@
+/* ------------------------------------------------------------------ *
+ *  Product-mock UI kit.
+ *
+ *  Generic app-surface primitives shared by every product-page mock:
+ *  panes, sidebars, toolbars, list rows, chips, toggles, keycaps,
+ *  status bars, message bubbles. All of them read the `--mw-*` tokens
+ *  published by `.window` in `mock-window.module.css`, so a mock only
+ *  ever needs to pick a tone on the window itself.
+ * ------------------------------------------------------------------ */
+
+/* ── Layout ─────────────────────────────────────────────────────── */
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.splitNarrow {
+  grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+}
+
+.sidebar {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--mw-line);
+  background: var(--mw-sunken);
+}
+
+.sideHead {
+  padding: 6px 8px 3px;
+  color: var(--mw-ink-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sideItem {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  height: 25px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--mw-ink-weak);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.sideItem svg {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+.sideItem span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sideItem[data-active="true"] {
+  background: var(--mw-accent-soft);
+  color: var(--mw-ink);
+  font-weight: 500;
+}
+
+.sideItem[data-active="true"] svg {
+  color: var(--mw-accent);
+  opacity: 1;
+}
+
+.pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.paneScroll {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Toolbar ────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  height: 33px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--mw-line);
+  color: var(--mw-ink-weak);
+  font-size: 12px;
+}
+
+.toolbarTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbarSpacer {
+  flex: 1 1 auto;
+}
+
+.search {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 6px;
+  background: var(--mw-surface);
+  color: var(--mw-ink-faint);
+  font-size: 12px;
+}
+
+.search svg {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+/* ── Sections ───────────────────────────────────────────────────── */
+
+.section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 11px 13px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--mw-ink-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.divider {
+  height: 1px;
+  flex: 0 0 auto;
+  background: var(--mw-line);
+}
+
+/* ── Rows ───────────────────────────────────────────────────────── */
+
+.list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 3px;
+  border-bottom: 1px solid var(--mw-line);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.rowIcon {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--mw-accent-soft);
+  color: var(--mw-accent);
+}
+
+.rowIcon[data-tone="neutral"] {
+  background: color-mix(in srgb, var(--mw-ink) 7%, transparent);
+  color: var(--mw-ink-weak);
+}
+
+.rowIcon[data-tone="good"] {
+  background: color-mix(in srgb, var(--mw-good) 12%, transparent);
+  color: var(--mw-good);
+}
+
+.rowText {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rowTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mw-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Secondary row text wraps to two lines rather than clipping mid-sentence —
+   these lines carry the actual claim on /storage and /voice. */
+.rowSub {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: var(--mw-ink-weak);
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+.rowMeta {
+  flex: 0 0 auto;
+  color: var(--mw-ink-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Chips, keycaps, buttons ────────────────────────────────────── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 999px;
+  background: var(--mw-surface);
+  color: var(--mw-ink-weak);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+}
+
+.chip[data-tone="accent"] {
+  border-color: color-mix(in srgb, var(--mw-accent) 28%, transparent);
+  background: var(--mw-accent-soft);
+  color: var(--mw-accent);
+}
+
+.chip[data-tone="good"] {
+  border-color: color-mix(in srgb, var(--mw-good) 30%, transparent);
+  background: color-mix(in srgb, var(--mw-good) 10%, transparent);
+  color: var(--mw-good);
+}
+
+.chip[data-tone="warn"] {
+  border-color: color-mix(in srgb, var(--mw-warn) 32%, transparent);
+  background: color-mix(in srgb, var(--mw-warn) 11%, transparent);
+  color: var(--mw-warn);
+}
+
+.chip svg {
+  opacity: 0.9;
+}
+
+.key {
+  display: inline-flex;
+  min-width: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border: 1px solid var(--mw-line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--mw-surface);
+  color: var(--mw-ink-weak);
+  font-family: var(--mw-font);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  height: 23px;
+  padding: 0 10px;
+  border: 1px solid var(--mw-line-strong);
+  border-radius: 6px;
+  background: var(--mw-surface);
+  color: var(--mw-ink);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.btn[data-variant="primary"] {
+  border-color: color-mix(in srgb, var(--mw-accent) 45%, transparent);
+  background: var(--mw-accent);
+  color: #fff;
+}
+
+.btn[data-variant="danger"] {
+  border-color: rgba(190, 62, 52, 0.32);
+  color: #b93b32;
+}
+
+/* ── Toggle ─────────────────────────────────────────────────────── */
+
+.toggle {
+  position: relative;
+  display: inline-flex;
+  width: 30px;
+  height: 18px;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mw-ink) 18%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(15, 30, 60, 0.06);
+}
+
+.toggle::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(12, 22, 38, 0.3);
+}
+
+.toggle[data-state="on"] {
+  background: var(--mw-accent);
+}
+
+.toggle[data-state="on"]::after {
+  left: auto;
+  right: 2px;
+}
+
+/* ── In-window notice ───────────────────────────────────────────── */
+
+/* Used only for lines the app itself renders inside the surface (e.g. the
+   Backups upgrade notice). Marketing annotations live in `.caption`, below
+   the window, so no mock invents chrome the product does not have. */
+.notice {
+  display: flex;
+  height: 27px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border-top: 1px solid var(--mw-line);
+  background: var(--mw-sunken);
+  color: var(--mw-ink-faint);
+  font-size: 11px;
+}
+
+.notice svg {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+/* Annotation rail under a mock — page furniture, never app chrome. */
+.caption {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin-top: 0.85rem;
+  padding-inline: 0.15rem;
+  color: #4b5a72;
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.caption svg {
+  flex: 0 0 auto;
+  color: #1d78f2;
+  opacity: 0.9;
+}
+
+.captionPath {
+  color: #33455f;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.74rem;
+  letter-spacing: -0.01em;
+}
+
+.path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mw-ink-weak);
+  font-family: var(--mw-mono);
+  font-size: 10.5px;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--mw-mono);
+  font-size: 11px;
+  letter-spacing: -0.01em;
+}
+
+/* ── Message bubbles ────────────────────────────────────────────── */
+
+.thread {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px;
+}
+
+.bubbleIn,
+.bubbleOut {
+  max-width: 84%;
+  padding: 8px 11px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  line-height: 1.42;
+}
+
+.bubbleIn {
+  align-self: flex-start;
+  border-bottom-left-radius: 5px;
+  background: color-mix(in srgb, var(--mw-ink) 7%, transparent);
+  color: var(--mw-ink);
+}
+
+.bubbleOut {
+  align-self: flex-end;
+  border-bottom-right-radius: 5px;
+  background: var(--mw-accent);
+  color: #fff;
+}
+
+.bubbleMeta {
+  margin-top: 3px;
+  color: var(--mw-ink-faint);
+  font-size: 10.5px;
+}
+
+/* ── Small utilities ────────────────────────────────────────────── */
+
+.stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.inline {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 560px) {
+  .split,
+  .splitNarrow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  /* Utility: drop non-essential chrome on the narrowest mocks. Wins over
+     the element's own `display` so chips/rows disappear cleanly. */
+  .hideNarrow {
+    display: none !important;
+  }
+
+  .section {
+    padding: 10px 11px;
+  }
+
+  /* Narrow rows stack: the control drops under the text and the secondary
+     line gets the room the restored verbatim strings need. */
+  .row {
+    flex-wrap: wrap;
+    row-gap: 7px;
+  }
+
+  .rowText {
+    flex: 1 1 100%;
+  }
+
+  .rowSub {
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+  }
+
+  .thread {
+    padding: 11px;
+  }
+}

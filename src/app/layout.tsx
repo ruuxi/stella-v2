@@ -7,6 +7,8 @@ import { EmbeddedThemeBridge } from "@/components/embedded/embedded-theme-bridge
 import { GoogleAdsTag } from "@/components/google-ads-tag";
 import { PerfInitScript } from "@/components/perf-init-script";
 import { RevealOnScroll } from "@/components/reveal-on-scroll";
+import { SmoothScroll } from "@/components/smooth-scroll";
+import "lenis/dist/lenis.css";
 import "./globals.css";
 
 const siteUrl = getSiteUrl();
@@ -173,6 +175,7 @@ export default function RootLayout({
         <SignInDialogHost />
         <EmbeddedThemeBridge />
         <RevealOnScroll />
+        <SmoothScroll />
       </body>
     </html>
   );

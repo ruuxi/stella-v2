@@ -34,6 +34,7 @@ const incomingTokenValidator = v.object({
   tokenType: v.optional(v.string()),
   accessTokenExpiresAt: v.optional(v.number()),
   scopes: v.array(v.string()),
+  resourceOrigin: v.optional(v.string()),
 });
 
 const readExistingTokenSet = async (
@@ -145,6 +146,8 @@ export const commitProviderAccountTokens = internalMutation({
         args.incoming.tokenType ?? previousTokenSet?.tokenType ?? "Bearer",
       accessTokenExpiresAt: args.incoming.accessTokenExpiresAt,
       scope: grantedScopes.join(" ") || undefined,
+      resourceOrigin:
+        args.incoming.resourceOrigin ?? previousTokenSet?.resourceOrigin,
     };
     const encrypted = await encryptSecret(serializeTokenSet(tokenSet));
     const encryptedTokenSet = JSON.stringify(encrypted);
@@ -311,6 +314,8 @@ export const commitRefreshedTokens = internalMutation({
         args.incoming.tokenType ?? previousTokenSet?.tokenType ?? "Bearer",
       accessTokenExpiresAt: args.incoming.accessTokenExpiresAt,
       scope: grantedScopes.join(" ") || undefined,
+      resourceOrigin:
+        args.incoming.resourceOrigin ?? previousTokenSet?.resourceOrigin,
     };
     const encrypted = await encryptSecret(serializeTokenSet(tokenSet));
     await ctx.db.patch(credential._id, {

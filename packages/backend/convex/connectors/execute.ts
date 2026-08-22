@@ -83,8 +83,11 @@ export const getAccessTokenForAccount = internalAction({
     accountId: v.id("oauth_provider_accounts"),
     requiredScopes: v.array(v.string()),
   },
-  returns: v.object({ accessToken: v.string() }),
-  handler: async (ctx, args): Promise<{ accessToken: string }> => {
+  returns: v.object({
+    accessToken: v.string(),
+    resourceOrigin: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<{ accessToken: string; resourceOrigin?: string }> => {
     const cred = await ctx.runQuery(
       internal.connectors.oauth.vault.getCredentialForRefresh,
       { accountId: args.accountId },
@@ -110,7 +113,7 @@ export const getAccessTokenForAccount = internalAction({
     if (
       accessTokenIsFresh(cred.accessTokenExpiresAt, manifest.refreshSkewMs, now)
     ) {
-      return { accessToken: tokenSet.accessToken };
+      return { accessToken: tokenSet.accessToken, resourceOrigin: tokenSet.resourceOrigin };
     }
     if (!tokenSet.refreshToken) {
       await ctx.runMutation(
@@ -195,7 +198,7 @@ export const getAccessTokenForAccount = internalAction({
         throw new ConnectorError("refresh_busy", true);
       }
       leaseCleared = true;
-      return { accessToken };
+      return { accessToken, resourceOrigin: tokenSet.resourceOrigin };
     } catch (error) {
       if (!(error instanceof ConnectorError)) {
         releaseErrorCode = "refresh_failed";
@@ -358,7 +361,7 @@ export const runFirstPartyConnectorAction = internalAction({
           ? scopesForGroups(manifest, readiness.requiredScopeGroups)
           : [];
 
-      const { accessToken } = await ctx.runAction(
+      const { accessToken, resourceOrigin } = await ctx.runAction(
         internal.connectors.execute.getAccessTokenForAccount,
         { accountId: readiness.accountId, requiredScopes },
       );
@@ -366,6 +369,7 @@ export const runFirstPartyConnectorAction = internalAction({
       const { output, providerStatusClass } = await executeFirstPartyAction({
         manifest,
         accessToken,
+        resourceOrigin,
         action: args.action,
         input,
         operation,

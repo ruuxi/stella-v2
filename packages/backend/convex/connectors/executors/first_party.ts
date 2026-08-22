@@ -20,6 +20,7 @@ import {
 export type FirstPartyExecuteContext = {
   manifest: ProviderManifest;
   accessToken: string;
+  resourceOrigin?: string;
   action: string;
   input: Record<string, unknown>;
   operation: "read" | "write" | "destructive";
@@ -94,8 +95,9 @@ export const providerFetchJson = async (args: {
   headers?: Record<string, string>;
 }): Promise<{ output: unknown; providerStatusClass: string }> => {
   const { ctx, method, path } = args;
-  const url = new URL(path, `${ctx.manifest.apiOrigin}/`);
-  if (url.origin !== new URL(ctx.manifest.apiOrigin).origin) {
+  const apiOrigin = ctx.resourceOrigin ?? ctx.manifest.apiOrigin;
+  const url = new URL(path, `${apiOrigin}/`);
+  if (url.origin !== new URL(apiOrigin).origin) {
     throw new ConnectorError("normalization_error");
   }
   const extraHeaders = args.headers ?? {};
@@ -266,6 +268,7 @@ export const firstPartyProviderForConnector = (
 export const executeFirstPartyAction = async (args: {
   manifest: ProviderManifest;
   accessToken: string;
+  resourceOrigin?: string;
   action: string;
   input: Record<string, unknown>;
   operation: "read" | "write" | "destructive";
@@ -281,6 +284,7 @@ export const executeFirstPartyAction = async (args: {
   return handler({
     manifest: args.manifest,
     accessToken: args.accessToken,
+    resourceOrigin: args.resourceOrigin,
     action: args.action,
     input: args.input,
     operation: args.operation,

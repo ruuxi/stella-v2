@@ -35,6 +35,7 @@ import {
   mutateMobileSchedule,
   scheduleCadence,
   scheduleRowBadge,
+  subscribeMobileScheduleUpdates,
   type MobileSchedule,
   type MobileScheduleAction,
 } from "../lib/desktop-schedules";
@@ -532,20 +533,40 @@ export function ActivityHubSheet({
     );
   }, [groupCount]);
 
+  // True until unmount; loads and mutations check it before touching state
+  // so a slow bridge round-trip can't set state on a torn-down sheet.
+  const aliveRef = useRef(true);
+  useEffect(
+    () => () => {
+      aliveRef.current = false;
+    },
+    [],
+  );
+  // Monotonic load epoch: a response only lands if it is still the newest
+  // request, so overlapping loads (open + push burst) can't interleave into
+  // last-write-wins with stale data.
+  const scheduleLoadEpochRef = useRef(0);
+
   // Schedules load each time the sheet opens onto the Schedule tab — a cheap
   // authenticated read through the desktop bridge, refreshed on every open so
   // next-run stays current.
   const loadSchedules = useCallback(async () => {
+    const epoch = ++scheduleLoadEpochRef.current;
+    const isCurrent = () =>
+      aliveRef.current && scheduleLoadEpochRef.current === epoch;
     setSchedulesLoading(true);
     setSchedulesError(null);
     try {
-      setSchedules(await fetchMobileSchedules());
+      const rows = await fetchMobileSchedules();
+      if (isCurrent()) setSchedules(rows);
     } catch (error) {
-      setSchedulesError(
-        error instanceof Error ? error.message : "Couldn’t load schedules.",
-      );
+      if (isCurrent()) {
+        setSchedulesError(
+          error instanceof Error ? error.message : "Couldn’t load schedules.",
+        );
+      }
     } finally {
-      setSchedulesLoading(false);
+      if (isCurrent()) setSchedulesLoading(false);
     }
   }, []);
 
@@ -554,24 +575,41 @@ export function ActivityHubSheet({
     void loadSchedules();
   }, [visible, tab, loadSchedules]);
 
+  // Live updates: the desktop broadcasts `schedule:updated` after every
+  // scheduler mutation (its own dialog, an agent's Schedule tool, or this
+  // phone). Subscribe only while the Schedule tab is on screen; cleanup
+  // closes the socket on tab switch, sheet close, and unmount, so badges
+  // and paused state stay current without reopening the sheet.
+  useEffect(() => {
+    if (!visible || tab !== "schedule") return;
+    const subscription = subscribeMobileScheduleUpdates(() => {
+      void loadSchedules();
+    });
+    return () => subscription.close();
+  }, [visible, tab, loadSchedules]);
+
   const applyScheduleAction = useCallback(
     async (schedule: MobileSchedule, action: MobileScheduleAction) => {
       const key = `${schedule.kind}:${schedule.id}`;
       setBusyScheduleKey(key);
       try {
         await mutateMobileSchedule(action, schedule);
-        // Re-read so enabled/nextRunAtMs come back authoritative.
-        setSchedules(await fetchMobileSchedules());
+        // Re-read so enabled/nextRunAtMs come back authoritative. The
+        // desktop's schedule:updated push triggers the same reload; the
+        // load epoch collapses the overlap.
+        await loadSchedules();
       } catch (error) {
-        Alert.alert(
-          "Schedule",
-          error instanceof Error ? error.message : "That didn’t go through.",
-        );
+        if (aliveRef.current) {
+          Alert.alert(
+            "Schedule",
+            error instanceof Error ? error.message : "That didn’t go through.",
+          );
+        }
       } finally {
-        setBusyScheduleKey(null);
+        if (aliveRef.current) setBusyScheduleKey(null);
       }
     },
-    [],
+    [loadSchedules],
   );
 
   const onScheduleAction = useCallback(

@@ -8,6 +8,10 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import {
+  TOP_SHEET_HEIGHT_FRACTION,
+  topSheetMaxHeight,
+} from "../lib/top-sheet-metrics";
 import { useColors } from "../theme/theme-context";
 import { type Colors } from "../theme/colors";
 
@@ -44,13 +48,13 @@ export function TopSheet({
   visible,
   onClose,
   children,
-  heightFraction = 0.8,
+  heightFraction = TOP_SHEET_HEIGHT_FRACTION,
   contentSized = false,
 }: TopSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { height } = useWindowDimensions();
-  const maxSheetHeight = Math.round(height * heightFraction);
+  const maxSheetHeight = topSheetMaxHeight(height, heightFraction);
 
   const progress = useRef(new Animated.Value(0)).current;
   const [rendered, setRendered] = useState(visible);

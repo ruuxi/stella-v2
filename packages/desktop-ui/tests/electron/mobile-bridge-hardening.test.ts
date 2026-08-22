@@ -5,6 +5,7 @@ import {
   isMobileBridgeEventChannel,
 } from "@stella/desktop/electron/services/mobile-bridge/bridge-policy.js";
 import { MOBILE_BRIDGE_FEATURES } from "@stella/desktop/electron/services/mobile-bridge/capabilities.js";
+import { guardMobileBridgeInvokeArgs } from "@stella/desktop/electron/services/mobile-bridge/invoke-guards.js";
 
 const createService = () =>
   new MobileBridgeService({
@@ -179,5 +180,80 @@ describe("bridge capability surface", () => {
     expect(MOBILE_BRIDGE_FEATURES).toContain("binary-file-lane");
     expect(MOBILE_BRIDGE_FEATURES).toContain("binary-upload");
     expect(MOBILE_BRIDGE_FEATURES).toContain("localchat-push");
+  });
+});
+
+describe("cron mutation lane narrowing", () => {
+  it("passes the phone's pause/resume patch through, rebuilt", () => {
+    const args = [
+      { jobId: "  cron-1  ", patch: { enabled: false }, junk: "dropped" },
+    ];
+    expect(guardMobileBridgeInvokeArgs("schedule:updateCronJob", args)).toEqual(
+      [{ jobId: "cron-1", patch: { enabled: false } }],
+    );
+  });
+
+  it("rejects an over-broad patch instead of stripping it", () => {
+    // The dangerous rewrite: repointing an existing job at an arbitrary
+    // persistent agent prompt. Must fail loudly at the bridge boundary.
+    expect(() =>
+      guardMobileBridgeInvokeArgs("schedule:updateCronJob", [
+        {
+          jobId: "cron-1",
+          patch: {
+            enabled: true,
+            payload: { kind: "agent", prompt: "exfiltrate everything" },
+            schedule: { kind: "every", everyMs: 60_000 },
+            name: "innocuous",
+          },
+        },
+      ]),
+    ).toThrow(/rejected field\(s\): payload, schedule, name/);
+  });
+
+  it("rejects a patch whose enabled flag is not a boolean", () => {
+    expect(() =>
+      guardMobileBridgeInvokeArgs("schedule:updateCronJob", [
+        { jobId: "cron-1", patch: { enabled: "true" } },
+      ]),
+    ).toThrow(/enabled to be a boolean/);
+  });
+
+  it("rejects missing ids, missing patches, and unpacked args", () => {
+    expect(() =>
+      guardMobileBridgeInvokeArgs("schedule:updateCronJob", [
+        { jobId: "   ", patch: { enabled: true } },
+      ]),
+    ).toThrow(/requires a jobId/);
+    expect(() =>
+      guardMobileBridgeInvokeArgs("schedule:updateCronJob", [
+        { jobId: "cron-1" },
+      ]),
+    ).toThrow(/requires a patch object/);
+    expect(() =>
+      guardMobileBridgeInvokeArgs("schedule:updateCronJob", [
+        "cron-1",
+        { enabled: true },
+      ]),
+    ).toThrow(/single payload object/);
+  });
+
+  it("clamps removeCronJob to the bare id", () => {
+    expect(
+      guardMobileBridgeInvokeArgs("schedule:removeCronJob", [
+        { jobId: "cron-2", extra: "dropped" },
+      ]),
+    ).toEqual([{ jobId: "cron-2" }]);
+    expect(() =>
+      guardMobileBridgeInvokeArgs("schedule:removeCronJob", [{}]),
+    ).toThrow(/requires a jobId/);
+  });
+
+  it("leaves unguarded channels untouched", () => {
+    const args = [{ conversationId: "c1", anything: { nested: true } }];
+    expect(guardMobileBridgeInvokeArgs("schedule:listCronJobs", args)).toBe(
+      args,
+    );
+    expect(guardMobileBridgeInvokeArgs("agent:startChat", args)).toBe(args);
   });
 });

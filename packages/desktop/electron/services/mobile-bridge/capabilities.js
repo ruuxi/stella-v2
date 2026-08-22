@@ -135,6 +135,10 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
     invoke("media.getStellaMediaDir", IPC_MEDIA_GET_DIR),
     invoke("schedule.listCronJobs", IPC_SCHEDULE_LIST_CRON_JOBS),
     invoke("schedule.listHeartbeats", IPC_SCHEDULE_LIST_HEARTBEATS),
+    // Narrowed mutation lanes: the desktop handler accepts a full cron patch
+    // (the Schedules dialog needs it), but mobile-originated payloads are
+    // clamped to `{ jobId, patch: { enabled } }` / `{ jobId }` by
+    // `invoke-guards.ts` before dispatch.
     invoke("schedule.updateCronJob", IPC_SCHEDULE_UPDATE_CRON_JOB),
     invoke("schedule.removeCronJob", IPC_SCHEDULE_REMOVE_CRON_JOB),
     invoke("schedule.listConversationEvents", IPC_SCHEDULE_LIST_CONVERSATION_EVENTS),

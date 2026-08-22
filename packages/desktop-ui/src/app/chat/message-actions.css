@@ -95,10 +95,38 @@
 }
 
 /* Armed "click again to rewind" confirm state — mirrors the top bar's
-   two-step confirm affordance (data-armed). */
+   two-step confirm affordance (data-armed). The destructive tint makes the
+   first click's arming unmistakable; the inline hint spells out the
+   double-click intent so it never reads as a dead button. */
 .message-actions__btn[data-armed="true"] {
-  color: var(--text-strong);
-  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+  width: auto;
+  min-width: 24px;
+  gap: 4px;
+  padding: 0 7px;
+  color: var(--danger);
+}
+
+.message-actions__btn[data-armed="true"]:hover {
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 10%, transparent);
+}
+
+.message-actions__confirm-hint {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* While armed, the strip stays fully revealed (even off-hover) and grows to
+   the RIGHT only — user actions are right-aligned — so revealing the hint
+   never shifts the bubble above or rows around it. */
+.event-row:not(.event-row--streaming) .message-actions[data-confirming="true"],
+.message-actions[data-confirming="true"] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .message-actions__spinner {

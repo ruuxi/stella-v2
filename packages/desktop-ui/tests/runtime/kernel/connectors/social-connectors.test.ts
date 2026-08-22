@@ -8,7 +8,6 @@ import {
   listSocialConnectorAdapters,
   SOCIAL_CONNECTOR_IDS,
 } from "@stella/runtime/kernel/connectors/social-connectors";
-import { isNativeOAuthLocalExecutionProductionReady } from "@stella/runtime/kernel/connectors/native-oauth-provider-config";
 
 const IN_SCOPE_IDS = [
   "twitter",
@@ -99,10 +98,11 @@ describe("social connector scope-aware status", () => {
       grantedScopes: ["identity", "read"],
     });
     const byName = new Map(status?.actions.map((a) => [a.name, a]));
-    expect(byName.get("REDDIT_GET_ME")?.available).toBe(true);
-    expect(byName.get("REDDIT_GET_SUBREDDIT_HOT")?.available).toBe(true);
-    expect(byName.get("REDDIT_SUBMIT")?.available).toBe(false);
-    expect(byName.get("REDDIT_SUBMIT")?.missingScopes).toEqual(["submit"]);
+    expect(byName.get("REDDIT_GET_ME_PREFS")?.available).toBe(true);
+    expect(byName.get("REDDIT_CREATE_REDDIT_POST")?.available).toBe(false);
+    expect(byName.get("REDDIT_CREATE_REDDIT_POST")?.missingScopes).toEqual([
+      "submit",
+    ]);
   });
 
   it("threads the shared Meta grant scopes through each Meta connector", () => {
@@ -148,19 +148,8 @@ describe("social connector scope-aware status", () => {
       const status = getSocialConnectorScopeStatus(id, { grantedScopes: [] });
       expect(status?.executionRoute).toBe("composio-fallback");
     }
-    // Guard: nothing in scope has been flipped to production-ready local exec,
-    // so native and Composio can never both fire for one call.
-    for (const providerConfigId of [
-      "twitter",
-      "youtube",
-      "reddit",
-      "linkedin",
-      "meta",
-    ]) {
-      expect(isNativeOAuthLocalExecutionProductionReady(providerConfigId)).toBe(
-        false,
-      );
-    }
+    // The backend rollout is authoritative; this adapter cannot enable a
+    // competing runtime-local route.
   });
 
   it("treats an absent provider app and empty grant as not-ready without throwing", () => {

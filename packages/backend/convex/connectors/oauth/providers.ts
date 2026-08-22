@@ -35,6 +35,7 @@ export type ProviderManifest = {
   /** Dot paths for providers whose userinfo response is not OpenID-shaped. */
   identityPaths?: { subject: string; email?: string; name?: string };
   userinfoHeaders?: Record<string, string>;
+  authorizationParams?: Readonly<Record<string, string>>;
   identityMode: ProviderIdentityMode;
   /** Expected OIDC issuer, when identityMode === "oidc". */
   issuer?: string;
@@ -140,6 +141,193 @@ const GOOGLE_WORKSPACE: ProviderManifest = {
         "https://www.googleapis.com/auth/calendar.events",
         "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
         "https://www.googleapis.com/auth/tasks",
+      ],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const TWITTER: ProviderManifest = {
+  key: "twitter",
+  displayName: "X",
+  authorizationEndpoint: "https://x.com/i/oauth2/authorize",
+  tokenEndpoint: "https://api.x.com/2/oauth2/token",
+  tokenEndpointAuth: "client_secret_basic",
+  revocationEndpoint: "https://api.x.com/2/oauth2/revoke",
+  userinfoEndpoint: "https://api.x.com/2/users/me",
+  identityPaths: { subject: "data.id", name: "data.name" },
+  identityMode: "userinfo",
+  requiresPkce: true,
+  usesOfflineAccess: true,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.x.com",
+  scopeGroups: {
+    read: { scopes: ["tweet.read", "users.read", "offline.access"] },
+    write: {
+      scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const YOUTUBE: ProviderManifest = {
+  key: "youtube",
+  displayName: "YouTube",
+  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenEndpoint: "https://oauth2.googleapis.com/token",
+  revocationEndpoint: "https://oauth2.googleapis.com/revoke",
+  userinfoEndpoint: "https://openidconnect.googleapis.com/v1/userinfo",
+  identityMode: "oidc",
+  issuer: "https://accounts.google.com",
+  requiresPkce: true,
+  usesOfflineAccess: true,
+  authorizationParams: {
+    access_type: "offline",
+    include_granted_scopes: "true",
+    prompt: "consent",
+  },
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://www.googleapis.com",
+  scopeGroups: {
+    read: {
+      scopes: [
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/youtube.readonly",
+      ],
+    },
+    write: {
+      scopes: [
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/youtube.force-ssl",
+      ],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+/** Facebook, Instagram, and Meta Ads deliberately share one Meta user grant. */
+const META: ProviderManifest = {
+  key: "meta",
+  displayName: "Meta",
+  authorizationEndpoint: "https://www.facebook.com/dialog/oauth",
+  tokenEndpoint: "https://graph.facebook.com/oauth/access_token",
+  revocationEndpoint: "https://graph.facebook.com/me/permissions",
+  userinfoEndpoint: "https://graph.facebook.com/me?fields=id,name,email",
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  refreshSkewMs: 24 * 60 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://graph.facebook.com",
+  scopeGroups: {
+    facebook_read: {
+      scopes: ["public_profile", "pages_show_list", "pages_read_engagement"],
+    },
+    facebook_write: {
+      scopes: [
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "pages_manage_posts",
+      ],
+    },
+    instagram_read: {
+      scopes: [
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "instagram_basic",
+      ],
+    },
+    instagram_write: {
+      scopes: [
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "instagram_basic",
+        "instagram_content_publish",
+      ],
+    },
+    metaads_read: { scopes: ["public_profile", "ads_read"] },
+    metaads_write: {
+      scopes: ["public_profile", "ads_read", "ads_management"],
+    },
+    social_all: {
+      scopes: [
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "pages_manage_posts",
+        "instagram_basic",
+        "instagram_content_publish",
+        "ads_read",
+        "ads_management",
+      ],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const REDDIT: ProviderManifest = {
+  key: "reddit",
+  displayName: "Reddit",
+  authorizationEndpoint: "https://www.reddit.com/api/v1/authorize",
+  tokenEndpoint: "https://www.reddit.com/api/v1/access_token",
+  tokenEndpointAuth: "client_secret_basic",
+  revocationEndpoint: "https://www.reddit.com/api/v1/revoke_token",
+  userinfoEndpoint: "https://oauth.reddit.com/api/v1/me",
+  identityPaths: { subject: "id", name: "name" },
+  userinfoHeaders: { "user-agent": "Stella/1.0 by contact@fromyou.ai" },
+  authorizationParams: { duration: "permanent" },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: true,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://oauth.reddit.com",
+  scopeGroups: {
+    read: { scopes: ["identity", "read"] },
+    write: { scopes: ["identity", "read", "submit"] },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const LINKEDIN: ProviderManifest = {
+  key: "linkedin",
+  displayName: "LinkedIn",
+  authorizationEndpoint: "https://www.linkedin.com/oauth/v2/authorization",
+  tokenEndpoint: "https://www.linkedin.com/oauth/v2/accessToken",
+  userinfoEndpoint: "https://api.linkedin.com/v2/userinfo",
+  identityMode: "oidc",
+  issuer: "https://www.linkedin.com/oauth",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.linkedin.com",
+  scopeGroups: {
+    read: { scopes: ["openid", "profile", "email"] },
+    member_write: {
+      scopes: ["openid", "profile", "email", "w_member_social"],
+    },
+    organization_write: {
+      scopes: [
+        "openid",
+        "profile",
+        "email",
+        "r_organization_social",
+        "w_organization_social",
       ],
     },
   },
@@ -263,6 +451,11 @@ const MICROSOFT: ProviderManifest = {
 const STATIC_MANIFESTS: Readonly<Record<string, ProviderManifest>> = {
   [GOOGLE_WORKSPACE.key]: GOOGLE_WORKSPACE,
   [MICROSOFT.key]: MICROSOFT,
+  [TWITTER.key]: TWITTER,
+  [YOUTUBE.key]: YOUTUBE,
+  [META.key]: META,
+  [REDDIT.key]: REDDIT,
+  [LINKEDIN.key]: LINKEDIN,
   [MOCK_PROVIDER.key]: MOCK_PROVIDER,
 };
 

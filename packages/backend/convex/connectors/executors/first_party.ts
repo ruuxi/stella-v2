@@ -5,6 +5,10 @@ import {
   MICROSOFT_ACTION_OPERATIONS,
   MICROSOFT_CONNECTOR_ACTIONS,
 } from "./microsoft";
+import {
+  buildSocialProviderRequest,
+  SOCIAL_ACTION_OPERATIONS,
+} from "./social";
 
 /**
  * First-party executor. Provider-family modules register a handler here that
@@ -86,6 +90,7 @@ export const providerFetchJson = async (args: {
   method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
   body?: unknown;
+  bodyEncoding?: "json" | "form";
   headers?: Record<string, string>;
 }): Promise<{ output: unknown; providerStatusClass: string }> => {
   const { ctx, method, path } = args;
@@ -107,17 +112,36 @@ export const providerFetchJson = async (args: {
     ctx.requestTimeoutMs,
   );
   try {
+    const reservedHeaders = new Set(["authorization", "host", "content-length"]);
+    if (Object.keys(args.headers ?? {}).some((key) => reservedHeaders.has(key.toLowerCase()))) {
+      throw new ConnectorError("normalization_error");
+    }
+    const body =
+      args.body === undefined
+        ? undefined
+        : args.bodyEncoding === "form"
+          ? new URLSearchParams(
+              Object.entries(args.body as Record<string, unknown>).flatMap(([key, value]) =>
+                value === undefined || value === null ? [] : [[key, String(value)]],
+              ),
+            ).toString()
+          : JSON.stringify(args.body);
     const response = await fetch(url.toString(), {
       method,
       headers: {
         accept: "application/json",
         authorization: `Bearer ${ctx.accessToken}`,
         ...(args.body !== undefined
-          ? { "content-type": "application/json" }
+          ? {
+              "content-type":
+                args.bodyEncoding === "form"
+                  ? "application/x-www-form-urlencoded"
+                  : "application/json",
+            }
           : {}),
         ...extraHeaders,
       },
-      body: args.body !== undefined ? JSON.stringify(args.body) : undefined,
+      body,
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -158,9 +182,20 @@ const mockHandler: ProviderExecuteHandler = async (ctx) => {
   }
 };
 
+const socialHandler: ProviderExecuteHandler = async (ctx) => {
+  const request = buildSocialProviderRequest(ctx.manifest.key, ctx.action, ctx.input);
+  if (!request) throw new ConnectorError("action_not_found");
+  return providerFetchJson({ ctx, ...request });
+};
+
 const PROVIDER_HANDLERS: Readonly<Record<string, ProviderExecuteHandler>> = {
   [MOCK_PROVIDER_KEY]: mockHandler,
   microsoft: createMicrosoftHandler(providerFetchJson),
+  twitter: socialHandler,
+  youtube: socialHandler,
+  reddit: socialHandler,
+  meta: socialHandler,
+  linkedin: socialHandler,
 };
 
 /**
@@ -177,6 +212,7 @@ const PROVIDER_ACTION_OPERATIONS: Readonly<
     MOCK_CREATE_ITEM: "write",
   },
   microsoft: MICROSOFT_ACTION_OPERATIONS,
+  ...SOCIAL_ACTION_OPERATIONS,
 };
 
 export const firstPartyActionOperation = (

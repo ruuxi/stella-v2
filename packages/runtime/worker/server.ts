@@ -87,12 +87,7 @@ import {
   type RuntimeOneShotCompletionResult,
   type RuntimeVoiceToolCallPayload,
   type RuntimeLocalAgentRequest,
-  type HostRuntimeAuthRefreshParams,
-  type HostRuntimeAuthRefreshResult,
-  type RuntimeAuthImportParams,
-  type RuntimeAuthTokenParams,
 } from "@stella/contracts/protocol";
-import { createAuthOwner, type AuthOwner } from "../kernel/auth/auth-owner.js";
 import {
   AGENT_IDS,
   AGENT_RUN_FINISH_OUTCOMES,
@@ -287,13 +282,6 @@ type WorkerState = {
    * See `cli-bridge-server.ts`.
    */
   cliBridgeServer: CliBridgeServer | null;
-  /**
-   * Worker-side Better Auth session owner (auth inversion). Owns the
-   * session in the DEK-envelope store, runs the single JWT refresh
-   * scheduler, executes every /api/auth/* request, and answers the
-   * kernel's 401 recovery locally. Null only before initialization.
-   */
-  authOwner: AuthOwner | null;
 };
 
 // Resolve a runtime CLI bundled into desktop/dist-electron/runtime/kernel/cli/.
@@ -524,8 +512,6 @@ const stopWorkerServices = async (state: WorkerState) => {
   state.runEventLog = null;
   await state.cliBridgeServer?.stop().catch(() => undefined);
   state.cliBridgeServer = null;
-  state.authOwner?.stop();
-  state.authOwner = null;
   setConnectorTokenStoreBroker(null);
   setLocalLlmCredentialAccessBroker(null);
   state.db?.close();
@@ -566,55 +552,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     deviceId: null,
     runEventLog: null,
     cliBridgeServer: null,
-    authOwner: null,
-  };
-
-  // -----------------------------------------------------------------------
-  // Runtime auth (auth-inversion P1): local-first token refresh.
-  // -----------------------------------------------------------------------
-
-  /** Fan a refreshed auth state out to every in-worker consumer. */
-  const applyRuntimeAuthResult = (result: HostRuntimeAuthRefreshResult) => {
-    if (!state.init) return;
-    state.init = {
-      ...state.init,
-      authToken: result.authenticated ? result.token : null,
-      hasConnectedAccount: result.hasConnectedAccount,
-    };
-    state.runner?.setAuthToken(state.init.authToken);
-    state.runner?.setHasConnectedAccount(state.init.hasConnectedAccount);
-    state.socialSessionService?.setAuthToken(state.init.authToken);
-  };
-
-  /**
-   * 401 recovery: mint locally from the AuthOwner's session store when it has
-   * one (no IPC hops). This is a FORCED recovery — the current JWT was
-   * rejected — so when the owner has a session we return its result directly
-   * and NEVER fall through to the legacy host token: that token is distributed
-   * from the same source and is very likely the exact JWT the server just
-   * rejected (and a rejected JWT can still be temporally fresh), which would
-   * spin a 401 loop. The legacy host round-trip is reserved for boots with no
-   * runtime session (pre-`auth.import` / disabled-owner / headless).
-   */
-  const refreshRuntimeAuth = async (
-    payload: HostRuntimeAuthRefreshParams,
-  ): Promise<HostRuntimeAuthRefreshResult> => {
-    const owner = state.authOwner;
-    if (owner?.hasSession()) {
-      const local = await owner.getConvexToken({ forceRefresh: true });
-      // Commit whatever the owner produced (a fresh token, or null when the
-      // cookie was revoked / the network is down). Do NOT fall back to the
-      // host's possibly-rejected token.
-      applyRuntimeAuthResult(local);
-      return local;
-    }
-    const result = (await peer.request(
-      METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH,
-      payload,
-      { retryOnDisconnect: true },
-    )) as HostRuntimeAuthRefreshResult;
-    applyRuntimeAuthResult(result);
-    return result;
   };
 
   // Lazy loaders for the runner subgraph. runner.ts, one-shot-completion.ts and
@@ -909,25 +846,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     state.runtimeStore = runtimeStore;
     state.socialSessionStore = socialSessionStore;
     state.runEventLog = runEventLog;
-    // Worker-side session owner (auth inversion): the single writer for the
-    // Better Auth session and the single Convex-JWT refresh scheduler.
-    state.authOwner = createAuthOwner({
-      stellaDataDir: init.stellaDataDirPath,
-      getBaseUrl: () => state.init?.convexSiteUrl?.trim() || null,
-      onAuthChanged: (event) => {
-        peer.notify(NOTIFICATION_NAMES.AUTH_CHANGED, event);
-        // Push freshly minted tokens into the kernel proactively so the
-        // scheduled exp-90s refresh reaches subscriptions before a 401.
-        if (event.authenticated) {
-          void state.authOwner
-            ?.getConvexToken()
-            .then((result) => {
-              if (result.token) applyRuntimeAuthResult(result);
-            })
-            .catch(() => undefined);
-        }
-      },
-    });
     await refreshLocalLlmCredentialAccess();
     const bridgePaths = resolveRuntimePaths(init.stellaAppDir);
     const brokerAvailability = connectorActionBrokerAvailability(
@@ -968,9 +886,24 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         return;
       }
       const refreshSiteAuth = async () => {
-        // Local-first (worker AuthOwner) with legacy desktop fallback;
-        // refreshRuntimeAuth also updates state.init and the runner.
-        const result = await refreshRuntimeAuth({ source: "connector" });
+        const result = (await peer.request(
+          METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH,
+          { source: "connector" },
+          { retryOnDisconnect: true },
+        )) as {
+          authenticated: boolean;
+          token: string | null;
+          hasConnectedAccount: boolean;
+        };
+        if (state.init) {
+          state.init = {
+            ...state.init,
+            authToken: result.authenticated ? result.token : null,
+            hasConnectedAccount: result.hasConnectedAccount,
+          };
+          state.runner?.setAuthToken(state.init.authToken);
+          state.runner?.setHasConnectedAccount(state.init.hasConnectedAccount);
+        }
         const baseUrl = state.init?.convexSiteUrl?.trim();
         const authToken = result.authenticated ? result.token?.trim() : null;
         return baseUrl && authToken ? { baseUrl, authToken } : null;
@@ -1148,7 +1081,9 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           signal,
         ),
       requestRuntimeAuthRefresh: async (payload) =>
-        await refreshRuntimeAuth(payload),
+        await peer.request(METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH, payload, {
+          retryOnDisconnect: true,
+        }),
       scheduleApi: {
         listCronJobs: async () =>
           await peer.request(
@@ -3022,122 +2957,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     },
   );
 
-  // Auth-inversion P1: AuthOwner RPCs. `auth.import` is the desktop's
-  // migration/dual-write handoff; the getters let the host (and, from P2 on,
-  // the desktop proxies) pull sessions/tokens from the runtime.
-  peer.registerRequestHandler(METHOD_NAMES.AUTH_IMPORT, async (params) => {
-    const owner = state.authOwner;
-    if (!owner) {
-      throw new Error("Runtime auth owner is disabled.");
-    }
-    const payload = params as RuntimeAuthImportParams | undefined;
-    return await owner.importSession({
-      cookie: typeof payload?.cookie === "string" ? payload.cookie : null,
-      sessionData:
-        typeof payload?.sessionData === "string" ? payload.sessionData : null,
-      onlyIfEmpty: payload?.onlyIfEmpty === true,
-    });
-  });
-
-  peer.registerRequestHandler(METHOD_NAMES.AUTH_GET_SESSION, async () => {
-    return await ensureAuthOwner().getSession();
-  });
-
-  const ensureAuthOwner = () => {
-    const owner = state.authOwner;
-    if (!owner) {
-      throw new Error("Runtime auth owner is disabled.");
-    }
-    return owner;
-  };
-
-  // P3: sign-in mutations — the AuthOwner is the single /api/auth/* writer.
-  peer.registerRequestHandler(METHOD_NAMES.AUTH_SIGN_IN_ANONYMOUS, async () => {
-    return await ensureAuthOwner().signInAnonymous();
-  });
-
-  peer.registerRequestHandler(METHOD_NAMES.AUTH_SIGN_OUT, async () => {
-    return await ensureAuthOwner().signOut();
-  });
-
-  peer.registerRequestHandler(METHOD_NAMES.AUTH_DELETE_USER, async () => {
-    return await ensureAuthOwner().deleteUser();
-  });
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.AUTH_APPLY_SESSION_COOKIE,
-    async (params) => {
-      const sessionCookie = (params as { sessionCookie?: unknown } | undefined)
-        ?.sessionCookie;
-      if (typeof sessionCookie !== "string" || !sessionCookie.trim()) {
-        throw new Error("Missing session cookie.");
-      }
-      return await ensureAuthOwner().applySessionCookie(sessionCookie);
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.AUTH_HANDLE_CALLBACK,
-    async (params) => {
-      const payload = params as
-        | { url?: unknown; protocol?: unknown }
-        | undefined;
-      if (
-        typeof payload?.url !== "string" ||
-        typeof payload?.protocol !== "string"
-      ) {
-        throw new Error("Invalid auth callback payload.");
-      }
-      return await ensureAuthOwner().handleAuthCallback({
-        url: payload.url,
-        protocol: payload.protocol,
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.AUTH_MAGIC_LINK_SEND,
-    async (params) => {
-      const email = (params as { email?: unknown } | undefined)?.email;
-      if (typeof email !== "string" || !email.trim()) {
-        throw new Error("Missing email.");
-      }
-      return await ensureAuthOwner().magicLinkSend({ email: email.trim() });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.AUTH_MAGIC_LINK_STATUS,
-    async (params) => {
-      const requestId = (params as { requestId?: unknown } | undefined)
-        ?.requestId;
-      if (typeof requestId !== "string" || !requestId.trim()) {
-        throw new Error("Missing requestId.");
-      }
-      return await ensureAuthOwner().magicLinkStatus({
-        requestId: requestId.trim(),
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.AUTH_GET_CONVEX_TOKEN,
-    async (params): Promise<HostRuntimeAuthRefreshResult> => {
-      // Throws when the owner is disabled so desktop callers latch legacy
-      // mode instead of misreading "no token" as "no session".
-      const owner = ensureAuthOwner();
-      const result = await owner.getConvexToken({
-        forceRefresh: Boolean(
-          (params as RuntimeAuthTokenParams | undefined)?.forceRefresh,
-        ),
-      });
-      if (result.token) {
-        applyRuntimeAuthResult(result);
-      }
-      return result;
-    },
-  );
-
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_GOOGLE_WORKSPACE_AUTH_STATUS,
     async () => {
@@ -3179,7 +2998,15 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           hasConnectedAccount: () => state.init?.hasConnectedAccount ?? false,
           requestRuntimeAuthRefresh: async () => {
             try {
-              return await refreshRuntimeAuth({ source: "stella_provider" });
+              return (await peer.request(
+                METHOD_NAMES.HOST_RUNTIME_AUTH_REFRESH,
+                { source: "stella_provider" },
+                { retryOnDisconnect: true },
+              )) as {
+                authenticated: boolean;
+                token: string | null;
+                hasConnectedAccount: boolean;
+              };
             } catch {
               return null;
             }

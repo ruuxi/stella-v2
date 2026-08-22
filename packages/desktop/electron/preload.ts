@@ -63,15 +63,15 @@ import type {
 import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import {
   IPC_APP_QUIT_FOR_RESTART,
+  IPC_AUTH_APPLY_SESSION_COOKIE,
   IPC_AUTH_CONSUME_PENDING_CALLBACK,
   IPC_SOCIAL_INVITE,
   IPC_SOCIAL_CONSUME_PENDING_INVITE,
   IPC_AUTH_DELETE_USER,
   IPC_AUTH_GET_CONVEX_TOKEN,
-  IPC_AUTH_CHANGED,
   IPC_AUTH_GET_SESSION,
-  IPC_AUTH_MAGIC_LINK_SEND,
-  IPC_AUTH_MAGIC_LINK_STATUS,
+  IPC_AUTH_RUNTIME_REFRESH_COMPLETE,
+  IPC_AUTH_RUNTIME_REFRESH_REQUESTED,
   IPC_AUTH_SIGN_IN_ANONYMOUS,
   IPC_AUTH_SIGN_OUT,
   IPC_AUTH_VERIFY_CALLBACK_URL,
@@ -988,6 +988,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       convexUrl?: string;
       convexSiteUrl?: string;
     }) => ipcRenderer.invoke("host:configurePiRuntime", config),
+    setAuthState: (payload: {
+      authenticated: boolean;
+      token?: string;
+      hasConnectedAccount?: boolean;
+    }) => ipcRenderer.invoke("auth:setState", payload),
     getAuthSession: () => ipcRenderer.invoke(IPC_AUTH_GET_SESSION),
     signInAnonymous: () => ipcRenderer.invoke(IPC_AUTH_SIGN_IN_ANONYMOUS),
     signOutAuth: () =>
@@ -998,22 +1003,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_AUTH_VERIFY_CALLBACK_URL, { url }) as Promise<{
         ok: boolean;
       }>,
-    sendMagicLink: (email: string) =>
-      ipcRenderer.invoke(IPC_AUTH_MAGIC_LINK_SEND, { email }) as Promise<
-        | { ok: true; requestId: string }
-        | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
-        | { ok: false; code: "send_failed"; error?: string }
-      >,
-    getMagicLinkStatus: (requestId: string) =>
-      ipcRenderer.invoke(IPC_AUTH_MAGIC_LINK_STATUS, { requestId }) as Promise<{
-        status: "pending" | "completed" | "expired";
-        applied: boolean;
-      }>,
-    getConvexAuthToken: (options?: { forceRefresh?: boolean }) =>
-      ipcRenderer.invoke(
-        IPC_AUTH_GET_CONVEX_TOKEN,
-        options,
-      ) as Promise<string | null>,
+    applyAuthSessionCookie: (sessionCookie: string) =>
+      ipcRenderer.invoke(IPC_AUTH_APPLY_SESSION_COOKIE, {
+        sessionCookie,
+      }) as Promise<{ ok: boolean }>,
+    getConvexAuthToken: () =>
+      ipcRenderer.invoke(IPC_AUTH_GET_CONVEX_TOKEN) as Promise<string | null>,
+    completeRuntimeAuthRefresh: (payload: {
+      requestId: string;
+      authenticated: boolean;
+      token?: string;
+      hasConnectedAccount?: boolean;
+    }) => ipcRenderer.invoke(IPC_AUTH_RUNTIME_REFRESH_COMPLETE, payload),
     setCloudSyncEnabled: (payload: { enabled: boolean }) =>
       ipcRenderer.invoke("host:setCloudSyncEnabled", payload),
     setModelCatalogUpdatedAt: (payload: { updatedAt: number | null }) =>
@@ -1028,13 +1029,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_SOCIAL_CONSUME_PENDING_INVITE) as Promise<
         string | null
       >,
-    // Runtime AuthOwner state changed — renderers clear their token
-    // cache and re-pull instead of scheduling refreshes themselves.
-    onAuthChanged: onIpc<{
-      authenticated: boolean;
-      hasConnectedAccount: boolean;
-      reason: "import" | "refresh" | "signed-out";
-    }>(IPC_AUTH_CHANGED),
+    onRuntimeAuthRefreshRequested: onIpc<{
+      requestId: string;
+      source: "heartbeat" | "subscription" | "register";
+    }>(IPC_AUTH_RUNTIME_REFRESH_REQUESTED),
     quitForRestart: () =>
       ipcRenderer.invoke(IPC_APP_QUIT_FOR_RESTART) as Promise<{ ok: boolean }>,
     openFullDiskAccess: () => ipcRenderer.send(IPC_SYSTEM_OPEN_FDA),

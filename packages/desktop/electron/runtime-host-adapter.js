@@ -425,57 +425,6 @@ export class RuntimeHostAdapter {
     setAuthToken(value) {
         this.queueRuntimeConfigPatch({ authToken: value });
     }
-    /**
-     * Auth-inversion P1: mirror the desktop-owned Better Auth session into
-     * the runtime worker's AuthOwner store (migration import + dual-write).
-     * Rejects when the connected worker lacks the RPC (version skew);
-     * callers treat that as legacy mode.
-     */
-    async importAuthSession(payload) {
-        return await this.host.authImport(payload);
-    }
-    /** P2: pull a Convex JWT from the runtime AuthOwner (main-process proxy). */
-    async getRuntimeConvexToken(payload = {}) {
-        return await this.host.authGetConvexToken(payload);
-    }
-    /** P2: pull the Better Auth session from the runtime AuthOwner. */
-    async getRuntimeAuthSession() {
-        return await this.host.authGetSession();
-    }
-    /**
-     * Monotonic worker-generation counter from the host. Lets the desktop auth
-     * service detect a stale-worker replacement and re-evaluate ownership mode
-     * instead of latching a legacy decision until the next app restart.
-     */
-    getWorkerGeneration() {
-        return this.host.workerGeneration;
-    }
-    /** P2: runtime AuthOwner state-change events (token minted, sign-out). */
-    onAuthChanged(listener) {
-        return this.host.on("auth-changed", listener);
-    }
-    // P3: sign-in mutations proxied to the worker AuthOwner (single writer).
-    async authSignInAnonymous() {
-        return await this.host.authSignInAnonymous();
-    }
-    async authSignOut() {
-        return await this.host.authSignOut();
-    }
-    async authDeleteUser() {
-        return await this.host.authDeleteUser();
-    }
-    async authApplySessionCookie(payload) {
-        return await this.host.authApplySessionCookie(payload);
-    }
-    async authHandleCallback(payload) {
-        return await this.host.authHandleCallback(payload);
-    }
-    async authMagicLinkSend(payload) {
-        return await this.host.authMagicLinkSend(payload);
-    }
-    async authMagicLinkStatus(payload) {
-        return await this.host.authMagicLinkStatus(payload);
-    }
     setHasConnectedAccount(value) {
         this.queueRuntimeConfigPatch({ hasConnectedAccount: value });
     }

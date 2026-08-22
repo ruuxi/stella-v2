@@ -637,15 +637,21 @@ export function generateShimScript(
       startPhoneAccessSession: function() { return invoke('phoneAccess:startSession'); },
       stopPhoneAccessSession: function() { return invoke('phoneAccess:stopSession'); },
       configurePiRuntime: function(c) { return invoke('host:configurePiRuntime', c); },
+      setAuthState: function(payload) {
+        return invoke('auth:setState', payload);
+      },
       getAuthSession: function() { return invoke('auth:getSession'); },
       signInAnonymous: function() { return invoke('auth:signInAnonymous'); },
       signOutAuth: function() { return invoke('auth:signOut'); },
       getConvexAuthToken: function() { return invoke('auth:getConvexToken'); },
-      sendMagicLink: function(email) { return invoke('auth:magicLinkSend', { email: email }); },
-      getMagicLinkStatus: function(requestId) { return invoke('auth:magicLinkStatus', { requestId: requestId }); },
+      completeRuntimeAuthRefresh: function(payload) {
+        return invoke('auth:runtimeRefreshComplete', payload);
+      },
+      onRuntimeAuthRefreshRequested: function(cb) {
+        return subscribe('auth:runtimeRefreshRequested', cb);
+      },
       setCloudSyncEnabled: function() { return resolved(); },
       onAuthCallback: noopSub,
-      onAuthChanged: noopSub,
       openFullDiskAccess: noop,
       getPermissionStatus: function() { return invokeCapability('system.getPermissionStatus', 'permissions:getStatus'); },
       openPermissionSettings: function(kind) { return invokeCapability('system.openPermissionSettings', 'permissions:openSettings', { kind: kind }); },

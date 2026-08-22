@@ -62,13 +62,6 @@ type LocalSchedulerServiceOptions = {
   stellaDataDir: string
   runnerTarget: StellaHostRunnerTarget
   showNotification?: LocalSchedulerNotifier
-  /**
-   * Auth-inversion P4: fetch fresh site-auth env (STELLA_SITE_BASE_URL +
-   * STELLA_SITE_AUTH_TOKEN) at fire time so `kind: 'script'` cron jobs run
-   * with the user's identity. Best-effort — a null result runs the script
-   * without auth env, matching the pre-P4 behavior.
-   */
-  getScriptAuthEnv?: () => Promise<Record<string, string> | null>
 }
 
 type LocalSchedulerRunner = ReturnType<StellaHostRunnerTarget['getRunner']>
@@ -1244,17 +1237,9 @@ export class LocalSchedulerService {
   ): Promise<'done'> {
     if (active.payload.kind !== 'script') return 'done'
     const scriptPath = active.payload.scriptPath
-    // Fresh JWT at fire time (30-min token vs 30-s script cap: no mid-run
-    // expiry). Failure to mint degrades to an env-less run, never a skip.
-    const authEnv = this.options.getScriptAuthEnv
-      ? await this.options.getScriptAuthEnv().catch(() => null)
-      : null
     let runResult
     try {
-      runResult = await runScheduleScript(
-        scriptPath,
-        authEnv ? { env: authEnv } : undefined,
-      )
+      runResult = await runScheduleScript(scriptPath)
     } catch (error) {
       runResult = {
         exitCode: -1,

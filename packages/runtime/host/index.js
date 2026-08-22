@@ -1431,62 +1431,6 @@ export class StellaRuntimeHost {
             recordActivity: true,
         });
     }
-    /**
-     * Auth-inversion P1: desktop -> worker session migration/dual-write.
-     * Throws when the connected worker predates the AuthOwner RPCs
-     * (detached-worker version skew); callers treat that as legacy mode.
-     */
-    async authImport(payload) {
-        return await this.requestWorker(METHOD_NAMES.AUTH_IMPORT, payload, {
-            ensureWorker: true,
-        });
-    }
-    async authGetSession() {
-        return await this.requestWorker(METHOD_NAMES.AUTH_GET_SESSION, undefined, {
-            ensureWorker: true,
-        });
-    }
-    async authGetConvexToken(payload = {}) {
-        return await this.requestWorker(METHOD_NAMES.AUTH_GET_CONVEX_TOKEN, payload, {
-            ensureWorker: true,
-        });
-    }
-    // P3: sign-in mutations execute inside the worker's AuthOwner.
-    async authSignInAnonymous() {
-        return await this.requestWorker(METHOD_NAMES.AUTH_SIGN_IN_ANONYMOUS, undefined, {
-            ensureWorker: true,
-        });
-    }
-    async authSignOut() {
-        return await this.requestWorker(METHOD_NAMES.AUTH_SIGN_OUT, undefined, {
-            ensureWorker: true,
-        });
-    }
-    async authDeleteUser() {
-        return await this.requestWorker(METHOD_NAMES.AUTH_DELETE_USER, undefined, {
-            ensureWorker: true,
-        });
-    }
-    async authApplySessionCookie(payload) {
-        return await this.requestWorker(METHOD_NAMES.AUTH_APPLY_SESSION_COOKIE, payload, {
-            ensureWorker: true,
-        });
-    }
-    async authHandleCallback(payload) {
-        return await this.requestWorker(METHOD_NAMES.AUTH_HANDLE_CALLBACK, payload, {
-            ensureWorker: true,
-        });
-    }
-    async authMagicLinkSend(payload) {
-        return await this.requestWorker(METHOD_NAMES.AUTH_MAGIC_LINK_SEND, payload, {
-            ensureWorker: true,
-        });
-    }
-    async authMagicLinkStatus(payload) {
-        return await this.requestWorker(METHOD_NAMES.AUTH_MAGIC_LINK_STATUS, payload, {
-            ensureWorker: true,
-        });
-    }
     async webSearch(query, options) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_WEB_SEARCH, { query, ...options }, {
             ensureWorker: true,
@@ -1685,33 +1629,6 @@ export class StellaRuntimeHost {
         const showNotificationHandler = this.options.hostHandlers.showNotification;
         const scheduler = new LocalSchedulerService({
             stellaDataDir: this.options.initializeParams.stellaDataDirPath,
-            // Auth-inversion P4: scheduled scripts get the user's identity at
-            // fire time. Pull a fresh JWT from the worker AuthOwner, falling
-            // back to the host's configured token (legacy mode / worker
-            // restart windows). Null (signed out / unconfigured) runs the
-            // script without auth env.
-            getScriptAuthEnv: async () => {
-                const baseUrl = this.configCache.convexSiteUrl?.trim() || null;
-                if (!baseUrl) {
-                    return null;
-                }
-                let token = null;
-                try {
-                    const result = await this.authGetConvexToken({});
-                    token = result?.token?.trim() || null;
-                }
-                catch {
-                    token = null;
-                }
-                token ||= this.getConfiguredHostAuthToken();
-                if (!token) {
-                    return null;
-                }
-                return {
-                    STELLA_SITE_BASE_URL: baseUrl,
-                    STELLA_SITE_AUTH_TOKEN: token,
-                };
-            },
             runnerTarget: {
                 getRunner: () => ({
                     runAutomationTurn: async (payload) => await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, payload, {
@@ -2016,11 +1933,6 @@ export class StellaRuntimeHost {
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.PROJECTS_UPDATED, () => {
             this.events.emit("projects-updated", undefined);
-        });
-        peer.registerNotificationHandler(NOTIFICATION_NAMES.AUTH_CHANGED, (params) => {
-            // Auth-inversion P1: worker AuthOwner state changes fan out to
-            // host clients (Electron main re-broadcasts to renderers in P2).
-            this.events.emit("auth-changed", params);
         });
     }
     startDevWatcher(workerEntryPath) {

@@ -52,17 +52,7 @@ const truncateOutput = (value: string): string => {
  */
 export const runScheduleScript = (
   scriptPath: string,
-  options?: {
-    signal?: AbortSignal
-    /**
-     * Extra env injected at fire time (auth-inversion P4): the scheduler
-     * asks the runtime AuthOwner for a fresh Convex JWT and passes
-     * `STELLA_SITE_BASE_URL` + `STELLA_SITE_AUTH_TOKEN` so scripts can call
-     * Stella-managed APIs with the user's identity. The 30-minute JWT
-     * comfortably outlives the 30s script timeout, so no mid-run expiry.
-     */
-    env?: Record<string, string>
-  },
+  options?: { signal?: AbortSignal },
 ): Promise<ScriptRunResult> =>
   new Promise((resolve) => {
     const startedAt = Date.now()
@@ -71,7 +61,6 @@ export const runScheduleScript = (
       cwd: path.dirname(scriptPath),
       env: {
         ...process.env,
-        ...(options?.env ?? {}),
         STELLA_SCHEDULE_SCRIPT_PATH: scriptPath,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

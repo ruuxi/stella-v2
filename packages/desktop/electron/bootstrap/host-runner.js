@@ -10,7 +10,7 @@ import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-ho
 import { createStellaHostRunner, } from "../stella-host-runner.js";
 import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastUserAppsUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
-import { IPC_AUTH_CHANGED } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_AUTH_RUNTIME_REFRESH_REQUESTED } from "@stella/contracts/desktop/ipc-channels";
 import { showStellaNotification } from "../services/notification-service.js";
 import { getActiveBrowserTabForBundleId } from "../active-browser-tab.js";
 import { listRecentApps } from "../recent-apps.js";
@@ -148,9 +148,9 @@ export const createHostRunnerHandlers = (context, options) => ({
             signature: signDeviceHeartbeat(identity, signedAtMs),
         };
     },
-    // P2: legacy worker fallback answered directly from main (the renderer
-    // no longer runs a token scheduler to bounce refresh requests through).
-    requestRuntimeAuthRefresh: async ({ source }) => await context.services.authService.answerRuntimeAuthRefresh(source),
+    requestRuntimeAuthRefresh: async ({ source }) => await context.services.authService.requestRuntimeAuthRefresh(source, (payload) => {
+        broadcastToWindows(context, IPC_AUTH_RUNTIME_REFRESH_REQUESTED, payload);
+    }),
     getAppBrowserContext: async () => {
         const apps = (await listRecentApps(3)) ?? [];
         const activeApp = apps.find((app) => app.isActive && app.bundleId);
@@ -258,8 +258,6 @@ const clearHostRunnerSubscriptions = (context) => {
     state.scheduleUpdateUnsubscribe = null;
     state.userAppsUpdateUnsubscribe?.();
     state.userAppsUpdateUnsubscribe = null;
-    state.authChangedUnsubscribe?.();
-    state.authChangedUnsubscribe = null;
 };
 const connectHostRunner = async (context) => {
     const { lifecycle, services, state } = context;
@@ -286,11 +284,6 @@ const connectHostRunner = async (context) => {
     state.userAppsUpdateUnsubscribe = runner.onProjectsUpdated(() => {
         broadcastUserAppsUpdated(context);
     });
-    // P2: fan runtime AuthOwner state changes out to the renderers so they
-    // re-pull tokens/sessions instead of running their own refresh timers.
-    state.authChangedUnsubscribe = runner.onAuthChanged?.((payload) => {
-        broadcastToWindows(context, IPC_AUTH_CHANGED, payload);
-    }) ?? null;
     const logger = getMainLogger();
     const connectBeganAt = Math.round(process.uptime() * 1000);
     logger?.process("startup.host-runner.connect", { elapsedMs: connectBeganAt });
@@ -309,13 +302,6 @@ const connectHostRunner = async (context) => {
     // runs from the deferred-startup sequence). The worker self-warms its model
     // catalog on init, so the first chat stays fast without a blocking warm.
     await runner.ensureWorkerStarted();
-    // Auth-inversion P1: hand the desktop-owned Better Auth session to the
-    // worker's AuthOwner (one-time migration; idempotent re-import on every
-    // attach keeps the stores converged during the dual-write phase). An
-    // older detached worker without the RPC leaves us in legacy mode.
-    void services.authService
-        .syncRuntimeAuthStore()
-        .catch(() => undefined);
     const workerStartedAt = Math.round(process.uptime() * 1000);
     logger?.process("startup.host-runner.worker-spawned", {
         elapsedMs: workerStartedAt,

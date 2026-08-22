@@ -104,6 +104,24 @@ export const AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP = [
     auth: "api_key",
   },
   {
+    connectorId: "snowflake",
+    toolkitId: "SNOWFLAKE",
+    ownerFamily: "developer_data",
+    auth: "oauth",
+  },
+  {
+    connectorId: "abstract",
+    toolkitId: "ABSTRACT",
+    ownerFamily: "developer_data",
+    auth: "api_key",
+  },
+  {
+    connectorId: "44api",
+    toolkitId: "44API",
+    ownerFamily: "developer_data",
+    auth: "api_key",
+  },
+  {
     connectorId: "21risk",
     toolkitId: "_21RISK",
     ownerFamily: "crm_recruiting_sales",

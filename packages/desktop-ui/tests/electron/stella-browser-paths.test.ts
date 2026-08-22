@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   activateStagedStellaBrowserBinary,
   resolveStellaBrowserBinaryPath,
+  resolveStellaBrowserRoot,
 } from "@stella/desktop/electron/utils/stella-browser-paths.js";
 
 const roots: string[] = [];
@@ -26,6 +27,32 @@ const binaryName = () => {
 };
 
 describe("activateStagedStellaBrowserBinary", () => {
+  it("honors an explicit hydrated browser root for isolated dev worktrees", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "stella-browser-root-"));
+    roots.push(root);
+    const platformKey =
+      process.platform === "win32"
+        ? "win-x64"
+        : `${process.platform}-${process.arch}`;
+    const hydratedPath = path.join(
+      root,
+      "out",
+      platformKey,
+      process.platform === "win32" ? "stella-browser.exe" : "stella-browser",
+    );
+    await mkdir(path.dirname(hydratedPath), { recursive: true });
+    await writeFile(hydratedPath, "hydrated");
+
+    const previous = process.env.STELLA_BROWSER_ROOT;
+    process.env.STELLA_BROWSER_ROOT = root;
+    try {
+      expect(resolveStellaBrowserRoot()).toBe(root);
+    } finally {
+      if (previous === undefined) delete process.env.STELLA_BROWSER_ROOT;
+      else process.env.STELLA_BROWSER_ROOT = previous;
+    }
+  });
+
   it("atomically promotes the staged updater artifact and removes its backup", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "stella-browser-root-"));
     roots.push(root);

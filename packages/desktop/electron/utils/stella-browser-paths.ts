@@ -29,22 +29,26 @@ const workspaceStellaBrowserRoot = path.resolve(
 );
 
 export const resolveStellaBrowserRoot = (): string => {
-  if (existsSync(workspaceStellaBrowserRoot)) {
-    return workspaceStellaBrowserRoot;
-  }
+  const configuredRoot = process.env.STELLA_BROWSER_ROOT?.trim();
+  const packagedRoot = process.resourcesPath
+    ? path.join(process.resourcesPath, "stella-browser")
+    : null;
+  const candidates = [
+    configuredRoot || null,
+    workspaceStellaBrowserRoot,
+    packagedRoot,
+  ];
 
-  // Production: electron-builder copies stella-browser next to the asar at
-  // Contents/Resources/stella-browser. `process.resourcesPath` is only defined
-  // inside the Electron main process, which is where this helper runs.
-  const resourcesPath = process.resourcesPath;
-  if (resourcesPath) {
-    const packaged = path.join(resourcesPath, "stella-browser");
-    if (existsSync(packaged)) {
-      return packaged;
+  for (const candidate of candidates) {
+    if (candidate && resolveStellaBrowserBinaryPath(candidate)) {
+      return candidate;
     }
   }
 
-  return workspaceStellaBrowserRoot;
+  return (
+    candidates.find((candidate) => candidate && existsSync(candidate)) ??
+    workspaceStellaBrowserRoot
+  );
 };
 
 export const currentStellaBrowserPlatformKey = (): string | null => {

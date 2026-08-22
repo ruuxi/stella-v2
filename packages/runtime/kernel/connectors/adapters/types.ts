@@ -3,17 +3,13 @@
  * connector set (HubSpot, Gong, Ashby, Pipedrive, Salesforce, Apollo, Attio,
  * People Data Labs, 21RISK).
  *
- * This is deliberately NOT a shared execution core. Each adapter is a thin,
- * data-only description of a provider's official API surface: which
- * representative actions Stella exposes, how each maps to a single REST
- * request, and which auth/scopes it needs. The catalog + native execution
- * path in `connect-service` consumes these descriptions to run exactly one
- * request per call (`callApiConnector`) — never a second dispatcher, and never
- * both a native call and the Composio fallback for the same action.
+ * This is deliberately NOT an execution core. Each adapter is inert metadata
+ * describing a provider's official API surface. Production execution belongs
+ * to the backend connector dispatcher; `connect-service` must not execute
+ * these request builders or race them with Composio.
  *
- * When a provider is NOT activated for native execution (see the empty
- * `PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS` allowlist), these adapters are
- * inert metadata and the Composio broker remains the sole executor.
+ * The local production-ready allowlist remains empty, so the Composio broker
+ * stays the sole executor until backend rollout and live verification complete.
  */
 
 export type ConnectorAdapterAuth = "oauth" | "api_key";
@@ -22,11 +18,7 @@ export type ConnectorAdapterAuth = "oauth" | "api_key";
 export type ConnectorAdapterActionKind = "read" | "write";
 
 export type ConnectorAdapterHttpMethod =
-  | "GET"
-  | "POST"
-  | "PUT"
-  | "PATCH"
-  | "DELETE";
+  "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 /**
  * A single outbound HTTP request against the provider's official API. `path`

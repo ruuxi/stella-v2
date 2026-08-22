@@ -25,7 +25,7 @@ export const PIPEDRIVE_ADAPTER: ConnectorAdapter = {
   docsUrl: "https://developers.pipedrive.com/docs/api/v1",
   actions: [
     {
-      name: "PIPEDRIVE_LIST_DEALS",
+      name: "PIPEDRIVE_GET_ALL_DEALS",
       title: "List Deals",
       description: "List deals with optional status filter and paging.",
       kind: "read",
@@ -43,9 +43,7 @@ export const PIPEDRIVE_ADAPTER: ConnectorAdapter = {
         method: "GET",
         path: "/deals",
         query: {
-          ...(typeof input.status === "string"
-            ? { status: input.status }
-            : {}),
+          ...(typeof input.status === "string" ? { status: input.status } : {}),
           ...(typeof input.start === "number" ? { start: input.start } : {}),
           ...(typeof input.limit === "number" ? { limit: input.limit } : {}),
         },
@@ -72,9 +70,7 @@ export const PIPEDRIVE_ADAPTER: ConnectorAdapter = {
         path: "/persons/search",
         query: {
           term: requireString(input, "term", "PIPEDRIVE_SEARCH_PERSONS"),
-          ...(typeof input.fields === "string"
-            ? { fields: input.fields }
-            : {}),
+          ...(typeof input.fields === "string" ? { fields: input.fields } : {}),
           ...(typeof input.limit === "number" ? { limit: input.limit } : {}),
         },
       }),
@@ -106,7 +102,7 @@ export const PIPEDRIVE_ADAPTER: ConnectorAdapter = {
       }),
     },
     {
-      name: "PIPEDRIVE_CREATE_DEAL",
+      name: "PIPEDRIVE_ADD_A_DEAL",
       title: "Create Deal",
       description: "Create a deal with a title and optional value/person.",
       kind: "write",
@@ -128,12 +124,12 @@ export const PIPEDRIVE_ADAPTER: ConnectorAdapter = {
         path: "/deals",
         body: {
           ...input,
-          title: requireString(input, "title", "PIPEDRIVE_CREATE_DEAL"),
+          title: requireString(input, "title", "PIPEDRIVE_ADD_A_DEAL"),
         },
       }),
     },
     {
-      name: "PIPEDRIVE_UPDATE_DEAL",
+      name: "PIPEDRIVE_DEALS_UPDATE_DEAL",
       title: "Update Deal",
       description: "Update fields on an existing deal by id.",
       kind: "write",
@@ -150,11 +146,15 @@ export const PIPEDRIVE_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => {
         const id = input.id;
         if (typeof id !== "number" && typeof id !== "string") {
-          throw new Error("PIPEDRIVE_UPDATE_DEAL requires a numeric `id`.");
+          throw new Error(
+            "PIPEDRIVE_DEALS_UPDATE_DEAL requires a numeric `id`.",
+          );
         }
         const fields = optionalRecord(input, "fields");
         if (!fields) {
-          throw new Error("PIPEDRIVE_UPDATE_DEAL requires a `fields` object.");
+          throw new Error(
+            "PIPEDRIVE_DEALS_UPDATE_DEAL requires a `fields` object.",
+          );
         }
         return {
           method: "PUT",

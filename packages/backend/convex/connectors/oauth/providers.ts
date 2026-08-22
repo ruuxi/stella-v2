@@ -43,8 +43,10 @@ export type ProviderManifest = {
   issuer?: string;
   requiresPkce: boolean;
   usesOfflineAccess: boolean;
-  /** Provider-specific authorization parameters (never secrets). */
-  authorizationParams?: Readonly<Record<string, string>>;
+  /** Explicitly false for providers whose access tokens do not expire. */
+  accessTokensExpire?: false;
+  /** Some providers configure scopes on the app rather than in the authorize URL. */
+  sendsScopesInAuthorization?: boolean;
   /** Refresh this many ms before access-token expiry. */
   refreshSkewMs: number;
   /** Exact registered callback path (no wildcards/loopback in production). */
@@ -452,6 +454,135 @@ const MICROSOFT: ProviderManifest = {
   registrationVersion: 1,
 };
 
+const HUBSPOT: ProviderManifest = {
+  key: "hubspot",
+  displayName: "HubSpot",
+  authorizationEndpoint: "https://app.hubspot.com/oauth/authorize",
+  tokenEndpoint: "https://api.hubapi.com/oauth/v3/token",
+  userinfoEndpoint: "https://api.hubapi.com/integrations/v1/me",
+  identityPaths: { subject: "portalId" },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.hubapi.com",
+  scopeGroups: {
+    contacts_read: { scopes: ["crm.objects.contacts.read"] },
+    contacts_write: {
+      scopes: ["crm.objects.contacts.read", "crm.objects.contacts.write"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const GONG: ProviderManifest = {
+  key: "gong",
+  displayName: "Gong",
+  authorizationEndpoint: "https://app.gong.io/oauth2/authorize",
+  tokenEndpoint: "https://app.gong.io/oauth2/generate-customer-token",
+  tokenEndpointAuth: "client_secret_basic",
+  userinfoPath: "/v2/workspaces",
+  identityPaths: {
+    subject: "workspaces.0.id",
+    name: "workspaces.0.name",
+  },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.gong.io",
+  resourceOriginHostSuffixes: ["api.gong.io"],
+  scopeGroups: {
+    users_read: { scopes: ["api:workspaces:read", "api:users:read"] },
+    calls_write: {
+      scopes: ["api:workspaces:read", "api:users:read", "api:calls:create"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const PIPEDRIVE: ProviderManifest = {
+  key: "pipedrive",
+  displayName: "Pipedrive",
+  authorizationEndpoint: "https://oauth.pipedrive.com/oauth/authorize",
+  tokenEndpoint: "https://oauth.pipedrive.com/oauth/token",
+  tokenEndpointAuth: "client_secret_basic",
+  userinfoPath: "/api/v1/users/me",
+  identityPaths: {
+    subject: "data.id",
+    email: "data.email",
+    name: "data.name",
+  },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  sendsScopesInAuthorization: false,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.pipedrive.com",
+  resourceOriginHostSuffixes: ["pipedrive.com"],
+  scopeGroups: {
+    deals_read: { scopes: ["deals:read"] },
+    deals_write: { scopes: ["deals:read", "deals:full"] },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const SALESFORCE: ProviderManifest = {
+  key: "salesforce",
+  displayName: "Salesforce",
+  authorizationEndpoint:
+    "https://login.salesforce.com/services/oauth2/authorize",
+  tokenEndpoint: "https://login.salesforce.com/services/oauth2/token",
+  userinfoEndpoint: "https://login.salesforce.com/services/oauth2/userinfo",
+  identityPaths: { subject: "user_id", email: "email", name: "name" },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://login.salesforce.com",
+  resourceOriginHostSuffixes: ["salesforce.com", "force.com"],
+  scopeGroups: {
+    api_read: { scopes: ["api", "refresh_token"] },
+    api_write: { scopes: ["api", "refresh_token"] },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const ATTIO: ProviderManifest = {
+  key: "attio",
+  displayName: "Attio",
+  authorizationEndpoint: "https://app.attio.com/authorize",
+  tokenEndpoint: "https://app.attio.com/oauth/token",
+  userinfoEndpoint: "https://api.attio.com/v2/self",
+  identityPaths: { subject: "workspace_id", name: "workspace_name" },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  accessTokensExpire: false,
+  sendsScopesInAuthorization: false,
+  refreshSkewMs: 0,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.attio.com",
+  scopeGroups: {
+    records_read: {
+      scopes: ["object_configuration:read", "record_permission:read"],
+    },
+    records_write: {
+      scopes: ["object_configuration:read", "record_permission:read-write"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
 const STATIC_MANIFESTS: Readonly<Record<string, ProviderManifest>> = {
   [GOOGLE_WORKSPACE.key]: GOOGLE_WORKSPACE,
   [MICROSOFT.key]: MICROSOFT,
@@ -461,6 +592,11 @@ const STATIC_MANIFESTS: Readonly<Record<string, ProviderManifest>> = {
   [REDDIT.key]: REDDIT,
   [LINKEDIN.key]: LINKEDIN,
   [MOCK_PROVIDER.key]: MOCK_PROVIDER,
+  [HUBSPOT.key]: HUBSPOT,
+  [GONG.key]: GONG,
+  [PIPEDRIVE.key]: PIPEDRIVE,
+  [SALESFORCE.key]: SALESFORCE,
+  [ATTIO.key]: ATTIO,
 };
 
 /** All manifests visible in this deployment (mock only behind the env flag). */
@@ -484,7 +620,8 @@ export const resolveProviderResourceOrigin = (
   manifest: ProviderManifest,
   candidate: unknown,
 ): string => {
-  if (typeof candidate !== "string" || !candidate.trim()) return manifest.apiOrigin;
+  if (typeof candidate !== "string" || !candidate.trim())
+    return manifest.apiOrigin;
   let url: URL;
   try {
     url = new URL(candidate);
@@ -634,7 +771,9 @@ export const buildAuthorizationUrl = (args: {
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", args.clientId);
   url.searchParams.set("redirect_uri", args.redirectUri);
-  url.searchParams.set("scope", args.scopes.join(" "));
+  if (args.manifest.sendsScopesInAuthorization !== false) {
+    url.searchParams.set("scope", args.scopes.join(" "));
+  }
   url.searchParams.set("state", args.state);
   if (args.manifest.requiresPkce) {
     url.searchParams.set("code_challenge", args.codeChallenge);
@@ -766,8 +905,14 @@ export const validateManifest = (manifest: ProviderManifest): string[] => {
   if (manifest.identityMode === "oidc" && !manifest.issuer) {
     problems.push(`${manifest.key} is oidc but has no issuer`);
   }
-  if (manifest.identityMode === "userinfo" && !manifest.userinfoEndpoint) {
-    problems.push(`${manifest.key} is userinfo but has no userinfoEndpoint`);
+  if (
+    manifest.identityMode === "userinfo" &&
+    !manifest.userinfoEndpoint &&
+    !manifest.userinfoPath
+  ) {
+    problems.push(
+      `${manifest.key} is userinfo but has no userinfo endpoint or path`,
+    );
   }
   return problems;
 };

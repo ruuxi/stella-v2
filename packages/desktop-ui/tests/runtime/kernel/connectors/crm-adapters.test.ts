@@ -2,7 +2,15 @@ import { mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   buildConnectorAdapterRequest,
@@ -85,13 +93,13 @@ describe("CRM/recruiting/sales adapter registry", () => {
 
   it("maps actions to a single official-API request and encodes path params", () => {
     expect(
-      buildConnectorAdapterRequest("hubspot", "HUBSPOT_GET_CONTACT", {
+      buildConnectorAdapterRequest("hubspot", "HUBSPOT_READ_CONTACT", {
         contactId: "a/b 1",
       }),
     ).toEqual({ path: "/crm/v3/objects/contacts/a%2Fb%201", method: "GET" });
 
     expect(
-      buildConnectorAdapterRequest("salesforce", "SALESFORCE_SOQL_QUERY", {
+      buildConnectorAdapterRequest("salesforce", "SALESFORCE_RUN_SOQL_QUERY", {
         q: "SELECT Id FROM Lead",
       }),
     ).toEqual({
@@ -147,9 +155,9 @@ describe("CRM/recruiting/sales adapter registry", () => {
   it("rejects unknown adapters and actions without executing", () => {
     expect(getConnectorAdapter("notreal")).toBeUndefined();
     expect(getConnectorAdapterAction("hubspot", "NOPE")).toBeUndefined();
-    expect(() =>
-      buildConnectorAdapterRequest("hubspot", "NOPE", {}),
-    ).toThrow(/does not expose/);
+    expect(() => buildConnectorAdapterRequest("hubspot", "NOPE", {})).toThrow(
+      /does not expose/,
+    );
   });
 
   it("records the correct auth model and custom header for api-key providers", () => {
@@ -197,7 +205,7 @@ describe("adapter catalog + tool surface", () => {
   it("exposes adapter actions as tools and catalog actions once production-ready", () => {
     const entry = productionReadyEntry("hubspot", "HubSpot");
     const toolNames = getNativeConnectorTools(entry).map((tool) => tool.name);
-    expect(toolNames).toContain("HUBSPOT_SEARCH_CONTACTS");
+    expect(toolNames).toContain("HUBSPOT_SEARCH_CONTACTS_BY_CRITERIA");
     expect(toolNames).toContain("HUBSPOT_CREATE_DEAL");
     // The generic REST escape hatch remains available alongside named actions.
     expect(toolNames).toContain("HUBSPOT_API_REQUEST");
@@ -211,8 +219,8 @@ describe("adapter catalog + tool surface", () => {
   });
 });
 
-describe("native execution routes an adapter action through one request", () => {
-  it("dispatches exactly one official-API call and never a second executor", async () => {
+describe("runtime adapter execution is disabled", () => {
+  it("fails closed without issuing a local request", async () => {
     const stellaAppDir = createRoot();
     const entry = productionReadyEntry("hubspot", "HubSpot");
 
@@ -233,32 +241,23 @@ describe("native execution routes an adapter action through one request", () => 
 
     await enableNativeConnector(stellaAppDir, "hubspot", "cli", {}, [entry]);
 
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response(JSON.stringify({ id: "42", properties: {} }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "42", properties: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
 
     const args: NativeConnectorCallArgs = { body: { contactId: "42" } };
-    const result = await callNativeConnector(
-      { stellaAppDir },
-      "hubspot",
-      "HUBSPOT_GET_CONTACT",
-      args,
-      [entry],
-    );
-
-    expect(result).toMatchObject({ id: "42" });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [calledUrl, calledInit] = fetchMock.mock.calls[0];
-    expect(String(calledUrl)).toBe(
-      "https://api.hubapi.com/crm/v3/objects/contacts/42",
-    );
-    expect((calledInit?.method ?? "GET").toUpperCase()).toBe("GET");
-    const authHeader = new Headers(calledInit?.headers).get("authorization");
-    expect(authHeader).toBe("Bearer test-access-token");
+    await expect(
+      callNativeConnector(
+        { stellaAppDir },
+        "hubspot",
+        "HUBSPOT_READ_CONTACT",
+        args,
+        [entry],
+      ),
+    ).rejects.toThrow(/does not have a native tool dispatcher/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

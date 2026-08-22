@@ -25,8 +25,14 @@ import {
   pkceChallengeS256,
   generateOAuthState,
   buildTokenEndpointRequest,
+  buildAuthorizationUrl,
   resolveProviderResourceOrigin,
 } from "./connectors/oauth/providers";
+import {
+  buildCrmProviderRequest,
+  CRM_ACTION_OPERATIONS,
+  CRM_ACTION_REQUIRED_SCOPES,
+} from "./connectors/executors/crm";
 import {
   mergeTokenSet,
   unionScopes,
@@ -126,6 +132,39 @@ describe("provider manifests", () => {
     expect(getProviderManifest("mock")).not.toBeNull();
     delete process.env.STELLA_CONNECTOR_OAUTH_ALLOW_MOCK;
     expect(getProviderManifest("mock")).toBeNull();
+  });
+
+  it("registers supported CRM OAuth providers without enabling them", () => {
+    for (const provider of [
+      "hubspot",
+      "gong",
+      "pipedrive",
+      "salesforce",
+      "attio",
+    ]) {
+      expect(getProviderManifest(provider)?.verificationStatus).toBe(
+        "unverified",
+      );
+      expect(() => requireEnabledProvider(provider)).toThrow(
+        /provider_disabled/,
+      );
+    }
+  });
+
+  it("omits dynamic scope parameters for app-scoped providers", () => {
+    const manifest = getProviderManifest("pipedrive")!;
+    const url = new URL(
+      buildAuthorizationUrl({
+        manifest,
+        clientId: "client",
+        redirectUri:
+          "https://connect.stella.test/api/connectors/oauth/callback",
+        state: "state",
+        codeChallenge: "challenge",
+        scopes: ["deals:read"],
+      }),
+    );
+    expect(url.searchParams.has("scope")).toBe(false);
   });
 
   it("fails closed for unlisted providers and open for the self-enabling mock", () => {
@@ -508,6 +547,59 @@ describe("social first-party request adapters", () => {
     expect(
       buildSocialProviderRequest("twitter", "TWITTER_UNKNOWN", {}),
     ).toBeNull();
+  });
+});
+
+describe("CRM provider request adapters", () => {
+  it("covers one canonical read and write per OAuth CRM provider", () => {
+    for (const [provider, actions] of Object.entries(CRM_ACTION_OPERATIONS)) {
+      expect(Object.values(actions)).toContain("read");
+      expect(Object.values(actions)).toContain("write");
+      for (const action of Object.keys(actions)) {
+        expect(
+          CRM_ACTION_REQUIRED_SCOPES[provider]?.[action]?.length,
+        ).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("builds fixed provider paths for representative canonical actions", () => {
+    expect(
+      buildCrmProviderRequest("hubspot", "HUBSPOT_LIST_CONTACTS", {
+        limit: 25,
+      }),
+    ).toMatchObject({
+      method: "GET",
+      path: "/crm/v3/objects/contacts?limit=25",
+    });
+    expect(
+      buildCrmProviderRequest("pipedrive", "PIPEDRIVE_ADD_A_DEAL", {
+        title: "Expansion",
+      }),
+    ).toMatchObject({ method: "POST", path: "/api/v1/deals" });
+    expect(
+      buildCrmProviderRequest("salesforce", "SALESFORCE_RUN_SOQL_QUERY", {
+        q: "SELECT Id FROM Account",
+      })?.path,
+    ).toContain("SELECT%20Id%20FROM%20Account");
+    expect(
+      buildCrmProviderRequest("attio", "ATTIO_CREATE_RECORD", {
+        object_type: "people",
+        values: { name: "Ada" },
+      }),
+    ).toMatchObject({ method: "POST", path: "/v2/objects/people/records" });
+  });
+
+  it("rejects missing fields and unsafe Salesforce object paths", () => {
+    expect(() =>
+      buildCrmProviderRequest("pipedrive", "PIPEDRIVE_ADD_A_DEAL", {}),
+    ).toThrow(/invalid_input/);
+    expect(() =>
+      buildCrmProviderRequest("salesforce", "SALESFORCE_CREATE_A_RECORD", {
+        object: "../Account",
+        fields: { Name: "Nope" },
+      }),
+    ).toThrow(/invalid_input/);
   });
 });
 

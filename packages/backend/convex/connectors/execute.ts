@@ -15,6 +15,7 @@ import {
   grantedScopesSatisfy,
   parseScopeString,
   requireEnabledProvider,
+  resolveProviderResourceOrigin,
   scopesForGroups,
 } from "./oauth/providers";
 import { resolveProviderClientCredentials } from "./oauth/client_credentials";
@@ -48,6 +49,9 @@ type TokenEndpointPayload = {
   token_type?: unknown;
   expires_in?: unknown;
   scope?: unknown;
+  instance_url?: unknown;
+  api_domain?: unknown;
+  api_base_url_for_customer?: unknown;
   error?: unknown;
 };
 
@@ -115,6 +119,7 @@ export const getAccessTokenForAccount = internalAction({
     const tokenSet = parseTokenSet(await decryptSecret(cred.encryptedTokenSet));
     const now = Date.now();
     if (
+      manifest.accessTokensExpire === false ||
       accessTokenIsFresh(cred.accessTokenExpiresAt, manifest.refreshSkewMs, now)
     ) {
       return {
@@ -197,6 +202,13 @@ export const getAccessTokenForAccount = internalAction({
                 : undefined,
             accessTokenExpiresAt: expiryFromExpiresIn(payload.expires_in, now),
             scopes: parseScopeString(payload.scope),
+            resourceOrigin: resolveProviderResourceOrigin(
+              manifest,
+              payload.api_base_url_for_customer ??
+                payload.instance_url ??
+                payload.api_domain ??
+                tokenSet.resourceOrigin,
+            ),
           },
         },
       );

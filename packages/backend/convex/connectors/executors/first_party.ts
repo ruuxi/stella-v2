@@ -10,6 +10,11 @@ import {
   SOCIAL_ACTION_OPERATIONS,
   SOCIAL_ACTION_REQUIRED_SCOPES,
 } from "./social";
+import {
+  buildCrmProviderRequest,
+  CRM_ACTION_OPERATIONS,
+  CRM_ACTION_REQUIRED_SCOPES,
+} from "./crm";
 
 /**
  * First-party executor. Provider-family modules register a handler here that
@@ -206,6 +211,16 @@ const socialHandler: ProviderExecuteHandler = async (ctx) => {
   return providerFetchJson({ ctx, ...request });
 };
 
+const crmHandler: ProviderExecuteHandler = async (ctx) => {
+  const request = buildCrmProviderRequest(
+    ctx.manifest.key,
+    ctx.action,
+    ctx.input,
+  );
+  if (!request) throw new ConnectorError("action_not_found");
+  return providerFetchJson({ ctx, ...request });
+};
+
 const PROVIDER_HANDLERS: Readonly<Record<string, ProviderExecuteHandler>> = {
   [MOCK_PROVIDER_KEY]: mockHandler,
   microsoft: createMicrosoftHandler(providerFetchJson),
@@ -214,6 +229,11 @@ const PROVIDER_HANDLERS: Readonly<Record<string, ProviderExecuteHandler>> = {
   reddit: socialHandler,
   meta: socialHandler,
   linkedin: socialHandler,
+  hubspot: crmHandler,
+  gong: crmHandler,
+  pipedrive: crmHandler,
+  salesforce: crmHandler,
+  attio: crmHandler,
 };
 
 /**
@@ -231,11 +251,15 @@ const PROVIDER_ACTION_OPERATIONS: Readonly<
   },
   microsoft: MICROSOFT_ACTION_OPERATIONS,
   ...SOCIAL_ACTION_OPERATIONS,
+  ...CRM_ACTION_OPERATIONS,
 };
 
 const PROVIDER_ACTION_REQUIRED_SCOPES: Readonly<
   Record<string, Readonly<Record<string, readonly string[]>>>
-> = SOCIAL_ACTION_REQUIRED_SCOPES;
+> = {
+  ...SOCIAL_ACTION_REQUIRED_SCOPES,
+  ...CRM_ACTION_REQUIRED_SCOPES,
+};
 
 export const firstPartyActionOperation = (
   providerKey: string,

@@ -37,6 +37,9 @@ export const CONNECTOR_ERROR_CODES = [
   "invalid_grant",
   "invalid_credential",
   "credential_generation_conflict",
+  // Customer-hosted connect profiles (per-owner origin + token)
+  "invalid_origin",
+  "origin_not_allowed",
   // Execution
   "action_not_found",
   "invalid_input",
@@ -76,6 +79,7 @@ export const connectorErrorHttpStatus = (code: ConnectorErrorCode): number => {
     case "pkce_required":
     case "redirect_mismatch":
     case "unregistered_scope":
+    case "invalid_origin":
     case "invalid_input":
     case "invalid_schema":
     case "invalid_credential":
@@ -95,6 +99,7 @@ export const connectorErrorHttpStatus = (code: ConnectorErrorCode): number => {
     case "provider_unverified":
     case "execution_disabled":
     case "connector_disabled":
+    case "origin_not_allowed":
     case "unsupported_client_version":
       return 403;
     case "state_expired":

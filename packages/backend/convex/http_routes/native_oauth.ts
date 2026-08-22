@@ -23,6 +23,11 @@ import {
   getApiKeyProviderDescriptor,
   isApiKeyProviderVerified,
 } from "../connectors/api_keys/providers";
+import {
+  getHostedConnectProviderDescriptor,
+  hostedConnectProviderForConnectorAction,
+  isHostedConnectProviderVerified,
+} from "../connectors/hosted_connect/providers";
 import { ConnectorError, connectorErrorHttpStatus } from "../connectors/errors";
 import {
   errorResponse,
@@ -78,6 +83,8 @@ type NativeIntegrationRequestBody = {
   input?: unknown;
   apiKey?: unknown;
   credentialSlot?: unknown;
+  origin?: unknown;
+  token?: unknown;
   expectedGeneration?: unknown;
 };
 
@@ -567,17 +574,26 @@ const resolveNativeExecutionRoute = async (
     connectorId,
     action,
   );
+  const hostedConnectDescriptor = hostedConnectProviderForConnectorAction(
+    connectorId,
+    action,
+  );
   const [readiness, storedRollout] = await Promise.all([
-    apiKeyDescriptor
-      ? ctx.runQuery(internal.connectors.api_keys.vault.getApiKeyReadiness, {
-          ownerId,
-          connectorId,
-          action,
-        })
-      : ctx.runQuery(internal.connectors.oauth.accounts.getConnectorReadiness, {
-          ownerId,
-          connectorId,
-        }),
+    hostedConnectDescriptor
+      ? ctx.runQuery(
+          internal.connectors.hosted_connect.vault.getHostedConnectReadiness,
+          { ownerId, connectorId },
+        )
+      : apiKeyDescriptor
+        ? ctx.runQuery(internal.connectors.api_keys.vault.getApiKeyReadiness, {
+            ownerId,
+            connectorId,
+            action,
+          })
+        : ctx.runQuery(
+            internal.connectors.oauth.accounts.getConnectorReadiness,
+            { ownerId, connectorId },
+          ),
     ctx.runQuery(internal.connectors.rollouts.getConnectorRollout, {
       connectorId,
     }),
@@ -600,11 +616,13 @@ const firstPartyConnectTarget = async (
 ): Promise<{
   provider: string;
   firstPartyOnly: boolean;
-  authType: "oauth" | "api_key";
+  authType: "oauth" | "api_key" | "hosted_connect";
 } | null> => {
   const provider = firstPartyProviderForConnector(connectorId);
   if (!provider || !isFirstPartyExecutionEnabled()) return null;
   const apiKeyDescriptor = getApiKeyProviderDescriptor(connectorId);
+  const hostedConnectDescriptor =
+    getHostedConnectProviderDescriptor(connectorId);
   const storedRollout = await ctx.runQuery(
     internal.connectors.rollouts.getConnectorRollout,
     { connectorId },
@@ -624,7 +642,11 @@ const firstPartyConnectTarget = async (
     ? {
         provider,
         firstPartyOnly: rollout.mode === "first_party_only",
-        authType: apiKeyDescriptor ? "api_key" : "oauth",
+        authType: hostedConnectDescriptor
+          ? "hosted_connect"
+          : apiKeyDescriptor
+            ? "api_key"
+            : "oauth",
       }
     : null;
 };
@@ -635,6 +657,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     "/api/native-integrations/actions",
     "/api/native-integrations/connect-link",
     "/api/native-integrations/api-key",
+    "/api/native-integrations/connect-profile",
     "/api/native-integrations/disconnect",
     "/api/native-integrations/status",
     "/api/native-integrations/run",
@@ -902,6 +925,47 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           connector.id,
         );
         if (firstPartyTarget) {
+          if (firstPartyTarget.authType === "hosted_connect") {
+            const descriptor = getHostedConnectProviderDescriptor(connector.id);
+            if (!descriptor) {
+              return errorResponse(
+                503,
+                "The first-party connect connector is unavailable.",
+                origin,
+              );
+            }
+            if (
+              !isProviderEnabled(descriptor.providerKey) ||
+              !isHostedConnectProviderVerified(descriptor.providerKey)
+            ) {
+              return errorResponse(
+                503,
+                "The first-party connect connector is not ready.",
+                origin,
+              );
+            }
+            const status = await ctx.runQuery(
+              internal.connectors.hosted_connect.vault
+                .getHostedConnectReadiness,
+              {
+                ownerId: identity.tokenIdentifier,
+                connectorId: connector.id,
+              },
+            );
+            return jsonResponse(
+              {
+                authType: "hosted_connect",
+                credentialLabel: descriptor.credentialLabel,
+                originLabel: descriptor.originLabel,
+                originPlaceholder: descriptor.originPlaceholder,
+                boundOrigin: status?.boundOrigin,
+                expectedGeneration: status?.generation,
+                connected: status?.connected ?? false,
+              },
+              200,
+              origin,
+            );
+          }
           if (firstPartyTarget.authType === "api_key") {
             const descriptor = getApiKeyProviderDescriptor(connector.id);
             if (!descriptor) {
@@ -1159,6 +1223,127 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   });
 
   http.route({
+    path: "/api/native-integrations/connect-profile",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return errorResponse(401, "Unauthorized", origin);
+        const body = (await parseUnknownBody(
+          request,
+        )) as NativeIntegrationRequestBody | null;
+        const id = canonicalizePublicConnectorId(readString(body?.id));
+        if (
+          !id ||
+          typeof body?.origin !== "string" ||
+          typeof body?.token !== "string"
+        ) {
+          return errorResponse(400, "Invalid connect-profile request.", origin);
+        }
+        const expectedGeneration = body.expectedGeneration;
+        if (
+          expectedGeneration !== undefined &&
+          (typeof expectedGeneration !== "number" ||
+            !Number.isSafeInteger(expectedGeneration) ||
+            expectedGeneration < 1)
+        ) {
+          return errorResponse(400, "Invalid credential generation.", origin);
+        }
+        const integration = await loadPublicIntegration(ctx, id);
+        const connector = integration
+          ? readComposioConnector(integration)
+          : null;
+        const descriptor = connector
+          ? getHostedConnectProviderDescriptor(connector.id)
+          : null;
+        if (!connector || !descriptor) {
+          return errorResponse(
+            400,
+            "Integration does not accept a connect profile.",
+            origin,
+          );
+        }
+        if (
+          !isProviderEnabled(descriptor.providerKey) ||
+          !isHostedConnectProviderVerified(descriptor.providerKey)
+        ) {
+          return errorResponse(
+            409,
+            "This first-party connect connector is not ready.",
+            origin,
+          );
+        }
+        const firstPartyTarget = await firstPartyConnectTarget(
+          ctx,
+          identity.tokenIdentifier,
+          connector.id,
+        );
+        if (
+          !firstPartyTarget ||
+          firstPartyTarget.authType !== "hosted_connect"
+        ) {
+          return errorResponse(
+            409,
+            "This integration is not selected for first-party connection.",
+            origin,
+          );
+        }
+        try {
+          const result = await ctx.runAction(
+            api.connectors.hosted_connect.vault.connectHostedConnectProfile,
+            {
+              connectorId: connector.id,
+              origin: body.origin,
+              token: body.token,
+              expectedGeneration:
+                typeof expectedGeneration === "number"
+                  ? expectedGeneration
+                  : undefined,
+            },
+          );
+          return jsonResponse(
+            {
+              connected: result.connected,
+              executor: "first_party",
+              provider: result.provider,
+              boundOrigin: result.boundOrigin,
+              generation: result.generation,
+              replaced: result.replaced,
+            },
+            200,
+            origin,
+          );
+        } catch (error) {
+          console.error("[native-integrations] connect-profile rejected", {
+            id,
+            message: error instanceof Error ? error.name : "error",
+          });
+          if (isRateLimitError(error)) {
+            return errorResponse(
+              429,
+              "Too many connection changes. Wait before retrying explicitly.",
+              origin,
+            );
+          }
+          const code =
+            error instanceof ConnectorError ? error.code : "internal_error";
+          return errorResponse(
+            connectorErrorHttpStatus(code),
+            code === "credential_generation_conflict"
+              ? "The stored connection changed. Reopen the connection prompt before retrying."
+              : code === "invalid_origin"
+                ? "That 1Password Connect server URL is not allowed."
+                : code === "invalid_credential"
+                  ? "That Connect access token was not accepted."
+                  : "Could not store this connect profile.",
+            origin,
+          );
+        }
+      }),
+    ),
+  });
+
+  http.route({
     path: "/api/native-integrations/disconnect",
     method: "POST",
     handler: httpAction(async (ctx, request) =>
@@ -1174,17 +1359,34 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         const connector = integration
           ? readComposioConnector(integration)
           : null;
-        if (!connector || !getApiKeyProviderDescriptor(connector.id)) {
+        const hostedDescriptor = connector
+          ? getHostedConnectProviderDescriptor(connector.id)
+          : null;
+        const apiKeyDescriptor = connector
+          ? getApiKeyProviderDescriptor(connector.id)
+          : null;
+        if (!connector || (!hostedDescriptor && !apiKeyDescriptor)) {
           return errorResponse(
             400,
-            "Integration does not use a server-owned API key.",
+            "Integration does not use a server-owned credential.",
             origin,
           );
         }
         try {
-          const result = await ctx.runAction(
-            api.connectors.api_keys.vault.disconnectApiKey,
-            { connectorId: connector.id },
+          const result = hostedDescriptor
+            ? await ctx.runAction(
+                api.connectors.hosted_connect.vault
+                  .disconnectHostedConnectProfile,
+                { connectorId: connector.id },
+              )
+            : await ctx.runAction(
+                api.connectors.api_keys.vault.disconnectApiKey,
+                { connectorId: connector.id },
+              );
+          return jsonResponse(
+            { ...result, executor: "first_party" },
+            200,
+            origin,
           );
           return jsonResponse(
             { ...result, executor: "first_party" },
@@ -1245,7 +1447,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               provider: string;
               accountStatus: string;
               missingScopeGroups: string[];
-              authType?: "api_key";
+              authType?: "api_key" | "hosted_connect";
               providerEnabled?: boolean;
               providerVerified?: boolean;
               credentialProfiles?: Array<{
@@ -1258,25 +1460,35 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 updatedAt?: number;
               }>;
               missingCredentialSlots?: string[];
+              boundOrigin?: string;
             }
           | undefined;
         if (firstPartyTarget) {
-          const apiKeyAuth = firstPartyTarget.authType === "api_key";
-          const readiness = apiKeyAuth
-            ? await ctx.runQuery(
-                internal.connectors.api_keys.vault.getApiKeyReadiness,
-                {
-                  ownerId: identity.tokenIdentifier,
-                  connectorId: connector.id,
-                },
-              )
-            : await ctx.runQuery(
-                internal.connectors.oauth.accounts.getConnectorReadiness,
-                {
-                  ownerId: identity.tokenIdentifier,
-                  connectorId: connector.id,
-                },
-              );
+          const readiness =
+            firstPartyTarget.authType === "hosted_connect"
+              ? await ctx.runQuery(
+                  internal.connectors.hosted_connect.vault
+                    .getHostedConnectReadiness,
+                  {
+                    ownerId: identity.tokenIdentifier,
+                    connectorId: connector.id,
+                  },
+                )
+              : firstPartyTarget.authType === "api_key"
+                ? await ctx.runQuery(
+                    internal.connectors.api_keys.vault.getApiKeyReadiness,
+                    {
+                      ownerId: identity.tokenIdentifier,
+                      connectorId: connector.id,
+                    },
+                  )
+                : await ctx.runQuery(
+                    internal.connectors.oauth.accounts.getConnectorReadiness,
+                    {
+                      ownerId: identity.tokenIdentifier,
+                      connectorId: connector.id,
+                    },
+                  );
           if (!readiness) {
             return errorResponse(
               503,
@@ -1284,10 +1496,16 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               origin,
             );
           }
-          const apiKeyReadiness =
-            "authType" in readiness && readiness.authType === "api_key"
+          const credentialReadiness =
+            "authType" in readiness &&
+            (readiness.authType === "api_key" ||
+              readiness.authType === "hosted_connect")
               ? readiness
               : null;
+          const boundOrigin =
+            credentialReadiness && "boundOrigin" in credentialReadiness
+              ? credentialReadiness.boundOrigin
+              : undefined;
           if (readiness.ready || firstPartyTarget.firstPartyOnly) {
             return jsonResponse(
               {
@@ -1299,16 +1517,22 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                   "missingScopeGroups" in readiness
                     ? readiness.missingScopeGroups
                     : [],
-                ...(apiKeyReadiness
+                ...(credentialReadiness
                   ? {
-                      authType: "api_key",
-                      configured: apiKeyReadiness.configured,
-                      generation: apiKeyReadiness.generation,
-                      credentialProfiles: apiKeyReadiness.credentialProfiles,
-                      missingCredentialSlots:
-                        apiKeyReadiness.missingCredentialSlots,
-                      providerEnabled: apiKeyReadiness.providerEnabled,
-                      providerVerified: apiKeyReadiness.providerVerified,
+                      authType: credentialReadiness.authType,
+                      configured: credentialReadiness.configured,
+                      generation: credentialReadiness.generation,
+                      providerEnabled: credentialReadiness.providerEnabled,
+                      providerVerified: credentialReadiness.providerVerified,
+                      ...(boundOrigin ? { boundOrigin } : {}),
+                      ...("credentialProfiles" in credentialReadiness
+                        ? {
+                            credentialProfiles:
+                              credentialReadiness.credentialProfiles,
+                            missingCredentialSlots:
+                              credentialReadiness.missingCredentialSlots,
+                          }
+                        : {}),
                     }
                   : {}),
               },
@@ -1327,22 +1551,53 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 "missingScopeGroups" in readiness
                   ? readiness.missingScopeGroups
                   : [],
-              ...(apiKeyReadiness
+              ...(credentialReadiness
                 ? {
-                    authType: "api_key",
-                    providerEnabled: apiKeyReadiness.providerEnabled,
-                    providerVerified: apiKeyReadiness.providerVerified,
-                    credentialProfiles: apiKeyReadiness.credentialProfiles,
-                    missingCredentialSlots:
-                      apiKeyReadiness.missingCredentialSlots,
+                    authType: credentialReadiness.authType,
+                    providerEnabled: credentialReadiness.providerEnabled,
+                    providerVerified: credentialReadiness.providerVerified,
+                    ...(boundOrigin ? { boundOrigin } : {}),
+                    ...("credentialProfiles" in credentialReadiness
+                      ? {
+                          credentialProfiles:
+                            credentialReadiness.credentialProfiles,
+                          missingCredentialSlots:
+                            credentialReadiness.missingCredentialSlots,
+                        }
+                      : {}),
                   }
                 : {}),
             };
           }
         }
         if (!firstPartyTarget) {
+          const hostedDescriptor = getHostedConnectProviderDescriptor(
+            connector.id,
+          );
           const descriptor = getApiKeyProviderDescriptor(connector.id);
-          if (descriptor) {
+          if (hostedDescriptor) {
+            const readiness = await ctx.runQuery(
+              internal.connectors.hosted_connect.vault
+                .getHostedConnectReadiness,
+              {
+                ownerId: identity.tokenIdentifier,
+                connectorId: connector.id,
+              },
+            );
+            if (readiness?.configured) {
+              firstPartyFallbackStatus = {
+                provider: hostedDescriptor.providerKey,
+                accountStatus: readiness.accountStatus,
+                missingScopeGroups: [],
+                authType: "hosted_connect",
+                providerEnabled: readiness.providerEnabled,
+                providerVerified: readiness.providerVerified,
+                ...(readiness.boundOrigin
+                  ? { boundOrigin: readiness.boundOrigin }
+                  : {}),
+              };
+            }
+          } else if (descriptor) {
             const readiness = await ctx.runQuery(
               internal.connectors.api_keys.vault.getApiKeyReadiness,
               {

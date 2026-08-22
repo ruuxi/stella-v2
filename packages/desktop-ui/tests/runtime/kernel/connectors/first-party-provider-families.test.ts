@@ -94,24 +94,23 @@ describe("reconciled first-party provider-family contract", () => {
       FIRST_PARTY_PROVIDER_FAMILY_STATUS,
       (entry) => entry.codeStatus,
     );
-    expect(counts.executor_ready).toHaveLength(47);
-    expect(counts.planner_ready).toHaveLength(2);
+    expect(counts.executor_ready).toHaveLength(48);
+    expect(counts.planner_ready).toHaveLength(1);
     expect(counts.metadata_only ?? []).toHaveLength(0);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "external_blocked",
       ),
-    ).toHaveLength(47);
+    ).toHaveLength(48);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "code_blocked",
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     const plannerReady = FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
       (entry) => entry.codeStatus === "planner_ready",
     );
     expect(plannerReady.map((entry) => entry.connectorId).sort()).toEqual([
-      "1password",
       "snowflake",
     ]);
     for (const entry of plannerReady) {
@@ -138,6 +137,7 @@ describe("reconciled first-party provider-family contract", () => {
       "apollo",
       "ashby",
       "21risk",
+      "1password",
     ]) {
       expect(getFirstPartyProviderFamilyStatus(id)?.codeStatus, id).toBe(
         "executor_ready",
@@ -146,6 +146,12 @@ describe("reconciled first-party provider-family contract", () => {
     expect(
       getFirstPartyProviderFamilyStatus("abstract")?.activationBlockers,
     ).not.toContain("per-product Abstract API-key custody");
+    const onePassword = getFirstPartyProviderFamilyStatus("1password");
+    expect(onePassword?.activationStatus).toBe("external_blocked");
+    expect(onePassword?.fallbackStatus).toBe("retained");
+    expect(onePassword?.activationBlockers).toContain(
+      "real connect and representative provider call",
+    );
   });
 
   it("preserves shared grants and digit-leading toolkit ids", () => {

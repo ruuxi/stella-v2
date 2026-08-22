@@ -179,6 +179,7 @@ const EXTRA_TABLES = [
   "oauth_provider_accounts",
   "oauth_credentials",
   "api_key_credentials",
+  "connector_hosted_profiles",
   "connector_account_bindings",
   "connector_audit_events",
   "agents",
@@ -294,6 +295,14 @@ async function deleteOneExtraTableBatch(
     case "api_key_credentials": {
       const rows = await ctx.db
         .query("api_key_credentials")
+        .withIndex("by_owner_provider", (q) => q.eq("ownerId", ownerId))
+        .take(batch);
+      ids = rows.map((r) => r._id);
+      break;
+    }
+    case "connector_hosted_profiles": {
+      const rows = await ctx.db
+        .query("connector_hosted_profiles")
         .withIndex("by_owner_provider", (q) => q.eq("ownerId", ownerId))
         .take(batch);
       ids = rows.map((r) => r._id);

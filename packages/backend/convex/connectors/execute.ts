@@ -32,6 +32,11 @@ import {
   firstPartyActionRequiredScopes,
 } from "./executors/first_party";
 import { executeApiKeyProviderAction } from "./api_keys/execute";
+import { executeHostedConnectAction } from "./hosted_connect/execute";
+import {
+  getHostedConnectActionDescriptor,
+  hostedConnectProviderForConnectorAction,
+} from "./hosted_connect/providers";
 import {
   apiKeyProviderForConnectorAction,
   getApiKeyActionDescriptor,
@@ -274,6 +279,9 @@ export const runFirstPartyConnectorAction = internalAction({
     let loadedApiKey:
       | { provider: string; credentialSlot: string; generation: number }
       | undefined;
+    let loadedHostedConnect:
+      | { provider: string; generation: number }
+      | undefined;
 
     const auditFailure = async (
       code: ConnectorErrorCode,
@@ -307,6 +315,134 @@ export const runFirstPartyConnectorAction = internalAction({
     try {
       if (!isFirstPartyExecutionEnabled()) {
         throw new ConnectorError("execution_disabled");
+      }
+
+      const hostedConnectDescriptor = hostedConnectProviderForConnectorAction(
+        connectorId,
+        args.action,
+      );
+      if (hostedConnectDescriptor) {
+        auditProvider = hostedConnectDescriptor.providerKey;
+        const actionDescriptor = getHostedConnectActionDescriptor(
+          hostedConnectDescriptor,
+          args.action,
+        );
+        if (!actionDescriptor) throw new ConnectorError("action_not_found");
+
+        const [readiness, storedRollout] = await Promise.all([
+          ctx.runQuery(
+            internal.connectors.hosted_connect.vault.getHostedConnectReadiness,
+            { ownerId: args.ownerId, connectorId },
+          ),
+          ctx.runQuery(internal.connectors.rollouts.getConnectorRollout, {
+            connectorId,
+          }),
+        ]);
+        const rollout = storedRollout ?? { ...DEFAULT_ROLLOUT, connectorId };
+        const route = resolveRoute({
+          rollout,
+          ownerId: args.ownerId,
+          operation: actionDescriptor.operation,
+          killSwitchEnabled: true,
+          hasFirstPartyReady: readiness?.ready ?? false,
+        });
+        auditRouteVersion = route.routeVersion;
+        if (route.executor === "refused") {
+          throw new ConnectorError(
+            route.reasonCode === "execution_disabled"
+              ? "execution_disabled"
+              : "connector_disabled",
+          );
+        }
+        if (route.executor !== "first_party") {
+          throw new ConnectorError("route_not_first_party");
+        }
+        if (!readiness?.ready) {
+          if (!readiness?.providerEnabled) {
+            throw new ConnectorError("provider_disabled");
+          }
+          if (!readiness.providerVerified) {
+            throw new ConnectorError("provider_unverified");
+          }
+          if (readiness.accountStatus === "invalid") {
+            throw new ConnectorError("invalid_credential");
+          }
+          throw new ConnectorError("not_connected");
+        }
+
+        let input: Record<string, unknown>;
+        try {
+          const parsed = JSON.parse(args.inputJson) as unknown;
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("input is not an object");
+          }
+          input = parsed as Record<string, unknown>;
+        } catch {
+          throw new ConnectorError("invalid_input");
+        }
+
+        let validation: "valid" | "invalid" | "invalid_schema";
+        try {
+          validation = await ctx.runAction(
+            internal.node.native_integration_schemas.validateActionInput,
+            {
+              inputJson: args.inputJson,
+              schemaJson: JSON.stringify(actionDescriptor.inputSchema),
+            },
+          );
+        } catch {
+          throw new ConnectorError("schema_unavailable");
+        }
+        if (validation === "invalid") {
+          throw new ConnectorError("invalid_input");
+        }
+        if (validation === "invalid_schema") {
+          throw new ConnectorError("invalid_schema");
+        }
+
+        const credential = await ctx.runAction(
+          internal.connectors.hosted_connect.vault
+            .loadHostedConnectForExecution,
+          { ownerId: args.ownerId, connectorId },
+        );
+        loadedHostedConnect = {
+          provider: credential.provider,
+          generation: credential.generation,
+        };
+        const result = await executeHostedConnectAction({
+          descriptor: hostedConnectDescriptor,
+          token: credential.token,
+          boundOrigin: credential.boundOrigin,
+          action: args.action,
+          input,
+          operation: actionDescriptor.operation,
+        });
+        await ctx.runMutation(
+          internal.connectors.hosted_connect.vault.markHostedConnectUsed,
+          {
+            ownerId: args.ownerId,
+            provider: credential.provider,
+            expectedGeneration: credential.generation,
+          },
+        );
+        await ctx.runMutation(
+          internal.connectors.audit.recordConnectorAuditEvent,
+          {
+            ownerId: args.ownerId,
+            connectorId,
+            action: args.action,
+            provider: hostedConnectDescriptor.providerKey,
+            executor: "first_party",
+            event: "execution",
+            outcome: "ok",
+            requestId: args.requestId,
+            routeVersion: route.routeVersion,
+            schemaVersion: args.schemaVersion,
+            latencyMs: Date.now() - startedAt,
+            providerStatusClass: result.providerStatusClass,
+          },
+        );
+        return { executor: "first_party", output: result.output };
       }
 
       const apiKeyDescriptor = apiKeyProviderForConnectorAction(
@@ -588,6 +724,30 @@ export const runFirstPartyConnectorAction = internalAction({
               provider: loadedApiKey.provider,
               executor: "first_party",
               event: "api_key_invalidated",
+              outcome: "error",
+              errorCode: "invalid_credential",
+            },
+          );
+        }
+      }
+      if (code === "invalid_credential" && loadedHostedConnect) {
+        const invalidated = await ctx.runMutation(
+          internal.connectors.hosted_connect.vault.markHostedConnectInvalid,
+          {
+            ownerId: args.ownerId,
+            provider: loadedHostedConnect.provider,
+            expectedGeneration: loadedHostedConnect.generation,
+          },
+        );
+        if (invalidated) {
+          await ctx.runMutation(
+            internal.connectors.audit.recordConnectorAuditEvent,
+            {
+              ownerId: args.ownerId,
+              connectorId,
+              provider: loadedHostedConnect.provider,
+              executor: "first_party",
+              event: "hosted_connect_invalidated",
               outcome: "error",
               errorCode: "invalid_credential",
             },

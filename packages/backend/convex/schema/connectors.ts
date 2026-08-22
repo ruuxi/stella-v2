@@ -49,6 +49,33 @@ export const connectorsSchema = {
     .index("by_keyVersion", ["keyVersion"]),
 
   /**
+   * Customer-hosted connect profiles (e.g. self-hosted 1Password Connect). Each
+   * row binds ONE owner to ONE provider's encrypted bearer token AND the exact
+   * validated HTTPS `boundOrigin` that token may ever be sent to. The token is a
+   * versioned AES-256-GCM envelope; the origin is SSRF-validated at write time
+   * and re-validated on every request. No public/query surface returns the
+   * envelope. One live row exists per owner/provider; replacement overwrites the
+   * previous envelope and origin together.
+   */
+  connector_hosted_profiles: defineTable({
+    ownerId: v.string(),
+    connectorId: v.string(),
+    provider: v.string(),
+    encryptedToken: v.string(),
+    keyVersion: v.number(),
+    boundOrigin: v.string(),
+    status: v.union(v.literal("active"), v.literal("invalid")),
+    generation: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    invalidatedAt: v.optional(v.number()),
+  })
+    .index("by_owner_provider", ["ownerId", "provider"])
+    .index("by_owner_connector", ["ownerId", "connectorId"])
+    .index("by_keyVersion", ["keyVersion"]),
+
+  /**
    * One-time authorization transactions. Only the SHA-256 hash of the random
    * `state` is stored; the raw state exists only transiently in the provider
    * authorization URL. The PKCE verifier is stored encrypted and never leaves

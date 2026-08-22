@@ -95,10 +95,10 @@ const EXECUTOR_READY_CONNECTOR_IDS = new Set([
   "hubspot",
   "salesforce",
   "21risk",
+  "1password",
 ]);
 
 const PLANNER_READY_CONNECTOR_IDS = new Set([
-  "1password",
   "snowflake",
 ]);
 

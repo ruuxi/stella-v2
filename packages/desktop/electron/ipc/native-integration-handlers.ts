@@ -85,6 +85,18 @@ export type NativeIntegrationHandlersOptions = {
     | { ok: true }
     | { ok: false; reason: "cancelled" | "timeout" | "unsupported" | string }
   >;
+  requestBackendConnectProfile?: (payload: {
+    connectorId: string;
+    displayName: string;
+    credentialLabel: string;
+    originLabel: string;
+    originPlaceholder: string;
+    boundOrigin?: string;
+    expectedGeneration?: number;
+  }) => Promise<
+    | { ok: true }
+    | { ok: false; reason: "cancelled" | "timeout" | "unsupported" | string }
+  >;
   disconnectGoogleWorkspace?: () => Promise<{ ok: boolean }>;
   getConvexAuthToken?: () => Promise<string | null>;
   getConvexSiteUrl?: () => string | null;
@@ -106,6 +118,7 @@ export type NativeCredentialFlowOptions = Pick<
   | "requestDeviceOAuth"
   | "requestExternalOAuthApproval"
   | "requestBackendApiKey"
+  | "requestBackendConnectProfile"
   | "getConvexAuthToken"
   | "getConvexSiteUrl"
 > & {
@@ -224,6 +237,9 @@ const createBackendIntegrationConnectTarget = async (
     credentialProfiles?: unknown;
     expectedGeneration?: unknown;
     connected?: unknown;
+    originLabel?: unknown;
+    originPlaceholder?: unknown;
+    boundOrigin?: unknown;
     error?: unknown;
     message?: unknown;
   } | null;
@@ -235,6 +251,40 @@ const createBackendIntegrationConnectTarget = async (
           ? payload.message
           : "Could not start this connection.";
     throw new Error(message);
+  }
+  if (payload?.authType === "hosted_connect") {
+    const credentialLabel =
+      typeof payload.credentialLabel === "string"
+        ? payload.credentialLabel.trim()
+        : "";
+    const originLabel =
+      typeof payload.originLabel === "string" ? payload.originLabel.trim() : "";
+    const originPlaceholder =
+      typeof payload.originPlaceholder === "string"
+        ? payload.originPlaceholder.trim()
+        : "";
+    const boundOrigin =
+      typeof payload.boundOrigin === "string" ? payload.boundOrigin.trim() : "";
+    const expectedGeneration = payload.expectedGeneration;
+    if (
+      !credentialLabel ||
+      !originLabel ||
+      (expectedGeneration !== undefined &&
+        (typeof expectedGeneration !== "number" ||
+          !Number.isSafeInteger(expectedGeneration) ||
+          expectedGeneration < 1))
+    ) {
+      throw new Error("Stella backend returned an invalid connect prompt.");
+    }
+    return {
+      authType: "hosted_connect" as const,
+      credentialLabel,
+      originLabel,
+      originPlaceholder,
+      boundOrigin: boundOrigin || undefined,
+      expectedGeneration:
+        typeof expectedGeneration === "number" ? expectedGeneration : undefined,
+    };
   }
   if (payload?.authType === "api_key") {
     const credentialLabel =
@@ -455,6 +505,24 @@ export const ensureNativeCredential = async (
       id,
       options.abortSignal,
     );
+    if (target.authType === "hosted_connect") {
+      if (!options.requestBackendConnectProfile) {
+        throw new Error(`${entry.name} connection is unavailable.`);
+      }
+      const connected = await options.requestBackendConnectProfile({
+        connectorId: id,
+        displayName: entry.name,
+        credentialLabel: target.credentialLabel,
+        originLabel: target.originLabel,
+        originPlaceholder: target.originPlaceholder,
+        boundOrigin: target.boundOrigin,
+        expectedGeneration: target.expectedGeneration,
+      });
+      if (!connected.ok) {
+        throw new Error(`Could not connect ${entry.name}: ${connected.reason}`);
+      }
+      return;
+    }
     if (target.authType === "api_key") {
       if (!options.requestBackendApiKey) {
         throw new Error(`${entry.name} API-key connection is unavailable.`);

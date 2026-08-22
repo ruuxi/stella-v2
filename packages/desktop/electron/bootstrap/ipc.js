@@ -385,6 +385,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         requestDeviceOAuth: (payload) => services.connectorCredentialService.requestDeviceOAuth(payload),
         requestExternalOAuthApproval: (payload) => services.connectorOAuthService.requestExternalOAuthApproval(payload),
         requestBackendApiKey: (payload) => services.connectorCredentialService.requestBackendApiKey(payload),
+        requestBackendConnectProfile: (payload) => services.connectorCredentialService.requestBackendConnectProfile(payload),
         getConvexAuthToken: () => services.authService.getConvexAuthToken(),
         getConvexSiteUrl: () => services.authService.getConvexSiteUrl(),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),

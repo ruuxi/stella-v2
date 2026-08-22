@@ -1526,6 +1526,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
       completionMode?: "approve" | "wait";
       description?: string;
       placeholder?: string;
+      authType?: "api_key" | "oauth" | "hosted_connect";
+      originField?: {
+        label?: string;
+        placeholder?: string;
+        value?: string;
+      };
       oauthUserCode?: string;
       oauthVerificationUri?: string;
     }>("connector-credential:request"),
@@ -1538,6 +1544,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       requestId: string;
       value: string;
       label?: string;
+      origin?: string;
     }) => ipcRenderer.invoke("connector-credential:submit", payload),
     cancelConnectorCredential: (payload: { requestId: string }) =>
       ipcRenderer.invoke("connector-credential:cancel", payload),

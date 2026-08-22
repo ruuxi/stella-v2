@@ -151,6 +151,7 @@ export const createHostRunnerHandlers = (context, options) => ({
     requestRuntimeAuthRefresh: async ({ source }) => await context.services.authService.requestRuntimeAuthRefresh(source, (payload) => {
         broadcastToWindows(context, IPC_AUTH_RUNTIME_REFRESH_REQUESTED, payload);
     }),
+    getScheduleScriptAuth: async () => await context.services.authService.getScheduleScriptAuth(),
     getAppBrowserContext: async () => {
         const apps = (await listRecentApps(3)) ?? [];
         const activeApp = apps.find((app) => app.isActive && app.bundleId);

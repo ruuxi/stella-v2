@@ -839,6 +839,20 @@ export class AuthService {
     return fresh?.trim() || cached;
   }
 
+  async getScheduleScriptAuth(): Promise<{
+    baseUrl: string;
+    authToken: string;
+  } | null> {
+    const baseUrl = this.getConvexSiteUrl();
+    if (!baseUrl) {
+      return null;
+    }
+    const authToken = (await this.getAuthToken())?.trim() || null;
+    return authToken && this.isHostAuthTokenFresh(authToken)
+      ? { baseUrl, authToken }
+      : null;
+  }
+
   getBetterAuthIssuerUrlForStore(): string | null {
     const storedCookie = this.getAuthStorageItem(
       BETTER_AUTH_COOKIE_STORAGE_KEY,

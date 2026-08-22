@@ -4953,7 +4953,64 @@ export class SessionStore {
    * display. Truncated result/error previews keep the wire payload small;
    * the full result still rides the completion chat card.
    */
-  listThreadActivity(conversationId) {
+  listThreadActivity(conversationId, options = {}) {
+    if (options.view === "mobile-summary") {
+      const requestedMaxItems = Number.isFinite(options.maxItems)
+        ? options.maxItems
+        : 200;
+      const maxItems = Math.min(
+        500,
+        Math.max(1, Math.floor(requestedMaxItems)),
+      );
+      const rows = this.db
+        .prepare(
+          `
+        WITH selected AS (
+          SELECT
+            a.thread_id,
+            a.conversation_id,
+            a.agent_type,
+            a.description,
+            a.status,
+            a.attempt_generation,
+            a.parent_agent_id,
+            a.started_at,
+            a.completed_at,
+            substr(a.result, 1, 512) AS result,
+            substr(a.error, 1, 512) AS error,
+            a.updated_at,
+            a.root_run_id
+          FROM runtime_agents a
+          WHERE a.conversation_id = ?
+          ORDER BY
+            CASE WHEN a.status = 'running' THEN 0 ELSE 1 END ASC,
+            a.updated_at DESC,
+            a.thread_id ASC
+          LIMIT ?
+        )
+        SELECT *
+        FROM selected
+        ORDER BY started_at ASC, thread_id ASC
+      `,
+        )
+        .all(conversationId, maxItems);
+      return rows.map((row) => ({
+        source: "stella",
+        threadId: row.thread_id,
+        conversationId: row.conversation_id,
+        agentType: normalizeRetiredAgentType(row.agent_type),
+        description: row.description,
+        status: row.status,
+        attemptGeneration: row.attempt_generation ?? 0,
+        ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
+        ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
+        startedAt: row.started_at,
+        ...(row.completed_at == null ? {} : { completedAt: row.completed_at }),
+        ...(row.result ? { result: row.result } : {}),
+        ...(row.error ? { error: row.error } : {}),
+        updatedAt: row.updated_at,
+      }));
+    }
     const rows = this.db
       .prepare(
         `

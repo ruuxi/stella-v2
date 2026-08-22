@@ -99,7 +99,10 @@ describe("challenge endpoint hardening", () => {
     let served = 0;
     for (let i = 0; i < 40; i += 1) {
       const res = createFakeResponse();
-      await anyService.handleRequest(challengeRequest("/bridge/challenge"), res);
+      await anyService.handleRequest(
+        challengeRequest("/bridge/challenge"),
+        res,
+      );
       if (res.statusCode === 200) served += 1;
       if (res.statusCode === 429) limited += 1;
     }
@@ -180,6 +183,7 @@ describe("bridge capability surface", () => {
     expect(MOBILE_BRIDGE_FEATURES).toContain("binary-file-lane");
     expect(MOBILE_BRIDGE_FEATURES).toContain("binary-upload");
     expect(MOBILE_BRIDGE_FEATURES).toContain("localchat-push");
+    expect(MOBILE_BRIDGE_FEATURES).toContain("compact-thread-activity-v1");
   });
 });
 

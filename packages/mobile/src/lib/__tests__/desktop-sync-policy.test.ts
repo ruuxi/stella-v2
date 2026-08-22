@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  consumeDesktopLocalChatPush,
   desktopSyncPullPlan,
   desktopSyncJoinPlan,
   DESKTOP_TASK_POLL_MS,
@@ -11,8 +12,78 @@ import {
   shouldDeferLocalChatPushDuringSend,
   shouldStartDesktopSyncRun,
   shouldRunDesktopForegroundTimer,
+  shouldScheduleDesktopTranscriptSyncForPush,
   shouldSyncOnLocalChatPush,
 } from "../desktop-sync-policy";
+
+describe("consumeDesktopLocalChatPush", () => {
+  test("deduplicates durable events and ignores other conversations", () => {
+    const seenEventIds = new Set<string>();
+    const input = {
+      activeConversationId: "conv-1",
+      payloadConversationId: "conv-1",
+      eventId: "event-1",
+      seenEventIds,
+    };
+    expect(consumeDesktopLocalChatPush(input)).toBe("sync");
+    expect(consumeDesktopLocalChatPush(input)).toBe("duplicate");
+    expect(
+      consumeDesktopLocalChatPush({
+        ...input,
+        payloadConversationId: "conv-2",
+        eventId: "event-2",
+      }),
+    ).toBe("other-conversation");
+  });
+
+  test("keeps unkeyed invalidations lossless and bounds dedupe memory", () => {
+    const seenEventIds = new Set<string>();
+    expect(
+      consumeDesktopLocalChatPush({
+        activeConversationId: "conv-1",
+        seenEventIds,
+      }),
+    ).toBe("sync");
+    expect(
+      consumeDesktopLocalChatPush({
+        activeConversationId: "conv-1",
+        eventId: "event-1",
+        seenEventIds,
+        maxSeenEventIds: 1,
+      }),
+    ).toBe("sync");
+    expect(
+      consumeDesktopLocalChatPush({
+        activeConversationId: "conv-1",
+        eventId: "event-2",
+        seenEventIds,
+        maxSeenEventIds: 1,
+      }),
+    ).toBe("sync");
+    expect(seenEventIds).toEqual(new Set(["conv-1:event-2"]));
+  });
+});
+
+describe("shouldScheduleDesktopTranscriptSyncForPush", () => {
+  test("coalesces tool churn until a transcript or lifecycle event", () => {
+    expect(shouldScheduleDesktopTranscriptSyncForPush("tool_request")).toBe(
+      false,
+    );
+    expect(shouldScheduleDesktopTranscriptSyncForPush("tool_result")).toBe(
+      false,
+    );
+    expect(shouldScheduleDesktopTranscriptSyncForPush("agent-progress")).toBe(
+      false,
+    );
+    expect(
+      shouldScheduleDesktopTranscriptSyncForPush("assistant_message"),
+    ).toBe(true);
+    expect(shouldScheduleDesktopTranscriptSyncForPush("agent-completed")).toBe(
+      true,
+    );
+    expect(shouldScheduleDesktopTranscriptSyncForPush()).toBe(true);
+  });
+});
 
 const base = {
   isDesktopTransport: true,

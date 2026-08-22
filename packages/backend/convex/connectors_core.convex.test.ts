@@ -1311,6 +1311,7 @@ describe("access token refresh", () => {
       { accountId, requiredScopes: ["mock.profile", "mock.read"] },
     );
     expect(result.accessToken).toBe("new-access");
+    expect(result.resourceOrigin).toBe("https://mock-provider.stella.test");
     const cred = await t.query(
       internal.connectors.oauth.vault.getCredentialForRefresh,
       { accountId },

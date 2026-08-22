@@ -275,6 +275,16 @@ export const assertHostedConnectRequestUrl = (
   ) {
     throw new ConnectorError("normalization_error");
   }
+  // Reject dot-segment path traversal BEFORE URL resolution: `encodeURIComponent`
+  // leaves `.` and `..` untouched, so an id like `..` in a fixed path template
+  // (e.g. `/v1/vaults/../items`) would otherwise be collapsed by `new URL` and
+  // escape the intended subtree. Compare against the raw path portion only.
+  const rawPath = path.split("?")[0].split("#")[0];
+  for (const segment of rawPath.split("/")) {
+    if (segment === "." || segment === "..") {
+      throw new ConnectorError("normalization_error");
+    }
+  }
   let url: URL;
   try {
     url = new URL(path, `${normalizedOrigin}/`);

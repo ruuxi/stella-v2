@@ -5,6 +5,7 @@ import {
   type HostedConnectProviderDescriptor,
 } from "./providers";
 import { assertHostedConnectRequestUrl } from "./origin";
+import { requireHostedConnectEgressTransport } from "./transport";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -215,6 +216,10 @@ export const executeHostedConnectAction = async (args: {
   if (!actionDescriptor || actionDescriptor.operation !== args.operation) {
     throw new ConnectorError("action_not_found");
   }
+  // Fail closed before any egress: the request only ever leaves the backend
+  // through an enforced first-party transport (DNS-pinning / allowlisting
+  // proxy). There is no direct-`fetch` fallback.
+  const transport = requireHostedConnectEgressTransport();
   assertNoCredentialFields(args.input);
   if (
     JSON.stringify(redactHostedConnectToken(args.input, args.token)) !==
@@ -240,7 +245,7 @@ export const executeHostedConnectAction = async (args: {
     signal: controller.signal,
   });
   try {
-    const response = await fetch(prepared.url, prepared.init);
+    const response = await transport.dispatch(prepared.url, prepared.init);
     if (!response.ok || (response.status >= 300 && response.status < 400)) {
       await response.body?.cancel().catch(() => undefined);
       throw classifyHostedConnectFailure(response.status, args.operation);

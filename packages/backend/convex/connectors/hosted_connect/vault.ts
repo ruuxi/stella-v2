@@ -23,6 +23,7 @@ import {
   validateHostedConnectToken,
 } from "./providers";
 import { normalizeHostedConnectOrigin } from "./origin";
+import { isHostedConnectEgressTransportAvailable } from "./transport";
 
 const DESTROYED_CREDENTIAL = "";
 
@@ -53,6 +54,10 @@ const connectionStatus = (
   const connected = Boolean(
     credential?.status === "active" && credential.encryptedToken,
   );
+  // The enforced first-party egress transport is the network-layer SSRF
+  // control. Absent it, readiness can never be true — no env combination
+  // activates the connector while direct Convex fetch is the only transport.
+  const egressTransportReady = isHostedConnectEgressTransportAvailable();
   return {
     connectorId: descriptor.connectorId,
     provider: descriptor.providerKey,
@@ -67,7 +72,9 @@ const connectionStatus = (
     updatedAt: credential?.updatedAt,
     providerEnabled,
     providerVerified,
-    ready: connected && providerEnabled && providerVerified,
+    egressTransportReady,
+    ready:
+      connected && providerEnabled && providerVerified && egressTransportReady,
     credentialLabel: descriptor.credentialLabel,
     originLabel: descriptor.originLabel,
     originPlaceholder: descriptor.originPlaceholder,
@@ -86,6 +93,7 @@ const publicConnectionStatusValidator = v.object({
   updatedAt: v.optional(v.number()),
   providerEnabled: v.boolean(),
   providerVerified: v.boolean(),
+  egressTransportReady: v.boolean(),
   ready: v.boolean(),
   credentialLabel: v.string(),
   originLabel: v.string(),

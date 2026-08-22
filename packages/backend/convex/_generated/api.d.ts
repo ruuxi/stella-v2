@@ -17,6 +17,7 @@ import type * as connectors_env from "../connectors/env.js";
 import type * as connectors_hosted_connect_execute from "../connectors/hosted_connect/execute.js";
 import type * as connectors_hosted_connect_origin from "../connectors/hosted_connect/origin.js";
 import type * as connectors_hosted_connect_providers from "../connectors/hosted_connect/providers.js";
+import type * as connectors_hosted_connect_transport from "../connectors/hosted_connect/transport.js";
 import type * as connectors_hosted_connect_vault from "../connectors/hosted_connect/vault.js";
 import type * as connectors_errors from "../connectors/errors.js";
 import type * as connectors_execute from "../connectors/execute.js";
@@ -270,6 +271,7 @@ declare const fullApi: ApiFromModules<{
   "connectors/hosted_connect/execute": typeof connectors_hosted_connect_execute;
   "connectors/hosted_connect/origin": typeof connectors_hosted_connect_origin;
   "connectors/hosted_connect/providers": typeof connectors_hosted_connect_providers;
+  "connectors/hosted_connect/transport": typeof connectors_hosted_connect_transport;
   "connectors/hosted_connect/vault": typeof connectors_hosted_connect_vault;
   "connectors/errors": typeof connectors_errors;
   "connectors/execute": typeof connectors_execute;

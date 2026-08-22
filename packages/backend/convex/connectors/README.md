@@ -54,11 +54,12 @@ connectors/
     providers.ts         # reviewed fixed origins, auth placement, action schemas
     vault.ts             # encrypted owner-scoped connect/status/disconnect lifecycle
     execute.ts           # single-attempt fixed-origin execution + redaction
-  hosted_connect/
+  hosted_connect/        # DORMANT: gated by an unimplemented egress transport
     origin.ts            # SSRF-safe per-owner origin binding + fixed-path URLs
-    providers.ts         # customer-hosted descriptors + token/verify gating
+    transport.ts         # egress transport capability gate (fail-closed; no direct fetch)
+    providers.ts         # customer-hosted descriptors + token/verify/transport gating
     vault.ts             # encrypted token + bound-origin lifecycle (1Password Connect)
-    execute.ts           # single-attempt bound-origin execution + redaction
+    execute.ts           # single-attempt execution via transport + redaction
 http_routes/connector_oauth.ts  # hosted GET callback + admin rollout POST
 http_routes/native_oauth.ts     # Store connect/status/run + API-key lifecycle
 ```
@@ -388,6 +389,7 @@ descriptors and first-party dispatch:
 
 | Connector   | Remaining gap                                                                                                                                                                                                                                                                                                                                                               |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `1password` | Customer-hosted 1Password Connect. Encrypted token + bound-origin scaffolding exists (see below) but stays planner-only/dormant: lexical origin validation cannot stop DNS-to-private-IP SSRF, and the default Convex runtime has no way to pin the resolved address. Activation is blocked on an enforced first-party egress transport; direct `fetch` is not an accepted transport.                                                    |
 | `snowflake` | The SQL API requires an account-specific origin, and the reviewed Snowflake contract has OAuth/key-pair/PAT semantics rather than a proven single static API key for this product surface. The existing relative SQL planners and strict `*.snowflakecomputing.com` origin validator are non-executable until account-origin capture and the credential model are designed. |
 
 That Snowflake disposition follows the primary [SQL API endpoint
@@ -408,7 +410,16 @@ uncertain write returns `ambiguous_write` and is never replayed automatically.
 Connect and disconnect are owner-rate-limited sensitive actions; clients do
 not automatically retry either mutation.
 
-## Customer-hosted connect profiles (1Password Connect)
+## Customer-hosted connect profiles (1Password Connect) — DORMANT / not activatable
+
+> **Status:** `1password` is `planner_ready` / `code_blocked`, **not**
+> `executor_ready`. The scaffolding below is retained but dormant: an
+> independent review established that lexical origin validation cannot stop
+> DNS-to-private-IP SSRF, and the default Convex runtime cannot pin the resolved
+> address. Every public connect/execute path therefore **fails closed before any
+> token is stored or any request egresses** until an enforced first-party egress
+> transport is implemented (see "Transport capability gate" below). Composio
+> remains the only usable path for 1Password.
 
 `connectors/hosted_connect/` is a sibling of `api_keys/` for providers whose
 HTTPS origin is **customer-hosted** and therefore supplied per owner rather than
@@ -436,13 +447,23 @@ Security model:
   (re-normalized) bound origin. The bearer token is placed only in
   `Authorization`; `redirect: "manual"` means a 3xx (even same-host) is treated
   as a provider failure so the token is never re-sent to a redirected location.
-- **DNS-rebinding limitation (Convex/fetch constraints)**: the default Convex
-  runtime exposes only global `fetch` — there is no `node:dns` and no way to pin
-  the socket to a validated IP, so a hostname that resolves to a private address
-  at fetch time cannot be fully prevented here. It is mitigated by rejecting
-  unsafe IP literals / internal / rebinding hostnames, re-validating on every
-  request, and never following redirects; the residual exposure requires an
-  egress proxy or network allowlist and is an external activation requirement.
+- **Transport capability gate (the network-layer SSRF control)**
+  (`hosted_connect/transport.ts`): lexical origin checks are necessary but **not
+  sufficient** — on the default Convex runtime the only transport is global
+  `fetch`, which resolves DNS itself and cannot be pinned to a validated
+  address, so a validated hostname can still resolve (or rebind) to a private
+  address. A safe deployment requires a DNS-pinning / IP-allowlisting egress
+  proxy: the *transport*. `requireHostedConnectEgressTransport()` is the single
+  choke point every connect/execute path routes through; when no transport is
+  resolved it throws `egress_transport_unavailable`. There is **no production
+  env that yields a transport** and **no direct-`fetch` fallback** — activation
+  requires shipping a real proxy-client implementation in that module.
+- **DNS-rebinding is only *mitigated* lexically, not solved**: rejecting unsafe
+  IP literals / internal / rebinding hostnames, re-validating on every request,
+  and never following redirects reduce the surface, but the enforced transport
+  above is what actually closes it. Execution also rejects `.`/`..` path
+  segments before URL construction so an encoded id cannot traverse out of the
+  bound subtree.
 - **Same lifecycle guarantees as API keys**: one live row per owner/provider;
   replacement is an optimistic-generation overwrite of both token and origin;
   disconnect physically deletes the envelope; a provider 401/403 destroys the
@@ -451,15 +472,25 @@ Security model:
   are owner-rate-limited sensitive actions; rotation re-wraps onto the active
   master key; account deletion drains `connector_hosted_profiles`.
 
-Activation is gated exactly like the API-key providers and independently:
-`STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS` (deployment enablement) **and**
+Activation is **impossible with the current envs**. Even setting
+`STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS` (deployment enablement) and
 `STELLA_CONNECTOR_HOSTED_CONNECT_VERIFIED_PROVIDERS` (a separate representative
-live-call attestation) must both include the provider key, and a
-`connector_rollouts` row must select first-party. Until then Composio stays the
-default path and nothing routes natively. Remaining external requirements before
-1Password is activated: deployment enablement, a representative live call against
-a real customer Connect server, and (to fully close DNS rebinding) an egress
-allowlist/proxy.
+live-call attestation) and adding a first-party `connector_rollouts` row, the
+transport gate still fails closed: `requireHostedConnectEgressTransport()`
+throws, `getHostedConnectReadiness().ready` is `false` (via
+`egressTransportReady`), `connectHostedConnectProfile` refuses to store a token,
+and `runFirstPartyConnectorAction` refuses to egress — with no `fetch` call.
+Composio stays the default and nothing routes natively. Remaining external
+requirements before 1Password could be activated, in order:
+
+1. **Enforced first-party egress transport** — a DNS-pinning / IP-allowlisting
+   proxy client wired into `hosted_connect/transport.ts`. This is the blocking
+   requirement; without it the other steps have no effect.
+2. Deployment enablement + representative live-call verification allowlists.
+3. A representative live call against a real customer Connect server, then a
+   `connector_rollouts` first-party selection.
+
+Only after (1) exists should `1password` be reconsidered for `executor_ready`.
 
 The Store publisher keeps Composio authoritative for planner-only and
 not-enabled toolkits and publishes the auth schemes Composio reports. `44api`

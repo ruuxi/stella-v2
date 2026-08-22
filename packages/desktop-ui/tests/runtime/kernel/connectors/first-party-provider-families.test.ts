@@ -94,23 +94,24 @@ describe("reconciled first-party provider-family contract", () => {
       FIRST_PARTY_PROVIDER_FAMILY_STATUS,
       (entry) => entry.codeStatus,
     );
-    expect(counts.executor_ready).toHaveLength(48);
-    expect(counts.planner_ready).toHaveLength(1);
+    expect(counts.executor_ready).toHaveLength(47);
+    expect(counts.planner_ready).toHaveLength(2);
     expect(counts.metadata_only ?? []).toHaveLength(0);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "external_blocked",
       ),
-    ).toHaveLength(48);
+    ).toHaveLength(47);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "code_blocked",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     const plannerReady = FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
       (entry) => entry.codeStatus === "planner_ready",
     );
     expect(plannerReady.map((entry) => entry.connectorId).sort()).toEqual([
+      "1password",
       "snowflake",
     ]);
     for (const entry of plannerReady) {
@@ -137,7 +138,6 @@ describe("reconciled first-party provider-family contract", () => {
       "apollo",
       "ashby",
       "21risk",
-      "1password",
     ]) {
       expect(getFirstPartyProviderFamilyStatus(id)?.codeStatus, id).toBe(
         "executor_ready",
@@ -146,11 +146,15 @@ describe("reconciled first-party provider-family contract", () => {
     expect(
       getFirstPartyProviderFamilyStatus("abstract")?.activationBlockers,
     ).not.toContain("per-product Abstract API-key custody");
+    // 1Password stays planner_ready / code_blocked: direct Convex fetch cannot
+    // stop DNS-to-private-IP SSRF, so it is not activatable and must not claim
+    // executor_ready until an enforced first-party egress transport exists.
     const onePassword = getFirstPartyProviderFamilyStatus("1password");
-    expect(onePassword?.activationStatus).toBe("external_blocked");
+    expect(onePassword?.codeStatus).toBe("planner_ready");
+    expect(onePassword?.activationStatus).toBe("code_blocked");
     expect(onePassword?.fallbackStatus).toBe("retained");
     expect(onePassword?.activationBlockers).toContain(
-      "real connect and representative provider call",
+      "enforced first-party egress transport (DNS-pinning/allowlisting proxy); direct Convex fetch cannot prevent DNS-rebinding to private addresses",
     );
   });
 

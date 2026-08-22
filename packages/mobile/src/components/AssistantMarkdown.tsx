@@ -17,6 +17,7 @@
  * this instance (latched via `hasStreamedRef`).
  */
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -173,7 +174,7 @@ const containerStyle = StyleSheet.create({
   wrapper: { width: "100%" },
 });
 
-export function AssistantMarkdown({
+export const AssistantMarkdown = memo(function AssistantMarkdown({
   text,
   colors,
   isStreaming = false,
@@ -312,4 +313,4 @@ export function AssistantMarkdown({
   }
 
   return <View style={containerStyle.wrapper}>{content}</View>;
-}
+});

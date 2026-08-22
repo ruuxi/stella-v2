@@ -14,6 +14,7 @@ import {
 import {
   BRIDGE_FEATURE_BINARY_FILE,
   BRIDGE_FEATURE_BINARY_UPLOAD,
+  BRIDGE_FEATURE_COMPACT_THREAD_ACTIVITY,
   BRIDGE_FEATURE_DEFLATE,
   BRIDGE_FEATURE_LOCAL_CHAT_PUSH,
   MOBILE_SUPPORTED_BRIDGE_FEATURES,
@@ -74,6 +75,7 @@ const BRIDGE_RECONNECT_BASE_DELAY_MS = 400;
 const BRIDGE_RECONNECT_MAX_DELAY_MS = 4_000;
 const BRIDGE_RESUME_PAGE_EVENTS = 200;
 const DEFAULT_HISTORY_LIMIT = 100;
+const MOBILE_THREAD_ACTIVITY_LIMIT = 200;
 const DEVELOPER_RESOURCE_PREVIEWS_KEY = "stella-developer-resource-previews";
 const TIME_TAG_PATTERN =
   "(?:1[0-2]|0?[1-9]):[0-5]\\d\\s?(?:AM|PM)(?:,\\s+[A-Za-z]{3}\\s+\\d{1,2})?";
@@ -1151,8 +1153,9 @@ function parseTasks(value: unknown): MobileTask[] {
 /**
  * Fetch the conversation's authoritative background-task set from the
  * desktop's `runtime_agents` projection. Returns null against older desktops
- * that don't expose `localChat:listThreadActivity` (callers keep the
- * synced-message task fold as their only source).
+ * that don't advertise the bounded mobile-summary view (callers keep the
+ * synced-message task fold as their only source rather than downloading the
+ * legacy full projection).
  */
 export async function fetchDesktopBridgeThreadTasks(
   access: StoredPhoneAccess,
@@ -1160,10 +1163,24 @@ export async function fetchDesktopBridgeThreadTasks(
 ): Promise<MobileTask[] | null> {
   try {
     const bridge = await resolveDesktopBridge(access);
+    // Legacy desktops only expose the full runtime_agents projection. Large
+    // threads can make that response approach a megabyte and force Hermes to
+    // synchronously decode hundreds of fields the phone never reads. Keep the
+    // existing live-event projection instead of freezing the UI; upgraded
+    // desktops advertise the bounded summary lane below.
+    if (!bridge.features.has(BRIDGE_FEATURE_COMPACT_THREAD_ACTIVITY)) {
+      return null;
+    }
     const rows = await invokeDesktopBridge<unknown[]>(
       bridge,
       "localChat:listThreadActivity",
-      [{ conversationId }],
+      [
+        {
+          conversationId,
+          view: "mobile-summary",
+          maxItems: MOBILE_THREAD_ACTIVITY_LIMIT,
+        },
+      ],
     );
     return parseThreadActivityTasks(rows);
   } catch {

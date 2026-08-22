@@ -26,6 +26,63 @@ export const DESKTOP_TASK_POLL_MS = 5_000;
  * poll just guarantees the running-task snapshot can never silently freeze.
  */
 export const DESKTOP_TASK_POLL_PUSH_VERIFY_MS = 30_000;
+export const DESKTOP_PUSH_DEDUPE_LIMIT = 512;
+
+export type DesktopLocalChatPushDisposition =
+  | "sync"
+  | "duplicate"
+  | "other-conversation";
+
+/**
+ * Classify an at-least-once local-chat notification before scheduling a pull.
+ * The desktop includes the durable event id when one exists, so identical
+ * broadcasts can be ignored without guessing from message text or timestamps.
+ */
+export const consumeDesktopLocalChatPush = ({
+  activeConversationId,
+  payloadConversationId,
+  eventId,
+  seenEventIds,
+  maxSeenEventIds = DESKTOP_PUSH_DEDUPE_LIMIT,
+}: {
+  activeConversationId: string | null;
+  payloadConversationId?: string;
+  eventId?: string;
+  seenEventIds: Set<string>;
+  maxSeenEventIds?: number;
+}): DesktopLocalChatPushDisposition => {
+  if (
+    activeConversationId &&
+    payloadConversationId &&
+    payloadConversationId !== activeConversationId
+  ) {
+    return "other-conversation";
+  }
+  if (!eventId) return "sync";
+
+  const identity = `${payloadConversationId ?? activeConversationId ?? ""}:${eventId}`;
+  if (seenEventIds.has(identity)) return "duplicate";
+  seenEventIds.add(identity);
+  while (seenEventIds.size > Math.max(1, maxSeenEventIds)) {
+    const oldest = seenEventIds.values().next().value;
+    if (typeof oldest !== "string") break;
+    seenEventIds.delete(oldest);
+  }
+  return "sync";
+};
+
+/**
+ * Tool calls are high-volume source events, not standalone transcript rows.
+ * The next user/assistant/lifecycle event (or the running-task verification
+ * poll) pulls them with their owning message, so syncing every tool edge only
+ * rebuilds the same row and artifact projection over and over.
+ */
+export const shouldScheduleDesktopTranscriptSyncForPush = (
+  eventType?: string,
+): boolean =>
+  eventType !== "tool_request" &&
+  eventType !== "tool_result" &&
+  eventType !== "agent-progress";
 
 export const shouldArmDesktopTaskPoll = (args: {
   isDesktopTransport: boolean;
@@ -132,25 +189,12 @@ export const desktopLiveConnectionSyncPlan = (details: {
  * Which cursor a pull sends to the desktop.
  *
  * Steady-state pulls (task poll, push-notified, send-path reconcile) ride the
- * cheap `(created_at, id)` delta cursor. Catch-up pulls (landing, foreground
- * return, reconnect, Force Sync) MUST NOT trust it: the cursor is derived from
- * the newest *source event* the last pull saw — including tool/agent lifecycle
- * events — and the desktop's `listMessagesAfter` filter is strictly
- * `(created_at, id) > cursor`. Any row that lands at or behind the cursor is
- * invisible to every future delta, permanently:
- *
- *   - a row appended with a caller-supplied (earlier) timestamp — the store's
- *     `created_at` is not monotonic;
- *   - a same-millisecond insert whose random id sorts below the cursor's id;
- *   - a burst larger than `maxMessages`, where the returned cursor covers all
- *     source events but the delivered message page was truncated.
- *
- * This poisoned-cursor state was observed in production as "Force Sync
- * succeeds but nothing arrives": the delta legitimately returns zero rows
- * while the desktop transcript has them. A full-window pull ignores the
- * cursor entirely and merges by id, so every catch-up moment re-converges the
- * transcript no matter how the cursor got ahead. The full pull also returns a
- * fresh cursor, un-poisoning the steady-state deltas that follow.
+ * cheap external timestamp/id cursor. Sequence-enabled desktop stores resolve
+ * that cursor to their monotonic `ordering_sequence`, so backdated and
+ * same-millisecond events remain visible to the next delta. Catch-up pulls
+ * (landing, foreground return, reconnect, Force Sync) still use a full window:
+ * it re-converges after a long socket gap and supports older desktop stores
+ * that can only use the legacy timestamp/id ordering.
  *
  * A cursor is only usable at all when it was minted for the conversation we
  * expect — on a conversation switch the delta must restart from scratch.

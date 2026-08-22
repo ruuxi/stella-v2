@@ -54,6 +54,7 @@ import {
 } from "./chat-merge";
 import { openDesktopBridgeLive } from "./desktop-bridge-live";
 import {
+  consumeDesktopLocalChatPush,
   desktopLiveConnectionSyncPlan,
   desktopSyncPullPlan,
   desktopSyncJoinPlan,
@@ -62,6 +63,7 @@ import {
   shouldArmDesktopTaskPoll,
   shouldDeferLocalChatPushDuringSend,
   shouldStartDesktopSyncRun,
+  shouldScheduleDesktopTranscriptSyncForPush,
   shouldSyncOnLocalChatPush,
 } from "./desktop-sync-policy";
 import { recordSyncDiagnostic } from "./sync-diagnostics";
@@ -925,52 +927,6 @@ export function useChatThread(opts: {
     runDesktopSyncRef.current = runDesktopSync;
   }, [runDesktopSync]);
 
-  // Live/connect-triggered pull that self-heals a poisoned delta cursor.
-  //
-  // The localChat push socket (and the socket's own (re)connect) fire because
-  // the desktop *just persisted a row* — so a steady-state delta that then
-  // returns ZERO rows is the poisoned-cursor signature the codebase documents
-  // (`desktopSyncPullPlan`): the `(created_at, id)` cursor already sits at or
-  // ahead of the new row and the desktop's strictly-greater-than filter hides
-  // it forever. The most common trigger is a turn *finishing* — the final
-  // assistant row and a same-millisecond agent/tool lifecycle event race on a
-  // random id tiebreak, so ~half the time the message sorts below the cursor
-  // and never lands. Before the push optimization the always-on 5s task poll
-  // papered over this; push relaxed that poll to a 30s while-running
-  // verification (and stands it down entirely once nothing is running), so a
-  // stranded row now waits for a full app restart (the landing full-window
-  // pull) — exactly the intermittent "never catches up to the newest message"
-  // report.
-  //
-  // Fix: when such a delta comes back empty, escalate ONCE to a full-window
-  // catch-up. It ignores the cursor, merges by id and re-mints a fresh cursor,
-  // healing the strand and un-poisoning the deltas that follow. The connection
-  // path is untouched (fast connect is preserved) and the common non-empty
-  // delta still returns immediately — the extra pull only runs on the anomaly.
-  // Full-window callers (real reconnect, resume, Force Sync) already re-read
-  // the whole window, so they short-circuit and never double-pull.
-  const runDesktopLiveSyncWithHeal = useCallback(
-    async (options?: {
-      catchUp?: boolean;
-      trigger?: string;
-    }): Promise<DesktopSyncOutcome> => {
-      const outcome = await runDesktopSync(options);
-      if (
-        options?.catchUp === true ||
-        outcome.offline === true ||
-        outcome.deferred === true ||
-        outcome.rows !== 0
-      ) {
-        return outcome;
-      }
-      return runDesktopSync({
-        catchUp: true,
-        trigger: `${options?.trigger ?? "live"}-heal`,
-      });
-    },
-    [runDesktopSync],
-  );
-
   // Re-arm the landing sync and invalidate any in-flight one whenever the
   // paired computer changes (or the surface unmounts), so the new computer
   // syncs on landing and a stale sync never persists the old cursor or merges
@@ -1083,8 +1039,11 @@ export function useChatThread(opts: {
   // While mounted with a desktop transport, hold a push socket: the desktop
   // broadcasts `localChat:updated` on every persisted chat event, and each
   // notification triggers the same coalesced, cursor-scoped `runDesktopSync`
-  // the polls use — so double delivery is harmless even mid-handoff, and the
-  // 05e5bf6 mid-send gate is enforced here too (no pulls while `sending`).
+  // the polls use. Delivery is at-least-once, so durable event ids are deduped
+  // before scheduling a pull. Tool/agent events can legitimately advance the
+  // source cursor without projecting a visible message; a zero-row delta is
+  // therefore a successful no-op, not a reason to fetch the full 100-row
+  // window. The 05e5bf6 mid-send gate is enforced here too.
   const [livePushConnected, setLivePushConnected] = useState(false);
   const storageLoadedRef = useRef(storageLoaded);
   useEffect(() => {
@@ -1101,9 +1060,20 @@ export function useChatThread(opts: {
   useEffect(() => {
     if (!desktopAccess) return;
     let pushDebounce: ReturnType<typeof setTimeout> | null = null;
+    const seenPushEventIds = new Set<string>();
     const handle = openDesktopBridgeLive({
       access: desktopAccess,
-      onLocalChatUpdated: () => {
+      onLocalChatUpdated: (payload) => {
+        const disposition = consumeDesktopLocalChatPush({
+          activeConversationId: syncConversationIdRef.current,
+          payloadConversationId: payload.conversationId,
+          eventId: payload.event?._id,
+          seenEventIds: seenPushEventIds,
+        });
+        if (disposition !== "sync") return;
+        if (!shouldScheduleDesktopTranscriptSyncForPush(payload.event?.type)) {
+          return;
+        }
         const gates = {
           storageLoaded: storageLoadedRef.current,
           sending: sendingRef.current,
@@ -1123,7 +1093,7 @@ export function useChatThread(opts: {
             deferDesktopSync(false);
             return;
           }
-          void runDesktopLiveSyncWithHeal({ trigger: "push" });
+          void runDesktopSync({ trigger: "push" });
         }, 400);
       },
       // Authoritative task rows: a thread transition (spawn, retitle,
@@ -1150,13 +1120,9 @@ export function useChatThread(opts: {
         if (connected) void refreshDesktopThreadTasks();
         // The first socket connection only closes the subscribe-vs-sync race
         // and therefore rides the saved cursor; a real socket drop uses the
-        // bounded recent-window healer. Either way, route through the
-        // empty-delta heal so a (re)connect that lands on a poisoned cursor
-        // still converges instead of silently riding a zero-row delta.
+        // bounded recent-window healer.
         if (connected && storageLoadedRef.current) {
-          void runDesktopLiveSyncWithHeal(
-            desktopLiveConnectionSyncPlan(details),
-          );
+          void runDesktopSync(desktopLiveConnectionSyncPlan(details));
         }
       },
     });
@@ -1169,28 +1135,39 @@ export function useChatThread(opts: {
     deferDesktopSync,
     desktopAccess,
     refreshDesktopThreadTasks,
-    runDesktopLiveSyncWithHeal,
+    runDesktopSync,
   ]);
 
-  // Flush push notifications the mid-send gate deferred. `runDesktopSync`
-  // awaits the turn's pending reconcile before reading the cursor, so this
-  // pull can't interleave with the optimistic-row linking it was gated for.
+  // Flush push notifications the mid-send gate deferred. First await the
+  // turn's reconcile: it can satisfy an ordinary push intent itself, avoiding
+  // the redundant empty delta that previously followed every streamed reply.
   useEffect(() => {
     if (!appActive) return;
     if (sending) return;
     if (!storageLoaded) return;
-    const pending = pendingPushSyncRef.current;
-    if (!pending) return;
-    pendingPushSyncRef.current = null;
-    // Same poisoned-cursor risk as the live path: a push deferred by the
-    // mid-send gate is flushed here as a delta, and a turn that finished
-    // mid-send is exactly when the final row can sort below the cursor. Heal
-    // an empty delta with a full-window pull so the reply lands post-send.
-    void runDesktopLiveSyncWithHeal({
-      catchUp: pending.catchUp,
-      trigger: pending.catchUp ? "post-send-catch-up-flush" : "post-send-flush",
-    });
-  }, [appActive, sending, storageLoaded, runDesktopLiveSyncWithHeal]);
+    if (!pendingPushSyncRef.current) return;
+
+    let cancelled = false;
+    void (async () => {
+      const pendingReconcile = pendingReconcileRef.current;
+      if (pendingReconcile) await pendingReconcile;
+      if (cancelled) return;
+
+      const pending = pendingPushSyncRef.current;
+      if (!pending) return;
+      pendingPushSyncRef.current = null;
+      await runDesktopSync({
+        catchUp: pending.catchUp,
+        trigger: pending.catchUp
+          ? "post-send-catch-up-flush"
+          : "post-send-flush",
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appActive, sending, storageLoaded, runDesktopSync]);
 
   const appendAssistantText = useCallback((replyId: string, chunk: string) => {
     setMessages((m) =>
@@ -2056,35 +2033,48 @@ export function useChatThread(opts: {
           activeDispatchRef.current?.latestResponseUserMessageId ||
           canonicalUserMessageId ||
           item.userMessageId;
-        setMessages((m) =>
-          m.map((msg) => {
+        setMessages((m) => {
+          let changed = false;
+          const next = m.map((msg) => {
             if (msg.id === replyId) {
               // Finalize IN PLACE: keep the streamed text (same string
               // reference) whenever it already covers the turn's final text,
               // so the reply that just streamed doesn't get rewritten — and
               // its markdown re-rendered/re-animated — at end of turn.
+              const text = finalizeStreamedAssistantText(msg.text, result.text);
+              const requestId = canonicalUserMessageId || msg.requestId;
+              const artifacts =
+                result.artifacts.length > 0 ? result.artifacts : msg.artifacts;
+              if (
+                text === msg.text &&
+                requestId === msg.requestId &&
+                artifacts === msg.artifacts
+              ) {
+                return msg;
+              }
+              changed = true;
               return {
                 ...msg,
-                text: finalizeStreamedAssistantText(msg.text, result.text),
-                ...(canonicalUserMessageId
-                  ? { requestId: canonicalUserMessageId }
-                  : {}),
-                ...(result.artifacts.length > 0
-                  ? { artifacts: result.artifacts }
-                  : {}),
+                text,
+                ...(requestId ? { requestId } : {}),
+                ...(artifacts ? { artifacts } : {}),
               };
             }
             if (msg.id === responseUserMessageId && canonicalUserMessageId) {
+              if (msg.canonicalId === canonicalUserMessageId) return msg;
+              changed = true;
               return { ...msg, canonicalId: canonicalUserMessageId };
             }
             return msg;
-          }),
-        );
+          });
+          return changed ? next : m;
+        });
         // Reconcile with canonical desktop rows in the background so ids line
         // up with future syncs. Snapshot the sync generation so a reconcile that
         // resolves after the paired computer/thread changed (or the surface
         // unmounted) can't persist a stale cursor or merge the old transcript.
         const reconcileGeneration = syncGenerationRef.current;
+        const deferredSyncAtReconcileStart = pendingPushSyncRef.current;
         const reconcilePromise = syncDesktopBridgeChatMessages({
           access,
           expectedConversationId: syncConversationIdRef.current,
@@ -2100,6 +2090,18 @@ export function useChatThread(opts: {
               conversationId: delta.conversationId,
               cursor: delta.cursor,
             });
+            // The reconcile read every event through its returned cursor. If
+            // the only deferred request is the ordinary push intent that was
+            // already pending when this read began, it is satisfied now. A
+            // newer push has a different object identity and a catch-up intent
+            // still needs its full-window healer, so neither is cleared here.
+            if (
+              deferredSyncAtReconcileStart &&
+              !deferredSyncAtReconcileStart.catchUp &&
+              pendingPushSyncRef.current === deferredSyncAtReconcileStart
+            ) {
+              pendingPushSyncRef.current = null;
+            }
             const hasCanonicalAssistant = delta.messages.some(
               (message) => message.role === "assistant",
             );

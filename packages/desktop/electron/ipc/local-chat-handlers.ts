@@ -264,6 +264,8 @@ export const registerLocalChatHandlers = (
       event,
       payload: {
         conversationId?: string;
+        view?: "mobile-summary";
+        maxItems?: number;
       },
     ) =>
       await withLocalChatClient(
@@ -273,6 +275,8 @@ export const registerLocalChatHandlers = (
         (client) =>
           client.listThreadActivity({
             conversationId: payload?.conversationId ?? "",
+            view: payload?.view,
+            maxItems: payload?.maxItems,
           }),
       ),
   );

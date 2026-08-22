@@ -397,9 +397,18 @@ const mergeCanonicalMessage = (
   const canonicalCreatedAt =
     existing.canonicalCreatedAt ?? canonicalStampOf(canonical);
   const artifacts = mergeArtifacts(existing.artifacts, canonical.artifacts);
+  // When the canonical text is just a whitespace normalization of what already
+  // streamed into this row, keep the existing string (same reference): the
+  // incremental markdown renderer resets — and replays its stream fade over
+  // the whole message — on any non-prefix text change, so a cosmetic rewrite
+  // must not reach it.
+  const keepExistingText =
+    existing.text !== canonical.text &&
+    partialTextKey(existing.text) === partialTextKey(canonical.text);
   const candidate: ChatMessage = {
     ...canonical,
     id: existing.id,
+    ...(keepExistingText ? { text: existing.text } : {}),
     // A direct canonical replay needs no second identity field. Linked local
     // rows retain their local list key and adopt the desktop id exactly once.
     ...(existing.id !== canonical.id || existing.canonicalId
@@ -503,6 +512,35 @@ const collapseRequestLinkedAssistantDuplicates = (
  * whitespace normalization without being different responses. */
 const partialTextKey = (text: string): string =>
   text.replace(/\s+/g, " ").trim();
+
+/**
+ * Pick the reply row's text when a streamed desktop turn settles.
+ *
+ * The bridge's finished event carries only the turn's LAST canonical assistant
+ * message (normalized/trimmed), while the row accumulated the raw streamed
+ * chunks of the whole turn. Overwriting the streamed text with that final text
+ * used to rewrite the row wholesale — a non-prefix text change resets the
+ * incremental markdown session, so the entire already-visible reply re-rendered
+ * and replayed its stream fade the moment streaming ended.
+ *
+ * Keep the streamed string (same reference — the renderer sees no change) when
+ * it already contains the final text: identical modulo whitespace, or the final
+ * text is a normalized cut of the streamed turn (multi-message turns stream
+ * preamble + answer into one row; the background reconcile splits them into
+ * their canonical rows in one atomic merge). Fall back to the final text only
+ * when the stream genuinely missed content (empty or a strict earlier cut).
+ */
+export const finalizeStreamedAssistantText = (
+  streamedText: string,
+  finalText: string,
+): string => {
+  if (!streamedText.trim()) return finalText;
+  if (!finalText.trim()) return streamedText;
+  const streamed = partialTextKey(streamedText);
+  const final = partialTextKey(finalText);
+  if (streamed === final || streamed.endsWith(final)) return streamedText;
+  return finalText;
+};
 
 /**
  * Drop interrupted streaming snapshots that a canonical-backed row of the SAME

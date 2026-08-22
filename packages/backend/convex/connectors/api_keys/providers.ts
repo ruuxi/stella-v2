@@ -601,16 +601,48 @@ const PEOPLE_DATA_LABS_ACTIONS = {
   },
 } as const satisfies Readonly<Record<string, ApiKeyActionDescriptor>>;
 
+const APOLLO_TASK_TYPES = [
+  "call",
+  "outreach_manual_email",
+  "linkedin_step_connect",
+  "linkedin_step_message",
+  "linkedin_step_view_profile",
+  "linkedin_step_interact_post",
+  "action_item",
+] as const;
+const APOLLO_TASK_STATUSES = ["scheduled", "completed", "skipped"] as const;
+const APOLLO_TASK_PRIORITIES = ["high", "medium", "low"] as const;
+
 const APOLLO_ACTIONS = {
   APOLLO_PEOPLE_SEARCH: {
     operation: "read",
     inputSchema: objectSchema(
       {
+        page: { type: "integer", minimum: 1, maximum: 500 },
+        per_page: { type: "integer", minimum: 1, maximum: 100 },
         q_keywords: { type: "string" },
         person_titles: { type: "array", items: { type: "string" } },
+        organization_ids: { type: "array", items: { type: "string" } },
         person_locations: { type: "array", items: { type: "string" } },
-        page: { type: "number" },
-        per_page: { type: "number" },
+        person_seniorities: { type: "array", items: { type: "string" } },
+        contact_email_status: {
+          type: "array",
+          items: {
+            enum: ["verified", "unverified", "likely to engage", "unavailable"],
+          },
+        },
+        organization_locations: {
+          type: "array",
+          items: { type: "string" },
+        },
+        q_organization_domains: {
+          type: "array",
+          items: { type: "string" },
+        },
+        organization_num_employees_ranges: {
+          type: "array",
+          items: { type: "string" },
+        },
       },
       [],
       false,
@@ -620,10 +652,27 @@ const APOLLO_ACTIONS = {
     operation: "read",
     inputSchema: objectSchema(
       {
+        page: { type: "integer", minimum: 1, maximum: 500 },
+        per_page: { type: "integer", minimum: 1, maximum: 100 },
+        organization_ids: { type: "array", items: { type: "string" } },
         q_organization_name: { type: "string" },
         organization_locations: { type: "array", items: { type: "string" } },
-        page: { type: "number" },
-        per_page: { type: "number" },
+        organization_not_locations: {
+          type: "array",
+          items: { type: "string" },
+        },
+        q_organization_domains_list: {
+          type: "array",
+          items: { type: "string" },
+        },
+        q_organization_keyword_tags: {
+          type: "array",
+          items: { type: "string" },
+        },
+        organization_num_employees_ranges: {
+          type: "array",
+          items: { type: "string" },
+        },
       },
       [],
       false,
@@ -634,19 +683,38 @@ const APOLLO_ACTIONS = {
     inputSchema: {
       ...objectSchema(
         {
+          id: { type: "string" },
+          name: { type: "string" },
           email: { type: "string" },
-          first_name: { type: "string" },
-          last_name: { type: "string" },
           domain: { type: "string" },
+          last_name: { type: "string" },
+          first_name: { type: "string" },
+          webhook_url: { type: "string" },
+          hashed_email: { type: "string" },
           linkedin_url: { type: "string" },
+          organization_name: { type: "string" },
+          reveal_phone_number: { type: "boolean" },
+          reveal_personal_emails: { type: "boolean" },
         },
         [],
         false,
       ),
       anyOf: [
+        { required: ["id"] },
         { required: ["email"] },
+        { required: ["hashed_email"] },
         { required: ["linkedin_url"] },
+        { required: ["first_name", "last_name", "organization_name"] },
         { required: ["first_name", "last_name", "domain"] },
+      ],
+      allOf: [
+        {
+          if: {
+            properties: { reveal_phone_number: { const: true } },
+            required: ["reveal_phone_number"],
+          },
+          then: { required: ["webhook_url"] },
+        },
       ],
     },
   },
@@ -654,11 +722,21 @@ const APOLLO_ACTIONS = {
     operation: "write",
     inputSchema: objectSchema(
       {
-        first_name: { type: "string", minLength: 1 },
-        last_name: { type: "string", minLength: 1 },
         email: { type: "string" },
-        organization_name: { type: "string" },
         title: { type: "string" },
+        last_name: { type: "string", minLength: 1 },
+        account_id: { type: "string" },
+        first_name: { type: "string", minLength: 1 },
+        home_phone: { type: "string" },
+        label_names: { type: "array", items: { type: "string" } },
+        other_phone: { type: "string" },
+        website_url: { type: "string" },
+        direct_phone: { type: "string" },
+        mobile_phone: { type: "string" },
+        corporate_phone: { type: "string" },
+        contact_stage_id: { type: "string" },
+        organization_name: { type: "string" },
+        present_raw_address: { type: "string" },
       },
       ["first_name", "last_name"],
       false,
@@ -668,17 +746,16 @@ const APOLLO_ACTIONS = {
     operation: "write",
     inputSchema: objectSchema(
       {
-        priority: { type: "string", minLength: 1 },
-        type: { type: "string", minLength: 1 },
-        contact_ids: {
-          type: "array",
-          minItems: 1,
-          items: { type: "string" },
-        },
         note: { type: "string" },
-        due_at: { type: "string" },
+        type: { enum: APOLLO_TASK_TYPES },
+        title: { type: "string" },
+        due_at: { type: "string", minLength: 1 },
+        status: { enum: APOLLO_TASK_STATUSES },
+        user_id: { type: "string", minLength: 1 },
+        priority: { enum: APOLLO_TASK_PRIORITIES },
+        contact_id: { type: "string", minLength: 1 },
       },
-      ["priority", "type", "contact_ids"],
+      ["user_id", "contact_id", "type", "status", "due_at"],
       false,
     ),
   },

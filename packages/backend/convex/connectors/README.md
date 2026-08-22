@@ -272,7 +272,7 @@ credential, a verified representative call, and a first-party rollout.
 | `ably`           | `https://rest.ably.io`           | HTTP Basic `keyName:keySecret` pair | pair format is validated; it is never split into request input                                        |
 | `abuseipdb`      | `https://api.abuseipdb.com`      | `Key` header                        | report uses explicit form encoding; other reviewed actions use no body                                |
 | `peopledatalabs` | `https://api.peopledatalabs.com` | `X-Api-Key`                         | v5 reviewed person/company actions only                                                               |
-| `apollo`         | `https://api.apollo.io`          | `X-Api-Key`                         | reviewed people/org/contact/task actions only                                                         |
+| `apollo`         | `https://api.apollo.io`          | `X-Api-Key`                         | documented `/api/v1` people/org/contact/single-task actions only                                      |
 | `2chat`          | `https://api.p.2chat.io`         | `X-User-API-Key`                    | reviewed `/open` WhatsApp actions only                                                                |
 | `7shifts`        | `https://api.7shifts.com`        | `Authorization: Bearer`             | long-lived access-token model; supports exact `SEVENSHIFTS_*` and existing `7SHIFTS_*` public actions |
 | `abyssale`       | `https://api.abyssale.com`       | `X-API-KEY`                         | reviewed template/generation actions only                                                             |
@@ -283,6 +283,35 @@ No descriptor accepts a caller-supplied origin, path authority, authentication
 header, or request encoding. The only accepted authentication placements are
 the enumerated placements above. The executor performs one request, follows no
 redirect, redacts every credential representation, and never retries a write.
+
+### Apollo action contract
+
+Apollo keeps the fixed `https://api.apollo.io` origin and injects the owner
+credential only as `X-Api-Key`. The existing Stella public action IDs remain
+unchanged; in particular, `APOLLO_PEOPLE_ENRICH` remains the public ID while it
+maps to Apollo's current People Enrichment route. The reviewed mappings are:
+
+| Public action                | Provider request                       | Placement / semantics                                                                 |
+| ---------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------- |
+| `APOLLO_PEOPLE_SEARCH`       | `POST /api/v1/mixed_people/api_search` | documented query parameters; zero-credit People API Search                            |
+| `APOLLO_ORGANIZATION_SEARCH` | `POST /api/v1/mixed_companies/search`  | documented query parameters; credit-consuming organization search                     |
+| `APOLLO_PEOPLE_ENRICH`       | `POST /api/v1/people/match`            | documented query parameters; identifying input required; phone reveal needs a webhook |
+| `APOLLO_CREATE_CONTACT`      | `POST /api/v1/contacts`                | reviewed public contact fields in a JSON body                                         |
+| `APOLLO_CREATE_TASK`         | `POST /api/v1/tasks`                   | one task for one `contact_id`; reviewed JSON body                                     |
+
+The executor no longer uses the legacy `/v1/mixed_people/search` route or
+silently changes `APOLLO_CREATE_TASK` into a bulk `contact_ids` operation at
+`/v1/tasks/bulk_create`. Search and enrichment arrays are serialized to the
+bracketed query names in Apollo's current OpenAPI contract. Primary references:
+[People API Search](https://docs.apollo.io/reference/people-api-search),
+[Organization Search](https://docs.apollo.io/reference/organization-search),
+[People Enrichment](https://docs.apollo.io/reference/people-enrichment),
+[Create a Contact](https://docs.apollo.io/reference/create-a-contact), and
+[Create a Task](https://docs.apollo.io/reference/create-a-task). The public
+parameter contract was cross-checked against the
+[Apollo connector catalog](https://docs.composio.dev/toolkits/apollo). Apollo
+remains code-ready but disabled and independently unverified; this reconciliation
+does not add it to either deployment allowlist or select a first-party rollout.
 
 These connectors remain planner-only and are deliberately absent from API-key
 descriptors and first-party dispatch:

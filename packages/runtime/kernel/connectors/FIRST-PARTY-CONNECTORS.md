@@ -127,6 +127,17 @@ call has been verified. Do not pre-provision shared or paid API keys.
 
 ## Known constraints / findings
 
+- **Apollo uses the current documented API v1 routes**: the stable public
+  actions map to `POST /api/v1/mixed_people/api_search`,
+  `/api/v1/mixed_companies/search`, `/api/v1/people/match`,
+  `/api/v1/contacts`, and `/api/v1/tasks`. Search/enrichment filters use
+  Apollo's documented query parameter names; contact/task writes use reviewed
+  JSON bodies. `APOLLO_CREATE_TASK` retains its public ID but means one task for
+  one `contact_id`, matching the public connector contract; it is not redirected
+  to the legacy bulk route. `APOLLO_PEOPLE_ENRICH` likewise retains its stable
+  Stella ID while mapping to the current People Enrichment endpoint. Exact
+  mappings and primary documentation links are in the backend connector README.
+  Apollo remains disabled and independently unverified.
 - **44API keeps its exact toolkit compatibility**: public id `44api`, display /
   upstream prefix `44API`, and exact action prefix `44API_*`. The identifier
   guard admits that digit-leading action shape only for the `44api` connector,

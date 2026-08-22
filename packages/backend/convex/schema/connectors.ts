@@ -25,12 +25,15 @@ export const connectorsSchema = {
   /**
    * Server-owned API keys. The encrypted envelope is never returned by a
    * public query; lifecycle APIs expose metadata only. One live row exists per
-   * owner/provider and replacement overwrites the previous envelope.
+   * owner/provider/credential slot and replacement overwrites only that slot's
+   * previous envelope. `credentialSlot` is optional solely so pre-slot rows can
+   * be read as the default slot and upgraded on their next replacement.
    */
   api_key_credentials: defineTable({
     ownerId: v.string(),
     connectorId: v.string(),
     provider: v.string(),
+    credentialSlot: v.optional(v.string()),
     encryptedKey: v.string(),
     keyVersion: v.number(),
     status: v.union(v.literal("active"), v.literal("invalid")),
@@ -41,6 +44,7 @@ export const connectorsSchema = {
     invalidatedAt: v.optional(v.number()),
   })
     .index("by_owner_provider", ["ownerId", "provider"])
+    .index("by_owner_provider_slot", ["ownerId", "provider", "credentialSlot"])
     .index("by_owner_connector", ["ownerId", "connectorId"])
     .index("by_keyVersion", ["keyVersion"]),
 

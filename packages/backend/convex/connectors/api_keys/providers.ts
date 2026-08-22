@@ -4,6 +4,7 @@ import {
   buildApiKeyProviderRequest,
   canonicalizeDeferredActionName,
   DEFERRED_API_KEY_PROVIDERS,
+  resolveDeferredActionOrigin,
   type ApiKeyProviderRequest,
 } from "../executors/api_key";
 
@@ -30,12 +31,26 @@ export type ApiKeyActionDescriptor = {
   inputSchema: Record<string, unknown>;
 };
 
+export const DEFAULT_API_KEY_CREDENTIAL_SLOT = "default";
+
+export type ApiKeyCredentialProfile = {
+  credentialSlot: string;
+  credentialLabel: string;
+};
+
+export type ApiKeyActionTarget = {
+  apiOrigin: string;
+  credentialSlot: string;
+};
+
 export type ApiKeyProviderDescriptor = {
   connectorId: string;
   providerKey: string;
   displayName: string;
   credentialLabel: string;
-  apiOrigin: string;
+  apiOrigin?: string;
+  credentialProfiles?: readonly ApiKeyCredentialProfile[];
+  actionTargets?: Readonly<Record<string, ApiKeyActionTarget>>;
   auth: ApiKeyAuthPlacement;
   actions: Readonly<Record<string, ApiKeyActionDescriptor>>;
 };
@@ -1024,6 +1039,72 @@ const ZEROCODEKIT_ACTIONS = {
   },
 } as const satisfies Readonly<Record<string, ApiKeyActionDescriptor>>;
 
+const ABSTRACT_ACTIONS = {
+  ABSTRACT_VALIDATE_EMAIL: {
+    operation: "read",
+    inputSchema: objectSchema(
+      {
+        email: { type: "string", minLength: 1 },
+        auto_correct: { type: "boolean" },
+      },
+      ["email"],
+      false,
+    ),
+  },
+  ABSTRACT_VALIDATE_PHONE: {
+    operation: "read",
+    inputSchema: objectSchema(
+      {
+        phone: { type: "string", minLength: 1 },
+        country: { type: "string", minLength: 2, maxLength: 2 },
+      },
+      ["phone"],
+      false,
+    ),
+  },
+  ABSTRACT_GET_IP_GEOLOCATION: {
+    operation: "read",
+    inputSchema: objectSchema(
+      {
+        ip_address: { type: "string", minLength: 1 },
+        fields: { type: "string", minLength: 1 },
+      },
+      ["ip_address"],
+      false,
+    ),
+  },
+} as const satisfies Readonly<Record<string, ApiKeyActionDescriptor>>;
+
+const ABSTRACT_CREDENTIAL_PROFILES = Object.freeze([
+  Object.freeze({
+    credentialSlot: "email_validation",
+    credentialLabel: "Abstract Email Validation API key",
+  }),
+  Object.freeze({
+    credentialSlot: "phone_validation",
+    credentialLabel: "Abstract Phone Validation API key",
+  }),
+  Object.freeze({
+    credentialSlot: "ip_geolocation",
+    credentialLabel: "Abstract IP Geolocation API key",
+  }),
+] as const satisfies readonly ApiKeyCredentialProfile[]);
+
+const ABSTRACT_ACTION_TARGETS = Object.freeze({
+  ABSTRACT_VALIDATE_EMAIL: Object.freeze({
+    apiOrigin: "https://emailvalidation.abstractapi.com",
+    credentialSlot: "email_validation",
+  }),
+  ABSTRACT_VALIDATE_PHONE: Object.freeze({
+    apiOrigin: "https://phonevalidation.abstractapi.com",
+    credentialSlot: "phone_validation",
+  }),
+  ABSTRACT_GET_IP_GEOLOCATION: Object.freeze({
+    apiOrigin: "https://ipgeolocation.abstractapi.com",
+    credentialSlot: "ip_geolocation",
+  }),
+} as const satisfies Readonly<Record<string, ApiKeyActionTarget>>);
+
 const FORTYFOUR_API_ACTIONS = {
   "44API_VALIDATE_VAT_NUMBER": {
     operation: "read",
@@ -1228,6 +1309,16 @@ export const API_KEY_PROVIDER_DESCRIPTORS = [
     actions: ZEROCODEKIT_ACTIONS,
   },
   {
+    connectorId: "abstract",
+    providerKey: "abstract",
+    displayName: "Abstract",
+    credentialLabel: "Abstract product API keys",
+    credentialProfiles: ABSTRACT_CREDENTIAL_PROFILES,
+    actionTargets: ABSTRACT_ACTION_TARGETS,
+    auth: { type: "query", queryParam: "api_key" },
+    actions: ABSTRACT_ACTIONS,
+  },
+  {
     connectorId: "44api",
     providerKey: "44api",
     displayName: "44API",
@@ -1283,6 +1374,39 @@ export const getApiKeyActionDescriptor = (
 ): ApiKeyActionDescriptor | null =>
   descriptor.actions[descriptorActionName(descriptor.providerKey, action)] ??
   null;
+
+export const getApiKeyCredentialProfiles = (
+  descriptor: ApiKeyProviderDescriptor,
+): readonly ApiKeyCredentialProfile[] =>
+  descriptor.credentialProfiles ?? [
+    {
+      credentialSlot: DEFAULT_API_KEY_CREDENTIAL_SLOT,
+      credentialLabel: descriptor.credentialLabel,
+    },
+  ];
+
+export const getApiKeyCredentialProfile = (
+  descriptor: ApiKeyProviderDescriptor,
+  credentialSlot: string,
+): ApiKeyCredentialProfile | null =>
+  getApiKeyCredentialProfiles(descriptor).find(
+    (profile) => profile.credentialSlot === credentialSlot,
+  ) ?? null;
+
+export const getApiKeyActionTarget = (
+  descriptor: ApiKeyProviderDescriptor,
+  action: string,
+): ApiKeyActionTarget | null => {
+  if (!getApiKeyActionDescriptor(descriptor, action)) return null;
+  const descriptorAction = descriptorActionName(descriptor.providerKey, action);
+  const target = descriptor.actionTargets?.[descriptorAction];
+  if (target) return target;
+  if (!descriptor.apiOrigin) return null;
+  return {
+    apiOrigin: descriptor.apiOrigin,
+    credentialSlot: DEFAULT_API_KEY_CREDENTIAL_SLOT,
+  };
+};
 
 export const apiKeyProviderForConnectorAction = (
   connectorId: string,
@@ -1365,6 +1489,7 @@ export const validateApiKeyProviderDescriptors = (): string[] => {
     ]),
   );
   for (const descriptor of API_KEY_PROVIDER_DESCRIPTORS) {
+    const normalizedDescriptor = descriptor as ApiKeyProviderDescriptor;
     if (connectorIds.has(descriptor.connectorId)) {
       problems.push(`duplicate connector ${descriptor.connectorId}`);
     }
@@ -1374,32 +1499,34 @@ export const validateApiKeyProviderDescriptors = (): string[] => {
     connectorIds.add(descriptor.connectorId);
     providerKeys.add(descriptor.providerKey);
     const deferred = deferredByConnector.get(descriptor.connectorId);
-    if (
-      !deferred ||
-      deferred.providerKey !== descriptor.providerKey ||
-      deferred.fixedApiOrigin !== descriptor.apiOrigin
-    ) {
+    if (!deferred || deferred.providerKey !== descriptor.providerKey) {
       problems.push(
         `${descriptor.connectorId} does not match the planner catalog`,
       );
     }
-    try {
-      const origin = new URL(descriptor.apiOrigin);
-      if (
-        origin.protocol !== "https:" ||
-        origin.origin !== descriptor.apiOrigin ||
-        origin.pathname !== "/" ||
-        origin.search ||
-        origin.hash ||
-        origin.username ||
-        origin.password
-      ) {
-        problems.push(
-          `${descriptor.connectorId} origin is not a fixed HTTPS origin`,
-        );
-      }
-    } catch {
-      problems.push(`${descriptor.connectorId} origin is invalid`);
+    const profiles = getApiKeyCredentialProfiles(normalizedDescriptor);
+    const profileSlots = new Set(
+      profiles.map((profile) => profile.credentialSlot),
+    );
+    if (
+      profileSlots.size !== profiles.length ||
+      profiles.some(
+        (profile) =>
+          !/^[a-z][a-z0-9_]{0,63}$/u.test(profile.credentialSlot) ||
+          !profile.credentialLabel.trim(),
+      )
+    ) {
+      problems.push(
+        `${descriptor.connectorId} has invalid credential profiles`,
+      );
+    }
+    if (normalizedDescriptor.actionTargets && normalizedDescriptor.apiOrigin) {
+      problems.push(
+        `${descriptor.connectorId} mixes default and per-action origins`,
+      );
+    }
+    if (!normalizedDescriptor.actionTargets && profiles.length !== 1) {
+      problems.push(`${descriptor.connectorId} has unused credential profiles`);
     }
     for (const [action, actionDescriptor] of Object.entries(
       descriptor.actions,
@@ -1410,6 +1537,38 @@ export const validateApiKeyProviderDescriptors = (): string[] => {
       );
       if (deferred?.actions[canonicalAction] !== actionDescriptor.operation) {
         problems.push(`${descriptor.connectorId}:${action} operation mismatch`);
+      }
+      const target = getApiKeyActionTarget(normalizedDescriptor, action);
+      const expectedOrigin = deferred
+        ? resolveDeferredActionOrigin(deferred, canonicalAction)
+        : null;
+      if (
+        !target ||
+        target.apiOrigin !== expectedOrigin ||
+        !profileSlots.has(target.credentialSlot)
+      ) {
+        problems.push(`${descriptor.connectorId}:${action} target mismatch`);
+      } else {
+        try {
+          const origin = new URL(target.apiOrigin);
+          if (
+            origin.protocol !== "https:" ||
+            origin.origin !== target.apiOrigin ||
+            origin.pathname !== "/" ||
+            origin.search ||
+            origin.hash ||
+            origin.username ||
+            origin.password
+          ) {
+            problems.push(
+              `${descriptor.connectorId}:${action} origin is not a fixed HTTPS origin`,
+            );
+          }
+        } catch {
+          problems.push(
+            `${descriptor.connectorId}:${action} origin is invalid`,
+          );
+        }
       }
       if (
         !/^[A-Z][A-Z0-9_]*$/u.test(action) &&
@@ -1429,6 +1588,14 @@ export const validateApiKeyProviderDescriptors = (): string[] => {
           `${descriptor.connectorId}:${action} has no object schema`,
         );
       }
+    }
+    if (
+      normalizedDescriptor.actionTargets &&
+      Object.keys(normalizedDescriptor.actionTargets).some(
+        (action) => !(action in descriptor.actions),
+      )
+    ) {
+      problems.push(`${descriptor.connectorId} targets an unknown action`);
     }
   }
   return problems;

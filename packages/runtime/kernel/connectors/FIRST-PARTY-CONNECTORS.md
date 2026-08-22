@@ -68,10 +68,12 @@ proprietary Composio APIs. Prefer the native tool in all cases.
   placement-aware credential injection for `firecrawl`, `tavily`, `exa`,
   `serpapi`, `perplexityai`, `posthog` (US Cloud), `ably`, `abuseipdb`,
   `peopledatalabs`, `44api`, `7shifts`, `abyssale`, `0codekit`, `2chat`,
-  `apollo`, `ashby`, and `21risk`. These are `executor_ready`, not activated: every call
+  `abstract`, `apollo`, `ashby`, and `21risk`. Abstract binds each action to an
+  official product origin and a matching encrypted product credential slot.
+  These are `executor_ready`, not activated: every call
   still needs independent deployment enablement, representative-call
   verification, an active encrypted owner credential, and rollout selection.
-- `1password`, `abstract`, and `snowflake` remain `planner_ready` and
+- `1password` and `snowflake` remain `planner_ready` and
   Composio-owned. Their remaining blockers are documented in the backend
   connector README; no descriptor or readiness claim fakes an executable
   credential model.

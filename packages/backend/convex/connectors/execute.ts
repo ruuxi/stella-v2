@@ -271,7 +271,9 @@ export const runFirstPartyConnectorAction = internalAction({
     const startedAt = Date.now();
     let auditProvider: string | undefined;
     let auditRouteVersion: number | undefined;
-    let loadedApiKey: { provider: string; generation: number } | undefined;
+    let loadedApiKey:
+      | { provider: string; credentialSlot: string; generation: number }
+      | undefined;
 
     const auditFailure = async (
       code: ConnectorErrorCode,
@@ -323,6 +325,7 @@ export const runFirstPartyConnectorAction = internalAction({
           ctx.runQuery(internal.connectors.api_keys.vault.getApiKeyReadiness, {
             ownerId: args.ownerId,
             connectorId,
+            action: args.action,
           }),
           ctx.runQuery(internal.connectors.rollouts.getConnectorRollout, {
             connectorId,
@@ -392,10 +395,11 @@ export const runFirstPartyConnectorAction = internalAction({
 
         const credential = await ctx.runAction(
           internal.connectors.api_keys.vault.loadApiKeyForExecution,
-          { ownerId: args.ownerId, connectorId },
+          { ownerId: args.ownerId, connectorId, action: args.action },
         );
         loadedApiKey = {
           provider: credential.provider,
+          credentialSlot: credential.credentialSlot,
           generation: credential.generation,
         };
         const result = await executeApiKeyProviderAction({
@@ -410,6 +414,7 @@ export const runFirstPartyConnectorAction = internalAction({
           {
             ownerId: args.ownerId,
             provider: credential.provider,
+            credentialSlot: credential.credentialSlot,
             expectedGeneration: credential.generation,
           },
         );
@@ -570,6 +575,7 @@ export const runFirstPartyConnectorAction = internalAction({
           {
             ownerId: args.ownerId,
             provider: loadedApiKey.provider,
+            credentialSlot: loadedApiKey.credentialSlot,
             expectedGeneration: loadedApiKey.generation,
           },
         );

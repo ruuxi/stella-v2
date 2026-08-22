@@ -8,6 +8,7 @@ import {
   listSocialConnectorAdapters,
   SOCIAL_CONNECTOR_IDS,
 } from "@stella/runtime/kernel/connectors/social-connectors";
+import { getFirstPartyAdapter } from "@stella/runtime/kernel/connectors/first-party-adapters";
 
 const IN_SCOPE_IDS = [
   "twitter",
@@ -28,9 +29,12 @@ describe("social connector adapter registry", () => {
   });
 
   it("keeps API-key 2Chat metadata code-ready but on Composio fallback", () => {
+    const canonicalActions = getFirstPartyAdapter("2chat")!.actions.map(
+      (action) => action.name,
+    );
     expect(
       getSocialConnectorActions("2chat").map((action) => action.name),
-    ).toEqual(["_2CHAT_LIST_CONTACTS", "_2CHAT_CREATE_CONTACT"]);
+    ).toEqual(canonicalActions);
     expect(getSocialConnectorScopeStatus("2chat")?.executionRoute).toBe(
       "composio-fallback",
     );

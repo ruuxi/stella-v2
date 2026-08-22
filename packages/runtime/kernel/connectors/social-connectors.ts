@@ -32,6 +32,7 @@ import {
   hasNativeOAuthProviderClientIdOverride,
   type NativeOAuthProviderConfig,
 } from "./native-oauth-provider-config.js";
+import { getFirstPartyAdapter } from "./first-party-adapters.js";
 
 export type SocialConnectorAccess = "read" | "write";
 
@@ -362,6 +363,11 @@ const METAADS_ADAPTER: SocialConnectorAdapter = {
   ],
 };
 
+const TWOCHAT_FIRST_PARTY_ADAPTER = getFirstPartyAdapter("2chat");
+if (!TWOCHAT_FIRST_PARTY_ADAPTER) {
+  throw new Error("Canonical 2Chat adapter is not registered");
+}
+
 const TWOCHAT_ADAPTER: SocialConnectorAdapter = {
   id: "2chat",
   name: "2Chat",
@@ -369,37 +375,15 @@ const TWOCHAT_ADAPTER: SocialConnectorAdapter = {
   providerConfigId: "2chat",
   readScopes: ["api_key"],
   writeScopes: ["api_key"],
-  actions: [
-    {
-      name: "_2CHAT_LIST_CONTACTS",
-      title: "List contacts",
-      description: "List contacts in the connected 2Chat account.",
-      access: "read",
-      method: "GET",
-      path: "/open/contacts",
-      requiredScopes: ["api_key"],
-    },
-    {
-      name: "_2CHAT_CREATE_CONTACT",
-      title: "Create contact",
-      description: "Create a contact in the connected 2Chat account.",
-      access: "write",
-      method: "POST",
-      path: "/open/contacts",
-      requiredScopes: ["api_key"],
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["first_name", "contact_detail"],
-        properties: {
-          first_name: { type: "string" },
-          last_name: { type: "string" },
-          contact_detail: { type: "array", minItems: 1 },
-          profile_pic_url: { type: "string" },
-        },
-      },
-    },
-  ],
+  actions: TWOCHAT_FIRST_PARTY_ADAPTER.actions.map((action) => ({
+    name: action.name,
+    title: action.summary,
+    description: action.summary,
+    access: action.kind,
+    method: action.method,
+    path: action.path,
+    requiredScopes: ["api_key"],
+  })),
 };
 
 const SOCIAL_CONNECTOR_ADAPTERS: readonly SocialConnectorAdapter[] = [

@@ -19,6 +19,8 @@ export type PiRunnerAuthHandle = {
   importAuthSession?: (payload: {
     cookie: string | null;
     sessionData: string | null;
+    /** Atomic import-if-empty for the one-time migration handoff. */
+    onlyIfEmpty?: boolean;
   }) => Promise<unknown>;
   /**
    * P2 token distribution: pull a Convex JWT / session from the runtime

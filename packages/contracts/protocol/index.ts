@@ -389,6 +389,13 @@ export type HostRuntimeAuthRefreshResult = {
 export type RuntimeAuthImportParams = {
   cookie: string | null;
   sessionData: string | null;
+  /**
+   * Atomic import-if-empty for the one-time migration handoff. When true the
+   * runtime AuthOwner imports only if its store is empty, so a stale desktop
+   * artifact can't overwrite a live runtime session and no probe-then-import
+   * RPC pair can race.
+   */
+  onlyIfEmpty?: boolean;
 };
 
 export type RuntimeAuthImportResult = {

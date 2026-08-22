@@ -288,10 +288,10 @@ type WorkerState = {
    */
   cliBridgeServer: CliBridgeServer | null;
   /**
-   * Worker-side Better Auth session owner (auth-inversion P1). Holds the
-   * mirrored session in the DEK-envelope store and answers the kernel's
-   * 401 recovery locally; null when disabled via
-   * STELLA_DISABLE_RUNTIME_AUTH_OWNER=1 (legacy desktop-owned refresh).
+   * Worker-side Better Auth session owner (auth inversion). Owns the
+   * session in the DEK-envelope store, runs the single JWT refresh
+   * scheduler, executes every /api/auth/* request, and answers the
+   * kernel's 401 recovery locally. Null only before initialization.
    */
   authOwner: AuthOwner | null;
 };
@@ -906,28 +906,25 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     state.runtimeStore = runtimeStore;
     state.socialSessionStore = socialSessionStore;
     state.runEventLog = runEventLog;
-    // Auth-inversion P1: worker-side session owner. Flag flips atomically per
-    // boot (never mid-session) to avoid cookie-rotation races with the
-    // desktop; disabled mode keeps the legacy desktop-owned refresh path.
-    if (process.env.STELLA_DISABLE_RUNTIME_AUTH_OWNER !== "1") {
-      state.authOwner = createAuthOwner({
-        stellaDataDir: init.stellaDataDirPath,
-        getBaseUrl: () => state.init?.convexSiteUrl?.trim() || null,
-        onAuthChanged: (event) => {
-          peer.notify(NOTIFICATION_NAMES.AUTH_CHANGED, event);
-          // Push freshly minted tokens into the kernel proactively so the
-          // scheduled exp-90s refresh reaches subscriptions before a 401.
-          if (event.authenticated) {
-            void state.authOwner
-              ?.getConvexToken()
-              .then((result) => {
-                if (result.token) applyRuntimeAuthResult(result);
-              })
-              .catch(() => undefined);
-          }
-        },
-      });
-    }
+    // Worker-side session owner (auth inversion): the single writer for the
+    // Better Auth session and the single Convex-JWT refresh scheduler.
+    state.authOwner = createAuthOwner({
+      stellaDataDir: init.stellaDataDirPath,
+      getBaseUrl: () => state.init?.convexSiteUrl?.trim() || null,
+      onAuthChanged: (event) => {
+        peer.notify(NOTIFICATION_NAMES.AUTH_CHANGED, event);
+        // Push freshly minted tokens into the kernel proactively so the
+        // scheduled exp-90s refresh reaches subscriptions before a 401.
+        if (event.authenticated) {
+          void state.authOwner
+            ?.getConvexToken()
+            .then((result) => {
+              if (result.token) applyRuntimeAuthResult(result);
+            })
+            .catch(() => undefined);
+        }
+      },
+    });
     await refreshLocalLlmCredentialAccess();
     const bridgePaths = resolveRuntimePaths(init.stellaAppDir);
     const brokerAvailability = connectorActionBrokerAvailability(

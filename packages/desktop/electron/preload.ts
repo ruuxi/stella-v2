@@ -73,8 +73,6 @@ import {
   IPC_AUTH_GET_SESSION,
   IPC_AUTH_MAGIC_LINK_SEND,
   IPC_AUTH_MAGIC_LINK_STATUS,
-  IPC_AUTH_RUNTIME_REFRESH_COMPLETE,
-  IPC_AUTH_RUNTIME_REFRESH_REQUESTED,
   IPC_AUTH_SIGN_IN_ANONYMOUS,
   IPC_AUTH_SIGN_OUT,
   IPC_AUTH_VERIFY_CALLBACK_URL,
@@ -991,11 +989,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       convexUrl?: string;
       convexSiteUrl?: string;
     }) => ipcRenderer.invoke("host:configurePiRuntime", config),
-    setAuthState: (payload: {
-      authenticated: boolean;
-      token?: string;
-      hasConnectedAccount?: boolean;
-    }) => ipcRenderer.invoke("auth:setState", payload),
     getAuthSession: () => ipcRenderer.invoke(IPC_AUTH_GET_SESSION),
     signInAnonymous: () => ipcRenderer.invoke(IPC_AUTH_SIGN_IN_ANONYMOUS),
     signOutAuth: () =>
@@ -1023,12 +1016,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     getConvexAuthToken: () =>
       ipcRenderer.invoke(IPC_AUTH_GET_CONVEX_TOKEN) as Promise<string | null>,
-    completeRuntimeAuthRefresh: (payload: {
-      requestId: string;
-      authenticated: boolean;
-      token?: string;
-      hasConnectedAccount?: boolean;
-    }) => ipcRenderer.invoke(IPC_AUTH_RUNTIME_REFRESH_COMPLETE, payload),
     setCloudSyncEnabled: (payload: { enabled: boolean }) =>
       ipcRenderer.invoke("host:setCloudSyncEnabled", payload),
     setModelCatalogUpdatedAt: (payload: { updatedAt: number | null }) =>
@@ -1043,11 +1030,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_SOCIAL_CONSUME_PENDING_INVITE) as Promise<
         string | null
       >,
-    onRuntimeAuthRefreshRequested: onIpc<{
-      requestId: string;
-      source: "heartbeat" | "subscription" | "register";
-    }>(IPC_AUTH_RUNTIME_REFRESH_REQUESTED),
-    // P2: runtime AuthOwner state changed — renderers clear their token
+    // Runtime AuthOwner state changed — renderers clear their token
     // cache and re-pull instead of scheduling refreshes themselves.
     onAuthChanged: onIpc<{
       authenticated: boolean;

@@ -11,7 +11,10 @@ import {
   type JWK,
 } from "jose";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { resolveJwksRuntimeConfig } from "../lib/jwks_config";
+import {
+  inspectStaticJwks,
+  resolveJwksRuntimeConfig,
+} from "../lib/jwks_config";
 import {
   writeJwksAuditRecord,
   type JwksRotationSummary,
@@ -334,6 +337,59 @@ describe("overlapping JWKS rotation", () => {
     expect(() =>
       resolveJwksRuntimeConfig({ STELLA_JWKS_MODE: "surprise" }),
     ).toThrow("Refusing to guess");
+  });
+
+  it("blocks phase 1 on malformed static JWKS without exposing values", () => {
+    const encryptedSentinel = "encrypted-private-jwk-must-not-escape";
+    const publicSentinel = "malformed-public-jwk-must-not-escape";
+    const malformedStaticJwks = JSON.stringify([
+      {
+        id: "legacy-key",
+        alg: "RS256",
+        createdAt: "2025-01-01T00:00:00.000Z",
+        publicKey: publicSentinel,
+        privateKey: encryptedSentinel,
+      },
+    ]);
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    let failure: unknown;
+    try {
+      resolveJwksRuntimeConfig({
+        JWKS: malformedStaticJwks,
+        STELLA_JWKS_MODE: "static",
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    const message =
+      failure instanceof Error ? failure.message : String(failure);
+    expect(message).toBe(
+      "JWKS is invalid. Refusing to start with an ambiguous static signing keyset.",
+    );
+    expect(message).not.toContain(publicSentinel);
+    expect(message).not.toContain(encryptedSentinel);
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
+
+    const validStaticJwks = JSON.stringify([
+      {
+        id: "legacy-key",
+        alg: "RS256",
+        createdAt: "2025-01-01T00:00:00.000Z",
+        publicKey: oldKey.publicKey,
+        privateKey: encryptedSentinel,
+      },
+    ]);
+    const metadata = inspectStaticJwks(validStaticJwks);
+    expect(metadata).toMatchObject({
+      signingKeyId: "legacy-key",
+      keys: [{ id: "legacy-key" }],
+    });
+    expect(JSON.stringify(metadata)).not.toContain(encryptedSentinel);
+    expect(metadata?.keys[0]).not.toHaveProperty("privateKey");
   });
 
   it("refuses ambiguous signing order and non-exact migration keysets", async () => {

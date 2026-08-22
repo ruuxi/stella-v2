@@ -188,7 +188,7 @@ describe("installConnectWorkerApi (in-REPL surface)", () => {
 });
 
 describe("createReplConnectClient catalog surface", () => {
-  it("preserves cached backend provider semantics for actions/schema", async () => {
+  it("preserves cached backend semantics while keeping Gmail native", async () => {
     const root = await makeRoot();
     const entries = [
       backendEntry("outlook", "Outlook", "OUTLOOK"),
@@ -204,7 +204,6 @@ describe("createReplConnectClient catalog surface", () => {
 
     for (const [id, tool] of [
       ["outlook", "OUTLOOK_RUN_ACTION"],
-      ["gmail", "GMAIL_RUN_ACTION"],
       ["notion", "NOTION_RUN_ACTION"],
     ] as const) {
       const list = (await client.actions(id)) as {
@@ -217,6 +216,21 @@ describe("createReplConnectClient catalog surface", () => {
       };
       expect(schema.inputSchema).toMatchObject({ type: "object" });
     }
+
+    const gmail = (await client.actions("gmail")) as {
+      actions: Array<{ name: string }>;
+    };
+    expect(gmail.actions).toContainEqual(
+      expect.objectContaining({ name: "gmail.search" }),
+    );
+    const gmailSchema = (await client.schema("gmail", "gmail.search")) as {
+      connector: string;
+      name: string;
+    };
+    expect(gmailSchema).toMatchObject({
+      connector: "gmail",
+      name: "gmail.search",
+    });
   });
 
   it("caps action listings, filters by query, and clamps limits", async () => {
@@ -299,7 +313,7 @@ describe("createReplConnectClient catalog surface", () => {
     const backendOnly = backendEntry(
       "acme_backend_only",
       "Acme Backend Only",
-      "ACME",
+      "ACME_BACKEND_ONLY",
     );
     await writeCachedServerCatalog(root, [backendOnly]);
     await enable(root, [backendOnly.id]);

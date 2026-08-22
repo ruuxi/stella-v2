@@ -2207,6 +2207,61 @@
       "emptyPrompt": "Zeptejte se Stelly na cokoli",
       "composerPlaceholder": "Napište Stelle"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Aktivita",
+        "schedule": "Plán",
+        "search": "Hledat",
+        "files": "Soubory"
+      },
+      "task": {
+        "finished": "Hotovo",
+        "failed": "Nepodařilo se dokončit",
+        "stopped": "Zastaveno",
+        "working": "Pracuje na pozadí"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} subagent",
+          "few": "{count} subagenti",
+          "other": "{count} subagentů"
+        },
+        "done": {
+          "other": "hotovo: {count}"
+        }
+      },
+      "conversation": {
+        "title": "Tato konverzace",
+        "subtitle": "Soubory vytvořené hlavním vláknem"
+      },
+      "schedule": {
+        "customCadence": "Vlastní plán",
+        "paused": "Pozastaveno",
+        "next": "Příště {when}",
+        "lastRunFailed": "Poslední běh selhal: {error}",
+        "pauseSchedule": "Pozastavit plán",
+        "resumeSchedule": "Obnovit plán",
+        "deleteSchedule": "Smazat plán",
+        "deleteConfirm": "„{title}“ se přestane spouštět.",
+        "alertTitle": "Plán",
+        "actionFailed": "Nepovedlo se to.",
+        "loadFailed": "Plány se nepodařilo načíst.",
+        "empty": "Zatím žádné plány. Požádejte Stellu na svém počítači, ať něco spouští pravidelně, a objeví se to tady."
+      },
+      "search": {
+        "placeholder": "Hledat v aktivitě a souborech",
+        "clear": "Vymazat hledání",
+        "close": "Zavřít hledání"
+      },
+      "files": {
+        "empty": "Zatím žádné soubory. Vše, co Stella vytvoří, se objeví tady.",
+        "emptyFiltered": "Žádné soubory neodpovídají."
+      },
+      "activity": {
+        "empty": "Zatím žádná práce na pozadí.",
+        "emptyFiltered": "Žádná odpovídající aktivita ani soubory."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Váš počítač na dosah ruky",
       "guestHeroBody": "Požádejte Stellu, aby na vašem počítači něco udělala — prohlížela web, spravovala soubory, spouštěla úlohy a další.",

@@ -2155,6 +2155,61 @@
       "emptyPrompt": "Fråga Stella vad som helst",
       "composerPlaceholder": "Skriv till Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Aktivitet",
+        "schedule": "Schema",
+        "search": "Sök",
+        "files": "Filer"
+      },
+      "task": {
+        "finished": "Klart",
+        "failed": "Kunde inte slutföras",
+        "stopped": "Stoppad",
+        "working": "Arbetar i bakgrunden"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} underagent",
+          "other": "{count} underagenter"
+        },
+        "done": {
+          "one": "{count} klar",
+          "other": "{count} klara"
+        }
+      },
+      "conversation": {
+        "title": "Den här konversationen",
+        "subtitle": "Filer skapade av huvudtråden"
+      },
+      "schedule": {
+        "customCadence": "Anpassat schema",
+        "paused": "Pausad",
+        "next": "Nästa {when}",
+        "lastRunFailed": "Senaste körningen misslyckades: {error}",
+        "pauseSchedule": "Pausa schemat",
+        "resumeSchedule": "Återuppta schemat",
+        "deleteSchedule": "Ta bort schemat",
+        "deleteConfirm": "”{title}” slutar att köras.",
+        "alertTitle": "Schema",
+        "actionFailed": "Det gick inte.",
+        "loadFailed": "Kunde inte läsa in scheman.",
+        "empty": "Inga scheman ännu. Be Stella på din dator att köra något regelbundet så visas det här."
+      },
+      "search": {
+        "placeholder": "Sök i aktivitet och filer",
+        "clear": "Rensa sökningen",
+        "close": "Stäng sökningen"
+      },
+      "files": {
+        "empty": "Inga filer ännu. Allt Stella skapar visas här.",
+        "emptyFiltered": "Inga filer matchar."
+      },
+      "activity": {
+        "empty": "Inget bakgrundsarbete ännu.",
+        "emptyFiltered": "Ingen matchande aktivitet eller filer."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Din dator inom räckhåll",
       "guestHeroBody": "Be Stella göra saker på din dator — surfa på webben, hantera filer, köra uppgifter och mycket mer.",

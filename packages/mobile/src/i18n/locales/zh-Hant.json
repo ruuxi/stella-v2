@@ -2127,6 +2127,59 @@
       "emptyPrompt": "什麼都可以問 Stella",
       "composerPlaceholder": "傳訊息給 Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "活動",
+        "schedule": "排程",
+        "search": "搜尋",
+        "files": "檔案"
+      },
+      "task": {
+        "finished": "已完成",
+        "failed": "未能完成",
+        "stopped": "已停止",
+        "working": "正在背景工作"
+      },
+      "subagents": {
+        "count": {
+          "other": "{count} 個子代理"
+        },
+        "done": {
+          "other": "已完成 {count} 個"
+        }
+      },
+      "conversation": {
+        "title": "此對話",
+        "subtitle": "主執行緒建立的檔案"
+      },
+      "schedule": {
+        "customCadence": "自訂排程",
+        "paused": "已暫停",
+        "next": "下次執行 {when}",
+        "lastRunFailed": "上次執行失敗：{error}",
+        "pauseSchedule": "暫停排程",
+        "resumeSchedule": "恢復排程",
+        "deleteSchedule": "刪除排程",
+        "deleteConfirm": "「{title}」將停止執行。",
+        "alertTitle": "排程",
+        "actionFailed": "操作未成功。",
+        "loadFailed": "無法載入排程。",
+        "empty": "還沒有排程。請電腦上的 Stella 定期執行一些工作，就會顯示在這裡。"
+      },
+      "search": {
+        "placeholder": "搜尋活動與檔案",
+        "clear": "清除搜尋",
+        "close": "關閉搜尋"
+      },
+      "files": {
+        "empty": "還沒有檔案。Stella 產生的所有內容都會顯示在這裡。",
+        "emptyFiltered": "沒有相符的檔案。"
+      },
+      "activity": {
+        "empty": "還沒有背景工作。",
+        "emptyFiltered": "沒有相符的活動或檔案。"
+      }
+    },
     "computer": {
       "guestHeroTitle": "您的電腦，隨手可用",
       "guestHeroBody": "請 Stella 在您的電腦上做事 —— 瀏覽網頁、管理檔案、執行工作等等。",

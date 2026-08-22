@@ -2155,6 +2155,60 @@
       "emptyPrompt": "Stella'ya istediğinizi sorun",
       "composerPlaceholder": "Stella'ya mesaj yazın"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Etkinlik",
+        "schedule": "Zamanlama",
+        "search": "Ara",
+        "files": "Dosyalar"
+      },
+      "task": {
+        "finished": "Tamamlandı",
+        "failed": "Tamamlanamadı",
+        "stopped": "Durduruldu",
+        "working": "Arka planda çalışıyor"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} alt ajan",
+          "other": "{count} alt ajan"
+        },
+        "done": {
+          "other": "{count} tamamlandı"
+        }
+      },
+      "conversation": {
+        "title": "Bu konuşma",
+        "subtitle": "Ana iş parçacığının oluşturduğu dosyalar"
+      },
+      "schedule": {
+        "customCadence": "Özel zamanlama",
+        "paused": "Duraklatıldı",
+        "next": "Sonraki çalışma {when}",
+        "lastRunFailed": "Son çalışma başarısız oldu: {error}",
+        "pauseSchedule": "Zamanlamayı duraklat",
+        "resumeSchedule": "Zamanlamayı sürdür",
+        "deleteSchedule": "Zamanlamayı sil",
+        "deleteConfirm": "“{title}” artık çalışmayacak.",
+        "alertTitle": "Zamanlama",
+        "actionFailed": "Bu işlem gerçekleşemedi.",
+        "loadFailed": "Zamanlamalar yüklenemedi.",
+        "empty": "Henüz zamanlama yok. Bilgisayarındaki Stella'dan düzenli olarak bir şey çalıştırmasını iste, burada görünecek."
+      },
+      "search": {
+        "placeholder": "Etkinlik ve dosyalarda ara",
+        "clear": "Aramayı temizle",
+        "close": "Aramayı kapat"
+      },
+      "files": {
+        "empty": "Henüz dosya yok. Stella'nın ürettiği her şey burada görünür.",
+        "emptyFiltered": "Eşleşen dosya yok."
+      },
+      "activity": {
+        "empty": "Henüz arka plan çalışması yok.",
+        "emptyFiltered": "Eşleşen etkinlik veya dosya yok."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Bilgisayarınız parmaklarınızın ucunda",
       "guestHeroBody": "Stella'dan bilgisayarınızda işler yapmasını isteyin — web'de gezinsin, dosyaları yönetsin, görevleri çalıştırsın ve daha fazlası.",

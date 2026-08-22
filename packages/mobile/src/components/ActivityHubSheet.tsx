@@ -40,6 +40,7 @@ import {
   type MobileScheduleAction,
 } from "../lib/desktop-schedules";
 import { tapLight } from "../lib/haptics";
+import { useT, useTPlural } from "../i18n";
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
@@ -54,20 +55,20 @@ type HubTab = "activity" | "schedule" | "search" | "files";
 
 const TAB_ORDER: HubTab[] = ["activity", "schedule", "search", "files"];
 
-const TAB_META: Record<HubTab, { label: string; icon: IconName }> = {
-  activity: { label: "Activity", icon: "waveform" },
-  schedule: { label: "Schedule", icon: "clock" },
-  search: { label: "Search", icon: "search" },
-  files: { label: "Files", icon: "file-text" },
+const TAB_META: Record<HubTab, { labelKey: string; icon: IconName }> = {
+  activity: { labelKey: "mobile.activityHub.tabs.activity", icon: "waveform" },
+  schedule: { labelKey: "mobile.activityHub.tabs.schedule", icon: "clock" },
+  search: { labelKey: "mobile.activityHub.tabs.search", icon: "search" },
+  files: { labelKey: "mobile.activityHub.tabs.files", icon: "file-text" },
 };
 
-const TERMINAL_SUBTITLE: Record<
+const TERMINAL_SUBTITLE_KEY: Record<
   Exclude<MobileTask["status"], "running">,
   string
 > = {
-  completed: "Finished",
-  error: "Couldn’t finish",
-  canceled: "Stopped",
+  completed: "mobile.activityHub.task.finished",
+  error: "mobile.activityHub.task.failed",
+  canceled: "mobile.activityHub.task.stopped",
 };
 
 function TaskRow({
@@ -83,12 +84,13 @@ function TaskRow({
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const t = useT();
   const running = task.status === "running";
   const isError = task.status === "error";
   const subtitle =
     task.status === "running"
-      ? task.statusText?.trim() || "Working in background"
-      : TERMINAL_SUBTITLE[task.status];
+      ? task.statusText?.trim() || t("mobile.activityHub.task.working")
+      : t(TERMINAL_SUBTITLE_KEY[task.status]);
   // Newest reasoning summary (oldest→newest order), shown under the agent while
   // it's active. Defensive against the field being absent on older desktops.
   const reasoningSummary = running
@@ -192,10 +194,16 @@ function TaskGroupRow({
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const tPlural = useTPlural();
   const summary = useMemo(
     () => summarizeHubSubagents(subagents.map((entry) => entry.task)),
     [subagents],
   );
+  const countLabel = tPlural(
+    "mobile.activityHub.subagents.count",
+    summary.total,
+  );
+  const doneLabel = tPlural("mobile.activityHub.subagents.done", summary.done);
   return (
     <View style={styles.taskGroup}>
       <TaskRow
@@ -213,9 +221,7 @@ function TaskGroupRow({
             hitSlop={8}
             accessibilityRole="button"
             accessibilityState={{ expanded }}
-            accessibilityLabel={`${summary.total} ${
-              summary.total === 1 ? "subagent" : "subagents"
-            }, ${summary.done} done`}
+            accessibilityLabel={`${countLabel}, ${doneLabel}`}
           >
             <Icon
               name={expanded ? "chevron-down" : "chevron-right"}
@@ -226,14 +232,14 @@ function TaskGroupRow({
               style={styles.groupToggleText}
               maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
             >
-              {summary.total} {summary.total === 1 ? "subagent" : "subagents"}
+              {countLabel}
             </Text>
             {summary.running > 0 ? <View style={styles.runningDot} /> : null}
             <Text
               style={styles.groupToggleMeta}
               maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
             >
-              {summary.done} done
+              {doneLabel}
             </Text>
           </Pressable>
           {expanded ? (
@@ -267,6 +273,7 @@ function ConversationFilesRow({
   styles: ReturnType<typeof makeStyles>;
   onOpenArtifact: (artifact: ChatArtifact) => void;
 }) {
+  const t = useT();
   if (artifacts.length === 0) return null;
   return (
     <View style={styles.taskGroup}>
@@ -279,13 +286,13 @@ function ConversationFilesRow({
             style={styles.taskTitle}
             maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
           >
-            This conversation
+            {t("mobile.activityHub.conversation.title")}
           </Text>
           <Text
             style={styles.taskSub}
             maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
           >
-            Files created by the main thread
+            {t("mobile.activityHub.conversation.subtitle")}
           </Text>
         </View>
       </View>
@@ -318,7 +325,9 @@ function ScheduleRow({
   colors: Colors;
   onAction: (action: MobileScheduleAction) => void;
 }) {
-  const cadence = scheduleCadence(schedule) || "Custom schedule";
+  const t = useT();
+  const cadence =
+    scheduleCadence(schedule) || t("mobile.activityHub.schedule.customCadence");
   const badge = scheduleRowBadge(schedule, nowMs);
   const paused = badge.kind === "paused";
 
@@ -348,7 +357,12 @@ function ScheduleRow({
             numberOfLines={1}
             maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
           >
-            {[cadence, badge.kind === "paused" ? "Paused" : `Next ${badge.label}`]
+            {[
+              cadence,
+              badge.kind === "paused"
+                ? t("mobile.activityHub.schedule.paused")
+                : t("mobile.activityHub.schedule.next", { when: badge.label }),
+            ]
               .filter(Boolean)
               .join(" · ")}
           </Text>
@@ -358,7 +372,9 @@ function ScheduleRow({
               numberOfLines={2}
               maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
             >
-              Last run failed: {schedule.lastError}
+              {t("mobile.activityHub.schedule.lastRunFailed", {
+                error: schedule.lastError,
+              })}
             </Text>
           ) : null}
         </View>
@@ -366,7 +382,11 @@ function ScheduleRow({
           <View style={styles.scheduleActions}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={paused ? "Resume schedule" : "Pause schedule"}
+              accessibilityLabel={
+                paused
+                  ? t("mobile.activityHub.schedule.resumeSchedule")
+                  : t("mobile.activityHub.schedule.pauseSchedule")
+              }
               disabled={busy}
               hitSlop={8}
               onPress={() => {
@@ -386,7 +406,7 @@ function ScheduleRow({
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Delete schedule"
+              accessibilityLabel={t("mobile.activityHub.schedule.deleteSchedule")}
               disabled={busy}
               hitSlop={8}
               onPress={() => {
@@ -461,6 +481,7 @@ export function ActivityHubSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const t = useT();
 
   const [tab, setTab] = useState<HubTab>("activity");
   const [query, setQuery] = useState("");
@@ -562,13 +583,15 @@ export function ActivityHubSheet({
     } catch (error) {
       if (isCurrent()) {
         setSchedulesError(
-          error instanceof Error ? error.message : "Couldn’t load schedules.",
+          error instanceof Error
+            ? error.message
+            : t("mobile.activityHub.schedule.loadFailed"),
         );
       }
     } finally {
       if (isCurrent()) setSchedulesLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!visible || tab !== "schedule") return;
@@ -601,15 +624,17 @@ export function ActivityHubSheet({
       } catch (error) {
         if (aliveRef.current) {
           Alert.alert(
-            "Schedule",
-            error instanceof Error ? error.message : "That didn’t go through.",
+            t("mobile.activityHub.schedule.alertTitle"),
+            error instanceof Error
+              ? error.message
+              : t("mobile.activityHub.schedule.actionFailed"),
           );
         }
       } finally {
         if (aliveRef.current) setBusyScheduleKey(null);
       }
     },
-    [loadSchedules],
+    [loadSchedules, t],
   );
 
   const onScheduleAction = useCallback(
@@ -618,12 +643,14 @@ export function ActivityHubSheet({
       if (action === "remove") {
         // Destructive actions confirm first — deleting stops future runs.
         Alert.alert(
-          "Delete schedule",
-          `"${schedule.title}" will stop running.`,
+          t("mobile.activityHub.schedule.deleteSchedule"),
+          t("mobile.activityHub.schedule.deleteConfirm", {
+            title: schedule.title,
+          }),
           [
-            { text: "Cancel", style: "cancel" },
+            { text: t("mobile.common.cancel"), style: "cancel" },
             {
-              text: "Delete",
+              text: t("mobile.common.delete"),
               style: "destructive",
               onPress: () => {
                 void applyScheduleAction(schedule, action);
@@ -635,7 +662,7 @@ export function ActivityHubSheet({
       }
       void applyScheduleAction(schedule, action);
     },
-    [busyScheduleKey, applyScheduleAction],
+    [busyScheduleKey, applyScheduleAction, t],
   );
 
   const searching =
@@ -787,7 +814,7 @@ export function ActivityHubSheet({
         ref={searchInputRef}
         value={query}
         onChangeText={setQuery}
-        placeholder="Search activity and files"
+        placeholder={t("mobile.activityHub.search.placeholder")}
         placeholderTextColor={colors.textMuted}
         style={styles.searchInput}
         autoCapitalize="none"
@@ -798,7 +825,7 @@ export function ActivityHubSheet({
       />
       {query.length > 0 ? (
         <Pressable
-          accessibilityLabel="Clear search"
+          accessibilityLabel={t("mobile.activityHub.search.clear")}
           hitSlop={8}
           onPress={() => setQuery("")}
         >
@@ -806,7 +833,7 @@ export function ActivityHubSheet({
         </Pressable>
       ) : null}
       <Pressable
-        accessibilityLabel="Close search"
+        accessibilityLabel={t("mobile.activityHub.search.close")}
         accessibilityRole="button"
         hitSlop={8}
         onPress={() => selectTab("activity")}
@@ -848,8 +875,7 @@ export function ActivityHubSheet({
               <Text style={styles.empty}>{schedulesError}</Text>
             ) : schedules.length === 0 ? (
               <Text style={styles.empty}>
-                No schedules yet. Ask Stella on your computer to run something
-                regularly and it shows up here.
+                {t("mobile.activityHub.schedule.empty")}
               </Text>
             ) : (
               <LegendList<MobileSchedule>
@@ -881,8 +907,8 @@ export function ActivityHubSheet({
             fileRows.length === 0 ? (
               <Text style={styles.empty}>
                 {searching
-                  ? "No files match."
-                  : "No files yet. Anything Stella produces shows up here."}
+                  ? t("mobile.activityHub.files.emptyFiltered")
+                  : t("mobile.activityHub.files.empty")}
               </Text>
             ) : (
               <LegendList<FileRow>
@@ -950,7 +976,7 @@ export function ActivityHubSheet({
                     style={styles.sectionLabel}
                     maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
                   >
-                    Activity
+                    {t("mobile.activityHub.tabs.activity")}
                   </Text>
                 ) : null
               }
@@ -960,8 +986,8 @@ export function ActivityHubSheet({
                   maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
                 >
                   {searching
-                    ? "No matching activity or files."
-                    : "No background work yet."}
+                    ? t("mobile.activityHub.activity.emptyFiltered")
+                    : t("mobile.activityHub.activity.empty")}
                 </Text>
               }
               ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
@@ -984,13 +1010,14 @@ export function ActivityHubSheet({
             <View style={styles.tabBarHairline} pointerEvents="none" />
             {TAB_ORDER.map((entry) => {
               const meta = TAB_META[entry];
+              const label = t(meta.labelKey);
               const active = tab === entry;
               return (
                 <Pressable
                   key={entry}
                   accessibilityRole="tab"
                   accessibilityState={{ selected: active }}
-                  accessibilityLabel={meta.label}
+                  accessibilityLabel={label}
                   onPress={() => selectTab(entry)}
                   style={({ pressed }) => [
                     styles.tabButton,
@@ -1009,7 +1036,7 @@ export function ActivityHubSheet({
                     ]}
                     maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
                   >
-                    {meta.label}
+                    {label}
                   </Text>
                 </Pressable>
               );

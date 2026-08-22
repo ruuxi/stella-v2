@@ -2155,6 +2155,60 @@
       "emptyPrompt": "Ask Stella anything",
       "composerPlaceholder": "Message Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Activity",
+        "schedule": "Schedule",
+        "search": "Search",
+        "files": "Files"
+      },
+      "task": {
+        "finished": "Finished",
+        "failed": "Couldn’t finish",
+        "stopped": "Stopped",
+        "working": "Working in background"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} subagent",
+          "other": "{count} subagents"
+        },
+        "done": {
+          "other": "{count} done"
+        }
+      },
+      "conversation": {
+        "title": "This conversation",
+        "subtitle": "Files created by the main thread"
+      },
+      "schedule": {
+        "customCadence": "Custom schedule",
+        "paused": "Paused",
+        "next": "Next {when}",
+        "lastRunFailed": "Last run failed: {error}",
+        "pauseSchedule": "Pause schedule",
+        "resumeSchedule": "Resume schedule",
+        "deleteSchedule": "Delete schedule",
+        "deleteConfirm": "“{title}” will stop running.",
+        "alertTitle": "Schedule",
+        "actionFailed": "That didn’t go through.",
+        "loadFailed": "Couldn’t load schedules.",
+        "empty": "No schedules yet. Ask Stella on your computer to run something regularly and it shows up here."
+      },
+      "search": {
+        "placeholder": "Search activity and files",
+        "clear": "Clear search",
+        "close": "Close search"
+      },
+      "files": {
+        "empty": "No files yet. Anything Stella produces shows up here.",
+        "emptyFiltered": "No files match."
+      },
+      "activity": {
+        "empty": "No background work yet.",
+        "emptyFiltered": "No matching activity or files."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Your computer, at your fingertips",
       "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",

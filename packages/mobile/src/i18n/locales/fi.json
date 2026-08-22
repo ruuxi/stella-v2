@@ -2155,6 +2155,60 @@
       "emptyPrompt": "Kysy Stellalta mitä tahansa",
       "composerPlaceholder": "Kirjoita Stellalle"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Toiminta",
+        "schedule": "Aikataulu",
+        "search": "Haku",
+        "files": "Tiedostot"
+      },
+      "task": {
+        "finished": "Valmis",
+        "failed": "Ei onnistunut",
+        "stopped": "Pysäytetty",
+        "working": "Työskentelee taustalla"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} aliagentti",
+          "other": "{count} aliagenttia"
+        },
+        "done": {
+          "other": "{count} valmiina"
+        }
+      },
+      "conversation": {
+        "title": "Tämä keskustelu",
+        "subtitle": "Pääsäikeen luomat tiedostot"
+      },
+      "schedule": {
+        "customCadence": "Mukautettu aikataulu",
+        "paused": "Keskeytetty",
+        "next": "Seuraava {when}",
+        "lastRunFailed": "Viimeisin ajo epäonnistui: {error}",
+        "pauseSchedule": "Keskeytä aikataulu",
+        "resumeSchedule": "Jatka aikataulua",
+        "deleteSchedule": "Poista aikataulu",
+        "deleteConfirm": "”{title}” ei enää suoriteta.",
+        "alertTitle": "Aikataulu",
+        "actionFailed": "Se ei onnistunut.",
+        "loadFailed": "Aikatauluja ei voitu ladata.",
+        "empty": "Ei vielä aikatauluja. Pyydä Stellaa tietokoneellasi ajamaan jotain säännöllisesti, niin se näkyy täällä."
+      },
+      "search": {
+        "placeholder": "Hae toiminnasta ja tiedostoista",
+        "clear": "Tyhjennä haku",
+        "close": "Sulje haku"
+      },
+      "files": {
+        "empty": "Ei vielä tiedostoja. Kaikki Stellan tuottama näkyy täällä.",
+        "emptyFiltered": "Mikään tiedosto ei vastaa hakua."
+      },
+      "activity": {
+        "empty": "Ei vielä taustatyötä.",
+        "emptyFiltered": "Ei vastaavaa toimintaa tai tiedostoja."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Tietokoneesi sormenpäissäsi",
       "guestHeroBody": "Pyydä Stellaa tekemään asioita tietokoneellasi — selaamaan verkkoa, hallitsemaan tiedostoja, suorittamaan tehtäviä ja paljon muuta.",

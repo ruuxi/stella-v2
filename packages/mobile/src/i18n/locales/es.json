@@ -2181,6 +2181,61 @@
       "emptyPrompt": "Pregúntale lo que sea a Stella",
       "composerPlaceholder": "Escribe a Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Actividad",
+        "schedule": "Programación",
+        "search": "Buscar",
+        "files": "Archivos"
+      },
+      "task": {
+        "finished": "Terminado",
+        "failed": "No se pudo terminar",
+        "stopped": "Detenido",
+        "working": "Trabajando en segundo plano"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} subagente",
+          "other": "{count} subagentes"
+        },
+        "done": {
+          "one": "{count} listo",
+          "other": "{count} listos"
+        }
+      },
+      "conversation": {
+        "title": "Esta conversación",
+        "subtitle": "Archivos creados por el hilo principal"
+      },
+      "schedule": {
+        "customCadence": "Programación personalizada",
+        "paused": "En pausa",
+        "next": "Próxima ejecución {when}",
+        "lastRunFailed": "La última ejecución falló: {error}",
+        "pauseSchedule": "Pausar programación",
+        "resumeSchedule": "Reanudar programación",
+        "deleteSchedule": "Eliminar programación",
+        "deleteConfirm": "«{title}» dejará de ejecutarse.",
+        "alertTitle": "Programación",
+        "actionFailed": "No se pudo completar.",
+        "loadFailed": "No se pudieron cargar las programaciones.",
+        "empty": "Aún no hay programaciones. Pídele a Stella en tu computadora que ejecute algo con regularidad y aparecerá aquí."
+      },
+      "search": {
+        "placeholder": "Buscar actividad y archivos",
+        "clear": "Borrar búsqueda",
+        "close": "Cerrar búsqueda"
+      },
+      "files": {
+        "empty": "Aún no hay archivos. Todo lo que Stella produzca aparecerá aquí.",
+        "emptyFiltered": "Ningún archivo coincide."
+      },
+      "activity": {
+        "empty": "Aún no hay trabajo en segundo plano.",
+        "emptyFiltered": "Ninguna actividad ni archivo coincide."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Tu ordenador, al alcance de la mano",
       "guestHeroBody": "Pídele a Stella que haga cosas en tu ordenador: navegar por la web, gestionar archivos, ejecutar tareas y mucho más.",

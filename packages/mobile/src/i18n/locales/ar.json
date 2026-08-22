@@ -2258,6 +2258,63 @@
       "emptyPrompt": "اسأل Stella عن أي شيء",
       "composerPlaceholder": "راسِل Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "النشاط",
+        "schedule": "الجدولة",
+        "search": "بحث",
+        "files": "الملفات"
+      },
+      "task": {
+        "finished": "اكتمل",
+        "failed": "تعذّر الإكمال",
+        "stopped": "أُوقف",
+        "working": "يعمل في الخلفية"
+      },
+      "subagents": {
+        "count": {
+          "one": "وكيل فرعي واحد",
+          "two": "وكيلان فرعيان",
+          "few": "{count} وكلاء فرعيين",
+          "many": "{count} وكيلًا فرعيًا",
+          "other": "{count} وكيل فرعي"
+        },
+        "done": {
+          "other": "اكتمل: {count}"
+        }
+      },
+      "conversation": {
+        "title": "هذه المحادثة",
+        "subtitle": "ملفات أنشأها الخيط الرئيسي"
+      },
+      "schedule": {
+        "customCadence": "جدولة مخصّصة",
+        "paused": "متوقفة مؤقتًا",
+        "next": "التشغيل التالي {when}",
+        "lastRunFailed": "فشل آخر تشغيل: {error}",
+        "pauseSchedule": "إيقاف الجدولة مؤقتًا",
+        "resumeSchedule": "استئناف الجدولة",
+        "deleteSchedule": "حذف الجدولة",
+        "deleteConfirm": "سيتوقف تشغيل “{title}”.",
+        "alertTitle": "الجدولة",
+        "actionFailed": "لم تنجح العملية.",
+        "loadFailed": "تعذّر تحميل الجداول.",
+        "empty": "لا توجد جداول بعد. اطلب من Stella على حاسوبك تشغيل شيء بانتظام وسيظهر هنا."
+      },
+      "search": {
+        "placeholder": "البحث في النشاط والملفات",
+        "clear": "مسح البحث",
+        "close": "إغلاق البحث"
+      },
+      "files": {
+        "empty": "لا توجد ملفات بعد. كل ما تنتجه Stella يظهر هنا.",
+        "emptyFiltered": "لا توجد ملفات مطابقة."
+      },
+      "activity": {
+        "empty": "لا يوجد عمل في الخلفية بعد.",
+        "emptyFiltered": "لا يوجد نشاط أو ملفات مطابقة."
+      }
+    },
     "computer": {
       "guestHeroTitle": "كمبيوترك بين يديك",
       "guestHeroBody": "اطلب من Stella إنجاز أشياء على كمبيوترك — تصفّح الويب وإدارة الملفات وتنفيذ المهام والمزيد.",

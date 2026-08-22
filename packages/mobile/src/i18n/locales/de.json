@@ -2155,6 +2155,60 @@
       "emptyPrompt": "Frag Stella alles",
       "composerPlaceholder": "Nachricht an Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Aktivität",
+        "schedule": "Zeitplan",
+        "search": "Suche",
+        "files": "Dateien"
+      },
+      "task": {
+        "finished": "Abgeschlossen",
+        "failed": "Konnte nicht abgeschlossen werden",
+        "stopped": "Gestoppt",
+        "working": "Arbeitet im Hintergrund"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} Subagent",
+          "other": "{count} Subagenten"
+        },
+        "done": {
+          "other": "{count} fertig"
+        }
+      },
+      "conversation": {
+        "title": "Diese Unterhaltung",
+        "subtitle": "Vom Haupt-Thread erstellte Dateien"
+      },
+      "schedule": {
+        "customCadence": "Eigener Zeitplan",
+        "paused": "Pausiert",
+        "next": "Nächster Lauf {when}",
+        "lastRunFailed": "Letzter Lauf fehlgeschlagen: {error}",
+        "pauseSchedule": "Zeitplan pausieren",
+        "resumeSchedule": "Zeitplan fortsetzen",
+        "deleteSchedule": "Zeitplan löschen",
+        "deleteConfirm": "„{title}“ wird nicht mehr ausgeführt.",
+        "alertTitle": "Zeitplan",
+        "actionFailed": "Das hat nicht geklappt.",
+        "loadFailed": "Zeitpläne konnten nicht geladen werden.",
+        "empty": "Noch keine Zeitpläne. Bitte Stella auf deinem Computer, etwas regelmäßig auszuführen – es erscheint dann hier."
+      },
+      "search": {
+        "placeholder": "Aktivität und Dateien durchsuchen",
+        "clear": "Suche leeren",
+        "close": "Suche schließen"
+      },
+      "files": {
+        "empty": "Noch keine Dateien. Alles, was Stella erstellt, erscheint hier.",
+        "emptyFiltered": "Keine passenden Dateien."
+      },
+      "activity": {
+        "empty": "Noch keine Hintergrundarbeit.",
+        "emptyFiltered": "Keine passende Aktivität oder Dateien."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Dein Computer, immer griffbereit",
       "guestHeroBody": "Bitte Stella, Dinge auf deinem Computer zu erledigen — im Web surfen, Dateien verwalten, Aufgaben ausführen und mehr.",

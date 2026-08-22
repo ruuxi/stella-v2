@@ -2181,6 +2181,61 @@
       "emptyPrompt": "שאלו את Stella כל דבר",
       "composerPlaceholder": "כתבו ל-Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "פעילות",
+        "schedule": "תזמון",
+        "search": "חיפוש",
+        "files": "קבצים"
+      },
+      "task": {
+        "finished": "הושלם",
+        "failed": "לא ניתן היה להשלים",
+        "stopped": "הופסק",
+        "working": "עובד ברקע"
+      },
+      "subagents": {
+        "count": {
+          "one": "תת־סוכן אחד",
+          "two": "{count} תתי־סוכנים",
+          "other": "{count} תתי־סוכנים"
+        },
+        "done": {
+          "other": "הושלמו: {count}"
+        }
+      },
+      "conversation": {
+        "title": "השיחה הזו",
+        "subtitle": "קבצים שנוצרו על ידי התהליך הראשי"
+      },
+      "schedule": {
+        "customCadence": "תזמון מותאם אישית",
+        "paused": "מושהה",
+        "next": "ההרצה הבאה {when}",
+        "lastRunFailed": "ההרצה האחרונה נכשלה: {error}",
+        "pauseSchedule": "השהיית התזמון",
+        "resumeSchedule": "חידוש התזמון",
+        "deleteSchedule": "מחיקת התזמון",
+        "deleteConfirm": "”{title}“ יפסיק לפעול.",
+        "alertTitle": "תזמון",
+        "actionFailed": "זה לא הצליח.",
+        "loadFailed": "לא ניתן היה לטעון את התזמונים.",
+        "empty": "אין עדיין תזמונים. בקשו מ־ Stella במחשב להריץ משהו באופן קבוע והוא יופיע כאן."
+      },
+      "search": {
+        "placeholder": "חיפוש בפעילות ובקבצים",
+        "clear": "ניקוי החיפוש",
+        "close": "סגירת החיפוש"
+      },
+      "files": {
+        "empty": "אין עדיין קבצים. כל מה ש־ Stella מייצרת יופיע כאן.",
+        "emptyFiltered": "אין קבצים תואמים."
+      },
+      "activity": {
+        "empty": "אין עדיין עבודת רקע.",
+        "emptyFiltered": "אין פעילות או קבצים תואמים."
+      }
+    },
     "computer": {
       "guestHeroTitle": "המחשב שלכם, בהישג יד",
       "guestHeroBody": "בקשו מ-Stella לעשות דברים במחשב שלכם — לגלוש ברשת, לנהל קבצים, להריץ משימות ועוד.",

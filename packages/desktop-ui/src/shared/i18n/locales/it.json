@@ -2181,6 +2181,61 @@
       "emptyPrompt": "Chiedi qualsiasi cosa a Stella",
       "composerPlaceholder": "Scrivi a Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Attività",
+        "schedule": "Pianificazione",
+        "search": "Cerca",
+        "files": "File"
+      },
+      "task": {
+        "finished": "Completato",
+        "failed": "Non completato",
+        "stopped": "Interrotto",
+        "working": "Lavora in background"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} subagente",
+          "other": "{count} subagenti"
+        },
+        "done": {
+          "one": "{count} completato",
+          "other": "{count} completati"
+        }
+      },
+      "conversation": {
+        "title": "Questa conversazione",
+        "subtitle": "File creati dal thread principale"
+      },
+      "schedule": {
+        "customCadence": "Pianificazione personalizzata",
+        "paused": "In pausa",
+        "next": "Prossima esecuzione {when}",
+        "lastRunFailed": "Ultima esecuzione non riuscita: {error}",
+        "pauseSchedule": "Metti in pausa la pianificazione",
+        "resumeSchedule": "Riprendi la pianificazione",
+        "deleteSchedule": "Elimina la pianificazione",
+        "deleteConfirm": "«{title}» non verrà più eseguita.",
+        "alertTitle": "Pianificazione",
+        "actionFailed": "Non è andata a buon fine.",
+        "loadFailed": "Impossibile caricare le pianificazioni.",
+        "empty": "Ancora nessuna pianificazione. Chiedi a Stella sul tuo computer di eseguire qualcosa regolarmente e comparirà qui."
+      },
+      "search": {
+        "placeholder": "Cerca in attività e file",
+        "clear": "Cancella ricerca",
+        "close": "Chiudi ricerca"
+      },
+      "files": {
+        "empty": "Ancora nessun file. Tutto ciò che Stella produce compare qui.",
+        "emptyFiltered": "Nessun file corrisponde."
+      },
+      "activity": {
+        "empty": "Ancora nessun lavoro in background.",
+        "emptyFiltered": "Nessuna attività o file corrispondente."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Il tuo computer a portata di mano",
       "guestHeroBody": "Chiedi a Stella di fare cose sul tuo computer: navigare sul web, gestire file, eseguire attività e altro ancora.",

@@ -2155,6 +2155,60 @@
       "emptyPrompt": "Stella से कुछ भी पूछें",
       "composerPlaceholder": "Stella को संदेश भेजें"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "गतिविधि",
+        "schedule": "शेड्यूल",
+        "search": "खोज",
+        "files": "फ़ाइलें"
+      },
+      "task": {
+        "finished": "पूरा हुआ",
+        "failed": "पूरा नहीं हो सका",
+        "stopped": "रोका गया",
+        "working": "बैकग्राउंड में काम कर रहा है"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} सब-एजेंट",
+          "other": "{count} सब-एजेंट"
+        },
+        "done": {
+          "other": "{count} पूरे"
+        }
+      },
+      "conversation": {
+        "title": "यह बातचीत",
+        "subtitle": "मुख्य थ्रेड द्वारा बनाई गई फ़ाइलें"
+      },
+      "schedule": {
+        "customCadence": "कस्टम शेड्यूल",
+        "paused": "रुका हुआ",
+        "next": "अगली बार {when}",
+        "lastRunFailed": "पिछला रन विफल रहा: {error}",
+        "pauseSchedule": "शेड्यूल रोकें",
+        "resumeSchedule": "शेड्यूल फिर शुरू करें",
+        "deleteSchedule": "शेड्यूल हटाएँ",
+        "deleteConfirm": "“{title}” अब नहीं चलेगा।",
+        "alertTitle": "शेड्यूल",
+        "actionFailed": "यह पूरा नहीं हो सका।",
+        "loadFailed": "शेड्यूल लोड नहीं हो सके।",
+        "empty": "अभी कोई शेड्यूल नहीं है। अपने कंप्यूटर पर Stella से कुछ नियमित रूप से चलाने के लिए कहें, वह यहाँ दिखेगा।"
+      },
+      "search": {
+        "placeholder": "गतिविधि और फ़ाइलों में खोजें",
+        "clear": "खोज साफ़ करें",
+        "close": "खोज बंद करें"
+      },
+      "files": {
+        "empty": "अभी कोई फ़ाइल नहीं है। Stella जो भी बनाएगी वह यहाँ दिखेगा।",
+        "emptyFiltered": "कोई फ़ाइल मेल नहीं खाती।"
+      },
+      "activity": {
+        "empty": "अभी कोई बैकग्राउंड काम नहीं है।",
+        "emptyFiltered": "कोई मिलती-जुलती गतिविधि या फ़ाइल नहीं।"
+      }
+    },
     "computer": {
       "guestHeroTitle": "आपका कंप्यूटर, आपकी उँगलियों पर",
       "guestHeroBody": "Stella से अपने कंप्यूटर पर काम कराएँ — वेब ब्राउज़ करना, फ़ाइलें सँभालना, काम चलाना और भी बहुत कुछ।",

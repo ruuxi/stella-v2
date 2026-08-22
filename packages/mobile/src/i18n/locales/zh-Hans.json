@@ -2127,6 +2127,59 @@
       "emptyPrompt": "随便问 Stella",
       "composerPlaceholder": "给 Stella 发消息"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "活动",
+        "schedule": "日程",
+        "search": "搜索",
+        "files": "文件"
+      },
+      "task": {
+        "finished": "已完成",
+        "failed": "未能完成",
+        "stopped": "已停止",
+        "working": "正在后台工作"
+      },
+      "subagents": {
+        "count": {
+          "other": "{count} 个子智能体"
+        },
+        "done": {
+          "other": "已完成 {count} 个"
+        }
+      },
+      "conversation": {
+        "title": "此对话",
+        "subtitle": "主线程创建的文件"
+      },
+      "schedule": {
+        "customCadence": "自定义日程",
+        "paused": "已暂停",
+        "next": "下次运行 {when}",
+        "lastRunFailed": "上次运行失败：{error}",
+        "pauseSchedule": "暂停日程",
+        "resumeSchedule": "恢复日程",
+        "deleteSchedule": "删除日程",
+        "deleteConfirm": "“{title}”将停止运行。",
+        "alertTitle": "日程",
+        "actionFailed": "操作未成功。",
+        "loadFailed": "无法加载日程。",
+        "empty": "还没有日程。让电脑上的 Stella 定期运行一些任务，就会显示在这里。"
+      },
+      "search": {
+        "placeholder": "搜索活动和文件",
+        "clear": "清除搜索",
+        "close": "关闭搜索"
+      },
+      "files": {
+        "empty": "还没有文件。Stella 生成的所有内容都会显示在这里。",
+        "emptyFiltered": "没有匹配的文件。"
+      },
+      "activity": {
+        "empty": "还没有后台工作。",
+        "emptyFiltered": "没有匹配的活动或文件。"
+      }
+    },
     "computer": {
       "guestHeroTitle": "您的电脑，触手可及",
       "guestHeroBody": "让 Stella 在您的电脑上做事 —— 浏览网页、整理文件、执行任务等等。",

@@ -2127,6 +2127,59 @@
       "emptyPrompt": "Stella に何でも聞いてください",
       "composerPlaceholder": "Stella にメッセージ"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "アクティビティ",
+        "schedule": "スケジュール",
+        "search": "検索",
+        "files": "ファイル"
+      },
+      "task": {
+        "finished": "完了",
+        "failed": "完了できませんでした",
+        "stopped": "停止",
+        "working": "バックグラウンドで作業中"
+      },
+      "subagents": {
+        "count": {
+          "other": "サブエージェント{count}件"
+        },
+        "done": {
+          "other": "{count}件完了"
+        }
+      },
+      "conversation": {
+        "title": "この会話",
+        "subtitle": "メインスレッドが作成したファイル"
+      },
+      "schedule": {
+        "customCadence": "カスタムスケジュール",
+        "paused": "一時停止中",
+        "next": "次回 {when}",
+        "lastRunFailed": "前回の実行が失敗しました: {error}",
+        "pauseSchedule": "スケジュールを一時停止",
+        "resumeSchedule": "スケジュールを再開",
+        "deleteSchedule": "スケジュールを削除",
+        "deleteConfirm": "「{title}」は実行されなくなります。",
+        "alertTitle": "スケジュール",
+        "actionFailed": "実行できませんでした。",
+        "loadFailed": "スケジュールを読み込めませんでした。",
+        "empty": "スケジュールはまだありません。パソコンのStellaに何かを定期実行するよう頼むと、ここに表示されます。"
+      },
+      "search": {
+        "placeholder": "アクティビティとファイルを検索",
+        "clear": "検索をクリア",
+        "close": "検索を閉じる"
+      },
+      "files": {
+        "empty": "ファイルはまだありません。Stellaが作成したものがここに表示されます。",
+        "emptyFiltered": "一致するファイルはありません。"
+      },
+      "activity": {
+        "empty": "バックグラウンド作業はまだありません。",
+        "emptyFiltered": "一致するアクティビティやファイルはありません。"
+      }
+    },
     "computer": {
       "guestHeroTitle": "あなたのコンピュータを手元に",
       "guestHeroBody": "ウェブの閲覧、ファイル整理、タスク実行など、コンピュータでの操作を Stella に頼めます。",

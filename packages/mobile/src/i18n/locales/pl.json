@@ -2207,6 +2207,62 @@
       "emptyPrompt": "Zapytaj Stellę o cokolwiek",
       "composerPlaceholder": "Napisz do Stelli"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "Aktywność",
+        "schedule": "Harmonogram",
+        "search": "Szukaj",
+        "files": "Pliki"
+      },
+      "task": {
+        "finished": "Ukończono",
+        "failed": "Nie udało się ukończyć",
+        "stopped": "Zatrzymano",
+        "working": "Pracuje w tle"
+      },
+      "subagents": {
+        "count": {
+          "one": "{count} subagent",
+          "few": "{count} subagenty",
+          "many": "{count} subagentów",
+          "other": "{count} subagenta"
+        },
+        "done": {
+          "other": "ukończono: {count}"
+        }
+      },
+      "conversation": {
+        "title": "Ta rozmowa",
+        "subtitle": "Pliki utworzone przez główny wątek"
+      },
+      "schedule": {
+        "customCadence": "Własny harmonogram",
+        "paused": "Wstrzymano",
+        "next": "Następne uruchomienie {when}",
+        "lastRunFailed": "Ostatnie uruchomienie nie powiodło się: {error}",
+        "pauseSchedule": "Wstrzymaj harmonogram",
+        "resumeSchedule": "Wznów harmonogram",
+        "deleteSchedule": "Usuń harmonogram",
+        "deleteConfirm": "„{title}” przestanie się uruchamiać.",
+        "alertTitle": "Harmonogram",
+        "actionFailed": "Nie udało się.",
+        "loadFailed": "Nie udało się wczytać harmonogramów.",
+        "empty": "Nie ma jeszcze harmonogramów. Poproś Stellę na swoim komputerze o regularne uruchamianie czegoś, a pojawi się to tutaj."
+      },
+      "search": {
+        "placeholder": "Szukaj w aktywności i plikach",
+        "clear": "Wyczyść wyszukiwanie",
+        "close": "Zamknij wyszukiwanie"
+      },
+      "files": {
+        "empty": "Nie ma jeszcze plików. Wszystko, co utworzy Stella, pojawi się tutaj.",
+        "emptyFiltered": "Żaden plik nie pasuje."
+      },
+      "activity": {
+        "empty": "Nie ma jeszcze pracy w tle.",
+        "emptyFiltered": "Brak pasującej aktywności i plików."
+      }
+    },
     "computer": {
       "guestHeroTitle": "Twój komputer w zasięgu ręki",
       "guestHeroBody": "Poproś Stellę, żeby zrobiła coś na twoim komputerze — przeglądała sieć, zarządzała plikami, uruchamiała zadania i nie tylko.",

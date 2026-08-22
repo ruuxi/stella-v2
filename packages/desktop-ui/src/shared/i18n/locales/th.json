@@ -2127,6 +2127,59 @@
       "emptyPrompt": "ถาม Stella อะไรก็ได้",
       "composerPlaceholder": "ส่งข้อความถึง Stella"
     },
+    "activityHub": {
+      "tabs": {
+        "activity": "กิจกรรม",
+        "schedule": "กำหนดการ",
+        "search": "ค้นหา",
+        "files": "ไฟล์"
+      },
+      "task": {
+        "finished": "เสร็จแล้ว",
+        "failed": "ทำไม่สำเร็จ",
+        "stopped": "หยุดแล้ว",
+        "working": "กำลังทำงานอยู่เบื้องหลัง"
+      },
+      "subagents": {
+        "count": {
+          "other": "เอเจนต์ย่อย {count} ตัว"
+        },
+        "done": {
+          "other": "เสร็จแล้ว {count}"
+        }
+      },
+      "conversation": {
+        "title": "การสนทนานี้",
+        "subtitle": "ไฟล์ที่สร้างโดยเธรดหลัก"
+      },
+      "schedule": {
+        "customCadence": "กำหนดการที่กำหนดเอง",
+        "paused": "หยุดชั่วคราว",
+        "next": "ครั้งถัดไป {when}",
+        "lastRunFailed": "การทำงานล่าสุดล้มเหลว: {error}",
+        "pauseSchedule": "หยุดกำหนดการชั่วคราว",
+        "resumeSchedule": "ทำกำหนดการต่อ",
+        "deleteSchedule": "ลบกำหนดการ",
+        "deleteConfirm": "“{title}” จะหยุดทำงาน",
+        "alertTitle": "กำหนดการ",
+        "actionFailed": "ดำเนินการไม่สำเร็จ",
+        "loadFailed": "โหลดกำหนดการไม่สำเร็จ",
+        "empty": "ยังไม่มีกำหนดการ ลองบอก Stella บนคอมพิวเตอร์ให้ทำอะไรเป็นประจำ แล้วจะแสดงที่นี่"
+      },
+      "search": {
+        "placeholder": "ค้นหาในกิจกรรมและไฟล์",
+        "clear": "ล้างการค้นหา",
+        "close": "ปิดการค้นหา"
+      },
+      "files": {
+        "empty": "ยังไม่มีไฟล์ ทุกอย่างที่ Stella สร้างจะแสดงที่นี่",
+        "emptyFiltered": "ไม่มีไฟล์ที่ตรงกัน"
+      },
+      "activity": {
+        "empty": "ยังไม่มีงานเบื้องหลัง",
+        "emptyFiltered": "ไม่มีกิจกรรมหรือไฟล์ที่ตรงกัน"
+      }
+    },
     "computer": {
       "guestHeroTitle": "คอมพิวเตอร์ของคุณ แค่ปลายนิ้ว",
       "guestHeroBody": "สั่งให้ Stella ทำสิ่งต่าง ๆ บนคอมพิวเตอร์ของคุณ — เปิดเว็บ จัดการไฟล์ ทำงานต่าง ๆ และอีกมากมาย",

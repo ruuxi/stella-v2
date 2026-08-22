@@ -73,7 +73,12 @@ proprietary Composio APIs. Prefer the native tool in all cases.
   These are `executor_ready`, not activated: every call
   still needs independent deployment enablement, representative-call
   verification, an active encrypted owner credential, and rollout selection.
-- `1password` and `snowflake` remain `planner_ready` and
+- `snowflake` is now `executor_ready` in code with an account-bound first-party
+  OAuth manifest, owner-encrypted token lifecycle, fixed SQL API v2 plans, and a
+  bounded same-origin executor. It remains externally blocked and unverified;
+  Composio stays authoritative until a tenant registration and representative
+  OAuth/SQL calls pass review.
+- `1password` remains `planner_ready` and
   Composio-owned. Their remaining blockers are documented in the backend
   connector README; no descriptor or readiness claim fakes an executable
   credential model.
@@ -88,12 +93,6 @@ proprietary Composio APIs. Prefer the native tool in all cases.
   execution still requires deployment enablement, an active encrypted owner
   credential, and rollout selection.
 - The planner catalog retains these safety boundaries:
-  - **Snowflake account-scoped origin** — `requiresTenantOrigin` plus a
-    `tenantOriginSuffix` (`.snowflakecomputing.com`) bound only through
-    `resolveDeferredTenantOrigin`, which enforces https, an origin-only URL, and
-    a real subdomain of the official suffix and rejects any arbitrary host, the
-    bare suffix, look-alikes, downgrades, and credentialed URLs. This closes
-    origin confusion only; it does not establish Snowflake's credential model.
   - **Abstract per-product host** — an explicit action→official-host map
     (`fixedApiOriginByAction`, all under `*.abstractapi.com`), resolved by
     `resolveDeferredActionOrigin`; no single or model-chosen base URL.
@@ -121,11 +120,11 @@ a connector production-ready.
 
 ### OAuth connectors
 
-| Connector   | Shared-core env required                                                                                                                                                                                                                                        | Notes                                                                                                                                                                                                            |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `github`    | `STELLA_CONNECTOR_OAUTH_GITHUB_CLIENT_ID`, `_CLIENT_SECRETS_JSON`, `_CLIENT_SECRET_VERSION`                                                                                                                                                                     | Hosted OAuth callback, PKCE, fixed `api.github.com` executor. Requires provider-app registration and representative live read/write verification before allowlisting or rollout.                                 |
-| `supabase`  | `STELLA_CONNECTOR_OAUTH_SUPABASE_CLIENT_ID`, `_CLIENT_SECRETS_JSON`, `_CLIENT_SECRET_VERSION`                                                                                                                                                                   | Hosted Management API OAuth, PKCE, fixed `api.supabase.com` executor. Dynamic `scope` is intentionally omitted because Supabase app permissions are configured out of band.                                      |
-| `snowflake` | Not yet provisioned in the shared core; setup must supply the account origin, client id, and versioned secret ring. The planner exists; the account origin is bound only via `resolveDeferredTenantOrigin` under the `.snowflakecomputing.com` suffix allowlist | Snowflake OAuth and SQL API URLs are account-scoped. The narrow suffix binding closes the code blocker; the tenant account origin and OAuth app remain an external per-connection requirement before activation. |
+| Connector   | Shared-core env required                                                                                                                                   | Notes                                                                                                                                                                                                                                                   |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `github`    | `STELLA_CONNECTOR_OAUTH_GITHUB_CLIENT_ID`, `_CLIENT_SECRETS_JSON`, `_CLIENT_SECRET_VERSION`                                                                | Hosted OAuth callback, PKCE, fixed `api.github.com` executor. Requires provider-app registration and representative live read/write verification before allowlisting or rollout.                                                                        |
+| `supabase`  | `STELLA_CONNECTOR_OAUTH_SUPABASE_CLIENT_ID`, `_CLIENT_SECRETS_JSON`, `_CLIENT_SECRET_VERSION`                                                              | Hosted Management API OAuth, PKCE, fixed `api.supabase.com` executor. Dynamic `scope` is intentionally omitted because Supabase app permissions are configured out of band.                                                                             |
+| `snowflake` | `SNOWFLAKE_OAUTH_TENANTS_JSON`, keyed by exact registered `*.snowflakecomputing.com` host with `clientId`, `activeVersion`, and a versioned `secrets` ring | Backend-only custom-client OAuth with PKCE and hosted callback. The owner enters an account origin; unregistered or non-Snowflake origins are rejected before egress. See the backend connector README for tenant SQL and the representative-call gate. |
 
 ### API-key connectors
 
@@ -160,11 +159,13 @@ call has been verified. Do not pre-provision shared or paid API keys.
   `SEVENSHIFTS_*` access-token actions and the existing exact `7SHIFTS_*`
   public actions. The digit-leading guard admits `7SHIFTS_*` only for connector
   id `7shifts`; other connectors fail closed.
-- **Snowflake** OAuth is account-scoped; the native provider config is
-  intentionally `null` (status `missing_oauth_app`) until an account URL env is
-  set. This is correct, not a bug. The deferred planner never accepts an
-  arbitrary origin — `resolveDeferredTenantOrigin` binds only real subdomains of
-  `.snowflakecomputing.com`.
+- **Snowflake** OAuth is backend-brokered and account-scoped. Desktop-native
+  endpoint construction is intentionally absent: the protected account-origin
+  prompt sends a non-secret origin to the backend, which normalizes it, requires
+  an exact host registration, and derives OAuth and SQL endpoints. Runtime
+  metadata says `executor_ready`; backend readiness remains false while the
+  manifest is `unverified`, registration is missing, execution is disabled, or
+  the provider is not allowlisted. PrivateLink hosts are not yet supported.
 - Representative actions are a curated subset; the authoritative, current action
   set for any connector is resolved at runtime through Composio
   (`connect.actions` / `connect.schema`).

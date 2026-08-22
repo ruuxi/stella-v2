@@ -7,8 +7,8 @@ type PendingConnectorCredentialRequest = {
   requestId: string;
   tokenKey: string;
   displayName: string;
-  mode: "api_key" | "oauth";
-  authType?: "api_key" | "oauth" | "hosted_connect";
+  mode: "api_key" | "oauth" | "account_origin";
+  authType?: "api_key" | "oauth" | "hosted_connect" | "account_origin";
   completionMode?: "approve" | "wait";
   description?: string;
   placeholder?: string;
@@ -154,6 +154,19 @@ export const ConnectorCredentialRequestLayer = () => {
       label={pending.displayName}
       description={pending.description}
       placeholder={pending.placeholder ?? "Paste your key"}
+      inputType={pending.mode === "account_origin" ? "url" : "password"}
+      valueLabel={
+        pending.mode === "account_origin" ? "Snowflake account URL" : undefined
+      }
+      requiredMessage={
+        pending.mode === "account_origin"
+          ? "Enter your Snowflake account URL."
+          : undefined
+      }
+      submitLabel={pending.mode === "account_origin" ? "Continue" : undefined}
+      submittingLabel={
+        pending.mode === "account_origin" ? "Checking..." : undefined
+      }
       showLabel={false}
       originField={pending.originField}
       onSubmit={handleSubmit}

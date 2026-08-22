@@ -95,11 +95,11 @@ const EXECUTOR_READY_CONNECTOR_IDS = new Set([
   "hubspot",
   "salesforce",
   "21risk",
+  "snowflake",
 ]);
 
 const PLANNER_READY_CONNECTOR_IDS = new Set([
   "1password",
-  "snowflake",
 ]);
 
 const codeStatusFor = (
@@ -240,7 +240,10 @@ const developerDataStatus = (
       ...plannerImplementationBlockers(codeStatus),
       ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
       ...(adapter.id === "snowflake"
-        ? ["tenant-specific Snowflake account origin and OAuth app"]
+        ? [
+            "host-keyed Snowflake OAuth integration registered by the tenant administrator",
+            "independent verification and a representative SQL API call before rollout",
+          ]
         : []),
     ],
   };

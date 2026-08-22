@@ -63,6 +63,16 @@ export class ConnectorCredentialService {
             kind: "credential",
         });
     }
+    async requestSnowflakeAccountOrigin(payload) {
+        return await this.enqueueRequest({
+            tokenKey: `account-origin:${payload.connectorId}`,
+            displayName: payload.displayName,
+            authType: "account_origin",
+            description: "Enter the HTTPS account URL supplied by your Snowflake administrator. Stella uses this exact Snowflake account for authorization and SQL requests.",
+            placeholder: "https://org-account.snowflakecomputing.com",
+            kind: "account_origin",
+        });
+    }
     async requestExternalOAuthApproval(payload) {
         return await this.enqueueRequest({
             tokenKey: payload.tokenKey,
@@ -148,7 +158,11 @@ export class ConnectorCredentialService {
         if (!stellaAppDir) {
             return { ok: false, reason: "unsupported" };
         }
-        const mode = payload.authType === "oauth" ? "oauth" : "api_key";
+        const mode = payload.authType === "oauth"
+            ? "oauth"
+            : payload.authType === "account_origin"
+                ? "account_origin"
+                : "api_key";
         if (mode === "oauth" && !payload.resourceUrl) {
             return { ok: false, reason: "oauth_requires_resource_url" };
         }
@@ -188,6 +202,7 @@ export class ConnectorCredentialService {
             oauthStarted: false,
             backendApiKey: payload.backendApiKey,
             backendConnectProfile: payload.backendConnectProfile,
+            accountOrigin: payload.kind === "account_origin",
             oauthFlow: mode === "oauth" &&
                 payload.kind === "credential" &&
                 payload.preregisteredOAuth
@@ -585,6 +600,40 @@ export class ConnectorCredentialService {
         const rawValue = typeof payload.value === "string" ? payload.value : "";
         if (!rawValue.trim()) {
             return { ok: false, error: "value is required." };
+        }
+        if (meta.accountOrigin) {
+            let url;
+            try {
+                url = new URL(rawValue.trim());
+            }
+            catch {
+                return { ok: false, error: "Enter a valid Snowflake account URL." };
+            }
+            const hostname = url.hostname.toLowerCase();
+            const validHostname = hostname.length <= 253 &&
+                hostname
+                    .split(".")
+                    .every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(label));
+            if (url.protocol !== "https:" ||
+                url.username ||
+                url.password ||
+                url.port ||
+                url.pathname !== "/" ||
+                url.search ||
+                url.hash ||
+                !validHostname ||
+                hostname === "snowflakecomputing.com" ||
+                !hostname.endsWith(".snowflakecomputing.com")) {
+                return {
+                    ok: false,
+                    error: "Use an exact HTTPS *.snowflakecomputing.com account URL with no path.",
+                };
+            }
+            const outcome = { ok: true, accountOrigin: `https://${hostname}` };
+            this.notifyComplete(payload.requestId, outcome);
+            this.pending.resolve(payload.requestId, outcome);
+            this.meta.delete(payload.requestId);
+            return { ok: true };
         }
         if (meta.backendApiKey) {
             const siteUrl = this.options

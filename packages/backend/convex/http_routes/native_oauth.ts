@@ -8,6 +8,7 @@ import {
   resolveRoute,
 } from "../connectors/routing";
 import {
+  CONNECTOR_ENV,
   isFirstPartyExecutionEnabled,
   isProviderEnabled,
 } from "../connectors/env";
@@ -16,6 +17,16 @@ import {
   firstPartyProviderForConnector,
   firstPartyProviderForConnectorAction,
 } from "../connectors/executors/first_party";
+import {
+  getProviderManifest,
+  listProviderManifests,
+  type ProviderManifest,
+} from "../connectors/oauth/providers";
+import {
+  parseSnowflakeTenantRegistrations,
+  resolveProviderClientCredentials,
+} from "../connectors/oauth/client_credentials";
+import { normalizeSnowflakeAccountOrigin } from "../connectors/snowflake";
 import {
   apiKeyProviderForConnectorAction,
   getApiKeyCredentialProfile,
@@ -87,6 +98,7 @@ type NativeIntegrationRequestBody = {
   origin?: unknown;
   token?: unknown;
   expectedGeneration?: unknown;
+  accountOrigin?: unknown;
 };
 
 type PublishedIntegrationAction = {
@@ -109,6 +121,77 @@ const isRateLimitError = (error: unknown) =>
   error.data.code === "RATE_LIMITED";
 const MAX_COMPOSIO_RESPONSE_BYTES = 2 * 1024 * 1024;
 const COMPOSIO_REQUEST_TIMEOUT_MS = 30_000;
+
+type OAuthProviderReadiness = {
+  id: string;
+  authType: "oauth";
+  accountBound: boolean;
+  configured: boolean;
+  enabled: boolean;
+  verificationStatus: "verified" | "in_review" | "unverified";
+  executorRegistered: boolean;
+  executionEnabled: boolean;
+  connectReady: boolean;
+  externalCallbackReady: boolean;
+  blockers: string[];
+};
+
+const providerHasRegistration = (manifest: ProviderManifest): boolean => {
+  try {
+    if (manifest.accountBound === "snowflake") {
+      return (
+        parseSnowflakeTenantRegistrations(
+          process.env[CONNECTOR_ENV.SNOWFLAKE_TENANTS_JSON],
+        ).size > 0
+      );
+    }
+    resolveProviderClientCredentials(manifest.key);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Secret-free deployment readiness. Per-user account/rollout readiness is separate. */
+export const buildOAuthProviderReadiness = (): OAuthProviderReadiness[] => {
+  const executionEnabled = isFirstPartyExecutionEnabled();
+  return listProviderManifests()
+    .filter((manifest) => manifest.key !== "mock")
+    .map((manifest) => {
+      const configured = providerHasRegistration(manifest);
+      const enabled = isProviderEnabled(manifest.key);
+      const executorRegistered = Object.keys(
+        manifest.connectorBindings ?? {},
+      ).some(
+        (connectorId) =>
+          firstPartyProviderForConnector(connectorId) === manifest.key,
+      );
+      const blockers = [
+        ...(!configured ? ["registration_missing"] : []),
+        ...(!enabled ? ["provider_disabled"] : []),
+        ...(manifest.verificationStatus !== "verified"
+          ? ["verification_incomplete"]
+          : []),
+        ...(!executorRegistered ? ["executor_not_registered"] : []),
+        ...(!executionEnabled ? ["execution_disabled"] : []),
+      ];
+      const connectReady = blockers.length === 0;
+      return {
+        id: manifest.key,
+        authType: "oauth" as const,
+        accountBound: Boolean(manifest.accountBound),
+        configured,
+        enabled,
+        verificationStatus: manifest.verificationStatus,
+        executorRegistered,
+        executionEnabled,
+        connectReady,
+        externalCallbackReady: connectReady,
+        blockers,
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+};
 
 const readString = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
@@ -630,6 +713,16 @@ const firstPartyConnectTarget = async (
   if (hostedConnectDescriptor && !isHostedConnectEgressTransportAvailable()) {
     return null;
   }
+  const oauthManifest =
+    apiKeyDescriptor || hostedConnectDescriptor
+      ? null
+      : getProviderManifest(provider);
+  if (
+    oauthManifest?.accountBound &&
+    oauthManifest.verificationStatus !== "verified"
+  ) {
+    return null;
+  }
   const storedRollout = await ctx.runQuery(
     internal.connectors.rollouts.getConnectorRollout,
     { connectorId },
@@ -660,6 +753,7 @@ const firstPartyConnectTarget = async (
 
 export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
+    "/api/native-oauth/providers",
     "/api/native-integrations/catalog",
     "/api/native-integrations/actions",
     "/api/native-integrations/connect-link",
@@ -669,6 +763,22 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     "/api/native-integrations/status",
     "/api/native-integrations/run",
   ]);
+
+  http.route({
+    path: "/api/native-oauth/providers",
+    method: "GET",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return errorResponse(401, "Unauthorized", origin);
+        return jsonResponse(
+          { providers: buildOAuthProviderReadiness() },
+          200,
+          origin,
+        );
+      }),
+    ),
+  });
 
   http.route({
     path: "/api/admin/native-integrations/upsert",
@@ -1024,12 +1134,69 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             );
           }
           try {
+            let accountOrigin: string | undefined;
+            if (
+              firstPartyTarget.provider === "snowflake" &&
+              typeof body?.accountOrigin !== "string"
+            ) {
+              return jsonResponse(
+                {
+                  authType: "account_origin",
+                  credentialLabel: "Snowflake account URL",
+                },
+                200,
+                origin,
+              );
+            }
+            if (firstPartyTarget.provider === "snowflake") {
+              try {
+                accountOrigin = normalizeSnowflakeAccountOrigin(
+                  body?.accountOrigin,
+                );
+              } catch {
+                return errorResponse(
+                  400,
+                  "Invalid Snowflake account URL.",
+                  origin,
+                );
+              }
+              try {
+                resolveProviderClientCredentials(
+                  "snowflake",
+                  undefined,
+                  accountOrigin,
+                );
+              } catch {
+                return errorResponse(
+                  503,
+                  "This Snowflake account is not registered with Stella.",
+                  origin,
+                );
+              }
+            }
+            if (
+              body?.accountOrigin !== undefined &&
+              typeof body.accountOrigin !== "string"
+            ) {
+              return errorResponse(400, "Invalid account URL.", origin);
+            }
+            if (
+              firstPartyTarget.provider !== "snowflake" &&
+              body?.accountOrigin !== undefined
+            ) {
+              return errorResponse(
+                400,
+                "Account URL is not supported.",
+                origin,
+              );
+            }
             const attempt = await ctx.runMutation(
               api.connectors.oauth.connect.startConnectAttempt,
               {
                 connectorId: connector.id,
                 provider: firstPartyTarget.provider,
                 returnSurface: "desktop",
+                accountOrigin,
               },
             );
             return jsonResponse(
@@ -1049,6 +1216,13 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               return errorResponse(
                 503,
                 "Could not create the first-party connection link.",
+                origin,
+              );
+            }
+            if (firstPartyTarget.provider === "snowflake") {
+              return errorResponse(
+                503,
+                "Could not create the Snowflake connection link.",
                 origin,
               );
             }

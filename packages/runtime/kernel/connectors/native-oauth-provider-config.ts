@@ -643,7 +643,6 @@ const SERVICEM8_SCOPES = [
 const TIMELY_SCOPES: string[] = [];
 const KOMMO_SCOPES: string[] = [];
 const GONG_SCOPES: string[] = [];
-const SNOWFLAKE_SCOPES = ["session:role-any"];
 const NETSUITE_SCOPES = ["restlets", "rest_webservices"];
 const COUPA_SCOPES = ["core.common.read", "core.common.write"];
 const D2L_BRIGHTSPACE_SCOPES = ["core:*:*"];
@@ -2289,39 +2288,10 @@ const readEnvBackedOAuthProviderConfig = (
         resourceUrl: "https://api.gong.io",
         tokenExchange: { type: "backend", provider: "gong" },
       };
-    case "snowflake": {
-      const accountUrl = (
-        process.env[envKey("snowflake", "ACCOUNT_URL")] ??
-        process.env[envKey("snowflake", "HOST")] ??
-        process.env[envKey("snowflake", "RESOURCE_URL")] ??
-        ""
-      )
-        .trim()
-        .replace(/\/+$/u, "");
-      if (!accountUrl) return null;
-      return {
-        flow: "authorization_code",
-        tokenKey: "native-oauth:snowflake",
-        clientId,
-        authorizationEndpoint:
-          process.env[envKey("snowflake", "AUTHORIZATION_URL")]?.trim() ||
-          `${accountUrl}/oauth/authorize`,
-        tokenEndpoint:
-          process.env[envKey("snowflake", "TOKEN_URL")]?.trim() ||
-          `${accountUrl}/oauth/token-request`,
-        callbackId: "snowflake",
-        callbackUrl: readEnvCallbackUrl(
-          "snowflake",
-          "https://stella.sh/oauth/snowflake/callback",
-        ),
-        callbackMode: "external",
-        scopes: readEnvScopesOrDefault("snowflake", SNOWFLAKE_SCOPES),
-        usesPkce: true,
-        tokenAuth: "basic",
-        resourceUrl: accountUrl,
-        tokenExchange: { type: "backend", provider: "snowflake" },
-      };
-    }
+    // Snowflake authorization is account-bound and is brokered by the backend.
+    // Never construct account or token endpoints from desktop environment input.
+    case "snowflake":
+      return null;
     case "netsuite": {
       const rawAccount = (
         process.env[envKey("netsuite", "ACCOUNT_DOMAIN")] ??

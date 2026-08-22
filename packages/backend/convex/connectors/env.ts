@@ -20,6 +20,8 @@ export const CONNECTOR_ENV = {
   PUBLIC_BASE_URL: "STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL",
   /** Comma-separated emergency allowlist of enabled provider keys. Empty = fail closed. */
   ENABLED_PROVIDERS: "STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS",
+  /** Exact-host Snowflake OAuth registrations with versioned client-secret rings. */
+  SNOWFLAKE_TENANTS_JSON: "SNOWFLAKE_OAUTH_TENANTS_JSON",
   /**
    * Comma-separated API-key providers with completed representative staging
    * verification. This is a separate, mandatory attestation from enablement.

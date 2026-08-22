@@ -18,6 +18,7 @@ import {
   generatePkceVerifier,
   pkceChallengeS256,
   requireEnabledProvider,
+  resolveProviderManifestForAccount,
   scopesForGroups,
   sha256Hex,
 } from "./providers";
@@ -40,6 +41,7 @@ export const startConnectAttempt = mutation({
     scopeGroupIds: v.optional(v.array(v.string())),
     returnSurface: v.optional(v.string()),
     providerAccountIdIntent: v.optional(v.string()),
+    accountOrigin: v.optional(v.string()),
   },
   returns: v.object({
     attemptId: v.id("oauth_connect_attempts"),
@@ -74,8 +76,22 @@ export const startConnectAttempt = mutation({
     try {
       const baseUrl = connectorPublicBaseUrl();
       if (!baseUrl) throw new ConnectorError("provider_not_configured");
-      const manifest = requireEnabledProvider(args.provider);
-      const credentials = resolveProviderClientCredentials(manifest.key);
+      const baseManifest = requireEnabledProvider(args.provider);
+      if (!baseManifest.accountBound && args.accountOrigin !== undefined) {
+        throw new ConnectorError("invalid_input");
+      }
+      const manifest = resolveProviderManifestForAccount(
+        baseManifest,
+        args.accountOrigin,
+      );
+      const accountOrigin = manifest.accountBound
+        ? manifest.apiOrigin
+        : undefined;
+      const credentials = resolveProviderClientCredentials(
+        manifest.key,
+        undefined,
+        accountOrigin,
+      );
       const scopeGroupIds = connectScopeGroupsForConnector(
         manifest,
         connectorId,
@@ -103,6 +119,7 @@ export const startConnectAttempt = mutation({
         returnSurface,
         registrationVersion: manifest.registrationVersion,
         clientSecretVersion: credentials.clientSecretVersion,
+        accountOrigin,
         providerAccountIdIntent: args.providerAccountIdIntent,
         status: "pending",
         expiresAt,

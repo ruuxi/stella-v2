@@ -386,6 +386,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         requestExternalOAuthApproval: (payload) => services.connectorOAuthService.requestExternalOAuthApproval(payload),
         requestBackendApiKey: (payload) => services.connectorCredentialService.requestBackendApiKey(payload),
         requestBackendConnectProfile: (payload) => services.connectorCredentialService.requestBackendConnectProfile(payload),
+        requestSnowflakeAccountOrigin: (payload) => services.connectorCredentialService.requestSnowflakeAccountOrigin(payload),
         getConvexAuthToken: () => services.authService.getConvexAuthToken(),
         getConvexSiteUrl: () => services.authService.getConvexSiteUrl(),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),

@@ -106,6 +106,47 @@ describe("ConnectorCredentialService OAuth cancellation", () => {
   });
 });
 
+describe("ConnectorCredentialService Snowflake account binding", () => {
+  it("keeps invalid origins pending and returns only a canonical Snowflake origin", async () => {
+    const service = new ConnectorCredentialService({
+      getStellaAppDir: () => "/tmp/stella-test",
+      windowManagerTarget: { getWindowManager: () => null },
+    });
+    const accountOrigin = service.requestSnowflakeAccountOrigin({
+      connectorId: "snowflake",
+      displayName: "Snowflake",
+    });
+    await waitFor(() => mocks.send.mock.calls.length > 0);
+    const request = mocks.send.mock.calls.find(
+      ([channel]) => channel === "connector-credential:request",
+    )?.[1] as { requestId: string; mode: string };
+    expect(request.mode).toBe("account_origin");
+
+    for (const value of [
+      "https://snowflakecomputing.com",
+      "https://account.snowflakecomputing.com.attacker.test",
+      "https://account.snowflakecomputing.com/path",
+      "https://account.snowflakecomputing.com:8443",
+      "https://-account.snowflakecomputing.com",
+    ]) {
+      await expect(
+        service.submitCredential({ requestId: request.requestId, value }),
+      ).resolves.toMatchObject({ ok: false });
+    }
+
+    await expect(
+      service.submitCredential({
+        requestId: request.requestId,
+        value: "HTTPS://ACME-PROD.SNOWFLAKECOMPUTING.COM:443/",
+      }),
+    ).resolves.toEqual({ ok: true });
+    await expect(accountOrigin).resolves.toEqual({
+      ok: true,
+      accountOrigin: "https://acme-prod.snowflakecomputing.com",
+    });
+  });
+});
+
 describe("ConnectorCredentialService backend API-key custody", () => {
   it("submits the protected value directly to the authenticated vault and never local storage", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(

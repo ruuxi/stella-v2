@@ -45,6 +45,14 @@ import {
   PRODUCTIVITY_ACTION_REQUIRED_SCOPES,
   PRODUCTIVITY_PROVIDER_CONNECTOR_ACTIONS,
 } from "./productivity";
+import {
+  buildSnowflakeRequestPlan,
+  executeSnowflakeStatement,
+  SNOWFLAKE_ACTION_SCHEMAS,
+  SNOWFLAKE_ACTION_OPERATIONS,
+  SNOWFLAKE_ACTION_REQUIRED_SCOPES,
+  SNOWFLAKE_CONNECTOR_ACTIONS,
+} from "../snowflake";
 
 /**
  * First-party executor. Provider-family modules register a handler here that
@@ -296,6 +304,22 @@ const productivityHandler: ProviderExecuteHandler = async (ctx) => {
   return providerFetchJson({ ctx, ...request });
 };
 
+const snowflakeHandler: ProviderExecuteHandler = async (ctx) => {
+  if (!ctx.resourceOrigin) throw new ConnectorError("account_mismatch");
+  const plan = buildSnowflakeRequestPlan(ctx.action, ctx.input);
+  if (plan.operation !== ctx.operation) {
+    throw new ConnectorError("normalization_error");
+  }
+  const output = await executeSnowflakeStatement({
+    accountOrigin: ctx.resourceOrigin,
+    accessToken: ctx.accessToken,
+    body: plan.body,
+    maxResponseBytes: ctx.maxResponseBytes,
+    requestTimeoutMs: ctx.requestTimeoutMs,
+  });
+  return { output, providerStatusClass: "ok" };
+};
+
 const PROVIDER_HANDLERS: Readonly<Record<string, ProviderExecuteHandler>> = {
   [MOCK_PROVIDER_KEY]: mockHandler,
   microsoft: createMicrosoftHandler(providerFetchJson),
@@ -323,6 +347,7 @@ const PROVIDER_HANDLERS: Readonly<Record<string, ProviderExecuteHandler>> = {
   atlassian: productivityHandler,
   canvas: productivityHandler,
   "7shifts": productivityHandler,
+  snowflake: snowflakeHandler,
 };
 
 /**
@@ -344,6 +369,7 @@ const PROVIDER_ACTION_OPERATIONS: Readonly<
   ...DESIGN_FINANCE_ACTION_OPERATIONS,
   ...DEVELOPER_DATA_ACTION_OPERATIONS,
   ...PRODUCTIVITY_ACTION_OPERATIONS,
+  snowflake: SNOWFLAKE_ACTION_OPERATIONS,
 };
 
 const PROVIDER_ACTION_REQUIRED_SCOPES: Readonly<
@@ -354,7 +380,19 @@ const PROVIDER_ACTION_REQUIRED_SCOPES: Readonly<
   ...DESIGN_FINANCE_ACTION_REQUIRED_SCOPES,
   ...DEVELOPER_DATA_ACTION_REQUIRED_SCOPES,
   ...PRODUCTIVITY_ACTION_REQUIRED_SCOPES,
+  snowflake: SNOWFLAKE_ACTION_REQUIRED_SCOPES,
 };
+
+const PROVIDER_ACTION_SCHEMAS: Readonly<
+  Record<string, Readonly<Record<string, object>>>
+> = {
+  snowflake: SNOWFLAKE_ACTION_SCHEMAS,
+};
+
+export const firstPartyActionInputSchema = (
+  providerKey: string,
+  action: string,
+): object | null => PROVIDER_ACTION_SCHEMAS[providerKey]?.[action] ?? null;
 
 export const firstPartyActionOperation = (
   providerKey: string,
@@ -384,6 +422,7 @@ const PROVIDER_CONNECTOR_ACTIONS: Readonly<
   ...DESIGN_FINANCE_PROVIDER_CONNECTOR_ACTIONS,
   ...DEVELOPER_DATA_PROVIDER_CONNECTOR_ACTIONS,
   ...PRODUCTIVITY_PROVIDER_CONNECTOR_ACTIONS,
+  snowflake: SNOWFLAKE_CONNECTOR_ACTIONS,
 };
 
 export const firstPartyActionBelongsToConnector = (

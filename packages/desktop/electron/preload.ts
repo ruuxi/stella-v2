@@ -1522,11 +1522,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       requestId: string;
       tokenKey: string;
       displayName: string;
-      mode: "api_key" | "oauth";
+      mode: "api_key" | "oauth" | "account_origin";
       completionMode?: "approve" | "wait";
       description?: string;
       placeholder?: string;
-      authType?: "api_key" | "oauth" | "hosted_connect";
+      authType?: "api_key" | "oauth" | "hosted_connect" | "account_origin";
       originField?: {
         label?: string;
         placeholder?: string;

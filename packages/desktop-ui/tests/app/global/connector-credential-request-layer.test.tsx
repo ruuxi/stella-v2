@@ -9,6 +9,9 @@ const modalProbe = vi.hoisted(() => ({
     provider: string;
     label?: string;
     showLabel?: boolean;
+    inputType?: "password" | "text" | "url";
+    valueLabel?: string;
+    submitLabel?: string;
     onSubmit: (payload: { label: string; secret: string }) => Promise<void>;
   },
 }));
@@ -26,7 +29,7 @@ type RequestPayload = {
   requestId: string;
   tokenKey: string;
   displayName: string;
-  mode: "api_key" | "oauth";
+  mode: "api_key" | "oauth" | "account_origin";
   completionMode?: "approve" | "wait";
   description?: string;
   oauthUserCode?: string;
@@ -246,5 +249,36 @@ describe("ConnectorCredentialRequestLayer", () => {
       label: "Example Connector",
     });
     expect(document.body.textContent).not.toContain("API key modal");
+  });
+
+  it("collects a Snowflake account URL without presenting it as a secret", async () => {
+    await renderLayer();
+    await sendRequest({
+      requestId: "snowflake-origin-request",
+      tokenKey: "account-origin:snowflake",
+      displayName: "Snowflake",
+      mode: "account_origin",
+    });
+
+    expect(modalProbe.props).toMatchObject({
+      provider: "account-origin:snowflake",
+      label: "Snowflake",
+      inputType: "url",
+      valueLabel: "Snowflake account URL",
+      submitLabel: "Continue",
+      showLabel: false,
+    });
+    await act(async () => {
+      await modalProbe.props?.onSubmit({
+        label: "Snowflake",
+        secret: "https://acme-prod.snowflakecomputing.com",
+      });
+    });
+
+    expect(submitConnectorCredential).toHaveBeenCalledWith({
+      requestId: "snowflake-origin-request",
+      value: "https://acme-prod.snowflakecomputing.com",
+      label: "Snowflake",
+    });
   });
 });

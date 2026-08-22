@@ -8,6 +8,7 @@ import {
 import {
   buildSocialProviderRequest,
   SOCIAL_ACTION_OPERATIONS,
+  SOCIAL_ACTION_REQUIRED_SCOPES,
 } from "./social";
 
 /**
@@ -114,8 +115,16 @@ export const providerFetchJson = async (args: {
     ctx.requestTimeoutMs,
   );
   try {
-    const reservedHeaders = new Set(["authorization", "host", "content-length"]);
-    if (Object.keys(args.headers ?? {}).some((key) => reservedHeaders.has(key.toLowerCase()))) {
+    const reservedHeaders = new Set([
+      "authorization",
+      "host",
+      "content-length",
+    ]);
+    if (
+      Object.keys(args.headers ?? {}).some((key) =>
+        reservedHeaders.has(key.toLowerCase()),
+      )
+    ) {
       throw new ConnectorError("normalization_error");
     }
     const body =
@@ -123,8 +132,11 @@ export const providerFetchJson = async (args: {
         ? undefined
         : args.bodyEncoding === "form"
           ? new URLSearchParams(
-              Object.entries(args.body as Record<string, unknown>).flatMap(([key, value]) =>
-                value === undefined || value === null ? [] : [[key, String(value)]],
+              Object.entries(args.body as Record<string, unknown>).flatMap(
+                ([key, value]) =>
+                  value === undefined || value === null
+                    ? []
+                    : [[key, String(value)]],
               ),
             ).toString()
           : JSON.stringify(args.body);
@@ -185,7 +197,11 @@ const mockHandler: ProviderExecuteHandler = async (ctx) => {
 };
 
 const socialHandler: ProviderExecuteHandler = async (ctx) => {
-  const request = buildSocialProviderRequest(ctx.manifest.key, ctx.action, ctx.input);
+  const request = buildSocialProviderRequest(
+    ctx.manifest.key,
+    ctx.action,
+    ctx.input,
+  );
   if (!request) throw new ConnectorError("action_not_found");
   return providerFetchJson({ ctx, ...request });
 };
@@ -216,6 +232,10 @@ const PROVIDER_ACTION_OPERATIONS: Readonly<
   microsoft: MICROSOFT_ACTION_OPERATIONS,
   ...SOCIAL_ACTION_OPERATIONS,
 };
+
+const PROVIDER_ACTION_REQUIRED_SCOPES: Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+> = SOCIAL_ACTION_REQUIRED_SCOPES;
 
 export const firstPartyActionOperation = (
   providerKey: string,
@@ -263,6 +283,12 @@ export const firstPartyProviderForConnector = (
   }
   return null;
 };
+
+export const firstPartyActionRequiredScopes = (
+  providerKey: string,
+  action: string,
+): readonly string[] =>
+  PROVIDER_ACTION_REQUIRED_SCOPES[providerKey]?.[action] ?? [];
 
 /** Dispatch a validated action to its provider family handler. */
 export const executeFirstPartyAction = async (args: {

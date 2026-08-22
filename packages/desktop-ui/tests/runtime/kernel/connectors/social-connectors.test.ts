@@ -17,6 +17,7 @@ const IN_SCOPE_IDS = [
   "facebook",
   "metaads",
   "linkedin",
+  "2chat",
 ];
 
 describe("social connector adapter registry", () => {
@@ -24,6 +25,16 @@ describe("social connector adapter registry", () => {
     expect([...SOCIAL_CONNECTOR_IDS].sort()).toEqual([...IN_SCOPE_IDS].sort());
     expect(isSocialConnectorId("whatsapp")).toBe(false);
     expect(SOCIAL_CONNECTOR_IDS).not.toContain("whatsapp");
+  });
+
+  it("keeps API-key 2Chat metadata code-ready but on Composio fallback", () => {
+    expect(
+      getSocialConnectorActions("2chat").map((action) => action.name),
+    ).toEqual(["_2CHAT_LIST_CONTACTS", "_2CHAT_CREATE_CONTACT"]);
+    expect(getSocialConnectorScopeStatus("2chat")?.executionRoute).toBe(
+      "composio-fallback",
+    );
+    expect(getSocialConnectorScopeStatus("2chat")?.hasProviderApp).toBe(false);
   });
 
   it("preserves canonical catalog ids", () => {

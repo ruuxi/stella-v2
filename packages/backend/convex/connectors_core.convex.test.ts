@@ -48,6 +48,7 @@ import {
 import {
   buildSocialProviderRequest,
   SOCIAL_ACTION_OPERATIONS,
+  SOCIAL_ACTION_REQUIRED_SCOPES,
 } from "./connectors/executors/social";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -140,11 +141,15 @@ describe("provider manifests", () => {
   });
 
   it("registers separate Google Workspace and YouTube grants plus shared Meta", () => {
-    expect(getProviderManifest("google-workspace")?.key).toBe("google-workspace");
+    expect(getProviderManifest("google-workspace")?.key).toBe(
+      "google-workspace",
+    );
     expect(getProviderManifest("youtube")?.key).toBe("youtube");
     expect(getProviderManifest("meta")?.scopeGroups.social_all).toBeDefined();
     expect(getProviderManifest("facebook")).toBeNull();
-    expect(() => requireEnabledProvider("twitter")).toThrow(/provider_disabled/);
+    expect(() => requireEnabledProvider("twitter")).toThrow(
+      /provider_disabled/,
+    );
   });
 
   it("unions scope groups and rejects unknown groups", () => {
@@ -196,12 +201,15 @@ describe("provider manifests", () => {
       ...getProviderManifest("mock")!,
       resourceOriginHostSuffixes: ["api.gong.io"],
     };
-    expect(resolveProviderResourceOrigin(manifest, "https://acme.api.gong.io/v2"))
-      .toBe("https://acme.api.gong.io");
-    expect(() => resolveProviderResourceOrigin(manifest, "https://api.gong.io.evil.test"))
-      .toThrow(/code_exchange_failed/);
-    expect(() => resolveProviderResourceOrigin(manifest, "http://acme.api.gong.io"))
-      .toThrow(/code_exchange_failed/);
+    expect(
+      resolveProviderResourceOrigin(manifest, "https://acme.api.gong.io/v2"),
+    ).toBe("https://acme.api.gong.io");
+    expect(() =>
+      resolveProviderResourceOrigin(manifest, "https://api.gong.io.evil.test"),
+    ).toThrow(/code_exchange_failed/);
+    expect(() =>
+      resolveProviderResourceOrigin(manifest, "http://acme.api.gong.io"),
+    ).toThrow(/code_exchange_failed/);
   });
 });
 
@@ -450,9 +458,16 @@ describe("Microsoft provider family", () => {
 
 describe("social first-party request adapters", () => {
   it("uses only canonical catalog actions and covers read plus write", () => {
-    for (const operations of Object.values(SOCIAL_ACTION_OPERATIONS)) {
+    for (const [provider, operations] of Object.entries(
+      SOCIAL_ACTION_OPERATIONS,
+    )) {
       expect(Object.values(operations)).toContain("read");
       expect(Object.values(operations)).toContain("write");
+      for (const action of Object.keys(operations)) {
+        expect(
+          SOCIAL_ACTION_REQUIRED_SCOPES[provider]?.[action]?.length,
+        ).toBeGreaterThan(0);
+      }
     }
   });
 
@@ -486,9 +501,13 @@ describe("social first-party request adapters", () => {
 
   it("rejects missing provider identifiers and unknown actions", () => {
     expect(() =>
-      buildSocialProviderRequest("meta", "FACEBOOK_CREATE_POST", { message: "x" }),
+      buildSocialProviderRequest("meta", "FACEBOOK_CREATE_POST", {
+        message: "x",
+      }),
     ).toThrow(/invalid_input/);
-    expect(buildSocialProviderRequest("twitter", "TWITTER_UNKNOWN", {})).toBeNull();
+    expect(
+      buildSocialProviderRequest("twitter", "TWITTER_UNKNOWN", {}),
+    ).toBeNull();
   });
 });
 

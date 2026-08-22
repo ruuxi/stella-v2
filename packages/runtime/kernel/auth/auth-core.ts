@@ -133,16 +133,18 @@ export const createAuthCore = (options: AuthCoreOptions) => {
   let lastRevalidatedResult: unknown | null = null;
   let hasRevalidatedResult = false;
 
-  // Operation generation (epoch). Any destructive change to the persisted
-  // session — clearing the cookie via sign-out / delete / import-mirror —
-  // bumps this. Cookie-bearing network operations (mint, get-session,
-  // Set-Cookie persistence) capture the epoch when they START; if a
-  // destructive op landed while they were in flight, their late completion
-  // MUST NOT commit (persist Set-Cookie, write a session blob) and resurrect
-  // the just-destroyed session. See setStorageItem below.
-  let destructiveEpoch = 0;
-  /** Current operation epoch; bumped whenever the session cookie is destroyed. */
-  const getEpoch = (): number => destructiveEpoch;
+  // Operation generation (epoch). It advances on EVERY identity-bearing change
+  // to the stored cookie — a new sign-in cookie, an account switch (A -> B), a
+  // token rotation, or a sign-out clear. Cookie-bearing network operations
+  // (mint, get-session, Set-Cookie persistence) capture the epoch when they
+  // START and re-check it after every await and immediately before each commit;
+  // if the identity changed while they were in flight, their late completion
+  // MUST NOT commit (persist Set-Cookie, write a session blob, cache a JWT,
+  // schedule a timer, or emit an event) and clobber the current identity. See
+  // setStorageItem below.
+  let identityEpoch = 0;
+  /** Current operation epoch; advances on every identity-bearing cookie change. */
+  const getEpoch = (): number => identityEpoch;
 
 
 
@@ -160,11 +162,16 @@ export const createAuthCore = (options: AuthCoreOptions) => {
       return;
     }
 
-    // Destroying the session cookie (sign-out, delete, import sign-out mirror)
-    // opens the resurrection window: bump the epoch so any cookie-bearing
-    // network op that started before this point can't commit its result.
-    if (normalizedKey === BETTER_AUTH_COOKIE_STORAGE_KEY && value === null) {
-      destructiveEpoch += 1;
+    // Any identity-bearing change to the stored cookie opens the
+    // cross-identity / resurrection window: advance the epoch so a cookie-bearing
+    // network op that STARTED under the previous identity can't commit its
+    // result over the new one. This covers sign-in (null -> cookie), account
+    // switch (cookieA -> cookieB), rotation, and sign-out (cookie -> null).
+    if (normalizedKey === BETTER_AUTH_COOKIE_STORAGE_KEY) {
+      const previous = options.storage.getItem(normalizedKey);
+      if (previous !== value) {
+        identityEpoch += 1;
+      }
     }
 
     // External mutations of the persisted session/cookie invalidate the
@@ -209,7 +216,7 @@ export const createAuthCore = (options: AuthCoreOptions) => {
     // Fence: a destructive op (sign-out / delete / import mirror) that landed
     // while this request was in flight bumped the epoch. Persisting Set-Cookie
     // now would resurrect the just-destroyed session, so drop the update.
-    if (startedEpoch !== undefined && startedEpoch !== destructiveEpoch) {
+    if (startedEpoch !== undefined && startedEpoch !== identityEpoch) {
       return;
     }
     const previous =
@@ -271,7 +278,7 @@ export const createAuthCore = (options: AuthCoreOptions) => {
     // Capture the epoch BEFORE the request so a sign-out/delete that lands
     // while we await can't have its cookie destruction undone by our
     // Set-Cookie persistence.
-    const startedEpoch = destructiveEpoch;
+    const startedEpoch = identityEpoch;
     const response = await fetchImpl(`${siteUrl}${AUTH_BASE_PATH}${pathname}`, {
       ...init,
       headers,
@@ -306,15 +313,15 @@ export const createAuthCore = (options: AuthCoreOptions) => {
   // and clears it on an auth-error downgrade (401/403/404) so a stale session
   // can never outlive a rejected revalidation.
   const fetchSessionFromNetwork = async (): Promise<unknown | null> => {
-    const startedEpoch = destructiveEpoch;
+    const startedEpoch = identityEpoch;
     const response = await authFetch("/get-session", {
       method: "GET",
       headers: { accept: "application/json" },
     });
-    // Fence: a destructive op (sign-out / delete / import mirror) landed while
-    // this read was in flight. Do NOT persist a session blob (it would
-    // resurrect the just-destroyed session); report signed-out.
-    if (startedEpoch !== destructiveEpoch) {
+    // Fence after the network await: an identity change (sign-out / delete /
+    // account switch) landed while this read was in flight. Do NOT persist
+    // anything — it would clobber the new identity's state.
+    if (startedEpoch !== identityEpoch) {
       return null;
     }
     if (
@@ -322,13 +329,21 @@ export const createAuthCore = (options: AuthCoreOptions) => {
       response.status === 403 ||
       response.status === 404
     ) {
-      setStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
+      // Only downgrade if the identity is still the one we read for.
+      if (startedEpoch === identityEpoch) {
+        setStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
+      }
       return null;
     }
     if (!response.ok) {
       throw new Error(`Session request failed with HTTP ${response.status}.`);
     }
     const data = await response.json().catch(() => null);
+    // Re-check AFTER the response.json() await, immediately before the
+    // session-blob write: an identity change may have landed during parsing.
+    if (startedEpoch !== identityEpoch) {
+      return null;
+    }
     if (data) {
       setStorageItem(
         BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
@@ -456,8 +471,18 @@ export const createAuthCore = (options: AuthCoreOptions) => {
       );
       return null;
     });
+    // Network error: the server session may still be alive. Preserve the local
+    // cookie/session and report failure so callers don't present a false
+    // signed-out UI (which would desync the renderer from the live session).
+    if (!response) {
+      return { ok: false };
+    }
+    // A 401 means the session is already gone server-side — treat as success.
+    if (response.status !== 401 && !response.ok) {
+      return { ok: false };
+    }
     clearSessionStorage();
-    return { ok: response?.ok !== false };
+    return { ok: true };
   };
 
   const deleteUser = async () => {

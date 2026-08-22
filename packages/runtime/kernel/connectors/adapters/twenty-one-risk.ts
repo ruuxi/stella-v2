@@ -9,12 +9,18 @@ import {
  * Composio toolkit slug: `_21RISK`. Stella id: `21risk` (leading underscores
  * are not permitted by the catalog id policy).
  *
- * The representative surface is read-only OData retrieval (reports, compliance,
- * organizations, properties, risk models). All actions accept standard OData
- * query options ($top/$skip/$filter/$select/$orderby).
+ * Verified fixed-origin contract (primary evidence):
+ * - Origin: `https://21risk.com` (`www.21risk.com` 307-redirects to the apex).
+ * - Base path: `/odata/v5/<entity>` with standard OData system query options.
+ * - Auth: `Authorization: Bearer <api-key>` (keys are prefixed `21RISK.ND.`);
+ *   the apex OData service itself states this in its 401 challenge.
+ * - Entity-set names are case-exact and not uniformly cased/pluralized, so each
+ *   path is pinned literally rather than derived from the action label.
  *
- * NOTE: the exact OData base path must be confirmed against the tenant's
- * published API root before native activation (see ADAPTERS.md).
+ * Only entity paths confirmed against the published integration surface are
+ * exposed here (`reports`, `organizations`). Compliance, properties, risk models
+ * and the other OData entities remain served by the Composio fallback until the
+ * auth-gated `$metadata` entity model can be confirmed.
  */
 const odata = (
   entity: string,
@@ -30,7 +36,7 @@ const odata = (
   if (typeof input.expand === "string") query.$expand = input.expand;
   return {
     method: "GET",
-    path: `/odata/${entity}`,
+    path: `/odata/v5/${entity}`,
     ...(Object.keys(query).length ? { query } : {}),
   };
 };
@@ -53,7 +59,7 @@ export const TWENTY_ONE_RISK_ADAPTER: ConnectorAdapter = {
   id: "21risk",
   displayName: "21RISK",
   auth: "api_key",
-  baseUrl: "https://api.21risk.com",
+  baseUrl: "https://21risk.com",
   apiAuthScheme: "bearer",
   docsUrl: "https://21risk.com/docs",
   actions: [
@@ -64,16 +70,7 @@ export const TWENTY_ONE_RISK_ADAPTER: ConnectorAdapter = {
         "Retrieve audit reports (draft, published, scheduled) via OData.",
       kind: "read",
       inputSchema: odataInputSchema,
-      buildRequest: (input) => odata("Reports", input),
-    },
-    {
-      name: "TWENTY_ONE_RISK_GET_COMPLIANCE",
-      title: "Get Compliance",
-      description:
-        "Retrieve compliance data for sites, categories, or questions via OData.",
-      kind: "read",
-      inputSchema: odataInputSchema,
-      buildRequest: (input) => odata("Compliance", input),
+      buildRequest: (input) => odata("reports", input),
     },
     {
       name: "TWENTY_ONE_RISK_GET_ORGANIZATIONS",
@@ -81,24 +78,7 @@ export const TWENTY_ONE_RISK_ADAPTER: ConnectorAdapter = {
       description: "Retrieve organizations via OData.",
       kind: "read",
       inputSchema: odataInputSchema,
-      buildRequest: (input) => odata("Organizations", input),
-    },
-    {
-      name: "TWENTY_ONE_RISK_GET_PROPERTIES",
-      title: "Get Properties",
-      description:
-        "Retrieve site properties, including COPE information, via OData.",
-      kind: "read",
-      inputSchema: odataInputSchema,
-      buildRequest: (input) => odata("Properties", input),
-    },
-    {
-      name: "TWENTY_ONE_RISK_GET_RISK_MODELS",
-      title: "Get Risk Models",
-      description: "Retrieve risk models used for audits and compliance.",
-      kind: "read",
-      inputSchema: odataInputSchema,
-      buildRequest: (input) => odata("RiskModels", input),
+      buildRequest: (input) => odata("organizations", input),
     },
   ],
 };

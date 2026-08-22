@@ -78,10 +78,16 @@ flow (auth hints of type `api_key`). Auth shape per provider:
 - `21risk` — API key; OData read-only. First-party action names use the safe
   `TWENTY_ONE_RISK_*` prefix because the shared catalog rejects letterless
   prefixes; the connector id/toolkit fallback remain `21risk` / `_21RISK`.
-  **Confirm the tenant OData base path**
-  (currently `https://api.21risk.com` + `/odata/<Entity>`) before activation.
-  Composio toolkit slug is `_21RISK`; the Stella id is `21risk` (leading
-  underscores are not valid catalog ids).
+  **Verified fixed-origin contract** (primary evidence): origin
+  `https://21risk.com` (`www.21risk.com` 307-redirects to the apex),
+  base path `/odata/v5/<entity>`, auth `Authorization: Bearer <api-key>` (keys
+  are prefixed `21RISK.ND.`; the apex OData service states this in its own 401
+  challenge). Only the two entity paths confirmed against the published
+  integration surface are executed first-party (`reports`, `organizations`);
+  compliance/properties/risk-model/items entities stay Composio-served until the
+  auth-gated `$metadata` entity model is confirmed. Composio toolkit slug is
+  `_21RISK`; the Stella id is `21risk` (leading underscores are not valid catalog
+  ids).
 
 ## Registration / review status
 

@@ -1061,6 +1061,30 @@ const FORTYFOUR_API_ACTIONS = {
   },
 } as const satisfies Readonly<Record<string, ApiKeyActionDescriptor>>;
 
+// 21RISK OData v4 read surface. Every query option maps to a `$`-prefixed OData
+// system option in the executor; unknown fields are rejected so the model cannot
+// smuggle arbitrary query state.
+const TWENTY_ONE_RISK_ODATA_QUERY = {
+  top: { type: "number" },
+  skip: { type: "number" },
+  count: { type: "boolean" },
+  filter: { type: "string" },
+  select: { type: "string" },
+  orderby: { type: "string" },
+  expand: { type: "string" },
+} as const;
+
+const TWENTY_ONE_RISK_ACTIONS = {
+  TWENTY_ONE_RISK_GET_REPORTS: {
+    operation: "read",
+    inputSchema: objectSchema({ ...TWENTY_ONE_RISK_ODATA_QUERY }, [], false),
+  },
+  TWENTY_ONE_RISK_GET_ORGANIZATIONS: {
+    operation: "read",
+    inputSchema: objectSchema({ ...TWENTY_ONE_RISK_ODATA_QUERY }, [], false),
+  },
+} as const satisfies Readonly<Record<string, ApiKeyActionDescriptor>>;
+
 /**
  * This is deliberately a reviewed activation set, not an open provider
  * registry. Every origin and credential placement is compiled into backend
@@ -1211,6 +1235,15 @@ export const API_KEY_PROVIDER_DESCRIPTORS = [
     apiOrigin: "https://api.44api.dev",
     auth: { type: "header", headerName: "X-API-Key" },
     actions: FORTYFOUR_API_ACTIONS,
+  },
+  {
+    connectorId: "21risk",
+    providerKey: "21risk",
+    displayName: "21RISK",
+    credentialLabel: "21RISK API key",
+    apiOrigin: "https://21risk.com",
+    auth: { type: "bearer" },
+    actions: TWENTY_ONE_RISK_ACTIONS,
   },
 ] as const satisfies readonly ApiKeyProviderDescriptor[];
 

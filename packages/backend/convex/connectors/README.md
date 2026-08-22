@@ -278,6 +278,7 @@ credential, a verified representative call, and a first-party rollout.
 | `abyssale`       | `https://api.abyssale.com`       | `X-API-KEY`                         | reviewed template/generation actions only                                                             |
 | `0codekit`       | `https://prod.0codekit.com`      | `auth` header                       | reviewed PDF actions only                                                                             |
 | `44api`          | `https://api.44api.dev`          | `X-API-Key`                         | exact public `44API_*` names are preserved and canonically mapped internally                          |
+| `21risk`         | `https://21risk.com`             | `Authorization: Bearer`             | OData v5 read-only; only verified entity paths (`reports`, `organizations`)                           |
 
 No descriptor accepts a caller-supplied origin, path authority, authentication
 header, or request encoding. The only accepted authentication placements are
@@ -313,13 +314,52 @@ parameter contract was cross-checked against the
 remains code-ready but disabled and independently unverified; this reconciliation
 does not add it to either deployment allowlist or select a first-party rollout.
 
+### 21RISK action contract
+
+21RISK is a risk & compliance / audit product (21RISK ApS). Its integration
+surface is a read-only OData v4 API keyed by a per-user API key. The contract was
+verified against primary evidence rather than inferred from connector names:
+
+- **Origin (fixed):** `https://21risk.com`. `https://www.21risk.com` issues a 307
+  redirect to the apex, so the executor targets the apex directly and never
+  follows the redirect.
+- **Base path:** `/odata/v5/<entity>` with standard OData system query options
+  (`$top`/`$skip`/`$count`/`$filter`/`$select`/`$orderby`/`$expand`).
+- **Auth:** `Authorization: Bearer <api-key>` (Basic `base64(user:<api-key>)` is
+  also accepted). API keys are prefixed `21RISK.ND.`. This is quoted verbatim from
+  the apex OData service's own 401 challenge:
+  `{"message":"Invalid auth header. Please provide \"Bearer <api-key>\" ... API-key should start with 21RISK.ND.xxxx"}`.
+
+Reviewed first-party mappings (curated subset):
+
+| Public action                       | Provider request              | Notes                              |
+| ----------------------------------- | ----------------------------- | ---------------------------------- |
+| `TWENTY_ONE_RISK_GET_REPORTS`       | `GET /odata/v5/reports`       | audit reports; OData query options |
+| `TWENTY_ONE_RISK_GET_ORGANIZATIONS` | `GET /odata/v5/organizations` | organizations; OData query options |
+
+Only these two entity paths are executed first-party because their exact,
+case-sensitive OData entity-set names are attested by primary evidence (the
+published integration surface and the live apex service). 21RISK's entity sets
+are **not** uniformly cased or pluralized (e.g. `reports` vs `auditor`), so the
+executor never derives an entity path from the action label. The remaining
+public-catalog actions (`GET_COMPLIANCE`, `GET_PROPERTIES`, `GET_RISK_MODELS`,
+`GET_ITEMS`, `GET_ITEMS_PER_MONTH`, `GET_RISKMODEL_CATEGORIES`) stay
+Composio-served; confirming their exact entity-set names requires the OData
+`$metadata` document, which is auth-gated behind a valid `21RISK.ND.` key (the
+service validates the key before routing, so unauthenticated enumeration is not
+possible). Primary references: the live apex OData service, the
+[21RISK documentation](https://21risk.com/docs), and the
+[21RISK connector catalog](https://docs.composio.dev/tools/_21risk) (public
+action names cross-check only). 21RISK remains code-ready but disabled and
+independently unverified; this reconciliation does not add it to either
+deployment allowlist or select a first-party rollout.
+
 These connectors remain planner-only and are deliberately absent from API-key
 descriptors and first-party dispatch:
 
 | Connector   | Remaining gap                                                                                                                                                                                                                                                                                                                                                               |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `1password` | 1Password Connect uses a customer-deployed account origin. There is no safe universal suffix or credential-bound origin field in the current lifecycle.                                                                                                                                                                                                                     |
-| `21risk`    | No reviewed primary documentation establishes a production API origin and static credential placement.                                                                                                                                                                                                                                                                      |
 | `abstract`  | Abstract issues product-specific keys across the explicit `emailvalidation.abstractapi.com`, `phonevalidation.abstractapi.com`, and `ipgeolocation.abstractapi.com` origins; the current one-credential-per-connector contract cannot represent that truthfully.                                                                                                            |
 | `snowflake` | The SQL API requires an account-specific origin, and the reviewed Snowflake contract has OAuth/key-pair/PAT semantics rather than a proven single static API key for this product surface. The existing relative SQL planners and strict `*.snowflakecomputing.com` origin validator are non-executable until account-origin capture and the credential model are designed. |
 

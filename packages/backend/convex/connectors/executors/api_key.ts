@@ -12,7 +12,10 @@ export type DeferredApiKeyProvider = {
   connectorId: string;
   providerKey: string;
   ownerFamily:
-    "design_finance_ops" | "developer_data" | "social" | "crm_recruiting_sales";
+    | "design_finance_ops"
+    | "developer_data"
+    | "social"
+    | "crm_recruiting_sales";
   fixedApiOrigin?: string;
   requiresTenantOrigin?: boolean;
   /**
@@ -151,7 +154,7 @@ const requiredApolloEnum = (
 };
 
 const odataPath = (entity: string, input: Record<string, unknown>): string => {
-  const url = new URL(`/odata/${entity}`, "https://request.invalid");
+  const url = new URL(`/odata/v5/${entity}`, "https://request.invalid");
   for (const key of [
     "top",
     "skip",
@@ -283,18 +286,17 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
     connectorId: "21risk",
     providerKey: "21risk",
     ownerFamily: "crm_recruiting_sales",
-    requiresTenantOrigin: true,
+    // Verified fixed origin. `www.21risk.com` 307-redirects to the apex, and the
+    // apex OData service answers `Authorization: Bearer <key>` (keys prefixed
+    // `21RISK.ND.`). Only entity paths confirmed against the live/published
+    // integration surface are executed; the broader OData entity set is served by
+    // Composio until its auth-gated `$metadata` model is confirmed.
+    fixedApiOrigin: "https://21risk.com",
     actions: actions([
       ["TWENTY_ONE_RISK_GET_REPORTS", "read"],
-      ["TWENTY_ONE_RISK_GET_COMPLIANCE", "read"],
       ["TWENTY_ONE_RISK_GET_ORGANIZATIONS", "read"],
-      ["TWENTY_ONE_RISK_GET_PROPERTIES", "read"],
-      ["TWENTY_ONE_RISK_GET_RISK_MODELS", "read"],
     ]),
-    activationBlockers: [
-      ...API_KEY_CORE_BLOCKERS,
-      "tenant-specific 21RISK OData origin and base-path confirmation",
-    ],
+    activationBlockers: API_KEY_CORE_BLOCKERS,
   },
   {
     connectorId: "2chat",
@@ -593,25 +595,14 @@ export const buildApiKeyProviderRequest = (
     case "peopledatalabs:PEOPLEDATALABS_SEARCH_COMPANY_ELASTIC":
       return { method: "POST", path: "/v5/company/search", body: input };
 
+    // OData entity-set names are verified against the published integration
+    // surface and are case-exact (`reports`, `organizations`). They are not
+    // derived from the action label, because 21RISK's entity sets are not
+    // uniformly cased/pluralized (e.g. `reports` vs `auditor`).
     case "21risk:TWENTY_ONE_RISK_GET_REPORTS":
-    case "21risk:TWENTY_ONE_RISK_GET_COMPLIANCE":
+      return { method: "GET", path: odataPath("reports", input) };
     case "21risk:TWENTY_ONE_RISK_GET_ORGANIZATIONS":
-    case "21risk:TWENTY_ONE_RISK_GET_PROPERTIES":
-    case "21risk:TWENTY_ONE_RISK_GET_RISK_MODELS": {
-      const entity = action
-        .replace("TWENTY_ONE_RISK_GET_", "")
-        .toLowerCase()
-        .replace(/(^|_)([a-z])/gu, (_match, _prefix, letter: string) =>
-          letter.toUpperCase(),
-        );
-      const aliases: Record<string, string> = {
-        RiskModels: "RiskModels",
-      };
-      return {
-        method: "GET",
-        path: odataPath(aliases[entity] ?? entity, input),
-      };
-    }
+      return { method: "GET", path: odataPath("organizations", input) };
 
     case "2chat:TWOCHAT_GET_INFO":
       return { method: "GET", path: "/open/info" };

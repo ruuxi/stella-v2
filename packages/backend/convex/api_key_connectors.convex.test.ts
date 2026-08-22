@@ -26,6 +26,7 @@ import {
 } from "./connectors/executors/first_party";
 import {
   DEFERRED_API_KEY_PROVIDERS,
+  resolveDeferredActionOrigin,
   resolveDeferredTenantOrigin,
 } from "./connectors/executors/api_key";
 import { isProviderEnabled } from "./connectors/env";
@@ -149,6 +150,26 @@ const PROMOTED_PROVIDER_CASES = [
     input: { vatNumber: "69838046", countryCode: "SI" },
     expectedUrl: "https://api.44api.dev/webhook/validate-vat",
     authHeader: "x-api-key",
+  },
+  {
+    connectorId: "21risk",
+    action: "TWENTY_ONE_RISK_GET_REPORTS",
+    operation: "read",
+    expectedMethod: "GET",
+    input: { top: 5, filter: "Report Status eq 'published'" },
+    expectedUrl:
+      "https://21risk.com/odata/v5/reports?%24top=5&%24filter=Report+Status+eq+%27published%27",
+    authHeader: "authorization",
+  },
+  {
+    connectorId: "21risk",
+    action: "TWENTY_ONE_RISK_GET_ORGANIZATIONS",
+    operation: "read",
+    expectedMethod: "GET",
+    input: { orderby: "Name desc" },
+    expectedUrl:
+      "https://21risk.com/odata/v5/organizations?%24orderby=Name+desc",
+    authHeader: "authorization",
   },
 ] as const;
 const API_KEY = "fc-test-secret-123456789";
@@ -371,6 +392,7 @@ describe("API-key provider descriptors", () => {
       ["abyssale", "https://api.abyssale.com", "header"],
       ["0codekit", "https://prod.0codekit.com", "header"],
       ["44api", "https://api.44api.dev", "header"],
+      ["21risk", "https://21risk.com", "bearer"],
     ]);
   });
 
@@ -931,6 +953,146 @@ describe("API-key auth placement and egress controls", () => {
       retryable: false,
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("21RISK fixed-origin OData contract", () => {
+  const TWENTY_ONE_RISK_KEY = "21RISK.ND.testexamplekey000";
+
+  it("pins the verified fixed origin, bearer auth, and read-only OData actions", () => {
+    const descriptor = getApiKeyProviderDescriptor("21risk")!;
+    expect(descriptor.apiOrigin).toBe("https://21risk.com");
+    expect(descriptor.auth).toEqual({ type: "bearer" });
+    expect(Object.keys(descriptor.actions).sort()).toEqual([
+      "TWENTY_ONE_RISK_GET_ORGANIZATIONS",
+      "TWENTY_ONE_RISK_GET_REPORTS",
+    ]);
+    for (const action of Object.values(descriptor.actions)) {
+      expect(action.operation).toBe("read");
+      expect(action.inputSchema).toMatchObject({
+        type: "object",
+        additionalProperties: false,
+      });
+    }
+  });
+
+  it("binds a fixed action origin and never a tenant origin", () => {
+    const provider = DEFERRED_API_KEY_PROVIDERS.find(
+      (entry) => entry.connectorId === "21risk",
+    )!;
+    expect(provider.fixedApiOrigin).toBe("https://21risk.com");
+    expect(provider.requiresTenantOrigin).toBeUndefined();
+    expect(
+      resolveDeferredActionOrigin(provider, "TWENTY_ONE_RISK_GET_REPORTS"),
+    ).toBe("https://21risk.com");
+    for (const candidate of [
+      "https://tenant.21risk.example",
+      "https://21risk.com.attacker.test",
+      "https://api.21risk.com",
+    ]) {
+      expect(resolveDeferredTenantOrigin(provider, candidate)).toBeNull();
+    }
+  });
+
+  it("injects the API key only as an Authorization: Bearer header on the apex origin", () => {
+    const descriptor = getApiKeyProviderDescriptor("21risk")!;
+    const prepared = buildAuthenticatedApiKeyRequest({
+      descriptor,
+      apiKey: TWENTY_ONE_RISK_KEY,
+      request: { method: "GET", path: "/odata/v5/reports?%24top=5" },
+    });
+    expect(prepared.url).toBe("https://21risk.com/odata/v5/reports?%24top=5");
+    const headers = prepared.init.headers as Headers;
+    expect(headers.get("authorization")).toBe(`Bearer ${TWENTY_ONE_RISK_KEY}`);
+    expect(prepared.init.redirect).toBe("manual");
+    expect(prepared.url).not.toContain(TWENTY_ONE_RISK_KEY);
+  });
+
+  it("rejects any cross-origin or CRLF-injected path", () => {
+    const descriptor = getApiKeyProviderDescriptor("21risk")!;
+    for (const path of [
+      "https://attacker.test/odata/v5/reports",
+      "//attacker.test/odata/v5/reports",
+      "/odata/v5/reports\r\nx-forwarded-host: attacker.test",
+    ]) {
+      expect(() =>
+        buildAuthenticatedApiKeyRequest({
+          descriptor,
+          apiKey: TWENTY_ONE_RISK_KEY,
+          request: { method: "GET", path },
+        }),
+      ).toThrow(/normalization_error/);
+    }
+  });
+
+  it("redacts the API key and its Bearer form from any output", () => {
+    const redacted = redactApiKeyMaterial(
+      {
+        note: `token ${TWENTY_ONE_RISK_KEY}`,
+        header: `Bearer ${TWENTY_ONE_RISK_KEY}`,
+        nested: [{ key: TWENTY_ONE_RISK_KEY }],
+      },
+      TWENTY_ONE_RISK_KEY,
+    );
+    expect(JSON.stringify(redacted)).not.toContain(TWENTY_ONE_RISK_KEY);
+    expect(redacted).toEqual({
+      note: "token [REDACTED]",
+      header: "[REDACTED]",
+      nested: [{ key: "[REDACTED]" }],
+    });
+  });
+
+  it("executes one fixed-origin bearer request and maps the vendor 401 to invalid_credential", async () => {
+    const descriptor = getApiKeyProviderDescriptor("21risk")!;
+    const okMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ value: [{ _KeyReportId: "r1" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(
+      executeApiKeyProviderAction({
+        descriptor,
+        apiKey: TWENTY_ONE_RISK_KEY,
+        action: "TWENTY_ONE_RISK_GET_REPORTS",
+        input: { top: 1 },
+        operation: "read",
+      }),
+    ).resolves.toEqual({
+      output: { value: [{ _KeyReportId: "r1" }] },
+      providerStatusClass: "ok",
+    });
+    const [requestUrl, requestInit] = okMock.mock.calls[0]!;
+    expect(String(requestUrl)).toBe(
+      "https://21risk.com/odata/v5/reports?%24top=1",
+    );
+    expect((requestInit?.headers as Headers).get("authorization")).toBe(
+      `Bearer ${TWENTY_ONE_RISK_KEY}`,
+    );
+    expect(requestInit?.redirect).toBe("manual");
+    okMock.mockRestore();
+
+    // The apex OData service answers an invalid key with a 401 whose body names
+    // the required scheme; the executor must classify it without leaking a body.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          message:
+            'Invalid auth header. Please provide "Bearer <api-key>". API-key should start with 21RISK.ND.xxxx',
+        }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      ),
+    );
+    await expect(
+      executeApiKeyProviderAction({
+        descriptor,
+        apiKey: TWENTY_ONE_RISK_KEY,
+        action: "TWENTY_ONE_RISK_GET_REPORTS",
+        input: { top: 1 },
+        operation: "read",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_credential" });
+    vi.restoreAllMocks();
   });
 });
 

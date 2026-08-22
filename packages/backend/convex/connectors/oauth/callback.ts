@@ -6,6 +6,7 @@ import { ConnectorError } from "../errors";
 import { connectorPublicBaseUrl } from "../env";
 import {
   buildTokenExchangeBody,
+  connectorBindingsSatisfiedByScopes,
   getProviderManifest,
   parseScopeString,
   scopesForGroups,
@@ -34,9 +35,14 @@ type TokenPayload = {
   error?: unknown;
 };
 
-const readSmallJson = async (response: Response): Promise<Record<string, unknown>> => {
+const readSmallJson = async (
+  response: Response,
+): Promise<Record<string, unknown>> => {
   const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > TOKEN_RESPONSE_MAX_BYTES) {
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > TOKEN_RESPONSE_MAX_BYTES
+  ) {
     await response.body?.cancel().catch(() => undefined);
     throw new ConnectorError("code_exchange_failed");
   }
@@ -60,7 +66,10 @@ const fetchProviderIdentity = async (
 ): Promise<ProviderIdentity | null> => {
   const response = await fetch(userinfoEndpoint, {
     method: "GET",
-    headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
   });
   if (!response.ok) return null;
   const payload = await readSmallJson(response);
@@ -73,8 +82,20 @@ const fetchProviderIdentity = async (
   if (!sub) return null;
   return {
     sub,
-    email: typeof payload.email === "string" ? payload.email : undefined,
-    name: typeof payload.name === "string" ? payload.name : undefined,
+    email:
+      typeof payload.email === "string"
+        ? payload.email
+        : typeof payload.mail === "string"
+          ? payload.mail
+          : typeof payload.userPrincipalName === "string"
+            ? payload.userPrincipalName
+            : undefined,
+    name:
+      typeof payload.name === "string"
+        ? payload.name
+        : typeof payload.displayName === "string"
+          ? payload.displayName
+          : undefined,
   };
 };
 
@@ -112,7 +133,8 @@ export const handleOAuthCallback = internalAction({
       { stateHash },
     );
     // Reject reused/expired/unknown state before any token exchange.
-    if (!attempt) return { status: "invalid" as const, errorCode: "invalid_state" };
+    if (!attempt)
+      return { status: "invalid" as const, errorCode: "invalid_state" };
 
     const attemptIdStr = String(attempt.attemptId);
     const finalize = async (
@@ -138,7 +160,11 @@ export const handleOAuthCallback = internalAction({
                 ? "connect_attempt_denied"
                 : "connect_attempt_failed",
           outcome:
-            status === "succeeded" ? "ok" : status === "denied" ? "denied" : "error",
+            status === "succeeded"
+              ? "ok"
+              : status === "denied"
+                ? "denied"
+                : "error",
           scopeGroups: attempt.scopeGroupIds,
           errorCode,
         },
@@ -191,15 +217,35 @@ export const handleOAuthCallback = internalAction({
 
       const userinfoEndpoint = manifest.userinfoEndpoint;
       if (!userinfoEndpoint) throw new ConnectorError("identity_unavailable");
-      const identity = await fetchProviderIdentity(userinfoEndpoint, accessToken);
+      const identity = await fetchProviderIdentity(
+        userinfoEndpoint,
+        accessToken,
+      );
       if (!identity) throw new ConnectorError("identity_unavailable");
 
       // Prefer the provider-issued scope string; otherwise treat the requested
       // groups as granted (best effort). Never widen beyond requested groups.
-      const grantedScopes =
+      const providerReportedScopes =
         typeof payload.scope === "string" && payload.scope.trim()
           ? parseScopeString(payload.scope)
           : scopesForGroups(manifest, attempt.scopeGroupIds);
+      // Entra may omit protocol scopes from the access-token `scope` echo.
+      // They are nevertheless proven by this completed OIDC flow; only mark
+      // offline_access when a refresh token was actually issued.
+      const grantedScopes =
+        manifest.key === "microsoft"
+          ? [
+              ...new Set([
+                ...providerReportedScopes,
+                "openid",
+                "profile",
+                "email",
+                ...(typeof payload.refresh_token === "string"
+                  ? ["offline_access"]
+                  : []),
+              ]),
+            ]
+          : providerReportedScopes;
 
       const commit = await ctx.runMutation(
         internal.connectors.oauth.vault.commitProviderAccountTokens,
@@ -227,16 +273,37 @@ export const handleOAuthCallback = internalAction({
         },
       );
 
-      await ctx.runMutation(
-        internal.connectors.oauth.accounts.setConnectorBinding,
-        {
-          ownerId: attempt.ownerId,
-          connectorId: attempt.connectorId,
-          provider: manifest.key,
-          accountId: commit.accountId,
-          requiredScopeGroups: attempt.scopeGroupIds,
-        },
+      const familyBindings = connectorBindingsSatisfiedByScopes(
+        manifest,
+        commit.grantedScopes,
       );
+      const bindings = [
+        ...familyBindings,
+        ...(!familyBindings.some(
+          (binding) => binding.connectorId === attempt.connectorId,
+        )
+          ? [
+              {
+                connectorId: attempt.connectorId,
+                requiredScopeGroups:
+                  manifest.connectorBindings?.[attempt.connectorId]
+                    ?.requiredScopeGroups ?? attempt.scopeGroupIds,
+              },
+            ]
+          : []),
+      ];
+      for (const binding of bindings) {
+        await ctx.runMutation(
+          internal.connectors.oauth.accounts.setConnectorBinding,
+          {
+            ownerId: attempt.ownerId,
+            connectorId: binding.connectorId,
+            provider: manifest.key,
+            accountId: commit.accountId,
+            requiredScopeGroups: [...binding.requiredScopeGroups],
+          },
+        );
+      }
 
       await finalize("succeeded", undefined, String(commit.accountId));
       await ctx.runMutation(

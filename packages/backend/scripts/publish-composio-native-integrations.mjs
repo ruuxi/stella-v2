@@ -17,8 +17,7 @@ const adminToken =
   "";
 const composioApiKey = process.env.COMPOSIO_API_KEY || "";
 const composioToolsUrl =
-  process.env.COMPOSIO_TOOLS_URL ||
-  "https://backend.composio.dev/api/v3/tools";
+  process.env.COMPOSIO_TOOLS_URL || "https://backend.composio.dev/api/v3/tools";
 const composioToolkitsUrl =
   process.env.COMPOSIO_TOOLKITS_URL ||
   "https://backend.composio.dev/api/v3.1/toolkits";
@@ -33,6 +32,226 @@ const FETCH_CONCURRENCY = Math.max(
 );
 const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
 const Ajv = AjvModule.default ?? AjvModule;
+
+const string = { type: "string" };
+const boolean = { type: "boolean" };
+const integer = { type: "integer" };
+const stringArray = { type: "array", items: string };
+const matrix = {
+  type: "array",
+  items: { type: "array", items: {} },
+};
+const objectSchema = (properties, required = []) => ({
+  type: "object",
+  properties,
+  ...(required.length > 0 ? { required } : {}),
+  additionalProperties: false,
+});
+
+// Composio's list-tools response currently omits input schemas for these
+// Microsoft actions. Keep this reviewed compatibility map narrow and use it
+// only when Composio does not supply a compilable schema of its own.
+const MICROSOFT_COMPATIBILITY_SCHEMAS = {
+  outlook: {
+    OUTLOOK_LIST_MESSAGES: objectSchema({
+      top: integer,
+      skip: integer,
+      folder: string,
+      search: string,
+      select: stringArray,
+      is_read: boolean,
+      orderby: stringArray,
+      subject: string,
+      user_id: string,
+      categories: stringArray,
+      importance: string,
+      page_token: string,
+      from_address: string,
+      conversation_id: string,
+      has_attachments: boolean,
+      response_detail: { type: "string", enum: ["minimal", "full"] },
+      subject_contains: string,
+      subject_endswith: string,
+      sent_date_time_gt: string,
+      sent_date_time_lt: string,
+      subject_startswith: string,
+      received_date_time_ge: string,
+      received_date_time_gt: string,
+      received_date_time_le: string,
+      received_date_time_lt: string,
+    }),
+    OUTLOOK_GET_MESSAGE: objectSchema(
+      {
+        message_id: string,
+        select: stringArray,
+        user_id: string,
+      },
+      ["message_id"],
+    ),
+    OUTLOOK_SEND_EMAIL: objectSchema(
+      {
+        to: string,
+        body: string,
+        is_html: boolean,
+        subject: string,
+        to_name: string,
+        user_id: string,
+        cc_emails: stringArray,
+        attachment: {},
+        bcc_emails: stringArray,
+        from_address: string,
+        save_to_sent_items: boolean,
+      },
+      ["to", "body", "subject"],
+    ),
+    OUTLOOK_CREATE_DRAFT: objectSchema(
+      {
+        body: string,
+        is_html: boolean,
+        subject: string,
+        user_id: string,
+        attachment: {},
+        cc_recipients: stringArray,
+        to_recipients: stringArray,
+        bcc_recipients: stringArray,
+      },
+      ["body", "subject"],
+    ),
+    OUTLOOK_LIST_EVENTS: objectSchema({
+      top: integer,
+      skip: integer,
+      filter: string,
+      select: stringArray,
+      orderby: stringArray,
+      user_id: string,
+      timezone: string,
+      page_token: string,
+      calendar_id: string,
+      expand_recurring_events: boolean,
+    }),
+    OUTLOOK_CALENDAR_CREATE_EVENT: objectSchema(
+      {
+        body: string,
+        is_html: boolean,
+        show_as: string,
+        subject: string,
+        user_id: string,
+        location: string,
+        time_zone: string,
+        categories: stringArray,
+        importance: string,
+        recurrence: { type: "object" },
+        calendar_id: string,
+        end_datetime: string,
+        attendees_info: {
+          type: "array",
+          items: { anyOf: [string, { type: "object" }] },
+        },
+        start_datetime: string,
+        is_online_meeting: boolean,
+        online_meeting_provider: string,
+      },
+      ["subject", "time_zone", "end_datetime", "start_datetime"],
+    ),
+  },
+  microsoft_teams: {
+    MICROSOFT_TEAMS_LIST_USER_JOINED_TEAMS: objectSchema(
+      { user_id: string, page_token: string },
+      ["user_id"],
+    ),
+    MICROSOFT_TEAMS_TEAMS_LIST_CHANNELS: objectSchema(
+      {
+        filter: string,
+        select: string,
+        team_id: string,
+        page_token: string,
+        include_shared_channels: boolean,
+      },
+      ["team_id"],
+    ),
+    MICROSOFT_TEAMS_TEAMS_LIST_CHANNEL_MESSAGES: objectSchema(
+      {
+        top: integer,
+        expand: string,
+        team_id: string,
+        channel_id: string,
+        page_token: string,
+      },
+      ["team_id", "channel_id"],
+    ),
+    MICROSOFT_TEAMS_TEAMS_POST_CHANNEL_MESSAGE: objectSchema(
+      {
+        locale: string,
+        content: string,
+        subject: string,
+        summary: string,
+        team_id: string,
+        mentions: { type: "array", items: { type: "object" } },
+        channel_id: string,
+        importance: string,
+        attachments: { type: "array", items: { type: "object" } },
+        content_type: { type: "string", enum: ["text", "html"] },
+        hosted_contents: { type: "array", items: { type: "object" } },
+      },
+      ["team_id", "channel_id", "content"],
+    ),
+  },
+  excel: {
+    EXCEL_LIST_WORKSHEETS: objectSchema(
+      {
+        top: integer,
+        skip: integer,
+        item_id: string,
+        drive_id: string,
+        session_id: string,
+      },
+      ["item_id"],
+    ),
+    EXCEL_GET_RANGE: objectSchema(
+      {
+        address: string,
+        item_id: string,
+        drive_id: string,
+        session_id: string,
+        worksheet_id: string,
+      },
+      ["item_id", "worksheet_id", "address"],
+    ),
+    EXCEL_UPDATE_RANGE: objectSchema(
+      {
+        values: matrix,
+        address: string,
+        item_id: string,
+        drive_id: string,
+        session_id: string,
+        worksheet_id: string,
+      },
+      ["values", "address", "item_id", "worksheet_id"],
+    ),
+    EXCEL_LIST_TABLES: objectSchema(
+      {
+        top: integer,
+        skip: integer,
+        item_id: string,
+        drive_id: string,
+        worksheet: string,
+        session_id: string,
+      },
+      ["item_id", "worksheet"],
+    ),
+    EXCEL_ADD_TABLE_ROW: objectSchema(
+      {
+        index: integer,
+        values: matrix,
+        item_id: string,
+        drive_id: string,
+        table_id: string,
+        session_id: string,
+      },
+      ["item_id", "table_id", "values"],
+    ),
+  },
+};
 
 const hasCompilableSchema = (schema) => {
   try {
@@ -53,25 +272,116 @@ const hasCompilableSchema = (schema) => {
 // non-deprecated and support Composio-managed OAuth; official Composio APIs
 // supply all metadata and schemas.
 const SUPPORTED_TOOLKIT_IDS = new Set([
-  "airtable", "apaleo", "asana", "attio", "basecamp", "bitbucket",
-  "blackbaud", "boldsign", "box", "cal", "calendly", "canva", "capsule_crm",
-  "clickup", "confluence", "contentful", "crowdin", "dart", "dialpad",
-  "digital_ocean", "dropbox", "dub", "dynamics365", "eventbrite", "excel",
-  "exist", "facebook", "fathom", "figma", "freeagent", "freshbooks",
-  "github", "gitlab", "gmail", "gong", "google_analytics",
-  "google_classroom", "google_maps", "google_search_console", "googleads",
-  "googlebigquery", "googlecalendar", "googledocs", "googledrive",
-  "googlemeet", "googlephotos", "googlesheets", "googleslides",
-  "googlesuper", "googletasks", "gorgias", "gumroad", "harvest", "hubspot",
-  "hugging_face", "instagram", "intercom", "jira", "kit", "linear",
-  "linkedin", "linkhut", "mailchimp", "miro", "monday", "moneybird", "mural",
-  "notion", "omnisend", "one_drive", "outlook", "pagerduty", "prisma",
-  "productboard", "pushbullet", "quickbooks", "reddit", "salesforce", "sentry",
-  "servicem8", "share_point", "shippo", "shopify", "splitwise", "square",
-  "stack_exchange", "strava", "stripe", "supabase", "ticktick", "timely",
-  "todoist", "toneden", "typeform", "wakatime", "webex", "wrike",
-  "yandex", "ynab", "youtube", "zendesk", "zeplin", "zoho", "zoho_bigin",
-  "zoho_books", "zoho_desk", "zoho_inventory", "zoho_invoice", "zoho_mail",
+  "airtable",
+  "apaleo",
+  "asana",
+  "attio",
+  "basecamp",
+  "bitbucket",
+  "blackbaud",
+  "boldsign",
+  "box",
+  "cal",
+  "calendly",
+  "canva",
+  "capsule_crm",
+  "clickup",
+  "confluence",
+  "contentful",
+  "crowdin",
+  "dart",
+  "dialpad",
+  "digital_ocean",
+  "dropbox",
+  "dub",
+  "dynamics365",
+  "eventbrite",
+  "excel",
+  "exist",
+  "facebook",
+  "fathom",
+  "figma",
+  "freeagent",
+  "freshbooks",
+  "github",
+  "gitlab",
+  "gmail",
+  "gong",
+  "google_analytics",
+  "google_classroom",
+  "google_maps",
+  "google_search_console",
+  "googleads",
+  "googlebigquery",
+  "googlecalendar",
+  "googledocs",
+  "googledrive",
+  "googlemeet",
+  "googlephotos",
+  "googlesheets",
+  "googleslides",
+  "googlesuper",
+  "googletasks",
+  "gorgias",
+  "gumroad",
+  "harvest",
+  "hubspot",
+  "hugging_face",
+  "instagram",
+  "intercom",
+  "jira",
+  "kit",
+  "linear",
+  "linkedin",
+  "linkhut",
+  "mailchimp",
+  "microsoft_teams",
+  "miro",
+  "monday",
+  "moneybird",
+  "mural",
+  "notion",
+  "omnisend",
+  "one_drive",
+  "outlook",
+  "pagerduty",
+  "prisma",
+  "productboard",
+  "pushbullet",
+  "quickbooks",
+  "reddit",
+  "salesforce",
+  "sentry",
+  "servicem8",
+  "share_point",
+  "shippo",
+  "shopify",
+  "splitwise",
+  "square",
+  "stack_exchange",
+  "strava",
+  "stripe",
+  "supabase",
+  "ticktick",
+  "timely",
+  "todoist",
+  "toneden",
+  "typeform",
+  "wakatime",
+  "webex",
+  "wrike",
+  "yandex",
+  "ynab",
+  "youtube",
+  "zendesk",
+  "zeplin",
+  "zoho",
+  "zoho_bigin",
+  "zoho_books",
+  "zoho_desk",
+  "zoho_inventory",
+  "zoho_invoice",
+  "zoho_mail",
   "zoom",
 ]);
 
@@ -99,7 +409,8 @@ const toBaseRow = (entry) => ({
   auth: ["OAUTH2"],
   catalogToolCount: 0,
   actions: [],
-  description: entry.description || `Connect ${entry.name || entry.id} to Stella.`,
+  description:
+    entry.description || `Connect ${entry.name || entry.id} to Stella.`,
   sourceUrl: `https://composio.dev/toolkits/${entry.id}`,
   iconUrl: entry.iconUrl || `https://logos.composio.dev/api/${entry.id}`,
   connector: {
@@ -172,6 +483,9 @@ const schemaFromComposioTool = (tool) =>
     tool.input_schema ?? tool.inputSchema ?? tool.input_parameters,
   );
 
+const compatibilitySchema = (toolkit, action) =>
+  MICROSOFT_COMPATIBILITY_SCHEMAS[toolkit]?.[action] ?? null;
+
 const fetchComposioJson = async (url, label) => {
   const response = await fetch(url, {
     headers: { accept: "application/json", "x-api-key": composioApiKey },
@@ -231,7 +545,9 @@ const fetchPublishedToolkitRows = async () => {
             ? toolkit.meta.description
             : undefined,
         iconUrl:
-          typeof toolkit.meta?.logo === "string" ? toolkit.meta.logo : undefined,
+          typeof toolkit.meta?.logo === "string"
+            ? toolkit.meta.logo
+            : undefined,
         composioManagedAuthSchemes,
       };
       if (shouldPublish(entry)) rows.set(id, toBaseRow(entry));
@@ -283,7 +599,11 @@ const fetchToolkitActions = async (row) => {
           ? tool.toolkit.slug.trim().toLowerCase()
           : "";
       if (toolkit !== row.id || !SAFE_ACTION_NAME.test(name)) continue;
-      const inputSchema = schemaFromComposioTool(tool);
+      const composioSchema = schemaFromComposioTool(tool);
+      const inputSchema =
+        composioSchema && hasCompilableSchema(composioSchema)
+          ? composioSchema
+          : compatibilitySchema(row.id, name);
       if (!inputSchema || !hasCompilableSchema(inputSchema)) {
         skippedActions.set(name, "invalid_schema");
         continue;
@@ -321,7 +641,9 @@ const fetchToolkitActions = async (row) => {
     left.name.localeCompare(right.name),
   );
   if (sorted.length === 0) {
-    throw new Error(`${row.id}: Composio returned zero schema-bearing actions.`);
+    throw new Error(
+      `${row.id}: Composio returned zero schema-bearing actions.`,
+    );
   }
   if (sorted.length > MAX_ACTIONS_PER_INTEGRATION) {
     throw new Error(
@@ -330,7 +652,10 @@ const fetchToolkitActions = async (row) => {
   }
   return {
     publication: { ...row, actions: sorted, catalogToolCount: sorted.length },
-    skippedActions: [...skippedActions].map(([name, reason]) => ({ name, reason })),
+    skippedActions: [...skippedActions].map(([name, reason]) => ({
+      name,
+      reason,
+    })),
   };
 };
 
@@ -398,9 +723,13 @@ if (!siteUrl || !adminToken) {
 
 // Resolve and validate the complete publication before mutating the backend.
 // A provider/API failure therefore leaves every existing action set untouched.
-const resolvedRows = await mapConcurrent(rows, FETCH_CONCURRENCY, async (row) => {
-  return await fetchToolkitActions(row);
-});
+const resolvedRows = await mapConcurrent(
+  rows,
+  FETCH_CONCURRENCY,
+  async (row) => {
+    return await fetchToolkitActions(row);
+  },
+);
 const publicationBodies = resolvedRows.map(({ publication }) => {
   const body = JSON.stringify(publication);
   if (Buffer.byteLength(body) > MAX_PUBLISH_BODY_BYTES) {

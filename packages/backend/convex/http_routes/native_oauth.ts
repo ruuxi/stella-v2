@@ -1,7 +1,17 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
-import { internal } from "../_generated/api";
-import { composioPathBlocked } from "../connectors/routing";
+import { api, internal } from "../_generated/api";
+import {
+  composioPathBlocked,
+  DEFAULT_ROLLOUT,
+  resolveRoute,
+} from "../connectors/routing";
+import { isFirstPartyExecutionEnabled } from "../connectors/env";
+import {
+  firstPartyActionOperation,
+  firstPartyProviderForConnector,
+  firstPartyProviderForConnectorAction,
+} from "../connectors/executors/first_party";
 import {
   errorResponse,
   handleCorsRequest,
@@ -92,9 +102,14 @@ const optionalTrimmedString = (value: unknown, maxLength: number) => {
 
 export const normalizePublishedIntegrationActions = (
   value: unknown,
-): { ok: true; actions: PublishedIntegrationAction[] } | { ok: false; error: string } => {
+):
+  | { ok: true; actions: PublishedIntegrationAction[] }
+  | { ok: false; error: string } => {
   if (!Array.isArray(value) || value.length === 0) {
-    return { ok: false, error: "At least one schema-bearing action is required." };
+    return {
+      ok: false,
+      error: "At least one schema-bearing action is required.",
+    };
   }
   if (value.length > MAX_PUBLISHED_INTEGRATION_ACTIONS) {
     return {
@@ -107,7 +122,10 @@ export const normalizePublishedIntegrationActions = (
   const actions: PublishedIntegrationAction[] = [];
   for (const raw of value) {
     if (!isJsonObject(raw)) {
-      return { ok: false, error: "Every integration action must be an object." };
+      return {
+        ok: false,
+        error: "Every integration action must be an object.",
+      };
     }
     const name = readString(raw.name);
     if (!name || !SAFE_ACTION_NAME.test(name) || names.has(name)) {
@@ -119,7 +137,10 @@ export const normalizePublishedIntegrationActions = (
     const title = optionalTrimmedString(raw.title, 512);
     const description = optionalTrimmedString(raw.description, 16_384);
     if (title === null || description === null) {
-      return { ok: false, error: `Integration action text is invalid: ${name}.` };
+      return {
+        ok: false,
+        error: `Integration action text is invalid: ${name}.`,
+      };
     }
     if (!isJsonObject(raw.inputSchema)) {
       return {
@@ -132,7 +153,10 @@ export const normalizePublishedIntegrationActions = (
       new TextEncoder().encode(inputSchemaJson).byteLength >
       MAX_INTEGRATION_ACTION_SCHEMA_BYTES
     ) {
-      return { ok: false, error: `Integration action schema is too large: ${name}.` };
+      return {
+        ok: false,
+        error: `Integration action schema is too large: ${name}.`,
+      };
     }
     names.add(name);
     actions.push({
@@ -164,7 +188,9 @@ const readResponseTextBounded = async (
 ): Promise<string> => {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    await response.body?.cancel("response byte limit exceeded").catch(() => undefined);
+    await response.body
+      ?.cancel("response byte limit exceeded")
+      .catch(() => undefined);
     throw new Error("Composio response exceeded the safe size limit.");
   }
   if (!response.body) return "";
@@ -177,7 +203,9 @@ const readResponseTextBounded = async (
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel("response byte limit exceeded").catch(() => undefined);
+        await reader
+          .cancel("response byte limit exceeded")
+          .catch(() => undefined);
         throw new Error("Composio response exceeded the safe size limit.");
       }
       chunks.push(value);
@@ -204,12 +232,13 @@ const sha256Hex = async (value: string): Promise<string> => {
     .join("");
 };
 
-const readComposioApiKey = () =>
-  process.env.COMPOSIO_API_KEY?.trim() || null;
+const readComposioApiKey = () => process.env.COMPOSIO_API_KEY?.trim() || null;
 
 const readComposioBaseUrl = () =>
-  (process.env.COMPOSIO_TOOL_ROUTER_URL?.trim() ||
-    "https://backend.composio.dev/api/v3.1/tool_router").replace(/\/+$/u, "");
+  (
+    process.env.COMPOSIO_TOOL_ROUTER_URL?.trim() ||
+    "https://backend.composio.dev/api/v3.1/tool_router"
+  ).replace(/\/+$/u, "");
 
 const readComposioConnector = (record: StoreIntegrationRecord) => {
   const connector =
@@ -290,15 +319,17 @@ export const buildComposioSessionBody = (args: {
   toolkits: { enable: [args.toolkit] },
 });
 
-export const composioSessionIdFromPayload = (payload: Record<string, unknown>) =>
+export const composioSessionIdFromPayload = (
+  payload: Record<string, unknown>,
+) =>
   readString((payload as ComposioSessionResponse).id) ??
   readString((payload as ComposioSessionResponse).sessionId) ??
   readString((payload as ComposioSessionResponse).session_id) ??
   readString(
     payload.session && typeof payload.session === "object"
-      ? (payload.session as Record<string, unknown>).id ??
+      ? ((payload.session as Record<string, unknown>).id ??
           (payload.session as Record<string, unknown>).sessionId ??
-          (payload.session as Record<string, unknown>).session_id
+          (payload.session as Record<string, unknown>).session_id)
       : null,
   );
 
@@ -350,7 +381,8 @@ export const composioToolkitConnectedFromPayload = (
         : null;
     if (!connection) return false;
     const connectedAccount =
-      connection.connectedAccount && typeof connection.connectedAccount === "object"
+      connection.connectedAccount &&
+      typeof connection.connectedAccount === "object"
         ? (connection.connectedAccount as Record<string, unknown>)
         : connection.connected_account &&
             typeof connection.connected_account === "object"
@@ -370,10 +402,10 @@ export const composioLinkFromPayload = (payload: Record<string, unknown>) =>
   readString((payload as ComposioLinkResponse).redirect_url) ??
   readString(
     payload.data && typeof payload.data === "object"
-      ? (payload.data as Record<string, unknown>).link ??
+      ? ((payload.data as Record<string, unknown>).link ??
           (payload.data as Record<string, unknown>).url ??
           (payload.data as Record<string, unknown>).redirectUrl ??
-          (payload.data as Record<string, unknown>).redirect_url
+          (payload.data as Record<string, unknown>).redirect_url)
       : null,
   );
 
@@ -399,8 +431,8 @@ const ensureComposioSession = async (
   } | null;
   const existingSessionId =
     existing?.mode === "composio"
-      ? readString(existing.externalId) ??
-        readString(existing.config?.sessionId)
+      ? (readString(existing.externalId) ??
+        readString(existing.config?.sessionId))
       : null;
   if (existingSessionId) return existingSessionId;
 
@@ -471,6 +503,62 @@ const isComposioPathBlocked = async (
   return rollout ? composioPathBlocked(rollout.mode) : false;
 };
 
+const resolveNativeExecutionRoute = async (
+  ctx: ActionCtx,
+  ownerId: string,
+  connectorId: string,
+  action: string,
+) => {
+  const provider = firstPartyProviderForConnectorAction(connectorId, action);
+  if (!provider) return null;
+  const operation = firstPartyActionOperation(provider, action);
+  if (!operation) return null;
+  const [readiness, storedRollout] = await Promise.all([
+    ctx.runQuery(internal.connectors.oauth.accounts.getConnectorReadiness, {
+      ownerId,
+      connectorId,
+    }),
+    ctx.runQuery(internal.connectors.rollouts.getConnectorRollout, {
+      connectorId,
+    }),
+  ]);
+  const rollout = storedRollout ?? { ...DEFAULT_ROLLOUT, connectorId };
+  return resolveRoute({
+    rollout,
+    ownerId,
+    operation,
+    killSwitchEnabled: isFirstPartyExecutionEnabled(),
+    hasFirstPartyReady: readiness.ready && readiness.provider === provider,
+  });
+};
+
+const firstPartyConnectTarget = async (
+  ctx: ActionCtx,
+  ownerId: string,
+  connectorId: string,
+): Promise<{ provider: string; firstPartyOnly: boolean } | null> => {
+  const provider = firstPartyProviderForConnector(connectorId);
+  if (!provider || !isFirstPartyExecutionEnabled()) return null;
+  const storedRollout = await ctx.runQuery(
+    internal.connectors.rollouts.getConnectorRollout,
+    { connectorId },
+  );
+  const rollout = storedRollout ?? { ...DEFAULT_ROLLOUT, connectorId };
+  const firstPartySelected =
+    rollout.mode === "first_party_preferred" ||
+    rollout.mode === "first_party_only" ||
+    resolveRoute({
+      rollout,
+      ownerId,
+      operation: "read",
+      killSwitchEnabled: true,
+      hasFirstPartyReady: true,
+    }).executor === "first_party";
+  return firstPartySelected
+    ? { provider, firstPartyOnly: rollout.mode === "first_party_only" }
+    : null;
+};
+
 export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/native-integrations/catalog",
@@ -502,13 +590,16 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
       if (!isJsonObject(body)) {
         return jsonResponse({ error: "Invalid integration payload." }, 400);
       }
-      const normalizedActions = normalizePublishedIntegrationActions(body.actions);
+      const normalizedActions = normalizePublishedIntegrationActions(
+        body.actions,
+      );
       if (!normalizedActions.ok) {
         return jsonResponse({ error: normalizedActions.error }, 400);
       }
       try {
         const schemaValidation = await ctx.runAction(
-          internal.node.native_integration_schemas.validatePublishedActionSchemas,
+          internal.node.native_integration_schemas
+            .validatePublishedActionSchemas,
           {
             actions: normalizedActions.actions.map((action) => ({
               name: action.name,
@@ -602,7 +693,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 origin,
               );
             }
-            const inputSchema = JSON.parse(resolved.action.inputSchemaJson) as unknown;
+            const inputSchema = JSON.parse(
+              resolved.action.inputSchemaJson,
+            ) as unknown;
             if (!isJsonObject(inputSchema)) throw new Error("invalid schema");
             return jsonResponse(
               {
@@ -662,21 +755,25 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               origin,
             );
           }
-          const actions = publication.actions.map((action: {
-            name: string;
-            title?: string;
-            description?: string;
-            inputSchemaJson: string;
-          }) => {
-            const inputSchema = JSON.parse(action.inputSchemaJson) as unknown;
-            if (!isJsonObject(inputSchema)) throw new Error("invalid schema");
-            return {
-              name: action.name,
-              ...(action.title ? { title: action.title } : {}),
-              ...(action.description ? { description: action.description } : {}),
-              inputSchema,
-            };
-          });
+          const actions = publication.actions.map(
+            (action: {
+              name: string;
+              title?: string;
+              description?: string;
+              inputSchemaJson: string;
+            }) => {
+              const inputSchema = JSON.parse(action.inputSchemaJson) as unknown;
+              if (!isJsonObject(inputSchema)) throw new Error("invalid schema");
+              return {
+                name: action.name,
+                ...(action.title ? { title: action.title } : {}),
+                ...(action.description
+                  ? { description: action.description }
+                  : {}),
+                inputSchema,
+              };
+            },
+          );
           return jsonResponse(
             {
               id: publication.id,
@@ -708,15 +805,58 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
       handleCorsRequest(request, async (origin) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) return errorResponse(401, "Unauthorized", origin);
-        const body = (await parseUnknownBody(request)) as
-          | NativeIntegrationRequestBody
-          | null;
+        const body = (await parseUnknownBody(
+          request,
+        )) as NativeIntegrationRequestBody | null;
         const id = readString(body?.id)?.toLowerCase();
         if (!id) return errorResponse(400, "Missing integration id.", origin);
         const integration = await loadPublicIntegration(ctx, id);
-        const connector = integration ? readComposioConnector(integration) : null;
+        const connector = integration
+          ? readComposioConnector(integration)
+          : null;
         if (!connector) {
-          return errorResponse(400, "Integration is not Composio-backed.", origin);
+          return errorResponse(
+            400,
+            "Integration is not Composio-backed.",
+            origin,
+          );
+        }
+        const firstPartyTarget = await firstPartyConnectTarget(
+          ctx,
+          identity.tokenIdentifier,
+          connector.id,
+        );
+        if (firstPartyTarget) {
+          try {
+            const attempt = await ctx.runMutation(
+              api.connectors.oauth.connect.startConnectAttempt,
+              {
+                connectorId: connector.id,
+                provider: firstPartyTarget.provider,
+                returnSurface: "desktop",
+              },
+            );
+            return jsonResponse(
+              { url: attempt.authorizationUrl, attemptId: attempt.attemptId },
+              200,
+              origin,
+            );
+          } catch (error) {
+            console.error(
+              "[native-integrations] first-party connect-link failed",
+              {
+                id,
+                message: error instanceof Error ? error.name : "error",
+              },
+            );
+            if (firstPartyTarget.firstPartyOnly) {
+              return errorResponse(
+                503,
+                "Could not create the first-party connection link.",
+                origin,
+              );
+            }
+          }
         }
         if (await isComposioPathBlocked(ctx, connector.id)) {
           return errorResponse(
@@ -744,7 +884,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           );
           const url = composioLinkFromPayload(payload);
           if (!url) {
-            return errorResponse(502, "Composio did not return a connect link.", origin);
+            return errorResponse(
+              502,
+              "Composio did not return a connect link.",
+              origin,
+            );
           }
           return jsonResponse({ url }, 200, origin);
         } catch (error) {
@@ -752,7 +896,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             id,
             message: error instanceof Error ? error.message : String(error),
           });
-          return errorResponse(502, "Could not create the connection link.", origin);
+          return errorResponse(
+            502,
+            "Could not create the connection link.",
+            origin,
+          );
         }
       }),
     ),
@@ -770,9 +918,56 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         )?.toLowerCase();
         if (!id) return errorResponse(400, "Missing integration id.", origin);
         const integration = await loadPublicIntegration(ctx, id);
-        const connector = integration ? readComposioConnector(integration) : null;
+        const connector = integration
+          ? readComposioConnector(integration)
+          : null;
         if (!connector) {
-          return errorResponse(400, "Integration is not Composio-backed.", origin);
+          return errorResponse(
+            400,
+            "Integration is not Composio-backed.",
+            origin,
+          );
+        }
+        const firstPartyTarget = await firstPartyConnectTarget(
+          ctx,
+          identity.tokenIdentifier,
+          connector.id,
+        );
+        let firstPartyFallbackStatus:
+          | {
+              provider: string;
+              accountStatus: string;
+              missingScopeGroups: string[];
+            }
+          | undefined;
+        if (firstPartyTarget) {
+          const readiness = await ctx.runQuery(
+            internal.connectors.oauth.accounts.getConnectorReadiness,
+            {
+              ownerId: identity.tokenIdentifier,
+              connectorId: connector.id,
+            },
+          );
+          if (readiness.ready || firstPartyTarget.firstPartyOnly) {
+            return jsonResponse(
+              {
+                connected: readiness.ready,
+                executor: "first_party",
+                provider: firstPartyTarget.provider,
+                accountStatus: readiness.accountStatus,
+                missingScopeGroups: readiness.missingScopeGroups,
+              },
+              200,
+              origin,
+            );
+          }
+          if (readiness.accountId) {
+            firstPartyFallbackStatus = {
+              provider: firstPartyTarget.provider,
+              accountStatus: readiness.accountStatus ?? "unknown",
+              missingScopeGroups: readiness.missingScopeGroups,
+            };
+          }
         }
         const composio = requireComposioConfig();
         if (!composio.config) return withCors(composio.response, origin);
@@ -785,7 +980,19 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             connector.id,
           );
           if (!sessionId) {
-            return jsonResponse({ connected: false }, 200, origin);
+            return jsonResponse(
+              {
+                connected: false,
+                ...(firstPartyFallbackStatus
+                  ? {
+                      executor: "composio",
+                      firstParty: firstPartyFallbackStatus,
+                    }
+                  : {}),
+              },
+              200,
+              origin,
+            );
           }
           const payload = await composioFetch(
             `/session/${encodeURIComponent(sessionId)}/toolkits`,
@@ -798,6 +1005,12 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 payload,
                 connector.toolkit,
               ),
+              ...(firstPartyFallbackStatus
+                ? {
+                    executor: "composio",
+                    firstParty: firstPartyFallbackStatus,
+                  }
+                : {}),
             },
             200,
             origin,
@@ -807,7 +1020,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             id,
             message: error instanceof Error ? error.message : String(error),
           });
-          return errorResponse(502, "Could not check the connection status.", origin);
+          return errorResponse(
+            502,
+            "Could not check the connection status.",
+            origin,
+          );
         }
       }),
     ),
@@ -820,9 +1037,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
       handleCorsRequest(request, async (origin) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) return errorResponse(401, "Unauthorized", origin);
-        const body = (await parseUnknownBody(request)) as
-          | NativeIntegrationRequestBody
-          | null;
+        const body = (await parseUnknownBody(
+          request,
+        )) as NativeIntegrationRequestBody | null;
         const id = readString(body?.id)?.toLowerCase();
         const action = readString(body?.action);
         if (!id || !action) {
@@ -840,12 +1057,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         );
         const connector = resolved ? readComposioConnector(resolved) : null;
         if (!resolved || !connector) {
-          return errorResponse(400, "Integration action is not allowed.", origin);
-        }
-        if (await isComposioPathBlocked(ctx, connector.id)) {
           return errorResponse(
-            409,
-            "This integration now uses Stella's first-party connector.",
+            400,
+            "Integration action is not allowed.",
             origin,
           );
         }
@@ -884,13 +1098,74 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             origin,
           );
         }
+        const route = await resolveNativeExecutionRoute(
+          ctx,
+          identity.tokenIdentifier,
+          connector.id,
+          action,
+        );
+        if (
+          !route &&
+          firstPartyProviderForConnector(connector.id) &&
+          (await isComposioPathBlocked(ctx, connector.id))
+        ) {
+          return errorResponse(
+            409,
+            "This integration now uses Stella's first-party connector.",
+            origin,
+          );
+        }
+        if (route?.executor === "refused") {
+          return errorResponse(
+            403,
+            "This integration is currently unavailable.",
+            origin,
+          );
+        }
+        if (route?.executor === "first_party") {
+          try {
+            const result = await ctx.runAction(
+              internal.connectors.execute.runFirstPartyConnectorAction,
+              {
+                ownerId: identity.tokenIdentifier,
+                connectorId: connector.id,
+                action,
+                inputJson: JSON.stringify(body.input),
+                requestId:
+                  readString(request.headers.get("x-stella-request-id")) ??
+                  undefined,
+                schemaJson: resolved.action.inputSchemaJson,
+              },
+            );
+            return jsonResponse(
+              { data: result.output, error: null, successful: true },
+              200,
+              origin,
+            );
+          } catch (error) {
+            console.error("[native-integrations] first-party run failed", {
+              id,
+              action,
+              message: error instanceof Error ? error.name : "error",
+            });
+            return errorResponse(
+              502,
+              "The first-party integration call could not be completed.",
+              origin,
+            );
+          }
+        }
         const sessionId = await loadComposioSessionId(
           ctx,
           identity.tokenIdentifier,
           connector.id,
         );
         if (!sessionId) {
-          return errorResponse(409, "Connect this integration before using it.", origin);
+          return errorResponse(
+            409,
+            "Connect this integration before using it.",
+            origin,
+          );
         }
         const composio = requireComposioConfig();
         if (!composio.config) return withCors(composio.response, origin);
@@ -929,7 +1204,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             id,
             message: error instanceof Error ? error.message : String(error),
           });
-          return errorResponse(502, "Could not run the integration action.", origin);
+          return errorResponse(
+            502,
+            "Could not run the integration action.",
+            origin,
+          );
         }
       }),
     ),

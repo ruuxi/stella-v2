@@ -53,9 +53,7 @@ export async function getConvexToken(
   inflightTokenPromise = (async () => {
     try {
       await configurePiRuntime();
-      const token = await window.electronAPI?.system.getConvexAuthToken?.({
-        forceRefresh,
-      });
+      const token = await window.electronAPI?.system.getConvexAuthToken?.();
       if (!token) {
         if (requestVersion === tokenRequestVersion) {
           cachedToken = null;

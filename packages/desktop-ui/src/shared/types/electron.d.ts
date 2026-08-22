@@ -650,23 +650,24 @@ export type ElectronSystemApi = {
     convexUrl?: string;
     convexSiteUrl?: string;
   }) => Promise<{ deviceId: string | null }>;
+  setAuthState: (payload: {
+    authenticated: boolean;
+    token?: string;
+    hasConnectedAccount?: boolean;
+  }) => Promise<{ ok: boolean }>;
   getAuthSession: () => Promise<unknown | null>;
   signInAnonymous: () => Promise<unknown>;
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;
   verifyAuthCallbackUrl: (url: string) => Promise<{ ok: boolean }>;
-  sendMagicLink: (email: string) => Promise<
-    | { ok: true; requestId: string }
-    | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
-    | { ok: false; code: "send_failed"; error?: string }
-  >;
-  getMagicLinkStatus: (requestId: string) => Promise<{
-    status: "pending" | "completed" | "expired";
-    applied: boolean;
-  }>;
-  getConvexAuthToken: (options?: {
-    forceRefresh?: boolean;
-  }) => Promise<string | null>;
+  applyAuthSessionCookie: (sessionCookie: string) => Promise<{ ok: boolean }>;
+  getConvexAuthToken: () => Promise<string | null>;
+  completeRuntimeAuthRefresh: (payload: {
+    requestId: string;
+    authenticated: boolean;
+    token?: string;
+    hasConnectedAccount?: boolean;
+  }) => Promise<{ ok: boolean; accepted?: boolean }>;
   setCloudSyncEnabled: (payload: {
     enabled: boolean;
   }) => Promise<{ ok: boolean }>;
@@ -677,11 +678,10 @@ export type ElectronSystemApi = {
   onSocialInvite: (callback: (data: { url: string }) => void) => () => void;
   consumePendingSocialInvite: () => Promise<string | null>;
   consumePendingAuthCallback: () => Promise<string | null>;
-  onAuthChanged: (
+  onRuntimeAuthRefreshRequested: (
     callback: (data: {
-      authenticated: boolean;
-      hasConnectedAccount: boolean;
-      reason: "import" | "refresh" | "signed-out";
+      requestId: string;
+      source: "heartbeat" | "subscription" | "register";
     }) => void,
   ) => () => void;
   quitForRestart: () => Promise<{ ok: boolean }>;

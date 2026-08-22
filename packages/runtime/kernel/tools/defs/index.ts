@@ -155,14 +155,7 @@ export const buildBuiltinTools = (
   tools.push(
     ...createScheduleControlTools({ scheduleApi: options.scheduleApi }),
   );
-  tools.push(
-    createScriptDraftTool({
-      stellaDataDir: options.stellaDataDir,
-      ...(options.getStellaSiteAuth
-        ? { getStellaSiteAuth: options.getStellaSiteAuth }
-        : {}),
-    }),
-  );
+  tools.push(createScriptDraftTool({ stellaDataDir: options.stellaDataDir }));
 
   // (Store agent moved to backend — no local tools.)
 

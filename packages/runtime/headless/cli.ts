@@ -12,12 +12,11 @@
  * restarts — a live desktop app's detached worker. State comes from the
  * user's existing `~/.stella` unless `--data-dir` points elsewhere.
  *
- * Auth (auth-inversion P4): the runtime AuthOwner over the shared
- * `~/.stella/auth` session store provides the user's real identity natively;
- * `--auth-token` (or STELLA_AUTH_TOKEN) stays as an override for CI/remote
- * runs. Env API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...) and engine
- * CLIs (Claude Code / Codex) work with no token. Desktop-encrypted BYOK
- * keys remain unreadable headlessly (OS keychain via Electron safeStorage).
+ * Auth is an input, never minted here: pass `--auth-token` (or
+ * STELLA_AUTH_TOKEN) for Stella-managed models; env API keys
+ * (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...) and engine CLIs (Claude Code /
+ * Codex) work with no token. Desktop-encrypted BYOK keys are not readable
+ * headlessly (OS keychain via Electron safeStorage).
  *
  * Output: machine-readable JSONL on stdout (`kind` discriminated), human
  * diagnostics on stderr.

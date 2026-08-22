@@ -15,15 +15,18 @@ import {
   clearCachedToken,
 } from "@/global/auth/services/auth-token";
 import {
-  refreshAuthSession,
   signInAnonymous,
   useDesktopAuthSession,
 } from "@/global/auth/services/auth-session";
 import { convexClient } from "@/platform/convex/convex-client";
+import { getJwtExpMs } from "@/shared/lib/jwt";
 
 const TOKEN_BOOTSTRAP_RETRY_BASE_MS = 3_000;
 const TOKEN_BOOTSTRAP_RETRY_MAX_MS = 60_000;
 const TOKEN_BOOTSTRAP_MAX_ATTEMPTS = 10;
+const TOKEN_REFRESH_FALLBACK_MS = 3 * 60 * 1000;
+const TOKEN_REFRESH_MARGIN_MS = 90_000;
+const TOKEN_MIN_REFRESH_MS = 15_000;
 
 const getTokenBootstrapRetryDelayMs = (attempt: number) => {
   const exponent = Math.max(0, attempt - 1);
@@ -58,6 +61,17 @@ const AuthBootstrapContext = createContext<AuthBootstrapContextValue>({
 export function useAuthBootstrapState() {
   return useContext(AuthBootstrapContext);
 }
+
+const getHostTokenRefreshDelayMs = (token: string): number => {
+  try {
+    return Math.max(
+      TOKEN_MIN_REFRESH_MS,
+      getJwtExpMs(token) - Date.now() - TOKEN_REFRESH_MARGIN_MS,
+    );
+  } catch {
+    return TOKEN_REFRESH_FALLBACK_MS;
+  }
+};
 
 /**
  * `useAuth` hook for `ConvexProviderWithAuth`. Exported so secondary
@@ -107,16 +121,6 @@ export function useDesktopConvexAuth() {
   );
 }
 
-/**
- * Auth-inversion P2: the renderer no longer schedules token refreshes or
- * pushes tokens into the main process. The runtime AuthOwner owns the single
- * refresh timer; this component only
- *   1. creates the anonymous session on first boot,
- *   2. probes that a Convex JWT is obtainable before declaring bootstrap
- *      "ready" (bounded retry, no timers beyond the retry backoff), and
- *   3. re-pulls token/session state when the runtime broadcasts
- *      `auth:changed`.
- */
 function DesktopAuthRuntimeEffects({
   setAuthBootstrapState,
 }: {
@@ -125,6 +129,13 @@ function DesktopAuthRuntimeEffects({
   const session = useDesktopAuthSession();
   const attemptedAnonAuthRef = useRef(false);
   const runtimeIdentityKeyRef = useRef<string | null>(null);
+  const runtimeAuthRefreshHandlerRef = useRef<
+    | ((args?: {
+        forceRefreshToken?: boolean;
+        requestId?: string;
+      }) => Promise<void>)
+    | null
+  >(null);
   const sessionUser = (
     session.data as
       | { user?: { id?: string | null; isAnonymous?: boolean | null } }
@@ -134,6 +145,7 @@ function DesktopAuthRuntimeEffects({
   const sessionUserId = sessionUser?.id ?? null;
   const sessionIsAnonymous = sessionUser?.isAnonymous === true;
   const hasSession = Boolean(session.data);
+  const hasConnectedAccount = hasSession && !sessionIsAnonymous;
   const isSessionPending = Boolean(session.isPending);
 
   useEffect(() => {
@@ -177,32 +189,55 @@ function DesktopAuthRuntimeEffects({
     };
   }, []);
 
-  // Runtime AuthOwner state changed (token minted after an import, sign-out
-  // from another surface): drop the renderer token cache and revalidate the
-  // session silently so gating updates without a loading flash.
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
-    if (!systemApi?.onAuthChanged) {
+    if (
+      !systemApi?.onRuntimeAuthRefreshRequested ||
+      !systemApi.completeRuntimeAuthRefresh
+    ) {
       return;
     }
-    return systemApi.onAuthChanged((event) => {
-      clearCachedToken();
-      if (event.reason !== "refresh") {
-        void refreshAuthSession({ silent: true });
+
+    return systemApi.onRuntimeAuthRefreshRequested(({ requestId }) => {
+      const syncToken = runtimeAuthRefreshHandlerRef.current;
+      if (syncToken) {
+        void syncToken({ forceRefreshToken: true, requestId });
+        return;
       }
+      void systemApi.completeRuntimeAuthRefresh({
+        requestId,
+        authenticated: false,
+        hasConnectedAccount: false,
+      });
     });
   }, []);
 
   useEffect(() => {
+    const systemApi = window.electronAPI?.system;
+    if (!systemApi?.setAuthState) {
+      runtimeAuthRefreshHandlerRef.current = null;
+      setAuthBootstrapState({
+        status: "failed",
+        error: "Stella could not connect auth to the desktop runtime.",
+      });
+      return;
+    }
+
     if (isSessionPending) {
+      runtimeAuthRefreshHandlerRef.current = null;
       setAuthBootstrapState({ status: "loading_session", error: null });
       return;
     }
 
     if (!hasSession) {
+      runtimeAuthRefreshHandlerRef.current = null;
       setAuthBootstrapState({
         status: "creating_anonymous_session",
         error: null,
+      });
+      void systemApi.setAuthState({
+        authenticated: false,
+        hasConnectedAccount: false,
       });
       return;
     }
@@ -224,29 +259,88 @@ function DesktopAuthRuntimeEffects({
     }
 
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let bootstrapAttempts = 0;
 
-    // Readiness probe: confirm a Convex JWT is obtainable from the runtime
-    // proxy before flipping to "ready". No refresh scheduling — expiry is
-    // the AuthOwner's job; ConvexProviderWithAuth re-pulls on demand.
-    const probeToken = async ({
+    const clearTimers = () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
+
+    const scheduleRefresh = (token: string) => {
+      if (cancelled) {
+        return;
+      }
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void syncToken({ forceRefreshToken: true });
+      }, getHostTokenRefreshDelayMs(token));
+    };
+
+    const syncToken = async ({
       forceRefreshToken = false,
-    }: { forceRefreshToken?: boolean } = {}) => {
-      let token: string | null = null;
+      requestId,
+    }: { forceRefreshToken?: boolean; requestId?: string } = {}) => {
+      let token: string | undefined;
       try {
-        token = await getConvexToken({ forceRefresh: forceRefreshToken });
+        token =
+          (await getConvexToken({
+            forceRefresh: forceRefreshToken,
+          })) ?? undefined;
       } catch {
-        token = null;
+        token = undefined;
       }
       if (cancelled) return;
 
       if (token) {
+        const nextState = {
+          authenticated: true,
+          token,
+          hasConnectedAccount,
+        } as const;
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+          retryTimer = null;
+        }
         bootstrapAttempts = 0;
+        void systemApi.setAuthState(nextState);
+        if (requestId && systemApi.completeRuntimeAuthRefresh) {
+          void systemApi.completeRuntimeAuthRefresh({
+            requestId,
+            ...nextState,
+          });
+        }
+        scheduleRefresh(token);
         setAuthBootstrapState({ status: "ready", error: null });
         return;
       }
 
+      const nextState = {
+        authenticated: false,
+        hasConnectedAccount: false,
+      } as const;
+      void systemApi.setAuthState(nextState);
+      if (requestId && systemApi.completeRuntimeAuthRefresh) {
+        void systemApi.completeRuntimeAuthRefresh({
+          requestId,
+          ...nextState,
+        });
+      }
+      // A live refresh request (heartbeat/subscription) is not part of the
+      // initial bootstrap loop — it can fail without poisoning startup.
+      if (requestId) {
+        return;
+      }
       if (retryTimer) {
         return;
       }
@@ -263,31 +357,42 @@ function DesktopAuthRuntimeEffects({
         status: "syncing_runtime_token",
         error: null,
       });
-      retryTimer = setTimeout(
-        () => {
-          retryTimer = null;
-          void probeToken();
-        },
-        getTokenBootstrapRetryDelayMs(bootstrapAttempts),
-      );
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void syncToken();
+      }, getTokenBootstrapRetryDelayMs(bootstrapAttempts));
     };
 
-    void probeToken({ forceRefreshToken: runtimeIdentityChanged });
+    runtimeAuthRefreshHandlerRef.current = syncToken;
+    void syncToken({ forceRefreshToken: runtimeIdentityChanged });
 
     return () => {
       cancelled = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-      }
+      runtimeAuthRefreshHandlerRef.current = null;
+      clearTimers();
     };
   }, [
+    hasConnectedAccount,
     hasSession,
     isSessionPending,
     sessionIsAnonymous,
     sessionUserId,
     setAuthBootstrapState,
   ]);
+
+  useEffect(() => {
+    const systemApi = window.electronAPI?.system;
+    if (!systemApi?.setAuthState) {
+      return;
+    }
+
+    return () => {
+      void systemApi.setAuthState({
+        authenticated: false,
+        hasConnectedAccount: false,
+      });
+    };
+  }, []);
 
   return null;
 }

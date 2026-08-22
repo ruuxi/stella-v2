@@ -184,11 +184,13 @@ export const IPC_DEVICE_GET_ID = "device:getId" as const;
 export const IPC_PHONE_ACCESS_START = "phoneAccess:startSession" as const;
 export const IPC_PHONE_ACCESS_STOP = "phoneAccess:stopSession" as const;
 export const IPC_HOST_CONFIGURE_RUNTIME = "host:configurePiRuntime" as const;
+export const IPC_AUTH_SET_STATE = "auth:setState" as const;
 export const IPC_AUTH_GET_SESSION = "auth:getSession" as const;
 export const IPC_AUTH_SIGN_IN_ANONYMOUS = "auth:signInAnonymous" as const;
 export const IPC_AUTH_SIGN_OUT = "auth:signOut" as const;
 export const IPC_AUTH_DELETE_USER = "auth:deleteUser" as const;
 export const IPC_AUTH_VERIFY_CALLBACK_URL = "auth:verifyCallbackUrl" as const;
+export const IPC_AUTH_APPLY_SESSION_COOKIE = "auth:applySessionCookie" as const;
 export const IPC_AUTH_GET_CONVEX_TOKEN = "auth:getConvexToken" as const;
 export const IPC_HOST_SET_CLOUD_SYNC = "host:setCloudSyncEnabled" as const;
 export const IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT =
@@ -202,13 +204,10 @@ export const IPC_AUTH_CONSUME_PENDING_CALLBACK =
 export const IPC_SOCIAL_INVITE = "social:invite" as const;
 export const IPC_SOCIAL_CONSUME_PENDING_INVITE =
   "social:consumePendingInvite" as const;
-// Auth-inversion P2: runtime AuthOwner state changes fan out to renderers so
-// they re-pull tokens/sessions instead of running their own refresh timers.
-export const IPC_AUTH_CHANGED = "auth:changed" as const;
-// Auth-inversion P3: magic link runs through main -> runtime AuthOwner; the
-// raw sessionCookie never transits the renderer.
-export const IPC_AUTH_MAGIC_LINK_SEND = "auth:magicLinkSend" as const;
-export const IPC_AUTH_MAGIC_LINK_STATUS = "auth:magicLinkStatus" as const;
+export const IPC_AUTH_RUNTIME_REFRESH_REQUESTED =
+  "auth:runtimeRefreshRequested" as const;
+export const IPC_AUTH_RUNTIME_REFRESH_COMPLETE =
+  "auth:runtimeRefreshComplete" as const;
 export const IPC_APP_QUIT_FOR_RESTART = "app:quitForRestart" as const;
 export const IPC_SYSTEM_OPEN_FDA = "system:openFullDiskAccess" as const;
 export const IPC_PERMISSIONS_GET_STATUS = "permissions:getStatus" as const;

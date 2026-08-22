@@ -38,11 +38,7 @@ export type {
   RuntimeModelCatalogSnapshot,
 };
 
-// v2: adds the runtime AuthOwner RPCs (auth-inversion). Bumping the version
-// makes an old detached worker that predates these methods fail the connect
-// handshake and get replaced, instead of silently passing negotiation and
-// latching the desktop into legacy auth ownership for the whole app session.
-export const STELLA_RUNTIME_PROTOCOL_VERSION = "v2";
+export const STELLA_RUNTIME_PROTOCOL_VERSION = "v1";
 export const STELLA_RUNTIME_READY_METHOD = "internal.worker.readyz";
 
 export type JsonRpcId = number | string;
@@ -285,25 +281,6 @@ export const METHOD_NAMES = {
     "internal.worker.googleWorkspace.connect",
   INTERNAL_WORKER_GOOGLE_WORKSPACE_DISCONNECT:
     "internal.worker.googleWorkspace.disconnect",
-  /**
-   * Runtime AuthOwner RPCs (auth-inversion P1). The worker owns a mirrored
-   * Better Auth session store; the desktop imports/dual-writes session
-   * material and may pull sessions/tokens from the worker.
-   */
-  AUTH_IMPORT: "internal.worker.auth.import",
-  AUTH_GET_CONVEX_TOKEN: "internal.worker.auth.getConvexToken",
-  AUTH_GET_SESSION: "internal.worker.auth.getSession",
-  /**
-   * Auth-inversion P3: sign-in mutations execute in the worker so the
-   * AuthOwner is the single writer for every /api/auth/* mutation.
-   */
-  AUTH_SIGN_IN_ANONYMOUS: "internal.worker.auth.signInAnonymous",
-  AUTH_SIGN_OUT: "internal.worker.auth.signOut",
-  AUTH_DELETE_USER: "internal.worker.auth.deleteUser",
-  AUTH_APPLY_SESSION_COOKIE: "internal.worker.auth.applySessionCookie",
-  AUTH_HANDLE_CALLBACK: "internal.worker.auth.handleCallback",
-  AUTH_MAGIC_LINK_SEND: "internal.worker.auth.magicLink.send",
-  AUTH_MAGIC_LINK_STATUS: "internal.worker.auth.magicLink.status",
 } as const;
 
 export const NOTIFICATION_NAMES = {
@@ -318,8 +295,6 @@ export const NOTIFICATION_NAMES = {
   MODEL_CATALOG_UPDATED: "modelCatalog.updated",
   PROJECTS_UPDATED: "projects.updated",
   APPROVAL_REQUESTED: "approval.requested",
-  /** Runtime AuthOwner state changed (token minted, import applied, sign-out). */
-  AUTH_CHANGED: "auth.changed",
 } as const;
 
 export type RuntimeInitializeParams = {
@@ -376,61 +351,6 @@ export type HostRuntimeAuthRefreshResult = {
   authenticated: boolean;
   token: string | null;
   hasConnectedAccount: boolean;
-  /**
-   * True when the runtime AuthOwner's store holds session material,
-   * independent of whether a token was successfully minted. Lets the desktop
-   * migration detect a live runtime store without misreading a transient mint
-   * failure (null token) as "no store" and re-importing a stale snapshot.
-   */
-  hasSession?: boolean;
-};
-
-/** Auth-inversion P1: desktop -> worker session import (migration/dual-write). */
-export type RuntimeAuthImportParams = {
-  cookie: string | null;
-  sessionData: string | null;
-  /**
-   * Atomic import-if-empty for the one-time migration handoff. When true the
-   * runtime AuthOwner imports only if its store is empty, so a stale desktop
-   * artifact can't overwrite a live runtime session and no probe-then-import
-   * RPC pair can race.
-   */
-  onlyIfEmpty?: boolean;
-};
-
-export type RuntimeAuthImportResult = {
-  ok: boolean;
-  authenticated: boolean;
-  hasConnectedAccount: boolean;
-};
-
-export type RuntimeAuthTokenParams = {
-  forceRefresh?: boolean;
-};
-
-/** Worker AuthOwner state-change notification (`auth.changed`). */
-export type RuntimeAuthChangedEvent = {
-  authenticated: boolean;
-  hasConnectedAccount: boolean;
-  reason: "import" | "refresh" | "signed-out";
-};
-
-/** P3: raw deep link forwarded to the worker for validation + OTT exchange. */
-export type RuntimeAuthHandleCallbackParams = {
-  url: string;
-  /** The desktop's registered auth protocol (e.g. "stella"). */
-  protocol: string;
-};
-
-export type RuntimeAuthMagicLinkSendResult =
-  | { ok: true; requestId: string }
-  | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
-  | { ok: false; code: "send_failed"; error?: string };
-
-export type RuntimeAuthMagicLinkStatusResult = {
-  status: "pending" | "completed" | "expired";
-  /** True when a completed link's session cookie was applied to the store. */
-  applied: boolean;
 };
 
 import type { ChatContext } from "@stella/contracts";

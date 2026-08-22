@@ -36,12 +36,6 @@ import type { ToolDefinition } from "../types.js";
 export type ScriptDraftToolOptions = {
   /** Stella home root (e.g. `~/.stella`). Required. */
   stellaDataDir: string;
-  /**
-   * Auth-inversion P4: dry-runs get the same STELLA_SITE_BASE_URL /
-   * STELLA_SITE_AUTH_TOKEN env the scheduler injects at fire time, so a
-   * script that calls Stella-managed APIs behaves identically in both.
-   */
-  getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
 };
 
 const formatResult = (params: {
@@ -98,18 +92,7 @@ export const createScriptDraftTool = (
     const scriptPath = path.join(dir, `${crypto.randomUUID()}.ts`);
     await writePrivateFile(scriptPath, code);
 
-    const siteAuth = options.getStellaSiteAuth?.() ?? null;
-    const runResult = await runScheduleScript(
-      scriptPath,
-      siteAuth
-        ? {
-            env: {
-              STELLA_SITE_BASE_URL: siteAuth.baseUrl,
-              STELLA_SITE_AUTH_TOKEN: siteAuth.authToken,
-            },
-          }
-        : undefined,
-    );
+    const runResult = await runScheduleScript(scriptPath);
     return {
       result: formatResult({
         scriptPath,

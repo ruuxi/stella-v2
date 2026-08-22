@@ -14,6 +14,7 @@ import {
 } from "./token_set";
 import { ConnectorError } from "../errors";
 import { normalizeSnowflakeAccountOrigin } from "../snowflake";
+import { REFRESH_LEASE_MS } from "./refresh_policy";
 
 /**
  * Encrypted credential custody for provider accounts. Reuses the shared
@@ -26,7 +27,6 @@ import { normalizeSnowflakeAccountOrigin } from "../snowflake";
  * newer reconnect or revocation is rejected at commit time.
  */
 
-const REFRESH_LEASE_MS = 30 * 1000;
 const CREDENTIAL_TOMBSTONE = "";
 
 const incomingTokenValidator = v.object({
@@ -403,36 +403,58 @@ export const releaseRefreshLease = internalMutation({
   },
 });
 
-/** invalid_grant / revoked: destroy ciphertext and require reconnection. */
+/**
+ * invalid_grant / missing refresh token: destroy ciphertext only if the
+ * credential generation and, when present, active lease still belong to the
+ * caller. A stale refresh must never tombstone a successor's rotated token.
+ */
 export const markAccountReauthRequired = internalMutation({
-  args: { accountId: v.id("oauth_provider_accounts") },
-  returns: v.null(),
+  args: {
+    accountId: v.id("oauth_provider_accounts"),
+    expectedGeneration: v.number(),
+    expectedLeaseId: v.optional(v.string()),
+  },
+  returns: v.object({ ok: v.boolean(), reason: v.optional(v.string()) }),
   handler: async (ctx, args) => {
     const now = Date.now();
+    const credential = await ctx.db
+      .query("oauth_credentials")
+      .withIndex("by_accountId", (q) => q.eq("accountId", args.accountId))
+      .unique();
+    if (!credential) return { ok: false, reason: "not_found" };
+    if (credential.generation !== args.expectedGeneration) {
+      return { ok: false, reason: "generation_changed" };
+    }
+    if (args.expectedLeaseId !== undefined) {
+      if (credential.refreshLeaseId !== args.expectedLeaseId) {
+        return { ok: false, reason: "lease_lost" };
+      }
+      if (
+        typeof credential.refreshLeaseExpiresAt !== "number" ||
+        credential.refreshLeaseExpiresAt <= now
+      ) {
+        return { ok: false, reason: "lease_expired" };
+      }
+    }
+
     const account = await ctx.db.get(args.accountId);
+    await ctx.db.patch(credential._id, {
+      encryptedTokenSet: CREDENTIAL_TOMBSTONE,
+      keyVersion: 0,
+      accessTokenExpiresAt: undefined,
+      generation: credential.generation + 1,
+      status: "reauth_required",
+      refreshLeaseId: undefined,
+      refreshLeaseExpiresAt: undefined,
+      updatedAt: now,
+    });
     if (account) {
       await ctx.db.patch(account._id, {
         status: "reauth_required",
         updatedAt: now,
       });
     }
-    const credential = await ctx.db
-      .query("oauth_credentials")
-      .withIndex("by_accountId", (q) => q.eq("accountId", args.accountId))
-      .unique();
-    if (credential) {
-      await ctx.db.patch(credential._id, {
-        encryptedTokenSet: CREDENTIAL_TOMBSTONE,
-        keyVersion: 0,
-        accessTokenExpiresAt: undefined,
-        generation: credential.generation + 1,
-        status: "reauth_required",
-        refreshLeaseId: undefined,
-        refreshLeaseExpiresAt: undefined,
-        updatedAt: now,
-      });
-    }
-    return null;
+    return { ok: true };
   },
 });
 

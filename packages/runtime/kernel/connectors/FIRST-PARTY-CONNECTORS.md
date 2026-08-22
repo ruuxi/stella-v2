@@ -79,7 +79,7 @@ proprietary Composio APIs. Prefer the native tool in all cases.
   Composio stays authoritative until a tenant registration and representative
   OAuth/SQL calls pass review.
 - `1password` remains `planner_ready` and
-  Composio-owned. Their remaining blockers are documented in the backend
+  Composio-owned. Its remaining blockers are documented in the backend
   connector README; no descriptor or readiness claim fakes an executable
   credential model.
 - `21risk` is `executor_ready` on a **verified fixed-origin** contract: origin

@@ -26,6 +26,10 @@ import {
   resolveProviderClientCredentials,
 } from "./connectors/oauth/client_credentials";
 import {
+  REFRESH_LEASE_MS,
+  REFRESH_TOKEN_REQUEST_TIMEOUT_MS,
+} from "./connectors/oauth/refresh_policy";
+import {
   firstPartyActionBelongsToConnector,
   firstPartyActionInputSchema,
   firstPartyActionOperation,
@@ -823,6 +827,91 @@ describe("Snowflake OAuth persistence lifecycle", () => {
       resourceOrigin: ORIGIN,
     });
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a rotated credential when a delayed stale refresh loses its lease", async () => {
+    expect(REFRESH_TOKEN_REQUEST_TIMEOUT_MS).toBeLessThan(REFRESH_LEASE_MS);
+    const t = createTest();
+    const { accountId } = await commitSnowflakeTokens(
+      t,
+      "ROTATING_REFRESH_USER",
+      Date.now() - 60_000,
+    );
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+
+    let resolveStaleResponse!: (response: Response) => void;
+    let markStaleStarted!: () => void;
+    const staleStarted = new Promise<void>((resolve) => {
+      markStaleStarted = resolve;
+    });
+    const staleResponse = new Promise<Response>((resolve) => {
+      resolveStaleResponse = resolve;
+    });
+    let refreshCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_rawUrl, init) => {
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("refresh_token")).toBe(
+        "refresh-ROTATING_REFRESH_USER-token",
+      );
+      refreshCalls += 1;
+      if (refreshCalls === 1) {
+        markStaleStarted();
+        return await staleResponse;
+      }
+      return jsonResponse({
+        access_token: "winner-access-token",
+        refresh_token: "winner-rotated-refresh-token",
+        token_type: "Bearer",
+        expires_in: 3600,
+        scope: "session:role-any",
+      });
+    });
+
+    const staleRefresh = t.action(
+      internal.connectors.execute.getAccessTokenForAccount,
+      { accountId, requiredScopes: ["session:role-any"] },
+    );
+    staleRefresh.catch(() => undefined);
+    await staleStarted;
+
+    now += REFRESH_LEASE_MS + 1;
+    await expect(
+      t.action(internal.connectors.execute.getAccessTokenForAccount, {
+        accountId,
+        requiredScopes: ["session:role-any"],
+      }),
+    ).resolves.toEqual({
+      accessToken: "winner-access-token",
+      resourceOrigin: ORIGIN,
+    });
+
+    resolveStaleResponse(jsonResponse({ error: "invalid_grant" }, 400));
+    await expect(staleRefresh).rejects.toThrow(/refresh_busy/);
+
+    const stored = await t.query(
+      internal.connectors.oauth.vault.getCredentialForRefresh,
+      { accountId },
+    );
+    expect(stored).toMatchObject({
+      accountStatus: "active",
+      credentialStatus: "active",
+      generation: 2,
+    });
+    const rotatedTokenSet = await t.run(async (ctx) => {
+      const { decryptSecret } = await import("./data/secrets_crypto");
+      const { parseTokenSet } = await import("./connectors/oauth/token_set");
+      const credential = await ctx.db
+        .query("oauth_credentials")
+        .withIndex("by_accountId", (q) => q.eq("accountId", accountId))
+        .unique();
+      return parseTokenSet(await decryptSecret(credential!.encryptedTokenSet));
+    });
+    expect(rotatedTokenSet).toMatchObject({
+      accessToken: "winner-access-token",
+      refreshToken: "winner-rotated-refresh-token",
+    });
+    expect(refreshCalls).toBe(2);
   });
 
   it("rejects persisted account/token origin mismatch before any fetch", async () => {

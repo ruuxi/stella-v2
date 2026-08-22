@@ -20,6 +20,7 @@ import {
   scopesForGroups,
 } from "./oauth/providers";
 import { resolveProviderClientCredentials } from "./oauth/client_credentials";
+import { REFRESH_TOKEN_REQUEST_TIMEOUT_MS } from "./oauth/refresh_policy";
 import {
   accessTokenIsFresh,
   expiryFromExpiresIn,
@@ -90,6 +91,40 @@ const readSmallJson = async (
   }
 };
 
+const requestTokenEndpoint = async (
+  url: string,
+  request: RequestInit,
+): Promise<{ response: Response; payload: TokenEndpointPayload }> => {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new ConnectorError("refresh_failed", true));
+    }, REFRESH_TOKEN_REQUEST_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(url, {
+          ...request,
+          signal: controller.signal,
+        });
+        return { response, payload: await readSmallJson(response) };
+      })(),
+      timeout,
+    ]);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ConnectorError("refresh_failed", true);
+    }
+    throw error;
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+};
+
 /**
  * Obtain a non-expired access token for an account, refreshing under a lease if
  * needed. Never returns the refresh token or persists the access token in args/
@@ -154,10 +189,14 @@ export const getAccessTokenForAccount = internalAction({
       };
     }
     if (!tokenSet.refreshToken) {
-      await ctx.runMutation(
+      const tombstone = await ctx.runMutation(
         internal.connectors.oauth.vault.markAccountReauthRequired,
-        { accountId: args.accountId },
+        {
+          accountId: args.accountId,
+          expectedGeneration: cred.generation,
+        },
       );
+      if (!tombstone.ok) throw new ConnectorError("refresh_busy", true);
       throw new ConnectorError("reauth_required");
     }
 
@@ -190,7 +229,7 @@ export const getAccessTokenForAccount = internalAction({
           refreshToken: tokenSet.refreshToken,
         }),
       });
-      const response = await fetch(
+      const { response, payload } = await requestTokenEndpoint(
         manifest.refreshEndpoint ?? manifest.tokenEndpoint,
         {
           method: "POST",
@@ -198,14 +237,21 @@ export const getAccessTokenForAccount = internalAction({
           redirect: "error",
         },
       );
-      const payload = await readSmallJson(response);
       if (!response.ok || payload.error) {
         const classified = classifyTokenEndpointError(payload.error);
         if (classified.code === "invalid_grant") {
-          await ctx.runMutation(
+          const tombstone = await ctx.runMutation(
             internal.connectors.oauth.vault.markAccountReauthRequired,
-            { accountId: args.accountId },
+            {
+              accountId: args.accountId,
+              expectedGeneration: cred.generation,
+              expectedLeaseId: leaseId,
+            },
           );
+          if (!tombstone.ok) {
+            releaseErrorCode = "refresh_busy";
+            throw new ConnectorError("refresh_busy", true);
+          }
           leaseCleared = true;
           throw new ConnectorError("reauth_required");
         }
@@ -263,6 +309,7 @@ export const getAccessTokenForAccount = internalAction({
         releaseErrorCode = "refresh_failed";
         throw new ConnectorError("refresh_failed", true);
       }
+      releaseErrorCode ??= error.code;
       throw error;
     } finally {
       if (!leaseCleared) {

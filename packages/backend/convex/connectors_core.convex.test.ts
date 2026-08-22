@@ -2207,10 +2207,11 @@ describe("encrypted token vault", () => {
       refreshToken: "r1",
       scopes: ["mock.read"],
     });
-    await t.mutation(
+    const tombstone = await t.mutation(
       internal.connectors.oauth.vault.markAccountReauthRequired,
-      { accountId },
+      { accountId, expectedGeneration: 1 },
     );
+    expect(tombstone).toEqual({ ok: true });
     const cred = await t.query(
       internal.connectors.oauth.vault.getCredentialForRefresh,
       { accountId },

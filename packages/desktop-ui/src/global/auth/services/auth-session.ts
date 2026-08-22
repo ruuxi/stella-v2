@@ -119,11 +119,11 @@ export const signInAnonymous = async () => {
 
 export const signOutAuthSession = async () => {
   const result = await window.electronAPI?.system.signOutAuth?.();
-  // The runtime AuthOwner is authoritative. If it reports failure the session
-  // is still active on the server, so we must NOT clear local state or present
-  // "signed out" — that would desync the UI from the live session. Surface the
-  // failure to the caller and keep the current session visible.
-  if (result && result.ok === false) {
+  // The runtime AuthOwner is authoritative. Only a genuine {ok:true} counts as
+  // success. A missing API/handler (undefined) or an explicit {ok:false} means
+  // the session is still active on the server, so we must NOT clear local state
+  // or present "signed out" — that would desync the UI from the live session.
+  if (result?.ok !== true) {
     throw new Error("Sign-out failed. The session is still active.");
   }
   // Invalidate any in-flight optimistic refresh so a late revalidated emit

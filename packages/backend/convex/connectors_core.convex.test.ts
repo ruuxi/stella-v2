@@ -43,7 +43,6 @@ import {
   canonicalizeDeferredActionName,
   DEFERRED_API_KEY_PROVIDERS,
   resolveDeferredActionOrigin,
-  resolveDeferredTenantOrigin,
   validateDeferredApiKeyProviderCatalog,
 } from "./connectors/executors/api_key";
 import {
@@ -1074,7 +1073,6 @@ describe("deferred API-key provider request catalog", () => {
         "posthog",
         "ably",
         "abuseipdb",
-        "snowflake",
         "abstract",
         "44api",
       ].sort(),
@@ -1307,9 +1305,6 @@ describe("deferred API-key provider request catalog", () => {
       ABUSEIPDB_GET_BLACKLIST: {},
       ABUSEIPDB_CHECK_BLOCK: { network: "8.8.8.0/24" },
       ABUSEIPDB_REPORT_IP: { ip: "8.8.8.8", categories: "18" },
-      SNOWFLAKE_LIST_DATABASES: {},
-      SNOWFLAKE_DESCRIBE_TABLE: { table: "MY_DB.MY_SCHEMA.MY_TABLE" },
-      SNOWFLAKE_EXECUTE_SQL_QUERY: { statement: "select 1" },
       ABSTRACT_VALIDATE_EMAIL: { email: "person@example.com" },
       ABSTRACT_VALIDATE_PHONE: { phone: "14154582468" },
       ABSTRACT_GET_IP_GEOLOCATION: { ip_address: "8.8.8.8" },
@@ -1338,69 +1333,6 @@ describe("deferred API-key provider request catalog", () => {
         );
         expect(request?.headers?.authorization).toBeUndefined();
       }
-    }
-  });
-
-  it("plans Snowflake SQL API v2 requests and binds only allowlisted account origins", () => {
-    expect(
-      buildApiKeyProviderRequest("snowflake", "SNOWFLAKE_LIST_DATABASES", {}),
-    ).toEqual({
-      method: "POST",
-      path: "/api/v2/statements",
-      body: { statement: "SHOW DATABASES" },
-    });
-    expect(
-      buildApiKeyProviderRequest("snowflake", "SNOWFLAKE_DESCRIBE_TABLE", {
-        table: "DB.SCHEMA.T",
-        warehouse: "WH",
-      }),
-    ).toEqual({
-      method: "POST",
-      path: "/api/v2/statements",
-      body: {
-        statement: "DESCRIBE TABLE IDENTIFIER(?)",
-        warehouse: "WH",
-        bindings: { "1": { type: "TEXT", value: "DB.SCHEMA.T" } },
-      },
-    });
-    expect(() =>
-      buildApiKeyProviderRequest(
-        "snowflake",
-        "SNOWFLAKE_EXECUTE_SQL_QUERY",
-        {},
-      ),
-    ).toThrow();
-
-    const snowflake = DEFERRED_API_KEY_PROVIDERS.find(
-      (provider) => provider.connectorId === "snowflake",
-    )!;
-    // Never a fixed origin; binds only through the narrow suffix allowlist.
-    expect(
-      resolveDeferredActionOrigin(snowflake, "SNOWFLAKE_LIST_DATABASES"),
-    ).toBeNull();
-    expect(
-      resolveDeferredTenantOrigin(
-        snowflake,
-        "https://acme-prod.snowflakecomputing.com",
-      ),
-    ).toBe("https://acme-prod.snowflakecomputing.com");
-    expect(
-      resolveDeferredTenantOrigin(
-        snowflake,
-        "https://org-account.us-east-1.aws.snowflakecomputing.com",
-      ),
-    ).toBe("https://org-account.us-east-1.aws.snowflakecomputing.com");
-    // Arbitrary hosts, the bare suffix, look-alikes, and downgrades are rejected.
-    for (const bad of [
-      "https://evil.com",
-      "https://snowflakecomputing.com",
-      "https://acme.snowflakecomputing.com.evil.com",
-      "https://evilsnowflakecomputing.com",
-      "http://acme.snowflakecomputing.com",
-      "https://acme.snowflakecomputing.com/api/v2/statements",
-      "https://user:pass@acme.snowflakecomputing.com",
-    ]) {
-      expect(resolveDeferredTenantOrigin(snowflake, bad), bad).toBeNull();
     }
   });
 

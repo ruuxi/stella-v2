@@ -24,11 +24,7 @@ export type DeferredApiKeyProvider = {
    * Every value is an https origin; the planner still emits only relative paths.
    */
   fixedApiOriginByAction?: Readonly<Record<string, string>>;
-  /**
-   * Narrowly-allowlisted suffix for account/tenant-scoped origins (e.g. Snowflake
-   * `.snowflakecomputing.com`). Bound only through resolveDeferredTenantOrigin,
-   * which rejects any host outside this suffix — never an arbitrary host.
-   */
+  /** Narrowly-allowlisted suffix for account/tenant-scoped API-key origins. */
   tenantOriginSuffix?: string;
   actions: Readonly<Record<string, "read" | "write">>;
   activationBlockers: readonly string[];
@@ -194,39 +190,6 @@ export const canonicalizeDeferredActionName = (
     ? action.replace(/^44API_/u, "FORTYFOUR_API_")
     : action;
 
-const SNOWFLAKE_STATEMENT_PARAMS = [
-  "warehouse",
-  "database",
-  "schema",
-  "role",
-  "timeout",
-] as const;
-
-/**
- * Build a Snowflake SQL API v2 `/api/v2/statements` body. The SQL statement is
- * always server-constructed or a required input; identifiers are passed as
- * bound parameters so the planner never string-concatenates untrusted input.
- */
-const snowflakeStatementBody = (
-  statement: string,
-  input: Record<string, unknown>,
-  bindings?: Record<string, { type: string; value: string }>,
-): Record<string, unknown> => {
-  const body: Record<string, unknown> = { statement };
-  for (const key of SNOWFLAKE_STATEMENT_PARAMS) {
-    const value = input[key];
-    if (
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      body[key] = value;
-    }
-  }
-  if (bindings) body.bindings = bindings;
-  return body;
-};
-
 export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
   {
     connectorId: "1password",
@@ -390,27 +353,6 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
       ["EXA_ANSWER", "read"],
     ]),
     activationBlockers: API_KEY_CORE_BLOCKERS,
-  },
-  {
-    connectorId: "snowflake",
-    providerKey: "snowflake",
-    // Snowflake authenticates with an OAuth bearer token, not an API key; this
-    // deferred catalog only plans request shape and validates the account-scoped
-    // origin. Token custody/injection stay deferred activation blockers, so no
-    // token is ever placed here.
-    ownerFamily: "developer_data",
-    requiresTenantOrigin: true,
-    tenantOriginSuffix: ".snowflakecomputing.com",
-    actions: actions([
-      ["SNOWFLAKE_LIST_DATABASES", "read"],
-      ["SNOWFLAKE_DESCRIBE_TABLE", "read"],
-      ["SNOWFLAKE_EXECUTE_SQL_QUERY", "write"],
-    ]),
-    activationBlockers: [
-      "reviewed first-party Snowflake credential model matching the public product contract",
-      "validated per-connection Snowflake account-scoped origin and OAuth token exchange",
-      "deployment enablement, independent representative-call verification, and rollout",
-    ],
   },
   {
     connectorId: "abstract",
@@ -987,27 +929,6 @@ export const buildApiKeyProviderRequest = (
         path: "/api/v2/report",
         body: input,
         bodyEncoding: "form",
-      };
-
-    case "snowflake:SNOWFLAKE_LIST_DATABASES":
-      return {
-        method: "POST",
-        path: "/api/v2/statements",
-        body: snowflakeStatementBody("SHOW DATABASES", input),
-      };
-    case "snowflake:SNOWFLAKE_DESCRIBE_TABLE":
-      return {
-        method: "POST",
-        path: "/api/v2/statements",
-        body: snowflakeStatementBody("DESCRIBE TABLE IDENTIFIER(?)", input, {
-          "1": { type: "TEXT", value: requiredString(input, "table") },
-        }),
-      };
-    case "snowflake:SNOWFLAKE_EXECUTE_SQL_QUERY":
-      return {
-        method: "POST",
-        path: "/api/v2/statements",
-        body: snowflakeStatementBody(requiredString(input, "statement"), input),
       };
 
     case "abstract:ABSTRACT_VALIDATE_EMAIL":

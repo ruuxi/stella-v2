@@ -899,7 +899,7 @@ describe("API-key auth placement and egress controls", () => {
     ).toThrow(/normalization_error/);
   });
 
-  it("fails closed for unproven tenant origins and Snowflake look-alikes", () => {
+  it("fails closed for unproven deferred-provider tenant origins", () => {
     const deferred = new Map(
       DEFERRED_API_KEY_PROVIDERS.map((provider) => [
         provider.connectorId,
@@ -918,22 +918,6 @@ describe("API-key auth placement and egress controls", () => {
         "https://tenant.21risk.example",
       ),
     ).toBeNull();
-
-    const snowflake = deferred.get("snowflake")!;
-    expect(
-      resolveDeferredTenantOrigin(
-        snowflake,
-        "https://org-account.snowflakecomputing.com",
-      ),
-    ).toBe("https://org-account.snowflakecomputing.com");
-    for (const candidate of [
-      "https://snowflakecomputing.com",
-      "https://account.snowflakecomputing.com.attacker.test",
-      "http://account.snowflakecomputing.com",
-      "https://account.snowflakecomputing.com/api/v2/statements",
-    ]) {
-      expect(resolveDeferredTenantOrigin(snowflake, candidate)).toBeNull();
-    }
   });
 
   it("does not follow redirects or expose credentials in output or errors", async () => {

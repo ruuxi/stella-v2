@@ -94,6 +94,9 @@ export const connectorsSchema = {
     // attempt survives a rotation that happens between start and callback.
     registrationVersion: v.optional(v.number()),
     clientSecretVersion: v.optional(v.number()),
+    // Normalized exact origin for account-bound providers. This is established
+    // before authorization and must match every later OAuth/API request.
+    accountOrigin: v.optional(v.string()),
     // Optional: the specific existing provider account the user intends to
     // extend with an incremental grant. Enforced at commit time.
     providerAccountIdIntent: v.optional(v.string()),
@@ -127,6 +130,7 @@ export const connectorsSchema = {
     provider: v.string(),
     providerAccountId: v.string(),
     tenantId: v.optional(v.string()),
+    accountOrigin: v.optional(v.string()),
     // Presentation-only, owner-visible metadata. Mutable.
     displayLabel: v.optional(v.string()),
     displayEmail: v.optional(v.string()),

@@ -1,5 +1,9 @@
 import { ConnectorError } from "../errors";
 import { isProviderEnabled, mockProviderAllowed } from "../env";
+import {
+  normalizeSnowflakeAccountOrigin,
+  snowflakeAccountEndpoints,
+} from "../snowflake";
 
 /**
  * Static provider registrations. Non-secret facts only: endpoints, PKCE/refresh
@@ -27,6 +31,8 @@ export type ProviderConnectorBinding = {
 export type ProviderManifest = {
   key: string;
   displayName: string;
+  /** Endpoints are resolved from a user-supplied, validated account origin. */
+  accountBound?: "snowflake";
   authorizationEndpoint: string;
   tokenEndpoint: string;
   /** Used when a provider refreshes at a different endpoint from code exchange. */
@@ -1128,6 +1134,36 @@ const CANVAS: ProviderManifest = {
   registrationVersion: 1,
 };
 
+const SNOWFLAKE: ProviderManifest = {
+  key: "snowflake",
+  displayName: "Snowflake",
+  accountBound: "snowflake",
+  // These non-routable sentinels are never fetched. `resolveProviderManifestForAccount`
+  // must replace them with endpoints on the persisted Snowflake account origin.
+  authorizationEndpoint: "https://account-bound.invalid/oauth/authorize",
+  tokenEndpoint: "https://account-bound.invalid/oauth/token-request",
+  refreshEndpoint: "https://account-bound.invalid/oauth/token-request",
+  tokenEndpointAuth: "client_secret_post",
+  identityMode: "userinfo",
+  requiresPkce: true,
+  usesOfflineAccess: true,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://account-bound.invalid",
+  resourceOriginHostSuffixes: ["snowflakecomputing.com"],
+  scopeGroups: {
+    sql: { scopes: ["session:role-any", "refresh_token"] },
+  },
+  connectorBindings: {
+    snowflake: {
+      connectScopeGroups: ["sql"],
+      requiredScopeGroups: ["sql"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
 const STATIC_MANIFESTS: Readonly<Record<string, ProviderManifest>> = {
   [GOOGLE_WORKSPACE.key]: GOOGLE_WORKSPACE,
   [MICROSOFT.key]: MICROSOFT,
@@ -1155,6 +1191,7 @@ const STATIC_MANIFESTS: Readonly<Record<string, ProviderManifest>> = {
   [LINEAR.key]: LINEAR,
   [ATLASSIAN.key]: ATLASSIAN,
   [CANVAS.key]: CANVAS,
+  [SNOWFLAKE.key]: SNOWFLAKE,
 };
 
 /** All manifests visible in this deployment (mock only behind the env flag). */
@@ -1178,6 +1215,9 @@ export const resolveProviderResourceOrigin = (
   manifest: ProviderManifest,
   candidate: unknown,
 ): string => {
+  if (manifest.accountBound === "snowflake") {
+    return normalizeSnowflakeAccountOrigin(candidate);
+  }
   if (typeof candidate !== "string" || !candidate.trim())
     return manifest.apiOrigin;
   let url: URL;
@@ -1203,6 +1243,22 @@ export const resolveProviderResourceOrigin = (
   return url.origin;
 };
 
+/** Resolve account-local provider endpoints without changing static providers. */
+export const resolveProviderManifestForAccount = (
+  manifest: ProviderManifest,
+  accountOrigin: unknown,
+): ProviderManifest => {
+  if (manifest.accountBound !== "snowflake") return manifest;
+  const endpoints = snowflakeAccountEndpoints(accountOrigin);
+  return {
+    ...manifest,
+    authorizationEndpoint: endpoints.authorizationEndpoint,
+    tokenEndpoint: endpoints.tokenEndpoint,
+    refreshEndpoint: endpoints.refreshEndpoint,
+    apiOrigin: endpoints.origin,
+  };
+};
+
 /**
  * Resolve a manifest and confirm it is enabled for use (present + in the env
  * allowlist). Throws a classified error otherwise. Fails closed.
@@ -1217,6 +1273,12 @@ export const requireEnabledProvider = (
   if (manifest.key === MOCK_PROVIDER_KEY) return manifest;
   if (!isProviderEnabled(manifest.key)) {
     throw new ConnectorError("provider_disabled");
+  }
+  // Account-bound providers are not safe to activate from deployment flags
+  // alone. Their manifest verification gate is changed only after a real
+  // tenant callback and representative execution have passed review.
+  if (manifest.accountBound && manifest.verificationStatus !== "verified") {
+    throw new ConnectorError("provider_unverified");
   }
   return manifest;
 };
@@ -1329,6 +1391,13 @@ export const buildAuthorizationUrl = (args: {
   codeChallenge: string;
   scopes: readonly string[];
 }): string => {
+  if (
+    args.manifest.accountBound === "snowflake" &&
+    normalizeSnowflakeAccountOrigin(args.manifest.apiOrigin) !==
+      new URL(args.manifest.authorizationEndpoint).origin
+  ) {
+    throw new ConnectorError("account_mismatch");
+  }
   const url = new URL(args.manifest.authorizationEndpoint);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", args.clientId);
@@ -1479,7 +1548,8 @@ export const validateManifest = (manifest: ProviderManifest): string[] => {
   if (
     manifest.identityMode === "userinfo" &&
     !manifest.userinfoEndpoint &&
-    !manifest.userinfoPath
+    !manifest.userinfoPath &&
+    !manifest.accountBound
   ) {
     problems.push(
       `${manifest.key} is userinfo but has no userinfo endpoint or path`,

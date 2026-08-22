@@ -79,6 +79,7 @@ Set in the production deployment (`benevolent-minnow-586`); never in source,
 | `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_ID`                                | Provider OAuth client id. `<KEY>` = manifest key upper-cased, `-`→`_` (e.g. `GOOGLE_WORKSPACE`).         |
 | `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_SECRETS_JSON`                      | Versioned secret ring `{"1":"...","2":"..."}` for zero-downtime rotation.                                |
 | `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_SECRET_VERSION`                    | Active client-secret version. In-flight attempts record the version used.                                |
+| `SNOWFLAKE_OAUTH_TENANTS_JSON`                                          | Host-keyed, versioned Snowflake OAuth registrations; see the account-bound runbook below.                |
 | `STELLA_CONNECTOR_AUDIT_RETENTION_DAYS`                                 | Bounded audit/metadata retention. Default 90, capped at 400.                                             |
 | `STELLA_SECRETS_MASTER_KEYS_JSON` / `STELLA_SECRETS_MASTER_KEY_VERSION` | Reused envelope-encryption key ring (already required by `secrets_crypto.ts`).                           |
 | `STELLA_CONNECTOR_OAUTH_ALLOW_MOCK`                                     | **Never set in production.** Registers the built-in test/dev `mock` provider.                            |
@@ -260,6 +261,136 @@ Reviewed native actions:
   create an issue.
 - Supabase: list/get projects, list organizations, and create a project.
 
+## Snowflake account-bound OAuth and SQL API v2
+
+Snowflake is `executor_ready` in code, but it is deliberately **not activated**.
+It uses Snowflake OAuth for a confidential custom client, not the API-key vault
+and not a caller-supplied bearer token or PAT. Each account has its own OAuth
+security integration and endpoints, so registration and execution are bound to
+one normalized account origin for the full credential lifetime.
+
+Only exact HTTPS origins whose host is a real subdomain of
+`snowflakecomputing.com` are accepted. Credentials, non-default ports, paths,
+query strings, fragments, the bare suffix, and look-alike hosts are rejected.
+PrivateLink and other non-`snowflakecomputing.com` hostnames are not supported by
+this contract.
+The account host must also be present in the deployment registration map before
+Stella returns an authorization URL; an arbitrary user-entered host can never
+select a token endpoint or receive a Stella token.
+
+The registration map is the exception to the static per-provider OAuth env
+shape because a Snowflake custom OAuth client is tenant-local:
+
+```json
+{
+  "acme-prod.snowflakecomputing.com": {
+    "clientId": "<SYSTEM$SHOW_OAUTH_CLIENT_SECRETS client id>",
+    "activeVersion": 2,
+    "secrets": {
+      "1": "<old secret retained only while attempts can still use it>",
+      "2": "<active secret>"
+    }
+  }
+}
+```
+
+Store that JSON only in `SNOWFLAKE_OAUTH_TENANTS_JSON` in the Convex deployment.
+Keys are hostnames, not URLs or suffix patterns, and version numbers are strict
+positive integers. Connect attempts persist the selected registration version,
+so normal rotation is: add a new Snowflake secret and JSON ring version, switch
+`activeVersion`, wait beyond the connect-attempt TTL, then remove the old
+version. Owner access and refresh tokens remain separately encrypted in
+`oauth_credentials` with the Stella master-key ring; its existing rotation sweep
+re-wraps them. Neither token nor ciphertext appears in account inventory,
+readiness, audit events, desktop IPC, or action output.
+
+### Tenant administrator registration
+
+In the target Snowflake account, a `SECURITYADMIN`-equivalent administrator must
+create and own the custom integration. The exact redirect URI is:
+
+```text
+${STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL}/api/connectors/oauth/callback
+```
+
+A representative least-privilege starting point is below. Replace role names
+and allowed resources to match the tenant; do not grant an administrative role
+to Stella. `session:role-any` is requested so the reviewed `role` statement
+context can work, but `ENABLE_FOR_PRIVILEGE`, the integration role lists, and
+Snowflake's normal user grants keep the usable roles tenant-controlled.
+
+```sql
+CREATE SECURITY INTEGRATION STELLA_OAUTH
+  TYPE = OAUTH
+  ENABLED = TRUE
+  OAUTH_CLIENT = CUSTOM
+  OAUTH_CLIENT_TYPE = 'CONFIDENTIAL'
+  OAUTH_REDIRECT_URI = '<exact hosted callback above>'
+  OAUTH_ISSUE_REFRESH_TOKENS = TRUE
+  OAUTH_REFRESH_TOKEN_VALIDITY = 7776000
+  OAUTH_ANY_ROLE_MODE = 'ENABLE_FOR_PRIVILEGE'
+  ALLOWED_ROLES_LIST = ('STELLA_SQL_ROLE');
+
+GRANT USE_ANY_ROLE ON INTEGRATION STELLA_OAUTH TO ROLE STELLA_SQL_ROLE;
+```
+
+Grant `STELLA_SQL_ROLE` only the warehouse, database, schema, table, and write
+privileges the tenant intends the user to exercise. A user's session can use
+only roles granted to that user and permitted by the integration. The authorize
+request uses PKCE S256 and requests `session:role-any refresh_token`; the token
+request uses Snowflake-supported `client_secret_post`. Obtain the client id and
+secret through `SYSTEM$SHOW_OAUTH_CLIENT_SECRETS` without logging or committing
+the output. Use `DESCRIBE SECURITY INTEGRATION STELLA_OAUTH` to confirm that the
+allowed authorization and token endpoints share the exact registered account
+origin and that the redirect URI is exact.
+
+Snowflake does not expose a generic token-revocation endpoint for this custom
+flow. Stella disconnect atomically removes bindings and destroys the local
+encrypted token envelope. When remote revocation is required, the tenant admin
+must remove the user's delegated authorization, for example with Snowflake's
+`ALTER USER ... REMOVE DELEGATED AUTHORIZATIONS` command, or disable/rotate the
+integration according to tenant policy.
+
+### Executable contract and activation gate
+
+The server owns three existing public actions and their schemas:
+
+- `SNOWFLAKE_LIST_DATABASES` -> fixed `SHOW DATABASES` (read)
+- `SNOWFLAKE_DESCRIBE_TABLE` -> fixed `DESCRIBE TABLE IDENTIFIER(?)` with a
+  bound text identifier (read)
+- `SNOWFLAKE_EXECUTE_SQL_QUERY` -> caller SQL with bounded statement/context
+  fields, conservatively classified as write
+
+Each statement is one `POST /api/v2/statements/?requestId=<uuid>`. Stella never
+automatically replays that POST, including after ambiguous failures. Async
+polling and result partitions are bounded by count, wall-clock timeout, and one
+cumulative response-byte budget. Every status/partition request is rebuilt on
+the persisted origin from a validated statement handle; provider-returned
+redirects and cross-origin or unexpected status URLs are refused. OAuth token
+exchange and refresh likewise refuse redirects and ignore provider-returned
+alternate API origins.
+
+Activation still requires all of the following; code readiness alone is not a
+rollout decision:
+
+1. tenant admin registration and secret provisioning for the exact host;
+2. an end-to-end hosted callback with the expected account/user identity;
+3. representative `SHOW DATABASES`, `DESCRIBE TABLE`, bounded `SELECT`, and a
+   tenant-approved disposable write through SQL API v2;
+4. independent review of scopes, response variants, redirects, async polling,
+   partitions, refresh, disconnect, and secret rotation;
+5. only then, a reviewed change from manifest `unverified`, deployment
+   allowlisting/global execution enablement, and gradual connector rollout.
+
+Until that gate is complete, `/api/native-oauth/providers` reports Snowflake's
+exact secret-free blockers, the desktop does not select the backend OAuth flow,
+and the default `composio_only` route remains authoritative. Primary contracts:
+[custom-client OAuth](https://docs.snowflake.com/en/user-guide/oauth-custom),
+[SQL API authentication](https://docs.snowflake.com/en/developer-guide/sql-api/authenticating),
+[submitting statements](https://docs.snowflake.com/en/developer-guide/sql-api/submitting-requests),
+[handling responses](https://docs.snowflake.com/en/developer-guide/sql-api/handling-responses),
+and [account identifiers](https://docs.snowflake.com/en/user-guide/admin-account-identifier).
+
 The reviewed API-key execution catalog is below. `executor_ready` means the
 connector has a fixed-origin descriptor, exact action schemas, a request
 planner, and first-party dispatch. It does **not** mean that production routing
@@ -384,21 +515,12 @@ action names cross-check only). 21RISK remains code-ready but disabled and
 independently unverified; this reconciliation does not add it to either
 deployment allowlist or select a first-party rollout.
 
-These connectors remain planner-only and are deliberately absent from API-key
+This connector remains planner-only and is deliberately absent from API-key
 descriptors and first-party dispatch:
 
 | Connector   | Remaining gap                                                                                                                                                                                                                                                                                                                                                               |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `1password` | Customer-hosted 1Password Connect. Encrypted token + bound-origin scaffolding exists (see below) but stays planner-only/dormant: lexical origin validation cannot stop DNS-to-private-IP SSRF, and the default Convex runtime has no way to pin the resolved address. Activation is blocked on an enforced first-party egress transport; direct `fetch` is not an accepted transport.                                                    |
-| `snowflake` | The SQL API requires an account-specific origin, and the reviewed Snowflake contract has OAuth/key-pair/PAT semantics rather than a proven single static API key for this product surface. The existing relative SQL planners and strict `*.snowflakecomputing.com` origin validator are non-executable until account-origin capture and the credential model are designed. |
-
-That Snowflake disposition follows the primary [SQL API endpoint
-contract](https://docs.snowflake.com/en/developer-guide/sql-api/about-endpoints)
-and [authentication
-contract](https://docs.snowflake.com/en/developer-guide/sql-api/authenticating):
-the statement URL is account-scoped and the accepted models are OAuth, key-pair
-JWT, or PAT. None is silently treated as the single opaque API-key model used by
-this lifecycle.
 
 API keys are intentionally not modeled as OAuth tokens. There is no expiry,
 refresh token, scope grant, or refresh retry. Replacement uses an optimistic

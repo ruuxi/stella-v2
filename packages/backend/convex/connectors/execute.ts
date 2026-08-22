@@ -15,6 +15,7 @@ import {
   grantedScopesSatisfy,
   parseScopeString,
   requireEnabledProvider,
+  resolveProviderManifestForAccount,
   resolveProviderResourceOrigin,
   scopesForGroups,
 } from "./oauth/providers";
@@ -28,6 +29,7 @@ import { DEFAULT_ROLLOUT, resolveRoute } from "./routing";
 import {
   executeFirstPartyAction,
   firstPartyActionBelongsToConnector,
+  firstPartyActionInputSchema,
   firstPartyActionOperation,
   firstPartyActionRequiredScopes,
 } from "./executors/first_party";
@@ -123,10 +125,24 @@ export const getAccessTokenForAccount = internalAction({
     if (!grantedScopesSatisfy(cred.grantedScopes, args.requiredScopes)) {
       throw new ConnectorError("missing_scope");
     }
-    const manifest = getProviderManifest(cred.provider);
-    if (!manifest) throw new ConnectorError("provider_not_configured");
+    const baseManifest = getProviderManifest(cred.provider);
+    if (!baseManifest) throw new ConnectorError("provider_not_configured");
+    const manifest = resolveProviderManifestForAccount(
+      baseManifest,
+      cred.accountOrigin,
+    );
 
     const tokenSet = parseTokenSet(await decryptSecret(cred.encryptedTokenSet));
+    const persistedResourceOrigin = resolveProviderResourceOrigin(
+      manifest,
+      tokenSet.resourceOrigin ?? cred.accountOrigin,
+    );
+    if (
+      manifest.accountBound &&
+      persistedResourceOrigin !== manifest.apiOrigin
+    ) {
+      throw new ConnectorError("account_mismatch");
+    }
     const now = Date.now();
     if (
       manifest.accessTokensExpire === false ||
@@ -134,7 +150,7 @@ export const getAccessTokenForAccount = internalAction({
     ) {
       return {
         accessToken: tokenSet.accessToken,
-        resourceOrigin: tokenSet.resourceOrigin,
+        resourceOrigin: persistedResourceOrigin,
       };
     }
     if (!tokenSet.refreshToken) {
@@ -145,7 +161,11 @@ export const getAccessTokenForAccount = internalAction({
       throw new ConnectorError("reauth_required");
     }
 
-    const credentials = resolveProviderClientCredentials(manifest.key);
+    const credentials = resolveProviderClientCredentials(
+      manifest.key,
+      undefined,
+      cred.accountOrigin,
+    );
     const leaseId = crypto.randomUUID();
     const lease = await ctx.runMutation(
       internal.connectors.oauth.vault.claimRefreshLease,
@@ -175,6 +195,7 @@ export const getAccessTokenForAccount = internalAction({
         {
           method: "POST",
           ...tokenRequest,
+          redirect: "error",
         },
       );
       const payload = await readSmallJson(response);
@@ -199,11 +220,16 @@ export const getAccessTokenForAccount = internalAction({
       }
       const resourceOrigin = resolveProviderResourceOrigin(
         manifest,
-        payload.api_base_url_for_customer ??
-          payload.instance_url ??
-          payload.api_domain ??
-          tokenSet.resourceOrigin,
+        manifest.accountBound
+          ? cred.accountOrigin
+          : (payload.api_base_url_for_customer ??
+              payload.instance_url ??
+              payload.api_domain ??
+              tokenSet.resourceOrigin),
       );
+      if (manifest.accountBound && resourceOrigin !== manifest.apiOrigin) {
+        throw new ConnectorError("account_mismatch");
+      }
       const commit = await ctx.runMutation(
         internal.connectors.oauth.vault.commitRefreshedTokens,
         {
@@ -643,12 +669,19 @@ export const runFirstPartyConnectorAction = internalAction({
         throw new ConnectorError("invalid_input");
       }
 
-      if (args.schemaJson) {
+      const serverSchema = firstPartyActionInputSchema(
+        manifest.key,
+        args.action,
+      );
+      const schemaJson = serverSchema
+        ? JSON.stringify(serverSchema)
+        : args.schemaJson;
+      if (schemaJson) {
         let validation: "valid" | "invalid" | "invalid_schema";
         try {
           validation = await ctx.runAction(
             internal.node.native_integration_schemas.validateActionInput,
-            { inputJson: args.inputJson, schemaJson: args.schemaJson },
+            { inputJson: args.inputJson, schemaJson },
           );
         } catch {
           throw new ConnectorError("schema_unavailable");

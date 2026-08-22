@@ -21,6 +21,11 @@ type CredentialModalProps = {
   label?: string;
   description?: string;
   placeholder?: string;
+  inputType?: "password" | "text" | "url";
+  valueLabel?: string;
+  requiredMessage?: string;
+  submitLabel?: string;
+  submittingLabel?: string;
   /**
    * Show the "Label" field when a provider can have multiple saved keys.
    * Single-key provider settings can use the provider identifier directly.
@@ -50,6 +55,11 @@ const CredentialModalContent = ({
   label,
   description,
   placeholder,
+  inputType = "password",
+  valueLabel,
+  requiredMessage,
+  submitLabel,
+  submittingLabel,
   showLabel = true,
   originField,
   onSubmit,
@@ -85,7 +95,9 @@ const CredentialModalContent = ({
       return;
     }
     if (!secret.trim()) {
-      setError(t("global.integrations.credential.apiKeyRequired"));
+      setError(
+        requiredMessage ?? t("global.integrations.credential.apiKeyRequired"),
+      );
       return;
     }
     const finalLabel = labelValue.trim() || defaultLabelValue;
@@ -143,8 +155,10 @@ const CredentialModalContent = ({
             />
           ) : null}
           <TextField
-            label={t("global.integrations.credential.apiKeyLabel")}
-            type="password"
+            label={
+              valueLabel ?? t("global.integrations.credential.apiKeyLabel")
+            }
+            type={inputType}
             value={secret}
             onChange={(event) => setSecret(event.target.value)}
             placeholder={
@@ -180,8 +194,9 @@ const CredentialModalContent = ({
               className="pill-btn pill-btn--primary pill-btn--lg credential-modal-submit"
             >
               {submitting
-                ? t("global.integrations.credential.saving")
-                : t("global.integrations.credential.saveKey")}
+                ? (submittingLabel ??
+                  t("global.integrations.credential.saving"))
+                : (submitLabel ?? t("global.integrations.credential.saveKey"))}
             </Button>
           </div>
         </form>
@@ -196,6 +211,11 @@ export const CredentialModal = ({
   label,
   description,
   placeholder,
+  inputType,
+  valueLabel,
+  requiredMessage,
+  submitLabel,
+  submittingLabel,
   showLabel,
   originField,
   onSubmit,
@@ -214,6 +234,11 @@ export const CredentialModal = ({
             label={label}
             description={description}
             placeholder={placeholder}
+            inputType={inputType}
+            valueLabel={valueLabel}
+            requiredMessage={requiredMessage}
+            submitLabel={submitLabel}
+            submittingLabel={submittingLabel}
             showLabel={showLabel}
             originField={originField}
             onSubmit={onSubmit}

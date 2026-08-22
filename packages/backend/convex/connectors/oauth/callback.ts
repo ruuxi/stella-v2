@@ -10,12 +10,14 @@ import {
   connectorBindingsSatisfiedByScopes,
   getProviderManifest,
   parseScopeString,
+  resolveProviderManifestForAccount,
   resolveProviderResourceOrigin,
   scopesForGroups,
   sha256Hex,
 } from "./providers";
 import { resolveProviderClientCredentials } from "./client_credentials";
 import { expiryFromExpiresIn } from "./token_set";
+import { fetchSnowflakeProviderIdentity } from "../snowflake";
 
 /**
  * Shared hosted OAuth callback logic: atomically consume state, exchange the
@@ -89,6 +91,7 @@ const fetchProviderIdentity = async (
     ...(manifest.userinfoRequest?.body
       ? { body: JSON.stringify(manifest.userinfoRequest.body) }
       : {}),
+    redirect: "error",
   });
   if (!response.ok) return null;
   const payload = await readSmallJson(response);
@@ -211,13 +214,18 @@ export const handleOAuthCallback = internalAction({
       }
       if (!args.code) throw new ConnectorError("invalid_state");
 
-      const manifest = getProviderManifest(attempt.provider);
-      if (!manifest) throw new ConnectorError("provider_not_configured");
+      const baseManifest = getProviderManifest(attempt.provider);
+      if (!baseManifest) throw new ConnectorError("provider_not_configured");
+      const manifest = resolveProviderManifestForAccount(
+        baseManifest,
+        attempt.accountOrigin,
+      );
       const baseUrl = connectorPublicBaseUrl();
       if (!baseUrl) throw new ConnectorError("provider_not_configured");
       const credentials = resolveProviderClientCredentials(
         manifest.key,
         attempt.clientSecretVersion,
+        attempt.accountOrigin,
       );
       const redirectUri = `${baseUrl}${manifest.callbackPath}`;
       const verifier = await decryptSecret(attempt.encryptedVerifier);
@@ -238,6 +246,7 @@ export const handleOAuthCallback = internalAction({
       const tokenResponse = await fetch(manifest.tokenEndpoint, {
         method: "POST",
         ...tokenRequest,
+        redirect: "error",
       });
       const payload = (await readSmallJson(tokenResponse)) as TokenPayload;
       if (!tokenResponse.ok || payload.error) {
@@ -246,24 +255,44 @@ export const handleOAuthCallback = internalAction({
       const accessToken =
         typeof payload.access_token === "string" ? payload.access_token : null;
       if (!accessToken) throw new ConnectorError("code_exchange_failed");
+      if (
+        manifest.accountBound === "snowflake" &&
+        (typeof payload.refresh_token !== "string" || !payload.refresh_token)
+      ) {
+        throw new ConnectorError("code_exchange_failed");
+      }
 
       const candidateResourceOrigin =
-        payload.api_base_url_for_customer ??
-        payload.instance_url ??
-        payload.api_domain;
+        manifest.accountBound === "snowflake"
+          ? attempt.accountOrigin
+          : (payload.api_base_url_for_customer ??
+            payload.instance_url ??
+            payload.api_domain);
       const resourceOrigin = resolveProviderResourceOrigin(
         manifest,
         candidateResourceOrigin,
       );
 
-      if (!manifest.userinfoEndpoint && !manifest.userinfoPath) {
+      if (
+        manifest.accountBound !== "snowflake" &&
+        !manifest.userinfoEndpoint &&
+        !manifest.userinfoPath
+      ) {
         throw new ConnectorError("identity_unavailable");
       }
-      const identity = await fetchProviderIdentity(
-        manifest,
-        accessToken,
-        resourceOrigin,
-      );
+      const snowflakeIdentity =
+        manifest.accountBound === "snowflake"
+          ? await fetchSnowflakeProviderIdentity({
+              accountOrigin: resourceOrigin,
+              accessToken,
+            })
+          : null;
+      const identity = snowflakeIdentity
+        ? {
+            sub: snowflakeIdentity.id,
+            name: snowflakeIdentity.displayName,
+          }
+        : await fetchProviderIdentity(manifest, accessToken, resourceOrigin);
       if (!identity) throw new ConnectorError("identity_unavailable");
 
       // Prefer the provider-issued scope string; otherwise treat the requested
@@ -297,6 +326,9 @@ export const handleOAuthCallback = internalAction({
           provider: manifest.key,
           providerAccountId: identity.sub,
           providerAccountIdIntent: attempt.providerAccountIdIntent,
+          tenantId: snowflakeIdentity?.accountLocator,
+          accountOrigin:
+            manifest.accountBound === "snowflake" ? resourceOrigin : undefined,
           displayEmail: identity.email,
           displayLabel: identity.name,
           registrationVersion: manifest.registrationVersion,
@@ -312,7 +344,7 @@ export const handleOAuthCallback = internalAction({
                 : undefined,
             accessTokenExpiresAt: expiryFromExpiresIn(payload.expires_in, now),
             scopes: grantedScopes,
-            ...(resourceOrigin !== manifest.apiOrigin
+            ...(manifest.accountBound || resourceOrigin !== manifest.apiOrigin
               ? { resourceOrigin }
               : {}),
           },

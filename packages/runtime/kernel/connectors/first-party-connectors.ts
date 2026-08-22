@@ -220,8 +220,8 @@ const SUPABASE: FirstPartyConnectorAdapter = {
 };
 
 /**
- * Snowflake — first-party OAuth. Account-scoped resource URL is resolved from
- * env/config at connect time; backend token exchange is required.
+ * Snowflake - first-party OAuth. The backend binds a per-owner account origin
+ * to an exact registered tenant before authorization or token exchange.
  */
 const SNOWFLAKE: FirstPartyConnectorAdapter = {
   id: "snowflake",
@@ -231,7 +231,7 @@ const SNOWFLAKE: FirstPartyConnectorAdapter = {
     "Run SQL statements and inspect databases, schemas, and tables in Snowflake.",
   auth: "oauth",
   oauth: {
-    scopes: ["session:role-any"],
+    scopes: ["session:role-any", "refresh_token"],
     tokenKey: "native-oauth:snowflake",
     providerConfigId: "snowflake",
   },

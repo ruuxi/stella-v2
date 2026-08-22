@@ -288,6 +288,7 @@ export class ConnectorConnectService {
             // modal for that rare shape rather than losing the code.
             requestDeviceOAuth: (payload) => credentialService.requestDeviceOAuth(payload),
             requestBackendApiKey: (payload) => credentialService.requestBackendApiKey(payload),
+            requestSnowflakeAccountOrigin: (payload) => credentialService.requestSnowflakeAccountOrigin(payload),
         };
         try {
             const target = await resolveDesktopNativeConnectorEntry(flowOptions, stellaAppDir, meta.id);

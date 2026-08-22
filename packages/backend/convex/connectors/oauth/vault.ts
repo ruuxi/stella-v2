@@ -13,6 +13,7 @@ import {
   type TokenSet,
 } from "./token_set";
 import { ConnectorError } from "../errors";
+import { normalizeSnowflakeAccountOrigin } from "../snowflake";
 
 /**
  * Encrypted credential custody for provider accounts. Reuses the shared
@@ -66,6 +67,7 @@ export const commitProviderAccountTokens = internalMutation({
     providerAccountId: v.string(),
     providerAccountIdIntent: v.optional(v.string()),
     tenantId: v.optional(v.string()),
+    accountOrigin: v.optional(v.string()),
     displayLabel: v.optional(v.string()),
     displayEmail: v.optional(v.string()),
     registrationVersion: v.optional(v.number()),
@@ -76,6 +78,18 @@ export const commitProviderAccountTokens = internalMutation({
     grantedScopes: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
+    const accountOrigin =
+      args.provider === "snowflake"
+        ? normalizeSnowflakeAccountOrigin(args.accountOrigin)
+        : args.accountOrigin;
+    if (args.provider === "snowflake") {
+      if (
+        normalizeSnowflakeAccountOrigin(args.incoming.resourceOrigin) !==
+        accountOrigin
+      ) {
+        throw new ConnectorError("account_mismatch");
+      }
+    }
     if (
       args.providerAccountIdIntent &&
       args.providerAccountIdIntent !== args.providerAccountId
@@ -93,6 +107,13 @@ export const commitProviderAccountTokens = internalMutation({
       )
       .unique();
 
+    if (
+      existingAccount?.accountOrigin &&
+      accountOrigin !== existingAccount.accountOrigin
+    ) {
+      throw new ConnectorError("account_mismatch");
+    }
+
     const grantedScopes = unionScopes(
       existingAccount?.grantedScopes ?? [],
       args.incoming.scopes,
@@ -102,6 +123,7 @@ export const commitProviderAccountTokens = internalMutation({
     if (existingAccount) {
       await ctx.db.patch(existingAccount._id, {
         tenantId: args.tenantId ?? existingAccount.tenantId,
+        accountOrigin: accountOrigin ?? existingAccount.accountOrigin,
         displayLabel: args.displayLabel ?? existingAccount.displayLabel,
         displayEmail: args.displayEmail ?? existingAccount.displayEmail,
         grantedScopes,
@@ -118,6 +140,7 @@ export const commitProviderAccountTokens = internalMutation({
         provider: args.provider,
         providerAccountId: args.providerAccountId,
         tenantId: args.tenantId,
+        accountOrigin,
         displayLabel: args.displayLabel,
         displayEmail: args.displayEmail,
         grantedScopes,
@@ -196,6 +219,7 @@ export const getCredentialForRefresh = internalQuery({
       ownerId: v.string(),
       provider: v.string(),
       providerAccountId: v.string(),
+      accountOrigin: v.optional(v.string()),
       registrationVersion: v.optional(v.number()),
       grantedScopes: v.array(v.string()),
       accountStatus: v.string(),
@@ -220,6 +244,7 @@ export const getCredentialForRefresh = internalQuery({
       ownerId: account.ownerId,
       provider: account.provider,
       providerAccountId: account.providerAccountId,
+      accountOrigin: account.accountOrigin,
       registrationVersion: account.registrationVersion,
       grantedScopes: account.grantedScopes,
       accountStatus: account.status,
@@ -301,6 +326,17 @@ export const commitRefreshedTokens = internalMutation({
       return { ok: false, reason: "lease_lost" };
     }
     const account = await ctx.db.get(args.accountId);
+    if (account?.provider === "snowflake") {
+      const accountOrigin = normalizeSnowflakeAccountOrigin(
+        account.accountOrigin,
+      );
+      if (
+        normalizeSnowflakeAccountOrigin(args.incoming.resourceOrigin) !==
+        accountOrigin
+      ) {
+        throw new ConnectorError("account_mismatch");
+      }
+    }
     const previousTokenSet = await readExistingTokenSet(
       credential.encryptedTokenSet,
     );

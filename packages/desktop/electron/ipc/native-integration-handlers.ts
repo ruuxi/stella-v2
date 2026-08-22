@@ -97,6 +97,13 @@ export type NativeIntegrationHandlersOptions = {
     | { ok: true }
     | { ok: false; reason: "cancelled" | "timeout" | "unsupported" | string }
   >;
+  requestSnowflakeAccountOrigin?: (payload: {
+    connectorId: string;
+    displayName: string;
+  }) => Promise<
+    | { ok: true; accountOrigin: string }
+    | { ok: false; reason: "cancelled" | "timeout" | "unsupported" | string }
+  >;
   disconnectGoogleWorkspace?: () => Promise<{ ok: boolean }>;
   getConvexAuthToken?: () => Promise<string | null>;
   getConvexSiteUrl?: () => string | null;
@@ -119,6 +126,7 @@ export type NativeCredentialFlowOptions = Pick<
   | "requestExternalOAuthApproval"
   | "requestBackendApiKey"
   | "requestBackendConnectProfile"
+  | "requestSnowflakeAccountOrigin"
   | "getConvexAuthToken"
   | "getConvexSiteUrl"
 > & {
@@ -133,6 +141,7 @@ type BackendOAuthProvidersResponse = {
   providers?: Array<{
     id?: unknown;
     clientId?: unknown;
+    connectReady?: unknown;
     externalCallbackReady?: unknown;
   }>;
 };
@@ -190,7 +199,9 @@ export const loadConfiguredOAuthProviders = async (
   for (const provider of payload?.providers ?? []) {
     const id =
       typeof provider.id === "string" ? provider.id.trim().toLowerCase() : "";
-    if (!id) continue;
+    // New backends report exact activation readiness. Older backends omitted
+    // this field and remain backward compatible.
+    if (!id || provider.connectReady === false) continue;
     backend.add(id);
     // The hosted stella.sh OAuth callback route is provider-generic. Once a
     // provider has a server-side token exchange configured, an external
@@ -208,6 +219,7 @@ const createBackendIntegrationConnectTarget = async (
   auth: { siteUrl: string; authToken: string },
   id: string,
   signal?: AbortSignal,
+  accountOrigin?: string,
 ) => {
   const { siteUrl, authToken } = auth;
   const timeout = AbortSignal.timeout(30_000);
@@ -220,7 +232,7 @@ const createBackendIntegrationConnectTarget = async (
         "content-type": "application/json",
         authorization: `Bearer ${authToken}`,
       },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, ...(accountOrigin ? { accountOrigin } : {}) }),
       signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
     },
   ).catch(() => {
@@ -370,6 +382,9 @@ const createBackendIntegrationConnectTarget = async (
             ],
     };
   }
+  if (payload?.authType === "account_origin") {
+    return { authType: "account_origin" as const };
+  }
   const url = typeof payload?.url === "string" ? payload.url.trim() : "";
   if (!url) throw new Error("Stella backend did not return a connect link.");
   return { authType: "oauth" as const, url };
@@ -500,11 +515,32 @@ export const ensureNativeCredential = async (
     if (!authToken) {
       throw new Error(`Sign in to Stella before connecting ${entry.name}.`);
     }
-    const target = await createBackendIntegrationConnectTarget(
+    let target = await createBackendIntegrationConnectTarget(
       { siteUrl, authToken },
       id,
       options.abortSignal,
     );
+    if (target.authType === "account_origin") {
+      if (!options.requestSnowflakeAccountOrigin) {
+        throw new Error(`${entry.name} account setup is unavailable.`);
+      }
+      const account = await options.requestSnowflakeAccountOrigin({
+        connectorId: id,
+        displayName: entry.name,
+      });
+      if (!account.ok) {
+        throw new Error(`Could not connect ${entry.name}: ${account.reason}`);
+      }
+      target = await createBackendIntegrationConnectTarget(
+        { siteUrl, authToken },
+        id,
+        options.abortSignal,
+        account.accountOrigin,
+      );
+      if (target.authType === "account_origin") {
+        throw new Error("Snowflake account setup was not accepted.");
+      }
+    }
     if (target.authType === "hosted_connect") {
       if (!options.requestBackendConnectProfile) {
         throw new Error(`${entry.name} connection is unavailable.`);

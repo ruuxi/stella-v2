@@ -578,7 +578,7 @@ const buildLimitMessage = (plan: SubscriptionPlan, lifetime = false) => {
 const buildDowngradeMessage = (plan: Exclude<SubscriptionPlan, "free">) =>
   `${getPlanConfig(plan).label} plan managed-model limits reached. Falling back until usage resets.`;
 
-type ManagedModelAccessResult = {
+export type ManagedModelAccessResult = {
   allowed: boolean;
   plan: SubscriptionPlan;
   unlimited: boolean;
@@ -2019,54 +2019,151 @@ export const recordUsageCreditPurchase = internalMutation({
   },
 });
 
+export type ManagedUsageLimitResult = {
+  allowed: boolean;
+  plan: SubscriptionPlan;
+  unlimited: boolean;
+  retryAfterMs: number;
+  message: string;
+};
+
+// Reusable cores so the same billing math can run either as its own
+// `internalMutation` (one transaction per call) or inline inside the combined
+// gate mutation in `lib/gate_and_meter.ts`, which reads billing once and runs
+// the usage-limit + rate-limit (+ capability) gates in a SINGLE transaction to
+// remove the serial per-call round-trips. Behaviour is byte-for-byte identical
+// to the standalone mutations — the only thing that changes is how many
+// commits a route pays for.
+export const runResolveManagedModelAccess = async (
+  ctx: MutationCtx,
+  args: { ownerId: string; isAnonymous?: boolean },
+): Promise<ManagedModelAccessResult> => {
+  const { profile, usage } = await ensureBillingRecordsForOwner(
+    ctx,
+    args.ownerId,
+  );
+  const now = Date.now();
+  const plan = profile.activePlan as SubscriptionPlan;
+  const unlimited = hasUnlimitedUsage(profile);
+  const snapshot = buildUsageSnapshot({
+    profile,
+    usage,
+    plan,
+    now,
+  });
+
+  if (snapshot.changed) {
+    await ctx.db.patch(usage._id, {
+      ...snapshot.normalizedUsage,
+      updatedAt: now,
+    });
+  }
+
+  const firstExceeded = findExceededWindow(snapshot);
+  const credit = firstExceeded
+    ? await getOwnerUsageCreditRow(ctx, args.ownerId)
+    : null;
+  // Purchased credits unblock a spent lifetime allowance the same way they
+  // unblock a spent window — the allowance caps what is free, not what a
+  // paying account may use.
+  const exceededWindow =
+    firstExceeded && getUsageCreditBalanceMicroCents(credit) > 0
+      ? null
+      : (firstExceeded?.window ?? null);
+
+  return buildManagedModelAccessResult({
+    plan,
+    isAnonymous: args.isAnonymous,
+    unlimited,
+    exceededWindow,
+    lifetimeExhausted: exceededWindow !== null && firstExceeded?.lifetime === true,
+    now,
+  });
+};
+
+export const runEnforceManagedUsageLimit = async (
+  ctx: MutationCtx,
+  args: { ownerId: string; minimumRemainingMicroCents?: number },
+): Promise<ManagedUsageLimitResult> => {
+  const { profile, usage } = await ensureBillingRecordsForOwner(
+    ctx,
+    args.ownerId,
+  );
+  const now = Date.now();
+  const plan = profile.activePlan as SubscriptionPlan;
+  const unlimited = hasUnlimitedUsage(profile);
+  const snapshot = buildUsageSnapshot({
+    profile,
+    usage,
+    plan,
+    now,
+  });
+
+  if (snapshot.changed) {
+    await ctx.db.patch(usage._id, {
+      ...snapshot.normalizedUsage,
+      updatedAt: now,
+    });
+  }
+
+  if (unlimited) {
+    return {
+      allowed: true,
+      plan,
+      unlimited: true,
+      retryAfterMs: 0,
+      message: emptyString,
+    };
+  }
+
+  const minimumRemainingMicroCents = Math.max(
+    0,
+    Math.floor(args.minimumRemainingMicroCents ?? 0),
+  );
+  const isBlockedByBuffer = (window: { used: number; limit: number }) =>
+    minimumRemainingMicroCents > 0 &&
+    Math.max(0, window.limit - window.used) <= minimumRemainingMicroCents;
+
+  const firstExceeded = findExceededWindow(snapshot, isBlockedByBuffer);
+
+  if (firstExceeded) {
+    const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
+    const availableCreditMicroCents = getUsageCreditBalanceMicroCents(credit);
+    if (availableCreditMicroCents > minimumRemainingMicroCents) {
+      return {
+        allowed: true,
+        plan,
+        retryAfterMs: 0,
+        message: emptyString,
+        unlimited: false,
+      };
+    }
+
+    return {
+      allowed: false,
+      plan,
+      message: buildLimitMessage(plan, firstExceeded.lifetime),
+      retryAfterMs: Math.max(1_000, firstExceeded.window.resetAt - now),
+      unlimited: false,
+    };
+  }
+
+  return {
+    allowed: true,
+    plan,
+    retryAfterMs: 0,
+    message: emptyString,
+    unlimited: false,
+  };
+};
+
 export const resolveManagedModelAccess = internalMutation({
   args: {
     ownerId: v.string(),
     isAnonymous: v.optional(v.boolean()),
   },
-  handler: async (ctx, args): Promise<ManagedModelAccessResult> => {
-    const { profile, usage } = await ensureBillingRecordsForOwner(
-      ctx,
-      args.ownerId,
-    );
-    const now = Date.now();
-    const plan = profile.activePlan as SubscriptionPlan;
-    const unlimited = hasUnlimitedUsage(profile);
-    const snapshot = buildUsageSnapshot({
-      profile,
-      usage,
-      plan,
-      now,
-    });
-
-    if (snapshot.changed) {
-      await ctx.db.patch(usage._id, {
-        ...snapshot.normalizedUsage,
-        updatedAt: now,
-      });
-    }
-
-    const firstExceeded = findExceededWindow(snapshot);
-    const credit = firstExceeded
-      ? await getOwnerUsageCreditRow(ctx, args.ownerId)
-      : null;
-    // Purchased credits unblock a spent lifetime allowance the same way they
-    // unblock a spent window — the allowance caps what is free, not what a
-    // paying account may use.
-    const exceededWindow =
-      firstExceeded && getUsageCreditBalanceMicroCents(credit) > 0
-        ? null
-        : (firstExceeded?.window ?? null);
-
-    return buildManagedModelAccessResult({
-      plan,
-      isAnonymous: args.isAnonymous,
-      unlimited,
-      exceededWindow,
-      lifetimeExhausted: exceededWindow !== null && firstExceeded?.lifetime === true,
-      now,
-    });
-  },
+  handler: async (ctx, args): Promise<ManagedModelAccessResult> =>
+    await runResolveManagedModelAccess(ctx, args),
 });
 
 export const enforceManagedUsageLimit = internalMutation({
@@ -2074,78 +2171,8 @@ export const enforceManagedUsageLimit = internalMutation({
     ownerId: v.string(),
     minimumRemainingMicroCents: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const { profile, usage } = await ensureBillingRecordsForOwner(
-      ctx,
-      args.ownerId,
-    );
-    const now = Date.now();
-    const plan = profile.activePlan as SubscriptionPlan;
-    const unlimited = hasUnlimitedUsage(profile);
-    const snapshot = buildUsageSnapshot({
-      profile,
-      usage,
-      plan,
-      now,
-    });
-
-    if (snapshot.changed) {
-      await ctx.db.patch(usage._id, {
-        ...snapshot.normalizedUsage,
-        updatedAt: now,
-      });
-    }
-
-    if (unlimited) {
-      return {
-        allowed: true,
-        plan,
-        unlimited: true,
-        retryAfterMs: 0,
-        message: emptyString,
-      };
-    }
-
-    const minimumRemainingMicroCents = Math.max(
-      0,
-      Math.floor(args.minimumRemainingMicroCents ?? 0),
-    );
-    const isBlockedByBuffer = (window: { used: number; limit: number }) =>
-      minimumRemainingMicroCents > 0 &&
-      Math.max(0, window.limit - window.used) <= minimumRemainingMicroCents;
-
-    const firstExceeded = findExceededWindow(snapshot, isBlockedByBuffer);
-
-    if (firstExceeded) {
-      const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
-      const availableCreditMicroCents = getUsageCreditBalanceMicroCents(credit);
-      if (availableCreditMicroCents > minimumRemainingMicroCents) {
-        return {
-          allowed: true,
-          plan,
-          retryAfterMs: 0,
-          message: emptyString,
-          unlimited: false,
-        };
-      }
-
-      return {
-        allowed: false,
-        plan,
-        message: buildLimitMessage(plan, firstExceeded.lifetime),
-        retryAfterMs: Math.max(1_000, firstExceeded.window.resetAt - now),
-        unlimited: false,
-      };
-    }
-
-    return {
-      allowed: true,
-      plan,
-      retryAfterMs: 0,
-      message: emptyString,
-      unlimited: false,
-    };
-  },
+  handler: async (ctx, args): Promise<ManagedUsageLimitResult> =>
+    await runEnforceManagedUsageLimit(ctx, args),
 });
 
 export const logManagedUsage = internalMutation({

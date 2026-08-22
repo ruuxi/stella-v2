@@ -3,7 +3,7 @@ import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { requireConversationOwnerAction } from "../auth";
-import { checkManagedUsageLimit } from "../lib/managed_billing";
+import { runManagedGate } from "../lib/gate_and_meter";
 import {
   errorResponse,
   jsonResponse,
@@ -12,7 +12,6 @@ import {
   registerCorsOptions,
 } from "../http_shared/cors";
 import { requireSignedInAccountAction } from "../http_shared/auth";
-import { requireCapabilityAction } from "../http_shared/capability";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 import { buildXaiRealtimeClientSecretRequest } from "../http_shared/xai_realtime";
 
@@ -899,21 +898,29 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           realm: "stella-voice",
         });
         if (!auth.ok) return auth.response;
-        const identity = auth.identity;
+        const ownerId = auth.ownerId;
 
-        const rateLimit = await ctx.runMutation(
-          internal.rate_limits.consumeWebhookRateLimit,
-          {
+        // Realtime voice synthesizes Stella's replies, so it is a
+        // generative-audio surface even though the user also speaks into it:
+        // it needs the rate-limit, capability, and managed-usage gates. These
+        // used to be three serial mutations (three commits) before the session
+        // could be minted; the combined gate runs them in one transaction, in
+        // the same precedence (rate -> capability -> usage), so the 429/402 a
+        // client sees is unchanged. Every gate is still enforced pre-spend.
+        const gate = await runManagedGate(ctx, origin, {
+          ownerId,
+          order: ["rate", "capability", "usage"],
+          rateLimit: {
             scope: "voice_session",
-            key: identity.tokenIdentifier,
+            key: ownerId,
             limit: VOICE_SESSION_RATE_LIMIT,
             windowMs: VOICE_SESSION_RATE_WINDOW_MS,
             blockMs: VOICE_SESSION_RATE_WINDOW_MS,
           },
-        );
-        if (!rateLimit.allowed) {
-          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
-        }
+          capability: "audio_generation",
+          usage: {},
+        });
+        if (!gate.ok) return gate.response;
 
         type VoiceSessionBody = {
           conversationId?: string;
@@ -941,22 +948,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         const instructions = body?.instructions?.trim();
         if (!instructions) {
           return errorResponse(400, "instructions is required", origin);
-        }
-
-        // Resolve owner ID from identity
-        const ownerId = auth.ownerId;
-        // Realtime voice synthesizes Stella's replies, so it is a
-        // generative-audio surface even though the user also speaks into it.
-        const capabilityCheck = await requireCapabilityAction(
-          ctx,
-          ownerId,
-          "audio_generation",
-          origin,
-        );
-        if (!capabilityCheck.ok) return capabilityCheck.response;
-        const subscriptionCheck = await checkManagedUsageLimit(ctx, ownerId);
-        if (!subscriptionCheck.allowed) {
-          return errorResponse(429, subscriptionCheck.message, origin);
         }
 
         const voiceProvider: "openai" | "xai" | "inworld" =
@@ -1386,36 +1377,24 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           realm: "stella-voice",
         });
         if (!auth.ok) return auth.response;
-        const identity = auth.identity;
-        const rateLimit = await ctx.runMutation(
-          internal.rate_limits.consumeWebhookRateLimit,
-          {
+
+        // Same generative-audio gauntlet as /api/voice/session (rate ->
+        // capability -> usage), collapsed into one transaction/commit while
+        // keeping identical enforcement and response precedence.
+        const gate = await runManagedGate(ctx, origin, {
+          ownerId: auth.ownerId,
+          order: ["rate", "capability", "usage"],
+          rateLimit: {
             scope: "voice_inworld_sdp",
-            key: identity.tokenIdentifier,
+            key: auth.ownerId,
             limit: VOICE_SESSION_RATE_LIMIT,
             windowMs: VOICE_SESSION_RATE_WINDOW_MS,
             blockMs: VOICE_SESSION_RATE_WINDOW_MS,
           },
-        );
-        if (!rateLimit.allowed) {
-          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
-        }
-
-        const capabilityCheck = await requireCapabilityAction(
-          ctx,
-          auth.ownerId,
-          "audio_generation",
-          origin,
-        );
-        if (!capabilityCheck.ok) return capabilityCheck.response;
-
-        const subscriptionCheck = await checkManagedUsageLimit(
-          ctx,
-          auth.ownerId,
-        );
-        if (!subscriptionCheck.allowed) {
-          return errorResponse(429, subscriptionCheck.message, origin);
-        }
+          capability: "audio_generation",
+          usage: {},
+        });
+        if (!gate.ok) return gate.response;
 
         const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
         if (!inworldApiKey) {

@@ -1,7 +1,7 @@
 /**
  * Narrow first-party adapter interface for the CRM / recruiting / sales
  * connector set (HubSpot, Gong, Ashby, Pipedrive, Salesforce, Apollo, Attio,
- * People Data Labs, 21RISK).
+ * 21RISK).
  *
  * This is deliberately NOT an execution core. Each adapter is inert metadata
  * describing a provider's official API surface. Production execution belongs

@@ -42,7 +42,6 @@ const EXPECTED_IDS = [
   "salesforce",
   "apollo",
   "attio",
-  "people_data_labs",
   "21risk",
 ];
 
@@ -62,12 +61,12 @@ afterEach(async () => {
 });
 
 describe("CRM/recruiting/sales adapter registry", () => {
-  it("registers exactly the nine in-scope connectors with unchanged ids", () => {
+  it("registers exactly the eight in-scope connectors with unchanged ids", () => {
     expect([...CONNECTOR_ADAPTER_IDS].sort()).toEqual([...EXPECTED_IDS].sort());
   });
 
   it("declares valid, representative read and write actions per adapter", () => {
-    const readOnlyProviders = new Set(["people_data_labs", "21risk"]);
+    const readOnlyProviders = new Set(["21risk"]);
     for (const adapter of listConnectorAdapters()) {
       expect(adapter.actions.length).toBeGreaterThan(0);
       expect(["oauth", "api_key"]).toContain(adapter.auth);
@@ -164,9 +163,6 @@ describe("CRM/recruiting/sales adapter registry", () => {
     expect(getConnectorAdapter("hubspot")?.auth).toBe("oauth");
     expect(getConnectorAdapter("ashby")?.apiAuthScheme).toBe("basic");
     expect(getConnectorAdapter("apollo")?.authHeaderName).toBe("X-Api-Key");
-    expect(getConnectorAdapter("people_data_labs")?.authHeaderName).toBe(
-      "X-Api-Key",
-    );
   });
 });
 

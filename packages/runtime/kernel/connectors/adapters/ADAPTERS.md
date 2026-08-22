@@ -3,11 +3,12 @@
 # First-party CRM / recruiting / sales adapters
 
 Narrow, official-API adapters for HubSpot, Gong, Ashby, Pipedrive, Salesforce,
-Apollo, Attio, People Data Labs, and 21RISK. Each adapter is a data-only
-description of a provider's representative read/write actions and how each maps
-to a single REST request. These files are migration metadata and contract-test
-fixtures. Production execution belongs to the backend shared connector core;
-`connect-service` does not dispatch them or race them with Composio.
+Apollo, Attio, and 21RISK. Each adapter is a data-only description of a
+provider's representative read/write actions and how each maps to a single REST
+request. These files are migration metadata and contract-test fixtures.
+Production execution belongs to the backend shared connector core;
+`connect-service` does not dispatch them or race them with Composio. People Data
+Labs remains on the canonical adapter surface in `first-party-connectors.ts`.
 
 ## Architecture
 
@@ -66,16 +67,14 @@ allowlisted HTTPS host suffixes. HubSpot and Attio use fixed API origins.
 
 ### API-key providers
 
-Ashby, Apollo, People Data Labs, and 21RISK authenticate with the **user's own
-API key** (no Stella developer app / secret required). They remain
-Composio-served today; native activation additionally needs a catalog entry and
-an api-key credential-dialog flow (auth hints of type `api_key`). Auth shape per
-provider:
+Ashby, Apollo, and 21RISK authenticate with the **user's own API key** (no Stella
+developer app / secret required). They remain Composio-served today; native
+activation additionally needs a catalog entry and an api-key credential-dialog
+flow (auth hints of type `api_key`). Auth shape per provider:
 
 - `ashby` — HTTP Basic, key as username, blank password (store
   `base64(apiKey + ":")`, scheme `basic`). All endpoints POST.
 - `apollo` — `X-Api-Key` header (`authHeaderName`).
-- `people_data_labs` — `X-Api-Key` header. Read-only enrichment/search.
 - `21risk` — API key; OData read-only. **Confirm the tenant OData base path**
   (currently `https://api.21risk.com` + `/odata/<Entity>`) before activation.
   Composio toolkit slug is `_21RISK`; the Stella id is `21risk` (leading

@@ -9,7 +9,6 @@ import { ASHBY_ADAPTER } from "./ashby.js";
 import { ATTIO_ADAPTER } from "./attio.js";
 import { GONG_ADAPTER } from "./gong.js";
 import { HUBSPOT_ADAPTER } from "./hubspot.js";
-import { PEOPLE_DATA_LABS_ADAPTER } from "./people-data-labs.js";
 import { PIPEDRIVE_ADAPTER } from "./pipedrive.js";
 import { SALESFORCE_ADAPTER } from "./salesforce.js";
 import { TWENTY_ONE_RISK_ADAPTER } from "./twenty-one-risk.js";
@@ -35,7 +34,6 @@ const ADAPTERS: readonly ConnectorAdapter[] = [
   SALESFORCE_ADAPTER,
   APOLLO_ADAPTER,
   ATTIO_ADAPTER,
-  PEOPLE_DATA_LABS_ADAPTER,
   TWENTY_ONE_RISK_ADAPTER,
 ];
 

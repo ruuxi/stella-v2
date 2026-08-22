@@ -148,6 +148,43 @@ describe("provider manifests", () => {
     }
   });
 
+  it("binds every social connector to fixed provider-owned scope groups", () => {
+    const expectations = [
+      ["twitter", "twitter", ["write"]],
+      ["youtube", "youtube", ["write"]],
+      ["reddit", "reddit", ["write"]],
+      ["linkedin", "linkedin", ["member_write"]],
+      ["meta", "facebook", ["social_all"]],
+      ["meta", "instagram", ["social_all"]],
+      ["meta", "metaads", ["social_all"]],
+    ] as const;
+
+    for (const [provider, connectorId, expectedGroups] of expectations) {
+      const manifest = getProviderManifest(provider)!;
+      expect(
+        connectScopeGroupsForConnector(manifest, connectorId, ["read"]),
+      ).toEqual(expectedGroups);
+      expect(() =>
+        connectScopeGroupsForConnector(manifest, "unrelated_connector", [
+          "read",
+        ]),
+      ).toThrow(/unregistered_scope/);
+    }
+  });
+
+  it("shares a Meta grant only with connectors whose read scopes were granted", () => {
+    const manifest = getProviderManifest("meta")!;
+    const satisfied = connectorBindingsSatisfiedByScopes(
+      manifest,
+      scopesForGroups(manifest, ["social_all"]),
+    );
+    expect(satisfied.map(({ connectorId }) => connectorId).sort()).toEqual([
+      "facebook",
+      "instagram",
+      "metaads",
+    ]);
+  });
+
   it("registers the mock provider only behind the env flag", () => {
     expect(getProviderManifest("mock")).not.toBeNull();
     delete process.env.STELLA_CONNECTOR_OAUTH_ALLOW_MOCK;

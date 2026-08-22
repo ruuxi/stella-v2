@@ -184,6 +184,12 @@ const TWITTER: ProviderManifest = {
       scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
     },
   },
+  connectorBindings: {
+    twitter: {
+      connectScopeGroups: ["write"],
+      requiredScopeGroups: ["read"],
+    },
+  },
   verificationStatus: "unverified",
   registrationVersion: 1,
 };
@@ -223,6 +229,12 @@ const YOUTUBE: ProviderManifest = {
         "profile",
         "https://www.googleapis.com/auth/youtube.force-ssl",
       ],
+    },
+  },
+  connectorBindings: {
+    youtube: {
+      connectScopeGroups: ["write"],
+      requiredScopeGroups: ["read"],
     },
   },
   verificationStatus: "unverified",
@@ -360,6 +372,20 @@ const META: ProviderManifest = {
       ],
     },
   },
+  connectorBindings: {
+    facebook: {
+      connectScopeGroups: ["social_all"],
+      requiredScopeGroups: ["facebook_read"],
+    },
+    instagram: {
+      connectScopeGroups: ["social_all"],
+      requiredScopeGroups: ["instagram_read"],
+    },
+    metaads: {
+      connectScopeGroups: ["social_all"],
+      requiredScopeGroups: ["metaads_read"],
+    },
+  },
   verificationStatus: "unverified",
   registrationVersion: 1,
 };
@@ -384,6 +410,12 @@ const REDDIT: ProviderManifest = {
   scopeGroups: {
     read: { scopes: ["identity", "read"] },
     write: { scopes: ["identity", "read", "submit"] },
+  },
+  connectorBindings: {
+    reddit: {
+      connectScopeGroups: ["write"],
+      requiredScopeGroups: ["read"],
+    },
   },
   verificationStatus: "unverified",
   registrationVersion: 1,
@@ -415,6 +447,12 @@ const LINKEDIN: ProviderManifest = {
         "r_organization_social",
         "w_organization_social",
       ],
+    },
+  },
+  connectorBindings: {
+    linkedin: {
+      connectScopeGroups: ["member_write"],
+      requiredScopeGroups: ["read"],
     },
   },
   verificationStatus: "unverified",
@@ -1214,7 +1252,11 @@ export const connectScopeGroupsForConnector = (
 ): string[] => {
   const binding =
     manifest.connectorBindings?.[connectorId.trim().toLowerCase()];
-  return binding ? [...binding.connectScopeGroups] : [...requested];
+  if (binding) return [...binding.connectScopeGroups];
+  if (manifest.connectorBindings) {
+    throw new ConnectorError("unregistered_scope");
+  }
+  return [...requested];
 };
 
 export const connectorBindingsSatisfiedByScopes = (

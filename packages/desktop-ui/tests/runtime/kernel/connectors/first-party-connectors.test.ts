@@ -273,6 +273,11 @@ describe("backend-publish action contract", () => {
     }
     const taxToolkit = getFirstPartyConnectorAdapter("44api")!;
     expect(taxToolkit.composio.toolkit).toBe("44API");
+    expect(taxToolkit.apiKey).toMatchObject({
+      baseUrl: "https://api.44api.dev",
+      placement: "header",
+      headerName: "X-API-Key",
+    });
     expect(
       taxToolkit.representativeActions.every((action) =>
         action.name.startsWith("44API_"),

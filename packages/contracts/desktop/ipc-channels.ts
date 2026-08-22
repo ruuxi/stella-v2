@@ -204,6 +204,9 @@ export const IPC_AUTH_CONSUME_PENDING_CALLBACK =
 export const IPC_SOCIAL_INVITE = "social:invite" as const;
 export const IPC_SOCIAL_CONSUME_PENDING_INVITE =
   "social:consumePendingInvite" as const;
+// Auth-inversion P2: runtime AuthOwner state changes fan out to renderers so
+// they re-pull tokens/sessions instead of running their own refresh timers.
+export const IPC_AUTH_CHANGED = "auth:changed" as const;
 export const IPC_AUTH_RUNTIME_REFRESH_REQUESTED =
   "auth:runtimeRefreshRequested" as const;
 export const IPC_AUTH_RUNTIME_REFRESH_COMPLETE =

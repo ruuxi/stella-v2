@@ -20,6 +20,17 @@ export type PiRunnerAuthHandle = {
     cookie: string | null;
     sessionData: string | null;
   }) => Promise<unknown>;
+  /**
+   * P2 token distribution: pull a Convex JWT / session from the runtime
+   * AuthOwner. Optional for detached-worker version skew; callers fall back
+   * to the legacy desktop-owned mint when unavailable.
+   */
+  getRuntimeConvexToken?: (payload?: { forceRefresh?: boolean }) => Promise<{
+    authenticated: boolean;
+    token: string | null;
+    hasConnectedAccount: boolean;
+  }>;
+  getRuntimeAuthSession?: () => Promise<unknown>;
 };
 
 export type WindowManagerLike<TWindow = unknown> = {

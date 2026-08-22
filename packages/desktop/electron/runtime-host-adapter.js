@@ -434,6 +434,18 @@ export class RuntimeHostAdapter {
     async importAuthSession(payload) {
         return await this.host.authImport(payload);
     }
+    /** P2: pull a Convex JWT from the runtime AuthOwner (main-process proxy). */
+    async getRuntimeConvexToken(payload = {}) {
+        return await this.host.authGetConvexToken(payload);
+    }
+    /** P2: pull the Better Auth session from the runtime AuthOwner. */
+    async getRuntimeAuthSession() {
+        return await this.host.authGetSession();
+    }
+    /** P2: runtime AuthOwner state-change events (token minted, sign-out). */
+    onAuthChanged(listener) {
+        return this.host.on("auth-changed", listener);
+    }
     setHasConnectedAccount(value) {
         this.queueRuntimeConfigPatch({ hasConnectedAccount: value });
     }

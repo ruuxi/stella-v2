@@ -38,6 +38,8 @@ export type AuthOwnerTokenResult = {
   authenticated: boolean;
   token: string | null;
   hasConnectedAccount: boolean;
+  /** True when the store holds session material, regardless of mint success. */
+  hasSession: boolean;
 };
 
 export type AuthOwnerOptions = {
@@ -113,9 +115,20 @@ export const createAuthOwner = (options: AuthOwnerOptions) => {
     if (mintPromise) {
       return await mintPromise;
     }
+    // Capture the operation epoch at mint start. If a destructive op
+    // (sign-out / delete / import sign-out mirror) lands before this mint
+    // resolves, the epoch advances and we MUST NOT commit the token (restore
+    // cachedToken, reschedule, or emit "refresh") — that would resurrect the
+    // session that was just torn down.
+    const startEpoch = core.getEpoch();
     mintPromise = (async () => {
       try {
         const fresh = await core.mintConvexToken();
+        if (core.getEpoch() !== startEpoch) {
+          // Fenced: a sign-out/delete raced this mint. Drop the result so a
+          // deferred refresh can't resurrect a signed-out session.
+          return null;
+        }
         if (fresh) {
           const changed = fresh !== cachedToken;
           cachedToken = fresh;
@@ -145,6 +158,10 @@ export const createAuthOwner = (options: AuthOwnerOptions) => {
   const getConvexToken = async (
     args: { forceRefresh?: boolean } = {},
   ): Promise<AuthOwnerTokenResult> => {
+    // `hasSession` reports store presence independent of mint success, so the
+    // desktop migration can detect a live runtime store even when a transient
+    // network/mint failure returns no token (prevents a stale re-import).
+    const hasSession = core.hasSessionCookie();
     const cached = cachedToken?.trim() || null;
     if (
       !args.forceRefresh &&
@@ -155,21 +172,29 @@ export const createAuthOwner = (options: AuthOwnerOptions) => {
         authenticated: true,
         token: cached,
         hasConnectedAccount: hasConnectedAccount(),
+        hasSession,
       };
     }
-    if (!core.hasSessionCookie()) {
+    if (!hasSession) {
+      // No cookie to mint from. On a force-refresh (401 recovery) never serve
+      // the cached JWT — it's the token that was just rejected.
+      const token = args.forceRefresh ? null : cached;
       return {
-        authenticated: Boolean(cached),
-        token: cached,
+        authenticated: Boolean(token),
+        token,
         hasConnectedAccount: hasConnectedAccount(),
+        hasSession,
       };
     }
     const fresh = await mintToken();
-    const token = fresh?.trim() || cached;
+    // On an explicit force-refresh never fall back to the cached token — it is
+    // the JWT the server just rejected; only a freshly minted one is trusted.
+    const token = fresh || (args.forceRefresh ? null : cached);
     return {
       authenticated: Boolean(token),
       token,
       hasConnectedAccount: hasConnectedAccount(),
+      hasSession,
     };
   };
 

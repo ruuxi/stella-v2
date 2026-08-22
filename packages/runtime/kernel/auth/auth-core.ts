@@ -133,6 +133,19 @@ export const createAuthCore = (options: AuthCoreOptions) => {
   let lastRevalidatedResult: unknown | null = null;
   let hasRevalidatedResult = false;
 
+  // Operation generation (epoch). Any destructive change to the persisted
+  // session — clearing the cookie via sign-out / delete / import-mirror —
+  // bumps this. Cookie-bearing network operations (mint, get-session,
+  // Set-Cookie persistence) capture the epoch when they START; if a
+  // destructive op landed while they were in flight, their late completion
+  // MUST NOT commit (persist Set-Cookie, write a session blob) and resurrect
+  // the just-destroyed session. See setStorageItem below.
+  let destructiveEpoch = 0;
+  /** Current operation epoch; bumped whenever the session cookie is destroyed. */
+  const getEpoch = (): number => destructiveEpoch;
+
+
+
   const getStorageItem = (key: string): string | null => {
     const normalizedKey = typeof key === "string" ? key.trim() : "";
     if (!normalizedKey) {
@@ -146,6 +159,14 @@ export const createAuthCore = (options: AuthCoreOptions) => {
     if (!normalizedKey) {
       return;
     }
+
+    // Destroying the session cookie (sign-out, delete, import sign-out mirror)
+    // opens the resurrection window: bump the epoch so any cookie-bearing
+    // network op that started before this point can't commit its result.
+    if (normalizedKey === BETTER_AUTH_COOKIE_STORAGE_KEY && value === null) {
+      destructiveEpoch += 1;
+    }
+
     // External mutations of the persisted session/cookie invalidate the
     // optimistic cache latch so the next session read is authoritative
     // (sign-in, sign-out, cookie apply). The background revalidation's own
@@ -184,7 +205,13 @@ export const createAuthCore = (options: AuthCoreOptions) => {
     return single ? [single] : [];
   };
 
-  const applyResponseCookies = (response: Response) => {
+  const applyResponseCookies = (response: Response, startedEpoch?: number) => {
+    // Fence: a destructive op (sign-out / delete / import mirror) that landed
+    // while this request was in flight bumped the epoch. Persisting Set-Cookie
+    // now would resurrect the just-destroyed session, so drop the update.
+    if (startedEpoch !== undefined && startedEpoch !== destructiveEpoch) {
+      return;
+    }
     const previous =
       getStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY) ?? undefined;
     let nextCookie = previous;
@@ -241,11 +268,15 @@ export const createAuthCore = (options: AuthCoreOptions) => {
     if (cookie) {
       headers.set("cookie", cookie);
     }
+    // Capture the epoch BEFORE the request so a sign-out/delete that lands
+    // while we await can't have its cookie destruction undone by our
+    // Set-Cookie persistence.
+    const startedEpoch = destructiveEpoch;
     const response = await fetchImpl(`${siteUrl}${AUTH_BASE_PATH}${pathname}`, {
       ...init,
       headers,
     });
-    applyResponseCookies(response);
+    applyResponseCookies(response, startedEpoch);
     return response;
   };
 
@@ -275,10 +306,17 @@ export const createAuthCore = (options: AuthCoreOptions) => {
   // and clears it on an auth-error downgrade (401/403/404) so a stale session
   // can never outlive a rejected revalidation.
   const fetchSessionFromNetwork = async (): Promise<unknown | null> => {
+    const startedEpoch = destructiveEpoch;
     const response = await authFetch("/get-session", {
       method: "GET",
       headers: { accept: "application/json" },
     });
+    // Fence: a destructive op (sign-out / delete / import mirror) landed while
+    // this read was in flight. Do NOT persist a session blob (it would
+    // resurrect the just-destroyed session); report signed-out.
+    if (startedEpoch !== destructiveEpoch) {
+      return null;
+    }
     if (
       response.status === 401 ||
       response.status === 403 ||
@@ -510,5 +548,6 @@ export const createAuthCore = (options: AuthCoreOptions) => {
     mintConvexToken,
     clearSessionStorage,
     getIssuerUrlFromStoredCookie,
+    getEpoch,
   };
 };

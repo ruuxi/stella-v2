@@ -8,6 +8,7 @@ import {
   hasRequiredMicrosoftScopes,
   resolveMicrosoftGraphServiceId,
 } from "@stella/runtime/kernel/microsoft-graph/scopes";
+import { getNativeOAuthProviderConfig } from "@stella/runtime/kernel/connectors/native-oauth-provider-config";
 
 describe("microsoft graph scopes", () => {
   it("union is a deduped superset of identity + every service scope", () => {
@@ -16,7 +17,9 @@ describe("microsoft graph scopes", () => {
       ...Object.values(MICROSOFT_GRAPH_SERVICE_SCOPES).flat(),
     ]);
     // No duplicates.
-    expect(MICROSOFT_GRAPH_SCOPES.length).toBe(new Set(MICROSOFT_GRAPH_SCOPES).size);
+    expect(MICROSOFT_GRAPH_SCOPES.length).toBe(
+      new Set(MICROSOFT_GRAPH_SCOPES).size,
+    );
     // Every expected scope present.
     for (const scope of expected) {
       expect(MICROSOFT_GRAPH_SCOPES).toContain(scope);
@@ -31,6 +34,28 @@ describe("microsoft graph scopes", () => {
   it("excludes SharePoint / OneDrive scopes (out of current scope)", () => {
     expect(MICROSOFT_GRAPH_SCOPES).not.toContain("Sites.ReadWrite.All");
     expect(MICROSOFT_GRAPH_SCOPES).not.toContain("Files.ReadWrite.All");
+  });
+
+  it("preserves current-main OneDrive and SharePoint scopes in the dormant shared template", () => {
+    const envKey = "STELLA_NATIVE_OAUTH_MICROSOFT_CLIENT_ID";
+    const previous = process.env[envKey];
+    process.env[envKey] = "test-client-id";
+    try {
+      const config = getNativeOAuthProviderConfig("one_drive");
+      expect(config?.scopes).toEqual(
+        expect.arrayContaining([
+          "ChannelMessage.Send",
+          "Files.ReadWrite.All",
+          "Sites.ReadWrite.All",
+        ]),
+      );
+      expect(getNativeOAuthProviderConfig("microsoft_teams")?.tokenKey).toBe(
+        "native-oauth:microsoft",
+      );
+    } finally {
+      if (previous === undefined) delete process.env[envKey];
+      else process.env[envKey] = previous;
+    }
   });
 
   it("uses least-privilege delegated (non-admin) service scopes", () => {
@@ -93,9 +118,9 @@ describe("microsoft graph scopes", () => {
 
   it("treats OIDC-only scopes as always satisfied when a token exists", () => {
     // Microsoft does not echo openid/profile/email back in the granted set.
-    expect(hasRequiredMicrosoftScopes(["User.Read"], ["openid", "User.Read"])).toBe(
-      true,
-    );
+    expect(
+      hasRequiredMicrosoftScopes(["User.Read"], ["openid", "User.Read"]),
+    ).toBe(true);
   });
 
   it("empty required set is always satisfied", () => {

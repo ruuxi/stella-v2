@@ -231,8 +231,15 @@ const applyEnvOverrides = (
 
 // Single source of truth for the shared Microsoft grant scope union lives in
 // the first-party microsoft-graph kernel (Outlook mail/calendar, Teams
-// channel/message, Excel workbook). One consent covers every in-scope service.
-const MICROSOFT_GRAPH_SCOPES = MICROSOFT_GRAPH_SCOPE_UNION;
+// channel/message, Excel workbook). Preserve the existing OneDrive/SharePoint
+// scopes for their aliases until those families move to the backend core.
+const MICROSOFT_GRAPH_SCOPES = [
+  ...new Set([
+    ...MICROSOFT_GRAPH_SCOPE_UNION,
+    "Files.ReadWrite.All",
+    "Sites.ReadWrite.All",
+  ]),
+];
 
 const MICROSOFT_GRAPH_ALIASES = new Set([
   "excel",

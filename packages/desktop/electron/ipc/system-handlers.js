@@ -22,7 +22,7 @@ import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredential
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
-import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_COOKIE, IPC_AUTH_MAGIC_LINK_SEND, IPC_AUTH_MAGIC_LINK_STATUS, IPC_AUTH_CONSUME_PENDING_CALLBACK, IPC_SOCIAL_CONSUME_PENDING_INVITE, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_CONVEX_TOKEN, IPC_AUTH_GET_SESSION, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_AUTH_VERIFY_CALLBACK_URL, IPC_BACKUP_GET_STATUS, IPC_BACKUP_LIST, IPC_BACKUP_RESTORE, IPC_BACKUP_RUN_NOW, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, IPC_SYSTEM_OPEN_FDA, IPC_SOCIAL_SESSIONS_CREATE, IPC_SOCIAL_SESSIONS_GET_STATUS, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_PERSONALITY_VOICE, IPC_PREFERENCES_SET_PERSONALITY_VOICE, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SYNC_MODE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SYNC_MODE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_SOCIAL_SESSIONS_QUEUE_TURN, IPC_SOCIAL_SESSIONS_UPDATE_STATUS, IPC_USER_APPS_LIST, IPC_USER_APPS_START, IPC_USER_APPS_STOP, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_MAGIC_LINK_SEND, IPC_AUTH_MAGIC_LINK_STATUS, IPC_AUTH_CONSUME_PENDING_CALLBACK, IPC_SOCIAL_CONSUME_PENDING_INVITE, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_CONVEX_TOKEN, IPC_AUTH_GET_SESSION, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_AUTH_VERIFY_CALLBACK_URL, IPC_BACKUP_GET_STATUS, IPC_BACKUP_LIST, IPC_BACKUP_RESTORE, IPC_BACKUP_RUN_NOW, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, IPC_SYSTEM_OPEN_FDA, IPC_SOCIAL_SESSIONS_CREATE, IPC_SOCIAL_SESSIONS_GET_STATUS, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_PERSONALITY_VOICE, IPC_PREFERENCES_SET_PERSONALITY_VOICE, IPC_PREFERENCES_GET_MODELS, IPC_PREFERENCES_LIST_CODEX_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SYNC_MODE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SYNC_MODE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_SOCIAL_SESSIONS_QUEUE_TURN, IPC_SOCIAL_SESSIONS_UPDATE_STATUS, IPC_USER_APPS_LIST, IPC_USER_APPS_START, IPC_USER_APPS_STOP, IPC_VOICE_PREFERENCES_CHANGED, } from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, requestMacPermission, resetMacMicrophonePermissions, resetMacPermission, } from "../utils/macos-permissions.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
@@ -651,12 +651,6 @@ export const registerSystemHandlers = (options) => {
         }
         return await options.authService.verifyAuthCallbackUrl(typeof payload?.url === "string" ? payload.url : "");
     });
-    ipcMain.handle(IPC_AUTH_APPLY_SESSION_COOKIE, (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:applySessionCookie")) {
-            throw new Error("Blocked untrusted session-cookie request.");
-        }
-        return options.authService.applySessionCookie(typeof payload?.sessionCookie === "string" ? payload.sessionCookie : "");
-    });
     // P3: magic link proxied through main -> runtime AuthOwner. The raw
     // sessionCookie never reaches the renderer.
     ipcMain.handle(IPC_AUTH_MAGIC_LINK_SEND, async (event, payload) => {
@@ -679,20 +673,14 @@ export const registerSystemHandlers = (options) => {
         }
         return await options.authService.magicLinkStatus(requestId);
     });
-    ipcMain.handle(IPC_AUTH_GET_CONVEX_TOKEN, async (event) => {
+    ipcMain.handle(IPC_AUTH_GET_CONVEX_TOKEN, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, "auth:getConvexToken")) {
             throw new Error("Blocked untrusted Convex token request.");
         }
-        return await options.authService.getConvexAuthToken();
-    });
-    // Renderer-pull for the cold-boot deep-link OTT (`stella://auth/callback`).
-    // Main captures the URL from argv before any window exists; previously it
-    // rebroadcast on `did-finish-load`, but that fires before React's
-    // `useEffect`s flush, so the renderer-side `auth:callback` listener was
-    // racy. The renderer now pulls explicitly from `AuthDeepLinkHandler` once
-    // its subscription is live.
-    ipcMain.handle(IPC_AUTH_CONSUME_PENDING_CALLBACK, () => {
-        return options.authService.consumePendingAuthCallback();
+        // Propagate forceRefresh so a renderer 401 recovery forces a genuine
+        // re-mint instead of being served the rejected last-known token.
+        const forceRefresh = payload?.forceRefresh === true;
+        return await options.authService.getConvexAuthToken({ forceRefresh });
     });
     // Renderer-pull for cold-boot social invite deep links
     // (`stella://join/<code>`, `stella://add-friend/<username>`) — same

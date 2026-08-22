@@ -655,7 +655,6 @@ export type ElectronSystemApi = {
   signOutAuth: () => Promise<{ ok: boolean }>;
   deleteAuthUser: () => Promise<{ ok: boolean }>;
   verifyAuthCallbackUrl: (url: string) => Promise<{ ok: boolean }>;
-  applyAuthSessionCookie: (sessionCookie: string) => Promise<{ ok: boolean }>;
   sendMagicLink: (email: string) => Promise<
     | { ok: true; requestId: string }
     | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
@@ -665,7 +664,9 @@ export type ElectronSystemApi = {
     status: "pending" | "completed" | "expired";
     applied: boolean;
   }>;
-  getConvexAuthToken: () => Promise<string | null>;
+  getConvexAuthToken: (options?: {
+    forceRefresh?: boolean;
+  }) => Promise<string | null>;
   setCloudSyncEnabled: (payload: {
     enabled: boolean;
   }) => Promise<{ ok: boolean }>;

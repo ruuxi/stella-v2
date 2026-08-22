@@ -63,7 +63,6 @@ import type {
 import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import {
   IPC_APP_QUIT_FOR_RESTART,
-  IPC_AUTH_APPLY_SESSION_COOKIE,
   IPC_AUTH_CONSUME_PENDING_CALLBACK,
   IPC_SOCIAL_INVITE,
   IPC_SOCIAL_CONSUME_PENDING_INVITE,
@@ -999,10 +998,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_AUTH_VERIFY_CALLBACK_URL, { url }) as Promise<{
         ok: boolean;
       }>,
-    applyAuthSessionCookie: (sessionCookie: string) =>
-      ipcRenderer.invoke(IPC_AUTH_APPLY_SESSION_COOKIE, {
-        sessionCookie,
-      }) as Promise<{ ok: boolean }>,
     sendMagicLink: (email: string) =>
       ipcRenderer.invoke(IPC_AUTH_MAGIC_LINK_SEND, { email }) as Promise<
         | { ok: true; requestId: string }
@@ -1014,8 +1009,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
         status: "pending" | "completed" | "expired";
         applied: boolean;
       }>,
-    getConvexAuthToken: () =>
-      ipcRenderer.invoke(IPC_AUTH_GET_CONVEX_TOKEN) as Promise<string | null>,
+    getConvexAuthToken: (options?: { forceRefresh?: boolean }) =>
+      ipcRenderer.invoke(
+        IPC_AUTH_GET_CONVEX_TOKEN,
+        options,
+      ) as Promise<string | null>,
     setCloudSyncEnabled: (payload: { enabled: boolean }) =>
       ipcRenderer.invoke("host:setCloudSyncEnabled", payload),
     setModelCatalogUpdatedAt: (payload: { updatedAt: number | null }) =>

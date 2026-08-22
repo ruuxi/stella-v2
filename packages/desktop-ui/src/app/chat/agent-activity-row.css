@@ -67,8 +67,11 @@
   display: block;
 }
 
-/* Muted by default; running rows read stronger through the shimmer's own
-   ink (`--text-shimmer-from`), settled rows lift on hover. */
+/* Muted by default — one step up from the weakest ink so the description
+   stays comfortably readable while still reading as secondary to main-chat
+   body text. Matches the running shimmer's resting base
+   (`--text-shimmer-from: --text-base`) so settled and running rows agree;
+   settled rows lift to full strength on hover. */
 .agent-activity-row__title {
   min-width: 0;
   flex: 0 1 auto;
@@ -76,7 +79,7 @@
      whole content, so it earns the emphasized-body size. */
   font-size: var(--font-size-md);
   font-weight: var(--weight-medium);
-  color: var(--text-weak);
+  color: var(--text-base);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -178,7 +181,10 @@
   max-width: 100%;
   padding: 1px 5px 1px 2px;
   border-radius: 999px;
-  border: 1px solid var(--panel-surface-border);
+  /* Outline strength tracks the label ink: clearly visible (the old
+     panel-surface hairline all but disappeared on the chat background) but
+     one step below the `--text-base` label so it never outshines it. */
+  border: 1px solid var(--text-weaker);
   background: color-mix(in oklch, var(--foreground) 3%, transparent);
   transition:
     border-color 120ms ease,
@@ -186,7 +192,7 @@
 }
 
 .agent-activity-files__pill:hover {
-  border-color: var(--panel-surface-border-hover);
+  border-color: var(--text-weak);
   background: color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 

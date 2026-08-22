@@ -29,6 +29,11 @@ const threadCss = fs.readFileSync(
   "utf8",
 );
 
+const openWithCss = fs.readFileSync(
+  path.join(SOURCE_ROOT, "app/chat/open-with-menu.css"),
+  "utf8",
+);
+
 /** Extracts the declaration block for a selector (first match). */
 const blockFor = (css: string, selector: string): string => {
   const start = css.indexOf(`${selector} {`);
@@ -50,10 +55,33 @@ describe("agent-activity glyph is solid", () => {
     expect(star).not.toMatch(/opacity:/);
   });
 
-  it("keeps the muted treatment on the description title", () => {
-    // Only the ICON got stronger — the shimmering/muted title is intentional.
+  it("keeps the description title secondary — mid-muted, not full strength", () => {
+    // The title sits one step above the weakest ink (readable) but stays
+    // below main-chat body strength, and matches the shimmer resting base.
     const title = blockFor(activityCss, ".agent-activity-row__title");
-    expect(title).toContain("color: var(--text-weak)");
+    expect(title).toContain("color: var(--text-base)");
+    expect(title).not.toContain("color: var(--text-strong)");
+    const shimmer = blockFor(
+      activityCss,
+      ".agent-activity-row__title .text-shimmer",
+    );
+    expect(shimmer).toContain("--text-shimmer-from: var(--text-base)");
+  });
+});
+
+describe("agent-activity file pills", () => {
+  it("outlines the pill at label-aligned strength (visible, below the text)", () => {
+    const pill = blockFor(activityCss, ".agent-activity-files__pill");
+    expect(pill).toContain("border: 1px solid var(--text-weaker)");
+    expect(pill).not.toContain("--panel-surface-border");
+  });
+
+  it("renders the + trigger circular, transparent, hairline-bordered", () => {
+    const plus = blockFor(openWithCss, ".open-with-menu__trigger--plus");
+    expect(plus).toContain("border-radius: 999px");
+    expect(plus).toContain("background: transparent");
+    expect(plus).toContain("border: 1px solid var(--text-weaker)");
+    expect(plus).toContain("box-shadow: none");
   });
 });
 

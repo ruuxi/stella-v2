@@ -3,23 +3,29 @@
  *
  * The renderer captures microphone audio locally, WAV-encodes it (LINEAR16
  * PCM, 16 kHz mono), and POSTs the base64'd container here on stop. This
- * route forwards the request to OpenRouter Nemotron 3.5 ASR (one-shot) so
- * `OPENROUTER_API_KEY` never leaves the backend.
+ * route forwards the request to xAI Grok STT (`POST https://api.x.ai/v1/stt`,
+ * one-shot multipart upload) so `XAI_API_KEY` never leaves the backend.
+ * Direct xAI beat the previous OpenRouter Nemotron path on latency
+ * (~245-760ms model time vs ~1.1s median).
  *
- * Default is OpenRouter one-shot because OpenRouter STT does not emit
- * incremental partials. Set `DICTATION_STT_PROVIDER=inworld` to roll back
- * to Inworld's sync STT endpoint (`INWORLD_API_KEY`, Basic auth).
+ * Provider is env-selectable for fast rollback without a code deploy:
+ * `DICTATION_STT_PROVIDER=openrouter` restores the OpenRouter one-shot path
+ * (`OPENROUTER_API_KEY`), `DICTATION_STT_PROVIDER=inworld` restores
+ * Inworld's sync STT endpoint (`INWORLD_API_KEY`, Basic auth). Default is
+ * `xai`. `DICTATION_STT_MODEL` overrides the model id for the active
+ * provider (for xAI it only relabels usage metering — the REST STT endpoint
+ * has a single model and takes no model parameter).
  *
- * We deliberately stay on sync HTTP. Inworld's WebSocket only honours JWTs
- * in the `Authorization` header, and browser WebSockets cannot set custom
- * headers. OpenRouter's STT API is also one-shot JSON.
+ * We deliberately stay on sync HTTP: browser WebSockets cannot set the
+ * Authorization headers these providers require, and one-shot latency is
+ * already low enough for stop-to-text dictation.
  *
- * Billing: Nemotron is $0.000003/second on OpenRouter (~$0.0108/hr). We
- * require sign-in, gate on the user's managed-usage limit, then meter
- * `usage.cost` when OpenRouter returns it, otherwise `usage.seconds` at
- * the list rate, and log it through `logManagedUsage` with
- * `costMicroCents` so it counts against the user's plan windows. The
- * Inworld rollback still meters `transcribedAudioMs` at $0.28/hr.
+ * Billing: Grok STT REST is $0.10/hr ($0.0000278/s). We require sign-in,
+ * gate on the user's managed-usage limit, then meter the response's
+ * `duration` seconds at the list rate and log it through `logManagedUsage`
+ * with `costMicroCents` so it counts against the user's plan windows. The
+ * OpenRouter rollback meters `usage.cost`/`usage.seconds` as before, and
+ * the Inworld rollback still meters `transcribedAudioMs` at $0.28/hr.
  */
 import type { HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
@@ -59,6 +65,14 @@ export const OPENROUTER_DICTATION_MODEL =
   "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b";
 const OPENROUTER_USD_PER_SECOND = 0.000003;
 
+const XAI_TRANSCRIBE_URL = "https://api.x.ai/v1/stt";
+// xAI's REST STT endpoint has a single model (the OpenRouter alias was
+// `x-ai/grok-stt-1.0`); this id is only used to label usage metering.
+export const XAI_DICTATION_MODEL = "grok-stt-1.0";
+// Grok STT REST list price as of 2026-08 (docs.x.ai): $0.10/hr.
+const XAI_USD_PER_HOUR = 0.1;
+const XAI_USD_PER_SECOND = XAI_USD_PER_HOUR / 3600;
+
 // Convex HTTP actions cap request bodies at ~20MB; base64 inflates by 33%
 // so this keeps a comfortable margin for the JSON envelope.
 const MAX_AUDIO_BASE64_BYTES = 14 * 1024 * 1024;
@@ -74,10 +88,34 @@ type TranscribeRequestBody = {
   modelId?: string;
 };
 
-const resolveDictationProvider = (): "openrouter" | "inworld" => {
+export type DictationProvider = "xai" | "openrouter" | "inworld";
+
+export const resolveDictationProvider = (): DictationProvider => {
   const configured = process.env.DICTATION_STT_PROVIDER?.trim().toLowerCase();
   if (configured === "inworld") return "inworld";
-  return "openrouter";
+  if (configured === "openrouter") return "openrouter";
+  return "xai";
+};
+
+const DEFAULT_MODEL_BY_PROVIDER: Record<DictationProvider, string> = {
+  xai: XAI_DICTATION_MODEL,
+  openrouter: OPENROUTER_DICTATION_MODEL,
+  inworld: INWORLD_DEFAULT_MODEL,
+};
+
+/**
+ * Model precedence: explicit request override, then the `DICTATION_STT_MODEL`
+ * env (so future swaps are env-only, no deploy), then the provider default.
+ */
+export const resolveDictationModel = (
+  provider: DictationProvider,
+  requested?: string,
+): string => {
+  const fromRequest = requested?.trim();
+  if (fromRequest) return fromRequest;
+  const fromEnv = process.env.DICTATION_STT_MODEL?.trim();
+  if (fromEnv) return fromEnv;
+  return DEFAULT_MODEL_BY_PROVIDER[provider];
 };
 
 const formatFromAudioEncoding = (
@@ -142,6 +180,10 @@ export const registerDictationRoutes = (http: HttpRouter) => {
         }
 
         const provider = resolveDictationProvider();
+        // Same org key the realtime Grok Voice path uses (voice.ts); it
+        // never leaves the backend.
+        const xaiKey =
+          provider === "xai" ? (process.env.XAI_API_KEY?.trim() || null) : null;
         const openRouterKey =
           provider === "openrouter"
             ? (resolveManagedGatewayApiKey(
@@ -152,6 +194,13 @@ export const registerDictationRoutes = (http: HttpRouter) => {
           provider === "inworld"
             ? (process.env.INWORLD_API_KEY?.trim() || null)
             : null;
+        if (provider === "xai" && !xaiKey) {
+          return errorResponse(
+            503,
+            "Dictation is not configured (missing XAI_API_KEY).",
+            origin,
+          );
+        }
         if (provider === "openrouter" && !openRouterKey) {
           return errorResponse(
             503,
@@ -197,17 +246,173 @@ export const registerDictationRoutes = (http: HttpRouter) => {
           });
         }
 
-        return transcribeWithOpenRouter({
+        if (provider === "openrouter") {
+          return transcribeWithOpenRouter({
+            ctx,
+            origin,
+            ownerId,
+            openRouterKey: openRouterKey!,
+            body,
+            audioBase64,
+          });
+        }
+
+        return transcribeWithXai({
           ctx,
           origin,
           ownerId,
-          openRouterKey: openRouterKey!,
+          xaiKey: xaiKey!,
           body,
           audioBase64,
         });
       }),
     ),
   });
+};
+
+const mimeTypeForFormat = (format: string): string => {
+  switch (format) {
+    case "mp3":
+      return "audio/mpeg";
+    case "ogg":
+      return "audio/ogg";
+    case "flac":
+      return "audio/flac";
+    default:
+      return "audio/wav";
+  }
+};
+
+const base64ToBytes = (base64: string): Uint8Array<ArrayBuffer> => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+};
+
+const transcribeWithXai = async (args: {
+  ctx: ActionCtx;
+  origin: string | null;
+  ownerId: string;
+  xaiKey: string;
+  body: TranscribeRequestBody;
+  audioBase64: string;
+}) => {
+  const modelId = resolveDictationModel("xai", args.body.modelId);
+  const language = args.body.language?.trim();
+  const format = formatFromAudioEncoding(args.body.audioEncoding);
+  const startedAt = Date.now();
+
+  let audioBytes: Uint8Array<ArrayBuffer>;
+  try {
+    audioBytes = base64ToBytes(args.audioBase64);
+  } catch {
+    return errorResponse(400, "audioBase64 is not valid base64", args.origin);
+  }
+
+  // xAI's STT endpoint takes multipart/form-data; container formats (WAV,
+  // MP3, ...) are auto-detected, and the file field must come last.
+  const form = new FormData();
+  if (language) {
+    // `format=true` enables inverse text normalization and requires a
+    // language code; the model transcribes any language regardless.
+    form.append("format", "true");
+    form.append("language", language);
+  }
+  form.append(
+    "file",
+    new Blob([audioBytes], { type: mimeTypeForFormat(format) }),
+    `audio.${format}`,
+  );
+
+  try {
+    const upstream = await fetch(XAI_TRANSCRIBE_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.xaiKey}`,
+      },
+      body: form,
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) {
+      console.error(
+        "[dictation/transcribe] xAI STT returned",
+        upstream.status,
+        text.slice(0, 400),
+      );
+      await scheduleManagedUsage(args.ctx, {
+        ownerId: args.ownerId,
+        agentType: "service:dictation",
+        model: modelId,
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return errorResponse(502, "Failed to transcribe audio", args.origin);
+    }
+    let parsed: {
+      text?: unknown;
+      duration?: unknown;
+    };
+    try {
+      parsed = JSON.parse(text) as typeof parsed;
+    } catch {
+      await scheduleManagedUsage(args.ctx, {
+        ownerId: args.ownerId,
+        agentType: "service:dictation",
+        model: modelId,
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return errorResponse(
+        502,
+        "xAI returned a non-JSON transcription response",
+        args.origin,
+      );
+    }
+
+    const transcript = typeof parsed.text === "string" ? parsed.text : "";
+    const durationSeconds = asFiniteNumber(parsed.duration);
+    const transcribedAudioMs =
+      durationSeconds !== undefined ? Math.round(durationSeconds * 1000) : null;
+    const costUsd =
+      durationSeconds !== undefined
+        ? Math.max(0, durationSeconds) * XAI_USD_PER_SECOND
+        : 0;
+    await scheduleManagedUsage(args.ctx, {
+      ownerId: args.ownerId,
+      agentType: "service:dictation",
+      model: modelId,
+      durationMs: Date.now() - startedAt,
+      success: true,
+      costMicroCents: dollarsToMicroCents(costUsd),
+    });
+
+    return jsonResponse(
+      {
+        transcript,
+        isFinal: true,
+        transcribedAudioMs,
+        modelId,
+      },
+      200,
+      args.origin,
+    );
+  } catch (error) {
+    console.error(
+      "[dictation/transcribe] Failed to contact xAI:",
+      (error as Error).message,
+    );
+    await scheduleManagedUsage(args.ctx, {
+      ownerId: args.ownerId,
+      agentType: "service:dictation",
+      model: modelId,
+      durationMs: Date.now() - startedAt,
+      success: false,
+    });
+    return errorResponse(502, "Failed to transcribe audio", args.origin);
+  }
 };
 
 const transcribeWithOpenRouter = async (args: {
@@ -218,7 +423,7 @@ const transcribeWithOpenRouter = async (args: {
   body: TranscribeRequestBody;
   audioBase64: string;
 }) => {
-  const modelId = args.body.modelId ?? OPENROUTER_DICTATION_MODEL;
+  const modelId = resolveDictationModel("openrouter", args.body.modelId);
   const language = args.body.language?.trim();
   const format = formatFromAudioEncoding(args.body.audioEncoding);
   const startedAt = Date.now();
@@ -334,7 +539,7 @@ const transcribeWithInworld = async (args: {
   body: TranscribeRequestBody;
   audioBase64: string;
 }) => {
-  const modelId = args.body.modelId ?? INWORLD_DEFAULT_MODEL;
+  const modelId = resolveDictationModel("inworld", args.body.modelId);
   const inworldBody = {
     transcribe_config: {
       model_id: modelId,

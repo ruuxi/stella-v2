@@ -18,14 +18,20 @@ import {
 } from "../../../src/global/settings/lib/model-defaults";
 
 describe("settings model catalog", () => {
-  it("scaffolds only DeepSeek V4 Flash while the backend catalog loads", () => {
+  it("scaffolds only the Muse default while the backend catalog loads", () => {
     expect(STELLA_PRESET_FALLBACK_MODELS.map((model) => model.id)).toEqual([
-      "stella/crof/deepseek-v4-flash-0731",
+      "stella/meta/muse-spark-1.2-contributor",
     ]);
   });
 
   it("replaces the offline fallback instead of listing it beside the fetched model", () => {
     const fetched = normalizeStellaCatalogModels([
+      {
+        id: "stella/meta/muse-spark-1.2-contributor",
+        name: "Muse Spark 1.2 Contributor",
+        provider: "stella",
+        upstreamModel: "meta/muse-spark-1.2-contributor",
+      },
       {
         id: "stella/crof/deepseek-v4-flash-0731",
         name: "DeepSeek V4 Flash 0731",
@@ -35,7 +41,7 @@ describe("settings model catalog", () => {
     ]);
 
     expect(withStellaPresetFallbacks([]).map((model) => model.id)).toEqual([
-      "stella/crof/deepseek-v4-flash-0731",
+      "stella/meta/muse-spark-1.2-contributor",
     ]);
     const pickerGroups = groupCatalogModelsByProvider(
       mergeCatalogModels(withStellaPresetFallbacks(fetched), []),
@@ -47,10 +53,25 @@ describe("settings model catalog", () => {
     expect(withStellaPresetFallbacks(fetched)).toEqual(fetched);
     expect(stellaRows?.map((model) => model.id)).toEqual([
       "stella/crof/deepseek-v4-flash-0731",
+      "stella/meta/muse-spark-1.2-contributor",
     ]);
     expect(stellaRows?.map(getStellaResolvedModelName)).toEqual([
       "DeepSeek V4 Flash 0731",
+      "Muse Spark 1.2 Contributor",
     ]);
+  });
+
+  it("curates the Wafer Fast variant's display name", () => {
+    expect(
+      getStellaResolvedModelName({
+        id: "stella/wafer/deepseek-v4-flash-0731-fast",
+        name: "DeepSeek V4 Flash 0731 Fast",
+        provider: "stella",
+        providerName: "Stella",
+        source: "stella",
+        upstreamModel: "wafer/deepseek-v4-flash-0731-fast",
+      }),
+    ).toBe("DeepSeek V4 Flash 0731 Fast");
   });
 
   it("shows resolved model names instead of Stella routing aliases", () => {

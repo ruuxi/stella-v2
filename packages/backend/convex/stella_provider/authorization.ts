@@ -38,6 +38,7 @@ function stellaProviderErrorResponse(
 const providerModelPrefix: Partial<Record<ManagedGatewayProvider, string>> = {
   deepseek: "deepseek/",
   crof: "crof/",
+  wafer: "wafer/",
   xai: "x-ai/",
   anthropic: "anthropic/",
   google: "google/",
@@ -54,6 +55,15 @@ const FIREWORKS_KIMI_K2P6_SERVICE_TIERS = new Set([
   "fast",
 ]);
 
+/**
+ * Wafer lists its models with capitalized slugs (e.g.
+ * `DeepSeek-V4-Flash-0731-Fast`) while Stella's managed ids are lowercase.
+ * Send the exact upstream casing wafer's catalog advertises.
+ */
+const WAFER_NATIVE_MODEL_IDS: Record<string, string> = {
+  "deepseek-v4-flash-0731-fast": "DeepSeek-V4-Flash-0731-Fast",
+};
+
 export function toProviderNativeModel(
   model: string,
   provider: ManagedGatewayProvider,
@@ -62,6 +72,7 @@ export function toProviderNativeModel(
   const stripped =
     prefix && model.startsWith(prefix) ? model.slice(prefix.length) : model;
   if (provider === "anthropic") return stripped.replace(/\./g, "-");
+  if (provider === "wafer") return WAFER_NATIVE_MODEL_IDS[stripped] ?? stripped;
   return stripped;
 }
 const estimatedCostMicroCents = async (

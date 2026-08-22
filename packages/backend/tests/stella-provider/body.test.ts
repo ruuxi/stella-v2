@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import { bodyForUpstream, upstreamUrl } from "../../convex/stella_provider";
+import {
+  bodyForUpstream,
+  cloneForwardHeaders,
+  upstreamUrl,
+} from "../../convex/stella_provider";
 import type { AuthorizedStellaRequest } from "../../convex/stella_provider/shared";
 import type { ManagedGatewayProvider } from "../../convex/lib/managed_gateway";
 
@@ -13,6 +17,7 @@ const RESOLVED_MODELS: Record<ManagedGatewayProvider, string> = {
   meta: "meta/muse-spark-1.1",
   openai: "openai/gpt-5.5",
   openrouter: "x-ai/grok-4.5",
+  wafer: "wafer/deepseek-v4-flash-0731-fast",
   xai: "x-ai/grok-4.5",
 };
 
@@ -25,6 +30,7 @@ const UPSTREAM_MODELS: Record<ManagedGatewayProvider, string> = {
   meta: "muse-spark-1.1",
   openai: "gpt-5.5",
   openrouter: "x-ai/grok-4.5",
+  wafer: "DeepSeek-V4-Flash-0731-Fast",
   xai: "grok-4.5",
 };
 
@@ -165,12 +171,16 @@ describe("bodyForUpstream", () => {
     expect(body.stream_options).toEqual({ include_usage: true });
   });
 
-  it("converts stale Responses bodies for OpenRouter chat completions", () => {
+  it("normalizes chat-shaped bodies for the OpenRouter Responses path", () => {
+    // OpenRouter now serves the Responses API end to end: a request that
+    // arrives at a `/responses` relay path must reach OpenRouter's
+    // /api/v1/responses in Responses shape (input/max_output_tokens/nested
+    // reasoning), not be flattened back to chat completions.
     const body = JSON.parse(
       bodyForUpstream(
         makeAuthorized("openrouter", {
           model: "stella/standard",
-          input: [
+          messages: [
             {
               role: "developer",
               content: "Follow the policy.",
@@ -178,29 +188,17 @@ describe("bodyForUpstream", () => {
             {
               role: "user",
               content: [
-                { type: "input_text", text: "hi" },
+                { type: "text", text: "hi" },
                 {
-                  type: "input_image",
-                  image_url: "data:image/png;base64,abc",
+                  type: "image_url",
+                  image_url: { url: "data:image/png;base64,abc" },
                 },
               ],
             },
           ],
-          tools: [
-            {
-              type: "function",
-              name: "spawn_agent",
-              description: "Start an agent",
-              parameters: { type: "object", properties: {} },
-            },
-          ],
-          max_output_tokens: 1024,
-          reasoning: { effort: "none", summary: "auto" },
-          text: { format: { type: "json_object" } },
-          prompt_cache_key: "stale-cache-key",
-          prompt_cache_retention: "24h",
-          store: false,
-          include: ["reasoning.encrypted_content"],
+          max_completion_tokens: 1024,
+          response_format: { type: "json_object" },
+          stream_options: { include_usage: true },
           stream: true,
         }),
         "openrouter",
@@ -209,40 +207,52 @@ describe("bodyForUpstream", () => {
     );
 
     expect(body.model).toBe("x-ai/grok-4.5");
-    expect(body.input).toBeUndefined();
-    expect(body.max_output_tokens).toBeUndefined();
-    expect(body.max_completion_tokens).toBe(1024);
-    expect(body.prompt_cache_key).toBeUndefined();
-    expect(body.prompt_cache_retention).toBeUndefined();
-    expect(body.store).toBeUndefined();
-    expect(body.include).toBeUndefined();
-    expect(body.text).toBeUndefined();
-    expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body.messages).toBeUndefined();
+    expect(body.max_completion_tokens).toBeUndefined();
+    expect(body.max_output_tokens).toBe(1024);
+    expect(body.response_format).toBeUndefined();
+    expect(body.stream_options).toBeUndefined();
+    expect(body.text).toEqual({ format: { type: "json_object" } });
+    // Reasoning is mandatory for the Muse default: none/off collapse to low.
+    // Nested `reasoning` only — no top-level `reasoning_effort`.
     expect(body.reasoning).toEqual({ effort: "low" });
-    expect(body.messages).toEqual([
+    expect(body.reasoning_effort).toBeUndefined();
+    expect(body.input).toEqual([
       { role: "developer", content: "Follow the policy." },
       {
         role: "user",
         content: [
-          { type: "text", text: "hi" },
+          { type: "input_text", text: "hi" },
           {
-            type: "image_url",
-            image_url: { url: "data:image/png;base64,abc" },
+            type: "input_image",
+            image_url: "data:image/png;base64,abc",
+            detail: "auto",
           },
         ],
       },
     ]);
-    expect(body.tools).toEqual([
-      {
-        type: "function",
-        function: {
-          name: "spawn_agent",
-          description: "Start an agent",
-          parameters: { type: "object", properties: {} },
-        },
-      },
-    ]);
-    expect(body.stream_options).toEqual({ include_usage: true });
+    // Unverified for OpenRouter's stateful handling — the relayed body stays
+    // limited to the verified request shape.
+    expect(body.store).toBeUndefined();
+  });
+
+  it("keeps an explicit xhigh reasoning effort on the OpenRouter Responses path", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("openrouter", {
+          model: "stella/standard",
+          input: [
+            { role: "user", content: [{ type: "input_text", text: "hi" }] },
+          ],
+          reasoning: { effort: "xhigh" },
+        }),
+        "openrouter",
+        requestFor("/api/stella/relay/responses"),
+      ),
+    );
+
+    expect(body.reasoning).toEqual({ effort: "xhigh" });
+    expect(body.reasoning_effort).toBeUndefined();
   });
 
   it("adds mandatory Grok 4.5 reasoning for OpenRouter chat bodies", () => {
@@ -266,6 +276,23 @@ describe("bodyForUpstream", () => {
 });
 
 describe("upstreamUrl", () => {
+  it("routes OpenRouter chat completions and Responses to their own endpoints", () => {
+    expect(
+      upstreamUrl(
+        "openrouter",
+        requestFor("/api/stella/relay/chat/completions"),
+        "x-ai/grok-4.5",
+      ),
+    ).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(
+      upstreamUrl(
+        "openrouter",
+        requestFor("/api/stella/openrouter/api/v1/responses"),
+        "meta/muse-spark-1.2-contributor",
+      ),
+    ).toBe("https://openrouter.ai/api/v1/responses");
+  });
+
   it("routes xAI chat completions and Responses directly to api.x.ai", () => {
     expect(
       upstreamUrl(
@@ -514,6 +541,55 @@ describe("CrofAI DeepSeek relay", () => {
     expect(body.reasoning_effort).toBe("high");
     expect(body.reasoning).toBeUndefined();
     expect(body.stream_options).toEqual({ include_usage: true });
+  });
+});
+
+describe("Wafer DeepSeek relay", () => {
+  it("uses chat completions at pass.wafer.ai with the exact upstream casing", () => {
+    expect(
+      upstreamUrl(
+        "wafer",
+        requestFor("/api/stella/wafer/v1/chat/completions"),
+        "DeepSeek-V4-Flash-0731-Fast",
+      ),
+    ).toBe("https://pass.wafer.ai/v1/chat/completions");
+  });
+
+  it("normalizes the body like the CrofAI relay and strips the managed prefix", () => {
+    const body = JSON.parse(
+      bodyForUpstream(
+        makeAuthorized("wafer", {
+          model: "stella/wafer/deepseek-v4-flash-0731-fast",
+          messages: [{ role: "user", content: "hi" }],
+          reasoning: { effort: "xhigh" },
+          stream: true,
+        }),
+        "wafer",
+        requestFor("/api/stella/wafer/v1/chat/completions"),
+      ),
+    );
+    expect(body.model).toBe("DeepSeek-V4-Flash-0731-Fast");
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.reasoning).toBeUndefined();
+    expect(body.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("sends the Wafer-ZDR header on every forwarded request", () => {
+    const waferHeaders = cloneForwardHeaders(
+      requestFor("/api/stella/wafer/v1/chat/completions"),
+      "wafer",
+      "wafer-key",
+    );
+    expect(waferHeaders.get("Wafer-ZDR")).toBe("required");
+    expect(waferHeaders.get("authorization")).toBe("Bearer wafer-key");
+
+    // The header is wafer-specific — other gateways must not receive it.
+    const crofHeaders = cloneForwardHeaders(
+      requestFor("/api/stella/crof/v1/chat/completions"),
+      "crof",
+      "crof-key",
+    );
+    expect(crofHeaders.get("Wafer-ZDR")).toBeNull();
   });
 });
 

@@ -6,6 +6,8 @@ import {
   isStellaModelAllowedForAudience,
   listManagedModelIds,
   LOCKED_AGENT_TYPES,
+  MANAGED_MODEL_API_OVERRIDES,
+  MANAGED_MODEL_GATEWAY_OVERRIDES,
   resolveManagedModelRouteAlias,
   type ManagedModelAudience,
   type ModelConfig,
@@ -19,14 +21,15 @@ export const STELLA_PROVIDER = "stella";
 // Opaque "let the backend pick" sentinel. The concrete model is chosen per
 // agent type + audience on the backend; this stays the per-agent *default*.
 export const STELLA_DEFAULT_MODEL = `${STELLA_PROVIDER}/default`;
-// Legacy branded aliases remain parseable for old clients, but the public
-// catalog exposes only the single supported raw DeepSeek model.
+// Legacy branded aliases remain parseable for old clients. The public
+// catalog exposes the current default (Muse Spark 1.2 Contributor) plus the still
+// selectable raw DeepSeek V4 Flash model.
 export const STELLA_STANDARD_MODEL = `${STELLA_PROVIDER}/standard`;
 export const STELLA_PRIORITY_MODEL = `${STELLA_PROVIDER}/priority`;
 export const STELLA_LIGHT_MODEL = `${STELLA_PROVIDER}/light`;
 // Bump this whenever Stella default/model/mode mappings change. Desktop
 // subscribes to it and passes it to runtime as the model-catalog cache key.
-export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 9, 18, 0);
+export const STELLA_MODEL_CATALOG_UPDATED_AT = Date.UTC(2026, 7, 22, 0, 0);
 
 export type StellaCatalogModel = {
   id: string;
@@ -51,7 +54,9 @@ export type StellaDefaultEntry = {
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
+  "meta/muse-spark-1.2-contributor": "Muse Spark 1.2 Contributor",
   "crof/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
+  "wafer/deepseek-v4-flash-0731-fast": "DeepSeek V4 Flash 0731 Fast",
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",
 };
@@ -211,7 +216,16 @@ export const resolveStellaModelConfigForSelection = (
       config: {
         ...getModelConfig(agentType, audience),
         model,
-        managedGatewayProvider: inferManagedGatewayProviderFromModel(model),
+        // Prefix inference alone would send `meta/muse-spark-1.2-contributor`
+        // to the Meta first-party gateway; it is an OpenRouter-hosted slug
+        // (see MANAGED_MODEL_GATEWAY_OVERRIDES in agent/model.ts).
+        managedGatewayProvider:
+          MANAGED_MODEL_GATEWAY_OVERRIDES[model] ??
+          inferManagedGatewayProviderFromModel(model),
+        // Same for the wire protocol: the pinned id must not inherit the
+        // agent default's transport. `api: undefined` here intentionally
+        // clears a base-config value when the pinned model has no override.
+        api: MANAGED_MODEL_API_OVERRIDES[model],
       },
       applied: true,
     };
@@ -222,8 +236,9 @@ export const resolveStellaModelConfigForSelection = (
 export const listStellaCatalogModels = (
   audience: ManagedModelAudience = "free",
 ): StellaCatalogModel[] => [
-  // Compatibility aliases stay resolvable but are intentionally absent here:
-  // the picker publishes exactly one selectable Stella model.
+  // Compatibility aliases (stella/light etc.) stay resolvable but are
+  // intentionally absent here: the picker publishes the raw selectable
+  // models only.
   ...listUpstreamManagedModels().map<StellaCatalogModel>((upstreamModel) => ({
     id: toStellaModelId(upstreamModel),
     name: deriveDisplayName(upstreamModel),

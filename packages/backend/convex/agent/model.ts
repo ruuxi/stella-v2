@@ -11,6 +11,7 @@ import {
   getManagedGatewayConfig,
   type ManagedGatewayProvider,
 } from "../lib/managed_gateway";
+import type { ManagedProtocol } from "../runtime_ai/managed";
 export { getManagedGatewayConfig } from "../lib/managed_gateway";
 export type { ManagedGatewayProvider } from "../lib/managed_gateway";
 
@@ -30,6 +31,14 @@ export type ModelConfig = {
   fallback?: string;
   managedGatewayProvider?: ManagedGatewayProvider;
   fallbackManagedGatewayProvider?: ManagedGatewayProvider;
+  /**
+   * Wire protocol for the managed gateway request. When omitted, the runtime
+   * infers it from the gateway provider (`resolveManagedProtocol` in
+   * `runtime_ai/managed.ts`). Set explicitly for models whose gateway hosts a
+   * mix of protocols — e.g. OpenRouter serves most models over Chat
+   * Completions but Muse Spark 1.2 Contributor over the Responses API.
+   */
+  api?: ManagedProtocol;
   temperature?: number;
   maxOutputTokens?: number;
   serviceTier?: string;
@@ -103,9 +112,11 @@ const gatewayOptions = (
 });
 
 /**
- * Which upstream serves DeepSeek V4 Flash. Every public mode and legacy-id
- * alias follows this constant, so rolling back to DeepSeek or Fireworks needs
- * no other model-routing edit. Inactive gateways stay registered but idle.
+ * Which upstream serves DeepSeek V4 Flash. The model is no longer the
+ * default, but it stays fully supported and selectable; every public legacy
+ * alias follows this constant, so rolling back to DeepSeek or Fireworks
+ * needs no other model-routing edit. Inactive gateways stay registered but
+ * idle.
  */
 type DeepSeekV4FlashRoute = "crof" | "deepseek" | "fireworks";
 const DEEPSEEK_V4_FLASH_ROUTE: DeepSeekV4FlashRoute = "crof";
@@ -116,8 +127,12 @@ export const DEEPSEEK_V4_FLASH_FIREWORKS_MODEL =
 /** DeepSeek first-party V4 Flash. DeepSeek rejects the dated `-0731` suffix. */
 export const DEEPSEEK_V4_FLASH_DIRECT_MODEL = "deepseek/deepseek-v4-flash";
 /** CrofAI-hosted V4 Flash 0731. */
-export const DEEPSEEK_V4_FLASH_CROF_MODEL =
-  "crof/deepseek-v4-flash-0731";
+export const DEEPSEEK_V4_FLASH_CROF_MODEL = "crof/deepseek-v4-flash-0731";
+/** Wafer-hosted V4 Flash 0731 Fast variant. A distinct upstream model, not an
+ * alias of the CrofAI row — it stays separately selectable and price-synced
+ * but is never any audience's default. */
+export const DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL =
+  "wafer/deepseek-v4-flash-0731-fast";
 
 const DEEPSEEK_V4_FLASH_CROF_CONFIG: ModeConfig = {
   model: DEEPSEEK_V4_FLASH_CROF_MODEL,
@@ -164,6 +179,63 @@ const DEEPSEEK_V4_FLASH_CONFIGS = {
 
 const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig =
   DEEPSEEK_V4_FLASH_CONFIGS[DEEPSEEK_V4_FLASH_ROUTE];
+
+/** OpenRouter-hosted Muse Spark 1.2 Contributor. The current default. */
+export const MUSE_SPARK_1_2_CONTRIBUTOR_MODEL =
+  "meta/muse-spark-1.2-contributor";
+
+/**
+ * Muse Spark 1.2 Contributor launched today on OpenRouter. Sampling defaults are
+ * unannounced, so we carry over the previous default's temperature and keep
+ * Stella's top reasoning rung until the model card documents otherwise.
+ *
+ * The slug is vendor/model form (OpenRouter convention), so the `meta/`
+ * prefix in `DIRECT_MODEL_PROVIDER_PREFIXES` must never capture it — that
+ * would silently route the default onto Meta's first-party gateway. The
+ * explicit `managedGatewayProvider` here wins over prefix inference in
+ * `resolveManagedGatewayProvider`; `MANAGED_MODEL_GATEWAY_OVERRIDES` below
+ * covers the raw-pin path that has no mode config behind it.
+ */
+const MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG: ModeConfig = {
+  model: MUSE_SPARK_1_2_CONTRIBUTOR_MODEL,
+  managedGatewayProvider: "openrouter",
+  // OpenRouter serves this model through its Responses API (verified live:
+  // /api/v1/responses works streaming and non-streaming; reasoning is
+  // mandatory). Every other OpenRouter-hosted model keeps Chat Completions.
+  api: "openai-responses",
+  temperature: 1.0,
+  providerOptions: {
+    openai: {
+      reasoningEffort: "xhigh",
+    },
+  },
+};
+
+/**
+ * Gateway overrides for pinnable upstream ids whose slug does not encode
+ * their gateway. A raw `stella/<model>` pin resolves its gateway purely via
+ * `inferManagedGatewayProviderFromModel`, which would send the
+ * OpenRouter-hosted contributor slug to the Meta first-party gateway.
+ * Consulted by `resolveStellaModelConfigForSelection` before inference.
+ */
+export const MANAGED_MODEL_GATEWAY_OVERRIDES: Readonly<
+  Record<string, ManagedGatewayProvider>
+> = {
+  [MUSE_SPARK_1_2_CONTRIBUTOR_MODEL]: "openrouter",
+};
+
+/**
+ * Wire-protocol overrides for pinnable upstream ids, mirroring
+ * `MANAGED_MODEL_GATEWAY_OVERRIDES`. Consulted by
+ * `resolveStellaModelConfigForSelection` when a raw `stella/<model>` pin is
+ * resolved, so a pinned id carries the same transport as its mode config
+ * regardless of which mode happens to be the agent default.
+ */
+export const MANAGED_MODEL_API_OVERRIDES: Readonly<
+  Record<string, ManagedProtocol>
+> = {
+  [MUSE_SPARK_1_2_CONTRIBUTOR_MODEL]: "openai-responses",
+};
 
 const KIMI_K2_6_SYNTHESIS_CONFIG: ModelConfig = {
   model: "moonshotai/kimi-k2.6",
@@ -212,16 +284,17 @@ const INTERNAL_MODEL_CONFIGS = {
 type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
 type TaskModelSelection = ModelMode | InternalModelConfigKey;
 
-// Legacy mode names remain parseable so old clients fail over cleanly, but
-// every mode resolves to the only supported Stella model.
+// Legacy mode names remain parseable so old clients fail over cleanly. All
+// modes resolve to the current default (Muse Spark 1.2 Contributor); DeepSeek V4
+// Flash 0731 stays selectable via its explicit raw ids.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
-  standard: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  priority: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  light: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  builder: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  designer: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  vision: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  max: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
+  standard: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
+  priority: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
+  light: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
+  builder: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
+  designer: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
+  vision: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
+  max: MUSE_SPARK_1_2_CONTRIBUTOR_CONFIG,
 };
 
 const AUDIENCE_MODE_OVERRIDES: Record<
@@ -242,7 +315,7 @@ const AUDIENCE_MODE_OVERRIDES: Record<
 //
 // The primary Stella agent now works directly for the user, with optional
 // General agents for delegated background work. Both default to Light
-// (DeepSeek V4 Flash 0731) for every audience.
+// (Muse Spark 1.2 Contributor) for every audience.
 const DEFAULT_AGENT_OVERRIDES: Partial<Record<string, TaskModelSelection>> = {
   [AGENT_IDS.ORCHESTRATOR]: "light",
   [AGENT_IDS.GENERAL]: "light",
@@ -294,14 +367,15 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * Stella model ids accepted from clients. The raw DeepSeek id is the only
- * public catalog row; `stella/light` remains as a compatibility alias for
- * existing preferences and older clients.
+ * Stella model ids accepted from clients. The OpenRouter Muse default and
+ * every routed DeepSeek V4 Flash spelling are public catalog rows;
+ * `stella/light` remains as a compatibility alias for existing preferences
+ * and older clients.
  *
- * Both V4 Flash spellings stay accepted so a client that saved the Fireworks
- * id before the switch (or after a rollback) never 400s. Only one of them is
- * ever *live* — `resolveManagedModelRouteAlias` coerces the inactive spelling
- * onto whichever route `DEEPSEEK_V4_FLASH_ROUTE` selects.
+ * All V4 Flash spellings stay accepted so a client that saved the Fireworks
+ * or DeepSeek-direct id before/after a route switch never 400s. Only one of
+ * them is ever *live* — `resolveManagedModelRouteAlias` coerces the inactive
+ * spellings onto whichever route `DEEPSEEK_V4_FLASH_ROUTE` selects.
  *
  * Single source of truth for both the request-time coercion in
  * `stella_provider/request.ts` and the `allowedForAudience` flag the
@@ -310,9 +384,11 @@ const PAID_ONLY_STELLA_MODE_IDS: ReadonlySet<string> = new Set<string>([
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> =
   new Set<string>([
     "stella/light",
+    `stella/${MUSE_SPARK_1_2_CONTRIBUTOR_MODEL}`,
     `stella/${DEEPSEEK_V4_FLASH_CROF_MODEL}`,
     `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`,
     `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`,
+    `stella/${DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL}`,
   ]);
 
 /**
@@ -407,6 +483,7 @@ const buildResolvedConfig = (
     fallback: fallbackConfig?.model,
     managedGatewayProvider: config.managedGatewayProvider,
     fallbackManagedGatewayProvider: fallbackConfig?.managedGatewayProvider,
+    api: config.api,
     temperature: config.temperature,
     maxOutputTokens: config.maxOutputTokens,
     serviceTier: config.serviceTier,
@@ -550,7 +627,16 @@ export function isModelMode(value: string): value is ModelMode {
 // currently the default for any mode or agent task. Prefer putting models
 // behind a mode/task selection when they are catalog defaults; use this list
 // only for extras that have no mode of their own.
-export const ADDITIONAL_MANAGED_MODEL_IDS = [] as const;
+//
+// DeepSeek V4 Flash 0731 lost the default slot to Muse Spark 1.2 Contributor but
+// stays selectable and price-synced via its active CrofAI route id. The
+// legacy Fireworks/DeepSeek-direct spellings alias onto that same row at
+// request time, so only the canonical id needs tracking here.
+export const ADDITIONAL_MANAGED_MODEL_IDS = [
+  DEEPSEEK_V4_FLASH_CROF_MODEL,
+  // The Wafer-hosted Fast variant is selectable but backs no mode or task.
+  DEEPSEEK_V4_FLASH_WAFER_FAST_MODEL,
+] as const;
 
 export function listManagedModelIds(): string[] {
   const modelIds = new Set<string>();

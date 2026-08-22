@@ -297,6 +297,31 @@ export function createRelayUsageParser(
     });
   }
 
+  if (provider === "openrouter") {
+    // OpenRouter serves both APIs: chat completions for most models and the
+    // Responses API for Muse Spark 1.2 Contributor (the Stella default).
+    // Streaming Responses events nest usage under `response` with
+    // input_tokens/output_tokens (+ reasoning in output_tokens_details);
+    // chat completions use prompt_tokens/completion_tokens at the top
+    // level. Pick the parser from the usage payload itself, mirroring the
+    // deepseek handling.
+    return createSseParser((event) => {
+      const response = asRecord(event.response);
+      const usage = asRecord(response?.usage ?? event.usage);
+      return {
+        model:
+          typeof response?.model === "string"
+            ? response.model
+            : typeof event.model === "string"
+              ? event.model
+              : undefined,
+        ...(usage?.input_tokens !== undefined
+          ? parseResponsesUsage(usage)
+          : parseOpenAIUsage(usage)),
+      };
+    });
+  }
+
   return createSseParser((event) => ({
     model: typeof event.model === "string" ? event.model : undefined,
     ...parseOpenAIUsage(event.usage),

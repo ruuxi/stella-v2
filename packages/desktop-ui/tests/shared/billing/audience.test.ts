@@ -18,8 +18,23 @@ describe("billing audience model restrictions", () => {
     expect(isRestrictedModelOverrideAudience("pro_fallback")).toBe(false);
   });
 
-  it("lets restricted audiences pick only V4 Flash", () => {
+  it("lets restricted audiences pick the Muse default or V4 Flash", () => {
     expect(isRestrictedAudienceAllowedStellaModelId("stella/light")).toBe(true);
+    expect(
+      isRestrictedAudienceAllowedStellaModelId(
+        "stella/meta/muse-spark-1.2-contributor",
+      ),
+    ).toBe(true);
+    expect(
+      isRestrictedAudienceAllowedStellaModelId(
+        "stella/crof/deepseek-v4-flash-0731",
+      ),
+    ).toBe(true);
+    expect(
+      isRestrictedAudienceAllowedStellaModelId(
+        "stella/wafer/deepseek-v4-flash-0731-fast",
+      ),
+    ).toBe(true);
     expect(
       isRestrictedAudienceAllowedStellaModelId(
         "stella/accounts/fireworks/models/deepseek-v4-flash-0731",

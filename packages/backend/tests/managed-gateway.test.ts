@@ -4,6 +4,7 @@ import {
   getManagedGatewayConfig,
   inferManagedGatewayProviderFromModel,
   resolveManagedGatewayApiKey,
+  resolveManagedGatewayConfig,
   resolveManagedGatewayProvider,
 } from "../convex/lib/managed_gateway";
 
@@ -51,6 +52,54 @@ describe("managed gateway", () => {
     const config = getManagedGatewayConfig("crof");
     expect(config.baseURL).toBe("https://crof.ai/v1");
     expect(config.apiKeyEnvVar).toBe("CROF_API_KEY");
+  });
+
+  it("routes Wafer models to its OpenAI-compatible API with ZDR headers", () => {
+    expect(
+      inferManagedGatewayProviderFromModel("wafer/deepseek-v4-flash-0731-fast"),
+    ).toBe("wafer");
+    const config = getManagedGatewayConfig("wafer");
+    expect(config.baseURL).toBe("https://pass.wafer.ai/v1");
+    expect(config.apiKeyEnvVar).toBe("WAFER_API_KEY");
+    // ZDR is opt-in per request — the header must ship on every call.
+    expect(config.extraHeaders).toEqual({ "Wafer-ZDR": "required" });
+    expect(
+      resolveManagedGatewayProvider({
+        model: "wafer/deepseek-v4-flash-0731-fast",
+      }),
+    ).toBe("wafer");
+  });
+
+  it("routes OpenRouter-namespaced slugs through the OpenRouter gateway", () => {
+    expect(
+      inferManagedGatewayProviderFromModel("openrouter/x-ai/grok-4.5"),
+    ).toBe("openrouter");
+    const config = getManagedGatewayConfig("openrouter");
+    expect(config.baseURL).toBe("https://openrouter.ai/api/v1");
+    expect(config.apiKeyEnvVar).toBe("OPENROUTER_API_KEY");
+  });
+
+  it("routes the Muse Spark contributor slug through OpenRouter despite the meta/ prefix", () => {
+    // `meta/muse-spark-1.2-contributor` is an OpenRouter-hosted slug in
+    // vendor/model form. Prefix inference alone would send it to Meta's
+    // first-party gateway; the mode config's explicit
+    // `managedGatewayProvider: "openrouter"` must win wherever a config is
+    // present (mode/task resolution, relay authorization, runtime_ai).
+    expect(
+      inferManagedGatewayProviderFromModel("meta/muse-spark-1.2-contributor"),
+    ).toBe("meta");
+    expect(
+      resolveManagedGatewayProvider({
+        model: "meta/muse-spark-1.2-contributor",
+        configuredProvider: "openrouter",
+      }),
+    ).toBe("openrouter");
+    const config = resolveManagedGatewayConfig({
+      model: "meta/muse-spark-1.2-contributor",
+      configuredProvider: "openrouter",
+    });
+    expect(config.provider).toBe("openrouter");
+    expect(config.baseURL).toBe("https://openrouter.ai/api/v1");
   });
 
   it("infers meta from the meta/ model prefix", () => {

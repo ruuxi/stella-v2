@@ -6,6 +6,7 @@
  */
 
 import type { ActionCtx } from "../_generated/server";
+import type { ManagedProtocol } from "../runtime_ai/managed";
 import { internal } from "../_generated/api";
 import { getModelConfig, type ManagedModelAudience } from "./model";
 import { resolveStellaModelConfigForSelection } from "../stella_models";
@@ -21,6 +22,9 @@ import {
 export type ResolvedModelConfig = {
   model: string;
   managedGatewayProvider?: ManagedGatewayProvider;
+  /** Wire-protocol override carried from the mode/pin config (see
+   * `ManagedModelConfig.api`). */
+  api?: ManagedProtocol;
   temperature?: number;
   maxOutputTokens?: number;
   serviceTier?: string;
@@ -68,6 +72,7 @@ export const toResolvedModelConfig = (
   config: {
     model: string;
     managedGatewayProvider?: ManagedGatewayProvider;
+    api?: ManagedProtocol;
     temperature?: number;
     maxOutputTokens?: number;
     serviceTier?: string;
@@ -80,6 +85,7 @@ export const toResolvedModelConfig = (
     model: config.model,
     configuredProvider: config.managedGatewayProvider,
   }),
+  api: config.api,
   temperature: config.temperature,
   maxOutputTokens: config.maxOutputTokens,
   serviceTier: config.serviceTier,

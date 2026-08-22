@@ -6,7 +6,10 @@ import { EngineScopedModelList } from "@/global/settings/EngineScopedModelList";
 import { ProviderOnlyPicker, type ProviderOption, } from "@/global/settings/ProviderOnlyPicker";
 import { VoiceCatalogPicker } from "@/global/settings/VoiceCatalogPicker";
 import { coerceRealtimeVoiceProvider, type AssistantWorkingMode, type ReadAloudVoiceProvider, type RealtimeVoicePreferences, type RealtimeVoiceUnderlyingProvider, } from "@stella/contracts/local-preferences";
-import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
+import {
+  isDeepSeekV4FlashModel,
+  isMuseSpark12ContributorModel,
+} from "@stella/contracts/stella-api";
 import { useModelCatalog } from "@/global/settings/hooks/use-model-catalog";
 import { useCodexModelCatalog } from "@/global/settings/hooks/use-codex-model-catalog";
 import { useClaudeCodeModelCatalog } from "@/global/settings/hooks/use-claude-code-model-catalog";
@@ -985,8 +988,10 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
     const selectedStellaCatalogModel = allModels.find((model) => model.id === selectedStellaModelId ||
         model.upstreamModel === selectedStellaModelId);
     const selectedModelDefaultsToXhigh = committedEngine === "default" &&
-        (isDeepSeekV4FlashModel(selectedStellaModelId) ||
-            isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel));
+        ((isDeepSeekV4FlashModel(selectedStellaModelId) ||
+            isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel)) ||
+            (isMuseSpark12ContributorModel(selectedStellaModelId) ||
+                isMuseSpark12ContributorModel(selectedStellaCatalogModel?.upstreamModel)));
     const effectiveDefaultReasoningEffort = REASONING_EFFORT_OPTIONS.some((option) => option.id === reportedDefaultReasoningEffort)
         ? reportedDefaultReasoningEffort
         : selectedModelDefaultsToXhigh

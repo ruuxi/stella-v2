@@ -145,6 +145,39 @@ describe("createRelayUsageParser", () => {
       expect(usage?.inputTokens).toBe(1);
       expect(usage?.outputTokens).toBe(2);
     });
+
+    it("reads Responses usage off response.completed for the Muse default", () => {
+      // Muse Spark 1.2 Contributor streams standard Responses events through
+      // OpenRouter: usage nests under `response` with input_tokens /
+      // output_tokens (+ reasoning in output_tokens_details).
+      const parser = createRelayUsageParser("openrouter");
+      const usage = feed(parser, [
+        `data: ${JSON.stringify({ type: "response.created", response: { id: "resp_1" } })}\n\n`,
+        `data: ${JSON.stringify({ type: "response.output_text.delta", item_id: "msg_1", delta: "hi" })}\n\n`,
+        `data: ${JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "resp_1",
+            model: "meta/muse-spark-1.2-contributor",
+            usage: {
+              input_tokens: 11,
+              output_tokens: 22,
+              total_tokens: 33,
+              output_tokens_details: { reasoning_tokens: 9 },
+            },
+          },
+        })}\n\n`,
+        "data: [DONE]\n\n",
+      ]);
+
+      expect(usage).toEqual({
+        model: "meta/muse-spark-1.2-contributor",
+        inputTokens: 11,
+        outputTokens: 22,
+        totalTokens: 33,
+        reasoningTokens: 9,
+      });
+    });
   });
 
   describe("openai responses", () => {
@@ -205,6 +238,35 @@ describe("createRelayUsageParser", () => {
         cachedInputTokens: 7,
         reasoningTokens: 1,
         costMicroCents: 675,
+      });
+    });
+  });
+
+  describe("wafer", () => {
+    it("parses standard OpenAI-style usage including reasoning tokens", () => {
+      const parser = createRelayUsageParser("wafer");
+      const usage = feed(parser, [
+        `data: ${JSON.stringify({
+          model: "DeepSeek-V4-Flash-0731-Fast",
+          choices: [],
+          usage: {
+            prompt_tokens: 49,
+            completion_tokens: 12,
+            total_tokens: 61,
+            prompt_tokens_details: { cached_tokens: 7 },
+            completion_tokens_details: { reasoning_tokens: 9 },
+          },
+        })}\n\n`,
+        "data: [DONE]\n\n",
+      ]);
+
+      expect(usage).toEqual({
+        model: "DeepSeek-V4-Flash-0731-Fast",
+        inputTokens: 49,
+        outputTokens: 12,
+        totalTokens: 61,
+        cachedInputTokens: 7,
+        reasoningTokens: 9,
       });
     });
   });

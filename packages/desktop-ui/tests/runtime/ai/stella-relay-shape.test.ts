@@ -187,25 +187,50 @@ describe("Stella relay route shape", () => {
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
-  it("retired Stella aliases resolve to the Flash relay", () => {
+  it("retired Stella aliases resolve to the Muse relay", () => {
     const route = makeRoute("stella/designer");
     const model = route!.model;
-    expect(model.api).toBe("openai-completions");
-    expect(model.provider).toBe("crof");
+    expect(model.api).toBe("openai-responses");
+    expect(model.provider).toBe("openrouter");
+    expect(
+      (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
+    ).toBe("meta/muse-spark-1.2-contributor");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
-  it("Stella alias (light) resolves to the CrofAI relay", () => {
+  it("Stella alias (light) resolves to the Muse relay", () => {
     const route = makeRoute("stella/light");
     const model = route!.model;
-    expect(model.api).toBe("openai-completions");
-    expect(model.provider).toBe("crof");
+    expect(model.api).toBe("openai-responses");
+    expect(model.provider).toBe("openrouter");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
-  it("Stella default resolves to V4 Flash with the native effort ladder", () => {
+  it("Stella default resolves to Muse Spark 1.2 Contributor on OpenRouter", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
+    expect(model.provider).toBe("openrouter");
+    expect(model.api).toBe("openai-responses");
+    expect(
+      (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
+    ).toBe("meta/muse-spark-1.2-contributor");
+    expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
+  });
+
+  it("Muse relay: Responses API transport, xhigh effort survives the clamp", () => {
+    const route = makeRoute("stella/default");
+    const model = route!.model;
+    // xhigh is Stella's default rung for Muse; the model's thinkingLevelMap
+    // must keep it from being clamped to high by the responses adapter.
+    expect(model.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
+  });
+
+  it("the explicit DeepSeek V4 Flash pick still routes to the CrofAI relay", () => {
+    // The previous default stays fully routable: its canonical CrofAI id
+    // keeps the CrofAI completions transport and effort ladder.
+    const route = makeRoute("stella/crof/deepseek-v4-flash-0731");
+    const model = route!.model;
+    expect(model.api).toBe("openai-completions");
     expect(model.provider).toBe("crof");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
@@ -221,14 +246,33 @@ describe("Stella relay route shape", () => {
     });
   });
 
-  it("Stella standard compatibility alias resolves to V4 Flash", () => {
-    const route = makeRoute("stella/standard");
+  it("the Wafer Fast variant routes to the Wafer relay", () => {
+    const route = makeRoute("stella/wafer/deepseek-v4-flash-0731-fast");
     const model = route!.model;
     expect(model.api).toBe("openai-completions");
-    expect(model.provider).toBe("crof");
+    expect(model.provider).toBe("wafer");
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
-    ).toBe("deepseek-v4-flash-0731");
+    ).toBe("deepseek-v4-flash-0731-fast");
+    // Wafer shares CrofAI's effort ladder via the relay's body normalization.
+    expect(model.thinkingLevelMap).toMatchObject({
+      minimal: "low",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "high",
+      off: "none",
+    });
+  });
+
+  it("Stella standard compatibility alias resolves to the Muse relay", () => {
+    const route = makeRoute("stella/standard");
+    const model = route!.model;
+    expect(model.api).toBe("openai-responses");
+    expect(model.provider).toBe("openrouter");
+    expect(
+      (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
+    ).toBe("meta/muse-spark-1.2-contributor");
     expect(model.baseUrl).toBe(`${STELLA_SITE}/api/stella/relay`);
   });
 
@@ -342,6 +386,46 @@ describe("Stella relay auth (baseUrl-based detection)", () => {
     expect(relayCall!.headers.get("authorization")).toBe(
       `Bearer ${STELLA_TOKEN}`,
     );
+  });
+});
+
+describe("Stella Muse Responses transport (default model)", () => {
+  it("streams the default model to the relay /responses path with reasoning.effort=xhigh and parses usage", async () => {
+    const calls = captureRequest(() =>
+      sseResponse(
+        [
+          `data: ${JSON.stringify({ type: "response.created", response: { id: "resp_muse" } })}\n\n`,
+          `data: ${JSON.stringify({ type: "response.output_text.delta", item_id: "msg_1", delta: "hello" })}\n\n`,
+          `data: ${JSON.stringify({ type: "response.completed", response: { id: "resp_muse", status: "completed", model: "meta/muse-spark-1.2-contributor", usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18, output_tokens_details: { reasoning_tokens: 5 } } } })}\n\n`,
+          "data: [DONE]\n\n",
+        ].join(""),
+      ),
+    );
+
+    const route = makeRoute("stella/default")!;
+    const apiKey = (await route.getApiKey()) ?? "";
+    await drain(
+      streamSimple(route.model, userContext("hi"), {
+        apiKey,
+        maxTokens: 2048,
+        reasoning: "xhigh",
+      }),
+    );
+
+    const call = calls.find((c) => c.url !== undefined);
+    expect(call).toBeDefined();
+    // The OpenAI Responses adapter posts to <relay base>/responses.
+    expect(call!.url).toBe(`${STELLA_SITE}/api/stella/relay/responses`);
+    const body = JSON.parse(String(call!.init?.body)) as Record<string, any>;
+    expect(body.model).toBe("stella/default");
+    expect(body.stream).toBe(true);
+    expect(body.input).toEqual([
+      { role: "user", content: [{ type: "input_text", text: "hi" }] },
+    ]);
+    expect(body.max_output_tokens).toBe(2048);
+    // Reasoning is mandatory for this model and must ship at Stella's top
+    // rung — not clamped down to high by the adapter.
+    expect(body.reasoning).toMatchObject({ effort: "xhigh" });
   });
 });
 

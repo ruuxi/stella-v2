@@ -333,7 +333,11 @@ function buildParams(
         ? undefined
         : (options?.promptCacheKey ?? options?.sessionId),
     prompt_cache_retention: getPromptCacheRetention(compat, cacheRetention),
-    store: true,
+    // OpenRouter rejects `store: true` on its Responses API (verified live:
+    // "Invalid Responses API request"); omit it there, keep it elsewhere.
+    store: !(
+      model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai")
+    ),
   };
 
   if (options?.maxTokens) {

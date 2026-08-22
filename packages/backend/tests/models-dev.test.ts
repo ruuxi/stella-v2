@@ -76,6 +76,87 @@ describe("managed model price entries", () => {
     });
   });
 
+  it("uses Wafer's published V4 Flash Fast rates", () => {
+    // Mirrors wafer's own /v1/models pricing: $0.28 in / $0.56 out /
+    // $0.07 cache-read per 1M, reasoning at the output rate. Text-only.
+    const {
+      entries: [entry],
+      missingModels,
+    } = buildManagedModelPriceEntries({
+      modelIds: ["wafer/deepseek-v4-flash-0731-fast"],
+      data: {},
+      syncedAt: 123,
+    });
+    expect(missingModels).toEqual([]);
+    expect(entry).toMatchObject({
+      source: "static",
+      sourceProvider: "wafer",
+      sourceModelId: "deepseek-v4-flash-0731-fast",
+      inputPerMillionUsd: 0.28,
+      outputPerMillionUsd: 0.56,
+      cacheReadPerMillionUsd: 0.07,
+      reasoningPerMillionUsd: 0.56,
+      modalitiesInput: ["text"],
+      modalitiesOutput: ["text"],
+    });
+  });
+
+  it("fills in Muse Spark 1.2 Contributor statically until catalogs list it", () => {
+    // Released today: absent from models.dev entirely.
+    const {
+      entries: [entry],
+      missingModels,
+    } = buildManagedModelPriceEntries({
+      modelIds: ["meta/muse-spark-1.2-contributor"],
+      data: {},
+      syncedAt: 123,
+    });
+    expect(missingModels).toEqual([]);
+    expect(entry).toMatchObject({
+      model: "meta/muse-spark-1.2-contributor",
+      source: "static",
+      sourceProvider: "openrouter",
+      sourceModelId: "muse-spark-1.2-contributor",
+      inputPerMillionUsd: 0.1,
+      outputPerMillionUsd: 0.2,
+      cacheReadPerMillionUsd: 0.002,
+      reasoningPerMillionUsd: 0.2,
+      modalitiesInput: ["text", "image", "video", "file", "audio"],
+      modalitiesOutput: ["text"],
+    });
+  });
+
+  it("prefers models.dev pricing for Muse Spark 1.2 Contributor once listed", () => {
+    const model = "meta/muse-spark-1.2-contributor";
+    const { entries, missingModels } = buildManagedModelPriceEntries({
+      data: {
+        openrouter: {
+          models: {
+            // models.dev keys OpenRouter rows by the full vendor/model slug.
+            "meta/muse-spark-1.2-contributor": {
+              id: "meta/muse-spark-1.2-contributor",
+              cost: { input: 2, output: 8, cache_read: 0.2 },
+              modalities: { input: ["text", "image"], output: ["text"] },
+              last_updated: "2026-08-10",
+            },
+          },
+        },
+      },
+      modelIds: [model],
+      syncedAt: 1,
+    });
+    expect(missingModels).toEqual([]);
+    expect(entries[0]).toMatchObject({
+      model,
+      source: "models.dev",
+      sourceProvider: "openrouter",
+      sourceModelId: "meta/muse-spark-1.2-contributor",
+      inputPerMillionUsd: 2,
+      outputPerMillionUsd: 8,
+      cacheReadPerMillionUsd: 0.2,
+    });
+  });
+
   it("resolves Gemini 3.1 Flash Lite directly from Google's catalog", () => {
     const model = "google/gemini-3.1-flash-lite";
     const result = buildManagedModelPriceEntries({

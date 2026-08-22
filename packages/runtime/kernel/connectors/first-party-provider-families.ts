@@ -97,6 +97,9 @@ const PLANNER_READY_CONNECTOR_IDS = new Set([
   "posthog",
   "ably",
   "abuseipdb",
+  "snowflake",
+  "abstract",
+  "44api",
 ]);
 
 const codeStatusFor = (

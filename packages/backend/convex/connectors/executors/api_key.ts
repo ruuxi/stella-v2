@@ -17,6 +17,18 @@ export type DeferredApiKeyProvider = {
     | "crm_recruiting_sales";
   fixedApiOrigin?: string;
   requiresTenantOrigin?: boolean;
+  /**
+   * Per-action official host map for providers that expose one host per product
+   * (e.g. Abstract: emailvalidation./phonevalidation./ipgeolocation.abstractapi.com).
+   * Every value is an https origin; the planner still emits only relative paths.
+   */
+  fixedApiOriginByAction?: Readonly<Record<string, string>>;
+  /**
+   * Narrowly-allowlisted suffix for account/tenant-scoped origins (e.g. Snowflake
+   * `.snowflakecomputing.com`). Bound only through resolveDeferredTenantOrigin,
+   * which rejects any host outside this suffix — never an arbitrary host.
+   */
+  tenantOriginSuffix?: string;
   actions: Readonly<Record<string, "read" | "write">>;
   activationBlockers: readonly string[];
 };
@@ -83,6 +95,54 @@ const odataPath = (entity: string, input: Record<string, unknown>): string => {
 const actions = (
   entries: readonly (readonly [string, "read" | "write"])[],
 ): Readonly<Record<string, "read" | "write">> => Object.fromEntries(entries);
+
+/**
+ * 44API's public/upstream Composio action slugs are digit-leading (`44API_*`)
+ * and cannot satisfy the strict internal safe-action invariant. Preserve the
+ * exact upstream contract and canonicalize to the established `FORTYFOUR_API_*`
+ * safe alias (mirrors packages/backend/convex/data/integrations.ts) for catalog
+ * validation and planner dispatch. No public action name is renamed.
+ */
+export const canonicalizeDeferredActionName = (
+  providerKey: string,
+  action: string,
+): string =>
+  providerKey === "44api" && action.startsWith("44API_")
+    ? action.replace(/^44API_/u, "FORTYFOUR_API_")
+    : action;
+
+const SNOWFLAKE_STATEMENT_PARAMS = [
+  "warehouse",
+  "database",
+  "schema",
+  "role",
+  "timeout",
+] as const;
+
+/**
+ * Build a Snowflake SQL API v2 `/api/v2/statements` body. The SQL statement is
+ * always server-constructed or a required input; identifiers are passed as
+ * bound parameters so the planner never string-concatenates untrusted input.
+ */
+const snowflakeStatementBody = (
+  statement: string,
+  input: Record<string, unknown>,
+  bindings?: Record<string, { type: string; value: string }>,
+): Record<string, unknown> => {
+  const body: Record<string, unknown> = { statement };
+  for (const key of SNOWFLAKE_STATEMENT_PARAMS) {
+    const value = input[key];
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      body[key] = value;
+    }
+  }
+  if (bindings) body.bindings = bindings;
+  return body;
+};
 
 export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
   {
@@ -248,6 +308,61 @@ export const DEFERRED_API_KEY_PROVIDERS: readonly DeferredApiKeyProvider[] = [
     activationBlockers: API_KEY_CORE_BLOCKERS,
   },
   {
+    connectorId: "snowflake",
+    providerKey: "snowflake",
+    // Snowflake authenticates with an OAuth bearer token, not an API key; this
+    // deferred catalog only plans request shape and validates the account-scoped
+    // origin. Token custody/injection stay deferred activation blockers, so no
+    // token is ever placed here.
+    ownerFamily: "developer_data",
+    requiresTenantOrigin: true,
+    tenantOriginSuffix: ".snowflakecomputing.com",
+    actions: actions([
+      ["SNOWFLAKE_LIST_DATABASES", "read"],
+      ["SNOWFLAKE_DESCRIBE_TABLE", "read"],
+      ["SNOWFLAKE_EXECUTE_SQL_QUERY", "write"],
+    ]),
+    activationBlockers: [
+      ...API_KEY_CORE_BLOCKERS,
+      "validated per-connection Snowflake account-scoped origin and OAuth token exchange",
+    ],
+  },
+  {
+    connectorId: "abstract",
+    providerKey: "abstract",
+    ownerFamily: "developer_data",
+    // Abstract exposes one official host per product, all under *.abstractapi.com.
+    fixedApiOriginByAction: {
+      ABSTRACT_VALIDATE_EMAIL: "https://emailvalidation.abstractapi.com",
+      ABSTRACT_VALIDATE_PHONE: "https://phonevalidation.abstractapi.com",
+      ABSTRACT_GET_IP_GEOLOCATION: "https://ipgeolocation.abstractapi.com",
+    },
+    actions: actions([
+      ["ABSTRACT_VALIDATE_EMAIL", "read"],
+      ["ABSTRACT_VALIDATE_PHONE", "read"],
+      ["ABSTRACT_GET_IP_GEOLOCATION", "read"],
+    ]),
+    activationBlockers: [
+      ...API_KEY_CORE_BLOCKERS,
+      "per-product Abstract host selection and per-product API-key custody",
+    ],
+  },
+  {
+    connectorId: "44api",
+    providerKey: "44api",
+    ownerFamily: "developer_data",
+    fixedApiOrigin: "https://api.44api.dev",
+    // Public/upstream slugs stay 44API_*; stored canonically as FORTYFOUR_API_*
+    // to satisfy the strict safe-action invariant without renaming the contract.
+    actions: actions([
+      ["FORTYFOUR_API_VALIDATE_VAT_NUMBER", "read"],
+      ["FORTYFOUR_API_LIST_WHITELISTED_IPS", "read"],
+      ["FORTYFOUR_API_ADD_WHITELISTED_IP", "write"],
+      ["FORTYFOUR_API_REMOVE_WHITELISTED_IP", "write"],
+    ]),
+    activationBlockers: API_KEY_CORE_BLOCKERS,
+  },
+  {
     connectorId: "serpapi",
     providerKey: "serpapi",
     ownerFamily: "developer_data",
@@ -315,7 +430,8 @@ export const buildApiKeyProviderRequest = (
   action: string,
   input: Record<string, unknown>,
 ): ApiKeyProviderRequest | null => {
-  switch (`${providerKey}:${action}`) {
+  const canonicalAction = canonicalizeDeferredActionName(providerKey, action);
+  switch (`${providerKey}:${canonicalAction}`) {
     case "1password:ONEPASSWORD_LIST_VAULTS":
       return {
         method: "GET",
@@ -662,6 +778,72 @@ export const buildApiKeyProviderRequest = (
       requiredString(input, "categories");
       return { method: "POST", path: "/api/v2/report", body: input };
 
+    case "snowflake:SNOWFLAKE_LIST_DATABASES":
+      return {
+        method: "POST",
+        path: "/api/v2/statements",
+        body: snowflakeStatementBody("SHOW DATABASES", input),
+      };
+    case "snowflake:SNOWFLAKE_DESCRIBE_TABLE":
+      return {
+        method: "POST",
+        path: "/api/v2/statements",
+        body: snowflakeStatementBody("DESCRIBE TABLE IDENTIFIER(?)", input, {
+          "1": { type: "TEXT", value: requiredString(input, "table") },
+        }),
+      };
+    case "snowflake:SNOWFLAKE_EXECUTE_SQL_QUERY":
+      return {
+        method: "POST",
+        path: "/api/v2/statements",
+        body: snowflakeStatementBody(requiredString(input, "statement"), input),
+      };
+
+    case "abstract:ABSTRACT_VALIDATE_EMAIL":
+      requiredString(input, "email");
+      return {
+        method: "GET",
+        path: queryPath("/v1/", input, ["email", "auto_correct"]),
+      };
+    case "abstract:ABSTRACT_VALIDATE_PHONE":
+      requiredString(input, "phone");
+      return {
+        method: "GET",
+        path: queryPath("/v1/", input, ["phone", "country"]),
+      };
+    case "abstract:ABSTRACT_GET_IP_GEOLOCATION":
+      requiredString(input, "ip_address");
+      return {
+        method: "GET",
+        path: queryPath("/v1/", input, ["ip_address", "fields"]),
+      };
+
+    case "44api:FORTYFOUR_API_VALIDATE_VAT_NUMBER":
+      requiredString(input, "vatNumber");
+      requiredString(input, "countryCode");
+      return { method: "POST", path: "/webhook/validate-vat", body: input };
+    case "44api:FORTYFOUR_API_LIST_WHITELISTED_IPS":
+      return {
+        method: "POST",
+        path: "/webhook/ip-whitelist",
+        body: { ...input, action: "list" },
+      };
+    case "44api:FORTYFOUR_API_ADD_WHITELISTED_IP":
+      requiredString(input, "ipAddress");
+      requiredString(input, "email");
+      return {
+        method: "POST",
+        path: "/webhook/ip-whitelist",
+        body: { ...input, action: "add" },
+      };
+    case "44api:FORTYFOUR_API_REMOVE_WHITELISTED_IP":
+      requiredString(input, "ipAddress");
+      return {
+        method: "POST",
+        path: "/webhook/ip-whitelist",
+        body: { ...input, action: "remove" },
+      };
+
     default:
       return null;
   }
@@ -675,7 +857,12 @@ export const validateDeferredApiKeyProviderCatalog = (): string[] => {
       problems.push(`duplicate connector id ${provider.connectorId}`);
     }
     ids.add(provider.connectorId);
-    if (!provider.fixedApiOrigin && !provider.requiresTenantOrigin) {
+    const actionNames = Object.keys(provider.actions);
+    if (
+      !provider.fixedApiOrigin &&
+      !provider.requiresTenantOrigin &&
+      !provider.fixedApiOriginByAction
+    ) {
       problems.push(`${provider.connectorId} has no validated origin strategy`);
     }
     if (
@@ -684,7 +871,51 @@ export const validateDeferredApiKeyProviderCatalog = (): string[] => {
     ) {
       problems.push(`${provider.connectorId} origin must be https`);
     }
-    const actionNames = Object.keys(provider.actions);
+    if (provider.fixedApiOriginByAction) {
+      for (const [action, origin] of Object.entries(
+        provider.fixedApiOriginByAction,
+      )) {
+        if (!(action in provider.actions)) {
+          problems.push(
+            `${provider.connectorId} per-action origin for unknown action ${action}`,
+          );
+        }
+        let originUrl: URL | null = null;
+        try {
+          originUrl = new URL(origin);
+        } catch {
+          originUrl = null;
+        }
+        if (!originUrl || originUrl.protocol !== "https:") {
+          problems.push(
+            `${provider.connectorId} per-action origin must be https: ${action}`,
+          );
+        }
+      }
+      for (const action of actionNames) {
+        if (!(action in provider.fixedApiOriginByAction)) {
+          problems.push(
+            `${provider.connectorId} action ${action} has no per-action origin`,
+          );
+        }
+      }
+    }
+    if (provider.tenantOriginSuffix) {
+      if (!provider.requiresTenantOrigin) {
+        problems.push(
+          `${provider.connectorId} tenant suffix requires requiresTenantOrigin`,
+        );
+      }
+      if (
+        !/^\.[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/u.test(
+          provider.tenantOriginSuffix,
+        )
+      ) {
+        problems.push(
+          `${provider.connectorId} tenant suffix is not a safe domain suffix`,
+        );
+      }
+    }
     if (actionNames.length === 0) {
       problems.push(`${provider.connectorId} has no actions`);
     }
@@ -695,4 +926,65 @@ export const validateDeferredApiKeyProviderCatalog = (): string[] => {
     }
   }
   return problems;
+};
+
+/**
+ * Resolve the official https origin for a deferred action. Per-product hosts
+ * (Abstract) are looked up by action; all others use the single fixed origin.
+ * Returns null for tenant-scoped providers (use resolveDeferredTenantOrigin).
+ */
+export const resolveDeferredActionOrigin = (
+  provider: DeferredApiKeyProvider,
+  action: string,
+): string | null => {
+  if (provider.fixedApiOriginByAction) {
+    const canonical = canonicalizeDeferredActionName(
+      provider.providerKey,
+      action,
+    );
+    return (
+      provider.fixedApiOriginByAction[canonical] ??
+      provider.fixedApiOriginByAction[action] ??
+      null
+    );
+  }
+  return provider.fixedApiOrigin ?? null;
+};
+
+/**
+ * Bind an account/tenant-scoped origin under the provider's narrowly-allowlisted
+ * suffix. Enforces https, an origin-only URL, and a real subdomain of the
+ * official suffix; any host outside the suffix (or the bare suffix) is rejected.
+ * This is the only sanctioned way to derive a tenant origin — arbitrary hosts
+ * and token egress are never permitted.
+ */
+export const resolveDeferredTenantOrigin = (
+  provider: DeferredApiKeyProvider,
+  candidateOrigin: string,
+): string | null => {
+  if (!provider.requiresTenantOrigin || !provider.tenantOriginSuffix) {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(candidateOrigin);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:") return null;
+  if (
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    (url.pathname !== "" && url.pathname !== "/")
+  ) {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  const suffix = provider.tenantOriginSuffix.toLowerCase();
+  if (!host.endsWith(suffix)) return null;
+  const label = host.slice(0, host.length - suffix.length);
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/u.test(label)) return null;
+  return `https://${host}`;
 };

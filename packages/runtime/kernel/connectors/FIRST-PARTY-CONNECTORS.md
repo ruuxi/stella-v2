@@ -65,18 +65,32 @@ proprietary Composio APIs. Prefer the native tool in all cases.
   using the auth schemes reported by Composio. API-key toolkits remain
   Composio-managed; Stella does not ingest or custody their keys natively.
 - The API-key developer/data connectors `firecrawl`, `tavily`, `exa`,
-  `serpapi`, `perplexityai`, `posthog`, `ably`, and `abuseipdb` now carry
-  server-side **fixed-origin request planners**
+  `serpapi`, `perplexityai`, `posthog`, `ably`, `abuseipdb`, `abstract`, and
+  `44api` now carry server-side **fixed-origin request planners**
   (`connectors/executors/api_key.ts` `DEFERRED_API_KEY_PROVIDERS` /
   `buildApiKeyProviderRequest`) alongside `peopledatalabs`, and are recorded as
   their canonical `developer_data` owner in
-  `first-party-connector-ownership.ts` (`planner_ready`). These planners emit
-  only relative paths and static, non-secret headers; they are **not** wired
-  into the executor dispatch and cannot run until the per-user API-key vault and
-  placement-aware injection land, so no key is custodied and Composio stays
-  authoritative. `snowflake` (account-scoped origin), `abstract` (per-product
-  host), and `44api` (digit-leading `44API_*` actions) remain `metadata_only`
-  pending their own origin/action-shape resolution.
+  `first-party-connector-ownership.ts` (`planner_ready`). `snowflake` also
+  carries a planner and its narrowly-allowlisted account-origin binding
+  (`planner_ready`, `developer_data`, OAuth). These planners emit only relative
+  paths and static, non-secret headers; they are **not** wired into the executor
+  dispatch and cannot run until the per-user API-key vault (and, for Snowflake,
+  the account-scoped OAuth exchange) and placement-aware injection land, so no
+  key or token is custodied and Composio stays authoritative.
+- The three former code-shape blockers are closed in the shared core without
+  activation:
+  - **Snowflake account-scoped origin** — `requiresTenantOrigin` plus a
+    `tenantOriginSuffix` (`.snowflakecomputing.com`) bound only through
+    `resolveDeferredTenantOrigin`, which enforces https, an origin-only URL, and
+    a real subdomain of the official suffix and rejects any arbitrary host, the
+    bare suffix, look-alikes, downgrades, and credentialed URLs.
+  - **Abstract per-product host** — an explicit action→official-host map
+    (`fixedApiOriginByAction`, all under `*.abstractapi.com`), resolved by
+    `resolveDeferredActionOrigin`; no single or model-chosen base URL.
+  - **44API digit-leading actions** — the exact public/upstream `44API_*` slugs
+    are preserved; the catalog stores the established `FORTYFOUR_API_*` safe
+    alias and `canonicalizeDeferredActionName` maps the public slug onto it for
+    the strict safe-action invariant. The public contract is unchanged.
 - `FIRST_PARTY_LOCAL_EXECUTION_ENABLED` is **empty by design** — the deliberate
   switch that would let a future native dispatcher run. It mirrors the equally
   empty `PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS` in
@@ -97,11 +111,11 @@ a connector production-ready.
 
 ### OAuth connectors
 
-| Connector   | Shared-core env required                                                                                                                                          | Notes                                                                                                                                                                            |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `github`    | `STELLA_CONNECTOR_OAUTH_GITHUB_CLIENT_ID`, `_CLIENT_SECRETS_JSON`, `_CLIENT_SECRET_VERSION`                                                                       | Hosted OAuth callback, PKCE, fixed `api.github.com` executor. Requires provider-app registration and representative live read/write verification before allowlisting or rollout. |
-| `supabase`  | `STELLA_CONNECTOR_OAUTH_SUPABASE_CLIENT_ID`, `_CLIENT_SECRETS_JSON`, `_CLIENT_SECRET_VERSION`                                                                     | Hosted Management API OAuth, PKCE, fixed `api.supabase.com` executor. Dynamic `scope` is intentionally omitted because Supabase app permissions are configured out of band.      |
-| `snowflake` | Not yet defined in the shared core; future setup must include account origin, client id, versioned secret ring, and a validated account-origin allowlist strategy | Snowflake OAuth and SQL API URLs are account-scoped. Runtime metadata alone is not sufficient for safe server execution.                                                         |
+| Connector   | Shared-core env required                                                                                                                                                                                                                                        | Notes                                                                                                                                                                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `github`    | `STELLA_CONNECTOR_OAUTH_GITHUB_CLIENT_ID`, `_CLIENT_SECRETS_JSON`, `_CLIENT_SECRET_VERSION`                                                                                                                                                                     | Hosted OAuth callback, PKCE, fixed `api.github.com` executor. Requires provider-app registration and representative live read/write verification before allowlisting or rollout.                                 |
+| `supabase`  | `STELLA_CONNECTOR_OAUTH_SUPABASE_CLIENT_ID`, `_CLIENT_SECRETS_JSON`, `_CLIENT_SECRET_VERSION`                                                                                                                                                                   | Hosted Management API OAuth, PKCE, fixed `api.supabase.com` executor. Dynamic `scope` is intentionally omitted because Supabase app permissions are configured out of band.                                      |
+| `snowflake` | Not yet provisioned in the shared core; setup must supply the account origin, client id, and versioned secret ring. The planner exists; the account origin is bound only via `resolveDeferredTenantOrigin` under the `.snowflakecomputing.com` suffix allowlist | Snowflake OAuth and SQL API URLs are account-scoped. The narrow suffix binding closes the code blocker; the tenant account origin and OAuth app remain an external per-connection requirement before activation. |
 
 ### API-key connectors
 
@@ -117,10 +131,16 @@ shared or paid API keys.
 
 - **44API keeps its exact toolkit compatibility**: public id `44api`, display /
   upstream prefix `44API`, and exact action prefix `44API_*`. The identifier
-  guard admits that digit-leading action shape only for the `44api` connector.
+  guard admits that digit-leading action shape only for the `44api` connector,
+  and the deferred planner catalog stores the `FORTYFOUR_API_*` safe alias
+  (`canonicalizeDeferredActionName`) so the strict internal safe-action
+  invariant holds without renaming the public contract. Official origin
+  `https://api.44api.dev`, credential header `X-API-Key`.
 - **Snowflake** OAuth is account-scoped; the native provider config is
   intentionally `null` (status `missing_oauth_app`) until an account URL env is
-  set. This is correct, not a bug.
+  set. This is correct, not a bug. The deferred planner never accepts an
+  arbitrary origin — `resolveDeferredTenantOrigin` binds only real subdomains of
+  `.snowflakecomputing.com`.
 - Representative actions are a curated subset; the authoritative, current action
   set for any connector is resolved at runtime through Composio
   (`connect.actions` / `connect.schema`).

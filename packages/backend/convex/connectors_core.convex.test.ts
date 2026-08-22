@@ -40,7 +40,10 @@ import {
 } from "./connectors/executors/design_finance";
 import {
   buildApiKeyProviderRequest,
+  canonicalizeDeferredActionName,
   DEFERRED_API_KEY_PROVIDERS,
+  resolveDeferredActionOrigin,
+  resolveDeferredTenantOrigin,
   validateDeferredApiKeyProviderCatalog,
 } from "./connectors/executors/api_key";
 import {
@@ -1071,6 +1074,9 @@ describe("deferred API-key provider request catalog", () => {
         "posthog",
         "ably",
         "abuseipdb",
+        "snowflake",
+        "abstract",
+        "44api",
       ].sort(),
     );
     expect(new Set(ids).size).toBe(ids.length);
@@ -1225,6 +1231,22 @@ describe("deferred API-key provider request catalog", () => {
       ABUSEIPDB_GET_BLACKLIST: {},
       ABUSEIPDB_CHECK_BLOCK: { network: "8.8.8.0/24" },
       ABUSEIPDB_REPORT_IP: { ip: "8.8.8.8", categories: "18" },
+      SNOWFLAKE_LIST_DATABASES: {},
+      SNOWFLAKE_DESCRIBE_TABLE: { table: "MY_DB.MY_SCHEMA.MY_TABLE" },
+      SNOWFLAKE_EXECUTE_SQL_QUERY: { statement: "select 1" },
+      ABSTRACT_VALIDATE_EMAIL: { email: "person@example.com" },
+      ABSTRACT_VALIDATE_PHONE: { phone: "14154582468" },
+      ABSTRACT_GET_IP_GEOLOCATION: { ip_address: "8.8.8.8" },
+      FORTYFOUR_API_VALIDATE_VAT_NUMBER: {
+        vatNumber: "69838046",
+        countryCode: "SI",
+      },
+      FORTYFOUR_API_LIST_WHITELISTED_IPS: {},
+      FORTYFOUR_API_ADD_WHITELISTED_IP: {
+        ipAddress: "203.0.113.50",
+        email: "admin@company.com",
+      },
+      FORTYFOUR_API_REMOVE_WHITELISTED_IP: { ipAddress: "203.0.113.50" },
     };
 
     for (const provider of DEFERRED_API_KEY_PROVIDERS) {
@@ -1241,6 +1263,178 @@ describe("deferred API-key provider request catalog", () => {
         expect(request?.headers?.authorization).toBeUndefined();
       }
     }
+  });
+
+  it("plans Snowflake SQL API v2 requests and binds only allowlisted account origins", () => {
+    expect(
+      buildApiKeyProviderRequest("snowflake", "SNOWFLAKE_LIST_DATABASES", {}),
+    ).toEqual({
+      method: "POST",
+      path: "/api/v2/statements",
+      body: { statement: "SHOW DATABASES" },
+    });
+    expect(
+      buildApiKeyProviderRequest("snowflake", "SNOWFLAKE_DESCRIBE_TABLE", {
+        table: "DB.SCHEMA.T",
+        warehouse: "WH",
+      }),
+    ).toEqual({
+      method: "POST",
+      path: "/api/v2/statements",
+      body: {
+        statement: "DESCRIBE TABLE IDENTIFIER(?)",
+        warehouse: "WH",
+        bindings: { "1": { type: "TEXT", value: "DB.SCHEMA.T" } },
+      },
+    });
+    expect(() =>
+      buildApiKeyProviderRequest(
+        "snowflake",
+        "SNOWFLAKE_EXECUTE_SQL_QUERY",
+        {},
+      ),
+    ).toThrow();
+
+    const snowflake = DEFERRED_API_KEY_PROVIDERS.find(
+      (provider) => provider.connectorId === "snowflake",
+    )!;
+    // Never a fixed origin; binds only through the narrow suffix allowlist.
+    expect(
+      resolveDeferredActionOrigin(snowflake, "SNOWFLAKE_LIST_DATABASES"),
+    ).toBeNull();
+    expect(
+      resolveDeferredTenantOrigin(
+        snowflake,
+        "https://acme-prod.snowflakecomputing.com",
+      ),
+    ).toBe("https://acme-prod.snowflakecomputing.com");
+    expect(
+      resolveDeferredTenantOrigin(
+        snowflake,
+        "https://org-account.us-east-1.aws.snowflakecomputing.com",
+      ),
+    ).toBe("https://org-account.us-east-1.aws.snowflakecomputing.com");
+    // Arbitrary hosts, the bare suffix, look-alikes, and downgrades are rejected.
+    for (const bad of [
+      "https://evil.com",
+      "https://snowflakecomputing.com",
+      "https://acme.snowflakecomputing.com.evil.com",
+      "https://evilsnowflakecomputing.com",
+      "http://acme.snowflakecomputing.com",
+      "https://acme.snowflakecomputing.com/api/v2/statements",
+      "https://user:pass@acme.snowflakecomputing.com",
+    ]) {
+      expect(resolveDeferredTenantOrigin(snowflake, bad), bad).toBeNull();
+    }
+  });
+
+  it("maps every Abstract action to its official per-product host under abstractapi.com", () => {
+    const abstract = DEFERRED_API_KEY_PROVIDERS.find(
+      (provider) => provider.connectorId === "abstract",
+    )!;
+    expect(abstract.fixedApiOrigin).toBeUndefined();
+    const expected: Record<string, string> = {
+      ABSTRACT_VALIDATE_EMAIL: "https://emailvalidation.abstractapi.com",
+      ABSTRACT_VALIDATE_PHONE: "https://phonevalidation.abstractapi.com",
+      ABSTRACT_GET_IP_GEOLOCATION: "https://ipgeolocation.abstractapi.com",
+    };
+    for (const action of Object.keys(abstract.actions)) {
+      const origin = resolveDeferredActionOrigin(abstract, action);
+      expect(origin, action).toBe(expected[action]);
+      const url = new URL(origin!);
+      expect(url.protocol).toBe("https:");
+      expect(url.hostname.endsWith(".abstractapi.com"), action).toBe(true);
+    }
+    expect(
+      buildApiKeyProviderRequest("abstract", "ABSTRACT_VALIDATE_EMAIL", {
+        email: "person@example.com",
+        auto_correct: true,
+      }),
+    ).toEqual({
+      method: "GET",
+      path: "/v1/?email=person%40example.com&auto_correct=true",
+    });
+    // The secret api_key query param is injected at execution, never planned.
+    const emailPlan = buildApiKeyProviderRequest(
+      "abstract",
+      "ABSTRACT_VALIDATE_EMAIL",
+      { email: "person@example.com", api_key: "secret" },
+    );
+    expect(emailPlan?.path).not.toContain("api_key");
+  });
+
+  it("keeps exact public 44API_* actions while canonicalizing the safe-action invariant", () => {
+    const fortyfour = DEFERRED_API_KEY_PROVIDERS.find(
+      (provider) => provider.connectorId === "44api",
+    )!;
+    // The stored catalog keys are the safe canonical aliases, not the public slug.
+    for (const action of Object.keys(fortyfour.actions)) {
+      expect(action.startsWith("FORTYFOUR_API_")).toBe(true);
+      expect(action).toMatch(/^[A-Z][A-Z0-9_]*$/u);
+    }
+    const publicActions = [
+      "44API_VALIDATE_VAT_NUMBER",
+      "44API_LIST_WHITELISTED_IPS",
+      "44API_ADD_WHITELISTED_IP",
+      "44API_REMOVE_WHITELISTED_IP",
+    ];
+    for (const publicAction of publicActions) {
+      // The exact public slug is digit-leading and fails the strict invariant...
+      expect(publicAction).not.toMatch(/^[A-Z][A-Z0-9_]*$/u);
+      // ...but canonicalizes to a stored safe alias.
+      const canonical = canonicalizeDeferredActionName("44api", publicAction);
+      expect(Object.keys(fortyfour.actions)).toContain(canonical);
+    }
+    // Public and canonical names resolve to identical plans (aliasing, not renaming).
+    const samples: Record<string, Record<string, unknown>> = {
+      "44API_VALIDATE_VAT_NUMBER": { vatNumber: "69838046", countryCode: "SI" },
+      "44API_LIST_WHITELISTED_IPS": {},
+      "44API_ADD_WHITELISTED_IP": {
+        ipAddress: "203.0.113.50",
+        email: "admin@company.com",
+      },
+      "44API_REMOVE_WHITELISTED_IP": { ipAddress: "203.0.113.50" },
+    };
+    for (const publicAction of publicActions) {
+      const canonical = canonicalizeDeferredActionName("44api", publicAction);
+      const viaPublic = buildApiKeyProviderRequest(
+        "44api",
+        publicAction,
+        samples[publicAction],
+      );
+      const viaCanonical = buildApiKeyProviderRequest(
+        "44api",
+        canonical,
+        samples[publicAction],
+      );
+      expect(viaPublic).toEqual(viaCanonical);
+      expect(viaPublic?.path.startsWith("/webhook/")).toBe(true);
+    }
+    expect(
+      buildApiKeyProviderRequest("44api", "44API_VALIDATE_VAT_NUMBER", {
+        vatNumber: "69838046",
+        countryCode: "SI",
+      }),
+    ).toEqual({
+      method: "POST",
+      path: "/webhook/validate-vat",
+      body: { vatNumber: "69838046", countryCode: "SI" },
+    });
+    expect(
+      buildApiKeyProviderRequest("44api", "44API_ADD_WHITELISTED_IP", {
+        ipAddress: "203.0.113.50",
+        email: "admin@company.com",
+      }),
+    ).toEqual({
+      method: "POST",
+      path: "/webhook/ip-whitelist",
+      body: {
+        ipAddress: "203.0.113.50",
+        email: "admin@company.com",
+        action: "add",
+      },
+    });
+    expect(fortyfour.fixedApiOrigin).toBe("https://api.44api.dev");
   });
 });
 

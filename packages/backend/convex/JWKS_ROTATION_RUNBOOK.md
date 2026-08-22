@@ -48,7 +48,12 @@ Auth secret.
 
 Convex evaluates `auth.config.ts` while deploying. Because the new auth config
 references `STELLA_JWKS_MODE`, that variable must exist before this code can be
-deployed.
+deployed. Set it on the target deployment before running deployment-backed
+codegen, function analysis, or deploy; a local shell value is not sufficient.
+The existing `JWKS` value must also be a valid Better Auth static snapshot.
+Malformed static configuration fails closed during auth-config evaluation and
+prevents Phase 1 from deploying. Restore it only through the approved secret
+management path; do not print it or pass it through command-line arguments.
 
 1. Set `STELLA_JWKS_MODE` to `static` with the normal environment-management
    procedure. Do not inspect or modify `JWKS`.
@@ -66,6 +71,12 @@ deployed.
    `false`. A mismatch means the static and database keysets do not have one
    unambiguous shared signer; stop rather than regenerating, exporting, or
    editing keys.
+
+The preflight function exists only after the Phase 1 code is deployed. It
+returns counts, booleans, mode, and reason metadata; it never returns the
+static value or either JWK. If deployment stops on the generic invalid-JWKS
+error, there is no safe preflight bypass: repair the deployment configuration
+through secret management, then repeat Phase 1.
 
 ## Phase 2: switch verification and signing to dynamic JWKS
 

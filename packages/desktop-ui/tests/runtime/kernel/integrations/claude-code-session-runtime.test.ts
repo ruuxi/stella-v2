@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   ClaudeCodeSteeringInterruptError,
   claudeCodeSessionHasActiveProcess,
+  createClaudeNativeToolUseCorrelator,
+  repairPartialToolInputJson,
   collectClaudeCodeNativeFileChanges,
   createClaudeCodeStreamEmitter,
   getClaudeCodeModelRoundFromStreamEvent,
@@ -2619,5 +2621,159 @@ describe("claude-code-session-runtime", () => {
       }
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("claude native tool-use integrity gate", () => {
+  const longPrompt = `Detailed brief: ${"context ".repeat(1200)}end of brief.`;
+
+  const streamToolUse = (
+    correlator: ReturnType<typeof createClaudeNativeToolUseCorrelator>,
+    args: { id: string; name: string; json: string; stop?: boolean; index?: number },
+  ) => {
+    const index = args.index ?? 1;
+    correlator.observeStreamEvent({
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index,
+        content_block: { type: "tool_use", id: args.id, name: args.name, input: {} },
+      },
+    });
+    for (let i = 0; i < args.json.length; i += 512) {
+      correlator.observeStreamEvent({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index,
+          delta: { type: "input_json_delta", partial_json: args.json.slice(i, i + 512) },
+        },
+      });
+    }
+    if (args.stop !== false) {
+      correlator.observeStreamEvent({
+        type: "stream_event",
+        event: { type: "content_block_stop", index },
+      });
+    }
+  };
+
+  it("repairs a partial string argument the way the CLI does", () => {
+    expect(repairPartialToolInputJson('{"description":"Fix","prompt":"cut mid-wo')).toEqual({
+      description: "Fix",
+      prompt: "cut mid-wo",
+    });
+    expect(repairPartialToolInputJson('{"prompt":"whole"}')).toEqual({ prompt: "whole" });
+    expect(repairPartialToolInputJson('{"nested":{"list":["a","b')).toEqual({
+      nested: { list: ["a", "b"] },
+    });
+  });
+
+  it("passes a long fully-streamed spawn_agent prompt through intact", async () => {
+    const correlator = createClaudeNativeToolUseCorrelator();
+    const toolArgs = { description: "Long brief", prompt: longPrompt };
+    streamToolUse(correlator, {
+      id: "toolu_full",
+      name: "mcp__stella__spawn_agent",
+      json: JSON.stringify(toolArgs),
+    });
+    correlator.observeAssistantMessage({
+      type: "assistant",
+      message: {
+        stop_reason: "end_turn",
+        content: [
+          { type: "tool_use", id: "toolu_full", name: "mcp__stella__spawn_agent", input: toolArgs },
+        ],
+      },
+    });
+    const verdict = await correlator.resolveToolUseIntegrity(
+      "spawn_agent",
+      toolArgs,
+      undefined,
+      10,
+    );
+    expect(verdict).toBeUndefined();
+  });
+
+  it("refuses a call adjudicated truncated by a max_tokens assistant event", async () => {
+    const correlator = createClaudeNativeToolUseCorrelator();
+    const clipped = { description: "Fix", prompt: longPrompt.slice(0, 1400) };
+    correlator.observeAssistantMessage({
+      type: "assistant",
+      message: {
+        stop_reason: "max_tokens",
+        content: [
+          { type: "tool_use", id: "toolu_cut", name: "mcp__stella__spawn_agent", input: clipped },
+        ],
+      },
+    });
+    const verdict = await correlator.resolveToolUseIntegrity(
+      "spawn_agent",
+      clipped,
+      undefined,
+      10,
+    );
+    expect(verdict?.stopReason).toBe("max_tokens");
+  });
+
+  it("refuses a call whose args match the repair of an interrupted stream", async () => {
+    const correlator = createClaudeNativeToolUseCorrelator();
+    const fullJson = JSON.stringify({ description: "Fix the runtime", prompt: longPrompt });
+    const cut = fullJson.slice(0, 900); // mid prompt string, no stop event
+    streamToolUse(correlator, {
+      id: "toolu_interrupted",
+      name: "mcp__stella__spawn_agent",
+      json: cut,
+      stop: false,
+    });
+    const dispatched = repairPartialToolInputJson(cut);
+    expect(dispatched).toBeDefined();
+    const verdict = await correlator.resolveToolUseIntegrity(
+      "spawn_agent",
+      dispatched as Record<string, unknown>,
+      undefined,
+      10,
+    );
+    expect(verdict?.stopReason).toBe("stream_interrupted");
+    expect(verdict?.toolCallId).toBe("toolu_interrupted");
+  });
+
+  it("refuses a call whose block stopped with unparseable accumulated JSON", async () => {
+    const correlator = createClaudeNativeToolUseCorrelator();
+    const fullJson = JSON.stringify({ thread_id: "thr-1", description: "d", message: longPrompt });
+    const cut = fullJson.slice(0, 1000);
+    streamToolUse(correlator, {
+      id: "toolu_stop_cut",
+      name: "mcp__stella__send_input",
+      json: cut,
+      stop: true,
+    });
+    const dispatched = repairPartialToolInputJson(cut);
+    expect(dispatched).toBeDefined();
+    const verdict = await correlator.resolveToolUseIntegrity(
+      "send_input",
+      dispatched as Record<string, unknown>,
+      undefined,
+      10,
+    );
+    expect(verdict?.stopReason).toBe("stream_interrupted");
+  });
+
+  it("still fails open for a complete block only missing its finalized event", async () => {
+    const correlator = createClaudeNativeToolUseCorrelator();
+    const toolArgs = { description: "Race", prompt: longPrompt };
+    streamToolUse(correlator, {
+      id: "toolu_race",
+      name: "mcp__stella__spawn_agent",
+      json: JSON.stringify(toolArgs),
+      stop: false,
+    });
+    const verdict = await correlator.resolveToolUseIntegrity(
+      "spawn_agent",
+      toolArgs,
+      undefined,
+      10,
+    );
+    expect(verdict).toBeUndefined();
   });
 });

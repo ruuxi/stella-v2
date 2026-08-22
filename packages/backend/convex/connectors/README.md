@@ -54,6 +54,11 @@ connectors/
     providers.ts         # reviewed fixed origins, auth placement, action schemas
     vault.ts             # encrypted owner-scoped connect/status/disconnect lifecycle
     execute.ts           # single-attempt fixed-origin execution + redaction
+  hosted_connect/
+    origin.ts            # SSRF-safe per-owner origin binding + fixed-path URLs
+    providers.ts         # customer-hosted descriptors + token/verify gating
+    vault.ts             # encrypted token + bound-origin lifecycle (1Password Connect)
+    execute.ts           # single-attempt bound-origin execution + redaction
 http_routes/connector_oauth.ts  # hosted GET callback + admin rollout POST
 http_routes/native_oauth.ts     # Store connect/status/run + API-key lifecycle
 ```
@@ -68,6 +73,7 @@ Set in the production deployment (`benevolent-minnow-586`); never in source,
 | `STELLA_FIRST_PARTY_CONNECTOR_EXECUTION_ENABLED`                        | Global kill switch. `1`/`true` enables first-party execution. Default off.                               |
 | `STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS`                              | Comma-separated emergency allowlist of provider keys. Empty = fail closed.                               |
 | `STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS`                           | Independent allowlist for API-key providers with a completed representative-call verification.           |
+| `STELLA_CONNECTOR_HOSTED_CONNECT_VERIFIED_PROVIDERS`                    | Independent allowlist for customer-hosted connect providers (1Password Connect) with a completed representative-call verification. |
 | `STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL`                                | Sole origin used to build callbacks, e.g. `https://connect.stella.sh`. Until set, connect-start refuses. |
 | `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_ID`                                | Provider OAuth client id. `<KEY>` = manifest key upper-cased, `-`→`_` (e.g. `GOOGLE_WORKSPACE`).         |
 | `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_SECRETS_JSON`                      | Versioned secret ring `{"1":"...","2":"..."}` for zero-downtime rotation.                                |
@@ -382,7 +388,6 @@ descriptors and first-party dispatch:
 
 | Connector   | Remaining gap                                                                                                                                                                                                                                                                                                                                                               |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `1password` | 1Password Connect uses a customer-deployed account origin. There is no safe universal suffix or credential-bound origin field in the current lifecycle.                                                                                                                                                                                                                     |
 | `snowflake` | The SQL API requires an account-specific origin, and the reviewed Snowflake contract has OAuth/key-pair/PAT semantics rather than a proven single static API key for this product surface. The existing relative SQL planners and strict `*.snowflakecomputing.com` origin validator are non-executable until account-origin capture and the credential model are designed. |
 
 That Snowflake disposition follows the primary [SQL API endpoint
@@ -402,6 +407,59 @@ Read failures may tell the caller that an explicit retry is safe, while an
 uncertain write returns `ambiguous_write` and is never replayed automatically.
 Connect and disconnect are owner-rate-limited sensitive actions; clients do
 not automatically retry either mutation.
+
+## Customer-hosted connect profiles (1Password Connect)
+
+`connectors/hosted_connect/` is a sibling of `api_keys/` for providers whose
+HTTPS origin is **customer-hosted** and therefore supplied per owner rather than
+compiled into backend code (1Password Connect). A connection profile
+(`connector_hosted_profiles`) binds one owner to one provider's encrypted bearer
+token **plus** the exact validated `boundOrigin` that token may ever be sent to.
+The token uses the same versioned AES-256-GCM envelope as every other credential;
+no public/query surface returns it. The bound origin is not secret and is
+surfaced in status so the owner can see which server is bound.
+
+Security model:
+
+- **Origin-only binding** (`hosted_connect/origin.ts`): a candidate is accepted
+  only as an absolute `https:` URL with no userinfo, path, query, or fragment.
+  It is rejected if the host is a loopback / private / CGNAT / link-local /
+  reserved / documentation / multicast / broadcast IP literal (v4 or v6,
+  including IPv4-mapped and NAT64), an obviously internal or RFC 6761 special-use
+  hostname (`localhost`, single-label names, `.local`, `.internal`, `.test`,
+  `.invalid`, …), or a known public DNS-rebinding wildcard resolver
+  (`nip.io` / `sslip.io` / `xip.io`). The canonical `URL.origin` is persisted.
+- **No token egress outside the bound origin**: request paths are
+  server-constructed from the reviewed planner catalog and combined with the
+  bound origin via `assertHostedConnectRequestUrl`, which re-validates the origin
+  on every call and requires the resulting URL's origin to exactly equal the
+  (re-normalized) bound origin. The bearer token is placed only in
+  `Authorization`; `redirect: "manual"` means a 3xx (even same-host) is treated
+  as a provider failure so the token is never re-sent to a redirected location.
+- **DNS-rebinding limitation (Convex/fetch constraints)**: the default Convex
+  runtime exposes only global `fetch` — there is no `node:dns` and no way to pin
+  the socket to a validated IP, so a hostname that resolves to a private address
+  at fetch time cannot be fully prevented here. It is mitigated by rejecting
+  unsafe IP literals / internal / rebinding hostnames, re-validating on every
+  request, and never following redirects; the residual exposure requires an
+  egress proxy or network allowlist and is an external activation requirement.
+- **Same lifecycle guarantees as API keys**: one live row per owner/provider;
+  replacement is an optimistic-generation overwrite of both token and origin;
+  disconnect physically deletes the envelope; a provider 401/403 destroys the
+  rejected envelope generation-safely; execution is one network attempt with no
+  automatic retry (`ambiguous_write` for uncertain writes); connect/disconnect
+  are owner-rate-limited sensitive actions; rotation re-wraps onto the active
+  master key; account deletion drains `connector_hosted_profiles`.
+
+Activation is gated exactly like the API-key providers and independently:
+`STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS` (deployment enablement) **and**
+`STELLA_CONNECTOR_HOSTED_CONNECT_VERIFIED_PROVIDERS` (a separate representative
+live-call attestation) must both include the provider key, and a
+`connector_rollouts` row must select first-party. Until then Composio stays the
+default path and nothing routes natively. Remaining external requirements before
+1Password is activated: deployment enablement, a representative live call against
+a real customer Connect server, and (to fully close DNS rebinding) an egress
+allowlist/proxy.
 
 The Store publisher keeps Composio authoritative for planner-only and
 not-enabled toolkits and publishes the auth schemes Composio reports. `44api`

@@ -25,6 +25,10 @@ export const CONNECTOR_AUDIT_EVENTS = [
   "api_key_replaced",
   "api_key_disconnected",
   "api_key_invalidated",
+  "hosted_connect_connected",
+  "hosted_connect_replaced",
+  "hosted_connect_disconnected",
+  "hosted_connect_invalidated",
   "route_resolved",
   "execution",
 ] as const;

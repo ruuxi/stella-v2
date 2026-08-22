@@ -153,6 +153,23 @@ export const rotateEncryptedMaterial = internalAction({
       }
     }
 
+    let hostedConnectRotated = 0;
+    let hostedConnectFailed = 0;
+    let hostedConnectSkipped = 0;
+    for (let batchIndex = 0; batchIndex < maxBatches; batchIndex += 1) {
+      const batch = await ctx.runMutation(
+        internal.connectors.hosted_connect.vault
+          .rotateHostedConnectCredentialsBatch,
+        { batchSize },
+      );
+      hostedConnectRotated += batch.rotated;
+      hostedConnectFailed += batch.failed;
+      hostedConnectSkipped += batch.skipped;
+      if (!batch.hasMoreCandidates || batch.rotated === 0) {
+        break;
+      }
+    }
+
     return {
       activeKeyVersion,
       batchSize,
@@ -166,6 +183,9 @@ export const rotateEncryptedMaterial = internalAction({
       apiKeyRotated,
       apiKeyFailed,
       apiKeySkipped,
+      hostedConnectRotated,
+      hostedConnectFailed,
+      hostedConnectSkipped,
     };
   },
 });

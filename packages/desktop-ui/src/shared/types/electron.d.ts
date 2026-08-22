@@ -1054,6 +1054,12 @@ export type ElectronSystemApi = {
         completionMode?: "approve" | "wait";
         description?: string;
         placeholder?: string;
+        authType?: "api_key" | "oauth" | "hosted_connect";
+        originField?: {
+          label?: string;
+          placeholder?: string;
+          value?: string;
+        };
         oauthUserCode?: string;
         oauthVerificationUri?: string;
       },
@@ -1073,6 +1079,7 @@ export type ElectronSystemApi = {
     requestId: string;
     value: string;
     label?: string;
+    origin?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
   cancelConnectorCredential: (payload: {
     requestId: string;

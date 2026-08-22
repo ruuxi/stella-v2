@@ -8,9 +8,15 @@ type PendingConnectorCredentialRequest = {
   tokenKey: string;
   displayName: string;
   mode: "api_key" | "oauth";
+  authType?: "api_key" | "oauth" | "hosted_connect";
   completionMode?: "approve" | "wait";
   description?: string;
   placeholder?: string;
+  originField?: {
+    label?: string;
+    placeholder?: string;
+    value?: string;
+  };
   oauthUserCode?: string;
   oauthVerificationUri?: string;
   completionError?: string;
@@ -74,9 +80,11 @@ export const ConnectorCredentialRequestLayer = () => {
   const handleSubmit = async ({
     label,
     secret,
+    origin,
   }: {
     label: string;
     secret: string;
+    origin?: string;
   }) => {
     if (!pending) return;
     const requestId = pending.requestId;
@@ -84,6 +92,7 @@ export const ConnectorCredentialRequestLayer = () => {
       requestId,
       value: secret,
       label,
+      ...(origin !== undefined ? { origin } : {}),
     });
     if (!result?.ok) {
       throw new Error(
@@ -146,6 +155,7 @@ export const ConnectorCredentialRequestLayer = () => {
       description={pending.description}
       placeholder={pending.placeholder ?? "Paste your key"}
       showLabel={false}
+      originField={pending.originField}
       onSubmit={handleSubmit}
       onCancel={handleCancel}
     />

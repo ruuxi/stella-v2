@@ -26,7 +26,20 @@ type CredentialModalProps = {
    * Single-key provider settings can use the provider identifier directly.
    */
   showLabel?: boolean;
-  onSubmit: (payload: { label: string; secret: string }) => Promise<void>;
+  /**
+   * When set, an additional non-secret field (e.g. a customer-hosted connect
+   * server origin) is collected alongside the secret and returned as `origin`.
+   */
+  originField?: {
+    label?: string;
+    placeholder?: string;
+    value?: string;
+  };
+  onSubmit: (payload: {
+    label: string;
+    secret: string;
+    origin?: string;
+  }) => Promise<void>;
   onCancel: () => void;
 };
 
@@ -38,12 +51,14 @@ const CredentialModalContent = ({
   description,
   placeholder,
   showLabel = true,
+  originField,
   onSubmit,
   onCancel,
 }: CredentialModalContentProps) => {
   const t = useT();
   const [secret, setSecret] = useState("");
   const [labelValue, setLabelValue] = useState(label ?? "");
+  const [originValue, setOriginValue] = useState(originField?.value ?? "");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -61,6 +76,14 @@ const CredentialModalContent = ({
   const handleSubmit = async (event?: React.FormEvent) => {
     event?.preventDefault();
     setError(null);
+    if (originField && !originValue.trim()) {
+      setError(
+        originField.label
+          ? `${originField.label} is required.`
+          : "A server URL is required.",
+      );
+      return;
+    }
     if (!secret.trim()) {
       setError(t("global.integrations.credential.apiKeyRequired"));
       return;
@@ -68,7 +91,11 @@ const CredentialModalContent = ({
     const finalLabel = labelValue.trim() || defaultLabelValue;
     try {
       setSubmitting(true);
-      await onSubmit({ label: finalLabel, secret: secret.trim() });
+      await onSubmit({
+        label: finalLabel,
+        secret: secret.trim(),
+        ...(originField ? { origin: originValue.trim() } : {}),
+      });
     } catch (err) {
       setError(
         (err as Error).message ||
@@ -101,6 +128,20 @@ const CredentialModalContent = ({
         </div>
 
         <form className="credential-modal-form" onSubmit={handleSubmit}>
+          {originField ? (
+            <TextField
+              label={originField.label ?? "Server URL"}
+              type="url"
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={originValue}
+              onChange={(event) => setOriginValue(event.target.value)}
+              placeholder={originField.placeholder ?? "https://"}
+              autoFocus
+            />
+          ) : null}
           <TextField
             label={t("global.integrations.credential.apiKeyLabel")}
             type="password"
@@ -109,7 +150,7 @@ const CredentialModalContent = ({
             placeholder={
               placeholder ?? t("global.integrations.credential.keyPlaceholder")
             }
-            autoFocus
+            autoFocus={!originField}
           />
           {showLabel ? (
             <TextField
@@ -156,6 +197,7 @@ export const CredentialModal = ({
   description,
   placeholder,
   showLabel,
+  originField,
   onSubmit,
   onCancel,
 }: CredentialModalProps) => {
@@ -173,6 +215,7 @@ export const CredentialModal = ({
             description={description}
             placeholder={placeholder}
             showLabel={showLabel}
+            originField={originField}
             onSubmit={onSubmit}
             onCancel={onCancel}
           />

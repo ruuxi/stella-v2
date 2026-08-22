@@ -6,6 +6,11 @@ import {
   getApiKeyProviderDescriptorByKey,
 } from "../api_keys/providers";
 import {
+  getHostedConnectActionDescriptor,
+  getHostedConnectProviderDescriptor,
+  getHostedConnectProviderDescriptorByKey,
+} from "../hosted_connect/providers";
+import {
   createMicrosoftHandler,
   MICROSOFT_ACTION_OPERATIONS,
   MICROSOFT_CONNECTOR_ACTIONS,
@@ -362,6 +367,12 @@ export const firstPartyActionOperation = (
       ? getApiKeyActionDescriptor(descriptor, action)?.operation
       : null;
   })() ??
+  (() => {
+    const hosted = getHostedConnectProviderDescriptorByKey(providerKey);
+    return hosted
+      ? getHostedConnectActionDescriptor(hosted, action)?.operation
+      : null;
+  })() ??
   null;
 
 const PROVIDER_CONNECTOR_ACTIONS: Readonly<
@@ -387,6 +398,15 @@ export const firstPartyActionBelongsToConnector = (
       Boolean(getApiKeyActionDescriptor(apiKeyDescriptor, action))
     );
   }
+  const hostedConnectDescriptor =
+    getHostedConnectProviderDescriptor(connectorId);
+  if (hostedConnectDescriptor) {
+    return (
+      hostedConnectDescriptor.connectorId ===
+        connectorId.trim().toLowerCase() &&
+      Boolean(getHostedConnectActionDescriptor(hostedConnectDescriptor, action))
+    );
+  }
   const registry = PROVIDER_CONNECTOR_ACTIONS[providerKey];
   // The test-only mock predates connector-family maps. Every real provider
   // must register exact connector/action ownership or fail closed.
@@ -407,6 +427,14 @@ export const firstPartyProviderForConnectorAction = (
   if (apiKeyDescriptor && getApiKeyActionDescriptor(apiKeyDescriptor, action)) {
     return apiKeyDescriptor.providerKey;
   }
+  const hostedConnectDescriptor =
+    getHostedConnectProviderDescriptor(connectorId);
+  if (
+    hostedConnectDescriptor &&
+    getHostedConnectActionDescriptor(hostedConnectDescriptor, action)
+  ) {
+    return hostedConnectDescriptor.providerKey;
+  }
   for (const providerKey of Object.keys(PROVIDER_CONNECTOR_ACTIONS)) {
     if (firstPartyActionBelongsToConnector(providerKey, connectorId, action)) {
       return providerKey;
@@ -421,6 +449,9 @@ export const firstPartyProviderForConnector = (
   const normalized = connectorId.trim().toLowerCase();
   const apiKeyDescriptor = getApiKeyProviderDescriptor(normalized);
   if (apiKeyDescriptor) return apiKeyDescriptor.providerKey;
+  const hostedConnectDescriptor =
+    getHostedConnectProviderDescriptor(normalized);
+  if (hostedConnectDescriptor) return hostedConnectDescriptor.providerKey;
   for (const [providerKey, registry] of Object.entries(
     PROVIDER_CONNECTOR_ACTIONS,
   )) {

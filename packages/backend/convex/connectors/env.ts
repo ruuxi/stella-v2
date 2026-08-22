@@ -25,6 +25,13 @@ export const CONNECTOR_ENV = {
    * verification. This is a separate, mandatory attestation from enablement.
    */
   VERIFIED_API_KEY_PROVIDERS: "STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS",
+  /**
+   * Comma-separated customer-hosted connect providers (e.g. 1Password Connect)
+   * with completed representative staging verification. Separate, mandatory
+   * attestation from enablement; read directly in hosted_connect/providers.ts.
+   */
+  VERIFIED_HOSTED_CONNECT_PROVIDERS:
+    "STELLA_CONNECTOR_HOSTED_CONNECT_VERIFIED_PROVIDERS",
   /** Global backend kill switch for first-party execution. Default false. */
   EXECUTION_ENABLED: "STELLA_FIRST_PARTY_CONNECTOR_EXECUTION_ENABLED",
   /** Bounded retention (days) for connector audit/attempt metadata. Default 90. */

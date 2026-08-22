@@ -44,6 +44,25 @@ export class ConnectorCredentialService {
             kind: "credential",
         });
     }
+    async requestBackendConnectProfile(payload) {
+        return await this.enqueueRequest({
+            tokenKey: `backend-connect-profile:${payload.connectorId}`,
+            displayName: payload.displayName,
+            authType: "hosted_connect",
+            description: `Enter your ${payload.credentialLabel} and the exact HTTPS URL of your ${payload.displayName} Connect server. Stella encrypts the token in your server-side vault, binds it to that origin, and never exposes it to agents.`,
+            placeholder: payload.credentialLabel,
+            originField: {
+                label: payload.originLabel,
+                placeholder: payload.originPlaceholder,
+                value: payload.boundOrigin,
+            },
+            backendConnectProfile: {
+                connectorId: payload.connectorId,
+                expectedGeneration: payload.expectedGeneration,
+            },
+            kind: "credential",
+        });
+    }
     async requestExternalOAuthApproval(payload) {
         return await this.enqueueRequest({
             tokenKey: payload.tokenKey,
@@ -153,6 +172,8 @@ export class ConnectorCredentialService {
             completionMode: payload.kind === "external_approval" ? "approve" : "wait",
             description: payload.description,
             placeholder: payload.placeholder,
+            authType: payload.authType,
+            originField: payload.originField,
             oauthUserCode: payload.oauthUserCode,
             oauthVerificationUri: payload.oauthVerificationUri,
         };
@@ -166,6 +187,7 @@ export class ConnectorCredentialService {
             oauthAbort,
             oauthStarted: false,
             backendApiKey: payload.backendApiKey,
+            backendConnectProfile: payload.backendConnectProfile,
             oauthFlow: mode === "oauth" &&
                 payload.kind === "credential" &&
                 payload.preregisteredOAuth
@@ -615,6 +637,69 @@ export class ConnectorCredentialService {
                 return {
                     ok: false,
                     error: "Stella's backend did not accept this API key.",
+                };
+            }
+            const outcome = { ok: true };
+            this.notifyComplete(payload.requestId, outcome);
+            this.pending.resolve(payload.requestId, outcome);
+            this.meta.delete(payload.requestId);
+            return { ok: true };
+        }
+        if (meta.backendConnectProfile) {
+            const originValue = typeof payload.origin === "string" ? payload.origin.trim() : "";
+            if (!originValue) {
+                return { ok: false, error: "Connect server URL is required." };
+            }
+            const siteUrl = this.options
+                .getConvexSiteUrl?.()
+                ?.trim()
+                .replace(/\/+$/u, "");
+            const authToken = await this.options.getConvexAuthToken?.();
+            if (!siteUrl || !authToken) {
+                return {
+                    ok: false,
+                    error: "Sign in to Stella before connecting this integration.",
+                };
+            }
+            try {
+                const response = await fetch(`${siteUrl}/api/native-integrations/connect-profile`, {
+                    method: "POST",
+                    headers: {
+                        accept: "application/json",
+                        "content-type": "application/json",
+                        authorization: `Bearer ${authToken}`,
+                    },
+                    body: JSON.stringify({
+                        id: meta.backendConnectProfile.connectorId,
+                        origin: originValue,
+                        token: rawValue,
+                        expectedGeneration: meta.backendConnectProfile.expectedGeneration,
+                    }),
+                    signal: AbortSignal.timeout(30_000),
+                });
+                if (!response.ok) {
+                    await response.body?.cancel().catch(() => undefined);
+                    let message = "Could not store this connect profile.";
+                    if (response.status === 409) {
+                        message = "The stored connection changed. Reopen the connection prompt before retrying.";
+                    }
+                    else if (response.status === 400) {
+                        message = "That Connect server URL or token was not accepted.";
+                    }
+                    else if (response.status === 401) {
+                        message = "Sign in to Stella before connecting this integration.";
+                    }
+                    else if (response.status === 429) {
+                        message = "Too many connection changes. Wait before retrying.";
+                    }
+                    return { ok: false, error: message };
+                }
+                await response.body?.cancel().catch(() => undefined);
+            }
+            catch {
+                return {
+                    ok: false,
+                    error: "Stella's backend did not accept this connect profile.",
                 };
             }
             const outcome = { ok: true };

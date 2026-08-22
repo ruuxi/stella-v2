@@ -14,6 +14,10 @@ import type * as connectors_api_keys_providers from "../connectors/api_keys/prov
 import type * as connectors_api_keys_vault from "../connectors/api_keys/vault.js";
 import type * as connectors_audit from "../connectors/audit.js";
 import type * as connectors_env from "../connectors/env.js";
+import type * as connectors_hosted_connect_execute from "../connectors/hosted_connect/execute.js";
+import type * as connectors_hosted_connect_origin from "../connectors/hosted_connect/origin.js";
+import type * as connectors_hosted_connect_providers from "../connectors/hosted_connect/providers.js";
+import type * as connectors_hosted_connect_vault from "../connectors/hosted_connect/vault.js";
 import type * as connectors_errors from "../connectors/errors.js";
 import type * as connectors_execute from "../connectors/execute.js";
 import type * as connectors_executors_first_party from "../connectors/executors/first_party.js";
@@ -263,6 +267,10 @@ declare const fullApi: ApiFromModules<{
   "connectors/api_keys/vault": typeof connectors_api_keys_vault;
   "connectors/audit": typeof connectors_audit;
   "connectors/env": typeof connectors_env;
+  "connectors/hosted_connect/execute": typeof connectors_hosted_connect_execute;
+  "connectors/hosted_connect/origin": typeof connectors_hosted_connect_origin;
+  "connectors/hosted_connect/providers": typeof connectors_hosted_connect_providers;
+  "connectors/hosted_connect/vault": typeof connectors_hosted_connect_vault;
   "connectors/errors": typeof connectors_errors;
   "connectors/execute": typeof connectors_execute;
   "connectors/executors/first_party": typeof connectors_executors_first_party;

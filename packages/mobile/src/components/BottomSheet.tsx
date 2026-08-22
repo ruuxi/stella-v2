@@ -8,6 +8,10 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import {
+  BOTTOM_SHEET_HEIGHT_FRACTION,
+  bottomSheetMaxHeight,
+} from "../lib/bottom-sheet-metrics";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 
@@ -21,10 +25,10 @@ type BottomSheetProps = {
   onClose: () => void;
   children: React.ReactNode;
   /**
-   * Fraction of the screen height the sheet occupies. Defaults to filling
-   * the screen down to the status bar — a near-full-height panel whose
-   * remaining top sliver stays a tappable scrim (the dismissal affordance,
-   * mirroring the top sheets' bottom scrim).
+   * Fraction of the screen height the sheet occupies. Defaults to the same
+   * partial cap as the top sheets, leaving an open scrim band above the
+   * sheet that stays tappable/draggable — the dismissal affordance. Keep it
+   * well below 1: a full-height sheet has no gap to dismiss through.
    */
   heightFraction?: number;
 };
@@ -39,12 +43,12 @@ export function BottomSheet({
   visible,
   onClose,
   children,
-  heightFraction = 0.94,
+  heightFraction = BOTTOM_SHEET_HEIGHT_FRACTION,
 }: BottomSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { height } = useWindowDimensions();
-  const maxSheetHeight = Math.round(height * heightFraction);
+  const maxSheetHeight = bottomSheetMaxHeight(height, heightFraction);
 
   const progress = useRef(new Animated.Value(0)).current;
   const [rendered, setRendered] = useState(visible);

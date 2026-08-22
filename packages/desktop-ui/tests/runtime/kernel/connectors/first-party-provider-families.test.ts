@@ -133,7 +133,7 @@ describe("reconciled first-party provider-family contract", () => {
     const ownershipIds = AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP.map(
       (entry) => entry.connectorId,
     );
-    expect(new Set(ownershipIds).size).toBe(15);
+    expect(new Set(ownershipIds).size).toBe(16);
 
     for (const ownership of AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP) {
       const status = getFirstPartyProviderFamilyStatus(ownership.connectorId);

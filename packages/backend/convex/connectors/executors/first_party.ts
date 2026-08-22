@@ -9,11 +9,13 @@ import {
   buildSocialProviderRequest,
   SOCIAL_ACTION_OPERATIONS,
   SOCIAL_ACTION_REQUIRED_SCOPES,
+  SOCIAL_PROVIDER_CONNECTOR_ACTIONS,
 } from "./social";
 import {
   buildCrmProviderRequest,
   CRM_ACTION_OPERATIONS,
   CRM_ACTION_REQUIRED_SCOPES,
+  CRM_PROVIDER_CONNECTOR_ACTIONS,
 } from "./crm";
 
 /**
@@ -271,6 +273,8 @@ const PROVIDER_CONNECTOR_ACTIONS: Readonly<
   Record<string, Readonly<Record<string, readonly string[]>>>
 > = {
   microsoft: MICROSOFT_CONNECTOR_ACTIONS,
+  ...SOCIAL_PROVIDER_CONNECTOR_ACTIONS,
+  ...CRM_PROVIDER_CONNECTOR_ACTIONS,
 };
 
 export const firstPartyActionBelongsToConnector = (
@@ -279,8 +283,14 @@ export const firstPartyActionBelongsToConnector = (
   action: string,
 ): boolean => {
   const registry = PROVIDER_CONNECTOR_ACTIONS[providerKey];
-  // Legacy providers without a connector map retain their existing behavior.
-  if (!registry) return firstPartyActionOperation(providerKey, action) !== null;
+  // The test-only mock predates connector-family maps. Every real provider
+  // must register exact connector/action ownership or fail closed.
+  if (!registry) {
+    return (
+      providerKey === MOCK_PROVIDER_KEY &&
+      firstPartyActionOperation(providerKey, action) !== null
+    );
+  }
   return registry[connectorId.trim().toLowerCase()]?.includes(action) ?? false;
 };
 

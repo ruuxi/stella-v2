@@ -109,6 +109,32 @@ export const SOCIAL_ACTION_REQUIRED_SCOPES: Readonly<
   },
 };
 
+/** Exact public connector ids owned by each social provider action. */
+export const SOCIAL_PROVIDER_CONNECTOR_ACTIONS: Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+> = {
+  twitter: {
+    twitter: ["TWITTER_USER_LOOKUP_ME", "TWITTER_CREATION_OF_A_POST"],
+  },
+  youtube: {
+    youtube: ["YOUTUBE_LIST_USER_PLAYLISTS", "YOUTUBE_CREATE_PLAYLIST"],
+  },
+  reddit: {
+    reddit: ["REDDIT_GET_ME_PREFS", "REDDIT_CREATE_REDDIT_POST"],
+  },
+  meta: {
+    facebook: ["FACEBOOK_LIST_MANAGED_PAGES", "FACEBOOK_CREATE_POST"],
+    instagram: [
+      "INSTAGRAM_GET_USER_INFO",
+      "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH",
+    ],
+    metaads: ["METAADS_GET_AD_ACCOUNTS", "METAADS_UPDATE_CAMPAIGN"],
+  },
+  linkedin: {
+    linkedin: ["LINKEDIN_GET_MY_INFO", "LINKEDIN_CREATE_LINKED_IN_POST"],
+  },
+};
+
 export const buildSocialProviderRequest = (
   providerKey: string,
   action: string,

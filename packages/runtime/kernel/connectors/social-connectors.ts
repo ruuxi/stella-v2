@@ -30,7 +30,6 @@ import {
   getNativeOAuthProviderConfig,
   getNativeOAuthProviderSetupGroup,
   hasNativeOAuthProviderClientIdOverride,
-  isNativeOAuthLocalExecutionProductionReady,
   type NativeOAuthProviderConfig,
 } from "./native-oauth-provider-config.js";
 
@@ -73,12 +72,6 @@ export type SocialConnectorAdapter = {
   actions: readonly SocialConnectorAction[];
 };
 
-const stringArrayProp = (description: string) => ({
-  type: "array" as const,
-  items: { type: "string" as const },
-  description,
-});
-
 const TWITTER_ADAPTER: SocialConnectorAdapter = {
   id: "twitter",
   name: "Twitter/X",
@@ -88,7 +81,7 @@ const TWITTER_ADAPTER: SocialConnectorAdapter = {
   writeScopes: ["tweet.write", "users.read"],
   actions: [
     {
-      name: "TWITTER_GET_ME",
+      name: "TWITTER_USER_LOOKUP_ME",
       title: "Get authenticated user",
       description: "Read the connected X account profile.",
       access: "read",
@@ -97,28 +90,7 @@ const TWITTER_ADAPTER: SocialConnectorAdapter = {
       requiredScopes: ["tweet.read", "users.read"],
     },
     {
-      name: "TWITTER_GET_USER_TWEETS",
-      title: "List a user's recent tweets",
-      description: "Read the most recent tweets for a user id.",
-      access: "read",
-      method: "GET",
-      path: "/users/{id}/tweets",
-      requiredScopes: ["tweet.read", "users.read"],
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["id"],
-        properties: {
-          id: { type: "string", description: "X user id." },
-          max_results: {
-            type: "number",
-            description: "1-100. Defaults to 10.",
-          },
-        },
-      },
-    },
-    {
-      name: "TWITTER_CREATE_TWEET",
+      name: "TWITTER_CREATION_OF_A_POST",
       title: "Post a tweet",
       description: "Publish a tweet from the connected account.",
       access: "write",
@@ -149,31 +121,16 @@ const YOUTUBE_ADAPTER: SocialConnectorAdapter = {
   writeScopes: [YOUTUBE_FORCE_SSL],
   actions: [
     {
-      name: "YOUTUBE_LIST_MY_CHANNELS",
-      title: "List my channels",
-      description: "Read the channels owned by the connected account.",
+      name: "YOUTUBE_LIST_USER_PLAYLISTS",
+      title: "List user playlists",
+      description: "Read playlists owned by the connected account.",
       access: "read",
       method: "GET",
-      path: "/channels?part=snippet,statistics&mine=true",
+      path: "/playlists?part=snippet&mine=true",
       requiredScopes: [YOUTUBE_READONLY],
     },
     {
-      name: "YOUTUBE_SEARCH",
-      title: "Search videos",
-      description: "Read search results for a query.",
-      access: "read",
-      method: "GET",
-      path: "/search?part=snippet",
-      requiredScopes: [YOUTUBE_READONLY],
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["q"],
-        properties: { q: { type: "string", description: "Search query." } },
-      },
-    },
-    {
-      name: "YOUTUBE_INSERT_PLAYLIST",
+      name: "YOUTUBE_CREATE_PLAYLIST",
       title: "Create a playlist",
       description: "Create a new playlist on the connected channel.",
       access: "write",
@@ -182,11 +139,12 @@ const YOUTUBE_ADAPTER: SocialConnectorAdapter = {
       requiredScopes: [YOUTUBE_FORCE_SSL],
       inputSchema: {
         type: "object",
-        additionalProperties: true,
-        required: ["snippet"],
+        additionalProperties: false,
+        required: ["title"],
         properties: {
-          snippet: { type: "object", additionalProperties: true },
-          status: { type: "object", additionalProperties: true },
+          title: { type: "string" },
+          description: { type: "string" },
+          privacyStatus: { type: "string" },
         },
       },
     },
@@ -202,34 +160,16 @@ const REDDIT_ADAPTER: SocialConnectorAdapter = {
   writeScopes: ["submit"],
   actions: [
     {
-      name: "REDDIT_GET_ME",
-      title: "Get my account",
-      description: "Read the connected Reddit account identity.",
+      name: "REDDIT_GET_ME_PREFS",
+      title: "Get user preferences",
+      description: "Read the connected Reddit account preferences.",
       access: "read",
       method: "GET",
-      path: "/api/v1/me",
-      requiredScopes: ["identity"],
+      path: "/api/v1/me/prefs",
+      requiredScopes: ["identity", "read"],
     },
     {
-      name: "REDDIT_GET_SUBREDDIT_HOT",
-      title: "List hot posts",
-      description: "Read the hot listing for a subreddit.",
-      access: "read",
-      method: "GET",
-      path: "/r/{subreddit}/hot",
-      requiredScopes: ["read"],
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["subreddit"],
-        properties: {
-          subreddit: { type: "string", description: "Subreddit name." },
-          limit: { type: "number", description: "1-100. Defaults to 25." },
-        },
-      },
-    },
-    {
-      name: "REDDIT_SUBMIT",
+      name: "REDDIT_CREATE_REDDIT_POST",
       title: "Submit a post",
       description: "Submit a self or link post to a subreddit.",
       access: "write",
@@ -239,9 +179,9 @@ const REDDIT_ADAPTER: SocialConnectorAdapter = {
       inputSchema: {
         type: "object",
         additionalProperties: false,
-        required: ["sr", "kind", "title"],
+        required: ["subreddit", "title"],
         properties: {
-          sr: { type: "string", description: "Subreddit (without r/)." },
+          subreddit: { type: "string", description: "Subreddit (without r/)." },
           kind: { type: "string", description: '"self" or "link".' },
           title: { type: "string", description: "Post title." },
           text: { type: "string", description: "Self post body." },
@@ -261,7 +201,7 @@ const LINKEDIN_ADAPTER: SocialConnectorAdapter = {
   writeScopes: ["w_member_social"],
   actions: [
     {
-      name: "LINKEDIN_GET_ME",
+      name: "LINKEDIN_GET_MY_INFO",
       title: "Get my profile",
       description: "Read the connected member's OpenID profile.",
       access: "read",
@@ -270,7 +210,7 @@ const LINKEDIN_ADAPTER: SocialConnectorAdapter = {
       requiredScopes: ["openid", "profile"],
     },
     {
-      name: "LINKEDIN_CREATE_POST",
+      name: "LINKEDIN_CREATE_LINKED_IN_POST",
       title: "Create a post",
       description: "Share a UGC post as the connected member.",
       access: "write",
@@ -304,7 +244,7 @@ const FACEBOOK_ADAPTER: SocialConnectorAdapter = {
   writeScopes: ["pages_manage_posts"],
   actions: [
     {
-      name: "FACEBOOK_LIST_PAGES",
+      name: "FACEBOOK_LIST_MANAGED_PAGES",
       title: "List managed Pages",
       description: "Read the Pages the connected user manages.",
       access: "read",
@@ -313,22 +253,7 @@ const FACEBOOK_ADAPTER: SocialConnectorAdapter = {
       requiredScopes: ["pages_show_list"],
     },
     {
-      name: "FACEBOOK_LIST_PAGE_POSTS",
-      title: "List Page posts",
-      description: "Read recent posts for a managed Page.",
-      access: "read",
-      method: "GET",
-      path: "/{pageId}/posts",
-      requiredScopes: ["pages_read_engagement"],
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["pageId"],
-        properties: { pageId: { type: "string", description: "Page id." } },
-      },
-    },
-    {
-      name: "FACEBOOK_CREATE_PAGE_POST",
+      name: "FACEBOOK_CREATE_POST",
       title: "Publish a Page post",
       description: "Publish a text post to a managed Page feed.",
       access: "write",
@@ -358,7 +283,7 @@ const INSTAGRAM_ADAPTER: SocialConnectorAdapter = {
   writeScopes: ["instagram_content_publish"],
   actions: [
     {
-      name: "INSTAGRAM_GET_ACCOUNT",
+      name: "INSTAGRAM_GET_USER_INFO",
       title: "Get IG account",
       description: "Read an Instagram professional account profile.",
       access: "read",
@@ -375,24 +300,7 @@ const INSTAGRAM_ADAPTER: SocialConnectorAdapter = {
       },
     },
     {
-      name: "INSTAGRAM_LIST_MEDIA",
-      title: "List media",
-      description: "Read recent media for an Instagram account.",
-      access: "read",
-      method: "GET",
-      path: "/{igUserId}/media",
-      requiredScopes: ["instagram_basic"],
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["igUserId"],
-        properties: {
-          igUserId: { type: "string", description: "IG user id." },
-        },
-      },
-    },
-    {
-      name: "INSTAGRAM_PUBLISH_MEDIA",
+      name: "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH",
       title: "Publish a media container",
       description: "Publish a previously created media container.",
       access: "write",
@@ -422,7 +330,7 @@ const METAADS_ADAPTER: SocialConnectorAdapter = {
   writeScopes: ["ads_management"],
   actions: [
     {
-      name: "METAADS_LIST_AD_ACCOUNTS",
+      name: "METAADS_GET_AD_ACCOUNTS",
       title: "List ad accounts",
       description: "Read the ad accounts the connected user can access.",
       access: "read",
@@ -431,28 +339,7 @@ const METAADS_ADAPTER: SocialConnectorAdapter = {
       requiredScopes: ["ads_read"],
     },
     {
-      name: "METAADS_LIST_CAMPAIGNS",
-      title: "List campaigns",
-      description: "Read campaigns for an ad account.",
-      access: "read",
-      method: "GET",
-      path: "/{adAccountId}/campaigns",
-      requiredScopes: ["ads_read"],
-      inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["adAccountId"],
-        properties: {
-          adAccountId: {
-            type: "string",
-            description: "Ad account id (act_XXXX).",
-          },
-          fields: stringArrayProp("Campaign fields to return."),
-        },
-      },
-    },
-    {
-      name: "METAADS_UPDATE_CAMPAIGN_STATUS",
+      name: "METAADS_UPDATE_CAMPAIGN",
       title: "Pause or resume a campaign",
       description: "Update a campaign's delivery status.",
       access: "write",
@@ -622,10 +509,10 @@ export const getSocialConnectorScopeStatus = (
       missingScopes: missingScopes(action.requiredScopes, grantedSet),
     }),
   );
-  const executionRoute: SocialConnectorExecutionRoute =
-    isNativeOAuthLocalExecutionProductionReady(adapter.providerConfigId)
-      ? "native-first-party"
-      : "composio-fallback";
+  // Runtime-local execution is intentionally never selected. Backend rollout
+  // owns the authoritative route; until it is activated after a live connect
+  // and representative call, the preserved route is Composio only.
+  const executionRoute: SocialConnectorExecutionRoute = "composio-fallback";
   return {
     id: adapter.id,
     name: adapter.name,

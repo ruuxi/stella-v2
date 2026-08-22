@@ -44,6 +44,10 @@ import {
   firstPartyActionOperation,
   firstPartyProviderForConnectorAction,
 } from "./connectors/executors/first_party";
+import {
+  buildSocialProviderRequest,
+  SOCIAL_ACTION_OPERATIONS,
+} from "./connectors/executors/social";
 
 const modules = import.meta.glob("./**/*.ts");
 const ownerId = "https://issuer.test|connector-owner";
@@ -132,6 +136,14 @@ describe("provider manifests", () => {
     );
     delete process.env.STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS;
     expect(requireEnabledProvider("mock").key).toBe("mock");
+  });
+
+  it("registers separate Google Workspace and YouTube grants plus shared Meta", () => {
+    expect(getProviderManifest("google-workspace")?.key).toBe("google-workspace");
+    expect(getProviderManifest("youtube")?.key).toBe("youtube");
+    expect(getProviderManifest("meta")?.scopeGroups.social_all).toBeDefined();
+    expect(getProviderManifest("facebook")).toBeNull();
+    expect(() => requireEnabledProvider("twitter")).toThrow(/provider_disabled/);
   });
 
   it("unions scope groups and rejects unknown groups", () => {
@@ -419,6 +431,50 @@ describe("Microsoft provider family", () => {
     expect(JSON.parse(String(excelInit?.body))).toEqual({
       values: [["a", "b"]],
     });
+  });
+});
+
+describe("social first-party request adapters", () => {
+  it("uses only canonical catalog actions and covers read plus write", () => {
+    for (const operations of Object.values(SOCIAL_ACTION_OPERATIONS)) {
+      expect(Object.values(operations)).toContain("read");
+      expect(Object.values(operations)).toContain("write");
+    }
+  });
+
+  it("builds provider-shaped YouTube and Reddit requests", () => {
+    expect(
+      buildSocialProviderRequest("youtube", "YOUTUBE_CREATE_PLAYLIST", {
+        title: "Launches",
+        privacyStatus: "private",
+      }),
+    ).toMatchObject({
+      method: "POST",
+      path: "/youtube/v3/playlists?part=snippet,status",
+      body: {
+        snippet: { title: "Launches" },
+        status: { privacyStatus: "private" },
+      },
+    });
+    expect(
+      buildSocialProviderRequest("reddit", "REDDIT_CREATE_REDDIT_POST", {
+        subreddit: "test",
+        title: "Hello",
+        text: "World",
+      }),
+    ).toMatchObject({
+      method: "POST",
+      path: "/api/submit",
+      bodyEncoding: "form",
+      body: { sr: "test", title: "Hello", kind: "self", text: "World" },
+    });
+  });
+
+  it("rejects missing provider identifiers and unknown actions", () => {
+    expect(() =>
+      buildSocialProviderRequest("meta", "FACEBOOK_CREATE_POST", { message: "x" }),
+    ).toThrow(/invalid_input/);
+    expect(buildSocialProviderRequest("twitter", "TWITTER_UNKNOWN", {})).toBeNull();
   });
 });
 

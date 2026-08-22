@@ -137,6 +137,22 @@ export const rotateEncryptedMaterial = internalAction({
       }
     }
 
+    let apiKeyRotated = 0;
+    let apiKeyFailed = 0;
+    let apiKeySkipped = 0;
+    for (let batchIndex = 0; batchIndex < maxBatches; batchIndex += 1) {
+      const batch = await ctx.runMutation(
+        internal.connectors.api_keys.vault.rotateApiKeyCredentialsBatch,
+        { batchSize },
+      );
+      apiKeyRotated += batch.rotated;
+      apiKeyFailed += batch.failed;
+      apiKeySkipped += batch.skipped;
+      if (!batch.hasMoreCandidates || batch.rotated === 0) {
+        break;
+      }
+    }
+
     return {
       activeKeyVersion,
       batchSize,
@@ -147,6 +163,9 @@ export const rotateEncryptedMaterial = internalAction({
       connectorRotated,
       connectorFailed,
       connectorSkipped,
+      apiKeyRotated,
+      apiKeyFailed,
+      apiKeySkipped,
     };
   },
 });

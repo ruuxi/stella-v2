@@ -9,6 +9,9 @@
  */
 
 import type * as account_deletion from "../account_deletion.js";
+import type * as connectors_api_keys_execute from "../connectors/api_keys/execute.js";
+import type * as connectors_api_keys_providers from "../connectors/api_keys/providers.js";
+import type * as connectors_api_keys_vault from "../connectors/api_keys/vault.js";
 import type * as connectors_audit from "../connectors/audit.js";
 import type * as connectors_env from "../connectors/env.js";
 import type * as connectors_errors from "../connectors/errors.js";
@@ -255,6 +258,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "connectors/api_keys/execute": typeof connectors_api_keys_execute;
+  "connectors/api_keys/providers": typeof connectors_api_keys_providers;
+  "connectors/api_keys/vault": typeof connectors_api_keys_vault;
   "connectors/audit": typeof connectors_audit;
   "connectors/env": typeof connectors_env;
   "connectors/errors": typeof connectors_errors;

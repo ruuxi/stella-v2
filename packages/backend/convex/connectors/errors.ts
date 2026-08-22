@@ -7,8 +7,10 @@
  */
 
 export const CONNECTOR_ERROR_CODES = [
+  "unauthorized",
   // Configuration / routing
   "provider_not_configured",
+  "provider_unverified",
   "provider_disabled",
   "execution_disabled",
   "connector_disabled",
@@ -33,6 +35,8 @@ export const CONNECTOR_ERROR_CODES = [
   "refresh_busy",
   "refresh_failed",
   "invalid_grant",
+  "invalid_credential",
+  "credential_generation_conflict",
   // Execution
   "action_not_found",
   "invalid_input",
@@ -66,17 +70,21 @@ export class ConnectorError extends Error {
 /** Map a connector error code to a safe HTTP status. */
 export const connectorErrorHttpStatus = (code: ConnectorErrorCode): number => {
   switch (code) {
+    case "unauthorized":
+      return 401;
     case "invalid_state":
     case "pkce_required":
     case "redirect_mismatch":
     case "unregistered_scope":
     case "invalid_input":
     case "invalid_schema":
+    case "invalid_credential":
       return 400;
     case "reauth_required":
     case "missing_scope":
     case "not_connected":
     case "account_mismatch":
+    case "credential_generation_conflict":
       return 409;
     case "account_not_found":
     case "action_not_found":
@@ -84,6 +92,7 @@ export const connectorErrorHttpStatus = (code: ConnectorErrorCode): number => {
       return 404;
     case "consent_denied":
     case "provider_disabled":
+    case "provider_unverified":
     case "execution_disabled":
     case "connector_disabled":
     case "unsupported_client_version":

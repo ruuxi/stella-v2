@@ -764,6 +764,7 @@ const PRISMA_SCOPES = ["workspace:admin", "offline_access"];
 const TONEDEN_SCOPES: string[] = [];
 
 const ENV_BACKED_NATIVE_OAUTH_PROVIDER_IDS = new Set([
+  "attio",
   "spotify",
   "dropbox",
   "gitlab",
@@ -1145,6 +1146,28 @@ const readEnvBackedOAuthProviderConfig = (
         scopes: readEnvScopesOrDefault("hubspot", HUBSPOT_SCOPES),
         resourceUrl: "https://api.hubapi.com",
         tokenExchange: { type: "backend", provider: "hubspot" },
+      };
+    case "attio":
+      return {
+        flow: "authorization_code",
+        tokenKey: "native-oauth:attio",
+        clientId,
+        authorizationEndpoint: "https://app.attio.com/authorize",
+        tokenEndpoint: "https://app.attio.com/oauth/token",
+        callbackId: "attio",
+        callbackUrl: readEnvCallbackUrl(
+          "attio",
+          "https://stella.sh/oauth/attio/callback",
+        ),
+        callbackMode: "external",
+        scopes: readEnvScopesOrDefault("attio", [
+          "record_permission:read",
+          "record_permission:read-write",
+          "object_configuration:read",
+          "list_entry:read",
+        ]),
+        resourceUrl: "https://api.attio.com",
+        tokenExchange: { type: "backend", provider: "attio" },
       };
     case "mailchimp":
       return {

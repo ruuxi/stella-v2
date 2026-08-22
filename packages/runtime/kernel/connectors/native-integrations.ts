@@ -22,6 +22,7 @@ import { clearConnectorDecline } from "./connect-preferences.js";
 import { getConnectorStateRoot } from "./state.js";
 import type { ConnectorToolInfo } from "./types.js";
 import type { OAuthCatalogTool } from "./oauth-provider-catalog.js";
+import { getConnectorAdapter } from "./adapters/registry.js";
 
 export type NativeConnectorAvailability = "ready";
 export type NativeConnectorOAuthSetupStatus =
@@ -396,6 +397,20 @@ export const getNativeConnectorCatalogActions = (
   entry: NativeConnectorCatalogEntry,
 ): NativeConnectorCatalogAction[] => {
   if (
+    entry.provider === "oauth-catalog" &&
+    entry.localExecution === "production-ready"
+  ) {
+    const adapter = getConnectorAdapter(entry.id);
+    if (adapter) {
+      return adapter.actions.map((action) => ({
+        name: action.name,
+        title: action.title,
+        description: action.description,
+        inputSchema: action.inputSchema,
+      }));
+    }
+  }
+  if (
     entry.provider === "oauth-catalog" ||
     entry.provider === "backend-composio"
   ) {
@@ -501,6 +516,18 @@ export const getNativeConnectorTools = (
         },
       },
     };
+    const adapter = getConnectorAdapter(entry.id);
+    if (adapter) {
+      return [
+        ...adapter.actions.map((action) => ({
+          name: action.name,
+          title: action.title,
+          description: action.description,
+          inputSchema: action.inputSchema,
+        })),
+        apiRequest,
+      ];
+    }
     if (entry.id === "linear") {
       return [
         {

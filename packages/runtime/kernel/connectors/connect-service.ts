@@ -63,6 +63,7 @@ import {
   summarizeActionParams,
   type NativeConnectorCatalogEntry,
 } from "./native-integrations.js";
+import { getConnectorAdapter } from "./adapters/registry.js";
 import type { ConnectorCommandConfig, ConnectorToolInfo } from "./types.js";
 import { loadGoogleWorkspaceTools } from "../google-workspace/load-google-workspace-tools.js";
 
@@ -587,6 +588,26 @@ export const callNativeConnector = async (
       nativeOAuthAuthHints(id, config),
     );
   };
+  // First-party adapter dispatch: a named CRM/recruiting/sales action maps to
+  // exactly one official-API REST request, executed through the single native
+  // path above (callApiConnector). This never runs alongside the Composio
+  // broker — backend-composio ids are handled earlier and return before here —
+  // so a mutation is dispatched once, never twice.
+  const adapter = getConnectorAdapter(id);
+  if (entry.provider === "oauth-catalog" && adapter) {
+    const adapterAction = adapter.actions.find(
+      (candidate) => candidate.name === action,
+    );
+    if (adapterAction) {
+      const request = adapterAction.buildRequest(args.body ?? {});
+      return await callNativeOAuthApiPath(request.path, {
+        method: request.method,
+        query: request.query,
+        body: request.body,
+      });
+    }
+  }
+
   if (entry.provider === "oauth-catalog" && action.startsWith("/")) {
     return await callNativeOAuthApiPath(action, {
       method: args.method,

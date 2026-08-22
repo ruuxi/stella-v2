@@ -20,6 +20,11 @@ export const CONNECTOR_ENV = {
   PUBLIC_BASE_URL: "STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL",
   /** Comma-separated emergency allowlist of enabled provider keys. Empty = fail closed. */
   ENABLED_PROVIDERS: "STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS",
+  /**
+   * Comma-separated API-key providers with completed representative staging
+   * verification. This is a separate, mandatory attestation from enablement.
+   */
+  VERIFIED_API_KEY_PROVIDERS: "STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS",
   /** Global backend kill switch for first-party execution. Default false. */
   EXECUTION_ENABLED: "STELLA_FIRST_PARTY_CONNECTOR_EXECUTION_ENABLED",
   /** Bounded retention (days) for connector audit/attempt metadata. Default 90. */

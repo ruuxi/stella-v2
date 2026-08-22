@@ -12,8 +12,9 @@ import { v } from "convex/values";
  * `connector_rollouts` at call time — see `connectors/routing.ts`.
  *
  * Invariants encoded here:
- *  - Long-lived credentials only ever live in `oauth_credentials`, encrypted
- *    with the shared versioned AES-256-GCM key ring (`data/secrets_crypto.ts`).
+ *  - Long-lived credentials only ever live in `oauth_credentials` or
+ *    `api_key_credentials`, encrypted with the shared versioned AES-256-GCM
+ *    key ring (`data/secrets_crypto.ts`).
  *  - No public/query surface returns ciphertext; only internal actions decrypt.
  *  - Provider account identity is a stable native subject (`providerAccountId`),
  *    never email alone. Email/display are mutable presentation metadata.
@@ -21,6 +22,28 @@ import { v } from "convex/values";
  *    state, verifiers, provider bodies, URLs, or user content.
  */
 export const connectorsSchema = {
+  /**
+   * Server-owned API keys. The encrypted envelope is never returned by a
+   * public query; lifecycle APIs expose metadata only. One live row exists per
+   * owner/provider and replacement overwrites the previous envelope.
+   */
+  api_key_credentials: defineTable({
+    ownerId: v.string(),
+    connectorId: v.string(),
+    provider: v.string(),
+    encryptedKey: v.string(),
+    keyVersion: v.number(),
+    status: v.union(v.literal("active"), v.literal("invalid")),
+    generation: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    invalidatedAt: v.optional(v.number()),
+  })
+    .index("by_owner_provider", ["ownerId", "provider"])
+    .index("by_owner_connector", ["ownerId", "connectorId"])
+    .index("by_keyVersion", ["keyVersion"]),
+
   /**
    * One-time authorization transactions. Only the SHA-256 hash of the random
    * `state` is stored; the raw state exists only transiently in the provider

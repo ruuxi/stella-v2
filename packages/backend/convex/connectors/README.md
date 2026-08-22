@@ -1,8 +1,9 @@
-# First-party connector / OAuth execution core
+# First-party connector execution core
 
-Shared foundation that lets Stella-owned OAuth provider adapters coexist with
-Composio and migrate **connector-by-connector**. Public connector IDs, action
-schemas, and the Store surface are unchanged; only the backend _executor_ moves.
+Shared foundation that lets Stella-owned OAuth and API-key provider adapters
+coexist with Composio and migrate **connector-by-connector**. Public connector
+IDs, action schemas, and the Store surface are unchanged; only the backend
+_executor_ moves.
 
 This is Wave 1A (shared OAuth transactions, hosted callback, encrypted vault,
 adapter/route registry, rollout controls). Provider-family adapters (Google
@@ -14,11 +15,13 @@ Workspace, Microsoft, social, SaaS) plug into the seams listed at the bottom.
   `first_party`) is an implementation detail resolved server-side per call.
 - **Tokens stay server-side** — refresh/access tokens live only in
   `oauth_credentials`, encrypted with the existing versioned AES-256-GCM key
-  ring (`data/secrets_crypto.ts`). No public/query surface returns ciphertext or
-  plaintext; only the callback/refresh actions decrypt in-process.
-- **Scope-aware status** — a connector is "connected" only when a bound, active
-  account's granted scopes are a superset of every required scope group. Token
-  presence alone is never "connected".
+  ring (`data/secrets_crypto.ts`). API keys use the same encryption pattern in
+  the owner-scoped `api_key_credentials` vault. No public/query surface returns
+  ciphertext or plaintext; only backend execution actions decrypt in-process.
+- **Credential-aware status** — an OAuth connector is "connected" only when a
+  bound, active account's granted scopes cover every required scope group. An
+  API-key connector additionally requires an active owner envelope plus both
+  provider enablement and independent representative-call verification.
 - **No unsafe execution** — the first-party run path never dual-executes, never
   auto-retries an ambiguous write, and never silently falls back to Composio.
   Shadow mode is read-only readiness evaluation.
@@ -47,7 +50,12 @@ connectors/
     callback.ts          # hosted callback: exchange + identity + transactional commit
     token_set.ts         # pure token-set (de)serialize + scope union + refresh preserve
     connect.ts           # authenticated connect-start (mutation)
+  api_keys/
+    providers.ts         # reviewed fixed origins, auth placement, action schemas
+    vault.ts             # encrypted owner-scoped connect/status/disconnect lifecycle
+    execute.ts           # single-attempt fixed-origin execution + redaction
 http_routes/connector_oauth.ts  # hosted GET callback + admin rollout POST
+http_routes/native_oauth.ts     # Store connect/status/run + API-key lifecycle
 ```
 
 ## Production environment variables (names only — set in the Convex deployment)
@@ -59,6 +67,7 @@ Set in the production deployment (`benevolent-minnow-586`); never in source,
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `STELLA_FIRST_PARTY_CONNECTOR_EXECUTION_ENABLED`                        | Global kill switch. `1`/`true` enables first-party execution. Default off.                               |
 | `STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS`                              | Comma-separated emergency allowlist of provider keys. Empty = fail closed.                               |
+| `STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS`                           | Independent allowlist for API-key providers with a completed representative-call verification.           |
 | `STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL`                                | Sole origin used to build callbacks, e.g. `https://connect.stella.sh`. Until set, connect-start refuses. |
 | `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_ID`                                | Provider OAuth client id. `<KEY>` = manifest key upper-cased, `-`→`_` (e.g. `GOOGLE_WORKSPACE`).         |
 | `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_SECRETS_JSON`                      | Versioned secret ring `{"1":"...","2":"..."}` for zero-downtime rotation.                                |
@@ -245,10 +254,23 @@ Reviewed native actions:
 - Supabase: list/get projects, list organizations, and create a project.
 
 Snowflake remains blocked on account-scoped OAuth endpoints and a safe account
-origin capture/validation design. Firecrawl, Tavily, Exa, SerpAPI, Perplexity
-AI, PostHog, 0CodeKit, 44API, Ably, Abstract, and AbuseIPDB remain blocked on
-encrypted per-user API-key custody in the shared backend. Their declarative
-runtime request planners are not executors.
+origin capture/validation design. The API-key lifecycle can activate the small
+reviewed descriptor set for Firecrawl, Exa, SerpAPI, and Ashby, but only after
+the provider is in both `STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS` and
+`STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS`, the user has a live encrypted
+credential, and routing selects first party. All other API-key planner entries
+remain deferred: a request planner is not a live executor or a provider
+descriptor.
+
+API keys are intentionally not modeled as OAuth tokens. There is no expiry,
+refresh token, scope grant, or refresh retry. Replacement uses an optimistic
+credential generation; disconnect physically deletes the encrypted envelope;
+and a provider 401/403 generation-safely destroys the rejected envelope and
+requires the user to reconnect. Provider execution performs one network attempt.
+Read failures may tell the caller that an explicit retry is safe, while an
+uncertain write returns `ambiguous_write` and is never replayed automatically.
+Connect and disconnect are owner-rate-limited sensitive actions; clients do
+not automatically retry either mutation.
 
 The Store publisher keeps Composio authoritative for these externally blocked
 toolkits and publishes the auth schemes Composio reports. `44api` is preserved
@@ -289,13 +311,52 @@ first_party_canary(1/5/25%) → first_party_preferred → first_party_only`.
   all first-party execution instantly.
 - **Key rotation**: add a new master key version and set the active version;
   the existing 6-hour `secret encryption key rotation sweep` cron now re-wraps
-  both `secrets` and `oauth_credentials`. Client-secret rotation uses the
-  versioned JSON ring so in-flight attempts survive.
+  `secrets`, `oauth_credentials`, and `api_key_credentials`. Client-secret
+  rotation uses the versioned JSON ring so in-flight attempts survive.
+
+### API-key migration and rollback
+
+The schema change is additive and needs no data backfill. Existing Composio
+connections remain authoritative because an absent rollout still means
+`composio_only`; existing desktop-local connector tokens are never imported or
+uploaded. Users explicitly submit a new key through the protected API-key prompt
+when their connector is selected for first-party setup.
+
+Migration order:
+
+1. Deploy the additive `api_key_credentials` table and lifecycle code with the
+   global first-party kill switch off and connector rollouts unchanged.
+2. Confirm the master-key ring contains every version needed by existing secret
+   envelopes. Do not introduce a provider credential in deployment config.
+3. Verify the compiled descriptor, fixed origin, auth placement, catalog schema,
+   and one representative provider read and write where supported.
+4. Add the provider key to the general enabled-provider allowlist and, only
+   after that verification, to the independent API-key verified allowlist.
+5. Advance the individual connector rollout gradually. Readiness still requires
+   an active owner credential, so no user is routed first party merely because
+   an environment flag changed.
+
+Rollback order:
+
+1. Set affected connector rollouts to `composio_only` (or `disabled` when both
+   executors must stop). The global kill switch is the immediate all-provider
+   stop.
+2. Remove the provider from the API-key verified allowlist and then the general
+   enabled-provider allowlist. Do not rely on a missing key to trigger OAuth
+   refresh or executor fallback; neither exists for this path.
+3. Leave `api_key_credentials` and all referenced master-key versions in place
+   during code rollback. The additive table is harmless to an older executor
+   and preserves reversibility. Do not remove a master-key version until the
+   rotation sweep reports no envelopes using it.
+4. If credentials must be destroyed rather than preserved for a later retry,
+   use the authenticated disconnect flow per owner (account deletion also drains
+   the table). Only remove the table in a later, separately reviewed migration
+   after it is empty.
 
 ## Data lifecycle
 
 - Owner deletion drains `oauth_connect_attempts`, `oauth_provider_accounts`,
-  `oauth_credentials`, `connector_account_bindings`, and
+  `oauth_credentials`, `api_key_credentials`, `connector_account_bindings`, and
   `connector_audit_events` (`account_deletion.ts`). `connector_rollouts` is
   global config and intentionally not owner-scoped.
 - Crons: `purge expired connector oauth attempts` (hourly),

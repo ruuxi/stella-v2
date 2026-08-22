@@ -1,6 +1,10 @@
 import { ConnectorError, classifyProviderStatus } from "../errors";
 import { MOCK_PROVIDER_KEY, type ProviderManifest } from "../oauth/providers";
 import {
+  getApiKeyProviderDescriptor,
+  getApiKeyProviderDescriptorByKey,
+} from "../api_keys/providers";
+import {
   createMicrosoftHandler,
   MICROSOFT_ACTION_OPERATIONS,
   MICROSOFT_CONNECTOR_ACTIONS,
@@ -350,7 +354,9 @@ export const firstPartyActionOperation = (
   providerKey: string,
   action: string,
 ): "read" | "write" | "destructive" | null =>
-  PROVIDER_ACTION_OPERATIONS[providerKey]?.[action] ?? null;
+  PROVIDER_ACTION_OPERATIONS[providerKey]?.[action] ??
+  getApiKeyProviderDescriptorByKey(providerKey)?.actions[action]?.operation ??
+  null;
 
 const PROVIDER_CONNECTOR_ACTIONS: Readonly<
   Record<string, Readonly<Record<string, readonly string[]>>>
@@ -368,6 +374,13 @@ export const firstPartyActionBelongsToConnector = (
   connectorId: string,
   action: string,
 ): boolean => {
+  const apiKeyDescriptor = getApiKeyProviderDescriptorByKey(providerKey);
+  if (apiKeyDescriptor) {
+    return (
+      apiKeyDescriptor.connectorId === connectorId.trim().toLowerCase() &&
+      Boolean(apiKeyDescriptor.actions[action])
+    );
+  }
   const registry = PROVIDER_CONNECTOR_ACTIONS[providerKey];
   // The test-only mock predates connector-family maps. Every real provider
   // must register exact connector/action ownership or fail closed.
@@ -384,6 +397,8 @@ export const firstPartyProviderForConnectorAction = (
   connectorId: string,
   action: string,
 ): string | null => {
+  const apiKeyDescriptor = getApiKeyProviderDescriptor(connectorId);
+  if (apiKeyDescriptor?.actions[action]) return apiKeyDescriptor.providerKey;
   for (const providerKey of Object.keys(PROVIDER_CONNECTOR_ACTIONS)) {
     if (firstPartyActionBelongsToConnector(providerKey, connectorId, action)) {
       return providerKey;
@@ -396,6 +411,8 @@ export const firstPartyProviderForConnector = (
   connectorId: string,
 ): string | null => {
   const normalized = connectorId.trim().toLowerCase();
+  const apiKeyDescriptor = getApiKeyProviderDescriptor(normalized);
+  if (apiKeyDescriptor) return apiKeyDescriptor.providerKey;
   for (const [providerKey, registry] of Object.entries(
     PROVIDER_CONNECTOR_ACTIONS,
   )) {

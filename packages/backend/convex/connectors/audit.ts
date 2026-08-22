@@ -21,6 +21,10 @@ export const CONNECTOR_AUDIT_EVENTS = [
   "scope_changed",
   "token_refreshed",
   "account_revoked",
+  "api_key_connected",
+  "api_key_replaced",
+  "api_key_disconnected",
+  "api_key_invalidated",
   "route_resolved",
   "execution",
 ] as const;

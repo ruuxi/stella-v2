@@ -287,6 +287,7 @@ export class ConnectorConnectService {
             // Device flow needs to show the user a pairing code — keep the
             // modal for that rare shape rather than losing the code.
             requestDeviceOAuth: (payload) => credentialService.requestDeviceOAuth(payload),
+            requestBackendApiKey: (payload) => credentialService.requestBackendApiKey(payload),
         };
         try {
             const target = await resolveDesktopNativeConnectorEntry(flowOptions, stellaAppDir, meta.id);

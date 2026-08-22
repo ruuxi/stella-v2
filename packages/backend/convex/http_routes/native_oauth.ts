@@ -1,4 +1,5 @@
 import type { HttpRouter } from "convex/server";
+import { ConvexError } from "convex/values";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { api, internal } from "../_generated/api";
 import {
@@ -6,12 +7,21 @@ import {
   DEFAULT_ROLLOUT,
   resolveRoute,
 } from "../connectors/routing";
-import { isFirstPartyExecutionEnabled } from "../connectors/env";
+import {
+  isFirstPartyExecutionEnabled,
+  isProviderEnabled,
+} from "../connectors/env";
 import {
   firstPartyActionOperation,
   firstPartyProviderForConnector,
   firstPartyProviderForConnectorAction,
 } from "../connectors/executors/first_party";
+import {
+  apiKeyProviderForConnectorAction,
+  getApiKeyProviderDescriptor,
+  isApiKeyProviderVerified,
+} from "../connectors/api_keys/providers";
+import { ConnectorError, connectorErrorHttpStatus } from "../connectors/errors";
 import {
   errorResponse,
   handleCorsRequest,
@@ -64,6 +74,8 @@ type NativeIntegrationRequestBody = {
   id?: unknown;
   action?: unknown;
   input?: unknown;
+  apiKey?: unknown;
+  expectedGeneration?: unknown;
 };
 
 type PublishedIntegrationAction = {
@@ -77,6 +89,13 @@ type PublishedIntegrationAction = {
 const SAFE_PROVIDER_ACTION_NAME = /^[A-Z0-9][A-Z0-9_]{1,127}$/u;
 const MAX_ADMIN_INTEGRATION_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_NATIVE_INTEGRATION_REQUEST_BODY_BYTES = 1024 * 1024;
+
+const isRateLimitError = (error: unknown) =>
+  error instanceof ConvexError &&
+  typeof error.data === "object" &&
+  error.data !== null &&
+  "code" in error.data &&
+  error.data.code === "RATE_LIMITED";
 const MAX_COMPOSIO_RESPONSE_BYTES = 2 * 1024 * 1024;
 const COMPOSIO_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -541,11 +560,20 @@ const resolveNativeExecutionRoute = async (
   if (!provider) return null;
   const operation = firstPartyActionOperation(provider, action);
   if (!operation) return null;
+  const apiKeyDescriptor = apiKeyProviderForConnectorAction(
+    connectorId,
+    action,
+  );
   const [readiness, storedRollout] = await Promise.all([
-    ctx.runQuery(internal.connectors.oauth.accounts.getConnectorReadiness, {
-      ownerId,
-      connectorId,
-    }),
+    apiKeyDescriptor
+      ? ctx.runQuery(internal.connectors.api_keys.vault.getApiKeyReadiness, {
+          ownerId,
+          connectorId,
+        })
+      : ctx.runQuery(internal.connectors.oauth.accounts.getConnectorReadiness, {
+          ownerId,
+          connectorId,
+        }),
     ctx.runQuery(internal.connectors.rollouts.getConnectorRollout, {
       connectorId,
     }),
@@ -556,7 +584,8 @@ const resolveNativeExecutionRoute = async (
     ownerId,
     operation,
     killSwitchEnabled: isFirstPartyExecutionEnabled(),
-    hasFirstPartyReady: readiness.ready && readiness.provider === provider,
+    hasFirstPartyReady:
+      Boolean(readiness?.ready) && readiness?.provider === provider,
   });
 };
 
@@ -564,9 +593,14 @@ const firstPartyConnectTarget = async (
   ctx: ActionCtx,
   ownerId: string,
   connectorId: string,
-): Promise<{ provider: string; firstPartyOnly: boolean } | null> => {
+): Promise<{
+  provider: string;
+  firstPartyOnly: boolean;
+  authType: "oauth" | "api_key";
+} | null> => {
   const provider = firstPartyProviderForConnector(connectorId);
   if (!provider || !isFirstPartyExecutionEnabled()) return null;
+  const apiKeyDescriptor = getApiKeyProviderDescriptor(connectorId);
   const storedRollout = await ctx.runQuery(
     internal.connectors.rollouts.getConnectorRollout,
     { connectorId },
@@ -583,7 +617,11 @@ const firstPartyConnectTarget = async (
       hasFirstPartyReady: true,
     }).executor === "first_party";
   return firstPartySelected
-    ? { provider, firstPartyOnly: rollout.mode === "first_party_only" }
+    ? {
+        provider,
+        firstPartyOnly: rollout.mode === "first_party_only",
+        authType: apiKeyDescriptor ? "api_key" : "oauth",
+      }
     : null;
 };
 
@@ -592,6 +630,8 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     "/api/native-integrations/catalog",
     "/api/native-integrations/actions",
     "/api/native-integrations/connect-link",
+    "/api/native-integrations/api-key",
+    "/api/native-integrations/disconnect",
     "/api/native-integrations/status",
     "/api/native-integrations/run",
   ]);
@@ -858,6 +898,43 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           connector.id,
         );
         if (firstPartyTarget) {
+          if (firstPartyTarget.authType === "api_key") {
+            const descriptor = getApiKeyProviderDescriptor(connector.id);
+            if (!descriptor) {
+              return errorResponse(
+                503,
+                "The first-party API-key connector is unavailable.",
+                origin,
+              );
+            }
+            if (
+              !isProviderEnabled(descriptor.providerKey) ||
+              !isApiKeyProviderVerified(descriptor.providerKey)
+            ) {
+              return errorResponse(
+                503,
+                "The first-party API-key connector is not ready.",
+                origin,
+              );
+            }
+            const status = await ctx.runQuery(
+              internal.connectors.api_keys.vault.getApiKeyReadiness,
+              {
+                ownerId: identity.tokenIdentifier,
+                connectorId: connector.id,
+              },
+            );
+            return jsonResponse(
+              {
+                authType: "api_key",
+                credentialLabel: descriptor.credentialLabel,
+                expectedGeneration: status?.generation,
+                connected: status?.connected ?? false,
+              },
+              200,
+              origin,
+            );
+          }
           try {
             const attempt = await ctx.runMutation(
               api.connectors.oauth.connect.startConnectAttempt,
@@ -938,6 +1015,173 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   });
 
   http.route({
+    path: "/api/native-integrations/api-key",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return errorResponse(401, "Unauthorized", origin);
+        const body = (await parseUnknownBody(
+          request,
+        )) as NativeIntegrationRequestBody | null;
+        const id = canonicalizePublicConnectorId(readString(body?.id));
+        if (!id || typeof body?.apiKey !== "string") {
+          return errorResponse(
+            400,
+            "Invalid API-key connection request.",
+            origin,
+          );
+        }
+        const expectedGeneration = body.expectedGeneration;
+        if (
+          expectedGeneration !== undefined &&
+          (typeof expectedGeneration !== "number" ||
+            !Number.isSafeInteger(expectedGeneration) ||
+            expectedGeneration < 1)
+        ) {
+          return errorResponse(400, "Invalid credential generation.", origin);
+        }
+        const integration = await loadPublicIntegration(ctx, id);
+        const connector = integration
+          ? readComposioConnector(integration)
+          : null;
+        const descriptor = connector
+          ? getApiKeyProviderDescriptor(connector.id)
+          : null;
+        if (!connector || !descriptor) {
+          return errorResponse(
+            400,
+            "Integration does not accept an API key.",
+            origin,
+          );
+        }
+        if (
+          !isProviderEnabled(descriptor.providerKey) ||
+          !isApiKeyProviderVerified(descriptor.providerKey)
+        ) {
+          return errorResponse(
+            409,
+            "This first-party API-key connector is not ready.",
+            origin,
+          );
+        }
+        const firstPartyTarget = await firstPartyConnectTarget(
+          ctx,
+          identity.tokenIdentifier,
+          connector.id,
+        );
+        if (!firstPartyTarget || firstPartyTarget.authType !== "api_key") {
+          return errorResponse(
+            409,
+            "This integration is not selected for first-party connection.",
+            origin,
+          );
+        }
+        try {
+          const result = await ctx.runAction(
+            api.connectors.api_keys.vault.connectApiKey,
+            {
+              connectorId: connector.id,
+              apiKey: body.apiKey,
+              expectedGeneration:
+                typeof expectedGeneration === "number"
+                  ? expectedGeneration
+                  : undefined,
+            },
+          );
+          return jsonResponse(
+            {
+              connected: result.connected,
+              executor: "first_party",
+              provider: result.provider,
+              generation: result.generation,
+              replaced: result.replaced,
+            },
+            200,
+            origin,
+          );
+        } catch (error) {
+          console.error("[native-integrations] API-key connection rejected", {
+            id,
+            message: error instanceof Error ? error.name : "error",
+          });
+          if (isRateLimitError(error)) {
+            return errorResponse(
+              429,
+              "Too many API-key changes. Wait before retrying explicitly.",
+              origin,
+            );
+          }
+          const code =
+            error instanceof ConnectorError ? error.code : "internal_error";
+          return errorResponse(
+            connectorErrorHttpStatus(code),
+            code === "credential_generation_conflict"
+              ? "The stored credential changed. Reopen the connection prompt before retrying."
+              : "Could not store this API key.",
+            origin,
+          );
+        }
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/native-integrations/disconnect",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return errorResponse(401, "Unauthorized", origin);
+        const body = (await parseUnknownBody(
+          request,
+        )) as NativeIntegrationRequestBody | null;
+        const id = canonicalizePublicConnectorId(readString(body?.id));
+        if (!id) return errorResponse(400, "Missing integration id.", origin);
+        const integration = await loadPublicIntegration(ctx, id);
+        const connector = integration
+          ? readComposioConnector(integration)
+          : null;
+        if (!connector || !getApiKeyProviderDescriptor(connector.id)) {
+          return errorResponse(
+            400,
+            "Integration does not use a server-owned API key.",
+            origin,
+          );
+        }
+        try {
+          const result = await ctx.runAction(
+            api.connectors.api_keys.vault.disconnectApiKey,
+            { connectorId: connector.id },
+          );
+          return jsonResponse(
+            { ...result, executor: "first_party" },
+            200,
+            origin,
+          );
+        } catch (error) {
+          console.error("[native-integrations] API-key disconnect failed", {
+            id,
+            message: error instanceof Error ? error.name : "error",
+          });
+          if (isRateLimitError(error)) {
+            return errorResponse(
+              429,
+              "Too many API-key changes. Wait before retrying explicitly.",
+              origin,
+            );
+          }
+          return errorResponse(
+            502,
+            "Could not disconnect this integration.",
+            origin,
+          );
+        }
+      }),
+    ),
+  });
+
+  http.route({
     path: "/api/native-integrations/status",
     method: "GET",
     handler: httpAction(async (ctx, request) =>
@@ -969,16 +1213,39 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               provider: string;
               accountStatus: string;
               missingScopeGroups: string[];
+              authType?: "api_key";
+              providerEnabled?: boolean;
+              providerVerified?: boolean;
             }
           | undefined;
         if (firstPartyTarget) {
-          const readiness = await ctx.runQuery(
-            internal.connectors.oauth.accounts.getConnectorReadiness,
-            {
-              ownerId: identity.tokenIdentifier,
-              connectorId: connector.id,
-            },
-          );
+          const apiKeyAuth = firstPartyTarget.authType === "api_key";
+          const readiness = apiKeyAuth
+            ? await ctx.runQuery(
+                internal.connectors.api_keys.vault.getApiKeyReadiness,
+                {
+                  ownerId: identity.tokenIdentifier,
+                  connectorId: connector.id,
+                },
+              )
+            : await ctx.runQuery(
+                internal.connectors.oauth.accounts.getConnectorReadiness,
+                {
+                  ownerId: identity.tokenIdentifier,
+                  connectorId: connector.id,
+                },
+              );
+          if (!readiness) {
+            return errorResponse(
+              503,
+              "The first-party connection status is unavailable.",
+              origin,
+            );
+          }
+          const apiKeyReadiness =
+            "authType" in readiness && readiness.authType === "api_key"
+              ? readiness
+              : null;
           if (readiness.ready || firstPartyTarget.firstPartyOnly) {
             return jsonResponse(
               {
@@ -986,18 +1253,65 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 executor: "first_party",
                 provider: firstPartyTarget.provider,
                 accountStatus: readiness.accountStatus,
-                missingScopeGroups: readiness.missingScopeGroups,
+                missingScopeGroups:
+                  "missingScopeGroups" in readiness
+                    ? readiness.missingScopeGroups
+                    : [],
+                ...(apiKeyReadiness
+                  ? {
+                      authType: "api_key",
+                      configured: apiKeyReadiness.configured,
+                      generation: apiKeyReadiness.generation,
+                      providerEnabled: apiKeyReadiness.providerEnabled,
+                      providerVerified: apiKeyReadiness.providerVerified,
+                    }
+                  : {}),
               },
               200,
               origin,
             );
           }
-          if (readiness.accountId) {
+          if (
+            ("accountId" in readiness && readiness.accountId) ||
+            ("configured" in readiness && readiness.configured)
+          ) {
             firstPartyFallbackStatus = {
               provider: firstPartyTarget.provider,
               accountStatus: readiness.accountStatus ?? "unknown",
-              missingScopeGroups: readiness.missingScopeGroups,
+              missingScopeGroups:
+                "missingScopeGroups" in readiness
+                  ? readiness.missingScopeGroups
+                  : [],
+              ...(apiKeyReadiness
+                ? {
+                    authType: "api_key",
+                    providerEnabled: apiKeyReadiness.providerEnabled,
+                    providerVerified: apiKeyReadiness.providerVerified,
+                  }
+                : {}),
             };
+          }
+        }
+        if (!firstPartyTarget) {
+          const descriptor = getApiKeyProviderDescriptor(connector.id);
+          if (descriptor) {
+            const readiness = await ctx.runQuery(
+              internal.connectors.api_keys.vault.getApiKeyReadiness,
+              {
+                ownerId: identity.tokenIdentifier,
+                connectorId: connector.id,
+              },
+            );
+            if (readiness?.configured) {
+              firstPartyFallbackStatus = {
+                provider: descriptor.providerKey,
+                accountStatus: readiness.accountStatus,
+                missingScopeGroups: [],
+                authType: "api_key",
+                providerEnabled: readiness.providerEnabled,
+                providerVerified: readiness.providerVerified,
+              };
+            }
           }
         }
         const composio = requireComposioConfig();
@@ -1110,7 +1424,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           console.error("[native-integrations] input validation unavailable", {
             id,
             action,
-            message: error instanceof Error ? error.message : String(error),
+            message: error instanceof Error ? error.name : "error",
           });
           return errorResponse(
             503,
@@ -1182,9 +1496,15 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               action,
               message: error instanceof Error ? error.name : "error",
             });
+            const operation = firstPartyActionOperation(
+              firstPartyProviderForConnectorAction(connector.id, action) ?? "",
+              action,
+            );
             return errorResponse(
               502,
-              "The first-party integration call could not be completed.",
+              operation === "read"
+                ? "The first-party integration call could not be completed."
+                : "The provider result is uncertain. Stella did not retry this write; verify its result before trying again.",
               origin,
             );
           }

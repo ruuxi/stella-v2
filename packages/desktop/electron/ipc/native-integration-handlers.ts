@@ -75,6 +75,15 @@ export type NativeIntegrationHandlersOptions = {
     | { ok: true }
     | { ok: false; reason: "cancelled" | "timeout" | "unsupported" | string }
   >;
+  requestBackendApiKey?: (payload: {
+    connectorId: string;
+    displayName: string;
+    credentialLabel: string;
+    expectedGeneration?: number;
+  }) => Promise<
+    | { ok: true }
+    | { ok: false; reason: "cancelled" | "timeout" | "unsupported" | string }
+  >;
   disconnectGoogleWorkspace?: () => Promise<{ ok: boolean }>;
   getConvexAuthToken?: () => Promise<string | null>;
   getConvexSiteUrl?: () => string | null;
@@ -95,6 +104,7 @@ export type NativeCredentialFlowOptions = Pick<
   | "requestPreregisteredOAuth"
   | "requestDeviceOAuth"
   | "requestExternalOAuthApproval"
+  | "requestBackendApiKey"
   | "getConvexAuthToken"
   | "getConvexSiteUrl"
 > & {
@@ -177,7 +187,7 @@ export const loadConfiguredOAuthProviders = async (
   return { backend, externalCallback };
 };
 
-const createBackendIntegrationConnectLink = async (
+const createBackendIntegrationConnectTarget = async (
   // Pre-resolved auth: the caller carries the SAME values into the
   // completion-status wait afterwards, so a transient auth loss between
   // link creation and polling can't silently skip the confirmation.
@@ -206,6 +216,9 @@ const createBackendIntegrationConnectLink = async (
   });
   const payload = (await response.json().catch(() => null)) as {
     url?: unknown;
+    authType?: unknown;
+    credentialLabel?: unknown;
+    expectedGeneration?: unknown;
     error?: unknown;
     message?: unknown;
   } | null;
@@ -218,9 +231,60 @@ const createBackendIntegrationConnectLink = async (
           : "Could not start this connection.";
     throw new Error(message);
   }
+  if (payload?.authType === "api_key") {
+    const credentialLabel =
+      typeof payload.credentialLabel === "string"
+        ? payload.credentialLabel.trim()
+        : "";
+    const expectedGeneration = payload.expectedGeneration;
+    if (
+      !credentialLabel ||
+      (expectedGeneration !== undefined &&
+        (typeof expectedGeneration !== "number" ||
+          !Number.isSafeInteger(expectedGeneration) ||
+          expectedGeneration < 1))
+    ) {
+      throw new Error("Stella backend returned an invalid API-key prompt.");
+    }
+    return {
+      authType: "api_key" as const,
+      credentialLabel,
+      expectedGeneration:
+        typeof expectedGeneration === "number" ? expectedGeneration : undefined,
+    };
+  }
   const url = typeof payload?.url === "string" ? payload.url.trim() : "";
   if (!url) throw new Error("Stella backend did not return a connect link.");
-  return url;
+  return { authType: "oauth" as const, url };
+};
+
+const disconnectBackendApiKeyIfConfigured = async (
+  options: NativeCredentialFlowOptions,
+  id: string,
+) => {
+  const siteUrl = options.getConvexSiteUrl?.()?.trim().replace(/\/+$/u, "");
+  const authToken = await options.getConvexAuthToken?.();
+  if (!siteUrl || !authToken) return;
+  const headers = {
+    accept: "application/json",
+    authorization: `Bearer ${authToken}`,
+  };
+  const response = await fetch(
+    `${siteUrl}/api/native-integrations/disconnect`,
+    {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+      signal: AbortSignal.timeout(30_000),
+    },
+  ).catch(() => null);
+  // A 400 means this is an OAuth connector; 404 keeps older backends
+  // compatible. Any other failure leaves local enablement untouched so the UI
+  // never claims a server-owned key was destroyed when it may still exist.
+  if (response?.ok || response?.status === 400 || response?.status === 404) {
+    return;
+  }
+  throw new Error("Could not destroy the server-owned API key.");
 };
 
 export const resolveDesktopNativeConnectorCatalog = async (
@@ -319,18 +383,33 @@ export const ensureNativeCredential = async (
     if (!authToken) {
       throw new Error(`Sign in to Stella before connecting ${entry.name}.`);
     }
-    const url = await createBackendIntegrationConnectLink(
+    const target = await createBackendIntegrationConnectTarget(
       { siteUrl, authToken },
       id,
       options.abortSignal,
     );
+    if (target.authType === "api_key") {
+      if (!options.requestBackendApiKey) {
+        throw new Error(`${entry.name} API-key connection is unavailable.`);
+      }
+      const connected = await options.requestBackendApiKey({
+        connectorId: id,
+        displayName: entry.name,
+        credentialLabel: target.credentialLabel,
+        expectedGeneration: target.expectedGeneration,
+      });
+      if (!connected.ok) {
+        throw new Error(`Could not connect ${entry.name}: ${connected.reason}`);
+      }
+      return;
+    }
     // "ok" here only means the browser was opened with the user's
     // consent — Composio OAuth finishes on a hosted page with no
     // deep-link back to the desktop, so completion is confirmed below.
     const approved = await options.requestExternalOAuthApproval({
       tokenKey: `backend-integration:${id}`,
       displayName: entry.name,
-      resourceUrl: url,
+      resourceUrl: target.url,
       description: `Stella needs to open ${entry.name} in your browser so you can sign in and approve access.`,
     });
     if (!approved.ok) {
@@ -515,6 +594,10 @@ export const disableDesktopNativeIntegration = async (
     options,
     stellaAppDir,
   );
+  const entry = getNativeConnectorCatalogEntry(id, catalog.entries);
+  if (entry?.provider === "backend-composio") {
+    await disconnectBackendApiKeyIfConfigured(options, id);
+  }
   const result = await disableNativeConnector(
     stellaAppDir,
     id,
@@ -525,7 +608,6 @@ export const disableDesktopNativeIntegration = async (
     },
     catalog.entries,
   );
-  const entry = getNativeConnectorCatalogEntry(id, catalog.entries);
   if (
     entry?.provider === "google-workspace" &&
     options.disconnectGoogleWorkspace

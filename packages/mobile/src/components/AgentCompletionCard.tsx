@@ -5,7 +5,10 @@ import { Icon, type IconName } from "./Icon";
 import type { ChatArtifact } from "../types";
 import { artifactIconName, artifactTitle } from "../lib/mobile-artifacts";
 import type { AgentWorkCardSection } from "../lib/agent-artifact-consolidation";
-import { deriveFilePillRow } from "../lib/agent-activity-presentation";
+import {
+  AGENT_ACTIVITY_INK,
+  deriveFilePillRow,
+} from "../lib/agent-activity-presentation";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
@@ -136,7 +139,11 @@ const makeStyles = (colors: Colors) =>
       // Fully-rounded pill shape (not a rounded square) — desktop parity.
       borderRadius: 999,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
+      // Outline strength tracks the label ink: clearly visible (the old
+      // panel-surface hairline all but disappeared on the chat background)
+      // but one step below the label so it never outshines it — desktop's
+      // `--text-weaker` border under a `--text-base` label.
+      borderColor: colors[AGENT_ACTIVITY_INK.pillBorderInk],
       backgroundColor: colors.surface,
       paddingHorizontal: 10,
       paddingVertical: 5,

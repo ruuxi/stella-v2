@@ -35,20 +35,27 @@
   font-weight: var(--weight-medium);
 }
 
-/* Compact "+" variant used by the agent-completion file pills: a small
-   square affordance on the right edge of the pill whose body is the primary
-   open target. Kept quiet until the pill is hovered/focused. */
+/* Compact "+" variant used by the agent-completion file pills: a fully
+   circular affordance on the right edge of the pill whose body is the
+   primary open target. No opaque fill — just a thin hairline matching the
+   pill's own border treatment — so it sits quietly inside the translucent
+   pill. */
 .open-with-menu__trigger--plus {
   padding: 0;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--text-weaker);
+  background: transparent;
+  box-shadow: none;
   justify-content: center;
   color: var(--text-weak);
 }
 
 .open-with-menu__trigger--plus:hover {
+  border-color: var(--text-weak);
   color: var(--text-strong);
+  box-shadow: none;
 }
 
 .open-with-menu__loading {

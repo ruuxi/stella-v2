@@ -8,6 +8,7 @@ import { logToFile } from './logger.js';
 
 export interface WorkspaceConfig {
   clientId: string;
+  clientSecret?: string;
 }
 
 const DEFAULT_CONFIG: WorkspaceConfig = {
@@ -22,6 +23,10 @@ const DEFAULT_CONFIG: WorkspaceConfig = {
 export function loadConfig(): WorkspaceConfig {
   const config: WorkspaceConfig = {
     clientId: process.env['WORKSPACE_CLIENT_ID'] || DEFAULT_CONFIG.clientId,
+    ...(process.env['STELLA_GOOGLE_OAUTH_DEMO'] === '1' &&
+    process.env['WORKSPACE_CLIENT_SECRET']
+      ? { clientSecret: process.env['WORKSPACE_CLIENT_SECRET'] }
+      : {}),
   };
 
   const maskedClientId =

@@ -459,6 +459,64 @@ describe("Microsoft provider family", () => {
     );
   });
 
+  it("requests exactly the reviewed least-privilege delegated Entra scopes", () => {
+    const manifest = getProviderManifest("microsoft")!;
+
+    // The exact delegated permissions the Entra app registration must expose.
+    // Keep in lockstep with the runtime kernel Microsoft Graph scope source of
+    // truth (microsoft-graph/scopes.ts); a change here without a matching Entra
+    // consent update silently breaks connect or over-requests permissions.
+    const IDENTITY = [
+      "openid",
+      "profile",
+      "email",
+      "offline_access",
+      "User.Read",
+    ];
+    const OUTLOOK = ["Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite"];
+    const TEAMS = [
+      "Team.ReadBasic.All",
+      "Channel.ReadBasic.All",
+      "ChannelMessage.Read.All",
+      "ChannelMessage.Send",
+    ];
+    const EXCEL = ["Files.ReadWrite"];
+
+    expect(scopesForGroups(manifest, ["identity"])).toEqual(IDENTITY);
+    expect(scopesForGroups(manifest, ["outlook"])).toEqual([
+      ...IDENTITY,
+      ...OUTLOOK,
+    ]);
+    expect(scopesForGroups(manifest, ["microsoft_teams"])).toEqual([
+      ...IDENTITY,
+      ...TEAMS,
+    ]);
+    expect(scopesForGroups(manifest, ["excel"])).toEqual([...IDENTITY, ...EXCEL]);
+
+    // One consent screen requests the full deduped union for every member.
+    const union = scopesForGroups(manifest, ["microsoft_all"]);
+    expect([...union].sort()).toEqual(
+      [...new Set([...IDENTITY, ...OUTLOOK, ...TEAMS, ...EXCEL])].sort(),
+    );
+    for (const connector of ["outlook", "microsoft_teams", "excel"]) {
+      expect(connectScopeGroupsForConnector(manifest, connector, [])).toEqual([
+        "microsoft_all",
+      ]);
+    }
+
+    // Never leak tenant-wide application/admin file or site scopes that would
+    // force broad admin consent beyond the delegated Teams channel reads.
+    for (const forbidden of [
+      "Files.ReadWrite.All",
+      "Files.Read.All",
+      "Sites.ReadWrite.All",
+      "Sites.Read.All",
+      "Mail.ReadWrite.All",
+    ]) {
+      expect(union).not.toContain(forbidden);
+    }
+  });
+
   it("builds an Entra PKCE URL without Google-only authorization params", () => {
     const manifest = getProviderManifest("microsoft")!;
     const url = new URL(

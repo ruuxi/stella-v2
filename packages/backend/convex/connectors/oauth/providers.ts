@@ -29,8 +29,12 @@ export type ProviderManifest = {
   displayName: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  tokenEndpointAuth?: "client_secret_post" | "client_secret_basic";
   revocationEndpoint?: string;
   userinfoEndpoint?: string;
+  /** Dot paths for providers whose userinfo response is not OpenID-shaped. */
+  identityPaths?: { subject: string; email?: string; name?: string };
+  userinfoHeaders?: Record<string, string>;
   identityMode: ProviderIdentityMode;
   /** Expected OIDC issuer, when identityMode === "oidc". */
   issuer?: string;
@@ -447,6 +451,33 @@ export const buildRefreshBody = (args: {
     client_id: args.clientId,
     client_secret: args.clientSecret,
   }).toString();
+
+const basicAuthorization = (clientId: string, clientSecret: string): string => {
+  const bytes = new TextEncoder().encode(`${clientId}:${clientSecret}`);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `Basic ${btoa(binary)}`;
+};
+
+/** Apply provider-specific token endpoint authentication without exposing credentials. */
+export const buildTokenEndpointRequest = (args: {
+  manifest: ProviderManifest;
+  clientId: string;
+  clientSecret: string;
+  body: string;
+}): { headers: Record<string, string>; body: string } => {
+  const headers: Record<string, string> = {
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  if (args.manifest.tokenEndpointAuth !== "client_secret_basic") {
+    return { headers, body: args.body };
+  }
+  const body = new URLSearchParams(args.body);
+  body.delete("client_id");
+  body.delete("client_secret");
+  headers.authorization = basicAuthorization(args.clientId, args.clientSecret);
+  return { headers, body: body.toString() };
+};
 
 export const parseScopeString = (scope: unknown): string[] => {
   if (Array.isArray(scope)) {

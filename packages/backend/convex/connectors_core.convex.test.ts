@@ -24,6 +24,7 @@ import {
   buildAuthorizationUrl,
   pkceChallengeS256,
   generateOAuthState,
+  buildTokenEndpointRequest,
 } from "./connectors/oauth/providers";
 import {
   mergeTokenSet,
@@ -156,6 +157,25 @@ describe("provider manifests", () => {
   it("scope superset check is exact", () => {
     expect(grantedScopesSatisfy(["a", "b", "c"], ["a", "c"])).toBe(true);
     expect(grantedScopesSatisfy(["a", "b"], ["a", "c"])).toBe(false);
+  });
+
+  it("applies basic client authentication without leaving credentials in the body", () => {
+    const manifest = {
+      ...getProviderManifest("mock")!,
+      tokenEndpointAuth: "client_secret_basic" as const,
+    };
+    const request = buildTokenEndpointRequest({
+      manifest,
+      clientId: "client id",
+      clientSecret: "secret/value",
+      body: new URLSearchParams({
+        client_id: "client id",
+        client_secret: "secret/value",
+      }).toString(),
+    });
+    expect(request.headers.authorization).toMatch(/^Basic /);
+    expect(new URLSearchParams(request.body).has("client_id")).toBe(false);
+    expect(new URLSearchParams(request.body).has("client_secret")).toBe(false);
   });
 });
 

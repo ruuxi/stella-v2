@@ -10,6 +10,7 @@ import {
 import { isFirstPartyExecutionEnabled } from "./env";
 import {
   buildRefreshBody,
+  buildTokenEndpointRequest,
   getProviderManifest,
   grantedScopesSatisfy,
   parseScopeString,
@@ -134,14 +135,19 @@ export const getAccessTokenForAccount = internalAction({
     let leaseCleared = false;
     let releaseErrorCode: string | undefined;
     try {
-      const response = await fetch(manifest.tokenEndpoint, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
+      const tokenRequest = buildTokenEndpointRequest({
+        manifest,
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
         body: buildRefreshBody({
           clientId: credentials.clientId,
           clientSecret: credentials.clientSecret,
           refreshToken: tokenSet.refreshToken,
         }),
+      });
+      const response = await fetch(manifest.tokenEndpoint, {
+        method: "POST",
+        ...tokenRequest,
       });
       const payload = await readSmallJson(response);
       if (!response.ok || payload.error) {

@@ -1,3 +1,5 @@
+import { MICROSOFT_GRAPH_SCOPES as MICROSOFT_GRAPH_SCOPE_UNION } from "../microsoft-graph/scopes.js";
+
 export type NativeOAuthProviderConfig = {
   tokenKey: string;
   clientId: string;
@@ -227,18 +229,14 @@ const applyEnvOverrides = (
   };
 };
 
-const MICROSOFT_GRAPH_SCOPES = [
-  "offline_access",
-  "User.Read",
-  "Mail.ReadWrite",
-  "Mail.Send",
-  "Calendars.ReadWrite",
-  "Files.ReadWrite.All",
-  "Sites.ReadWrite.All",
-];
+// Single source of truth for the shared Microsoft grant scope union lives in
+// the first-party microsoft-graph kernel (Outlook mail/calendar, Teams
+// channel/message, Excel workbook). One consent covers every in-scope service.
+const MICROSOFT_GRAPH_SCOPES = MICROSOFT_GRAPH_SCOPE_UNION;
 
 const MICROSOFT_GRAPH_ALIASES = new Set([
   "excel",
+  "microsoft_teams",
   "one_drive",
   "outlook",
   "share_point",

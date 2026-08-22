@@ -15,9 +15,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArtifactCard } from "./ArtifactCard";
 import { ArtifactViewerContent } from "./ArtifactViewer";
-import { BottomSheet } from "./BottomSheet";
 import { Icon, type IconName } from "./Icon";
 import { ShimmerText } from "./ShimmerText";
+import { TopSheet } from "./TopSheet";
 import { filterHubArtifacts, filterHubTasks } from "../lib/activity-hub-search";
 import {
   activityHubGroupRowKey,
@@ -461,13 +461,14 @@ const activityHubListRowKey = (row: ActivityHubListRow): string => {
 };
 
 /**
- * The hub sheet the floating activity pill opens — a full-height bottom
- * panel with its own tab bar (Activity / Schedule / Search / Files). The top
- * of the screen carries no chrome: every control lives within thumb reach at
- * the bottom. Tapping Search expands an input above the tab bar with the
- * keyboard focused; Schedule lists the paired computer's local schedules (the
- * same rows the desktop Schedules dialog shows) with pause/resume/delete for
- * cron jobs. Tapping a file opens the artifact viewer within the sheet.
+ * The hub sheet the floating activity pill opens — a TOP-anchored sheet
+ * (slides down, dismiss gap at the bottom, like the other top sheets) with
+ * its own tab bar (Activity / Schedule / Search / Files) docked at the
+ * sheet's bottom edge. Tapping Search expands an input above the tab bar
+ * with the keyboard focused; Schedule lists the paired computer's local
+ * schedules (the same rows the desktop Schedules dialog shows) with
+ * pause/resume/delete for cron jobs. Tapping a file opens the artifact
+ * viewer within the sheet.
  */
 export function ActivityHubSheet({
   visible,
@@ -480,7 +481,10 @@ export function ActivityHubSheet({
 }: ActivityHubSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(
+    () => makeStyles(colors, insets.top),
+    [colors, insets.top],
+  );
   const t = useT();
 
   const [tab, setTab] = useState<HubTab>("activity");
@@ -851,7 +855,7 @@ export function ActivityHubSheet({
   }, [schedules]);
 
   return (
-    <BottomSheet visible={visible} onClose={onClose}>
+    <TopSheet visible={visible} onClose={onClose}>
       {viewerOpen ? (
         // Artifact open in-sheet: full-height viewer (WebViews and media need
         // real space), with a back chevron returning to the previous list.
@@ -1004,9 +1008,10 @@ export function ActivityHubSheet({
             />
           )}
 
-          {/* Bottom control bar — the only chrome in the sheet. Sits inside
-              the safe area so the home indicator never collides with it. */}
-          <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+          {/* Bottom control bar — the only chrome in the sheet. The sheet is
+              top-anchored, so its bottom edge floats mid-screen well above
+              the home indicator; no bottom safe-area inset needed. */}
+          <View style={styles.tabBar}>
             <View style={styles.tabBarHairline} pointerEvents="none" />
             {TAB_ORDER.map((entry) => {
               const meta = TAB_META[entry];
@@ -1044,14 +1049,17 @@ export function ActivityHubSheet({
           </View>
         </View>
       )}
-    </BottomSheet>
+    </TopSheet>
   );
 }
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = (colors: Colors, topInset: number) =>
   StyleSheet.create({
     sheetFill: {
       flex: 1,
+      // Top-anchored sheet slides under the translucent status bar; keep the
+      // first content row (lists / viewer chrome) clear of the notch.
+      paddingTop: topInset + 10,
     },
 
     // Search — rendered only while Search mode is active, docked above the

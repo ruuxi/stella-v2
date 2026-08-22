@@ -51,6 +51,37 @@ export const registerStoreHandlers = (options) => {
         assertStoreWebRequest(event, "storeWeb:getAuthToken");
         return (await options.getStoreAuthToken?.()) ?? null;
     });
+    ipcMain.handle("storeWeb:listInstalledMods", async (event) => {
+        assertStoreWebRequest(event, "storeWeb:listInstalledMods");
+        return [];
+    });
+    ipcMain.handle("storeWeb:listNativeIntegrations", async (event) => {
+        assertStoreWebRequest(event, "storeWeb:listNativeIntegrations");
+        if (!options.dispatchStoreWebLocalAction) {
+            throw new Error("The local Store bridge is unavailable.");
+        }
+        return await options.dispatchStoreWebLocalAction({ type: "listNativeIntegrations" });
+    });
+    ipcMain.handle("storeWeb:connectNativeIntegration", async (event, payload) => {
+        assertStoreWebRequest(event, "storeWeb:connectNativeIntegration");
+        if (!options.dispatchStoreWebLocalAction) {
+            throw new Error("The local Store bridge is unavailable.");
+        }
+        return await options.dispatchStoreWebLocalAction({
+            type: "connectNativeIntegration",
+            payload,
+        }, { timeoutMs: 2 * 60_000 });
+    });
+    ipcMain.handle("storeWeb:disconnectNativeIntegration", async (event, payload) => {
+        assertStoreWebRequest(event, "storeWeb:disconnectNativeIntegration");
+        if (!options.dispatchStoreWebLocalAction) {
+            throw new Error("The local Store bridge is unavailable.");
+        }
+        return await options.dispatchStoreWebLocalAction({
+            type: "disconnectNativeIntegration",
+            payload,
+        });
+    });
     ipcMain.handle("storeWeb:openSignIn", async (event) => {
         assertStoreWebRequest(event, "storeWeb:openSignIn");
         if (!options.dispatchStoreWebLocalAction) {

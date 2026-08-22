@@ -17,6 +17,13 @@ type WebsiteEmbeddedTheme = {
 
 contextBridge.exposeInMainWorld("stellaDesktopStore", {
   getAuthToken: () => invoke<string | null>("storeWeb:getAuthToken"),
+  listInstalledMods: () => invoke<unknown[]>("storeWeb:listInstalledMods"),
+  listNativeIntegrations: () =>
+    invoke("storeWeb:listNativeIntegrations"),
+  connectNativeIntegration: (payload: { id: string }) =>
+    invoke("storeWeb:connectNativeIntegration", payload),
+  disconnectNativeIntegration: (payload: { id: string }) =>
+    invoke("storeWeb:disconnectNativeIntegration", payload),
   onThemeChanged: (callback: (theme: WebsiteEmbeddedTheme) => void) => {
     const listener = (_event: unknown, theme: WebsiteEmbeddedTheme) => {
       callback(theme);

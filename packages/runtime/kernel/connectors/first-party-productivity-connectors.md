@@ -163,3 +163,20 @@ For each connector, in order:
 5. Verify a real connect + one read and one write via the native path.
 6. Only then add the id to `PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS`.
 7. Submit any free/public review requests that gate general availability.
+
+## Registration audit — 2026-08-22
+
+The consolidated implementation contains disabled catalogs, OAuth configuration,
+provider-family executors, and adapters for all 17 connectors in this family.
+No family provider is production-routed: Composio remains the sole execution
+owner, and no connector may be enabled before its own real connect and
+representative-call evidence passes.
+
+Provider-console registration is currently blocked on an authorized
+`contact@fromyou.ai` browser session. The available personal Google session must
+not be used to create company-owned provider applications. Resume the runbook
+above after Rahul completes the required sign-in or 2FA. This shared gate applies
+to Notion, Slack, Airtable, HubSpot, Gong, Asana, Ashby, Pipedrive, Linear,
+Salesforce, Jira/Atlassian, ClickUp, Slackbot, monday, Canvas, Attio, and 7shifts;
+provider-specific payment, tenant-admin, or review gates are evaluated only
+after authorized account access exists.

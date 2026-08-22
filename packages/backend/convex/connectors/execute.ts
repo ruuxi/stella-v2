@@ -364,6 +364,9 @@ export const runFirstPartyConnectorAction = internalAction({
           if (!readiness.providerVerified) {
             throw new ConnectorError("provider_unverified");
           }
+          if (!readiness.egressTransportReady) {
+            throw new ConnectorError("egress_transport_unavailable");
+          }
           if (readiness.accountStatus === "invalid") {
             throw new ConnectorError("invalid_credential");
           }

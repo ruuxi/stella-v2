@@ -28,6 +28,7 @@ import {
   hostedConnectProviderForConnectorAction,
   isHostedConnectProviderVerified,
 } from "../connectors/hosted_connect/providers";
+import { isHostedConnectEgressTransportAvailable } from "../connectors/hosted_connect/transport";
 import { ConnectorError, connectorErrorHttpStatus } from "../connectors/errors";
 import {
   errorResponse,
@@ -623,6 +624,12 @@ const firstPartyConnectTarget = async (
   const apiKeyDescriptor = getApiKeyProviderDescriptor(connectorId);
   const hostedConnectDescriptor =
     getHostedConnectProviderDescriptor(connectorId);
+  // A hosted-connect provider is only offered for first-party connection when
+  // the enforced egress transport exists; otherwise it fails closed to the
+  // Composio default rather than prompting for a token that cannot be stored.
+  if (hostedConnectDescriptor && !isHostedConnectEgressTransportAvailable()) {
+    return null;
+  }
   const storedRollout = await ctx.runQuery(
     internal.connectors.rollouts.getConnectorRollout,
     { connectorId },
@@ -1273,6 +1280,16 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             origin,
           );
         }
+        if (!isHostedConnectEgressTransportAvailable()) {
+          // Fail closed before any token reaches the vault: no enforced
+          // first-party egress transport (DNS-pinning/allowlisting proxy) means
+          // a validated origin could still be rebound to a private address.
+          return errorResponse(
+            503,
+            "This connection is unavailable until Stella's secure egress transport is deployed.",
+            origin,
+          );
+        }
         const firstPartyTarget = await firstPartyConnectTarget(
           ctx,
           identity.tokenIdentifier,
@@ -1388,20 +1405,15 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             200,
             origin,
           );
-          return jsonResponse(
-            { ...result, executor: "first_party" },
-            200,
-            origin,
-          );
         } catch (error) {
-          console.error("[native-integrations] API-key disconnect failed", {
+          console.error("[native-integrations] first-party disconnect failed", {
             id,
             message: error instanceof Error ? error.name : "error",
           });
           if (isRateLimitError(error)) {
             return errorResponse(
               429,
-              "Too many API-key changes. Wait before retrying explicitly.",
+              "Too many connection changes. Wait before retrying explicitly.",
               origin,
             );
           }

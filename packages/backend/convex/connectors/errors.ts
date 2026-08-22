@@ -40,6 +40,8 @@ export const CONNECTOR_ERROR_CODES = [
   // Customer-hosted connect profiles (per-owner origin + token)
   "invalid_origin",
   "origin_not_allowed",
+  // Fail-closed when no enforced first-party egress transport is available.
+  "egress_transport_unavailable",
   // Execution
   "action_not_found",
   "invalid_input",
@@ -113,6 +115,7 @@ export const connectorErrorHttpStatus = (code: ConnectorErrorCode): number => {
     case "provider_timeout":
     case "schema_unavailable":
     case "provider_not_configured":
+    case "egress_transport_unavailable":
       return 503;
     default:
       return 500;

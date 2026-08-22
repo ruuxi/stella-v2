@@ -26,6 +26,12 @@ import {
 } from "./connectors/hosted_connect/providers";
 import { DEFERRED_API_KEY_PROVIDERS } from "./connectors/executors/api_key";
 import {
+  isHostedConnectEgressTransportAvailable,
+  requireHostedConnectEgressTransport,
+  setHostedConnectEgressTransportForTesting,
+  type HostedConnectEgressTransport,
+} from "./connectors/hosted_connect/transport";
+import {
   firstPartyActionOperation,
   firstPartyProviderForConnector,
   firstPartyProviderForConnectorAction,
@@ -79,6 +85,10 @@ const setEnv = () => {
   process.env.STELLA_FIRST_PARTY_CONNECTOR_EXECUTION_ENABLED = "1";
   process.env.STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS = "1password";
   process.env.STELLA_CONNECTOR_HOSTED_CONNECT_VERIFIED_PROVIDERS = "1password";
+  // The mock escape hatch is what allows a *simulated* egress transport to be
+  // injected in tests. Production never sets this, so no transport is ever
+  // resolved there. See transport.ts.
+  process.env.STELLA_CONNECTOR_OAUTH_ALLOW_MOCK = "1";
 };
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -117,11 +127,28 @@ const run = (
     inputJson: JSON.stringify(input),
   });
 
-beforeEach(setEnv);
+// A simulated egress transport that forwards to the (mocked) global fetch,
+// standing in for the future DNS-pinning/allowlisting proxy. It is armed only
+// because setEnv sets the mock escape hatch; production resolves no transport.
+const TEST_TRANSPORT: HostedConnectEgressTransport = {
+  kind: "test-proxy",
+  dispatch: (url, init) => fetch(url, init),
+};
+
+// Remove the simulated transport for a single test to reproduce production
+// (direct-fetch-only) reality, where every path must fail closed.
+const withoutEgressTransport = () =>
+  setHostedConnectEgressTransportForTesting(null);
+
+beforeEach(() => {
+  setEnv();
+  setHostedConnectEgressTransportForTesting(TEST_TRANSPORT);
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  setHostedConnectEgressTransportForTesting(null);
 });
 
 describe("hosted-connect origin validation (SSRF)", () => {
@@ -229,6 +256,100 @@ describe("hosted-connect origin validation (SSRF)", () => {
     expect(() =>
       assertHostedConnectRequestUrl("https://127.0.0.1", "/v1/vaults"),
     ).toThrow(ConnectorError);
+  });
+
+  it("rejects dot-segment path traversal before URL resolution", () => {
+    for (const path of [
+      "/v1/vaults/../items",
+      "/v1/vaults/./items",
+      "/../etc/passwd",
+      "/v1/vaults/..",
+      "/.",
+    ]) {
+      expect(() => assertHostedConnectRequestUrl(BOUND_ORIGIN, path)).toThrow(
+        ConnectorError,
+      );
+    }
+    // The planner emits `..` as an encoded id, which must be rejected too.
+    expect(() =>
+      assertHostedConnectRequestUrl(
+        BOUND_ORIGIN,
+        `/v1/vaults/${encodeURIComponent("..")}/items`,
+      ),
+    ).toThrow(ConnectorError);
+  });
+});
+
+describe("hosted-connect egress transport gate (fail closed)", () => {
+  it("resolves no egress transport in a production-like env", () => {
+    withoutEgressTransport();
+    delete process.env.STELLA_CONNECTOR_OAUTH_ALLOW_MOCK;
+    expect(isHostedConnectEgressTransportAvailable()).toBe(false);
+    expect(() => requireHostedConnectEgressTransport()).toThrow(
+      /egress_transport_unavailable/,
+    );
+    // The test seam refuses to arm without the mock escape hatch, so no env
+    // combination can enable a transport in production.
+    expect(() =>
+      setHostedConnectEgressTransportForTesting({
+        kind: "x",
+        dispatch: async () => new Response(),
+      }),
+    ).toThrow();
+  });
+
+  it("connect fails closed and stores no token without a transport", async () => {
+    withoutEgressTransport();
+    const test = createTest();
+    await expect(connect(test)).rejects.toThrow(/egress_transport_unavailable/);
+    const rows = await test.run(async (ctx) =>
+      ctx.db.query("connector_hosted_profiles").collect(),
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it("execution fails closed with no fetch when the transport is removed", async () => {
+    const test = createTest();
+    await enableFirstParty(test);
+    await connect(test); // profile stored while a transport is simulated
+    withoutEgressTransport(); // now reproduce production (direct-fetch-only)
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await expect(run(test, "ONEPASSWORD_LIST_VAULTS", {})).rejects.toThrow(
+      /egress_transport_unavailable/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("status is never ready and reports egressTransportReady=false", async () => {
+    const test = createTest();
+    await connect(test);
+    withoutEgressTransport();
+    const status = await asOwner(test).query(
+      api.connectors.hosted_connect.vault.getHostedConnectStatus,
+      { connectorId: "1password" },
+    );
+    expect(status.connected).toBe(true);
+    expect(status.providerEnabled).toBe(true);
+    expect(status.providerVerified).toBe(true);
+    expect(status.egressTransportReady).toBe(false);
+    expect(status.ready).toBe(false);
+  });
+
+  it("executeHostedConnectAction refuses to egress without a transport", async () => {
+    withoutEgressTransport();
+    const descriptor = getHostedConnectProviderDescriptor("1password")!;
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await expect(
+      executeHostedConnectAction({
+        descriptor,
+        token: CONNECT_TOKEN,
+        boundOrigin: BOUND_ORIGIN,
+        action: "ONEPASSWORD_LIST_VAULTS",
+        input: {},
+        operation: "read",
+      }),
+    ).rejects.toThrow(/egress_transport_unavailable/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

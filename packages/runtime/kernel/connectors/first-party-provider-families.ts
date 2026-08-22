@@ -95,10 +95,10 @@ const EXECUTOR_READY_CONNECTOR_IDS = new Set([
   "hubspot",
   "salesforce",
   "21risk",
-  "1password",
 ]);
 
 const PLANNER_READY_CONNECTOR_IDS = new Set([
+  "1password",
   "snowflake",
 ]);
 
@@ -264,6 +264,11 @@ const designFinanceStatus = (
       ...plannerImplementationBlockers(codeStatus),
       ...(adapter.auth.kind === "oauth2" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
       ...(adapter.requiresBaseUrl ? ["tenant-specific fixed origin"] : []),
+      ...(adapter.id === "1password"
+        ? [
+            "enforced first-party egress transport (DNS-pinning/allowlisting proxy); direct Convex fetch cannot prevent DNS-rebinding to private addresses",
+          ]
+        : []),
     ],
   };
 };

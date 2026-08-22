@@ -1,5 +1,6 @@
 import { ConnectorError } from "../errors";
 import { isProviderEnabled } from "../env";
+import { requireHostedConnectEgressTransport } from "./transport";
 import {
   buildApiKeyProviderRequest,
   DEFERRED_API_KEY_PROVIDERS,
@@ -192,6 +193,11 @@ export const requireReadyHostedConnectProvider = (
 ): HostedConnectProviderDescriptor => {
   const descriptor = getHostedConnectProviderDescriptor(connectorId);
   if (!descriptor) throw new ConnectorError("provider_not_configured");
+  // Fail closed BEFORE any token storage or egress when no enforced first-party
+  // egress transport is available. This is the network-layer control that the
+  // lexical origin validator cannot substitute for; without it no env
+  // combination can make a hosted-connect provider ready.
+  requireHostedConnectEgressTransport();
   if (!isHostedConnectProviderVerified(descriptor.providerKey)) {
     throw new ConnectorError("provider_unverified");
   }

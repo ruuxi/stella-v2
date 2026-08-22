@@ -318,32 +318,32 @@ export class AuthService {
     }
     const marker = this.readMigrationMarker();
     try {
-      if (marker && !marker.desktopDirty && runner.getRuntimeConvexToken) {
-        // Already migrated and no desktop-side mutations since. Migration is
-        // strictly one-way: only re-seed when the runtime store is genuinely
-        // EMPTY. Detect emptiness via `hasSession` (store presence) rather than
-        // the minted token, so a transient mint/network failure (null token
-        // but a live session) can never clobber the worker's newer session
-        // with a stale desktop snapshot.
-        const probe = await runner.getRuntimeConvexToken({});
-        const runtimeHasSession = probe?.hasSession === true;
-        if (
-          !runtimeHasSession &&
-          this.hasLegacySessionCookie() &&
-          this.runtimeAuthMode !== "legacy"
-        ) {
-          // Worker store genuinely lost (e.g. wiped data dir) while the desktop
-          // still holds a session: re-seed it. Importing into an empty store
-          // cannot clobber newer state.
-          await runner.importAuthSession(this.getRuntimeSessionExport());
-        }
-      } else {
-        await runner.importAuthSession(this.getRuntimeSessionExport());
+      if (!marker) {
+        // First migration. Hand the desktop artifact to the runtime with an
+        // ATOMIC import-if-empty: the worker (the single writer) imports only if
+        // its store is empty, so a live runtime session can never be clobbered
+        // and there's no probe-then-import RPC pair to race.
+        await runner.importAuthSession({
+          ...this.getRuntimeSessionExport(),
+          onlyIfEmpty: true,
+        });
         this.writeMigrationMarker({
           migratedAt: Date.now(),
           desktopDirty: false,
         });
+      } else if (marker.desktopDirty) {
+        // A local desktop mutation (sign-out wipe) to mirror into the runtime.
+        // This is the only post-migration import, and it only ever pushes the
+        // desktop's cleared state; it never resurrects a session.
+        await runner.importAuthSession(this.getRuntimeSessionExport());
+        this.writeMigrationMarker({
+          migratedAt: marker.migratedAt,
+          desktopDirty: false,
+        });
       }
+      // Migration complete and not dirty: NEVER reimport, even if the runtime
+      // appears empty. Re-importing on an empty read would resurrect a stale
+      // desktop artifact over a runtime that legitimately signed out.
       if (this.runtimeAuthMode === "unknown") {
         this.runtimeAuthMode = "runtime";
       }
@@ -536,10 +536,13 @@ export class AuthService {
   async signOut() {
     await this.ensureRuntimeAuthMode();
     const runner = this.options.runnerTarget.getRunner();
-    let result: { ok: boolean } = { ok: true };
-    if (runner?.authSignOut) {
-      result = await runner.authSignOut().catch(() => ({ ok: false }));
+    if (!runner?.authSignOut) {
+      // No runtime available to authoritatively sign out. Treat a missing
+      // runner/method as FAILURE and preserve local state rather than
+      // presenting a false signed-out UI.
+      return { ok: false };
     }
+    const result = await runner.authSignOut().catch(() => ({ ok: false }));
     if (!result.ok) {
       // The runtime AuthOwner is authoritative. If its sign-out failed the
       // session survives, so we must NOT clear local state or report success —

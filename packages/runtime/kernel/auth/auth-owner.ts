@@ -207,11 +207,26 @@ export const createAuthOwner = (options: AuthOwnerOptions) => {
   const importSession = async (payload: {
     cookie: string | null;
     sessionData: string | null;
+    /**
+     * Atomic import-if-empty (migration). When set, the import is a no-op if the
+     * runtime store already holds session material — checked and applied inside
+     * this single-writer worker so a stale desktop artifact can never overwrite
+     * a live runtime session, and no separate probe RPC can race the import.
+     */
+    onlyIfEmpty?: boolean;
   }): Promise<{
     ok: true;
     authenticated: boolean;
     hasConnectedAccount: boolean;
   }> => {
+    if (payload.onlyIfEmpty && core.hasSessionCookie()) {
+      // Runtime already owns a session — never overwrite it during migration.
+      return {
+        ok: true,
+        authenticated: Boolean(cachedToken),
+        hasConnectedAccount: hasConnectedAccount(),
+      };
+    }
     const previousCookie = core.getStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY);
     core.setStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY, payload.cookie);
     core.setStorageItem(
@@ -266,6 +281,12 @@ export const createAuthOwner = (options: AuthOwnerOptions) => {
 
   const signOut = async () => {
     const result = await core.signOut();
+    if (!result.ok) {
+      // The server session survives (network error / server failure). Keep the
+      // local token and session material; do NOT emit "signed-out" or the
+      // renderer would present a false signed-out state.
+      return result;
+    }
     clearAuthState("signed-out");
     return result;
   };

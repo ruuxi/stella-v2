@@ -93,6 +93,13 @@ export class AuthService {
    * so two processes can't interleave cookie-mutating requests in one boot.
    */
   private runtimeAuthMode: "unknown" | "runtime" | "legacy" = "unknown";
+  /**
+   * Worker generation the current `runtimeAuthMode` was decided at. When the
+   * worker is replaced (e.g. a stale detached worker restarts into the new
+   * build), the generation advances and we reset the latch to "unknown" so
+   * ownership is re-evaluated instead of staying legacy until an app restart.
+   */
+  private runtimeAuthModeGeneration: number | null = null;
 
   constructor(private readonly options: AuthServiceOptions) {}
 
@@ -290,26 +297,42 @@ export class AuthService {
       // attach can still latch runtime ownership.
       return;
     }
+    // Re-evaluate ownership when the worker was replaced (a stale detached
+    // worker restarting into the new build, or any reconnect with a new
+    // generation) instead of latching a previous legacy decision for the whole
+    // app session.
+    const generation = runner.getWorkerGeneration?.() ?? null;
+    if (
+      generation !== null &&
+      this.runtimeAuthModeGeneration !== null &&
+      generation !== this.runtimeAuthModeGeneration
+    ) {
+      this.runtimeAuthMode = "unknown";
+    }
     if (!runner.importAuthSession) {
       if (this.runtimeAuthMode === "unknown") {
         this.runtimeAuthMode = "legacy";
+        this.runtimeAuthModeGeneration = generation;
       }
       return;
     }
     const marker = this.readMigrationMarker();
     try {
       if (marker && !marker.desktopDirty && runner.getRuntimeConvexToken) {
-        // Already migrated and no desktop-side mutations since: probe the
-        // AuthOwner instead of importing, so a stale desktop copy can never
-        // clobber the worker's newer session (the worker is the single
-        // writer for sign-in mutations).
+        // Already migrated and no desktop-side mutations since. Migration is
+        // strictly one-way: only re-seed when the runtime store is genuinely
+        // EMPTY. Detect emptiness via `hasSession` (store presence) rather than
+        // the minted token, so a transient mint/network failure (null token
+        // but a live session) can never clobber the worker's newer session
+        // with a stale desktop snapshot.
         const probe = await runner.getRuntimeConvexToken({});
+        const runtimeHasSession = probe?.hasSession === true;
         if (
-          !probe?.token &&
+          !runtimeHasSession &&
           this.hasLegacySessionCookie() &&
           this.runtimeAuthMode !== "legacy"
         ) {
-          // Worker store was lost (e.g. wiped data dir) while the desktop
+          // Worker store genuinely lost (e.g. wiped data dir) while the desktop
           // still holds a session: re-seed it. Importing into an empty store
           // cannot clobber newer state.
           await runner.importAuthSession(this.getRuntimeSessionExport());
@@ -324,12 +347,15 @@ export class AuthService {
       if (this.runtimeAuthMode === "unknown") {
         this.runtimeAuthMode = "runtime";
       }
+      this.runtimeAuthModeGeneration = generation;
     } catch (error) {
       if (this.runtimeAuthMode === "unknown") {
-        // Version skew: an old worker without the auth RPCs. It restarts
-        // into the new build at the first quiescent moment; until then auth
-        // reads serve the last-known cache.
+        // Version skew: an old worker without the auth RPCs. It restarts into
+        // the new build at the first quiescent moment; until then auth reads
+        // serve the last-known cache. Record the generation so a replacement
+        // worker re-evaluates ownership instead of latching legacy forever.
         this.runtimeAuthMode = "legacy";
+        this.runtimeAuthModeGeneration = generation;
       }
       console.debug(
         "[auth] Runtime auth-store sync skipped:",
@@ -436,15 +462,23 @@ export class AuthService {
     }
   }
 
-  async getConvexAuthToken() {
-    const fromRuntime = await this.getConvexTokenFromRuntime();
+  async getConvexAuthToken(options?: { forceRefresh?: boolean }) {
+    const forceRefresh = options?.forceRefresh === true;
+    const fromRuntime = await this.getConvexTokenFromRuntime({ forceRefresh });
     if (fromRuntime) {
       return fromRuntime;
     }
-    // Worker briefly down: serve the last-known JWT proxy cache. Stale
-    // tokens are still returned so a transient gap doesn't read as
-    // "signed out" mid-request; the server remains the judge.
-    return this.hostAuthToken?.trim() || null;
+    if (forceRefresh) {
+      // Explicit 401 recovery: the last-known JWT is (or may be) the token the
+      // server just rejected. Never hand it back — the caller needs a genuinely
+      // fresh mint, not the rejected cache.
+      return null;
+    }
+    // Worker briefly down: serve the last-known JWT proxy cache so a transient
+    // gap doesn't read as "signed out" mid-request — but only while it hasn't
+    // fully expired, so we never return a dead token. The server stays judge.
+    const cached = this.hostAuthToken?.trim() || null;
+    return cached && isAuthTokenFresh(cached, 0) ? cached : null;
   }
 
   async getAuthToken(): Promise<string | null> {
@@ -453,7 +487,11 @@ export class AuthService {
       return cached;
     }
     const fromRuntime = await this.getConvexTokenFromRuntime();
-    return fromRuntime ?? cached;
+    if (fromRuntime) {
+      return fromRuntime;
+    }
+    // Freshness limit on the worker-gap cache: never serve a fully expired JWT.
+    return cached && isAuthTokenFresh(cached, 0) ? cached : null;
   }
 
   /**
@@ -502,6 +540,13 @@ export class AuthService {
     if (runner?.authSignOut) {
       result = await runner.authSignOut().catch(() => ({ ok: false }));
     }
+    if (!result.ok) {
+      // The runtime AuthOwner is authoritative. If its sign-out failed the
+      // session survives, so we must NOT clear local state or report success —
+      // clearing here would make the renderer show "signed out" while the real
+      // session lives on. Surface the failure so the caller keeps the session.
+      return result;
+    }
     this.clearLegacyAuthStorage();
     this.stopAuthRefreshLoop();
     return result;
@@ -538,17 +583,6 @@ export class AuthService {
       url,
       protocol: this.options.authProtocol,
     });
-  }
-
-  async applySessionCookie(sessionCookie: string) {
-    await this.ensureRuntimeAuthMode();
-    const runner = this.requireRuntimeAuthRunner();
-    if (!runner.authApplySessionCookie) {
-      throw new Error(
-        "Stella runtime is still updating; sign-in is briefly unavailable.",
-      );
-    }
-    return await runner.authApplySessionCookie({ sessionCookie });
   }
 
   /**

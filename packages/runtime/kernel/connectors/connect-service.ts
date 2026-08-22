@@ -63,7 +63,6 @@ import {
   summarizeActionParams,
   type NativeConnectorCatalogEntry,
 } from "./native-integrations.js";
-import { getConnectorAdapter } from "./adapters/registry.js";
 import type { ConnectorCommandConfig, ConnectorToolInfo } from "./types.js";
 import { loadGoogleWorkspaceTools } from "../google-workspace/load-google-workspace-tools.js";
 
@@ -588,26 +587,6 @@ export const callNativeConnector = async (
       nativeOAuthAuthHints(id, config),
     );
   };
-  // First-party adapter dispatch: a named CRM/recruiting/sales action maps to
-  // exactly one official-API REST request, executed through the single native
-  // path above (callApiConnector). This never runs alongside the Composio
-  // broker — backend-composio ids are handled earlier and return before here —
-  // so a mutation is dispatched once, never twice.
-  const adapter = getConnectorAdapter(id);
-  if (entry.provider === "oauth-catalog" && adapter) {
-    const adapterAction = adapter.actions.find(
-      (candidate) => candidate.name === action,
-    );
-    if (adapterAction) {
-      const request = adapterAction.buildRequest(args.body ?? {});
-      return await callNativeOAuthApiPath(request.path, {
-        method: request.method,
-        query: request.query,
-        body: request.body,
-      });
-    }
-  }
-
   if (entry.provider === "oauth-catalog" && action.startsWith("/")) {
     return await callNativeOAuthApiPath(action, {
       method: args.method,
@@ -708,7 +687,12 @@ export const validateMcpConnectorId = (value: string): string => {
 };
 
 export type AddMcpTransport =
-  | { command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
+  | {
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+      cwd?: string;
+    }
   | { url: string };
 
 export type AddMcpOptions = {
@@ -741,14 +725,14 @@ export type RemoveConnectorResult = {
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((entry) => typeof entry === "string");
 
-const isStringRecordValue = (
-  value: unknown,
-): value is Record<string, string> =>
+const isStringRecordValue = (value: unknown): value is Record<string, string> =>
   isPlainRecord(value) &&
   Object.values(value).every((entry) => typeof entry === "string");
 
 /** Strict shape check for `connect.addMcp` options with actionable errors. */
-export const parseAddMcpOptions = (raw: Record<string, unknown>): {
+export const parseAddMcpOptions = (
+  raw: Record<string, unknown>,
+): {
   command: ConnectorCommandConfig;
 } => {
   if (typeof raw.id !== "string" || !raw.id.trim()) {
@@ -765,7 +749,7 @@ export const parseAddMcpOptions = (raw: Record<string, unknown>): {
   const transport = raw.transport;
   if (!isPlainRecord(transport)) {
     throw new Error(
-      'connect.addMcp requires transport: { url } or { command, args?, env?, cwd? }.',
+      "connect.addMcp requires transport: { url } or { command, args?, env?, cwd? }.",
     );
   }
   const url = typeof transport.url === "string" ? transport.url.trim() : "";
@@ -781,14 +765,18 @@ export const parseAddMcpOptions = (raw: Record<string, unknown>): {
     try {
       parsed = new URL(url);
     } catch {
-      throw new Error(`connect.addMcp transport.url is not a valid URL: ${url}`);
+      throw new Error(
+        `connect.addMcp transport.url is not a valid URL: ${url}`,
+      );
     }
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
       throw new Error("connect.addMcp transport.url must be http(s).");
     }
   }
   if (transport.args !== undefined && !isStringArray(transport.args)) {
-    throw new Error("connect.addMcp transport.args must be an array of strings.");
+    throw new Error(
+      "connect.addMcp transport.args must be an array of strings.",
+    );
   }
   if (transport.env !== undefined && !isStringRecordValue(transport.env)) {
     throw new Error(
@@ -1151,8 +1139,7 @@ export const discoverConnectorsDetailed = async (
       let connected = false;
       let nativeEntry: NativeConnectorCatalogEntry | undefined;
       let nativeReadiness:
-        | Awaited<ReturnType<typeof getNativeConnectorReadiness>>
-        | undefined;
+        Awaited<ReturnType<typeof getNativeConnectorReadiness>> | undefined;
       if (match.kind === "native") {
         nativeEntry = getNativeConnectorCatalogEntry(
           match.id,

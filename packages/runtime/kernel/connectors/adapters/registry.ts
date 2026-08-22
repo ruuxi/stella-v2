@@ -1,8 +1,7 @@
 /**
  * Registry of the CRM / recruiting / sales first-party adapters. This is the
- * single lookup surface consumed by the native execution path; it intentionally
- * carries no execution logic of its own (that stays in `connect-service` on the
- * one existing `callApiConnector` path) so no second shared core is introduced.
+ * single lookup surface for code-ready metadata and unit tests. Runtime
+ * execution is intentionally not wired here; the backend shared core owns it.
  */
 
 import { APOLLO_ADAPTER } from "./apollo.js";
@@ -54,9 +53,8 @@ export const CONNECTOR_ADAPTER_IDS: readonly string[] = ADAPTERS.map(
 );
 
 /** Look up an adapter by connector id (unchanged Store/catalog id). */
-export const getConnectorAdapter = (
-  id: string,
-): ConnectorAdapter | undefined => ADAPTER_BY_ID.get(id.trim().toLowerCase());
+export const getConnectorAdapter = (id: string): ConnectorAdapter | undefined =>
+  ADAPTER_BY_ID.get(id.trim().toLowerCase());
 
 /** Look up a single named action within an adapter. */
 export const getConnectorAdapterAction = (
@@ -72,14 +70,11 @@ export const getConnectorAdapterAction = (
 /** All action metadata for one adapter (for catalog/action listings). */
 export const listConnectorAdapterActions = (
   id: string,
-): readonly ConnectorAdapterAction[] =>
-  getConnectorAdapter(id)?.actions ?? [];
+): readonly ConnectorAdapterAction[] => getConnectorAdapter(id)?.actions ?? [];
 
 /**
- * Build the single REST request for an adapter action. Throws a plain Error
- * when the id/action is unknown or a required argument is missing. Callers run
- * the returned request through the existing `callApiConnector` path — there is
- * no alternate executor, so a mutation is never dispatched twice.
+ * Build one REST request for adapter contract tests and migration tooling.
+ * Runtime callers must use the backend-owned connector dispatcher instead.
  */
 export const buildConnectorAdapterRequest = (
   id: string,

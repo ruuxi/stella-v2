@@ -25,7 +25,7 @@ export const GONG_ADAPTER: ConnectorAdapter = {
   docsUrl: "https://gong.app.gong.io/settings/api/documentation",
   actions: [
     {
-      name: "GONG_LIST_CALLS",
+      name: "GONG_RETRIEVE_CALL_DATA_BY_DATE_RANGE_V2_CALLS",
       title: "List Calls",
       description:
         "List calls in a date range (fromDateTime / toDateTime, ISO-8601).",
@@ -55,7 +55,7 @@ export const GONG_ADAPTER: ConnectorAdapter = {
       }),
     },
     {
-      name: "GONG_GET_CALL",
+      name: "GONG_GET_CALL_BY_ID",
       title: "Get Call",
       description: "Retrieve metadata for a single call by id.",
       kind: "read",
@@ -68,11 +68,11 @@ export const GONG_ADAPTER: ConnectorAdapter = {
       },
       buildRequest: (input) => ({
         method: "GET",
-        path: `/v2/calls/${seg(requireString(input, "callId", "GONG_GET_CALL"))}`,
+        path: `/v2/calls/${seg(requireString(input, "callId", "GONG_GET_CALL_BY_ID"))}`,
       }),
     },
     {
-      name: "GONG_RETRIEVE_TRANSCRIPTS",
+      name: "GONG_GET_CALL_TRANSCRIPT",
       title: "Retrieve Call Transcripts",
       description:
         "Retrieve transcripts for calls matching a filter (call ids and/or date range).",
@@ -96,7 +96,7 @@ export const GONG_ADAPTER: ConnectorAdapter = {
       }),
     },
     {
-      name: "GONG_LIST_USERS",
+      name: "GONG_LIST_ALL_USERS_V2_USERS",
       title: "List Users",
       description: "List Gong users in the workspace.",
       kind: "read",
@@ -115,7 +115,7 @@ export const GONG_ADAPTER: ConnectorAdapter = {
       }),
     },
     {
-      name: "GONG_ADD_CALL",
+      name: "GONG_ADD_NEW_CALL_V2_CALLS",
       title: "Add Call",
       description:
         "Register a call recording in Gong from a call metadata payload.",
@@ -129,7 +129,11 @@ export const GONG_ADAPTER: ConnectorAdapter = {
       },
       buildRequest: (input) => {
         const call = optionalRecord(input, "call");
-        if (!call) throw new Error("GONG_ADD_CALL requires a `call` object.");
+        if (!call) {
+          throw new Error(
+            "GONG_ADD_NEW_CALL_V2_CALLS requires a `call` object.",
+          );
+        }
         return { method: "POST", path: "/v2/calls", body: call };
       },
     },

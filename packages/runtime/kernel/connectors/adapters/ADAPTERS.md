@@ -5,10 +5,9 @@
 Narrow, official-API adapters for HubSpot, Gong, Ashby, Pipedrive, Salesforce,
 Apollo, Attio, People Data Labs, and 21RISK. Each adapter is a data-only
 description of a provider's representative read/write actions and how each maps
-to a single REST request. Execution reuses the existing native path
-(`callApiConnector`) in `connect-service` — there is **no second execution
-core**, and a mutation is dispatched exactly once (native adapter path *or* the
-Composio broker fallback, never both).
+to a single REST request. These files are migration metadata and contract-test
+fixtures. Production execution belongs to the backend shared connector core;
+`connect-service` does not dispatch them or race them with Composio.
 
 ## Architecture
 
@@ -21,10 +20,8 @@ Composio broker fallback, never both).
 
 Integration points (additive, gated):
 
-- `connect-service.ts › callNativeConnector` dispatches a named adapter action
-  through `callNativeOAuthApiPath` when the entry is a **production-ready**
-  `oauth-catalog` provider that has an adapter. Unknown actions fall through to
-  the generic `<ID>_API_REQUEST` escape hatch.
+- Backend `connectors/execute.ts` is the only first-party dispatcher. The local
+  adapter builders are never an alternate runtime execution path.
 - `native-integrations.ts` surfaces adapter actions in `getNativeConnectorTools`
   and `getNativeConnectorCatalogActions` for production-ready adapter providers
   (so `connect.actions` / `connect.schema` and the generated skill list them).
@@ -46,26 +43,26 @@ tool call have both passed against the provider's official API.
 
 1. Register the Stella developer app / obtain credentials (see status below).
 2. Set production Convex env vars (names below). Never commit secrets.
-3. Add the id to `PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS`.
-4. Verify: connect the account, run one read and one write adapter action.
+3. Enable the provider manifest and configure a backend rollout only after live
+   validation; do not add a competing local execution route.
+4. Verify: connect the account, then run representative backend actions.
 
 ### OAuth providers — env var names
 
-Backend token exchange uses `tokenExchange: { type: "backend" }`; the backend
-resolves the client secret. Names follow the existing
-`STELLA_NATIVE_OAUTH_<PROVIDER>_*` convention (`envKey`).
+The backend resolves a versioned secret ring from deployment env only.
 
-| Provider   | id          | Client id env                              | Client secret env (Convex)                     | Readiness flag                                   |
-|------------|-------------|--------------------------------------------|------------------------------------------------|--------------------------------------------------|
-| HubSpot    | `hubspot`   | `STELLA_NATIVE_OAUTH_HUBSPOT_CLIENT_ID`    | `STELLA_NATIVE_OAUTH_HUBSPOT_CLIENT_SECRET`    | `STELLA_NATIVE_OAUTH_HUBSPOT_BACKEND_READY=1`    |
-| Gong       | `gong`      | `STELLA_NATIVE_OAUTH_GONG_CLIENT_ID`       | `STELLA_NATIVE_OAUTH_GONG_CLIENT_SECRET`       | `STELLA_NATIVE_OAUTH_GONG_BACKEND_READY=1`       |
-| Pipedrive  | `pipedrive` | (bundled) `..._PIPEDRIVE_CLIENT_ID` to override | `STELLA_NATIVE_OAUTH_PIPEDRIVE_CLIENT_SECRET` | `STELLA_NATIVE_OAUTH_PIPEDRIVE_BACKEND_READY=1`  |
-| Salesforce | `salesforce`| `STELLA_NATIVE_OAUTH_SALESFORCE_CLIENT_ID` | `STELLA_NATIVE_OAUTH_SALESFORCE_CLIENT_SECRET` | `STELLA_NATIVE_OAUTH_SALESFORCE_BACKEND_READY=1` |
-| Attio      | `attio`     | `STELLA_NATIVE_OAUTH_ATTIO_CLIENT_ID`      | `STELLA_NATIVE_OAUTH_ATTIO_CLIENT_SECRET`      | `STELLA_NATIVE_OAUTH_ATTIO_BACKEND_READY=1`      |
+For each uppercase provider key, configure:
 
-Salesforce executes against the token's instance URL (`resourceUrl` captured at
-connect time), not the login host. HubSpot, Gong, Pipedrive, and Attio use a
-fixed API base.
+- `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_ID`
+- `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_SECRETS_JSON`
+- `STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_SECRET_VERSION`
+
+Then add the lowercase provider key to
+`STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS`. This is necessary but not sufficient
+for activation; rollout remains `composio_only` until live validation passes.
+
+Salesforce, Gong, and Pipedrive use provider-issued tenant origins confined to
+allowlisted HTTPS host suffixes. HubSpot and Attio use fixed API origins.
 
 ### API-key providers
 

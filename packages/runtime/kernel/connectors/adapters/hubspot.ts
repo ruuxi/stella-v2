@@ -25,7 +25,7 @@ export const HUBSPOT_ADAPTER: ConnectorAdapter = {
   docsUrl: "https://developers.hubspot.com/docs/api/crm/contacts",
   actions: [
     {
-      name: "HUBSPOT_SEARCH_CONTACTS",
+      name: "HUBSPOT_SEARCH_CONTACTS_BY_CRITERIA",
       title: "Search Contacts",
       description:
         "Search CRM contacts with HubSpot filter groups and return selected properties.",
@@ -59,7 +59,7 @@ export const HUBSPOT_ADAPTER: ConnectorAdapter = {
       }),
     },
     {
-      name: "HUBSPOT_GET_CONTACT",
+      name: "HUBSPOT_READ_CONTACT",
       title: "Get Contact",
       description: "Retrieve a single contact by id with optional properties.",
       kind: "read",
@@ -75,7 +75,7 @@ export const HUBSPOT_ADAPTER: ConnectorAdapter = {
       },
       buildRequest: (input) => ({
         method: "GET",
-        path: `/crm/v3/objects/contacts/${seg(requireString(input, "contactId", "HUBSPOT_GET_CONTACT"))}`,
+        path: `/crm/v3/objects/contacts/${seg(requireString(input, "contactId", "HUBSPOT_READ_CONTACT"))}`,
         ...(Array.isArray(input.properties) && input.properties.length
           ? { query: { properties: input.properties.join(",") } }
           : {}),
@@ -189,7 +189,9 @@ export const HUBSPOT_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => {
         const properties = optionalRecord(input, "properties");
         if (!properties) {
-          throw new Error("HUBSPOT_CREATE_DEAL requires a `properties` object.");
+          throw new Error(
+            "HUBSPOT_CREATE_DEAL requires a `properties` object.",
+          );
         }
         return {
           method: "POST",

@@ -24,7 +24,7 @@ export const SALESFORCE_ADAPTER: ConnectorAdapter = {
     "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/",
   actions: [
     {
-      name: "SALESFORCE_SOQL_QUERY",
+      name: "SALESFORCE_RUN_SOQL_QUERY",
       title: "SOQL Query",
       description: "Run a read-only SOQL query and return matching records.",
       kind: "read",
@@ -38,11 +38,11 @@ export const SALESFORCE_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => ({
         method: "GET",
         path: dataPath("/query"),
-        query: { q: requireString(input, "q", "SALESFORCE_SOQL_QUERY") },
+        query: { q: requireString(input, "q", "SALESFORCE_RUN_SOQL_QUERY") },
       }),
     },
     {
-      name: "SALESFORCE_GET_RECORD",
+      name: "SALESFORCE_GET_S_OBJECT_RECORD",
       title: "Get Record",
       description: "Retrieve a single sObject record by type and id.",
       kind: "read",
@@ -60,7 +60,7 @@ export const SALESFORCE_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => ({
         method: "GET",
         path: dataPath(
-          `/sobjects/${seg(requireString(input, "sobject", "SALESFORCE_GET_RECORD"))}/${seg(requireString(input, "id", "SALESFORCE_GET_RECORD"))}`,
+          `/sobjects/${seg(requireString(input, "sobject", "SALESFORCE_GET_S_OBJECT_RECORD"))}/${seg(requireString(input, "id", "SALESFORCE_GET_S_OBJECT_RECORD"))}`,
         ),
         ...(Array.isArray(input.fields) && input.fields.length
           ? { query: { fields: input.fields.join(",") } }
@@ -68,9 +68,10 @@ export const SALESFORCE_ADAPTER: ConnectorAdapter = {
       }),
     },
     {
-      name: "SALESFORCE_CREATE_RECORD",
+      name: "SALESFORCE_CREATE_A_RECORD",
       title: "Create Record",
-      description: "Create an sObject record of the given type from a fields map.",
+      description:
+        "Create an sObject record of the given type from a fields map.",
       kind: "write",
       scopes: ["api"],
       inputSchema: {
@@ -85,12 +86,14 @@ export const SALESFORCE_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => {
         const fields = optionalRecord(input, "fields");
         if (!fields) {
-          throw new Error("SALESFORCE_CREATE_RECORD requires a `fields` object.");
+          throw new Error(
+            "SALESFORCE_CREATE_A_RECORD requires a `fields` object.",
+          );
         }
         return {
           method: "POST",
           path: dataPath(
-            `/sobjects/${seg(requireString(input, "sobject", "SALESFORCE_CREATE_RECORD"))}`,
+            `/sobjects/${seg(requireString(input, "sobject", "SALESFORCE_CREATE_A_RECORD"))}`,
           ),
           body: fields,
         };
@@ -99,7 +102,8 @@ export const SALESFORCE_ADAPTER: ConnectorAdapter = {
     {
       name: "SALESFORCE_UPDATE_RECORD",
       title: "Update Record",
-      description: "Update fields on an existing sObject record by type and id.",
+      description:
+        "Update fields on an existing sObject record by type and id.",
       kind: "write",
       scopes: ["api"],
       inputSchema: {
@@ -115,7 +119,9 @@ export const SALESFORCE_ADAPTER: ConnectorAdapter = {
       buildRequest: (input) => {
         const fields = optionalRecord(input, "fields");
         if (!fields) {
-          throw new Error("SALESFORCE_UPDATE_RECORD requires a `fields` object.");
+          throw new Error(
+            "SALESFORCE_UPDATE_RECORD requires a `fields` object.",
+          );
         }
         return {
           method: "PATCH",
@@ -129,7 +135,8 @@ export const SALESFORCE_ADAPTER: ConnectorAdapter = {
     {
       name: "SALESFORCE_CREATE_LEAD",
       title: "Create Lead",
-      description: "Create a Lead record from a fields map (LastName required).",
+      description:
+        "Create a Lead record from a fields map (LastName required).",
       kind: "write",
       scopes: ["api"],
       inputSchema: {

@@ -410,6 +410,8 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     registerNativeIntegrationHandlers({
         getStellaAppDir: lifecycle.getStellaDataDir,
+        requestPreregisteredOAuth: (payload) => services.connectorCredentialService.requestPreregisteredOAuth(payload),
+        requestDeviceOAuth: (payload) => services.connectorCredentialService.requestDeviceOAuth(payload),
         requestExternalOAuthApproval: (payload) => services.connectorOAuthService.requestExternalOAuthApproval(payload),
         getConvexAuthToken: () => services.authService.getConvexAuthToken(),
         getConvexSiteUrl: () => services.authService.getConvexSiteUrl(),

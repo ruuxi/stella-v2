@@ -12,6 +12,7 @@ import { isMobileBridgeEventChannel, isMobileBridgeRequestChannel, } from "./bri
 import { encodeBridgeBinaryValues } from "./binary-codec.js";
 import { BRIDGE_CRYPTO_PROTOCOL, BRIDGE_FEATURE_DEFLATE, createBridgeKeyPair, createBridgeReplayGuard, decryptBridgeBytes, decryptBridgePayload, deriveBridgeCryptoSession, encryptBridgeBytes, encryptBridgePayload, isBridgeEncryptedEnvelope, } from "./crypto.js";
 import { getHandler, getOnHandlers } from "./handler-registry.js";
+import { guardMobileBridgeInvokeArgs } from "./invoke-guards.js";
 import { adaptLegacyMobileArgs } from "./legacy-args.js";
 import { probeBridgePublicHealth } from "./public-health.js";
 import { resolveRendererRoot } from "../../renderer-location.js";
@@ -123,7 +124,11 @@ const dispatchCapturedIpc = async (channel, args, broadcastToMobile, options) =>
         throw new Error(`Unknown IPC channel: ${channel}`);
     }
     const fakeEvent = createFakeIpcEvent(broadcastToMobile);
-    const spreadArgs = Array.isArray(args) ? args : [args];
+    // Single choke point for client-supplied payloads (both the HTTP and the
+    // WebSocket invoke lanes land here): channels whose mobile intent is
+    // narrower than the shared desktop handler get their arguments validated
+    // and rebuilt — or rejected — before the privileged handler runs.
+    const spreadArgs = guardMobileBridgeInvokeArgs(channel, Array.isArray(args) ? args : [args]);
     if (handleHandler) {
         return {
             kind: "handle",

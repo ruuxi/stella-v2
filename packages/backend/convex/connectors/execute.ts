@@ -184,6 +184,13 @@ export const getAccessTokenForAccount = internalAction({
         releaseErrorCode = "refresh_failed";
         throw new ConnectorError("refresh_failed", true);
       }
+      const resourceOrigin = resolveProviderResourceOrigin(
+        manifest,
+        payload.api_base_url_for_customer ??
+          payload.instance_url ??
+          payload.api_domain ??
+          tokenSet.resourceOrigin,
+      );
       const commit = await ctx.runMutation(
         internal.connectors.oauth.vault.commitRefreshedTokens,
         {
@@ -202,13 +209,7 @@ export const getAccessTokenForAccount = internalAction({
                 : undefined,
             accessTokenExpiresAt: expiryFromExpiresIn(payload.expires_in, now),
             scopes: parseScopeString(payload.scope),
-            resourceOrigin: resolveProviderResourceOrigin(
-              manifest,
-              payload.api_base_url_for_customer ??
-                payload.instance_url ??
-                payload.api_domain ??
-                tokenSet.resourceOrigin,
-            ),
+            resourceOrigin,
           },
         },
       );
@@ -217,7 +218,7 @@ export const getAccessTokenForAccount = internalAction({
         throw new ConnectorError("refresh_busy", true);
       }
       leaseCleared = true;
-      return { accessToken, resourceOrigin: tokenSet.resourceOrigin };
+      return { accessToken, resourceOrigin };
     } catch (error) {
       if (!(error instanceof ConnectorError)) {
         releaseErrorCode = "refresh_failed";

@@ -9,6 +9,15 @@
 export const USER_MESSAGE_COLLAPSE_LINES = 4;
 
 /**
+ * Line cap used while measuring overflow. One line beyond the collapse cap is
+ * enough to distinguish "fits in four lines" from "overflows", so a long sent
+ * message never paints at full height first — which used to briefly inflate
+ * the row and skew the post-send scroll anchor before the clamp collapsed it.
+ */
+export const USER_MESSAGE_MEASURE_LINES = USER_MESSAGE_COLLAPSE_LINES + 1;
+
+
+/**
  * Mobile bubble type in ChatPane: 17px at 1.52 line-height.
  * Kept as an explicit assumption so tests fail if the bubble type drifts
  * without a matching clamp-height update.
@@ -34,6 +43,22 @@ export function isUserMessageTruncatable(
   maxLines: number = USER_MESSAGE_COLLAPSE_LINES,
 ): boolean {
   return totalLines !== null && totalLines > maxLines;
+}
+
+/**
+ * `numberOfLines` for the user-message <Text>. While `measuring`, render at
+ * the measure cap (collapse + 1) instead of unclamped so overflow detection
+ * never requires a full-height paint; once measured, clamp truncatable text
+ * to the collapse cap unless expanded.
+ */
+export function userMessageNumberOfLines(args: {
+  expanded: boolean;
+  measuring: boolean;
+  truncatable: boolean;
+}): number | undefined {
+  if (args.expanded) return undefined;
+  if (args.measuring) return USER_MESSAGE_MEASURE_LINES;
+  return args.truncatable ? USER_MESSAGE_COLLAPSE_LINES : undefined;
 }
 
 export function shouldShowUserMessageToggle(args: {

@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
   consumeResponseSpacerHeight,
+  resolvePostSendPlacement,
   resolvePostSendTarget,
   resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
 } from "../chat-response-spacer";
+import {
+  USER_MESSAGE_MOBILE_FONT_SIZE_PX,
+  USER_MESSAGE_MOBILE_LINE_HEIGHT,
+  collapsedUserMessageMaxHeight,
+} from "../user-message-clamp";
 
 describe("chat response spacer geometry", () => {
   test("reserves two thirds of the readable viewport", () => {
@@ -81,6 +87,89 @@ describe("chat response spacer geometry", () => {
         responseSpacerHeightPx: 360,
       }),
     ).toBe(1_000);
+  });
+
+  test("anchors a >4-line send to its clamped height, not the pre-clamp paint", () => {
+    const viewportHeightPx = 700;
+    const trailingSlackPx = 460;
+
+    // A long user message briefly measured tall (pre-clamp), then the
+    // four-line clamp collapses the row. Both the row and the list content
+    // shrink by the same amount.
+    const unclampedRowHeightPx = 600;
+    const clampedRowHeightPx =
+      collapsedUserMessageMaxHeight({
+        fontSizePx: USER_MESSAGE_MOBILE_FONT_SIZE_PX,
+        lineHeight: USER_MESSAGE_MOBILE_LINE_HEIGHT,
+      }) + 36; // bubble padding + Show-more toggle
+    const preClampContentPx = 2000;
+    const postClampContentPx =
+      preClampContentPx - (unclampedRowHeightPx - clampedRowHeightPx);
+    const postClampMaxOffsetPx = postClampContentPx - viewportHeightPx;
+
+    // The stale anchor (computed from the tall paint) is left past the
+    // scrollable end once the row collapses — the send-scroll overshoot.
+    const staleTargetPx = resolvePostSendPlacement({
+      contentHeightPx: preClampContentPx,
+      viewportHeightPx,
+      trailingSlackPx,
+      rowHeightPx: unclampedRowHeightPx,
+    });
+    expect(staleTargetPx).toBeGreaterThan(postClampMaxOffsetPx);
+
+    // Re-running placement against the settled (clamped) geometry lands the
+    // row exactly above the response spacer, within the scrollable range.
+    const settledTargetPx = resolvePostSendPlacement({
+      contentHeightPx: postClampContentPx,
+      viewportHeightPx,
+      trailingSlackPx,
+      rowHeightPx: clampedRowHeightPx,
+    });
+    expect(Math.abs(settledTargetPx - postClampMaxOffsetPx) < 1e-5).toBe(true);
+  });
+
+  test("anchoring against the keyboard-down inset stays within the settled content", () => {
+    const viewportHeightPx = 600;
+    const keyboardExtraPx = 280;
+    const restingInsetPx = 148;
+    const inflatedInsetPx = restingInsetPx + keyboardExtraPx;
+    const messagesHeightPx = 1200;
+    const rowHeightPx = 80;
+
+    const inflatedSpacerPx = resolveResponseSpacerHeight({
+      viewportHeight: viewportHeightPx,
+      bottomInsetPx: inflatedInsetPx,
+      minimumHeightPx: inflatedInsetPx,
+    });
+    const restingSpacerPx = resolveResponseSpacerHeight({
+      viewportHeight: viewportHeightPx,
+      bottomInsetPx: restingInsetPx,
+      minimumHeightPx: restingInsetPx,
+    });
+    // Content = messages + bottom padding (inset) + response spacer beyond it.
+    const inflatedContentPx = messagesHeightPx + inflatedSpacerPx;
+    const restingContentPx = messagesHeightPx + restingSpacerPx;
+    const restingMaxOffsetPx = restingContentPx - viewportHeightPx;
+
+    // Computing against the keyboard-inflated inset leaves the committed
+    // target past the content end once the padding collapses.
+    const inflatedTargetPx = resolvePostSendPlacement({
+      contentHeightPx: inflatedContentPx,
+      viewportHeightPx,
+      trailingSlackPx: inflatedSpacerPx,
+      rowHeightPx,
+    });
+    expect(inflatedTargetPx).toBeGreaterThan(restingMaxOffsetPx);
+
+    // Computing against the keyboard-down inset lands exactly at the settled
+    // content end (short row above the spacer).
+    const restingTargetPx = resolvePostSendPlacement({
+      contentHeightPx: restingContentPx,
+      viewportHeightPx,
+      trailingSlackPx: restingSpacerPx,
+      rowHeightPx,
+    });
+    expect(restingTargetPx).toBe(restingMaxOffsetPx);
   });
 
   test("does not pull a submit out of scrollback", () => {

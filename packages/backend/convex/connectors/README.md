@@ -368,7 +368,9 @@ cumulative response-byte budget. Every status/partition request is rebuilt on
 the persisted origin from a validated statement handle; provider-returned
 redirects and cross-origin or unexpected status URLs are refused. OAuth token
 exchange and refresh likewise refuse redirects and ignore provider-returned
-alternate API origins.
+alternate API origins. A refresh exchange, including its response body, is
+time-bounded below the refresh-lease TTL; an `invalid_grant` tombstone commits
+only while the caller still owns the expected credential generation and lease.
 
 Activation still requires all of the following; code readiness alone is not a
 rollout decision:

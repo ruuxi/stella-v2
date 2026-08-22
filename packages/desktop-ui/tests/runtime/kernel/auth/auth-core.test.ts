@@ -244,7 +244,7 @@ describe("auth-core optimistic session hydration latches", () => {
 });
 
 describe("auth-core sign-out / token mint", () => {
-  it("clears both storage keys on sign-out even when the request fails", async () => {
+  it("reports failure and preserves storage when the sign-out request fails", async () => {
     const storage = createMemoryStorage({
       [BETTER_AUTH_COOKIE_STORAGE_KEY]: cookieValue(
         "better-auth.session_token",
@@ -263,11 +263,14 @@ describe("auth-core sign-out / token mint", () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     const result = await core.signOut();
-    expect(result.ok).toBe(true);
-    expect(storage.values[BETTER_AUTH_COOKIE_STORAGE_KEY]).toBeUndefined();
+    // Network error: the server session may still be alive. We must report
+    // failure and preserve the local cookie/session so the UI doesn't present a
+    // false signed-out state.
+    expect(result.ok).toBe(false);
+    expect(storage.values[BETTER_AUTH_COOKIE_STORAGE_KEY]).toBeDefined();
     expect(
       storage.values[BETTER_AUTH_SESSION_DATA_STORAGE_KEY],
-    ).toBeUndefined();
+    ).toBeDefined();
   });
 
   it("mints a trimmed Convex token and returns null on HTTP failure", async () => {
@@ -298,5 +301,98 @@ describe("auth-core sign-out / token mint", () => {
       "Invalid auth callback token.",
     );
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("auth-core identity-epoch fencing (regression)", () => {
+  it("does not persist a get-session blob whose body resolves AFTER a sign-out", async () => {
+    const storage = createMemoryStorage({
+      [BETTER_AUTH_COOKIE_STORAGE_KEY]: cookieValue(
+        "better-auth.session_token",
+        "tokA",
+      ),
+    });
+    let releaseBody = () => {};
+    const bodyGate = new Promise<void>((resolve) => {
+      releaseBody = resolve;
+    });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/get-session")) {
+        const resp = jsonResponse({ user: { id: "A" } });
+        const originalJson = resp.json.bind(resp);
+        // Delay ONLY the body read, not the fetch, to hit the post-json() window.
+        (resp as unknown as { json: () => Promise<unknown> }).json =
+          async () => {
+            await bodyGate;
+            return originalJson();
+          };
+        return resp;
+      }
+      return jsonResponse({});
+    });
+    const core = createAuthCore({
+      storage,
+      getBaseUrl: () => "https://example.convex.site",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const sessionPromise = core.getSession();
+    // Sign out while the get-session body is still pending.
+    const signOut = await core.signOut();
+    expect(signOut.ok).toBe(true);
+    releaseBody();
+    const session = await sessionPromise;
+
+    // The stale get-session must NOT resurrect the session blob.
+    expect(session).toBeNull();
+    expect(
+      storage.values[BETTER_AUTH_SESSION_DATA_STORAGE_KEY],
+    ).toBeUndefined();
+  });
+
+  it("does not persist account-A's session over an account-B switch", async () => {
+    const storage = createMemoryStorage({
+      [BETTER_AUTH_COOKIE_STORAGE_KEY]: cookieValue(
+        "better-auth.session_token",
+        "tokA",
+      ),
+    });
+    let releaseBody = () => {};
+    const bodyGate = new Promise<void>((resolve) => {
+      releaseBody = resolve;
+    });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/get-session")) {
+        const resp = jsonResponse({ user: { id: "A" } });
+        const originalJson = resp.json.bind(resp);
+        (resp as unknown as { json: () => Promise<unknown> }).json =
+          async () => {
+            await bodyGate;
+            return originalJson();
+          };
+        return resp;
+      }
+      return jsonResponse({});
+    });
+    const core = createAuthCore({
+      storage,
+      getBaseUrl: () => "https://example.convex.site",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const sessionPromise = core.getSession();
+    // Switch to account B (local cookie apply → identity change) mid-flight.
+    core.applySessionCookie("better-auth.session_token=tokB; Path=/");
+    releaseBody();
+    const session = await sessionPromise;
+
+    // Account A's late response must NOT overwrite account B.
+    expect(session).toBeNull();
+    expect(
+      storage.values[BETTER_AUTH_SESSION_DATA_STORAGE_KEY],
+    ).toBeUndefined();
+    expect(storage.values[BETTER_AUTH_COOKIE_STORAGE_KEY]).toContain("tokB");
   });
 });

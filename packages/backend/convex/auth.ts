@@ -4,7 +4,12 @@ import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { Resend } from "@convex-dev/resend";
 import { expo } from "@better-auth/expo";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
-import { anonymous, magicLink } from "better-auth/plugins";
+import {
+  anonymous,
+  generateExportedKeyPair,
+  magicLink,
+} from "better-auth/plugins";
+import { symmetricEncrypt } from "better-auth/crypto";
 import {
   internalAction,
   internalQuery,
@@ -28,6 +33,12 @@ import {
   enforceMutationRateLimit,
   RATE_SENSITIVE,
 } from "./lib/rate_limits";
+import {
+  assertDynamicJwksMode,
+  inspectStaticJwks,
+  resolveJwksRuntimeConfig,
+} from "./lib/jwks_config";
+import { writeJwksAuditRecord } from "./lib/jwks_rotation";
 import { importPKCS8, SignJWT } from "jose";
 
 const getRequiredEnv = (name: string) => {
@@ -122,32 +133,56 @@ const DEFAULT_JWT_EXPIRATION_SECONDS = 30 * 60;
  * seconds. Used so `STELLA_JWT_EXPIRATION` keeps its existing TimeString-style
  * contract while we hand `expirationSeconds` (number) to the convex plugin.
  */
-const parseExpirationSeconds = (raw: string | undefined): number => {
-  if (!raw) return DEFAULT_JWT_EXPIRATION_SECONDS;
+const parseExpirationSeconds = (
+  raw: string | undefined,
+  environmentName = "STELLA_JWT_EXPIRATION",
+  defaultSeconds = DEFAULT_JWT_EXPIRATION_SECONDS,
+): number => {
+  if (!raw) return defaultSeconds;
   const trimmed = raw.trim();
-  if (trimmed === "") return DEFAULT_JWT_EXPIRATION_SECONDS;
+  if (trimmed === "") return defaultSeconds;
   const match = /^(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs|d|day|days)?$/i.exec(
     trimmed,
   );
   if (!match) {
     throw new Error(
-      `Invalid STELLA_JWT_EXPIRATION value: "${raw}". Use e.g. "5m", "300s", "1h".`,
+      `Invalid ${environmentName} value: "${raw}". Use e.g. "5m", "300s", "1h".`,
     );
   }
   const value = Number(match[1]);
   const unit = (match[2] ?? "s").toLowerCase();
-  const multiplier =
-    unit.startsWith("d") ? 86400
-    : unit.startsWith("h") ? 3600
-    : unit.startsWith("m") ? 60
-    : 1;
+  const multiplier = unit.startsWith("d")
+    ? 86400
+    : unit.startsWith("h")
+      ? 3600
+      : unit.startsWith("m")
+        ? 60
+        : 1;
   return value * multiplier;
 };
 
 const JWT_EXPIRATION_SECONDS = parseExpirationSeconds(
   process.env.STELLA_JWT_EXPIRATION,
 );
-const STATIC_JWKS = process.env.JWKS?.trim();
+const JWKS_RETIREMENT_SAFETY_SECONDS = parseExpirationSeconds(
+  process.env.STELLA_JWKS_RETIREMENT_SAFETY,
+  "STELLA_JWKS_RETIREMENT_SAFETY",
+  15 * 60,
+);
+const JWKS_OVERLAP_MS =
+  (JWT_EXPIRATION_SECONDS + JWKS_RETIREMENT_SAFETY_SECONDS) * 1000;
+const JWKS_RUNTIME = resolveJwksRuntimeConfig();
+const JWKS_ROTATION_ENABLED =
+  process.env.STELLA_JWKS_ROTATION_ENABLED?.trim().toLowerCase() === "true";
+
+const assertJwksRotationEnabled = () => {
+  assertDynamicJwksMode(JWKS_RUNTIME);
+  if (!JWKS_ROTATION_ENABLED) {
+    throw new Error(
+      "JWKS rotation is not armed. Complete dynamic-mode verification before setting STELLA_JWKS_ROTATION_ENABLED=true.",
+    );
+  }
+};
 
 const APPLE_CLIENT_SECRET_TTL_SECONDS = 180 * 24 * 60 * 60;
 
@@ -411,8 +446,11 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       // `/api/auth/get-session` with `r.createdAt.getTime is not a function`.
       convex({
         authConfig,
-        ...(STATIC_JWKS ? { jwks: STATIC_JWKS } : {}),
-        jwksRotateOnTokenGenerationError: true,
+        ...(JWKS_RUNTIME.staticJwks ? { jwks: JWKS_RUNTIME.staticJwks } : {}),
+        // Better Auth's recovery option deletes every key on an algorithm
+        // error. Rotation is explicit below so verification overlap is never
+        // destroyed by an automatic retry path.
+        jwksRotateOnTokenGenerationError: false,
         jwt: {
           expirationSeconds: JWT_EXPIRATION_SECONDS,
         },
@@ -470,20 +508,154 @@ export const getCurrentUser = query({
   },
 });
 
+/**
+ * Prepare and activate one recoverable overlapping rotation. The caller owns
+ * `operationId` and must reuse it for retries; no key material is returned.
+ */
 export const rotateKeys = internalAction({
-  args: {},
-  handler: async (ctx) => {
-    const auth = createAuth(ctx);
-    await auth.api.rotateKeys();
-    return null;
+  args: { operationId: v.string() },
+  handler: async (ctx, { operationId }) => {
+    assertJwksRotationEnabled();
+    let rotation = await ctx.runQuery(
+      components.betterAuth.jwksRotation.getRotation,
+      { operationId },
+    );
+
+    if (!rotation) {
+      const authContext = await createAuth(ctx).$context;
+      const { publicWebKey, privateWebKey } = await generateExportedKeyPair({
+        jwks: { keyPairConfig: { alg: "RS256", modulusLength: 2048 } },
+      });
+      const privateKey = JSON.stringify(
+        await symmetricEncrypt({
+          key: authContext.secretConfig,
+          data: JSON.stringify(privateWebKey),
+        }),
+      );
+      rotation = await ctx.runMutation(
+        components.betterAuth.jwksRotation.prepareRotation,
+        {
+          operationId,
+          nowMs: Date.now(),
+          publicKey: JSON.stringify(publicWebKey),
+          privateKey,
+        },
+      );
+    }
+
+    if (rotation.state === "prepared" || rotation.state === "active") {
+      rotation = await ctx.runMutation(
+        components.betterAuth.jwksRotation.activateRotation,
+        { operationId, nowMs: Date.now(), overlapMs: JWKS_OVERLAP_MS },
+      );
+    }
+    writeJwksAuditRecord("rotation", rotation);
+    return rotation;
   },
 });
 
-export const getLatestJwks = internalAction({
+export const rollbackKeyRotation = internalAction({
+  args: { operationId: v.string() },
+  handler: async (ctx, { operationId }) => {
+    assertDynamicJwksMode(JWKS_RUNTIME);
+    const rotation = await ctx.runMutation(
+      components.betterAuth.jwksRotation.rollbackRotation,
+      { operationId, nowMs: Date.now(), overlapMs: JWKS_OVERLAP_MS },
+    );
+    writeJwksAuditRecord("rollback", rotation);
+    return rotation;
+  },
+});
+
+export const retireKeyRotation = internalAction({
+  args: { operationId: v.string() },
+  handler: async (ctx, { operationId }) => {
+    assertDynamicJwksMode(JWKS_RUNTIME);
+    const rotation = await ctx.runMutation(
+      components.betterAuth.jwksRotation.retireRotation,
+      { operationId, nowMs: Date.now() },
+    );
+    writeJwksAuditRecord("retirement", rotation);
+    return rotation;
+  },
+});
+
+export const getKeyRotationStatus = internalAction({
+  args: { operationId: v.optional(v.string()) },
+  handler: async (ctx, { operationId }) => {
+    const [keyset, rotation] = await Promise.all([
+      ctx.runQuery(components.betterAuth.jwksRotation.getKeysetStatus, {}),
+      operationId
+        ? ctx.runQuery(components.betterAuth.jwksRotation.getRotation, {
+            operationId,
+          })
+        : Promise.resolve(null),
+    ]);
+    return {
+      mode: JWKS_RUNTIME.mode,
+      maximumTokenLifetimeSeconds: JWT_EXPIRATION_SECONDS,
+      retirementSafetySeconds: JWKS_RETIREMENT_SAFETY_SECONDS,
+      requiredOverlapSeconds:
+        JWT_EXPIRATION_SECONDS + JWKS_RETIREMENT_SAFETY_SECONDS,
+      rotationArmed: JWKS_ROTATION_ENABLED,
+      keyset,
+      rotation,
+    };
+  },
+});
+
+/**
+ * Check that dormant static configuration and database state identify the
+ * same signer before switching modes. The response contains only metadata.
+ */
+export const checkJwksMigrationReadiness = internalAction({
   args: {},
   handler: async (ctx) => {
-    const auth = createAuth(ctx);
-    return await auth.api.getLatestJwks();
+    const staticMetadata = inspectStaticJwks(process.env.JWKS?.trim());
+    if (!staticMetadata) {
+      const keyset = await ctx.runQuery(
+        components.betterAuth.jwksRotation.getKeysetStatus,
+        {},
+      );
+      const ready =
+        JWKS_RUNTIME.mode === "dynamic" &&
+        keyset.signingKeyUsable &&
+        keyset.outstandingRotation === undefined;
+      return {
+        ready,
+        mode: JWKS_RUNTIME.mode,
+        reason: ready
+          ? ("no_static_fallback" as const)
+          : ("dynamic_keyset_unusable" as const),
+        databaseKeyCount: keyset.keyCount,
+        signingKeyUsable: keyset.signingKeyUsable,
+        hasOutstandingRotation: keyset.outstandingRotation !== undefined,
+      };
+    }
+    const match = await ctx.runQuery(
+      components.betterAuth.jwksRotation.checkStaticKeysetMatch,
+      {
+        staticKeys: staticMetadata.keys.map(({ id, publicKey }) => ({
+          id,
+          publicKey,
+        })),
+        staticSigningKeyId: staticMetadata.signingKeyId,
+      },
+    );
+    const ready =
+      match.allStaticKeysMatch &&
+      match.signingKeyMatches &&
+      !match.hasOutstandingRotation;
+    return {
+      ready,
+      mode: JWKS_RUNTIME.mode,
+      reason: ready ? ("ready" as const) : ("keyset_mismatch" as const),
+      staticKeyCount: staticMetadata.keys.length,
+      databaseKeyCount: match.databaseKeyCount,
+      allStaticKeysMatch: match.allStaticKeysMatch,
+      signingKeyMatches: match.signingKeyMatches,
+      hasOutstandingRotation: match.hasOutstandingRotation,
+    };
   },
 });
 

@@ -74,35 +74,23 @@ const startDesktopSocialAuth = async (t: Translate) => {
   };
 };
 
-const pollDesktopSocialAuth = async (
-  convexSiteUrl: string,
-  requestId: string,
-  t: Translate,
-) => {
+const pollDesktopSocialAuth = async (requestId: string, t: Translate) => {
   const deadline = Date.now() + SOCIAL_AUTH_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await wait(SOCIAL_AUTH_POLL_INTERVAL_MS);
-    const response = await fetch(
-      `${convexSiteUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
-    );
-    if (!response.ok) {
-      continue;
-    }
-    const data = (await response.json().catch(() => null)) as {
-      status?: string;
-      sessionCookie?: string;
-    } | null;
-    if (data?.status === "completed" && data.sessionCookie) {
-      await window.electronAPI?.system.applyAuthSessionCookie?.(
-        data.sessionCookie,
-      );
+    // Poll status through the runtime AuthOwner (same /api/auth/link/status
+    // path magic-link uses). The AuthOwner applies the completed session cookie
+    // inside the runtime, so the raw cookie never transits the renderer.
+    const status =
+      await window.electronAPI?.system.getMagicLinkStatus?.(requestId);
+    if (status?.status === "completed" && status.applied) {
       await refreshAuthSession();
       return;
     }
-    if (data?.status === "completed") {
+    if (status?.status === "completed") {
       throw new Error(t("global.auth.googleNoSession"));
     }
-    if (data?.status === "expired") {
+    if (status?.status === "expired") {
       throw new Error(t("global.auth.googleExpired"));
     }
   }
@@ -179,8 +167,7 @@ function GoogleAuthButton() {
     setIsSigningIn(true);
 
     try {
-      const { convexSiteUrl, requestId, callbackURL } =
-        await startDesktopSocialAuth(t);
+      const { requestId, callbackURL } = await startDesktopSocialAuth(t);
       const result = (await authClient.signIn.social({
         provider: "google",
         callbackURL,
@@ -198,7 +185,7 @@ function GoogleAuthButton() {
       }
 
       openExternalUrl(url);
-      await pollDesktopSocialAuth(convexSiteUrl, requestId, t);
+      await pollDesktopSocialAuth(requestId, t);
     } catch (err) {
       setError(
         err instanceof Error

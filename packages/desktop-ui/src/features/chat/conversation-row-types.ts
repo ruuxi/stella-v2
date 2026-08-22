@@ -19,6 +19,8 @@ export type UserRowViewModel = {
   kind: "user";
   id: string;
   text: string;
+  /** Persisted created time (epoch ms) — feeds the hover timestamp. */
+  timestampMs?: number;
   /** True only for the freshly-sent user bubble — drives the entry animation. */
   justSent?: boolean;
   windowLabel?: string;
@@ -48,6 +50,8 @@ export type AssistantRowViewModel = {
    */
   id: string;
   text: string;
+  /** Persisted created time (epoch ms) — feeds the hover timestamp. */
+  timestampMs?: number;
   /**
    * Stable Streamdown cache key. Same value across the streaming ->
    * persisted handoff so the markdown parse cache is reused.

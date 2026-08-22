@@ -80,11 +80,22 @@
 .agent-thread-chat__messages {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  /* Tight chat rhythm: consecutive short narration lines should read as a
+     normal message stream, not island paragraphs. The shared `.event-item`
+     padding already contributes vertical air, so the list gap stays small
+     and the assistant items drop most of their block padding below. */
+  gap: 4px;
   max-width: 760px;
   margin: 0 auto;
   padding: 0;
   list-style: none;
+}
+
+/* The shared compact-surface assistant item carries 10px block padding
+   (bubble chrome the sidebar chat wants); this transcript renders assistant
+   text chrome-less, so that padding just doubles the inter-message gap. */
+.agent-thread-chat__messages .event-item.assistant {
+  padding-block: 2px;
 }
 
 .agent-thread-chat__new-messages {
@@ -100,7 +111,30 @@
 }
 
 .agent-thread-chat__message {
+  position: relative;
   min-width: 0;
+}
+
+/* Hover timestamp in the left gutter: the message's real created time
+   (local timezone, h:mm AM/PM), revealed only while the row is hovered.
+   Absolutely positioned outside the row so it never shifts layout; in a
+   narrow panel the gutter clips it rather than squeezing the transcript. */
+.agent-thread-chat__timestamp {
+  position: absolute;
+  top: 4px;
+  right: calc(100% + 10px);
+  color: var(--text-weaker);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+.agent-thread-chat__message:hover .agent-thread-chat__timestamp {
+  opacity: 1;
 }
 
 .agent-thread-chat__role {

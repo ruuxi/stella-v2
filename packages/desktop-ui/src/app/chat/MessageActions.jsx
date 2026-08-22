@@ -59,6 +59,8 @@ const REWIND_CONFIRM_TIMEOUT_MS = 3000;
  * @property {(() => void)} [onRewind] Rewind action (user rows only).
  * @property {(() => void)} [onFork] Fork action (user rows only).
  * @property {boolean} [actionsDisabled] Greys out Rewind/Fork while a turn is busy.
+ * @property {number} [timestampMs] Message created time (epoch ms); renders a
+ *   muted local-time "h:mm AM/PM" stamp alongside the actions on hover.
  * @property {{ path?: string, url?: string, mimeType?: string, kind?: string, name?: string }} [copyAttachment]
  *   Attachment to copy when the message has no text (image → clipboard image,
  *   file → path as text). Text always takes priority when present.
@@ -74,6 +76,7 @@ function MessageActionsImpl({
   onRewind,
   onFork,
   actionsDisabled = false,
+  timestampMs = undefined,
   copyAttachment = undefined,
 }) {
   const t = useT();
@@ -177,6 +180,16 @@ function MessageActionsImpl({
   }, [messageKey, text]);
 
   const isPlaying = readAloudStatus !== "idle";
+
+  // Local-timezone "h:mm AM/PM" (e.g. "3:07 PM"); the strip only reveals on
+  // hover, so the stamp inherits that hover-only visibility for free.
+  const timestampLabel =
+    typeof timestampMs === "number" && Number.isFinite(timestampMs)
+      ? new Date(timestampMs).toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : null;
 
   return (
     <div
@@ -300,6 +313,9 @@ function MessageActionsImpl({
             <Volume2 size={14} strokeWidth={2} aria-hidden="true" />
           )}
         </button>
+      )}
+      {timestampLabel && (
+        <span className="message-actions__timestamp">{timestampLabel}</span>
       )}
     </div>
   );

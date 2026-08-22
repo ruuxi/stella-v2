@@ -351,6 +351,7 @@ const appSelectionLabelsEqual = (
 const userRowEqual = (a: UserRowViewModel, b: UserRowViewModel): boolean =>
   a.id === b.id &&
   a.text === b.text &&
+  (a.timestampMs ?? null) === (b.timestampMs ?? null) &&
   Boolean(a.justSent) === Boolean(b.justSent) &&
   (a.windowLabel ?? null) === (b.windowLabel ?? null) &&
   (a.windowPreviewImageUrl ?? null) === (b.windowPreviewImageUrl ?? null) &&
@@ -367,6 +368,7 @@ const assistantRowEqual = (
 ): boolean =>
   a.id === b.id &&
   a.text === b.text &&
+  (a.timestampMs ?? null) === (b.timestampMs ?? null) &&
   a.cacheKey === b.cacheKey &&
   Boolean(a.isStreaming) === Boolean(b.isStreaming) &&
   Boolean(a.isFadingOut) === Boolean(b.isFadingOut) &&

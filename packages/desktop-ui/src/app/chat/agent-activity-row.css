@@ -49,6 +49,10 @@
   box-shadow: var(--focus-ring);
 }
 
+/* The status glyph (star / check / arrow) renders at FULL strength — solid
+   strong ink, no opacity dimming. Only the description text keeps the muted
+   / shimmer treatment; a translucent grey glyph was too ghostly to read as
+   the row's status tell. */
 .agent-activity-row__glyph {
   display: inline-flex;
   align-items: center;
@@ -56,12 +60,11 @@
   flex-shrink: 0;
   width: 16px;
   height: 16px;
-  color: var(--text-weak);
+  color: var(--text-strong);
 }
 
 .agent-activity-star {
   display: block;
-  opacity: 0.85;
 }
 
 /* Muted by default; running rows read stronger through the shimmer's own

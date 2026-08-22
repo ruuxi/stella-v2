@@ -150,6 +150,85 @@ The reviewed slugs are:
 - Excel: `EXCEL_LIST_WORKSHEETS`, `EXCEL_GET_RANGE`, `EXCEL_UPDATE_RANGE`,
   `EXCEL_LIST_TABLES`, `EXCEL_ADD_TABLE_ROW`.
 
+## Social & media provider registration (X, YouTube, Meta, Reddit, LinkedIn)
+
+The in-scope social/media connectors resolve through five provider manifests in
+`oauth/providers.ts`. As with every family, connector IDs and action schemas are
+unchanged; only the executor moves. All five deliberately remain `unverified`,
+are disabled unless explicitly allowlisted, keep the default `composio_only`
+rollout, and never enable first-party routing until a real account has completed
+callback and one representative read has succeeded.
+
+Every app is registered against the single hosted callback:
+
+```text
+${STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL}/api/connectors/oauth/callback
+```
+
+The intended production origin is `https://connect.stella.sh` (a Convex custom
+domain), so the exact redirect URI to configure in each provider console is
+`https://connect.stella.sh/api/connectors/oauth/callback`. Use the authorized
+`contact@fromyou.ai` identity for every console, and branding of "Stella"
+(support/contact `contact@fromyou.ai`, homepage `https://stella.sh`).
+
+| Provider key | Connector IDs                      | Grant model                                    | Notes                                                              |
+| ------------ | ---------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
+| `twitter`    | `twitter`                          | Own X app (OAuth2 PKCE, confidential client)   | Display name "X". Write (`tweet.write`) needs a paid X API tier.   |
+| `youtube`    | `youtube`                          | Own Google client, **separate** from Workspace | Distinct GCP project/consent; sensitive scopes need Google review. |
+| `meta`       | `facebook`, `instagram`, `metaads` | **One shared Meta user grant** (`social_all`)  | Facebook/Instagram/Meta Ads bind from a single reviewed grant.     |
+| `reddit`     | `reddit`                           | Own Reddit "web app"                           | Identity/read/submit need no app review.                           |
+| `linkedin`   | `linkedin`                         | Own LinkedIn app (needs a Company Page)        | `w_member_social` requires a reviewed LinkedIn product.            |
+
+`connectorBindings` wire the grant model: each Meta connector requests the
+reviewed `social_all` union on connect and is evaluated against its own read
+scope group, so one successful grant binds every scope-satisfied member.
+Twitter, Reddit, and LinkedIn request their write superset on connect and treat
+the read group as "connected"; each write action still self-gates on its own
+scopes at execution time. YouTube requests its write group and needs only read
+to be connected, and is a separate provider key from `google-workspace`.
+
+Per-provider production env names (`<KEY>` = `TWITTER` / `YOUTUBE` / `META` /
+`REDDIT` / `LINKEDIN`), set only via a redacted `convex env set --prod` on
+`benevolent-minnow-586`, never in source, `.env.local`, or logs:
+
+```text
+STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_ID
+STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_SECRETS_JSON      # versioned ring {"1":"..."}
+STELLA_CONNECTOR_OAUTH_<KEY>_CLIENT_SECRET_VERSION
+```
+
+Shared prerequisite for going live on any of them:
+`STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL` must be set (until then connect-start
+refuses), plus the provider key added to
+`STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS` and the global kill switch flipped on.
+None of these should change until a real callback + representative read is
+verified for that connector.
+
+### External registration state (as of this wave)
+
+- `twitter` — **credentials provisioned.** The prior wave registered the X app
+  and set `STELLA_CONNECTOR_OAUTH_TWITTER_CLIENT_ID`, `_CLIENT_SECRETS_JSON`,
+  and `_CLIENT_SECRET_VERSION` on `benevolent-minnow-586`. Not yet allowlisted
+  or rolled out; write remains gated on the paid X API tier.
+- `youtube` — **app not yet created.** The dedicated GCP project
+  `stella-youtube-oauth` exists under `contact@fromyou.ai`, but it has no OAuth
+  consent screen configured and no OAuth 2.0 client ID. Next step: configure the
+  consent screen (branding + the two YouTube scopes) and create a Web client
+  with the callback above, then store the client id/secret ring. External
+  blocker for production: Google verification of the sensitive YouTube scopes
+  (`youtube.readonly`, `youtube.force-ssl`).
+- `meta` — **blocked at login.** `developers.facebook.com` redirects to a Meta
+  login wall for this session; creating the app needs the owner's Meta login and
+  2FA (must not be entered here). Downstream: Meta Business verification and app
+  review for `pages_*`, `instagram_*`, and `ads_*` permissions.
+- `reddit` — **app not yet created.** `reddit.com/prefs/apps` is signed in; no
+  Stella OAuth app is present. A "web app" with the callback above yields a
+  client id/secret with no review needed for identity/read/submit.
+- `linkedin` — **app not yet created.** `linkedin.com/developers/apps` is signed
+  in and shows no app ("create your first app"). Creating one needs a LinkedIn
+  Company Page, and `w_member_social` requires review of the "Share on LinkedIn"
+  / Community Management product.
+
 ## Developer/data/utility reconciliation
 
 GitHub and Supabase are registered in `oauth/providers.ts` with hosted PKCE

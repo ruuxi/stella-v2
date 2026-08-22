@@ -120,11 +120,68 @@ describe("CRM/recruiting/sales adapter registry", () => {
     expect(
       buildConnectorAdapterRequest("apollo", "APOLLO_PEOPLE_SEARCH", {
         q_keywords: "cto",
+        person_titles: ["Chief Technology Officer", "CTO"],
       }),
     ).toEqual({
       method: "POST",
-      path: "/v1/mixed_people/search",
-      body: { q_keywords: "cto" },
+      path: "/api/v1/mixed_people/api_search?q_keywords=cto&person_titles%5B%5D=Chief+Technology+Officer&person_titles%5B%5D=CTO",
+    });
+
+    expect(
+      buildConnectorAdapterRequest("apollo", "APOLLO_ORGANIZATION_SEARCH", {
+        q_organization_name: "Acme",
+        q_organization_domains_list: ["acme.example"],
+      }),
+    ).toEqual({
+      method: "POST",
+      path: "/api/v1/mixed_companies/search?q_organization_name=Acme&q_organization_domains_list%5B%5D=acme.example",
+    });
+
+    expect(
+      buildConnectorAdapterRequest("apollo", "APOLLO_PEOPLE_ENRICH", {
+        email: "ada+lead@example.com",
+      }),
+    ).toEqual({
+      method: "POST",
+      path: "/api/v1/people/match?email=ada%2Blead%40example.com",
+    });
+
+    expect(
+      buildConnectorAdapterRequest("apollo", "APOLLO_CREATE_CONTACT", {
+        first_name: "Ada",
+        last_name: "Lovelace",
+        account_id: "account-1",
+      }),
+    ).toEqual({
+      method: "POST",
+      path: "/api/v1/contacts",
+      body: {
+        last_name: "Lovelace",
+        account_id: "account-1",
+        first_name: "Ada",
+      },
+    });
+
+    expect(
+      buildConnectorAdapterRequest("apollo", "APOLLO_CREATE_TASK", {
+        user_id: "user-1",
+        contact_id: "contact-1",
+        type: "call",
+        status: "scheduled",
+        due_at: "2026-08-15T10:00:00Z",
+        priority: "high",
+      }),
+    ).toEqual({
+      method: "POST",
+      path: "/api/v1/tasks",
+      body: {
+        type: "call",
+        due_at: "2026-08-15T10:00:00Z",
+        status: "scheduled",
+        user_id: "user-1",
+        priority: "high",
+        contact_id: "contact-1",
+      },
     });
 
     expect(
@@ -148,6 +205,13 @@ describe("CRM/recruiting/sales adapter registry", () => {
         candidateId: "c1",
       }),
     ).toThrow(/note/);
+    expect(() =>
+      buildConnectorAdapterRequest("apollo", "APOLLO_CREATE_TASK", {
+        priority: "high",
+        type: "email",
+        contact_ids: ["legacy-contact"],
+      }),
+    ).toThrow(/unsupported.*type|user_id/);
   });
 
   it("rejects unknown adapters and actions without executing", () => {

@@ -98,9 +98,11 @@ const PROMOTED_PROVIDER_CASES = [
     action: "APOLLO_PEOPLE_SEARCH",
     operation: "read",
     expectedMethod: "POST",
-    input: { q_keywords: "developer" },
-    expectedUrl: "https://api.apollo.io/v1/mixed_people/search",
+    input: { q_keywords: "developer", person_titles: ["CTO"] },
+    expectedUrl:
+      "https://api.apollo.io/api/v1/mixed_people/api_search?q_keywords=developer&person_titles%5B%5D=CTO",
     authHeader: "x-api-key",
+    expectsNoBody: true,
   },
   {
     connectorId: "2chat",
@@ -150,6 +152,69 @@ const PROMOTED_PROVIDER_CASES = [
   },
 ] as const;
 const API_KEY = "fc-test-secret-123456789";
+
+const APOLLO_ACTION_CASES = [
+  {
+    action: "APOLLO_PEOPLE_SEARCH",
+    operation: "read",
+    input: { q_keywords: "cto", person_titles: ["CTO"] },
+    expectedUrl:
+      "https://api.apollo.io/api/v1/mixed_people/api_search?q_keywords=cto&person_titles%5B%5D=CTO",
+  },
+  {
+    action: "APOLLO_ORGANIZATION_SEARCH",
+    operation: "read",
+    input: {
+      q_organization_name: "Acme",
+      q_organization_domains_list: ["acme.example"],
+    },
+    expectedUrl:
+      "https://api.apollo.io/api/v1/mixed_companies/search?q_organization_name=Acme&q_organization_domains_list%5B%5D=acme.example",
+  },
+  {
+    action: "APOLLO_PEOPLE_ENRICH",
+    operation: "read",
+    input: { email: "ada+lead@example.com" },
+    expectedUrl:
+      "https://api.apollo.io/api/v1/people/match?email=ada%2Blead%40example.com",
+  },
+  {
+    action: "APOLLO_CREATE_CONTACT",
+    operation: "write",
+    input: {
+      first_name: "Ada",
+      last_name: "Lovelace",
+      account_id: "account-1",
+    },
+    expectedUrl: "https://api.apollo.io/api/v1/contacts",
+    expectedBody: {
+      last_name: "Lovelace",
+      account_id: "account-1",
+      first_name: "Ada",
+    },
+  },
+  {
+    action: "APOLLO_CREATE_TASK",
+    operation: "write",
+    input: {
+      user_id: "user-1",
+      contact_id: "contact-1",
+      type: "call",
+      status: "scheduled",
+      due_at: "2026-08-15T10:00:00Z",
+      priority: "high",
+    },
+    expectedUrl: "https://api.apollo.io/api/v1/tasks",
+    expectedBody: {
+      type: "call",
+      due_at: "2026-08-15T10:00:00Z",
+      status: "scheduled",
+      user_id: "user-1",
+      priority: "high",
+      contact_id: "contact-1",
+    },
+  },
+] as const;
 
 const MASTER_KEY = btoa(
   String.fromCharCode(
@@ -385,7 +450,58 @@ describe("API-key provider descriptors", () => {
     }
   });
 
+  it("matches the reviewed public Apollo schemas and rejects legacy task input", () => {
+    const ajv = new Ajv({ strict: false, allErrors: true });
+    const descriptor = getApiKeyProviderDescriptor("apollo")!;
+    for (const testCase of APOLLO_ACTION_CASES) {
+      const validate = ajv.compile(
+        descriptor.actions[testCase.action]!.inputSchema,
+      );
+      expect(
+        validate(testCase.input),
+        `${testCase.action}: ${JSON.stringify(validate.errors)}`,
+      ).toBe(true);
+      expect(
+        validate({ ...testCase.input, unreviewed_argument: true }),
+        testCase.action,
+      ).toBe(false);
+    }
+
+    const validateTask = ajv.compile(
+      descriptor.actions.APOLLO_CREATE_TASK!.inputSchema,
+    );
+    expect(
+      validateTask({
+        priority: "high",
+        type: "email",
+        contact_ids: ["legacy-contact"],
+      }),
+    ).toBe(false);
+
+    const validateEnrichment = ajv.compile(
+      descriptor.actions.APOLLO_PEOPLE_ENRICH!.inputSchema,
+    );
+    expect(
+      validateEnrichment({
+        email: "ada@example.com",
+        reveal_phone_number: true,
+      }),
+    ).toBe(false);
+    expect(
+      validateEnrichment({
+        email: "ada@example.com",
+        reveal_phone_number: true,
+        webhook_url: "https://example.com/apollo-webhook",
+      }),
+    ).toBe(true);
+  });
+
   it("rejects malformed credentials and requires independent enablement and verification", async () => {
+    expect(isApiKeyProviderVerified("apollo")).toBe(false);
+    expect(isProviderEnabled("apollo")).toBe(false);
+    expect(() => requireReadyApiKeyProvider("apollo")).toThrow(
+      /provider_unverified/,
+    );
     for (const invalid of [
       "short",
       " leading-secret",
@@ -558,8 +674,65 @@ describe("API-key auth placement and egress controls", () => {
       }
       if ("expectedBody" in testCase) {
         expect(requestInit?.body).toBe(testCase.expectedBody);
+      } else if (
+        "expectsNoBody" in testCase &&
+        testCase.expectsNoBody === true
+      ) {
+        expect(requestInit?.body).toBeUndefined();
+        expect(headers.get("content-type")).toBeNull();
       } else if (testCase.expectedMethod === "POST") {
         expect(JSON.parse(String(requestInit?.body))).toEqual(testCase.input);
+      }
+    }
+  });
+
+  it("executes every Apollo public action against its reviewed API v1 route", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => jsonResponse({ ok: true }));
+    const descriptor = getApiKeyProviderDescriptor("apollo")!;
+
+    for (const testCase of APOLLO_ACTION_CASES) {
+      fetchMock.mockClear();
+      await expect(
+        executeApiKeyProviderAction({
+          descriptor,
+          apiKey: API_KEY,
+          action: testCase.action,
+          input: { ...testCase.input },
+          operation: testCase.operation,
+        }),
+        testCase.action,
+      ).resolves.toEqual({
+        output: { ok: true },
+        providerStatusClass: "ok",
+      });
+
+      expect(fetchMock, testCase.action).toHaveBeenCalledOnce();
+      const [requestUrl, requestInit] = fetchMock.mock.calls[0]!;
+      const headers = requestInit?.headers as Headers;
+      expect(String(requestUrl)).toBe(testCase.expectedUrl);
+      expect(String(requestUrl)).not.toContain(API_KEY);
+      expect(requestInit?.method).toBe("POST");
+      expect(requestInit?.redirect).toBe("manual");
+      expect(headers.get("x-api-key")).toBe(API_KEY);
+      expect(headers.get("authorization")).toBeNull();
+      expect(String(requestInit?.body ?? "")).not.toContain(API_KEY);
+
+      if ("expectedBody" in testCase) {
+        expect(headers.get("content-type")).toBe("application/json");
+        expect(JSON.parse(String(requestInit?.body))).toEqual(
+          testCase.expectedBody,
+        );
+        expect([...headers.keys()].sort()).toEqual([
+          "accept",
+          "content-type",
+          "x-api-key",
+        ]);
+      } else {
+        expect(requestInit?.body).toBeUndefined();
+        expect(headers.get("content-type")).toBeNull();
+        expect([...headers.keys()].sort()).toEqual(["accept", "x-api-key"]);
       }
     }
   });

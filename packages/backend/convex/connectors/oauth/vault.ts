@@ -141,7 +141,8 @@ export const commitProviderAccountTokens = internalMutation({
     const tokenSet: TokenSet = {
       accessToken: args.incoming.accessToken,
       // Preserve an omitted refresh token from the prior grant.
-      refreshToken: args.incoming.refreshToken ?? previousTokenSet?.refreshToken,
+      refreshToken:
+        args.incoming.refreshToken ?? previousTokenSet?.refreshToken,
       tokenType:
         args.incoming.tokenType ?? previousTokenSet?.tokenType ?? "Bearer",
       accessTokenExpiresAt: args.incoming.accessTokenExpiresAt,
@@ -309,7 +310,8 @@ export const commitRefreshedTokens = internalMutation({
     );
     const tokenSet: TokenSet = {
       accessToken: args.incoming.accessToken,
-      refreshToken: args.incoming.refreshToken ?? previousTokenSet?.refreshToken,
+      refreshToken:
+        args.incoming.refreshToken ?? previousTokenSet?.refreshToken,
       tokenType:
         args.incoming.tokenType ?? previousTokenSet?.tokenType ?? "Bearer",
       accessTokenExpiresAt: args.incoming.accessTokenExpiresAt,
@@ -442,7 +444,9 @@ export const rotateConnectorCredentialsBatch = internalMutation({
         continue;
       }
       try {
-        const result = await rotateSecretToActiveKey(candidate.encryptedTokenSet);
+        const result = await rotateSecretToActiveKey(
+          candidate.encryptedTokenSet,
+        );
         if (!result.changed) {
           skipped += 1;
           continue;

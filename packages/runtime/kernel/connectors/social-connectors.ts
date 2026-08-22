@@ -436,7 +436,8 @@ const missingScopes = (
  * enforces, so the two routes can never both fire for one call.
  */
 export type SocialConnectorExecutionRoute =
-  "composio-fallback" | "native-first-party";
+  | "composio-fallback"
+  | "native-first-party";
 
 export type SocialConnectorActionStatus = {
   name: string;

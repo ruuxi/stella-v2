@@ -1139,7 +1139,8 @@ export const discoverConnectorsDetailed = async (
       let connected = false;
       let nativeEntry: NativeConnectorCatalogEntry | undefined;
       let nativeReadiness:
-        Awaited<ReturnType<typeof getNativeConnectorReadiness>> | undefined;
+        | Awaited<ReturnType<typeof getNativeConnectorReadiness>>
+        | undefined;
       if (match.kind === "native") {
         nativeEntry = getNativeConnectorCatalogEntry(
           match.id,

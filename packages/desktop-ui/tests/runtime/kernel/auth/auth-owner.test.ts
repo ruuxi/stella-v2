@@ -399,3 +399,47 @@ describe("auth session store — multi-writer CAS (regression)", () => {
     );
   });
 });
+
+describe("auth owner — sign-out failure preservation (regression)", () => {
+  it("preserves the session and reports failure when the sign-out request fails", async () => {
+    const jwt = makeJwt({ exp: Math.floor(Date.now() / 1000) + 1800 });
+    let signOutFails = false;
+    fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("/sign-out")) {
+          if (signOutFails) {
+            throw new Error("offline");
+          }
+          return jsonResponse({ ok: true });
+        }
+        if (url.includes("/convex/token")) {
+          return jsonResponse({ token: jwt });
+        }
+        return jsonResponse({ ok: true });
+      });
+    const changes: string[] = [];
+    const owner = createAuthOwner({
+      stellaDataDir: tmpDir,
+      getBaseUrl: () => "https://example.convex.site",
+      onAuthChanged: (event) => changes.push(event.reason),
+    });
+    await owner.importSession({
+      cookie: sessionCookie,
+      sessionData: JSON.stringify({ user: { id: "u1", isAnonymous: false } }),
+    });
+    expect(owner.hasSession()).toBe(true);
+
+    signOutFails = true;
+    const result = await owner.signOut();
+
+    // Failure surfaced; local session + token preserved; no signed-out event.
+    expect(result.ok).toBe(false);
+    expect(owner.hasSession()).toBe(true);
+    const token = await owner.getConvexToken();
+    expect(token.token).toBe(jwt);
+    expect(changes).not.toContain("signed-out");
+    owner.stop();
+  });
+});

@@ -103,9 +103,37 @@ describe("AuthService.syncRuntimeAuthStore — migration is one-way", () => {
     expect(service.isRuntimeAuthOwnerActive()).toBe(true);
   });
 
-  it("re-seeds only when the runtime store is genuinely empty (hasSession false)", async () => {
+  it("never re-imports after migration is complete, even if the runtime appears empty", async () => {
     seedLegacyCookie();
     seedMigrationMarker();
+    const importAuthSession = vi.fn(async () => ({
+      ok: true,
+      authenticated: true,
+      hasConnectedAccount: true,
+    }));
+    const runner = {
+      getWorkerGeneration: () => 1,
+      importAuthSession,
+      // Even if the runtime reports empty (which may be a lie: a transient
+      // unreadable store, or a legitimate sign-out), migration is one-way and
+      // complete — we must NOT resurrect the stale desktop artifact.
+      getRuntimeConvexToken: async () => ({
+        token: null,
+        hasConnectedAccount: false,
+        hasSession: false,
+      }),
+    };
+    const service = buildService(runner);
+
+    await service.syncRuntimeAuthStore();
+
+    expect(importAuthSession).not.toHaveBeenCalled();
+    expect(service.isRuntimeAuthOwnerActive()).toBe(true);
+  });
+
+  it("first migration imports with the atomic import-if-empty flag", async () => {
+    seedLegacyCookie();
+    // No migration marker yet → first migration.
     const importAuthSession = vi.fn(async () => ({
       ok: true,
       authenticated: true,
@@ -125,6 +153,9 @@ describe("AuthService.syncRuntimeAuthStore — migration is one-way", () => {
     await service.syncRuntimeAuthStore();
 
     expect(importAuthSession).toHaveBeenCalledTimes(1);
+    expect(importAuthSession.mock.calls[0]?.[0]).toMatchObject({
+      onlyIfEmpty: true,
+    });
   });
 });
 
@@ -207,6 +238,40 @@ describe("AuthService.signOut — failure is surfaced", () => {
 
     expect(result.ok).toBe(true);
     expect(runner.setAuthToken).toHaveBeenCalledWith(null);
+  });
+
+  it("treats a missing runner sign-out method as failure (no false success)", async () => {
+    seedLegacyCookie();
+    seedMigrationMarker();
+    // Runner present for ensureRuntimeAuthMode, but no authSignOut method
+    // (e.g. an old worker / version skew).
+    const runner = {
+      getWorkerGeneration: () => 1,
+      importAuthSession: async () => ({
+        ok: true,
+        authenticated: true,
+        hasConnectedAccount: true,
+      }),
+      getRuntimeConvexToken: async () => ({
+        token: null,
+        hasConnectedAccount: false,
+        hasSession: true,
+      }),
+      setAuthToken: vi.fn(),
+      setHasConnectedAccount: vi.fn(),
+      setConvexUrl: vi.fn(),
+      setConvexSiteUrl: vi.fn(),
+    };
+    const service = buildService(runner);
+
+    const result = await service.signOut();
+
+    expect(result.ok).toBe(false);
+    const legacy = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, AUTH_STORAGE_FILE), "utf8"),
+    );
+    expect(legacy[BETTER_AUTH_COOKIE_STORAGE_KEY]).toBeTruthy();
+    expect(runner.setAuthToken).not.toHaveBeenCalled();
   });
 });
 

@@ -10,6 +10,7 @@
 
 import type * as adapter from "../adapter.js";
 import type * as generatedTables from "../generatedTables.js";
+import type * as jwksRotation from "../jwksRotation.js";
 
 import type {
   ApiFromModules,
@@ -21,6 +22,7 @@ import { anyApi, componentsGeneric } from "convex/server";
 const fullApi: ApiFromModules<{
   adapter: typeof adapter;
   generatedTables: typeof generatedTables;
+  jwksRotation: typeof jwksRotation;
 }> = anyApi as any;
 
 /**

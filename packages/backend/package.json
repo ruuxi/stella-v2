@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "convex dev",
     "deploy": "convex deploy",
-    "auth:jwks": "convex run auth:getLatestJwks | convex env set JWKS",
-      "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
+    "auth:jwks:preflight": "convex run auth:checkJwksMigrationReadiness",
+    "auth:jwks:status": "convex run auth:getKeyRotationStatus '{}'",
+    "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
     "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../contracts/convex-api.ts",
     "integrations:publish-composio": "node scripts/publish-composio-native-integrations.mjs",
     "typecheck": "tsc --noEmit -p convex/tsconfig.json",

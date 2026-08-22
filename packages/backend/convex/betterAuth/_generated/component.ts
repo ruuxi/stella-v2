@@ -148,6 +148,22 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 data: { count: number; key: string; lastRequest: number };
                 model: "rateLimit";
+              }
+            | {
+                data: {
+                  activatedAt?: number;
+                  createdAt: number;
+                  newKeyId: string;
+                  operationId: string;
+                  previousKeyId: string;
+                  retireAfter?: number;
+                  retiredAt?: number;
+                  retirementTargetKeyId?: string;
+                  rolledBackAt?: number;
+                  state: "prepared" | "active" | "rolled_back" | "retired";
+                  updatedAt: number;
+                };
+                model: "jwksRotation";
               };
           onCreateHandle?: string;
           select?: Array<string>;
@@ -488,6 +504,45 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "key" | "count" | "lastRequest" | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "jwksRotation";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "operationId"
+                    | "state"
+                    | "previousKeyId"
+                    | "newKeyId"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "activatedAt"
+                    | "rolledBackAt"
+                    | "retireAfter"
+                    | "retirementTargetKeyId"
+                    | "retiredAt"
+                    | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
@@ -877,6 +932,45 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | Array<number>
                     | null;
                 }>;
+              }
+            | {
+                model: "jwksRotation";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "operationId"
+                    | "state"
+                    | "previousKeyId"
+                    | "newKeyId"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "activatedAt"
+                    | "rolledBackAt"
+                    | "retireAfter"
+                    | "retirementTargetKeyId"
+                    | "retiredAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
               };
           onDeleteHandle?: string;
         },
@@ -899,7 +993,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | "oauthAccessToken"
             | "oauthConsent"
             | "jwks"
-            | "rateLimit";
+            | "rateLimit"
+            | "jwksRotation";
           offset?: number;
           paginationOpts: {
             cursor: string | null;
@@ -954,7 +1049,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | "oauthAccessToken"
             | "oauthConsent"
             | "jwks"
-            | "rateLimit";
+            | "rateLimit"
+            | "jwksRotation";
           select?: Array<string>;
           where?: Array<{
             connector?: "AND" | "OR";
@@ -1407,6 +1503,58 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field: "key" | "count" | "lastRequest" | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "jwksRotation";
+                update: {
+                  activatedAt?: number;
+                  createdAt?: number;
+                  newKeyId?: string;
+                  operationId?: string;
+                  previousKeyId?: string;
+                  retireAfter?: number;
+                  retiredAt?: number;
+                  retirementTargetKeyId?: string;
+                  rolledBackAt?: number;
+                  state?: "prepared" | "active" | "rolled_back" | "retired";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "operationId"
+                    | "state"
+                    | "previousKeyId"
+                    | "newKeyId"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "activatedAt"
+                    | "rolledBackAt"
+                    | "retireAfter"
+                    | "retirementTargetKeyId"
+                    | "retiredAt"
+                    | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
@@ -1886,10 +2034,198 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | Array<number>
                     | null;
                 }>;
+              }
+            | {
+                model: "jwksRotation";
+                update: {
+                  activatedAt?: number;
+                  createdAt?: number;
+                  newKeyId?: string;
+                  operationId?: string;
+                  previousKeyId?: string;
+                  retireAfter?: number;
+                  retiredAt?: number;
+                  retirementTargetKeyId?: string;
+                  rolledBackAt?: number;
+                  state?: "prepared" | "active" | "rolled_back" | "retired";
+                  updatedAt?: number;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "operationId"
+                    | "state"
+                    | "previousKeyId"
+                    | "newKeyId"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "activatedAt"
+                    | "rolledBackAt"
+                    | "retireAfter"
+                    | "retirementTargetKeyId"
+                    | "retiredAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
               };
           onUpdateHandle?: string;
         },
         any,
+        Name
+      >;
+    };
+    jwksRotation: {
+      activateRotation: FunctionReference<
+        "mutation",
+        "internal",
+        { nowMs: number; operationId: string; overlapMs: number },
+        {
+          activatedAt?: number;
+          createdAt: number;
+          newKeyId: string;
+          operationId: string;
+          previousKeyId: string;
+          retireAfter?: number;
+          retiredAt?: number;
+          rolledBackAt?: number;
+          state: "prepared" | "active" | "rolled_back" | "retired";
+          updatedAt: number;
+        },
+        Name
+      >;
+      checkStaticKeysetMatch: FunctionReference<
+        "query",
+        "internal",
+        {
+          staticKeys: Array<{ id: string; publicKey: string }>;
+          staticSigningKeyId: string;
+        },
+        {
+          allStaticKeysMatch: boolean;
+          databaseKeyCount: number;
+          databaseSigningKeyId?: string;
+          hasOutstandingRotation: boolean;
+          signingKeyMatches: boolean;
+        },
+        Name
+      >;
+      getKeysetStatus: FunctionReference<
+        "query",
+        "internal",
+        {},
+        {
+          keyCount: number;
+          outstandingRotation?: {
+            activatedAt?: number;
+            createdAt: number;
+            newKeyId: string;
+            operationId: string;
+            previousKeyId: string;
+            retireAfter?: number;
+            retiredAt?: number;
+            rolledBackAt?: number;
+            state: "prepared" | "active" | "rolled_back" | "retired";
+            updatedAt: number;
+          };
+          signingKeyId?: string;
+          signingKeyUsable: boolean;
+        },
+        Name
+      >;
+      getRotation: FunctionReference<
+        "query",
+        "internal",
+        { operationId: string },
+        null | {
+          activatedAt?: number;
+          createdAt: number;
+          newKeyId: string;
+          operationId: string;
+          previousKeyId: string;
+          retireAfter?: number;
+          retiredAt?: number;
+          rolledBackAt?: number;
+          state: "prepared" | "active" | "rolled_back" | "retired";
+          updatedAt: number;
+        },
+        Name
+      >;
+      prepareRotation: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          nowMs: number;
+          operationId: string;
+          privateKey: string;
+          publicKey: string;
+        },
+        {
+          activatedAt?: number;
+          createdAt: number;
+          newKeyId: string;
+          operationId: string;
+          previousKeyId: string;
+          retireAfter?: number;
+          retiredAt?: number;
+          rolledBackAt?: number;
+          state: "prepared" | "active" | "rolled_back" | "retired";
+          updatedAt: number;
+        },
+        Name
+      >;
+      retireRotation: FunctionReference<
+        "mutation",
+        "internal",
+        { nowMs: number; operationId: string },
+        {
+          activatedAt?: number;
+          createdAt: number;
+          newKeyId: string;
+          operationId: string;
+          previousKeyId: string;
+          retireAfter?: number;
+          retiredAt?: number;
+          rolledBackAt?: number;
+          state: "prepared" | "active" | "rolled_back" | "retired";
+          updatedAt: number;
+        },
+        Name
+      >;
+      rollbackRotation: FunctionReference<
+        "mutation",
+        "internal",
+        { nowMs: number; operationId: string; overlapMs: number },
+        {
+          activatedAt?: number;
+          createdAt: number;
+          newKeyId: string;
+          operationId: string;
+          previousKeyId: string;
+          retireAfter?: number;
+          retiredAt?: number;
+          rolledBackAt?: number;
+          state: "prepared" | "active" | "rolled_back" | "retired";
+          updatedAt: number;
+        },
         Name
       >;
     };

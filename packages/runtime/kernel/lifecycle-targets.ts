@@ -29,8 +29,17 @@ export type PiRunnerAuthHandle = {
     authenticated: boolean;
     token: string | null;
     hasConnectedAccount: boolean;
+    /** True when the runtime store holds session material (mint-independent). */
+    hasSession?: boolean;
   }>;
   getRuntimeAuthSession?: () => Promise<unknown>;
+  /**
+   * Monotonic worker-generation counter. Increments every time a (re)connected
+   * worker is adopted, so callers can detect a stale-worker replacement and
+   * re-evaluate cached per-worker decisions (e.g. auth ownership mode) instead
+   * of latching them for the whole app session.
+   */
+  getWorkerGeneration?: () => number;
   /**
    * P3 sign-in mutations: proxied to the worker AuthOwner so the runtime is
    * the single /api/auth/* writer. Optional for version skew; the desktop

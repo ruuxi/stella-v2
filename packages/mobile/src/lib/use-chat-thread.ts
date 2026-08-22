@@ -46,6 +46,7 @@ import {
 } from "../components/working-indicator-state";
 import {
   collapseLinkedDuplicates,
+  finalizeStreamedAssistantText,
   linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
@@ -2058,9 +2059,13 @@ export function useChatThread(opts: {
         setMessages((m) =>
           m.map((msg) => {
             if (msg.id === replyId) {
+              // Finalize IN PLACE: keep the streamed text (same string
+              // reference) whenever it already covers the turn's final text,
+              // so the reply that just streamed doesn't get rewritten — and
+              // its markdown re-rendered/re-animated — at end of turn.
               return {
                 ...msg,
-                text: result.text,
+                text: finalizeStreamedAssistantText(msg.text, result.text),
                 ...(canonicalUserMessageId
                   ? { requestId: canonicalUserMessageId }
                   : {}),

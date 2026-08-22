@@ -231,9 +231,12 @@ export function AssistantMarkdown({
     if (text.startsWith(prev)) {
       const delta = text.slice(prev.length);
       if (delta.length > 0) session.append(delta);
-    } else {
+    } else if (text.trim() !== prev.trim()) {
       session.reset(text);
     }
+    // A whitespace-only rewrite (end-of-turn normalization trimming the
+    // streamed text) skips the reset: resetting re-parses the whole message
+    // and replays the stream fade over text the user already watched arrive.
     lastSyncedRef.current = text;
   }, [session, text]);
 

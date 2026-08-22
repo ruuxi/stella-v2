@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChatMessage } from "../../types";
 import {
   collapseLinkedDuplicates,
+  finalizeStreamedAssistantText,
   linkOptimisticTurnToCanonical,
   mergeMessagesById,
   reconcileSentDesktopTurn,
@@ -1143,5 +1144,86 @@ describe("retargetOptimisticReplyToUser (rapid mobile steering)", () => {
     expect(ids(merged)).toEqual(["u1", "u2", "local-a"]);
     expect(merged.at(-1)?.text).toBe("final");
     expect(merged.at(-1)?.canonicalId).toBe("desk-a");
+  });
+});
+
+describe("streamed reply finalizes in place (no rewrite, no remount)", () => {
+  test("finalizeStreamedAssistantText keeps the streamed string when only whitespace differs", () => {
+    const streamed = "Hello **world**.\n\nAll done.\n";
+    // The bridge's final text is trimmed/normalized — same content.
+    expect(finalizeStreamedAssistantText(streamed, "Hello **world**.\n\nAll done.")).toBe(
+      streamed,
+    );
+    expect(finalizeStreamedAssistantText(streamed, streamed)).toBe(streamed);
+  });
+
+  test("finalizeStreamedAssistantText keeps the whole streamed turn when the final text is its last message", () => {
+    const streamed = "Let me check that.\n\nThe answer is 42.";
+    expect(finalizeStreamedAssistantText(streamed, "The answer is 42.")).toBe(
+      streamed,
+    );
+  });
+
+  test("finalizeStreamedAssistantText falls back to the final text when the stream missed content", () => {
+    expect(finalizeStreamedAssistantText("", "The answer is 42.")).toBe(
+      "The answer is 42.",
+    );
+    // Stream died mid-word; the final text carries the full reply.
+    expect(
+      finalizeStreamedAssistantText("The answ", "The answer is 42."),
+    ).toBe("The answer is 42.");
+  });
+
+  test("turn reconcile keeps the streamed row's id AND text identity for a whitespace-normalized canonical reply", () => {
+    const streamedText = "Here you go.\n";
+    const current = [
+      user("local-u", "question", { createdAt: 100 }),
+      assistant("local-a", streamedText, {
+        requestId: "desk-u",
+        createdAt: 101,
+      }),
+    ];
+    const reconciled = reconcileSentDesktopTurn({
+      current,
+      userMessageId: "local-u",
+      replyId: "local-a",
+      sentText: "question",
+      canonicalMessages: [
+        user("desk-u", "question", { createdAt: 100 }),
+        assistant("desk-a", "Here you go.", {
+          requestId: "desk-u",
+          createdAt: 101,
+        }),
+      ],
+      canonicalUserMessageId: "desk-u",
+    });
+    // Same list key from first streamed token through finalized message: the
+    // streamed row is updated, never replaced by a differently-keyed twin.
+    expect(ids(reconciled)).toEqual(["local-u", "local-a"]);
+    const reply = reconciled.find((m) => m.id === "local-a");
+    expect(reply?.canonicalId).toBe("desk-a");
+    // Text keeps the exact streamed string reference, so the incremental
+    // markdown renderer sees no change and never resets/re-animates.
+    expect(reply?.text).toBe(streamedText);
+  });
+
+  test("a canonical replay via mergeMessagesById also preserves the streamed text reference", () => {
+    const streamedText = "Done.\n";
+    const current = [
+      assistant("local-a", streamedText, {
+        requestId: "desk-u",
+        canonicalId: "desk-a",
+        createdAt: 101,
+      }),
+    ];
+    const merged = mergeMessagesById(current, [
+      assistant("desk-a", "Done.", {
+        requestId: "desk-u",
+        createdAt: 101,
+        canonicalCreatedAt: 101,
+      }),
+    ]);
+    expect(ids(merged)).toEqual(["local-a"]);
+    expect(merged[0]?.text).toBe(streamedText);
   });
 });

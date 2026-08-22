@@ -6,6 +6,7 @@ import { ConnectorError } from "../errors";
 import { connectorPublicBaseUrl } from "../env";
 import {
   buildTokenExchangeBody,
+  buildTokenEndpointRequest,
   connectorBindingsSatisfiedByScopes,
   getProviderManifest,
   parseScopeString,
@@ -61,41 +62,47 @@ const readSmallJson = async (
 type ProviderIdentity = { sub: string; email?: string; name?: string };
 
 const fetchProviderIdentity = async (
-  userinfoEndpoint: string,
+  manifest: NonNullable<ReturnType<typeof getProviderManifest>>,
   accessToken: string,
 ): Promise<ProviderIdentity | null> => {
-  const response = await fetch(userinfoEndpoint, {
+  if (!manifest.userinfoEndpoint) return null;
+  const response = await fetch(manifest.userinfoEndpoint, {
     method: "GET",
     headers: {
       accept: "application/json",
       authorization: `Bearer ${accessToken}`,
+      ...manifest.userinfoHeaders,
     },
   });
   if (!response.ok) return null;
   const payload = await readSmallJson(response);
+  const readPath = (path: string | undefined): unknown => {
+    if (!path) return undefined;
+    return path.split(".").reduce<unknown>((value, segment) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+      return (value as Record<string, unknown>)[segment];
+    }, payload);
+  };
+  const subject = manifest.identityPaths?.subject
+    ? readPath(manifest.identityPaths.subject)
+    : payload.sub ?? payload.id;
   const sub =
-    typeof payload.sub === "string"
-      ? payload.sub
-      : typeof payload.id === "string"
-        ? payload.id
+    typeof subject === "string"
+      ? subject
+      : typeof subject === "number"
+        ? String(subject)
         : null;
   if (!sub) return null;
+  const email = manifest.identityPaths?.email
+    ? readPath(manifest.identityPaths.email)
+    : payload.email ?? payload.mail ?? payload.userPrincipalName;
+  const name = manifest.identityPaths?.name
+    ? readPath(manifest.identityPaths.name)
+    : payload.name ?? payload.displayName;
   return {
     sub,
-    email:
-      typeof payload.email === "string"
-        ? payload.email
-        : typeof payload.mail === "string"
-          ? payload.mail
-          : typeof payload.userPrincipalName === "string"
-            ? payload.userPrincipalName
-            : undefined,
-    name:
-      typeof payload.name === "string"
-        ? payload.name
-        : typeof payload.displayName === "string"
-          ? payload.displayName
-          : undefined,
+    email: typeof email === "string" ? email : undefined,
+    name: typeof name === "string" ? name : undefined,
   };
 };
 
@@ -196,9 +203,10 @@ export const handleOAuthCallback = internalAction({
       const verifier = await decryptSecret(attempt.encryptedVerifier);
 
       const now = Date.now();
-      const tokenResponse = await fetch(manifest.tokenEndpoint, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
+      const tokenRequest = buildTokenEndpointRequest({
+        manifest,
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
         body: buildTokenExchangeBody({
           clientId: credentials.clientId,
           clientSecret: credentials.clientSecret,
@@ -206,6 +214,10 @@ export const handleOAuthCallback = internalAction({
           redirectUri,
           codeVerifier: manifest.requiresPkce ? verifier : undefined,
         }),
+      });
+      const tokenResponse = await fetch(manifest.tokenEndpoint, {
+        method: "POST",
+        ...tokenRequest,
       });
       const payload = (await readSmallJson(tokenResponse)) as TokenPayload;
       if (!tokenResponse.ok || payload.error) {
@@ -217,10 +229,7 @@ export const handleOAuthCallback = internalAction({
 
       const userinfoEndpoint = manifest.userinfoEndpoint;
       if (!userinfoEndpoint) throw new ConnectorError("identity_unavailable");
-      const identity = await fetchProviderIdentity(
-        userinfoEndpoint,
-        accessToken,
-      );
+      const identity = await fetchProviderIdentity(manifest, accessToken);
       if (!identity) throw new ConnectorError("identity_unavailable");
 
       // Prefer the provider-issued scope string; otherwise treat the requested

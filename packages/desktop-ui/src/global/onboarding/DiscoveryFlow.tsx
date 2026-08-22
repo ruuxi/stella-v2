@@ -47,6 +47,7 @@ type UseDiscoveryFlowOptions = {
 type DiscoveryWelcomeStatus = "idle" | "preparing" | "ready";
 
 const DISCOVERY_CONVERSATION_FALLBACK_MS = 8000;
+const ENABLE_DISCOVERY_WELCOME_HTML = false;
 
 export function useDiscoveryFlow({ conversationId }: UseDiscoveryFlowOptions) {
   const activeConversationId = conversationId;
@@ -248,6 +249,7 @@ export function useDiscoveryFlow({ conversationId }: UseDiscoveryFlowOptions) {
         setWelcomeStatus("ready");
 
         const persistWelcomeHtml = async () => {
+          if (!ENABLE_DISCOVERY_WELCOME_HTML) return;
           try {
             const htmlResult = synthesisResult.welcomeHtml
               ? { welcomeHtml: synthesisResult.welcomeHtml }

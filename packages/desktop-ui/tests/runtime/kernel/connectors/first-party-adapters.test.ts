@@ -81,6 +81,10 @@ describe("first-party adapter registry", () => {
     expect(firstPartyAdapterBaseUrlEnvVar("1password")).toBe(
       "STELLA_NATIVE_ADAPTER_1PASSWORD_BASE_URL",
     );
+    expect(getFirstPartyAdapter("stripe")?.auth).toMatchObject({
+      kind: "oauth2",
+      tokenKey: "native-oauth:stripe",
+    });
   });
 });
 
@@ -229,6 +233,11 @@ describe("shouldUseFirstPartyAdapter", () => {
     expect(
       await shouldUseFirstPartyAdapter(ROOT, "abyssale", {
         loadCredential: async () => "key",
+      }),
+    ).toBe(false);
+    expect(
+      await shouldUseFirstPartyAdapter(ROOT, "7shifts", {
+        loadCredential: async () => "partner-token",
       }),
     ).toBe(false);
   });

@@ -37,6 +37,8 @@ export const integrationsSchema = {
   integration_actions: defineTable({
     integrationId: v.string(),
     name: v.string(),
+    // Exact upstream slug when the safe public name must be aliased (44API).
+    providerActionName: v.optional(v.string()),
     title: v.optional(v.string()),
     description: v.optional(v.string()),
     searchText: v.string(),
@@ -105,5 +107,4 @@ export const integrationsSchema = {
     .index("by_ownerId_and_xUserId", ["ownerId", "xUserId"])
     .index("by_xUserId", ["xUserId"])
     .index("by_tokenKeyVersion", ["tokenKeyVersion"]),
-
 };

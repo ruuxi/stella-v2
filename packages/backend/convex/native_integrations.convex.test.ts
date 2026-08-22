@@ -4,6 +4,12 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
 import schema from "./schema";
+import {
+  canonicalizePublicConnectorId,
+  isSafeComposioActionName,
+  normalizeComposioConnectorIdentity,
+  publicConnectorIdForComposioToolkitSlug,
+} from "./lib/composio_identifiers.js";
 
 const modules = import.meta.glob("./**/*.ts");
 const ownerId = "https://issuer.test|connector-owner";
@@ -65,21 +71,56 @@ const publishOutlook = async (t: ReturnType<typeof createTest>) =>
   });
 
 const storeSession = async (t: ReturnType<typeof createTest>) =>
-  await t.mutation(
-    internal.data.integrations.upsertUserIntegrationForOwner,
-    {
-      ownerId,
-      provider: "outlook",
-      mode: "composio",
-      externalId: "session_existing",
-      config: {},
-    },
-  );
+  await t.mutation(internal.data.integrations.upsertUserIntegrationForOwner, {
+    ownerId,
+    provider: "outlook",
+    mode: "composio",
+    externalId: "session_existing",
+    config: {},
+  });
 
 const runRequest = (action: string, input: Record<string, unknown>) => ({
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ id: "outlook", action, input }),
+});
+
+describe("Composio exact identifier policy", () => {
+  it("keeps exact public ids while resolving only explicit compatibility aliases", () => {
+    expect(canonicalizePublicConnectorId("peopledatalabs")).toBe(
+      "peopledatalabs",
+    );
+    expect(canonicalizePublicConnectorId("people_data_labs")).toBe(
+      "peopledatalabs",
+    );
+    expect(canonicalizePublicConnectorId("people__data__labs")).toBe(
+      "people__data__labs",
+    );
+  });
+
+  it("maps leading-digit public ids only to explicit Composio toolkit slugs", () => {
+    expect(publicConnectorIdForComposioToolkitSlug("_21risk")).toBe("21risk");
+    expect(publicConnectorIdForComposioToolkitSlug("_2chat")).toBe("2chat");
+    expect(publicConnectorIdForComposioToolkitSlug("_1password")).toBe(
+      "1password",
+    );
+    expect(normalizeComposioConnectorIdentity("21risk", "_21risk")).toEqual({
+      id: "21risk",
+      toolkit: "_21risk",
+    });
+    expect(normalizeComposioConnectorIdentity("21risk", "21risk")).toBeNull();
+    expect(
+      normalizeComposioConnectorIdentity("outlook", "_outlook"),
+    ).toBeNull();
+  });
+
+  it("accepts 44API action names only for the exact 44api connector", () => {
+    expect(isSafeComposioActionName("44api", "44API_GET_RECORDS")).toBe(true);
+    expect(isSafeComposioActionName("outlook", "44API_GET_RECORDS")).toBe(
+      false,
+    );
+    expect(isSafeComposioActionName("44api", "44API_GET-RECORDS")).toBe(false);
+  });
 });
 
 beforeEach(() => {
@@ -93,6 +134,76 @@ afterEach(() => {
 });
 
 describe("Composio integration catalog and execution", () => {
+  it("publishes canonical ids and exact toolkit/action exceptions", async () => {
+    const t = createTest();
+    const publish = (id: string, toolkit: string, action: string) =>
+      t.fetch("/api/admin/native-integrations/upsert", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-admin-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          id,
+          name: id,
+          provider: "composio",
+          category: "integrations",
+          auth: ["API_KEY"],
+          actions: [
+            {
+              name: action,
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+          description: `${id} integration`,
+          connector: { type: "composio", toolkit },
+          enabled: true,
+          usagePolicy: "ready",
+        }),
+      });
+
+    expect((await publish("44api", "44api", "44API_GET_RECORDS")).status).toBe(
+      200,
+    );
+    expect(
+      (await publish("outlook", "outlook", "44API_GET_RECORDS")).status,
+    ).toBe(400);
+    expect(
+      (await publish("21risk", "_21risk", "RISK_LIST_RECORDS")).status,
+    ).toBe(200);
+    expect(
+      (await publish("people_data_labs", "peopledatalabs", "PDL_ENRICH"))
+        .status,
+    ).toBe(200);
+
+    const catalog = await t.fetch("/api/native-integrations/catalog");
+    const payload = (await catalog.json()) as {
+      integrations: Array<{
+        id: string;
+        connector: { toolkit: string };
+      }>;
+    };
+    expect(payload.integrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "21risk",
+          connector: expect.objectContaining({ toolkit: "_21risk" }),
+        }),
+        expect.objectContaining({
+          id: "peopledatalabs",
+          connector: expect.objectContaining({ toolkit: "peopledatalabs" }),
+        }),
+      ]),
+    );
+
+    await expect(
+      t.query(internal.data.integrations.getPublicIntegrationAction, {
+        id: "people_data_labs",
+        name: "PDL_ENRICH",
+      }),
+    ).resolves.toMatchObject({ id: "peopledatalabs" });
+  });
+
   it("ingests the publisher shape atomically and preserves old actions after rejection", async () => {
     const t = createTest();
     const publish = (actions: unknown[]) =>
@@ -152,6 +263,113 @@ describe("Composio integration catalog and execution", () => {
     expect(await retained.json()).toMatchObject({
       actions: [{ name: "OUTLOOK_QUERY_EMAILS", inputSchema }],
     });
+  });
+
+  it("preserves a safe 44API public alias while executing the exact upstream slug", async () => {
+    const t = createTest();
+    await t.mutation(internal.data.integrations.upsertPublicIntegration, {
+      id: "44api",
+      name: "44API",
+      provider: "composio",
+      category: "utilities",
+      auth: ["API_KEY"],
+      catalogToolCount: 1,
+      actions: [
+        {
+          name: "FORTYFOUR_API_LOOKUP_PHONE",
+          providerActionName: "44API_LOOKUP_PHONE",
+          inputSchemaJson: JSON.stringify({
+            type: "object",
+            properties: { phone: { type: "string" } },
+            required: ["phone"],
+            additionalProperties: false,
+          }),
+        },
+      ],
+      connector: {
+        type: "composio",
+        toolkit: "44api",
+        provider: "composio",
+      },
+      enabled: true,
+      usagePolicy: "ready",
+    });
+    await t.mutation(internal.data.integrations.upsertUserIntegrationForOwner, {
+      ownerId,
+      provider: "44api",
+      mode: "composio",
+      externalId: "session_44api",
+      config: {},
+    });
+
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                toolkit: { slug: "44api" },
+                connected_account: { status: "ACTIVE" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ successful: true, data: {} }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    const response = await asOwner(t).fetch("/api/native-integrations/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "44api",
+        action: "FORTYFOUR_API_LOOKUP_PHONE",
+        input: { phone: "+15551234567" },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+    ).toMatchObject({
+      tool_slug: "44API_LOOKUP_PHONE",
+      arguments: { phone: "+15551234567" },
+    });
+  });
+
+  it("rejects mismatched or cross-toolkit provider action aliases", async () => {
+    const t = createTest();
+    const publish = (id: string, name: string, providerActionName: string) =>
+      t.mutation(internal.data.integrations.upsertPublicIntegration, {
+        id,
+        name: id,
+        provider: "composio",
+        auth: ["API_KEY"],
+        catalogToolCount: 1,
+        actions: [
+          {
+            name,
+            providerActionName,
+            inputSchemaJson: JSON.stringify({ type: "object" }),
+          },
+        ],
+        connector: { type: "composio", toolkit: id },
+        enabled: true,
+        usagePolicy: "ready",
+      });
+
+    await expect(
+      publish("44api", "FORTYFOUR_API_LOOKUP_PHONE", "44API_LOOKUP_EMAIL"),
+    ).rejects.toThrow(/provider action alias is invalid/u);
+    await expect(
+      publish("outlook", "OUTLOOK_LIST_MESSAGES", "44API_LOOKUP_PHONE"),
+    ).rejects.toThrow(/provider action alias is invalid/u);
   });
 
   it("keeps production-shaped catalog records hidden until actions are persisted", async () => {
@@ -265,9 +483,7 @@ describe("Composio integration catalog and execution", () => {
       const action = await ctx.db
         .query("integration_actions")
         .withIndex("by_integrationId_and_name", (q) =>
-          q
-            .eq("integrationId", "outlook")
-            .eq("name", "OUTLOOK_QUERY_EMAILS"),
+          q.eq("integrationId", "outlook").eq("name", "OUTLOOK_QUERY_EMAILS"),
         )
         .unique();
       await ctx.db.patch(action!._id, { inputSchemaJson: "" });
@@ -324,9 +540,9 @@ describe("Composio integration catalog and execution", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
       "/session/session_existing/toolkits",
     );
-    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(
-      false,
-    );
+    expect(
+      fetchMock.mock.calls.some(([, init]) => init?.method === "POST"),
+    ).toBe(false);
   });
 
   it("treats an item-level ACTIVE connected_account as connected (real tool-router shape)", async () => {

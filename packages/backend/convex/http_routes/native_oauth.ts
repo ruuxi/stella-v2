@@ -30,6 +30,11 @@ import {
   MAX_INTEGRATION_ACTION_SCHEMA_BYTES,
   MAX_PUBLISHED_INTEGRATION_ACTIONS,
 } from "../lib/native_integration_limits";
+import {
+  canonicalizePublicConnectorId,
+  isSafeComposioActionName,
+  normalizeComposioConnectorIdentity,
+} from "../lib/composio_identifiers.js";
 
 type StoreIntegrationRecord = {
   id?: unknown;
@@ -63,12 +68,13 @@ type NativeIntegrationRequestBody = {
 
 type PublishedIntegrationAction = {
   name: string;
+  providerActionName?: string;
   title?: string;
   description?: string;
   inputSchemaJson: string;
 };
 
-const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
+const SAFE_PROVIDER_ACTION_NAME = /^[A-Z0-9][A-Z0-9_]{1,127}$/u;
 const MAX_ADMIN_INTEGRATION_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_NATIVE_INTEGRATION_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_COMPOSIO_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -101,6 +107,7 @@ const optionalTrimmedString = (value: unknown, maxLength: number) => {
 };
 
 export const normalizePublishedIntegrationActions = (
+  integrationId: unknown,
   value: unknown,
 ):
   | { ok: true; actions: PublishedIntegrationAction[] }
@@ -128,7 +135,11 @@ export const normalizePublishedIntegrationActions = (
       };
     }
     const name = readString(raw.name);
-    if (!name || !SAFE_ACTION_NAME.test(name) || names.has(name)) {
+    if (
+      !name ||
+      !isSafeComposioActionName(integrationId, name) ||
+      names.has(name)
+    ) {
       return {
         ok: false,
         error: `Integration action name is invalid or duplicated: ${name ?? "<missing>"}.`,
@@ -136,10 +147,24 @@ export const normalizePublishedIntegrationActions = (
     }
     const title = optionalTrimmedString(raw.title, 512);
     const description = optionalTrimmedString(raw.description, 16_384);
+    const providerActionName = optionalTrimmedString(
+      raw.providerActionName,
+      128,
+    );
     if (title === null || description === null) {
       return {
         ok: false,
         error: `Integration action text is invalid: ${name}.`,
+      };
+    }
+    if (
+      providerActionName === null ||
+      (providerActionName &&
+        !SAFE_PROVIDER_ACTION_NAME.test(providerActionName))
+    ) {
+      return {
+        ok: false,
+        error: `Integration provider action name is invalid: ${name}.`,
       };
     }
     if (!isJsonObject(raw.inputSchema)) {
@@ -161,6 +186,7 @@ export const normalizePublishedIntegrationActions = (
     names.add(name);
     actions.push({
       name,
+      ...(providerActionName ? { providerActionName } : {}),
       ...(title ? { title } : {}),
       ...(description ? { description } : {}),
       inputSchemaJson,
@@ -246,12 +272,14 @@ const readComposioConnector = (record: StoreIntegrationRecord) => {
       ? (record.connector as StoreConnectorRecord)
       : null;
   if (connector?.type !== "composio") return null;
-  const id = readString(record.id)?.toLowerCase();
-  const toolkit = readString(connector.toolkit)?.toLowerCase();
-  if (!id || !toolkit) return null;
+  const identity = normalizeComposioConnectorIdentity(
+    readString(record.id),
+    readString(connector.toolkit),
+  );
+  if (!identity) return null;
   return {
-    id,
-    toolkit,
+    id: identity.id,
+    toolkit: identity.toolkit,
     provider: readString(connector.provider)?.toLowerCase() || "composio",
   };
 };
@@ -591,6 +619,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         return jsonResponse({ error: "Invalid integration payload." }, 400);
       }
       const normalizedActions = normalizePublishedIntegrationActions(
+        body.id,
         body.actions,
       );
       if (!normalizedActions.ok) {
@@ -677,7 +706,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) return errorResponse(401, "Unauthorized", origin);
         const searchParams = new URL(request.url).searchParams;
-        const id = readString(searchParams.get("id"))?.toLowerCase();
+        const id = canonicalizePublicConnectorId(
+          readString(searchParams.get("id")),
+        );
         if (!id) return errorResponse(400, "Missing integration id.", origin);
         const exactAction = readString(searchParams.get("action"));
         try {
@@ -808,7 +839,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         const body = (await parseUnknownBody(
           request,
         )) as NativeIntegrationRequestBody | null;
-        const id = readString(body?.id)?.toLowerCase();
+        const id = canonicalizePublicConnectorId(readString(body?.id));
         if (!id) return errorResponse(400, "Missing integration id.", origin);
         const integration = await loadPublicIntegration(ctx, id);
         const connector = integration
@@ -913,9 +944,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
       handleCorsRequest(request, async (origin) => {
         const identity = await ctx.auth.getUserIdentity();
         if (!identity) return errorResponse(401, "Unauthorized", origin);
-        const id = readString(
-          new URL(request.url).searchParams.get("id"),
-        )?.toLowerCase();
+        const id = canonicalizePublicConnectorId(
+          readString(new URL(request.url).searchParams.get("id")),
+        );
         if (!id) return errorResponse(400, "Missing integration id.", origin);
         const integration = await loadPublicIntegration(ctx, id);
         const connector = integration
@@ -1040,12 +1071,15 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         const body = (await parseUnknownBody(
           request,
         )) as NativeIntegrationRequestBody | null;
-        const id = readString(body?.id)?.toLowerCase();
+        const id = canonicalizePublicConnectorId(readString(body?.id));
         const action = readString(body?.action);
         if (!id || !action) {
           return errorResponse(400, "Missing integration action.", origin);
         }
-        if (!SAFE_ACTION_NAME.test(action) || !isJsonObject(body?.input)) {
+        if (
+          !isSafeComposioActionName(id, action) ||
+          !isJsonObject(body?.input)
+        ) {
           return errorResponse(400, "Invalid integration action.", origin);
         }
         // Resolve the connector and action in one Convex snapshot. This exact
@@ -1192,7 +1226,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             {
               method: "POST",
               body: JSON.stringify({
-                tool_slug: action,
+                tool_slug: resolved.action.providerActionName ?? action,
                 arguments: body.input,
               }),
             },

@@ -22,6 +22,25 @@ describe("M4 desktop release contracts", () => {
     expect(workflow).toContain("needs: validate_stable_tag");
   });
 
+  it("packages and release-smokes the offline connector action catalog", () => {
+    const buildScript = read("packages/desktop/scripts/dev-electron-build.mjs");
+    expect(buildScript).toContain(
+      "packages/runtime/kernel/connectors/oauth-provider-catalog.json",
+    );
+    expect(buildScript).toContain(
+      "packages/runtime/worker/connectors/packaged-smoke.ts",
+    );
+
+    const runtimeVerifier = read(
+      "packages/desktop/scripts/verify-packaged-runtimes.mjs",
+    );
+    expect(runtimeVerifier).toContain("STELLA_APP_RESOURCES_PATH: resources");
+    expect(runtimeVerifier).toContain('"Connector catalog"');
+
+    const workflow = read(".github/workflows/build-desktop-release.yml");
+    expect(workflow).toContain("verify-packaged-runtimes.mjs");
+  });
+
   it("keeps the microphone entitlement on the parent only, and JIT on both", () => {
     const rootPackage = JSON.parse(read("package.json")) as {
       build: { mac: { entitlements: string; entitlementsInherit: string } };
@@ -45,9 +64,7 @@ describe("M4 desktop release contracts", () => {
       "packages/desktop/scripts",
       ["generate", "desktop", "source", "pack.mjs"].join("-"),
     ];
-    expect(
-      existsSync(path.join(repoRoot, ...retiredGenerator)),
-    ).toBe(false);
+    expect(existsSync(path.join(repoRoot, ...retiredGenerator))).toBe(false);
   });
 
   it("describes the completed download truthfully", () => {
@@ -67,20 +84,14 @@ describe("M4 desktop release contracts", () => {
   });
 
   it("allows macOS update restarts to close auxiliary windows", () => {
-    const lifecycle = read(
-      "packages/desktop/electron/bootstrap/lifecycle.js",
-    );
-    expect(lifecycle).toContain(
-      'autoUpdater.on("before-quit-for-update"',
-    );
+    const lifecycle = read("packages/desktop/electron/bootstrap/lifecycle.js");
+    expect(lifecycle).toContain('autoUpdater.on("before-quit-for-update"');
     expect(lifecycle).toContain("context.state.isQuitting = true");
 
-    const appShell = read(
-      "packages/desktop/electron/bootstrap/app-shell.js",
-    );
-    expect(appShell.match(/isQuitting: \(\) => state\.isQuitting/g)).toHaveLength(
-      3,
-    );
+    const appShell = read("packages/desktop/electron/bootstrap/app-shell.js");
+    expect(
+      appShell.match(/isQuitting: \(\) => state\.isQuitting/g),
+    ).toHaveLength(3);
 
     for (const auxiliaryWindow of ["overlay-window.js", "pet-window.js"]) {
       expect(

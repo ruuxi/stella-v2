@@ -51,6 +51,7 @@ const includeLocalUpdateVerification = process.argv.includes(
 const verifyIdentifiers = process.argv.includes("--verify-identifiers");
 const runtimeStaticAssetRoots = [
   "packages/runtime/extensions/stella-runtime/agent-metadata",
+  "packages/runtime/kernel/connectors/oauth-provider-catalog.json",
 ];
 /**
  * Static assets copied next to the compiled electron-main bundle. The
@@ -88,6 +89,8 @@ const workerEntryPoints = {
   "runtime/worker/entry": "packages/runtime/worker/entry.ts",
   "runtime/worker/social-sessions/packaged-smoke":
     "packages/runtime/worker/social-sessions/packaged-smoke.ts",
+  "runtime/worker/connectors/packaged-smoke":
+    "packages/runtime/worker/connectors/packaged-smoke.ts",
   "runtime/extensions/stella-runtime/index":
     "packages/runtime/extensions/stella-runtime/index.ts",
 };
@@ -487,7 +490,16 @@ export const requiredOutputsExist = () => {
   const outBase = path.join(desktopDir, outdir, "electron");
   return (
     existsSync(path.join(outBase, "main.js")) &&
-    existsSync(path.join(outBase, "preload.js"))
+    existsSync(path.join(outBase, "preload.js")) &&
+    runtimeStaticAssetRoots.every((rootRelativePath) =>
+      existsSync(
+        path.join(
+          desktopDir,
+          outdir,
+          rootRelativePath.replace(/^packages\/runtime/, "runtime"),
+        ),
+      ),
+    )
   );
 };
 

@@ -123,10 +123,10 @@ const asActions = (
 // ---------------------------------------------------------------------------
 
 /**
- * GitHub — first-party OAuth (device flow). The native OAuth provider config
- * (github) ships a real Stella client id, so this adapter is credential-aware
- * out of the box; execution still routes through Composio until the shared
- * core is enabled.
+ * GitHub — first-party OAuth. Legacy runtime metadata describes a device flow,
+ * while the server-authoritative shared core uses a hosted PKCE callback and
+ * versioned client-secret custody. Execution still routes through Composio
+ * until the shared-core provider is live-verified and explicitly rolled out.
  */
 const GITHUB: FirstPartyConnectorAdapter = {
   id: "github",
@@ -178,9 +178,9 @@ const GITHUB: FirstPartyConnectorAdapter = {
 };
 
 /**
- * Supabase — first-party OAuth (Management API). Uses a backend token
- * exchange, so status stays "missing_oauth_app" until the Stella OAuth app +
- * backend exchange are provisioned.
+ * Supabase — first-party OAuth (Management API). The shared-core manifest and
+ * executor stay disabled until the Stella OAuth app, secret ring, and live
+ * representative-call verification are complete.
  */
 const SUPABASE: FirstPartyConnectorAdapter = {
   id: "supabase",
@@ -611,7 +611,7 @@ const ABSTRACT: FirstPartyConnectorAdapter = {
 };
 
 const PEOPLE_DATA_LABS: FirstPartyConnectorAdapter = {
-  id: "people_data_labs",
+  id: "peopledatalabs",
   name: "People Data Labs",
   category: "data enrichment",
   description:
@@ -621,34 +621,34 @@ const PEOPLE_DATA_LABS: FirstPartyConnectorAdapter = {
     baseUrl: "https://api.peopledatalabs.com",
     placement: "header",
     headerName: "X-Api-Key",
-    tokenKey: "native-apikey:people_data_labs",
+    tokenKey: "native-apikey:peopledatalabs",
     credentialLabel: "People Data Labs API key",
     credentialUrl: "https://dashboard.peopledatalabs.com",
   },
   representativeActions: asActions([
     {
-      name: "PEOPLE_DATA_LABS_PERSON_ENRICH",
+      name: "PEOPLEDATALABS_ENRICH_PERSON_DATA",
       title: "Enrich a person",
       description: "Enrich one person by email, name, company, or profile URL.",
     },
     {
-      name: "PEOPLE_DATA_LABS_PERSON_SEARCH",
+      name: "PEOPLEDATALABS_PEOPLE_SEARCH_ELASTIC",
       title: "Search people",
       description:
         "Search the person dataset with an Elasticsearch query or SQL.",
     },
     {
-      name: "PEOPLE_DATA_LABS_COMPANY_ENRICH",
+      name: "PEOPLEDATALABS_ENRICH_COMPANY_DATA",
       title: "Enrich a company",
       description: "Enrich one company by website, name, profile, or ticker.",
     },
     {
-      name: "PEOPLE_DATA_LABS_COMPANY_SEARCH",
+      name: "PEOPLEDATALABS_SEARCH_COMPANY_ELASTIC",
       title: "Search companies",
       description: "Search the company dataset with a query or SQL.",
     },
   ]),
-  composio: { toolkit: "PEOPLE_DATA_LABS" },
+  composio: { toolkit: "PEOPLEDATALABS" },
   sourceUrl: "https://www.peopledatalabs.com",
 };
 
@@ -667,23 +667,23 @@ const FORTYFOUR_API: FirstPartyConnectorAdapter = {
   },
   representativeActions: asActions([
     {
-      name: "FORTYFOUR_API_VALIDATE_VAT_NUMBER",
+      name: "44API_VALIDATE_VAT_NUMBER",
       title: "Validate a VAT number",
       description: "Validate a VAT/tax ID and return company details.",
     },
     {
-      name: "FORTYFOUR_API_LIST_WHITELISTED_IPS",
+      name: "44API_LIST_WHITELISTED_IPS",
       title: "List whitelisted IPs",
       description: "List IP addresses on the account whitelist.",
     },
     {
-      name: "FORTYFOUR_API_ADD_WHITELISTED_IP",
+      name: "44API_ADD_WHITELISTED_IP",
       title: "Add a whitelisted IP",
       description: "Add an IP address to the account whitelist.",
       mutating: true,
     },
     {
-      name: "FORTYFOUR_API_REMOVE_WHITELISTED_IP",
+      name: "44API_REMOVE_WHITELISTED_IP",
       title: "Remove a whitelisted IP",
       description: "Remove an IP address from the account whitelist.",
       mutating: true,

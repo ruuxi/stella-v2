@@ -32,13 +32,19 @@ describe("google-workspace-allowlist", () => {
     expect(GOOGLE_WORKSPACE_TOOL_ALLOWLIST.length).toBeGreaterThan(10);
   });
 
+  it("does not contain duplicate actions", () => {
+    expect(new Set(GOOGLE_WORKSPACE_TOOL_ALLOWLIST).size).toBe(
+      GOOGLE_WORKSPACE_TOOL_ALLOWLIST.length,
+    );
+  });
+
   it("creates provider-safe registration names", () => {
     expect(toGoogleWorkspaceToolRegistrationName("gmail.search")).toBe(
       "gmail_search",
     );
-    expect(
-      toGoogleWorkspaceToolRegistrationName("time.getCurrentDate"),
-    ).toBe("time_getCurrentDate");
+    expect(toGoogleWorkspaceToolRegistrationName("time.getCurrentDate")).toBe(
+      "time_getCurrentDate",
+    );
     expect(toGoogleWorkspaceToolRegistrationName("people_getMe")).toBe(
       "people_getMe",
     );

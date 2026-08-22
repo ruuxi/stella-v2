@@ -3,6 +3,11 @@
 // Backend-owned administrative publisher. This script requires Composio and
 // Stella admin credentials and must never be shipped with the desktop runtime.
 import AjvModule from "ajv";
+import {
+  isSafeComposioActionName,
+  normalizeComposioConnectorIdentity,
+  publicConnectorIdForComposioToolkitSlug,
+} from "../convex/lib/composio_identifiers.js";
 
 const siteUrl = (
   process.env.STELLA_CONVEX_SITE_URL ||
@@ -30,7 +35,6 @@ const FETCH_CONCURRENCY = Math.max(
   1,
   Math.min(Number(process.env.COMPOSIO_CATALOG_CONCURRENCY || "6"), 12),
 );
-const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
 const Ajv = AjvModule.default ?? AjvModule;
 
 const string = { type: "string" };
@@ -48,10 +52,10 @@ const objectSchema = (properties, required = []) => ({
   additionalProperties: false,
 });
 
-// Composio's list-tools response currently omits input schemas for these
-// Microsoft actions. Keep this reviewed compatibility map narrow and use it
-// only when Composio does not supply a compilable schema of its own.
-const MICROSOFT_COMPATIBILITY_SCHEMAS = {
+// Composio's list-tools response occasionally omits input schemas. Keep this
+// reviewed compatibility map narrow and use it only when Composio does not
+// supply a compilable schema of its own.
+const CONNECTOR_COMPATIBILITY_SCHEMAS = {
   outlook: {
     OUTLOOK_LIST_MESSAGES: objectSchema({
       top: integer,
@@ -251,6 +255,99 @@ const MICROSOFT_COMPATIBILITY_SCHEMAS = {
       ["item_id", "table_id", "values"],
     ),
   },
+  github: {
+    GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER: objectSchema({
+      visibility: { type: "string", enum: ["all", "public", "private"] },
+      affiliation: string,
+      type: {
+        type: "string",
+        enum: ["all", "owner", "public", "private", "member"],
+      },
+      sort: {
+        type: "string",
+        enum: ["created", "updated", "pushed", "full_name"],
+      },
+      direction: { type: "string", enum: ["asc", "desc"] },
+      per_page: integer,
+      page: integer,
+      since: string,
+      before: string,
+    }),
+    GITHUB_GET_A_REPOSITORY: objectSchema({ owner: string, repo: string }, [
+      "owner",
+      "repo",
+    ]),
+    GITHUB_SEARCH_REPOSITORIES: objectSchema(
+      {
+        q: string,
+        sort: string,
+        order: { type: "string", enum: ["asc", "desc"] },
+        per_page: integer,
+        page: integer,
+      },
+      ["q"],
+    ),
+    GITHUB_LIST_PULL_REQUESTS: objectSchema(
+      {
+        owner: string,
+        repo: string,
+        state: { type: "string", enum: ["open", "closed", "all"] },
+        head: string,
+        base: string,
+        sort: {
+          type: "string",
+          enum: ["created", "updated", "popularity", "long-running"],
+        },
+        direction: { type: "string", enum: ["asc", "desc"] },
+        per_page: integer,
+        page: integer,
+      },
+      ["owner", "repo"],
+    ),
+    GITHUB_SEARCH_ISSUES: objectSchema(
+      {
+        q: string,
+        sort: string,
+        order: { type: "string", enum: ["asc", "desc"] },
+        per_page: integer,
+        page: integer,
+      },
+      ["q"],
+    ),
+    GITHUB_CREATE_AN_ISSUE: objectSchema(
+      {
+        owner: string,
+        repo: string,
+        title: string,
+        body: string,
+        assignee: string,
+        milestone: integer,
+        labels: stringArray,
+        assignees: stringArray,
+      },
+      ["owner", "repo", "title"],
+    ),
+  },
+  supabase: {
+    SUPABASE_LIST_ALL_PROJECTS: objectSchema({}),
+    SUPABASE_GET_PROJECT: objectSchema({ ref: string }, ["ref"]),
+    SUPABASE_LIST_ALL_ORGANIZATIONS: objectSchema({}),
+    SUPABASE_CREATE_A_PROJECT: objectSchema(
+      {
+        name: string,
+        organization_id: string,
+        region: string,
+        db_pass: string,
+        plan: { type: "string", enum: ["free", "pro"] },
+        kps_enabled: boolean,
+        template_url: string,
+        postgres_engine: string,
+        release_channel: string,
+        desired_instance_size: string,
+      },
+      ["name", "organization_id", "region", "db_pass"],
+    ),
+  },
 };
 
 const hasCompilableSchema = (schema) => {
@@ -268,10 +365,11 @@ const hasCompilableSchema = (schema) => {
   }
 };
 
-// The supported Store surface is explicit. Every entry below must currently be
-// non-deprecated and support Composio-managed OAuth; official Composio APIs
-// supply all metadata and schemas.
-const SUPPORTED_TOOLKIT_IDS = new Set([
+// The existing Store surface remains OAuth-only. Developer/data/utility
+// toolkits below may use any auth scheme that Composio explicitly reports as
+// managed, keeping Composio authoritative while native credential custody is
+// not yet production-ready.
+const OAUTH_TOOLKIT_IDS = new Set([
   "airtable",
   "apaleo",
   "asana",
@@ -385,9 +483,43 @@ const SUPPORTED_TOOLKIT_IDS = new Set([
   "zoom",
 ]);
 
+const DEVELOPER_DATA_UTILITY_TOOLKIT_IDS = new Set([
+  "0codekit",
+  "44api",
+  "ably",
+  "abstract",
+  "abuseipdb",
+  "exa",
+  "firecrawl",
+  "peopledatalabs",
+  "perplexityai",
+  "posthog",
+  "serpapi",
+  "snowflake",
+  "tavily",
+]);
+
+const SUPPORTED_TOOLKIT_IDS = new Set([
+  ...OAUTH_TOOLKIT_IDS,
+  ...DEVELOPER_DATA_UTILITY_TOOLKIT_IDS,
+]);
+
 const shouldPublish = (entry) =>
   SUPPORTED_TOOLKIT_IDS.has(entry.id) &&
-  entry.composioManagedAuthSchemes.includes("oauth2");
+  (OAUTH_TOOLKIT_IDS.has(entry.id)
+    ? entry.composioManagedAuthSchemes.includes("oauth2")
+    : entry.composioManagedAuthSchemes.length > 0);
+
+const publicationAuthSchemes = (entry) =>
+  OAUTH_TOOLKIT_IDS.has(entry.id)
+    ? ["OAUTH2"]
+    : [
+        ...new Set(
+          entry.composioManagedAuthSchemes.map((scheme) =>
+            scheme.toUpperCase(),
+          ),
+        ),
+      ];
 
 const isObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -406,16 +538,16 @@ const toBaseRow = (entry) => ({
   name: entry.name,
   provider: "composio",
   category: entry.category || "integrations",
-  auth: ["OAUTH2"],
+  auth: publicationAuthSchemes(entry),
   catalogToolCount: 0,
   actions: [],
   description:
     entry.description || `Connect ${entry.name || entry.id} to Stella.`,
-  sourceUrl: `https://composio.dev/toolkits/${entry.id}`,
-  iconUrl: entry.iconUrl || `https://logos.composio.dev/api/${entry.id}`,
+  sourceUrl: `https://composio.dev/toolkits/${entry.toolkit}`,
+  iconUrl: entry.iconUrl || `https://logos.composio.dev/api/${entry.toolkit}`,
   connector: {
     type: "composio",
-    toolkit: entry.id,
+    toolkit: entry.toolkit,
     provider: "composio",
   },
   enabled: true,
@@ -484,7 +616,7 @@ const schemaFromComposioTool = (tool) =>
   );
 
 const compatibilitySchema = (toolkit, action) =>
-  MICROSOFT_COMPATIBILITY_SCHEMAS[toolkit]?.[action] ?? null;
+  CONNECTOR_COMPATIBILITY_SCHEMAS[toolkit]?.[action] ?? null;
 
 const fetchComposioJson = async (url, label) => {
   const response = await fetch(url, {
@@ -518,11 +650,13 @@ const fetchPublishedToolkitRows = async () => {
     }
     for (const toolkit of payload.items) {
       if (!isObject(toolkit)) continue;
-      const id =
+      const toolkitSlug =
         typeof toolkit.slug === "string"
           ? toolkit.slug.trim().toLowerCase()
           : "";
-      if (!/^[a-z0-9][a-z0-9_-]{0,127}$/u.test(id)) continue;
+      const id = publicConnectorIdForComposioToolkitSlug(toolkitSlug);
+      const identity = normalizeComposioConnectorIdentity(id, toolkitSlug);
+      if (!identity) continue;
       const composioManagedAuthSchemes = Array.isArray(
         toolkit.composio_managed_auth_schemes,
       )
@@ -532,6 +666,7 @@ const fetchPublishedToolkitRows = async () => {
         : [];
       const entry = {
         id,
+        toolkit: identity.toolkit,
         name:
           typeof toolkit.name === "string" && toolkit.name.trim()
             ? toolkit.name.trim()
@@ -569,7 +704,7 @@ const fetchPublishedToolkitRows = async () => {
   const missing = [...SUPPORTED_TOOLKIT_IDS].filter((id) => !rows.has(id));
   if (missing.length > 0) {
     throw new Error(
-      `Composio catalog is missing supported OAuth toolkits: ${missing.join(", ")}.`,
+      `Composio catalog is missing supported toolkits: ${missing.join(", ")}.`,
     );
   }
   return sorted;
@@ -582,7 +717,7 @@ const fetchToolkitActions = async (row) => {
   let cursor = null;
   for (;;) {
     const url = new URL(composioToolsUrl);
-    url.searchParams.set("toolkit_slug", row.id);
+    url.searchParams.set("toolkit_slug", row.connector.toolkit);
     url.searchParams.set("toolkit_versions", "latest");
     url.searchParams.set("include_deprecated", "false");
     url.searchParams.set("limit", String(TOOL_PAGE_SIZE));
@@ -593,12 +728,21 @@ const fetchToolkitActions = async (row) => {
     }
     for (const tool of payload.items) {
       if (!isObject(tool)) continue;
-      const name = typeof tool.slug === "string" ? tool.slug.trim() : "";
+      const providerActionName =
+        typeof tool.slug === "string" ? tool.slug.trim() : "";
       const toolkit =
         isObject(tool.toolkit) && typeof tool.toolkit.slug === "string"
           ? tool.toolkit.slug.trim().toLowerCase()
           : "";
-      if (toolkit !== row.id || !SAFE_ACTION_NAME.test(name)) continue;
+      const identity = normalizeComposioConnectorIdentity(row.id, toolkit);
+      const name = providerActionName;
+      if (
+        !identity ||
+        identity.toolkit !== row.connector.toolkit ||
+        !isSafeComposioActionName(row.id, name)
+      ) {
+        continue;
+      }
       const composioSchema = schemaFromComposioTool(tool);
       const inputSchema =
         composioSchema && hasCompilableSchema(composioSchema)
@@ -612,6 +756,9 @@ const fetchToolkitActions = async (row) => {
       if (schemaBytes > MAX_ACTION_SCHEMA_BYTES) {
         skippedActions.set(name, "schema_too_large");
         continue;
+      }
+      if (actions.has(name)) {
+        throw new Error(`${row.id}: duplicate public action name ${name}.`);
       }
       actions.set(name, {
         name,

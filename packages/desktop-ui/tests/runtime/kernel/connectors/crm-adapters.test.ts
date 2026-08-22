@@ -82,8 +82,7 @@ describe("CRM/recruiting/sales adapter registry", () => {
       }
 
       for (const action of adapter.actions) {
-        // UPPER_SNAKE, tolerating the leading-underscore 21RISK slugs.
-        expect(action.name).toMatch(/^_?[A-Z0-9][A-Z0-9_]*$/u);
+        expect(action.name).toMatch(/^[A-Z][A-Z0-9_]*$/u);
         expect(typeof action.title).toBe("string");
         expect(action.inputSchema).toMatchObject({ type: "object" });
       }
@@ -129,7 +128,7 @@ describe("CRM/recruiting/sales adapter registry", () => {
     });
 
     expect(
-      buildConnectorAdapterRequest("21risk", "_21RISK_GET_REPORTS", {
+      buildConnectorAdapterRequest("21risk", "TWENTY_ONE_RISK_GET_REPORTS", {
         top: 5,
         filter: "Report Status eq 'published'",
       }),

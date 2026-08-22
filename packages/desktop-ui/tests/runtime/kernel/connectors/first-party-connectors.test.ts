@@ -24,8 +24,6 @@ import {
 // Mirrors the backend SAFE_INTEGRATION_ID (data/integrations.ts): stable,
 // lowercased, may start with a digit (covers "44api").
 const SAFE_INTEGRATION_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
-// Mirrors the backend SAFE_ACTION_NAME: must start with an uppercase letter.
-const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
 // Composio action-slug shape (allows a leading digit, e.g. 44API_*).
 const COMPOSIO_ACTION_SLUG = /^[A-Z0-9][A-Z0-9_]+$/u;
 
@@ -42,7 +40,7 @@ const EXPECTED_IDS = [
   "ably",
   "abuseipdb",
   "abstract",
-  "people_data_labs",
+  "peopledatalabs",
   "44api",
 ];
 
@@ -82,8 +80,9 @@ describe("first-party connector adapters", () => {
     }
   });
 
-  it("references real native OAuth provider configs for shipped OAuth apps", () => {
-    // GitHub (device flow) and Supabase ship real Stella client ids.
+  it("retains legacy native OAuth metadata for GitHub and Supabase", () => {
+    // Legacy runtime metadata retains the registered GitHub and Supabase ids;
+    // the server-authoritative shared core remains separately rollout-gated.
     for (const id of ["github", "supabase"]) {
       const adapter = getFirstPartyConnectorAdapter(id)!;
       const config = getNativeOAuthProviderConfig(
@@ -99,10 +98,7 @@ describe("first-party connector adapters", () => {
       expect(adapter.representativeActions.length).toBeGreaterThan(0);
       for (const action of adapter.representativeActions) {
         expect(action.name).toMatch(COMPOSIO_ACTION_SLUG);
-        const expectedPrefix =
-          adapter.id === "44api"
-            ? "FORTYFOUR_API_"
-            : `${adapter.composio.toolkit}_`;
+        const expectedPrefix = `${adapter.composio.toolkit}_`;
         expect(action.name.startsWith(expectedPrefix)).toBe(true);
         expect(action.title).toBeTruthy();
         expect(action.description).toBeTruthy();
@@ -269,17 +265,17 @@ describe("Composio-owned tools mapped to native capabilities", () => {
 });
 
 describe("backend-publish action contract", () => {
-  it("uses letter-leading action names even when the public toolkit id starts with a digit", () => {
+  it("preserves exact Composio action names for digit-leading toolkits", () => {
     for (const adapter of FIRST_PARTY_CONNECTOR_ADAPTERS) {
       for (const action of adapter.representativeActions) {
-        expect(action.name).toMatch(SAFE_ACTION_NAME);
+        expect(action.name).toMatch(COMPOSIO_ACTION_SLUG);
       }
     }
     const taxToolkit = getFirstPartyConnectorAdapter("44api")!;
     expect(taxToolkit.composio.toolkit).toBe("44API");
     expect(
       taxToolkit.representativeActions.every((action) =>
-        action.name.startsWith("FORTYFOUR_API_"),
+        action.name.startsWith("44API_"),
       ),
     ).toBe(true);
   });

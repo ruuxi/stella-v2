@@ -104,4 +104,26 @@ describe("desktop native integration catalog resolution", () => {
       provider: "google-workspace",
     });
   });
+
+  it("attributes stale cached Google metadata to the bundled native owner", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "stella-desktop-catalog-"));
+    roots.push(root);
+    await writeCachedServerCatalog(root, [
+      backendEntry("gmail", "Stale Gmail"),
+    ]);
+
+    const resolved = await resolveDesktopNativeConnectorEntry(
+      {},
+      root,
+      "gmail",
+    );
+    expect(resolved.catalog.source).toBe("cache");
+    expect(resolved.catalog.sources.gmail).toBe("bundled");
+    expect(resolved.entry).toMatchObject({
+      id: "gmail",
+      name: "Gmail",
+      provider: "google-workspace",
+      localExecution: "production-ready",
+    });
+  });
 });

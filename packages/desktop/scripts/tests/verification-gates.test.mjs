@@ -11,7 +11,62 @@ import {
   collectExistingPackagedApplicationFiles,
   findUndeclaredIdentifiers,
 } from "../verify-packaged-identifiers.mjs";
+import { verifyPackagedConnectorCatalogAssets } from "../verify-packaged-connector-catalog.mjs";
 import { collectRootAbsoluteRendererAssetReferences } from "../verify-renderer-asset-paths.mjs";
+
+const writePackagedConnectorFixture = ({ resources, catalog }) => {
+  const connectorDir = path.join(resources, "runtime", "kernel", "connectors");
+  const smokeDir = path.join(resources, "runtime", "worker", "connectors");
+  mkdirSync(connectorDir, { recursive: true });
+  mkdirSync(smokeDir, { recursive: true });
+  writeFileSync(
+    path.join(connectorDir, "oauth-provider-catalog.json"),
+    catalog,
+  );
+  writeFileSync(path.join(smokeDir, "packaged-smoke.js"), "export {};\n");
+};
+
+test("packaged connector catalog gate fails closed on missing or invalid assets", () => {
+  const missing = mkdtempSync(
+    path.join(os.tmpdir(), "stella-catalog-missing-"),
+  );
+  assert.throws(
+    () => verifyPackagedConnectorCatalogAssets({ resources: missing }),
+    /catalog is missing/,
+  );
+
+  const malformed = mkdtempSync(
+    path.join(os.tmpdir(), "stella-catalog-malformed-"),
+  );
+  writePackagedConnectorFixture({ resources: malformed, catalog: "not-json" });
+  assert.throws(
+    () => verifyPackagedConnectorCatalogAssets({ resources: malformed }),
+    /not valid JSON/,
+  );
+
+  const empty = mkdtempSync(path.join(os.tmpdir(), "stella-catalog-empty-"));
+  writePackagedConnectorFixture({ resources: empty, catalog: "[]" });
+  assert.throws(
+    () => verifyPackagedConnectorCatalogAssets({ resources: empty }),
+    /no Outlook action catalog/,
+  );
+});
+
+test("packaged connector catalog gate accepts an actionable catalog and smoke", () => {
+  const resources = mkdtempSync(
+    path.join(os.tmpdir(), "stella-catalog-ready-"),
+  );
+  writePackagedConnectorFixture({
+    resources,
+    catalog: JSON.stringify([
+      { id: "outlook", tools: [{ name: "OUTLOOK_LIST_MESSAGES" }] },
+    ]),
+  });
+
+  const result = verifyPackagedConnectorCatalogAssets({ resources });
+  assert.match(result.catalogPath, /oauth-provider-catalog\.json$/u);
+  assert.match(result.smokePath, /packaged-smoke\.js$/u);
+});
 
 test("renderer asset gate catches file-root paths without rejecting relative or remote assets", () => {
   const tempDir = mkdtempSync(

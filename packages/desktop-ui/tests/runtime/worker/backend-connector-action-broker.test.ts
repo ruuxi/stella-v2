@@ -223,6 +223,41 @@ describe("backend connector action broker", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("dispatches 44API actions only through the exact 44api connector", async () => {
+    const action = {
+      name: "44API_GET_RECORDS",
+      inputSchema: { type: "object", additionalProperties: true },
+    };
+    const entry: NativeConnectorCatalogEntry = {
+      ...composioEntry,
+      id: "44api",
+      name: "44API",
+      backendConnector: { type: "composio", toolkit: "44API" },
+      actions: [action],
+    };
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    await expect(
+      makeBroker({ entry, fetchImpl: fetchImpl as typeof fetch })({
+        connectorId: "44api",
+        action: action.name,
+        input: {},
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+
+    const wrongConnectorFetch = vi.fn();
+    await expect(
+      makeBroker({ fetchImpl: wrongConnectorFetch as typeof fetch })({
+        connectorId: "outlook",
+        action: action.name,
+        input: {},
+      }),
+    ).resolves.toMatchObject({ ok: false, reason: "action_not_allowed" });
+    expect(wrongConnectorFetch).not.toHaveBeenCalled();
+  });
+
   it("rejects unfinished local entries and redacts tokens from backend errors", async () => {
     const localEntry: NativeConnectorCatalogEntry = {
       ...composioEntry,

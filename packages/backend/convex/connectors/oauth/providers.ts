@@ -29,7 +29,10 @@ export type ProviderManifest = {
   displayName: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  /** Used when a provider refreshes at a different endpoint from code exchange. */
+  refreshEndpoint?: string;
   tokenEndpointAuth?: "client_secret_post" | "client_secret_basic";
+  tokenRequestEncoding?: "form" | "json";
   revocationEndpoint?: string;
   userinfoEndpoint?: string;
   /** Relative userinfo path when the token response supplies a tenant API origin. */
@@ -37,6 +40,10 @@ export type ProviderManifest = {
   /** Dot paths for providers whose userinfo response is not OpenID-shaped. */
   identityPaths?: { subject: string; email?: string; name?: string };
   userinfoHeaders?: Record<string, string>;
+  userinfoRequest?: {
+    method: "GET" | "POST";
+    body?: Record<string, unknown>;
+  };
   authorizationParams?: Readonly<Record<string, string>>;
   identityMode: ProviderIdentityMode;
   /** Expected OIDC issuer, when identityMode === "oidc". */
@@ -47,6 +54,8 @@ export type ProviderManifest = {
   accessTokensExpire?: false;
   /** Some providers configure scopes on the app rather than in the authorize URL. */
   sendsScopesInAuthorization?: boolean;
+  /** Defaults to a space. Linear requires comma-delimited scopes. */
+  scopeSeparator?: " " | ",";
   /** Refresh this many ms before access-token expiry. */
   refreshSkewMs: number;
   /** Exact registered callback path (no wildcards/loopback in production). */
@@ -214,6 +223,77 @@ const YOUTUBE: ProviderManifest = {
         "profile",
         "https://www.googleapis.com/auth/youtube.force-ssl",
       ],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const GITHUB: ProviderManifest = {
+  key: "github",
+  displayName: "GitHub",
+  authorizationEndpoint: "https://github.com/login/oauth/authorize",
+  tokenEndpoint: "https://github.com/login/oauth/access_token",
+  apiOrigin: "https://api.github.com",
+  callbackPath: "/api/connectors/oauth/callback",
+  requiresPkce: true,
+  usesOfflineAccess: false,
+  accessTokensExpire: false,
+  refreshSkewMs: 0,
+  identityMode: "userinfo",
+  userinfoPath: "/user",
+  userinfoHeaders: {
+    accept: "application/vnd.github+json",
+    "x-github-api-version": "2022-11-28",
+    "user-agent": "Stella/1.0 (contact@fromyou.ai)",
+  },
+  identityPaths: {
+    subject: "id",
+    email: "email",
+    name: "name",
+  },
+  scopeGroups: {
+    github_all: { scopes: ["repo", "read:user", "user:email"] },
+  },
+  connectorBindings: {
+    github: {
+      connectScopeGroups: ["github_all"],
+      requiredScopeGroups: ["github_all"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const SUPABASE: ProviderManifest = {
+  key: "supabase",
+  displayName: "Supabase",
+  authorizationEndpoint: "https://api.supabase.com/v1/oauth/authorize",
+  tokenEndpoint: "https://api.supabase.com/v1/oauth/token",
+  tokenEndpointAuth: "client_secret_basic",
+  apiOrigin: "https://api.supabase.com",
+  callbackPath: "/api/connectors/oauth/callback",
+  requiresPkce: true,
+  sendsScopesInAuthorization: false,
+  usesOfflineAccess: true,
+  refreshSkewMs: 5 * 60 * 1000,
+  identityMode: "userinfo",
+  userinfoPath: "/v1/profile",
+  identityPaths: {
+    subject: "gotrue_id",
+    email: "primary_email",
+    name: "username",
+  },
+  // Supabase configures Management API access on the OAuth application. Its
+  // dynamic `scope` parameter is deprecated, so `all` is a local proof marker
+  // rather than a value sent to the authorization endpoint.
+  scopeGroups: {
+    all: { scopes: ["all"] },
+  },
+  connectorBindings: {
+    supabase: {
+      connectScopeGroups: ["all"],
+      requiredScopeGroups: ["all"],
     },
   },
   verificationStatus: "unverified",
@@ -472,6 +552,21 @@ const HUBSPOT: ProviderManifest = {
     contacts_write: {
       scopes: ["crm.objects.contacts.read", "crm.objects.contacts.write"],
     },
+    hubspot: {
+      scopes: [
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write",
+        "crm.objects.deals.read",
+        "crm.objects.deals.write",
+        "crm.objects.companies.read",
+      ],
+    },
+  },
+  connectorBindings: {
+    hubspot: {
+      connectScopeGroups: ["hubspot"],
+      requiredScopeGroups: ["hubspot"],
+    },
   },
   verificationStatus: "unverified",
   registrationVersion: 1,
@@ -499,6 +594,21 @@ const GONG: ProviderManifest = {
     users_read: { scopes: ["api:workspaces:read", "api:users:read"] },
     calls_write: {
       scopes: ["api:workspaces:read", "api:users:read", "api:calls:create"],
+    },
+    gong: {
+      scopes: [
+        "api:workspaces:read",
+        "api:users:read",
+        "api:calls:read:basic",
+        "api:calls:read:transcript",
+        "api:calls:create",
+      ],
+    },
+  },
+  connectorBindings: {
+    gong: {
+      connectScopeGroups: ["gong"],
+      requiredScopeGroups: ["gong"],
     },
   },
   verificationStatus: "unverified",
@@ -528,6 +638,15 @@ const PIPEDRIVE: ProviderManifest = {
   scopeGroups: {
     deals_read: { scopes: ["deals:read"] },
     deals_write: { scopes: ["deals:read", "deals:full"] },
+    pipedrive: {
+      scopes: ["deals:read", "deals:full", "contacts:read", "contacts:full"],
+    },
+  },
+  connectorBindings: {
+    pipedrive: {
+      connectScopeGroups: ["pipedrive"],
+      requiredScopeGroups: ["pipedrive"],
+    },
   },
   verificationStatus: "unverified",
   registrationVersion: 1,
@@ -551,6 +670,12 @@ const SALESFORCE: ProviderManifest = {
   scopeGroups: {
     api_read: { scopes: ["api", "refresh_token"] },
     api_write: { scopes: ["api", "refresh_token"] },
+  },
+  connectorBindings: {
+    salesforce: {
+      connectScopeGroups: ["api_write"],
+      requiredScopeGroups: ["api_write"],
+    },
   },
   verificationStatus: "unverified",
   registrationVersion: 1,
@@ -578,6 +703,388 @@ const ATTIO: ProviderManifest = {
     records_write: {
       scopes: ["object_configuration:read", "record_permission:read-write"],
     },
+    attio: {
+      scopes: [
+        "object_configuration:read",
+        "record_permission:read",
+        "record_permission:read-write",
+        "list_entry:read",
+      ],
+    },
+  },
+  connectorBindings: {
+    attio: {
+      connectScopeGroups: ["attio"],
+      requiredScopeGroups: ["attio"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const FIGMA: ProviderManifest = {
+  key: "figma",
+  displayName: "Figma",
+  authorizationEndpoint: "https://www.figma.com/oauth",
+  tokenEndpoint: "https://api.figma.com/v1/oauth/token",
+  refreshEndpoint: "https://api.figma.com/v1/oauth/refresh",
+  tokenEndpointAuth: "client_secret_basic",
+  userinfoEndpoint: "https://api.figma.com/v1/me",
+  identityPaths: { subject: "id", email: "email", name: "handle" },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: true,
+  scopeSeparator: ",",
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.figma.com",
+  scopeGroups: {
+    figma: {
+      scopes: [
+        "current_user:read",
+        "file_content:read",
+        "file_metadata:read",
+        "file_comments:read",
+        "file_comments:write",
+        "projects:read",
+      ],
+    },
+  },
+  connectorBindings: {
+    figma: {
+      connectScopeGroups: ["figma"],
+      requiredScopeGroups: ["figma"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const STRIPE: ProviderManifest = {
+  key: "stripe",
+  displayName: "Stripe",
+  authorizationEndpoint: "https://connect.stripe.com/oauth/authorize",
+  tokenEndpoint: "https://connect.stripe.com/oauth/token",
+  tokenEndpointAuth: "client_secret_basic",
+  userinfoEndpoint: "https://api.stripe.com/v1/account",
+  identityPaths: {
+    subject: "id",
+    email: "email",
+    name: "business_profile.name",
+  },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  accessTokensExpire: false,
+  refreshSkewMs: 0,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.stripe.com",
+  scopeGroups: { stripe: { scopes: ["read_write"] } },
+  connectorBindings: {
+    stripe: {
+      connectScopeGroups: ["stripe"],
+      requiredScopeGroups: ["stripe"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const NOTION: ProviderManifest = {
+  key: "notion",
+  displayName: "Notion",
+  authorizationEndpoint: "https://api.notion.com/v1/oauth/authorize",
+  tokenEndpoint: "https://api.notion.com/v1/oauth/token",
+  tokenEndpointAuth: "client_secret_basic",
+  tokenRequestEncoding: "json",
+  userinfoEndpoint: "https://api.notion.com/v1/users/me",
+  identityPaths: {
+    subject: "id",
+    email: "bot.owner.user.person.email",
+    name: "name",
+  },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  accessTokensExpire: false,
+  sendsScopesInAuthorization: false,
+  authorizationParams: { owner: "user" },
+  refreshSkewMs: 0,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.notion.com",
+  scopeGroups: {
+    integration: { scopes: ["integration:configured"] },
+  },
+  connectorBindings: {
+    notion: {
+      connectScopeGroups: ["integration"],
+      requiredScopeGroups: ["integration"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const SLACK: ProviderManifest = {
+  key: "slack",
+  displayName: "Slack",
+  authorizationEndpoint: "https://slack.com/oauth/v2/authorize",
+  tokenEndpoint: "https://slack.com/api/oauth.v2.access",
+  tokenEndpointAuth: "client_secret_post",
+  userinfoEndpoint: "https://slack.com/api/auth.test",
+  identityPaths: { subject: "user_id", name: "user" },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  accessTokensExpire: false,
+  refreshSkewMs: 0,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://slack.com",
+  scopeGroups: {
+    collaboration: {
+      scopes: ["channels:history", "channels:read", "chat:write"],
+    },
+  },
+  connectorBindings: {
+    slack: {
+      connectScopeGroups: ["collaboration"],
+      requiredScopeGroups: ["collaboration"],
+    },
+    slackbot: {
+      connectScopeGroups: ["collaboration"],
+      requiredScopeGroups: ["collaboration"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const AIRTABLE: ProviderManifest = {
+  key: "airtable",
+  displayName: "Airtable",
+  authorizationEndpoint: "https://airtable.com/oauth2/v1/authorize",
+  tokenEndpoint: "https://airtable.com/oauth2/v1/token",
+  tokenEndpointAuth: "client_secret_basic",
+  userinfoEndpoint: "https://api.airtable.com/v0/meta/whoami",
+  identityMode: "userinfo",
+  requiresPkce: true,
+  usesOfflineAccess: true,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.airtable.com",
+  scopeGroups: {
+    records: {
+      scopes: [
+        "data.records:read",
+        "data.records:write",
+        "schema.bases:read",
+        "user.email:read",
+      ],
+    },
+  },
+  connectorBindings: {
+    airtable: {
+      connectScopeGroups: ["records"],
+      requiredScopeGroups: ["records"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const ASANA: ProviderManifest = {
+  key: "asana",
+  displayName: "Asana",
+  authorizationEndpoint: "https://app.asana.com/-/oauth_authorize",
+  tokenEndpoint: "https://app.asana.com/-/oauth_token",
+  userinfoEndpoint: "https://app.asana.com/api/1.0/users/me",
+  identityPaths: {
+    subject: "data.gid",
+    email: "data.email",
+    name: "data.name",
+  },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: true,
+  sendsScopesInAuthorization: false,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://app.asana.com",
+  scopeGroups: { account: { scopes: ["default"] } },
+  connectorBindings: {
+    asana: {
+      connectScopeGroups: ["account"],
+      requiredScopeGroups: ["account"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const CLICKUP: ProviderManifest = {
+  key: "clickup",
+  displayName: "ClickUp",
+  authorizationEndpoint: "https://app.clickup.com/api",
+  tokenEndpoint: "https://api.clickup.com/api/v2/oauth/token",
+  tokenRequestEncoding: "json",
+  userinfoEndpoint: "https://api.clickup.com/api/v2/user",
+  identityPaths: {
+    subject: "user.id",
+    email: "user.email",
+    name: "user.username",
+  },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  accessTokensExpire: false,
+  sendsScopesInAuthorization: false,
+  refreshSkewMs: 0,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.clickup.com",
+  scopeGroups: { workspace: { scopes: ["workspace:configured"] } },
+  connectorBindings: {
+    clickup: {
+      connectScopeGroups: ["workspace"],
+      requiredScopeGroups: ["workspace"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const MONDAY: ProviderManifest = {
+  key: "monday",
+  displayName: "monday.com",
+  authorizationEndpoint: "https://auth.monday.com/oauth2/authorize",
+  tokenEndpoint: "https://auth.monday.com/oauth2/token",
+  userinfoEndpoint: "https://api.monday.com/v2",
+  userinfoRequest: {
+    method: "POST",
+    body: { query: "{ me { id name email } }" },
+  },
+  identityPaths: {
+    subject: "data.me.id",
+    email: "data.me.email",
+    name: "data.me.name",
+  },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  accessTokensExpire: false,
+  refreshSkewMs: 0,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.monday.com",
+  scopeGroups: {
+    boards: { scopes: ["me:read", "boards:read", "boards:write"] },
+  },
+  connectorBindings: {
+    monday: {
+      connectScopeGroups: ["boards"],
+      requiredScopeGroups: ["boards"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const LINEAR: ProviderManifest = {
+  key: "linear",
+  displayName: "Linear",
+  authorizationEndpoint: "https://linear.app/oauth/authorize",
+  tokenEndpoint: "https://api.linear.app/oauth/token",
+  tokenEndpointAuth: "client_secret_basic",
+  userinfoEndpoint: "https://api.linear.app/graphql",
+  userinfoRequest: {
+    method: "POST",
+    body: { query: "{ viewer { id name email } }" },
+  },
+  identityPaths: {
+    subject: "data.viewer.id",
+    email: "data.viewer.email",
+    name: "data.viewer.name",
+  },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: false,
+  accessTokensExpire: false,
+  scopeSeparator: ",",
+  refreshSkewMs: 0,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.linear.app",
+  scopeGroups: { issues: { scopes: ["read", "write"] } },
+  connectorBindings: {
+    linear: {
+      connectScopeGroups: ["issues"],
+      requiredScopeGroups: ["issues"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const ATLASSIAN: ProviderManifest = {
+  key: "atlassian",
+  displayName: "Atlassian",
+  authorizationEndpoint: "https://auth.atlassian.com/authorize",
+  tokenEndpoint: "https://auth.atlassian.com/oauth/token",
+  tokenRequestEncoding: "json",
+  userinfoEndpoint: "https://api.atlassian.com/me",
+  identityPaths: { subject: "account_id", email: "email", name: "name" },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: true,
+  authorizationParams: { audience: "api.atlassian.com", prompt: "consent" },
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://api.atlassian.com",
+  scopeGroups: {
+    jira: {
+      scopes: [
+        "offline_access",
+        "read:me",
+        "read:jira-user",
+        "read:jira-work",
+        "write:jira-work",
+      ],
+    },
+  },
+  connectorBindings: {
+    jira: {
+      connectScopeGroups: ["jira"],
+      requiredScopeGroups: ["jira"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
+const CANVAS: ProviderManifest = {
+  key: "canvas",
+  displayName: "Canvas LMS",
+  authorizationEndpoint: "https://canvas.instructure.com/login/oauth2/auth",
+  tokenEndpoint: "https://canvas.instructure.com/login/oauth2/token",
+  userinfoEndpoint: "https://canvas.instructure.com/api/v1/users/self/profile",
+  identityPaths: { subject: "id", email: "primary_email", name: "name" },
+  identityMode: "userinfo",
+  requiresPkce: false,
+  usesOfflineAccess: true,
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://canvas.instructure.com",
+  resourceOriginHostSuffixes: ["instructure.com"],
+  scopeGroups: {
+    courses: {
+      scopes: [
+        "url:GET|/api/v1/courses",
+        "url:POST|/api/v1/accounts/:account_id/courses",
+      ],
+    },
+  },
+  connectorBindings: {
+    canvas: {
+      connectScopeGroups: ["courses"],
+      requiredScopeGroups: ["courses"],
+    },
   },
   verificationStatus: "unverified",
   registrationVersion: 1,
@@ -588,6 +1095,8 @@ const STATIC_MANIFESTS: Readonly<Record<string, ProviderManifest>> = {
   [MICROSOFT.key]: MICROSOFT,
   [TWITTER.key]: TWITTER,
   [YOUTUBE.key]: YOUTUBE,
+  [GITHUB.key]: GITHUB,
+  [SUPABASE.key]: SUPABASE,
   [META.key]: META,
   [REDDIT.key]: REDDIT,
   [LINKEDIN.key]: LINKEDIN,
@@ -597,6 +1106,17 @@ const STATIC_MANIFESTS: Readonly<Record<string, ProviderManifest>> = {
   [PIPEDRIVE.key]: PIPEDRIVE,
   [SALESFORCE.key]: SALESFORCE,
   [ATTIO.key]: ATTIO,
+  [FIGMA.key]: FIGMA,
+  [STRIPE.key]: STRIPE,
+  [NOTION.key]: NOTION,
+  [SLACK.key]: SLACK,
+  [AIRTABLE.key]: AIRTABLE,
+  [ASANA.key]: ASANA,
+  [CLICKUP.key]: CLICKUP,
+  [MONDAY.key]: MONDAY,
+  [LINEAR.key]: LINEAR,
+  [ATLASSIAN.key]: ATLASSIAN,
+  [CANVAS.key]: CANVAS,
 };
 
 /** All manifests visible in this deployment (mock only behind the env flag). */
@@ -772,7 +1292,10 @@ export const buildAuthorizationUrl = (args: {
   url.searchParams.set("client_id", args.clientId);
   url.searchParams.set("redirect_uri", args.redirectUri);
   if (args.manifest.sendsScopesInAuthorization !== false) {
-    url.searchParams.set("scope", args.scopes.join(" "));
+    url.searchParams.set(
+      "scope",
+      args.scopes.join(args.manifest.scopeSeparator ?? " "),
+    );
   }
   url.searchParams.set("state", args.state);
   if (args.manifest.requiresPkce) {
@@ -831,16 +1354,21 @@ export const buildTokenEndpointRequest = (args: {
   clientSecret: string;
   body: string;
 }): { headers: Record<string, string>; body: string } => {
-  const headers: Record<string, string> = {
-    "content-type": "application/x-www-form-urlencoded",
-  };
-  if (args.manifest.tokenEndpointAuth !== "client_secret_basic") {
-    return { headers, body: args.body };
-  }
   const body = new URLSearchParams(args.body);
-  body.delete("client_id");
-  body.delete("client_secret");
-  headers.authorization = basicAuthorization(args.clientId, args.clientSecret);
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (args.manifest.tokenEndpointAuth === "client_secret_basic") {
+    body.delete("client_id");
+    body.delete("client_secret");
+    headers.authorization = basicAuthorization(
+      args.clientId,
+      args.clientSecret,
+    );
+  }
+  if (args.manifest.tokenRequestEncoding === "json") {
+    headers["content-type"] = "application/json";
+    return { headers, body: JSON.stringify(Object.fromEntries(body)) };
+  }
+  headers["content-type"] = "application/x-www-form-urlencoded";
   return { headers, body: body.toString() };
 };
 
@@ -849,7 +1377,7 @@ export const parseScopeString = (scope: unknown): string[] => {
     return scope.filter((item): item is string => typeof item === "string");
   }
   if (typeof scope === "string") {
-    return scope.split(/\s+/u).filter(Boolean);
+    return scope.split(/[\s,]+/u).filter(Boolean);
   }
   return [];
 };
@@ -868,6 +1396,7 @@ export const validateManifest = (manifest: ProviderManifest): string[] => {
   };
   httpsOnly("authorizationEndpoint", manifest.authorizationEndpoint);
   httpsOnly("tokenEndpoint", manifest.tokenEndpoint);
+  httpsOnly("refreshEndpoint", manifest.refreshEndpoint);
   httpsOnly("revocationEndpoint", manifest.revocationEndpoint);
   httpsOnly("userinfoEndpoint", manifest.userinfoEndpoint);
   httpsOnly("apiOrigin", manifest.apiOrigin);

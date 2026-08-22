@@ -10,6 +10,7 @@ import {
   getNativeConnectorTools,
   isNativeConnectorEnabled,
 } from "../kernel/connectors/native-integrations.js";
+import { isSafeBackendComposioActionName } from "../kernel/connectors/connector-identifiers.js";
 import type { BackendConnectorActionResult } from "../kernel/connectors/cli-broker-client.js";
 import {
   redactSensitiveText,
@@ -30,7 +31,6 @@ export type BackendConnectorActionBrokerOptions = {
 const MAX_INPUT_DEPTH = 20;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const ACTION_TIMEOUT_MS = 30_000;
-const SAFE_ACTION = /^[A-Z][A-Z0-9_]{1,127}$/u;
 const SAFE_REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/u;
 
 const isPlainJsonValue = (value: unknown, depth = 0): boolean => {
@@ -154,7 +154,7 @@ export const createBackendConnectorActionBroker =
         : crypto.randomUUID();
     if (
       !connectorId ||
-      !SAFE_ACTION.test(action) ||
+      !isSafeBackendComposioActionName(connectorId, action) ||
       !isPlainJsonValue(params.input)
     ) {
       return {

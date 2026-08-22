@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  FIRST_PARTY_PRODUCTIVITY_ACTIONS,
   FIRST_PARTY_PRODUCTIVITY_CONNECTOR_IDS,
   firstPartyProductivityConnectorExecutionOwner,
   firstPartyProductivityConnectorProdEnv,
@@ -32,11 +33,12 @@ const EXPECTED_IDS = [
   "slackbot",
   "monday",
   "canvas",
+  "7shifts",
 ] as const;
 
-const BACKEND_OWNED_IDS = new Set(["slack", "slackbot"]);
+const NON_CATALOG_OAUTH_IDS = new Set(["slack", "slackbot", "7shifts"]);
 const OAUTH_CATALOG_IDS = EXPECTED_IDS.filter(
-  (id) => !BACKEND_OWNED_IDS.has(id),
+  (id) => !NON_CATALOG_OAUTH_IDS.has(id),
 );
 
 const roots: string[] = [];
@@ -77,6 +79,22 @@ describe("first-party productivity connector registry", () => {
     expect(getFirstPartyProductivityConnector("dropbox")).toBeUndefined();
   });
 
+  it("publishes one canonical read and write per productivity connector", () => {
+    expect(Object.keys(FIRST_PARTY_PRODUCTIVITY_ACTIONS).sort()).toEqual(
+      [...EXPECTED_IDS].sort(),
+    );
+    for (const id of EXPECTED_IDS) {
+      const actions = FIRST_PARTY_PRODUCTIVITY_ACTIONS[id];
+      expect(actions).toHaveLength(2);
+      expect(new Set(actions.map((action) => action.operation))).toEqual(
+        new Set(["read", "write"]),
+      );
+      for (const action of actions) {
+        expect(action.name).toMatch(/^[A-Z0-9_]+$/u);
+      }
+    }
+  });
+
   it("keeps Slack and Slackbot backend-owned and sharing one app/grant", () => {
     const slack = getFirstPartyProductivityConnector("slack")!;
     const slackbot = getFirstPartyProductivityConnector("slackbot")!;
@@ -95,6 +113,19 @@ describe("first-party productivity connector registry", () => {
       expect(readiness.nativeReady).toBe(false);
       expect(readiness.executionOwner).toBe("composio");
     }
+  });
+
+  it("keeps the API-key-only 7shifts adapter under Composio ownership", () => {
+    const entry = getFirstPartyProductivityConnector("7shifts")!;
+    expect(entry.authKind).toBe("api_key");
+    expect(entry.providerConfigId).toBeUndefined();
+    expect(
+      resolveFirstPartyProductivityConnectorReadiness("7shifts"),
+    ).toMatchObject({
+      configResolved: false,
+      nativeReady: false,
+      executionOwner: "composio",
+    });
   });
 
   it("maps every OAuth-catalog connector to a resolvable provider config id", () => {

@@ -77,12 +77,18 @@ const fetchProviderIdentity = async (
       : null);
   if (!endpoint) return null;
   const response = await fetch(endpoint, {
-    method: "GET",
+    method: manifest.userinfoRequest?.method ?? "GET",
     headers: {
       accept: "application/json",
       authorization: `Bearer ${accessToken}`,
+      ...(manifest.userinfoRequest?.body
+        ? { "content-type": "application/json" }
+        : {}),
       ...manifest.userinfoHeaders,
     },
+    ...(manifest.userinfoRequest?.body
+      ? { body: JSON.stringify(manifest.userinfoRequest.body) }
+      : {}),
   });
   if (!response.ok) return null;
   const payload = await readSmallJson(response);
@@ -109,10 +115,10 @@ const fetchProviderIdentity = async (
   if (!sub) return null;
   const email = manifest.identityPaths?.email
     ? readPath(manifest.identityPaths.email)
-    : payload.email ?? payload.mail ?? payload.userPrincipalName;
+    : (payload.email ?? payload.mail ?? payload.userPrincipalName);
   const name = manifest.identityPaths?.name
     ? readPath(manifest.identityPaths.name)
-    : payload.name ?? payload.displayName;
+    : (payload.name ?? payload.displayName);
   return {
     sub,
     email: typeof email === "string" ? email : undefined,

@@ -29,7 +29,9 @@ import {
 } from "../thread-runtime.js";
 import {
   buildActiveThreadsPrompt,
+  deriveRuntimeThreadLiveState,
   estimateRuntimeTokens,
+  formatRuntimeThreadStatusLabel,
 } from "../runtime-threads.js";
 import { anyApi } from "convex/server";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
@@ -834,6 +836,27 @@ export const createRunnerContext = ({
           agentId,
           recipient,
         );
+      },
+      // Read-only backing for `agent_status`: durable-store SELECTs only, so
+      // checking on a thread can never deliver input to it or resume it. The
+      // live-state derivation is the exact signal `other_threads` uses
+      // (`runtime_agents.status` via deriveRuntimeThreadLiveState).
+      readAgentThreadStatus: async (agentId) => {
+        const store = context.runtimeStore;
+        if (!store) return null;
+        const record = store.getAgentRecord(agentId);
+        if (!record) return null;
+        const liveStateInput = { agentStatus: record.status };
+        const engine = record.modelConfigSnapshot?.engine;
+        return {
+          status: deriveRuntimeThreadLiveState(liveStateInput),
+          statusLabel: formatRuntimeThreadStatusLabel(liveStateInput),
+          agentStatus: record.status,
+          ...(record.description ? { description: record.description } : {}),
+          ...(engine && engine !== "default" ? { engine } : {}),
+          lastActiveAt: record.updatedAt,
+          messages: store.loadThreadMessages(agentId, 200),
+        };
       },
     },
   });

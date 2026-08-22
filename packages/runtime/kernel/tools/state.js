@@ -1,5 +1,5 @@
 /**
- * State tools: spawn_agent / pause_agent and send_input handlers.
+ * State tools: spawn_agent / pause_agent / send_input / agent_status handlers.
  */
 import { deriveRuntimeThreadLiveState, formatRuntimeThreadAge, runtimeThreadLastActiveAt, } from "../runtime-threads.js";
 import { AGENT_PAUSE_CANCEL_REASON } from "../agents/local-agent-manager.js";
@@ -184,6 +184,104 @@ export const handleSendInput = async (ctx, args, context) => {
         },
     };
 
+};
+/** Codex engine id whose transcripts carry reasoning summaries, not text. */
+const CODEX_ENGINE_ID = "codex_cli";
+const AGENT_STATUS_MESSAGE_LIMIT = 4;
+const AGENT_STATUS_TEXT_CHARS = 2_000;
+const AGENT_STATUS_ARGS_CHARS = 4_000;
+const boundAgentStatusText = (value, maxChars) => {
+    const text = String(value ?? "").trim();
+    if (text.length <= maxChars)
+        return text;
+    return `${text.slice(0, maxChars).trimEnd()}... [truncated]`;
+};
+const joinAssistantBlocks = (blocks, type, field) => blocks
+    .flatMap((block) => block?.type === type &&
+    typeof block[field] === "string" &&
+    block[field].trim()
+    ? [block[field].trim()]
+    : [])
+    .join("\n\n")
+    .trim();
+/**
+ * Read-only `agent_status` handler. Projects a durable-thread snapshot into
+ * the live status, the last few assistant messages (reasoning summaries for
+ * Codex-engine threads), and the most recent tool CALL — never a tool result,
+ * and never any delivery into the target thread.
+ */
+export const handleAgentStatus = async (ctx, args) => {
+    const threadId = toOptionalString(args.thread_id);
+    if (!threadId) {
+        return { error: "thread_id is required" };
+    }
+    if (!ctx.agentApi?.readAgentThreadStatus) {
+        return { error: "Agent status is not available on this device." };
+    }
+    const snapshot = await ctx.agentApi.readAgentThreadStatus(threadId);
+    if (!snapshot) {
+        return { error: `Thread not found: ${threadId}` };
+    }
+    // Codex surfaces reasoning summaries as its visible narration; native
+    // engines author plain text blocks. Chronological walk keeps "latest
+    // tool call" honest even if the store returns rows out of order.
+    const isCodex = snapshot.engine === CODEX_ENGINE_ID;
+    const ordered = [...snapshot.messages].sort((a, b) => a.timestamp - b.timestamp);
+    const assistantMessages = [];
+    let latestToolCall;
+    for (const message of ordered) {
+        const payload = message.payload;
+        if (payload?.role !== "assistant" || !Array.isArray(payload.content)) {
+            continue;
+        }
+        const text = joinAssistantBlocks(payload.content, "text", "text");
+        const reasoning = joinAssistantBlocks(payload.content, "thinking", "thinking");
+        const content = isCodex ? reasoning || text : text;
+        if (content) {
+            assistantMessages.push({
+                timestamp: new Date(message.timestamp).toISOString(),
+                content: boundAgentStatusText(content, AGENT_STATUS_TEXT_CHARS),
+            });
+        }
+        for (const block of payload.content) {
+            if (block?.type !== "toolCall")
+                continue;
+            let toolArguments = block.arguments ?? {};
+            try {
+                const serialized = JSON.stringify(toolArguments) ?? "";
+                if (serialized.length > AGENT_STATUS_ARGS_CHARS) {
+                    toolArguments = boundAgentStatusText(serialized, AGENT_STATUS_ARGS_CHARS);
+                }
+            }
+            catch {
+                toolArguments = "[Unserializable tool arguments]";
+            }
+            latestToolCall = {
+                timestamp: new Date(message.timestamp).toISOString(),
+                tool_name: block.name,
+                arguments: toolArguments,
+            };
+        }
+    }
+    const now = Date.now();
+    return {
+        result: {
+            thread_id: threadId,
+            // Same live signal as the "# Other Threads" roster.
+            status: snapshot.status,
+            ...(snapshot.statusLabel && snapshot.statusLabel !== snapshot.status
+                ? { status_detail: snapshot.statusLabel }
+                : {}),
+            ...(snapshot.description ? { description: snapshot.description } : {}),
+            ...(typeof snapshot.lastActiveAt === "number"
+                ? { last_active_at: new Date(snapshot.lastActiveAt).toISOString() }
+                : {}),
+            recent_assistant_messages: assistantMessages.slice(-AGENT_STATUS_MESSAGE_LIMIT),
+            ...(latestToolCall ? { latest_tool_call: latestToolCall } : {}),
+            current_time: new Date(now).toISOString(),
+            note: "Read-only snapshot; the agent was NOT interrupted or messaged. To steer or ask it something, use send_input.",
+        },
+    };
 };
 export const handleSpawnAgent = async (ctx, args, context) => {
     const action = toOptionalString(args.action)?.toLowerCase();

@@ -31,6 +31,10 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
     active: "Pausing work",
     done: "Paused work",
   },
+  agent_status: {
+    active: "Checking on work",
+    done: "Checked on work",
+  },
   read: { active: "Reading files", done: "Read files" },
   find: { active: "Searching files", done: "Searched files" },
   glob: { active: "Searching files", done: "Searched files" },

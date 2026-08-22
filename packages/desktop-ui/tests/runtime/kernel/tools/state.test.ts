@@ -5,12 +5,17 @@ import type { Model } from "@stella/runtime/ai/types";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   createStateContext,
+  handleAgentStatus,
   handleSendInput,
   handleSpawnAgent,
   parseSpawnAgentModel,
 } from "@stella/runtime/kernel/tools/state";
 import { AGENT_PAUSE_CANCEL_REASON } from "@stella/runtime/kernel/agents/local-agent-manager";
-import type { AgentToolRequest } from "@stella/runtime/kernel/tools/types";
+import type {
+  AgentThreadStatusMessage,
+  AgentThreadStatusRead,
+  AgentToolRequest,
+} from "@stella/runtime/kernel/tools/types";
 
 const COLON_BEARING_REGISTRY_REFERENCES = Object.entries(MODELS).flatMap(
   ([registryProvider, models]) =>
@@ -943,6 +948,250 @@ describe("state tools", () => {
       ),
     ).resolves.toEqual({
       error: "prompt is required",
+    });
+  });
+});
+
+describe("agent_status tool", () => {
+  const assistantMessage = (
+    timestamp: number,
+    content: unknown[],
+  ): AgentThreadStatusMessage => ({
+    timestamp,
+    role: "assistant",
+    content: "",
+    payload: {
+      role: "assistant",
+      content,
+    } as AgentThreadStatusMessage["payload"],
+  });
+
+  const toolResultMessage = (
+    timestamp: number,
+    toolCallId: string,
+    text: string,
+  ): AgentThreadStatusMessage => ({
+    timestamp,
+    role: "toolResult",
+    content: text,
+    payload: {
+      role: "toolResult",
+      toolCallId,
+      toolName: "exec_command",
+      content: [{ type: "text", text }],
+    } as AgentThreadStatusMessage["payload"],
+  });
+
+  type MutationLog = string[];
+
+  const createStatusContext = (
+    read: AgentThreadStatusRead | null,
+    mutations: MutationLog = [],
+  ) =>
+    createStateContext("/tmp", {
+      createAgent: async () => {
+        mutations.push("createAgent");
+        return { threadId: "never" };
+      },
+      getAgent: async () => null,
+      cancelAgent: async () => {
+        mutations.push("cancelAgent");
+        return { canceled: false };
+      },
+      sendAgentMessage: async () => {
+        mutations.push("sendAgentMessage");
+        return { delivered: true };
+      },
+      readAgentThreadStatus: async (threadId) => {
+        expect(threadId).toBe("thread-9");
+        return read;
+      },
+    });
+
+  const toolContext = {
+    conversationId: "conversation-1",
+    deviceId: "device-1",
+    requestId: "request-1",
+    agentType: AGENT_IDS.ORCHESTRATOR,
+  };
+
+  it("returns status, the last 4 assistant messages, the latest tool CALL, and timestamps", async () => {
+    const mutations: MutationLog = [];
+    const messages: AgentThreadStatusMessage[] = [
+      assistantMessage(1_000, [{ type: "text", text: "one" }]),
+      assistantMessage(2_000, [{ type: "text", text: "two" }]),
+      assistantMessage(3_000, [
+        { type: "text", text: "three" },
+        {
+          type: "toolCall",
+          id: "call-1",
+          name: "exec_command",
+          arguments: { cmd: "sleep 1800", yield_time_ms: 1_800_000 },
+        },
+      ]),
+      toolResultMessage(3_500, "call-1", "tool output that must NOT surface"),
+      assistantMessage(4_000, [{ type: "text", text: "four" }]),
+      assistantMessage(5_000, [{ type: "text", text: "five" }]),
+    ];
+    const ctx = createStatusContext(
+      {
+        status: "active",
+        statusLabel: "active",
+        agentStatus: "running",
+        description: "Long build",
+        lastActiveAt: 5_000,
+        messages,
+      },
+      mutations,
+    );
+
+    const before = Date.now();
+    const result = await handleAgentStatus(
+      ctx,
+      { thread_id: "thread-9" },
+      toolContext,
+    );
+    const after = Date.now();
+
+    expect(result.error).toBeUndefined();
+    const payload = result.result as {
+      thread_id: string;
+      status: string;
+      description?: string;
+      last_active_at?: string;
+      recent_assistant_messages: Array<{ timestamp: string; content: string }>;
+      latest_tool_call?: {
+        timestamp: string;
+        tool_name: string;
+        arguments: unknown;
+      };
+      current_time: string;
+      note: string;
+    };
+    expect(payload.thread_id).toBe("thread-9");
+    expect(payload.status).toBe("active");
+    expect(payload.description).toBe("Long build");
+    expect(payload.last_active_at).toBe(new Date(5_000).toISOString());
+    // Last FOUR assistant messages, chronological, each timestamped.
+    expect(payload.recent_assistant_messages).toEqual([
+      { timestamp: new Date(2_000).toISOString(), content: "two" },
+      { timestamp: new Date(3_000).toISOString(), content: "three" },
+      { timestamp: new Date(4_000).toISOString(), content: "four" },
+      { timestamp: new Date(5_000).toISOString(), content: "five" },
+    ]);
+    // The latest tool CALL (name + args), never the tool result.
+    expect(payload.latest_tool_call).toEqual({
+      timestamp: new Date(3_000).toISOString(),
+      tool_name: "exec_command",
+      arguments: { cmd: "sleep 1800", yield_time_ms: 1_800_000 },
+    });
+    expect(JSON.stringify(payload)).not.toContain(
+      "tool output that must NOT surface",
+    );
+    const currentTime = Date.parse(payload.current_time);
+    expect(currentTime).toBeGreaterThanOrEqual(before);
+    expect(currentTime).toBeLessThanOrEqual(after);
+    // Read-only: no create/cancel/send ever fires against the thread.
+    expect(mutations).toEqual([]);
+  });
+
+  it("uses reasoning summaries as assistant content for Codex-engine threads", async () => {
+    const ctx = createStatusContext({
+      status: "active",
+      statusLabel: "active",
+      agentStatus: "running",
+      engine: "codex_cli",
+      messages: [
+        assistantMessage(1_000, [
+          { type: "thinking", thinking: "Scanning the repo for the bug" },
+        ]),
+        assistantMessage(2_000, [
+          { type: "thinking", thinking: "Writing the failing test first" },
+          { type: "text", text: "" },
+        ]),
+      ],
+    });
+
+    const result = await handleAgentStatus(
+      ctx,
+      { thread_id: "thread-9" },
+      toolContext,
+    );
+
+    const payload = result.result as {
+      recent_assistant_messages: Array<{ timestamp: string; content: string }>;
+    };
+    expect(payload.recent_assistant_messages).toEqual([
+      {
+        timestamp: new Date(1_000).toISOString(),
+        content: "Scanning the repo for the bug",
+      },
+      {
+        timestamp: new Date(2_000).toISOString(),
+        content: "Writing the failing test first",
+      },
+    ]);
+  });
+
+  it("skips reasoning-only messages for non-Codex threads and reports paused detail", async () => {
+    const ctx = createStatusContext({
+      status: "paused",
+      statusLabel: "paused (last run errored)",
+      agentStatus: "error",
+      messages: [
+        assistantMessage(1_000, [
+          { type: "thinking", thinking: "internal reasoning" },
+        ]),
+        assistantMessage(2_000, [{ type: "text", text: "done with step 1" }]),
+      ],
+    });
+
+    const result = await handleAgentStatus(
+      ctx,
+      { thread_id: "thread-9" },
+      toolContext,
+    );
+
+    const payload = result.result as {
+      status: string;
+      status_detail?: string;
+      recent_assistant_messages: Array<{ content: string }>;
+      latest_tool_call?: unknown;
+    };
+    expect(payload.status).toBe("paused");
+    expect(payload.status_detail).toBe("paused (last run errored)");
+    expect(payload.recent_assistant_messages).toEqual([
+      expect.objectContaining({ content: "done with step 1" }),
+    ]);
+    expect(payload.latest_tool_call).toBeUndefined();
+  });
+
+  it("errors on a missing thread id or unknown thread without touching anything", async () => {
+    const mutations: MutationLog = [];
+    const ctx = createStatusContext(null, mutations);
+
+    await expect(handleAgentStatus(ctx, {}, toolContext)).resolves.toEqual({
+      error: "thread_id is required",
+    });
+    await expect(
+      handleAgentStatus(ctx, { thread_id: "thread-9" }, toolContext),
+    ).resolves.toEqual({
+      error: "Thread not found: thread-9",
+    });
+    expect(mutations).toEqual([]);
+  });
+
+  it("errors when the runtime has no thread-status reader", async () => {
+    const ctx = createStateContext("/tmp", {
+      createAgent: async () => ({ threadId: "never" }),
+      getAgent: async () => null,
+      cancelAgent: async () => ({ canceled: false }),
+    });
+
+    await expect(
+      handleAgentStatus(ctx, { thread_id: "thread-9" }, toolContext),
+    ).resolves.toEqual({
+      error: "Agent status is not available on this device.",
     });
   });
 });

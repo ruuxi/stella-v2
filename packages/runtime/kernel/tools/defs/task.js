@@ -1,21 +1,22 @@
 /**
  * Sub-agent management tools.
  *
- * Three tools manipulate the durable agent thread surface: `spawn_agent`,
- * `send_input`, and `pause_agent`. Exposure is two-tier and depends on who
- * owns the running thread, not only on its agent type:
+ * Four tools cover the durable agent thread surface: `spawn_agent`,
+ * `send_input`, and `pause_agent` manipulate threads, and `agent_status` is
+ * a read-only, non-interrupting status snapshot. Exposure is two-tier and
+ * depends on who owns the running thread, not only on its agent type:
  *
  *   - the orchestrator and a top-level (root-spawned) General agent get all
- *     three, so a General agent can run its own subagents;
+ *     four, so a General agent can run its own subagents;
  *   - a parent-owned General agent — one spawned BY another agent — gets the
- *     same toolset as a top-level General MINUS these three.
+ *     same toolset as a top-level General MINUS these four.
  *
  * The second tier is enforced by absence from the catalog rather than by the
  * depth-limit tool error, so a subagent cannot attempt a third level or steer
  * a sibling thread at all. See `getToolCatalog`'s `parentOwned` option.
  */
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { handleSendInput, handleSpawnAgent, } from "../state.js";
+import { handleAgentStatus, handleSendInput, handleSpawnAgent, } from "../state.js";
 const AGENT_SPAWNERS = [
     AGENT_IDS.ORCHESTRATOR,
     AGENT_IDS.GENERAL,
@@ -28,6 +29,7 @@ export const AGENT_ORCHESTRATION_TOOL_NAMES = [
     "spawn_agent",
     "send_input",
     "pause_agent",
+    "agent_status",
 ];
 export const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
 /**
@@ -126,5 +128,21 @@ export const createAgentTools = (stateContext) => [
             required: ["thread_id"],
         },
         execute: async (args, context) => handleSpawnAgent(stateContext, { ...args, action: "cancel" }, context),
+    },
+    {
+        name: "agent_status",
+        agentTypes: AGENT_SPAWNERS,
+        description: "READ-ONLY status snapshot of a sub-agent thread: its live status (active = executing a turn right now, paused = idle but resumable), its last few assistant messages, and its most recent tool call, each timestamped alongside the current time. It NEVER interrupts, messages, or resumes the agent — use it to check on a running or paused thread; never use send_input just to ask for status.",
+        parameters: {
+            type: "object",
+            properties: {
+                thread_id: {
+                    type: "string",
+                    description: "Durable thread id of the agent to check.",
+                },
+            },
+            required: ["thread_id"],
+        },
+        execute: async (args, context) => handleAgentStatus(stateContext, args, context),
     },
 ];

@@ -3,11 +3,16 @@
  * side-channel JSON and raw tool-result envelopes out of user-facing copy.
  */
 
-const isScheduleDetailsJsonPreview = (value: string): boolean => {
-  const trimmed = value.trimStart();
-  if (!trimmed.startsWith("{")) return false;
-  return trimmed.includes('"schedule"') && trimmed.includes('"affected"');
-};
+/**
+ * Anything that reads as serialized structure is never summary copy: the
+ * persisted schedule side-channel JSON, a non-envelope JSON result, or a
+ * runtime `resultPreview` sliced at 200 chars mid-envelope, which fails
+ * `JSON.parse` yet would otherwise fall through to the raw-string path and
+ * render truncated JSON garbage. Prefix check on purpose: a parse test
+ * cannot recognise the truncated forms.
+ */
+const looksLikeSerializedStructure = (text: string): boolean =>
+  text.startsWith("{") || text.startsWith("[");
 
 /**
  * The Schedule specialist's tool result can reach the UI as a serialized
@@ -58,9 +63,14 @@ export const pickScheduleToolSummary = (payload: {
   for (const candidate of candidates) {
     if (typeof candidate !== "string") continue;
     const envelopeText = textFromToolResultEnvelope(candidate);
-    if (envelopeText) return envelopeText;
+    if (envelopeText) {
+      // An envelope whose text block is itself serialized structure renders
+      // nothing from this candidate; a later candidate may still be prose.
+      if (looksLikeSerializedStructure(envelopeText)) continue;
+      return envelopeText;
+    }
     const text = candidate.trim();
-    if (!text || isScheduleDetailsJsonPreview(text)) continue;
+    if (!text || looksLikeSerializedStructure(text)) continue;
     return text;
   }
   return undefined;

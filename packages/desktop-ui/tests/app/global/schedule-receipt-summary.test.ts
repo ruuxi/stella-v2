@@ -75,4 +75,28 @@ describe("pickScheduleToolSummary", () => {
       }),
     ).toBeUndefined();
   });
+
+  it("suppresses unparseable JSON-looking previews instead of rendering fragments", () => {
+    // The runtime bounds resultPreview to 200 chars; a serialized envelope
+    // sliced mid-stream fails JSON.parse and must render nothing.
+    const truncatedEnvelope =
+      '{"content":[{"type":"text","text":"Registered the morni';
+    expect(
+      pickScheduleToolSummary({ resultPreview: truncatedEnvelope }),
+    ).toBeUndefined();
+    expect(pickScheduleToolSummary({ resultPreview: "{not json" })).toBeUndefined();
+    expect(pickScheduleToolSummary({ resultPreview: "[1, 2," })).toBeUndefined();
+    expect(
+      pickScheduleToolSummary({ resultPreview: '{"some":"other json"}' }),
+    ).toBeUndefined();
+  });
+
+  it("still surfaces a later prose candidate when the preview is structured", () => {
+    expect(
+      pickScheduleToolSummary({
+        resultPreview: "{not json",
+        result: "Paused the deploy check.",
+      }),
+    ).toBe("Paused the deploy check.");
+  });
 });

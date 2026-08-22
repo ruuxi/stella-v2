@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   parseMobileSchedules,
+  scheduleCadence,
+  scheduleRowBadge,
   type MobileSchedule,
 } from "../desktop-schedules";
 import {
@@ -172,6 +174,83 @@ describe("fetchMobileSchedules (request shape)", () => {
   });
 });
 
+describe("mutateMobileSchedule (request shape)", () => {
+  test("pause/resume send the narrowed enabled patch; remove sends the bare id", async () => {
+    (globalThis as Record<string, unknown>).__DEV__ = false;
+    const { mock } = await import("bun:test");
+
+    const store = new Map<string, string>();
+    mock.module("expo-secure-store", () => ({
+      getItemAsync: async (key: string) => store.get(key) ?? null,
+      setItemAsync: async (key: string, value: string) => {
+        store.set(key, value);
+      },
+      deleteItemAsync: async (key: string) => {
+        store.delete(key);
+      },
+    }));
+    mock.module("react-native", () => ({ Platform: { OS: "ios" } }));
+    mock.module("../phone-access", () => ({
+      listStoredPairedPhoneAccess: async () => [
+        { desktopDeviceId: "desktop-1", mobileDeviceId: "mobile-1" },
+      ],
+      getDesktopBridgeStatus: async () => ({ available: false }),
+    }));
+
+    const calls: { channel: string; args: unknown }[] = [];
+    mock.module("../desktop-bridge-chat", () => ({
+      resolveDesktopBridge: async () => ({ desktopDeviceId: "desktop-1" }),
+      invokeDesktopBridge: async (
+        _bridge: unknown,
+        channel: string,
+        args: unknown,
+      ) => {
+        calls.push({ channel, args });
+        return undefined;
+      },
+    }));
+
+    const { mutateMobileSchedule: mutate } = await import(
+      "../desktop-schedules"
+    );
+    const cron = shape();
+    await mutate("pause", cron);
+    await mutate("resume", cron);
+    await mutate("remove", cron);
+    // This is the exact wire shape the desktop's mobile-bridge invoke guard
+    // allowlists ({ jobId, patch: { enabled } } / { jobId }) — anything
+    // wider is rejected desktop-side, so this test pins both halves of the
+    // contract from the client end.
+    expect(calls).toEqual([
+      {
+        channel: "schedule:updateCronJob",
+        args: [{ jobId: "cron:abc", patch: { enabled: false } }],
+      },
+      {
+        channel: "schedule:updateCronJob",
+        args: [{ jobId: "cron:abc", patch: { enabled: true } }],
+      },
+      {
+        channel: "schedule:removeCronJob",
+        args: [{ jobId: "cron:abc" }],
+      },
+    ]);
+  });
+
+  test("heartbeats are refused before any bridge call", async () => {
+    const { mutateMobileSchedule: mutate } = await import(
+      "../desktop-schedules"
+    );
+    let message = "";
+    try {
+      await mutate("pause", shape({ kind: "heartbeat", id: "hb-1" }));
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toContain("Only cron schedules");
+  });
+});
+
 const shape = (overrides: Partial<MobileSchedule> = {}): MobileSchedule => ({
   kind: "cron",
   id: "cron:abc",
@@ -221,10 +300,26 @@ describe("row rendering inputs", () => {
     expect(summarizeSchedule(null)).toBe("");
   });
 
-  test("paused rows show a Paused badge instead of a next-run time", () => {
-    const row = shape({ enabled: false });
-    expect(row.enabled ? `Next ${formatNextRun(row.nextRunAtMs, Date.now())}` : "Paused").toBe(
-      "Paused",
-    );
+  test("paused rows badge as Paused; active rows badge the next run", () => {
+    const now = Date.UTC(2026, 6, 20, 12, 0);
+    // Paused wins even with an imminent nextRunAtMs still on the record.
+    expect(
+      scheduleRowBadge(shape({ enabled: false, nextRunAtMs: now + 60_000 }), now),
+    ).toEqual({ kind: "paused" });
+    expect(
+      scheduleRowBadge(shape({ nextRunAtMs: now + 5 * 60_000 }), now),
+    ).toEqual({ kind: "next", label: "in 5m" });
+  });
+
+  test("cadence line composes stored schedule JSON / heartbeat interval", () => {
+    expect(
+      scheduleCadence({
+        scheduleJson: JSON.stringify({ kind: "cron", expr: "0 9 * * *" }),
+      }),
+    ).toBe("Daily 09:00");
+    expect(scheduleCadence({ intervalMs: 30 * 60_000 })).toBe("Every 30 min");
+    // Corrupt stored JSON yields "" — the UI's localized fallback takes over.
+    expect(scheduleCadence({ scheduleJson: "{corrupt" })).toBe("");
+    expect(scheduleCadence({})).toBe("");
   });
 });

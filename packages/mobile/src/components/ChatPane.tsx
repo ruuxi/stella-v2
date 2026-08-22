@@ -1391,17 +1391,19 @@ const ChatMessageRow = memo(function ChatMessageRow({
     },
     [item.text.length, item.toolSteps],
   );
-  // A Schedule tool result renders its human-readable summary as a plain
-  // text line in the flow (desktop parity — no chip/card). Unparseable or
-  // side-channel-JSON results render nothing.
-  const scheduleReceipt = useMemo(() => {
-    const step = (item.toolSteps ?? []).find(
-      (entry) =>
-        entry.toolName.toLowerCase() === "schedule" &&
-        entry.status !== "error",
-    );
-    if (!step) return undefined;
-    return scheduleReceiptText({ resultPreview: step.resultPreview });
+  // Schedule tool results render their human-readable summaries as plain
+  // text lines in the flow (desktop parity — no chip/card). Every settled
+  // Schedule call in the turn gets its line, in call order; unparseable or
+  // side-channel-JSON results render nothing. Keyed by step id for the map.
+  const scheduleReceipts = useMemo(() => {
+    const receipts: { id: string; text: string }[] = [];
+    for (const step of item.toolSteps ?? []) {
+      if (step.toolName.toLowerCase() !== "schedule") continue;
+      if (step.status === "error") continue;
+      const text = scheduleReceiptText({ resultPreview: step.resultPreview });
+      if (text) receipts.push({ id: step.id, text });
+    }
+    return receipts;
   }, [item.toolSteps]);
 
   if (item.role === "user") {
@@ -1764,14 +1766,15 @@ const ChatMessageRow = memo(function ChatMessageRow({
       {toolActivity ? (
         <ToolActivityTrace group={toolActivity} colors={colors} />
       ) : null}
-      {scheduleReceipt ? (
+      {scheduleReceipts.map((receipt) => (
         <Text
+          key={receipt.id}
           style={styles.scheduleReceipt}
           maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
         >
-          {scheduleReceipt}
+          {receipt.text}
         </Text>
-      ) : null}
+      ))}
       {showArtifacts ? (
         <View
           style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}

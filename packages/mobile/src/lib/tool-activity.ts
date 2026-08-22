@@ -31,7 +31,6 @@ export type ToolStep = {
   toolName: string;
   status: ToolActivityStatus;
   /** Pruned string args used to build the per-call title. */
-  /** Pruned string args used to build the per-call title. */
   args?: Record<string, string>;
   /**
    * Bounded tool-result preview, carried only for tools whose result the UI

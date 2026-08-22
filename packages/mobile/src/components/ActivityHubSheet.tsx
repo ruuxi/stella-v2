@@ -33,14 +33,11 @@ import {
 import {
   fetchMobileSchedules,
   mutateMobileSchedule,
+  scheduleCadence,
+  scheduleRowBadge,
   type MobileSchedule,
   type MobileScheduleAction,
 } from "../lib/desktop-schedules";
-import {
-  formatNextRun,
-  parseStoredSchedule,
-  summarizeSchedule,
-} from "../lib/schedule-format";
 import { tapLight } from "../lib/haptics";
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
@@ -320,17 +317,9 @@ function ScheduleRow({
   colors: Colors;
   onAction: (action: MobileScheduleAction) => void;
 }) {
-  const shape = useMemo(
-    () =>
-      schedule.scheduleJson
-        ? parseStoredSchedule(schedule.scheduleJson)
-        : null,
-    [schedule.scheduleJson],
-  );
-  const cadence =
-    summarizeSchedule(shape, schedule.intervalMs) || "Custom schedule";
-  const paused = !schedule.enabled;
-  const nextRun = formatNextRun(schedule.nextRunAtMs, nowMs);
+  const cadence = scheduleCadence(schedule) || "Custom schedule";
+  const badge = scheduleRowBadge(schedule, nowMs);
+  const paused = badge.kind === "paused";
 
   return (
     <View style={[styles.taskGroup, busy && styles.scheduleRowBusy]}>
@@ -358,7 +347,7 @@ function ScheduleRow({
             numberOfLines={1}
             maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
           >
-            {[cadence, paused ? "Paused" : `Next ${nextRun}`]
+            {[cadence, badge.kind === "paused" ? "Paused" : `Next ${badge.label}`]
               .filter(Boolean)
               .join(" · ")}
           </Text>

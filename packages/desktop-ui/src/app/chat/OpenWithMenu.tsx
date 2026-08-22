@@ -95,7 +95,7 @@ export const OpenWithMenu = ({
             title={t("app.chat.openWith.otherWaysTitle")}
             aria-label={t("app.chat.openWith.otherWaysLabel")}
           >
-            <Plus size={13} strokeWidth={2} aria-hidden />
+            <Plus size={11} strokeWidth={2} aria-hidden />
           </button>
         ) : (
           <button

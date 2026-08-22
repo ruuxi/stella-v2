@@ -27,8 +27,10 @@ import {
  * Reconciled status vocabulary for the remaining page-1/2 provider families.
  * The three axes are deliberately independent:
  *
- * - Composio is live and remains the sole production execution owner.
- * - The family descriptor is code-ready for the shared-core migration contract.
+ * - Composio is retained as the production fallback, without this static
+ *   registry claiming that a connector is currently published or connected.
+ * - The code stage distinguishes a registered executor from a request planner
+ *   or metadata-only adapter; these are not interchangeable readiness claims.
  * - Native activation is externally blocked until setup plus a real connect and
  *   representative call pass. No entry in this registry activates routing.
  */
@@ -39,11 +41,71 @@ export type FirstPartyProviderFamilyStatus = {
   ownerFamily?: FirstPartyConnectorOwnerFamily;
   auth: "oauth" | "api_key";
   adapterSurface: "metadata" | "request_planner";
-  fallbackStatus: "live";
-  codeStatus: "code_ready";
-  activationStatus: "external_blocked";
+  fallbackStatus: "retained";
+  codeStatus: "executor_ready" | "planner_ready" | "metadata_only";
+  activationStatus: "code_blocked" | "external_blocked";
   activationBlockers: readonly string[];
 };
+
+const EXECUTOR_READY_CONNECTOR_IDS = new Set([
+  "outlook",
+  "microsoft_teams",
+  "excel",
+  "notion",
+  "slack",
+  "slackbot",
+  "airtable",
+  "asana",
+  "linear",
+  "jira",
+  "clickup",
+  "monday",
+  "canvas",
+  "github",
+  "supabase",
+  "stripe",
+  "figma",
+  "7shifts",
+  "twitter",
+  "instagram",
+  "youtube",
+  "reddit",
+  "facebook",
+  "metaads",
+  "linkedin",
+  "gong",
+  "pipedrive",
+  "attio",
+  "hubspot",
+  "salesforce",
+]);
+
+const PLANNER_READY_CONNECTOR_IDS = new Set([
+  "peopledatalabs",
+  "21risk",
+  "2chat",
+  "apollo",
+  "ashby",
+  "0codekit",
+  "1password",
+  "abyssale",
+]);
+
+const codeStatusFor = (
+  connectorId: string,
+  adapterSurface: FirstPartyProviderFamilyStatus["adapterSurface"],
+): FirstPartyProviderFamilyStatus["codeStatus"] =>
+  EXECUTOR_READY_CONNECTOR_IDS.has(connectorId)
+    ? "executor_ready"
+    : PLANNER_READY_CONNECTOR_IDS.has(connectorId) ||
+        adapterSurface === "request_planner"
+      ? "planner_ready"
+      : "metadata_only";
+
+const activationStatusFor = (
+  codeStatus: FirstPartyProviderFamilyStatus["codeStatus"],
+): FirstPartyProviderFamilyStatus["activationStatus"] =>
+  codeStatus === "executor_ready" ? "external_blocked" : "code_blocked";
 
 const OAUTH_BLOCKERS = [
   "shared-core provider manifest and server handler production verification",
@@ -74,8 +136,8 @@ const MICROSOFT_STATUS: readonly FirstPartyProviderFamilyStatus[] = [
   providerKey: "microsoft",
   auth: "oauth",
   adapterSurface: "request_planner",
-  fallbackStatus: "live",
-  codeStatus: "code_ready",
+  fallbackStatus: "retained",
+  codeStatus: "executor_ready",
   activationStatus: "external_blocked",
   activationBlockers: MICROSOFT_BLOCKERS,
 }));
@@ -90,6 +152,7 @@ const socialStatus = (
 ): FirstPartyProviderFamilyStatus => {
   const ownership = getFirstPartyConnectorOwnership(adapter.id);
   const auth = ownership?.auth ?? "oauth";
+  const codeStatus = codeStatusFor(adapter.id, "request_planner");
   return {
     connectorId: adapter.id,
     toolkitId: ownership?.toolkitId ?? adapter.id.toUpperCase(),
@@ -97,9 +160,9 @@ const socialStatus = (
     ownerFamily: ownership?.ownerFamily,
     auth,
     adapterSurface: "request_planner",
-    fallbackStatus: "live",
-    codeStatus: "code_ready",
-    activationStatus: "external_blocked",
+    fallbackStatus: "retained",
+    codeStatus,
+    activationStatus: activationStatusFor(codeStatus),
     activationBlockers: auth === "api_key" ? API_KEY_BLOCKERS : SOCIAL_BLOCKERS,
   };
 };
@@ -114,83 +177,95 @@ const providerKeyForProductivity = (
 
 const productivityStatus = (
   connector: FirstPartyProductivityConnector,
-): FirstPartyProviderFamilyStatus => ({
-  connectorId: connector.id,
-  toolkitId: connector.composioToolkit,
-  providerKey: providerKeyForProductivity(connector),
-  auth: connector.authKind === "api_key" ? "api_key" : "oauth",
-  adapterSurface: "request_planner",
-  fallbackStatus: "live",
-  codeStatus: "code_ready",
-  activationStatus: "external_blocked",
-  activationBlockers: [
-    ...(connector.authKind === "api_key" ? API_KEY_BLOCKERS : OAUTH_BLOCKERS),
-    ...(connector.reviewRequirement === "required"
-      ? ["provider distribution or institution approval"]
-      : []),
-    ...(connector.id === "canvas"
-      ? ["tenant-specific Canvas origin and developer key"]
-      : []),
-  ],
-});
+): FirstPartyProviderFamilyStatus => {
+  const codeStatus = codeStatusFor(connector.id, "request_planner");
+  return {
+    connectorId: connector.id,
+    toolkitId: connector.composioToolkit,
+    providerKey: providerKeyForProductivity(connector),
+    auth: connector.authKind === "api_key" ? "api_key" : "oauth",
+    adapterSurface: "request_planner",
+    fallbackStatus: "retained",
+    codeStatus,
+    activationStatus: activationStatusFor(codeStatus),
+    activationBlockers: [
+      ...(connector.authKind === "api_key" ? API_KEY_BLOCKERS : OAUTH_BLOCKERS),
+      ...(connector.reviewRequirement === "required"
+        ? ["provider distribution or institution approval"]
+        : []),
+      ...(connector.id === "canvas"
+        ? ["tenant-specific Canvas origin and developer key"]
+        : []),
+    ],
+  };
+};
 
 const developerDataStatus = (
   adapter: FirstPartyConnectorAdapter,
-): FirstPartyProviderFamilyStatus => ({
-  connectorId: adapter.id,
-  toolkitId: adapter.composio.toolkit,
-  providerKey: adapter.oauth?.providerConfigId ?? adapter.id,
-  ownerFamily: getFirstPartyConnectorOwnership(adapter.id)?.ownerFamily,
-  auth: adapter.auth,
-  adapterSurface: "metadata",
-  fallbackStatus: "live",
-  codeStatus: "code_ready",
-  activationStatus: "external_blocked",
-  activationBlockers: [
-    ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
-    ...(adapter.id === "snowflake"
-      ? ["tenant-specific Snowflake account origin and OAuth app"]
-      : []),
-  ],
-});
+): FirstPartyProviderFamilyStatus => {
+  const codeStatus = codeStatusFor(adapter.id, "metadata");
+  return {
+    connectorId: adapter.id,
+    toolkitId: adapter.composio.toolkit,
+    providerKey: adapter.oauth?.providerConfigId ?? adapter.id,
+    ownerFamily: getFirstPartyConnectorOwnership(adapter.id)?.ownerFamily,
+    auth: adapter.auth,
+    adapterSurface: "metadata",
+    fallbackStatus: "retained",
+    codeStatus,
+    activationStatus: activationStatusFor(codeStatus),
+    activationBlockers: [
+      ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
+      ...(adapter.id === "snowflake"
+        ? ["tenant-specific Snowflake account origin and OAuth app"]
+        : []),
+    ],
+  };
+};
 
 const designFinanceStatus = (
   adapter: FirstPartyAdapterDescriptor,
-): FirstPartyProviderFamilyStatus => ({
-  connectorId: adapter.id,
-  toolkitId: adapter.composioToolkit,
-  providerKey: adapter.id,
-  ownerFamily: getFirstPartyConnectorOwnership(adapter.id)?.ownerFamily,
-  auth: adapter.auth.kind === "oauth2" ? "oauth" : "api_key",
-  adapterSurface: "request_planner",
-  fallbackStatus: "live",
-  codeStatus: "code_ready",
-  activationStatus: "external_blocked",
-  activationBlockers: [
-    ...(adapter.auth.kind === "oauth2" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
-    ...(adapter.requiresBaseUrl ? ["tenant-specific fixed origin"] : []),
-  ],
-});
+): FirstPartyProviderFamilyStatus => {
+  const codeStatus = codeStatusFor(adapter.id, "request_planner");
+  return {
+    connectorId: adapter.id,
+    toolkitId: adapter.composioToolkit,
+    providerKey: adapter.id,
+    ownerFamily: getFirstPartyConnectorOwnership(adapter.id)?.ownerFamily,
+    auth: adapter.auth.kind === "oauth2" ? "oauth" : "api_key",
+    adapterSurface: "request_planner",
+    fallbackStatus: "retained",
+    codeStatus,
+    activationStatus: activationStatusFor(codeStatus),
+    activationBlockers: [
+      ...(adapter.auth.kind === "oauth2" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
+      ...(adapter.requiresBaseUrl ? ["tenant-specific fixed origin"] : []),
+    ],
+  };
+};
 
 const crmStatus = (
   adapter: ConnectorAdapter,
-): FirstPartyProviderFamilyStatus => ({
-  connectorId: adapter.id,
-  toolkitId: adapter.id === "21risk" ? "_21RISK" : adapter.id.toUpperCase(),
-  providerKey: adapter.id,
-  ownerFamily: getFirstPartyConnectorOwnership(adapter.id)?.ownerFamily,
-  auth: adapter.auth,
-  adapterSurface: "request_planner",
-  fallbackStatus: "live",
-  codeStatus: "code_ready",
-  activationStatus: "external_blocked",
-  activationBlockers: [
-    ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
-    ...(adapter.id === "21risk"
-      ? ["tenant-specific 21RISK OData origin and base-path confirmation"]
-      : []),
-  ],
-});
+): FirstPartyProviderFamilyStatus => {
+  const codeStatus = codeStatusFor(adapter.id, "request_planner");
+  return {
+    connectorId: adapter.id,
+    toolkitId: adapter.id === "21risk" ? "_21RISK" : adapter.id.toUpperCase(),
+    providerKey: adapter.id,
+    ownerFamily: getFirstPartyConnectorOwnership(adapter.id)?.ownerFamily,
+    auth: adapter.auth,
+    adapterSurface: "request_planner",
+    fallbackStatus: "retained",
+    codeStatus,
+    activationStatus: activationStatusFor(codeStatus),
+    activationBlockers: [
+      ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
+      ...(adapter.id === "21risk"
+        ? ["tenant-specific 21RISK OData origin and base-path confirmation"]
+        : []),
+    ],
+  };
+};
 
 export const FIRST_PARTY_PROVIDER_FAMILY_STATUS: readonly FirstPartyProviderFamilyStatus[] =
   [

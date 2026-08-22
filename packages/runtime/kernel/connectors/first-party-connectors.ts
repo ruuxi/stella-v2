@@ -660,10 +660,12 @@ const FORTYFOUR_API: FirstPartyConnectorAdapter = {
     "Validate VAT/tax identifiers, return company details, and manage account IP whitelists via 44API.",
   auth: "api_key",
   apiKey: {
-    placement: "authorization_bearer",
+    baseUrl: "https://api.44api.dev",
+    placement: "header",
+    headerName: "X-API-Key",
     tokenKey: "native-apikey:44api",
     credentialLabel: "44API key",
-    credentialUrl: "https://44api.com",
+    credentialUrl: "https://dashboard.44api.dev",
   },
   representativeActions: asActions([
     {
@@ -690,7 +692,7 @@ const FORTYFOUR_API: FirstPartyConnectorAdapter = {
     },
   ]),
   composio: { toolkit: "44API" },
-  sourceUrl: "https://44api.com",
+  sourceUrl: "https://docs.44api.dev",
 };
 
 export const FIRST_PARTY_CONNECTOR_ADAPTERS: readonly FirstPartyConnectorAdapter[] =

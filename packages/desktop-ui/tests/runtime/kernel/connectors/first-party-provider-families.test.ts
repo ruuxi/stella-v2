@@ -69,13 +69,28 @@ describe("reconciled first-party provider-family contract", () => {
     for (const id of ids) expect(id).toMatch(SAFE_CONNECTOR_ID);
   });
 
-  it("keeps Composio live and native activation blocked until verified", () => {
+  it("retains Composio without claiming live and reports code independently", () => {
     for (const entry of FIRST_PARTY_PROVIDER_FAMILY_STATUS) {
-      expect(entry.fallbackStatus).toBe("live");
-      expect(entry.codeStatus).toBe("code_ready");
-      expect(entry.activationStatus).toBe("external_blocked");
+      expect(entry.fallbackStatus).toBe("retained");
       expect(entry.activationBlockers.length).toBeGreaterThan(0);
     }
+    const counts = Object.groupBy(
+      FIRST_PARTY_PROVIDER_FAMILY_STATUS,
+      (entry) => entry.codeStatus,
+    );
+    expect(counts.executor_ready).toHaveLength(30);
+    expect(counts.planner_ready).toHaveLength(8);
+    expect(counts.metadata_only).toHaveLength(11);
+    expect(
+      FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
+        (entry) => entry.activationStatus === "external_blocked",
+      ),
+    ).toHaveLength(30);
+    expect(
+      FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
+        (entry) => entry.activationStatus === "code_blocked",
+      ),
+    ).toHaveLength(19);
   });
 
   it("preserves shared grants and digit-leading toolkit ids", () => {
@@ -109,7 +124,7 @@ describe("reconciled first-party provider-family contract", () => {
       toolkitId: "7SHIFTS",
       auth: "api_key",
       adapterSurface: "request_planner",
-      fallbackStatus: "live",
+      fallbackStatus: "retained",
       activationStatus: "external_blocked",
     });
   });

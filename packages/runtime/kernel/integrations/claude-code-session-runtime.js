@@ -354,16 +354,57 @@ const stableToolArgs = (value) => {
   }
   return JSON.stringify(value) ?? "null";
 };
+const normalizeClaudeToolName = (toolName) =>
+  toolName.includes("__") ? (toolName.split("__").at(-1) ?? toolName) : toolName;
 const claudeToolKey = (toolName, toolArgs) => {
-  const normalizedName = toolName.includes("__")
-    ? (toolName.split("__").at(-1) ?? toolName)
-    : toolName;
   return crypto
     .createHash("sha256")
-    .update(normalizedName)
+    .update(normalizeClaudeToolName(toolName))
     .update("\0")
     .update(stableToolArgs(toolArgs))
     .digest("hex");
+};
+/**
+ * Re-creates the CLI's own repair of a cut-off `input_json_delta` stream:
+ * close the string the cursor was inside and every open bracket, so a partial
+ * argument blob parses to exactly the object the CLI would dispatch. Returns
+ * undefined when no such repair parses — callers must then fail open, never
+ * guess.
+ */
+export const repairPartialToolInputJson = (text) => {
+  const attempt = (candidate) => {
+    const stack = [];
+    let inString = false;
+    let escaped = false;
+    for (const ch of candidate) {
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === "{" || ch === "[") stack.push(ch === "{" ? "}" : "]");
+      else if (ch === "}" || ch === "]") stack.pop();
+    }
+    // A dangling escape backslash would swallow the closing quote we append.
+    let repaired = escaped ? candidate.slice(0, -1) : candidate;
+    if (inString) repaired += '"';
+    while (stack.length) repaired += stack.pop();
+    try {
+      const parsed = JSON.parse(repaired);
+      return typeof parsed === "object" && parsed !== null ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const direct = attempt(text);
+  if (direct !== undefined) return direct;
+  // A trailing structural fragment (`,`, `:`, or an unfinished bare literal
+  // like `tru`) keeps the closers from parsing; strip it and retry once.
+  const trimmed = text.replace(/[\s,]*[A-Za-z0-9+\-.]*[\s,]*$/, "");
+  if (trimmed && trimmed !== text) return attempt(trimmed);
+  return undefined;
 };
 /**
  * How long an inbound MCP call waits for the finalized `assistant` event that
@@ -371,11 +412,13 @@ const claudeToolKey = (toolName, toolArgs) => {
  *
  * The CLI writes that event to stdout immediately before issuing the MCP HTTP
  * call, so in practice the verdict is already recorded and the wait is zero.
- * The ceiling only covers the few-millisecond window where the HTTP request
- * beats the pipe read; it is small because the gate FAILS OPEN — an unmatched
- * call must never be delayed or blocked on the strength of missing evidence.
+ * The ceiling only covers the window where the HTTP request beats the pipe
+ * read; it stays modest because the gate FAILS OPEN — an unmatched call must
+ * never be delayed or blocked on the strength of missing evidence. (Raised
+ * 3x from the original 250ms after live truncations slipped through the
+ * fail-open window.)
  */
-const TOOL_USE_INTEGRITY_SETTLE_MS = 250;
+const TOOL_USE_INTEGRITY_SETTLE_MS = 750;
 export const createClaudeNativeToolUseCorrelator = () => {
   const queued = new Map();
   const waiters = new Map();
@@ -392,6 +435,57 @@ export const createClaudeNativeToolUseCorrelator = () => {
     for (const resolve of pending ?? []) resolve();
   };
   const streamingBlocks = new Map();
+  /**
+   * Blocks whose `content_block_stop` arrived with UNPARSEABLE accumulated
+   * JSON — the stream was cut mid-argument (turn abort, steering interrupt,
+   * CLI restart) with a stop_reason the finalized-event gate never sees. The
+   * CLI still repairs and dispatches such calls; keep the raw partials so the
+   * integrity gate can match the dispatched args against their repair.
+   */
+  const interruptedBlocks = [];
+  const MAX_INTERRUPTED_BLOCKS = 16;
+  const recordInterruptedBlock = (pending) => {
+    interruptedBlocks.push(pending);
+    if (interruptedBlocks.length > MAX_INTERRUPTED_BLOCKS) {
+      interruptedBlocks.shift();
+    }
+  };
+  /**
+   * Truncation verdict from raw stream evidence, for calls no finalized
+   * assistant event adjudicated. A block whose accumulated partial JSON does
+   * NOT parse as-is, but whose repaired form matches the inbound call's args
+   * exactly, proves the CLI dispatched a repaired half-written call. Blocks
+   * whose raw JSON already parses are complete — a call matching one is just
+   * the benign pipe-read race and must stay fail-open.
+   */
+  const findInterruptedTruncation = (toolName, key) => {
+    const normalizedName = normalizeClaudeToolName(toolName);
+    for (const pending of [...streamingBlocks.values(), ...interruptedBlocks]) {
+      if (normalizeClaudeToolName(pending.toolName) !== normalizedName) {
+        continue;
+      }
+      if (!pending.partialJson.trim()) continue;
+      try {
+        JSON.parse(pending.partialJson);
+        continue; // Complete args; never refuse on the settle race.
+      } catch {
+        // Unparseable partial: candidate for a repaired dispatch.
+      }
+      const repaired = asObject(repairPartialToolInputJson(pending.partialJson));
+      if (!repaired) continue;
+      if (claudeToolKey(pending.toolName, repaired) !== key) continue;
+      return {
+        toolCallId: pending.toolCallId,
+        toolName: pending.toolName,
+        toolArgs: repaired,
+        stopReason: "stream_interrupted",
+        explanation:
+          "the stream was cut off (turn abort, steering interrupt, or process exit) before these arguments finished streaming",
+      };
+    }
+    return undefined;
+  };
+
   const observe = (args) => {
     if (observedIds.has(args.toolCallId)) return;
     observedIds.add(args.toolCallId);
@@ -461,7 +555,18 @@ export const createClaudeNativeToolUseCorrelator = () => {
           if (signal?.aborted) finish();
         });
       }
-      return truncatedKeys.get(key);
+      const adjudicated = truncatedKeys.get(key);
+      if (adjudicated) return adjudicated;
+      // No finalized-event verdict. Before failing open, check the raw stream
+      // evidence: an interrupted turn (abort/steering/process exit) never
+      // emits a `refusal`/`max_tokens` assistant event, yet the CLI still
+      // repairs the half-streamed arguments and dispatches the call. Matching
+      // the inbound args against a repaired unfinished block catches exactly
+      // that case — LOUD refusal instead of silently executing clipped args.
+      if (!settledKeys.has(key)) {
+        return findInterruptedTruncation(toolName, key);
+      }
+      return undefined;
     },
     observeStreamEvent(event) {
       if (event.type !== "stream_event") return;
@@ -504,8 +609,11 @@ export const createClaudeNativeToolUseCorrelator = () => {
           const parsed = JSON.parse(pending.partialJson);
           toolArgs = asObject(parsed) ?? pending.initialInput;
         } catch {
-          // The finalized assistant event remains a safe fallback. Never bind
-          // an MCP mutation to malformed or incomplete streamed arguments.
+          // Malformed accumulated JSON at block stop means the stream was cut
+          // mid-argument. Never bind an MCP mutation to it — but retain the
+          // partial so the integrity gate can refuse the repaired call the
+          // CLI dispatches for it.
+          recordInterruptedBlock(pending);
           return;
         }
       }

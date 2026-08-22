@@ -118,6 +118,25 @@ export const rotateEncryptedMaterial = internalAction({
       }
     }
 
+    // Re-wrap first-party connector credentials onto the active master key using
+    // the same versioned key ring. This never contacts a provider and never logs
+    // ciphertext (design §6.3).
+    let connectorRotated = 0;
+    let connectorFailed = 0;
+    let connectorSkipped = 0;
+    for (let batchIndex = 0; batchIndex < maxBatches; batchIndex += 1) {
+      const batch = await ctx.runMutation(
+        internal.connectors.oauth.vault.rotateConnectorCredentialsBatch,
+        { batchSize },
+      );
+      connectorRotated += batch.rotated;
+      connectorFailed += batch.failed;
+      connectorSkipped += batch.skipped;
+      if (!batch.hasMoreCandidates || batch.rotated === 0) {
+        break;
+      }
+    }
+
     return {
       activeKeyVersion,
       batchSize,
@@ -125,6 +144,9 @@ export const rotateEncryptedMaterial = internalAction({
       rotated: totalRotated,
       failed: totalFailed,
       skipped: totalSkipped,
+      connectorRotated,
+      connectorFailed,
+      connectorSkipped,
     };
   },
 });

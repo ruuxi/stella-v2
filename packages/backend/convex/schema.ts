@@ -3,6 +3,7 @@ import { conversationsSchema } from "./schema/conversations";
 import { agentsSchema } from "./schema/agents";
 import { authSchema } from "./schema/auth";
 import { integrationsSchema } from "./schema/integrations";
+import { connectorsSchema } from "./schema/connectors";
 import { devicesSchema } from "./schema/devices";
 import { usersSchema } from "./schema/users";
 import { telemetrySchema } from "./schema/telemetry";
@@ -25,6 +26,7 @@ export default defineSchema({
   ...agentsSchema,
   ...authSchema,
   ...integrationsSchema,
+  ...connectorsSchema,
   ...devicesSchema,
   ...usersSchema,
   ...telemetrySchema,

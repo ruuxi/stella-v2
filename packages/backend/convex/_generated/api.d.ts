@@ -9,6 +9,24 @@
  */
 
 import type * as account_deletion from "../account_deletion.js";
+import type * as connectors_audit from "../connectors/audit.js";
+import type * as connectors_env from "../connectors/env.js";
+import type * as connectors_errors from "../connectors/errors.js";
+import type * as connectors_execute from "../connectors/execute.js";
+import type * as connectors_executors_first_party from "../connectors/executors/first_party.js";
+import type * as connectors_oauth_accounts from "../connectors/oauth/accounts.js";
+import type * as connectors_oauth_attempts from "../connectors/oauth/attempts.js";
+import type * as connectors_oauth_callback from "../connectors/oauth/callback.js";
+import type * as connectors_oauth_client_credentials from "../connectors/oauth/client_credentials.js";
+import type * as connectors_oauth_connect from "../connectors/oauth/connect.js";
+import type * as connectors_oauth_providers from "../connectors/oauth/providers.js";
+import type * as connectors_oauth_token_set from "../connectors/oauth/token_set.js";
+import type * as connectors_oauth_vault from "../connectors/oauth/vault.js";
+import type * as connectors_rollouts from "../connectors/rollouts.js";
+import type * as connectors_routing from "../connectors/routing.js";
+import type * as connectors_run from "../connectors/run.js";
+import type * as http_routes_connector_oauth from "../http_routes/connector_oauth.js";
+import type * as schema_connectors from "../schema/connectors.js";
 import type * as admin_deletes from "../admin_deletes.js";
 import type * as agent_agents from "../agent/agents.js";
 import type * as agent_device_resolver from "../agent/device_resolver.js";
@@ -237,6 +255,24 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "connectors/audit": typeof connectors_audit;
+  "connectors/env": typeof connectors_env;
+  "connectors/errors": typeof connectors_errors;
+  "connectors/execute": typeof connectors_execute;
+  "connectors/executors/first_party": typeof connectors_executors_first_party;
+  "connectors/oauth/accounts": typeof connectors_oauth_accounts;
+  "connectors/oauth/attempts": typeof connectors_oauth_attempts;
+  "connectors/oauth/callback": typeof connectors_oauth_callback;
+  "connectors/oauth/client_credentials": typeof connectors_oauth_client_credentials;
+  "connectors/oauth/connect": typeof connectors_oauth_connect;
+  "connectors/oauth/providers": typeof connectors_oauth_providers;
+  "connectors/oauth/token_set": typeof connectors_oauth_token_set;
+  "connectors/oauth/vault": typeof connectors_oauth_vault;
+  "connectors/rollouts": typeof connectors_rollouts;
+  "connectors/routing": typeof connectors_routing;
+  "connectors/run": typeof connectors_run;
+  "http_routes/connector_oauth": typeof http_routes_connector_oauth;
+  "schema/connectors": typeof schema_connectors;
   account_deletion: typeof account_deletion;
   admin_deletes: typeof admin_deletes;
   "agent/agents": typeof agent_agents;

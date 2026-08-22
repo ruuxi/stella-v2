@@ -366,8 +366,15 @@ export class LocalChatHistoryService {
     });
   }
 
-  listThreadActivity(args: { conversationId: string }): ThreadActivityRecord[] {
-    return this.getStore().listThreadActivity(args.conversationId);
+  listThreadActivity(args: {
+    conversationId: string;
+    view?: "mobile-summary";
+    maxItems?: number;
+  }): ThreadActivityRecord[] {
+    return this.getStore().listThreadActivity(args.conversationId, {
+      view: args.view,
+      maxItems: args.maxItems,
+    });
   }
 
   listAgentThreadMessages(args = {}) {

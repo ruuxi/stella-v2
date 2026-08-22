@@ -20,6 +20,8 @@ export const BRIDGE_FEATURE_DEFLATE = "envelope-deflate";
 export const BRIDGE_FEATURE_BINARY_FILE = "binary-file-lane";
 export const BRIDGE_FEATURE_BINARY_UPLOAD = "binary-upload";
 export const BRIDGE_FEATURE_LOCAL_CHAT_PUSH = "localchat-push";
+export const BRIDGE_FEATURE_COMPACT_THREAD_ACTIVITY =
+  "compact-thread-activity-v1";
 
 /**
  * JSON envelopes are control-plane/chat data, never file bodies. Keep

@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ChatMessage, MobileTask } from "../types";
 import { type Colors } from "../theme/colors";
@@ -26,7 +25,7 @@ import {
 import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol";
 import type { StoredPhoneAccess } from "../lib/phone-access";
 import { Icon } from "./Icon";
-import { StellaAnimation, type VoiceMode } from "./stella-animation";
+import { RealtimeVoiceVisualizer } from "./RealtimeVoiceVisualizer";
 
 type Props = {
   visible: boolean;
@@ -56,7 +55,9 @@ const phaseCopy = (snapshot: RealtimeVoiceSnapshot): string => {
   }
 };
 
-const animationMode = (snapshot: RealtimeVoiceSnapshot): VoiceMode => {
+const animationMode = (
+  snapshot: RealtimeVoiceSnapshot,
+): "idle" | "listening" | "speaking" => {
   if (!snapshot.isConnected) return "idle";
   return snapshot.isAssistantSpeaking ? "speaking" : "listening";
 };
@@ -156,137 +157,108 @@ export function RealtimeVoiceOverlay({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <StatusBar style="auto" />
-      <SafeAreaView style={styles.root}>
-        <View style={styles.top}>
-          <Text style={styles.eyebrow}>REALTIME VOICE</Text>
-          <Text style={styles.status}>{phaseCopy(snapshot)}</Text>
-        </View>
+      {visible ? (
+        <>
+          <StatusBar style="auto" />
+          <SafeAreaView style={styles.root}>
+            <View style={styles.top}>
+              <Text style={styles.eyebrow}>REALTIME VOICE</Text>
+              <Text style={styles.status}>{phaseCopy(snapshot)}</Text>
+            </View>
 
-        <View
-          style={[
-            styles.creatureStage,
-            { width: creatureSize, height: creatureSize },
-          ]}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        >
-          <Svg
-            width={creatureSize}
-            height={creatureSize}
-            style={StyleSheet.absoluteFill}
-          >
-            <Defs>
-              <RadialGradient id="voice-glow" cx="50%" cy="50%" r="50%">
-                <Stop
-                  offset="0%"
-                  stopColor={colors.accent}
-                  stopOpacity={0.12}
-                />
-                <Stop
-                  offset="45%"
-                  stopColor={colors.surface}
-                  stopOpacity={0.42}
-                />
-                <Stop
-                  offset="72%"
-                  stopColor={colors.surface}
-                  stopOpacity={0.08}
-                />
-                <Stop
-                  offset="100%"
-                  stopColor={colors.background}
-                  stopOpacity={0}
-                />
-              </RadialGradient>
-            </Defs>
-            <Circle
-              cx={creatureSize / 2}
-              cy={creatureSize / 2}
-              r={creatureSize / 2}
-              fill="url(#voice-glow)"
-            />
-          </Svg>
-          <StellaAnimation
-            width={20}
-            height={20}
-            displayWidth={creatureSize}
-            displayHeight={creatureSize}
-            voiceMode={animationMode(snapshot)}
-            isUserSpeaking={snapshot.isUserSpeaking}
-            micLevel={snapshot.micLevel}
-            outputLevel={snapshot.outputLevel}
-            showEyes
-          />
-        </View>
+            <View
+              style={[
+                styles.creatureStage,
+                { width: creatureSize, height: creatureSize },
+              ]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <RealtimeVoiceVisualizer
+                isUserSpeaking={snapshot.isUserSpeaking}
+                micLevel={snapshot.micLevel}
+                mode={animationMode(snapshot)}
+                outputLevel={snapshot.outputLevel}
+                size={creatureSize}
+              />
+            </View>
 
-        <View style={styles.captionArea}>
-          {error ? (
-            <>
-              <Text style={styles.errorText}>{error}</Text>
-              <View style={styles.errorActions}>
-                {needsSignIn ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Sign in to use realtime voice"
-                    onPress={() => {
-                      onClose();
-                      router.replace("/login");
-                    }}
-                    style={styles.actionButton}
-                  >
-                    <Text style={styles.actionButtonText}>Sign in</Text>
-                  </Pressable>
-                ) : needsMicPermission ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Open microphone settings"
-                    onPress={() => void Linking.openSettings()}
-                    style={styles.actionButton}
-                  >
-                    <Text style={styles.actionButtonText}>Open Settings</Text>
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Retry realtime voice"
-                    onPress={() => setRetryKey((value) => value + 1)}
-                    style={styles.actionButton}
-                  >
-                    <Text style={styles.actionButtonText}>Try again</Text>
-                  </Pressable>
-                )}
-              </View>
-            </>
-          ) : snapshot.transcript ? (
-            <Text numberOfLines={3} style={styles.transcript}>
-              {snapshot.transcript}
-            </Text>
-          ) : (
-            <Text style={styles.hint}>
-              {snapshot.isConnected
-                ? "Speak naturally. You can interrupt at any time."
-                : "Starting a secure voice session…"}
-            </Text>
-          )}
-        </View>
+            <View style={styles.captionArea}>
+              {error ? (
+                <>
+                  <Text style={styles.errorText}>{error}</Text>
+                  <View style={styles.errorActions}>
+                    {needsSignIn ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Sign in to use realtime voice"
+                        onPress={() => {
+                          onClose();
+                          router.replace("/login");
+                        }}
+                        style={styles.actionButton}
+                      >
+                        <Text style={styles.actionButtonText}>Sign in</Text>
+                      </Pressable>
+                    ) : needsMicPermission ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Open microphone settings"
+                        onPress={() => void Linking.openSettings()}
+                        style={styles.actionButton}
+                      >
+                        <Text style={styles.actionButtonText}>
+                          Open Settings
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Retry realtime voice"
+                        onPress={() => setRetryKey((value) => value + 1)}
+                        style={styles.actionButton}
+                      >
+                        <Text style={styles.actionButtonText}>Try again</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </>
+              ) : snapshot.transcript ? (
+                <Text numberOfLines={3} style={styles.transcript}>
+                  {snapshot.transcript}
+                </Text>
+              ) : (
+                <Text style={styles.hint}>
+                  {snapshot.isConnected
+                    ? "Speak naturally. You can interrupt at any time."
+                    : "Starting a secure voice session…"}
+                </Text>
+              )}
+            </View>
 
-        <View style={styles.bottom}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="End realtime voice"
-            hitSlop={10}
-            onPress={onClose}
-            style={({ pressed }) => [
-              styles.closeButton,
-              pressed && styles.closeButtonPressed,
-            ]}
-          >
-            <Icon name="x" size={24} color={colors.text} weight="semibold" />
-          </Pressable>
-          <Text style={styles.closeLabel}>End</Text>
-        </View>
-      </SafeAreaView>
+            <View style={styles.bottom}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="End realtime voice"
+                hitSlop={10}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed && styles.closeButtonPressed,
+                ]}
+              >
+                <Icon
+                  name="x"
+                  size={24}
+                  color={colors.text}
+                  weight="semibold"
+                />
+              </Pressable>
+              <Text style={styles.closeLabel}>End</Text>
+            </View>
+          </SafeAreaView>
+        </>
+      ) : null}
     </Modal>
   );
 }

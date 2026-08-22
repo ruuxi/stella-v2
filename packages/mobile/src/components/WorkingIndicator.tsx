@@ -1,34 +1,30 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
+import { StellaStarGlyph } from "./AgentActivityGlyph";
 import { ShimmerText } from "./ShimmerText";
-import {
-  StellaAnimation,
-  WORKING_INDICATOR_DISPLAY_PT,
-  WORKING_INDICATOR_GRID,
-  getWorkingIndicatorLayout,
-} from "./stella-animation";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
+import { fadeHex } from "../theme/oklch";
 
-const indicatorLayout = getWorkingIndicatorLayout();
 const ENTER_DURATION_MS = 320;
 const EXIT_HOLD_MS = 300;
 const EXIT_ANIMATION_MS = 480;
 const SWAP_DURATION_MS = 240;
 const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
+const INDICATOR_VIEWPORT_SIZE = 34;
+const INDICATOR_PULSE_DURATION_MS = 1200;
 
 /**
- * Reserved vertical space above the composer — the creature viewport, which
- * already carries slack around the canvas (see `layout.ts`), so nothing ever
- * needs to overflow this row to render in full.
+ * Reserved vertical space above the composer for the native working pulse.
  */
-export const WORKING_INDICATOR_SLOT_HEIGHT = indicatorLayout.viewport;
+export const WORKING_INDICATOR_SLOT_HEIGHT = INDICATOR_VIEWPORT_SIZE;
 
 interface WorkingIndicatorProps {
-  /** When true, the indicator is visible and the creature animates. */
+  /** When true, the indicator is visible and the brand pulse animates. */
   active: boolean;
   /** Optional explicit status. Defaults to the same reasoning copy as desktop. */
   status?: string;
@@ -132,7 +128,10 @@ function SwapText({
   return (
     <View style={styles.swapText}>
       {previous ? (
-        <Animated.View style={[styles.swapLayer, outStyle]} pointerEvents="none">
+        <Animated.View
+          style={[styles.swapLayer, outStyle]}
+          pointerEvents="none"
+        >
           <View style={styles.shimmerWrap}>
             <ShimmerText
               text={previous}
@@ -157,12 +156,95 @@ function SwapText({
   );
 }
 
+function WorkingPulse({
+  active,
+  colors,
+  styles,
+}: {
+  active: boolean;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const reduceMotion = useReducedMotion();
+  const progress = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    progress.stopAnimation();
+    if (!active || reduceMotion) {
+      progress.setValue(0.5);
+      return;
+    }
+
+    progress.setValue(0);
+    const animation = Animated.loop(
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: INDICATOR_PULSE_DURATION_MS,
+        easing: Easing.inOut(Easing.quad),
+        isInteraction: false,
+        useNativeDriver: true,
+      }),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [active, progress, reduceMotion]);
+
+  const haloStyle = useMemo(
+    () => ({
+      opacity: progress.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [0.16, 0.04, 0.16],
+      }),
+      transform: [
+        {
+          scale: progress.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: [0.82, 1.16, 0.82],
+          }),
+        },
+      ],
+    }),
+    [progress],
+  );
+  const starStyle = useMemo(
+    () => ({
+      opacity: progress.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [0.58, 1, 0.58],
+      }),
+      transform: [
+        {
+          rotate: progress.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: ["-12deg", "12deg", "-12deg"],
+          }),
+        },
+        {
+          scale: progress.interpolate({
+            inputRange: [0, 0.5, 1],
+            outputRange: [0.82, 1, 0.82],
+          }),
+        },
+      ],
+    }),
+    [progress],
+  );
+
+  return (
+    <View style={styles.pulseViewport}>
+      <Animated.View style={[styles.pulseHalo, haloStyle]} />
+      <Animated.View style={starStyle}>
+        <StellaStarGlyph size={22} color={colors.accent} />
+      </Animated.View>
+    </View>
+  );
+}
+
 /**
- * Stella above the composer.
+ * Stella's working state above the composer.
  *
  * Entrance/exit is a plain opacity fade on the whole row, and the row is
- * unmounted after the desktop-matched hold so the GLView never sits invisible
- * in the tree consuming GPU time.
+ * unmounted after the desktop-matched hold so no animation remains active.
  */
 export const WorkingIndicator = memo(function WorkingIndicator({
   active,
@@ -174,7 +256,6 @@ export const WorkingIndicator = memo(function WorkingIndicator({
 }: WorkingIndicatorProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { viewport, display } = indicatorLayout;
   // Per-activation seed so the no-tool reasoning/idle label varies across
   // turns instead of always reading "Thinking" (mirrors the desktop's
   // `reasoningSeed`). Refreshed on each rising edge of `active` below.
@@ -264,33 +345,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     >
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <View
-            style={[styles.viewport, { width: viewport, height: viewport }]}
-            collapsable={false}
-          >
-            <View
-              style={[styles.canvasSlot, { width: display, height: display }]}
-              collapsable={false}
-            >
-              <StellaAnimation
-                variant="star"
-                width={WORKING_INDICATOR_GRID}
-                height={WORKING_INDICATOR_GRID}
-                displayWidth={WORKING_INDICATOR_DISPLAY_PT}
-                displayHeight={WORKING_INDICATOR_DISPLAY_PT}
-                /* 30fps at an unscaled clock, matching desktop, and both halves
-                   of that are load bearing. The star's motion blur smears each
-                   arm across 1/30s worth of shader time, so this is the pairing
-                   at which the smear covers exactly the ground the arms cover
-                   between frames; scaling the clock or dropping the rate leaves
-                   the whip's fastest pass under-smeared, which at this size
-                   shows up as strobing rather than as blur. The turn itself is
-                   staged in the shader (see starTurn), not here. */
-                frameSkip={1}
-                paused={!active}
-              />
-            </View>
-          </View>
+          <WorkingPulse active={active} colors={colors} styles={styles} />
           <SwapText
             text={displayStatus}
             active={active}
@@ -322,27 +377,26 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "flex-start",
       paddingBottom: INDICATOR_PAD_BOTTOM,
       // Inline at the chat tail this row already inherits the list's horizontal
-      // inset, so its creature must hug the left to line up with the assistant
+      // inset, so its glyph must hug the left to line up with the assistant
       // message text rather than floating in with an extra indent. Keep a right
       // inset only so the status label has room before the edge.
       paddingLeft: 0,
       paddingRight: 18,
       paddingTop: INDICATOR_PAD_TOP,
     },
-    // No circular crop: the star's points reach further than its body, so a
-    // circle sized to hold them clips nothing and a circle sized to the body
-    // takes the points off (the same mistake desktop's `.indicator-stella`
-    // removed). The shader's frame fade keeps the fringes soft at the canvas
-    // bounds instead.
-    // Centered so the viewport's slack sits evenly on all four sides.
-    viewport: {
+    pulseViewport: {
       alignItems: "center",
+      height: INDICATOR_VIEWPORT_SIZE,
       justifyContent: "center",
       position: "relative",
+      width: INDICATOR_VIEWPORT_SIZE,
     },
-    canvasSlot: {
-      alignItems: "center",
-      justifyContent: "center",
+    pulseHalo: {
+      backgroundColor: fadeHex(colors.accent, 0.22),
+      borderRadius: 13,
+      height: 26,
+      position: "absolute",
+      width: 26,
     },
     swapText: {
       flex: 1,

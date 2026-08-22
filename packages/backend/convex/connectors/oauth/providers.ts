@@ -17,6 +17,13 @@ export type ProviderScopeGroup = {
   scopes: readonly string[];
 };
 
+export type ProviderConnectorBinding = {
+  /** Scope groups requested when this connector starts a new consent flow. */
+  connectScopeGroups: readonly string[];
+  /** Minimum scope groups required for this connector to report ready. */
+  requiredScopeGroups: readonly string[];
+};
+
 export type ProviderManifest = {
   key: string;
   displayName: string;
@@ -29,6 +36,8 @@ export type ProviderManifest = {
   issuer?: string;
   requiresPkce: boolean;
   usesOfflineAccess: boolean;
+  /** Provider-specific authorization parameters (never secrets). */
+  authorizationParams?: Readonly<Record<string, string>>;
   /** Refresh this many ms before access-token expiry. */
   refreshSkewMs: number;
   /** Exact registered callback path (no wildcards/loopback in production). */
@@ -36,6 +45,8 @@ export type ProviderManifest = {
   /** Fixed origin first-party executors are allowed to call. Prevents SSRF. */
   apiOrigin: string;
   scopeGroups: Readonly<Record<string, ProviderScopeGroup>>;
+  /** Optional provider-family connector registry for shared-account grants. */
+  connectorBindings?: Readonly<Record<string, ProviderConnectorBinding>>;
   verificationStatus: "unverified" | "in_review" | "verified";
   registrationVersion: number;
 };
@@ -51,6 +62,11 @@ const GOOGLE_WORKSPACE: ProviderManifest = {
   issuer: "https://accounts.google.com",
   requiresPkce: true,
   usesOfflineAccess: true,
+  authorizationParams: {
+    access_type: "offline",
+    include_granted_scopes: "true",
+    prompt: "consent",
+  },
   refreshSkewMs: 5 * 60 * 1000,
   callbackPath: "/api/connectors/oauth/callback",
   apiOrigin: "https://www.googleapis.com",
@@ -159,16 +175,97 @@ const MOCK_PROVIDER: ProviderManifest = {
   registrationVersion: 1,
 };
 
+const MICROSOFT_IDENTITY_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "offline_access",
+  "User.Read",
+] as const;
+
+const MICROSOFT_OUTLOOK_SCOPES = [
+  ...MICROSOFT_IDENTITY_SCOPES,
+  "Mail.ReadWrite",
+  "Mail.Send",
+  "Calendars.ReadWrite",
+] as const;
+
+const MICROSOFT_TEAMS_SCOPES = [
+  ...MICROSOFT_IDENTITY_SCOPES,
+  "Team.ReadBasic.All",
+  "Channel.ReadBasic.All",
+  "ChannelMessage.Read.All",
+  "ChannelMessage.Send",
+] as const;
+
+const MICROSOFT_EXCEL_SCOPES = [
+  ...MICROSOFT_IDENTITY_SCOPES,
+  "Files.ReadWrite",
+] as const;
+
+const MICROSOFT_ALL_SCOPES = [
+  ...new Set([
+    ...MICROSOFT_OUTLOOK_SCOPES,
+    ...MICROSOFT_TEAMS_SCOPES,
+    ...MICROSOFT_EXCEL_SCOPES,
+  ]),
+];
+
+/**
+ * One delegated Entra grant backs Outlook, Teams, and Excel. Connecting any
+ * member requests the complete reviewed union, while readiness remains scoped
+ * to each connector's actual minimum permissions.
+ */
+const MICROSOFT: ProviderManifest = {
+  key: "microsoft",
+  displayName: "Microsoft",
+  authorizationEndpoint:
+    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+  tokenEndpoint: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+  userinfoEndpoint:
+    "https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName",
+  identityMode: "userinfo",
+  requiresPkce: true,
+  usesOfflineAccess: true,
+  authorizationParams: { prompt: "select_account" },
+  refreshSkewMs: 5 * 60 * 1000,
+  callbackPath: "/api/connectors/oauth/callback",
+  apiOrigin: "https://graph.microsoft.com",
+  scopeGroups: {
+    identity: { scopes: MICROSOFT_IDENTITY_SCOPES },
+    outlook: { scopes: MICROSOFT_OUTLOOK_SCOPES },
+    microsoft_teams: { scopes: MICROSOFT_TEAMS_SCOPES },
+    excel: { scopes: MICROSOFT_EXCEL_SCOPES },
+    microsoft_all: { scopes: MICROSOFT_ALL_SCOPES },
+  },
+  connectorBindings: {
+    outlook: {
+      connectScopeGroups: ["microsoft_all"],
+      requiredScopeGroups: ["outlook"],
+    },
+    microsoft_teams: {
+      connectScopeGroups: ["microsoft_all"],
+      requiredScopeGroups: ["microsoft_teams"],
+    },
+    excel: {
+      connectScopeGroups: ["microsoft_all"],
+      requiredScopeGroups: ["excel"],
+    },
+  },
+  verificationStatus: "unverified",
+  registrationVersion: 1,
+};
+
 const STATIC_MANIFESTS: Readonly<Record<string, ProviderManifest>> = {
   [GOOGLE_WORKSPACE.key]: GOOGLE_WORKSPACE,
+  [MICROSOFT.key]: MICROSOFT,
   [MOCK_PROVIDER.key]: MOCK_PROVIDER,
 };
 
 /** All manifests visible in this deployment (mock only behind the env flag). */
 export const listProviderManifests = (): ProviderManifest[] =>
   Object.values(STATIC_MANIFESTS).filter(
-    (manifest) =>
-      manifest.key !== MOCK_PROVIDER_KEY || mockProviderAllowed(),
+    (manifest) => manifest.key !== MOCK_PROVIDER_KEY || mockProviderAllowed(),
   );
 
 export const getProviderManifest = (
@@ -223,6 +320,35 @@ export const grantedScopesSatisfy = (
   return required.every((scope) => grantedSet.has(scope));
 };
 
+export const connectScopeGroupsForConnector = (
+  manifest: ProviderManifest,
+  connectorId: string,
+  requested: readonly string[],
+): string[] => {
+  const binding =
+    manifest.connectorBindings?.[connectorId.trim().toLowerCase()];
+  return binding ? [...binding.connectScopeGroups] : [...requested];
+};
+
+export const connectorBindingsSatisfiedByScopes = (
+  manifest: ProviderManifest,
+  grantedScopes: readonly string[],
+): Array<{ connectorId: string; requiredScopeGroups: string[] }> => {
+  const out: Array<{ connectorId: string; requiredScopeGroups: string[] }> = [];
+  for (const [connectorId, binding] of Object.entries(
+    manifest.connectorBindings ?? {},
+  )) {
+    const required = scopesForGroups(manifest, binding.requiredScopeGroups);
+    if (grantedScopesSatisfy(grantedScopes, required)) {
+      out.push({
+        connectorId,
+        requiredScopeGroups: [...binding.requiredScopeGroups],
+      });
+    }
+  }
+  return out;
+};
+
 // ---------------------------------------------------------------------------
 // PKCE / state primitives (S256, provider-neutral)
 // ---------------------------------------------------------------------------
@@ -232,7 +358,10 @@ const encoder = new TextEncoder();
 const bytesToBase64Url = (bytes: Uint8Array): string => {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
 };
 
 const randomBase64Url = (byteLength: number): string => {
@@ -255,7 +384,10 @@ export const sha256Hex = async (value: string): Promise<string> => {
 };
 
 export const pkceChallengeS256 = async (verifier: string): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(verifier));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(verifier),
+  );
   return bytesToBase64Url(new Uint8Array(digest));
 };
 
@@ -278,11 +410,10 @@ export const buildAuthorizationUrl = (args: {
     url.searchParams.set("code_challenge", args.codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
   }
-  if (args.manifest.usesOfflineAccess) {
-    // Google-family offline access + incremental authorization semantics.
-    url.searchParams.set("access_type", "offline");
-    url.searchParams.set("include_granted_scopes", "true");
-    url.searchParams.set("prompt", "consent");
+  for (const [key, value] of Object.entries(
+    args.manifest.authorizationParams ?? {},
+  )) {
+    url.searchParams.set(key, value);
   }
   return url.toString();
 };
@@ -353,6 +484,23 @@ export const validateManifest = (manifest: ProviderManifest): string[] => {
   for (const [groupId, group] of Object.entries(manifest.scopeGroups)) {
     if (group.scopes.length === 0) {
       problems.push(`${manifest.key}.${groupId} has no scopes`);
+    }
+  }
+  for (const [connectorId, binding] of Object.entries(
+    manifest.connectorBindings ?? {},
+  )) {
+    if (!connectorId.trim()) {
+      problems.push(`${manifest.key} has an empty connector binding id`);
+    }
+    for (const groupId of [
+      ...binding.connectScopeGroups,
+      ...binding.requiredScopeGroups,
+    ]) {
+      if (!manifest.scopeGroups[groupId]) {
+        problems.push(
+          `${manifest.key}.${connectorId} references unknown scope group ${groupId}`,
+        );
+      }
     }
   }
   if (manifest.identityMode === "oidc" && !manifest.issuer) {

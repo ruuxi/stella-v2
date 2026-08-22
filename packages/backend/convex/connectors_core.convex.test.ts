@@ -19,6 +19,9 @@ import {
   requireEnabledProvider,
   scopesForGroups,
   grantedScopesSatisfy,
+  connectScopeGroupsForConnector,
+  connectorBindingsSatisfiedByScopes,
+  buildAuthorizationUrl,
   pkceChallengeS256,
   generateOAuthState,
 } from "./connectors/oauth/providers";
@@ -34,6 +37,12 @@ import {
   classifyTokenEndpointError,
   ConnectorError,
 } from "./connectors/errors";
+import {
+  executeFirstPartyAction,
+  firstPartyActionBelongsToConnector,
+  firstPartyActionOperation,
+  firstPartyProviderForConnectorAction,
+} from "./connectors/executors/first_party";
 
 const modules = import.meta.glob("./**/*.ts");
 const ownerId = "https://issuer.test|connector-owner";
@@ -52,15 +61,27 @@ const asOwner = (t: ReturnType<typeof createTest>) =>
   });
 
 const MASTER_KEY = btoa(
-  String.fromCharCode(...Array.from({ length: 32 }, (_, i) => (i * 7 + 3) & 0xff)),
+  String.fromCharCode(
+    ...Array.from({ length: 32 }, (_, i) => (i * 7 + 3) & 0xff),
+  ),
 );
 
 const setConnectorEnv = () => {
-  process.env.STELLA_SECRETS_MASTER_KEYS_JSON = JSON.stringify({ "1": MASTER_KEY });
+  process.env.STELLA_SECRETS_MASTER_KEYS_JSON = JSON.stringify({
+    "1": MASTER_KEY,
+  });
   process.env.STELLA_SECRETS_MASTER_KEY_VERSION = "1";
   process.env.STELLA_CONNECTOR_OAUTH_ALLOW_MOCK = "1";
   process.env.STELLA_FIRST_PARTY_CONNECTOR_EXECUTION_ENABLED = "1";
-  process.env.STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL = "https://connect.stella.test";
+  process.env.STELLA_CONNECTOR_OAUTH_PUBLIC_BASE_URL =
+    "https://connect.stella.test";
+  process.env.STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS = "microsoft";
+  process.env.STELLA_CONNECTOR_OAUTH_MICROSOFT_CLIENT_ID = "microsoft-client";
+  process.env.STELLA_CONNECTOR_OAUTH_MICROSOFT_CLIENT_SECRETS_JSON =
+    JSON.stringify({
+      "1": "microsoft-test-secret",
+    });
+  process.env.STELLA_CONNECTOR_OAUTH_MICROSOFT_CLIENT_SECRET_VERSION = "1";
   process.env.STELLA_CONNECTOR_OAUTH_MOCK_CLIENT_ID = "mock-client";
   process.env.STELLA_CONNECTOR_OAUTH_MOCK_CLIENT_SECRETS_JSON = JSON.stringify({
     "1": "mock-secret",
@@ -101,9 +122,13 @@ describe("provider manifests", () => {
   });
 
   it("fails closed for unlisted providers and open for the self-enabling mock", () => {
-    expect(() => requireEnabledProvider("google-workspace")).toThrow(/provider_disabled/);
+    expect(() => requireEnabledProvider("google-workspace")).toThrow(
+      /provider_disabled/,
+    );
     process.env.STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS = "google-workspace";
-    expect(requireEnabledProvider("google-workspace").key).toBe("google-workspace");
+    expect(requireEnabledProvider("google-workspace").key).toBe(
+      "google-workspace",
+    );
     delete process.env.STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS;
     expect(requireEnabledProvider("mock").key).toBe("mock");
   });
@@ -113,7 +138,9 @@ describe("provider manifests", () => {
     expect(scopesForGroups(manifest, ["read"]).sort()).toEqual(
       ["mock.profile", "mock.read"].sort(),
     );
-    expect(() => scopesForGroups(manifest, ["nope"])).toThrow(/unregistered_scope/);
+    expect(() => scopesForGroups(manifest, ["nope"])).toThrow(
+      /unregistered_scope/,
+    );
     expect(() => scopesForGroups(manifest, [])).toThrow(/unregistered_scope/);
   });
 
@@ -129,6 +156,249 @@ describe("provider manifests", () => {
   it("scope superset check is exact", () => {
     expect(grantedScopesSatisfy(["a", "b", "c"], ["a", "c"])).toBe(true);
     expect(grantedScopesSatisfy(["a", "b"], ["a", "c"])).toBe(false);
+  });
+});
+
+describe("Microsoft provider family", () => {
+  it("shares one grant while evaluating each connector's required scopes", () => {
+    const manifest = getProviderManifest("microsoft")!;
+    expect(connectScopeGroupsForConnector(manifest, "outlook", [])).toEqual([
+      "microsoft_all",
+    ]);
+    const outlookScopes = scopesForGroups(manifest, ["outlook"]);
+    const satisfied = connectorBindingsSatisfiedByScopes(
+      manifest,
+      outlookScopes,
+    );
+    expect(satisfied.map((binding) => binding.connectorId)).toContain(
+      "outlook",
+    );
+    expect(satisfied.map((binding) => binding.connectorId)).not.toContain(
+      "microsoft_teams",
+    );
+    expect(satisfied.map((binding) => binding.connectorId)).not.toContain(
+      "excel",
+    );
+  });
+
+  it("builds an Entra PKCE URL without Google-only authorization params", () => {
+    const manifest = getProviderManifest("microsoft")!;
+    const url = new URL(
+      buildAuthorizationUrl({
+        manifest,
+        clientId: "client-id",
+        redirectUri:
+          "https://connect.stella.test/api/connectors/oauth/callback",
+        state: "state",
+        codeChallenge: "challenge",
+        scopes: scopesForGroups(manifest, ["microsoft_all"]),
+      }),
+    );
+    expect(url.hostname).toBe("login.microsoftonline.com");
+    expect(url.searchParams.get("prompt")).toBe("select_account");
+    expect(url.searchParams.get("access_type")).toBeNull();
+    expect(url.searchParams.get("scope")).toContain("offline_access");
+    expect(url.searchParams.get("scope")).toContain("ChannelMessage.Send");
+  });
+
+  it("owns only the reviewed connector/action pairs", () => {
+    expect(firstPartyActionOperation("microsoft", "OUTLOOK_SEND_EMAIL")).toBe(
+      "write",
+    );
+    expect(
+      firstPartyActionBelongsToConnector(
+        "microsoft",
+        "outlook",
+        "OUTLOOK_SEND_EMAIL",
+      ),
+    ).toBe(true);
+    expect(
+      firstPartyActionBelongsToConnector(
+        "microsoft",
+        "excel",
+        "OUTLOOK_SEND_EMAIL",
+      ),
+    ).toBe(false);
+    expect(
+      firstPartyProviderForConnectorAction("excel", "EXCEL_GET_RANGE"),
+    ).toBe("microsoft");
+  });
+
+  it("maps Outlook send inputs to one fixed-origin Graph request", async () => {
+    const manifest = getProviderManifest("microsoft")!;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("", { status: 202 }));
+    const result = await executeFirstPartyAction({
+      manifest,
+      accessToken: "server-token",
+      action: "OUTLOOK_SEND_EMAIL",
+      input: {
+        to: "one@example.com,two@example.com",
+        to_name: "One",
+        subject: "Hello",
+        body: "<b>Hi</b>",
+        is_html: true,
+        cc_emails: ["copy@example.com"],
+        from_address: "sender@example.com",
+        save_to_sent_items: false,
+      },
+      operation: "write",
+    });
+    expect(result.output).toEqual({});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://graph.microsoft.com/v1.0/me/sendMail");
+    expect((init?.headers as Record<string, string>).authorization).toBe(
+      "Bearer server-token",
+    );
+    const body = JSON.parse(String(init?.body));
+    expect(body.message.toRecipients).toHaveLength(2);
+    expect(body.message.toRecipients[0].emailAddress).toEqual({
+      address: "one@example.com",
+      name: "One",
+    });
+    expect(body.message.from.emailAddress.address).toBe("sender@example.com");
+    expect(body.message.body.contentType).toBe("html");
+    expect(body.saveToSentItems).toBe(false);
+  });
+
+  it("honors current Outlook list filters without quoting Graph search", async () => {
+    const manifest = getProviderManifest("microsoft")!;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        value: [
+          {
+            id: "message-1",
+            subject: "Quarterly budget",
+            conversationId: "thread-1",
+            hasAttachments: true,
+            from: { emailAddress: { address: "boss@example.com" } },
+          },
+          {
+            id: "message-2",
+            subject: "Unrelated",
+            conversationId: "thread-2",
+            hasAttachments: false,
+            from: { emailAddress: { address: "other@example.com" } },
+          },
+        ],
+      }),
+    );
+    const result = await executeFirstPartyAction({
+      manifest,
+      accessToken: "server-token",
+      action: "OUTLOOK_LIST_MESSAGES",
+      input: {
+        search: "budget report",
+        conversation_id: "thread-1",
+        has_attachments: true,
+        subject_contains: "BUDGET",
+        from_address: "BOSS@example.com",
+      },
+      operation: "read",
+    });
+
+    expect((result.output as { value: unknown[] }).value).toHaveLength(1);
+    const [rawUrl, init] = fetchMock.mock.calls[0]!;
+    const url = new URL(String(rawUrl));
+    expect(url.searchParams.get("$search")).toBe("budget report");
+    expect(url.searchParams.get("$filter")).toBeNull();
+    expect(url.searchParams.get("$orderby")).toBeNull();
+    expect(url.searchParams.get("$select")).toContain("conversationId");
+    expect((init?.headers as Record<string, string>).ConsistencyLevel).toBe(
+      "eventual",
+    );
+  });
+
+  it("expands recurring Outlook events only with a bounded calendar window", async () => {
+    const manifest = getProviderManifest("microsoft")!;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ value: [] }));
+    await executeFirstPartyAction({
+      manifest,
+      accessToken: "server-token",
+      action: "OUTLOOK_LIST_EVENTS",
+      input: {
+        calendar_id: "calendar",
+        filter:
+          "start/dateTime ge '2026-08-01T00:00:00Z' and end/dateTime le '2026-09-01T00:00:00Z'",
+        expand_recurring_events: true,
+      },
+      operation: "read",
+    });
+
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe("/v1.0/me/calendars/calendar/calendarView");
+    expect(url.searchParams.get("startDateTime")).toBe("2026-08-01T00:00:00Z");
+    expect(url.searchParams.get("endDateTime")).toBe("2026-09-01T00:00:00Z");
+  });
+
+  it("maps Teams pagination and Excel writes without accepting an arbitrary host", async () => {
+    const manifest = getProviderManifest("microsoft")!;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      jsonResponse({
+        value: [{ id: "message-1" }],
+        "@odata.nextLink":
+          "https://graph.microsoft.com/v1.0/teams/t/channels/c/messages?$skiptoken=next",
+      }),
+    );
+    const page = await executeFirstPartyAction({
+      manifest,
+      accessToken: "server-token",
+      action: "MICROSOFT_TEAMS_TEAMS_LIST_CHANNEL_MESSAGES",
+      input: { team_id: "t", channel_id: "c", top: 25 },
+      operation: "read",
+    });
+    expect((page.output as Record<string, unknown>).next_page_token).toEqual(
+      expect.any(String),
+    );
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("%24top=25");
+    for (const nextLink of [
+      "https://graph.microsoft.com/v1.0/me/messages?$top=1",
+      "https://attacker.invalid/v1.0/teams/t/channels/c/messages",
+    ]) {
+      const pageToken = btoa(nextLink)
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replace(/=+$/u, "");
+      await expect(
+        executeFirstPartyAction({
+          manifest,
+          accessToken: "server-token",
+          action: "MICROSOFT_TEAMS_TEAMS_LIST_CHANNEL_MESSAGES",
+          input: { team_id: "t", channel_id: "c", page_token: pageToken },
+          operation: "read",
+        }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ address: "Sheet1!A1:B1" }));
+    await executeFirstPartyAction({
+      manifest,
+      accessToken: "server-token",
+      action: "EXCEL_UPDATE_RANGE",
+      input: {
+        item_id: "workbook",
+        worksheet_id: "Sheet 1",
+        address: "A1:B1",
+        values: [["a", "b"]],
+        session_id: "session",
+      },
+      operation: "write",
+    });
+    const [excelUrl, excelInit] = fetchMock.mock.calls[1]!;
+    expect(String(excelUrl)).toContain(
+      "/v1.0/me/drive/items/workbook/workbook/worksheets/Sheet%201/range",
+    );
+    expect(
+      (excelInit?.headers as Record<string, string>)["workbook-session-id"],
+    ).toBe("session");
+    expect(JSON.parse(String(excelInit?.body))).toEqual({
+      values: [["a", "b"]],
+    });
   });
 });
 
@@ -177,29 +447,49 @@ describe("token set merge", () => {
 // ---------------------------------------------------------------------------
 
 describe("route resolution", () => {
-  const rollout = (mode: ConnectorRollout["mode"], extra: Partial<ConnectorRollout> = {}): ConnectorRollout => ({
+  const rollout = (
+    mode: ConnectorRollout["mode"],
+    extra: Partial<ConnectorRollout> = {},
+  ): ConnectorRollout => ({
     connectorId: "c",
     mode,
     routeVersion: 1,
     ...extra,
   });
-  const base = { ownerId, operation: "read" as const, killSwitchEnabled: true, hasFirstPartyReady: true };
+  const base = {
+    ownerId,
+    operation: "read" as const,
+    killSwitchEnabled: true,
+    hasFirstPartyReady: true,
+  };
 
   it("disabled refuses both executors", () => {
-    expect(resolveRoute({ ...base, rollout: rollout("disabled") }).executor).toBe("refused");
+    expect(
+      resolveRoute({ ...base, rollout: rollout("disabled") }).executor,
+    ).toBe("refused");
   });
 
   it("kill switch off forces composio, and refuses migrated connectors", () => {
     expect(
-      resolveRoute({ ...base, killSwitchEnabled: false, rollout: rollout("first_party_preferred") }).executor,
+      resolveRoute({
+        ...base,
+        killSwitchEnabled: false,
+        rollout: rollout("first_party_preferred"),
+      }).executor,
     ).toBe("composio");
     expect(
-      resolveRoute({ ...base, killSwitchEnabled: false, rollout: rollout("first_party_only") }).executor,
+      resolveRoute({
+        ...base,
+        killSwitchEnabled: false,
+        rollout: rollout("first_party_only"),
+      }).executor,
     ).toBe("refused");
   });
 
   it("composio_only and shadow keep composio; shadow flags read-only evaluation", () => {
-    expect(resolveRoute({ ...base, rollout: rollout("composio_only") }).executor).toBe("composio");
+    expect(
+      resolveRoute({ ...base, rollout: rollout("composio_only") }).executor,
+    ).toBe("composio");
     const shadow = resolveRoute({ ...base, rollout: rollout("shadow") });
     expect(shadow.executor).toBe("composio");
     expect(shadow.shadowEvaluate).toBe(true);
@@ -208,7 +498,10 @@ describe("route resolution", () => {
   it("canary routes selected+ready owners to first-party only", () => {
     const selected = resolveRoute({
       ...base,
-      rollout: rollout("first_party_canary", { canaryPercent: 100, saltVersion: 1 }),
+      rollout: rollout("first_party_canary", {
+        canaryPercent: 100,
+        saltVersion: 1,
+      }),
     });
     expect(selected.executor).toBe("first_party");
     const notSelected = resolveRoute({
@@ -226,13 +519,16 @@ describe("route resolution", () => {
 
   it("preferred uses first-party when ready, else suggests connect (no silent composio account for writes)", () => {
     expect(
-      resolveRoute({ ...base, rollout: rollout("first_party_preferred") }).executor,
+      resolveRoute({ ...base, rollout: rollout("first_party_preferred") })
+        .executor,
     ).toBe("first_party");
     const notReadyRead = resolveRoute({
       ...base,
       hasFirstPartyReady: false,
       operation: "read",
-      rollout: rollout("first_party_preferred", { allowedFallbacks: ["composio"] }),
+      rollout: rollout("first_party_preferred", {
+        allowedFallbacks: ["composio"],
+      }),
     });
     expect(notReadyRead.executor).toBe("composio");
     expect(notReadyRead.firstPartyConnectSuggested).toBe(true);
@@ -241,14 +537,18 @@ describe("route resolution", () => {
       ...base,
       hasFirstPartyReady: false,
       operation: "write",
-      rollout: rollout("first_party_preferred", { allowedFallbacks: ["composio"] }),
+      rollout: rollout("first_party_preferred", {
+        allowedFallbacks: ["composio"],
+      }),
     });
     // Writes never get an automatic fallback flag.
     expect(notReadyWrite.allowReadFallbackToComposio).toBe(false);
   });
 
   it("first_party_only routes first-party and blocks the composio path", () => {
-    expect(resolveRoute({ ...base, rollout: rollout("first_party_only") }).executor).toBe("first_party");
+    expect(
+      resolveRoute({ ...base, rollout: rollout("first_party_only") }).executor,
+    ).toBe("first_party");
     expect(composioPathBlocked("first_party_only")).toBe(true);
     expect(composioPathBlocked("disabled")).toBe(true);
     expect(composioPathBlocked("composio_only")).toBe(false);
@@ -280,8 +580,12 @@ describe("error taxonomy", () => {
     expect(classifyProviderStatus(401).code).toBe("reauth_required");
     expect(classifyProviderStatus(429).retryable).toBe(true);
     expect(classifyProviderStatus(503).code).toBe("provider_unavailable");
-    expect(classifyTokenEndpointError("invalid_grant").code).toBe("invalid_grant");
-    expect(classifyTokenEndpointError("temporarily_unavailable").retryable).toBe(true);
+    expect(classifyTokenEndpointError("invalid_grant").code).toBe(
+      "invalid_grant",
+    );
+    expect(
+      classifyTokenEndpointError("temporarily_unavailable").retryable,
+    ).toBe(true);
   });
 });
 
@@ -345,7 +649,9 @@ describe("connect attempts", () => {
         subject: "other-owner",
         tokenIdentifier: otherOwnerId,
       })
-      .query(api.connectors.oauth.attempts.getConnectAttemptStatus, { attemptId });
+      .query(api.connectors.oauth.attempts.getConnectAttemptStatus, {
+        attemptId,
+      });
     expect(other).toBeNull();
   });
 });
@@ -376,7 +682,8 @@ const commitTokens = async (
         accessToken: incoming.accessToken,
         refreshToken: incoming.refreshToken,
         tokenType: "Bearer",
-        accessTokenExpiresAt: incoming.accessTokenExpiresAt ?? Date.now() + 3_600_000,
+        accessTokenExpiresAt:
+          incoming.accessTokenExpiresAt ?? Date.now() + 3_600_000,
         scopes: incoming.scopes,
       },
     },
@@ -427,7 +734,11 @@ describe("encrypted token vault", () => {
 
   it("rejects an account-mismatch on incremental grant", async () => {
     const t = createTest();
-    await commitTokens(t, { accessToken: "a1", refreshToken: "r1", scopes: ["mock.read"] });
+    await commitTokens(t, {
+      accessToken: "a1",
+      refreshToken: "r1",
+      scopes: ["mock.read"],
+    });
     await expect(
       commitTokens(
         t,
@@ -670,7 +981,9 @@ describe("first-party execution", () => {
         .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
         .collect(),
     );
-    expect(events.some((e) => e.event === "execution" && e.outcome === "ok")).toBe(true);
+    expect(
+      events.some((e) => e.event === "execution" && e.outcome === "ok"),
+    ).toBe(true);
     expect(JSON.stringify(events)).not.toContain("access-1");
   });
 
@@ -696,7 +1009,12 @@ describe("first-party execution", () => {
     ).rejects.toThrow(/invalid_input/);
     expect(fetchMock).not.toHaveBeenCalled();
 
-    const ok = await runFirstParty(t, "MOCK_CREATE_ITEM", { title: "hi" }, schema);
+    const ok = await runFirstParty(
+      t,
+      "MOCK_CREATE_ITEM",
+      { title: "hi" },
+      schema,
+    );
     expect(ok.output).toEqual({ id: "created-1" });
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe("https://mock-provider.stella.test/v1/items");
@@ -886,6 +1204,57 @@ describe("hosted OAuth callback", () => {
     expect(replay.status).toBe("invalid");
   });
 
+  it("binds one Microsoft grant to every scope-satisfied family connector", async () => {
+    const t = createTest();
+    const start = await asOwner(t).mutation(
+      api.connectors.oauth.connect.startConnectAttempt,
+      { connectorId: "outlook", provider: "microsoft" },
+    );
+    const authorizationUrl = new URL(start.authorizationUrl);
+    const state = authorizationUrl.searchParams.get("state")!;
+    expect(authorizationUrl.searchParams.get("scope")).toContain(
+      "ChannelMessage.Read.All",
+    );
+
+    const manifest = getProviderManifest("microsoft")!;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname.endsWith("/token")) {
+        return jsonResponse({
+          access_token: "microsoft-access",
+          token_type: "Bearer",
+          refresh_token: "microsoft-refresh",
+          expires_in: 3600,
+          scope: scopesForGroups(manifest, ["microsoft_all"]).join(" "),
+        });
+      }
+      if (parsed.pathname === "/v1.0/me") {
+        return jsonResponse({
+          id: "entra-object-id",
+          displayName: "Stella Test",
+          mail: "contact@fromyou.ai",
+          userPrincipalName: "contact@fromyou.ai",
+        });
+      }
+      throw new Error(`unexpected fetch ${parsed.origin}${parsed.pathname}`);
+    });
+
+    const callback = await t.action(
+      internal.connectors.oauth.callback.handleOAuthCallback,
+      { state, code: "microsoft-code" },
+    );
+    expect(callback.status).toBe("succeeded");
+    for (const connectorId of ["outlook", "microsoft_teams", "excel"]) {
+      const status = await asOwner(t).query(
+        api.connectors.oauth.accounts.getConnectorConnectionStatus,
+        { connectorId },
+      );
+      expect(status.connected, connectorId).toBe(true);
+      expect(status.provider).toBe("microsoft");
+      expect(status.displayEmail).toBe("contact@fromyou.ai");
+    }
+  });
+
   it("records a denied outcome when the provider returns an error", async () => {
     const t = createTest();
     const start = await asOwner(t).mutation(
@@ -932,12 +1301,21 @@ describe("composio path under rollout", () => {
       provider: "composio",
       category: "email",
       auth: ["OAUTH2"],
-      catalogToolCount: 1,
+      catalogToolCount: 2,
       actions: [
         {
           name: "OUTLOOK_QUERY_EMAILS",
           title: "Query",
           inputSchemaJson: JSON.stringify(inputSchema),
+        },
+        {
+          name: "OUTLOOK_LIST_MESSAGES",
+          title: "List messages",
+          inputSchemaJson: JSON.stringify({
+            type: "object",
+            properties: {},
+            additionalProperties: false,
+          }),
         },
       ],
       description: "Connect Outlook to Stella.",
@@ -946,10 +1324,258 @@ describe("composio path under rollout", () => {
       usagePolicy: "ready",
     });
 
+  const connectFirstPartyOutlook = async (t: ReturnType<typeof createTest>) => {
+    const committed = await t.mutation(
+      internal.connectors.oauth.vault.commitProviderAccountTokens,
+      {
+        ownerId,
+        provider: "microsoft",
+        providerAccountId: "entra-object-id",
+        displayEmail: "contact@fromyou.ai",
+        incoming: {
+          accessToken: "microsoft-access",
+          refreshToken: "microsoft-refresh",
+          tokenType: "Bearer",
+          accessTokenExpiresAt: Date.now() + 3_600_000,
+          scopes: scopesForGroups(getProviderManifest("microsoft")!, [
+            "outlook",
+          ]),
+        },
+      },
+    );
+    await t.mutation(internal.connectors.oauth.accounts.setConnectorBinding, {
+      ownerId,
+      connectorId: "outlook",
+      provider: "microsoft",
+      accountId: committed.accountId,
+      requiredScopeGroups: ["outlook"],
+    });
+  };
+
+  it("keeps Composio status authoritative while exposing missing first-party scopes", async () => {
+    const t = createTest();
+    process.env.COMPOSIO_API_KEY = "composio-key";
+    await publishOutlook(t);
+    const committed = await t.mutation(
+      internal.connectors.oauth.vault.commitProviderAccountTokens,
+      {
+        ownerId,
+        provider: "microsoft",
+        providerAccountId: "partial-entra-object-id",
+        displayEmail: "contact@fromyou.ai",
+        incoming: {
+          accessToken: "partial-microsoft-access",
+          refreshToken: "partial-microsoft-refresh",
+          tokenType: "Bearer",
+          accessTokenExpiresAt: Date.now() + 3_600_000,
+          scopes: scopesForGroups(getProviderManifest("microsoft")!, [
+            "identity",
+          ]),
+        },
+      },
+    );
+    await t.mutation(internal.connectors.oauth.accounts.setConnectorBinding, {
+      ownerId,
+      connectorId: "outlook",
+      provider: "microsoft",
+      accountId: committed.accountId,
+      requiredScopeGroups: ["outlook"],
+    });
+    await t.mutation(internal.data.integrations.upsertUserIntegrationForOwner, {
+      ownerId,
+      provider: "outlook",
+      mode: "composio",
+      externalId: "status-composio-session",
+      config: {},
+    });
+    await t.mutation(internal.connectors.rollouts.setConnectorRollout, {
+      connectorId: "outlook",
+      mode: "first_party_preferred",
+      allowedFallbacks: ["composio"],
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            slug: "outlook",
+            connected_account: { status: "ACTIVE" },
+          },
+        ],
+      }),
+    );
+
+    const response = await asOwner(t).fetch(
+      "/api/native-integrations/status?id=outlook",
+      { method: "GET" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      connected: true,
+      executor: "composio",
+      firstParty: {
+        provider: "microsoft",
+        accountStatus: "active",
+        missingScopeGroups: ["outlook"],
+      },
+    });
+  });
+
+  it("runs a ready Microsoft read through Graph and keeps the Composio envelope", async () => {
+    const t = createTest();
+    await publishOutlook(t);
+    await connectFirstPartyOutlook(t);
+    await t.mutation(internal.connectors.rollouts.setConnectorRollout, {
+      connectorId: "outlook",
+      mode: "first_party_preferred",
+    });
+    const connection = await asOwner(t).query(
+      api.connectors.oauth.accounts.getConnectorConnectionStatus,
+      { connectorId: "outlook" },
+    );
+    expect(connection.connected, JSON.stringify(connection)).toBe(true);
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ value: [{ id: "message-1" }] }));
+
+    const response = await asOwner(t).fetch("/api/native-integrations/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "outlook",
+        action: "OUTLOOK_LIST_MESSAGES",
+        input: {},
+      }),
+    });
+    const responseText = await response.text();
+    expect(response.status, responseText).toBe(200);
+    expect(JSON.parse(responseText)).toEqual({
+      data: { value: [{ id: "message-1" }] },
+      error: null,
+      successful: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
+    );
+  });
+
+  it("does not retry a failed first-party Outlook write through Composio", async () => {
+    const t = createTest();
+    await t.mutation(internal.data.integrations.upsertPublicIntegration, {
+      id: "outlook",
+      name: "Outlook",
+      provider: "composio",
+      category: "email",
+      auth: ["OAUTH2"],
+      catalogToolCount: 1,
+      actions: [
+        {
+          name: "OUTLOOK_SEND_EMAIL",
+          title: "Send",
+          inputSchemaJson: JSON.stringify({
+            type: "object",
+            properties: {
+              to: { type: "string" },
+              body: { type: "string" },
+              subject: { type: "string" },
+            },
+            required: ["to", "body", "subject"],
+            additionalProperties: false,
+          }),
+        },
+      ],
+      description: "Connect Outlook to Stella.",
+      connector: {
+        type: "composio",
+        toolkit: "outlook",
+        provider: "composio",
+      },
+      enabled: true,
+      usagePolicy: "ready",
+    });
+    await connectFirstPartyOutlook(t);
+    await t.mutation(internal.connectors.rollouts.setConnectorRollout, {
+      connectorId: "outlook",
+      mode: "first_party_preferred",
+      allowedFallbacks: ["composio"],
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ error: "provider unavailable" }, 503));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await asOwner(t).fetch("/api/native-integrations/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "outlook",
+        action: "OUTLOOK_SEND_EMAIL",
+        input: {
+          to: "person@example.com",
+          body: "Hello",
+          subject: "Hello",
+        },
+      }),
+    });
+    expect(response.status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://graph.microsoft.com/v1.0/me/sendMail",
+    );
+  });
+
+  it("falls back to a Composio connect link when preferred first-party setup is unavailable", async () => {
+    const t = createTest();
+    process.env.COMPOSIO_API_KEY = "composio-key";
+    delete process.env.STELLA_CONNECTOR_OAUTH_MICROSOFT_CLIENT_ID;
+    await publishOutlook(t);
+    await t.mutation(internal.connectors.rollouts.setConnectorRollout, {
+      connectorId: "outlook",
+      mode: "first_party_preferred",
+      allowedFallbacks: ["composio"],
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/session")) {
+          return jsonResponse({ id: "session-fallback" });
+        }
+        if (url.endsWith("/session/session-fallback/link")) {
+          return jsonResponse({ link: "https://composio.test/connect" });
+        }
+        return jsonResponse({}, 500);
+      });
+
+    const response = await asOwner(t).fetch(
+      "/api/native-integrations/connect-link",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "outlook" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      url: "https://composio.test/connect",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("refuses the composio run path once a connector is first_party_only", async () => {
     const t = createTest();
     process.env.COMPOSIO_API_KEY = "test-key";
     await publishOutlook(t);
+    await t.mutation(internal.data.integrations.upsertUserIntegrationForOwner, {
+      ownerId,
+      provider: "outlook",
+      mode: "composio",
+      externalId: "existing-composio-session",
+      config: {},
+    });
     await t.mutation(internal.connectors.rollouts.setConnectorRollout, {
       connectorId: "outlook",
       mode: "first_party_only",
@@ -958,7 +1584,11 @@ describe("composio path under rollout", () => {
     const response = await asOwner(t).fetch("/api/native-integrations/run", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "outlook", action: "OUTLOOK_QUERY_EMAILS", input: { q: "hi" } }),
+      body: JSON.stringify({
+        id: "outlook",
+        action: "OUTLOOK_QUERY_EMAILS",
+        input: { q: "hi" },
+      }),
     });
     expect(response.status).toBe(409);
     // Composio was never contacted.
@@ -973,11 +1603,14 @@ describe("composio path under rollout", () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(jsonResponse({ id: "sess_new" }));
-    const response = await asOwner(t).fetch("/api/native-integrations/connect-link", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "outlook" }),
-    });
+    const response = await asOwner(t).fetch(
+      "/api/native-integrations/connect-link",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "outlook" }),
+      },
+    );
     // Reaches Composio (session creation) rather than being refused by the guard.
     expect(fetchMock).toHaveBeenCalled();
     expect(response.status).not.toBe(409);

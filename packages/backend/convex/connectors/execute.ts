@@ -25,6 +25,7 @@ import {
 import { DEFAULT_ROLLOUT, resolveRoute } from "./routing";
 import {
   executeFirstPartyAction,
+  firstPartyActionBelongsToConnector,
   firstPartyActionOperation,
 } from "./executors/first_party";
 
@@ -48,9 +49,14 @@ type TokenEndpointPayload = {
   error?: unknown;
 };
 
-const readSmallJson = async (response: Response): Promise<TokenEndpointPayload> => {
+const readSmallJson = async (
+  response: Response,
+): Promise<TokenEndpointPayload> => {
   const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > TOKEN_RESPONSE_MAX_BYTES) {
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > TOKEN_RESPONSE_MAX_BYTES
+  ) {
     await response.body?.cancel().catch(() => undefined);
     throw new ConnectorError("refresh_failed", true);
   }
@@ -83,7 +89,10 @@ export const getAccessTokenForAccount = internalAction({
       { accountId: args.accountId },
     );
     if (!cred) throw new ConnectorError("account_not_found");
-    if (cred.accountStatus === "reauth_required" || cred.credentialStatus === "reauth_required") {
+    if (
+      cred.accountStatus === "reauth_required" ||
+      cred.credentialStatus === "reauth_required"
+    ) {
       throw new ConnectorError("reauth_required");
     }
     if (cred.accountStatus !== "active" || cred.credentialStatus !== "active") {
@@ -97,7 +106,9 @@ export const getAccessTokenForAccount = internalAction({
 
     const tokenSet = parseTokenSet(await decryptSecret(cred.encryptedTokenSet));
     const now = Date.now();
-    if (accessTokenIsFresh(cred.accessTokenExpiresAt, manifest.refreshSkewMs, now)) {
+    if (
+      accessTokenIsFresh(cred.accessTokenExpiresAt, manifest.refreshSkewMs, now)
+    ) {
       return { accessToken: tokenSet.accessToken };
     }
     if (!tokenSet.refreshToken) {
@@ -215,7 +226,10 @@ export const runFirstPartyConnectorAction = internalAction({
     executor: v.literal("first_party"),
     output: v.any(),
   }),
-  handler: async (ctx, args): Promise<{ executor: "first_party"; output: unknown }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ executor: "first_party"; output: unknown }> => {
     const connectorId = args.connectorId.trim().toLowerCase();
     const startedAt = Date.now();
 
@@ -264,12 +278,20 @@ export const runFirstPartyConnectorAction = internalAction({
 
       const operation = firstPartyActionOperation(manifest.key, args.action);
       if (!operation) throw new ConnectorError("action_not_found");
+      if (
+        !firstPartyActionBelongsToConnector(
+          manifest.key,
+          connectorId,
+          args.action,
+        )
+      ) {
+        throw new ConnectorError("action_not_found");
+      }
 
-      const rollout =
-        (await ctx.runQuery(
-          internal.connectors.rollouts.getConnectorRollout,
-          { connectorId },
-        )) ?? { ...DEFAULT_ROLLOUT, connectorId };
+      const rollout = (await ctx.runQuery(
+        internal.connectors.rollouts.getConnectorRollout,
+        { connectorId },
+      )) ?? { ...DEFAULT_ROLLOUT, connectorId };
 
       const route = resolveRoute({
         rollout,

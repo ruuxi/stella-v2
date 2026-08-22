@@ -13,6 +13,7 @@ import { ConnectorError } from "../errors";
 import { connectorPublicBaseUrl } from "../env";
 import {
   buildAuthorizationUrl,
+  connectScopeGroupsForConnector,
   generateOAuthState,
   generatePkceVerifier,
   pkceChallengeS256,
@@ -36,7 +37,7 @@ export const startConnectAttempt = mutation({
   args: {
     connectorId: v.string(),
     provider: v.string(),
-    scopeGroupIds: v.array(v.string()),
+    scopeGroupIds: v.optional(v.array(v.string())),
     returnSurface: v.optional(v.string()),
     providerAccountIdIntent: v.optional(v.string()),
   },
@@ -75,7 +76,12 @@ export const startConnectAttempt = mutation({
       if (!baseUrl) throw new ConnectorError("provider_not_configured");
       const manifest = requireEnabledProvider(args.provider);
       const credentials = resolveProviderClientCredentials(manifest.key);
-      const scopes = scopesForGroups(manifest, args.scopeGroupIds);
+      const scopeGroupIds = connectScopeGroupsForConnector(
+        manifest,
+        connectorId,
+        args.scopeGroupIds ?? [],
+      );
+      const scopes = scopesForGroups(manifest, scopeGroupIds);
 
       const now = Date.now();
       const expiresAt = now + CONNECT_ATTEMPT_TTL_MS;
@@ -90,7 +96,7 @@ export const startConnectAttempt = mutation({
         ownerId,
         provider: manifest.key,
         connectorId,
-        scopeGroupIds: args.scopeGroupIds,
+        scopeGroupIds,
         stateHash,
         encryptedVerifier,
         keyVersion,

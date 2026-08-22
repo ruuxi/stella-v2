@@ -6,7 +6,7 @@ export const LEGAL_TITLES: Record<LegalDocument, string> = {
 };
 
 export const LEGAL_LAST_UPDATED = "August 18, 2026";
-export const PRIVACY_LAST_UPDATED = "August 18, 2026";
+export const PRIVACY_LAST_UPDATED = "August 22, 2026";
 
 export const TERMS_OF_SERVICE = `Stella — FromYou LLC
 Last updated: ${LEGAL_LAST_UPDATED}
@@ -295,7 +295,38 @@ Stella uses third-party services including AI gateways and model providers (whic
 These providers process data under their own terms, privacy policies, and account configurations. Depending on the provider and feature, they may retain prompts, outputs, uploaded files, generated media, search requests, or metadata for safety, abuse prevention, service operation, or other stated purposes. Some providers offer optional or account-specific zero-data-retention controls, but availability and coverage vary. FromYou does not make a blanket zero-data-retention promise for third-party processing. When using BYOK, a model request may go directly from your device to the provider, but that does not change the provider's own practices.
 
 
-13. Data Retention
+13. Google Workspace Connector and Google API Services User Data
+
+Stella includes a first-party Google Workspace connector that you can optionally enable to let Stella work with your Google account across Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, and Google Tasks. This section describes how that connector handles data received from Google APIs and applies in addition to the rest of this policy.
+
+How You Connect — The connector is off until you choose to connect it. Connecting starts a Google OAuth consent flow in which you sign in to Google and approve the access. Stella uses a single shared Google grant, so one consent screen covers every Workspace service listed above; you can review the exact scopes on Google's consent screen before approving, and connecting is optional.
+
+Data and Scopes We Access — When connected, and only as needed to carry out tasks you ask Stella to perform, the connector can access:
+
+• Basic account identity — your Google account email address, basic profile, and an OpenID identifier, used to identify the connected account (scopes: openid, userinfo.email, userinfo.profile)
+• Gmail — read, compose, send, and organize your messages, drafts, and labels; this does not include permanently deleting mail (scope: gmail.modify)
+• Google Calendar — view and manage your calendars and events (scope: calendar)
+• Google Drive — view and manage files in your Drive (scope: drive)
+• Google Docs — create, read, and edit your documents (scope: documents)
+• Google Sheets — create, read, and edit your spreadsheets (scope: spreadsheets)
+• Google Tasks — view and manage your task lists (scope: tasks)
+
+User-Directed Use — Stella accesses and acts on your Google data only after you connect the account and direct Stella (or a Stella agent acting on your instruction) to perform a task, such as reading an email, scheduling an event, or editing a document. Stella does not access your Google data for purposes you have not requested.
+
+Where Your Credentials Live — The OAuth access and refresh tokens Google issues are stored on your own device in Stella's protected credential store, encrypted at rest using your operating system's secure storage (the OS keychain or credential vault, via the desktop framework's safeStorage). FromYou's backend holds only the confidential OAuth client secret and acts as a token-exchange proxy so that secret is never shipped inside the app; it does not persist your Google tokens on our servers.
+
+How Google Data Is Processed — Google API calls are made from your device using the locally stored token. Content returned from Google (for example, an email, event, file, or spreadsheet) is handled like Stella's other local tool output: it stays on your device unless a task you invoke requires a cloud feature. When you direct Stella to reason over your Google data, the relevant content may be sent to the AI model provider handling your request, and to service providers strictly to operate the feature you invoked, as described elsewhere in this policy. We do not use Google Workspace data to develop, train, or improve generalized artificial-intelligence or machine-learning models.
+
+No Sale, Advertising, or Credit Use — We do not sell or rent data received from Google APIs, and we do not transfer or use it to serve advertising or to determine creditworthiness or for lending purposes.
+
+Restricted Human Access — FromYou personnel do not read data obtained through the Google connector, except where you give explicit consent to view specific data (for example, for support you request), where necessary for security purposes such as investigating abuse, where required to comply with applicable law, or where the data has been aggregated and anonymized for internal operations.
+
+Retention, Deletion, and Revocation — FromYou does not maintain a separate server-side copy of your Google Workspace content; that data resides on your device and is transmitted only when a cloud feature you use requires it. You can disconnect the Google connector in Stella at any time, which deletes the stored tokens from your device, and you can revoke Stella's access at any time from your Google Account under Security → Third-party access (https://myaccount.google.com/permissions). Deleting Stella's local data also removes the stored credentials.
+
+Limited Use — Stella's use and transfer to any other app of information received from Google APIs will adhere to the Google API Services User Data Policy (https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements.
+
+
+14. Data Retention
 
 • Local device data — until you delete it; we have no access to it
 • Account information — until you delete your account
@@ -309,12 +340,12 @@ These providers process data under their own terms, privacy policies, and accoun
 • Social data — until you delete your account or the relevant content
 
 
-14. Data Security
+15. Data Security
 
 We implement reasonable security measures to protect data that does reach our infrastructure: encryption in transit (all communication uses TLS/HTTPS), secret encryption (user-provided secrets stored on our backend are encrypted using AES-256-GCM with a versioned master key system), local encryption (API keys stored on your device are encrypted locally), device identity (devices authenticate using Ed25519 cryptographic keypairs), rate limiting (multi-layer rate limiting protects against abuse), and provider redaction (AI responses are scrubbed of upstream provider details before being returned to you).
 
 
-15. Your Rights and Choices
+16. Your Rights and Choices
 
 Access and Control — You can view, export, or delete local data by accessing Stella's data directory or using available in-app reset controls, revoke connected integrations, and request deletion of eligible account and hosted data. Some records may be retained where required for legal, security, fraud-prevention, billing, or dispute-resolution purposes. Deleting data from Stella does not necessarily delete copies retained by third-party providers under their policies.
 
@@ -325,32 +356,32 @@ Anonymous Use — You can use Stella's core features without creating an account
 BYOK — You can provide your own AI provider API keys to avoid routing prompts through our infrastructure entirely.
 
 
-16. Children's Privacy
+17. Children's Privacy
 
 Stella is not directed to children under 13 years of age. We do not knowingly collect personal information from children under 13. If you believe we have inadvertently collected such information, please contact us and we will promptly delete it.
 
 
-17. International Users
+18. International Users
 
 Our backend infrastructure is hosted in the United States. If you access the Service from outside the United States, your information (to the extent it reaches our servers, as described in this policy) may be transferred to and processed in the United States.
 
 
-18. California Privacy Rights
+19. California Privacy Rights
 
 If you are a California resident, you may have additional rights under the California Consumer Privacy Act (CCPA). Personal information we process may include account, billing, device, usage, delivery, connected-service, and optional cloud-feature data. You may exercise your rights to know, delete, or opt out by contacting us. We do not sell your personal information. We do not use your data for targeted advertising.
 
 
-19. European Privacy Rights
+20. European Privacy Rights
 
 If you are in the European Economic Area (EEA) or United Kingdom, you may have rights under the GDPR including the right to access, rectify, erase, restrict processing, data portability, and objection. These rights apply to personal data we process, which may include account, billing, device, usage, delivery, connected-service, and optional cloud-feature data. Contact us to exercise these rights. Where we process personal data, we rely as applicable on: (a) contractual necessity; (b) legitimate interests such as security and abuse prevention; and (c) consent for optional features.
 
 
-20. Changes to This Policy
+21. Changes to This Policy
 
 We may update this Privacy Policy from time to time. We will indicate the date of the most recent revision at the top. For material changes, we will make reasonable efforts to notify you. Your continued use of the Service after changes constitutes acceptance of the updated policy.
 
 
-21. Contact Us
+22. Contact Us
 
 If you have questions about this Privacy Policy or wish to exercise any of your rights, contact us at:
 

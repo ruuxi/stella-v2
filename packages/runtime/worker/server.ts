@@ -3039,16 +3039,92 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   });
 
   peer.registerRequestHandler(METHOD_NAMES.AUTH_GET_SESSION, async () => {
-    return state.authOwner ? await state.authOwner.getSession() : null;
+    return await ensureAuthOwner().getSession();
   });
+
+  const ensureAuthOwner = () => {
+    const owner = state.authOwner;
+    if (!owner) {
+      throw new Error("Runtime auth owner is disabled.");
+    }
+    return owner;
+  };
+
+  // P3: sign-in mutations — the AuthOwner is the single /api/auth/* writer.
+  peer.registerRequestHandler(METHOD_NAMES.AUTH_SIGN_IN_ANONYMOUS, async () => {
+    return await ensureAuthOwner().signInAnonymous();
+  });
+
+  peer.registerRequestHandler(METHOD_NAMES.AUTH_SIGN_OUT, async () => {
+    return await ensureAuthOwner().signOut();
+  });
+
+  peer.registerRequestHandler(METHOD_NAMES.AUTH_DELETE_USER, async () => {
+    return await ensureAuthOwner().deleteUser();
+  });
+
+  peer.registerRequestHandler(
+    METHOD_NAMES.AUTH_APPLY_SESSION_COOKIE,
+    async (params) => {
+      const sessionCookie = (params as { sessionCookie?: unknown } | undefined)
+        ?.sessionCookie;
+      if (typeof sessionCookie !== "string" || !sessionCookie.trim()) {
+        throw new Error("Missing session cookie.");
+      }
+      return await ensureAuthOwner().applySessionCookie(sessionCookie);
+    },
+  );
+
+  peer.registerRequestHandler(
+    METHOD_NAMES.AUTH_HANDLE_CALLBACK,
+    async (params) => {
+      const payload = params as
+        | { url?: unknown; protocol?: unknown }
+        | undefined;
+      if (
+        typeof payload?.url !== "string" ||
+        typeof payload?.protocol !== "string"
+      ) {
+        throw new Error("Invalid auth callback payload.");
+      }
+      return await ensureAuthOwner().handleAuthCallback({
+        url: payload.url,
+        protocol: payload.protocol,
+      });
+    },
+  );
+
+  peer.registerRequestHandler(
+    METHOD_NAMES.AUTH_MAGIC_LINK_SEND,
+    async (params) => {
+      const email = (params as { email?: unknown } | undefined)?.email;
+      if (typeof email !== "string" || !email.trim()) {
+        throw new Error("Missing email.");
+      }
+      return await ensureAuthOwner().magicLinkSend({ email: email.trim() });
+    },
+  );
+
+  peer.registerRequestHandler(
+    METHOD_NAMES.AUTH_MAGIC_LINK_STATUS,
+    async (params) => {
+      const requestId = (params as { requestId?: unknown } | undefined)
+        ?.requestId;
+      if (typeof requestId !== "string" || !requestId.trim()) {
+        throw new Error("Missing requestId.");
+      }
+      return await ensureAuthOwner().magicLinkStatus({
+        requestId: requestId.trim(),
+      });
+    },
+  );
 
   peer.registerRequestHandler(
     METHOD_NAMES.AUTH_GET_CONVEX_TOKEN,
     async (params): Promise<HostRuntimeAuthRefreshResult> => {
-      const owner = state.authOwner;
-      if (!owner) {
-        return { authenticated: false, token: null, hasConnectedAccount: false };
-      }
+      // Throws when the owner is disabled so desktop callers latch legacy
+      // mode instead of misreading "no token" as "no session".
+      const owner = ensureAuthOwner();
       const result = await owner.getConvexToken({
         forceRefresh: Boolean(
           (params as RuntimeAuthTokenParams | undefined)?.forceRefresh,

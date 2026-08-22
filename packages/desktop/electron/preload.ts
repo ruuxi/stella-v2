@@ -71,6 +71,8 @@ import {
   IPC_AUTH_GET_CONVEX_TOKEN,
   IPC_AUTH_CHANGED,
   IPC_AUTH_GET_SESSION,
+  IPC_AUTH_MAGIC_LINK_SEND,
+  IPC_AUTH_MAGIC_LINK_STATUS,
   IPC_AUTH_RUNTIME_REFRESH_COMPLETE,
   IPC_AUTH_RUNTIME_REFRESH_REQUESTED,
   IPC_AUTH_SIGN_IN_ANONYMOUS,
@@ -1008,6 +1010,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_AUTH_APPLY_SESSION_COOKIE, {
         sessionCookie,
       }) as Promise<{ ok: boolean }>,
+    sendMagicLink: (email: string) =>
+      ipcRenderer.invoke(IPC_AUTH_MAGIC_LINK_SEND, { email }) as Promise<
+        | { ok: true; requestId: string }
+        | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
+        | { ok: false; code: "send_failed"; error?: string }
+      >,
+    getMagicLinkStatus: (requestId: string) =>
+      ipcRenderer.invoke(IPC_AUTH_MAGIC_LINK_STATUS, { requestId }) as Promise<{
+        status: "pending" | "completed" | "expired";
+        applied: boolean;
+      }>,
     getConvexAuthToken: () =>
       ipcRenderer.invoke(IPC_AUTH_GET_CONVEX_TOKEN) as Promise<string | null>,
     completeRuntimeAuthRefresh: (payload: {

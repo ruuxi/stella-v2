@@ -154,6 +154,88 @@ describe("auth owner", () => {
     owner.stop();
   });
 
+  it("rejects untrusted deep links and exchanges trusted OTTs (P3)", async () => {
+    const jwt = makeJwt({ exp: Math.floor(Date.now() / 1000) + 1800 });
+    const calls: string[] = [];
+    fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        calls.push(String(input));
+        return new Response(
+          JSON.stringify(
+            String(input).includes("/convex/token")
+              ? { token: jwt }
+              : { ok: true },
+          ),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      });
+    const owner = createAuthOwner({
+      stellaDataDir: tmpDir,
+      getBaseUrl: () => "https://example.convex.site",
+    });
+    await expect(
+      owner.handleAuthCallback({
+        url: "https://evil.example/auth?ott=abcdefgh1234",
+        protocol: "stella",
+      }),
+    ).rejects.toThrow("Blocked untrusted auth callback URL.");
+    expect(calls).toHaveLength(0);
+
+    const result = await owner.handleAuthCallback({
+      url: "stella://auth?ott=abcdefgh1234",
+      protocol: "stella",
+    });
+    expect(result.ok).toBe(true);
+    expect(
+      calls.some((url) => url.includes("/cross-domain/one-time-token/verify")),
+    ).toBe(true);
+    owner.stop();
+  });
+
+  it("magic-link status applies the session cookie inside the runtime (P3)", async () => {
+    const jwt = makeJwt({ exp: Math.floor(Date.now() / 1000) + 1800 });
+    fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("/link/send")) {
+          return new Response(JSON.stringify({ requestId: "req-1" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/link/status")) {
+          return new Response(
+            JSON.stringify({
+              status: "completed",
+              sessionCookie: "better-auth.session_token=magic; Path=/",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify(
+            url.includes("/convex/token") ? { token: jwt } : { user: { id: "u2" } },
+          ),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      });
+    const owner = createAuthOwner({
+      stellaDataDir: tmpDir,
+      getBaseUrl: () => "https://example.convex.site",
+    });
+    const send = await owner.magicLinkSend({ email: "user@example.com" });
+    expect(send).toEqual({ ok: true, requestId: "req-1" });
+    const status = await owner.magicLinkStatus({ requestId: "req-1" });
+    expect(status).toEqual({ status: "completed", applied: true });
+    // The cookie landed in the owner's store and a token was minted.
+    expect(owner.hasSession()).toBe(true);
+    const token = await owner.getConvexToken();
+    expect(token.token).toBe(jwt);
+    owner.stop();
+  });
+
   it("force-refresh mints a fresh token (local 401 recovery)", async () => {
     let counter = 0;
     fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {

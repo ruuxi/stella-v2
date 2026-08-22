@@ -10,7 +10,6 @@ import {
   type SetStateAction,
 } from "react";
 import { refreshAuthSession } from "@/global/auth/services/auth-session";
-import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useT, useTPlural } from "@/shared/i18n";
 
 type Status = "idle" | "sending" | "sent" | "verifying" | "error";
@@ -76,14 +75,21 @@ type MagicLinkAuthState = Omit<UseMagicLinkAuthResult, "error"> & {
 
 const MagicLinkAuthContext = createContext<MagicLinkAuthState | null>(null);
 
-const getConvexSiteUrl = () => {
-  const url = readConfiguredConvexSiteUrl(
-    import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
-  );
-  if (!url) {
-    throw new Error("Convex site URL is not configured.");
+/**
+ * Auth-inversion P3: magic link runs through the desktop main process into
+ * the runtime AuthOwner (`auth:magicLinkSend` / `auth:magicLinkStatus`).
+ * The renderer only sees a requestId and a status — the raw sessionCookie
+ * never transits this process.
+ */
+const getMagicLinkApi = () => {
+  const systemApi = window.electronAPI?.system;
+  if (!systemApi?.sendMagicLink || !systemApi.getMagicLinkStatus) {
+    throw new MagicLinkKeyError("global.auth.magicLinkFailed");
   }
-  return url;
+  return {
+    sendMagicLink: systemApi.sendMagicLink,
+    getMagicLinkStatus: systemApi.getMagicLinkStatus,
+  };
 };
 
 function useMagicLinkAuthState(): MagicLinkAuthState {
@@ -105,18 +111,11 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
     else setIsResending(true);
 
     try {
-      const convexSiteUrl = getConvexSiteUrl();
-      const response = await fetch(`${convexSiteUrl}/api/auth/link/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: targetEmail }),
-      });
+      const { sendMagicLink: send } = getMagicLinkApi();
+      const result = await send(targetEmail);
 
-      if (response.status === 429) {
-        const retryAfterHeader = response.headers.get("Retry-After");
-        const retryAfterSec = retryAfterHeader
-          ? Math.max(1, parseInt(retryAfterHeader, 10) || 1)
-          : 60;
+      if (!result.ok && result.code === "rate_limited") {
+        const retryAfterSec = result.retryAfterSeconds;
         setCooldownUntil(Date.now() + retryAfterSec * 1000);
         setError({
           kind: "plural",
@@ -127,15 +126,11 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
         return false;
       }
 
-      const data = (await response.json()) as {
-        requestId?: string;
-        error?: string;
-      };
-      if (!response.ok || !data.requestId) {
-        if (data.error) throw new Error(data.error);
+      if (!result.ok) {
+        if (result.error) throw new Error(result.error);
         throw new MagicLinkKeyError("global.auth.sendFailed");
       }
-      setRequestId(data.requestId);
+      setRequestId(result.requestId);
       setSentToEmail(targetEmail);
       setStatus("sent");
       setCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
@@ -193,7 +188,6 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
     // clears `status`/`requestId`, which re-runs this effect and runs the old
     // run's cleanup.
     let cancelled = false;
-    const convexSiteUrl = getConvexSiteUrl();
 
     const poll = async () => {
       while (!cancelled) {
@@ -201,23 +195,15 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
         if (cancelled) return;
 
         try {
-          const res = await fetch(
-            `${convexSiteUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
-          );
-          if (!res.ok) continue;
-          const data = (await res.json()) as {
-            status: string;
-            ott?: string;
-            sessionCookie?: string;
-          };
+          const { getMagicLinkStatus } = getMagicLinkApi();
+          const data = await getMagicLinkStatus(requestId);
 
-          if (data.status === "completed" && data.sessionCookie) {
+          if (data.status === "completed" && data.applied) {
+            // The runtime AuthOwner already applied the session cookie;
+            // just re-read the (now signed-in) session.
             if (cancelled) return;
             setStatus("verifying");
             try {
-              await window.electronAPI?.system.applyAuthSessionCookie?.(
-                data.sessionCookie,
-              );
               await refreshAuthSession();
             } catch {
               setStatus("error");

@@ -27,6 +27,7 @@ import {
   BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
   createAuthCore,
   isAuthTokenFresh,
+  isTrustedAuthCallbackUrl,
 } from "@stella/runtime/kernel/auth/auth-core";
 import type {
   HostRuntimeAuthRefreshResult,
@@ -45,6 +46,14 @@ const RUNTIME_AUTH_REFRESH_TIMEOUT_MS = 12_000;
 const HOST_AUTH_TOKEN_REFRESH_MARGIN_MS = 60_000;
 const AUTH_STORAGE_SCOPE = "desktop-better-auth-storage";
 const AUTH_STORAGE_FILE = "better-auth-storage.json";
+/**
+ * Migration bookkeeping for the runtime AuthOwner handoff (auth-inversion
+ * P3). Once the session has been imported into the worker's store, attach
+ * skips the re-import unless the desktop copy mutated since (legacy-mode
+ * activity) — otherwise a stale desktop copy would clobber the worker's
+ * newer session after a runtime-mode sign-in.
+ */
+const AUTH_MIGRATION_MARKER_FILE = "better-auth-runtime-migration.json";
 /** Debounce for mirroring session mutations into the runtime AuthOwner. */
 const RUNTIME_AUTH_DUAL_WRITE_DEBOUNCE_MS = 300;
 
@@ -114,6 +123,9 @@ export class AuthService {
           key === BETTER_AUTH_COOKIE_STORAGE_KEY ||
           key === BETTER_AUTH_SESSION_DATA_STORAGE_KEY
         ) {
+          // Desktop-side session mutation (legacy-mode activity): the next
+          // attach must re-import so the worker store converges.
+          this.markMigrationDirty();
           this.scheduleRuntimeAuthDualWrite();
         }
       },
@@ -235,16 +247,90 @@ export class AuthService {
    * Best-effort: an older detached worker without the auth.import RPC keeps
    * operating in legacy (desktop-owned) mode.
    */
+  private getMigrationMarkerPath() {
+    return path.join(app.getPath("userData"), AUTH_MIGRATION_MARKER_FILE);
+  }
+
+  private readMigrationMarker(): {
+    migratedAt: number;
+    desktopDirty: boolean;
+  } | null {
+    try {
+      const raw = fs.readFileSync(this.getMigrationMarkerPath(), "utf8");
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof parsed.migratedAt !== "number") {
+        return null;
+      }
+      return {
+        migratedAt: parsed.migratedAt,
+        desktopDirty: parsed.desktopDirty === true,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private writeMigrationMarker(marker: {
+    migratedAt: number;
+    desktopDirty: boolean;
+  }) {
+    try {
+      fs.writeFileSync(
+        this.getMigrationMarkerPath(),
+        JSON.stringify(marker, null, 2),
+        { mode: 0o600 },
+      );
+    } catch {
+      // Best effort; a missing marker just means re-import at next attach.
+    }
+  }
+
+  private markMigrationDirty() {
+    const marker = this.readMigrationMarker();
+    if (!marker || marker.desktopDirty) {
+      return;
+    }
+    this.writeMigrationMarker({ ...marker, desktopDirty: true });
+  }
+
   async syncRuntimeAuthStore(): Promise<void> {
     const runner = this.options.runnerTarget.getRunner();
-    if (!runner?.importAuthSession) {
+    if (!runner) {
+      // Too early in boot to decide the mode; stay "unknown" so a later
+      // attach can still latch runtime ownership.
+      return;
+    }
+    if (!runner.importAuthSession) {
       if (this.runtimeAuthMode === "unknown") {
         this.runtimeAuthMode = "legacy";
       }
       return;
     }
+    const marker = this.readMigrationMarker();
     try {
-      await runner.importAuthSession(this.getRuntimeSessionExport());
+      if (marker && !marker.desktopDirty && runner.getRuntimeConvexToken) {
+        // Already migrated and no desktop-side mutations since: probe the
+        // AuthOwner instead of importing, so a stale desktop copy can never
+        // clobber the worker's newer session (post-P3 the worker is the
+        // single writer for sign-in mutations).
+        const probe = await runner.getRuntimeConvexToken({});
+        if (
+          !probe?.token &&
+          this.getAuthCookieHeader() &&
+          this.runtimeAuthMode !== "legacy"
+        ) {
+          // Worker store was lost (e.g. wiped data dir) while the desktop
+          // still holds a session: re-seed it. Importing into an empty store
+          // cannot clobber newer state.
+          await runner.importAuthSession(this.getRuntimeSessionExport());
+        }
+      } else {
+        await runner.importAuthSession(this.getRuntimeSessionExport());
+        this.writeMigrationMarker({
+          migratedAt: Date.now(),
+          desktopDirty: false,
+        });
+      }
       if (this.runtimeAuthMode === "unknown") {
         this.runtimeAuthMode = "runtime";
       }
@@ -259,6 +345,23 @@ export class AuthService {
         (error as Error).message,
       );
     }
+  }
+
+  /**
+   * Resolve the per-boot ownership mode before running an auth mutation.
+   * Returns "legacy" without latching when the runner isn't attached yet.
+   */
+  private async ensureRuntimeAuthMode(): Promise<"runtime" | "legacy"> {
+    if (this.runtimeAuthMode === "unknown") {
+      await this.syncRuntimeAuthStore();
+    }
+    return this.runtimeAuthMode === "runtime" ? "runtime" : "legacy";
+  }
+
+  /** Local wipe of the desktop legacy store (no network) after runtime-mode sign-out. */
+  private clearLegacyAuthStorage() {
+    this.authCore.setStorageItem(BETTER_AUTH_COOKIE_STORAGE_KEY, null);
+    this.authCore.setStorageItem(BETTER_AUTH_SESSION_DATA_STORAGE_KEY, null);
   }
 
   isRuntimeAuthOwnerActive(): boolean {
@@ -311,24 +414,61 @@ export class AuthService {
   }
 
   async signInAnonymous() {
+    // P3: mutations execute in the worker AuthOwner (single writer); the
+    // legacy in-main path remains for skewed/disabled workers.
+    if ((await this.ensureRuntimeAuthMode()) === "runtime") {
+      const runner = this.options.runnerTarget.getRunner();
+      if (runner?.authSignInAnonymous) {
+        return await runner.authSignInAnonymous();
+      }
+    }
     return await this.authCore.signInAnonymous();
   }
 
   async signOut() {
+    if ((await this.ensureRuntimeAuthMode()) === "runtime") {
+      const runner = this.options.runnerTarget.getRunner();
+      if (runner?.authSignOut) {
+        const result = await runner.authSignOut();
+        this.clearLegacyAuthStorage();
+        this.stopAuthRefreshLoop();
+        return result;
+      }
+    }
     const result = await this.authCore.signOut();
     this.stopAuthRefreshLoop();
     return result;
   }
 
   async deleteUser() {
+    if ((await this.ensureRuntimeAuthMode()) === "runtime") {
+      const runner = this.options.runnerTarget.getRunner();
+      if (runner?.authDeleteUser) {
+        const result = await runner.authDeleteUser();
+        this.clearLegacyAuthStorage();
+        this.stopAuthRefreshLoop();
+        return result;
+      }
+    }
     const result = await this.authCore.deleteUser();
     this.stopAuthRefreshLoop();
     return result;
   }
 
   async verifyAuthCallbackUrl(url: string) {
+    // Capture-time pre-filter stays in the desktop (defense in depth); the
+    // runtime revalidates the raw URL itself before the OTT exchange.
     if (!this.isTrustedAuthCallbackUrl(url)) {
       throw new Error("Blocked untrusted auth callback URL.");
+    }
+    if ((await this.ensureRuntimeAuthMode()) === "runtime") {
+      const runner = this.options.runnerTarget.getRunner();
+      if (runner?.authHandleCallback) {
+        return await runner.authHandleCallback({
+          url,
+          protocol: this.options.authProtocol,
+        });
+      }
     }
     const parsed = new URL(url);
     const token = parsed.searchParams.get("ott");
@@ -338,8 +478,99 @@ export class AuthService {
     return await this.authCore.verifyOneTimeToken(token);
   }
 
-  applySessionCookie(sessionCookie: string) {
+  async applySessionCookie(sessionCookie: string) {
+    if ((await this.ensureRuntimeAuthMode()) === "runtime") {
+      const runner = this.options.runnerTarget.getRunner();
+      if (runner?.authApplySessionCookie) {
+        return await runner.authApplySessionCookie({ sessionCookie });
+      }
+    }
     return this.authCore.applySessionCookie(sessionCookie);
+  }
+
+  /**
+   * P3 magic link: proxied through the runtime AuthOwner so the raw
+   * sessionCookie never transits the renderer. The legacy path runs the
+   * same site fetches from main (still renderer-free).
+   */
+  async magicLinkSend(email: string): Promise<
+    | { ok: true; requestId: string }
+    | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
+    | { ok: false; code: "send_failed"; error?: string }
+  > {
+    if ((await this.ensureRuntimeAuthMode()) === "runtime") {
+      const runner = this.options.runnerTarget.getRunner();
+      if (runner?.authMagicLinkSend) {
+        return await runner.authMagicLinkSend({ email });
+      }
+    }
+    const siteUrl =
+      this.getConvexSiteUrl() ?? this.getBetterAuthIssuerUrlForStore();
+    if (!siteUrl) {
+      return { ok: false, code: "send_failed", error: "not_configured" };
+    }
+    const response = await fetch(`${siteUrl}/api/auth/link/send`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (response.status === 429) {
+      const retryAfterHeader = response.headers.get("Retry-After");
+      const retryAfterSeconds = retryAfterHeader
+        ? Math.max(1, parseInt(retryAfterHeader, 10) || 1)
+        : 60;
+      return { ok: false, code: "rate_limited", retryAfterSeconds };
+    }
+    const data = (await response.json().catch(() => null)) as {
+      requestId?: string;
+      error?: string;
+    } | null;
+    if (!response.ok || !data?.requestId) {
+      return {
+        ok: false,
+        code: "send_failed",
+        ...(data?.error ? { error: data.error } : {}),
+      };
+    }
+    return { ok: true, requestId: data.requestId };
+  }
+
+  async magicLinkStatus(requestId: string): Promise<{
+    status: "pending" | "completed" | "expired";
+    applied: boolean;
+  }> {
+    if ((await this.ensureRuntimeAuthMode()) === "runtime") {
+      const runner = this.options.runnerTarget.getRunner();
+      if (runner?.authMagicLinkStatus) {
+        return await runner.authMagicLinkStatus({ requestId });
+      }
+    }
+    const siteUrl =
+      this.getConvexSiteUrl() ?? this.getBetterAuthIssuerUrlForStore();
+    if (!siteUrl) {
+      return { status: "pending", applied: false };
+    }
+    const response = await fetch(
+      `${siteUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
+    );
+    if (!response.ok) {
+      return { status: "pending", applied: false };
+    }
+    const data = (await response.json().catch(() => null)) as {
+      status?: string;
+      sessionCookie?: string;
+    } | null;
+    if (data?.status === "completed" && data.sessionCookie) {
+      this.authCore.applySessionCookie(data.sessionCookie);
+      return { status: "completed", applied: true };
+    }
+    if (data?.status === "completed") {
+      return { status: "completed", applied: false };
+    }
+    if (data?.status === "expired") {
+      return { status: "expired", applied: false };
+    }
+    return { status: "pending", applied: false };
   }
 
   /**
@@ -421,41 +652,7 @@ export class AuthService {
   }
 
   private isTrustedAuthCallbackUrl(value: string) {
-    try {
-      const parsed = new URL(value);
-      if (
-        parsed.protocol.toLowerCase() !==
-        `${this.options.authProtocol.toLowerCase()}:`
-      ) {
-        return false;
-      }
-      const host = parsed.hostname.trim().toLowerCase();
-      if (host === "oauth") {
-        const normalizedPath = parsed.pathname.replace(/\/+$/g, "") || "/";
-        if (!normalizedPath.startsWith("/callback/")) {
-          return false;
-        }
-        const state = parsed.searchParams.get("state");
-        const code = parsed.searchParams.get("code");
-        const error = parsed.searchParams.get("error");
-        return Boolean(state && (code || error));
-      }
-      if (host !== "auth") {
-        return false;
-      }
-      const normalizedPath = parsed.pathname.replace(/\/+$/g, "") || "/";
-      if (
-        normalizedPath !== "/" &&
-        normalizedPath !== "/auth" &&
-        normalizedPath !== "/callback"
-      ) {
-        return false;
-      }
-      const token = parsed.searchParams.get("ott");
-      return Boolean(token && AUTH_CALLBACK_TOKEN_PATTERN.test(token));
-    } catch {
-      return false;
-    }
+    return isTrustedAuthCallbackUrl(value, this.options.authProtocol);
   }
 
   /**

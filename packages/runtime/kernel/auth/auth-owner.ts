@@ -8,10 +8,12 @@
 // language.
 
 import {
+  AUTH_CALLBACK_TOKEN_PATTERN,
   BETTER_AUTH_COOKIE_STORAGE_KEY,
   BETTER_AUTH_SESSION_DATA_STORAGE_KEY,
   createAuthCore,
   isAuthTokenFresh,
+  isTrustedAuthCallbackUrl,
   getAuthTokenExpiryMs,
 } from "./auth-core.js";
 import { createAuthSessionStore } from "./store.js";
@@ -210,6 +212,143 @@ export const createAuthOwner = (options: AuthOwnerOptions) => {
     };
   };
 
+  // -----------------------------------------------------------------------
+  // Sign-in mutations (auth-inversion P3): the AuthOwner is the single
+  // writer for every /api/auth/* mutation.
+  // -----------------------------------------------------------------------
+
+  const afterSignIn = async () => {
+    await mintToken().catch(() => undefined);
+    // Double read: the first serves the (stale) optimistic blob and fires
+    // revalidation; the second joins it so the persisted blob is
+    // authoritative for the new identity before we announce the change.
+    await core.getSession().catch(() => undefined);
+    await core.getSession().catch(() => undefined);
+    emitChanged("import");
+  };
+
+  const signInAnonymous = async () => {
+    const result = await core.signInAnonymous();
+    await afterSignIn();
+    return result;
+  };
+
+  const clearAuthState = (reason: AuthOwnerChangedEvent["reason"]) => {
+    cachedToken = null;
+    clearRefreshTimer();
+    emitChanged(reason);
+  };
+
+  const signOut = async () => {
+    const result = await core.signOut();
+    clearAuthState("signed-out");
+    return result;
+  };
+
+  const deleteUser = async () => {
+    const result = await core.deleteUser();
+    clearAuthState("signed-out");
+    return result;
+  };
+
+  const applySessionCookie = async (sessionCookie: string) => {
+    const result = core.applySessionCookie(sessionCookie);
+    await afterSignIn();
+    return result;
+  };
+
+  /**
+   * OAuth / OTT deep link forwarded raw from the desktop. The runtime
+   * revalidates the URL shape itself (defense in depth) and runs the
+   * one-time-token cookie exchange. OTTs are single-use server-side, so a
+   * duplicate forward stays harmless.
+   */
+  const handleAuthCallback = async (payload: {
+    url: string;
+    protocol: string;
+  }) => {
+    if (!isTrustedAuthCallbackUrl(payload.url, payload.protocol)) {
+      throw new Error("Blocked untrusted auth callback URL.");
+    }
+    const token = new URL(payload.url).searchParams.get("ott");
+    if (!token || !AUTH_CALLBACK_TOKEN_PATTERN.test(token)) {
+      throw new Error("Invalid auth callback token.");
+    }
+    const result = await core.verifyOneTimeToken(token);
+    await afterSignIn();
+    return result;
+  };
+
+  /**
+   * Magic link proxied through the runtime so the raw sessionCookie never
+   * transits the renderer. `status` applies the cookie directly on
+   * completion.
+   */
+  const magicLinkSend = async (payload: {
+    email: string;
+  }): Promise<
+    | { ok: true; requestId: string }
+    | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
+    | { ok: false; code: "send_failed"; error?: string }
+  > => {
+    const response = await core.authFetch("/link/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: payload.email }),
+    });
+    if (response.status === 429) {
+      const retryAfterHeader = response.headers.get("Retry-After");
+      const retryAfterSeconds = retryAfterHeader
+        ? Math.max(1, parseInt(retryAfterHeader, 10) || 1)
+        : 60;
+      return { ok: false, code: "rate_limited", retryAfterSeconds };
+    }
+    const data = (await response.json().catch(() => null)) as {
+      requestId?: string;
+      error?: string;
+    } | null;
+    if (!response.ok || !data?.requestId) {
+      return {
+        ok: false,
+        code: "send_failed",
+        ...(data?.error ? { error: data.error } : {}),
+      };
+    }
+    return { ok: true, requestId: data.requestId };
+  };
+
+  const magicLinkStatus = async (payload: {
+    requestId: string;
+  }): Promise<{
+    status: "pending" | "completed" | "expired";
+    applied: boolean;
+  }> => {
+    const response = await core.authFetch(
+      `/link/status?requestId=${encodeURIComponent(payload.requestId)}`,
+      { method: "GET", headers: { accept: "application/json" } },
+    );
+    if (!response.ok) {
+      // Treat transient failures as pending; the caller polls.
+      return { status: "pending", applied: false };
+    }
+    const data = (await response.json().catch(() => null)) as {
+      status?: string;
+      sessionCookie?: string;
+    } | null;
+    if (data?.status === "completed" && data.sessionCookie) {
+      core.applySessionCookie(data.sessionCookie);
+      await afterSignIn();
+      return { status: "completed", applied: true };
+    }
+    if (data?.status === "completed") {
+      return { status: "completed", applied: false };
+    }
+    if (data?.status === "expired") {
+      return { status: "expired", applied: false };
+    }
+    return { status: "pending", applied: false };
+  };
+
   return {
     /** True when the store holds session material this owner can mint from. */
     hasSession: () => core.hasSessionCookie(),
@@ -217,6 +356,13 @@ export const createAuthOwner = (options: AuthOwnerOptions) => {
     getConvexToken,
     importSession,
     hasConnectedAccount,
+    signInAnonymous,
+    signOut,
+    deleteUser,
+    applySessionCookie,
+    handleAuthCallback,
+    magicLinkSend,
+    magicLinkStatus,
     stop: () => {
       stopped = true;
       clearRefreshTimer();

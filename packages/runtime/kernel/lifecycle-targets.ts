@@ -31,6 +31,30 @@ export type PiRunnerAuthHandle = {
     hasConnectedAccount: boolean;
   }>;
   getRuntimeAuthSession?: () => Promise<unknown>;
+  /**
+   * P3 sign-in mutations: proxied to the worker AuthOwner so the runtime is
+   * the single /api/auth/* writer. Optional for version skew; the desktop
+   * falls back to its legacy in-main implementation when unavailable.
+   */
+  authSignInAnonymous?: () => Promise<unknown>;
+  authSignOut?: () => Promise<{ ok: boolean }>;
+  authDeleteUser?: () => Promise<{ ok: boolean }>;
+  authApplySessionCookie?: (payload: {
+    sessionCookie: string;
+  }) => Promise<{ ok: boolean }>;
+  authHandleCallback?: (payload: {
+    url: string;
+    protocol: string;
+  }) => Promise<{ ok: boolean }>;
+  authMagicLinkSend?: (payload: { email: string }) => Promise<
+    | { ok: true; requestId: string }
+    | { ok: false; code: "rate_limited"; retryAfterSeconds: number }
+    | { ok: false; code: "send_failed"; error?: string }
+  >;
+  authMagicLinkStatus?: (payload: { requestId: string }) => Promise<{
+    status: "pending" | "completed" | "expired";
+    applied: boolean;
+  }>;
 };
 
 export type WindowManagerLike<TWindow = unknown> = {

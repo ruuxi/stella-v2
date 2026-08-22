@@ -3,8 +3,8 @@
 Scope: **Notion, Slack, Airtable, Asana, Linear, Jira, ClickUp, Slackbot, monday.com, Canvas LMS.**
 
 This ledger is the narrow, human-readable contract that pairs with
-`first-party-productivity-connectors.ts` while the shared first-party execution
-core (`feat/first-party-connector-core`) is still pending. It records, per
+`first-party-productivity-connectors.ts` after reconciliation with the backend
+shared first-party execution core. It records, per
 connector: the official-API adapter that already exists in
 `native-oauth-provider-config.ts`, the auth model, scopes, the production env
 var names its credentials must use, app-registration/review status, and the
@@ -15,7 +15,8 @@ exact blockers that keep every connector on the Composio fallback today.
 - `PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS` (in
   `native-oauth-provider-config.ts`) is intentionally **empty**, so
   `isNativeOAuthLocalExecutionProductionReady(id)` is `false` for all ten
-  connectors. Native OAuth *configs* exist, but native *execution* is dormant.
+  connectors. Native OAuth _configs_ exist, but backend provider-family
+  manifests/handlers and verified production rollouts remain dormant.
 - Therefore `firstPartyProductivityConnectorExecutionOwner(id)` returns
   **`"composio"`** for every connector — the Composio fallback owns all reads
   and writes. There is exactly one owner at a time, so writes are never
@@ -49,26 +50,23 @@ Legend — Auth: `oauth2` (user), `oauth2_bot` (bot token), env-gated = native
 config only resolves once its client id (and, for Canvas, install URL) is
 present. Owner today = `composio` for all.
 
-| Connector | Auth | Official API | Callback | Token exchange | Default client id in config? | Composio fallback |
-|---|---|---|---|---|---|---|
-| notion | oauth2 | api.notion.com/v1 | hosted `stella.sh/oauth/notion/callback` | backend (`notion`) | yes | NOTION |
-| slack | oauth2 | slack.com/api | (backend-owned) | Composio boundary | n/a | SLACK |
-| airtable | oauth2 | api.airtable.com/v0 | hosted `…/airtable/callback` | direct* | yes | AIRTABLE |
-| asana | oauth2 | app.asana.com/api/1.0 | loopback `127.0.0.1:48743` | backend (`asana`) | yes | ASANA |
-| linear | oauth2 | api.linear.app | loopback `127.0.0.1:48743` | direct* | yes | LINEAR |
-| jira | oauth2 | api.atlassian.com | hosted `…/atlassian/callback` | backend (`atlassian`, shared) | yes (shared Atlassian app) | JIRA |
-| clickup | oauth2 | api.clickup.com/api/v2 | hosted `…/clickup/callback` | backend (`clickup`) | **env-gated** | CLICKUP |
-| slackbot | oauth2_bot | slack.com/api | (backend-owned) | Composio boundary | n/a | SLACKBOT |
-| monday | oauth2 | api.monday.com/v2 | hosted `…/monday/callback` | backend (`monday`) | yes | MONDAY |
-| canvas | oauth2 | `<install-url>/api/v1` | hosted `…/canvas/callback` | backend (`canvas`) | **env-gated** | CANVAS |
+| Connector | Auth       | Official API           | Callback                                 | Token exchange                | Default client id in config? | Composio fallback |
+| --------- | ---------- | ---------------------- | ---------------------------------------- | ----------------------------- | ---------------------------- | ----------------- |
+| notion    | oauth2     | api.notion.com/v1      | hosted `stella.sh/oauth/notion/callback` | backend (`notion`)            | yes                          | NOTION            |
+| slack     | oauth2     | slack.com/api          | (backend-owned)                          | Composio boundary             | n/a                          | SLACK             |
+| airtable  | oauth2     | api.airtable.com/v0    | hosted `…/airtable/callback`             | backend (`airtable`)          | yes                          | AIRTABLE          |
+| asana     | oauth2     | app.asana.com/api/1.0  | loopback `127.0.0.1:48743`               | backend (`asana`)             | yes                          | ASANA             |
+| linear    | oauth2     | api.linear.app         | loopback `127.0.0.1:48743`               | backend (`linear`)            | yes                          | LINEAR            |
+| jira      | oauth2     | api.atlassian.com      | hosted `…/atlassian/callback`            | backend (`atlassian`, shared) | yes (shared Atlassian app)   | JIRA              |
+| clickup   | oauth2     | api.clickup.com/api/v2 | hosted `…/clickup/callback`              | backend (`clickup`)           | **env-gated**                | CLICKUP           |
+| slackbot  | oauth2_bot | slack.com/api          | (backend-owned)                          | Composio boundary             | n/a                          | SLACKBOT          |
+| monday    | oauth2     | api.monday.com/v2      | hosted `…/monday/callback`               | backend (`monday`)            | yes                          | MONDAY            |
+| canvas    | oauth2     | `<install-url>/api/v1` | hosted `…/canvas/callback`               | backend (`canvas`)            | **env-gated**                | CANVAS            |
 
-`*` **Before native enablement**, `airtable` and `linear` are confidential
-clients configured with `tokenExchange: "direct"` and `usesPkce: false`. A
-direct on-device exchange would require embedding a client secret, which is not
-allowed. These two must move to `tokenExchange: "backend"` (or add PKCE where
-the provider supports a public client) **before** they can be added to the
-production-ready allowlist. Tracked as a native-enablement blocker, not a
-Composio-fallback blocker (Composio already owns them safely).
+`airtable` and `linear` are confidential clients with `usesPkce: false`; their
+token exchange is explicitly backend-owned so no client secret can be embedded
+or used on-device. They remain disabled until the corresponding shared-core
+provider manifests and production credentials are verified.
 
 ### Scopes (current adapter configuration)
 
@@ -129,31 +127,28 @@ the Composio `*_RUN_ACTION` tool. These are inert until the allowlist flip above
 
 ## Blockers (why registration + routing were not completed this session)
 
-1. **Production Convex env is not reachable here.** Only a `dev:` deployment is
-   configured locally and there is no production deploy key, so confidential
-   client secrets cannot be stored in production Convex — the only permitted
-   location. Registering/rotating an app now would strand its secret.
-2. **Shared execution core is pending.** The backend native-OAuth token-exchange
-   path (`tokenExchange: "backend"`) and the execution-arbitration core are not
-   yet implemented on this base; native connect/tool-call cannot be verified.
-3. **Do-not-route + no-dual-execute guardrails.** Production routing is
+1. **Provider-family backend registrations remain disabled.** The shared core
+   is present, but these providers still need fixed-origin manifests/handlers,
+   production credentials, and live verification.
+2. **Do-not-route + no-dual-execute guardrails.** Production routing is
    forbidden until a real connect + tool-call is verified, which depends on (1)
-   and (2). Until then the Composio fallback remains the single execution owner.
-4. **Live-app risk.** Several connectors' client ids are already baked into
+   and provider setup. Until then the Composio fallback remains the single
+   execution owner.
+3. **Live-app risk.** Several connectors' client ids are already baked into
    shipping config; mutating those apps' settings speculatively (with no way to
    verify end-to-end) risks disrupting current Composio-backed flows.
 
-## Runbook to finish (when prod access + shared core are available)
+## Runbook to finish (when prod access + provider handlers are available)
 
 For each connector, in order:
+
 1. Recover/verify (or create, Stella-branded) the OAuth app under
    `contact@fromyou.ai` via Google login; confirm redirect URIs match the table.
-2. `bunx convex env set STELLA_NATIVE_OAUTH_<ID>_CLIENT_ID <public-id>` and
-   `… STELLA_NATIVE_OAUTH_<SECRET_PROVIDER>_CLIENT_SECRET <secret>` against the
-   **production** deployment (secret never leaves prod Convex).
+2. `bun x convex env set STELLA_NATIVE_OAUTH_<ID>_CLIENT_ID <redacted>` and
+   `… STELLA_NATIVE_OAUTH_<SECRET_PROVIDER>_CLIENT_SECRET <redacted>` against
+   the **production** deployment (secret never leaves prod Convex).
 3. Set `…_BACKEND_READY=1` and `…_EXTERNAL_CALLBACK_READY=1` for the provider.
-4. For airtable/linear, switch the adapter to `tokenExchange: "backend"` (or
-   PKCE) first; for notion add the `Notion-Version` default header.
+4. For Notion, add and verify the required `Notion-Version` default header.
 5. Verify a real connect + one read and one write via the native path.
 6. Only then add the id to `PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS`.
 7. Submit any free/public review requests that gate general availability.

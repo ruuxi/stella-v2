@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   executeFirstPartyAdapter,
-  FirstPartyAdapterEncodingUnsupportedError,
   FirstPartyAdapterError,
   FirstPartyAdapterNotConfiguredError,
+  FirstPartyAdapterSharedCoreRequiredError,
   firstPartyAdapterBaseUrlEnvVar,
   firstPartyAdapterCredentialEnvVar,
   firstPartyAdapterCredentialState,
@@ -37,9 +37,22 @@ describe("first-party adapter registry", () => {
   });
 
   it("records a Composio fallback toolkit for every adapter", () => {
-    for (const adapter of listFirstPartyAdapters()) {
-      expect(adapter.composioToolkit.trim().length).toBeGreaterThan(0);
-    }
+    expect(
+      Object.fromEntries(
+        listFirstPartyAdapters().map((adapter) => [
+          adapter.id,
+          adapter.composioToolkit,
+        ]),
+      ),
+    ).toEqual({
+      figma: "FIGMA",
+      stripe: "STRIPE",
+      "2chat": "_2CHAT",
+      "0codekit": "0CODEKIT",
+      "1password": "_1PASSWORD",
+      "7shifts": "7SHIFTS",
+      abyssale: "ABYSSALE",
+    });
   });
 
   it("exposes representative read and write actions per adapter", () => {
@@ -181,8 +194,9 @@ describe("mutation + credential state", () => {
   });
 });
 
-describe("executeFirstPartyAdapter single-execution guarantees", () => {
-  it("defers to Composio (never dispatches) when no credential is stored", async () => {
+describe("runtime execution delegates to the shared core", () => {
+  it("never loads a credential or dispatches from the runtime", async () => {
+    const loadCredential = vi.fn().mockResolvedValue("secret");
     const call = vi.fn();
     await expect(
       executeFirstPartyAdapter(
@@ -191,79 +205,22 @@ describe("executeFirstPartyAdapter single-execution guarantees", () => {
         "FIGMA_POST_FILE_COMMENT",
         { file_key: "abc", message: "hi" },
         {},
-        { loadCredential: async () => undefined, call },
+        { loadCredential, call },
       ),
-    ).rejects.toBeInstanceOf(FirstPartyAdapterNotConfiguredError);
+    ).rejects.toBeInstanceOf(FirstPartyAdapterSharedCoreRequiredError);
+    expect(loadCredential).not.toHaveBeenCalled();
     expect(call).not.toHaveBeenCalled();
   });
 
-  it("defers form-encoded writes without dispatching the wrong wire format", async () => {
-    const call = vi.fn();
+  it("still rejects unknown adapters before delegation", async () => {
     await expect(
-      executeFirstPartyAdapter(
-        ROOT,
-        "stripe",
-        "STRIPE_CREATE_CUSTOMER",
-        { email: "a@b.com" },
-        {},
-        { loadCredential: async () => "sk_test_123", call },
-      ),
-    ).rejects.toBeInstanceOf(FirstPartyAdapterEncodingUnsupportedError);
-    expect(call).not.toHaveBeenCalled();
-  });
-
-  it("runs a single local REST call with the provider's api-key header", async () => {
-    const call = vi.fn().mockResolvedValue({ ok: true });
-    const result = await executeFirstPartyAdapter(
-      ROOT,
-      "2chat",
-      "TWOCHAT_LIST_WHATSAPP_NUMBERS",
-      { page_number: 0 },
-      {},
-      { loadCredential: async () => "key_123", call },
-    );
-    expect(result).toEqual({ ok: true });
-    expect(call).toHaveBeenCalledTimes(1);
-    const [, apiConfig, apiArgs] = call.mock.calls[0];
-    expect(apiConfig).toMatchObject({
-      id: "2chat",
-      baseUrl: "https://api.p.2chat.io/open",
-      auth: {
-        type: "api_key",
-        headerName: "X-User-API-Key",
-        scheme: "raw",
-        tokenKey: "native-adapter:2chat",
-      },
-    });
-    expect(apiArgs).toMatchObject({
-      method: "GET",
-      path: "/whatsapp/get-numbers",
-      query: { page_number: "0" },
-    });
-  });
-
-  it("maps an oauth2 adapter to a bearer Authorization call", async () => {
-    const call = vi.fn().mockResolvedValue({ id: "me" });
-    await executeFirstPartyAdapter(
-      ROOT,
-      "figma",
-      "FIGMA_GET_ME",
-      {},
-      {},
-      { loadCredential: async () => "tok", call },
-    );
-    const [, apiConfig] = call.mock.calls[0];
-    expect(apiConfig.auth).toMatchObject({
-      type: "oauth",
-      scheme: "bearer",
-      headerName: "Authorization",
-      tokenKey: "native-oauth:figma",
-    });
+      executeFirstPartyAdapter(ROOT, "nope", "NOPE"),
+    ).rejects.toBeInstanceOf(FirstPartyAdapterError);
   });
 });
 
 describe("shouldUseFirstPartyAdapter", () => {
-  it("only opts into local execution once a credential exists", async () => {
+  it("never opts into runtime-local execution, even with a credential", async () => {
     expect(
       await shouldUseFirstPartyAdapter(ROOT, "abyssale", {
         loadCredential: async () => undefined,
@@ -273,7 +230,7 @@ describe("shouldUseFirstPartyAdapter", () => {
       await shouldUseFirstPartyAdapter(ROOT, "abyssale", {
         loadCredential: async () => "key",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("still withholds self-hosted providers without a base URL", async () => {

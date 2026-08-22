@@ -3,7 +3,7 @@
 // This module is the declarative *adapter* layer for a curated set of
 // developer-data-search and GitHub connectors that Stella owns end to end:
 // GitHub, Supabase, Firecrawl, Tavily, Exa, SerpAPI, Perplexity AI, PostHog,
-// Snowflake, Ably, AbuseIPDB, 44API, and Abstract.
+// Snowflake, Ably, AbuseIPDB, 44API, Abstract, and People Data Labs.
 //
 // Design boundaries (deliberate — do not "helpfully" widen them):
 //
@@ -610,6 +610,48 @@ const ABSTRACT: FirstPartyConnectorAdapter = {
   sourceUrl: "https://www.abstractapi.com",
 };
 
+const PEOPLE_DATA_LABS: FirstPartyConnectorAdapter = {
+  id: "people_data_labs",
+  name: "People Data Labs",
+  category: "data enrichment",
+  description:
+    "Enrich and search person and company records with the People Data Labs API.",
+  auth: "api_key",
+  apiKey: {
+    baseUrl: "https://api.peopledatalabs.com",
+    placement: "header",
+    headerName: "X-Api-Key",
+    tokenKey: "native-apikey:people_data_labs",
+    credentialLabel: "People Data Labs API key",
+    credentialUrl: "https://dashboard.peopledatalabs.com",
+  },
+  representativeActions: asActions([
+    {
+      name: "PEOPLE_DATA_LABS_PERSON_ENRICH",
+      title: "Enrich a person",
+      description: "Enrich one person by email, name, company, or profile URL.",
+    },
+    {
+      name: "PEOPLE_DATA_LABS_PERSON_SEARCH",
+      title: "Search people",
+      description:
+        "Search the person dataset with an Elasticsearch query or SQL.",
+    },
+    {
+      name: "PEOPLE_DATA_LABS_COMPANY_ENRICH",
+      title: "Enrich a company",
+      description: "Enrich one company by website, name, profile, or ticker.",
+    },
+    {
+      name: "PEOPLE_DATA_LABS_COMPANY_SEARCH",
+      title: "Search companies",
+      description: "Search the company dataset with a query or SQL.",
+    },
+  ]),
+  composio: { toolkit: "PEOPLE_DATA_LABS" },
+  sourceUrl: "https://www.peopledatalabs.com",
+};
+
 const FORTYFOUR_API: FirstPartyConnectorAdapter = {
   id: "44api",
   name: "44API",
@@ -625,23 +667,23 @@ const FORTYFOUR_API: FirstPartyConnectorAdapter = {
   },
   representativeActions: asActions([
     {
-      name: "44API_VALIDATE_VAT_NUMBER",
+      name: "FORTYFOUR_API_VALIDATE_VAT_NUMBER",
       title: "Validate a VAT number",
       description: "Validate a VAT/tax ID and return company details.",
     },
     {
-      name: "44API_LIST_WHITELISTED_IPS",
+      name: "FORTYFOUR_API_LIST_WHITELISTED_IPS",
       title: "List whitelisted IPs",
       description: "List IP addresses on the account whitelist.",
     },
     {
-      name: "44API_ADD_WHITELISTED_IP",
+      name: "FORTYFOUR_API_ADD_WHITELISTED_IP",
       title: "Add a whitelisted IP",
       description: "Add an IP address to the account whitelist.",
       mutating: true,
     },
     {
-      name: "44API_REMOVE_WHITELISTED_IP",
+      name: "FORTYFOUR_API_REMOVE_WHITELISTED_IP",
       title: "Remove a whitelisted IP",
       description: "Remove an IP address from the account whitelist.",
       mutating: true,
@@ -665,6 +707,7 @@ export const FIRST_PARTY_CONNECTOR_ADAPTERS: readonly FirstPartyConnectorAdapter
     ABLY,
     ABUSEIPDB,
     ABSTRACT,
+    PEOPLE_DATA_LABS,
     FORTYFOUR_API,
   ];
 
@@ -793,7 +836,10 @@ export const firstPartyConnectorCatalogOverlay =
       sourceUrl: adapter.sourceUrl,
       ...(adapter.iconUrl ? { iconUrl: adapter.iconUrl } : {}),
       connectable: true,
-      backendConnector: { type: "composio" as const, toolkit: adapter.composio.toolkit },
+      backendConnector: {
+        type: "composio" as const,
+        toolkit: adapter.composio.toolkit,
+      },
       actions: adapter.representativeActions.map(toCatalogAction),
     }));
 

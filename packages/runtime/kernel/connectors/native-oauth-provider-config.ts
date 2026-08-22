@@ -2786,6 +2786,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
     scopes: ["read", "write"],
     scopeSeparator: ",",
     resourceUrl: "https://api.linear.app",
+    tokenExchange: { type: "backend", provider: "linear" },
   },
   youtube: {
     flow: "authorization_code",
@@ -2866,6 +2867,7 @@ const BUILTIN_NATIVE_OAUTH: Record<string, NativeOAuthProviderConfig> = {
       "webhook:manage",
     ],
     resourceUrl: "https://api.airtable.com/v0",
+    tokenExchange: { type: "backend", provider: "airtable" },
   },
   figma: {
     flow: "authorization_code",

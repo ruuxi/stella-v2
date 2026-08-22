@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   FIRST_PARTY_PRODUCTIVITY_CONNECTOR_IDS,
-  FIRST_PARTY_PRODUCTIVITY_CONNECTORS,
   firstPartyProductivityConnectorExecutionOwner,
   firstPartyProductivityConnectorProdEnv,
   firstPartyProductivityConnectorSecretProvider,
@@ -20,6 +19,7 @@ import {
   getNativeConnectorTools,
   type NativeConnectorCatalogEntry,
 } from "@stella/runtime/kernel/connectors/native-integrations";
+import { getNativeOAuthProviderConfig } from "@stella/runtime/kernel/connectors/native-oauth-provider-config";
 
 const EXPECTED_IDS = [
   "notion",
@@ -35,7 +35,9 @@ const EXPECTED_IDS = [
 ] as const;
 
 const BACKEND_OWNED_IDS = new Set(["slack", "slackbot"]);
-const OAUTH_CATALOG_IDS = EXPECTED_IDS.filter((id) => !BACKEND_OWNED_IDS.has(id));
+const OAUTH_CATALOG_IDS = EXPECTED_IDS.filter(
+  (id) => !BACKEND_OWNED_IDS.has(id),
+);
 
 const roots: string[] = [];
 const createRoot = () => {
@@ -102,13 +104,24 @@ describe("first-party productivity connector registry", () => {
     }
   });
 
+  it("keeps confidential Airtable and Linear exchanges on the backend", () => {
+    for (const id of ["airtable", "linear"]) {
+      expect(getNativeOAuthProviderConfig(id)?.tokenExchange).toEqual({
+        type: "backend",
+        provider: id,
+      });
+    }
+  });
+
   it("routes ALL in-scope connectors through the Composio fallback today (no dual execution)", () => {
     // Nothing is allowlisted for local execution yet, so every connector's
     // single execution owner is Composio. This is the guard that keeps writes
     // from being dispatched down two paths at once.
     for (const id of EXPECTED_IDS) {
       expect(isFirstPartyProductivityConnectorNativeReady(id)).toBe(false);
-      expect(firstPartyProductivityConnectorExecutionOwner(id)).toBe("composio");
+      expect(firstPartyProductivityConnectorExecutionOwner(id)).toBe(
+        "composio",
+      );
     }
   });
 
@@ -116,9 +129,8 @@ describe("first-party productivity connector registry", () => {
     // Notion's config becomes "config-ready" once the backend can exchange its
     // token, but execution must NOT move to native until the id is also
     // deliberately allowlisted for local execution.
-    const secretProvider = firstPartyProductivityConnectorSecretProvider(
-      "notion",
-    )!;
+    const secretProvider =
+      firstPartyProductivityConnectorSecretProvider("notion")!;
     const withBackend = resolveFirstPartyProductivityConnectorReadiness(
       "notion",
       { configuredBackendProviders: new Set([secretProvider]) },

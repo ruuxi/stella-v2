@@ -63,32 +63,6 @@ const EXECUTOR_READY_CONNECTOR_IDS = new Set([
   "canvas",
   "github",
   "supabase",
-  "stripe",
-  "figma",
-  "7shifts",
-  "twitter",
-  "instagram",
-  "youtube",
-  "reddit",
-  "facebook",
-  "metaads",
-  "linkedin",
-  "gong",
-  "pipedrive",
-  "attio",
-  "hubspot",
-  "salesforce",
-]);
-
-const PLANNER_READY_CONNECTOR_IDS = new Set([
-  "peopledatalabs",
-  "21risk",
-  "2chat",
-  "apollo",
-  "ashby",
-  "0codekit",
-  "1password",
-  "abyssale",
   "firecrawl",
   "tavily",
   "exa",
@@ -97,9 +71,35 @@ const PLANNER_READY_CONNECTOR_IDS = new Set([
   "posthog",
   "ably",
   "abuseipdb",
+  "peopledatalabs",
+  "44api",
+  "stripe",
+  "figma",
+  "7shifts",
+  "abyssale",
+  "0codekit",
+  "2chat",
+  "twitter",
+  "instagram",
+  "youtube",
+  "reddit",
+  "facebook",
+  "metaads",
+  "linkedin",
+  "apollo",
+  "ashby",
+  "gong",
+  "pipedrive",
+  "attio",
+  "hubspot",
+  "salesforce",
+]);
+
+const PLANNER_READY_CONNECTOR_IDS = new Set([
+  "21risk",
+  "1password",
   "snowflake",
   "abstract",
-  "44api",
 ]);
 
 const codeStatusFor = (
@@ -125,9 +125,19 @@ const OAUTH_BLOCKERS = [
 ] as const;
 
 const API_KEY_BLOCKERS = [
-  "shared-core per-user API-key vault and credential UI",
+  "deployment enablement plus independent provider-verification allowlists",
+  "owner-provided encrypted credential through the protected connect flow",
   "real connect and representative provider call",
 ] as const;
+
+const plannerImplementationBlockers = (
+  codeStatus: FirstPartyProviderFamilyStatus["codeStatus"],
+): readonly string[] =>
+  codeStatus === "planner_ready"
+    ? [
+        "reviewed executable descriptor, exact action schemas, and credential placement",
+      ]
+    : [];
 
 const MICROSOFT_BLOCKERS = [
   "contact@fromyou.ai Microsoft identity or existing tenant membership",
@@ -200,6 +210,7 @@ const productivityStatus = (
     codeStatus,
     activationStatus: activationStatusFor(codeStatus),
     activationBlockers: [
+      ...plannerImplementationBlockers(codeStatus),
       ...(connector.authKind === "api_key" ? API_KEY_BLOCKERS : OAUTH_BLOCKERS),
       ...(connector.reviewRequirement === "required"
         ? ["provider distribution or institution approval"]
@@ -226,9 +237,13 @@ const developerDataStatus = (
     codeStatus,
     activationStatus: activationStatusFor(codeStatus),
     activationBlockers: [
+      ...plannerImplementationBlockers(codeStatus),
       ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
       ...(adapter.id === "snowflake"
         ? ["tenant-specific Snowflake account origin and OAuth app"]
+        : []),
+      ...(adapter.id === "abstract"
+        ? ["per-product Abstract API-key custody"]
         : []),
     ],
   };
@@ -249,6 +264,7 @@ const designFinanceStatus = (
     codeStatus,
     activationStatus: activationStatusFor(codeStatus),
     activationBlockers: [
+      ...plannerImplementationBlockers(codeStatus),
       ...(adapter.auth.kind === "oauth2" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
       ...(adapter.requiresBaseUrl ? ["tenant-specific fixed origin"] : []),
     ],
@@ -270,6 +286,7 @@ const crmStatus = (
     codeStatus,
     activationStatus: activationStatusFor(codeStatus),
     activationBlockers: [
+      ...plannerImplementationBlockers(codeStatus),
       ...(adapter.auth === "oauth" ? OAUTH_BLOCKERS : API_KEY_BLOCKERS),
       ...(adapter.id === "21risk"
         ? ["tenant-specific 21RISK OData origin and base-path confirmation"]

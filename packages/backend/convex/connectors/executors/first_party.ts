@@ -1,6 +1,7 @@
 import { ConnectorError, classifyProviderStatus } from "../errors";
 import { MOCK_PROVIDER_KEY, type ProviderManifest } from "../oauth/providers";
 import {
+  getApiKeyActionDescriptor,
   getApiKeyProviderDescriptor,
   getApiKeyProviderDescriptorByKey,
 } from "../api_keys/providers";
@@ -355,7 +356,12 @@ export const firstPartyActionOperation = (
   action: string,
 ): "read" | "write" | "destructive" | null =>
   PROVIDER_ACTION_OPERATIONS[providerKey]?.[action] ??
-  getApiKeyProviderDescriptorByKey(providerKey)?.actions[action]?.operation ??
+  (() => {
+    const descriptor = getApiKeyProviderDescriptorByKey(providerKey);
+    return descriptor
+      ? getApiKeyActionDescriptor(descriptor, action)?.operation
+      : null;
+  })() ??
   null;
 
 const PROVIDER_CONNECTOR_ACTIONS: Readonly<
@@ -378,7 +384,7 @@ export const firstPartyActionBelongsToConnector = (
   if (apiKeyDescriptor) {
     return (
       apiKeyDescriptor.connectorId === connectorId.trim().toLowerCase() &&
-      Boolean(apiKeyDescriptor.actions[action])
+      Boolean(getApiKeyActionDescriptor(apiKeyDescriptor, action))
     );
   }
   const registry = PROVIDER_CONNECTOR_ACTIONS[providerKey];
@@ -398,7 +404,9 @@ export const firstPartyProviderForConnectorAction = (
   action: string,
 ): string | null => {
   const apiKeyDescriptor = getApiKeyProviderDescriptor(connectorId);
-  if (apiKeyDescriptor?.actions[action]) return apiKeyDescriptor.providerKey;
+  if (apiKeyDescriptor && getApiKeyActionDescriptor(apiKeyDescriptor, action)) {
+    return apiKeyDescriptor.providerKey;
+  }
   for (const providerKey of Object.keys(PROVIDER_CONNECTOR_ACTIONS)) {
     if (firstPartyActionBelongsToConnector(providerKey, connectorId, action)) {
       return providerKey;

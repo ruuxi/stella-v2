@@ -11,15 +11,13 @@
 //     credential fields, a native REST/API shape, representative actions, a
 //     stable id, and the authoritative Composio fallback toolkit. They are
 //     metadata + policy — they do NOT themselves execute anything.
-//   * While the shared local-execution core is still pending, Composio remains
-//     the single authoritative executor for every action here. Local execution
-//     is gated by FIRST_PARTY_LOCAL_EXECUTION_ENABLED, which is EMPTY by
-//     design. Turning an id on there is the one deliberate switch that lets a
-//     future native dispatcher run — never infer readiness from the presence
-//     of an adapter, config, or credential. This mirrors the equally-empty
-//     PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS gate in
-//     native-oauth-provider-config.ts and exists so we never dual-execute a
-//     mutation against both a native path and Composio.
+//   * Composio remains the default authoritative executor. The backend shared
+//     core can execute the reviewed API-key descriptors, but only after its
+//     independent enablement, verification, encrypted-credential, and rollout
+//     gates pass. FIRST_PARTY_LOCAL_EXECUTION_ENABLED remains EMPTY by design
+//     for the separate runtime-local dispatcher. Never infer activation from
+//     the presence of an adapter, config, or credential; no mutation may be
+//     dual-executed by a first-party path and Composio.
 //   * Composio-owned Search / Browser Tool / Codeinterpreter are NOT wrapped as
 //     third-party adapters. They are mapped to Stella's own native web-search,
 //     browser, and shell/sandbox capabilities as documented aliases (see
@@ -82,9 +80,9 @@ export type FirstPartyOAuthAdapter = {
 };
 
 export type FirstPartyApiKeyAdapter = {
-  /** Native API base URL, for the future shared-core local execution shape. */
+  /** Reviewed API base URL used by first-party planning metadata. */
   baseUrl?: string;
-  /** How the API key is presented on outbound requests once native exec lands. */
+  /** Reviewed credential placement mirrored by the backend descriptor. */
   placement: "authorization_bearer" | "header" | "query" | "basic";
   /** Header name for placement "header" (e.g. "x-api-key", "Key"). */
   headerName?: string;

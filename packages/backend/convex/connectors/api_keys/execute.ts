@@ -1,6 +1,7 @@
 import { ConnectorError } from "../errors";
 import {
   buildDescriptorRequest,
+  getApiKeyActionDescriptor,
   type ApiKeyProviderDescriptor,
 } from "./providers";
 
@@ -83,6 +84,7 @@ export const redactApiKeyMaterial = (
     queryEncodedApiKey,
     `Bearer ${apiKey}`,
     `Basic ${btoa(`${apiKey}:`)}`,
+    `Basic ${btoa(apiKey)}`,
   ].sort((a, b) => b.length - a.length);
   const redactString = (input: string) => candidates.reduce(replaceAll, input);
   const visit = (input: unknown, depth: number): unknown => {
@@ -122,6 +124,7 @@ export const buildAuthenticatedApiKeyRequest = (args: {
     method: "GET" | "POST";
     path: string;
     body?: Record<string, unknown>;
+    bodyEncoding?: "json" | "form";
     headers?: Record<string, string>;
   };
   signal?: AbortSignal;
@@ -141,7 +144,12 @@ export const buildAuthenticatedApiKeyRequest = (args: {
     accept: "application/json",
     ...(request.body === undefined
       ? {}
-      : { "content-type": "application/json" }),
+      : {
+          "content-type":
+            request.bodyEncoding === "form"
+              ? "application/x-www-form-urlencoded"
+              : "application/json",
+        }),
     ...providerHeaders,
   });
   switch (descriptor.auth.type) {
@@ -155,7 +163,12 @@ export const buildAuthenticatedApiKeyRequest = (args: {
       url.searchParams.set(descriptor.auth.queryParam, apiKey);
       break;
     case "basic":
-      headers.set("authorization", `Basic ${btoa(`${apiKey}:`)}`);
+      headers.set(
+        "authorization",
+        `Basic ${btoa(
+          descriptor.auth.format === "credentials_pair" ? apiKey : `${apiKey}:`,
+        )}`,
+      );
       break;
     default: {
       const exhaustive: never = descriptor.auth;
@@ -170,7 +183,16 @@ export const buildAuthenticatedApiKeyRequest = (args: {
       method: request.method,
       headers,
       body:
-        request.body === undefined ? undefined : JSON.stringify(request.body),
+        request.body === undefined
+          ? undefined
+          : request.bodyEncoding === "form"
+            ? new URLSearchParams(
+                Object.entries(request.body).map(([key, value]) => [
+                  key,
+                  String(value),
+                ]),
+              ).toString()
+            : JSON.stringify(request.body),
       signal: args.signal,
       // Credential-bearing redirects are never followed, including same-origin
       // redirects, because a future provider change could cross origins.
@@ -214,7 +236,10 @@ export const executeApiKeyProviderAction = async (args: {
   maxResponseBytes?: number;
   requestTimeoutMs?: number;
 }): Promise<{ output: unknown; providerStatusClass: string }> => {
-  const actionDescriptor = args.descriptor.actions[args.action];
+  const actionDescriptor = getApiKeyActionDescriptor(
+    args.descriptor,
+    args.action,
+  );
   if (!actionDescriptor || actionDescriptor.operation !== args.operation) {
     throw new ConnectorError("action_not_found");
   }

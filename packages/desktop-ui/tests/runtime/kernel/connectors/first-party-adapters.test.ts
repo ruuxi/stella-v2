@@ -55,6 +55,16 @@ describe("first-party adapter registry", () => {
     });
   });
 
+  it("matches 0CodeKit's documented production origin and API-key header", () => {
+    const adapter = getFirstPartyAdapter("0codekit");
+    expect(adapter?.baseUrl).toBe("https://prod.0codekit.com");
+    expect(adapter?.auth).toMatchObject({
+      kind: "api_key",
+      headerName: "auth",
+      scheme: "raw",
+    });
+  });
+
   it("exposes representative read and write actions per adapter", () => {
     for (const adapter of listFirstPartyAdapters()) {
       const kinds = new Set(adapter.actions.map((action) => action.kind));

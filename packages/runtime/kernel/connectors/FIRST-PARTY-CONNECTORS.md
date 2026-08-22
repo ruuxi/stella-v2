@@ -21,12 +21,12 @@ A declarative registry of adapters for the connectors Stella owns:
 | `serpapi`        | SerpAPI          | API key (query `api_key`)                | `SERPAPI`                   | web search      |
 | `perplexityai`   | Perplexity AI    | API key (Bearer)                         | `PERPLEXITYAI`              | AI              |
 | `posthog`        | PostHog          | API key (Bearer, personal key)           | `POSTHOG`                   | analytics       |
-| `0codekit`       | 0CodeKit         | API key (Bearer)                         | `0CODEKIT`                  | developer tools |
+| `0codekit`       | 0CodeKit         | API key (`auth` header)                  | `0CODEKIT`                  | developer tools |
 | `ably`           | Ably             | API key (Basic)                          | `ABLY`                      | developer tools |
 | `abuseipdb`      | AbuseIPDB        | API key (`Key` header)                   | `ABUSEIPDB`                 | security        |
 | `abstract`       | Abstract         | API key (query `api_key`)                | `ABSTRACT`                  | developer tools |
 | `peopledatalabs` | People Data Labs | API key (`X-Api-Key`)                    | `PEOPLEDATALABS`            | data enrichment |
-| `44api`          | 44API            | API key (Bearer)                         | `44API`                     | taxes           |
+| `44api`          | 44API            | API key (`X-API-Key`)                    | `44API`                     | taxes           |
 
 Each adapter carries: a **stable id** (equal to the lowercased Composio toolkit
 slug), the **auth model**, **required scopes / credential field**, a curated set
@@ -56,41 +56,39 @@ proprietary Composio APIs. Prefer the native tool in all cases.
 - The shared core has landed in the backend. These runtime descriptors do not
   load credentials or issue provider requests; server-side provider manifests
   and fixed-origin handlers are required before migration.
-- Composio is the **single authoritative executor** for every action here today.
+- Composio remains the default authoritative executor. A first-party API-key
+  executor is selected only by the shared rollout resolver after all readiness
+  gates pass; requests are never dual-executed.
 - GitHub and Supabase now have static backend OAuth manifests and fixed-origin
   server executors for their reviewed representative actions. Both manifests
   remain `unverified`, are disabled unless explicitly allowlisted, and have no
   production rollout. This is code readiness, not live-provider parity.
-- The Store publisher now admits the reviewed developer/data/utility toolkits
-  using the auth schemes reported by Composio. API-key toolkits remain
-  Composio-managed; Stella does not ingest or custody their keys natively.
-- The API-key developer/data connectors `firecrawl`, `tavily`, `exa`,
-  `serpapi`, `perplexityai`, `posthog`, `ably`, `abuseipdb`, `abstract`, and
-  `44api` now carry server-side **fixed-origin request planners**
-  (`connectors/executors/api_key.ts` `DEFERRED_API_KEY_PROVIDERS` /
-  `buildApiKeyProviderRequest`) alongside `peopledatalabs`, and are recorded as
-  their canonical `developer_data` owner in
-  `first-party-connector-ownership.ts` (`planner_ready`). `snowflake` also
-  carries a planner and its narrowly-allowlisted account-origin binding
-  (`planner_ready`, `developer_data`, OAuth). These planners emit only relative
-  paths and static, non-secret headers; they are **not** wired into the executor
-  dispatch and cannot run until the per-user API-key vault (and, for Snowflake,
-  the account-scoped OAuth exchange) and placement-aware injection land, so no
-  key or token is custodied and Composio stays authoritative.
-- The three former code-shape blockers are closed in the shared core without
-  activation:
+- The API-key lifecycle now has encrypted owner-scoped custody, authenticated
+  connect/status/disconnect, exact schemas, fixed-origin dispatch, and
+  placement-aware credential injection for `firecrawl`, `tavily`, `exa`,
+  `serpapi`, `perplexityai`, `posthog` (US Cloud), `ably`, `abuseipdb`,
+  `peopledatalabs`, `44api`, `7shifts`, `abyssale`, `0codekit`, `2chat`,
+  `apollo`, and `ashby`. These are `executor_ready`, not activated: every call
+  still needs independent deployment enablement, representative-call
+  verification, an active encrypted owner credential, and rollout selection.
+- `1password`, `21risk`, `abstract`, and `snowflake` remain `planner_ready` and
+  Composio-owned. Their remaining blockers are documented in the backend
+  connector README; no descriptor or readiness claim fakes an executable
+  credential model.
+- The planner catalog retains these safety boundaries:
   - **Snowflake account-scoped origin** — `requiresTenantOrigin` plus a
     `tenantOriginSuffix` (`.snowflakecomputing.com`) bound only through
     `resolveDeferredTenantOrigin`, which enforces https, an origin-only URL, and
     a real subdomain of the official suffix and rejects any arbitrary host, the
-    bare suffix, look-alikes, downgrades, and credentialed URLs.
+    bare suffix, look-alikes, downgrades, and credentialed URLs. This closes
+    origin confusion only; it does not establish Snowflake's credential model.
   - **Abstract per-product host** — an explicit action→official-host map
     (`fixedApiOriginByAction`, all under `*.abstractapi.com`), resolved by
     `resolveDeferredActionOrigin`; no single or model-chosen base URL.
   - **44API digit-leading actions** — the exact public/upstream `44API_*` slugs
-    are preserved; the catalog stores the established `FORTYFOUR_API_*` safe
-    alias and `canonicalizeDeferredActionName` maps the public slug onto it for
-    the strict safe-action invariant. The public contract is unchanged.
+    are preserved; the deferred planner's established `FORTYFOUR_API_*` aliases
+    are canonicalized inside the descriptor-backed executor. The public
+    contract is unchanged.
 - `FIRST_PARTY_LOCAL_EXECUTION_ENABLED` is **empty by design** — the deliberate
   switch that would let a future native dispatcher run. It mirrors the equally
   empty `PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS` in
@@ -119,23 +117,26 @@ a connector production-ready.
 
 ### API-key connectors
 
-API-key connectors authenticate **per user**. In the current Composio-fallback
-model, the user connects their own account/key through Composio's auth flow — no
-global Convex secret is required. Native activation is blocked until the shared
-backend has encrypted per-user API-key custody, an authenticated connect UI,
-provider-specific injection, and representative live-call verification.
-Declarative `tokenKey` metadata is not credential custody. Do not pre-provision
-shared or paid API keys.
+API-key connectors authenticate **per user**; no global provider credential is
+required. The authenticated first-party prompt stores the credential in the
+owner-scoped encrypted Convex vault and returns metadata only. The executor
+injects it after relative-path planning into an enumerated header, query, Bearer,
+or Basic location and makes one non-redirecting request. Activation remains
+blocked until a provider is in both deployment allowlists and a representative
+call has been verified. Do not pre-provision shared or paid API keys.
 
 ## Known constraints / findings
 
 - **44API keeps its exact toolkit compatibility**: public id `44api`, display /
   upstream prefix `44API`, and exact action prefix `44API_*`. The identifier
   guard admits that digit-leading action shape only for the `44api` connector,
-  and the deferred planner catalog stores the `FORTYFOUR_API_*` safe alias
-  (`canonicalizeDeferredActionName`) so the strict internal safe-action
-  invariant holds without renaming the public contract. Official origin
-  `https://api.44api.dev`, credential header `X-API-Key`.
+  and only the deferred planner uses the `FORTYFOUR_API_*` aliases
+  (`canonicalizeDeferredActionName`). The public contract is not renamed.
+  Official origin `https://api.44api.dev`, credential header `X-API-Key`.
+- **7shifts keeps both reviewed catalogs**: the API-key descriptor owns the
+  `SEVENSHIFTS_*` access-token actions and the existing exact `7SHIFTS_*`
+  public actions. The digit-leading guard admits `7SHIFTS_*` only for connector
+  id `7shifts`; other connectors fail closed.
 - **Snowflake** OAuth is account-scoped; the native provider config is
   intentionally `null` (status `missing_oauth_app`) until an account URL env is
   set. This is correct, not a bug. The deferred planner never accepts an

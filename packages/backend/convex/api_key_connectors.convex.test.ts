@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
+import Ajv from "ajv";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -8,6 +9,7 @@ import schema from "./schema";
 import {
   API_KEY_PROVIDER_DESCRIPTORS,
   getApiKeyProviderDescriptor,
+  isApiKeyProviderVerified,
   requireReadyApiKeyProvider,
   validateApiKeyCredential,
   validateApiKeyProviderDescriptors,
@@ -22,10 +24,131 @@ import {
   firstPartyActionOperation,
   firstPartyProviderForConnectorAction,
 } from "./connectors/executors/first_party";
+import {
+  DEFERRED_API_KEY_PROVIDERS,
+  resolveDeferredTenantOrigin,
+} from "./connectors/executors/api_key";
+import { isProviderEnabled } from "./connectors/env";
 
 const modules = import.meta.glob("./**/*.ts");
 const ownerId = "https://issuer.test|api-key-owner";
 const otherOwnerId = "https://issuer.test|other-api-key-owner";
+
+const PROMOTED_PROVIDER_CASES = [
+  {
+    connectorId: "tavily",
+    action: "TAVILY_SEARCH",
+    operation: "read",
+    expectedMethod: "POST",
+    input: { query: "stella" },
+    expectedUrl: "https://api.tavily.com/search",
+    authHeader: "authorization",
+  },
+  {
+    connectorId: "perplexityai",
+    action: "PERPLEXITYAI_SEARCH",
+    operation: "read",
+    expectedMethod: "POST",
+    input: { query: "stella" },
+    expectedUrl: "https://api.perplexity.ai/search",
+    authHeader: "authorization",
+  },
+  {
+    connectorId: "posthog",
+    action: "POSTHOG_LIST_PROJECTS",
+    operation: "read",
+    expectedMethod: "GET",
+    input: {},
+    expectedUrl: "https://us.posthog.com/api/projects/",
+    authHeader: "authorization",
+  },
+  {
+    connectorId: "ably",
+    action: "ABLY_LIST_CHANNELS",
+    operation: "read",
+    expectedMethod: "GET",
+    input: { prefix: "support" },
+    expectedUrl: "https://rest.ably.io/channels?prefix=support",
+    apiKey: "app.key-id:ably-secret-value",
+    authHeader: "authorization",
+  },
+  {
+    connectorId: "abuseipdb",
+    action: "ABUSEIPDB_REPORT_IP",
+    operation: "write",
+    expectedMethod: "POST",
+    input: { ip: "203.0.113.9", categories: "18,22", comment: "spam" },
+    expectedUrl: "https://api.abuseipdb.com/api/v2/report",
+    authHeader: "key",
+    expectedContentType: "application/x-www-form-urlencoded",
+    expectedBody: "ip=203.0.113.9&categories=18%2C22&comment=spam",
+  },
+  {
+    connectorId: "peopledatalabs",
+    action: "PEOPLEDATALABS_ENRICH_PERSON_DATA",
+    operation: "read",
+    expectedMethod: "GET",
+    input: { email: "person@example.com" },
+    expectedUrl:
+      "https://api.peopledatalabs.com/v5/person/enrich?email=person%40example.com",
+    authHeader: "x-api-key",
+  },
+  {
+    connectorId: "apollo",
+    action: "APOLLO_PEOPLE_SEARCH",
+    operation: "read",
+    expectedMethod: "POST",
+    input: { q_keywords: "developer" },
+    expectedUrl: "https://api.apollo.io/v1/mixed_people/search",
+    authHeader: "x-api-key",
+  },
+  {
+    connectorId: "2chat",
+    action: "TWOCHAT_LIST_WHATSAPP_NUMBERS",
+    operation: "read",
+    expectedMethod: "GET",
+    input: { page_number: 2 },
+    expectedUrl:
+      "https://api.p.2chat.io/open/whatsapp/get-numbers?page_number=2",
+    authHeader: "x-user-api-key",
+  },
+  {
+    connectorId: "7shifts",
+    action: "7SHIFTS_LIST_SHIFTS",
+    operation: "read",
+    expectedMethod: "GET",
+    input: { company_id: "123", limit: 5 },
+    expectedUrl: "https://api.7shifts.com/v2/company/123/shifts?limit=5",
+    authHeader: "authorization",
+  },
+  {
+    connectorId: "abyssale",
+    action: "ABYSSALE_GET_TEMPLATE",
+    operation: "read",
+    expectedMethod: "GET",
+    input: { templateId: "template-1" },
+    expectedUrl: "https://api.abyssale.com/templates/template-1",
+    authHeader: "x-api-key",
+  },
+  {
+    connectorId: "0codekit",
+    action: "ZEROCODEKIT_PDF_METADATA",
+    operation: "read",
+    expectedMethod: "POST",
+    input: { url: "https://example.com/file.pdf" },
+    expectedUrl: "https://prod.0codekit.com/pdf/metadata/info",
+    authHeader: "auth",
+  },
+  {
+    connectorId: "44api",
+    action: "44API_VALIDATE_VAT_NUMBER",
+    operation: "read",
+    expectedMethod: "POST",
+    input: { vatNumber: "69838046", countryCode: "SI" },
+    expectedUrl: "https://api.44api.dev/webhook/validate-vat",
+    authHeader: "x-api-key",
+  },
+] as const;
 const API_KEY = "fc-test-secret-123456789";
 
 const MASTER_KEY = btoa(
@@ -137,6 +260,27 @@ afterEach(() => {
 });
 
 describe("API-key provider descriptors", () => {
+  it("keeps deployment enablement and representative verification independent", () => {
+    const providerKeys = API_KEY_PROVIDER_DESCRIPTORS.map(
+      (descriptor) => descriptor.providerKey,
+    );
+    process.env.STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS =
+      providerKeys.join(",");
+    process.env.STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS = "";
+    for (const providerKey of providerKeys) {
+      expect(isProviderEnabled(providerKey), providerKey).toBe(true);
+      expect(isApiKeyProviderVerified(providerKey), providerKey).toBe(false);
+    }
+
+    process.env.STELLA_CONNECTOR_OAUTH_ENABLED_PROVIDERS = "";
+    process.env.STELLA_CONNECTOR_API_KEY_VERIFIED_PROVIDERS =
+      providerKeys.join(",");
+    for (const providerKey of providerKeys) {
+      expect(isProviderEnabled(providerKey), providerKey).toBe(false);
+      expect(isApiKeyProviderVerified(providerKey), providerKey).toBe(true);
+    }
+  });
+
   it("publishes only reviewed fixed-origin descriptors consistent with planning", () => {
     expect(validateApiKeyProviderDescriptors()).toEqual([]);
     expect(
@@ -150,6 +294,18 @@ describe("API-key provider descriptors", () => {
       ["exa", "https://api.exa.ai", "header"],
       ["serpapi", "https://serpapi.com", "query"],
       ["ashby", "https://api.ashbyhq.com", "basic"],
+      ["tavily", "https://api.tavily.com", "bearer"],
+      ["perplexityai", "https://api.perplexity.ai", "bearer"],
+      ["posthog", "https://us.posthog.com", "bearer"],
+      ["ably", "https://rest.ably.io", "basic"],
+      ["abuseipdb", "https://api.abuseipdb.com", "header"],
+      ["peopledatalabs", "https://api.peopledatalabs.com", "header"],
+      ["apollo", "https://api.apollo.io", "header"],
+      ["2chat", "https://api.p.2chat.io", "header"],
+      ["7shifts", "https://api.7shifts.com", "bearer"],
+      ["abyssale", "https://api.abyssale.com", "header"],
+      ["0codekit", "https://prod.0codekit.com", "header"],
+      ["44api", "https://api.44api.dev", "header"],
     ]);
   });
 
@@ -166,6 +322,67 @@ describe("API-key provider descriptors", () => {
     expect(firstPartyActionOperation("ashby", "ASHBY_CREATE_CANDIDATE")).toBe(
       "write",
     );
+    for (const testCase of PROMOTED_PROVIDER_CASES) {
+      expect(
+        firstPartyProviderForConnectorAction(
+          testCase.connectorId,
+          testCase.action,
+        ),
+        `${testCase.connectorId}:${testCase.action}`,
+      ).toBe(testCase.connectorId);
+      expect(
+        firstPartyActionOperation(testCase.connectorId, testCase.action),
+      ).toBe(testCase.operation);
+    }
+    expect(
+      firstPartyProviderForConnectorAction(
+        "44api",
+        "FORTYFOUR_API_VALIDATE_VAT_NUMBER",
+      ),
+    ).toBe("44api");
+    expect(
+      firstPartyActionOperation("44api", "FORTYFOUR_API_VALIDATE_VAT_NUMBER"),
+    ).toBe("read");
+  });
+
+  it("compiles every published action schema and accepts representative inputs", () => {
+    const ajv = new Ajv({ strict: false, allErrors: true });
+    for (const descriptor of API_KEY_PROVIDER_DESCRIPTORS) {
+      for (const [action, actionDescriptor] of Object.entries(
+        descriptor.actions,
+      )) {
+        expect(
+          () => ajv.compile(actionDescriptor.inputSchema),
+          `${descriptor.connectorId}:${action}`,
+        ).not.toThrow();
+      }
+    }
+    for (const testCase of PROMOTED_PROVIDER_CASES) {
+      const action = getApiKeyProviderDescriptor(testCase.connectorId)!.actions[
+        testCase.action
+      ];
+      expect(
+        action,
+        `${testCase.connectorId}:${testCase.action}`,
+      ).toBeDefined();
+      const validate = ajv.compile(action!.inputSchema);
+      expect(validate(testCase.input), JSON.stringify(validate.errors)).toBe(
+        true,
+      );
+      expect(
+        validate({ ...testCase.input, unreviewed_argument: true }),
+        `${testCase.connectorId}:${testCase.action} accepted an unknown field`,
+      ).toBe(false);
+    }
+    for (const [connectorId, action] of [
+      ["peopledatalabs", "PEOPLEDATALABS_ENRICH_PERSON_DATA"],
+      ["peopledatalabs", "PEOPLEDATALABS_PEOPLE_SEARCH_ELASTIC"],
+      ["apollo", "APOLLO_PEOPLE_ENRICH"],
+    ] as const) {
+      const schema =
+        getApiKeyProviderDescriptor(connectorId)!.actions[action]!.inputSchema;
+      expect(ajv.compile(schema)({}), `${connectorId}:${action}`).toBe(false);
+    }
   });
 
   it("rejects malformed credentials and requires independent enablement and verification", async () => {
@@ -184,6 +401,18 @@ describe("API-key provider descriptors", () => {
       validateApiKeyCredential(
         "username:password-shaped-secret",
         getApiKeyProviderDescriptor("ashby")!.auth,
+      ),
+    ).toThrow(/invalid_credential/);
+    expect(
+      validateApiKeyCredential(
+        "app.key-id:ably-secret-value",
+        getApiKeyProviderDescriptor("ably")!.auth,
+      ),
+    ).toBe("app.key-id:ably-secret-value");
+    expect(() =>
+      validateApiKeyCredential(
+        "ably-key-without-credentials-separator",
+        getApiKeyProviderDescriptor("ably")!.auth,
       ),
     ).toThrow(/invalid_credential/);
 
@@ -269,15 +498,90 @@ describe("API-key auth placement and egress controls", () => {
     }
   });
 
+  it("executes one fixed-origin authenticated request for every promoted provider", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => jsonResponse({ ok: true }));
+
+    for (const testCase of PROMOTED_PROVIDER_CASES) {
+      fetchMock.mockClear();
+      const descriptor = getApiKeyProviderDescriptor(testCase.connectorId)!;
+      const apiKey = "apiKey" in testCase ? testCase.apiKey : API_KEY;
+      await expect(
+        executeApiKeyProviderAction({
+          descriptor,
+          apiKey,
+          action: testCase.action,
+          input: { ...testCase.input },
+          operation: testCase.operation,
+        }),
+        `${testCase.connectorId}:${testCase.action}`,
+      ).resolves.toEqual({
+        output: { ok: true },
+        providerStatusClass: "ok",
+      });
+      expect(fetchMock, testCase.connectorId).toHaveBeenCalledOnce();
+      const [requestUrl, requestInit] = fetchMock.mock.calls[0]!;
+      expect(String(requestUrl)).toBe(testCase.expectedUrl);
+      expect(requestInit?.method).toBe(testCase.expectedMethod);
+      expect(requestInit?.redirect).toBe("manual");
+
+      const headers = requestInit?.headers as Headers;
+      const expectedAuth =
+        testCase.connectorId === "ably"
+          ? `Basic ${btoa(apiKey)}`
+          : testCase.authHeader === "authorization"
+            ? `Bearer ${apiKey}`
+            : apiKey;
+      expect(headers.get(testCase.authHeader)).toBe(expectedAuth);
+      const safeHeaderNames = new Set([
+        "accept",
+        "auth",
+        "authorization",
+        "content-type",
+        "key",
+        "x-api-key",
+        "x-api-version",
+        "x-user-api-key",
+      ]);
+      for (const [name, value] of headers.entries()) {
+        expect(
+          safeHeaderNames.has(name),
+          `${testCase.connectorId}:${name}`,
+        ).toBe(true);
+        if (name !== testCase.authHeader) expect(value).not.toContain(apiKey);
+      }
+      expect(String(requestUrl)).not.toContain(apiKey);
+      expect(String(requestInit?.body ?? "")).not.toContain(apiKey);
+      if ("expectedContentType" in testCase) {
+        expect(headers.get("content-type")).toBe(testCase.expectedContentType);
+      }
+      if ("expectedBody" in testCase) {
+        expect(requestInit?.body).toBe(testCase.expectedBody);
+      } else if (testCase.expectedMethod === "POST") {
+        expect(JSON.parse(String(requestInit?.body))).toEqual(testCase.input);
+      }
+    }
+  });
+
   it("rejects cross-origin paths and provider-supplied arbitrary headers", () => {
+    for (const descriptor of API_KEY_PROVIDER_DESCRIPTORS) {
+      for (const path of [
+        "//attacker.test/collect",
+        "https://attacker.test/collect",
+        "/safe\r\nx-forwarded-host: attacker.test",
+      ]) {
+        expect(() =>
+          buildAuthenticatedApiKeyRequest({
+            descriptor,
+            apiKey:
+              descriptor.providerKey === "ably" ? "id:secret-value" : API_KEY,
+            request: { method: "GET", path },
+          }),
+        ).toThrow(/normalization_error/);
+      }
+    }
     const descriptor = getApiKeyProviderDescriptor("firecrawl")!;
-    expect(() =>
-      buildAuthenticatedApiKeyRequest({
-        descriptor,
-        apiKey: API_KEY,
-        request: { method: "GET", path: "//attacker.test/collect" },
-      }),
-    ).toThrow(/normalization_error/);
     expect(() =>
       buildAuthenticatedApiKeyRequest({
         descriptor,
@@ -289,6 +593,43 @@ describe("API-key auth placement and egress controls", () => {
         },
       }),
     ).toThrow(/normalization_error/);
+  });
+
+  it("fails closed for unproven tenant origins and Snowflake look-alikes", () => {
+    const deferred = new Map(
+      DEFERRED_API_KEY_PROVIDERS.map((provider) => [
+        provider.connectorId,
+        provider,
+      ]),
+    );
+    expect(
+      resolveDeferredTenantOrigin(
+        deferred.get("1password")!,
+        "https://connect.internal.example",
+      ),
+    ).toBeNull();
+    expect(
+      resolveDeferredTenantOrigin(
+        deferred.get("21risk")!,
+        "https://tenant.21risk.example",
+      ),
+    ).toBeNull();
+
+    const snowflake = deferred.get("snowflake")!;
+    expect(
+      resolveDeferredTenantOrigin(
+        snowflake,
+        "https://org-account.snowflakecomputing.com",
+      ),
+    ).toBe("https://org-account.snowflakecomputing.com");
+    for (const candidate of [
+      "https://snowflakecomputing.com",
+      "https://account.snowflakecomputing.com.attacker.test",
+      "http://account.snowflakecomputing.com",
+      "https://account.snowflakecomputing.com/api/v2/statements",
+    ]) {
+      expect(resolveDeferredTenantOrigin(snowflake, candidate)).toBeNull();
+    }
   });
 
   it("does not follow redirects or expose credentials in output or errors", async () => {

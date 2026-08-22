@@ -5,6 +5,7 @@ import {
   getFirstPartyProviderFamilyStatus,
 } from "@stella/runtime/kernel/connectors/first-party-provider-families";
 import { AUTHORITATIVE_PAGE_1_2_CONNECTOR_OWNERSHIP } from "@stella/runtime/kernel/connectors/first-party-connector-ownership";
+import { isSafeBackendComposioActionName } from "@stella/runtime/kernel/connectors/connector-identifiers";
 
 const SAFE_CONNECTOR_ID = /^[a-z0-9][a-z0-9_-]*$/u;
 const EXPECTED_IDS = [
@@ -60,6 +61,21 @@ const EXPECTED_IDS = [
 ] as const;
 
 describe("reconciled first-party provider-family contract", () => {
+  it("keeps exact digit-leading action names connector-scoped", () => {
+    expect(
+      isSafeBackendComposioActionName("44api", "44API_VALIDATE_VAT_NUMBER"),
+    ).toBe(true);
+    expect(
+      isSafeBackendComposioActionName("7shifts", "7SHIFTS_LIST_SHIFTS"),
+    ).toBe(true);
+    expect(
+      isSafeBackendComposioActionName("outlook", "44API_VALIDATE_VAT_NUMBER"),
+    ).toBe(false);
+    expect(
+      isSafeBackendComposioActionName("outlook", "7SHIFTS_LIST_SHIFTS"),
+    ).toBe(false);
+  });
+
   it("covers every assigned connector exactly once without changing public ids", () => {
     const ids = FIRST_PARTY_PROVIDER_FAMILY_STATUS.map(
       (entry) => entry.connectorId,
@@ -78,19 +94,55 @@ describe("reconciled first-party provider-family contract", () => {
       FIRST_PARTY_PROVIDER_FAMILY_STATUS,
       (entry) => entry.codeStatus,
     );
-    expect(counts.executor_ready).toHaveLength(30);
-    expect(counts.planner_ready).toHaveLength(19);
+    expect(counts.executor_ready).toHaveLength(45);
+    expect(counts.planner_ready).toHaveLength(4);
     expect(counts.metadata_only ?? []).toHaveLength(0);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "external_blocked",
       ),
-    ).toHaveLength(30);
+    ).toHaveLength(45);
     expect(
       FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
         (entry) => entry.activationStatus === "code_blocked",
       ),
-    ).toHaveLength(19);
+    ).toHaveLength(4);
+    const plannerReady = FIRST_PARTY_PROVIDER_FAMILY_STATUS.filter(
+      (entry) => entry.codeStatus === "planner_ready",
+    );
+    expect(plannerReady.map((entry) => entry.connectorId).sort()).toEqual([
+      "1password",
+      "21risk",
+      "abstract",
+      "snowflake",
+    ]);
+    for (const entry of plannerReady) {
+      expect(entry.activationBlockers).toContain(
+        "reviewed executable descriptor, exact action schemas, and credential placement",
+      );
+    }
+    for (const id of [
+      "firecrawl",
+      "tavily",
+      "exa",
+      "serpapi",
+      "perplexityai",
+      "posthog",
+      "ably",
+      "abuseipdb",
+      "peopledatalabs",
+      "44api",
+      "7shifts",
+      "abyssale",
+      "0codekit",
+      "2chat",
+      "apollo",
+      "ashby",
+    ]) {
+      expect(getFirstPartyProviderFamilyStatus(id)?.codeStatus, id).toBe(
+        "executor_ready",
+      );
+    }
   });
 
   it("preserves shared grants and digit-leading toolkit ids", () => {

@@ -281,6 +281,14 @@ export const METHOD_NAMES = {
     "internal.worker.googleWorkspace.connect",
   INTERNAL_WORKER_GOOGLE_WORKSPACE_DISCONNECT:
     "internal.worker.googleWorkspace.disconnect",
+  /**
+   * Runtime AuthOwner RPCs (auth-inversion P1). The worker owns a mirrored
+   * Better Auth session store; the desktop imports/dual-writes session
+   * material and may pull sessions/tokens from the worker.
+   */
+  AUTH_IMPORT: "internal.worker.auth.import",
+  AUTH_GET_CONVEX_TOKEN: "internal.worker.auth.getConvexToken",
+  AUTH_GET_SESSION: "internal.worker.auth.getSession",
 } as const;
 
 export const NOTIFICATION_NAMES = {
@@ -295,6 +303,8 @@ export const NOTIFICATION_NAMES = {
   MODEL_CATALOG_UPDATED: "modelCatalog.updated",
   PROJECTS_UPDATED: "projects.updated",
   APPROVAL_REQUESTED: "approval.requested",
+  /** Runtime AuthOwner state changed (token minted, import applied, sign-out). */
+  AUTH_CHANGED: "auth.changed",
 } as const;
 
 export type RuntimeInitializeParams = {
@@ -351,6 +361,29 @@ export type HostRuntimeAuthRefreshResult = {
   authenticated: boolean;
   token: string | null;
   hasConnectedAccount: boolean;
+};
+
+/** Auth-inversion P1: desktop -> worker session import (migration/dual-write). */
+export type RuntimeAuthImportParams = {
+  cookie: string | null;
+  sessionData: string | null;
+};
+
+export type RuntimeAuthImportResult = {
+  ok: boolean;
+  authenticated: boolean;
+  hasConnectedAccount: boolean;
+};
+
+export type RuntimeAuthTokenParams = {
+  forceRefresh?: boolean;
+};
+
+/** Worker AuthOwner state-change notification (`auth.changed`). */
+export type RuntimeAuthChangedEvent = {
+  authenticated: boolean;
+  hasConnectedAccount: boolean;
+  reason: "import" | "refresh" | "signed-out";
 };
 
 import type { ChatContext } from "@stella/contracts";

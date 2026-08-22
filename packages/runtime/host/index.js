@@ -1431,6 +1431,26 @@ export class StellaRuntimeHost {
             recordActivity: true,
         });
     }
+    /**
+     * Auth-inversion P1: desktop -> worker session migration/dual-write.
+     * Throws when the connected worker predates the AuthOwner RPCs
+     * (detached-worker version skew); callers treat that as legacy mode.
+     */
+    async authImport(payload) {
+        return await this.requestWorker(METHOD_NAMES.AUTH_IMPORT, payload, {
+            ensureWorker: true,
+        });
+    }
+    async authGetSession() {
+        return await this.requestWorker(METHOD_NAMES.AUTH_GET_SESSION, undefined, {
+            ensureWorker: true,
+        });
+    }
+    async authGetConvexToken(payload = {}) {
+        return await this.requestWorker(METHOD_NAMES.AUTH_GET_CONVEX_TOKEN, payload, {
+            ensureWorker: true,
+        });
+    }
     async webSearch(query, options) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_WEB_SEARCH, { query, ...options }, {
             ensureWorker: true,
@@ -1933,6 +1953,11 @@ export class StellaRuntimeHost {
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.PROJECTS_UPDATED, () => {
             this.events.emit("projects-updated", undefined);
+        });
+        peer.registerNotificationHandler(NOTIFICATION_NAMES.AUTH_CHANGED, (params) => {
+            // Auth-inversion P1: worker AuthOwner state changes fan out to
+            // host clients (Electron main re-broadcasts to renderers in P2).
+            this.events.emit("auth-changed", params);
         });
     }
     startDevWatcher(workerEntryPath) {

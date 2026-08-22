@@ -37,6 +37,14 @@ const handleStoreWebLocalAction = async (action, handlers) => {
         }
         case "listNativeIntegrations":
             return await window.electronAPI?.nativeIntegrations?.list?.();
+        case "connectNativeIntegration":
+            return await window.electronAPI?.nativeIntegrations?.enable?.({
+                id: String(payload.id ?? ""),
+            });
+        case "disconnectNativeIntegration":
+            return await window.electronAPI?.nativeIntegrations?.disable?.({
+                id: String(payload.id ?? ""),
+            });
         default:
             throw new Error("The desktop Store is browse-only.");
     }

@@ -2,6 +2,14 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
+import {
+  acquireCloseable,
+  runDiscovery,
+  timeoutFallback,
+  tryDiscovery,
+  tryDiscoverySync,
+} from "./effect-io.js";
 import type {
   MessagesNotesSignals,
   ContactFrequency,
@@ -14,10 +22,6 @@ const log = (...args: unknown[]) => console.error("[messages-notes]", ...args);
 
 const getErrorCode = (error: unknown): string | undefined =>
   (error as NodeJS.ErrnoException | undefined)?.code;
-
-// Timeout wrapper
-const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
-  Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 
 // SQLite helper
 type SqliteDatabase = {
@@ -36,21 +40,22 @@ const openDatabase = async (dbPath: string): Promise<SqliteDatabase> => {
  * Collect iMessage metadata (contacts and group chats)
  * macOS only - requires Full Disk Access
  */
-async function collectIMessageMetadata(): Promise<{
+const collectIMessageMetadataEffect: Effect.Effect<{
   contacts: ContactFrequency[];
   groupChats: GroupChat[];
-}> {
+}> = Effect.suspend(() => {
   if (process.platform !== "darwin") {
-    return { contacts: [], groupChats: [] };
+    return Effect.succeed({ contacts: [], groupChats: [] });
   }
 
   const sourceDb = path.join(os.homedir(), "Library/Messages/chat.db");
 
-  try {
-    // Open the live database directly
-    const db = await openDatabase(sourceDb);
+  return Effect.scoped(
+    Effect.gen(function* () {
+      // Open the live database directly
+      const db = yield* acquireCloseable(() => openDatabase(sourceDb));
 
-    try {
+      return yield* tryDiscoverySync(() => {
       // Query contact frequency (NO message body - only handle + count)
       const contactQuery = `
         SELECT
@@ -103,39 +108,39 @@ async function collectIMessageMetadata(): Promise<{
       log(`Collected ${contacts.length} contacts, ${groupChats.length} group chats`);
 
       return { contacts, groupChats };
-    } finally {
-      db.close();
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EPERM" || (error as NodeJS.ErrnoException).code === "EACCES") {
-      log("Messages access denied - grant Full Disk Access");
-    } else {
-      log("Error collecting iMessage metadata:", error);
-    }
-    return { contacts: [], groupChats: [] };
-  }
-}
+      });
+    }),
+  ).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        if ((error as NodeJS.ErrnoException).code === "EPERM" || (error as NodeJS.ErrnoException).code === "EACCES") {
+          log("Messages access denied - grant Full Disk Access");
+        } else {
+          log("Error collecting iMessage metadata:", error);
+        }
+        return { contacts: [], groupChats: [] };
+      }),
+    ),
+  );
+});
 
 /**
  * Collect Apple Notes metadata (folders and counts)
  * macOS only - requires Full Disk Access
  */
-async function collectAppleNotes(): Promise<NoteFolder[]> {
-  if (process.platform !== "darwin") {
-    return [];
-  }
+const collectAppleNotesEffect: Effect.Effect<NoteFolder[]> = Effect.suspend(
+  () => {
+    if (process.platform !== "darwin") {
+      return Effect.succeed<NoteFolder[]>([]);
+    }
 
-  const sourceDb = path.join(
-    os.homedir(),
-    "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
-  );
+    const sourceDb = path.join(
+      os.homedir(),
+      "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
+    );
 
-  try {
-    const db = await openDatabase(sourceDb);
-
-    try {
-      // Try primary query first
-      let query = `
+    // Try primary query first
+    const primaryQuery = `
         SELECT
           COALESCE(folder.ZTITLE2, 'Uncategorized') as folder_name,
           COUNT(*) as note_count
@@ -146,15 +151,8 @@ async function collectAppleNotes(): Promise<NoteFolder[]> {
         GROUP BY folder_name
         ORDER BY note_count DESC
       `;
-
-      let rows: Array<{ folder_name: string; note_count: number }>;
-
-      try {
-        rows = db.prepare(query).all() as Array<{ folder_name: string; note_count: number }>;
-      } catch {
-        // Try fallback with alternative column names
-        log("Primary Notes query failed, trying fallback");
-        query = `
+    // Fallback with alternative column names
+    const alternativeQuery = `
           SELECT
             COALESCE(folder.ZTITLE, 'Uncategorized') as folder_name,
             COUNT(*) as note_count
@@ -165,44 +163,67 @@ async function collectAppleNotes(): Promise<NoteFolder[]> {
           GROUP BY folder_name
           ORDER BY note_count DESC
         `;
-
-        try {
-          rows = db.prepare(query).all() as Array<{ folder_name: string; note_count: number }>;
-        } catch {
-          // Final fallback - just count notes
-          log("Alternative Notes query failed, using simple fallback");
-          query = `
+    // Final fallback - just count notes
+    const simpleQuery = `
             SELECT 'Notes' as folder_name, COUNT(*) as note_count
             FROM ZICCLOUDSYNCINGOBJECT
             WHERE ZTYPEUTI = 'com.apple.notes.note'
           `;
-          rows = db.prepare(query).all() as Array<{ folder_name: string; note_count: number }>;
-        }
-      }
 
-      const folders: NoteFolder[] = rows.map((row) => ({
-        name: row.folder_name,
-        noteCount: row.note_count,
-      }));
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const db = yield* acquireCloseable(() => openDatabase(sourceDb));
 
-      log(`Collected ${folders.length} note folders`);
+        const runQuery = (query: string) =>
+          tryDiscoverySync(
+            () =>
+              db.prepare(query).all() as Array<{
+                folder_name: string;
+                note_count: number;
+              }>,
+          );
 
-      return folders;
-    } finally {
-      db.close();
-    }
-  } catch (error) {
-    const code = getErrorCode(error);
-    if (code === "EPERM" || code === "EACCES") {
-      log("Apple Notes access denied - grant Full Disk Access");
-    } else if (code === "ENOENT") {
-      log("Apple Notes database not found");
-    } else {
-      log("Error collecting Apple Notes:", error);
-    }
-    return [];
-  }
-}
+        const rows = yield* runQuery(primaryQuery).pipe(
+          Effect.catch(() =>
+            Effect.suspend(() => {
+              log("Primary Notes query failed, trying fallback");
+              return runQuery(alternativeQuery);
+            }),
+          ),
+          Effect.catch(() =>
+            Effect.suspend(() => {
+              log("Alternative Notes query failed, using simple fallback");
+              return runQuery(simpleQuery);
+            }),
+          ),
+        );
+
+        const folders: NoteFolder[] = rows.map((row) => ({
+          name: row.folder_name,
+          noteCount: row.note_count,
+        }));
+
+        log(`Collected ${folders.length} note folders`);
+
+        return folders;
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          const code = getErrorCode(error);
+          if (code === "EPERM" || code === "EACCES") {
+            log("Apple Notes access denied - grant Full Disk Access");
+          } else if (code === "ENOENT") {
+            log("Apple Notes database not found");
+          } else {
+            log("Error collecting Apple Notes:", error);
+          }
+          return [];
+        }),
+      ),
+    );
+  },
+);
 
 // Reminders lists managed by the OS/Siri, not the user — filtered out.
 const REMINDERS_SYSTEM_LISTS = new Set(["SiriFoundInApps"]);
@@ -216,11 +237,10 @@ const REMINDERS_SYSTEM_LISTS = new Set(["SiriFoundInApps"]);
  * (ZNAME), ZREMCDREMINDER holds items linked via ZLIST. The legacy
  * ~/Library/Reminders path is kept as a fallback for old macOS.
  */
-async function collectReminders(): Promise<NoteFolder[]> {
-  if (process.platform !== "darwin") {
-    return [];
-  }
-
+const findRemindersStores = async (): Promise<{
+  storesDir: string;
+  storeFiles: string[];
+} | null> => {
   const possiblePaths = [
     path.join(
       os.homedir(),
@@ -229,36 +249,45 @@ async function collectReminders(): Promise<NoteFolder[]> {
     path.join(os.homedir(), "Library/Reminders/Container_v1/Stores"),
   ];
 
-  let storesDir: string | null = null;
-  let storeFiles: string[] = [];
   for (const basePath of possiblePaths) {
     try {
       const files = await fs.readdir(basePath);
       const sqliteFiles = files.filter((f) => f.endsWith(".sqlite"));
       if (sqliteFiles.length > 0) {
-        storesDir = basePath;
-        storeFiles = sqliteFiles;
-        break;
+        return { storesDir: basePath, storeFiles: sqliteFiles };
       }
     } catch {
       continue;
     }
   }
+  return null;
+};
 
-  if (!storesDir) {
-    log("Reminders database not found");
-    return [];
-  }
+const collectRemindersEffect: Effect.Effect<NoteFolder[], unknown> =
+  Effect.suspend(() => {
+    if (process.platform !== "darwin") {
+      return Effect.succeed<NoteFolder[]>([]);
+    }
 
-  // List name -> active reminder count, merged across account stores.
-  const listCounts = new Map<string, number>();
+    return Effect.gen(function* () {
+      const stores = yield* tryDiscovery(() => findRemindersStores());
 
-  for (let index = 0; index < storeFiles.length; index += 1) {
-    const sourceDb = path.join(storesDir, storeFiles[index]);
-    try {
-      const db = await openDatabase(sourceDb);
-      try {
-        const query = `
+      if (!stores) {
+        log("Reminders database not found");
+        return [];
+      }
+      const { storesDir, storeFiles } = stores;
+
+      // List name -> active reminder count, merged across account stores.
+      const listCounts = new Map<string, number>();
+
+      for (let index = 0; index < storeFiles.length; index += 1) {
+        const sourceDb = path.join(storesDir, storeFiles[index]);
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const db = yield* acquireCloseable(() => openDatabase(sourceDb));
+            yield* tryDiscoverySync(() => {
+              const query = `
           SELECT
             l.ZNAME as name,
             (
@@ -269,49 +298,55 @@ async function collectReminders(): Promise<NoteFolder[]> {
           WHERE l.ZNAME IS NOT NULL
             AND l.ZMARKEDFORDELETION = 0
         `;
-        const rows = db.prepare(query).all() as Array<{
-          name: string;
-          note_count: number;
-        }>;
-        for (const row of rows) {
-          if (!row.name || REMINDERS_SYSTEM_LISTS.has(row.name)) continue;
-          listCounts.set(
-            row.name,
-            (listCounts.get(row.name) ?? 0) + row.note_count
-          );
-        }
-      } finally {
-        db.close();
+              const rows = db.prepare(query).all() as Array<{
+                name: string;
+                note_count: number;
+              }>;
+              for (const row of rows) {
+                if (!row.name || REMINDERS_SYSTEM_LISTS.has(row.name)) continue;
+                listCounts.set(
+                  row.name,
+                  (listCounts.get(row.name) ?? 0) + row.note_count
+                );
+              }
+            });
+          }),
+        ).pipe(
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              log(`Error collecting Reminders from ${storeFiles[index]}:`, error);
+            }),
+          ),
+        );
       }
-    } catch (error) {
-      log(`Error collecting Reminders from ${storeFiles[index]}:`, error);
-    }
-  }
 
-  const reminders: NoteFolder[] = Array.from(listCounts.entries())
-    .map(([name, noteCount]) => ({ name, noteCount }))
-    .sort((a, b) => b.noteCount - a.noteCount);
+      const reminders: NoteFolder[] = Array.from(listCounts.entries())
+        .map(([name, noteCount]) => ({ name, noteCount }))
+        .sort((a, b) => b.noteCount - a.noteCount);
 
-  log(`Collected ${reminders.length} reminder lists`);
-  return reminders;
-}
+      log(`Collected ${reminders.length} reminder lists`);
+      return reminders;
+    });
+  });
 
 /**
  * Collect Calendar metadata
  * macOS only - requires Full Disk Access
  */
-async function collectCalendar(): Promise<CalendarSummary[]> {
-  if (process.platform !== "darwin") {
-    return [];
-  }
+const collectCalendarEffect: Effect.Effect<CalendarSummary[]> = Effect.suspend(
+  () => {
+    if (process.platform !== "darwin") {
+      return Effect.succeed<CalendarSummary[]>([]);
+    }
 
-  const sourceDb = path.join(os.homedir(), "Library/Calendars/Calendar.sqlitedb");
+    const sourceDb = path.join(os.homedir(), "Library/Calendars/Calendar.sqlitedb");
 
-  try {
-    const db = await openDatabase(sourceDb);
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const db = yield* acquireCloseable(() => openDatabase(sourceDb));
 
-    try {
-      // Query for calendar names and event counts
+        return yield* tryDiscoverySync(() => {
+          // Query for calendar names and event counts
       const calendarQuery = `
         SELECT
           c.ZTITLE as calendar_name,
@@ -355,112 +390,155 @@ async function collectCalendar(): Promise<CalendarSummary[]> {
         };
       });
 
-      log(`Collected ${calendars.length} calendars`);
+          log(`Collected ${calendars.length} calendars`);
 
-      return calendars;
-    } finally {
-      db.close();
-    }
-  } catch (error) {
-    const code = getErrorCode(error);
-    if (code === "ENOENT") {
-      log("Calendar database not found");
-    } else if (code === "EPERM" || code === "EACCES") {
-      log("Calendar access denied - grant Full Disk Access");
-    } else {
-      log("Error collecting Calendar:", error);
-    }
-    return [];
-  }
-}
+          return calendars;
+        });
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          const code = getErrorCode(error);
+          if (code === "ENOENT") {
+            log("Calendar database not found");
+          } else if (code === "EPERM" || code === "EACCES") {
+            log("Calendar access denied - grant Full Disk Access");
+          } else {
+            log("Error collecting Calendar:", error);
+          }
+          return [];
+        }),
+      ),
+    );
+  },
+);
 
 /**
  * Collect Windows Sticky Notes metadata
  * Windows only
  */
-async function collectStickyNotes(): Promise<NoteFolder[]> {
-  if (process.platform !== "win32") {
-    return [];
-  }
-
-  const localAppData = process.env.LOCALAPPDATA;
-  if (!localAppData) {
-    log("LOCALAPPDATA not found");
-    return [];
-  }
-
-  const packagesDir = path.join(localAppData, "Packages");
-
-  try {
-    const packages = await fs.readdir(packagesDir);
-    const stickyNotesDir = packages.find((p) => p.startsWith("Microsoft.MicrosoftStickyNotes_"));
-
-    if (!stickyNotesDir) {
-      log("Sticky Notes package not found");
-      return [];
+const collectStickyNotesEffect: Effect.Effect<NoteFolder[]> = Effect.suspend(
+  () => {
+    if (process.platform !== "win32") {
+      return Effect.succeed<NoteFolder[]>([]);
     }
 
-    const sourceDb = path.join(packagesDir, stickyNotesDir, "LocalState/plum.sqlite");
+    const localAppData = process.env.LOCALAPPDATA;
+    if (!localAppData) {
+      log("LOCALAPPDATA not found");
+      return Effect.succeed<NoteFolder[]>([]);
+    }
 
-    const db = await openDatabase(sourceDb);
+    const packagesDir = path.join(localAppData, "Packages");
 
-    try {
-      // Try primary query first
-      let query = `SELECT 'Sticky Notes' as name, COUNT(*) as note_count FROM Note WHERE IsDeleted = 0`;
-      let rows: Array<{ name: string; note_count: number }>;
+    return Effect.gen(function* () {
+      const packages = yield* tryDiscovery(() => fs.readdir(packagesDir));
+      const stickyNotesDir = packages.find((p) => p.startsWith("Microsoft.MicrosoftStickyNotes_"));
 
-      try {
-        rows = db.prepare(query).all() as Array<{ name: string; note_count: number }>;
-      } catch {
-        // Fallback if schema is different
-        query = `SELECT 'Sticky Notes' as name, COUNT(*) as note_count FROM Note`;
-        rows = db.prepare(query).all() as Array<{ name: string; note_count: number }>;
+      if (!stickyNotesDir) {
+        log("Sticky Notes package not found");
+        return [];
       }
 
-      const notes: NoteFolder[] = rows.map((row) => ({
-        name: row.name,
-        noteCount: row.note_count,
-      }));
+      const sourceDb = path.join(packagesDir, stickyNotesDir, "LocalState/plum.sqlite");
 
-      log(`Collected ${notes.length} sticky note folders`);
+      return yield* Effect.scoped(
+        Effect.gen(function* () {
+          const db = yield* acquireCloseable(() => openDatabase(sourceDb));
 
-      return notes;
-    } finally {
-      db.close();
+          const runQuery = (query: string) =>
+            tryDiscoverySync(
+              () =>
+                db.prepare(query).all() as Array<{
+                  name: string;
+                  note_count: number;
+                }>,
+            );
+
+          // Try primary query first; fall back if schema is different.
+          const rows = yield* runQuery(
+            `SELECT 'Sticky Notes' as name, COUNT(*) as note_count FROM Note WHERE IsDeleted = 0`,
+          ).pipe(
+            Effect.catch(() =>
+              runQuery(
+                `SELECT 'Sticky Notes' as name, COUNT(*) as note_count FROM Note`,
+              ),
+            ),
+          );
+
+          const notes: NoteFolder[] = rows.map((row) => ({
+            name: row.name,
+            noteCount: row.note_count,
+          }));
+
+          log(`Collected ${notes.length} sticky note folders`);
+
+          return notes;
+        }),
+      );
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          log("Error collecting Sticky Notes:", error);
+          return [];
+        }),
+      ),
+    );
+  },
+);
+
+// Platform fan-in: the same per-source timeout budgets the pre-Effect
+// `Promise.all` of `withTimeout(...)` calls raced, run in parallel.
+const collectMessagesNotesEffect: Effect.Effect<MessagesNotesSignals, unknown> =
+  Effect.suspend(() => {
+    const platform = process.platform;
+
+    if (platform === "darwin") {
+      return Effect.all(
+        [
+          timeoutFallback(collectIMessageMetadataEffect, 10000, {
+            contacts: [],
+            groupChats: [],
+          }),
+          timeoutFallback(collectAppleNotesEffect, 5000, []),
+          timeoutFallback(collectRemindersEffect, 5000, []),
+          timeoutFallback(collectCalendarEffect, 5000, []),
+        ],
+        { concurrency: "unbounded" },
+      ).pipe(
+        Effect.map(([imsg, notes, reminders, calendars]) => ({
+          contacts: imsg.contacts,
+          groupChats: imsg.groupChats,
+          noteFolders: [...notes, ...reminders],
+          calendars,
+        })),
+      );
     }
-  } catch (error) {
-    log("Error collecting Sticky Notes:", error);
-    return [];
-  }
-}
+
+    if (platform === "win32") {
+      return timeoutFallback(collectStickyNotesEffect, 5000, []).pipe(
+        Effect.map((stickyNotes) => ({
+          contacts: [],
+          groupChats: [],
+          noteFolders: stickyNotes,
+          calendars: [],
+        })),
+      );
+    }
+
+    return Effect.succeed({
+      contacts: [],
+      groupChats: [],
+      noteFolders: [],
+      calendars: [],
+    });
+  });
 
 /**
  * Main collection function
  */
 export async function collectMessagesNotes(): Promise<MessagesNotesSignals> {
-  const platform = process.platform;
-
-  if (platform === "darwin") {
-    const [imsg, notes, reminders, calendars] = await Promise.all([
-      withTimeout(collectIMessageMetadata(), 10000, { contacts: [], groupChats: [] }),
-      withTimeout(collectAppleNotes(), 5000, []),
-      withTimeout(collectReminders(), 5000, []),
-      withTimeout(collectCalendar(), 5000, []),
-    ]);
-    return {
-      contacts: imsg.contacts,
-      groupChats: imsg.groupChats,
-      noteFolders: [...notes, ...reminders],
-      calendars,
-    };
-  }
-
-  if (platform === "win32") {
-    const stickyNotes = await withTimeout(collectStickyNotes(), 5000, []);
-    return { contacts: [], groupChats: [], noteFolders: stickyNotes, calendars: [] };
-  }
-
-  return { contacts: [], groupChats: [], noteFolders: [], calendars: [] };
+  return runDiscovery(collectMessagesNotesEffect);
 }
 
 /**

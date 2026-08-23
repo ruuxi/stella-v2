@@ -12,6 +12,7 @@ export type SpawnReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 /** Effective reasoning setting captured from a running agent turn. */
 export type AgentModelReasoningEffort =
+  | "default"
   | "none"
   | "minimal"
   | SpawnReasoningEffort;
@@ -37,7 +38,42 @@ export type AgentModelConfigSnapshot = {
   reasoningEffort?: AgentModelReasoningEffort;
   /** Effective ChatGPT/Codex service tier captured for this turn. */
   serviceTier?: CodexServiceTier;
+  /**
+   * The engine was selected explicitly by spawn_agent rather than inherited
+   * from preferences. This preserves execution-profile semantics such as
+   * vanilla Claude Code after worker/app restart.
+   */
+  executionProfile?: "spawn_override";
 };
+
+/**
+ * Canonical execution choice sent across the desktop -> cloud boundary.
+ *
+ * Cloud credentials are not interchangeable with desktop routes: a Stella
+ * managed model, an Anthropic subscription, and a Codex subscription are
+ * three distinct authorization paths. Keeping both `engine` and `provider`
+ * explicit makes the mutation payload self-describing and lets the server
+ * reject unsupported selections instead of silently substituting a model.
+ */
+type CloudExecutionSelectionBase = {
+  /** Exact managed route (`stella/...`) or engine-native subscription model. */
+  model: string;
+  reasoningEffort: AgentModelReasoningEffort;
+};
+
+export type CloudExecutionSelection =
+  | (CloudExecutionSelectionBase & {
+      engine: "stella";
+      provider: "stella";
+    })
+  | (CloudExecutionSelectionBase & {
+      engine: "anthropic";
+      provider: "anthropic";
+    })
+  | (CloudExecutionSelectionBase & {
+      engine: "openai-codex";
+      provider: "openai-codex";
+    });
 
 export const AGENT_RUNTIME_ENGINES: readonly AgentRuntimeEngine[] = [
   "default",

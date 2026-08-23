@@ -21,7 +21,10 @@ import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import { parseJsonWithRepair } from "../../ai/utils/json-parse.js";
 import type { AssistantMessage, Context, Message } from "../../ai/types.js";
 import type { AgentMessage } from "../agent-core/types.js";
-import { readMemoryMap } from "../memory/dream-storage.js";
+import {
+  readMemoryMap,
+  stripInjectedHtmlComments,
+} from "../memory/dream-storage.js";
 import {
   redactMemoryText,
   redactMemoryStringArray,
@@ -154,8 +157,8 @@ export const buildMemoryReviewUserPrompt = (
 
 /**
  * Compact "already recorded / recently proposed" context so the gate can skip
- * duplicates at the source. Combines Dream's routing map (`memory_map.md`)
- * with the most recent orchestrator-review candidate
+ * duplicates at the source. Combines Dream's comment-stripped routing map
+ * (`memory_map.md`) with the most recent orchestrator-review candidate
  * notes (which may not be consolidated yet). Best-effort and bounded; returns
  * an empty string when nothing is available.
  */
@@ -174,7 +177,9 @@ export const buildKnownMemoryContext = async (args: {
   }
 
   const blocks: string[] = [];
-  const trimmedMap = memoryMap ? redactMemoryText(memoryMap.trim()) : "";
+  const trimmedMap = memoryMap
+    ? redactMemoryText(stripInjectedHtmlComments(memoryMap).trim())
+    : "";
   if (trimmedMap) {
     blocks.push(
       `<memory_map path="~/.stella/memories/memory_map.md">\n${trimmedMap}\n</memory_map>`,
@@ -374,7 +379,9 @@ const runReview = async (args: {
   }
 
   try {
-    const written = args.store.dreamInboxStore.recordMemoryNote(candidate);
+    const written = args.store.dreamInboxStore.recordMemoryNote(candidate, {
+      conversationId: args.conversationId,
+    });
     logger.debug("memory-review.completed.candidate-written", {
       inboxId: written.id,
       title: candidate.title,

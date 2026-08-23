@@ -8,6 +8,8 @@
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
+import { Effect } from "effect";
+import { runDiscovery, tryDiscovery } from "./effect-io.js";
 
 import type { ShellAnalysis, CommandFrequency } from "./types.js";
 
@@ -263,17 +265,22 @@ const extractCdPath = (line: string): string | null => {
 // Main Analysis
 // ---------------------------------------------------------------------------
 
-export const analyzeShellHistory = async (): Promise<ShellAnalysis> => {
-  log("Starting shell history analysis...");
+const analyzeShellHistoryEffect: Effect.Effect<ShellAnalysis> = Effect.gen(
+  function* () {
+    log("Starting shell history analysis...");
 
-  const historyPaths = getHistoryPaths();
-  const commandCounts = new Map<string, number>();
-  const projectPathCounts = new Map<string, number>();
-  const toolsFound = new Set<string>();
+    const historyPaths = getHistoryPaths();
+    const commandCounts = new Map<string, number>();
+    const projectPathCounts = new Map<string, number>();
+    const toolsFound = new Set<string>();
 
-  for (const historyPath of historyPaths) {
-    try {
-      const content = await fs.readFile(historyPath, "utf-8");
+    for (const historyPath of historyPaths) {
+      // History file doesn't exist or can't be read — skip it.
+      const content = yield* tryDiscovery(() =>
+        fs.readFile(historyPath, "utf-8"),
+      ).pipe(Effect.catch(() => Effect.succeed(null)));
+      if (content === null) continue;
+
       const lines = content.split("\n");
 
       log(`Parsing ${historyPath}: ${lines.length} lines`);
@@ -303,11 +310,7 @@ export const analyzeShellHistory = async (): Promise<ShellAnalysis> => {
           projectPathCounts.set(cdPath, (projectPathCounts.get(cdPath) || 0) + 1);
         }
       }
-    } catch {
-      // History file doesn't exist or can't be read
-      continue;
     }
-  }
 
   // Sort commands by frequency, take top 30
   const topCommands: CommandFrequency[] = Array.from(commandCounts.entries())
@@ -324,18 +327,22 @@ export const analyzeShellHistory = async (): Promise<ShellAnalysis> => {
   // Sort tools alphabetically
   const toolsUsed = Array.from(toolsFound).sort();
 
-  log("Analysis complete:", {
-    topCommands: topCommands.length,
-    projectPaths: projectPaths.length,
-    toolsUsed: toolsUsed.length,
-  });
+    log("Analysis complete:", {
+      topCommands: topCommands.length,
+      projectPaths: projectPaths.length,
+      toolsUsed: toolsUsed.length,
+    });
 
-  return {
-    topCommands,
-    projectPaths,
-    toolsUsed,
-  };
-};
+    return {
+      topCommands,
+      projectPaths,
+      toolsUsed,
+    };
+  },
+);
+
+export const analyzeShellHistory = async (): Promise<ShellAnalysis> =>
+  runDiscovery(analyzeShellHistoryEffect);
 
 /**
  * Format shell analysis for LLM synthesis

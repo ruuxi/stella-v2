@@ -16,6 +16,13 @@ import os from "os";
 import { exec } from "child_process";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import { Effect } from "effect";
+import {
+  acquireCloseable,
+  runDiscovery,
+  tryDiscovery,
+  tryDiscoverySync,
+} from "./effect-io.js";
 import type {
   BrowserType,
   DomainVisit,
@@ -1308,124 +1315,163 @@ const buildBrowserDataWindow = (
   };
 };
 
+/** The full-history query pass, run against an already-open history db. */
+const buildFullBrowserData = (
+  db: SqliteDatabase,
+  browserType: BrowserType,
+): BrowserData => {
+  // Run queries
+  const clusterDomains = queryClusterDomains(db);
+  const recentDomains = queryRecentDomains(db);
+  const rawAllTimeDomains = queryAllTimeDomains(db);
+  const thirtyDaysAgo = toChromeTime(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+  const clusterKeywords = queryClusterKeywords(db, thirtyDaysAgo);
+  const searchQueries = querySearchQueries(db);
+
+  // Soft dedupe: exclude domains from all-time that already appear in recent
+  const recentDomainSet = new Set(recentDomains.map((d) => d.domain.toLowerCase()));
+  const allTimeDomains = rawAllTimeDomains
+    .filter((d) => !recentDomainSet.has(d.domain.toLowerCase()))
+    .slice(0, 20);
+
+  // Get titles for combined top domains
+  const combinedDomains = [
+    ...new Set([
+      ...getTopDomainsForDetails(recentDomains, 15),
+      ...getTopDomainsForDetails(allTimeDomains, 10),
+    ]),
+  ];
+  const domainDetails = queryDomainDetails(db, combinedDomains);
+
+  log("Collection complete:", {
+    browser: browserType,
+    clusterDomains: clusterDomains.length,
+    recentDomains: recentDomains.length,
+    allTimeDomains: allTimeDomains.length,
+    domainDetails: Object.keys(domainDetails).length,
+    clusterKeywords: clusterKeywords.length,
+  });
+
+  return {
+    browser: browserType,
+    clusterDomains,
+    recentDomains,
+    allTimeDomains,
+    domainDetails,
+    clusterKeywords,
+    searchQueries,
+  };
+};
+
+const collectBrowserDataEffect = (
+  StellaDataDir: string,
+  options: BrowserCollectionOptions = {},
+): Effect.Effect<BrowserData, unknown> =>
+  Effect.gen(function* () {
+    log("Starting browser data collection...");
+
+    const browser = yield* tryDiscovery(() => findBrowserWithOptions(options));
+    if (!browser) {
+      return emptyBrowserData(options.selectedBrowser ?? null);
+    }
+
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const db = yield* acquireCloseable(() =>
+          openDatabase(browser.historyPath),
+        );
+        return yield* tryDiscoverySync(() =>
+          buildFullBrowserData(db, browser.type),
+        );
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          log("Error collecting browser data:", error);
+          return emptyBrowserData(browser.type);
+        }),
+      ),
+    );
+  });
+
 /**
  * Collect browser data from the user's default browser
  */
 export const collectBrowserData = async (
   StellaDataDir: string,
   options: BrowserCollectionOptions = {},
-): Promise<BrowserData> => {
-  log("Starting browser data collection...");
+): Promise<BrowserData> =>
+  runDiscovery(collectBrowserDataEffect(StellaDataDir, options));
 
-  const browser = await findBrowserWithOptions(options);
-  if (!browser) {
-    return emptyBrowserData(options.selectedBrowser ?? null);
-  }
+const collectBrowserActivityWindowsEffect = (
+  StellaDataDir: string,
+  windows: BrowserActivityWindowRequest[],
+  options: BrowserCollectionOptions = {},
+): Effect.Effect<BrowserActivityWindow[], unknown> =>
+  Effect.gen(function* () {
+    const browser = yield* tryDiscovery(() => findBrowserWithOptions(options));
+    if (!browser) {
+      return windows.map((window) => ({
+        ...window,
+        data: emptyBrowserData(options.selectedBrowser ?? null),
+      }));
+    }
 
-  let db: SqliteDatabase | null = null;
-
-  try {
-    db = await openDatabase(browser.historyPath);
-
-    // Run queries
-    const clusterDomains = queryClusterDomains(db);
-    const recentDomains = queryRecentDomains(db);
-    const rawAllTimeDomains = queryAllTimeDomains(db);
-    const thirtyDaysAgo = toChromeTime(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
-    const clusterKeywords = queryClusterKeywords(db, thirtyDaysAgo);
-    const searchQueries = querySearchQueries(db);
-
-    // Soft dedupe: exclude domains from all-time that already appear in recent
-    const recentDomainSet = new Set(recentDomains.map((d) => d.domain.toLowerCase()));
-    const allTimeDomains = rawAllTimeDomains
-      .filter((d) => !recentDomainSet.has(d.domain.toLowerCase()))
-      .slice(0, 20);
-
-    // Get titles for combined top domains
-    const combinedDomains = [
-      ...new Set([
-        ...getTopDomainsForDetails(recentDomains, 15),
-        ...getTopDomainsForDetails(allTimeDomains, 10),
-      ]),
-    ];
-    const domainDetails = queryDomainDetails(db, combinedDomains);
-
-    log("Collection complete:", {
-      browser: browser.type,
-      clusterDomains: clusterDomains.length,
-      recentDomains: recentDomains.length,
-      allTimeDomains: allTimeDomains.length,
-      domainDetails: Object.keys(domainDetails).length,
-      clusterKeywords: clusterKeywords.length,
-    });
-
-    return {
-      browser: browser.type,
-      clusterDomains,
-      recentDomains,
-      allTimeDomains,
-      domainDetails,
-      clusterKeywords,
-      searchQueries,
-    };
-  } catch (error) {
-    log("Error collecting browser data:", error);
-    return emptyBrowserData(browser.type);
-  } finally {
-    db?.close?.();
-  }
-};
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const db = yield* acquireCloseable(() =>
+          openDatabase(browser.historyPath),
+        );
+        return yield* tryDiscoverySync(() =>
+          windows.map((window) => ({
+            ...window,
+            data: buildBrowserDataWindow(db, browser.type, window.sinceMs),
+          })),
+        );
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          log("Error collecting browser activity windows:", error);
+          return windows.map((window) => ({
+            ...window,
+            data: emptyBrowserData(browser.type),
+          }));
+        }),
+      ),
+    );
+  });
 
 export const collectBrowserActivityWindows = async (
   StellaDataDir: string,
   windows: BrowserActivityWindowRequest[],
   options: BrowserCollectionOptions = {},
-): Promise<BrowserActivityWindow[]> => {
-  const browser = await findBrowserWithOptions(options);
-  if (!browser) {
-    return windows.map((window) => ({
-      ...window,
-      data: emptyBrowserData(options.selectedBrowser ?? null),
-    }));
-  }
-
-  let db: SqliteDatabase | null = null;
-
-  try {
-    db = await openDatabase(browser.historyPath);
-    return windows.map((window) => ({
-      ...window,
-      data: buildBrowserDataWindow(db!, browser.type, window.sinceMs),
-    }));
-  } catch (error) {
-    log("Error collecting browser activity windows:", error);
-    return windows.map((window) => ({
-      ...window,
-      data: emptyBrowserData(browser.type),
-    }));
-  } finally {
-    db?.close?.();
-  }
-};
+): Promise<BrowserActivityWindow[]> =>
+  runDiscovery(
+    collectBrowserActivityWindowsEffect(StellaDataDir, windows, options),
+  );
 
 /**
  * Check if core memory already exists
  */
-export const coreMemoryExists = async (StellaDataDir: string): Promise<boolean> => {
-  const candidatePaths = [
-    path.join(StellaDataDir, "core-memory.md"),
-    path.join(StellaDataDir, "CORE_MEMORY.MD"),
-  ];
-  for (const coreMemoryPath of candidatePaths) {
-    try {
-      await fs.access(coreMemoryPath);
-      return true;
-    } catch {
-      continue;
-    }
-  }
-  return false;
-};
+export const coreMemoryExists = async (StellaDataDir: string): Promise<boolean> =>
+  runDiscovery(
+    Effect.gen(function* () {
+      const candidatePaths = [
+        path.join(StellaDataDir, "core-memory.md"),
+        path.join(StellaDataDir, "CORE_MEMORY.MD"),
+      ];
+      for (const coreMemoryPath of candidatePaths) {
+        const exists = yield* tryDiscovery(() =>
+          fs.access(coreMemoryPath),
+        ).pipe(
+          Effect.match({ onSuccess: () => true, onFailure: () => false }),
+        );
+        if (exists) return true;
+      }
+      return false;
+    }),
+  );
 // IP geolocation providers, tried in order. Each maps its response shape onto
 // the same city/region/postal/country fields. Multiple providers guard against
 // any single one being down or rate-limiting the user's IP.
@@ -1477,48 +1523,65 @@ const asTrimmed = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+/** Parse one provider's response body into the location line, or null. */
+const extractLocationLine = (
+  provider: LocationProvider,
+  body: Record<string, unknown>,
+): string | null => {
+  // ipwho.is uses `success:false`; ipapi.co uses `error:true` on failure.
+  if (body.success === false || body.error === true) return null;
+  const fields = provider.extract(body);
+  const city = asTrimmed(fields.city);
+  const region = asTrimmed(fields.region);
+  const postal = asTrimmed(fields.postal);
+  const country = asTrimmed(fields.country);
+  if (!city || !country) return null;
+  // "City, Region postal, Country" — postal hugs the region when present.
+  const cityRegion = region ? `${city}, ${region}` : city;
+  const cityRegionPostal = postal ? `${cityRegion} ${postal}` : cityRegion;
+  return `${cityRegionPostal}, ${country}`;
+};
 
-const fetchLocationFromProvider = async (
+// One provider attempt under the same per-attempt budget as before
+// (min(remaining, 5s)). Effect.timeout interrupts the attempt, which aborts
+// the in-flight fetch through its AbortSignal — the old timer+controller
+// pair — and every failure (timeout included) degrades to null with the
+// same log line.
+const fetchLocationFromProviderEffect = (
   provider: LocationProvider,
   deadline: number,
-): Promise<string | null> => {
-  const budget = deadline - Date.now();
-  if (budget <= 0) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.min(budget, 5_000));
-  try {
-    const response = await fetch(provider.url, {
-      signal: controller.signal,
-      headers: { accept: "application/json" },
-    });
-    if (!response.ok) {
-      log(`Location lookup ${provider.url} HTTP ${response.status}`);
-      return null;
-    }
-    const parsed = (await response.json()) as unknown;
-    if (!isJsonRecord(parsed)) return null;
-    const body = parsed;
-    // ipwho.is uses `success:false`; ipapi.co uses `error:true` on failure.
-    if (body.success === false || body.error === true) return null;
-    const fields = provider.extract(body);
-    const city = asTrimmed(fields.city);
-    const region = asTrimmed(fields.region);
-    const postal = asTrimmed(fields.postal);
-    const country = asTrimmed(fields.country);
-    if (!city || !country) return null;
-    // "City, Region postal, Country" — postal hugs the region when present.
-    const cityRegion = region ? `${city}, ${region}` : city;
-    const cityRegionPostal = postal ? `${cityRegion} ${postal}` : cityRegion;
-    return `${cityRegionPostal}, ${country}`;
-  } catch (error) {
-    log(`Location lookup ${provider.url} failed:`, error);
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-};
+): Effect.Effect<string | null> =>
+  Effect.suspend(() => {
+    const budget = deadline - Date.now();
+    if (budget <= 0) return Effect.succeed(null);
+    return Effect.tryPromise({
+      try: (signal) =>
+        fetch(provider.url, {
+          signal,
+          headers: { accept: "application/json" },
+        }),
+      catch: (error) => error,
+    }).pipe(
+      Effect.flatMap((response) => {
+        if (!response.ok) {
+          log(`Location lookup ${provider.url} HTTP ${response.status}`);
+          return Effect.succeed(null);
+        }
+        return tryDiscovery(() => response.json() as Promise<unknown>).pipe(
+          Effect.map((parsed) =>
+            isJsonRecord(parsed) ? extractLocationLine(provider, parsed) : null,
+          ),
+        );
+      }),
+      Effect.timeout(Math.min(budget, 5_000)),
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          log(`Location lookup ${provider.url} failed:`, error);
+          return null;
+        }),
+      ),
+    );
+  });
 
 /**
  * Resolve the user's coarse location via IP geolocation. The app's very first
@@ -1528,21 +1591,25 @@ const fetchLocationFromProvider = async (
  * bounded total budget so a transient blip doesn't permanently lose location,
  * while still failing fast (and not blocking onboarding) when truly offline.
  */
-const fetchUserLocationLine = async (): Promise<string | null> => {
-  const deadline = Date.now() + 12_000;
-  let attempt = 0;
-  while (Date.now() < deadline) {
-    for (const provider of LOCATION_PROVIDERS) {
-      if (Date.now() >= deadline) break;
-      const line = await fetchLocationFromProvider(provider, deadline);
-      if (line) return line;
+const fetchUserLocationLineEffect: Effect.Effect<string | null> = Effect.gen(
+  function* () {
+    const deadline = Date.now() + 12_000;
+    let attempt = 0;
+    while (Date.now() < deadline) {
+      for (const provider of LOCATION_PROVIDERS) {
+        if (Date.now() >= deadline) break;
+        const line = yield* fetchLocationFromProviderEffect(provider, deadline);
+        if (line) return line;
+      }
+      attempt += 1;
+      if (Date.now() < deadline) {
+        yield* Effect.sleep(Math.min(500 * attempt, 1_500));
+      }
     }
-    attempt += 1;
-    if (Date.now() < deadline) await sleep(Math.min(500 * attempt, 1_500));
-  }
-  log("Location lookup exhausted retries");
-  return null;
-};
+    log("Location lookup exhausted retries");
+    return null;
+  },
+);
 
 /**
  * Write core memory profile to disk. When `includeLocation` is true (gated by
@@ -1555,19 +1622,24 @@ export const writeCoreMemory = async (
   StellaDataDir: string,
   content: string,
   options?: { includeLocation?: boolean }
-): Promise<void> => {
-  const statePath = StellaDataDir;
-  await fs.mkdir(statePath, { recursive: true });
-  const coreMemoryPath = path.join(statePath, "core-memory.md");
-  const location = options?.includeLocation
-    ? await fetchUserLocationLine()
-    : null;
-  const finalContent = location
-    ? `${content.trimEnd()}\n\n## Location\n${location}\n`
-    : content;
-  await fs.writeFile(coreMemoryPath, finalContent, "utf-8");
-  log(`Wrote ~/.stella/core-memory.md${location ? " (with location)" : ""}`);
-};
+): Promise<void> =>
+  runDiscovery(
+    Effect.gen(function* () {
+      const statePath = StellaDataDir;
+      yield* tryDiscovery(() => fs.mkdir(statePath, { recursive: true }));
+      const coreMemoryPath = path.join(statePath, "core-memory.md");
+      const location = options?.includeLocation
+        ? yield* fetchUserLocationLineEffect
+        : null;
+      const finalContent = location
+        ? `${content.trimEnd()}\n\n## Location\n${location}\n`
+        : content;
+      yield* tryDiscovery(() =>
+        fs.writeFile(coreMemoryPath, finalContent, "utf-8"),
+      );
+      log(`Wrote ~/.stella/core-memory.md${location ? " (with location)" : ""}`);
+    }),
+  );
 
 
 const formatDomainList = (domains: DomainVisit[]): string =>
@@ -1620,87 +1692,100 @@ export const formatBrowserDataForSynthesis = (data: BrowserData): string => {
   return sections.join("\n");
 };
 
-export const detectPreferredBrowserProfile = async (): Promise<PreferredBrowserProfile> => {
-  const browser = await findBrowserWithOptions();
-  if (!browser) {
-    return { browser: null, profile: null };
-  }
-  return {
-    browser: browser.type,
-    profile: browser.profile,
-  };
-};
+export const detectPreferredBrowserProfile = async (): Promise<PreferredBrowserProfile> =>
+  runDiscovery(
+    tryDiscovery(() => findBrowserWithOptions()).pipe(
+      Effect.map((browser) => {
+        if (!browser) {
+          return { browser: null, profile: null };
+        }
+        return {
+          browser: browser.type,
+          profile: browser.profile,
+        };
+      }),
+    ),
+  );
+
+const listBrowserProfilesEffect = (
+  browserType: BrowserType,
+): Effect.Effect<BrowserProfile[], unknown> =>
+  Effect.gen(function* () {
+    const platform = process.platform;
+    const basePath = getBasePath(platform);
+
+    const browserDirs = [
+      BROWSER_BASE_DIRS[browserType]?.[platform as string],
+      platform === "win32" ? BROWSER_BASE_DIRS[browserType]?.win32Alt : null,
+    ].filter(Boolean) as string[];
+
+    if (browserDirs.length === 0) return [];
+
+    // Try to read display names from Local State JSON
+    const displayNames = new Map<string, string>();
+    for (const browserDir of browserDirs) {
+      const localStatePath = path.join(basePath, browserDir, "Local State");
+      // Local State doesn't exist or can't be parsed — we'll fall back to
+      // folder names.
+      yield* tryDiscovery(() => fs.readFile(localStatePath, "utf-8")).pipe(
+        Effect.flatMap((raw) =>
+          tryDiscoverySync(() => {
+            const localState = JSON.parse(raw);
+            const infoCache = localState?.profile?.info_cache;
+            if (infoCache && typeof infoCache === "object") {
+              for (const [profileId, info] of Object.entries(infoCache)) {
+                const profileInfo = profileInfoSchema.safeParse(info);
+                const name = profileInfo.success
+                  ? (profileInfo.data.name ?? profileInfo.data.gaia_name ?? profileId)
+                  : profileId;
+                displayNames.set(profileId, name);
+              }
+            }
+          }),
+        ),
+        Effect.catch(() => Effect.void),
+      );
+    }
+
+    // Scan for profile directories that have a History file
+    const profilePatterns = ["Default", "Profile 1", "Profile 2", "Profile 3", "Profile 4", "Profile 5",
+      "Profile 6", "Profile 7", "Profile 8", "Profile 9", "Profile 10"];
+
+    const checks = browserDirs.flatMap((browserDir) => {
+      const userDataPath = path.join(basePath, browserDir);
+      return profilePatterns.map((profile) =>
+        tryDiscovery(async (): Promise<BrowserProfile | null> => {
+          const profilePath = path.join(userDataPath, profile);
+          const stat = await fs.stat(profilePath);
+          if (!stat.isDirectory()) return null;
+          // Verify a History file exists
+          await fs.access(path.join(profilePath, "History"));
+          return {
+            id: profile,
+            name: displayNames.get(profile) ?? profile,
+          };
+        }).pipe(Effect.catch(() => Effect.succeed(null))),
+      );
+    });
+
+    const results = yield* Effect.all(checks, { concurrency: "unbounded" });
+    const seen = new Set<string>();
+    const profiles: BrowserProfile[] = [];
+    for (const r of results) {
+      if (r && !seen.has(r.id)) {
+        seen.add(r.id);
+        profiles.push(r);
+      }
+    }
+
+    log(`Found ${profiles.length} profile(s) for ${browserType}:`, profiles.map(p => `${p.id} (${p.name})`));
+    return profiles;
+  });
 
 /**
  * List all available profiles for a given browser type.
  * Reads display names from the browser's Local State JSON when available.
  */
 export const listBrowserProfiles = async (browserType: BrowserType): Promise<BrowserProfile[]> => {
-  const platform = process.platform;
-  const basePath = getBasePath(platform);
-
-  const browserDirs = [
-    BROWSER_BASE_DIRS[browserType]?.[platform as string],
-    platform === "win32" ? BROWSER_BASE_DIRS[browserType]?.win32Alt : null,
-  ].filter(Boolean) as string[];
-
-  if (browserDirs.length === 0) return [];
-
-  // Try to read display names from Local State JSON
-  const displayNames = new Map<string, string>();
-  for (const browserDir of browserDirs) {
-    const localStatePath = path.join(basePath, browserDir, "Local State");
-    try {
-      const raw = await fs.readFile(localStatePath, "utf-8");
-      const localState = JSON.parse(raw);
-      const infoCache = localState?.profile?.info_cache;
-      if (infoCache && typeof infoCache === "object") {
-        for (const [profileId, info] of Object.entries(infoCache)) {
-          const profileInfo = profileInfoSchema.safeParse(info);
-          const name = profileInfo.success
-            ? (profileInfo.data.name ?? profileInfo.data.gaia_name ?? profileId)
-            : profileId;
-          displayNames.set(profileId, name);
-        }
-      }
-    } catch {
-      // Local State doesn't exist or can't be parsed — we'll fall back to folder names
-    }
-  }
-
-  // Scan for profile directories that have a History file
-  const profilePatterns = ["Default", "Profile 1", "Profile 2", "Profile 3", "Profile 4", "Profile 5",
-    "Profile 6", "Profile 7", "Profile 8", "Profile 9", "Profile 10"];
-
-  const checks = browserDirs.flatMap((browserDir) => {
-    const userDataPath = path.join(basePath, browserDir);
-    return profilePatterns.map(async (profile): Promise<BrowserProfile | null> => {
-      const profilePath = path.join(userDataPath, profile);
-      try {
-        const stat = await fs.stat(profilePath);
-        if (!stat.isDirectory()) return null;
-        // Verify a History file exists
-        await fs.access(path.join(profilePath, "History"));
-        return {
-          id: profile,
-          name: displayNames.get(profile) ?? profile,
-        };
-      } catch {
-        return null;
-      }
-    });
-  });
-
-  const results = await Promise.all(checks);
-  const seen = new Set<string>();
-  const profiles: BrowserProfile[] = [];
-  for (const r of results) {
-    if (r && !seen.has(r.id)) {
-      seen.add(r.id);
-      profiles.push(r);
-    }
-  }
-
-  log(`Found ${profiles.length} profile(s) for ${browserType}:`, profiles.map(p => `${p.id} (${p.name})`));
-  return profiles;
+  return runDiscovery(listBrowserProfilesEffect(browserType));
 };

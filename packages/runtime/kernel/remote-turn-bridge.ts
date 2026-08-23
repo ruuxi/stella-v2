@@ -1,3 +1,5 @@
+import { forkTimeoutFiber } from "./connectors/effect-runtime.js";
+
 const DEFAULT_LOOKBACK_MS = 5 * 60_000;
 const BUSY_RETRY_MS = 1_000;
 const ERROR_RETRY_MS = 5_000;
@@ -219,13 +221,14 @@ export const createRemoteTurnBridge = (
 
   let running = false;
   let processing = false;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Cancel thunk for the pending retry fiber (the old `clearTimeout`). */
+  let retryTimer: (() => void) | null = null;
   let unsubscribeRemoteTurns: (() => void) | null = null;
   const pending = new Map<string, PendingRemoteTurn>();
 
   const clearRetryTimer = () => {
     if (retryTimer) {
-      clearTimeout(retryTimer);
+      retryTimer();
       retryTimer = null;
     }
   };
@@ -235,9 +238,11 @@ export const createRemoteTurnBridge = (
       return;
     }
     clearRetryTimer();
-    retryTimer = setTimeout(() => {
+    // Reschedulable retry as a forked fiber (same delays: busy 1s, error
+    // 5s); a re-schedule or stop() interrupts the pending fiber.
+    retryTimer = forkTimeoutFiber(Math.max(0, delayMs), () => {
       void processPending();
-    }, Math.max(0, delayMs));
+    });
   };
 
   const syncPendingWithSubscription = (events: RemoteTurnRequestEvent[]) => {

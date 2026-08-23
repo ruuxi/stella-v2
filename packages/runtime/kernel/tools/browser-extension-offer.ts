@@ -17,7 +17,9 @@
  * - any bridge/host error falls back to returning the original result.
  */
 
+import { Effect } from "effect";
 import type { ToolResult } from "./types.js";
+import { runToolEffect } from "./effect-runtime.js";
 
 export type BrowserExtensionConnectOutcome =
   | { ok: true; status: "connected" | "already_connected" }
@@ -113,22 +115,21 @@ const annotate = (result: ToolResult, note: string): ToolResult => {
 const withTimeout = async (
   promise: Promise<BrowserExtensionConnectOutcome>,
   timeoutMs: number,
-): Promise<BrowserExtensionConnectOutcome> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<BrowserExtensionConnectOutcome>((resolve) => {
-        timer = setTimeout(
-          () => resolve({ ok: false, reason: "timeout" }),
-          timeoutMs,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-};
+): Promise<BrowserExtensionConnectOutcome> =>
+  // Effect race: the timeout arm is a fiber interrupted when the connect
+  // promise settles first (the old `clearTimeout` in `finally`); a
+  // rejection propagates the original error via the runtime facade.
+  runToolEffect(
+    Effect.raceFirst(
+      Effect.tryPromise({ try: () => promise, catch: (error) => error }),
+      Effect.sleep(timeoutMs).pipe(
+        Effect.as<BrowserExtensionConnectOutcome>({
+          ok: false,
+          reason: "timeout",
+        }),
+      ),
+    ),
+  );
 
 /**
  * Shared low-level offer path for direct browser transports that do not return

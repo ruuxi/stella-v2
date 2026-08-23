@@ -13,7 +13,7 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
-import { resolveLocalCliCwd } from "./shared.js";
+import { resolveAgentWorkingDirectory } from "./shared.js";
 import { buildSystemPrompt } from "./thread-memory.js";
 import type { OrchestratorRunOptions, SubagentRunOptions } from "./types.js";
 import { resizeImage } from "../shared/image-resize.js";
@@ -129,11 +129,15 @@ export const createRuntimePromptAgentMessage = (
 
 const appendCurrentWorkingDirectory = (
   systemPrompt: string,
-  opts: Pick<OrchestratorRunOptions, "agentType" | "stellaAppDir">,
+  opts: Pick<
+    OrchestratorRunOptions,
+    "agentType" | "stellaAppDir" | "toolWorkspaceRoot"
+  >,
 ): string => {
-  const cwd = resolveLocalCliCwd({
+  const cwd = resolveAgentWorkingDirectory({
     agentType: opts.agentType,
     stellaAppDir: opts.stellaAppDir,
+    workingDirectory: opts.toolWorkspaceRoot,
   });
   if (!cwd) {
     return systemPrompt;

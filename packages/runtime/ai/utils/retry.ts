@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { sleepWithAbort } from "../effect-runtime.js";
+
 const headerRecordSchema = z.record(z.string(), z.unknown());
 
 export interface RetryOptions {
@@ -92,22 +94,14 @@ function retryDelay(
   return Math.min(baseDelayMs * 2 ** (retryIndex - 2), maxDelayMs);
 }
 
+/**
+ * Backoff sleep on the ai/ fiber substrate. Delay VALUES stay data computed
+ * above (retry-after headers, attempt-indexed exponential, total budget);
+ * only the timer moved onto a fiber. The abort error message is the exact
+ * legacy string.
+ */
 function retrySleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new Error("Request was aborted"));
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timeout);
-      reject(new Error("Request was aborted"));
-    };
-    const timeout = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+  return sleepWithAbort(ms, signal, () => new Error("Request was aborted"));
 }
 
 function isAbortError(error: unknown): boolean {
@@ -228,6 +222,11 @@ export function isTransientTransportError(error: unknown): boolean {
     "ENETUNREACH",
     "ENOTFOUND",
     "UND_ERR_SOCKET",
+    // undici surfaces a mid-body connection teardown on a `connection: close`
+    // response as `TypeError: terminated` caused by an HTTPParserError with
+    // this code (invalid EOF state). It is a torn transport, not a provider
+    // error, so stream resume must engage.
+    "HPE_INVALID_EOF_STATE",
   ]);
   const code = (error as { code?: unknown }).code;
   if (typeof code === "string" && codes.has(code.toUpperCase())) return true;

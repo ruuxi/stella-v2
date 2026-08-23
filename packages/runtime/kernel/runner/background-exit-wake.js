@@ -23,6 +23,10 @@
  * and replaced or dropped whenever the thread runs again, so a thread that
  * has already moved on is never woken by a stale exit.
  */
+/**
+ * Transitional type surface for TS importers of this evolved JS module.
+ * @typedef {any} BackgroundExitWake
+ */
 import fs from "node:fs";
 import path from "node:path";
 const EXIT_LOG_DIRNAME = "background-exits";

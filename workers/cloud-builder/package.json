@@ -1,0 +1,24 @@
+{
+  "name": "@stella/cloud-builder",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "image:prepare": "node scripts/prepare-image.mjs",
+    "deploy:dev": "bun run image:prepare && wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "0.12.4",
+    "@sinclair/typebox": "0.34.49",
+    "@stella/contracts": "workspace:*",
+    "@stella/executor-cloud": "workspace:*",
+    "@stella/runtime": "workspace:*",
+    "effect": "4.0.0-beta.83"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260723.1",
+    "typescript": "^6.0.3",
+    "wrangler": "4.113.0"
+  }
+}

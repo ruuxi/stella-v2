@@ -435,6 +435,130 @@ class ThreadFtsBackfillError extends Error {
   }
 }
 
+/**
+ * Migrates durable thread-entry ordering as one serialized schema transition.
+ *
+ * A previous initializer backfilled the sequence column, then created the
+ * uniqueness index and insert trigger in separate autocommit statements. A
+ * second connection could insert in those gaps, leaving NULLs or assigning a
+ * sequence that collided with the backfill. BEGIN IMMEDIATE takes SQLite's
+ * writer reservation before inspecting or changing the table, so concurrent
+ * appenders see either the legacy schema or the complete migrated schema.
+ *
+ * If an interrupted/older migration left any invalid value or collision, all
+ * rows are deliberately re-densified by rowid. rowid is the only authoritative
+ * pre-migration insertion order; valid unique sequences are otherwise retained
+ * verbatim so repeated startup never renumbers durable history.
+ */
+const ensureRuntimeThreadEntryOrdering = (db: SqliteDatabase) => {
+  db.exec("BEGIN IMMEDIATE;");
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_thread_entries (
+        entry_id TEXT PRIMARY KEY,
+        thread_key TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        parent_entry_id TEXT,
+        entry_type TEXT NOT NULL,
+        timestamp_iso TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        insertion_sequence INTEGER,
+        data_json TEXT,
+        FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
+      );
+    `);
+    const insertionSequenceColumn = db
+      .prepare(
+        `SELECT 1
+         FROM pragma_table_info('runtime_thread_entries')
+         WHERE name = 'insertion_sequence'`,
+      )
+      .get();
+    if (!insertionSequenceColumn) {
+      db.exec(
+        "ALTER TABLE runtime_thread_entries ADD COLUMN insertion_sequence INTEGER;",
+      );
+    }
+
+    db.exec("DROP INDEX IF EXISTS idx_runtime_thread_entries_thread_append;");
+
+    const invalidSequence = db
+      .prepare(
+        `SELECT 1
+         FROM runtime_thread_entries
+         GROUP BY insertion_sequence
+         HAVING insertion_sequence IS NULL
+           OR typeof(insertion_sequence) != 'integer'
+           OR insertion_sequence <= 0
+           OR COUNT(*) > 1
+         LIMIT 1`,
+      )
+      .get();
+
+    // Recreate both enforcement objects even when the data is already valid:
+    // IF NOT EXISTS alone would trust a partial migration that left a
+    // non-unique same-named index or an obsolete trigger body.
+    db.exec("DROP TRIGGER IF EXISTS trg_runtime_thread_entries_sequence;");
+    db.exec("DROP INDEX IF EXISTS idx_runtime_thread_entries_sequence;");
+
+    if (invalidSequence) {
+      db.exec(`
+        WITH ranked_entries AS (
+          SELECT
+            rowid,
+            ROW_NUMBER() OVER (ORDER BY rowid) AS insertion_sequence
+          FROM runtime_thread_entries
+        )
+        UPDATE runtime_thread_entries
+        SET insertion_sequence = (
+          SELECT ranked_entries.insertion_sequence
+          FROM ranked_entries
+          WHERE ranked_entries.rowid = runtime_thread_entries.rowid
+        );
+      `);
+    }
+
+    db.exec(`
+      CREATE UNIQUE INDEX idx_runtime_thread_entries_sequence
+      ON runtime_thread_entries(insertion_sequence)
+      WHERE insertion_sequence IS NOT NULL;
+    `);
+    db.exec(`
+      CREATE TRIGGER trg_runtime_thread_entries_sequence
+      AFTER INSERT ON runtime_thread_entries
+      WHEN NEW.insertion_sequence IS NULL
+      BEGIN
+        UPDATE runtime_thread_entries
+        SET insertion_sequence = (
+          SELECT COALESCE(MAX(insertion_sequence), 0) + 1
+          FROM runtime_thread_entries
+        )
+        WHERE rowid = NEW.rowid;
+      END;
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_created
+      ON runtime_thread_entries(thread_key, created_at, entry_id);
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_sequence
+      ON runtime_thread_entries(thread_key, insertion_sequence);
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entries_thread_parent
+      ON runtime_thread_entries(thread_key, parent_entry_id, created_at, entry_id);
+    `);
+    db.exec("COMMIT;");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK;");
+    } catch {
+      // BEGIN itself failed, or SQLite already rolled the transaction back.
+    }
+    throw error;
+  }
+};
+
 export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA synchronous = NORMAL;");
@@ -469,6 +593,16 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_session_status_updated
     ON session(status, updated_at DESC, id DESC);
+    CREATE TABLE IF NOT EXISTS legacy_chat_cloud_import (
+      local_conversation_id TEXT PRIMARY KEY,
+      cloud_conversation_id TEXT,
+      next_turn_index INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      detail TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY(local_conversation_id) REFERENCES session(id) ON DELETE CASCADE
+    );
   `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS message (
@@ -598,12 +732,30 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       last_used_at INTEGER NOT NULL,
       summary TEXT,
       external_session_id TEXT,
+      external_delivered_entry_id TEXT,
       group_key TEXT,
       group_label TEXT
     );
   `);
   try {
     db.exec("ALTER TABLE runtime_threads ADD COLUMN external_session_id TEXT;");
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec(
+      "ALTER TABLE runtime_threads ADD COLUMN external_delivered_entry_id TEXT;",
+    );
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec("ALTER TABLE runtime_threads ADD COLUMN group_key TEXT;");
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec("ALTER TABLE runtime_threads ADD COLUMN group_label TEXT;");
   } catch {
     // Column already exists.
   }
@@ -755,6 +907,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE TABLE IF NOT EXISTS runtime_agents (
       thread_id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
+      storage_mode TEXT NOT NULL DEFAULT 'local',
       agent_type TEXT NOT NULL,
       description TEXT NOT NULL,
       prompt TEXT,
@@ -770,7 +923,11 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       error TEXT,
       updated_at INTEGER NOT NULL,
       root_run_id TEXT,
-      attempt_generation INTEGER NOT NULL DEFAULT 0
+      attempt_generation INTEGER NOT NULL DEFAULT 0,
+      manager_final_report TEXT,
+      manager_final_report_id TEXT,
+      manager_report_ids_json TEXT,
+      manager_report_sequence INTEGER NOT NULL DEFAULT 0
     );
   `);
   try {
@@ -787,6 +944,25 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     db.exec("ALTER TABLE runtime_agents ADD COLUMN prompt_created_at INTEGER;");
   } catch {
     // Column already exists.
+  }
+  try {
+    db.exec(
+      "ALTER TABLE runtime_agents ADD COLUMN storage_mode TEXT NOT NULL DEFAULT 'local';",
+    );
+  } catch {
+    // Column already exists.
+  }
+  for (const column of [
+    "manager_final_report TEXT",
+    "manager_final_report_id TEXT",
+    "manager_report_ids_json TEXT",
+    "manager_report_sequence INTEGER NOT NULL DEFAULT 0",
+  ]) {
+    try {
+      db.exec(`ALTER TABLE runtime_agents ADD COLUMN ${column};`);
+    } catch {
+      // Column already exists.
+    }
   }
   try {
     db.exec("ALTER TABLE runtime_agents ADD COLUMN model_config_json TEXT;");
@@ -861,6 +1037,226 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   } catch {
     // Column already exists.
   }
+
+  // Durable desktop-to-cloud transcript outbox. Cloud conversations use the
+  // Durable Object as their transcript authority, but a local provider turn
+  // still has two network boundaries (begin and finish). Both boundaries are
+  // committed here before any request is attempted so a worker restart or an
+  // offline finish cannot silently lose the turn.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cloud_transcript_outbox (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('begin', 'finish')),
+      conversation_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      local_turn_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      recovery_json TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      dead_lettered_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  for (const column of [
+    "recovery_json TEXT",
+    "last_error TEXT",
+    "dead_lettered_at INTEGER",
+  ]) {
+    try {
+      db.exec(`ALTER TABLE cloud_transcript_outbox ADD COLUMN ${column};`);
+    } catch {
+      // Column already exists.
+    }
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_transcript_outbox_turn_kind
+    ON cloud_transcript_outbox(
+      conversation_id,
+      device_id,
+      local_turn_id,
+      kind
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_transcript_outbox_created
+    ON cloud_transcript_outbox(created_at, id);
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_transcript_outbox_delivery
+    ON cloud_transcript_outbox(
+      dead_lettered_at,
+      attempts,
+      updated_at,
+      created_at,
+      id
+    );
+  `);
+
+  // Ordered, durable foreign journal appends (currently realtime voice).
+  // `sequence` is the local admission order. The delivery loop never skips a
+  // retryable row, so provider transcripts and tool pairs cannot overtake one
+  // another while a cloud/text turn owns the conversation.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cloud_journal_outbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE,
+      conversation_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      append_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      dead_lettered_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_journal_outbox_delivery
+    ON cloud_journal_outbox(
+      dead_lettered_at,
+      sequence
+    );
+  `);
+
+  // Computer agents execute locally while their canonical lifecycle row lives
+  // in Convex. Admit start/terminal/cancel transitions here before attempting
+  // the network so auth loss, an offline desktop, or a worker restart cannot
+  // leave browser Activity permanently divergent from the local executor.
+  // Sequence order is the causal fence: a terminal from generation N can
+  // never overtake its start, and generation N+1 cannot overtake generation N.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS computer_agent_cloud_outbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK (kind IN ('start', 'terminal', 'cancel')),
+      thread_id TEXT NOT NULL,
+      attempt_generation INTEGER NOT NULL,
+      owner_scope TEXT,
+      payload_json TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER NOT NULL,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  try {
+    db.exec(
+      "ALTER TABLE computer_agent_cloud_outbox ADD COLUMN owner_scope TEXT;",
+    );
+  } catch {
+    // Column already exists. NULL rows are legacy and intentionally never
+    // attach themselves to whichever account happens to sign in next.
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_outbox_delivery
+    ON computer_agent_cloud_outbox(next_attempt_at, sequence);
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_outbox_owner_delivery
+    ON computer_agent_cloud_outbox(owner_scope, next_attempt_at, sequence);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS computer_agent_cloud_thread_owners (
+      thread_id TEXT PRIMARY KEY,
+      owner_scope TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_thread_owners_scope
+    ON computer_agent_cloud_thread_owners(owner_scope, updated_at);
+  `);
+
+  // Local admission receipts outlive successful outbox deletion so an IPC
+  // response lost after commit still replays as the same voice event instead
+  // of duplicating the operational thread mirror. They are not transcript
+  // content and expire after the renderer retry/restart horizon.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cloud_journal_admission_receipts (
+      id TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_journal_admission_receipts_created
+    ON cloud_journal_admission_receipts(created_at, id);
+  `);
+
+  // Connector routing and follow-up delivery are operational state, not chat
+  // history. Keeping them in SQLite lets a terminal spawned-agent notice
+  // survive host/auth/network restarts without reintroducing a local
+  // conversation transcript.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connector_followup_targets (
+      conversation_id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL,
+      backend_conversation_id TEXT NOT NULL,
+      initial_turn_completed INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_connector_followup_targets_request
+    ON connector_followup_targets(request_id);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connector_followup_outbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      delivery_id TEXT NOT NULL UNIQUE,
+      request_id TEXT NOT NULL,
+      backend_conversation_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      eligible_at INTEGER,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER NOT NULL,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_connector_followup_outbox_delivery
+    ON connector_followup_outbox(eligible_at, next_attempt_at, sequence);
+  `);
+  // Renderer-to-main pre-admission for realtime voice. Main inserts here
+  // synchronously before awaiting the runtime worker; successful worker
+  // admission deletes the row. This is operational delivery state only.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS voice_transcript_inbox (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT NOT NULL UNIQUE,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+  `);
+  // Operational idempotency ledger for side-effecting realtime voice tools.
+  // A pending row fails closed after a worker crash; completed rows cache the
+  // exact cloud append and IPC result so an invoke replay never executes the
+  // tool twice or changes the journal payload.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS voice_tool_call_receipts (
+      conversation_id TEXT NOT NULL,
+      call_id TEXT NOT NULL,
+      request_fingerprint TEXT NOT NULL,
+      operation_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      completion_json TEXT,
+      completed_at INTEGER,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (conversation_id, call_id)
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_voice_tool_call_receipts_completed
+    ON voice_tool_call_receipts(completed_at, updated_at);
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS social_session_sync_state (
@@ -944,5 +1340,34 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_dream_inbox_kind_updated
     ON dream_inbox(kind, source_updated_at);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dream_consolidation_watermark (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      frontier INTEGER NOT NULL,
+      completed_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dream_delta_watermark (
+      conversation_id TEXT PRIMARY KEY,
+      last_message_ts INTEGER NOT NULL,
+      applied_through_ts INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  try {
+    db.exec(
+      "ALTER TABLE dream_delta_watermark ADD COLUMN applied_through_ts INTEGER;",
+    );
+  } catch {
+    // Column already exists.
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dream_scheduler_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      tokens_at_last_run INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 };

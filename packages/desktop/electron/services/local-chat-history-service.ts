@@ -295,7 +295,10 @@ export class LocalChatHistoryService {
     conversationId: string;
     maxItems?: number;
   }): LocalChatEventRecord[] {
-    return this.getStore().listEvents(args.conversationId, args.maxItems);
+    return this.getStore().listEvents(
+      args.conversationId,
+      args.maxItems,
+    ) as LocalChatEventRecord[];
   }
 
   listModelUsage(args: {
@@ -363,7 +366,7 @@ export class LocalChatHistoryService {
       limit: args.limit,
       beforeTimestampMs: args.beforeTimestampMs,
       beforeId: args.beforeId,
-    });
+    }) as LocalChatActivityWindow;
   }
 
   listThreadActivity(args: {
@@ -374,7 +377,7 @@ export class LocalChatHistoryService {
     return this.getStore().listThreadActivity(args.conversationId, {
       view: args.view,
       maxItems: args.maxItems,
-    });
+    }) as ThreadActivityRecord[];
   }
 
   listAgentThreadMessages(args = {}) {
@@ -391,7 +394,7 @@ export class LocalChatHistoryService {
       limit: args.limit,
       beforeTimestampMs: args.beforeTimestampMs,
       beforeId: args.beforeId,
-    });
+    }) as LocalChatFilesWindow;
   }
 
   getEventCount(args: { conversationId: string }): number {
@@ -583,6 +586,7 @@ export class LocalChatHistoryService {
           args.conversationId,
           cursor.timestamp,
           cursor.id,
+          undefined,
         )
       ) {
         return { messages: [], cursor: args.sinceCursor?.trim() || null };

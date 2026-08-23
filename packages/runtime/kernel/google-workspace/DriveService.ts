@@ -4,8 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { Effect } from 'effect';
 import { google, drive_v3 } from 'googleapis';
 import { AuthManager } from './AuthManager.js';
+import {
+  runGoogleWorkspaceEffect,
+  tryGoogleWorkspaceOp,
+} from './effect-runtime.js';
 import { logToFile } from './logger.js';
 import { createGoogleClientOptions } from './GaxiosConfig.js';
 import { escapeQueryString } from './DriveQueryBuilder.js';
@@ -615,9 +620,19 @@ export class DriveService {
           : path.resolve(getProjectRoot(), localPath);
       const dir = path.dirname(absolutePath);
 
-      await fs.promises.mkdir(dir, { recursive: true });
-
-      await fs.promises.writeFile(absolutePath, buffer);
+      // One Effect pipeline on the shared google-workspace runtime;
+      // failures rethrow the original fs error object (M5 file-IO seam).
+      await runGoogleWorkspaceEffect(
+        tryGoogleWorkspaceOp(() =>
+          fs.promises.mkdir(dir, { recursive: true }),
+        ).pipe(
+          Effect.flatMap(() =>
+            tryGoogleWorkspaceOp(() =>
+              fs.promises.writeFile(absolutePath, buffer),
+            ),
+          ),
+        ),
+      );
 
       return {
         content: [

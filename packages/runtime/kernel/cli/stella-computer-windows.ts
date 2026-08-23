@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { resolveNativeHelperPath } from "./native-helper.js";
+import { forkTimeoutFiber, sleepWithAbort } from "./effect-runtime.js";
 import { sanitizeStellaComputerSessionId } from "../tools/stella-computer-session.js";
 import {
   getComputerExecutionEnv,
@@ -454,24 +455,12 @@ const waitWithSignal = async <T>(promise: Promise<T>, signal?: AbortSignal) => {
   });
 };
 
-const delayWithSignal = (ms: number, signal?: AbortSignal) => {
-  if (signal?.aborted) return Promise.reject(windowsCancellationError(signal));
-  return new Promise<void>((resolve, reject) => {
-    const finish = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-    };
-    const onAbort = () => {
-      finish();
-      reject(windowsCancellationError(signal));
-    };
-    const timer = setTimeout(() => {
-      finish();
-      resolve();
-    }, ms);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-};
+// Effect-backed abortable sleep (kernel/cli/effect-runtime.ts): identical
+// timing, and the abort path rejects with the same
+// `windowsCancellationError(signal)` object as the old hand-rolled
+// `setTimeout` + abort-listener version.
+const delayWithSignal = (ms: number, signal?: AbortSignal) =>
+  sleepWithAbort(ms, signal, windowsCancellationError);
 
 export const withWindowsComputerSessionLock = async <T>(
   sessionId: string,
@@ -604,7 +593,7 @@ export const connectWindowsPipe = (
     }
     let settled = false;
     const cleanup = (removeErrorListener: boolean) => {
-      clearTimeout(timer);
+      cancelTimer();
       socket.removeListener("connect", onConnect);
       if (removeErrorListener) socket.removeListener("error", onError);
       signal?.removeEventListener("abort", onAbort);
@@ -622,13 +611,15 @@ export const connectWindowsPipe = (
         resolve(socket);
       }
     };
-    const timer = setTimeout(() => {
+    // Effect-backed timeout fiber (kernel/cli/effect-runtime.ts) with the
+    // old `setTimeout`/`clearTimeout` semantics and identical timing.
+    const cancelTimer = forkTimeoutFiber(timeoutMs, () => {
       finish(
         new Error(
           `Windows stella-computer daemon connection timed out after ${timeoutMs}ms`,
         ),
       );
-    }, timeoutMs);
+    });
     const onConnect = () => finish();
     const onError = (error: Error) => finish(error);
     const onAbort = () => finish(windowsCancellationError(signal));
@@ -947,7 +938,7 @@ export const exchangeWindowsDaemonRequest = (
     let settled = false;
     const chunks: Buffer[] = [];
     const cleanup = () => {
-      clearTimeout(timer);
+      cancelTimer();
       socket.removeListener("data", onData);
       socket.removeListener("end", onEnd);
       socket.removeListener("error", onError);
@@ -1005,14 +996,16 @@ export const exchangeWindowsDaemonRequest = (
       options.onTimeoutOrAbort?.();
       settle(windowsCancellationError(signal));
     };
-    const timer = setTimeout(() => {
+    // Effect-backed timeout fiber (kernel/cli/effect-runtime.ts) with the
+    // old `setTimeout`/`clearTimeout` semantics and identical timing.
+    const cancelTimer = forkTimeoutFiber(options.timeoutMs, () => {
       options.onTimeoutOrAbort?.();
       settle(
         new WindowsDaemonChannelError(
           `Windows stella-computer daemon timed out after ${options.timeoutMs}ms`,
         ),
       );
-    }, options.timeoutMs);
+    });
 
     socket.on("data", onData);
     socket.once("end", onEnd);

@@ -327,7 +327,10 @@ const main = async (): Promise<void> => {
       userText: options.prompt,
       ...(options.model ? { model: options.model } : {}),
     });
-    emit({ kind: "completion.result", text: result.text });
+    emit({
+      kind: "completion.result",
+      text: (result as { text: string }).text,
+    });
     emit({ kind: "cli.result", ok: true });
     clearTimeout(timeout);
     await shutdown(0);

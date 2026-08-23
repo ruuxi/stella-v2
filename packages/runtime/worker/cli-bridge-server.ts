@@ -20,6 +20,7 @@ import { constants as fsConstants, promises as fsPromises } from "node:fs";
 import { z } from "zod";
 import { createServer, type Server, type Socket } from "node:net";
 import path from "node:path";
+import { forkDelayed } from "./effect-runtime.js";
 import { runtimeIpcPathUsesFilesystem } from "./runtime-paths.js";
 import type {
   AutomationDaemonSpawnParams,
@@ -164,6 +165,11 @@ const handleConnection = (
   log: (message: string, error?: unknown) => void,
   activeSockets: Set<Socket>,
 ) => {
+  // The AbortController stays deliberately (effect-ratchet pinned): the
+  // `signal?: AbortSignal` seam in CliBridgeHandlers is the contract the
+  // backend connector action broker consumes, and an AbortSignal cannot be
+  // constructed without a controller. The bridge is sidecar-process
+  // boundary code; the signal fires on CLI disconnect only.
   const connectionAbort = new AbortController();
   activeSockets.add(socket);
   socket.on("close", () => {
@@ -173,7 +179,7 @@ const handleConnection = (
 
   let buffer = "";
   let resolved = false;
-  const timeout = setTimeout(() => {
+  const timeout = forkDelayed(REQUEST_TIMEOUT_MS, () => {
     if (!resolved) {
       resolved = true;
       writeResponse(socket, {
@@ -181,7 +187,7 @@ const handleConnection = (
         error: { message: "cli-bridge: request timed out before reading line" },
       });
     }
-  }, REQUEST_TIMEOUT_MS);
+  });
 
   socket.setEncoding("utf-8");
   socket.on("data", (chunk: string) => {
@@ -189,7 +195,7 @@ const handleConnection = (
     buffer += chunk;
     if (buffer.length > MAX_REQUEST_BYTES) {
       resolved = true;
-      clearTimeout(timeout);
+      timeout.cancel();
       writeResponse(socket, {
         id: 0,
         error: { message: "cli-bridge: request exceeded size limit" },
@@ -200,7 +206,7 @@ const handleConnection = (
     if (newlineIndex < 0) return;
     const line = buffer.slice(0, newlineIndex);
     resolved = true;
-    clearTimeout(timeout);
+    timeout.cancel();
 
     let request: RequestMessage;
     try {

@@ -14,9 +14,11 @@ describe("resolveRuntimePaths", () => {
       homeDir: "/Users/test",
     });
 
-    expect(paths.socketPath).toBe(path.join(paths.rootDir, "runtime.sock"));
+    // Sockets live in a short per-user /tmp namespace (macOS caps Unix domain
+    // socket paths at 104 bytes); durable control files stay under rootDir.
+    expect(paths.socketPath).toBe(path.join(paths.ipcDir, "r.sock"));
     expect(paths.cliBridgeSocketPath).toBe(
-      path.join(paths.rootDir, "cli-bridge.sock"),
+      path.join(paths.ipcDir, "c.sock"),
     );
     expect(runtimeIpcPathUsesFilesystem(paths.socketPath)).toBe(true);
     expect(runtimeIpcListenUrl(paths.socketPath)).toBe(

@@ -27,8 +27,6 @@ export type ResolveExternalCliOptions = {
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
   cwd?: string;
-  /** Override candidate directories for deterministic tests. */
-  wellKnownDirectories?: readonly string[];
 };
 
 const resolveHomeDir = (
@@ -190,9 +188,7 @@ export const resolveExternalCliPath = (
   const onPath = findOnPath(cli, env, cwd);
   if (onPath) return onPath;
 
-  const wellKnownDirectories =
-    options.wellKnownDirectories?.map((directory) => path.resolve(directory)) ??
-    defaultWellKnownDirectories(cli, env, homeDir);
+  const wellKnownDirectories = defaultWellKnownDirectories(cli, env, homeDir);
   for (const directory of wellKnownDirectories) {
     const executable = firstExecutable(path.join(directory, cli), env);
     if (executable) return executable;

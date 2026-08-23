@@ -12,13 +12,21 @@
  * Entries are one fact per markdown bullet, deduped case-insensitively, with
  * a hard char cap so the resident block stays cheap to inject every session.
  * Mirrors the spirit of Hermes's `USER.md`.
+ *
+ * Effect-native: reads/writes are Effects and the read-modify-write cycle is
+ * serialized by a process-global `Semaphore(1)` (replacing the old promise
+ * chain). The exported Promise API is a facade over the shared memory
+ * ManagedRuntime and rejects with the original failure objects.
  */
 
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { Effect, Semaphore } from "effect";
 
 import { redactMemoryText } from "./redaction.js";
+import { runMemoryPromise } from "./effect-runtime.js";
+import { tryFs } from "./effect-io.js";
 
 export const USER_PROFILE_FILE = "profile.md";
 
@@ -32,7 +40,7 @@ export const MAX_USER_PROFILE_CHARS = 8_000;
  * over-cap file can never blow the always-resident context budget. The slack
  * over {@link MAX_USER_PROFILE_CHARS} covers the header and per-entry markup.
  */
-export const USER_PROFILE_INJECT_MAX_CHARS = MAX_USER_PROFILE_CHARS + 1_000;
+export const USER_PROFILE_INJECTED_MAX_CHARS = MAX_USER_PROFILE_CHARS + 1_000;
 
 const HEADER = [
   "# User Profile",
@@ -69,40 +77,51 @@ const renderUserProfile = (entries: string[]): string => {
 const entriesBodyLength = (entries: string[]): number =>
   entries.reduce((sum, entry) => sum + entry.length + 3, 0);
 
-export const readUserProfile = async (
+/** Read the raw profile file; any failure (missing file, …) reads as null. */
+export const readUserProfileEffect = (
   stellaDataDir: string,
-): Promise<string | null> => {
-  try {
-    return await fs.readFile(userProfilePath(stellaDataDir), "utf-8");
-  } catch {
-    return null;
-  }
-};
+): Effect.Effect<string | null> =>
+  tryFs(() => fs.readFile(userProfilePath(stellaDataDir), "utf-8")).pipe(
+    Effect.catch(() => Effect.succeed(null)),
+  );
 
-const readEntries = async (stellaDataDir: string): Promise<string[]> => {
-  const content = await readUserProfile(stellaDataDir);
-  return content ? parseUserProfileEntries(content) : [];
-};
+export const readUserProfile = (
+  stellaDataDir: string,
+): Promise<string | null> => runMemoryPromise(readUserProfileEffect(stellaDataDir));
 
-const writeEntries = async (
+const readEntriesEffect = (
+  stellaDataDir: string,
+): Effect.Effect<string[]> =>
+  readUserProfileEffect(stellaDataDir).pipe(
+    Effect.map((content) =>
+      content ? parseUserProfileEntries(content) : [],
+    ),
+  );
+
+const writeEntriesEffect = (
   stellaDataDir: string,
   entries: string[],
-): Promise<void> => {
-  const target = userProfilePath(stellaDataDir);
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  // Unique temp per write: a fixed `${target}.tmp` would let two concurrent
-  // writers corrupt each other's bytes or fail the rename with ENOENT.
-  const tmp = `${target}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, renderUserProfile(entries), "utf-8");
-    // Atomic swap: readers (and the resident-doc injector) never observe a
-    // half-written file.
-    await fs.rename(tmp, target);
-  } catch (error) {
-    await fs.rm(tmp, { force: true }).catch(() => {});
-    throw error;
-  }
-};
+): Effect.Effect<void, NodeJS.ErrnoException> =>
+  Effect.suspend(() => {
+    const target = userProfilePath(stellaDataDir);
+    // Unique temp per write: a fixed `${target}.tmp` would let two concurrent
+    // writers corrupt each other's bytes or fail the rename with ENOENT.
+    const tmp = `${target}.${randomUUID()}.tmp`;
+    return tryFs(() =>
+      fs.mkdir(path.dirname(target), { recursive: true }),
+    ).pipe(
+      Effect.andThen(
+        tryFs(() => fs.writeFile(tmp, renderUserProfile(entries), "utf-8")),
+      ),
+      // Atomic swap: readers (and the resident-doc injector) never observe a
+      // half-written file.
+      Effect.andThen(tryFs(() => fs.rename(tmp, target))),
+      Effect.tapError(() =>
+        Effect.promise(() => fs.rm(tmp, { force: true }).catch(() => {})),
+      ),
+      Effect.asVoid,
+    );
+  });
 
 /**
  * Serializes the profile's read-modify-write. The agent loop runs tool calls
@@ -111,15 +130,7 @@ const writeEntries = async (
  * Process-global is fine: there is one profile per kernel process and writes
  * are infrequent.
  */
-let profileWriteChain: Promise<unknown> = Promise.resolve();
-const withProfileLock = <T>(fn: () => Promise<T>): Promise<T> => {
-  const run = profileWriteChain.then(fn, fn);
-  profileWriteChain = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-};
+const profileLock = Semaphore.makeUnsafe(1);
 
 const sameEntry = (a: string, b: string): boolean =>
   a.toLocaleLowerCase() === b.toLocaleLowerCase();
@@ -183,116 +194,127 @@ const evictionNote = (evicted: number): string =>
  * evicts the oldest facts to make room (see {@link evictOldestToFit}) rather
  * than rejecting the write, so the profile can never wedge above its cap.
  */
-const applyUserProfileOperationLocked = async (
+const applyUserProfileOperationLocked = (
   stellaDataDir: string,
   op: UserProfileOperation,
-): Promise<UserProfileOperationResult> => {
-  const entries = await readEntries(stellaDataDir);
-  const content = op.content
-    ? collapseWhitespace(redactMemoryText(op.content))
-    : "";
-  const oldContent = op.oldContent
-    ? collapseWhitespace(redactMemoryText(op.oldContent))
-    : "";
+): Effect.Effect<UserProfileOperationResult, NodeJS.ErrnoException> =>
+  Effect.gen(function* () {
+    const entries = yield* readEntriesEffect(stellaDataDir);
+    const content = op.content
+      ? collapseWhitespace(redactMemoryText(op.content))
+      : "";
+    const oldContent = op.oldContent
+      ? collapseWhitespace(redactMemoryText(op.oldContent))
+      : "";
 
-  const findIndex = (needle: string): number => {
-    if (!needle) return -1;
-    const exact = entries.findIndex((entry) => sameEntry(entry, needle));
-    if (exact !== -1) return exact;
-    const lower = needle.toLocaleLowerCase();
-    return entries.findIndex((entry) =>
-      entry.toLocaleLowerCase().includes(lower),
-    );
-  };
+    const findIndex = (needle: string): number => {
+      if (!needle) return -1;
+      const exact = entries.findIndex((entry) => sameEntry(entry, needle));
+      if (exact !== -1) return exact;
+      const lower = needle.toLocaleLowerCase();
+      return entries.findIndex((entry) =>
+        entry.toLocaleLowerCase().includes(lower),
+      );
+    };
 
-  if (op.action === "add") {
-    if (!content) {
-      return { ok: false, message: "add requires content.", entryCount: entries.length };
-    }
-    if (entries.some((entry) => sameEntry(entry, content))) {
+    if (op.action === "add") {
+      if (!content) {
+        return {
+          ok: false,
+          message: "add requires content.",
+          entryCount: entries.length,
+        };
+      }
+      if (entries.some((entry) => sameEntry(entry, content))) {
+        return {
+          ok: true,
+          message: "Already remembered; left unchanged.",
+          entryCount: entries.length,
+        };
+      }
+      const next = [...entries, content];
+      const bounded = evictOldestToFit(next, next.length - 1);
+      if (!bounded) {
+        return {
+          ok: false,
+          message:
+            "This fact is larger than the entire user-profile budget; shorten it before remembering.",
+          entryCount: entries.length,
+        };
+      }
+      yield* writeEntriesEffect(stellaDataDir, bounded.entries);
       return {
         ok: true,
-        message: "Already remembered; left unchanged.",
-        entryCount: entries.length,
+        message: `Remembered${evictionNote(bounded.evicted)}.`,
+        entryCount: bounded.entries.length,
       };
     }
-    const next = [...entries, content];
-    const bounded = evictOldestToFit(next, next.length - 1);
-    if (!bounded) {
-      return {
-        ok: false,
-        message:
-          "This fact is larger than the entire user-profile budget; shorten it before remembering.",
-        entryCount: entries.length,
-      };
-    }
-    await writeEntries(stellaDataDir, bounded.entries);
-    return {
-      ok: true,
-      message: `Remembered${evictionNote(bounded.evicted)}.`,
-      entryCount: bounded.entries.length,
-    };
-  }
 
-  if (op.action === "replace") {
-    if (!oldContent || !content) {
+    if (op.action === "replace") {
+      if (!oldContent || !content) {
+        return {
+          ok: false,
+          message: "replace requires both old_content and content.",
+          entryCount: entries.length,
+        };
+      }
+      const idx = findIndex(oldContent);
+      if (idx === -1) {
+        return {
+          ok: false,
+          message: "No matching fact to replace.",
+          entryCount: entries.length,
+        };
+      }
+      const next = [...entries];
+      next[idx] = content;
+      const bounded = evictOldestToFit(next, idx);
+      if (!bounded) {
+        return {
+          ok: false,
+          message:
+            "This fact is larger than the entire user-profile budget; shorten it before saving.",
+          entryCount: entries.length,
+        };
+      }
+      yield* writeEntriesEffect(stellaDataDir, bounded.entries);
+      return {
+        ok: true,
+        message: `Updated${evictionNote(bounded.evicted)}.`,
+        entryCount: bounded.entries.length,
+      };
+    }
+
+    // remove
+    const needle = oldContent || content;
+    if (!needle) {
       return {
         ok: false,
-        message: "replace requires both old_content and content.",
+        message: "remove requires content (the fact to forget).",
         entryCount: entries.length,
       };
     }
-    const idx = findIndex(oldContent);
+    const idx = findIndex(needle);
     if (idx === -1) {
       return {
         ok: false,
-        message: "No matching fact to replace.",
+        message: "No matching fact to remove.",
         entryCount: entries.length,
       };
     }
-    const next = [...entries];
-    next[idx] = content;
-    const bounded = evictOldestToFit(next, idx);
-    if (!bounded) {
-      return {
-        ok: false,
-        message:
-          "This fact is larger than the entire user-profile budget; shorten it before saving.",
-        entryCount: entries.length,
-      };
-    }
-    await writeEntries(stellaDataDir, bounded.entries);
-    return {
-      ok: true,
-      message: `Updated${evictionNote(bounded.evicted)}.`,
-      entryCount: bounded.entries.length,
-    };
-  }
+    const next = entries.filter((_, i) => i !== idx);
+    yield* writeEntriesEffect(stellaDataDir, next);
+    return { ok: true, message: "Forgotten.", entryCount: next.length };
+  });
 
-  // remove
-  const needle = oldContent || content;
-  if (!needle) {
-    return {
-      ok: false,
-      message: "remove requires content (the fact to forget).",
-      entryCount: entries.length,
-    };
-  }
-  const idx = findIndex(needle);
-  if (idx === -1) {
-    return {
-      ok: false,
-      message: "No matching fact to remove.",
-      entryCount: entries.length,
-    };
-  }
-  const next = entries.filter((_, i) => i !== idx);
-  await writeEntries(stellaDataDir, next);
-  return { ok: true, message: "Forgotten.", entryCount: next.length };
-};
+export const applyUserProfileOperationEffect = (
+  stellaDataDir: string,
+  op: UserProfileOperation,
+): Effect.Effect<UserProfileOperationResult, NodeJS.ErrnoException> =>
+  profileLock.withPermit(applyUserProfileOperationLocked(stellaDataDir, op));
 
 export const applyUserProfileOperation = (
   stellaDataDir: string,
   op: UserProfileOperation,
 ): Promise<UserProfileOperationResult> =>
-  withProfileLock(() => applyUserProfileOperationLocked(stellaDataDir, op));
+  runMemoryPromise(applyUserProfileOperationEffect(stellaDataDir, op));

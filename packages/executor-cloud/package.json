@@ -1,0 +1,26 @@
+{
+  "name": "@stella/executor-cloud",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./relay-model": "./src/relay-model.ts",
+    "./prune-history": "./src/prune-history.ts"
+  },
+  "scripts": {
+    "stub": "bun src/cli.ts --stub",
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.49",
+    "@stella/contracts": "workspace:*",
+    "@stella/runtime": "workspace:*",
+    "effect": "4.0.0-beta.83"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3"
+  }
+}

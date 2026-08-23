@@ -12,7 +12,7 @@ import path from "node:path";
  * runtime code. This stamp makes that detectable:
  *
  *   - The worker computes the stamp of the runtime tree it loaded at boot
- *     and writes it to `~/.stella/runtime/<rootHash>/build-stamp.txt`
+ *     and writes it to Electron `userData/runtime/<rootHash>/build-stamp.txt`
  *     (see `WorkerLifecycleServer.start`).
  *   - The host, when it attaches to an existing worker, recomputes the stamp
  *     from the on-disk tree and compares. Mismatch (or a missing worker
@@ -58,7 +58,7 @@ const hasStampedSuffix = (name: string): boolean => {
 
 /**
  * The worker entry lives at `<bundleRoot>/worker/entry.js` (bundled) or
- * `<repoRoot>/packages/runtime/worker/entry.ts` (unbundled/vitest). Either way the
+ * `<repoRoot>/packages/runtime/worker/entry.ts` (unbundled source). Either way the
  * runtime tree root is one directory up from the entry's directory.
  */
 export const resolveRuntimeBundleRoot = (workerEntryPath: string): string =>

@@ -609,8 +609,10 @@ export async function processResponsesStream<TApi extends Api>(
 					: (response?.service_tier ?? options.serviceTier);
 				options.applyServiceTierPricing(output.usage, serviceTier);
 			}
-			// Map status to stop reason
-			output.stopReason = mapStopReason(response?.status);
+			// The terminal event is authoritative when compatible endpoints omit
+			// status. An explicit incomplete event is never a clean stop.
+			output.stopReason =
+				event.type === "response.incomplete" ? "length" : mapStopReason(response?.status);
 			if (output.content.some((b) => b.type === "toolCall") && output.stopReason === "stop") {
 				output.stopReason = "toolUse";
 			}
@@ -651,9 +653,10 @@ function mapStopReason(status: OpenAI.Responses.ResponseStatus | undefined): Sto
 		case "failed":
 		case "cancelled":
 			return "error";
-		// These two are wonky ...
 		case "in_progress":
 		case "queued":
+			// This mapper runs only after a terminal completed event. Compatible
+			// relays can carry a stale polled status; the event is authoritative.
 			return "stop";
 		default: {
 			const _exhaustive: never = status;

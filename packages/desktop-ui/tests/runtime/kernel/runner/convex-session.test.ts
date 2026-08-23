@@ -19,6 +19,9 @@ const createContext = (client = createFakeClient()) =>
       cloudSyncEnabled: false,
       hasConnectedAccount: true,
     },
+    // Cloud transcript writer is a required runtime collaborator; the auth-set
+    // path resumes its outbox drain. Stub it for this local auth-session test.
+    cloudTranscript: { resume: () => {} },
   }) as any;
 
 describe("createConvexSession", () => {

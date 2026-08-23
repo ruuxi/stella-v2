@@ -5,7 +5,7 @@
  * base URL is deployment configuration (final domain is TBD/pending) and MUST
  * be read from config — it is never hardcoded here. This module is kept free
  * of electron/node imports so both the desktop main process and the renderer
- * can share it, and so the parsing rules stay directly unit-testable.
+ * can share it while the parsing rules stay independent of either surface.
  *
  * Backend contract these helpers pair with:
  *   publish({ html, title? }) -> { url, slug, expiresAt }

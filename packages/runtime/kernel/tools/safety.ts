@@ -1,5 +1,6 @@
-import os from "node:os";
-import path from "node:path";
+// No node builtins here on purpose: workerd imports this module for the cloud
+// `web` tool's secret refusal and page-text redaction. Path helpers that need
+// node live in `home-path.ts`.
 
 const STRUCTURAL_TAG_RE =
   /<\/?(?:tool_call|function_call|result|response|output|input|system|assistant|user)>/gi;
@@ -225,7 +226,3 @@ export const sanitizePromptContext = (
   return redactSensitiveText(text);
 };
 
-export const resolveHomeRelative = (candidate: string): string => {
-  const expanded = candidate.replace(/^~(?=$|[\\/])/, os.homedir());
-  return path.resolve(expanded);
-};

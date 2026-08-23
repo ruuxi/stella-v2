@@ -53,8 +53,7 @@ import type { NodeReplKernelRegistry } from "../../computer-use/kernel.js";
 
 export type BuildBuiltinToolsContext = ToolHostOptions & {
   /**
-   * Resolved durable state root (`stellaDataDir`, falling back to
-   * `stellaAppDir` only at the host boundary for tests). Required here so
+   * Resolved durable state root (`stellaDataDir`). Required here so
    * tools that persist artifacts (html, remember, script_draft) can never
    * silently fall back to the install/repo root.
    */

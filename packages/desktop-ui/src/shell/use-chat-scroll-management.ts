@@ -1359,8 +1359,8 @@ export function useChatScrollManagement({
         // assistant message settles (so a *new* turn's first chunk can hand
         // off cleanly). But once that row has locked, `.event-row--streaming`
         // is gone and it is no longer growing. A late layout change on the
-        // settled row — the reveal mask clearing, an inline image/card
-        // mounting once artifacts render, a code block, or a timestamp settling —
+        // settled row — an inline image/card mounting once artifacts render,
+        // a code block, or a timestamp settling —
         // still fires `notifyAssistantScrollFollowLayoutChange`, and following
         // the full (now static) row bottom re-applies the breathing inset,
         // pulling the viewport forward into the empty trailing region a beat
@@ -1376,37 +1376,8 @@ export function useChatScrollManagement({
         const rowRect = streamingRow.getBoundingClientRect();
         const containerRect = attached.getBoundingClientRect();
         const rowTop = rowRect.top - containerRect.top + attached.scrollTop;
-        const rowLayoutBottom =
+        const rowBottom =
           rowRect.bottom - containerRect.top + attached.scrollTop;
-        let rowBottom = rowLayoutBottom;
-        // The wrapper's DOM can extend below the soft mask frontier. Follow
-        // what is actually revealed so the viewport never scrolls ahead of
-        // the text the user can see.
-        const revealElement = streamingRow.querySelector<HTMLElement>(
-          "[data-reveal-visible-bottom]",
-        );
-        if (revealElement) {
-          const frontier = Number(
-            revealElement.getAttribute("data-reveal-visible-bottom"),
-          );
-          if (Number.isFinite(frontier)) {
-            const revealRect = revealElement.getBoundingClientRect();
-            const revealBottom =
-              revealRect.top -
-              containerRect.top +
-              attached.scrollTop +
-              frontier;
-            // The mask hides only the wrapper's own unrevealed tail. Content
-            // mounted BELOW the wrapper (agent spawn cards, inline strips) is
-            // fully visible at its layout position, so clamp to the frontier
-            // only while the wrapper is the row's last visible content —
-            // otherwise the clamp would hold the viewport above a card the
-            // user should be following.
-            if (rowRect.bottom <= revealRect.bottom + 1) {
-              rowBottom = Math.min(rowBottom, revealBottom);
-            }
-          }
-        }
         // Everything below the row that is still part of this turn: the
         // working indicator is its own timeline item, and a card row can be
         // appended mid-turn. Measuring the first element *after* the live tail
@@ -1438,10 +1409,7 @@ export function useChatScrollManagement({
           rowTop,
           rowBottom,
           tailBottom,
-          // The tail below the row is laid out past the row's unrevealed text,
-          // so it carries that displacement; hand it over so the frontier
-          // clamp survives being extended to the tail.
-          unrevealedPx: rowLayoutBottom - rowBottom,
+          unrevealedPx: 0,
           queuedBottom: queuedMessageBottom,
         });
         setTarget(target, turnStartGlide ? { gentle: true } : undefined);

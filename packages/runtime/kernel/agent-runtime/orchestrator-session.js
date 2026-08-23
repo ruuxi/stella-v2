@@ -1,15 +1,16 @@
 /**
  * Long-lived per-conversation orchestrator session.
  *
- * Owns one live Pi `Agent` for the lifetime of the conversation. Subsequent
- * turns reuse the same Agent (and its `state.messages` array) instead of
- * rebuilding from SQLite each turn. This lets provider prompt caches hit
- * cleanly between turns: the prefix the LLM sees on turn N+1 is byte-
- * identical to turn N up through the new user message at the tail.
+ * Owns one live Pi `Agent` while a conversation is active. Subsequent nearby
+ * turns reuse the same Agent (and its `state.messages` array), preserving a
+ * byte-identical provider-cache prefix. Once the conversation has been idle
+ * for five minutes the live mirror and provider resources are evicted; the
+ * next turn reconstructs the compacted durable window from SQLite.
  *
  * Lifetime: created lazily on the first user message for a `conversationId`
- * via `getOrCreateOrchestratorSession`. Disposed when the runtime worker
- * stops (`runtime-initialization.ts:stop`). One session per conversation;
+ * via `getOrCreateOrchestratorSession`. Its live Agent is disposed after an
+ * idle interval and all sessions are disposed when the runtime worker stops
+ * (`runtime-initialization.ts:stop`). One session per conversation;
  * concurrent runs against the same conversation are serialized by the
  * orchestrator coordinator's queue, same as before.
  *
@@ -53,8 +54,10 @@ import { createPiTools } from "./tool-adapters.js";
  * conversation key migration.
  */
 const ORCHESTRATOR_SESSION_RUN_ID = "session";
+const ORCHESTRATOR_AGENT_IDLE_EVICTION_MS = 5 * 60 * 1000;
 export class OrchestratorSession extends PiSessionCore {
     conversationId;
+    idleEvictionTimer = null;
     /**
      * Mutable tracker slot. Set at the start of every `runTurn`, cleared at
      * the end. The Agent's `afterToolCall` closure (built once at Agent
@@ -70,6 +73,16 @@ export class OrchestratorSession extends PiSessionCore {
      */
     currentRetryStatusContext = null;
     currentImageDescriptionContext = null;
+    scheduleIdleEviction() {
+        if (this.idleEvictionTimer) {
+            clearTimeout(this.idleEvictionTimer);
+        }
+        this.idleEvictionTimer = setTimeout(() => {
+            this.idleEvictionTimer = null;
+            this.dispose();
+        }, ORCHESTRATOR_AGENT_IDLE_EVICTION_MS);
+        this.idleEvictionTimer.unref?.();
+    }
     constructor(conversationId) {
         super({
             loggerName: "orchestrator-session",
@@ -104,6 +117,18 @@ export class OrchestratorSession extends PiSessionCore {
         }
     };
     async runTurn(opts) {
+        if (this.idleEvictionTimer) {
+            clearTimeout(this.idleEvictionTimer);
+            this.idleEvictionTimer = null;
+        }
+        try {
+            return await this.runActiveTurn(opts);
+        }
+        finally {
+            this.scheduleIdleEviction();
+        }
+    }
+    async runActiveTurn(opts) {
         const runId = opts.runId ?? `local:${crypto.randomUUID()}`;
         const turnOpts = opts.runId === runId ? opts : { ...opts, runId };
         const effectiveSystemPrompt = await buildRuntimeSystemPrompt(turnOpts);
@@ -453,6 +478,10 @@ export class OrchestratorSession extends PiSessionCore {
         }
     }
     dispose() {
+        if (this.idleEvictionTimer) {
+            clearTimeout(this.idleEvictionTimer);
+            this.idleEvictionTimer = null;
+        }
         super.dispose();
         this.currentResponseTargetTracker = null;
         this.currentRetryStatusContext = null;

@@ -117,6 +117,49 @@ describe("OrchestratorSession", () => {
     expect(seenAgents[1]).toBe(seenAgents[0]);
   });
 
+  it("evicts an idle Agent and reconstructs the compacted durable window", async () => {
+    vi.useFakeTimers();
+    const session = new OrchestratorSession("conversation-1");
+    const seenAgents: unknown[] = [];
+    const startMessages: string[][] = [];
+
+    try {
+      executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
+        seenAgents.push(agent);
+        startMessages.push(textFromMessages(agent.state.messages));
+        return { finalText: "done" };
+      });
+
+      await session.runTurn(createOptions({ runId: "run-before-idle" }));
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+      await session.runTurn(
+        createOptions({
+          runId: "run-after-idle",
+          agentContext: {
+            systemPrompt: "System prompt",
+            dynamicContext: "",
+            maxAgentDepth: 1,
+            reasoningEffort: "high",
+            threadHistory: [
+              {
+                role: "assistant",
+                content: "Durable compacted checkpoint",
+                timestamp: 2,
+              },
+            ],
+          },
+        }),
+      );
+
+      expect(seenAgents[1]).not.toBe(seenAgents[0]);
+      expect(startMessages[1]).toContain("Durable compacted checkpoint");
+      expect(startMessages[1]).not.toContain("Initial persisted history");
+    } finally {
+      session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("forwards the image description service to prompt execution", async () => {
     const session = new OrchestratorSession("conversation-1");
     const describeImages = vi.fn(async () => "A terminal window.");

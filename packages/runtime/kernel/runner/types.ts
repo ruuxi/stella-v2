@@ -58,6 +58,7 @@ import type {
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
 import type { LocalChatAppendEventArgs } from "../storage/shared.js";
+import type { ThreadActivityUpdatedPayload } from "@stella/contracts/local-chat";
 
 export type StellaHostRunnerOptions = {
   deviceId: string;
@@ -152,9 +153,8 @@ export type StellaHostRunnerOptions = {
     ) => TranscriptSearchHit[][];
   };
   appendLocalChatEvent?: (args: LocalChatAppendEventArgs) => void;
-  /** Fired after every `runtime_agents` write so the renderer's
-   *  thread-activity store can refetch the conversation's rows. */
-  notifyThreadActivityUpdated?: (conversationId: string) => void;
+  /** Fired after every `runtime_agents` write with the durable keyed row. */
+  notifyThreadActivityUpdated?: (payload: ThreadActivityUpdatedPayload) => void;
   getDefaultConversationId?: () => string;
 };
 

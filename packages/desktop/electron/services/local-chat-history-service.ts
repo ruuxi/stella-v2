@@ -8,7 +8,10 @@ import {
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
 import { prepareStoredLocalChatPayload } from "@stella/runtime/kernel/storage/local-chat-payload";
-import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
+import {
+  SessionStore,
+  projectLocalChatUpdateEvent,
+} from "@stella/runtime/kernel/storage/session-store";
 import type {
   LocalChatActivityWindow,
   LocalChatAppendEventArgs,
@@ -340,17 +343,31 @@ export class LocalChatHistoryService {
     conversationId: string;
     afterTimestampMs: number;
     afterId: string;
+    afterSequence?: number;
     maxVisibleMessages?: number;
   }): LocalChatMessageWindow {
-    const { messages, visibleMessageCount } = this.getStore().listMessagesAfter(
-      args.conversationId,
-      {
+    const { messages, visibleMessageCount, nextCursor } =
+      this.getStore().listMessagesAfter(args.conversationId, {
         afterTimestampMs: args.afterTimestampMs,
         afterId: args.afterId,
+        afterSequence: args.afterSequence,
         maxVisibleMessages: args.maxVisibleMessages,
-      },
-    );
-    return { messages, visibleMessageCount };
+        includeSourceEvents: false,
+      });
+    return { messages, visibleMessageCount, nextCursor };
+  }
+
+  listMessageToolEvents(args: {
+    conversationId: string;
+    messageTimestampMs: number;
+    messageId: string;
+    messageSequence?: number;
+    afterTimestampMs?: number;
+    afterId?: string;
+    afterSequence?: number;
+    limit?: number;
+  }) {
+    return this.getStore().listMessageToolEvents(args.conversationId, args);
   }
 
   listActivity(args: {
@@ -402,7 +419,9 @@ export class LocalChatHistoryService {
     const event = this.getStore().appendEvent(args);
     this.onUpdated?.({
       conversationId: args.conversationId,
-      event: event as unknown as LocalChatUpdatedPayload["event"],
+      event: projectLocalChatUpdateEvent(
+        event,
+      ) as unknown as LocalChatUpdatedPayload["event"],
     });
     return event;
   }
@@ -490,7 +509,9 @@ export class LocalChatHistoryService {
         });
         this.onUpdated?.({
           conversationId: args.conversationId,
-          event: event as unknown as LocalChatUpdatedPayload["event"],
+          event: projectLocalChatUpdateEvent(
+            event,
+          ) as unknown as LocalChatUpdatedPayload["event"],
         });
       })().catch((error) => {
         console.warn("[local-chat] Failed to persist first report:", error);
@@ -500,7 +521,11 @@ export class LocalChatHistoryService {
     this.onUpdated?.({
       conversationId: args.conversationId,
       ...(latestEvent
-        ? { event: latestEvent as unknown as LocalChatUpdatedPayload["event"] }
+        ? {
+            event: projectLocalChatUpdateEvent(
+              latestEvent,
+            ) as unknown as LocalChatUpdatedPayload["event"],
+          }
         : {}),
     });
     return { ok: true };
@@ -593,6 +618,7 @@ export class LocalChatHistoryService {
           afterTimestampMs: cursor.timestamp,
           afterId: cursor.id,
           maxVisibleMessages: maxMessages,
+          includeSourceEvents: true,
         },
       );
       const { touched, anchored } = taskAgentIdsInMessages(messages);

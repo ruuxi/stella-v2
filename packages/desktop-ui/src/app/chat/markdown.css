@@ -22,6 +22,13 @@
   line-height: 1.75;
 }
 
+/* Parsing the entire growing markdown string eventually costs more than a
+   frame. Keep very large in-flight replies as safe plain text; the settled
+   render restores complete markdown once, after streaming ends. */
+.markdown--streaming-plaintext {
+  white-space: pre-wrap;
+}
+
 /* Spacing for flow */
 .markdown > *:first-child {
   margin-top: 0;

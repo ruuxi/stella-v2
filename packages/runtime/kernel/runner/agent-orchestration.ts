@@ -34,6 +34,7 @@ import {
 import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
 import type { LocalChatEventRecord } from "../storage/shared.js";
+import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 import { createRunnerImageDescriptionService } from "./model-selection.js";
 
 const collectFileChanges = (
@@ -783,9 +784,38 @@ export const createAgentOrchestration = (
       ),
     saveAgentRecord: (record) => {
       context.runtimeStore.saveAgentRecord?.(record);
-      // Every thread transition funnels through here — this push is what
-      // keeps the renderer's authoritative Activity store current.
-      context.notifyThreadActivityUpdated?.(record.conversationId);
+      // Project the just-persisted row so consumers patch one keyed record
+      // instead of refetching every thread in the conversation.
+      const threadMetadata =
+        context.runtimeStore.getThreadActivityMetadata?.(record.threadId);
+      const activityRecord: ThreadActivityRecord = {
+        source: "stella",
+        threadId: record.threadId,
+        conversationId: record.conversationId,
+        agentType: record.agentType,
+        description: record.description,
+        status: record.status,
+        attemptGeneration: record.attemptGeneration ?? 0,
+        ...(record.rootRunId ? { rootRunId: record.rootRunId } : {}),
+        ...(record.parentAgentId
+          ? { parentAgentId: record.parentAgentId }
+          : {}),
+        ...(record.modelConfigSnapshot
+          ? { modelConfigSnapshot: record.modelConfigSnapshot }
+          : {}),
+        ...(threadMetadata ?? {}),
+        startedAt: record.startedAt,
+        ...(record.completedAt == null
+          ? {}
+          : { completedAt: record.completedAt }),
+        ...(record.result ? { result: record.result.slice(0, 2_000) } : {}),
+        ...(record.error ? { error: record.error.slice(0, 2_000) } : {}),
+        updatedAt: record.updatedAt,
+      };
+      context.notifyThreadActivityUpdated?.({
+        conversationId: record.conversationId,
+        record: activityRecord,
+      });
     },
     getAgentRecord: (threadId) =>
       context.runtimeStore.getAgentRecord?.(threadId) ?? null,

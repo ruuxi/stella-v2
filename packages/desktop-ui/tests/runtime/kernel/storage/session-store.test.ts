@@ -7,7 +7,10 @@ import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
-import { SessionStore } from "../../../../../runtime/kernel/storage/session-store.js";
+import {
+  SessionStore,
+  projectLocalChatUpdateEvent,
+} from "../../../../../runtime/kernel/storage/session-store.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 type TestContext = {
@@ -1006,6 +1009,238 @@ describe("session-store", () => {
     ]);
   });
 
+  it("bounds eager turn activity and pages complete detail on demand", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    store.appendEvent({
+      conversationId,
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "run a tool-heavy job" },
+    });
+    const eventIds: string[] = [];
+    for (let index = 0; index < 100; index += 1) {
+      eventIds.push(
+        store.appendEvent({
+          conversationId,
+          type: index % 2 === 0 ? "tool_request" : "tool_result",
+          timestamp: 1_001 + index,
+          payload: {
+            toolName: "exec_command",
+            index,
+            output:
+              `${index}:` +
+              (index === 0 ? "😀".repeat(5_000) : "x".repeat(20_000)),
+          },
+        })._id,
+      );
+    }
+    const assistant = store.appendEvent({
+      conversationId,
+      type: "assistant_message",
+      timestamp: 1_200,
+      payload: { text: "done" },
+    });
+
+    const window = store.listMessages(conversationId, {
+      maxVisibleMessages: 10,
+    });
+    const row = window.messages.find(
+      (message) => message._id === assistant._id,
+    )!;
+    expect(row.toolEventSummary).toMatchObject({
+      totalCount: 33,
+      loadedCount: 32,
+      truncated: true,
+      totalCountIsLowerBound: true,
+    });
+    expect(row.toolEvents.map((event) => event._id)).toEqual([
+      ...eventIds.slice(0, 16),
+      ...eventIds.slice(-16),
+    ]);
+    expect(
+      Math.max(
+        ...row.toolEvents.map(
+          (event) =>
+            new TextEncoder().encode(JSON.stringify(event.payload)).byteLength,
+        ),
+      ),
+    ).toBeLessThanOrEqual(4_096);
+
+    const firstPage = store.listMessageToolEvents(conversationId, {
+      messageId: assistant._id,
+      messageTimestampMs: assistant.timestamp,
+      limit: 25,
+    });
+    expect(firstPage.events).toHaveLength(25);
+    expect(firstPage.hasMore).toBe(true);
+    expect(
+      new TextEncoder().encode(firstPage.events[0]?.payload?.output as string)
+        .byteLength,
+    ).toBeGreaterThan(20_000);
+    const secondPage = store.listMessageToolEvents(conversationId, {
+      messageId: assistant._id,
+      messageTimestampMs: assistant.timestamp,
+      limit: 25,
+      afterId: firstPage.nextCursor!.id,
+      afterTimestampMs: firstPage.nextCursor!.timestamp,
+      afterSequence: firstPage.nextCursor!.sequence,
+    });
+    expect(secondPage.events.map((event) => event._id)).toEqual(
+      eventIds.slice(25, 50),
+    );
+  });
+
+  it("bounds tool-event update pushes while preserving authored text", () => {
+    const toolEvent = projectLocalChatUpdateEvent({
+      _id: "large-tool",
+      timestamp: 1,
+      type: "tool_result",
+      payload: { toolName: "exec_command", output: "😀".repeat(10_000) },
+    });
+    expect(
+      new TextEncoder().encode(JSON.stringify(toolEvent)).byteLength,
+    ).toBeLessThanOrEqual(4_300);
+    expect(toolEvent.payload?.toolName).toBe("exec_command");
+
+    const text = "a".repeat(10_000);
+    const assistantEvent = {
+      _id: "large-assistant",
+      timestamp: 2,
+      type: "assistant_message",
+      payload: { text },
+    };
+    expect(projectLocalChatUpdateEvent(assistantEvent)).toBe(assistantEvent);
+    expect(projectLocalChatUpdateEvent(assistantEvent).payload.text).toBe(text);
+  });
+
+  it("keeps bounded and lazy tool detail owned by the correct assistant", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    store.appendEvent({
+      conversationId,
+      eventId: "user-anchor",
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "research this" },
+    });
+    const beforeFirst = store.appendEvent({
+      conversationId,
+      eventId: "tool-before-first",
+      type: "tool_result",
+      timestamp: 1_001,
+      payload: { output: "before first" },
+    });
+    const first = store.appendEvent({
+      conversationId,
+      eventId: "assistant-first",
+      type: "assistant_message",
+      timestamp: 1_002,
+      payload: { text: "I found one lead" },
+    });
+    const afterFirst = store.appendEvent({
+      conversationId,
+      eventId: "tool-after-first",
+      type: "tool_result",
+      timestamp: 1_003,
+      payload: { output: "after first" },
+    });
+    store.appendEvent({
+      conversationId,
+      eventId: "assistant-hidden",
+      type: "assistant_message",
+      timestamp: 1_003.1,
+      payload: {
+        text: "internal reminder",
+        metadata: { ui: { visibility: "hidden" } },
+      },
+    });
+    const afterHidden = store.appendEvent({
+      conversationId,
+      eventId: "tool-after-hidden",
+      type: "tool_result",
+      timestamp: 1_003.2,
+      payload: { output: "after hidden" },
+    });
+    const second = store.appendEvent({
+      conversationId,
+      eventId: "assistant-second",
+      type: "assistant_message",
+      timestamp: 1_004,
+      payload: { text: "Here is the answer" },
+    });
+    const afterSecond = store.appendEvent({
+      conversationId,
+      eventId: "tool-after-second",
+      type: "tool_result",
+      timestamp: 1_005,
+      payload: { output: "after second" },
+    });
+
+    const window = store.listMessages(conversationId, {
+      maxVisibleMessages: 10,
+    });
+    expect(
+      window.messages.find((message) => message._id === first._id)?.toolEvents,
+    ).toEqual([beforeFirst, afterFirst, afterHidden]);
+    expect(
+      window.messages.find((message) => message._id === second._id)?.toolEvents,
+    ).toEqual([afterSecond]);
+
+    expect(
+      store.listMessageToolEvents(conversationId, {
+        messageId: first._id,
+        messageTimestampMs: first.timestamp,
+      }).events,
+    ).toEqual([beforeFirst, afterFirst, afterHidden]);
+    expect(
+      store.listMessageToolEvents(conversationId, {
+        messageId: second._id,
+        messageTimestampMs: second.timestamp,
+      }).events,
+    ).toEqual([afterSecond]);
+  });
+
+  it("advances event cursors by sequence when timestamps and ids disagree", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    store.appendEvent({
+      conversationId,
+      eventId: "z-user",
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "go" },
+    });
+    store.appendEvent({
+      conversationId,
+      eventId: "z-assistant",
+      type: "assistant_message",
+      timestamp: 1_000,
+      payload: { text: "working" },
+    });
+    const initial = store.listMessages(conversationId, {
+      maxVisibleMessages: 10,
+    });
+    expect(initial.nextCursor?.sequence).toBeTypeOf("number");
+
+    const later = store.appendEvent({
+      conversationId,
+      eventId: "a-later-tool",
+      type: "tool_result",
+      timestamp: 1_000,
+      payload: { output: "done" },
+    });
+    const tail = store.listMessagesAfter(conversationId, {
+      afterTimestampMs: initial.nextCursor!.timestamp,
+      afterId: initial.nextCursor!.id,
+      afterSequence: initial.nextCursor!.sequence,
+      maxVisibleMessages: 10,
+      includeSourceEvents: false,
+    });
+    expect(tail.nextCursor?.sequence).toBe(later.sequence);
+    expect(tail.messages[0]?.toolEvents.at(-1)?._id).toBe(later._id);
+  });
+
   it("listMessagesAfter returns only messages after the mobile cursor", () => {
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
@@ -1172,7 +1407,7 @@ describe("session-store", () => {
       id: anchors[0]!._id,
     });
     expect(pageEnd?.id).toBe(anchors[10]!._id);
-    expect(store.findMessageCursorAfter(conversationId, pageEnd!)?.id).toBe(
+    expect(store.findVisibleMessageCursorAfter(conversationId, pageEnd!)?.id).toBe(
       anchors[11]!._id,
     );
     const originalFetch = store.fetchTimelineRows.bind(store);
@@ -2471,6 +2706,10 @@ describe("thread activity rows", () => {
       status: "completed",
       completedAt: 3_000,
       result: "Booked the Marriott",
+      groupKey: "grp-trip",
+      groupLabel: "Plan the trip",
+    });
+    expect(store.getThreadActivityMetadata("book-hotel")).toEqual({
       groupKey: "grp-trip",
       groupLabel: "Plan the trip",
     });

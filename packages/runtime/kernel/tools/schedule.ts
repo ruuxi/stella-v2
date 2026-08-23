@@ -22,6 +22,7 @@ import {
   type LocalCronJobRecord,
   type LocalCronPayload,
   type LocalCronSchedule,
+  type LocalHeartbeatConfigRecord,
   type ScheduleToolDetails,
 } from "@stella/contracts/scheduling";
 import type { ScheduleToolApi, ToolContext, ToolResult } from "./types.js";
@@ -72,6 +73,58 @@ const cronDetails = (
       removed: change === "removed" ? [{ kind: "cron", id: record.id }] : [],
     },
   },
+});
+
+const heartbeatDetails = (
+  change: "updated" | "removed",
+  record: LocalHeartbeatConfigRecord,
+): ScheduleToolDetails => ({
+  schedule: {
+    affected:
+      change === "removed"
+        ? []
+        : [
+            {
+              kind: "heartbeat",
+              id: record.id,
+              conversationId: record.conversationId,
+              name: heartbeatDisplayName(record),
+              enabled: record.enabled,
+              nextRunAtMs: record.nextRunAtMs,
+            },
+          ],
+    changes: {
+      added: [],
+      updated: change === "updated" ? [{ kind: "heartbeat", id: record.id }] : [],
+      removed: change === "removed" ? [{ kind: "heartbeat", id: record.id }] : [],
+    },
+  },
+});
+
+const heartbeatDisplayName = (record: LocalHeartbeatConfigRecord): string => {
+  const prompt = record.prompt?.trim();
+  if (!prompt) return "Check-in";
+  return prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt;
+};
+
+const findHeartbeat = async (
+  api: ScheduleToolApi,
+  id: string,
+): Promise<LocalHeartbeatConfigRecord | null> =>
+  (await api.listHeartbeats()).find((entry) => entry.id === id) ?? null;
+
+const summarizeHeartbeat = (
+  record: LocalHeartbeatConfigRecord,
+): Record<string, unknown> => ({
+  jobId: record.id,
+  triggerKind: "heartbeat",
+  enabled: record.enabled,
+  intervalMs: record.intervalMs,
+  conversationId: record.conversationId,
+  nextRunAt: new Date(record.nextRunAtMs).toISOString(),
+  ...(record.prompt ? { prompt: record.prompt } : {}),
+  ...(record.lastStatus ? { lastStatus: record.lastStatus } : {}),
+  ...(record.lastError ? { lastError: record.lastError } : {}),
 });
 
 const describeSchedule = (schedule: LocalCronSchedule): string => {
@@ -205,27 +258,66 @@ export const handleScheduleAdd = async (
 
 export const handleScheduleList = async (
   scheduleApi: ScheduleToolApi | undefined,
-  context: ToolContext,
+  _context: ToolContext,
 ): Promise<ToolResult> => {
   const api = requireScheduleApi(scheduleApi);
-  const [jobs, heartbeat] = await Promise.all([
+  const [jobs, heartbeats] = await Promise.all([
     api.listCronJobs(),
-    api.getHeartbeatConfig(context.conversationId).catch(() => null),
+    api.listHeartbeats().catch(() => []),
   ]);
   const lines: Record<string, unknown> = {
     entries: jobs.map(summarizeJob),
-    ...(heartbeat
-      ? {
-          conversationHeartbeat: {
-            id: heartbeat.id,
-            enabled: heartbeat.enabled,
-            intervalMs: heartbeat.intervalMs,
-            ...(heartbeat.prompt ? { prompt: heartbeat.prompt } : {}),
-          },
-        }
+    ...(heartbeats.length > 0
+      ? { heartbeats: heartbeats.map(summarizeHeartbeat) }
       : {}),
   };
   return { result: JSON.stringify(lines, null, 2) };
+};
+
+/**
+ * Heartbeat (conversation check-in) edits through the same tool surface:
+ * pause/resume via `enabled`, cadence via `schedule: { kind: 'every',
+ * everyMs }`, and `prompt` for what each check-in should do. Mirrors the
+ * UI dialog's affordances (which stay unchanged).
+ */
+const updateHeartbeat = async (
+  api: ScheduleToolApi,
+  heartbeat: LocalHeartbeatConfigRecord,
+  args: Record<string, unknown>,
+): Promise<ToolResult> => {
+  for (const field of ["message", "scriptPath", "name"] as const) {
+    if (asTrimmedString(args[field])) {
+      throw new Error(
+        `${field} does not apply to a heartbeat check-in (${heartbeat.id}).`,
+      );
+    }
+  }
+  let intervalMs: number | undefined;
+  if (args.schedule !== undefined) {
+    const schedule = args.schedule as Partial<LocalCronSchedule> | null;
+    if (
+      !schedule ||
+      schedule.kind !== "every" ||
+      typeof (schedule as { everyMs?: unknown }).everyMs !== "number"
+    ) {
+      throw new Error(
+        "Heartbeat cadence must be schedule: { kind: 'every', everyMs }.",
+      );
+    }
+    intervalMs = (schedule as { everyMs: number }).everyMs;
+  }
+  const record = await api.upsertHeartbeat({
+    conversationId: heartbeat.conversationId,
+    ...(typeof args.enabled === "boolean" ? { enabled: args.enabled } : {}),
+    // upsertHeartbeat re-normalizes intervalMs on every call, so always pass
+    // the effective value to avoid resetting cadence to the default.
+    intervalMs: intervalMs ?? heartbeat.intervalMs,
+    ...(typeof args.prompt === "string" ? { prompt: args.prompt } : {}),
+  });
+  return {
+    result: `Updated check-in "${heartbeatDisplayName(record)}" (${record.id}): ${record.enabled ? "active" : "paused"}, every ${Math.round(record.intervalMs / 60000)} min; next fire ${new Date(record.nextRunAtMs).toISOString()}.`,
+    details: heartbeatDetails("updated", record),
+  };
 };
 
 export const handleScheduleUpdate = async (
@@ -239,6 +331,10 @@ export const handleScheduleUpdate = async (
   }
   const existing = (await api.listCronJobs()).find((job) => job.id === jobId);
   if (!existing) {
+    const heartbeat = await findHeartbeat(api, jobId);
+    if (heartbeat) {
+      return await updateHeartbeat(api, heartbeat, args);
+    }
     return { error: `No schedule entry found with jobId ${jobId}.` };
   }
   const payloadPatch = buildPayloadPatch(existing.payload, args);
@@ -276,6 +372,20 @@ export const handleScheduleRemove = async (
   }
   const removed = await api.removeCronJob(jobId);
   if (!removed) {
+    // Heartbeats have no hard delete; disabling is the delete affordance
+    // (identical to the UI dialog's Delete action) and is reversible.
+    const heartbeat = await findHeartbeat(api, jobId);
+    if (heartbeat) {
+      const record = await api.upsertHeartbeat({
+        conversationId: heartbeat.conversationId,
+        enabled: false,
+        intervalMs: heartbeat.intervalMs,
+      });
+      return {
+        result: `Turned off check-in "${heartbeatDisplayName(record)}" (${record.id}). Check-ins are disabled rather than deleted; re-enable it later with schedule_update if wanted.`,
+        details: heartbeatDetails("removed", record),
+      };
+    }
     return { error: `No schedule entry found with jobId ${jobId}.` };
   }
   return {

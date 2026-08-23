@@ -38,8 +38,7 @@ import { createNodeReplTool } from "./node-repl.js";
 import { readTool } from "./read.js";
 import { createRememberTool } from "./remember.js";
 import { createRequestCredentialTool } from "./request-credential.js";
-import { createScheduleTool } from "./schedule.js";
-import { createScheduleControlTools } from "./schedule-control.js";
+import { createScheduleManageTools } from "./schedule-manage.js";
 import { createScriptDraftTool } from "./script-draft.js";
 import { strReplaceTool } from "./str-replace.js";
 import { createAgentTools } from "./task.js";
@@ -143,17 +142,12 @@ export const buildBuiltinTools = (
       stellaDataDir: options.stellaDataDir,
     }),
   );
-  tools.push(
-    createScheduleTool({
-      agentApi: options.agentApi,
-      scheduleApi: options.scheduleApi,
-    }),
-  );
   tools.push(...createAgentTools(options.stateContext));
 
-  // Schedule subagent surface
+  // Direct scheduling surface (deferred/demoted): reminder / task / watch
+  // triggers plus the sensor-script authoring tool.
   tools.push(
-    ...createScheduleControlTools({ scheduleApi: options.scheduleApi }),
+    ...createScheduleManageTools({ scheduleApi: options.scheduleApi }),
   );
   tools.push(
     createScriptDraftTool({

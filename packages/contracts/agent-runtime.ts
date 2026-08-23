@@ -1,6 +1,5 @@
 export const AGENT_IDS = {
   ORCHESTRATOR: "orchestrator",
-  SCHEDULE: "schedule",
   FASHION: "fashion",
   GENERAL: "general",
   SOCIAL_SESSION: "social_session",
@@ -105,22 +104,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
       injectsSkillCatalog: true,
       triggersDreamScheduler: true,
       triggersMemoryReview: true,
-    },
-  },
-  {
-    id: AGENT_IDS.SCHEDULE,
-    name: "Schedule",
-    description:
-      "Applies local cron and heartbeat changes from plain-language scheduling requests.",
-    activityLabel: "Scheduling",
-    bundledCore: true,
-    runsAsSubagent: false,
-    usesLocalCliRuntime: false,
-    promptRole: "subagent",
-    localCliWorkingDirectory: null,
-    modelSettings: {
-      description: "Turns plain-language requests into local schedules",
-      order: 2,
     },
   },
   {
@@ -284,6 +267,10 @@ const RETIRED_AGENT_TYPE_REPLACEMENTS: Readonly<Record<string, AgentId>> =
     // Removed with the Manager agent; its threads were ordinary coordination
     // threads whose children are plain General subagents.
     manager: AGENT_IDS.GENERAL,
+    // Removed with the scheduling rework: the orchestrator owns direct
+    // schedule tools now, so the plain-language schedule specialist is gone.
+    // Its threads were ordinary one-shot workers.
+    schedule: AGENT_IDS.GENERAL,
   });
 
 export const normalizeRetiredAgentType = (agentType: string): string =>

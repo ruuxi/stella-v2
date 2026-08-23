@@ -1,42 +1,36 @@
-import type {
-  LocalCronJobRecord,
-  LocalHeartbeatConfigRecord,
-  ScheduleToolAffectedRef,
-  ScheduleToolChangeSet,
-  ScheduleToolDetails,
-} from "@stella/contracts/scheduling";
-import type {
-  ScheduleToolApi,
-  AgentToolApi,
-  ToolContext,
-  ToolResult,
-} from "./types.js";
-
-const formatResult = (value: unknown) =>
-  typeof value === "string" ? value : JSON.stringify(value ?? null, null, 2);
-
 /**
- * Waiting policy for the delegated schedule subagent. A flat wall-clock
- * timeout proved too aggressive in practice: scheduling prompts that mention
- * external integrations (e.g. "check Gmail every morning") legitimately make
- * the subagent probe connectors/skills for a minute or more before writing
- * the cron job. So the tool cancels only when the agent has gone idle — no
- * new activity for `idleTimeoutMs` — or when the generous `maxWaitMs` hard
- * cap trips as a backstop against a truly wedged run.
+ * Handlers for the orchestrator's direct scheduling tools
+ * (`schedule_add` / `schedule_list` / `schedule_update` / `schedule_remove`).
+ *
+ * One local schedule store, three trigger kinds:
+ *
+ *  - **reminder** — `payload.kind === 'notify'`: literal text delivered as
+ *    an assistant message + OS notification at fire time. No LLM.
+ *  - **task** — `payload.kind === 'task'`: the stored intent fires as an
+ *    orchestrator turn, which answers or spawns agents as usual.
+ *  - **watch** — `payload.kind === 'watch'`: a verified deterministic check
+ *    script runs on the schedule; non-empty stdout (a detected change) or a
+ *    failure escalates to an orchestrator turn. Unchanged = silent.
+ *
+ * Legacy `script` / `agent` payloads written by the retired schedule
+ * specialist keep executing unmodified; these handlers surface them as
+ * `legacy-script` / `legacy-agent` and allow same-kind edits.
  */
-export type ScheduleWaitPolicy = {
-  /** Hard cap on total wait, regardless of activity. */
-  maxWaitMs: number;
-  /** Cancel when the agent reports no new activity for this long. */
-  idleTimeoutMs: number;
-  /** Poll interval. */
-  pollMs: number;
-};
 
-const DEFAULT_SCHEDULE_WAIT_POLICY: ScheduleWaitPolicy = {
-  maxWaitMs: 300_000,
-  idleTimeoutMs: 90_000,
-  pollMs: 150,
+import {
+  getCronTriggerKind,
+  type LocalCronJobRecord,
+  type LocalCronPayload,
+  type LocalCronSchedule,
+  type ScheduleToolDetails,
+} from "@stella/contracts/scheduling";
+import type { ScheduleToolApi, ToolContext, ToolResult } from "./types.js";
+
+const requireScheduleApi = (scheduleApi?: ScheduleToolApi): ScheduleToolApi => {
+  if (!scheduleApi) {
+    throw new Error("Scheduling is not configured on this device.");
+  }
+  return scheduleApi;
 };
 
 const getConversationId = (
@@ -48,394 +42,244 @@ const getConversationId = (
   return explicit || context.conversationId;
 };
 
-const requireScheduleApi = (scheduleApi?: ScheduleToolApi): ScheduleToolApi => {
-  if (!scheduleApi) {
-    throw new Error("Scheduling is not configured on this device.");
-  }
-  return scheduleApi;
-};
+const asTrimmedString = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : "";
 
-const requireAgentApi = (agentApi?: AgentToolApi): AgentToolApi => {
-  if (!agentApi) {
-    throw new Error("Agent orchestration is not configured on this device.");
-  }
-  return agentApi;
-};
-
-const getSchedulePrompt = (args: Record<string, unknown>) => {
-  const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
-  if (!prompt) {
-    throw new Error("prompt is required.");
-  }
-  return prompt;
-};
-
-const buildScheduleTaskPrompt = (
-  prompt: string,
-  context: ToolContext,
-) => `Apply this local scheduling request for conversation ${context.conversationId}.
-
-User request:
-${prompt}
-
-Instructions:
-- Use only the available cron and heartbeat tools.
-- Default to this conversation unless the request explicitly names another one.
-- Check existing schedule state before making changes when that helps avoid duplicates or conflicts.
-- Prefer updating an existing matching heartbeat over creating redundant state.
-- Make reasonable, conservative assumptions when details are missing, and mention any important assumption in your final reply.
-- Return plain text only: a short summary of what you changed, or say clearly if no change was needed.`;
-
-const sleep = (ms: number) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-/**
- * Best-effort schedule snapshot scoped to a single conversation. Heartbeat
- * is per-conversation (`getHeartbeatConfig`); crons are global so we filter
- * by `conversationId` here.
- *
- * Failures resolve to an empty snapshot — the schedule subagent has its own
- * authoritative path to persist changes; this helper exists only to power
- * the structured `details` side-channel for the inline receipt chip.
- */
-const snapshotConversationSchedules = async (
-  api: ScheduleToolApi | undefined,
-  conversationId: string,
-): Promise<{
-  crons: Map<string, LocalCronJobRecord>;
-  heartbeat: LocalHeartbeatConfigRecord | null;
-}> => {
-  if (!api) return { crons: new Map(), heartbeat: null };
-  try {
-    const [allCrons, heartbeat] = await Promise.all([
-      api.listCronJobs(),
-      api.getHeartbeatConfig(conversationId),
-    ]);
-    const crons = new Map<string, LocalCronJobRecord>();
-    for (const cron of allCrons) {
-      if (cron.conversationId === conversationId) {
-        crons.set(cron.id, cron);
-      }
-    }
-    return { crons, heartbeat };
-  } catch {
-    return { crons: new Map(), heartbeat: null };
-  }
-};
-
-const heartbeatDisplayName = (record: LocalHeartbeatConfigRecord): string => {
-  const prompt = record.prompt?.trim();
-  if (!prompt) return "Check-in";
-  return prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt;
-};
-
-const cronToAffected = (record: LocalCronJobRecord): ScheduleToolAffectedRef => ({
-  kind: "cron",
-  id: record.id,
-  conversationId: record.conversationId,
-  name: record.name?.trim() || "Scheduled task",
-  enabled: record.enabled,
-  nextRunAtMs: record.nextRunAtMs,
+const cronDetails = (
+  change: "added" | "updated" | "removed",
+  record: Pick<LocalCronJobRecord, "id"> &
+    Partial<
+      Pick<LocalCronJobRecord, "conversationId" | "name" | "enabled" | "nextRunAtMs">
+    >,
+): ScheduleToolDetails => ({
+  schedule: {
+    affected:
+      change === "removed"
+        ? []
+        : [
+            {
+              kind: "cron",
+              id: record.id,
+              conversationId: record.conversationId ?? "",
+              name: record.name?.trim() || "Scheduled task",
+              enabled: record.enabled ?? true,
+              nextRunAtMs: record.nextRunAtMs ?? 0,
+            },
+          ],
+    changes: {
+      added: change === "added" ? [{ kind: "cron", id: record.id }] : [],
+      updated: change === "updated" ? [{ kind: "cron", id: record.id }] : [],
+      removed: change === "removed" ? [{ kind: "cron", id: record.id }] : [],
+    },
+  },
 });
 
-const heartbeatToAffected = (
-  record: LocalHeartbeatConfigRecord,
-): ScheduleToolAffectedRef => ({
-  kind: "heartbeat",
-  id: record.id,
-  conversationId: record.conversationId,
-  name: heartbeatDisplayName(record),
+const describeSchedule = (schedule: LocalCronSchedule): string => {
+  if (schedule.kind === "at") {
+    return `once at ${new Date(schedule.atMs).toISOString()}`;
+  }
+  if (schedule.kind === "every") {
+    return `every ${Math.round(schedule.everyMs / 1000)}s`;
+  }
+  return `cron "${schedule.expr}"${schedule.tz ? ` (${schedule.tz})` : ""}`;
+};
+
+const summarizeJob = (record: LocalCronJobRecord): Record<string, unknown> => ({
+  jobId: record.id,
+  name: record.name,
+  triggerKind: getCronTriggerKind(record.payload),
+  schedule: record.schedule,
   enabled: record.enabled,
-  nextRunAtMs: record.nextRunAtMs,
+  conversationId: record.conversationId,
+  nextRunAt: new Date(record.nextRunAtMs).toISOString(),
+  ...(record.description ? { description: record.description } : {}),
+  ...(record.payload.kind === "notify" ? { message: record.payload.text } : {}),
+  ...(record.payload.kind === "task" || record.payload.kind === "agent"
+    ? { prompt: record.payload.prompt }
+    : {}),
+  ...(record.payload.kind === "watch" || record.payload.kind === "script"
+    ? { scriptPath: record.payload.scriptPath }
+    : {}),
+  ...(record.lastStatus ? { lastStatus: record.lastStatus } : {}),
+  ...(record.lastError ? { lastError: record.lastError } : {}),
+  ...(typeof record.lastRunAtMs === "number"
+    ? { lastRunAt: new Date(record.lastRunAtMs).toISOString() }
+    : {}),
 });
 
 /**
- * Diff a before/after snapshot of one conversation's schedules into the
- * structured `ScheduleToolDetails` shape consumed by the chat UI's inline
- * receipt chip. `updated` is detected via `updatedAt` divergence rather
- * than deep equality — the scheduler bumps `updatedAt` on every mutation
- * and skips it on no-op writes.
+ * Map schedule_add's trigger-kind args onto the stored payload shape.
  */
-const buildScheduleDetails = (
-  before: {
-    crons: Map<string, LocalCronJobRecord>;
-    heartbeat: LocalHeartbeatConfigRecord | null;
-  },
-  after: {
-    crons: Map<string, LocalCronJobRecord>;
-    heartbeat: LocalHeartbeatConfigRecord | null;
-  },
-): ScheduleToolDetails => {
-  const affected: ScheduleToolAffectedRef[] = [];
-  const changes: ScheduleToolChangeSet = {
-    added: [],
-    updated: [],
-    removed: [],
-  };
-
-  for (const [id, cron] of after.crons) {
-    const prior = before.crons.get(id);
-    if (!prior) {
-      changes.added.push({ kind: "cron", id });
-      affected.push(cronToAffected(cron));
-    } else if (cron.updatedAt > prior.updatedAt) {
-      changes.updated.push({ kind: "cron", id });
-      affected.push(cronToAffected(cron));
-    }
-  }
-  for (const id of before.crons.keys()) {
-    if (!after.crons.has(id)) {
-      changes.removed.push({ kind: "cron", id });
-    }
-  }
-
-  if (after.heartbeat && !before.heartbeat) {
-    changes.added.push({ kind: "heartbeat", id: after.heartbeat.id });
-    affected.push(heartbeatToAffected(after.heartbeat));
-  } else if (after.heartbeat && before.heartbeat) {
-    if (after.heartbeat.updatedAt > before.heartbeat.updatedAt) {
-      changes.updated.push({ kind: "heartbeat", id: after.heartbeat.id });
-      affected.push(heartbeatToAffected(after.heartbeat));
-    }
-  } else if (!after.heartbeat && before.heartbeat) {
-    changes.removed.push({ kind: "heartbeat", id: before.heartbeat.id });
-  }
-
-  affected.sort((a, b) => a.nextRunAtMs - b.nextRunAtMs);
-  return { schedule: { affected, changes } };
-};
-
-const isEmptyDetails = (details: ScheduleToolDetails): boolean =>
-  details.schedule.affected.length === 0 &&
-  details.schedule.changes.added.length === 0 &&
-  details.schedule.changes.updated.length === 0 &&
-  details.schedule.changes.removed.length === 0;
-
-export const handleSchedule = async (
-  agentApi: AgentToolApi | undefined,
-  scheduleApi: ScheduleToolApi | undefined,
+const buildPayloadForAdd = (
   args: Record<string, unknown>,
-  context: ToolContext,
-  waitPolicy: ScheduleWaitPolicy = DEFAULT_SCHEDULE_WAIT_POLICY,
-): Promise<ToolResult> => {
-  const api = requireAgentApi(agentApi);
-  const prompt = getSchedulePrompt(args);
-  const nextAgentDepth = Math.max(0, context.agentDepth ?? 0) + 1;
+): LocalCronPayload => {
+  const kind = asTrimmedString(args.kind);
+  if (kind === "reminder") {
+    const message = asTrimmedString(args.message);
+    if (!message) {
+      throw new Error('kind="reminder" requires message.');
+    }
+    return { kind: "notify", text: message };
+  }
+  if (kind === "task") {
+    const prompt = asTrimmedString(args.prompt);
+    if (!prompt) {
+      throw new Error('kind="task" requires prompt.');
+    }
+    return { kind: "task", prompt };
+  }
+  if (kind === "watch") {
+    const scriptPath = asTrimmedString(args.scriptPath);
+    if (!scriptPath) {
+      throw new Error(
+        'kind="watch" requires scriptPath (author + dry-run the check script with ScriptDraft first).',
+      );
+    }
+    return { kind: "watch", scriptPath };
+  }
+  throw new Error('kind must be "reminder", "task", or "watch".');
+};
 
-  // Snapshot before so the post-run diff identifies exactly which schedules
-  // the subagent created / updated / removed. Failures here resolve to an
-  // empty snapshot, in which case the diff just reports everything visible
-  // afterwards as `added`.
-  const before = await snapshotConversationSchedules(
-    scheduleApi,
-    context.conversationId,
-  );
+/**
+ * Same-kind payload patch for schedule_update. The job's stored payload
+ * family is preserved: `message` edits a reminder, `prompt` edits a task
+ * (or legacy agent job, which stays legacy), `scriptPath` edits a watch
+ * (or legacy script job, which stays legacy).
+ */
+const buildPayloadPatch = (
+  current: LocalCronPayload,
+  args: Record<string, unknown>,
+): LocalCronPayload | null => {
+  const message = asTrimmedString(args.message);
+  const prompt = asTrimmedString(args.prompt);
+  const scriptPath = asTrimmedString(args.scriptPath);
+  if (!message && !prompt && !scriptPath) return null;
 
-  const created = await api.createAgent({
-    conversationId: context.conversationId,
-    description: "Apply local scheduling changes",
-    prompt: buildScheduleTaskPrompt(prompt, context),
-    agentType: "schedule",
-    rootRunId: context.rootRunId,
-    agentDepth: nextAgentDepth,
-    ...(typeof context.maxAgentDepth === "number"
-      ? { maxAgentDepth: context.maxAgentDepth }
-      : {}),
-    parentAgentId: context.agentId,
-    storageMode: context.storageMode ?? "local",
-  });
-
-  const buildSuccessResult = async (summary: string): Promise<ToolResult> => {
-    const after = await snapshotConversationSchedules(
-      scheduleApi,
-      context.conversationId,
+  if (message) {
+    if (current.kind !== "notify") {
+      throw new Error(
+        `message only applies to reminder entries (this entry is ${getCronTriggerKind(current)}).`,
+      );
+    }
+    return { kind: "notify", text: message };
+  }
+  if (prompt) {
+    if (current.kind === "task") return { kind: "task", prompt };
+    if (current.kind === "agent") return { ...current, prompt };
+    throw new Error(
+      `prompt only applies to task entries (this entry is ${getCronTriggerKind(current)}).`,
     );
-    const details = buildScheduleDetails(before, after);
-    return {
-      result: summary,
-      ...(isEmptyDetails(details) ? {} : { details }),
-    };
-  };
-
-  const summaryFromSnapshot = (snapshot: { result?: string }): string =>
-    typeof snapshot.result === "string" && snapshot.result.trim().length > 0
-      ? snapshot.result
-      : "Scheduling updated.";
-
-  const startedAt = Date.now();
-  let lastActivityAt = startedAt;
-  let lastActivitySignature = "";
-  while (Date.now() - startedAt < waitPolicy.maxWaitMs) {
-    const snapshot = await api.getAgent(created.threadId);
-    if (!snapshot) {
-      throw new Error(`Schedule task not found: ${created.threadId}`);
-    }
-    // Liveness, in priority order:
-    // 1. A tool in flight is active work by definition — the stamp below
-    //    only moves on discrete events, so a single tool call that outlasts
-    //    the idle window would otherwise read as idle mid-call. Reset the
-    //    idle clock every poll while one is running; the hard cap still
-    //    bounds a tool that never returns.
-    // 2. The manager's `lastActivityAt` stamp (streamed progress and tool
-    //    start/end).
-    // 3. Diffing `recentActivity`, for older snapshot providers that report
-    //    neither of the above.
-    if ((snapshot.activeToolCount ?? 0) > 0) {
-      lastActivityAt = Date.now();
-    } else if (typeof snapshot.lastActivityAt === "number") {
-      lastActivityAt = Math.max(lastActivityAt, snapshot.lastActivityAt);
-    } else {
-      const activitySignature = JSON.stringify(snapshot.recentActivity ?? []);
-      if (activitySignature !== lastActivitySignature) {
-        lastActivitySignature = activitySignature;
-        lastActivityAt = Date.now();
-      }
-    }
-    if (snapshot.status === "completed") {
-      return await buildSuccessResult(summaryFromSnapshot(snapshot));
-    }
-    if (snapshot.status === "error" || snapshot.status === "canceled") {
-      throw new Error(snapshot.error || "Scheduling request failed.");
-    }
-    if (Date.now() - lastActivityAt >= waitPolicy.idleTimeoutMs) {
-      break;
-    }
-    await sleep(waitPolicy.pollMs);
   }
-
-  await api.cancelAgent(
-    created.threadId,
-    "Schedule tool timed out waiting for completion.",
+  if (current.kind === "watch") return { kind: "watch", scriptPath };
+  if (current.kind === "script") return { kind: "script", scriptPath };
+  throw new Error(
+    `scriptPath only applies to watch entries (this entry is ${getCronTriggerKind(current)}).`,
   );
-  // The agent may have finished between the last poll and the cancel; return
-  // its real result instead of a spurious timeout in that case.
-  const finalSnapshot = await api.getAgent(created.threadId).catch(() => null);
-  if (finalSnapshot?.status === "completed") {
-    return await buildSuccessResult(summaryFromSnapshot(finalSnapshot));
-  }
-  throw new Error("Scheduling request timed out.");
 };
 
-export const handleHeartbeatGet = async (
+export const handleScheduleAdd = async (
   scheduleApi: ScheduleToolApi | undefined,
   args: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolResult> => {
   const api = requireScheduleApi(scheduleApi);
-  const result = await api.getHeartbeatConfig(getConversationId(args, context));
-  return { result: formatResult(result) };
-};
-
-export const handleHeartbeatUpsert = async (
-  scheduleApi: ScheduleToolApi | undefined,
-  args: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolResult> => {
-  const api = requireScheduleApi(scheduleApi);
-  const result = await api.upsertHeartbeat({
+  const payload = buildPayloadForAdd(args);
+  const record = await api.addCronJob({
+    name: asTrimmedString(args.name),
+    schedule: args.schedule as LocalCronSchedule,
+    payload,
     conversationId: getConversationId(args, context),
-    ...(args.enabled !== undefined ? { enabled: Boolean(args.enabled) } : {}),
-    ...(typeof args.intervalMs === "number" ? { intervalMs: args.intervalMs } : {}),
-    ...(typeof args.prompt === "string" ? { prompt: args.prompt } : {}),
-    ...(typeof args.checklist === "string" ? { checklist: args.checklist } : {}),
-    ...(typeof args.ackMaxChars === "number" ? { ackMaxChars: args.ackMaxChars } : {}),
-    ...(typeof args.deliver === "boolean" ? { deliver: args.deliver } : {}),
-    ...(typeof args.agentType === "string" ? { agentType: args.agentType } : {}),
-    ...(args.activeHours && typeof args.activeHours === "object"
-      ? { activeHours: args.activeHours as { start: string; end: string; timezone?: string } }
+    ...(asTrimmedString(args.description)
+      ? { description: asTrimmedString(args.description) }
       : {}),
-    ...(typeof args.targetDeviceId === "string"
-      ? { targetDeviceId: args.targetDeviceId }
-      : {}),
-  });
-  return { result: formatResult(result) };
-};
-
-export const handleHeartbeatRun = async (
-  scheduleApi: ScheduleToolApi | undefined,
-  args: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolResult> => {
-  const api = requireScheduleApi(scheduleApi);
-  const result = await api.runHeartbeat(getConversationId(args, context));
-  return { result: formatResult(result) };
-};
-
-export const handleCronList = async (
-  scheduleApi: ScheduleToolApi | undefined,
-): Promise<ToolResult> => {
-  const api = requireScheduleApi(scheduleApi);
-  const result = await api.listCronJobs();
-  return { result: formatResult(result) };
-};
-
-export const handleCronAdd = async (
-  scheduleApi: ScheduleToolApi | undefined,
-  args: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolResult> => {
-  const api = requireScheduleApi(scheduleApi);
-  const result = await api.addCronJob({
-    name: typeof args.name === "string" ? args.name : "",
-    schedule: args.schedule as never,
-    payload: args.payload as never,
-    conversationId: getConversationId(args, context),
-    ...(typeof args.description === "string" ? { description: args.description } : {}),
     ...(typeof args.enabled === "boolean" ? { enabled: args.enabled } : {}),
-    ...(typeof args.deliver === "boolean" ? { deliver: args.deliver } : {}),
     ...(typeof args.deleteAfterRun === "boolean"
       ? { deleteAfterRun: args.deleteAfterRun }
       : {}),
   });
-  return { result: formatResult(result) };
+  return {
+    result: `Added ${getCronTriggerKind(record.payload)} "${record.name}" (${record.id}), ${describeSchedule(record.schedule)}; next fire ${new Date(record.nextRunAtMs).toISOString()}.`,
+    details: cronDetails("added", record),
+  };
 };
 
-export const handleCronUpdate = async (
+export const handleScheduleList = async (
+  scheduleApi: ScheduleToolApi | undefined,
+  context: ToolContext,
+): Promise<ToolResult> => {
+  const api = requireScheduleApi(scheduleApi);
+  const [jobs, heartbeat] = await Promise.all([
+    api.listCronJobs(),
+    api.getHeartbeatConfig(context.conversationId).catch(() => null),
+  ]);
+  const lines: Record<string, unknown> = {
+    entries: jobs.map(summarizeJob),
+    ...(heartbeat
+      ? {
+          conversationHeartbeat: {
+            id: heartbeat.id,
+            enabled: heartbeat.enabled,
+            intervalMs: heartbeat.intervalMs,
+            ...(heartbeat.prompt ? { prompt: heartbeat.prompt } : {}),
+          },
+        }
+      : {}),
+  };
+  return { result: JSON.stringify(lines, null, 2) };
+};
+
+export const handleScheduleUpdate = async (
   scheduleApi: ScheduleToolApi | undefined,
   args: Record<string, unknown>,
 ): Promise<ToolResult> => {
   const api = requireScheduleApi(scheduleApi);
-  const jobId = typeof args.jobId === "string" ? args.jobId : "";
-  const patch = args.patch && typeof args.patch === "object"
-    ? (args.patch as Record<string, unknown>)
-    : {};
-  const result = await api.updateCronJob(jobId, {
-    ...(typeof patch.name === "string" ? { name: patch.name } : {}),
-    ...(patch.schedule !== undefined ? { schedule: patch.schedule as never } : {}),
-    ...(patch.payload !== undefined ? { payload: patch.payload as never } : {}),
-    ...(typeof patch.conversationId === "string"
-      ? { conversationId: patch.conversationId }
+  const jobId = asTrimmedString(args.jobId);
+  if (!jobId) {
+    throw new Error("jobId is required.");
+  }
+  const existing = (await api.listCronJobs()).find((job) => job.id === jobId);
+  if (!existing) {
+    return { error: `No schedule entry found with jobId ${jobId}.` };
+  }
+  const payloadPatch = buildPayloadPatch(existing.payload, args);
+  const record = await api.updateCronJob(jobId, {
+    ...(asTrimmedString(args.name) ? { name: asTrimmedString(args.name) } : {}),
+    ...(args.schedule !== undefined
+      ? { schedule: args.schedule as LocalCronSchedule }
       : {}),
-    ...(typeof patch.description === "string" ? { description: patch.description } : {}),
-    ...(typeof patch.enabled === "boolean" ? { enabled: patch.enabled } : {}),
-    ...(typeof patch.deliver === "boolean" ? { deliver: patch.deliver } : {}),
-    ...(typeof patch.deleteAfterRun === "boolean"
-      ? { deleteAfterRun: patch.deleteAfterRun }
+    ...(payloadPatch ? { payload: payloadPatch } : {}),
+    ...(typeof args.description === "string"
+      ? { description: args.description }
+      : {}),
+    ...(typeof args.enabled === "boolean" ? { enabled: args.enabled } : {}),
+    ...(typeof args.deleteAfterRun === "boolean"
+      ? { deleteAfterRun: args.deleteAfterRun }
       : {}),
   });
-  return { result: formatResult(result) };
+  if (!record) {
+    return { error: `No schedule entry found with jobId ${jobId}.` };
+  }
+  return {
+    result: `Updated ${getCronTriggerKind(record.payload)} "${record.name}" (${record.id}), ${describeSchedule(record.schedule)}; next fire ${new Date(record.nextRunAtMs).toISOString()}.`,
+    details: cronDetails("updated", record),
+  };
 };
 
-export const handleCronRemove = async (
+export const handleScheduleRemove = async (
   scheduleApi: ScheduleToolApi | undefined,
   args: Record<string, unknown>,
 ): Promise<ToolResult> => {
   const api = requireScheduleApi(scheduleApi);
-  const removed = await api.removeCronJob(
-    typeof args.jobId === "string" ? args.jobId : "",
-  );
-  return { result: removed ? "Cron job removed." : "Cron job not found." };
-};
-
-export const handleCronRun = async (
-  scheduleApi: ScheduleToolApi | undefined,
-  args: Record<string, unknown>,
-): Promise<ToolResult> => {
-  const api = requireScheduleApi(scheduleApi);
-  const result = await api.runCronJob(
-    typeof args.jobId === "string" ? args.jobId : "",
-  );
-  return { result: formatResult(result) };
+  const jobId = asTrimmedString(args.jobId);
+  if (!jobId) {
+    throw new Error("jobId is required.");
+  }
+  const removed = await api.removeCronJob(jobId);
+  if (!removed) {
+    return { error: `No schedule entry found with jobId ${jobId}.` };
+  }
+  return {
+    result: `Removed schedule entry ${jobId}.`,
+    details: cronDetails("removed", { id: jobId }),
+  };
 };

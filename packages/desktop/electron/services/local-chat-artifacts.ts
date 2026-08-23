@@ -1136,7 +1136,13 @@ export const deriveMobileToolSteps = (
       // runtime's `resultPreview` is already bounded + redacted.
       if (
         typeof payload.toolName === "string" &&
-        payload.toolName.toLowerCase() === "schedule" &&
+        [
+          "schedule",
+          "schedule_add",
+          "schedule_list",
+          "schedule_update",
+          "schedule_remove",
+        ].includes(payload.toolName.toLowerCase()) &&
         !payload.error &&
         typeof payload.resultPreview === "string" &&
         payload.resultPreview.trim()

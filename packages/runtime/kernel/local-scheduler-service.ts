@@ -99,7 +99,16 @@ const cloneCronJob = (job: LocalCronJobRecord): LocalCronJobRecord => ({
   ...job,
   schedule: { ...job.schedule },
   payload: { ...job.payload },
+  ...(job.pendingEscalation
+    ? { pendingEscalation: { ...job.pendingEscalation } }
+    : {}),
 })
+
+/** Script file backing a payload, if any (`watch` sensors and legacy `script` jobs). */
+const payloadScriptPath = (payload: LocalCronPayload): string | null =>
+  payload.kind === 'script' || payload.kind === 'watch'
+    ? payload.scriptPath
+    : null
 
 const cloneHeartbeat = (
   config: LocalHeartbeatConfigRecord,
@@ -223,6 +232,17 @@ const assertValidPayload = (
     }
     return { kind: 'notify', text }
   }
+  if (kind === 'task') {
+    const prompt = asTrimmedString(record.prompt)
+    if (!prompt) {
+      throw new Error('payload.kind="task" requires prompt.')
+    }
+    return { kind: 'task', prompt }
+  }
+  if (kind === 'watch') {
+    const scriptPath = assertValidScriptPath(record.scriptPath, scriptsDir)
+    return { kind: 'watch', scriptPath }
+  }
   if (kind === 'script') {
     const scriptPath = assertValidScriptPath(record.scriptPath, scriptsDir)
     return { kind: 'script', scriptPath }
@@ -239,7 +259,9 @@ const assertValidPayload = (
       ...(agentType ? { agentType } : {}),
     }
   }
-  throw new Error('payload.kind must be "notify", "script", or "agent".')
+  throw new Error(
+    'payload.kind must be "notify", "task", "watch", "script", or "agent".',
+  )
 }
 
 const computeNextRunAtMs = (schedule: LocalCronSchedule, nowMs: number) => {
@@ -279,6 +301,35 @@ const resolveHeartbeatPrompt = (params: {
   }
   return `${base}\n\nHeartbeat checklist:\n${checklist}`
 }
+
+/**
+ * Fire-time prompts for orchestrator-bound triggers. The automation turn is
+ * hidden; the scheduler delivers the turn's final text as the assistant
+ * message + OS notification, so each prompt says so explicitly.
+ */
+const buildTaskFirePrompt = (name: string, intent: string) =>
+  `Scheduled task "${name}" fired. Carry out the stored intent below now — answer directly or spawn agents as you normally would. Your final reply is delivered to the user as an assistant message and a native notification, so make it a concise user-facing report of what happened.
+
+Stored intent:
+${intent}`
+
+const buildWatchChangePrompt = (name: string, details: string) =>
+  `Watch "${name}" detected a change. Raw change details from its check script:
+
+${details}
+
+Tell the user what changed, and act on it only if the watch clearly implies an action. Your final reply is delivered as an assistant message and a native notification — keep it concise and user-facing.`
+
+const buildWatchFailurePrompt = (
+  name: string,
+  scriptPath: string,
+  details: string,
+) =>
+  `Watch "${name}" FAILED to run its check (sensor error — NOT a detected change):
+
+${details}
+
+The deterministic check script lives at ${scriptPath} (baseline state sidecar: ${scriptPath}.state.json). Repair the sensor: investigate the target source, fix the script, dry-run it, and update the schedule entry if needed. If the watch is no longer viable, say so and remove it. Your final reply is delivered as an assistant message and a native notification — keep it concise and user-facing.`
 
 const isHeartbeatContentEffectivelyEmpty = (
   content: string | undefined,
@@ -686,8 +737,7 @@ export class LocalSchedulerService {
         : job.payload
 
     const now = Date.now()
-    const priorScriptPath =
-      job.payload.kind === 'script' ? job.payload.scriptPath : null
+    const priorScriptPath = payloadScriptPath(job.payload)
     job.name = patch.name !== undefined ? ensureName(patch.name) : job.name
     job.conversationId =
       patch.conversationId !== undefined
@@ -717,8 +767,7 @@ export class LocalSchedulerService {
     // we don't accumulate dead `.ts` files in `~/.stella/schedule-scripts`.
     if (
       priorScriptPath &&
-      (nextPayload.kind !== 'script' ||
-        nextPayload.scriptPath !== priorScriptPath) &&
+      payloadScriptPath(nextPayload) !== priorScriptPath &&
       !this.isScriptPathReferenced(priorScriptPath, job.id)
     ) {
       this.removeScriptFile(priorScriptPath)
@@ -735,11 +784,12 @@ export class LocalSchedulerService {
     }
     const removed = this.state.cronJobs[index]
     this.state.cronJobs.splice(index, 1)
+    const removedScript = payloadScriptPath(removed.payload)
     if (
-      removed.payload.kind === 'script' &&
-      !this.isScriptPathReferenced(removed.payload.scriptPath, removed.id)
+      removedScript &&
+      !this.isScriptPathReferenced(removedScript, removed.id)
     ) {
-      this.removeScriptFile(removed.payload.scriptPath)
+      this.removeScriptFile(removedScript)
     }
     this.afterMutation()
     return true
@@ -895,8 +945,9 @@ export class LocalSchedulerService {
     }
     const referenced = new Set<string>()
     for (const job of this.state.cronJobs) {
-      if (job.payload.kind === 'script') {
-        referenced.add(path.resolve(job.payload.scriptPath))
+      const scriptPath = payloadScriptPath(job.payload)
+      if (scriptPath) {
+        referenced.add(path.resolve(scriptPath))
       }
     }
     for (const entry of entries) {
@@ -920,12 +971,11 @@ export class LocalSchedulerService {
 
   private isScriptPathReferenced(scriptPath: string, exceptJobId?: string) {
     const target = path.resolve(scriptPath)
-    return this.state.cronJobs.some(
-      (job) =>
-        job.id !== exceptJobId &&
-        job.payload.kind === 'script' &&
-        path.resolve(job.payload.scriptPath) === target,
-    )
+    return this.state.cronJobs.some((job) => {
+      if (job.id === exceptJobId) return false
+      const jobScript = payloadScriptPath(job.payload)
+      return jobScript !== null && path.resolve(jobScript) === target
+    })
   }
 
   private removeScriptFile(scriptPath: string) {
@@ -1067,7 +1117,11 @@ export class LocalSchedulerService {
     item: NonNullable<ReturnType<LocalSchedulerService['getNextDueItem']>>,
   ): boolean {
     if (item.kind === 'heartbeat') return true
-    return item.record.payload.kind === 'agent'
+    return (
+      item.record.payload.kind === 'agent' ||
+      item.record.payload.kind === 'task' ||
+      item.record.payload.kind === 'watch'
+    )
   }
 
   private async runDueItems() {
@@ -1160,8 +1214,7 @@ export class LocalSchedulerService {
         return true
       }
       if (active.deleteAfterRun) {
-        const removedScript =
-          active.payload.kind === 'script' ? active.payload.scriptPath : null
+        const removedScript = payloadScriptPath(active.payload)
         this.state.cronJobs = this.state.cronJobs.filter(
           (entry) => entry.id !== active.id,
         )
@@ -1196,21 +1249,30 @@ export class LocalSchedulerService {
     this.persistState()
     this.emitChange()
 
+    // Runner-dependent payloads share one busy guard. Shouldn't trigger —
+    // `requiresRunner` gates this — but if the runner went away mid-tick
+    // treat it as busy and retry.
+    const markBusyWithoutRunner = (): 'busy' => {
+      active.runningAtMs = undefined
+      active.updatedAt = Date.now()
+      this.persistState()
+      this.emitChange()
+      return 'busy'
+    }
+
     switch (active.payload.kind) {
       case 'notify':
         return this.executeCronNotify(active, startedAt)
       case 'script':
         return this.executeCronScript(active, startedAt)
+      case 'task':
+        if (!runner) return markBusyWithoutRunner()
+        return this.executeCronTask(active, runner, startedAt)
+      case 'watch':
+        if (!runner) return markBusyWithoutRunner()
+        return this.executeCronWatch(active, runner, startedAt)
       case 'agent':
-        if (!runner) {
-          // Shouldn't happen — `requiresRunner` gates this — but if the
-          // runner went away mid-tick treat it as busy and retry.
-          active.runningAtMs = undefined
-          active.updatedAt = Date.now()
-          this.persistState()
-          this.emitChange()
-          return 'busy'
-        }
+        if (!runner) return markBusyWithoutRunner()
         return this.executeCronAgent(active, runner, startedAt)
     }
   }
@@ -1316,6 +1378,225 @@ export class LocalSchedulerService {
       this.fireOsNotification({
         title: active.name?.trim() || 'Stella',
         body: text,
+        conversationId: active.conversationId,
+        source: 'cron',
+        refId: active.id,
+      })
+    }
+
+    this.advanceCronAfterRun(active, finishedAt, false)
+    this.persistState()
+    this.emitChange()
+    return 'done'
+  }
+
+  /**
+   * Task trigger: deliver the stored intent as a hidden orchestrator turn.
+   * The orchestrator answers directly or spawns agents as it normally
+   * would; its final text is delivered as the assistant message + OS
+   * notification (consistent with every other cron fire).
+   */
+  private async executeCronTask(
+    active: LocalCronJobRecord,
+    runner: NonNullable<LocalSchedulerRunner>,
+    startedAt: number,
+  ): Promise<'done' | 'busy'> {
+    if (active.payload.kind !== 'task') return 'done'
+
+    const runResult = await runner.runAutomationTurn({
+      conversationId: active.conversationId,
+      userPrompt: buildTaskFirePrompt(active.name, active.payload.prompt),
+      agentType: 'orchestrator',
+    })
+
+    if (runResult.status === 'busy') {
+      active.runningAtMs = undefined
+      active.updatedAt = Date.now()
+      this.persistState()
+      this.emitChange()
+      return 'busy'
+    }
+
+    const finishedAt = Date.now()
+    active.runningAtMs = undefined
+    active.lastRunAtMs = finishedAt
+    active.lastDurationMs = finishedAt - startedAt
+    active.updatedAt = finishedAt
+
+    if (runResult.status === 'error') {
+      active.lastStatus = 'error'
+      active.lastError = runResult.error
+      active.lastOutputPreview = undefined
+      this.advanceCronAfterRun(active, finishedAt, true)
+      this.persistState()
+      this.emitChange()
+      return 'done'
+    }
+
+    const finalText = runResult.finalText.trim()
+    const deliver = active.deliver !== false
+    active.lastStatus = finalText ? 'ok' : 'no-response'
+    active.lastError = undefined
+    active.lastOutputPreview = finalText ? truncatePreview(finalText) : undefined
+
+    if (deliver && finalText) {
+      this.appendGeneratedAssistantMessage(active.conversationId, {
+        text: finalText,
+        source: 'cron',
+        cronJobId: active.id,
+        cronJobName: active.name,
+      })
+      this.fireOsNotification({
+        title: active.name?.trim() || 'Stella',
+        body: finalText,
+        conversationId: active.conversationId,
+        source: 'cron',
+        refId: active.id,
+      })
+    }
+
+    this.advanceCronAfterRun(active, finishedAt, false)
+    this.persistState()
+    this.emitChange()
+    return 'done'
+  }
+
+  /**
+   * Watch (sensor) trigger. Runs the verified check script with NO LLM:
+   *
+   *  - exit 0, empty stdout — no change. Nothing happens: no message, no
+   *    notification, just book-keeping and the next tick.
+   *  - exit 0, non-empty stdout — the sensor saw a change. Escalate to an
+   *    orchestrator turn carrying the change details, which notifies/acts.
+   *  - non-zero exit — the sensor itself broke (site changed, auth died).
+   *    Escalate to an orchestrator turn flagging the failure so the sensor
+   *    gets investigated and repaired instead of dying silently.
+   *
+   * A busy worker parks the escalation on `pendingEscalation` and retries
+   * WITHOUT re-running the script — the script may have already advanced
+   * its baseline sidecar, so re-running would swallow the diff.
+   */
+  private async executeCronWatch(
+    active: LocalCronJobRecord,
+    runner: NonNullable<LocalSchedulerRunner>,
+    startedAt: number,
+  ): Promise<'done' | 'busy'> {
+    if (active.payload.kind !== 'watch') return 'done'
+    const scriptPath = active.payload.scriptPath
+
+    let escalation = active.pendingEscalation
+      ? { ...active.pendingEscalation }
+      : null
+
+    if (!escalation) {
+      const authEnv = await resolveScriptAuthEnv(this.options.getScriptAuthEnv)
+      let runResult
+      try {
+        runResult = await runScheduleScript(
+          scriptPath,
+          authEnv ? { env: authEnv } : undefined,
+        )
+      } catch (error) {
+        runResult = {
+          exitCode: -1,
+          stdout: '',
+          stderr: (error as Error).message,
+          durationMs: Date.now() - startedAt,
+          timedOut: false,
+        }
+      }
+
+      const checkedAt = Date.now()
+      active.lastRunAtMs = checkedAt
+      active.lastDurationMs = checkedAt - startedAt
+
+      if (runResult.exitCode === 0) {
+        const text = runResult.stdout.trim()
+        if (!text) {
+          // Deterministic no-op: unchanged sensors are silent.
+          active.runningAtMs = undefined
+          active.lastStatus = 'no-change'
+          active.lastError = undefined
+          active.lastOutputPreview = undefined
+          this.advanceCronAfterRun(active, checkedAt, false)
+          this.persistState()
+          this.emitChange()
+          return 'done'
+        }
+        escalation = { reason: 'change', summary: text, atMs: checkedAt }
+      } else {
+        const errParts = [
+          runResult.timedOut
+            ? `script timed out after ${runResult.durationMs}ms`
+            : `exit ${runResult.exitCode}`,
+        ]
+        const stderrTrim = runResult.stderr.trim()
+        if (stderrTrim) errParts.push(stderrTrim)
+        escalation = {
+          reason: 'sensor-error',
+          summary: truncatePreview(errParts.join('\n')),
+          atMs: checkedAt,
+        }
+      }
+    }
+
+    const turnResult = await runner.runAutomationTurn({
+      conversationId: active.conversationId,
+      userPrompt:
+        escalation.reason === 'change'
+          ? buildWatchChangePrompt(active.name, escalation.summary)
+          : buildWatchFailurePrompt(active.name, scriptPath, escalation.summary),
+      agentType: 'orchestrator',
+    })
+
+    if (turnResult.status === 'busy') {
+      active.pendingEscalation = escalation
+      active.runningAtMs = undefined
+      active.updatedAt = Date.now()
+      this.persistState()
+      this.emitChange()
+      return 'busy'
+    }
+
+    const finishedAt = Date.now()
+    active.pendingEscalation = undefined
+    active.runningAtMs = undefined
+    active.lastRunAtMs = finishedAt
+    active.lastDurationMs = finishedAt - startedAt
+    active.updatedAt = finishedAt
+
+    if (turnResult.status === 'error') {
+      active.lastStatus = 'error'
+      active.lastError = turnResult.error
+      active.lastOutputPreview = undefined
+      this.advanceCronAfterRun(active, finishedAt, true)
+      this.persistState()
+      this.emitChange()
+      return 'done'
+    }
+
+    const finalText = turnResult.finalText.trim()
+    const deliver = active.deliver !== false
+    active.lastStatus =
+      escalation.reason === 'change'
+        ? finalText
+          ? 'ok'
+          : 'no-response'
+        : 'sensor-error'
+    active.lastError =
+      escalation.reason === 'sensor-error' ? escalation.summary : undefined
+    active.lastOutputPreview = finalText ? truncatePreview(finalText) : undefined
+
+    if (deliver && finalText) {
+      this.appendGeneratedAssistantMessage(active.conversationId, {
+        text: finalText,
+        source: 'cron',
+        cronJobId: active.id,
+        cronJobName: active.name,
+      })
+      this.fireOsNotification({
+        title: active.name?.trim() || 'Stella',
+        body: finalText,
         conversationId: active.conversationId,
         source: 'cron',
         refId: active.id,

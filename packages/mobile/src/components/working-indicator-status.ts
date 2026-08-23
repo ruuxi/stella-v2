@@ -331,7 +331,18 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Making it happen",
   ],
 
-  // Schedule subagent
+  // Direct scheduling tools
+  schedule_add: ["Scheduling it", "Setting it up", "Adding it", "Penciling it in", "Booking it"],
+  schedule_list: [
+    "Checking the schedule",
+    "Looking at what's planned",
+    "Reviewing the schedule",
+    "Pulling up the schedule",
+  ],
+  schedule_update: ["Updating the schedule", "Adjusting it", "Rescheduling", "Tweaking the timing"],
+  schedule_remove: ["Clearing it", "Removing it", "Canceling it", "Taking it off the schedule"],
+
+  // Legacy schedule subagent tool names (still seen in old activity rows)
   cron_add: ["Scheduling it", "Setting it up", "Adding it", "Penciling it in", "Booking it"],
   cron_list: [
     "Checking the schedule",

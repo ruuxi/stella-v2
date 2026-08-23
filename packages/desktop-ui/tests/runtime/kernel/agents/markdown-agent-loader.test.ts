@@ -41,7 +41,6 @@ describe("loadParsedAgentsFromDir", () => {
         "general",
         "orchestrator",
         "orchestrator-orchestrated",
-        "schedule",
         "social_session",
       ].sort(),
     );

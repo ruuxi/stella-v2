@@ -1091,6 +1091,12 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             undefined,
             { retryOnDisconnect: true },
           ),
+        listHeartbeats: async () =>
+          await peer.request(
+            METHOD_NAMES.INTERNAL_SCHEDULE_LIST_HEARTBEATS,
+            undefined,
+            { retryOnDisconnect: true },
+          ),
         addCronJob: async (input) =>
           await peer.request(
             METHOD_NAMES.INTERNAL_SCHEDULE_ADD_CRON_JOB,

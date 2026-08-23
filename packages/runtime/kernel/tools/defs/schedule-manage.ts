@@ -68,7 +68,8 @@ const SCHEDULE_DEFINITION_PROPERTY = {
 
 const JOB_ID_PROPERTY = {
   type: "string",
-  description: "Entry id returned by schedule_add / schedule_list.",
+  description:
+    "Entry id returned by schedule_add / schedule_list (cron:… for reminders/tasks/watches, heartbeat:… for conversation check-ins).",
 } as const;
 
 export const createScheduleManageTools = (
@@ -146,7 +147,7 @@ export const createScheduleManageTools = (
     agentTypes: SCHEDULE_AGENT_TYPES,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
     description:
-      "List every scheduled trigger (reminders, tasks, watches, plus any legacy entries) with ids, schedules, next fire times, and last-run status, and this conversation's heartbeat if one exists.",
+      "List every scheduled trigger (reminders, tasks, watches, plus any legacy entries) and every conversation heartbeat check-in, with ids, schedules, next fire times, and last-run status.",
     parameters: { type: "object", properties: {} },
     execute: async (_args, context) => {
       try {
@@ -163,7 +164,7 @@ export const createScheduleManageTools = (
     agentTypes: SCHEDULE_AGENT_TYPES,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
     description:
-      "Patch an existing schedule entry: rename, reschedule, enable/disable, or edit its content (message for reminders, prompt for tasks, scriptPath for watches — the entry keeps its kind). Pass only the fields to change.",
+      "Patch an existing schedule entry: rename, reschedule, enable/disable, or edit its content (message for reminders, prompt for tasks, scriptPath for watches — the entry keeps its kind). Also edits heartbeat check-ins by their heartbeat:… id: enabled pauses/resumes, schedule { kind: 'every', everyMs } changes cadence, prompt changes what each check-in does. Pass only the fields to change.",
     parameters: {
       type: "object",
       properties: {
@@ -207,7 +208,7 @@ export const createScheduleManageTools = (
     agentTypes: SCHEDULE_AGENT_TYPES,
     demoted: { searchTerms: SCHEDULE_SEARCH_TERMS },
     description:
-      "Delete a schedule entry (and its check script file, for watches).",
+      "Delete a schedule entry (and its check script file, for watches). A heartbeat:… id turns that conversation check-in off (heartbeats are disabled rather than deleted, and can be re-enabled with schedule_update).",
     parameters: {
       type: "object",
       properties: { jobId: JOB_ID_PROPERTY },

@@ -497,6 +497,7 @@ export type FashionToolApi = {
 
 export type ScheduleToolApi = {
   listCronJobs: () => Promise<LocalCronJobRecord[]>;
+  listHeartbeats: () => Promise<LocalHeartbeatConfigRecord[]>;
   addCronJob: (input: LocalCronJobCreateInput) => Promise<LocalCronJobRecord>;
   updateCronJob: (
     jobId: string,

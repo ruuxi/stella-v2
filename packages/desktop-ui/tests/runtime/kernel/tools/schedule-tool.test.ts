@@ -10,6 +10,8 @@ import type {
   LocalCronJobCreateInput,
   LocalCronJobRecord,
   LocalCronJobUpdatePatch,
+  LocalHeartbeatConfigRecord,
+  LocalHeartbeatUpsertInput,
 } from "@stella/contracts/scheduling";
 import type { ScheduleToolApi, ToolContext } from "@stella/runtime/kernel/tools/types";
 
@@ -22,11 +24,17 @@ const context: ToolContext = {
 /** In-memory ScheduleToolApi double mirroring LocalSchedulerService semantics. */
 const makeApi = (
   seed: LocalCronJobRecord[] = [],
-): ScheduleToolApi & { jobs: LocalCronJobRecord[] } => {
+  seedHeartbeats: LocalHeartbeatConfigRecord[] = [],
+): ScheduleToolApi & {
+  jobs: LocalCronJobRecord[];
+  heartbeats: LocalHeartbeatConfigRecord[];
+} => {
   const jobs = [...seed];
+  const heartbeats = [...seedHeartbeats];
   let counter = 0;
   return {
     jobs,
+    heartbeats,
     listCronJobs: async () => jobs.map((job) => ({ ...job })),
     addCronJob: async (input: LocalCronJobCreateInput) => {
       const now = Date.now();
@@ -67,13 +75,38 @@ const makeApi = (
       return true;
     },
     runCronJob: async () => null,
-    getHeartbeatConfig: async () => null,
-    upsertHeartbeat: async () => {
-      throw new Error("unused");
+    listHeartbeats: async () => heartbeats.map((entry) => ({ ...entry })),
+    getHeartbeatConfig: async (conversationId: string) =>
+      heartbeats.find((entry) => entry.conversationId === conversationId) ??
+      null,
+    upsertHeartbeat: async (input: LocalHeartbeatUpsertInput) => {
+      const existing = heartbeats.find(
+        (entry) => entry.conversationId === input.conversationId,
+      );
+      if (!existing) throw new Error("heartbeat not found");
+      if (input.enabled !== undefined) existing.enabled = input.enabled;
+      if (typeof input.intervalMs === "number") {
+        existing.intervalMs = input.intervalMs;
+      }
+      if (input.prompt !== undefined) existing.prompt = input.prompt;
+      existing.nextRunAtMs = Date.now() + existing.intervalMs;
+      existing.updatedAt = Date.now();
+      return { ...existing };
     },
     runHeartbeat: async () => null,
   };
 };
+
+const checkinHeartbeat = (): LocalHeartbeatConfigRecord => ({
+  id: "heartbeat:hb-1",
+  conversationId: "c1",
+  enabled: true,
+  intervalMs: 30 * 60_000,
+  prompt: "Check the build queue",
+  nextRunAtMs: Date.now() + 60_000,
+  createdAt: 1,
+  updatedAt: 1,
+});
 
 const reminderJob = (): LocalCronJobRecord => ({
   id: "cron:reminder-1",
@@ -185,15 +218,23 @@ describe("schedule_add", () => {
 });
 
 describe("schedule_list", () => {
-  it("reports trigger kinds including legacy payloads", async () => {
-    const api = makeApi([reminderJob(), legacyAgentJob()]);
+  it("reports trigger kinds including legacy payloads and heartbeats", async () => {
+    const api = makeApi([reminderJob(), legacyAgentJob()], [checkinHeartbeat()]);
     const result = await handleScheduleList(api, context);
     const parsed = JSON.parse(result.result as string) as {
       entries: Array<{ jobId: string; triggerKind: string }>;
+      heartbeats: Array<{ jobId: string; triggerKind: string; prompt?: string }>;
     };
     expect(parsed.entries.map((entry) => entry.triggerKind)).toEqual([
       "reminder",
       "legacy-agent",
+    ]);
+    expect(parsed.heartbeats).toEqual([
+      expect.objectContaining({
+        jobId: "heartbeat:hb-1",
+        triggerKind: "heartbeat",
+        prompt: "Check the build queue",
+      }),
     ]);
   });
 });
@@ -248,6 +289,76 @@ describe("schedule_update", () => {
     const api = makeApi();
     const result = await handleScheduleUpdate(api, { jobId: "cron:nope" });
     expect(result.error).toContain("No schedule entry found");
+  });
+});
+
+describe("heartbeat editing through the schedule tools", () => {
+  it("pauses and resumes a check-in via schedule_update enabled", async () => {
+    const api = makeApi([], [checkinHeartbeat()]);
+    const paused = await handleScheduleUpdate(api, {
+      jobId: "heartbeat:hb-1",
+      enabled: false,
+    });
+    expect(paused.error).toBeUndefined();
+    expect(api.heartbeats[0]?.enabled).toBe(false);
+    expect(paused.details).toMatchObject({
+      schedule: {
+        changes: { updated: [{ kind: "heartbeat", id: "heartbeat:hb-1" }] },
+      },
+    });
+
+    await handleScheduleUpdate(api, { jobId: "heartbeat:hb-1", enabled: true });
+    expect(api.heartbeats[0]?.enabled).toBe(true);
+  });
+
+  it("changes cadence via schedule { kind: 'every' } without clobbering it otherwise", async () => {
+    const api = makeApi([], [checkinHeartbeat()]);
+    const result = await handleScheduleUpdate(api, {
+      jobId: "heartbeat:hb-1",
+      schedule: { kind: "every", everyMs: 24 * 60 * 60_000 },
+    });
+    expect(result.error).toBeUndefined();
+    expect(api.heartbeats[0]?.intervalMs).toBe(24 * 60 * 60_000);
+
+    // A patch that doesn't touch cadence keeps the current interval.
+    await handleScheduleUpdate(api, {
+      jobId: "heartbeat:hb-1",
+      prompt: "Check the deploy queue",
+    });
+    expect(api.heartbeats[0]?.intervalMs).toBe(24 * 60 * 60_000);
+    expect(api.heartbeats[0]?.prompt).toBe("Check the deploy queue");
+  });
+
+  it("rejects non-interval cadences and cron-only fields for heartbeats", async () => {
+    const api = makeApi([], [checkinHeartbeat()]);
+    await expect(
+      handleScheduleUpdate(api, {
+        jobId: "heartbeat:hb-1",
+        schedule: { kind: "cron", expr: "0 9 * * *" },
+      }),
+    ).rejects.toThrow("kind: 'every'");
+    await expect(
+      handleScheduleUpdate(api, {
+        jobId: "heartbeat:hb-1",
+        message: "nope",
+      }),
+    ).rejects.toThrow("does not apply to a heartbeat");
+  });
+
+  it("schedule_remove turns a check-in off (reversible disable, matching the UI)", async () => {
+    const api = makeApi([], [checkinHeartbeat()]);
+    const result = await handleScheduleRemove(api, {
+      jobId: "heartbeat:hb-1",
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.result).toContain("Turned off check-in");
+    expect(api.heartbeats).toHaveLength(1);
+    expect(api.heartbeats[0]?.enabled).toBe(false);
+    expect(result.details).toMatchObject({
+      schedule: {
+        changes: { removed: [{ kind: "heartbeat", id: "heartbeat:hb-1" }] },
+      },
+    });
   });
 });
 

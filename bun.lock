@@ -307,6 +307,7 @@
   "patchedDependencies": {
     "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch",
     "react-native@0.83.6": "patches/react-native@0.83.6.patch",
+    "react-native-nitro-markdown@0.6.2": "patches/react-native-nitro-markdown@0.6.2.patch",
   },
   "overrides": {
     "axios": "^1.13.5",

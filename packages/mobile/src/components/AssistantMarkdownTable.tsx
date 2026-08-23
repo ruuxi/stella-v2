@@ -25,22 +25,25 @@ type AssistantMarkdownTableProps = {
   node: MarkdownNode;
   Renderer: ComponentType<NodeRendererProps>;
   colors: Colors;
+  selectable?: boolean;
 };
 
 function TableCellContent({
   node,
   Renderer,
   textStyle,
+  selectable,
 }: {
   node?: MarkdownNode;
   Renderer: ComponentType<NodeRendererProps>;
   textStyle: StyleProp<TextStyle>;
+  selectable?: boolean;
 }) {
   if (!node) return null;
   const children = node.children ?? [];
 
   return (
-    <Text style={textStyle}>
+    <Text style={textStyle} selectable={selectable}>
       {children.length > 0
         ? children.map((child, index) => (
             <Renderer
@@ -64,6 +67,7 @@ export function AssistantMarkdownTable({
   node,
   Renderer,
   colors,
+  selectable,
 }: AssistantMarkdownTableProps) {
   const [viewportWidth, setViewportWidth] = useState(0);
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -116,6 +120,7 @@ export function AssistantMarkdownTable({
                 <TableCellContent
                   node={cell}
                   Renderer={Renderer}
+                  selectable={selectable}
                   textStyle={[
                     styles.headerText,
                     { textAlign: cellAlignment(columnIndex) },
@@ -147,6 +152,7 @@ export function AssistantMarkdownTable({
                   <TableCellContent
                     node={row[columnIndex]}
                     Renderer={Renderer}
+                    selectable={selectable}
                     textStyle={[
                       styles.bodyText,
                       { textAlign: cellAlignment(columnIndex) },

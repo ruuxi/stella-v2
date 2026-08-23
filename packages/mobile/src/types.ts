@@ -121,7 +121,7 @@ export type MobileDisplayPayload =
       numImages?: number;
       toolCallId?: string;
       generationState?: "running" | "completed" | "failed" | "canceled";
-      /** Live insertion point for a pending direct-tool card. */
+      /** Live chronology metadata captured when the tool started. */
       textOffset?: number;
     }
   | {
@@ -142,17 +142,16 @@ export type MobileDisplayPayload =
       subtitle: string;
       createdAt: number;
       /**
-       * LIVE-ONLY: character position in the streaming reply's text where this
-       * agent/tool was kicked off. Set by the bridge during a live turn so the
-       * card renders BETWEEN the pre-tool and post-tool text (holding its place
-       * like desktop) instead of after all text. Absent on settled/synced rows,
-       * which are already segmented into separate pre/post messages.
+       * LIVE-ONLY chronology metadata captured when this work started.
+       * Retained for bridge compatibility and artifact reconciliation; the UI
+       * deliberately renders agent cards at the message boundary rather than
+       * using this as an intra-text insertion point.
        */
       textOffset?: number;
       /**
-       * LIVE-ONLY insertion anchors for grouped bridge projections. Each
+       * Per-agent chronology metadata for grouped bridge projections. Each
        * agent keeps the offset captured by its own `agent-started` event so
-       * expanding an aggregate never collapses several cards onto one anchor.
+       * aggregate reconciliation preserves the individual occurrences.
        */
       textOffsetsByAgentId?: Record<string, number>;
       /**
@@ -197,7 +196,7 @@ export type ChatArtifact = {
   id: string;
   conversationId: string;
   payload: MobileDisplayPayload;
-  /** Stable normal-chat timeline anchor; lifecycle replacements keep it. */
+  /** Stable chronology metadata; lifecycle replacements keep it. */
   textOffset?: number;
 };
 

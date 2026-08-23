@@ -1447,19 +1447,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
     () => consolidateRowArtifacts(item.artifacts ?? [], item.tasks ?? []),
     [item.artifacts, item.tasks],
   );
-  const toolActivity = useMemo(
-    () => {
-      const trailing = (item.toolSteps ?? []).filter(
-        (step) =>
-          typeof step.textOffset !== "number" ||
-          !Number.isFinite(step.textOffset) ||
-          step.textOffset < 0 ||
-          step.textOffset > item.text.length,
-      );
-      return trailing.length > 0 ? deriveToolActivity(trailing) : undefined;
-    },
-    [item.text.length, item.toolSteps],
-  );
+  const toolActivity = useMemo(() => {
+    const steps = item.toolSteps ?? [];
+    return steps.length > 0 ? deriveToolActivity(steps) : undefined;
+  }, [item.toolSteps]);
   // Schedule tool results render their human-readable summaries as plain
   // text lines in the flow (desktop parity — no chip/card). Every settled
   // Schedule call in the turn gets its line, in call order; unparseable or
@@ -1601,89 +1592,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
     showMapArtifacts ||
     showFileArtifacts ||
     showGeneratedImages;
-  // Live segmentation (desktop parity): every spawned agent card carries its
-  // own bridge-stamped character offset. Keep all cards at those immutable
-  // anchors while later text streams, including several starts in one turn.
-  // Settled rows are already split by desktop sync and carry no live offsets.
-  const inlineAgentCards = showAgentWork
-    ? agentWorkArtifacts
-        .map((artifact, index) => ({
-          artifact,
-          payload: artifact.payload,
-          offset: artifact.payload.textOffset,
-          index,
-        }))
-        .filter(
-          (
-            card,
-          ): card is typeof card & {
-            offset: number;
-          } =>
-            typeof card.offset === "number" &&
-            Number.isFinite(card.offset) &&
-            card.offset >= 0 &&
-            card.offset <= item.text.length,
-        )
-        .sort((a, b) => a.offset - b.offset || a.index - b.index)
-    : [];
-  const inlineToolGroups = Array.from(
-    (item.toolSteps ?? []).reduce((groups, step, index) => {
-      const offset = step.textOffset;
-      if (
-        typeof offset !== "number" ||
-        !Number.isFinite(offset) ||
-        offset < 0 ||
-        offset > item.text.length
-      ) {
-        return groups;
-      }
-      const current = groups.get(offset) ?? [];
-      current.push({ step, index });
-      groups.set(offset, current);
-      return groups;
-    }, new Map<number, Array<{ step: NonNullable<ChatMessage["toolSteps"]>[number]; index: number }>>()),
-  ).map(([offset, entries]) => ({
-    offset,
-    index: entries[0]?.index ?? 0,
-    group: deriveToolActivity(entries.map((entry) => entry.step)),
-  }));
-  const timelineArtifacts = [...mapArtifacts, ...looseFiles]
-    .map((artifact, index) => {
-      const payloadOffset =
-        artifact.payload.kind === "media" || artifact.payload.kind === "pdf"
-          ? artifact.payload.textOffset
-          : undefined;
-      return {
-        artifact,
-        index,
-        offset: artifact.textOffset ?? payloadOffset,
-      };
-    })
-    .filter(
-      (entry): entry is typeof entry & { offset: number } =>
-        typeof entry.offset === "number" &&
-        Number.isFinite(entry.offset) &&
-        entry.offset >= 0 &&
-        entry.offset <= item.text.length,
-    );
-  const inlineTimeline = [
-    ...inlineAgentCards.map((card) => ({ ...card, type: "agent" as const })),
-    ...inlineToolGroups
-      .filter((entry) => entry.group)
-      .map((entry) => ({ ...entry, type: "tool" as const })),
-    ...timelineArtifacts.map((entry) => ({ ...entry, type: "artifact" as const })),
-  ].sort((a, b) => a.offset - b.offset || a.index - b.index);
-  const inlineAgentIds = new Set(
-    inlineAgentCards.map((card) => card.artifact.id),
-  );
-  const inlineArtifactIds = new Set(
-    timelineArtifacts.map((entry) => entry.artifact.id),
-  );
-  // Exclude cards rendered at an inline anchor so no lifecycle update can
-  // duplicate one at the trailing artifact group.
-  const groupAgentWorkArtifacts = agentWorkArtifacts.filter(
-    (artifact) => !inlineAgentIds.has(artifact.id),
-  );
+  // Desktop renders the complete markdown body once, then attaches activity
+  // and artifact cards at the row boundary. Keep the same shape on mobile:
+  // bridge text offsets still describe event chronology, but must never become
+  // character-level insertion points that split prose (or markdown) in two.
+  const groupAgentWorkArtifacts = agentWorkArtifacts;
   const renderAssistantMarkdown = (text: string) => (
     // Press-and-hold a finished reply to enter native text selection —
     // like holding text anywhere on the phone. Assistant messages never
@@ -1714,106 +1627,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
       />
     </Pressable>
   );
-  const renderTextWithInlineTimeline = () => {
-    const nodes: ReactNode[] = [];
-    let cursor = 0;
-    let entryIndex = 0;
-    while (entryIndex < inlineTimeline.length) {
-      const offset = inlineTimeline[entryIndex]!.offset;
-      if (offset > cursor) {
-        nodes.push(
-          <View key={`text:${cursor}:${offset}`}>
-            {renderAssistantMarkdown(item.text.slice(cursor, offset))}
-          </View>,
-        );
-      }
-      const entriesAtOffset = [];
-      while (
-        entryIndex < inlineTimeline.length &&
-        inlineTimeline[entryIndex]!.offset === offset
-      ) {
-        entriesAtOffset.push(inlineTimeline[entryIndex]!);
-        entryIndex += 1;
-      }
-      nodes.push(
-        <View
-          key={`timeline:${offset}`}
-          style={[styles.artifactGroup, styles.artifactGroupSpaced]}
-        >
-          {entriesAtOffset.map((entry) => {
-            if (entry.type === "tool") {
-              if (!entry.group) return null;
-              return (
-                <ToolActivityTrace
-                  key={`tool:${offset}:${entry.index}`}
-                  group={entry.group}
-                  colors={colors}
-                />
-              );
-            }
-            if (entry.type === "artifact") {
-              const artifact = entry.artifact;
-              if (artifact.payload.kind === "map-route") {
-                return <MapRouteCard key={artifact.id} payload={artifact.payload} colors={colors} />;
-              }
-              if (
-                artifact.payload.kind === "media" &&
-                artifact.payload.asset.kind === "image"
-              ) {
-                return (
-                  <GeneratedImageCard
-                    key={artifact.id}
-                    artifact={artifact}
-                    access={desktopAccess ?? undefined}
-                    colors={colors}
-                    onPress={onOpenArtifact}
-                  />
-                );
-              }
-              return onOpenArtifact ? (
-                <ArtifactCard key={artifact.id} artifact={artifact} colors={colors} onPress={onOpenArtifact} />
-              ) : null;
-            }
-            const card = entry;
-            // The settled completion presentation REPLACES the spawn row in
-            // its slot (desktop parity) — per-agent check rows when the
-            // bridge shipped sections, otherwise the settled spawn row
-            // itself. A settled follow-up keeps the spawn row so its arrow
-            // tell survives.
-            const completionSections =
-              card.payload.state === "done" && card.payload.followUp !== true
-                ? (inlineAgentWorkCardSections(card.artifact) ?? [])
-                : [];
-            return completionSections.length > 0 ? (
-              <AgentCompletionCard
-                key={`${card.artifact.id}:completion`}
-                sections={completionSections}
-                colors={colors}
-                {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
-                {...(onOpenArtifact ? { onOpenArtifact } : {})}
-              />
-            ) : (
-              <AgentWorkCard
-                key={card.artifact.id}
-                payload={card.payload}
-                colors={colors}
-                {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
-              />
-            );
-          })}
-        </View>,
-      );
-      cursor = offset;
-    }
-    if (cursor < item.text.length) {
-      nodes.push(
-        <View key={`text:${cursor}:end`}>
-          {renderAssistantMarkdown(item.text.slice(cursor))}
-        </View>,
-      );
-    }
-    return nodes;
-  };
   return (
     <View style={styles.assistantRow}>
       {hasText ? (
@@ -1826,8 +1639,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
             onAskStella={onAskStella}
             onDismiss={onEndSelecting}
           />
-        ) : inlineTimeline.length > 0 ? (
-          renderTextWithInlineTimeline()
         ) : (
           renderAssistantMarkdown(item.text)
         )
@@ -1865,7 +1676,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 key={`${artifact.id}:completion`}
                 sections={completionSections}
                 colors={colors}
-                {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
+                {...(onOpenAgentActivity
+                  ? { onPress: onOpenAgentActivity }
+                  : {})}
                 {...(onOpenArtifact ? { onOpenArtifact } : {})}
               />
             ) : (
@@ -1873,12 +1686,14 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 key={artifact.id}
                 payload={artifact.payload}
                 colors={colors}
-                {...(onOpenAgentActivity ? { onPress: onOpenAgentActivity } : {})}
+                {...(onOpenAgentActivity
+                  ? { onPress: onOpenAgentActivity }
+                  : {})}
               />
             );
           })}
           {showMapArtifacts
-            ? mapArtifacts.filter((artifact) => !inlineArtifactIds.has(artifact.id)).map((artifact) => (
+            ? mapArtifacts.map((artifact) => (
                 <MapRouteCard
                   key={artifact.id}
                   payload={artifact.payload}
@@ -1887,7 +1702,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               ))
             : null}
           {showGeneratedImages
-            ? generatedImages.filter((artifact) => !inlineArtifactIds.has(artifact.id)).map((artifact) => {
+            ? generatedImages.map((artifact) => {
                 return (
                   <GeneratedImageCard
                     key={artifact.id}
@@ -1900,7 +1715,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               })
             : null}
           {showFileArtifacts && onOpenArtifact
-            ? genericLooseFiles.filter((artifact) => !inlineArtifactIds.has(artifact.id)).map((artifact) => (
+            ? genericLooseFiles.map((artifact) => (
                 <ArtifactCard
                   key={artifact.id}
                   artifact={artifact}

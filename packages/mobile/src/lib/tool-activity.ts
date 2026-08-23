@@ -37,7 +37,7 @@ export type ToolStep = {
    * renders directly (Schedule receipts). Never the raw unbounded result.
    */
   resultPreview?: string;
-  /** Immutable character position where normal chat first observed the call. */
+  /** Immutable chronology metadata captured when chat observed the call. */
   textOffset?: number;
 };
 

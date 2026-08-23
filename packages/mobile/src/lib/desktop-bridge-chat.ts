@@ -1889,11 +1889,9 @@ export async function sendDesktopBridgeChat({
   let activityStreamingText = false;
   let activityHasToolActivity = false;
   // Total assistant text streamed so far this run (seq-gated, so a reconnect
-  // replay never double-counts). Captured onto an agent card at spawn as its
-  // `textOffset` — the character position in the reply where the tool/agent was
-  // kicked off — so mobile can render the card BETWEEN the pre-tool and post-tool
-  // text during streaming, holding its position like desktop instead of letting
-  // post-tool text push it below.
+  // replay never double-counts). Captured as chronology metadata for live
+  // artifacts and agent occurrences. ChatPane keeps the assistant markdown
+  // cohesive and renders those cards at the message boundary.
   let streamedChars = 0;
 
   const emitActivity = () => {

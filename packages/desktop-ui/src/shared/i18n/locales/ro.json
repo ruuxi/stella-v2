@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Descarcă aplicația",
-        "downloadQrAlt": "Scanează pentru a descărca Stella din App Store",
+        "platformSelectorLabel": "Alege o platformă mobilă",
+        "appStoreQrAlt": "Scanează pentru a descărca Stella din App Store",
+        "playStoreQrAlt": "Scanează pentru a descărca Stella din Google Play",
         "connect": "Conectează-ți telefonul"
       },
       "toasts": {

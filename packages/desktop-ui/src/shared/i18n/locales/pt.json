@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Baixe o app",
-        "downloadQrAlt": "Escaneie para baixar a Stella na App Store",
+        "platformSelectorLabel": "Escolha uma plataforma móvel",
+        "appStoreQrAlt": "Escaneie para baixar a Stella na App Store",
+        "playStoreQrAlt": "Escaneie para baixar a Stella no Google Play",
         "connect": "Conecte seu celular"
       },
       "toasts": {

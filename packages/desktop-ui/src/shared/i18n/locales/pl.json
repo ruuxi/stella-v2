@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Pobierz aplikację",
-        "downloadQrAlt": "Zeskanuj, aby pobrać Stellę z App Store",
+        "platformSelectorLabel": "Wybierz platformę mobilną",
+        "appStoreQrAlt": "Zeskanuj, aby pobrać Stellę z App Store",
+        "playStoreQrAlt": "Zeskanuj, aby pobrać Stellę z Google Play",
         "connect": "Połącz telefon"
       },
       "toasts": {

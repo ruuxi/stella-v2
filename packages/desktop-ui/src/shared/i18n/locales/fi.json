@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Lataa sovellus",
-        "downloadQrAlt": "Skannaa ladataksesi Stellan App Storesta",
+        "platformSelectorLabel": "Valitse mobiilialusta",
+        "appStoreQrAlt": "Skannaa ladataksesi Stellan App Storesta",
+        "playStoreQrAlt": "Skannaa ladataksesi Stellan Google Playsta",
         "connect": "Yhdistä puhelimesi"
       },
       "toasts": {

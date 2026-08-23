@@ -28,6 +28,12 @@ const nextConfig: NextConfig = {
       // The "Agents" page was renamed to "One chat"; keep old links alive.
       { source: "/agents", destination: "/one-chat", permanent: true },
       { source: "/agents.md", destination: "/one-chat.md", permanent: true },
+      // The dedicated "Stella Go" landing page was retired. Send its old URL
+      // (and any inbound ad/link traffic) to the homepage with a 301 so it
+      // never 404s (a 404 would get Google Ads disapproved). An explicit 301
+      // (rather than Next's default 308 for `permanent`) is what Google Ads /
+      // Search expect for a retired page.
+      { source: "/go", destination: "/", statusCode: 301 },
     ];
   },
   async headers() {

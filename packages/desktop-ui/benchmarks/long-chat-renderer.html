@@ -1,0 +1,124 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  #root { width: 680px; font: 15px/1.45 system-ui; }
+  .block { display: inline; }
+  #scroll-box { width: 680px; height: 420px; overflow: auto; }
+  #scroll-content { height: 20000px; }
+</style>
+<div id="root"></div>
+<div id="scroll-box"><div id="scroll-content"></div></div>
+<pre id="result">running</pre>
+<script>
+  const root = document.querySelector("#root");
+  for (let index = 0; index < 5000; index += 1) {
+    const span = document.createElement("span");
+    span.className = "block";
+    span.textContent = `streamed token ${index} `;
+    root.append(span);
+  }
+
+  const percentile = (values, fraction) => {
+    const ordered = [...values].sort((a, b) => a - b);
+    return ordered[Math.min(ordered.length - 1, Math.floor(ordered.length * fraction))];
+  };
+  const summarize = (values) => ({
+    p50Ms: percentile(values, 0.5),
+    p95Ms: percentile(values, 0.95),
+    maxMs: Math.max(...values),
+    over16_7Ms: values.filter((value) => value > 16.7).length,
+  });
+  const oldFrames = [];
+  const newFrames = [];
+  const range = document.createRange();
+
+  for (let frame = 0; frame < 120; frame += 1) {
+    root.dataset.frame = String(frame);
+    const started = performance.now();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      range.selectNodeContents(node);
+      range.getClientRects();
+      range.getBoundingClientRect();
+    }
+    root.style.setProperty("--reveal-bottom", `${root.getBoundingClientRect().bottom}px`);
+    oldFrames.push(performance.now() - started);
+  }
+
+  for (let frame = 0; frame < 120; frame += 1) {
+    const started = performance.now();
+    root.dataset.resizeVersion = String(frame);
+    queueMicrotask(() => {});
+    newFrames.push(performance.now() - started);
+  }
+
+  const result = {
+    textNodes: 5000,
+    frames: 120,
+    oldRecursiveRangeLayout: summarize(oldFrames),
+    resizeObserverCoalescedNoGeometryReads: summarize(newFrames),
+  };
+
+  const makePayload = (count, largeTail, projected) => Array.from(
+    { length: count },
+    (_, index) => ({
+      _id: `event-${index}`,
+      timestamp: index,
+      type: index % 2 ? "tool_result" : "tool_request",
+      payload: {
+        toolName: "exec_command",
+        output: index >= count - largeTail
+          ? `${index}:` + "x".repeat(projected ? 768 : 5000)
+          : "ok",
+      },
+    }),
+  );
+  const legacyPayload = makePayload(45681, 893, false);
+  const currentPayload = makePayload(33, 33, true);
+  const processRendererUpdate = (payload) => {
+    const received = JSON.parse(JSON.stringify(payload));
+    const byId = new Map();
+    for (const event of received) byId.set(event._id, event);
+    return byId.size;
+  };
+  const measureInputLatency = async (payload, samples) => {
+    const values = [];
+    for (let index = 0; index < samples; index += 1) {
+      await new Promise((resolve) => {
+        const scheduled = performance.now();
+        setTimeout(() => {
+          values.push(performance.now() - scheduled);
+          resolve();
+        }, 0);
+        processRendererUpdate(payload);
+      });
+    }
+    return summarize(values);
+  };
+  const measureScrollFrames = (payload, samples) => {
+    const box = document.querySelector("#scroll-box");
+    const values = [];
+    for (let index = 0; index < samples; index += 1) {
+      const started = performance.now();
+      box.scrollTop = (index * 173) % 19000;
+      processRendererUpdate(payload);
+      box.getBoundingClientRect();
+      values.push(performance.now() - started);
+    }
+    return summarize(values);
+  };
+
+  result.scrollFrameTiming = {
+    legacyFullWindowWork: measureScrollFrames(legacyPayload, 20),
+    currentBoundedWindowWork: measureScrollFrames(currentPayload, 60),
+  };
+
+  (async () => {
+    result.rendererInputLatency = {
+      legacyFullWindowUpdate: await measureInputLatency(legacyPayload, 8),
+      currentBoundedTailUpdate: await measureInputLatency(currentPayload, 30),
+    };
+    document.querySelector("#result").textContent = JSON.stringify(result);
+  })();
+</script>

@@ -19,11 +19,31 @@ export const STREAM_FINISH_MAX_CPS = 180
 export const STREAM_FINISH_TARGET_MS = 2400
 export const STREAM_FINISH_FALLBACK_MS = 30000
 export const STREAM_MAX_FRAME_MS = 50
-export const STREAM_MIN_RENDER_INTERVAL_MS = 30
+/** Bound expensive React + Streamdown commits independently from the 60fps
+ * character clock. Very large markdown gets progressively fewer full parses. */
+export const STREAM_MIN_RENDER_INTERVAL_MS = 50
+export const STREAM_MEDIUM_RENDER_INTERVAL_MS = 100
+export const STREAM_LARGE_RENDER_INTERVAL_MS = 200
+export const STREAM_MEDIUM_TEXT_CHARS = 12_000
+export const STREAM_LARGE_TEXT_CHARS = 32_000
+export const STREAM_MARKDOWN_PLAINTEXT_CHARS = STREAM_MEDIUM_TEXT_CHARS
 
 const DEFAULT_FRAME_MS = 1000 / 60
 const BUFFER_COMPACT_THRESHOLD = 4096
 const INITIAL_REVEAL_CREDIT = 0.5
+
+export const streamRenderIntervalMs = (visibleChars: number): number =>
+  visibleChars >= STREAM_LARGE_TEXT_CHARS
+    ? STREAM_LARGE_RENDER_INTERVAL_MS
+    : visibleChars >= STREAM_MEDIUM_TEXT_CHARS
+      ? STREAM_MEDIUM_RENDER_INTERVAL_MS
+      : STREAM_MIN_RENDER_INTERVAL_MS
+
+export const shouldUseStreamingMarkdownPlaintext = (
+  mode: 'static' | 'streaming',
+  visibleChars: number,
+): boolean =>
+  mode === 'streaming' && visibleChars >= STREAM_MARKDOWN_PLAINTEXT_CHARS
 
 export type StreamTextAnimationEntry = {
   slotId: string
@@ -51,7 +71,9 @@ type AnimationEntry = {
   finishTimer: number | null
   onDrained: Set<(slotId: string) => void>
   lastArrivalAtMs: number | null
-  lastRevealAtMs: number | null
+  lastStepAtMs: number | null
+  lastCommitAtMs: number | null
+  hasUncommittedText: boolean
 }
 
 export type StreamTextAnimationControllerOptions = {
@@ -153,7 +175,9 @@ export class StreamTextAnimationController {
         finishTimer: null,
         onDrained: new Set(),
         lastArrivalAtMs: null,
-        lastRevealAtMs: null,
+        lastStepAtMs: null,
+        lastCommitAtMs: null,
+        hasUncommittedText: false,
       }
       this.entries.set(slotId, entry)
     }
@@ -177,7 +201,7 @@ export class StreamTextAnimationController {
     }
     for (const char of safeText) entry.chars.push(char)
     if (wasEmpty && (safeText || entry.trailingHighSurrogate)) {
-      entry.lastRevealAtMs = null
+      entry.lastStepAtMs = null
     }
     entry.lastArrivalAtMs = nowMs
     this.ensureFrame()
@@ -210,7 +234,8 @@ export class StreamTextAnimationController {
       }
 
       if (this.remaining(entry) === 0) {
-        this.completeEntry(slotId, entry)
+        if (entry.hasUncommittedText) this.flushEntry(slotId, entry)
+        else this.completeEntry(slotId, entry)
         continue
       }
       if (entry.finishTimer === null) {
@@ -250,46 +275,55 @@ export class StreamTextAnimationController {
 
     for (const [slotId, entry] of [...this.entries]) {
       const backlog = this.remaining(entry)
-      if (backlog <= 0) continue
-      const elapsedSinceReveal =
-        entry.lastRevealAtMs === null
-          ? DEFAULT_FRAME_MS
-          : nowMs - entry.lastRevealAtMs
-      if (
-        entry.lastRevealAtMs !== null &&
-        elapsedSinceReveal < STREAM_MIN_RENDER_INTERVAL_MS
-      ) {
-        hasBufferedText = true
-        continue
+      let revealedCount = 0
+      if (backlog > 0) {
+        const elapsedSinceStep =
+          entry.lastStepAtMs === null
+            ? DEFAULT_FRAME_MS
+            : nowMs - entry.lastStepAtMs
+        entry.lastStepAtMs = nowMs
+        const step = stepStreamReveal({
+          backlog,
+          carry: entry.carry,
+          elapsedMs: elapsedSinceStep,
+          finishing: entry.finishing,
+          timeSinceArrivalMs: Math.max(
+            0,
+            nowMs - (entry.lastArrivalAtMs ?? nowMs),
+          ),
+        })
+        entry.carry = step.carry
+        revealedCount = step.count
       }
-      entry.lastRevealAtMs = nowMs
-      const step = stepStreamReveal({
-        backlog,
-        carry: entry.carry,
-        elapsedMs: elapsedSinceReveal,
-        finishing: entry.finishing,
-        timeSinceArrivalMs: Math.max(
-          0,
-          nowMs - (entry.lastArrivalAtMs ?? nowMs),
-        ),
-      })
-      entry.carry = step.carry
-      if (step.count > 0) {
+      if (revealedCount > 0) {
         const text = entry.chars
-          .slice(entry.cursor, entry.cursor + step.count)
+          .slice(entry.cursor, entry.cursor + revealedCount)
           .join('')
-        entry.cursor += step.count
+        entry.cursor += revealedCount
         entry.visibleText += text
-        this.onReveal(slotId, entry.visibleText)
+        entry.hasUncommittedText = true
         this.compact(entry)
       }
 
-      if (this.remaining(entry) > 0) {
+      const remaining = this.remaining(entry)
+      const commitDue =
+        entry.hasUncommittedText &&
+        (entry.lastCommitAtMs === null ||
+          nowMs - entry.lastCommitAtMs >=
+            streamRenderIntervalMs(entry.visibleText.length) ||
+          (entry.finishing && remaining === 0))
+      if (commitDue) {
+        entry.lastCommitAtMs = nowMs
+        entry.hasUncommittedText = false
+        this.onReveal(slotId, entry.visibleText)
+      }
+
+      if (remaining > 0 || entry.hasUncommittedText) {
         hasBufferedText = true
       } else if (entry.finishing) {
         this.completeEntry(slotId, entry)
       } else {
-        entry.lastRevealAtMs = null
+        entry.lastStepAtMs = null
       }
     }
 
@@ -301,7 +335,7 @@ export class StreamTextAnimationController {
   private ensureFrame(): void {
     if (this.disposed || this.frameId !== null) return
     const hasBufferedText = [...this.entries.values()].some(
-      (entry) => this.remaining(entry) > 0,
+      (entry) => this.remaining(entry) > 0 || entry.hasUncommittedText,
     )
     if (!hasBufferedText) return
     this.frameId = this.scheduler.requestFrame(this.tick)
@@ -309,7 +343,7 @@ export class StreamTextAnimationController {
 
   private cancelFrameIfIdle(): void {
     const hasBufferedText = [...this.entries.values()].some(
-      (entry) => this.remaining(entry) > 0,
+      (entry) => this.remaining(entry) > 0 || entry.hasUncommittedText,
     )
     if (hasBufferedText || this.frameId === null) return
     this.scheduler.cancelFrame(this.frameId)
@@ -331,7 +365,9 @@ export class StreamTextAnimationController {
     entry.cursor = entry.chars.length
     entry.visibleText += `${tail}${entry.trailingHighSurrogate}`
     entry.trailingHighSurrogate = ''
-    entry.lastRevealAtMs = null
+    entry.lastStepAtMs = null
+    entry.lastCommitAtMs = null
+    entry.hasUncommittedText = false
     this.onReveal(slotId, entry.visibleText)
     if (entry.finishing) this.completeEntry(slotId, entry)
   }
@@ -345,7 +381,9 @@ export class StreamTextAnimationController {
     entry.carry = 0
     entry.finishing = false
     entry.lastArrivalAtMs = null
-    entry.lastRevealAtMs = null
+    entry.lastStepAtMs = null
+    entry.lastCommitAtMs = null
+    entry.hasUncommittedText = false
   }
 
   private clearFinishTimer(entry: AnimationEntry): void {

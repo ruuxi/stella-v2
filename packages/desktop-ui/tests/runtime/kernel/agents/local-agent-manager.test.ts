@@ -105,6 +105,55 @@ describe("LocalAgentManager lifecycle observability", () => {
       stderrWrite.mockRestore();
     }
   });
+
+  it("evicts completed task payloads after SQLite persistence", async () => {
+    let persisted:
+      | Parameters<
+          NonNullable<
+            ConstructorParameters<typeof LocalAgentManager>[0]["saveAgentRecord"]
+          >
+        >[0]
+      | null = null;
+    const manager = new LocalAgentManager({
+      maxConcurrent: 1,
+      fetchAgentContext: async () => ({
+        systemPrompt: "",
+        dynamicContext: "",
+        maxAgentDepth: 3,
+      }),
+      runSubagent: async (args) => ({
+        runId: args.runId,
+        result: "x".repeat(50_000),
+      }),
+      toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
+      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
+      completeCloudAgentRecord: async () => undefined,
+      getCloudAgentRecord: async () => null,
+      cancelCloudAgentRecord: async () => ({ canceled: false }),
+      saveAgentRecord: (record) => {
+        persisted = record;
+      },
+      getAgentRecord: (threadId) =>
+        persisted?.threadId === threadId ? persisted : null,
+    });
+
+    const created = await manager.createAgent({
+      conversationId: "eviction",
+      description: "large result",
+      prompt: "finish",
+      agentType: AGENT_IDS.GENERAL,
+      storageMode: "local",
+    });
+    await waitForAgentSettled(manager, created.threadId);
+
+    expect((manager as unknown as { tasks: Map<string, unknown> }).tasks.size).toBe(
+      0,
+    );
+    expect(await manager.getAgent(created.threadId)).toMatchObject({
+      status: "completed",
+      result: expect.stringMatching(/^x+$/),
+    });
+  });
 });
 
 describe("LocalAgentManager Exec fs locking", () => {

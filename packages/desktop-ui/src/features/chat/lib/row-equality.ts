@@ -370,6 +370,24 @@ const assistantRowEqual = (
   a.text === b.text &&
   (a.timestampMs ?? null) === (b.timestampMs ?? null) &&
   a.cacheKey === b.cacheKey &&
+  (a.sourceMessageId ?? null) === (b.sourceMessageId ?? null) &&
+  (a.sourceMessageSequence ?? null) === (b.sourceMessageSequence ?? null) &&
+  (a.toolEventSummary?.totalCount ?? 0) ===
+    (b.toolEventSummary?.totalCount ?? 0) &&
+  (a.toolEventSummary?.loadedCount ?? 0) ===
+    (b.toolEventSummary?.loadedCount ?? 0) &&
+  Boolean(a.toolEventSummary?.truncated) ===
+    Boolean(b.toolEventSummary?.truncated) &&
+  Boolean(a.toolEventSummary?.totalCountIsLowerBound) ===
+    Boolean(b.toolEventSummary?.totalCountIsLowerBound) &&
+  Boolean(a.toolEventSummary?.detailLoaded) ===
+    Boolean(b.toolEventSummary?.detailLoaded) &&
+  (a.toolEventSummary?.detailCursor?.timestamp ?? null) ===
+    (b.toolEventSummary?.detailCursor?.timestamp ?? null) &&
+  (a.toolEventSummary?.detailCursor?.id ?? null) ===
+    (b.toolEventSummary?.detailCursor?.id ?? null) &&
+  (a.toolEventSummary?.detailCursor?.sequence ?? null) ===
+    (b.toolEventSummary?.detailCursor?.sequence ?? null) &&
   Boolean(a.isStreaming) === Boolean(b.isStreaming) &&
   Boolean(a.isFadingOut) === Boolean(b.isFadingOut) &&
   // Controls the Copy/Read-aloud strip: flips when a locked overlay's

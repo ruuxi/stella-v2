@@ -84,6 +84,23 @@
   min-height: 1px;
 }
 
+.turn-detail-load {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.turn-detail-load:hover,
+.turn-detail-load:focus-visible {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
 /* Direct-mode interim messages leave with a fade only. The replacement has no
    entrance transition; its buffered stream begins once this finite exit ends. */
 .assistant-message-text {

@@ -1,5 +1,7 @@
 import type {
+  EventRecord,
   LocalChatUpdatedPayload,
+  LocalChatTimelineCursor,
   MessageRecord,
 } from "@stella/contracts/local-chat";
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
@@ -12,6 +14,7 @@ export const MESSAGE_TIMELINE_PAGE_SIZE = 80;
 export const MAX_RETAINED_TIMELINE_MESSAGES = 320;
 
 const MAX_RETAINED_UNUSED_CONVERSATIONS = 8;
+const EAGER_TOOL_EVENT_LIMIT = 32;
 
 export type MessageTimelineSnapshot = {
   messages: MessageRecord[];
@@ -34,6 +37,7 @@ type TimelineEntry = {
   inFlight: ReadKind | null;
   failedRead: ReadKind | null;
   queuedTailRefresh: boolean;
+  tailCursor: LocalChatTimelineCursor | null;
   lastUsed: number;
   stability: StableMessageListState | null;
 };
@@ -190,6 +194,7 @@ function getOrCreateEntry(conversationId: string): TimelineEntry {
     inFlight: null,
     failedRead: null,
     queuedTailRefresh: false,
+    tailCursor: null,
     lastUsed: ++useCounter,
     stability: null,
   };
@@ -242,6 +247,18 @@ async function readInitial(entry: TimelineEntry, kind: "initial" | "latest") {
     const messages = visibleMessages(result.messages);
     if (entry.requestId !== requestId) return false;
     const hasOlder = result.visibleMessageCount > MESSAGE_TIMELINE_PAGE_SIZE;
+    const newest = messages.at(-1);
+    entry.tailCursor =
+      result.nextCursor ??
+      (newest
+        ? {
+            timestamp: newest.timestamp,
+            id: newest._id,
+            ...(typeof newest.sequence === "number"
+              ? { sequence: newest.sequence }
+              : {}),
+          }
+        : null);
     publish(entry, {
       messages: newestMessages(messages, MESSAGE_TIMELINE_PAGE_SIZE),
       hasLoaded: true,
@@ -358,6 +375,7 @@ async function readNewer(entry: TimelineEntry) {
       // artifacts replaced it, followed by a full page plus look-ahead.
       afterTimestampMs: queryCursor.timestamp,
       afterId: queryCursor._id,
+      afterSequence: queryCursor.sequence,
       maxVisibleMessages: MESSAGE_TIMELINE_PAGE_SIZE + 2,
     });
     const changed = visibleMessages(result.messages);
@@ -365,6 +383,7 @@ async function readNewer(entry: TimelineEntry) {
 
     const strict = strictMessagesAfter(changed, newest);
     const hasNewer = strict.length > MESSAGE_TIMELINE_PAGE_SIZE;
+    if (!hasNewer && result.nextCursor) entry.tailCursor = result.nextCursor;
     const currentIds = new Set(current.map((message) => message._id));
     const pageIds = new Set(
       oldestMessages(strict, MESSAGE_TIMELINE_PAGE_SIZE).map(
@@ -410,14 +429,8 @@ async function readTail(entry: TimelineEntry) {
   const api = getApi();
   const current = entry.snapshot.messages;
   const newest = current[current.length - 1];
-  const queryCursor = current[current.length - 2] ?? newest;
+  const queryCursor = entry.tailCursor ?? newest;
   if (!newest && entry.snapshot.hasLoaded && !entry.inFlight) {
-    return readInitial(entry, "latest");
-  }
-  if (current.length === 1 && entry.snapshot.hasLoaded && !entry.inFlight) {
-    // A strictly-after cursor cannot return its own replacement. Tiny new
-    // conversations can refresh their single live row through the bounded
-    // latest-page read until a preceding cursor exists.
     return readInitial(entry, "latest");
   }
   if (
@@ -439,11 +452,13 @@ async function readTail(entry: TimelineEntry) {
     const result = await api.listMessagesAfter({
       conversationId: entry.conversationId,
       afterTimestampMs: queryCursor.timestamp,
-      afterId: queryCursor._id,
+      afterId: "_id" in queryCursor ? queryCursor._id : queryCursor.id,
+      afterSequence: queryCursor.sequence,
       maxVisibleMessages: MESSAGE_TIMELINE_PAGE_SIZE + 2,
     });
     const changed = visibleMessages(result.messages);
     if (entry.requestId !== requestId) return false;
+    if (result.nextCursor) entry.tailCursor = result.nextCursor;
 
     const strict = strictMessagesAfter(changed, newest);
     // A saturated tail response is intentionally collapsed to a fresh latest
@@ -487,6 +502,160 @@ async function readTail(entry: TimelineEntry) {
   }
 }
 
+function compareEventToCursor(
+  event: NonNullable<LocalChatUpdatedPayload["event"]>,
+  cursor: LocalChatTimelineCursor,
+): number {
+  if (
+    typeof event.sequence === "number" &&
+    typeof cursor.sequence === "number"
+  ) {
+    return event.sequence - cursor.sequence;
+  }
+  return (
+    event.timestamp - cursor.timestamp || event._id.localeCompare(cursor.id)
+  );
+}
+
+function compareToolEventToCursor(
+  event: EventRecord,
+  cursor: LocalChatTimelineCursor,
+): number {
+  if (
+    typeof event.sequence === "number" &&
+    typeof cursor.sequence === "number"
+  ) {
+    return event.sequence - cursor.sequence;
+  }
+  return event.timestamp - cursor.timestamp || event._id.localeCompare(cursor.id);
+}
+
+/** Apply an in-place event upsert without reopening the durable tail. */
+function patchNotifiedEvent(
+  entry: TimelineEntry,
+  event: NonNullable<LocalChatUpdatedPayload["event"]>,
+): boolean {
+  let changed = false;
+  const messages = entry.snapshot.messages.map((message) => {
+    if (message._id === event._id) {
+      changed = true;
+      return { ...message, ...event, toolEvents: message.toolEvents };
+    }
+    const eventIndex = message.toolEvents.findIndex(
+      (candidate) => candidate._id === event._id,
+    );
+    if (eventIndex < 0) return message;
+    const toolEvents = message.toolEvents.slice();
+    toolEvents[eventIndex] = event;
+    changed = true;
+    return { ...message, toolEvents };
+  });
+  if (
+    !changed &&
+    event.type !== "user_message" &&
+    event.type !== "assistant_message"
+  ) {
+    let previousIndex = -1;
+    let nextIndex = messages.length;
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index]!;
+      const comparison =
+        typeof event.sequence === "number" &&
+        typeof message.sequence === "number"
+          ? event.sequence - message.sequence
+          : event.timestamp - message.timestamp ||
+            event._id.localeCompare(message._id);
+      if (comparison > 0) previousIndex = index;
+      else {
+        nextIndex = index;
+        break;
+      }
+    }
+    let targetIndex = previousIndex;
+    if (
+      previousIndex >= 0 &&
+      messages[previousIndex]?.type === "user_message" &&
+      nextIndex < messages.length &&
+      messages[nextIndex]?.type === "assistant_message"
+    ) {
+      targetIndex = nextIndex;
+    }
+    const target = messages[targetIndex];
+    if (target) {
+      let toolEvents = [...target.toolEvents, event].sort((a, b) => {
+        if (typeof a.sequence === "number" && typeof b.sequence === "number") {
+          return a.sequence - b.sequence;
+        }
+        return a.timestamp - b.timestamp || a._id.localeCompare(b._id);
+      });
+      const detailLoaded = target.toolEventSummary?.detailLoaded === true;
+      const exceededEagerLimit = toolEvents.length > EAGER_TOOL_EVENT_LIMIT;
+      if (
+        exceededEagerLimit &&
+        !detailLoaded
+      ) {
+        const withoutPinned = toolEvents.filter(
+          (candidate) => candidate._id !== event._id,
+        );
+        toolEvents = [
+          ...withoutPinned.slice(0, EAGER_TOOL_EVENT_LIMIT / 2 - 1),
+          event,
+          ...withoutPinned.slice(-(EAGER_TOOL_EVENT_LIMIT / 2)),
+        ].sort((a, b) => {
+          if (
+            typeof a.sequence === "number" &&
+            typeof b.sequence === "number"
+          ) {
+            return a.sequence - b.sequence;
+          }
+          return a.timestamp - b.timestamp || a._id.localeCompare(b._id);
+        });
+      }
+      const detailCursor = target.toolEventSummary?.detailCursor;
+      if (detailLoaded && detailCursor) {
+        const prefix = toolEvents.filter(
+          (candidate) => compareToolEventToCursor(candidate, detailCursor) <= 0,
+        );
+        const livePins = toolEvents
+          .filter(
+            (candidate) => compareToolEventToCursor(candidate, detailCursor) > 0,
+          )
+          .slice(-EAGER_TOOL_EVENT_LIMIT);
+        toolEvents = [...prefix, ...livePins];
+      }
+      const isNewTailEvent =
+        !entry.tailCursor || compareEventToCursor(event, entry.tailCursor) > 0;
+      const priorTotal = target.toolEventSummary?.totalCount ?? 0;
+      const hasIncompleteDetail = detailLoaded && isNewTailEvent;
+      const totalCount = detailLoaded
+        ? Math.max(priorTotal + (isNewTailEvent ? 1 : 0), toolEvents.length)
+        : Math.max(
+            priorTotal + (isNewTailEvent ? 1 : 0),
+            toolEvents.length + (exceededEagerLimit ? 1 : 0),
+          );
+      const truncated =
+        hasIncompleteDetail ||
+        (!detailLoaded &&
+          (exceededEagerLimit || target.toolEventSummary?.truncated === true));
+      messages[targetIndex] = {
+        ...target,
+        toolEvents,
+        toolEventSummary: {
+          totalCount,
+          loadedCount: toolEvents.length,
+          truncated,
+          ...(truncated ? { totalCountIsLowerBound: true } : {}),
+          ...(detailLoaded ? { detailLoaded: true } : {}),
+          ...(detailCursor ? { detailCursor } : {}),
+        },
+      };
+      changed = true;
+    }
+  }
+  if (changed) publish(entry, { ...entry.snapshot, messages });
+  return changed;
+}
+
 function handleLocalUpdate(payload: LocalChatUpdatedPayload | null) {
   if (!payload?.conversationId) return;
   const entry = entries.get(payload.conversationId);
@@ -499,6 +668,32 @@ function handleLocalUpdate(payload: LocalChatUpdatedPayload | null) {
   // notifications always carry their event and keep using the cheap
   // incremental path below.
   if (payload.event) {
+    if (
+      payload.event.type !== "user_message" &&
+      payload.event.type !== "assistant_message" &&
+      patchNotifiedEvent(entry, payload.event)
+    ) {
+      if (
+        !entry.tailCursor ||
+        compareEventToCursor(payload.event, entry.tailCursor) > 0
+      ) {
+        entry.tailCursor = {
+          timestamp: payload.event.timestamp,
+          id: payload.event._id,
+          ...(typeof payload.event.sequence === "number"
+            ? { sequence: payload.event.sequence }
+            : {}),
+        };
+      }
+      return;
+    }
+    if (
+      entry.tailCursor &&
+      compareEventToCursor(payload.event, entry.tailCursor) <= 0
+    ) {
+      patchNotifiedEvent(entry, payload.event);
+      return;
+    }
     if (entry.inFlight) {
       entry.queuedTailRefresh = true;
       return;
@@ -520,6 +715,98 @@ function syncUpdateSubscription() {
   } else if (!hasActiveEntries && updateUnsubscribe) {
     updateUnsubscribe();
     updateUnsubscribe = null;
+  }
+}
+
+const detailReads = new Set<string>();
+
+/** Load at most one bounded page of complete turn events on explicit demand. */
+export async function loadLocalMessageToolEventPage(
+  conversationId: string,
+  messageId: string,
+): Promise<boolean> {
+  const api = getApi();
+  const entry = entries.get(conversationId);
+  const message = entry?.snapshot.messages.find(
+    (candidate) => candidate._id === messageId,
+  );
+  const readKey = `${conversationId}\n${messageId}`;
+  if (
+    !api?.listMessageToolEvents ||
+    !entry ||
+    !message ||
+    detailReads.has(readKey)
+  ) {
+    return false;
+  }
+  if (!message.toolEventSummary?.truncated) return false;
+  detailReads.add(readKey);
+  try {
+    const detailLoaded = message.toolEventSummary.detailLoaded === true;
+    const last = detailLoaded
+      ? message.toolEventSummary?.detailCursor
+      : undefined;
+    const page = await api.listMessageToolEvents({
+      conversationId,
+      messageTimestampMs: message.timestamp,
+      messageId: message._id,
+      messageSequence: message.sequence,
+      ...(last
+        ? {
+            afterTimestampMs: last.timestamp,
+            afterId: last.id,
+            afterSequence: last.sequence,
+          }
+        : {}),
+      limit: 100,
+    });
+    const current = entry.snapshot.messages.find(
+      (candidate) => candidate._id === messageId,
+    );
+    if (!current) return false;
+    const events = detailLoaded
+      ? [
+          ...new Map(
+            [...current.toolEvents, ...page.events].map((event) => [
+              event._id,
+              event,
+            ]),
+          ).values(),
+        ]
+      : page.events;
+    publish(entry, {
+      ...entry.snapshot,
+      messages: entry.snapshot.messages.map((candidate) =>
+        candidate._id === messageId
+          ? {
+              ...candidate,
+              toolEvents: events,
+              toolEventSummary: {
+                totalCount: page.hasMore
+                  ? Math.max(
+                      candidate.toolEventSummary?.totalCount ?? 0,
+                      events.length + 1,
+                    )
+                  : events.length,
+                loadedCount: events.length,
+                truncated: page.hasMore,
+                ...(page.hasMore ? { totalCountIsLowerBound: true } : {}),
+                detailLoaded: true,
+                ...(page.nextCursor
+                  ? { detailCursor: page.nextCursor }
+                  : candidate.toolEventSummary?.detailCursor
+                    ? {
+                        detailCursor: candidate.toolEventSummary.detailCursor,
+                      }
+                    : {}),
+              },
+            }
+          : candidate,
+      ),
+    });
+    return true;
+  } finally {
+    detailReads.delete(readKey);
   }
 }
 
@@ -632,6 +919,7 @@ export const __testing = {
     updateUnsubscribe?.();
     updateUnsubscribe = null;
     entries.clear();
+    detailReads.clear();
     useCounter = 0;
     debugStats = createDebugStats();
   },

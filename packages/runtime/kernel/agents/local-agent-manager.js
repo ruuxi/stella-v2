@@ -660,6 +660,24 @@ export class LocalAgentManager {
     getAgentState(threadId) {
         return (this.tasks.get(threadId) ?? this.opts.getAgentRecord?.(threadId) ?? null);
     }
+    evictTerminalTaskIfDurable(task) {
+        if (task.descendantFinalParked ||
+            (task.status !== "completed" &&
+                task.status !== "error" &&
+                task.status !== "canceled")) {
+            return;
+        }
+        const persisted = this.opts.getAgentRecord?.(task.threadId);
+        if (!persisted ||
+            persisted.status !== task.status ||
+            (persisted.attemptGeneration ?? 0) < task.attemptGeneration) {
+            return;
+        }
+        // The authoritative record, queues, and thread transcript now live in
+        // SQLite. Keeping the terminal task object would retain result/file
+        // payloads forever and makes this map grow with the lifetime chat.
+        this.tasks.delete(task.threadId);
+    }
     isActiveAgentState(task) {
         return (task?.status === "pending" ||
             task?.status === "running" ||
@@ -1336,6 +1354,7 @@ export class LocalAgentManager {
             }
             task.terminalEventEmitted = true;
         }
+        this.evictTerminalTaskIfDurable(task);
     }
     async createAgent(request) {
         this.assertActiveParentChain(request);
@@ -1638,6 +1657,7 @@ export class LocalAgentManager {
             }
             this.persistTask(local);
             await this.cascadeCancelChildren(agentId, local.error);
+            this.evictTerminalTaskIfDurable(local);
             return { canceled: true };
         }
         const persisted = this.opts.getAgentRecord?.(agentId);

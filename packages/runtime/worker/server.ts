@@ -139,6 +139,7 @@ import {
 import { createDesktopDatabase } from "../kernel/storage/database.js";
 import { ChatStore } from "../kernel/storage/chat-store.js";
 import { RuntimeStore } from "../kernel/storage/runtime-store.js";
+import { projectLocalChatUpdateEvent } from "../kernel/storage/session-store.js";
 import { RunEventLog } from "../kernel/storage/run-event-log.js";
 import {
   listTranscriptNeighborsBatch,
@@ -179,7 +180,7 @@ const notifyLocalChatUpdated = (
     event || conversationId
       ? {
           ...(conversationId ? { conversationId } : {}),
-          ...(event ? { event } : {}),
+          ...(event ? { event: projectLocalChatUpdateEvent(event) } : {}),
         }
       : null,
   );
@@ -1055,10 +1056,8 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         const event = chatStore.appendEvent(args);
         notifyLocalChatUpdated(peer, args.conversationId, event);
       },
-      notifyThreadActivityUpdated: (conversationId) => {
-        peer.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, {
-          conversationId,
-        });
+      notifyThreadActivityUpdated: (payload) => {
+        peer.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
       },
       getDefaultConversationId: () =>
         chatStore.getOrCreateDefaultConversationId(),

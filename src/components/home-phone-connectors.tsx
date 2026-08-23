@@ -478,6 +478,7 @@ function DownloadQrModal({
             src={store.qrCode}
             width={196}
             height={196}
+            loading="eager"
             unoptimized
             alt={`QR code for Stella on the ${store.name}`}
           />

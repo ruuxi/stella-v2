@@ -62,14 +62,23 @@ export const loadNewerActivityWindow = (
   };
 };
 
-/** Strict spawn-recency ordering for the hub. Status and completion time do
- *  not affect rank, so finishing a task cannot move its existing row. */
+const hubTaskActivityAt = (task: MobileTask): number =>
+  Math.max(task.createdAt, task.updatedAt ?? 0, task.completedAt ?? 0);
+
+const compareHubTasks = (a: MobileTask, b: MobileTask): number => {
+  const activeRank = (task: MobileTask) => (task.status === "running" ? 0 : 1);
+  return (
+    activeRank(a) - activeRank(b) ||
+    hubTaskActivityAt(b) - hubTaskActivityAt(a) ||
+    b.createdAt - a.createdAt ||
+    a.id.localeCompare(b.id)
+  );
+};
+
+/** Active agents first, then most-recently-active within each status group. */
 export const sortHubTasksByRecency = (
   tasks: readonly MobileTask[],
-): MobileTask[] =>
-  [...tasks].sort(
-    (a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id),
-  );
+): MobileTask[] => [...tasks].sort(compareHubTasks);
 
 /** Stable virtualized-row identity used by LegendList's data-change anchor. */
 export const activityHubTaskRowKey = (task: Pick<MobileTask, "id">): string =>
@@ -77,7 +86,7 @@ export const activityHubTaskRowKey = (task: Pick<MobileTask, "id">): string =>
 
 /**
  * One top-level Activity entry: a parent agent plus every descendant subagent
- * it owns (flattened, newest-first). Standalone tasks have no subagents.
+ * it owns (flattened, active-first). Standalone tasks have no subagents.
  *
  * This mirrors the desktop activity workspace's `groupActivityTasks`
  * association rule (desktop-ui `event-transforms.ts`): a task whose
@@ -90,7 +99,7 @@ export const activityHubTaskRowKey = (task: Pick<MobileTask, "id">): string =>
  */
 export type HubTaskGroup = {
   owner: MobileTask;
-  /** All descendant subagents, flattened and newest-first. */
+  /** All descendant subagents, flattened and active-first. */
   subagents: MobileTask[];
 };
 
@@ -103,10 +112,10 @@ export type HubSubagentSummary = {
 };
 
 /**
- * Project a flat, recency-ordered task list into top-level groups. Iterating
- * in the incoming order keeps top-level groups in owner-recency order; each
- * group's descendants are re-sorted by recency so nested rows stay
- * deterministic regardless of traversal order.
+ * Project a flat, activity-ordered task list into top-level groups. A group is
+ * active when either its owner or one of its descendants is running, matching
+ * the running indicator shown on the collapsed row. Groups and descendants
+ * use most-recent activity as their secondary order.
  */
 export const groupActivityHubTasks = (
   orderedTasks: readonly MobileTask[],
@@ -157,7 +166,20 @@ export const groupActivityHubTasks = (
     groups.push({ owner: task, subagents: [] });
     represented.add(task.id);
   }
-  return groups;
+  const groupIsActive = (group: HubTaskGroup) =>
+    group.owner.status === "running" ||
+    group.subagents.some((task) => task.status === "running");
+  const groupActivityAt = (group: HubTaskGroup) =>
+    group.subagents.reduce(
+      (latest, task) => Math.max(latest, hubTaskActivityAt(task)),
+      hubTaskActivityAt(group.owner),
+    );
+  return groups.sort(
+    (a, b) =>
+      Number(groupIsActive(b)) - Number(groupIsActive(a)) ||
+      groupActivityAt(b) - groupActivityAt(a) ||
+      compareHubTasks(a.owner, b.owner),
+  );
 };
 
 /** Stable virtualized-row identity for a top-level group (keyed on owner). */
@@ -181,7 +203,6 @@ export const hubSubagentSummaryText = (summary: HubSubagentSummary): string => {
   const noun = summary.total === 1 ? "subagent" : "subagents";
   return `${summary.total} ${noun} · ${summary.done} done`;
 };
-
 
 /** Full, newest-first artifact dataset for ownership and search. Display
  *  pagination is applied later to activity rows, never to this source. */

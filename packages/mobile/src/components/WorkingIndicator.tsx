@@ -1,13 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, View } from "react-native";
-import { useReducedMotion } from "react-native-reanimated";
-import { StellaStarGlyph } from "./AgentActivityGlyph";
 import { ShimmerText } from "./ShimmerText";
+import { WorkingStar } from "./WorkingStar";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
-import { fadeHex } from "../theme/oklch";
 
 const ENTER_DURATION_MS = 320;
 const EXIT_HOLD_MS = 300;
@@ -16,7 +14,6 @@ const SWAP_DURATION_MS = 240;
 const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
 const INDICATOR_VIEWPORT_SIZE = 34;
-const INDICATOR_PULSE_DURATION_MS = 1200;
 
 /**
  * Reserved vertical space above the composer for the native working pulse.
@@ -156,90 +153,6 @@ function SwapText({
   );
 }
 
-function WorkingPulse({
-  active,
-  colors,
-  styles,
-}: {
-  active: boolean;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const reduceMotion = useReducedMotion();
-  const progress = useRef(new Animated.Value(0.5)).current;
-
-  useEffect(() => {
-    progress.stopAnimation();
-    if (!active || reduceMotion) {
-      progress.setValue(0.5);
-      return;
-    }
-
-    progress.setValue(0);
-    const animation = Animated.loop(
-      Animated.timing(progress, {
-        toValue: 1,
-        duration: INDICATOR_PULSE_DURATION_MS,
-        easing: Easing.inOut(Easing.quad),
-        isInteraction: false,
-        useNativeDriver: true,
-      }),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [active, progress, reduceMotion]);
-
-  const haloStyle = useMemo(
-    () => ({
-      opacity: progress.interpolate({
-        inputRange: [0, 0.5, 1],
-        outputRange: [0.16, 0.04, 0.16],
-      }),
-      transform: [
-        {
-          scale: progress.interpolate({
-            inputRange: [0, 0.5, 1],
-            outputRange: [0.82, 1.16, 0.82],
-          }),
-        },
-      ],
-    }),
-    [progress],
-  );
-  const starStyle = useMemo(
-    () => ({
-      opacity: progress.interpolate({
-        inputRange: [0, 0.5, 1],
-        outputRange: [0.58, 1, 0.58],
-      }),
-      transform: [
-        {
-          rotate: progress.interpolate({
-            inputRange: [0, 0.5, 1],
-            outputRange: ["-12deg", "12deg", "-12deg"],
-          }),
-        },
-        {
-          scale: progress.interpolate({
-            inputRange: [0, 0.5, 1],
-            outputRange: [0.82, 1, 0.82],
-          }),
-        },
-      ],
-    }),
-    [progress],
-  );
-
-  return (
-    <View style={styles.pulseViewport}>
-      <Animated.View style={[styles.pulseHalo, haloStyle]} />
-      <Animated.View style={starStyle}>
-        <StellaStarGlyph size={22} color={colors.accent} />
-      </Animated.View>
-    </View>
-  );
-}
-
 /**
  * Stella's working state above the composer.
  *
@@ -345,7 +258,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     >
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <WorkingPulse active={active} colors={colors} styles={styles} />
+          <WorkingStar active={active} size={INDICATOR_VIEWPORT_SIZE} />
           <SwapText
             text={displayStatus}
             active={active}
@@ -383,20 +296,6 @@ const makeStyles = (colors: Colors) =>
       paddingLeft: 0,
       paddingRight: 18,
       paddingTop: INDICATOR_PAD_TOP,
-    },
-    pulseViewport: {
-      alignItems: "center",
-      height: INDICATOR_VIEWPORT_SIZE,
-      justifyContent: "center",
-      position: "relative",
-      width: INDICATOR_VIEWPORT_SIZE,
-    },
-    pulseHalo: {
-      backgroundColor: fadeHex(colors.accent, 0.22),
-      borderRadius: 13,
-      height: 26,
-      position: "absolute",
-      width: 26,
     },
     swapText: {
       flex: 1,

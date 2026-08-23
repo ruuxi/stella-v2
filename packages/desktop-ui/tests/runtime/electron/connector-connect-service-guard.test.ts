@@ -23,7 +23,10 @@ import {
   type NativeConnectorCatalogEntry,
 } from "@stella/runtime/kernel/connectors/native-integrations";
 import { setConnectorTokenStoreBroker } from "@stella/runtime/kernel/connectors/oauth";
-import { SCOPES as GOOGLE_WORKSPACE_SCOPES } from "@stella/runtime/kernel/google-workspace/scopes";
+import {
+  IDENTITY_SCOPES as GOOGLE_IDENTITY_SCOPES,
+  SCOPES as GOOGLE_WORKSPACE_SCOPES,
+} from "@stella/runtime/kernel/google-workspace/scopes";
 import { ConnectorConnectService } from "@stella/desktop/electron/services/connector-connect-service.js";
 
 const roots: string[] = [];
@@ -282,6 +285,67 @@ describe("ConnectorConnectService canonical guards", () => {
       accountVerified: true,
       executable: true,
     });
+  });
+
+  it("upgrades a partial legacy Google grant to the complete shared bundle", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "stella-connect-service-"));
+    roots.push(root);
+    await enableNativeConnector(root, "gmail", "store");
+    let token: {
+      accessToken: string;
+      refreshToken: string;
+      scopes: string[];
+    } = {
+      accessToken: "legacy-google-token",
+      refreshToken: "legacy-google-refresh-token",
+      scopes: [
+        ...GOOGLE_IDENTITY_SCOPES,
+        "https://www.googleapis.com/auth/gmail.modify",
+      ],
+    };
+    setConnectorTokenStoreBroker({
+      load: async () => token,
+      save: async () => undefined,
+      delete: async () => undefined,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/api/native-oauth/providers")) {
+          return new Response(
+            JSON.stringify({ providers: [{ id: "google-workspace" }] }),
+            { status: 200 },
+          );
+        }
+        return new Response("offline", { status: 503 });
+      }),
+    );
+    const { service, credentialService } = makeService(root, true);
+    credentialService.requestPreregisteredOAuth.mockImplementation(async () => {
+      token = {
+        ...token,
+        accessToken: "upgraded-google-token",
+        scopes: [...GOOGLE_WORKSPACE_SCOPES],
+      };
+      return { ok: true };
+    });
+
+    const outcome = service.requestConnection({ id: "gmail", name: "Gmail" });
+    await waitFor(() => send.mock.calls.length === 1);
+    const card = send.mock.calls[0]![1] as { requestId: string };
+    service.respond({ requestId: card.requestId, action: "accept" });
+
+    await expect(outcome).resolves.toEqual({ ok: true, status: "connected" });
+    expect(credentialService.requestPreregisteredOAuth).toHaveBeenCalledOnce();
+    expect(
+      credentialService.requestPreregisteredOAuth.mock.calls[0]![0],
+    ).toMatchObject({
+      tokenKey: "google-workspace",
+      scopes: GOOGLE_WORKSPACE_SCOPES,
+      authorizationParams: { include_granted_scopes: "true" },
+    });
+    expect(token.refreshToken).toBe("legacy-google-refresh-token");
+    expect(token.scopes).toEqual(GOOGLE_WORKSPACE_SCOPES);
   });
 
   it("resolves a backend Composio card via the completion status poll", async () => {

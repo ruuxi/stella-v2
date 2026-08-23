@@ -57,6 +57,10 @@ import {
   accessTokenIsFresh,
 } from "./connectors/oauth/token_set";
 import {
+  IDENTITY_SCOPES as GOOGLE_WORKSPACE_IDENTITY_SCOPES,
+  SCOPES as GOOGLE_WORKSPACE_RUNTIME_SCOPES,
+} from "../../runtime/kernel/google-workspace/scopes";
+import {
   connectorErrorHttpStatus,
   classifyProviderStatus,
   classifyTokenEndpointError,
@@ -473,6 +477,51 @@ describe("provider manifests", () => {
     expect(() =>
       resolveProviderResourceOrigin(manifest, "http://acme.api.gong.io"),
     ).toThrow(/code_exchange_failed/);
+  });
+});
+
+describe("Google Workspace provider family", () => {
+  it("keeps the backend manifest in exact parity with the runtime shared bundle", () => {
+    const manifest = getProviderManifest("google-workspace")!;
+    const union = scopesForGroups(manifest, ["google_all"]);
+
+    expect(scopesForGroups(manifest, ["identity"])).toEqual(
+      GOOGLE_WORKSPACE_IDENTITY_SCOPES,
+    );
+    expect(union).toEqual(GOOGLE_WORKSPACE_RUNTIME_SCOPES);
+    expect(union).toContain("https://www.googleapis.com/auth/calendar");
+    expect(union).not.toContain(
+      "https://www.googleapis.com/auth/calendar.events",
+    );
+    expect(union).not.toContain(
+      "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+    );
+  });
+
+  it("builds the reviewed complete-union Google PKCE URL", () => {
+    const manifest = getProviderManifest("google-workspace")!;
+    const url = new URL(
+      buildAuthorizationUrl({
+        manifest,
+        clientId: "google-client-id",
+        redirectUri:
+          "https://connect.stella.test/api/connectors/oauth/callback",
+        state: "state",
+        codeChallenge: "challenge",
+        scopes: scopesForGroups(manifest, ["google_all"]),
+      }),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      "https://accounts.google.com/o/oauth2/v2/auth",
+    );
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual(
+      GOOGLE_WORKSPACE_RUNTIME_SCOPES,
+    );
+    expect(url.searchParams.get("access_type")).toBe("offline");
+    expect(url.searchParams.get("include_granted_scopes")).toBe("true");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
   });
 });
 

@@ -77,6 +77,21 @@ export type ProviderManifest = {
   registrationVersion: number;
 };
 
+const GOOGLE_IDENTITY_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+] as const;
+
+const GOOGLE_WORKSPACE_DATA_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/documents",
+  "https://www.googleapis.com/auth/drive",
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/tasks",
+] as const;
+
 const GOOGLE_WORKSPACE: ProviderManifest = {
   key: "google-workspace",
   displayName: "Google",
@@ -96,73 +111,48 @@ const GOOGLE_WORKSPACE: ProviderManifest = {
   refreshSkewMs: 5 * 60 * 1000,
   callbackPath: "/api/connectors/oauth/callback",
   apiOrigin: "https://www.googleapis.com",
-  // NOTE: the exact action->scope matrix must be mechanically generated from
-  // the shipped executor registry before provider-console registration. These
-  // groups are the design baseline; `google_all` is the deduped union.
+  // Keep `google_all` in exact parity with the desktop/runtime shared grant.
+  // Verification evidence lives in ../GOOGLE_WORKSPACE_OAUTH_VERIFICATION.md.
   scopeGroups: {
-    identity: { scopes: ["openid", "email", "profile"] },
+    identity: { scopes: GOOGLE_IDENTITY_SCOPES },
     gmail: {
       scopes: [
-        "openid",
-        "email",
-        "profile",
+        ...GOOGLE_IDENTITY_SCOPES,
         "https://www.googleapis.com/auth/gmail.modify",
       ],
     },
     drive: {
       scopes: [
-        "openid",
-        "email",
-        "profile",
+        ...GOOGLE_IDENTITY_SCOPES,
         "https://www.googleapis.com/auth/drive",
       ],
     },
     docs: {
       scopes: [
-        "openid",
-        "email",
-        "profile",
+        ...GOOGLE_IDENTITY_SCOPES,
         "https://www.googleapis.com/auth/documents",
       ],
     },
     sheets: {
       scopes: [
-        "openid",
-        "email",
-        "profile",
+        ...GOOGLE_IDENTITY_SCOPES,
         "https://www.googleapis.com/auth/spreadsheets",
       ],
     },
     calendar: {
       scopes: [
-        "openid",
-        "email",
-        "profile",
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        ...GOOGLE_IDENTITY_SCOPES,
+        "https://www.googleapis.com/auth/calendar",
       ],
     },
     tasks: {
       scopes: [
-        "openid",
-        "email",
-        "profile",
+        ...GOOGLE_IDENTITY_SCOPES,
         "https://www.googleapis.com/auth/tasks",
       ],
     },
     google_all: {
-      scopes: [
-        "openid",
-        "email",
-        "profile",
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/drive",
-        "https://www.googleapis.com/auth/documents",
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-        "https://www.googleapis.com/auth/tasks",
-      ],
+      scopes: [...GOOGLE_IDENTITY_SCOPES, ...GOOGLE_WORKSPACE_DATA_SCOPES],
     },
   },
   verificationStatus: "unverified",

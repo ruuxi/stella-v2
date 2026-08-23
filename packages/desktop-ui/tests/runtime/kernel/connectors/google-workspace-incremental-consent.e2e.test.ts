@@ -3,12 +3,21 @@ import { rm } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import {
   connectPreregisteredConnectorOAuth,
   loadConnectorAccessToken,
   loadConnectorTokenPayload,
+  saveConnectorTokenPayload,
 } from "@stella/runtime/kernel/connectors/oauth";
 import { getNativeConnectorCatalogEntry } from "@stella/runtime/kernel/connectors/native-integrations";
 import {
@@ -16,7 +25,6 @@ import {
   nativeConnectorAuthStatus,
 } from "@stella/runtime/kernel/connectors/connection-status";
 import {
-  GOOGLE_WORKSPACE_SERVICE_SCOPES,
   IDENTITY_SCOPES,
   SCOPES,
 } from "@stella/runtime/kernel/google-workspace/scopes";
@@ -26,16 +34,17 @@ import {
 } from "../../../helpers/protected-storage.js";
 
 /**
- * End-to-end verification of the SHARED google-workspace grant with GRANULAR
- * (per-service) consent and INCREMENTAL scope upgrades.
+ * End-to-end verification of the shared Google Workspace grant. Every current
+ * connect requests the complete six-service union; incremental consent exists
+ * only to upgrade older partial grants without losing their refresh token.
  *
  * This drives the real `connectPreregisteredConnectorOAuth` credential flow
  * against a local loopback OAuth server that faithfully mimics Google's
  * behaviour:
  *   - a single grant / token key ("google-workspace") backs every service;
- *   - the authorization-code exchange returns a refresh_token ONLY on the
- *     first consent (Google omits it on later incremental consents);
- *   - the granted `scope` returned by the token endpoint drives the union.
+ *   - Google omits refresh_token on later incremental consents;
+ *   - the granted `scope` returned by the token endpoint drives the union;
+ *   - the authorization URL always requests the canonical complete union.
  *
  * It proves: scope-aware status (connected vs scope_upgrade_required vs
  * not_logged_in), incremental scope UNION, refresh-token PRESERVATION across
@@ -44,8 +53,7 @@ import {
 
 const TOKEN_KEY = "google-workspace";
 const IDENTITY = [...IDENTITY_SCOPES];
-const TASKS = GOOGLE_WORKSPACE_SERVICE_SCOPES.googletasks[0];
-const GMAIL = GOOGLE_WORKSPACE_SERVICE_SCOPES.gmail[0];
+const LEGACY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 
 const ACCESS_1 = "gw-access-token-CONSENT-1";
 const ACCESS_2 = "gw-access-token-CONSENT-2";
@@ -117,6 +125,7 @@ const consent = async (
   root: string,
   requestedScopes: string[],
   granted: TokenResponse,
+  inspectAuthorizationUrl?: (url: URL) => void,
 ) => {
   nextTokenResponse = granted;
   return connectPreregisteredConnectorOAuth(root, {
@@ -128,6 +137,7 @@ const consent = async (
     authorizationParams: { include_granted_scopes: "true" },
     openUrl: async (url) => {
       const authUrl = new URL(url);
+      inspectAuthorizationUrl?.(authUrl);
       const redirect = new URL(authUrl.searchParams.get("redirect_uri")!);
       redirect.searchParams.set("code", "auth-code-xyz");
       redirect.searchParams.set("state", authUrl.searchParams.get("state")!);
@@ -143,37 +153,29 @@ const consent = async (
   });
 };
 
-describe("google-workspace granular consent + incremental scope upgrade (e2e)", () => {
-  it("connects one service, then incrementally upgrades a second on the SAME grant, preserving the refresh token and unioning scopes", async () => {
+describe("google-workspace shared-bundle incremental scope upgrade (e2e)", () => {
+  it("upgrades a partial legacy grant to the complete union while preserving its refresh token", async () => {
     const root = makeRoot();
 
-    // Baseline: no grant at all.
-    expect(await nativeConnectorAuthStatus(root, entry("googletasks"))).toBe(
-      "not_logged_in",
-    );
-    expect(await nativeConnectorAuthStatus(root, entry("gmail"))).toBe(
-      "not_logged_in",
-    );
-
-    // === Consent #1: connect the low-risk Tasks service ===================
-    await consent(root, [...IDENTITY, TASKS], {
-      access_token: ACCESS_1,
-      refresh_token: REFRESH_1,
-      scope: [...IDENTITY, TASKS].join(" "),
-      expires_in: 3600,
+    // Simulate a historical grant issued before the complete shared bundle.
+    await saveConnectorTokenPayload(root, TOKEN_KEY, {
+      accessToken: ACCESS_1,
+      refreshToken: REFRESH_1,
+      scopes: [...IDENTITY, LEGACY_SCOPE],
     });
 
     const afterFirst = await loadConnectorTokenPayload(root, TOKEN_KEY);
     expect(afterFirst?.accessToken).toBe(ACCESS_1);
     expect(afterFirst?.refreshToken).toBe(REFRESH_1);
-    expect(new Set(afterFirst?.scopes)).toEqual(new Set([...IDENTITY, TASKS]));
+    expect(new Set(afterFirst?.scopes)).toEqual(
+      new Set([...IDENTITY, LEGACY_SCOPE]),
+    );
 
-    // Scope-aware status: Tasks connected, Gmail needs an upgrade on the
-    // SAME shared grant (not "not_logged_in" — the account IS linked).
-    expect(await nativeConnectorAuthStatus(root, entry("googletasks"))).toBe(
+    // The account is linked, but only its legacy Gmail surface is ready.
+    expect(await nativeConnectorAuthStatus(root, entry("gmail"))).toBe(
       "connected",
     );
-    expect(await nativeConnectorAuthStatus(root, entry("gmail"))).toBe(
+    expect(await nativeConnectorAuthStatus(root, entry("googletasks"))).toBe(
       "scope_upgrade_required",
     );
 
@@ -185,40 +187,34 @@ describe("google-workspace granular consent + incremental scope upgrade (e2e)", 
     expect(raw).not.toContain(ACCESS_1);
     expect(raw).not.toContain(REFRESH_1);
 
-    // === Consent #2: incremental upgrade to add Gmail =====================
-    // Google returns NO refresh_token on incremental consent; the flow must
-    // preserve the still-valid one from consent #1.
-    await consent(root, [...IDENTITY, GMAIL], {
-      access_token: ACCESS_2,
-      // NOTE: refresh_token intentionally omitted (Google's real behaviour).
-      scope: [...IDENTITY, GMAIL].join(" "),
-      expires_in: 3600,
-    });
+    // Current connects request the complete shared union. Google returns no
+    // refresh_token during incremental consent, so preserve the legacy one.
+    let authorizationUrl: URL | undefined;
+    await consent(
+      root,
+      SCOPES,
+      {
+        access_token: ACCESS_2,
+        scope: SCOPES.join(" "),
+        expires_in: 3600,
+      },
+      (url) => {
+        authorizationUrl = url;
+      },
+    );
 
     const afterSecond = await loadConnectorTokenPayload(root, TOKEN_KEY);
     expect(afterSecond?.accessToken).toBe(ACCESS_2);
-    // Refresh-token PRESERVATION across incremental consent:
     expect(afterSecond?.refreshToken).toBe(REFRESH_1);
-    // Scope UNION: identity + tasks (old) + gmail (new).
-    expect(new Set(afterSecond?.scopes)).toEqual(
-      new Set([...IDENTITY, TASKS, GMAIL]),
-    );
+    expect(afterSecond?.scopes).toEqual(SCOPES);
 
-    // Both services now report connected on the one shared grant.
-    expect(await nativeConnectorAuthStatus(root, entry("googletasks"))).toBe(
-      "connected",
-    );
-    expect(await nativeConnectorAuthStatus(root, entry("gmail"))).toBe(
-      "connected",
-    );
+    for (const id of ["gmail", "googletasks", "googlesuper"]) {
+      expect(await nativeConnectorAuthStatus(root, entry(id))).toBe(
+        "connected",
+      );
+    }
 
-    // The one-tap all-Google bundle still needs the full six-service union.
-    expect(await nativeConnectorAuthStatus(root, entry("googlesuper"))).toBe(
-      "scope_upgrade_required",
-    );
-
-    // Read-only call PLUMBING for BOTH services: each is executable and can
-    // obtain the current bearer token from the shared grant.
+    // Representative services are executable from the same shared grant.
     for (const id of ["googletasks", "gmail"]) {
       const readiness = await getNativeConnectorReadiness(root, entry(id));
       expect(readiness.accountVerified).toBe(true);
@@ -226,11 +222,19 @@ describe("google-workspace granular consent + incremental scope upgrade (e2e)", 
     }
     expect(await loadConnectorAccessToken(root, TOKEN_KEY)).toBe(ACCESS_2);
 
-    // The second exchange was a genuine authorization_code grant (no secret
-    // was sent — PKCE-only, matching the base-main local desktop flow).
-    expect(tokenRequests).toHaveLength(2);
-    expect(tokenRequests[1].grant_type).toBe("authorization_code");
-    expect(tokenRequests[1].code_verifier).toBeTruthy();
+    expect(tokenRequests).toHaveLength(1);
+    expect(tokenRequests[0].grant_type).toBe("authorization_code");
+    expect(tokenRequests[0].code_verifier).toBeTruthy();
+    expect(authorizationUrl).toBeDefined();
+    expect(authorizationUrl!.searchParams.get("scope")?.split(" ")).toEqual(
+      SCOPES,
+    );
+    expect(authorizationUrl!.searchParams.get("include_granted_scopes")).toBe(
+      "true",
+    );
+    expect(authorizationUrl!.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
   });
 
   it("completing the full six-service union flips the bundle to connected", async () => {

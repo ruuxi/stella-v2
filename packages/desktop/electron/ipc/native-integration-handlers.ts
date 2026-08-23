@@ -16,7 +16,10 @@ import {
   hasNativeOAuthProviderClientIdOverride,
   isNativeOAuthProviderConfigReady,
 } from "@stella/runtime/kernel/connectors/native-oauth-provider-config";
-import { loadConnectorAccessToken } from "@stella/runtime/kernel/connectors/oauth";
+import {
+  loadConnectorAccessToken,
+  loadConnectorTokenPayload,
+} from "@stella/runtime/kernel/connectors/oauth";
 import { waitForBackendIntegrationConnection } from "./backend-integration-status.js";
 import { loadConfig } from "@stella/runtime/kernel/google-workspace/config";
 import { SCOPES as GOOGLE_WORKSPACE_SCOPES } from "@stella/runtime/kernel/google-workspace/scopes";
@@ -467,8 +470,17 @@ export const ensureNativeCredential = async (
     throw new Error("Accepted connector snapshot does not match the request.");
   }
   if (entry?.provider === "google-workspace") {
-    if (await loadConnectorAccessToken(stellaAppDir, "google-workspace"))
+    const existingGrant = await loadConnectorTokenPayload(
+      stellaAppDir,
+      "google-workspace",
+    );
+    const grantedScopes = new Set(existingGrant?.scopes ?? []);
+    if (
+      existingGrant?.accessToken &&
+      GOOGLE_WORKSPACE_SCOPES.every((scope) => grantedScopes.has(scope))
+    ) {
       return;
+    }
     if (!options.requestPreregisteredOAuth) {
       throw new Error("Google Workspace connection is unavailable.");
     }

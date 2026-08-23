@@ -17,6 +17,8 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
+import { runDiscovery, tryDiscovery, tryDiscoverySync } from "./effect-io.js";
 
 const log = (...args: unknown[]) => console.error("[music-library]", ...args);
 
@@ -191,34 +193,51 @@ const findAppleMusicDb = async (): Promise<string | null> => {
 
 const SQLITE_HEADER = "SQLite format 3\0";
 
-const isSqliteDatabaseFile = async (dbPath: string): Promise<boolean> => {
-  let handle: fs.FileHandle | null = null;
-  try {
-    handle = await fs.open(dbPath, "r");
-    const buffer = Buffer.alloc(SQLITE_HEADER.length);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    return bytesRead === buffer.length && buffer.toString("utf8") === SQLITE_HEADER;
-  } catch {
-    return false;
-  } finally {
-    await handle?.close().catch(() => {});
-  }
-};
+// The header probe holds an open file handle: acquireRelease guarantees it
+// is closed (best-effort, swallowing close errors as before) on success,
+// failure, and interruption.
+const isSqliteDatabaseFileEffect = (
+  dbPath: string,
+): Effect.Effect<boolean> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const handle = yield* Effect.acquireRelease(
+        tryDiscovery(() => fs.open(dbPath, "r")),
+        (h) => Effect.promise(() => h.close().catch(() => {})),
+      );
+      const buffer = Buffer.alloc(SQLITE_HEADER.length);
+      const { bytesRead } = yield* tryDiscovery(() =>
+        handle.read(buffer, 0, buffer.length, 0),
+      );
+      return bytesRead === buffer.length && buffer.toString("utf8") === SQLITE_HEADER;
+    }),
+  ).pipe(Effect.catch(() => Effect.succeed(false)));
 
-const collectFromAppleMusicDb = async (dbPath: string): Promise<MusicLibrarySignals> => {
-  const { Database } = await import("bun:sqlite");
-  // Read the live DB directly via an immutable URI: skips locking and reads
-  // the main file without its WAL sidecars. Best-effort one-time snapshot.
-  const uri = `${pathToFileURL(dbPath).href}?immutable=1`;
-  const db = new Database(uri, { readonly: true }) as SqliteDatabase;
+// Fails with the original sqlite error (e.g. SQLITE_NOTADB) so the caller's
+// error branches observe the same codes; the db handle closes on every exit.
+const collectFromAppleMusicDbEffect = (
+  dbPath: string,
+): Effect.Effect<MusicLibrarySignals, unknown> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { Database } = yield* tryDiscovery(() => import("bun:sqlite"));
+      // Read the live DB directly via an immutable URI: skips locking and reads
+      // the main file without its WAL sidecars. Best-effort one-time snapshot.
+      const uri = `${pathToFileURL(dbPath).href}?immutable=1`;
+      const db = yield* Effect.acquireRelease(
+        tryDiscoverySync(
+          () => new Database(uri, { readonly: true }) as SqliteDatabase,
+        ),
+        (openDb) => Effect.sync(() => openDb.close()),
+      );
 
-  try {
-    // Total tracks
-    const countRow = db.prepare("SELECT COUNT(*) as c FROM ZTRACK WHERE ZISPODCAST = 0").all() as { c: number }[];
-    const totalTracks = countRow[0]?.c ?? 0;
+      return yield* tryDiscoverySync(() => {
+        // Total tracks
+        const countRow = db.prepare("SELECT COUNT(*) as c FROM ZTRACK WHERE ZISPODCAST = 0").all() as { c: number }[];
+        const totalTracks = countRow[0]?.c ?? 0;
 
-    // Top artists by play count
-    const artistRows = db.prepare(`
+        // Top artists by play count
+        const artistRows = db.prepare(`
       SELECT ZARTIST as name, SUM(ZPLAYCOUNT) as play_count
       FROM ZTRACK
       WHERE ZISPODCAST = 0 AND ZARTIST IS NOT NULL
@@ -227,8 +246,8 @@ const collectFromAppleMusicDb = async (dbPath: string): Promise<MusicLibrarySign
       LIMIT 20
     `).all() as { name: string; play_count: number }[];
 
-    // Top genres by track count
-    const genreRows = db.prepare(`
+        // Top genres by track count
+        const genreRows = db.prepare(`
       SELECT ZGENRE as name, COUNT(*) as track_count
       FROM ZTRACK
       WHERE ZISPODCAST = 0 AND ZGENRE IS NOT NULL
@@ -237,62 +256,77 @@ const collectFromAppleMusicDb = async (dbPath: string): Promise<MusicLibrarySign
       LIMIT 10
     `).all() as { name: string; track_count: number }[];
 
-    return {
-      source: "apple_music",
-      totalTracks,
-      topArtists: artistRows.map((r) => ({ name: r.name, playCount: r.play_count })),
-      topGenres: genreRows.map((r) => ({ name: r.name, trackCount: r.track_count })),
-    };
-  } finally {
-    db.close();
-  }
-};
+        return {
+          source: "apple_music" as const,
+          totalTracks,
+          topArtists: artistRows.map((r) => ({ name: r.name, playCount: r.play_count })),
+          topGenres: genreRows.map((r) => ({ name: r.name, trackCount: r.track_count })),
+        };
+      });
+    }),
+  );
 
 // ---------------------------------------------------------------------------
 // Main Collection
 // ---------------------------------------------------------------------------
 
-export const collectMusicLibrary = async (): Promise<MusicLibrarySignals | null> => {
-  // macOS: Try Apple Music SQLite first, then iTunes XML
-  if (process.platform === "darwin") {
-    const appleMusicDb = await findAppleMusicDb();
-    if (appleMusicDb) {
-      log(`Found Apple Music database at: ${appleMusicDb}`);
-      if (!(await isSqliteDatabaseFile(appleMusicDb))) {
-        log("Apple Music library exists but is not a SQLite database on this system");
-      } else {
-        try {
-          const result = await collectFromAppleMusicDb(appleMusicDb);
-          log(`Collected from Apple Music: ${result.totalTracks} tracks, ${result.topArtists.length} artists, ${result.topGenres.length} genres`);
-          return result;
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === "SQLITE_NOTADB") {
-            log("Apple Music database format is not readable on this system");
-          } else {
-            log("Failed to read Apple Music database:", error);
+const collectMusicLibraryEffect: Effect.Effect<
+  MusicLibrarySignals | null,
+  unknown
+> = Effect.gen(function* () {
+    // macOS: Try Apple Music SQLite first, then iTunes XML
+    if (process.platform === "darwin") {
+      const appleMusicDb = yield* tryDiscovery(() => findAppleMusicDb());
+      if (appleMusicDb) {
+        log(`Found Apple Music database at: ${appleMusicDb}`);
+        if (!(yield* isSqliteDatabaseFileEffect(appleMusicDb))) {
+          log("Apple Music library exists but is not a SQLite database on this system");
+        } else {
+          const result = yield* collectFromAppleMusicDbEffect(appleMusicDb).pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                const code = (error as NodeJS.ErrnoException).code;
+                if (code === "SQLITE_NOTADB") {
+                  log("Apple Music database format is not readable on this system");
+                } else {
+                  log("Failed to read Apple Music database:", error);
+                }
+                return null;
+              }),
+            ),
+          );
+          if (result) {
+            log(`Collected from Apple Music: ${result.totalTracks} tracks, ${result.topArtists.length} artists, ${result.topGenres.length} genres`);
+            return result;
           }
         }
       }
     }
-  }
 
-  // Windows + macOS fallback: Try iTunes XML
-  const itunesXml = await findItunesXml();
-  if (itunesXml) {
-    log(`Found iTunes library at: ${itunesXml}`);
-    try {
-      const result = await parseItunesXml(itunesXml);
-      log(`Collected from iTunes: ${result.totalTracks} tracks, ${result.topArtists.length} artists, ${result.topGenres.length} genres`);
-      return result;
-    } catch (error) {
-      log("Failed to parse iTunes library:", error);
+    // Windows + macOS fallback: Try iTunes XML
+    const itunesXml = yield* tryDiscovery(() => findItunesXml());
+    if (itunesXml) {
+      log(`Found iTunes library at: ${itunesXml}`);
+      const result = yield* tryDiscovery(() => parseItunesXml(itunesXml)).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            log("Failed to parse iTunes library:", error);
+            return null;
+          }),
+        ),
+      );
+      if (result) {
+        log(`Collected from iTunes: ${result.totalTracks} tracks, ${result.topArtists.length} artists, ${result.topGenres.length} genres`);
+        return result;
+      }
     }
-  }
 
-  log("No music library found");
-  return null;
-};
+    log("No music library found");
+    return null;
+  });
+
+export const collectMusicLibrary = async (): Promise<MusicLibrarySignals | null> =>
+  runDiscovery(collectMusicLibraryEffect);
 
 // ---------------------------------------------------------------------------
 // Formatting

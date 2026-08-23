@@ -3,6 +3,7 @@ import {
   buildRuntimeThreadKey,
   maybeCompactRuntimeThread,
 } from "../thread-runtime.js";
+import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
 import { now } from "./shared.js";
 import {
   BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
@@ -19,6 +20,9 @@ const MEMORY_STARTUP_DOC_PATHS = [
   LIFE_USER_PROFILE_DISPLAY_PATH,
   LIFE_MEMORY_MAP_DISPLAY_PATH,
 ];
+/**
+ * @param {{ conversationId: string, agentType: string, runId: string, threadId?: string }} args
+ */
 export const buildRunThreadKey = ({
   conversationId,
   agentType,
@@ -89,6 +93,8 @@ export const buildHistorySource = (context) => {
     context.threadHistory
       ?.filter(
         (entry) =>
+          entry.customMessage?.customType !==
+            RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE &&
           !isRetiredMemorySummaryEntry(entry) &&
           (context.memoryEnabled !== false || !isMemoryStartupDocEntry(entry)),
       )

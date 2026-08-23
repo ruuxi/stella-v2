@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -283,7 +284,17 @@ describe("general agent tools", () => {
     expect(output).toContain(`cwd=${JSON.stringify(cwdFile)}`);
   });
 
-  it("exec_command uses a real PTY and keeps write_stdin session semantics", async () => {
+  // Integration test against the packaged bun runtime; skip when that prepared
+  // artifact is absent (bare worktree). CI/packaged builds have it and run it.
+  it.skipIf(
+    !existsSync(
+      path.join(
+        repoRoot,
+        "packages/desktop/resources/bun/current",
+        process.platform === "win32" ? "bun.exe" : "bun",
+      ),
+    ),
+  )("exec_command uses a real PTY and keeps write_stdin session semantics", async () => {
     const root = await createTempDir();
     const bunExecutable = path.join(
       repoRoot,

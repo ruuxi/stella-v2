@@ -17,6 +17,7 @@ import type {
 } from "../extensions/types.js";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
+import { assistantMessageHasUsableOutput } from "./run-shared.js";
 import {
   assistantMessageHasToolCall,
   extractAssistantText,
@@ -41,6 +42,11 @@ import type {
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 
 const logger = createRuntimeLogger("agent-runtime.events");
+
+type PersistedAssistantContent = Extract<
+  PersistedRuntimeThreadPayload,
+  { role: "assistant" }
+>["content"];
 
 type RuntimeAgentLike = {
   state: {
@@ -487,6 +493,8 @@ export const subscribeRuntimeAgentEvents = ({
   conversationId,
   uiVisibility,
   attemptGeneration,
+  stellaDataDir,
+  afterDurableMessagePersisted,
 }: {
   agent: RuntimeAgentLike;
   runId: string;
@@ -501,6 +509,11 @@ export const subscribeRuntimeAgentEvents = ({
   conversationId?: string;
   uiVisibility?: "visible" | "hidden";
   attemptGeneration?: number;
+  stellaDataDir?: string;
+  /** Crash-injection seam used to prove delivery acknowledgement ordering. */
+  afterDurableMessagePersisted?: (
+    payload: PersistedRuntimeThreadPayload,
+  ) => void;
 }) => {
   // Stable run-level fields shared by every hook payload from this subscription.
   const hookContext = buildHookRuntimeContext({
@@ -554,6 +567,18 @@ export const subscribeRuntimeAgentEvents = ({
               ? { attemptGeneration }
               : {}),
           });
+          afterDurableMessagePersisted?.(payload);
+          if (
+            payload.role === "toolResult" &&
+            payload.toolName === "image_gen" &&
+            conversationId
+          ) {
+            markImageOperationDelivered({
+              stellaDataDir,
+              conversationId,
+              toolCallId: payload.toolCallId,
+            });
+          }
         }
       }
 
@@ -746,7 +771,35 @@ const toPersistedThreadPayload = (
         content: [{ type: "text", text: "" }],
       };
     }
-    return message;
+    const trimmedContent: PersistedAssistantContent = [];
+    for (const block of message.content) {
+      if (block.type !== "text") {
+        trimmedContent.push(block);
+        continue;
+      }
+      const trimmed = block.text.trim();
+      if (trimmed) {
+        trimmedContent.push({ ...block, text: trimmed });
+      }
+    }
+    // The retry ladder pops a no-usable-output assistant tail from the live
+    // context before resuming, and nothing removes rows from the durable
+    // transcript — so persisting one here orphans it: the store keeps a reply
+    // the model no longer has, and the next rebuild (compaction, an external
+    // writer, app restart) hands the provider two consecutive assistant
+    // messages. Checking emptiness alone missed the thinking-only message a
+    // reasoning model produces when it exhausts the output cap while
+    // reasoning; this is the ladder's own predicate, so the two cannot drift.
+    if (
+      trimmedContent.length === 0 ||
+      !assistantMessageHasUsableOutput({ ...message, content: trimmedContent })
+    ) {
+      return null;
+    }
+    return {
+      ...message,
+      content: trimmedContent,
+    };
   }
   if (message.role === "toolResult") {
     return {

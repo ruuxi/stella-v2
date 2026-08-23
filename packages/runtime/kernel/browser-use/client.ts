@@ -5,11 +5,18 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Deferred, Effect } from "effect";
+
+import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import {
   getStellaBrowserBridgeEnv,
   getStellaInAppBrowserInitEndpoint,
   getStellaInAppBrowserInitTokenPath,
 } from "../tools/stella-browser-bridge-config.js";
+import {
+  forkCancelableTimeout,
+  runBrowserUseEffect,
+} from "./effect-runtime.js";
 import {
   DEFAULT_BROWSER_COMMAND_TIMEOUT_MS,
   DEFAULT_BROWSER_MAX_OUTPUT_BYTES,
@@ -331,7 +338,8 @@ type PendingResponse = {
   requestId: string;
   resolve: (result: BrowserCommandResult) => void;
   reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
+  /** Interrupts the round-trip's timeout fiber (the clearTimeout analogue). */
+  cancelTimeout: () => void;
   signal?: AbortSignal;
   onAbort?: () => void;
 };
@@ -1821,81 +1829,97 @@ export class BrowserSession implements BrowserSessionClient {
       );
     }
     const config = this.resolveExecutionConfig();
+    const endpoint =
+      "path" in config.endpoint
+        ? config.endpoint.path
+        : `${config.endpoint.host}:${config.endpoint.port}`;
+    const session = this;
 
-    await new Promise<void>((resolve, reject) => {
-      const socket =
-        "path" in config.endpoint
-          ? createConnection({ path: config.endpoint.path })
-          : createConnection({
-              host: config.endpoint.host,
-              port: config.endpoint.port,
-            });
-      this.connectingSocket = socket;
-      let settled = false;
-      const endpoint =
-        "path" in config.endpoint
-          ? config.endpoint.path
-          : `${config.endpoint.host}:${config.endpoint.port}`;
-      const cleanup = () => {
-        clearTimeout(timeout);
-        signal?.removeEventListener("abort", onAbort);
-        socket.removeListener("connect", onConnect);
-        socket.removeListener("error", onError);
-        if (this.connectingSocket === socket) this.connectingSocket = undefined;
-      };
-      const finish = (callback: () => void) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        callback();
-      };
-      const onConnect = () =>
-        finish(() => {
-          if (this.disposed && !allowDisposed) {
-            socket.destroy();
-            reject(new BrowserSessionDisposedError());
-            return;
+    // The connection attempt is a scoped Effect: the connecting socket is
+    // acquired via `acquireRelease` with an EXIT-AWARE release — destroyed
+    // on failure (connect error, timeout, abort, disposed-mid-connect),
+    // handed to `installSocket` and left alive on success — so a lost race
+    // can never leak a half-open daemon connection. The connect/error
+    // listeners are scoped resources removed on every exit path, the
+    // timeout is an `Effect.sleep` race, and the caller's AbortSignal
+    // crosses in through `acquireAbortLatch` (cooperative cancel; identical
+    // rejection reasons and error strings).
+    await runBrowserUseEffect(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const connected = Deferred.makeUnsafe<void, Error>();
+          const onConnect = () => {
+            Deferred.doneUnsafe(connected, Effect.void);
+          };
+          const onError = (cause: Error) => {
+            Deferred.doneUnsafe(
+              connected,
+              Effect.fail(
+                new BrowserTransportError(
+                  "connection_failed",
+                  `Failed to connect to browser daemon at ${endpoint}: ${cause.message}`,
+                  { retryable: true, cause },
+                ),
+              ),
+            );
+          };
+          // Socket creation AND listener wiring happen inside one
+          // synchronous acquire, so no fiber yield can slip between them
+          // and drop an early connect/error event (the same atomicity the
+          // old promise executor's synchronous body provided).
+          const socket = yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              const created =
+                "path" in config.endpoint
+                  ? createConnection({ path: config.endpoint.path })
+                  : createConnection({
+                      host: config.endpoint.host,
+                      port: config.endpoint.port,
+                    });
+              session.connectingSocket = created;
+              created.once("connect", onConnect);
+              created.once("error", onError);
+              return created;
+            }),
+            (created, exit) =>
+              Effect.sync(() => {
+                created.removeListener("connect", onConnect);
+                created.removeListener("error", onError);
+                if (session.connectingSocket === created) {
+                  session.connectingSocket = undefined;
+                }
+                if (exit._tag !== "Success") created.destroy();
+              }),
+          );
+          const abortLatch = yield* acquireAbortLatch(signal);
+          yield* Effect.raceFirst(
+            Deferred.await(connected),
+            Effect.raceFirst(
+              Effect.sleep(timeoutMs).pipe(
+                Effect.flatMap(() =>
+                  Effect.fail(
+                    new BrowserTransportError(
+                      "timeout",
+                      `Timed out connecting to browser daemon at ${endpoint}.`,
+                    ),
+                  ),
+                ),
+              ),
+              Deferred.await(abortLatch).pipe(
+                Effect.flatMap(() => Effect.fail(abortReason(signal!))),
+              ),
+            ),
+          );
+          if (session.disposed && !allowDisposed) {
+            return yield* Effect.fail(new BrowserSessionDisposedError());
           }
           socket.setNoDelay(true);
           socket.unref();
-          this.installSocket(socket);
-          this.fallbackAttempted = false;
-          resolve();
-        });
-      const onError = (cause: Error) =>
-        finish(() => {
-          socket.destroy();
-          reject(
-            new BrowserTransportError(
-              "connection_failed",
-              `Failed to connect to browser daemon at ${endpoint}: ${cause.message}`,
-              { retryable: true, cause },
-            ),
-          );
-        });
-      const onAbort = () =>
-        finish(() => {
-          socket.destroy();
-          reject(abortReason(signal!));
-        });
-      const timeout = setTimeout(
-        () =>
-          finish(() => {
-            socket.destroy();
-            reject(
-              new BrowserTransportError(
-                "timeout",
-                `Timed out connecting to browser daemon at ${endpoint}.`,
-              ),
-            );
-          }),
-        timeoutMs,
-      );
-
-      socket.once("connect", onConnect);
-      socket.once("error", onError);
-      signal?.addEventListener("abort", onAbort, { once: true });
-    });
+          session.installSocket(socket);
+          session.fallbackAttempted = false;
+        }),
+      ),
+    );
   }
 
   private installSocket(socket: Socket): void {
@@ -1974,7 +1998,10 @@ export class BrowserSession implements BrowserSessionClient {
     }
 
     return new Promise<BrowserCommandResult>((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      // Bounded round-trip window: the timeout is a forked fiber
+      // (forkCancelableTimeout) interrupted by `takePending` on every
+      // settle path — the Effect replacement for the cleared setTimeout.
+      const cancelTimeout = forkCancelableTimeout(timeoutMs, () => {
         this.invalidateSocket(
           socket,
           new BrowserTransportError(
@@ -1982,14 +2009,14 @@ export class BrowserSession implements BrowserSessionClient {
             `Browser command timed out after ${commandBudgetMs}ms.`,
           ),
         );
-      }, timeoutMs);
+      });
       const onAbort = () => this.invalidateSocket(socket, abortReason(signal!));
       this.pending = {
         socket,
         requestId,
         resolve,
         reject,
-        timeout,
+        cancelTimeout,
         signal,
         onAbort,
       };
@@ -2090,7 +2117,7 @@ export class BrowserSession implements BrowserSessionClient {
     const pending = this.pending;
     if (!pending) return undefined;
     this.pending = undefined;
-    clearTimeout(pending.timeout);
+    pending.cancelTimeout();
     if (pending.signal && pending.onAbort) {
       pending.signal.removeEventListener("abort", pending.onAbort);
     }

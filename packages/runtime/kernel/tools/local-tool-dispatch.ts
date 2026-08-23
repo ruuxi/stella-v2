@@ -2,8 +2,31 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
-import { memoryFilePath, memoryMapPath } from "../memory/dream-storage.js";
+import {
+  assertSafeDreamMemoryRoot,
+  countMemoryMapPolicyEntries,
+  MEMORY_INDEX_FILE,
+  MEMORY_MAP_DERIVED_END_ANCHOR,
+  MEMORY_MAP_DERIVED_START_ANCHOR,
+  MEMORY_MAP_FILE,
+  MEMORY_MAP_MAX_CHARS,
+  MEMORY_MAP_MAX_ENTRIES,
+  MEMORY_MAP_ROUTES_END_ANCHOR,
+  MEMORY_MAP_ROUTES_START_ANCHOR,
+  MEMORY_SUMMARY_FILE,
+  containsLoneUnicodeSurrogate,
+  memoryFilePath,
+  memoryIndexPath,
+  memoryMapPath,
+  memorySummaryPath,
+  stripInjectedHtmlComments,
+  unicodeCodePointLength,
+} from "../memory/dream-storage.js";
 import { redactMemoryText } from "../memory/redaction.js";
+import {
+  appendSupersededMemoryText,
+  memoryArchiveRoot,
+} from "../memory/memory-rotation.js";
 import type { DreamInboxStore } from "../memory/dream-inbox-store.js";
 import { localNoResponse } from "./local-tool-overrides.js";
 import { withFileWriteLock, writeFileWithNulGuard } from "./file-write-lock.js";
@@ -66,17 +89,92 @@ const ensureDreamWritePath = async (
   dream: LocalDreamConfig,
   filePath: string,
 ): Promise<string> => {
-  const resolved = await resolveDreamToolPath(dream, filePath);
-  const allowedFiles = await Promise.all([
-    normalizePath(memoryFilePath(dream.stellaDataDir)),
-    normalizePath(memoryMapPath(dream.stellaDataDir)),
-  ]);
-  if (allowedFiles.includes(resolved)) {
+  const candidate = path.resolve(
+    path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(dream.stellaDataDir, filePath),
+  );
+  const allowedFiles = [
+    path.resolve(memoryFilePath(dream.stellaDataDir)),
+    path.resolve(memoryMapPath(dream.stellaDataDir)),
+  ];
+  if (allowedFiles.includes(candidate)) {
+    const canonicalRoot = await assertSafeDreamMemoryRoot(dream.stellaDataDir);
+    const stat = await fs.lstat(candidate);
+    if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink !== 1) {
+      throw new Error(
+        `Dream StrReplace refuses aliased or non-regular durable memory files: ${candidate}`,
+      );
+    }
+    const resolved = await fs.realpath(candidate);
+    if (resolved !== path.join(canonicalRoot, path.basename(candidate))) {
+      throw new Error(
+        `Dream StrReplace refuses a durable memory path outside the owned memory root: ${candidate}`,
+      );
+    }
     return resolved;
   }
+  const retiredFiles = [
+    path.resolve(memorySummaryPath(dream.stellaDataDir)),
+    path.resolve(memoryIndexPath(dream.stellaDataDir)),
+  ];
+  if (retiredFiles.includes(candidate)) {
+    throw new Error(
+      `${MEMORY_SUMMARY_FILE} and ${MEMORY_INDEX_FILE} are retired and read-only; edit ${MEMORY_MAP_FILE} instead.`,
+    );
+  }
+  if (
+    isWithinDirectory(
+      candidate,
+      path.resolve(memoryArchiveRoot(dream.stellaDataDir)),
+    )
+  ) {
+    throw new Error(
+      "Files under memories/archive are runtime-owned preservation output and read-only to Dream. Edit MEMORY.md; removed text is journaled automatically.",
+    );
+  }
   throw new Error(
-    "Dream StrReplace may only edit MEMORY.md and memory_map.md.",
+    `Dream StrReplace may only edit MEMORY.md and ${MEMORY_MAP_FILE}.`,
   );
+};
+
+/** Mechanical structure and injected-byte budget guard for Dream map edits. */
+export const validateMemoryMapWrite = (updated: string): string | null => {
+  const injected = stripInjectedHtmlComments(updated);
+  const injectedChars = unicodeCodePointLength(injected);
+  if (containsLoneUnicodeSurrogate(updated) || updated.includes("\uFFFD")) {
+    return `Write rejected: ${MEMORY_MAP_FILE} contains invalid or replacement Unicode. Nothing was written.`;
+  }
+  if (injectedChars > MEMORY_MAP_MAX_CHARS) {
+    return `Write rejected: ${MEMORY_MAP_FILE} would inject ${injectedChars} characters (hard cap ${MEMORY_MAP_MAX_CHARS}). Curate the map instead of exceeding the budget. Nothing was written.`;
+  }
+  if (injectedChars === 0) {
+    return `Write rejected: ${MEMORY_MAP_FILE} would have no injectable content. Nothing was written.`;
+  }
+  if (
+    !updated.includes(MEMORY_MAP_ROUTES_START_ANCHOR) ||
+    !updated.includes(MEMORY_MAP_ROUTES_END_ANCHOR)
+  ) {
+    return `Write rejected: the ${MEMORY_MAP_ROUTES_START_ANCHOR} / ${MEMORY_MAP_ROUTES_END_ANCHOR} anchors must stay intact. Nothing was written.`;
+  }
+  if (
+    !updated.includes(MEMORY_MAP_DERIVED_START_ANCHOR) ||
+    !updated.includes(MEMORY_MAP_DERIVED_END_ANCHOR)
+  ) {
+    return `Write rejected: the ${MEMORY_MAP_DERIVED_START_ANCHOR} / ${MEMORY_MAP_DERIVED_END_ANCHOR} anchors must stay intact (restore them under "## Derived constraints" if missing). Nothing was written.`;
+  }
+  const entryCount = countMemoryMapPolicyEntries(updated);
+  if (entryCount === null) {
+    return `Write rejected: ${MEMORY_MAP_FILE} must contain exactly one ordered routing-anchor pair and one ordered derived-anchor pair. Nothing was written.`;
+  }
+  if (entryCount > MEMORY_MAP_MAX_ENTRIES) {
+    return `Write rejected: ${MEMORY_MAP_FILE} would contain ${entryCount} entries (hard cap ${MEMORY_MAP_MAX_ENTRIES}). Merge or prune entries before writing. Nothing was written.`;
+  }
+  // The 90-day rule is intentionally enforced by Dream's consolidation
+  // prompt rather than by this file-only guard: certified policy exempts an
+  // old route when current inbox usage proves it useful, and the StrReplace
+  // boundary has no authoritative usage ledger to make that decision.
+  return null;
 };
 
 const isNumberArray = (value: unknown): value is number[] =>
@@ -212,6 +310,41 @@ export async function dispatchLocalTool(
             newString +
             original.slice(idx + oldString.length);
           count = 1;
+        }
+        if (
+          deps.dream &&
+          resolvedPath ===
+            (await normalizePath(memoryMapPath(deps.dream.stellaDataDir)))
+        ) {
+          const rejection = validateMemoryMapWrite(updated);
+          if (rejection) {
+            return {
+              handled: true,
+              text: JSON.stringify({ success: false, error: rejection }),
+            };
+          }
+        }
+        if (
+          deps.dream &&
+          resolvedPath ===
+            (await normalizePath(memoryFilePath(deps.dream.stellaDataDir))) &&
+          oldString.trim() &&
+          !updated.includes(oldString)
+        ) {
+          try {
+            await appendSupersededMemoryText(
+              deps.dream.stellaDataDir,
+              oldString,
+            );
+          } catch (error) {
+            return {
+              handled: true,
+              text: JSON.stringify({
+                success: false,
+                error: `Write rejected: removed MEMORY.md text could not be preserved (${error instanceof Error ? error.message : String(error)}). Nothing was written.`,
+              }),
+            };
+          }
         }
         await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
         await writeFileWithNulGuard(resolvedPath, updated);

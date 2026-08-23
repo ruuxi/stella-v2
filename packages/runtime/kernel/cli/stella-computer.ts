@@ -3,6 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { executeStellaComputerCommand } from "../computer-use/stella-computer-executor.js";
+import { forkKeepAliveTicker } from "./effect-runtime.js";
 
 export type StellaComputerCliIo = {
   stdout: (value: string) => void;
@@ -31,7 +32,7 @@ const invokedPath = process.argv[1]
   : null;
 
 if (invokedPath === import.meta.url) {
-  const keepAlive = setInterval(() => undefined, 1_000);
+  const stopKeepAlive = forkKeepAliveTicker(1_000);
   void runStellaComputerCli(process.argv.slice(2))
     .then((exitCode) => {
       process.exitCode = exitCode;
@@ -43,6 +44,6 @@ if (invokedPath === import.meta.url) {
       process.exitCode = 1;
     })
     .finally(() => {
-      clearInterval(keepAlive);
+      stopKeepAlive();
     });
 }

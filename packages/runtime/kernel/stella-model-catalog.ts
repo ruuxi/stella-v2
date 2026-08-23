@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
 import { formatLlmRouteFailure } from "@stella/contracts/llm-route-failure";
 import type { Api, Model } from "../ai/types.js";
 import {
@@ -65,6 +66,29 @@ const inFlightCatalogRequests = new Map<
   Promise<StellaModelCatalog | null>
 >();
 const lastCatalogFetchAttemptAtMs = new Map<string, number>();
+
+/**
+ * The one module-level ManagedRuntime for the Stella model catalog (M5
+ * kernel pass, house convention: one requirements-free runtime per facade
+ * module family). Disk-cache reads/writes and the bounded catalog fetch run
+ * as Effects; the exported `withStellaModelCatalogMetadata` stays a
+ * plain-Promise facade rejecting with the original failure (`Cause.squash`).
+ */
+const catalogRuntime = ManagedRuntime.make(Layer.empty);
+
+const runCatalogEffect = async <A>(
+  effect: Effect.Effect<A, unknown>,
+): Promise<A> => {
+  const exit = await catalogRuntime.runPromiseExit(effect);
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+  throw Cause.squash(exit.cause);
+};
+
+/** Wrap one async catalog IO call; failures carry the original error. */
+const tryCatalogOp = <A>(op: () => Promise<A>): Effect.Effect<A, unknown> =>
+  Effect.tryPromise({ try: op, catch: (error) => error });
 
 /** Bound on the catalog network round-trip. */
 const CATALOG_FETCH_TIMEOUT_MS = 15_000;
@@ -163,40 +187,50 @@ const parsePersistedCatalog = (
   };
 };
 
-const readCatalogFromDisk = async (
+const readCatalogFromDiskEffect = (
   stellaDataDir: string | undefined,
   identityKey: string,
   cacheKey: string,
-): Promise<{ catalog: StellaModelCatalog; fresh: boolean } | null> => {
-  if (!stellaDataDir?.trim()) return null;
-  try {
-    const raw = await fs.readFile(
-      diskCachePathForIdentity(stellaDataDir, identityKey),
-      "utf-8",
+): Effect.Effect<{ catalog: StellaModelCatalog; fresh: boolean } | null> =>
+  Effect.suspend(() => {
+    if (!stellaDataDir?.trim()) {
+      return Effect.succeed(null);
+    }
+    return tryCatalogOp(async () => {
+      const raw = await fs.readFile(
+        diskCachePathForIdentity(stellaDataDir, identityKey),
+        "utf-8",
+      );
+      const persisted = parsePersistedCatalog(JSON.parse(raw));
+      if (!persisted) return null;
+      return {
+        catalog: persisted.catalog,
+        fresh: persisted.storedCacheKey === cacheKey,
+      };
+    }).pipe(
+      // Missing/torn/unparsable disk cache reads as "nothing stored" —
+      // the old `catch { return null }`.
+      Effect.catch(() => Effect.succeed(null)),
     );
-    const persisted = parsePersistedCatalog(JSON.parse(raw));
-    if (!persisted) return null;
-    return {
-      catalog: persisted.catalog,
-      fresh: persisted.storedCacheKey === cacheKey,
-    };
-  } catch {
-    return null;
-  }
-};
+  });
 
-const writeCatalogToDisk = async (
+const writeCatalogToDiskEffect = (
   stellaDataDir: string | undefined,
   identityKey: string,
   cacheKey: string,
   catalog: StellaModelCatalog,
-): Promise<void> => {
-  if (!stellaDataDir?.trim()) return;
-  await writePrivateFile(
-    diskCachePathForIdentity(stellaDataDir, identityKey),
-    JSON.stringify({ cacheKey, catalog }, null, 2),
-  );
-};
+): Effect.Effect<void, unknown> =>
+  Effect.suspend(() => {
+    if (!stellaDataDir?.trim()) {
+      return Effect.void;
+    }
+    return tryCatalogOp(() =>
+      writePrivateFile(
+        diskCachePathForIdentity(stellaDataDir, identityKey),
+        JSON.stringify({ cacheKey, catalog }, null, 2),
+      ),
+    );
+  });
 
 export const invalidateStellaModelCatalogCache = (): void => {
   catalogCache.clear();
@@ -300,17 +334,25 @@ const fetchCatalogFromNetwork = (
     return existing;
   }
   lastCatalogFetchAttemptAtMs.set(request.identityKey, Date.now());
-  const inFlight = (async () => {
-    try {
-      const res = await fetch(request.endpoint, {
-        headers: request.headers,
-        signal: AbortSignal.timeout(CATALOG_FETCH_TIMEOUT_MS),
-      });
+  // `AbortSignal.timeout` stays the network bound (it actually aborts the
+  // fetch — an Effect.timeout wrapper would only abandon it); the pipeline
+  // around it runs as an Effect on the shared catalog runtime. The
+  // single-flight map keeps holding the settled-once Promise so concurrent
+  // awaiters and the background-refresh path share one attempt, exactly as
+  // before.
+  const inFlight = catalogRuntime.runPromise(
+    Effect.gen(function* () {
+      const res = yield* tryCatalogOp(() =>
+        fetch(request.endpoint, {
+          headers: request.headers,
+          signal: AbortSignal.timeout(CATALOG_FETCH_TIMEOUT_MS),
+        }),
+      );
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        return yield* Effect.fail(new Error(`HTTP ${res.status}`));
       }
-      const data = (await res.json()) as CatalogApiResponse;
-      const catalog = {
+      const data = (yield* tryCatalogOp(() => res.json())) as CatalogApiResponse;
+      const catalog: StellaModelCatalog = {
         models: (data.data ?? [])
           .filter((model) => !model.type || model.type === "language")
           .map((model) => ({
@@ -322,24 +364,31 @@ const fetchCatalogFromNetwork = (
         defaults: data.defaults ?? [],
       };
       catalogCache.set(request.cacheKey, cloneCatalog(catalog));
-      await writeCatalogToDisk(
+      yield* writeCatalogToDiskEffect(
         stellaDataDir,
         request.identityKey,
         request.cacheKey,
         catalog,
-      ).catch(() => undefined);
-      return catalog;
-    } catch (error) {
-      // Loud on purpose: silent nulls here previously made a sick catalog
-      // endpoint (or a poisoned in-flight entry) undiagnosable from logs.
-      console.warn(
-        `[stella-model-catalog] Catalog fetch failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return null;
-    } finally {
-      inFlightCatalogRequests.delete(request.identityKey);
-    }
-  })();
+      ).pipe(Effect.catch(() => Effect.void));
+      return catalog as StellaModelCatalog | null;
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          // Loud on purpose: silent nulls here previously made a sick catalog
+          // endpoint (or a poisoned in-flight entry) undiagnosable from logs.
+          console.warn(
+            `[stella-model-catalog] Catalog fetch failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return null;
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          inFlightCatalogRequests.delete(request.identityKey);
+        }),
+      ),
+    ),
+  );
   inFlightCatalogRequests.set(request.identityKey, inFlight);
   return inFlight;
 };
@@ -357,58 +406,79 @@ const fetchCatalogFromNetwork = (
  * network again — a version bump degrades to "briefly stale", never to
  * "hangs" or "no catalog".
  */
-const fetchStellaModelCatalog = async (args: {
+const fetchStellaModelCatalogEffect = (args: {
   site: StellaSiteConfig;
   deviceId?: string;
   modelCatalogUpdatedAt?: number | null;
   stellaDataDir?: string;
-}): Promise<StellaModelCatalog | null> => {
-  const request = buildCatalogRequest(args);
-  if (!request) {
-    return null;
-  }
+}): Effect.Effect<StellaModelCatalog | null, unknown> =>
+  Effect.gen(function* () {
+    const request = buildCatalogRequest(args);
+    if (!request) {
+      return null;
+    }
 
-  const cached = catalogCache.get(request.cacheKey);
-  if (cached) {
-    await publishCatalogToModelRuntime(cached, args.site);
-    return cloneCatalog(cached);
-  }
+    const cached = catalogCache.get(request.cacheKey);
+    if (cached) {
+      yield* tryCatalogOp(() => publishCatalogToModelRuntime(cached, args.site));
+      return cloneCatalog(cached);
+    }
 
-  const diskCached = await readCatalogFromDisk(
-    args.stellaDataDir,
-    request.identityKey,
-    request.cacheKey,
-  );
-  if (diskCached?.fresh) {
-    catalogCache.set(request.cacheKey, cloneCatalog(diskCached.catalog));
-    await publishCatalogToModelRuntime(diskCached.catalog, args.site);
-    return diskCached.catalog;
-  }
-  if (diskCached) {
-    // Stale copy: usable now, refresh behind the caller's back. The stale
-    // catalog is deliberately NOT memoized under the current cacheKey — the
-    // memory entry for this version is only written by a successful fetch.
-    const lastAttempt =
-      lastCatalogFetchAttemptAtMs.get(request.identityKey) ?? 0;
-    if (
-      !inFlightCatalogRequests.has(request.identityKey) &&
-      Date.now() - lastAttempt >= CATALOG_REFRESH_MIN_INTERVAL_MS
-    ) {
-      void fetchCatalogFromNetwork(request, args.stellaDataDir).then(
-        (catalog) =>
-          catalog
-            ? publishCatalogToModelRuntime(catalog, args.site)
-            : undefined,
+    const diskCached = yield* readCatalogFromDiskEffect(
+      args.stellaDataDir,
+      request.identityKey,
+      request.cacheKey,
+    );
+    if (diskCached?.fresh) {
+      catalogCache.set(request.cacheKey, cloneCatalog(diskCached.catalog));
+      yield* tryCatalogOp(() =>
+        publishCatalogToModelRuntime(diskCached.catalog, args.site),
+      );
+      return diskCached.catalog;
+    }
+    if (diskCached) {
+      // Stale copy: usable now, refresh behind the caller's back. The stale
+      // catalog is deliberately NOT memoized under the current cacheKey — the
+      // memory entry for this version is only written by a successful fetch.
+      const lastAttempt =
+        lastCatalogFetchAttemptAtMs.get(request.identityKey) ?? 0;
+      if (
+        !inFlightCatalogRequests.has(request.identityKey) &&
+        Date.now() - lastAttempt >= CATALOG_REFRESH_MIN_INTERVAL_MS
+      ) {
+        // Background refresh rides its own fiber (the old fire-and-forget
+        // `void ....then(...)`); a failed publish dies with the fiber
+        // instead of the process' unhandled-rejection path.
+        catalogRuntime.runFork(
+          tryCatalogOp(() =>
+            fetchCatalogFromNetwork(request, args.stellaDataDir),
+          ).pipe(
+            Effect.flatMap((catalog) =>
+              catalog
+                ? tryCatalogOp(() =>
+                    publishCatalogToModelRuntime(catalog, args.site),
+                  )
+                : Effect.void,
+            ),
+          ),
+        );
+      }
+      yield* tryCatalogOp(() =>
+        publishCatalogToModelRuntime(diskCached.catalog, args.site),
+      );
+      return diskCached.catalog;
+    }
+
+    const fetched = yield* tryCatalogOp(() =>
+      fetchCatalogFromNetwork(request, args.stellaDataDir),
+    );
+    if (fetched) {
+      yield* tryCatalogOp(() =>
+        publishCatalogToModelRuntime(fetched, args.site),
       );
     }
-    await publishCatalogToModelRuntime(diskCached.catalog, args.site);
-    return diskCached.catalog;
-  }
-
-  const fetched = await fetchCatalogFromNetwork(request, args.stellaDataDir);
-  if (fetched) await publishCatalogToModelRuntime(fetched, args.site);
-  return fetched;
-};
+    return fetched;
+  });
 
 const modelIdentityFromId = (modelId: string): ModelIdentity => {
   const normalized = modelId.trim();
@@ -422,47 +492,49 @@ const modelIdentityFromId = (modelId: string): ModelIdentity => {
   };
 };
 
-const resolveStellaModelAlias = async (args: {
+const resolveStellaModelAliasEffect = (args: {
   route: ResolvedLlmRoute;
   agentType: string;
   site: StellaSiteConfig;
   deviceId?: string;
   modelCatalogUpdatedAt?: number | null;
   stellaDataDir?: string;
-}): Promise<string | null> => {
-  if (args.route.route !== "stella") {
-    return null;
-  }
+}): Effect.Effect<string | null, unknown> =>
+  Effect.gen(function* () {
+    if (args.route.route !== "stella") {
+      return null;
+    }
 
-  const modelId = args.route.model.id.trim();
-  const passthrough = getStellaVerbatimUpstreamModel(modelId);
-  if (passthrough) {
-    return passthrough;
-  }
+    const modelId = args.route.model.id.trim();
+    const passthrough = getStellaVerbatimUpstreamModel(modelId);
+    if (passthrough) {
+      return passthrough;
+    }
 
-  const catalog = await fetchStellaModelCatalog({
-    site: args.site,
-    deviceId: args.deviceId,
-    modelCatalogUpdatedAt: args.modelCatalogUpdatedAt,
-    stellaDataDir: args.stellaDataDir,
-  });
-  if (!catalog) {
-    return null;
-  }
+    const catalog = yield* fetchStellaModelCatalogEffect({
+      site: args.site,
+      deviceId: args.deviceId,
+      modelCatalogUpdatedAt: args.modelCatalogUpdatedAt,
+      stellaDataDir: args.stellaDataDir,
+    });
+    if (!catalog) {
+      return null;
+    }
 
-  if (modelId === STELLA_DEFAULT_MODEL) {
+    if (modelId === STELLA_DEFAULT_MODEL) {
+      return (
+        catalog.defaults.find((entry) => entry.agentType === args.agentType)
+          ?.resolvedModel ?? null
+      );
+    }
+
     return (
-      catalog.defaults.find((entry) => entry.agentType === args.agentType)
-        ?.resolvedModel ?? null
+      catalog.models.find((model) => model.id === modelId)?.upstreamModel ??
+      null
     );
-  }
+  });
 
-  return (
-    catalog.models.find((model) => model.id === modelId)?.upstreamModel ?? null
-  );
-};
-
-export const withStellaModelCatalogMetadata = async (args: {
+export const withStellaModelCatalogMetadata = (args: {
   route: ResolvedLlmRoute;
   agentType: string;
   site: StellaSiteConfig;
@@ -470,48 +542,55 @@ export const withStellaModelCatalogMetadata = async (args: {
   modelCatalogUpdatedAt?: number | null;
   stellaDataDir?: string;
   reasoningEffort?: string;
-}): Promise<ResolvedLlmRoute> => {
-  if (args.route.route !== "stella") {
-    return args.route;
-  }
+}): Promise<ResolvedLlmRoute> =>
+  runCatalogEffect(
+    Effect.gen(function* () {
+      if (args.route.route !== "stella") {
+        return args.route;
+      }
 
-  const resolvedModelId = await resolveStellaModelAlias(args);
-  if (!resolvedModelId) {
-    if (resolveOfflineStellaModelId(args.route.model.id) === null) {
-      const suggestedModel = getEngineNativeStellaModelAlternative(
-        args.route.model.id,
-        args.reasoningEffort,
-      );
-      throw new Error(
-        formatLlmRouteFailure({
-          kind: "unknown-model",
-          provider: STELLA_PROVIDER,
-          model: args.route.model.id,
-          ...(suggestedModel ? { suggestedModel } : {}),
-        }),
-      );
-    }
-    return args.route;
-  }
+      const resolvedModelId = yield* resolveStellaModelAliasEffect(args);
+      if (!resolvedModelId) {
+        if (resolveOfflineStellaModelId(args.route.model.id) === null) {
+          const suggestedModel = getEngineNativeStellaModelAlternative(
+            args.route.model.id,
+            args.reasoningEffort,
+          );
+          return yield* Effect.fail(
+            new Error(
+              formatLlmRouteFailure({
+                kind: "unknown-model",
+                provider: STELLA_PROVIDER,
+                model: args.route.model.id,
+                ...(suggestedModel ? { suggestedModel } : {}),
+              }),
+            ),
+          );
+        }
+        return args.route;
+      }
 
-  const lookup = getManagedStellaRegistryLookup(resolvedModelId);
-  const { modelRuntime } = await import("../ai/model-runtime.js");
-  const registryModel =
-    findRegistryModel(lookup.provider, lookup.candidates) ??
-    (await modelRuntime
-      .ensureProviderModel(lookup.provider, lookup.candidates)
-      .catch(() => undefined));
+      const lookup = getManagedStellaRegistryLookup(resolvedModelId);
+      const registryModel =
+        findRegistryModel(lookup.provider, lookup.candidates) ??
+        (yield* tryCatalogOp(async () => {
+          const { modelRuntime } = await import("../ai/model-runtime.js");
+          return modelRuntime
+            .ensureProviderModel(lookup.provider, lookup.candidates)
+            .catch(() => undefined);
+        }));
 
-  const resolvedRoute = createStellaRoute({
-    site: args.site,
-    agentType: args.agentType,
-    modelId: args.route.model.id,
-    resolvedModelId,
-    registryModel,
-  });
+      const resolvedRoute = createStellaRoute({
+        site: args.site,
+        agentType: args.agentType,
+        modelId: args.route.model.id,
+        resolvedModelId,
+        registryModel,
+      });
 
-  return {
-    ...(resolvedRoute ?? args.route),
-    toolPolicyModel: modelIdentityFromId(resolvedModelId),
-  };
-};
+      return {
+        ...(resolvedRoute ?? args.route),
+        toolPolicyModel: modelIdentityFromId(resolvedModelId),
+      };
+    }),
+  );

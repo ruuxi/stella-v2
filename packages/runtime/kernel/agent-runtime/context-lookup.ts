@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 
@@ -42,6 +43,10 @@ import {
 import type { RecallModelRoute } from "./recall-route.js";
 import { resolvedLlmSupportsCredentiallessCalls } from "../model-routing.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
+import {
+  blankInjectedHtmlComments,
+  stripInjectedHtmlComments,
+} from "../memory/dream-storage.js";
 
 /**
  * Recall's synthesis pass runs at LOW reasoning. Models that expose no
@@ -412,7 +417,10 @@ const previewForTrace = (value: string, maxChars = 300): string => {
     : `${collapsed.slice(0, maxChars)}…`;
 };
 
-/** Signal-aware backoff sleep; resolves early (without throwing) on abort. */
+/** Signal-aware backoff sleep; resolves early (without throwing) on abort.
+ * Effect-ratchet pin (1 setTimeout): the unref'd raw timer must never keep
+ * the process alive through a lookup retry window; an Effect sleep fiber
+ * would hold the event loop. */
 const sleepForRetry = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
     if (signal?.aborted) {
@@ -591,39 +599,70 @@ type MemoryFileSource = {
   displayPath: string;
   path: string;
   includeByDefault: boolean;
+  /** Map charter/anchor comments are transport, never Recall evidence. */
+  stripInjectedComments?: boolean;
 };
 
-const MEMORY_FILE_SOURCES = (stellaDataDir: string): MemoryFileSource[] => [
-  {
-    displayPath: "~/.stella/memories/memory_map.md",
-    path: path.join(stellaDataDir, "memories", "memory_map.md"),
-    includeByDefault: true,
-  },
-  {
-    displayPath: "~/.stella/memories/MEMORY.md",
-    path: path.join(stellaDataDir, "memories", "MEMORY.md"),
-    includeByDefault: true,
-  },
-];
+const listMemoryFileSources = async (
+  stellaDataDir: string,
+): Promise<MemoryFileSource[]> => {
+  const root = path.join(stellaDataDir, "memories");
+  const sources: MemoryFileSource[] = [
+    {
+      displayPath: "~/.stella/memories/memory_map.md",
+      path: path.join(root, "memory_map.md"),
+      includeByDefault: true,
+      stripInjectedComments: true,
+    },
+    {
+      displayPath: "~/.stella/memories/MEMORY.md",
+      path: path.join(root, "MEMORY.md"),
+      includeByDefault: true,
+    },
+    {
+      displayPath: "~/.stella/memories/profile.md",
+      path: path.join(root, "profile.md"),
+      includeByDefault: true,
+      stripInjectedComments: true,
+    },
+  ];
+  const archiveDir = path.join(root, "archive");
+  try {
+    for (const entry of (await fs.readdir(archiveDir, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .sort((left, right) => left.name.localeCompare(right.name))) {
+      sources.push({
+        displayPath: `~/.stella/memories/archive/${entry.name}`,
+        path: path.join(archiveDir, entry.name),
+        includeByDefault: false,
+      });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return sources;
+};
 
 const readMemoryFiles = async (
   stellaDataDir: string,
   opts?: { hasSearchTerms?: boolean },
 ): Promise<string> => {
-  const files = [
-    ...MEMORY_FILE_SOURCES(stellaDataDir).filter(
-      (file) =>
-        file.includeByDefault &&
-        (!opts?.hasSearchTerms ||
-          file.displayPath !== "~/.stella/memories/MEMORY.md"),
-    ),
-  ];
+  const files = (await listMemoryFileSources(stellaDataDir)).filter(
+    (file) =>
+      file.includeByDefault &&
+      (!opts?.hasSearchTerms ||
+        file.displayPath !== "~/.stella/memories/MEMORY.md"),
+  );
   const blocks: string[] = [];
   for (const file of files) {
     const content = await readOptionalTextFile(file.path);
     if (!content) continue;
+    const injectedContent = file.stripInjectedComments
+      ? stripInjectedHtmlComments(content)
+      : content;
+    if (!injectedContent) continue;
     const rendered = truncate(
-      sanitizePromptContext(content, file.displayPath),
+      sanitizePromptContext(injectedContent, file.displayPath),
       EAGER_MEMORY_FILE_CHAR_BUDGET,
     );
     blocks.push(
@@ -707,10 +746,14 @@ const readMemorySearchResults = async (
   let matchCount = 0;
   let truncated = false;
 
-  for (const file of MEMORY_FILE_SOURCES(stellaDataDir)) {
-    const content = await readOptionalTextFile(file.path);
-    if (!content) continue;
-    const lines = content.split(/\r?\n/);
+  for (const file of await listMemoryFileSources(stellaDataDir)) {
+    const raw = await readOptionalTextFile(file.path);
+    // Blanking rather than stripping preserves physical line numbers for
+    // follow-up reads while excluding charter/anchor prose from matching.
+    const searchable =
+      raw && file.stripInjectedComments ? blankInjectedHtmlComments(raw) : raw;
+    if (!searchable) continue;
+    const lines = searchable.split(/\r?\n/);
     const usedRanges: Array<{ start: number; end: number }> = [];
 
     for (let index = 0; index < lines.length; index += 1) {
@@ -989,7 +1032,7 @@ export const formatTranscriptSearchResults = (
   ) => TranscriptSearchHit[][],
 ): string => {
   const cappedLimit = Math.max(1, Math.min(25, Math.floor(limit ?? 12)));
-  const tokens = tokenizeSearchQuery(query);
+  const tokens = tokenizeSearchQuery(query ?? "");
   if (tokens.length === 0) {
     return "No usable search terms — pass concrete nouns (names, places, file paths, slugs, error text).";
   }

@@ -28,7 +28,7 @@ import {
   type ResolvedLlmRoute,
 } from "../model-routing.js";
 import { getModelOverride } from "../preferences/local-preferences.js";
-import { resolveLocalCliCwd } from "./shared.js";
+import { resolveAgentWorkingDirectory } from "./shared.js";
 import {
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
@@ -212,7 +212,7 @@ export const runOneShotCompletion = async (args: {
         ...(sessionKey ? { sessionKey } : {}),
         prompt: userText,
         ...(request.systemPrompt ? { systemPrompt: request.systemPrompt } : {}),
-        cwd: resolveLocalCliCwd({
+        cwd: resolveAgentWorkingDirectory({
           agentType: request.agentType,
           stellaAppDir: runtime.stellaAppDir,
         }),
@@ -229,9 +229,9 @@ export const runOneShotCompletion = async (args: {
         // Data dir, matching the other CC completion callers: preferences
         // (claudeCodeModel, reasoning effort) live under the data dir.
         stellaAppDir: runtime.stellaDataDir,
-        // The CLI must NOT run inside the data dir — resolve its working
-        // directory against the app dir (home for home-scoped agents).
-        cwd: resolveLocalCliCwd({
+        // The CLI must NOT run inside either the data or install dir. The
+        // agent working-directory policy defaults this utility to home.
+        cwd: resolveAgentWorkingDirectory({
           agentType: request.agentType,
           stellaAppDir: runtime.stellaAppDir,
         }),
@@ -259,8 +259,11 @@ export const runOneShotCompletion = async (args: {
     }
     const response = await completeSimple(route.model, context, {
       apiKey,
-      ...(request.reasoningEffort
+      ...(request.reasoningEffort && request.reasoningEffort !== "none"
         ? { reasoning: request.reasoningEffort }
+        : {}),
+      ...(request.reasoningEffort === "none"
+        ? { disableReasoning: true }
         : {}),
       ...(request.maxOutputTokens != null
         ? { maxTokens: request.maxOutputTokens }

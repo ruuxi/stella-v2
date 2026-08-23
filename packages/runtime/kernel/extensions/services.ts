@@ -5,6 +5,7 @@ import type {
   LocalContextEvent,
 } from "../storage/shared.js";
 import type { AgentMessage } from "../agent-core/types.js";
+import type { ExtensionRuntimeApi } from "./runtime-api.js";
 
 /**
  * Runtime services exposed to extension factories.
@@ -31,6 +32,8 @@ export type ExtensionServices = {
   stellaAppDir: string;
   /** Runtime SQLite store. Hooks that need to read/write per-conversation counters or thread summaries reach in here. */
   store: RuntimeStore;
+  /** Stable engine capabilities for extensions loaded outside the app bundle. */
+  runtime: ExtensionRuntimeApi;
 };
 
 /**
@@ -44,7 +47,7 @@ export type ExtensionServices = {
  * object at emit time from the live run options; hooks read whichever
  * accessors they need. Every field is optional so hooks must guard
  * before using them and emit sites are free to omit fields they don't
- * have wired (e.g. test runs without a renderer-side `appendLocalChatEvent`).
+ * have wired (e.g. headless runs without a renderer-side `appendLocalChatEvent`).
  */
 export type RuntimeRunServices = {
   /** Resolved LLM route the run used. Per-turn — finalize hooks reuse it for their follow-up calls (memory review, etc.). */

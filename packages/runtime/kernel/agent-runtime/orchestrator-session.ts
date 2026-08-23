@@ -1,0 +1,599 @@
+/**
+ * Long-lived per-conversation orchestrator session.
+ *
+ * Owns one live Pi `Agent` for the lifetime of the conversation. Subsequent
+ * turns reuse the same Agent (and its `state.messages` array) instead of
+ * rebuilding from SQLite each turn. This lets provider prompt caches hit
+ * cleanly between turns: the prefix the LLM sees on turn N+1 is byte-
+ * identical to turn N up through the new user message at the tail.
+ *
+ * Lifetime: created lazily on the first user message for a `conversationId`
+ * via `getOrCreateOrchestratorSession`. Disposed when the runtime worker
+ * stops (`runtime-initialization.ts:stop`). One session per conversation;
+ * concurrent runs against the same conversation are serialized by the
+ * orchestrator coordinator's queue, same as before.
+ *
+ * Scope: the Pi engine path only. External engines (Claude Code) keep their
+ * existing per-turn flow because the engine binary owns its own session
+ * concept. Subagents are out of scope (E2 follow-up).
+ *
+ * Limitations (intentional for v1):
+ *   - Model switching mid-conversation is supported (matches Pi's pattern,
+ *     `agent-session.ts:setModel`). Each turn, the session updates the
+ *     `currentResolvedLlm` slot and `agent.state.model`; the Agent's
+ *     `getApiKey` / `refreshApiKey` / `transformContext` closures read
+ *     from the slot via `resolvedLlmOverride`, so the next provider call
+ *     uses the new credentials, base URL, and context-window budget.
+ *   - Memory bundle injection cadence is preserved (runs through
+ *     `buildOrchestratorPromptMessages` on cadence turns). Now that the
+ *     bootstrap-replay-key dedup is removed in `buildHistorySource`, the
+ *     accumulating bootstrap entries don't break prompt cache; they're
+ *     bounded by `maybeCompactRuntimeThread`.
+ */
+
+import crypto from "crypto";
+import {
+  finalizeOrchestratorError,
+  finalizeOrchestratorInterrupted,
+  finalizeOrchestratorSuccess,
+  markOrchestratorErrorReported,
+  resolveInterruptionReason,
+} from "./run-completion.js";
+import { executeRuntimeAgentPrompt } from "./run-execution.js";
+import { executeWithContextOverflowRecovery } from "./context-overflow-recovery.js";
+import {
+  enrichImageContentForTextOnlyModel,
+  type ImageDescriptionService,
+} from "./image-description.js";
+import type { Api, Model } from "../../ai/types.js";
+import {
+  executeAgentRunWithRetry,
+  hasAgentRunAttemptBudget,
+  type AgentRunRetryInfo,
+} from "./run-retry.js";
+import { buildRuntimeSystemPrompt } from "./run-preparation.js";
+import {
+  createRunEventRecorder,
+  type RuntimeRunEventRecorder,
+} from "./run-events.js";
+import {
+  createOrchestratorResponseTargetTracker,
+  type OrchestratorResponseTargetTracker,
+} from "./response-target.js";
+import { PiSessionCore } from "./pi-session-core.js";
+import {
+  QUARANTINE_CUSTOM_TYPE,
+  SAFETY_ABORT_FABLE_ATTEMPTS,
+  safetyRetryStatusMessage,
+  safetySwapStatusMessage,
+  serializeQuarantineRecord,
+} from "./provider-abort-containment.js";
+import {
+  buildOrchestratorPromptMessages,
+  buildRunThreadKey,
+  persistThreadCustomMessage,
+} from "./thread-memory.js";
+import { createPiTools } from "./tool-adapters.js";
+import { createRunScopedStreamFn } from "./provider-stream-lifecycle.js";
+import { streamSimple } from "../../ai/stream.js";
+import type { OrchestratorRunOptions, RuntimeRunCallbacks } from "./types.js";
+import type { RuntimePromptMessage } from "@stella/contracts/protocol";
+
+/**
+ * Stable runId fragment fed to {@link buildRunThreadKey} so the
+ * orchestrator's threadKey is stable across turns. The shared
+ * `buildRunThreadKey` helper is also used by subagents (where the
+ * runId genuinely varies per attempt), so a literal placeholder is
+ * needed to disambiguate; promoting it to a named constant prevents
+ * future copy-paste from carrying the magic string into a per-
+ * conversation key migration.
+ */
+const ORCHESTRATOR_SESSION_RUN_ID = "session";
+
+export class OrchestratorSession extends PiSessionCore {
+  /**
+   * Mutable tracker slot. Set at the start of every `runTurn`, cleared at
+   * the end. The Agent's `afterToolCall` closure (built once at Agent
+   * construction) reads from this slot so per-turn trackers reach the
+   * long-lived loop without re-binding the closure each turn.
+   */
+  private currentResponseTargetTracker: OrchestratorResponseTargetTracker | null =
+    null;
+  /**
+   * Per-turn slot read by {@link handleProviderRetry} (installed once at
+   * Agent construction). Set at the top of `runTurn`, cleared in `finally`.
+   * Lets the long-lived Agent's retry closure reach the current turn's
+   * recorder + UI callbacks without re-binding on every turn.
+   */
+  private currentRetryStatusContext: {
+    recorder: RuntimeRunEventRecorder;
+    callbacks?: RuntimeRunCallbacks;
+  } | null = null;
+  private currentImageDescriptionContext: {
+    model: Pick<Model<Api>, "input">;
+    describeImages?: ImageDescriptionService;
+  } | null = null;
+
+  constructor(public readonly conversationId: string) {
+    super({
+      loggerName: "orchestrator-session",
+      promptCacheKey: conversationId,
+      threadKey: buildRunThreadKey({
+        conversationId,
+        agentType: "orchestrator",
+        runId: ORCHESTRATOR_SESSION_RUN_ID,
+      }),
+    });
+  }
+
+  /**
+   * Surface a transient "trying again in X" status as a STATUS event the
+   * desktop renders in Activity without creating a root-chat message.
+   */
+  private handleProviderRetry = (info: {
+    attempt: number;
+    delayMs: number;
+    reason?: string;
+  }): void => {
+    const ctx = this.currentRetryStatusContext;
+    if (!ctx) return;
+    const seconds = Math.max(1, Math.round(info.delayMs / 1000));
+    const statusText = `Stella is having trouble reaching the server — trying again in ${seconds}s`;
+    try {
+      const event = ctx.recorder.recordStatus(statusText, "provider-retry");
+      ctx.callbacks?.onStatus?.(event);
+    } catch {
+      // Best-effort UI signal; never let a status emit abort the retry.
+    }
+  };
+
+  async runTurn(opts: OrchestratorRunOptions): Promise<string> {
+    const runId = opts.runId ?? `local:${crypto.randomUUID()}`;
+    const turnOpts = opts.runId === runId ? opts : { ...opts, runId };
+    const effectiveSystemPrompt = await buildRuntimeSystemPrompt(turnOpts);
+
+    // The recorder is side-effect-free to create and is needed this early
+    // so the compaction waits below can surface a "compacting" indicator.
+    const responseTargetTracker = createOrchestratorResponseTargetTracker(
+      opts.responseTarget,
+    );
+    this.currentResponseTargetTracker = responseTargetTracker;
+    const runEvents = createRunEventRecorder({
+      store: opts.store,
+      runId,
+      conversationId: opts.conversationId,
+      agentType: opts.agentType,
+      userMessageId: opts.userMessageId,
+      uiVisibility: opts.uiVisibility,
+      getResponseTarget: () =>
+        responseTargetTracker.resolve() ?? opts.responseTarget,
+    });
+    const emitCompactingStatus = () => {
+      try {
+        opts.callbacks?.onStatus?.(
+          runEvents.recordStatus("Compacting context", "compacting"),
+        );
+      } catch {
+        // Best-effort UI signal; never let a status emit block the turn.
+      }
+    };
+    // Shrinking model switch: while the outgoing (larger-window) route is
+    // still current, run a blocking compaction with it so the incoming
+    // smaller-window route starts on a context it can actually hold.
+    await this.maybeCompactForModelSwitch({
+      opts,
+      runId,
+      onCompacting: emitCompactingStatus,
+      logContext: { conversationId: this.conversationId, runId },
+    });
+
+    // Keep the reused Agent pointed at this turn's model route.
+    this.setResolvedLlm(opts.resolvedLlm);
+
+    // Non-blocking compact-while-you-talk stays the norm, but degrade to
+    // blocking if a real overflow is imminent: when a background compaction
+    // is still in flight and the uncompacted thread has already reached the
+    // hard-window guard fraction, wait for it rather than dispatch a turn
+    // that could overflow before the compaction lands.
+    await this.awaitPendingCompactionBeforeTurn({
+      compactionScheduler: opts.compactionScheduler,
+      store: opts.store,
+      resolvedLlm: opts.resolvedLlm,
+      mode: "guard",
+      onCompacting: emitCompactingStatus,
+      logContext: { conversationId: this.conversationId, runId },
+    });
+
+    // Apply compaction overlays before provider calls, never mid-stream.
+    this.refreshHistoryIfNeeded(opts.agentContext, {
+      conversationId: this.conversationId,
+    });
+    this.currentImageDescriptionContext = {
+      model: opts.resolvedLlm.model,
+      ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
+    };
+
+    const tools = createPiTools({
+      runId,
+      rootRunId: opts.rootRunId ?? runId,
+      agentId: opts.agentId,
+      conversationId: opts.conversationId,
+      storageMode: opts.storageMode,
+      agentType: opts.agentType,
+      deviceId: opts.deviceId,
+      stellaAppDir: opts.stellaAppDir,
+      stellaDataDir: opts.stellaDataDir,
+      toolWorkspaceRoot: opts.toolWorkspaceRoot,
+      agentDepth: opts.agentContext.agentDepth ?? 0,
+      maxAgentDepth: opts.agentContext.maxAgentDepth,
+      parentAgentId: opts.agentContext.parentAgentId,
+      modelConfigSnapshot: opts.agentContext.modelConfigSnapshot,
+      connectorDeliveryTarget: opts.connectorDeliveryTarget,
+      toolsAllowlist: opts.agentContext.toolsAllowlist,
+      toolCatalog: opts.toolCatalog,
+      store: opts.store,
+      toolExecutor: opts.toolExecutor,
+      hookEmitter: opts.hookEmitter,
+      ...(opts.superviseRunResource
+        ? { superviseRunResource: opts.superviseRunResource }
+        : {}),
+      imageCapTarget: {
+        provider: opts.resolvedLlm.model.provider,
+        api: opts.resolvedLlm.model.api,
+        modelId: opts.resolvedLlm.model.id,
+      },
+    });
+
+    const agent = this.createOrReuseAgent({
+      agentType: opts.agentType,
+      systemPrompt: effectiveSystemPrompt,
+      resolvedLlm: opts.resolvedLlm,
+      agentContext: opts.agentContext,
+      ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
+      tools,
+      afterToolCall: async (context, signal) => {
+        this.currentResponseTargetTracker?.noteToolEnd(
+          context.toolCall.name,
+          context.result.details,
+        );
+        const imageContext = this.currentImageDescriptionContext;
+        if (!imageContext) return undefined;
+        const content = await enrichImageContentForTextOnlyModel({
+          content: context.result.content,
+          model: imageContext.model,
+          describeImages: imageContext.describeImages,
+          signal,
+        });
+        return content === context.result.content ? undefined : { content };
+      },
+      onProviderRetry: this.handleProviderRetry,
+      logContext: {
+        conversationId: this.conversationId,
+        runId,
+      },
+    });
+
+    this.currentRetryStatusContext = {
+      recorder: runEvents,
+      ...(opts.callbacks ? { callbacks: opts.callbacks } : {}),
+    };
+
+    // Provider streams opened this turn supervise as child fibers of the
+    // run's scope (fiber-derived abort, terminal-settlement join). Reset
+    // every turn: the Agent is long-lived but the registrar is per-run.
+    agent.streamFn = opts.superviseRunResource
+      ? createRunScopedStreamFn({
+          supervise: opts.superviseRunResource,
+          runId,
+        })
+      : streamSimple;
+
+    const containmentTurn = this.beginAbortContainmentTurn(
+      agent,
+      opts.agentContext,
+      {
+        conversationId: this.conversationId,
+        runId,
+      },
+    );
+    if (containmentTurn.newlyQuarantined) {
+      // Durable record so the quarantine survives session/app restarts.
+      persistThreadCustomMessage(opts.store, {
+        threadKey: this.threadKey,
+        customType: QUARANTINE_CUSTOM_TYPE,
+        content: [
+          {
+            type: "text",
+            text: serializeQuarantineRecord(containmentTurn.newlyQuarantined),
+          },
+        ],
+      });
+    }
+    let swapAttempted: { fromModelId: string; toModelId: string } | undefined;
+
+    opts.onExecutionSessionCreated?.({
+      runId,
+      threadKey: this.threadKey,
+      engine: "native",
+      queueUserMessageId: runEvents.queueUserMessageId,
+      agent,
+    });
+
+    runEvents.recordRunStart();
+
+    if (opts.abortSignal?.aborted) {
+      const reason =
+        resolveInterruptionReason({ abortSignal: opts.abortSignal }) ??
+        "Canceled";
+      finalizeOrchestratorInterrupted({
+        opts,
+        runEvents,
+        reason,
+        runId,
+        threadKey: this.threadKey,
+      });
+      this.currentResponseTargetTracker = null;
+      this.currentRetryStatusContext = null;
+      this.currentImageDescriptionContext = null;
+      return runId;
+    }
+
+    try {
+      // Frozen-context drift notes (queued by createOrReuseAgent) ride as
+      // hidden appends ahead of any caller-supplied prompt messages.
+      const contextDeltaMessages = this.takePendingContextDeltaMessages();
+      const combinedPromptMessages =
+        contextDeltaMessages.length > 0
+          ? [...contextDeltaMessages, ...(opts.promptMessages ?? [])]
+          : opts.promptMessages;
+      const promptMessages = await buildOrchestratorPromptMessages({
+        context: opts.agentContext,
+        userPrompt: opts.userPrompt,
+        promptMessages: combinedPromptMessages,
+        stellaDataDir: opts.stellaDataDir,
+        stellaAppDir: opts.stellaAppDir,
+        agentType: opts.agentType,
+        hookContext: {
+          ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
+          conversationId: opts.conversationId,
+          threadKey: this.threadKey,
+          runId,
+          ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
+        },
+      });
+
+      const executionArgs = {
+        agent,
+        promptMessages: promptMessages.map(
+          (message: RuntimePromptMessage, index: number) => ({
+            ...message,
+            ...(index === promptMessages.length - 1 && opts.attachments?.length
+              ? { attachments: opts.attachments }
+              : {}),
+          }),
+        ),
+        runId,
+        agentType: opts.agentType,
+        userMessageId: opts.userMessageId,
+        recorder: runEvents,
+        ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+        ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
+        callbacks: opts.callbacks,
+        ...(opts.hookEmitter ? { hookEmitter: opts.hookEmitter } : {}),
+        threadStore: opts.store,
+        threadKey: this.threadKey,
+        conversationId: opts.conversationId,
+        stellaDataDir: opts.stellaDataDir,
+        ...(typeof opts.agentContext.attemptGeneration === "number"
+          ? { attemptGeneration: opts.agentContext.attemptGeneration }
+          : {}),
+        ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
+      };
+      const retryState = { attemptsUsed: 0, retriesUsed: 0 };
+      const executeWithTransientRetry = (initialResume = false) =>
+        executeAgentRunWithRetry({
+          state: retryState,
+          initialResume,
+          execute: (resume) =>
+            executeRuntimeAgentPrompt({
+              ...executionArgs,
+              ...(resume ? { resume: true } : {}),
+            }),
+          prepareResume: (errorMessage, classification) =>
+            this.prepareTransientFailureRetry(agent, {
+              errorMessage,
+              classification,
+              logContext: { conversationId: this.conversationId, runId },
+            }),
+          ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+          onRetry: (info: AgentRunRetryInfo) => {
+            const seconds = Math.max(1, Math.round(info.delayMs / 1_000));
+            opts.callbacks?.onStatus?.(
+              runEvents.recordStatus(
+                `Stella hit a transient ${info.category.replaceAll("-", " ")} — retrying attempt ${info.nextAttempt}/${info.maxAttempts} in ${seconds}s`,
+                "provider-retry",
+              ),
+            );
+          },
+        });
+      let execution = await executeWithContextOverflowRecovery({
+        execute: executeWithTransientRetry,
+        agent,
+        opts,
+        threadKey: this.threadKey,
+        runId,
+        runEvents,
+        session: this,
+      });
+
+      // Safety containment: a fable-5 refusal/safety abort first gets
+      // retried on the configured model — refusals are often transient — up
+      // to SAFETY_ABORT_FABLE_ATTEMPTS consecutive attempts total. Only when
+      // every attempt fails does the turn swap to opus-4.8 below.
+      let fableAttempts = 1;
+      while (
+        execution.errorMessage &&
+        !opts.abortSignal?.aborted &&
+        hasAgentRunAttemptBudget(retryState) &&
+        fableAttempts < SAFETY_ABORT_FABLE_ATTEMPTS
+      ) {
+        const retry = this.prepareSafetySameModelRetry(agent, {
+          errorMessage: execution.errorMessage,
+          logContext: {
+            conversationId: this.conversationId,
+            runId,
+            attempt: fableAttempts + 1,
+          },
+        });
+        if (!retry) break;
+        fableAttempts += 1;
+        opts.callbacks?.onStatus?.(
+          runEvents.recordStatus(
+            safetyRetryStatusMessage({
+              modelId: retry.modelId,
+              attempt: fableAttempts,
+            }),
+            "running",
+          ),
+        );
+        execution = await executeWithTransientRetry(true);
+      }
+      // Safety model swap: after the fable attempts are exhausted, one retry
+      // on opus-4.8 (same auth path, per-run only). `prepareSafetyModelSwap`
+      // returns null for anything else, and this block runs at most once per
+      // turn, so there is no swap ping-pong.
+      if (
+        execution.errorMessage &&
+        !opts.abortSignal?.aborted &&
+        hasAgentRunAttemptBudget(retryState)
+      ) {
+        const swap = this.prepareSafetyModelSwap(agent, {
+          errorMessage: execution.errorMessage,
+          logContext: { conversationId: this.conversationId, runId },
+        });
+        if (swap) {
+          swapAttempted = {
+            fromModelId: swap.fromModelId,
+            toModelId: swap.toModelId,
+          };
+          const statusText = safetySwapStatusMessage(swapAttempted);
+          opts.callbacks?.onStatus?.(
+            runEvents.recordStatus(statusText, "model-fallback"),
+          );
+          persistThreadCustomMessage(opts.store, {
+            threadKey: this.threadKey,
+            customType: "containment.safety-model-swap",
+            content: [{ type: "text", text: statusText }],
+          });
+          execution = await executeWithTransientRetry(true);
+        }
+      }
+      const { finalText, errorMessage } = execution;
+
+      const interruptedReason = resolveInterruptionReason({
+        abortSignal: opts.abortSignal,
+        error: errorMessage,
+      });
+      if (interruptedReason) {
+        finalizeOrchestratorInterrupted({
+          opts,
+          runEvents,
+          reason: interruptedReason,
+          runId,
+          threadKey: this.threadKey,
+        });
+        return runId;
+      }
+      if (errorMessage) {
+        throw new Error(errorMessage);
+      }
+
+      this.noteAbortContainmentSuccess();
+      await finalizeOrchestratorSuccess({
+        opts,
+        runId,
+        threadKey: this.threadKey,
+        runEvents,
+        agent,
+        finalText,
+        responseTarget: responseTargetTracker.resolve(),
+      });
+      return runId;
+    } catch (error) {
+      const interruptedReason = resolveInterruptionReason({
+        abortSignal: opts.abortSignal,
+        error,
+      });
+      if (interruptedReason) {
+        finalizeOrchestratorInterrupted({
+          opts,
+          runEvents,
+          reason: interruptedReason,
+          runId,
+          threadKey: this.threadKey,
+        });
+        return runId;
+      }
+      const surfacedMessage = this.noteAbortContainmentFailure(agent, {
+        messagesBefore: containmentTurn.messagesBefore,
+        errorMessage:
+          error instanceof Error
+            ? error.message || "Stella runtime failed"
+            : String(error),
+        swapAttempted,
+        logContext: { conversationId: this.conversationId, runId },
+      });
+      const surfacedError =
+        error instanceof Error && surfacedMessage === error.message
+          ? error
+          : new Error(surfacedMessage);
+      finalizeOrchestratorError({
+        opts,
+        runEvents,
+        error: surfacedError,
+        runId,
+        threadKey: this.threadKey,
+      });
+      throw markOrchestratorErrorReported(surfacedError);
+    } finally {
+      this.currentResponseTargetTracker = null;
+      this.currentRetryStatusContext = null;
+      this.currentImageDescriptionContext = null;
+    }
+  }
+
+  dispose(): void {
+    super.dispose();
+    this.currentResponseTargetTracker = null;
+    this.currentRetryStatusContext = null;
+    this.currentImageDescriptionContext = null;
+  }
+}
+
+/**
+ * Look up an existing session for this conversation, or build a new one
+ * and store it on the provided map.
+ *
+ * Conversation-reset assumption: this helper assumes that
+ * `conversationId` is unique per logical conversation for the lifetime
+ * of the worker process. If the caller ever reuses the same
+ * `conversationId` for a freshly-reset thread (e.g. a "new chat" UX
+ * that recycles ids), the long-lived `Agent`'s `state.messages` would
+ * still hold the OLD conversation's history, and the next `runTurn`
+ * would only refresh from store when `pendingHistoryRefresh` is set
+ * (which it isn't after a reset). Today every reset path the renderer
+ * surfaces allocates a new id, so the issue is latent — but if you're
+ * adding an id-reusing reset flow, call `dispose()` on the old session
+ * (and `sessions.delete(conversationId)`) before the next turn lands.
+ */
+export const getOrCreateOrchestratorSession = (
+  sessions: Map<string, OrchestratorSession>,
+  conversationId: string,
+): OrchestratorSession => {
+  let session = sessions.get(conversationId);
+  if (!session) {
+    session = new OrchestratorSession(conversationId);
+    sessions.set(conversationId, session);
+  }
+  return session;
+};

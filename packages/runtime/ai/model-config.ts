@@ -45,6 +45,11 @@ export type ModelsJsonProvider = {
   modelOverrides?: Record<string, ModelsJsonModelOverride>;
 };
 
+export type RemoteCatalogModel = Omit<Model<Api>, "provider" | "cost"> & {
+  provider?: string;
+  cost?: Model<Api>["cost"];
+};
+
 type ModelsJson = {
   providers: Record<string, ModelsJsonProvider>;
 };
@@ -173,6 +178,18 @@ const costSchema = Type.Object({
   cacheRead: Type.Optional(Type.Number()),
   cacheWrite: Type.Optional(Type.Number()),
 });
+const remoteCatalogCostSchema = Type.Object({
+  input: Type.Number({ minimum: 0 }),
+  output: Type.Number({ minimum: 0 }),
+  cacheRead: Type.Number({ minimum: 0 }),
+  cacheWrite: Type.Number({ minimum: 0 }),
+});
+const openRouterAutoSentinelCostSchema = Type.Object({
+  input: Type.Literal(-1_000_000),
+  output: Type.Literal(-1_000_000),
+  cacheRead: Type.Literal(0),
+  cacheWrite: Type.Literal(0),
+});
 const modelFields = {
   name: Type.Optional(nonEmptyString),
   reasoning: Type.Optional(Type.Boolean()),
@@ -210,6 +227,77 @@ const providerSchema = Type.Object({
 const modelsJsonSchema = Type.Object({
   providers: Type.Record(Type.String(), providerSchema),
 });
+
+const remoteCatalogModelFields = {
+  id: nonEmptyString,
+  name: nonEmptyString,
+  provider: Type.Optional(nonEmptyString),
+  reasoning: Type.Boolean(),
+  thinkingLevelMap: Type.Optional(thinkingLevelMapSchema),
+  input: Type.Array(
+    Type.Union([Type.Literal("text"), Type.Literal("image")]),
+  ),
+  cost: Type.Optional(remoteCatalogCostSchema),
+  contextWindow: Type.Number({ exclusiveMinimum: 0 }),
+  maxTokens: Type.Number({ exclusiveMinimum: 0 }),
+  headers: Type.Optional(stringRecord),
+  compat: Type.Optional(compatSchema),
+};
+const remoteCatalogModelSchema = Type.Object({
+  ...remoteCatalogModelFields,
+  api: nonEmptyString,
+  baseUrl: nonEmptyString,
+});
+// Azure deployments resolve their endpoint from request options or the user's
+// resource configuration, so their catalog models intentionally use an empty
+// baseUrl. Key this exception to the transport contract rather than the
+// provider name; every other remote transport still requires a URL.
+const azureRemoteCatalogModelSchema = Type.Object({
+  ...remoteCatalogModelFields,
+  api: Type.Literal("azure-openai-responses"),
+  baseUrl: Type.String(),
+});
+// OpenRouter's automatic router cannot know the selected upstream model's
+// price until request routing. Its catalog uses this exact sentinel contract;
+// keep the exception pinned to that transport/model shape so no other
+// negative or non-finite cost can enter the runtime catalog.
+const openRouterAutoRemoteCatalogModelSchema = Type.Object({
+  ...remoteCatalogModelFields,
+  id: Type.Literal("openrouter/auto"),
+  provider: Type.Literal("openrouter"),
+  api: Type.Literal("openai-completions"),
+  baseUrl: Type.Literal("https://openrouter.ai/api/v1"),
+  cost: openRouterAutoSentinelCostSchema,
+});
+
+// `providerId` is the authoritative identity derived from the fetched
+// endpoint/cache key. Entry-controlled `provider` metadata is not trusted to
+// select provider-specific validation exceptions before the runtime overwrites
+// it during composition.
+const remoteCatalogSchemaFor = (providerId: string, value: unknown) => {
+  if (!value || typeof value !== "object") return remoteCatalogModelSchema;
+  const entry = value as Record<string, unknown>;
+  if (providerId === "openrouter" && entry.id === "openrouter/auto") {
+    return openRouterAutoRemoteCatalogModelSchema;
+  }
+  return entry.api === "azure-openai-responses"
+    ? azureRemoteCatalogModelSchema
+    : remoteCatalogModelSchema;
+};
+
+export const isRemoteCatalogModel = (
+  providerId: string,
+  value: unknown,
+): value is RemoteCatalogModel =>
+  Value.Check(remoteCatalogSchemaFor(providerId, value), value);
+
+export const getRemoteCatalogModelValidationErrors = (
+  providerId: string,
+  value: unknown,
+): string[] =>
+  [...Value.Errors(remoteCatalogSchemaFor(providerId, value), value)]
+    .slice(0, 8)
+    .map((error) => `${error.path || "root"}: ${error.message}`);
 
 /** Strip JSONC line comments and trailing commas without touching strings. */
 const stripJsonComments = (value: string): string =>

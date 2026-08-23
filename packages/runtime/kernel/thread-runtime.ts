@@ -1200,7 +1200,7 @@ const readDurableMemoryDoc = (filePath: string): string | undefined => {
  * durable-memory docs (user profile + Dream memory map), so the
  * summarizer can skip restating facts the assistant sees on every turn.
  */
-const buildDurableMemoryReference = (
+export const buildDurableMemoryReference = (
   stellaDataDir: string | undefined,
 ): string | undefined => {
   if (!stellaDataDir?.trim()) {

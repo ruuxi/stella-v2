@@ -7,7 +7,9 @@ import {
   type WriteStream,
 } from "node:fs";
 import { getFileLogger } from "../observability/file-logger.js";
+import { forkDelayed, type WorkerTimerHandle } from "./effect-runtime.js";
 import {
+  ensureRuntimeIpcDir,
   resolveRuntimePaths,
   runtimeIpcPathUsesFilesystem,
   type RuntimePaths,
@@ -81,7 +83,8 @@ export class WorkerLifecycleServer {
   readonly paths: RuntimePaths;
   private lockFd: number | null = null;
   private logStream: WriteStream | null = null;
-  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Idle-shutdown deadline fiber (the old unref'd setTimeout). */
+  private idleTimer: WorkerTimerHandle | null = null;
   private clientCount = 0;
   private shuttingDown = false;
   private readonly idleShutdownMs: number;
@@ -98,6 +101,7 @@ export class WorkerLifecycleServer {
    */
   async start(): Promise<void> {
     await fsPromises.mkdir(this.paths.rootDir, { recursive: true });
+    await ensureRuntimeIpcDir(this.paths);
     // Human-readable logs (runtime.log + diagnostic channels) live in a
     // separate dir from the sock/pid/lock control files.
     await fsPromises.mkdir(this.paths.logDir, { recursive: true });
@@ -196,7 +200,7 @@ export class WorkerLifecycleServer {
   noteClientConnected() {
     this.clientCount += 1;
     if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
+      this.idleTimer.cancel();
       this.idleTimer = null;
     }
   }
@@ -213,14 +217,11 @@ export class WorkerLifecycleServer {
 
   private scheduleIdleShutdown() {
     if (this.shuttingDown) return;
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-    }
-    this.idleTimer = setTimeout(() => {
+    this.idleTimer?.cancel();
+    this.idleTimer = forkDelayed(this.idleShutdownMs, () => {
       this.idleTimer = null;
       void this.evaluateIdleShutdown();
-    }, this.idleShutdownMs);
-    this.idleTimer.unref?.();
+    });
   }
 
   private async evaluateIdleShutdown() {
@@ -260,7 +261,7 @@ export class WorkerLifecycleServer {
       reason,
     });
     if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
+      this.idleTimer.cancel();
       this.idleTimer = null;
     }
     try {
@@ -332,6 +333,9 @@ export const ensureRuntimeRootDir = async (
   stellaAppDir: string,
 ): Promise<RuntimePaths> => {
   const paths = resolveRuntimePaths(stellaAppDir);
-  await fsPromises.mkdir(paths.rootDir, { recursive: true });
+  await Promise.all([
+    fsPromises.mkdir(paths.rootDir, { recursive: true }),
+    ensureRuntimeIpcDir(paths),
+  ]);
   return paths;
 };

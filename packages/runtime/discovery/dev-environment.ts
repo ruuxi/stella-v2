@@ -2,13 +2,12 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 import { exec } from "child_process";
+import { Effect } from "effect";
+import { runDiscovery, timeoutFallback, tryDiscovery } from "./effect-io.js";
 import type {
   DevEnvironmentSignals,
   GitConfig,
 } from "./discovery-types.js";
-
-const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
-  Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 
 const execAsync = (command: string): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -250,23 +249,32 @@ async function detectWSL(): Promise<boolean> {
   }
 }
 
-export async function collectDevEnvironment(): Promise<DevEnvironmentSignals> {
-  const [gitConfig, dotfiles, runtimes, packageManagers, wslDetected] =
-    await Promise.all([
-      withTimeout(collectGitConfig(), 2000, null),
-      withTimeout(collectDotfiles(), 2000, []),
-      withTimeout(collectRuntimes(), 2000, []),
-      withTimeout(collectPackageManagers(), 2000, []),
-      withTimeout(detectWSL(), 3000, false),
-    ]);
-
-  return {
+// All five probes race their timeouts in parallel — the pre-Effect
+// `Promise.all` of `withTimeout(...)` calls, with the same budgets.
+const collectDevEnvironmentEffect: Effect.Effect<
+  DevEnvironmentSignals,
+  unknown
+> = Effect.all(
+  [
+    timeoutFallback(tryDiscovery(() => collectGitConfig()), 2000, null),
+    timeoutFallback(tryDiscovery(() => collectDotfiles()), 2000, []),
+    timeoutFallback(tryDiscovery(() => collectRuntimes()), 2000, []),
+    timeoutFallback(tryDiscovery(() => collectPackageManagers()), 2000, []),
+    timeoutFallback(tryDiscovery(() => detectWSL()), 3000, false),
+  ],
+  { concurrency: "unbounded" },
+).pipe(
+  Effect.map(([gitConfig, dotfiles, runtimes, packageManagers, wslDetected]) => ({
     gitConfig,
     dotfiles,
     runtimes,
     packageManagers,
     wslDetected,
-  };
+  })),
+);
+
+export async function collectDevEnvironment(): Promise<DevEnvironmentSignals> {
+  return runDiscovery(collectDevEnvironmentEffect);
 }
 
 export function formatDevEnvironmentForSynthesis(data: DevEnvironmentSignals): string {

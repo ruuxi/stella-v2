@@ -25,7 +25,13 @@
  * user message is appended and the same loop continues. If input lands before
  * a live Pi agent exists, it remains queued for the next natural turn.
  */
+/**
+ * Transitional type surface for TS importers of this evolved JS module.
+ * @typedef {any} LocalAgentContext
+ * @typedef {any} AgentLifecycleEvent
+ */
 import path from "path";
+import { Cause, Deferred, Effect, Exit, Layer, ManagedRuntime, Scope, } from "effect";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { AGENT_ORCHESTRATION_TOOL_NAMES } from "../tools/defs/task.js";
 import { sanitizeForLogs, truncate } from "../tools/utils.js";
@@ -222,6 +228,16 @@ export const AGENT_ORPHANED_RESTART_CANCEL_REASON = "Canceled because Stella res
 // otherwise replace the user-facing reply with an empty silence.
 export const AGENT_PAUSE_CANCEL_REASON = "Paused by orchestrator.";
 export const DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS = 5_000;
+/**
+ * Requirements-free runtime for the manager's supervisory fibers (house
+ * convention: ONE module-level ManagedRuntime, context rides in closures —
+ * never a per-call `Effect.runPromise`). Same fence as
+ * `shared/supervised-scope.ts`: Effect types cross the class surface only on
+ * the explicitly Effect-native `*Effect` methods consumed inside
+ * `packages/runtime`.
+ */
+const managerRuntime = ManagedRuntime.make(Layer.empty);
+const isTerminalSnapshotStatus = (status) => status === "completed" || status === "error" || status === "canceled";
 export class LocalAgentManager {
     defaultMaxConcurrent;
     opts;
@@ -229,7 +245,35 @@ export class LocalAgentManager {
     pendingQueue = [];
     runningCount = 0;
     inFlightAttempts = new Map();
-    attemptTakeoverTimers = new Map();
+    /**
+     * Supervisory scope for the manager's own fibers: per-attempt supervision
+     * fibers (`attemptFibers`) and stale-attempt takeover deadline fibers
+     * (`attemptTakeoverDeadlines`). Closed at the end of `shutdown()`, which
+     * interrupts every remaining supervisory fiber. Run-loop work is NEVER
+     * forked in here — cancellation of a run stays cooperative via its
+     * `AbortController` so the agent loop always settles through its terminal
+     * events.
+     */
+    supervisoryScope = Scope.makeUnsafe();
+    supervisoryScopeClosed = false;
+    supervisoryScopeClosePromise = null;
+    /**
+     * FiberMap-style keyed attempt supervision: one fiber per in-flight
+     * `executeTask` attempt, keyed by durable threadId, forked into the
+     * supervisory scope. The fiber joins the attempt promise and owns the
+     * slot-release bookkeeping that used to hang off `execution.finally`.
+     * Identity fences (generation + promise) — not fiber identity — guard
+     * every mutation, so a late-settling superseded attempt can never release
+     * a successor's slot.
+     */
+    attemptFibers = new Map();
+    /**
+     * Stale-attempt takeover deadlines as sleeping fibers (formerly unref'd
+     * `setTimeout`s). Interrupted by `clearAttemptTakeoverTimer` or by scope
+     * close; the deadline body re-validates map/generation/promise identity,
+     * so an interrupt racing an already-started body is harmless.
+     */
+    attemptTakeoverDeadlines = new Map();
     cancelCascadeInProgress = new Set();
     activeFsLocks = [];
     fsLockWaiters = [];
@@ -322,6 +366,19 @@ export class LocalAgentManager {
                         : undefined,
                     updatedAt: Date.now(),
                 });
+                if (record.storageMode === "cloud") {
+                    // Mirror the repaired terminal into the canonical cloud row so a
+                    // crash between the durable lifecycle append and the row flip
+                    // cannot leave the cloud thread running forever.
+                    void this.opts
+                        .completeCloudAgentRecord?.({
+                        agentId: record.threadId,
+                        attemptGeneration: record.attemptGeneration,
+                        status: "completed",
+                        result: record.result,
+                    })
+                        .catch(() => undefined);
+                }
                 continue;
             }
             if (!record.descendantBoundaryState?.wakePending)
@@ -418,6 +475,35 @@ export class LocalAgentManager {
                 error,
                 audience: "display-only",
             });
+            if (record.storageMode === "cloud") {
+                void this.opts
+                    .completeCloudAgentRecord?.({
+                    agentId: record.threadId,
+                    attemptGeneration: record.attemptGeneration,
+                    status: "canceled",
+                    error,
+                })
+                    .catch(() => undefined);
+            }
+        }
+    }
+    /**
+     * Persist active thread identities before a restart-related sweep changes
+     * their durable status. The returned episode id binds the capture to the
+     * shutdown record that authorized it; boot conversion rejects every other
+     * episode.
+     */
+    persistInterruptionSnapshot(threads) {
+        if (threads.length === 0)
+            return null;
+        try {
+            return this.opts.persistBootInterruptionSnapshot?.(threads) ?? null;
+        }
+        catch {
+            // Continuation bookkeeping must never prevent boot or shutdown. The
+            // live capture can still convert on this boot; otherwise recovery fails
+            // closed instead of attributing rows to the wrong restart.
+            return null;
         }
     }
     consumeTaskMessages(task, recipient) {
@@ -461,49 +547,118 @@ export class LocalAgentManager {
      * Wake-up seam for blocking waiters. Purely a notification: waiters
      * re-read the durable record and decide for themselves, so SQLite stays
      * the only truth and a missed wakeup (e.g. a record rehydrated by
-     * another writer) is covered by the caller's fallback timeout.
+     * another writer) is covered by the caller's fallback timeout. One shared
+     * per-thread Deferred; completed + replaced on every persisted transition.
      */
-    updateWaiters = new Map();
-    notifyAgentUpdated(threadId) {
-        const waiters = this.updateWaiters.get(threadId);
-        if (!waiters?.size)
+    updateLatches = new Map();
+    /**
+     * Per-thread settlement latches, completed exactly when a terminal
+     * transition (completed/error/canceled) is persisted for the thread. A
+     * `send_input` resurrection re-arms naturally: the next waiter creates a
+     * fresh latch that the next terminal transition completes.
+     */
+    settlementLatches = new Map();
+    latchFor(latches, threadId) {
+        const existing = latches.get(threadId);
+        if (existing)
+            return existing;
+        const latch = Deferred.makeUnsafe();
+        latches.set(threadId, latch);
+        return latch;
+    }
+    openLatch(latches, threadId) {
+        const latch = latches.get(threadId);
+        if (!latch)
             return;
-        this.updateWaiters.delete(threadId);
-        for (const wake of waiters)
-            wake();
+        latches.delete(threadId);
+        Deferred.doneUnsafe(latch, Effect.void);
+    }
+    notifyAgentUpdated(threadId) {
+        this.openLatch(this.updateLatches, threadId);
+    }
+    settleAgentThread(threadId) {
+        this.openLatch(this.settlementLatches, threadId);
+    }
+    /**
+     * Effect variant of `waitForAgentUpdate`: resolves on the next persisted
+     * update for `threadId`, or after `timeoutMs` as a rehydration-safe
+     * fallback (a non-finite/non-positive `timeoutMs` waits unbounded, as
+     * before). Never fails.
+     */
+    waitForAgentUpdateEffect(threadId, timeoutMs = 2_000) {
+        return Effect.suspend(() => {
+            const wait = Deferred.await(this.latchFor(this.updateLatches, threadId));
+            if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+                return wait;
+            }
+            // raceFirst interrupts the losing arm, so a woken waiter tears down
+            // its fallback sleep (the Effect replacement for `clearTimeout`).
+            return Effect.raceFirst(wait, Effect.sleep(timeoutMs));
+        });
     }
     /**
      * Resolve on the next persisted update for `threadId`, or after
      * `timeoutMs` as a rehydration-safe fallback. Replaces fixed-interval
      * completion polling: terminal transitions wake blocking callers
-     * immediately instead of on the next 250ms tick.
+     * immediately instead of on the next poll tick.
      */
     waitForAgentUpdate(threadId, timeoutMs = 2_000) {
-        return new Promise((resolve) => {
-            let timer = null;
-            const wake = () => {
-                if (timer)
-                    clearTimeout(timer);
-                resolve();
-            };
-            const waiters = this.updateWaiters.get(threadId) ?? new Set();
-            waiters.add(wake);
-            this.updateWaiters.set(threadId, waiters);
-            if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
-                timer = setTimeout(() => {
-                    const current = this.updateWaiters.get(threadId);
-                    current?.delete(wake);
-                    if (current && current.size === 0) {
-                        this.updateWaiters.delete(threadId);
-                    }
-                    resolve();
-                }, timeoutMs);
-                timer.unref?.();
+        return managerRuntime.runPromise(this.waitForAgentUpdateEffect(threadId, timeoutMs));
+    }
+    /**
+     * Await the thread's terminal settlement (completed/error/canceled) and
+     * return the terminal snapshot fields, or `null` when no record exists
+     * anywhere (the caller's "record disappeared" case). Completion detection
+     * is Deferred-driven — a terminal transition wakes the waiter immediately —
+     * with a bounded fallback re-read (`fallbackRecheckMs`) so records mutated
+     * by out-of-band writers still settle; SQLite remains the only truth (the
+     * latch is only ever a wakeup, every pass re-reads the snapshot).
+     *
+     * This is the Effect-native replacement for polling `getAgent` until a
+     * terminal status appears (`runBlockingLocalAgent`'s historical 250ms
+     * loop). Cancellation note: interrupting THIS effect abandons the wait
+     * only — it never cancels the underlying run.
+     */
+    awaitAgentSettledEffect(threadId, fallbackRecheckMs = 2_000) {
+        const manager = this;
+        return Effect.gen(function* () {
+            for (;;) {
+                // Latch first, snapshot second: a terminal transition landing
+                // between the two completes the latch we already hold, so the
+                // wakeup cannot be missed.
+                const settled = Deferred.await(manager.latchFor(manager.settlementLatches, threadId));
+                const snapshot = yield* Effect.promise(() => manager.getAgent(threadId));
+                if (!snapshot)
+                    return null;
+                if (isTerminalSnapshotStatus(snapshot.status)) {
+                    return {
+                        threadId,
+                        status: snapshot.status,
+                        ...(typeof snapshot.result === "string"
+                            ? { result: snapshot.result }
+                            : {}),
+                        ...(typeof snapshot.error === "string"
+                            ? { error: snapshot.error }
+                            : {}),
+                    };
+                }
+                yield* Number.isFinite(fallbackRecheckMs) && fallbackRecheckMs > 0
+                    ? Effect.raceFirst(settled, Effect.sleep(fallbackRecheckMs))
+                    : settled;
             }
         });
     }
+    /** Promise facade over `awaitAgentSettledEffect`. */
+    awaitAgentSettled(threadId, fallbackRecheckMs = 2_000) {
+        return managerRuntime.runPromise(this.awaitAgentSettledEffect(threadId, fallbackRecheckMs));
+    }
     persistTask(task, options) {
         this.notifyAgentUpdated(task.threadId);
+        if (task.status === "completed" ||
+            task.status === "error" ||
+            task.status === "canceled") {
+            this.settleAgentThread(task.threadId);
+        }
         const isParked = task.status === "completed" && task.descendantFinalParked;
         const completionPending = Boolean(options?.pendingCompletionEventId);
         const boundaryState = task.consumedDescendantEventIds.length > 0 ||
@@ -530,6 +685,7 @@ export class LocalAgentManager {
         this.opts.saveAgentRecord?.({
             threadId: task.threadId,
             conversationId: task.conversationId,
+            storageMode: task.storageMode,
             agentType: task.agentType,
             description: task.description,
             ...(task.initialPrompt
@@ -720,6 +876,9 @@ export class LocalAgentManager {
         task.activeToolCount = 0;
         task.toSubagentQueue.length = 0;
         task.toOrchestratorQueue.length = 0;
+        // Effect-ratchet pin: `task.controller` is the subagent attempt's
+        // cooperative cancellation seam — a REAL AbortSignal threaded through
+        // the plain-TS agent session/tools; each new attempt gets a fresh one.
         task.controller = new AbortController();
         task.terminalEventEmitted = false;
         task.pendingStartStatusText = undefined;
@@ -740,8 +899,10 @@ export class LocalAgentManager {
             status: "pending",
             startedAt: Date.now(),
             completedAt: null,
+            // Effect-ratchet pin: fresh attempt seam controller (see
+            // resetTaskForNextAttempt above).
             controller: new AbortController(),
-            storageMode: "local",
+            storageMode: record.storageMode ?? "local",
             parentAgentId: record.parentAgentId,
             descendantFinalParked: false,
             consumedDescendantEventIds: [
@@ -815,28 +976,37 @@ export class LocalAgentManager {
         this.persistTask(task);
     }
     clearAttemptTakeoverTimer(threadId, generation, promise) {
-        const pending = this.attemptTakeoverTimers.get(threadId);
+        const pending = this.attemptTakeoverDeadlines.get(threadId);
         if (!pending)
             return;
         if (generation !== undefined && pending.generation !== generation)
             return;
         if (promise !== undefined && pending.promise !== promise)
             return;
-        clearTimeout(pending.timer);
-        this.attemptTakeoverTimers.delete(threadId);
+        // The synchronous map delete is the real fence (the deadline body
+        // re-validates against the map); the interrupt just reclaims the
+        // sleeping fiber, replacing `clearTimeout`.
+        this.attemptTakeoverDeadlines.delete(threadId);
+        pending.fiber.interruptUnsafe();
     }
     scheduleAttemptTakeover(task, activeAttempt) {
-        const existing = this.attemptTakeoverTimers.get(task.threadId);
+        const existing = this.attemptTakeoverDeadlines.get(task.threadId);
         if (existing?.generation === activeAttempt.generation &&
             existing.promise === activeAttempt.promise) {
             return;
         }
         this.clearAttemptTakeoverTimer(task.threadId);
+        if (this.supervisoryScopeClosed) {
+            // Shutdown already interrupted the supervisory scope; a takeover
+            // deadline after that point has nothing left to arbitrate (shutdown
+            // cancels every pending/running task).
+            return;
+        }
         const timeoutMs = Math.max(1, this.opts.attemptTeardownTimeoutMs ??
             DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS);
-        const timer = setTimeout(() => {
+        const deadlineBody = Effect.sync(() => {
             const inFlight = this.inFlightAttempts.get(task.threadId);
-            const takeover = this.attemptTakeoverTimers.get(task.threadId);
+            const takeover = this.attemptTakeoverDeadlines.get(task.threadId);
             if (inFlight?.generation !== activeAttempt.generation ||
                 inFlight.promise !== activeAttempt.promise ||
                 takeover?.generation !== activeAttempt.generation ||
@@ -850,16 +1020,16 @@ export class LocalAgentManager {
             // ignored abort). Release its scheduler slot and remove its ownership
             // record. Generation/controller checks fence every later callback and
             // state write from that promise if it eventually returns.
-            this.attemptTakeoverTimers.delete(task.threadId);
+            this.attemptTakeoverDeadlines.delete(task.threadId);
             this.inFlightAttempts.delete(task.threadId);
             this.runningCount = Math.max(0, this.runningCount - 1);
             this.tryStartNext();
-        }, timeoutMs);
-        timer.unref?.();
-        this.attemptTakeoverTimers.set(task.threadId, {
+        });
+        const fiber = managerRuntime.runSync(Effect.forkIn(Effect.andThen(Effect.sleep(timeoutMs), deadlineBody), this.supervisoryScope, { startImmediately: true }));
+        this.attemptTakeoverDeadlines.set(task.threadId, {
             generation: activeAttempt.generation,
             promise: activeAttempt.promise,
-            timer,
+            fiber,
         });
     }
     tryStartNext() {
@@ -907,6 +1077,35 @@ export class LocalAgentManager {
             task.pendingStartIsFollowUp = undefined;
             task.pendingStartAudience = undefined;
             this.persistTask(task);
+            if (task.storageMode === "cloud") {
+                // The local thread id is also the canonical cloud Activity id. Publish
+                // every attempt (including send_input continuations) with its
+                // generation so a late terminal from the prior attempt cannot close
+                // the newly-running row.
+                task.cloudAgentId = task.threadId;
+                task.cloudCreatePromise = this.opts
+                    .createCloudAgentRecord({
+                    agentId: task.threadId,
+                    conversationId: task.conversationId,
+                    description: task.description,
+                    prompt: task.prompt,
+                    agentType: task.agentType,
+                    attemptGeneration: generation,
+                    ...(task.parentAgentId
+                        ? { parentAgentId: task.parentAgentId }
+                        : {}),
+                    ...(typeof task.maxAgentDepth === "number"
+                        ? { maxAgentDepth: task.maxAgentDepth }
+                        : {}),
+                })
+                    .then((created) => {
+                    task.cloudAgentId = created.agentId;
+                })
+                    .catch(() => {
+                    // The agent still runs on this computer. A later attempt republishes
+                    // the row; terminal sync below remains best-effort for this one.
+                });
+            }
             this.opts.onAgentEvent?.({
                 type: "agent-started",
                 conversationId: task.conversationId,
@@ -925,7 +1124,24 @@ export class LocalAgentManager {
                 controller,
             }).catch(() => undefined);
             this.inFlightAttempts.set(threadId, { generation, promise: execution });
-            void execution.finally(() => {
+            this.opts.superviseAttempt?.({
+                threadId,
+                ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
+                abort: (reason) => {
+                    void this.cancelAgent(threadId, typeof reason === "string"
+                        ? reason
+                        : reason instanceof Error
+                            ? reason.message
+                            : undefined);
+                },
+                settled: execution.then(() => undefined),
+            });
+            const settleAttempt = () => {
+                const fiberEntry = this.attemptFibers.get(threadId);
+                if (fiberEntry?.generation === generation &&
+                    fiberEntry.promise === execution) {
+                    this.attemptFibers.delete(threadId);
+                }
                 const activeAttempt = this.inFlightAttempts.get(threadId);
                 if (activeAttempt?.generation === generation &&
                     activeAttempt.promise === execution) {
@@ -934,7 +1150,25 @@ export class LocalAgentManager {
                     this.runningCount = Math.max(0, this.runningCount - 1);
                     this.tryStartNext();
                 }
-            });
+            };
+            if (this.supervisoryScopeClosed) {
+                // Post-shutdown resurrection path: no supervisory scope remains, so
+                // fall back to a plain promise join for the bookkeeping.
+                void execution.finally(settleAttempt);
+            }
+            else {
+                // The attempt's supervision fiber: joins the (already-started,
+                // never-rejecting) execution promise and releases the scheduler
+                // slot. Interrupting this fiber (scope close at shutdown) runs the
+                // same bookkeeping via `ensuring` but NEVER cancels the run itself —
+                // run cancellation is only ever the cooperative `cancelAgent` path.
+                const fiber = managerRuntime.runSync(Effect.forkIn(Effect.asVoid(Effect.promise(() => execution)).pipe(Effect.ensuring(Effect.sync(settleAttempt))), this.supervisoryScope, { startImmediately: true }));
+                this.attemptFibers.set(threadId, {
+                    generation,
+                    promise: execution,
+                    fiber,
+                });
+            }
         }
     }
     acquireFsLock(threadId, key) {
@@ -1031,7 +1265,7 @@ export class LocalAgentManager {
                 taskPrompt,
                 agentContext: context,
                 subagentSession,
-                persistToConvex: false,
+                persistToConvex: task.storageMode === "cloud",
                 enableRemoteTools: true,
                 abortSignal: attempt.controller.signal,
                 onProgress: (chunk) => {
@@ -1051,16 +1285,21 @@ export class LocalAgentManager {
                     task.recentActivity = [truncate(compact, 500)];
                     task.lastActivityAt = Date.now();
                 },
-                onStatus: (event) => {
-                    if (event.statusState !== "provider-retry")
-                        return;
+                onStatus: (statusText) => {
+                    // The orchestration layer forwards the status text only; it keeps
+                    // provider-retry events off the renderer callbacks so this emit is
+                    // the sole surface for them.
                     if (!isCurrentAttempt() ||
                         attempt.controller.signal.aborted ||
                         task.status === "canceled") {
                         return;
                     }
-                    const statusText = truncate(event.statusText, 500);
-                    task.recentActivity = [statusText];
+                    if (typeof statusText !== "string")
+                        return;
+                    const compact = truncate(statusText.replace(/\s+/g, " ").trim(), 500);
+                    if (!compact)
+                        return;
+                    task.recentActivity = [compact];
                     task.lastActivityAt = Date.now();
                     this.opts.onAgentEvent?.({
                         type: "agent-progress",
@@ -1071,7 +1310,7 @@ export class LocalAgentManager {
                         description: task.description,
                         parentAgentId: task.parentAgentId,
                         attemptGeneration: attempt.generation,
-                        statusText,
+                        statusText: compact,
                     });
                 },
                 onToolStart: (ev) => {
@@ -1336,9 +1575,41 @@ export class LocalAgentManager {
             }
             task.terminalEventEmitted = true;
         }
+        // Sync task completion to Convex in background (non-blocking). A parked
+        // final is not a real terminal — the thread resumes when its descendants
+        // settle, and that later real finish syncs with its own generation.
+        if (task.storageMode === "cloud" && !task.descendantFinalParked) {
+            void (async () => {
+                // Wait for cloud task creation to finish so we have the cloudAgentId
+                if (task.cloudCreatePromise) {
+                    await task.cloudCreatePromise.catch(() => { });
+                }
+                if (!task.cloudAgentId)
+                    return;
+                const status = task.status === "completed"
+                    ? "completed"
+                    : task.status === "canceled"
+                        ? "canceled"
+                        : "error";
+                await this.opts
+                    .completeCloudAgentRecord?.({
+                    agentId: task.cloudAgentId,
+                    attemptGeneration: attempt.generation,
+                    status,
+                    result: task.result ? truncate(task.result, 30_000) : undefined,
+                    error: task.error ? truncate(task.error, 10_000) : undefined,
+                })
+                    .catch(() => {
+                    // Background sync failure — task is still tracked locally
+                });
+            })();
+        }
     }
     async createAgent(request) {
         this.assertActiveParentChain(request);
+        // Effect-ratchet pin: the new agent's cooperative cancellation seam
+        // (see resetTaskForNextAttempt) — created before the task record so the
+        // spawn window is already cancellable.
         const controller = new AbortController();
         const resolvedThread = this.opts.resolveTaskThread?.({
             conversationId: request.conversationId,
@@ -1376,7 +1647,7 @@ export class LocalAgentManager {
             startedAt: createdAt,
             completedAt: null,
             controller,
-            storageMode: "local",
+            storageMode: request.storageMode ?? "local",
             parentAgentId: request.parentAgentId,
             descendantFinalParked: false,
             consumedDescendantEventIds: [],
@@ -1520,7 +1791,10 @@ export class LocalAgentManager {
         if (persisted) {
             return this.buildPersistedSnapshot(persisted);
         }
-        return null;
+        // Cloud-owned threads with no local footprint (spawned before this
+        // worker took over, or already pruned locally) still resolve through
+        // the canonical cloud record.
+        return (await this.opts.getCloudAgentRecord?.(agentId)) ?? null;
     }
     getActiveAgentCount() {
         let count = 0;
@@ -1546,16 +1820,55 @@ export class LocalAgentManager {
         }
         return [...byRunId.values()];
     }
-    shutdown(reason = AGENT_SHUTDOWN_CANCEL_REASON) {
-        for (const pending of this.attemptTakeoverTimers.values()) {
-            clearTimeout(pending.timer);
+    /**
+     * Cancel every pending/running task and await the cancellation cascades
+     * (descendant fan-out, cloud record updates, session disposal). Joining
+     * the in-flight attempt promises themselves is the kernel supervisor's job
+     * (`superviseAttempt`), which interrupts and joins them at shutdown.
+     */
+    async shutdown(reason = AGENT_SHUTDOWN_CANCEL_REASON) {
+        for (const pending of this.attemptTakeoverDeadlines.values()) {
+            pending.fiber.interruptUnsafe();
         }
-        this.attemptTakeoverTimers.clear();
+        this.attemptTakeoverDeadlines.clear();
+        // v1 could snapshot still-running rows on the replacement worker's boot.
+        // v2 performs a graceful Effect shutdown first, which durably cancels
+        // those rows. Capture every resumable task before that cancellation so the
+        // episode-stamped sidecar remains the authoritative recovery evidence.
+        this.persistInterruptionSnapshot([...this.tasks.values()]
+            .filter((task) => task.status === "pending" || task.status === "running")
+            .map(({ threadId, conversationId }) => ({
+            threadId,
+            conversationId,
+        })));
+        const cancels = [];
         for (const task of this.tasks.values()) {
             if (!this.isActiveAgentState(task))
                 continue;
-            void this.cancelAgent(task.threadId, reason);
+            cancels.push(this.cancelAgent(task.threadId, reason).catch(() => undefined));
         }
+        await Promise.allSettled(cancels);
+        // Close the supervisory scope last: every remaining supervision fiber
+        // (attempt joins whose underlying promise ignored abort, stray
+        // deadlines) is interrupted, and their `ensuring` bookkeeping runs.
+        // This never touches the run loops themselves — those were cancelled
+        // cooperatively above and are joined by the kernel run supervisor.
+        await this.closeSupervisoryScope();
+    }
+    /** Effect facade over `shutdown` for Effect-native callers. */
+    shutdownEffect(reason = AGENT_SHUTDOWN_CANCEL_REASON) {
+        return Effect.promise(() => this.shutdown(reason));
+    }
+    closeSupervisoryScope() {
+        if (this.supervisoryScopeClosePromise) {
+            return this.supervisoryScopeClosePromise;
+        }
+        this.supervisoryScopeClosed = true;
+        this.supervisoryScopeClosePromise = managerRuntime
+            .runPromise(Scope.close(this.supervisoryScope, Exit.failCause(Cause.interrupt())))
+            .catch(() => undefined)
+            .then(() => undefined);
+        return this.supervisoryScopeClosePromise;
     }
     async cancelAgent(agentId, reason) {
         const local = this.tasks.get(agentId);
@@ -1638,11 +1951,21 @@ export class LocalAgentManager {
             }
             this.persistTask(local);
             await this.cascadeCancelChildren(agentId, local.error);
+            if (local.storageMode === "cloud" && local.cloudAgentId) {
+                // Never mirror a cancel before the running row is published: the
+                // start enqueue and this cancel share the attempt generation, so
+                // ordering is what keeps the canonical row from resurrecting.
+                if (local.cloudCreatePromise) {
+                    await local.cloudCreatePromise.catch(() => undefined);
+                }
+                await this.opts.cancelCloudAgentRecord?.(local.cloudAgentId, local.error, local.attemptGeneration);
+            }
             return { canceled: true };
         }
         const persisted = this.opts.getAgentRecord?.(agentId);
         if (persisted) {
-            if (persisted.status === "running") {
+            const wasActive = persisted.status === "running";
+            if (wasActive) {
                 const consumedEventIds = persisted.descendantBoundaryState?.consumedEventIds ?? [];
                 this.opts.saveAgentRecord?.({
                     ...persisted,
@@ -1654,11 +1977,19 @@ export class LocalAgentManager {
                         : undefined,
                     updatedAt: Date.now(),
                 });
+                // Terminal transition outside `persistTask`: wake settlement
+                // waiters directly (they re-read the durable record).
+                this.settleAgentThread(agentId);
             }
             await this.cascadeCancelChildren(agentId, reason ?? "Canceled");
+            if (persisted.storageMode === "cloud" && wasActive) {
+                await this.opts.cancelCloudAgentRecord?.(persisted.threadId, reason ?? "Canceled", persisted.attemptGeneration);
+            }
             return { canceled: true };
         }
-        return { canceled: false };
+        return (await this.opts.cancelCloudAgentRecord?.(agentId, reason)) ?? {
+            canceled: false,
+        };
     }
     /**
      * Complete the child side of the parent-wake handshake. The positive

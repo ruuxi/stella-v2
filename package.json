@@ -5,7 +5,8 @@
   "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "workers/*"
   ],
   "main": "packages/desktop/dist-electron/electron/main.js",
   "scripts": {
@@ -58,7 +59,9 @@
     "mobile:android": "cd packages/mobile && bun run android",
     "mobile:typecheck": "cd packages/mobile && bun run typecheck",
     "mobile:lint": "cd packages/mobile && bun run lint",
-    "mobile:test": "cd packages/mobile && bun run test"
+    "mobile:test": "cd packages/mobile && bun run test",
+    "runtime:typecheck": "node node_modules/typescript-7/bin/tsc -p packages/runtime/tsconfig.json --pretty false --noEmit",
+    "check:ratchet": "node packages/runtime/scripts/check-effect-ratchet.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.99.0",

@@ -465,19 +465,21 @@ describe("fileChanges emission", () => {
 
     // A drain scoped to an unrelated session recovers nothing.
     expect(
-      await drainCompletedProducedFiles(shellState, ["no-such-session"]),
+      (await drainCompletedProducedFiles(shellState, ["no-such-session"]))
+        .files,
     ).toEqual([]);
 
     // The finalize sweep pulls the late deliverable in for the rollup.
     const drained = await drainCompletedProducedFiles(shellState, [
       sessionId as string,
     ]);
-    expect(drained).toEqual([{ path: filePath, kind: { type: "add" } }]);
+    expect(drained.files).toEqual([{ path: filePath, kind: { type: "add" } }]);
 
     // One-shot: a second sweep (or any later poll) reveals nothing, so the
     // completion rollup never double-reports.
     expect(
-      await drainCompletedProducedFiles(shellState, [sessionId as string]),
+      (await drainCompletedProducedFiles(shellState, [sessionId as string]))
+        .files,
     ).toEqual([]);
     const polled = await handleWriteStdin(
       shellState,

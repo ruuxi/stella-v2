@@ -11,6 +11,7 @@ import type {
   SocialSessionServiceSnapshot,
   SocialSessionRuntimeRecord,
 } from "@stella/contracts/protocol";
+import { forkDelayed, type WorkerTimerHandle } from "../effect-runtime.js";
 import type { SocialSessionRole, SocialSessionSyncRecord } from "./store.js";
 import {
   applySessionFileOp,
@@ -198,7 +199,7 @@ export class SocialSessionService {
   private clientUrl: string | null = null;
   private started = false;
   private sessionsUnsubscribe: (() => void) | null = null;
-  private tickTimer: ReturnType<typeof setTimeout> | null = null;
+  private tickTimer: WorkerTimerHandle | null = null;
   private tickRunning = false;
   private activeSessions = new Map<string, SessionRuntime>();
   private processingTurnId: string | null = null;
@@ -297,7 +298,7 @@ export class SocialSessionService {
 
   private clearTickTimer() {
     if (this.tickTimer) {
-      clearTimeout(this.tickTimer);
+      this.tickTimer.cancel();
       this.tickTimer = null;
     }
   }
@@ -307,9 +308,11 @@ export class SocialSessionService {
     if (!this.started) {
       return;
     }
-    this.tickTimer = setTimeout(() => {
+    // Reschedulable tick as a forked fiber (the old `setTimeout` +
+    // `clearTimeout` pair); the interval is unchanged.
+    this.tickTimer = forkDelayed(TICK_INTERVAL_MS, () => {
       void this.runTick();
-    }, TICK_INTERVAL_MS);
+    });
   }
 
   private rebuildSessionSnapshot(): SocialSessionRuntimeRecord[] {
@@ -548,7 +551,8 @@ export class SocialSessionService {
         void this.createSession({
           roomId: summary.room._id,
           workspaceLabel:
-            summary.session.workspaceFolderName || summary.session.workspaceSlug,
+            summary.session.workspaceFolderName ||
+            summary.session.workspaceSlug,
         }).catch((error) => {
           this.reattachingHostSessions.delete(summary.session._id);
           this.handleSyncError(error);
@@ -608,9 +612,7 @@ export class SocialSessionService {
         this.activeSessions.delete(sessionId);
         this.templateInitializedSessions.delete(sessionId);
         this.displayedSessions.delete(sessionId);
-        void this.previewManager
-          .stopSession(sessionId)
-          .catch(() => undefined);
+        void this.previewManager.stopSession(sessionId).catch(() => undefined);
       }
     }
   }
@@ -745,6 +747,7 @@ export class SocialSessionService {
       const result = await runner.runAutomationTurn({
         conversationId: nextTurn.session.conversationId,
         userPrompt: nextTurn.turn.prompt,
+        storageMode: "local",
         agentType: "social_session",
         toolWorkspaceRoot: sessionRuntime.localFolderPath,
       });
@@ -890,7 +893,9 @@ export class SocialSessionService {
     );
   }
 
-  private async ensurePreviewForSession(session: SessionRuntime): Promise<void> {
+  private async ensurePreviewForSession(
+    session: SessionRuntime,
+  ): Promise<void> {
     try {
       await fs.access(path.join(session.localFolderPath, "package.json"));
     } catch {

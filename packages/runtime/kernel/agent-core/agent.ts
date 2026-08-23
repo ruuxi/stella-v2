@@ -110,6 +110,9 @@ export interface AgentOptions {
 	 */
 	onProviderRetry?: SimpleStreamOptions["onProviderRetry"];
 
+	/** See {@link AgentLoopConfig.degenerateResponseRetries}. */
+	degenerateResponseRetries?: number;
+
 	/**
 	 * Custom token budgets for thinking levels (token-based providers only).
 	 */
@@ -130,6 +133,9 @@ export interface AgentOptions {
 	 * Default: 60000 (60 seconds). Set to 0 to disable the cap.
 	 */
 	maxRetryDelayMs?: number;
+
+	/** Maximum physical requests for one logical provider completion. */
+	providerRequestLimit?: number;
 
 	/** Tool execution mode. Default: "parallel" */
 	toolExecution?: ToolExecutionMode;
@@ -182,12 +188,14 @@ export class Agent {
 	public refreshApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	private _onPayload?: SimpleStreamOptions["onPayload"];
 	private _onProviderRetry?: SimpleStreamOptions["onProviderRetry"];
+	private _degenerateResponseRetries: number;
 	private runningPrompt?: Promise<void>;
 	private resolveRunningPrompt?: () => void;
 	private _thinkingBudgets?: ThinkingBudgets;
 	private _transport: Transport;
 	private _serviceTier?: ServiceTier;
 	private _maxRetryDelayMs?: number;
+	private _requestBudget?: NonNullable<SimpleStreamOptions["requestBudget"]>;
 	private _toolExecution: ToolExecutionMode;
 	private _toolInactivityTimeoutMs?: number;
 	private _beforeToolCall?: (
@@ -212,10 +220,16 @@ export class Agent {
 		this.refreshApiKey = opts.refreshApiKey;
 		this._onPayload = opts.onPayload;
 		this._onProviderRetry = opts.onProviderRetry;
+		this._degenerateResponseRetries = Math.max(0, Math.floor(opts.degenerateResponseRetries ?? 1));
 		this._thinkingBudgets = opts.thinkingBudgets;
 		this._transport = opts.transport ?? "sse";
 		this._serviceTier = opts.serviceTier;
 		this._maxRetryDelayMs = opts.maxRetryDelayMs;
+		const providerRequestLimit = Math.floor(opts.providerRequestLimit ?? 0);
+		this._requestBudget =
+			providerRequestLimit > 0
+				? { limit: providerRequestLimit, used: 0, active: false }
+				: undefined;
 		this._toolExecution = opts.toolExecution ?? "parallel";
 		this._toolInactivityTimeoutMs = opts.toolInactivityTimeoutMs;
 		this._beforeToolCall = opts.beforeToolCall;
@@ -441,6 +455,14 @@ export class Agent {
 		this._state.error = undefined;
 		this.steeringQueue = [];
 		this.followUpQueue = [];
+		this.resetRequestBudget();
+	}
+
+	private resetRequestBudget(): void {
+		if (!this._requestBudget) return;
+		this._requestBudget.used = 0;
+		this._requestBudget.active = false;
+		delete this._requestBudget.exhaustionReason;
 	}
 
 	/** Send a prompt with an AgentMessage */
@@ -476,6 +498,10 @@ export class Agent {
 			msgs = [input];
 		}
 
+		// A new user turn starts a new logical completion budget. `continue()`
+		// intentionally does not reset it: outer recovery must share the physical
+		// request count already spent by adapter-level continuations.
+		this.resetRequestBudget();
 		await this._runLoop(msgs);
 	}
 
@@ -568,6 +594,11 @@ export class Agent {
 			this.resolveRunningPrompt = resolve;
 		});
 
+		// Effect-ratchet pin (1 new AbortController): the agent's per-prompt
+		// cancellation seam. `abort()` must fire a REAL AbortSignal because
+		// the cancel path is deliberately cooperative (the loop bridges the
+		// raw signal into its latch and still emits the normal terminal
+		// events); interrupting a fiber here would break that ordering.
 		this.abortController = new AbortController();
 		this._state.isStreaming = true;
 		this._state.streamMessage = null;
@@ -585,6 +616,7 @@ export class Agent {
 
 		const config: AgentLoopConfig = {
 			model,
+			degenerateResponseRetries: this._degenerateResponseRetries,
 			reasoning,
 			sessionId: this._sessionId,
 			onPayload: this._onPayload,
@@ -594,6 +626,7 @@ export class Agent {
 			promptCacheKey: this._promptCacheKey,
 			thinkingBudgets: this._thinkingBudgets,
 			maxRetryDelayMs: this._maxRetryDelayMs,
+			requestBudget: this._requestBudget,
 			toolExecution: this._toolExecution,
 			toolInactivityTimeoutMs: this._toolInactivityTimeoutMs,
 			beforeToolCall: this._beforeToolCall

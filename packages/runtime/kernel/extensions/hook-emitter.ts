@@ -1,4 +1,35 @@
+import { Effect } from "effect";
 import type { HookEvent, HookDefinition, HookEventMap } from "./types.js";
+import { runExtensionEffect, tryExtensionOp } from "./effect-runtime.js";
+
+/**
+ * Invoke one user-authored hook handler through the single promise seam,
+ * isolating its failure exactly as the pre-Effect try/catch did: the error
+ * is logged with the identical message and the emit continues with `null`
+ * (treated as "no result").
+ */
+const invokeHandlerIsolated = <E extends HookEvent>(
+  event: E,
+  hook: HookDefinition,
+  payload: HookEventMap[E]["payload"],
+): Effect.Effect<HookEventMap[E]["result"] | void | null> =>
+  tryExtensionOp(async () =>
+    (
+      hook.handler as (
+        p: HookEventMap[E]["payload"],
+      ) => Promise<HookEventMap[E]["result"] | void>
+    )(payload),
+  ).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        console.error(
+          `[stella:hook] Error in ${event} hook:`,
+          (error as Error).message,
+        );
+        return null;
+      }),
+    ),
+  );
 
 export class HookEmitter {
   private hooks: HookDefinition[] = [];
@@ -32,7 +63,7 @@ export class HookEmitter {
    * last-result-wins semantics, except `before_tool` short-circuits on
    * `cancel: true`. Use {@link emitAll} when every result must be composed.
    */
-  async emit<E extends HookEvent>(
+  emit<E extends HookEvent>(
     event: E,
     payload: HookEventMap[E]["payload"],
     filterContext?: { tool?: string; agentType?: string },
@@ -57,25 +88,22 @@ export class HookEmitter {
     });
 
     if (matching.length === 0) {
-      return undefined;
+      return Promise.resolve(undefined);
     }
 
     const isMergeableEvent = event === "agent_end";
 
-    let lastResult: HookEventMap[E]["result"] | void = undefined;
-    let merged: Record<string, unknown> | undefined;
+    return runExtensionEffect(
+      Effect.gen(function* () {
+        let lastResult: HookEventMap[E]["result"] | void = undefined;
+        let merged: Record<string, unknown> | undefined;
 
-    for (const hook of matching) {
-      try {
-        const result = await (
-          hook.handler as (
-            p: HookEventMap[E]["payload"],
-          ) => Promise<HookEventMap[E]["result"] | void>
-        )(payload);
-        if (result === undefined || result === null) {
-          continue;
-        }
-        if (isMergeableEvent && typeof result === "object") {
+        for (const hook of matching) {
+          const result = yield* invokeHandlerIsolated(event, hook, payload);
+          if (result === undefined || result === null) {
+            continue;
+          }
+          if (isMergeableEvent && typeof result === "object") {
           // Filter `undefined` fields out of the result before
           // spreading so a later hook returning `{ key: undefined }`
           // doesn't erase an earlier hook's contribution. Plain
@@ -85,36 +113,32 @@ export class HookEmitter {
           // the key" path was fine, but the explicit-undefined path
           // wasn't. Filtering here aligns runtime behavior with the
           // contract.
-          const filtered: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(
-            result as Record<string, unknown>,
-          )) {
-            if (value === undefined) continue;
-            filtered[key] = value;
+            const filtered: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(
+              result as Record<string, unknown>,
+            )) {
+              if (value === undefined) continue;
+              filtered[key] = value;
+            }
+            merged = merged ? { ...merged, ...filtered } : filtered;
+            continue;
           }
-          merged = merged ? { ...merged, ...filtered } : filtered;
-          continue;
+          lastResult = result;
+          if (
+            event === "before_tool" &&
+            typeof result === "object" &&
+            (result as Record<string, unknown>).cancel
+          ) {
+            return result;
+          }
         }
-        lastResult = result;
-        if (
-          event === "before_tool" &&
-          typeof result === "object" &&
-          (result as Record<string, unknown>).cancel
-        ) {
-          return result;
-        }
-      } catch (error) {
-        console.error(
-          `[stella:hook] Error in ${event} hook:`,
-          (error as Error).message,
-        );
-      }
-    }
 
-    if (merged) {
-      return merged as HookEventMap[E]["result"];
-    }
-    return lastResult;
+        if (merged) {
+          return merged as HookEventMap[E]["result"];
+        }
+        return lastResult;
+      }),
+    );
   }
 
   /**
@@ -123,7 +147,7 @@ export class HookEmitter {
    * Used when downstream code composes every hook's output itself, such as
    * `before_agent_start` prompt replacement plus appended prompt fragments.
    */
-  async emitAll<E extends HookEvent>(
+  emitAll<E extends HookEvent>(
     event: E,
     payload: HookEventMap[E]["payload"],
     filterContext?: { tool?: string; agentType?: string },
@@ -147,25 +171,18 @@ export class HookEmitter {
       return true;
     });
 
-    const results: Array<HookEventMap[E]["result"]> = [];
-    for (const hook of matching) {
-      try {
-        const result = await (
-          hook.handler as (
-            p: HookEventMap[E]["payload"],
-          ) => Promise<HookEventMap[E]["result"] | void>
-        )(payload);
-        if (result !== undefined && result !== null) {
-          results.push(result as HookEventMap[E]["result"]);
+    return runExtensionEffect(
+      Effect.gen(function* () {
+        const results: Array<HookEventMap[E]["result"]> = [];
+        for (const hook of matching) {
+          const result = yield* invokeHandlerIsolated(event, hook, payload);
+          if (result !== undefined && result !== null) {
+            results.push(result as HookEventMap[E]["result"]);
+          }
         }
-      } catch (error) {
-        console.error(
-          `[stella:hook] Error in ${event} hook:`,
-          (error as Error).message,
-        );
-      }
-    }
-    return results;
+        return results;
+      }),
+    );
   }
 
   clear(): void {

@@ -23,13 +23,27 @@
  * compact.
  *
  * Single-flight: only one Dream run may execute at a time, via a mkdir lock
- * under `.stella/locks/dream/`.
+ * under `.stella/locks/dream/` (cross-process) plus the per-dir `inFlight`
+ * flag (in-process). Together with the per-data-dir `SupervisedScope`, this
+ * is the keyed fiber executor for Dream: same key never runs twice
+ * concurrently, failures/timeouts never block later spawns, and a restart
+ * (scope closed) lazily recreates the key's scope. Durable home/SQLite
+ * state remains the only truth; fibers are executors.
  *
- * Fire-and-forget: callers `void maybeSpawnDreamRun(...)` and never await it.
+ * Most callers `void maybeSpawnDreamRun(...)` and never await it. The bounded
+ * pre-compaction ordering is the deliberate exception: it may join the
+ * supervised completion promise, but can never wait past its hard timeout.
+ * The spawned run is not an orphan: it executes under a supervising fiber
+ * (`SupervisedScope`) keyed by data dir. `shutdownDreamRuns` interrupts the
+ * in-flight run (aborting its LLM calls) and joins its teardown — the
+ * `finally` below releases the filesystem lock and clears `inFlight` before
+ * shutdown proceeds.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+
+import { Effect } from "effect";
 
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import type {
@@ -42,10 +56,16 @@ import type {
 } from "../../ai/types.js";
 import {
   ensureDreamMemoryLayout,
+  memoryFilePath,
+  memoryMapPath,
+  memoryShadowPath,
+  memoriesRoot,
+  MEMORY_MAP_FILE,
   MEMORY_MAP_MAX_CHARS,
   MEMORY_MAP_MAX_ENTRIES,
   MEMORY_MAP_STALE_DAYS,
 } from "../memory/dream-storage.js";
+import { rotateMemoryFileIfNeeded } from "../memory/memory-rotation.js";
 import {
   getResolvedLlmApiKey,
   resolvedLlmSupportsCredentiallessCalls,
@@ -63,15 +83,99 @@ import {
 } from "../integrations/claude-code-agent-runtime.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { readRuntimePrompt } from "../prompts/home-prompts.js";
+import { runCloudWriterEffect } from "../runner/cloud-effect-runtime.js";
+import {
+  createSupervisedScope,
+  type SupervisedScope,
+} from "../shared/supervised-scope.js";
+import { buildDurableMemoryReference } from "../thread-runtime.js";
+import {
+  appendToShadowLog,
+  buildDreamDeltaTranscript,
+  buildDreamShadowSystemPrompt,
+  buildDreamShadowUserPrompt,
+  DREAM_DELTA_LOAD_LIMIT,
+  formatShadowLogEntry,
+  shadowWindowIdentity,
+  type DreamDeltaSourceMessage,
+} from "./dream-delta.js";
+import {
+  canonicalFileWriteLockPath,
+  withFileWriteLock,
+  writeFileAtomicWithVerify,
+} from "../tools/file-write-lock.js";
 
 const logger = createRuntimeLogger("agent-runtime.dream-scheduler");
 
 const DEFAULT_TOKEN_INTERVAL = 20_000;
 const MAX_ITERATIONS = 12;
 
+/**
+ * Batch 6 rollout gates. Shadow validation is staged on; the production
+ * delta path is deliberately compile-time disabled and cannot be enabled by
+ * config until a later certified cutover batch changes this constant.
+ */
+export const DREAM_DELTA_SHADOW_DEFAULT_ENABLED = true;
+export const DREAM_PRODUCTION_DELTA_CUTOVER_ENABLED = false;
+
+/**
+ * Supervising fiber scope per data dir. Recreated lazily after a shutdown so
+ * a restarted runner can schedule Dream again.
+ */
+const DREAM_SCOPES = new Map<string, SupervisedScope>();
+
+const dreamScopeFor = (stellaDataDir: string): SupervisedScope => {
+  const existing = DREAM_SCOPES.get(stellaDataDir);
+  if (existing && !existing.closed()) return existing;
+  const scope = createSupervisedScope(`dream:${stellaDataDir}`);
+  DREAM_SCOPES.set(stellaDataDir, scope);
+  return scope;
+};
+
+/**
+ * Data dirs whose Dream scope is currently mid-close. Closes the admission
+ * window: without this, a spawn arriving DURING shutdown would lazily
+ * recreate the just-deleted scope and admit a run the shutdown never
+ * interrupts.
+ */
+const CLOSING_DREAM_DIRS = new Set<string>();
+
+export const dreamDirIsShuttingDown = (stellaDataDir: string): boolean =>
+  CLOSING_DREAM_DIRS.has(stellaDataDir);
+
+/**
+ * Interrupt any in-flight Dream run for `stellaDataDir` (all dirs when
+ * omitted) and resolve once its teardown — lock release, `inFlight` clear —
+ * has completed. Called from runner shutdown.
+ */
+export const shutdownDreamRuns = async (
+  stellaDataDir?: string,
+): Promise<void> => {
+  const closing: Array<Promise<void>> = [];
+  const closingDirs: string[] = [];
+  for (const [dir, scope] of DREAM_SCOPES) {
+    if (stellaDataDir !== undefined && dir !== stellaDataDir) continue;
+    DREAM_SCOPES.delete(dir);
+    closingDirs.push(dir);
+    CLOSING_DREAM_DIRS.add(dir);
+    closing.push(scope.close("runtime-shutdown"));
+  }
+  try {
+    await Promise.all(closing);
+  } finally {
+    for (const dir of closingDirs) CLOSING_DREAM_DIRS.delete(dir);
+  }
+};
+
 type DreamConfig = {
   enabled: boolean;
   tokenInterval: number;
+  deltaShadow: boolean;
+};
+
+type DreamRunOutcome = {
+  /** True only when the provider pass reached a clean terminal response. */
+  completed: boolean;
 };
 
 type DreamRuntimeState = {
@@ -79,6 +183,9 @@ type DreamRuntimeState = {
   lastRunAt: number;
   /** Orchestrator token estimate captured at the last Dream run. */
   tokensAtLastRun: number;
+  baselineHydrated: boolean;
+  /** Settled or live run handle; never rejects. */
+  completion: Promise<DreamRunOutcome> | null;
 };
 
 const RUNTIME_STATE = new Map<string, DreamRuntimeState>();
@@ -86,7 +193,13 @@ const RUNTIME_STATE = new Map<string, DreamRuntimeState>();
 const stateFor = (stellaDataDir: string): DreamRuntimeState => {
   let state = RUNTIME_STATE.get(stellaDataDir);
   if (!state) {
-    state = { inFlight: false, lastRunAt: 0, tokensAtLastRun: 0 };
+    state = {
+      inFlight: false,
+      lastRunAt: 0,
+      tokensAtLastRun: 0,
+      baselineHydrated: false,
+      completion: null,
+    };
     RUNTIME_STATE.set(stellaDataDir, state);
   }
   return state;
@@ -94,6 +207,14 @@ const stateFor = (stellaDataDir: string): DreamRuntimeState => {
 
 const lockDir = (stellaDataDir: string): string =>
   path.join(stellaDataDir, "locks", "dream");
+
+const fileMtimeMs = (filePath: string): number => {
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
 
 const acquireLock = (stellaDataDir: string): (() => void) | null => {
   const dir = lockDir(stellaDataDir);
@@ -136,6 +257,68 @@ const acquireLock = (stellaDataDir: string): (() => void) | null => {
   }
 };
 
+const readPendingFrontierSafe = (store: RuntimeStore): number => {
+  try {
+    const frontier = store.dreamInboxStore.pendingFrontier();
+    return Number.isFinite(frontier) && frontier > 0 ? frontier : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const readProcessedFrontierSafe = (
+  store: RuntimeStore,
+  sinceMs: number,
+): number | null => {
+  try {
+    const value =
+      store.dreamInboxStore.maxProcessedSourceUpdatedAtSince(sinceMs);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  } catch {
+    return null;
+  }
+};
+
+const readDeltaWatermarkSafe = (
+  store: RuntimeStore,
+  conversationId: string,
+): number | null => {
+  try {
+    const value = store.dreamInboxStore.readDeltaWatermark(conversationId);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+const advanceDeltaWatermarkSafe = (
+  store: RuntimeStore,
+  conversationId: string,
+  throughTs: number,
+): void => {
+  try {
+    store.dreamInboxStore.advanceDeltaWatermark(conversationId, throughTs);
+  } catch (error) {
+    logger.debug("dream.delta-watermark-write-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+const loadRawOrchestratorMessagesSafe = (
+  store: RuntimeStore,
+  conversationId: string,
+): DreamDeltaSourceMessage[] => {
+  try {
+    return store.loadRawThreadMessagesWithEntryTypes(
+      conversationId,
+      DREAM_DELTA_LOAD_LIMIT,
+    );
+  } catch {
+    return [];
+  }
+};
+
 const readDreamConfig = (stellaDataDir: string): DreamConfig => {
   const configPath = path.join(stellaDataDir, "config.json");
   try {
@@ -151,11 +334,13 @@ const readDreamConfig = (stellaDataDir: string): DreamConfig => {
         typeof dream.tokenInterval === "number" && dream.tokenInterval > 0
           ? Math.floor(dream.tokenInterval)
           : DEFAULT_TOKEN_INTERVAL,
+      deltaShadow: dream.deltaShadow !== false,
     };
   } catch {
     return {
       enabled: true,
       tokenInterval: DEFAULT_TOKEN_INTERVAL,
+      deltaShadow: DREAM_DELTA_SHADOW_DEFAULT_ENABLED,
     };
   }
 };
@@ -164,12 +349,18 @@ export const buildDreamSystemPrompt = (stellaDataDir: string): string =>
   [
     readRuntimePrompt("dream-scheduled") ?? "",
     [
-      "Maintain ~/.stella/memories/memory_map.md on every consolidation pass.",
-      "Keep it a compact routing map: task families, aliases, repo names, paths, prior-decision hooks, and the best retrieval source (memory, threads, or transcripts).",
-      `Enforce a hard budget of at most ${MEMORY_MAP_MAX_ENTRIES} entries and ${MEMORY_MAP_MAX_CHARS} characters. Give entries an updated date and prune entries older than ${MEMORY_MAP_STALE_DAYS} days unless recent usage proves they are still useful.`,
-      "Never put secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the memory map; store only the minimum routing metadata.",
-      "Use the DREAM:MAP_START / DREAM:MAP_END anchors and StrReplace. Prefer retaining and refreshing inbox entries with higher usage_count or recent last_usage.",
-      "profile.md remains exclusively Remember-owned; never edit it.",
+      `Routing map contract (authoritative — supersedes any earlier instructions about memory_summary.md or memory_index.md): maintain ~/.stella/memories/${MEMORY_MAP_FILE} on every consolidation pass.`,
+      "memory_summary.md and memory_index.md are retired and read-only; never write to them. The map replaced both.",
+      `${MEMORY_MAP_FILE} is pointer-only routing: what memory contains and where to find it. Durable facts stay in MEMORY.md; profile.md remains exclusively Remember-owned.`,
+      `Stage unpromoted durable constraints only under "## Derived constraints", tagged [derived YYYY-MM-DD]; never edit profile.md.`,
+      `Hard budget: at most ${MEMORY_MAP_MAX_ENTRIES} entries and ${MEMORY_MAP_MAX_CHARS} characters; both caps are mechanically enforced. Over-cap writes are rejected. On every pass, merge or prune entries older than ${MEMORY_MAP_STALE_DAYS} days unless current inbox usage_count/last_usage proves they remain useful.`,
+      "Edit only between DREAM:MAP_START / DREAM:MAP_END and DREAM:DERIVED_START / DREAM:DERIVED_END with StrReplace. Prefer entries with higher usage_count or recent last_usage.",
+      "Never put secrets, credentials, tokens, private keys, auth headers, or sensitive personal data in the map.",
+    ].join(" "),
+    [
+      "MEMORY.md lifecycle contract: supersede, don't append. Keep one active block per workstream and rewrite it in place as outcomes evolve.",
+      "Text removed from MEMORY.md is preserved automatically in memories/archive/MEMORY-superseded.md before the edit lands, so do not retain stale duplicate blocks as a backup.",
+      "The runtime rotates old dated blocks into quarterly memories/archive files when MEMORY.md exceeds its size threshold. Archive files are Recall-visible and read-only to you; never edit or delete them.",
     ].join(" "),
   ]
     .filter(Boolean)
@@ -199,7 +390,9 @@ const runDream = async (args: {
   stellaDataDir: string;
   store: RuntimeStore;
   resolvedLlm: ResolvedLlmRoute;
-}): Promise<void> => {
+  /** Aborts in-flight LLM calls and stops the loop on runner shutdown. */
+  abortSignal?: AbortSignal;
+}): Promise<DreamRunOutcome> => {
   const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
     stellaAppDir: args.stellaDataDir,
     modelId: args.resolvedLlm.model.id,
@@ -213,7 +406,7 @@ const runDream = async (args: {
     !resolvedLlmSupportsCredentiallessCalls(args.resolvedLlm)
   ) {
     logger.debug("dream.skipped.no-api-key");
-    return;
+    return { completed: false };
   }
 
   await ensureDreamMemoryLayout(args.stellaDataDir);
@@ -239,6 +432,7 @@ const runDream = async (args: {
         stellaAppDir: args.stellaDataDir,
         agentType: AGENT_IDS.DREAM,
         stellaModel: args.resolvedLlm.model.id,
+        ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
         context: {
           systemPrompt: buildDreamSystemPrompt(args.stellaDataDir),
           messages,
@@ -269,15 +463,20 @@ const runDream = async (args: {
         toolCalls: totalToolCalls,
         finalText: finalText.slice(0, 80),
       });
+      return { completed: true };
     } catch (error) {
       logger.debug("dream.claude-code.failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      return { completed: false };
     }
-    return;
   }
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration += 1) {
+    if (args.abortSignal?.aborted) {
+      logger.debug("dream.aborted", { iterations: iteration });
+      return { completed: false };
+    }
     const context: Context = {
       systemPrompt: buildDreamSystemPrompt(args.stellaDataDir),
       messages,
@@ -286,16 +485,23 @@ const runDream = async (args: {
 
     let response: AssistantMessage;
     try {
-      response = await completeSimple(
-        args.resolvedLlm.model,
-        context,
-        apiKey ? { apiKey } : undefined,
-      );
+      response = await completeSimple(args.resolvedLlm.model, context, {
+        ...(apiKey ? { apiKey } : {}),
+        ...(args.abortSignal ? { signal: args.abortSignal } : {}),
+      });
     } catch (error) {
       logger.debug("dream.completeSimple.failed", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return;
+      return { completed: false };
+    }
+
+    if (response.stopReason !== "stop" && response.stopReason !== "toolUse") {
+      logger.debug("dream.unclean-terminal", {
+        stopReason: response.stopReason,
+        error: response.errorMessage,
+      });
+      return { completed: false };
     }
 
     messages.push(response);
@@ -305,15 +511,32 @@ const runDream = async (args: {
     );
 
     if (toolCalls.length === 0) {
+      if (response.stopReason !== "stop") {
+        logger.debug("dream.terminal-without-tool-call", {
+          stopReason: response.stopReason,
+        });
+        return { completed: false };
+      }
       logger.debug("dream.completed", {
         iterations: iteration + 1,
         toolCalls: totalToolCalls,
         finalText: readAssistantText(response).slice(0, 80),
       });
-      return;
+      return { completed: true };
+    }
+    if (response.stopReason !== "toolUse") {
+      logger.debug("dream.tool-call-without-tool-terminal", {
+        stopReason: response.stopReason,
+        toolCalls: toolCalls.length,
+      });
+      return { completed: false };
     }
 
     for (const toolCall of toolCalls) {
+      if (args.abortSignal?.aborted) {
+        logger.debug("dream.aborted", { iterations: iteration + 1 });
+        return { completed: false };
+      }
       totalToolCalls += 1;
       try {
         const dispatch = await dispatchLocalTool(
@@ -360,6 +583,7 @@ const runDream = async (args: {
     iterations: MAX_ITERATIONS,
     toolCalls: totalToolCalls,
   });
+  return { completed: false };
 };
 
 export type SpawnDreamTrigger =
@@ -379,12 +603,15 @@ export type SpawnDreamArgs = {
    * triggers, which run whenever anything is pending.
    */
   orchestratorTokenEstimate?: number;
+  /** Root orchestrator conversation whose raw durable delta is shadowed. */
+  conversationId?: string;
 };
 
 export type SpawnDreamResultReason =
   | "scheduled"
   | "disabled"
   | "in_flight"
+  | "shutting_down"
   | "count_failed"
   | "no_inputs"
   | "below_threshold"
@@ -423,6 +650,15 @@ export const maybeSpawnDreamRun = async (
       pendingItems: 0,
     };
   }
+  if (dreamDirIsShuttingDown(args.stellaDataDir)) {
+    // Admission window closed: a spawn racing shutdown must not recreate
+    // the scope being torn down and slip an uninterrupted run past it.
+    return {
+      scheduled: false,
+      reason: "shutting_down",
+      pendingItems: 0,
+    };
+  }
 
   let pendingItems = 0;
   try {
@@ -453,9 +689,24 @@ export const maybeSpawnDreamRun = async (
   // baseline so growth is measured from the new floor rather than never
   // re-arming.
   if (args.trigger === "token_interval") {
+    if (!state.baselineHydrated) {
+      state.baselineHydrated = true;
+      try {
+        state.tokensAtLastRun =
+          args.store.dreamInboxStore.readTokenBaseline() ??
+          state.tokensAtLastRun;
+      } catch {
+        // Scheduling-only state; a missing baseline safely costs one pass.
+      }
+    }
     const estimate = args.orchestratorTokenEstimate;
     if (typeof estimate === "number" && estimate < state.tokensAtLastRun) {
       state.tokensAtLastRun = estimate;
+      try {
+        args.store.dreamInboxStore.writeTokenBaseline(estimate);
+      } catch {
+        // scheduling bookkeeping only
+      }
     }
     const growth =
       typeof estimate === "number" ? estimate - state.tokensAtLastRun : 0;
@@ -489,28 +740,554 @@ export const maybeSpawnDreamRun = async (
   }
   state.inFlight = true;
 
-  void runDream({
+  // Effect-ratchet pin (1 new AbortController): the genuine seam controller
+  // for the supervised dream run — `SupervisedScope.supervise` fires
+  // `controller.abort` on interrupt/shutdown, and the resulting REAL
+  // AbortSignal rides into `runDream`'s LLM calls (`completeSimple` /
+  // claude-code completions), which are plain-TS AbortSignal consumers.
+  const controller = new AbortController();
+  const memoryMtimeBefore = fileMtimeMs(memoryFilePath(args.stellaDataDir));
+  const mapMtimeBefore = fileMtimeMs(memoryMapPath(args.stellaDataDir));
+  const frontierAtStart = readPendingFrontierSafe(args.store);
+  const passStartedAt = Date.now();
+  const completion = runDream({
     stellaDataDir: args.stellaDataDir,
     store: args.store,
     resolvedLlm: args.resolvedLlm,
+    abortSignal: controller.signal,
   })
-    .catch((error) => {
+    .catch((error): DreamRunOutcome => {
       logger.debug("dream.run-failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      return { completed: false };
+    })
+    .then(async (outcome) => {
+      if (outcome.completed && frontierAtStart > 0) {
+        const processedFrontier = readProcessedFrontierSafe(
+          args.store,
+          passStartedAt,
+        );
+        const advanceTo =
+          processedFrontier === null
+            ? frontierAtStart
+            : Math.min(frontierAtStart, processedFrontier);
+        try {
+          if (advanceTo > 0) {
+            args.store.dreamInboxStore.writeConsolidationWatermark({
+              frontier: advanceTo,
+            });
+          }
+        } catch (error) {
+          logger.debug("dream.watermark-write-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        try {
+          const rotation = await rotateMemoryFileIfNeeded(args.stellaDataDir);
+          if (rotation) logger.info("dream.memory-rotation", rotation);
+        } catch (error) {
+          logger.warn("dream.memory-rotation-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      if (outcome.completed) {
+        try {
+          const { deleted } = args.store.dreamInboxStore.gcProcessedRows();
+          if (deleted > 0) logger.info("dream.inbox-gc", { deleted });
+        } catch (error) {
+          logger.debug("dream.inbox-gc-failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return outcome;
     })
     .finally(() => {
       state.inFlight = false;
       state.lastRunAt = Date.now();
       if (typeof args.orchestratorTokenEstimate === "number") {
         state.tokensAtLastRun = args.orchestratorTokenEstimate;
+        try {
+          args.store.dreamInboxStore.writeTokenBaseline(
+            args.orchestratorTokenEstimate,
+          );
+        } catch {
+          // scheduling bookkeeping only
+        }
+      }
+      const memoryChanged =
+        fileMtimeMs(memoryFilePath(args.stellaDataDir)) !== memoryMtimeBefore;
+      const mapChanged =
+        fileMtimeMs(memoryMapPath(args.stellaDataDir)) !== mapMtimeBefore;
+      if (memoryChanged && !mapChanged) {
+        logger.warn("dream.memory-map.stale", {
+          detail: `Dream updated MEMORY.md without updating ${MEMORY_MAP_FILE}`,
+        });
       }
       release();
     });
+  state.completion = completion;
+  // The caller still never awaits the run, but it is supervised: shutdown
+  // interrupts it (aborting the LLM calls) and joins the `finally` above so
+  // the lock and in-flight flag are released before teardown continues.
+  dreamScopeFor(args.stellaDataDir).supervise({
+    label: `dream-run:${args.trigger}`,
+    abort: (reason) => controller.abort(reason),
+    settled: completion,
+  });
+
+  // Shadow-only staged delta: outside the live completion so compaction never
+  // waits on diagnostics. It starts only after a clean inbox pass and uses a
+  // separate supervised abort handle. The compile-time production cutover
+  // gate above remains false; no shadow proposal can mutate durable memory.
+  if (config.deltaShadow && args.conversationId) {
+    // Effect-ratchet pin (1 new AbortController): the shadow run's own seam
+    // controller — supervised separately from the live run, its REAL
+    // AbortSignal is threaded through `runDreamDeltaShadow` into the same
+    // plain-TS LLM seams.
+    const shadowController = new AbortController();
+    const shadow = completion
+      .then(async (outcome) => {
+        if (!outcome.completed) return;
+        await runDreamDeltaShadow({
+          stellaDataDir: args.stellaDataDir,
+          store: args.store,
+          resolvedLlm: args.resolvedLlm,
+          conversationId: args.conversationId!,
+          liveMemoryChanged:
+            fileMtimeMs(memoryFilePath(args.stellaDataDir)) !==
+            memoryMtimeBefore,
+          liveMapChanged:
+            fileMtimeMs(memoryMapPath(args.stellaDataDir)) !== mapMtimeBefore,
+          abortSignal: shadowController.signal,
+        });
+      })
+      .catch((error) => {
+        logger.debug("dream.delta-shadow.spawn-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    dreamScopeFor(args.stellaDataDir).supervise({
+      label: "dream-delta-shadow",
+      abort: (reason) => shadowController.abort(reason),
+      settled: shadow,
+    });
+  }
 
   return {
     scheduled: true,
     reason: "scheduled",
     pendingItems,
   };
+};
+
+export type DreamShadowOutcome =
+  | "completed"
+  | "bootstrapped"
+  | "skipped_empty"
+  | "skipped_busy"
+  | "skipped_unsupported"
+  | "timed_out"
+  | "aborted"
+  | "failed";
+
+export const DREAM_SHADOW_TIMEOUT_MS = 180_000;
+const SHADOW_IN_FLIGHT = new Set<string>();
+
+/**
+ * "aborted" competitor for the hard-timeout races below: settles when the
+ * supervised abort signal fires. The listener is removed by the callback's
+ * cleanup effect on every exit path (the old `removeEventListener` finally);
+ * with no signal the competitor never settles.
+ */
+const abortedOutcome = (
+  signal: AbortSignal | undefined,
+): Effect.Effect<"aborted"> =>
+  signal === undefined
+    ? Effect.never
+    : Effect.callback<"aborted">((resume) => {
+        if (signal.aborted) {
+          resume(Effect.succeed("aborted" as const));
+          return;
+        }
+        const onAbort = () => resume(Effect.succeed("aborted" as const));
+        signal.addEventListener("abort", onAbort, { once: true });
+        return Effect.sync(() => {
+          signal.removeEventListener("abort", onAbort);
+        });
+      });
+
+/**
+ * Race `promise` against the shadow hard timeout and the supervised abort
+ * signal, on the runner area's shared Effect runtime. The timeout and abort
+ * arms are fibers interrupted when they lose (the old `clearTimeout` +
+ * `removeEventListener` finally); when they win, the underlying promise
+ * keeps running with its settlement ignored, exactly as `Promise.race` left
+ * it. Rejections rethrow the ORIGINAL error object (Cause.squash in
+ * `runCloudWriterEffect`). Timings unchanged.
+ */
+const raceShadow = <T>(args: {
+  promise: Promise<T>;
+  timeoutMs: number;
+  signal?: AbortSignal;
+}): Promise<T | "timed_out" | "aborted"> =>
+  runCloudWriterEffect(
+    Effect.raceFirst(
+      Effect.raceFirst(
+        Effect.tryPromise({ try: () => args.promise, catch: (error) => error }),
+        Effect.sleep(args.timeoutMs).pipe(
+          Effect.flatMap(() => Effect.succeed("timed_out" as const)),
+        ),
+      ),
+      abortedOutcome(args.signal),
+    ),
+  );
+
+/**
+ * Shadow validation only. It derives a bounded proposal from raw messages,
+ * atomically records it, and then advances coverage. The write-before-
+ * watermark order makes restart recovery at-least-once; a stable window
+ * identity makes the retry idempotent if the crash landed the log first.
+ */
+export const runDreamDeltaShadow = async (args: {
+  stellaDataDir: string;
+  store: RuntimeStore;
+  resolvedLlm: ResolvedLlmRoute;
+  conversationId: string;
+  liveMemoryChanged: boolean;
+  liveMapChanged: boolean;
+  timeoutMs?: number;
+  abortSignal?: AbortSignal;
+}): Promise<DreamShadowOutcome> => {
+  let scopeKey: string;
+  try {
+    scopeKey = fs.realpathSync(args.stellaDataDir);
+  } catch {
+    scopeKey = path.resolve(args.stellaDataDir);
+  }
+  if (SHADOW_IN_FLIGHT.has(scopeKey)) return "skipped_busy";
+  SHADOW_IN_FLIGHT.add(scopeKey);
+  try {
+    if (args.abortSignal?.aborted) return "aborted";
+    const watermark = readDeltaWatermarkSafe(args.store, args.conversationId);
+    if (watermark === null) return "skipped_unsupported";
+    const messages = loadRawOrchestratorMessagesSafe(
+      args.store,
+      args.conversationId,
+    );
+    if (messages.length === 0) return "skipped_empty";
+    if (watermark === 0) {
+      const bootstrap = buildDreamDeltaTranscript(messages, 0);
+      if (bootstrap.newestMessageTs > 0) {
+        advanceDeltaWatermarkSafe(
+          args.store,
+          args.conversationId,
+          bootstrap.newestMessageTs,
+        );
+      }
+      logger.info("dream.delta-shadow.bootstrapped", {
+        conversationId: args.conversationId,
+        watermark: bootstrap.newestMessageTs,
+      });
+      return "bootstrapped";
+    }
+
+    const delta = buildDreamDeltaTranscript(messages, watermark);
+    if (!delta.transcript || delta.coveredThroughTs <= watermark) {
+      return "skipped_empty";
+    }
+    const identity = shadowWindowIdentity({
+      conversationId: args.conversationId,
+      sinceTs: watermark,
+      coveredThroughTs: delta.coveredThroughTs,
+    });
+    const shadowPath = memoryShadowPath(args.stellaDataDir);
+    try {
+      const landed = await fs.promises.readFile(shadowPath, "utf-8");
+      if (landed.includes(identity)) {
+        advanceDeltaWatermarkSafe(
+          args.store,
+          args.conversationId,
+          delta.coveredThroughTs,
+        );
+        logger.info("dream.delta-shadow.recovered-landed-window", {
+          conversationId: args.conversationId,
+          watermarkTo: delta.coveredThroughTs,
+        });
+        return "completed";
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
+    const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
+      stellaAppDir: args.stellaDataDir,
+      modelId: args.resolvedLlm.model.id,
+    });
+    const apiKey = useClaudeCode
+      ? undefined
+      : await getResolvedLlmApiKey(args.resolvedLlm);
+    if (
+      !useClaudeCode &&
+      !apiKey &&
+      !resolvedLlmSupportsCredentiallessCalls(args.resolvedLlm)
+    ) {
+      return "failed";
+    }
+    const systemPrompt = buildDreamShadowSystemPrompt();
+    const messagesForModel: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: buildDreamShadowUserPrompt({
+              transcript: delta.transcript,
+              sinceIso: new Date(watermark).toISOString(),
+              alreadyKnown: buildDurableMemoryReference(args.stellaDataDir),
+            }),
+          },
+        ],
+        timestamp: Date.now(),
+      },
+    ];
+    const derive = async (): Promise<string> => {
+      if (useClaudeCode) {
+        return await runClaudeCodeAgentTextCompletion({
+          stellaAppDir: args.stellaDataDir,
+          agentType: AGENT_IDS.DREAM,
+          stellaModel: args.resolvedLlm.model.id,
+          ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+          context: { systemPrompt, messages: messagesForModel, tools: [] },
+        });
+      }
+      const response = await completeSimple(
+        args.resolvedLlm.model,
+        { systemPrompt, messages: messagesForModel, tools: [] },
+        {
+          ...(apiKey ? { apiKey } : {}),
+          ...(args.abortSignal ? { signal: args.abortSignal } : {}),
+        },
+      );
+      if (response.stopReason !== "stop") {
+        throw new Error(`unclean shadow terminal: ${response.stopReason}`);
+      }
+      return readAssistantText(response);
+    };
+    const derivation = derive();
+    void derivation.catch(() => undefined);
+    const raced = await raceShadow({
+      promise: derivation,
+      timeoutMs: Math.max(1, args.timeoutMs ?? DREAM_SHADOW_TIMEOUT_MS),
+      ...(args.abortSignal ? { signal: args.abortSignal } : {}),
+    });
+    if (raced === "timed_out" || raced === "aborted") return raced;
+    if (!raced.trim()) return "failed";
+
+    const entry = formatShadowLogEntry({
+      nowIso: new Date().toISOString(),
+      conversationId: args.conversationId,
+      sinceTs: watermark,
+      coveredThroughTs: delta.coveredThroughTs,
+      includedMessages: delta.includedMessages,
+      transcriptChars: Array.from(delta.transcript).length,
+      truncated: delta.truncated,
+      liveMemoryChanged: args.liveMemoryChanged,
+      liveMapChanged: args.liveMapChanged,
+      proposal: raced,
+    });
+    await fs.promises.mkdir(memoriesRoot(args.stellaDataDir), {
+      recursive: true,
+    });
+    const lockPath = await canonicalFileWriteLockPath(shadowPath);
+    await withFileWriteLock(lockPath, async () => {
+      let existing: string | null = null;
+      try {
+        existing = await fs.promises.readFile(lockPath, "utf-8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (existing?.includes(identity)) return;
+      await writeFileAtomicWithVerify(
+        lockPath,
+        appendToShadowLog(existing, entry),
+      );
+    });
+    advanceDeltaWatermarkSafe(
+      args.store,
+      args.conversationId,
+      delta.coveredThroughTs,
+    );
+    logger.info("dream.delta-shadow.completed", {
+      conversationId: args.conversationId,
+      watermarkFrom: watermark,
+      watermarkTo: delta.coveredThroughTs,
+      includedMessages: delta.includedMessages,
+      truncated: delta.truncated,
+      productionCutover: DREAM_PRODUCTION_DELTA_CUTOVER_ENABLED,
+    });
+    return "completed";
+  } catch (error) {
+    logger.debug("dream.delta-shadow.failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return args.abortSignal?.aborted ? "aborted" : "failed";
+  } finally {
+    SHADOW_IN_FLIGHT.delete(scopeKey);
+  }
+};
+
+export const DREAM_PRE_COMPACTION_TIMEOUT_MS = 180_000;
+
+export type PreCompactionConsolidationOutcome =
+  | "consolidated"
+  | "incomplete"
+  | "timed_out"
+  | "aborted"
+  | "skipped_fresh"
+  | "not_started"
+  | "failed";
+
+export type PreCompactionConsolidationResult = {
+  outcome: PreCompactionConsolidationOutcome;
+  pendingItems: number;
+  waitedMs: number;
+  detail?: string;
+};
+
+/**
+ * Bound the pre-compaction join on the supervised completion: race it
+ * against the hard timeout and the compaction scheduler's abort signal (the
+ * same fiber shape as `raceShadow` above — losing arms interrupted, the
+ * supervised run keeps executing past a timeout). Timings unchanged.
+ */
+const raceDreamCompletion = (args: {
+  completion: Promise<DreamRunOutcome>;
+  timeoutMs: number;
+  abortSignal?: AbortSignal;
+}): Promise<DreamRunOutcome | "timed_out" | "aborted"> =>
+  runCloudWriterEffect(
+    Effect.raceFirst(
+      Effect.raceFirst(
+        Effect.tryPromise({
+          try: () => args.completion,
+          catch: (error) => error,
+        }),
+        Effect.sleep(args.timeoutMs).pipe(
+          Effect.flatMap(() => Effect.succeed("timed_out" as const)),
+        ),
+      ),
+      abortedOutcome(args.abortSignal),
+    ),
+  );
+
+/**
+ * Give Dream one bounded opportunity to consolidate the pending frontier
+ * before durable history is folded. Every result authorizes compaction to
+ * continue; a timed-out Dream run remains supervised and may finish later.
+ */
+export const awaitPreCompactionConsolidation = async (args: {
+  stellaDataDir: string;
+  store: RuntimeStore;
+  resolvedLlm: ResolvedLlmRoute;
+  conversationId?: string;
+  timeoutMs?: number;
+  abortSignal?: AbortSignal;
+}): Promise<PreCompactionConsolidationResult> => {
+  const startedAt = Date.now();
+  const finish = (
+    outcome: PreCompactionConsolidationOutcome,
+    pendingItems: number,
+    detail?: string,
+  ): PreCompactionConsolidationResult => {
+    const result = {
+      outcome,
+      pendingItems,
+      waitedMs: Date.now() - startedAt,
+      ...(detail ? { detail } : {}),
+    };
+    logger.info("dream.pre-compaction", result);
+    return result;
+  };
+
+  try {
+    let pendingItems = 0;
+    try {
+      pendingItems = args.store.dreamInboxStore.countUnprocessed();
+    } catch {
+      return finish("skipped_fresh", 0, "inbox unavailable");
+    }
+    const frontier = readPendingFrontierSafe(args.store);
+    if (pendingItems === 0 || frontier === 0) {
+      return finish("skipped_fresh", pendingItems, "nothing pending");
+    }
+    let watermark: { frontier: number } | null = null;
+    try {
+      watermark = args.store.dreamInboxStore.readConsolidationWatermark();
+    } catch {
+      watermark = null;
+    }
+    if (watermark && watermark.frontier >= frontier) {
+      return finish(
+        "skipped_fresh",
+        pendingItems,
+        "completed pass covers pending frontier",
+      );
+    }
+
+    const state = stateFor(args.stellaDataDir);
+    const completionBeforeSpawn = state.completion;
+    let completion = state.inFlight ? state.completion : null;
+    let joined = completion !== null;
+    if (!completion) {
+      const spawn = await maybeSpawnDreamRun({
+        stellaDataDir: args.stellaDataDir,
+        store: args.store,
+        resolvedLlm: args.resolvedLlm,
+        trigger: "pre_compaction",
+        ...(args.conversationId ? { conversationId: args.conversationId } : {}),
+      });
+      if (spawn.scheduled) {
+        completion = state.completion;
+      } else if (
+        state.completion &&
+        state.completion !== completionBeforeSpawn
+      ) {
+        completion = state.completion;
+        joined = true;
+      } else {
+        return finish("not_started", pendingItems, spawn.reason);
+      }
+    }
+    if (!completion) {
+      return finish("not_started", pendingItems, "no completion handle");
+    }
+
+    const raced = await raceDreamCompletion({
+      completion,
+      timeoutMs: Math.max(1, args.timeoutMs ?? DREAM_PRE_COMPACTION_TIMEOUT_MS),
+      ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
+    });
+    if (raced === "timed_out") {
+      return finish(
+        "timed_out",
+        pendingItems,
+        joined ? "joined run still in flight" : "spawned run still in flight",
+      );
+    }
+    if (raced === "aborted") {
+      return finish("aborted", pendingItems, "compaction scheduler aborted");
+    }
+    return raced.completed
+      ? finish("consolidated", pendingItems)
+      : finish("incomplete", pendingItems);
+  } catch (error) {
+    return finish(
+      "failed",
+      0,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 };

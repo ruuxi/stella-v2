@@ -11,6 +11,11 @@ import type {
   UserMessage,
 } from "../../ai/types.js";
 
+/** Structured Manager-descendant lifecycle rows used only by exact-thread UI.
+ * They are never part of model history or the conversation-wide event table. */
+export const RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE =
+  "runtime.task_lifecycle_private";
+
 export type LocalChatEventRecord = {
   _id: string;
   timestamp: number;
@@ -152,6 +157,13 @@ export type RuntimeThreadCompactionEntry = RuntimeThreadSessionEntryBase & {
   toEntryId?: string;
   firstKeptEntryId?: string;
   tokensBefore: number;
+  summaryValidation?: {
+    version: 1;
+    /** Exact folded middle-span estimate passed to validateThreadSummary. */
+    middleTokens: number;
+    /** Exact prior checkpoint input, or null when no prior checkpoint existed. */
+    previousSummary: string | null;
+  };
   details?: unknown;
   fromHook?: boolean;
 };
@@ -177,12 +189,44 @@ export type RuntimeThreadCustomMessageEntry = RuntimeThreadSessionEntryBase & {
   display: boolean;
   /** Structured lifecycle dedup key; never inferred from message text. */
   eventId?: string;
+  /** Thread-private lifecycle data for manager-owned descendants. These
+   * events intentionally do not enter the conversation-wide event table. */
+  lifecycleEvent?: {
+    type:
+      | "agent-started"
+      | "agent-progress"
+      | "agent-completed"
+      | "agent-failed"
+      | "agent-canceled";
+    payload: Record<string, unknown>;
+  };
 };
 
 export type RuntimeThreadLifecycleEntry = RuntimeThreadSessionEntryBase & {
   type: "lifecycle_event";
   event: LocalChatEventRecord;
 };
+
+/**
+ * Compare-and-swap mutations applied in the same SQLite transaction as a
+ * compaction overlay. They are intentionally storage-level so the resident
+ * memory module can plan a complete cache-epoch transition without making
+ * SessionStore depend on memory policy.
+ */
+export type RuntimeThreadCustomMessageMutation =
+  | {
+      action: "replace";
+      entryId: string;
+      expectedCustomType: string;
+      expectedContent: RuntimeThreadCustomMessageEntry["content"];
+      content: RuntimeThreadCustomMessageEntry["content"];
+    }
+  | {
+      action: "remove";
+      entryId: string;
+      expectedCustomType: string;
+      expectedContent: RuntimeThreadCustomMessageEntry["content"];
+    };
 
 export type RuntimeThreadLabelEntry = RuntimeThreadSessionEntryBase & {
   type: "label";
@@ -219,7 +263,7 @@ export type RuntimeThreadMessage = {
   payload?: PersistedRuntimeThreadPayload;
   customMessage?: Pick<
     RuntimeThreadCustomMessageEntry,
-    "customType" | "content" | "display" | "eventId"
+    "customType" | "content" | "display" | "eventId" | "lifecycleEvent"
   >;
 };
 

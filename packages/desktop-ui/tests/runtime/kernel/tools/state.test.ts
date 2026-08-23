@@ -173,6 +173,7 @@ describe("state tools", () => {
       },
       undefined,
       undefined,
+      undefined,
       async (args) => {
         captured.push(args);
         return generalSnapshot;

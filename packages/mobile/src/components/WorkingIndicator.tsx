@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, View } from "react-native";
 import { ShimmerText } from "./ShimmerText";
-import { WorkingStar } from "./WorkingStar";
+import { WorkingStarSkia } from "./WorkingStarSkia";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -258,7 +258,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     >
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <WorkingStar active={active} size={INDICATOR_VIEWPORT_SIZE} />
+          <WorkingStarSkia active={active} size={INDICATOR_VIEWPORT_SIZE} />
           <SwapText
             text={displayStatus}
             active={active}

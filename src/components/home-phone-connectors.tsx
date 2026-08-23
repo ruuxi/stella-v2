@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import Image from "next/image";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import styles from "./home-phone-connectors.module.css";
 
 type Bubble = { from: "them" | "you"; text: string };
@@ -285,11 +295,41 @@ function StellaSkin() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  App Store link                                                    */
+/*  Mobile app downloads                                              */
 /* ------------------------------------------------------------------ */
 // Apple ID 6761148311 — `ascAppId` in stella-mobile/mobile/eas.json; the full
 // store URL matches the one the desktop app links from its Phone Access card.
 const APP_STORE_URL = "https://apps.apple.com/us/app/stella-your-ai/id6761148311";
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.fromyou.stella";
+
+type DevicePlatform = "desktop" | "ios" | "android";
+type StorePlatform = Exclude<DevicePlatform, "desktop">;
+
+function detectDevicePlatform(): DevicePlatform {
+  const navigatorWithUaData = navigator as Navigator & {
+    userAgentData?: { mobile?: boolean; platform?: string };
+  };
+  const ua = navigator.userAgent;
+  const uaData = navigatorWithUaData.userAgentData;
+  const uaPlatform = uaData?.platform ?? "";
+
+  if (/android/i.test(`${ua} ${uaPlatform}`)) return "android";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+
+  // iPadOS can identify itself as macOS when requesting desktop websites.
+  if (/Mac/i.test(navigator.platform) && navigator.maxTouchPoints > 1) {
+    return "ios";
+  }
+
+  // UA-CH is available in Chromium, where a remaining mobile client is
+  // Android even when the reduced user agent omits the platform token.
+  if (uaData?.mobile) return "android";
+
+  return "desktop";
+}
+
+const subscribeToDevicePlatform = () => () => {};
+const getServerDevicePlatform = (): DevicePlatform => "desktop";
 
 function AppleLogo() {
   return (
@@ -299,27 +339,174 @@ function AppleLogo() {
   );
 }
 
-function AppStoreLink() {
+function AndroidLogo() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M17.523 15.341a1.05 1.05 0 1 1 0-2.1 1.05 1.05 0 0 1 0 2.1M6.477 15.341a1.05 1.05 0 1 1 0-2.1 1.05 1.05 0 0 1 0 2.1m11.423-6.33 2.1-3.637a.437.437 0 0 0-.16-.598.437.437 0 0 0-.597.16l-2.126 3.682A12.881 12.881 0 0 0 12 7.575c-1.853 0-3.615.37-5.117 1.043L4.757 4.936a.438.438 0 0 0-.757.438l2.1 3.637C2.493 10.969.33 14.618 0 19h24c-.33-4.382-2.493-8.031-6.1-9.989" />
+    </svg>
+  );
+}
+
+const STORE_DETAILS = {
+  ios: {
+    url: APP_STORE_URL,
+    eyebrow: "Download on the",
+    name: "App Store",
+    scanWith: "your iPhone or iPad",
+    qrCode: "/downloads/stella-app-store-qr.svg",
+    icon: <AppleLogo />,
+  },
+  android: {
+    url: PLAY_STORE_URL,
+    eyebrow: "Get it on",
+    name: "Google Play",
+    scanWith: "your Android phone",
+    qrCode: "/downloads/stella-google-play-qr.svg",
+    icon: <AndroidLogo />,
+  },
+} satisfies Record<StorePlatform, {
+  url: string;
+  eyebrow: string;
+  name: string;
+  scanWith: string;
+  qrCode: string;
+  icon: ReactNode;
+}>;
+
+function StoreLink({
+  platform,
+  device,
+  onDesktopClick,
+}: {
+  platform: StorePlatform;
+  device: DevicePlatform;
+  onDesktopClick: (platform: StorePlatform) => void;
+}) {
+  const store = STORE_DETAILS[platform];
+  const isPreferred = device === platform;
+  const isSecondary = device !== "desktop" && !isPreferred;
+
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (device !== "desktop") return;
+    event.preventDefault();
+    onDesktopClick(platform);
+  };
+
   return (
     <a
       className={styles.storeLink}
-      href={APP_STORE_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label="Download Stella on the App Store (opens in a new tab)"
+      href={store.url}
+      data-preferred={isPreferred || undefined}
+      data-secondary={isSecondary || undefined}
+      onClick={handleClick}
+      aria-label={
+        device === "desktop"
+          ? `Show a QR code for Stella on the ${store.name}`
+          : `${store.eyebrow} ${store.name}`
+      }
     >
-      <AppleLogo />
+      {store.icon}
       <span className={styles.storeLinkText}>
-        <span className={styles.storeLinkEyebrow}>Download on the</span>
-        <span className={styles.storeLinkName}>App Store</span>
+        <span className={styles.storeLinkEyebrow}>{store.eyebrow}</span>
+        <span className={styles.storeLinkName}>{store.name}</span>
       </span>
     </a>
+  );
+}
+
+function DownloadQrModal({
+  platform,
+  onClose,
+}: {
+  platform: StorePlatform;
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const store = STORE_DETAILS[platform];
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+    closeRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className={styles.qrBackdrop}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={styles.qrModal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-download-title"
+        aria-describedby="mobile-download-description"
+      >
+        <button
+          ref={closeRef}
+          className={styles.qrClose}
+          type="button"
+          onClick={onClose}
+          aria-label="Close download QR code"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+
+        <span className={styles.qrStoreMark}>{store.icon}</span>
+        <p className={styles.qrKicker}>Stella for mobile</p>
+        <h3 id="mobile-download-title">Scan to open {store.name}</h3>
+        <p id="mobile-download-description" className={styles.qrDescription}>
+          Point the camera on {store.scanWith} at this code.
+        </p>
+
+        <div className={styles.qrCode}>
+          <Image
+            src={store.qrCode}
+            width={196}
+            height={196}
+            unoptimized
+            alt={`QR code for Stella on the ${store.name}`}
+          />
+        </div>
+
+        <a
+          className={styles.qrFallbackLink}
+          href={store.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open the listing instead <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
 export function HomePhoneConnectors() {
   const sectionRef = useRef<HTMLElement>(null);
   const [running, setRunning] = useState(false);
+  const device = useSyncExternalStore(
+    subscribeToDevicePlatform,
+    detectDevicePlatform,
+    getServerDevicePlatform,
+  );
+  const [qrPlatform, setQrPlatform] = useState<StorePlatform | null>(null);
+  const closeQr = useCallback(() => setQrPlatform(null), []);
 
   useEffect(() => {
     const el = sectionRef.current;
@@ -361,7 +548,18 @@ export function HomePhoneConnectors() {
             Text Stella from the mobile app. Every message reaches the same
             assistant on your computer.
           </p>
-          <AppStoreLink />
+          <div className={styles.storeLinks}>
+            <StoreLink
+              platform="ios"
+              device={device}
+              onDesktopClick={setQrPlatform}
+            />
+            <StoreLink
+              platform="android"
+              device={device}
+              onDesktopClick={setQrPlatform}
+            />
+          </div>
         </div>
 
         <div
@@ -376,6 +574,9 @@ export function HomePhoneConnectors() {
           </div>
         </div>
       </div>
+      {qrPlatform ? (
+        <DownloadQrModal platform={qrPlatform} onClose={closeQr} />
+      ) : null}
     </section>
   );
 }

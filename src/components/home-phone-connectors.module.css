@@ -823,14 +823,20 @@
   }
 }
 
-/* ---- App Store link ------------------------------------------------------ */
+/* ---- Mobile app downloads ----------------------------------------------- */
 /* Same voice as `.button--download` (Cormorant italic, glow wash, quiet
-   border) but shaped like a store badge: Apple mark + two-line label. */
+   border) but shaped like store badges: platform mark + two-line label. */
+.storeLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.6rem;
+}
+
 .storeLink {
   display: inline-flex;
   align-items: center;
   gap: 0.7rem;
-  margin-top: 1.6rem;
   padding: 0.55rem 1.25rem 0.55rem 0.95rem;
   border: 1px solid var(--page-border);
   border-radius: 0.45rem;
@@ -843,13 +849,30 @@
   color: var(--page-accent);
   text-decoration: none;
   transition:
+    box-shadow 150ms ease,
     border-color 150ms ease,
+    opacity 150ms ease,
     transform 150ms ease;
 }
 
 .storeLink:hover {
   border-color: var(--page-border-strong);
   transform: translateY(-1px);
+}
+
+.storeLink[data-preferred] {
+  order: -1;
+  border-color: var(--page-border-strong);
+  box-shadow: 0 0.65rem 1.6rem rgba(44, 69, 104, 0.1);
+}
+
+.storeLink[data-secondary] {
+  opacity: 0.62;
+}
+
+.storeLink[data-secondary]:hover,
+.storeLink[data-secondary]:focus-visible {
+  opacity: 1;
 }
 
 .storeLink:focus-visible {
@@ -887,6 +910,152 @@
   letter-spacing: -0.005em;
 }
 
+/* Desktop download dialog. It is portaled to the body so reveal transforms
+   on the homepage section cannot change the fixed-position containing block. */
+.qrBackdrop {
+  position: fixed;
+  z-index: 2000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(12, 27, 51, 0.34);
+  backdrop-filter: blur(10px);
+  animation: qrBackdropIn 180ms ease both;
+}
+
+.qrModal {
+  position: relative;
+  width: min(25rem, 100%);
+  padding: 2.25rem 2rem 1.8rem;
+  overflow: hidden;
+  border: 1px solid var(--page-border-strong);
+  border-radius: 0.8rem;
+  background:
+    radial-gradient(circle at 12% 4%, var(--page-glow-cyan), transparent 30%),
+    radial-gradient(circle at 88% 0%, var(--page-glow-blue), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.28)),
+    var(--page-background);
+  box-shadow: 0 2rem 5rem rgba(12, 27, 51, 0.2);
+  color: var(--page-accent);
+  text-align: center;
+  animation: qrModalIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.qrClose {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--atlas-muted, var(--page-muted));
+  font: inherit;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.qrClose:hover {
+  border-color: var(--page-border);
+  background: rgba(255, 255, 255, 0.48);
+  color: var(--page-accent);
+}
+
+.qrClose:focus-visible,
+.qrFallbackLink:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: 2px;
+}
+
+.qrStoreMark {
+  display: inline-grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border: 1px solid var(--page-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.qrStoreMark svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  opacity: 0.82;
+}
+
+.qrKicker {
+  margin: 1rem 0 0;
+  color: var(--atlas-muted, var(--page-muted));
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.qrModal h3 {
+  margin: 0.3rem 0 0;
+  font-family: var(--font-display), "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.8rem, 6vw, 2.25rem);
+  font-style: italic;
+  font-weight: 300;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.qrDescription {
+  max-width: 18rem;
+  margin: 0.7rem auto 1.25rem;
+  color: var(--atlas-muted, var(--page-muted));
+  font-size: 0.88rem;
+  font-weight: 300;
+  line-height: 1.5;
+}
+
+.qrCode {
+  display: inline-flex;
+  padding: 0.85rem;
+  border: 1px solid var(--page-border);
+  border-radius: 0.6rem;
+  background: #fffdf8;
+  box-shadow: 0 0.7rem 2rem rgba(44, 69, 104, 0.08);
+}
+
+.qrCode img {
+  display: block;
+  width: min(12.25rem, 54vw);
+  height: auto;
+}
+
+.qrFallbackLink {
+  display: block;
+  width: fit-content;
+  margin: 1.15rem auto 0;
+  color: var(--atlas-muted, var(--page-muted));
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.qrFallbackLink:hover {
+  color: var(--page-accent);
+}
+
+@keyframes qrBackdropIn {
+  from { opacity: 0; }
+}
+
+@keyframes qrModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
 /* ---- Responsive -------------------------------------------------------- */
 @media (max-width: 900px) {
   .stage {
@@ -922,6 +1091,11 @@
   .storeLink:hover {
     transition: none;
     transform: none;
+  }
+
+  .qrBackdrop,
+  .qrModal {
+    animation: none;
   }
 
   .pill[data-active]::after {

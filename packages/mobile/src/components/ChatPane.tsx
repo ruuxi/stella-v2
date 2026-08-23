@@ -1354,9 +1354,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   onOpenArtifact,
   onOpenStellaFile,
   onOpenMessageMenu,
-  onStartSelecting,
   onEndSelecting,
-  onAskStella,
   onOpenAgentActivity,
   desktopAccess,
 }: {
@@ -1375,12 +1373,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   /** Opens a tapped `stella://file/...` markdown link in the file viewer. */
   onOpenStellaFile?: (path: string) => void;
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
-  /** Enters native text-selection mode for this row's id. */
-  onStartSelecting: (id: string) => void;
   /** Leaves native text-selection mode for this row. */
   onEndSelecting: () => void;
-  /** Puts a selected assistant snippet into the composer ("Ask Stella"). */
-  onAskStella: (text: string) => void;
   /** Opens the activity hub — the tap-through target for agent rows. */
   onOpenAgentActivity?: () => void;
   desktopAccess?: StoredPhoneAccess | null;
@@ -1597,52 +1591,28 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // bridge text offsets still describe event chronology, but must never become
   // character-level insertion points that split prose (or markdown) in two.
   const groupAgentWorkArtifacts = agentWorkArtifacts;
-  const renderAssistantMarkdown = (text: string) => (
-    // Press-and-hold a finished reply to enter native text selection —
-    // like holding text anywhere on the phone. Assistant messages never
-    // open the context menu (that's user-message only). The wrapping View
-    // in `AssistantMarkdown` lets this parent Pressable win the long-press
-    // while taps still reach inline links; code blocks keep their own
-    // native selection.
-    <Pressable
-      onLongPress={
-        isStreaming
-          ? undefined
-          : () => {
-              tapLight();
-              onStartSelecting(item.id);
-            }
-      }
-      // While another message is selecting, a tap here exits selection
-      // (taps otherwise pass through to inline links via the inner View).
-      onPress={anySelecting ? onEndSelecting : undefined}
-      delayLongPress={350}
-      accessibilityLabel="Press and hold to select this message"
-    >
+  const renderAssistantMarkdown = (text: string) => {
+    const markdown = (
       <AssistantMarkdown
         text={text}
         colors={colors}
         isStreaming={isStreaming}
+        selectable={!isStreaming}
         onStellaFileLink={onOpenStellaFile}
       />
-    </Pressable>
-  );
+    );
+    // Keep the rendered text itself as the selection surface. A wrapper only
+    // exists while a user-message selection is active so tapping away retains
+    // that existing dismiss behavior without competing with markdown gestures.
+    return anySelecting ? (
+      <Pressable onPress={onEndSelecting}>{markdown}</Pressable>
+    ) : (
+      markdown
+    );
+  };
   return (
     <View style={styles.assistantRow}>
-      {hasText ? (
-        isSelecting && !isStreaming ? (
-          // "Select text" mode: native text selection with a custom
-          // Copy / Ask Stella / Select All row, reached from the action menu.
-          <AssistantTextSelection
-            text={item.text}
-            colors={colors}
-            onAskStella={onAskStella}
-            onDismiss={onEndSelecting}
-          />
-        ) : (
-          renderAssistantMarkdown(item.text)
-        )
-      ) : null}
+      {hasText ? renderAssistantMarkdown(item.text) : null}
       {toolActivity ? (
         <ToolActivityTrace group={toolActivity} colors={colors} />
       ) : null}
@@ -3802,30 +3772,6 @@ export function ChatPane({
     }
   }, [streamingAssistantId, scroll.clearStreamingAssistantLayout]);
 
-  // "Ask Stella" from an assistant text selection: drop the snippet into the
-  // composer (appended to any existing draft) and focus it. `draftRef` keeps
-  // this stable so rows don't re-render as the draft changes.
-  const askStella = useCallback(
-    (selected: string) => {
-      const snippet = selected.trim();
-      if (!snippet) return;
-      // Drop the selection into the composer as a removable quote chip (so the
-      // input isn't stuffed with the paragraph), then focus so the user can type
-      // their question. Falls back to inline draft text if the surface didn't
-      // wire quote state.
-      if (onAddQuote) {
-        onAddQuote(snippet);
-      } else {
-        const current = draftRef.current;
-        onChangeDraft(
-          current.trim() ? `${current.trimEnd()} ${snippet}` : snippet,
-        );
-      }
-      setTimeout(() => inputRef.current?.focus(), 0);
-    },
-    [onAddQuote, onChangeDraft],
-  );
-
   const activeMenuMessageId = messageMenu?.message.id ?? null;
   // Tapped `stella://file/<path>` links in assistant markdown resolve into
   // the same artifact shape inline cards carry, then open the same viewer.
@@ -3868,9 +3814,7 @@ export function ChatPane({
             onOpenArtifact={onOpenArtifact}
             onOpenStellaFile={onOpenStellaFile}
             onOpenMessageMenu={setMessageMenu}
-            onStartSelecting={startSelectingMessage}
             onEndSelecting={stopSelectingMessage}
-            onAskStella={askStella}
             onOpenAgentActivity={onOpenActivityHub}
             desktopAccess={realtimeVoiceDesktopAccess}
           />
@@ -3882,7 +3826,6 @@ export function ChatPane({
       colors,
       onOpenArtifact,
       onOpenStellaFile,
-      askStella,
       latestUserMessageId,
       scroll.onLatestUserLayout,
       scroll.onStreamingAssistantLayout,

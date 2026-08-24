@@ -945,6 +945,81 @@ describe("subscribeRuntimeAgentEvents", () => {
     );
   });
 
+  it("persists a complete orchestrator tool group in one atomic batch", () => {
+    const listeners = new Set<(event: AgentEvent) => void>();
+    const appendThreadMessages = vi.fn();
+    const appendThreadMessage = vi.fn();
+    const agent = {
+      state: { messages: [] },
+      subscribe: (listener: (event: AgentEvent) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const assistant = {
+      ...createToolCallMessage("first"),
+      content: [
+        { type: "toolCall" as const, id: "call-first", name: "first", arguments: {} },
+        { type: "toolCall" as const, id: "call-second", name: "second", arguments: {} },
+      ],
+    };
+    const toolResults = [
+      {
+        role: "toolResult" as const,
+        toolCallId: "call-first",
+        toolName: "first",
+        content: [{ type: "text" as const, text: "first result" }],
+        details: {},
+        isError: false,
+        timestamp: 2,
+      },
+      {
+        role: "toolResult" as const,
+        toolCallId: "call-second",
+        toolName: "second",
+        content: [{ type: "text" as const, text: "second result" }],
+        details: {},
+        isError: false,
+        timestamp: 3,
+      },
+    ];
+
+    subscribeRuntimeAgentEvents({
+      agent,
+      runId: "run-atomic-group",
+      agentType: AGENT_IDS.ORCHESTRATOR,
+      recorder: createRunEventRecorder({
+        store: { recordRunEvent: vi.fn() } as never,
+        runId: "run-atomic-group",
+        conversationId: "conversation-atomic-group",
+        agentType: AGENT_IDS.ORCHESTRATOR,
+        userMessageId: "user-atomic-group",
+      }),
+      threadStore: { appendThreadMessage, appendThreadMessages } as never,
+      threadKey: "thread-atomic-group",
+    });
+
+    for (const listener of listeners) {
+      listener({ type: "message_end", message: assistant });
+      for (const result of toolResults) {
+        listener({ type: "message_end", message: result });
+      }
+    }
+    expect(appendThreadMessage).not.toHaveBeenCalled();
+    expect(appendThreadMessages).not.toHaveBeenCalled();
+
+    for (const listener of listeners) {
+      listener({ type: "turn_end", message: assistant, toolResults });
+    }
+    expect(appendThreadMessages).toHaveBeenCalledOnce();
+    expect(appendThreadMessages.mock.calls[0]?.[0]).toHaveLength(3);
+    expect(
+      appendThreadMessages.mock.calls[0]?.[0].map(
+        (message: { payload: { role: string } }) => message.payload.role,
+      ),
+    ).toEqual(["assistant", "toolResult", "toolResult"]);
+  });
+
   it("routes provider thinking_delta to onReasoning (NOT onStream) and skips thinking_end", () => {
     // Reasoning deltas feed the per-agent reasoning UI, not the visible chat stream.
     let listener: ((event: AgentEvent) => void) | undefined;

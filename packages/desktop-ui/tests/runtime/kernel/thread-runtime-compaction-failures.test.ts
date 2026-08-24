@@ -247,6 +247,546 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(compactCalls[0]).toMatchObject({ summary: SUMMARY_TEXT });
   });
 
+  it("does not summarize persisted failed provider attempts", async () => {
+    const messages = buildBigThreadMessages();
+    messages[45] = {
+      ...messages[45],
+      content: "FAILED_ATTEMPT_MUST_NOT_REPLAY",
+      payload: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "FAILED_ATTEMPT_MUST_NOT_REPLAY" },
+        ],
+        stopReason: "error",
+      },
+    };
+    messages[46] = {
+      ...messages[46],
+      content: "EMPTY_RETRY_ATTEMPT_MUST_NOT_REPLAY",
+      payload: {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "EMPTY_RETRY_ATTEMPT_MUST_NOT_REPLAY",
+          },
+        ],
+        stopReason: "stop",
+      },
+    };
+    const { store } = createFakeStore(messages);
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "failed-attempt-filter",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    const context = completeSimpleMock.mock.calls[0]![1] as {
+      messages: Array<{ content: Array<{ text: string }> }>;
+    };
+    expect(context.messages[0]!.content[0]!.text).not.toContain(
+      "FAILED_ATTEMPT_MUST_NOT_REPLAY",
+    );
+    expect(context.messages[0]!.content[0]!.text).not.toContain(
+      "EMPTY_RETRY_ATTEMPT_MUST_NOT_REPLAY",
+    );
+  });
+
+  it("masks quarantined tool content and discards a suspect prior checkpoint", async () => {
+    const rawMessages: Array<Record<string, unknown>> = buildBigThreadMessages();
+    const messages = [...rawMessages];
+    messages[44] = {
+      ...messages[44],
+      role: "assistant",
+      content: formatThreadCheckpointMessage({
+        summary: "OLD_CHECKPOINT_SUSPECT_MUST_NOT_REPLAY",
+      }),
+    };
+    messages[45] = {
+      ...messages[45],
+      timestamp: 2_045,
+      role: "toolResult",
+      content: "QUARANTINED_RAW_CONTENT_MUST_NOT_REPLAY",
+      toolCallId: "call-suspect",
+      payload: {
+        role: "toolResult",
+        toolCallId: "call-suspect",
+        toolName: "Read",
+        content: [
+          { type: "text", text: "QUARANTINED_RAW_CONTENT_MUST_NOT_REPLAY" },
+        ],
+        isError: false,
+        timestamp: 2_045,
+      },
+    };
+    messages[46] = {
+      ...messages[46],
+      timestamp: 2_046,
+      role: "runtimeInternal",
+      content: "quarantine record",
+      customMessage: {
+        customType: "containment.quarantine",
+        content: JSON.stringify({
+          key: "2045:call-suspect",
+          toolName: "Read",
+          timestamp: 2_045,
+        }),
+        display: false,
+      },
+    };
+    rawMessages[45] = messages[45]!;
+    rawMessages[46] = messages[46]!;
+    messages.splice(45, 1);
+    const { store, compactCalls } = createFakeStore(messages);
+    (store as RuntimeStore & {
+      loadRawThreadMessages: () => Array<Record<string, unknown>>;
+    }).loadRawThreadMessages = () => rawMessages;
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "quarantine-summary-filter",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "orchestrator",
+      overrideSummary: "HOOK_SUMMARY_SUSPECT_MUST_NOT_REPLAY",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    const prompt = completeSimpleMock.mock.calls
+      .map(
+        (call) =>
+          (call[1] as { messages: Array<{ content: Array<{ text: string }> }> })
+            .messages[0]!.content[0]!.text,
+      )
+      .join("\n");
+    expect(prompt).toContain("[content quarantined: triggered provider abort]");
+    expect(prompt).not.toContain("QUARANTINED_RAW_CONTENT_MUST_NOT_REPLAY");
+    expect(prompt).not.toContain("OLD_CHECKPOINT_SUSPECT_MUST_NOT_REPLAY");
+    expect(prompt).not.toContain("quarantine record");
+    expect(compactCalls[0]).toMatchObject({ summary: SUMMARY_TEXT });
+    expect(compactCalls[0]).not.toMatchObject({
+      summary: "HOOK_SUMMARY_SUSPECT_MUST_NOT_REPLAY",
+    });
+  });
+
+  it("keeps a prior checkpoint when its quarantined result remains in the tail", async () => {
+    const messages: Array<Record<string, unknown>> = buildBigThreadMessages();
+    messages[44] = {
+      ...messages[44],
+      role: "assistant",
+      content: formatThreadCheckpointMessage({
+        summary: "SAFE_PRIOR_CHECKPOINT_MUST_SURVIVE",
+      }),
+    };
+    messages[45] = {
+      ...messages[45],
+      timestamp: 2_045,
+      role: "toolResult",
+      content: "QUARANTINED_TAIL_CONTENT_MUST_NOT_REPLAY",
+      toolCallId: "call-tail",
+      payload: {
+        role: "toolResult",
+        toolCallId: "call-tail",
+        toolName: "Read",
+        content: [
+          { type: "text", text: "QUARANTINED_TAIL_CONTENT_MUST_NOT_REPLAY" },
+        ],
+        isError: false,
+        timestamp: 2_045,
+      },
+    };
+    messages[46] = {
+      ...messages[46],
+      timestamp: 2_046,
+      role: "runtimeInternal",
+      content: "quarantine record",
+      customMessage: {
+        customType: "containment.quarantine",
+        content: JSON.stringify({
+          key: "2045:call-tail",
+          toolName: "Read",
+          timestamp: 2_045,
+        }),
+        display: false,
+      },
+    };
+    const { store } = createFakeStore(messages);
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "quarantine-safe-checkpoint",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    const context = completeSimpleMock.mock.calls[0]![1] as {
+      messages: Array<{ content: Array<{ text: string }> }>;
+    };
+    const prompt = context.messages[0]!.content[0]!.text;
+    expect(prompt).toContain("SAFE_PRIOR_CHECKPOINT_MUST_SURVIVE");
+    expect(prompt).toContain("[content quarantined: triggered provider abort]");
+    expect(prompt).not.toContain("QUARANTINED_TAIL_CONTENT_MUST_NOT_REPLAY");
+  });
+
+  it("does not publish a summary when quarantine engages during generation", async () => {
+    const messages: Array<Record<string, unknown>> = buildBigThreadMessages();
+    messages[45] = {
+      ...messages[45],
+      timestamp: 2_045,
+      role: "toolResult",
+      content: "RESULT_QUARANTINED_WHILE_SUMMARIZING",
+      toolCallId: "call-race",
+      payload: {
+        role: "toolResult",
+        toolCallId: "call-race",
+        toolName: "Read",
+        content: [{ type: "text", text: "RESULT_QUARANTINED_WHILE_SUMMARIZING" }],
+        isError: false,
+        timestamp: 2_045,
+      },
+    };
+    let currentMessages = messages;
+    const compactCalls: Array<Record<string, unknown>> = [];
+    const store = {
+      loadThreadMessages: () => currentMessages,
+      compactThread: (args: Record<string, unknown>) => compactCalls.push(args),
+      updateThreadSummary: () => undefined,
+    } as unknown as RuntimeStore;
+    completeSimpleMock.mockImplementationOnce(async () => {
+      currentMessages = [
+        ...messages,
+        {
+          entryId: "late-quarantine",
+          timestamp: 2_100,
+          role: "runtimeInternal",
+          content: "quarantine record",
+          customMessage: {
+            customType: "containment.quarantine",
+            content: JSON.stringify({
+              key: "2045:call-race",
+              toolName: "Read",
+              timestamp: 2_045,
+            }),
+            display: false,
+          },
+        },
+      ];
+      return successResponse();
+    });
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "quarantine-generation-race",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: false });
+    expect(compactCalls).toHaveLength(0);
+  });
+
+  it("rebuilds a suspect checkpoint from raw history without dropping safe context", async () => {
+    const rawMessages: Array<Record<string, unknown>> = buildFittingThreadMessages();
+    rawMessages[2] = {
+      ...rawMessages[2],
+      content: "SAFE_PRECHECKPOINT_HISTORY_MUST_SURVIVE",
+    };
+    rawMessages[4] = {
+      ...rawMessages[4],
+      timestamp: 2_004,
+      role: "assistant",
+      content: "",
+      payload: {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "call-suspect", name: "Read", arguments: {} },
+        ],
+        stopReason: "toolUse",
+        timestamp: 2_004,
+      },
+    };
+    rawMessages[5] = {
+      ...rawMessages[5],
+      timestamp: 2_005,
+      role: "toolResult",
+      content: "RAW_SUSPECT_MUST_BE_MASKED",
+      toolCallId: "call-suspect",
+      payload: {
+        role: "toolResult",
+        toolCallId: "call-suspect",
+        toolName: "Read",
+        content: [{ type: "text", text: "RAW_SUSPECT_MUST_BE_MASKED" }],
+        isError: false,
+        timestamp: 2_005,
+      },
+    };
+    rawMessages[6] = {
+      ...rawMessages[6],
+      timestamp: 2_006,
+      role: "runtimeInternal",
+      content: "quarantine record",
+      customMessage: {
+        customType: "containment.quarantine",
+        content: JSON.stringify({
+          key: "2005:call-suspect",
+          toolName: "Read",
+          timestamp: 2_005,
+        }),
+        display: false,
+      },
+    };
+    rawMessages[7] = { ...rawMessages[7], timestamp: 2_007 };
+    const effectiveMessages = [
+      {
+        entryId: "old-checkpoint",
+        timestamp: 1_500,
+        role: "assistant",
+        content: formatThreadCheckpointMessage({
+          summary: "OLD_CHECKPOINT_SUSPECT_MUST_NOT_REPLAY",
+        }),
+      },
+      // The effective checkpoint covered both the suspect result and its
+      // machine-readable quarantine row. The append-only view must still drive
+      // quarantine discovery after restart.
+      ...rawMessages.slice(7),
+    ];
+    const compactCalls: Array<Record<string, unknown>> = [];
+    const loadRawThreadMessages = vi.fn(() => rawMessages);
+    const store = {
+      loadThreadMessages: () => effectiveMessages,
+      loadRawThreadMessages,
+      compactThread: (args: Record<string, unknown>) => compactCalls.push(args),
+      updateThreadSummary: () => undefined,
+    } as unknown as RuntimeStore;
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "quarantine-raw-rebuild",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    expect(loadRawThreadMessages).toHaveBeenCalledWith("quarantine-raw-rebuild");
+    expect(compactCalls[0]).toMatchObject({ fromEntryId: "entry-1" });
+    const context = completeSimpleMock.mock.calls[0]![1] as {
+      messages: Array<{ content: Array<{ text: string }> }>;
+    };
+    const prompt = context.messages[0]!.content[0]!.text;
+    expect(prompt).toContain("SAFE_PRECHECKPOINT_HISTORY_MUST_SURVIVE");
+    expect(prompt).toContain("[content quarantined: triggered provider abort]");
+    expect(prompt).not.toContain("RAW_SUSPECT_MUST_BE_MASKED");
+    expect(prompt).not.toContain("OLD_CHECKPOINT_SUSPECT_MUST_NOT_REPLAY");
+  });
+
+  it("rebuilds an oversized suspect checkpoint in masked chunks without eliding old safe history", async () => {
+    const rawMessages: Array<Record<string, unknown>> = buildBigThreadMessages();
+    rawMessages[2] = {
+      ...rawMessages[2],
+      content: "SAFE_OLD_HISTORY_MUST_REACH_THE_REBUILT_CHECKPOINT",
+    };
+    rawMessages[44] = {
+      ...rawMessages[44],
+      timestamp: 2_044,
+      role: "assistant",
+      content: "",
+      payload: {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "call-chunked", name: "Read", arguments: {} },
+        ],
+        stopReason: "toolUse",
+        timestamp: 2_044,
+      },
+    };
+    rawMessages[45] = {
+      ...rawMessages[45],
+      timestamp: 2_045,
+      role: "toolResult",
+      content: "CHUNKED_RAW_SUSPECT_MUST_BE_MASKED",
+      toolCallId: "call-chunked",
+      payload: {
+        role: "toolResult",
+        toolCallId: "call-chunked",
+        toolName: "Read",
+        content: [
+          { type: "text", text: "CHUNKED_RAW_SUSPECT_MUST_BE_MASKED" },
+        ],
+        isError: false,
+        timestamp: 2_045,
+      },
+    };
+    rawMessages[46] = {
+      ...rawMessages[46],
+      timestamp: 2_046,
+      role: "runtimeInternal",
+      content: "quarantine record",
+      customMessage: {
+        customType: "containment.quarantine",
+        content: JSON.stringify({
+          key: "2045:call-chunked",
+          toolName: "Read",
+          timestamp: 2_045,
+        }),
+        display: false,
+      },
+    };
+    const effectiveMessages = [
+      {
+        entryId: "old-checkpoint",
+        timestamp: 1_500,
+        role: "assistant",
+        content: formatThreadCheckpointMessage({
+          summary: "CHUNKED_OLD_CHECKPOINT_MUST_NOT_REPLAY",
+        }),
+      },
+      ...rawMessages.slice(47),
+    ];
+    const compactCalls: Array<Record<string, unknown>> = [];
+    const store = {
+      loadThreadMessages: () => effectiveMessages,
+      loadRawThreadMessages: () => rawMessages,
+      compactThread: (args: Record<string, unknown>) => compactCalls.push(args),
+      updateThreadSummary: () => undefined,
+    } as unknown as RuntimeStore;
+    completeSimpleMock.mockImplementation(
+      (_model: unknown, context: { messages: Array<{ content: Array<{ text: string }> }> }) => {
+        const prompt = context.messages[0]!.content[0]!.text;
+        const safeHistory = prompt.includes(
+          "SAFE_OLD_HISTORY_MUST_REACH_THE_REBUILT_CHECKPOINT",
+        )
+          ? " SAFE_OLD_HISTORY_MUST_REACH_THE_REBUILT_CHECKPOINT"
+          : "";
+        return {
+          content: [{ type: "text", text: `${SUMMARY_TEXT}${safeHistory}` }],
+          stopReason: "stop",
+        };
+      },
+    );
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: "quarantine-chunked-raw-rebuild",
+      resolvedLlm: createRoute(async () => "auth-token"),
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: true });
+    expect(completeSimpleMock.mock.calls.length).toBeGreaterThan(1);
+    const prompts = completeSimpleMock.mock.calls.map(
+      (call) =>
+        (call[1] as { messages: Array<{ content: Array<{ text: string }> }> })
+          .messages[0]!.content[0]!.text,
+    );
+    expect(prompts.join("\n")).toContain(
+      "SAFE_OLD_HISTORY_MUST_REACH_THE_REBUILT_CHECKPOINT",
+    );
+    expect(prompts.join("\n")).toContain(
+      "[content quarantined: triggered provider abort]",
+    );
+    expect(prompts.join("\n")).not.toContain("[Compaction input truncated");
+    expect(prompts.join("\n")).not.toContain(
+      "CHUNKED_RAW_SUSPECT_MUST_BE_MASKED",
+    );
+    expect(prompts.join("\n")).not.toContain(
+      "CHUNKED_OLD_CHECKPOINT_MUST_NOT_REPLAY",
+    );
+    expect(compactCalls[0]!.summary).toContain(
+      "SAFE_OLD_HISTORY_MUST_REACH_THE_REBUILT_CHECKPOINT",
+    );
+    expect(compactCalls[0]!.details).toMatchObject({
+      quarantinedToolResultKeys: ["2045:call-chunked"],
+    });
+  });
+
+  it("reuses a rebuilt checkpoint whose internal metadata proves quarantine masking", async () => {
+    const rawMessages: Array<Record<string, unknown>> = buildBigThreadMessages();
+    rawMessages[2] = {
+      ...rawMessages[2],
+      content: "RAW_HISTORY_MUST_NOT_BE_REBUILT_AGAIN",
+    };
+    rawMessages[44] = {
+      ...rawMessages[44],
+      timestamp: 2_044,
+      role: "toolResult",
+      content: "ALREADY_MASKED_SUSPECT",
+      toolCallId: "call-covered",
+      payload: {
+        role: "toolResult",
+        toolCallId: "call-covered",
+        toolName: "Read",
+        content: [{ type: "text", text: "ALREADY_MASKED_SUSPECT" }],
+        isError: false,
+        timestamp: 2_044,
+      },
+    };
+    rawMessages[45] = {
+      ...rawMessages[45],
+      timestamp: 2_045,
+      role: "runtimeInternal",
+      content: "quarantine record",
+      customMessage: {
+        customType: "containment.quarantine",
+        content: JSON.stringify({
+          key: "2044:call-covered",
+          toolName: "Read",
+          timestamp: 2_044,
+        }),
+        display: false,
+      },
+    };
+    const effectiveMessages = [
+      {
+        entryId: "safe-checkpoint",
+        timestamp: 2_100,
+        role: "assistant",
+        content: formatThreadCheckpointMessage({
+          summary: "SAFE_REBUILT_CHECKPOINT",
+        }),
+        checkpointQuarantineKeys: ["2044:call-covered"],
+      },
+      ...rawMessages.slice(46),
+    ];
+    const compactCalls: Array<Record<string, unknown>> = [];
+    const store = {
+      loadThreadMessages: () => effectiveMessages,
+      loadRawThreadMessages: () => rawMessages,
+      compactThread: (args: Record<string, unknown>) => compactCalls.push(args),
+      updateThreadSummary: () => undefined,
+    } as unknown as RuntimeStore;
+    completeSimpleMock.mockResolvedValue(successResponse());
+
+    const result = await withForcedThreadCompaction(
+      "quarantine-safe-checkpoint-reuse",
+      () =>
+        maybeCompactRuntimeThread({
+          store,
+          threadKey: "quarantine-safe-checkpoint-reuse",
+          resolvedLlm: createRoute(async () => "auth-token"),
+          agentType: "orchestrator",
+        }),
+    );
+
+    expect(result).toEqual({ compacted: true });
+    const prompts = completeSimpleMock.mock.calls.map(
+      (call) =>
+        (call[1] as { messages: Array<{ content: Array<{ text: string }> }> })
+          .messages[0]!.content[0]!.text,
+    );
+    expect(prompts.join("\n")).toContain("SAFE_REBUILT_CHECKPOINT");
+    expect(prompts.join("\n")).not.toContain(
+      "RAW_HISTORY_MUST_NOT_BE_REBUILT_AGAIN",
+    );
+    expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+  });
+
   it("caps the request for a small-context target model so compaction still succeeds", async () => {
     // A large live thread compacted against a much smaller-context target
     // (e.g. a forced compaction where no larger-window route is available,

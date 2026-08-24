@@ -661,6 +661,21 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
         FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
       );
     `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_thread_entry_payload_chunks (
+        entry_id TEXT NOT NULL,
+        thread_key TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        chunk_text TEXT NOT NULL,
+        PRIMARY KEY (entry_id, chunk_index),
+        FOREIGN KEY(entry_id) REFERENCES runtime_thread_entries(entry_id) ON DELETE CASCADE,
+        FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
+      );
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entry_payload_chunks_thread
+      ON runtime_thread_entry_payload_chunks(thread_key, entry_id, chunk_index);
+    `);
     try {
       db.exec(
         "ALTER TABLE runtime_thread_entries ADD COLUMN insertion_sequence INTEGER;",

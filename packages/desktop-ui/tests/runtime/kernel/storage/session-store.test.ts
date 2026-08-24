@@ -70,6 +70,103 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
+  it("rolls back an entire assistant/tool group when one SQLite append fails", () => {
+    const { db, store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-atomic-tool-group",
+      agentType: "orchestrator",
+    });
+    const originalAppend = store.appendThreadSessionEntry.bind(store);
+    let appendCount = 0;
+    vi.spyOn(store, "appendThreadSessionEntry").mockImplementation((args) => {
+      appendCount += 1;
+      if (appendCount === 2) {
+        throw new Error("injected SQLite failure");
+      }
+      return originalAppend(args);
+    });
+
+    expect(() =>
+      store.appendThreadMessages([
+        {
+          threadKey: threadId,
+          timestamp: 2_100,
+          role: "assistant",
+          content: "Running two tools",
+          payload: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "A".repeat(6_100_000) },
+              { type: "toolCall", id: "call-a", name: "a", arguments: {} },
+              { type: "toolCall", id: "call-b", name: "b", arguments: {} },
+            ],
+            api: "openai-completions",
+            provider: "openai",
+            model: "test-model",
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0,
+              },
+            },
+            stopReason: "toolUse",
+            timestamp: 2_100,
+          },
+          preservePayloadExactly: true,
+        },
+        {
+          threadKey: threadId,
+          timestamp: 2_101,
+          role: "toolResult",
+          content: "first result",
+          toolCallId: "call-a",
+          payload: {
+            role: "toolResult",
+            toolCallId: "call-a",
+            toolName: "a",
+            content: [{ type: "text", text: "first result" }],
+            isError: false,
+            timestamp: 2_101,
+          },
+          preservePayloadExactly: true,
+        },
+        {
+          threadKey: threadId,
+          timestamp: 2_102,
+          role: "toolResult",
+          content: "second result",
+          toolCallId: "call-b",
+          payload: {
+            role: "toolResult",
+            toolCallId: "call-b",
+            toolName: "b",
+            content: [{ type: "text", text: "second result" }],
+            isError: false,
+            timestamp: 2_102,
+          },
+          preservePayloadExactly: true,
+        },
+      ]),
+    ).toThrow("injected SQLite failure");
+
+    expect(store.loadRawThreadMessages(threadId)).toEqual([]);
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM runtime_thread_entry_payload_chunks",
+        )
+        .get()?.count,
+    ).toBe(0);
+  });
+
   it("migrates v1 append-sequence rows to the canonical insertion sequence", async () => {
     const rootPath = path.join(
       os.tmpdir(),
@@ -2585,6 +2682,16 @@ describe("session-store", () => {
       role: "user",
       content: "Latest request",
     });
+    const rawAfterCompaction = store.loadRawThreadMessages(threadId);
+    expect(rawAfterCompaction).toHaveLength(3);
+    expect(rawAfterCompaction.map((message) => message.content)).toEqual([
+      "First request",
+      "First answer",
+      "Latest request",
+    ]);
+    expect(JSON.stringify(rawAfterCompaction)).not.toContain(
+      "[[THREAD_CHECKPOINT]]",
+    );
 
     const compactionRows = db
       .prepare(
@@ -2817,6 +2924,7 @@ describe("session-store", () => {
         pinnedUserInstruction: {
           text: "Task update: do the other thing",
         },
+        quarantinedToolResultKeys: ["6042:call-suspect"],
       },
     });
 
@@ -2842,6 +2950,10 @@ describe("session-store", () => {
       role: "user",
       content: "Task update: do the other thing",
     });
+    expect(after[1]!.checkpointQuarantineKeys).toEqual([
+      "6042:call-suspect",
+    ]);
+    expect(after[1]!.content).not.toContain("6042:call-suspect");
   });
 
   it("truncates oversized persisted tool results to stay under SQLite row limits", () => {
@@ -2886,6 +2998,144 @@ describe("session-store", () => {
       type: "text",
       text: expect.stringContaining("too large to persist in storage"),
     });
+  });
+
+  it("preserves exact oversized payloads for an evictable working set", () => {
+    const { db, store } = createTestContext();
+    const conversationId = "conv-exact-big-tool-result";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "orchestrator",
+    });
+    const largeOutput = "A".repeat(6_100_000);
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_049,
+      role: "user",
+      content: "old request",
+    });
+    const oldEntryId = store.loadThreadMessages(threadId)[0]?.entryId;
+
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_050,
+      role: "toolResult",
+      content: largeOutput,
+      toolCallId: "tool-call-exact",
+      preservePayloadExactly: true,
+      payload: {
+        role: "toolResult",
+        toolCallId: "tool-call-exact",
+        toolName: "Read",
+        content: [{ type: "text", text: largeOutput }],
+        isError: false,
+        timestamp: 6_050,
+      },
+    });
+
+    const loaded = store.loadThreadMessages(threadId);
+    expect(loaded[1]?.payload).toMatchObject({
+      role: "toolResult",
+      content: [{ type: "text", text: largeOutput }],
+    });
+    expect(oldEntryId).toBeTruthy();
+    store.compactThread({
+      threadKey: threadId,
+      summary: "Old request summary",
+      fromEntryId: oldEntryId,
+      toEntryId: oldEntryId,
+      tokensBefore: 10,
+      timestamp: 6_051,
+    });
+    expect(
+      store
+        .loadThreadMessages(threadId)
+        .find((message) => message.role === "toolResult")?.payload,
+    ).toMatchObject({
+      role: "toolResult",
+      content: [{ type: "text", text: largeOutput }],
+    });
+    const physicalRows = db
+      .prepare(
+        `SELECT length(CAST(data_json AS BLOB)) AS bytes
+         FROM runtime_thread_entries
+         UNION ALL
+         SELECT length(CAST(chunk_text AS BLOB)) AS bytes
+         FROM runtime_thread_entry_payload_chunks`,
+      )
+      .all() as Array<{ bytes: number }>;
+    expect(physicalRows.length).toBeGreaterThan(2);
+    expect(Math.max(...physicalRows.map((row) => row.bytes))).toBeLessThanOrEqual(
+      6_000_000,
+    );
+  });
+
+  it("preserves exact oversized runtime context for an evictable working set", () => {
+    const { db, store } = createTestContext();
+    const conversationId = "conv-exact-big-runtime-context";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "orchestrator",
+    });
+    const largeContext = "C".repeat(6_100_000);
+
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 6_075,
+      customType: "bootstrap.startup_doc",
+      content: largeContext,
+      display: false,
+      preservePayloadExactly: true,
+    });
+
+    expect(store.loadThreadMessages(threadId)[0]?.customMessage).toMatchObject({
+      content: largeContext,
+      customType: "bootstrap.startup_doc",
+    });
+    const chunkRows = db
+      .prepare(
+        `SELECT length(CAST(chunk_text AS BLOB)) AS bytes
+         FROM runtime_thread_entry_payload_chunks
+         ORDER BY chunk_index ASC`,
+      )
+      .all() as Array<{ bytes: number }>;
+    expect(chunkRows.length).toBeGreaterThan(1);
+    expect(Math.max(...chunkRows.map((row) => row.bytes))).toBeLessThanOrEqual(
+      6_000_000,
+    );
+  });
+
+  it("does not split an exact payload surrogate pair across physical chunks", () => {
+    const { store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-exact-surrogate-boundary",
+      agentType: "orchestrator",
+    });
+    const marker = "__SURROGATE_BOUNDARY__";
+    const template = JSON.stringify({
+      customType: "runtime.context_delta.test",
+      content: marker,
+      display: false,
+    });
+    const markerOffset = template.indexOf(marker);
+    expect(markerOffset).toBeGreaterThan(0);
+    const content =
+      "x".repeat(1_000_000 - markerOffset - 1) +
+      "😀" +
+      "y".repeat(5_100_000);
+
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 6_075,
+      customType: "runtime.context_delta.test",
+      content,
+      display: false,
+      preservePayloadExactly: true,
+    });
+
+    expect(store.loadThreadMessages(threadId)[0]?.customMessage?.content).toBe(
+      content,
+    );
   });
 
   it("reconstructs explicit legacy tool errors without changing successful rows", () => {

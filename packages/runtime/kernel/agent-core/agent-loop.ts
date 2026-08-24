@@ -127,10 +127,10 @@ export async function runAgentLoop(
 	streamFn?: StreamFn,
 ): Promise<AgentMessage[]> {
 	const newMessages: AgentMessage[] = [...prompts];
-	const currentContext: AgentContext = {
-		...context,
-		messages: [...context.messages, ...prompts],
-	};
+	// Reuse the caller's context object so a later boundary replacement releases
+	// its pre-compaction history reference during a normal prompt run too.
+	const currentContext = context;
+	currentContext.messages = [...currentContext.messages, ...prompts];
 
 	await emit({ type: "agent_start" });
 	await emit({ type: "turn_start" });
@@ -159,7 +159,9 @@ export async function runAgentLoopContinue(
 	}
 
 	const newMessages: AgentMessage[] = [];
-	const currentContext: AgentContext = { ...context };
+	// Keep one context object so a boundary replacement also releases the
+	// caller's reference to the pre-compaction message array.
+	const currentContext = context;
 
 	await emit({ type: "agent_start" });
 	await emit({ type: "turn_start" });
@@ -188,6 +190,27 @@ async function runLoop(
 ): Promise<void> {
 	let firstTurn = true;
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
+	let completedTurnMessages: AgentMessage[] = [];
+
+	const refreshAtTurnBoundary = async (
+		nextMessages: AgentMessage[] = pendingMessages,
+	): Promise<void> => {
+		if (!config.onTurnBoundary || completedTurnMessages.length === 0) return;
+		const replacement = await config.onTurnBoundary(
+			{
+				context: currentContext,
+				completedMessages: completedTurnMessages.slice(),
+				pendingMessages: nextMessages.slice(),
+			},
+			signal,
+		);
+		completedTurnMessages = [];
+		if (!replacement) return;
+		currentContext.messages = replacement.slice();
+		// The replacement durably represents everything completed before this
+		// boundary, so do not retain those messages in the loop result as well.
+		newMessages.length = 0;
+	};
 
 	while (true) {
 		let hasMoreToolCalls = true;
@@ -233,6 +256,7 @@ async function runLoop(
 					newMessages.push(result);
 				}
 			}
+			completedTurnMessages = [message, ...toolResults];
 
 			await emit({ type: "turn_end", message, toolResults });
 
@@ -242,10 +266,15 @@ async function runLoop(
 			} else {
 				pendingMessages = (await config.getSteeringMessages?.()) || [];
 			}
+
+			if (hasMoreToolCalls || pendingMessages.length > 0) {
+				await refreshAtTurnBoundary();
+			}
 		}
 
 		const followUpMessages = (await config.getFollowUpMessages?.()) || [];
 		if (followUpMessages.length > 0) {
+			await refreshAtTurnBoundary(followUpMessages);
 			pendingMessages = followUpMessages;
 			continue;
 		}
@@ -267,12 +296,25 @@ async function streamAssistantResponse(
 	emit: AgentEventSink,
 	streamFn?: StreamFn,
 ): Promise<AssistantMessage> {
+	const throwIfAbortedBeforeDispatch = (): void => {
+		if (!signal?.aborted) return;
+		if (signal.reason instanceof Error) throw signal.reason;
+		const error = new Error(
+			typeof signal.reason === "string" ? signal.reason : "Operation aborted before provider dispatch",
+		);
+		error.name = "AbortError";
+		throw error;
+	};
+
+	throwIfAbortedBeforeDispatch();
 	let messages = context.messages;
 	if (config.transformContext) {
 		messages = await config.transformContext(messages, signal);
+		throwIfAbortedBeforeDispatch();
 	}
 
 	const llmMessages = await config.convertToLlm(messages);
+	throwIfAbortedBeforeDispatch();
 
 	const llmContext: Context = {
 		systemPrompt: context.systemPrompt,
@@ -283,6 +325,7 @@ async function streamAssistantResponse(
 	const streamFunction = streamFn || streamSimple;
 	const resolvedApiKey =
 		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
+	throwIfAbortedBeforeDispatch();
 
 	// Intentionally do NOT inject a `maxTokens` cap here. Setting a
 	// hard cap truncates mid-sentence / mid-tool-call when hit, and
@@ -342,7 +385,6 @@ async function streamAssistantResponse(
 				context.messages.push(next);
 				await emit({ type: "message_start", message: { ...next } });
 			}
-			await emit({ type: "message_end", message: next });
 			finalMessage = next;
 			return next;
 		};
@@ -398,8 +440,21 @@ async function streamAssistantResponse(
 		if (context.messages[context.messages.length - 1] === finalMessage) {
 			context.messages.pop();
 		}
+		// Close and durably classify the discarded attempt as non-replayable
+		// before retrying. Persistence and compaction filter error assistants, so
+		// this diagnostic row cannot return through a later SQLite page-in.
+		await emit({
+			type: "message_end",
+			message: {
+				...finalMessage,
+				stopReason: "error",
+				errorMessage: "Provider returned no usable assistant output; retrying once.",
+			},
+		});
 		finalMessage = (await runOnce()).message;
 	}
+
+	await emit({ type: "message_end", message: finalMessage });
 
 	return finalMessage;
 }

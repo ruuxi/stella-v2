@@ -33,7 +33,7 @@
  */
 import crypto from "crypto";
 import { finalizeOrchestratorError, finalizeOrchestratorInterrupted, finalizeOrchestratorSuccess, markOrchestratorErrorReported, resolveInterruptionReason, } from "./run-completion.js";
-import { executeRuntimeAgentPrompt } from "./run-execution.js";
+import { executeRuntimeAgentPrompt, isDurablyPersistedRuntimePromptInput, } from "./run-execution.js";
 import { executeWithContextOverflowRecovery } from "./context-overflow-recovery.js";
 import { enrichImageContentForTextOnlyModel } from "./image-description.js";
 import { buildRuntimeSystemPrompt } from "./run-preparation.js";
@@ -55,6 +55,35 @@ import { createPiTools } from "./tool-adapters.js";
  */
 const ORCHESTRATOR_SESSION_RUN_ID = "session";
 const ORCHESTRATOR_AGENT_IDLE_EVICTION_MS = 5 * 60 * 1000;
+const runtimeInternalText = (message) => Array.isArray(message.content)
+    ? message.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("\n")
+    : message.content;
+const removeTransientRuntimePromptInputs = (agent, inputs, messagesBefore) => {
+    const remaining = inputs
+        .filter((input) => input.messageType === "message" &&
+        !isDurablyPersistedRuntimePromptInput(input))
+        .map((input) => ({ customType: input.customType, text: input.text }));
+    if (remaining.length === 0)
+        return false;
+    const messages = agent.state.messages;
+    const nextMessages = messages.filter((message, index) => {
+        if (index < messagesBefore || message.role !== "runtimeInternal")
+            return true;
+        const matchIndex = remaining.findIndex((input) => input.customType === message.customType &&
+            input.text === runtimeInternalText(message));
+        if (matchIndex < 0)
+            return true;
+        remaining.splice(matchIndex, 1);
+        return false;
+    });
+    if (nextMessages.length === messages.length)
+        return false;
+    agent.replaceMessages(nextMessages);
+    return true;
+};
 export class OrchestratorSession extends PiSessionCore {
     conversationId;
     idleEvictionTimer = null;
@@ -74,12 +103,15 @@ export class OrchestratorSession extends PiSessionCore {
      */
     currentRetryStatusContext = null;
     currentImageDescriptionContext = null;
+    /** Per-run data read by the long-lived Agent's quiescent-boundary hook. */
+    currentActiveWorkingSetContext = null;
+    hasUnresolvedThreadPersistenceFailure = false;
     scheduleIdleEviction() {
         if (this.idleEvictionTimer) {
             clearTimeout(this.idleEvictionTimer);
             this.idleEvictionTimer = null;
         }
-        if (this.activeTurnCount > 0)
+        if (this.activeTurnCount > 0 || this.hasUnresolvedThreadPersistenceFailure)
             return;
         this.idleEvictionTimer = setTimeout(() => {
             this.idleEvictionTimer = null;
@@ -122,7 +154,67 @@ export class OrchestratorSession extends PiSessionCore {
             // Best-effort UI signal; never let a status emit abort the retry.
         }
     };
+    handleActiveTurnBoundary = async (context, signal) => {
+        const current = this.currentActiveWorkingSetContext;
+        if (!current)
+            return undefined;
+        // This boundary exists only after a successful provider response and
+        // any tools it issued have completed. Everything preceding that newly
+        // completed group was accepted by the provider; the group itself has
+        // not yet been replayed and remains the current suspect tail.
+        current.containmentTurn.messagesBefore = Math.max(0, context.context.messages.length - context.completedMessages.length);
+        // Failure classification has a narrower baseline: if the next provider
+        // call aborts before producing useful output, only that failed attempt
+        // is "appended". The completed group remains in `history` as suspect
+        // content, but must not make an instant replay abort look like a
+        // multi-assistant/tool run.
+        current.containmentTurn.failureMessagesBefore = context.context.messages.length;
+        // Live steering messages are persisted before the agent consumes them.
+        // A durable page-in while one is pending would load that row and then
+        // let the loop append the same message again. Defer this boundary, but
+        // reconsider after the queue drains so a continuously steered run can
+        // still adopt later checkpoints. `refreshBlocked` is reserved for
+        // genuinely transient, non-durable prompt inputs.
+        if (current.refreshBlocked || context.pendingMessages.length > 0 || this.agent?.hasQueuedMessages()) {
+            return undefined;
+        }
+        const turnStartIndex = Math.min(context.context.messages.length, Math.max(0, current.containmentTurn.messagesBefore));
+        const currentTurnTail = context.context.messages.slice(turnStartIndex);
+        const replacement = await this.refreshActiveWorkingSetAtBoundary({
+            opts: current.opts,
+            agentContext: current.agentContext,
+            runId: current.runId,
+            messages: context.context.messages,
+            completedMessages: context.completedMessages,
+            requiredResidentSuffix: currentTurnTail,
+            signal,
+            onCompacting: current.onCompacting,
+            canApply: () => {
+                if (this.currentActiveWorkingSetContext !== current ||
+                    context.pendingMessages.length > 0 ||
+                    this.agent?.hasQueuedMessages()) {
+                    return false;
+                }
+                return true;
+            },
+            logContext: {
+                conversationId: this.conversationId,
+                runId: current.runId,
+            },
+        });
+        if (replacement && this.currentActiveWorkingSetContext === current) {
+            // The core verified this whole suffix survived reconstruction. Map
+            // the same suspect tail onto the shorter array without treating the
+            // page-in itself as a successful containment run.
+            current.containmentTurn.messagesBefore = replacement.length - currentTurnTail.length;
+            current.containmentTurn.failureMessagesBefore = replacement.length;
+        }
+        return replacement;
+    };
     async runTurn(opts) {
+        if (this.hasUnresolvedThreadPersistenceFailure) {
+            throw new Error("Cannot continue this live session after an unresolved thread persistence failure.");
+        }
         if (this.idleEvictionTimer) {
             clearTimeout(this.idleEvictionTimer);
             this.idleEvictionTimer = null;
@@ -187,9 +279,12 @@ export class OrchestratorSession extends PiSessionCore {
             logContext: { conversationId: this.conversationId, runId },
         });
         // Apply compaction overlays before provider calls, never mid-stream.
-        this.refreshHistoryIfNeeded(opts.agentContext, {
+        const refreshedAgentContext = this.refreshHistoryFromStoreIfNeeded(opts.agentContext, opts.store, {
             conversationId: this.conversationId,
         });
+        if (refreshedAgentContext !== opts.agentContext) {
+            opts.agentContext.threadHistory = refreshedAgentContext.threadHistory;
+        }
         this.currentImageDescriptionContext = {
             model: opts.resolvedLlm.model,
             ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
@@ -241,6 +336,7 @@ export class OrchestratorSession extends PiSessionCore {
                 return content === context.result.content ? undefined : { content };
             },
             onProviderRetry: this.handleProviderRetry,
+            onTurnBoundary: this.handleActiveTurnBoundary,
             logContext: {
                 conversationId: this.conversationId,
                 runId,
@@ -289,8 +385,25 @@ export class OrchestratorSession extends PiSessionCore {
             this.currentResponseTargetTracker = null;
             this.currentRetryStatusContext = null;
             this.currentImageDescriptionContext = null;
+            this.currentActiveWorkingSetContext = null;
             return runId;
         }
+        this.currentActiveWorkingSetContext = {
+            opts,
+            agentContext: opts.agentContext,
+            runId,
+            onCompacting: emitCompactingStatus,
+            containmentTurn,
+            refreshBlocked: false,
+        };
+        let transientRuntimePromptInputs = [];
+        const transientRuntimePromptStart = containmentTurn.messagesBefore;
+        const dropTransientRuntimePromptInputs = () => {
+            if (removeTransientRuntimePromptInputs(agent, transientRuntimePromptInputs, transientRuntimePromptStart)) {
+                opts.agentContext.threadHistory = agent.state.messages;
+            }
+            transientRuntimePromptInputs = [];
+        };
         try {
             // Frozen-context drift notes (queued by createOrReuseAgent) ride as
             // hidden appends ahead of any caller-supplied prompt messages.
@@ -313,6 +426,16 @@ export class OrchestratorSession extends PiSessionCore {
                     ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
                 },
             });
+            const workingSetContext = this.currentActiveWorkingSetContext;
+            transientRuntimePromptInputs = promptMessages.filter((message) => message.messageType === "message" &&
+                !isDurablyPersistedRuntimePromptInput(message));
+            if (workingSetContext?.runId === runId &&
+                transientRuntimePromptInputs.length > 0) {
+                // Queued-reply wrappers intentionally do not enter durable history
+                // because their user messages are already persisted. Keep this
+                // outer turn resident, then remove the wrapper at its final boundary.
+                workingSetContext.refreshBlocked = true;
+            }
             const executionArgs = {
                 agent,
                 promptMessages: promptMessages.map((message, index) => ({
@@ -336,6 +459,18 @@ export class OrchestratorSession extends PiSessionCore {
                     ? { attemptGeneration: opts.agentContext.attemptGeneration }
                     : {}),
                 ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
+                onThreadPersistenceError: () => {
+                    // The resident group remains authoritative after an atomic
+                    // SQLite failure. Never page in a checkpoint that omits it.
+                    workingSetContext.refreshBlocked = true;
+                    this.hasUnresolvedThreadPersistenceFailure = true;
+                },
+                onThreadPersistenceRecovered: () => {
+                    this.hasUnresolvedThreadPersistenceFailure = false;
+                    if (transientRuntimePromptInputs.length === 0) {
+                        workingSetContext.refreshBlocked = false;
+                    }
+                },
             };
             const retryState = { attemptsUsed: 0, retriesUsed: 0 };
             const executeWithTransientRetry = (initialResume = false) => executeAgentTurnWithRetry({
@@ -347,6 +482,8 @@ export class OrchestratorSession extends PiSessionCore {
                 }),
                 prepareRetry: (failure) => this.prepareAgentRunRetry(agent, {
                     failure,
+                    store: opts.store,
+                    runId,
                     logContext: { conversationId: this.conversationId, runId },
                 }),
                 ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
@@ -374,6 +511,8 @@ export class OrchestratorSession extends PiSessionCore {
                 fableAttempts < SAFETY_ABORT_FABLE_ATTEMPTS) {
                 const retry = this.prepareSafetySameModelRetry(agent, {
                     errorMessage: execution.errorMessage,
+                    store: opts.store,
+                    runId,
                     logContext: {
                         conversationId: this.conversationId,
                         runId,
@@ -398,6 +537,8 @@ export class OrchestratorSession extends PiSessionCore {
                 hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS)) {
                 const swap = this.prepareSafetyModelSwap(agent, {
                     errorMessage: execution.errorMessage,
+                    store: opts.store,
+                    runId,
                     logContext: { conversationId: this.conversationId, runId },
                 });
                 if (swap) {
@@ -433,6 +574,10 @@ export class OrchestratorSession extends PiSessionCore {
             if (errorMessage) {
                 throw new Error(errorMessage);
             }
+            // One-shot queued-reply wrappers must not reach agent_end memory
+            // review or the post-turn compaction snapshot. Their underlying
+            // user messages are already durable.
+            dropTransientRuntimePromptInputs();
             this.noteAbortContainmentSuccess();
             await finalizeOrchestratorSuccess({
                 opts,
@@ -462,6 +607,7 @@ export class OrchestratorSession extends PiSessionCore {
             }
             const surfacedMessage = this.noteAbortContainmentFailure(agent, {
                 messagesBefore: containmentTurn.messagesBefore,
+                failureMessagesBefore: containmentTurn.failureMessagesBefore,
                 errorMessage: error instanceof Error
                     ? error.message || "Stella runtime failed"
                     : String(error),
@@ -481,9 +627,11 @@ export class OrchestratorSession extends PiSessionCore {
             throw markOrchestratorErrorReported(surfacedError);
         }
         finally {
+            dropTransientRuntimePromptInputs();
             this.currentResponseTargetTracker = null;
             this.currentRetryStatusContext = null;
             this.currentImageDescriptionContext = null;
+            this.currentActiveWorkingSetContext = null;
         }
     }
     dispose() {
@@ -495,6 +643,7 @@ export class OrchestratorSession extends PiSessionCore {
         this.currentResponseTargetTracker = null;
         this.currentRetryStatusContext = null;
         this.currentImageDescriptionContext = null;
+        this.currentActiveWorkingSetContext = null;
     }
 }
 /**

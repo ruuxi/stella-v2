@@ -178,6 +178,7 @@ export type RuntimeSendMessageInput = {
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
   customType?: string;
   display?: boolean;
+  timestamp?: number;
 };
 
 export type RuntimeSendUserMessageInput = RuntimeSendMessageInput & {

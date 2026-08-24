@@ -9,6 +9,7 @@ import {
   classifyAgentRunFailure,
   executeAgentTurnWithRetry,
   formatAgentRunRetryStatus,
+  THREAD_PERSISTENCE_ERROR_CODE,
   type AgentRunFailure,
   type AgentRunRetryInfo,
   type AgentRunRetryState,
@@ -198,6 +199,30 @@ describe("agent run transient retry policy", () => {
       category: "empty_response",
       retryable: true,
     });
+  });
+
+  it("never treats a thread persistence timeout as a provider retry", async () => {
+    const error = Object.assign(
+      new Error(
+        "Failed to persist complete assistant/tool group: database timeout",
+      ),
+      { code: THREAD_PERSISTENCE_ERROR_CODE },
+    );
+
+    expect(classifyAgentRunFailure(error)).toMatchObject({
+      category: "non_retryable",
+      retryable: false,
+    });
+    const prepareRetry = vi.fn(() => true);
+    const result = await executeAgentTurnWithRetry({
+      execute: async () => {
+        throw error;
+      },
+      prepareRetry,
+      sleep: noWait,
+    });
+    expect(result).toMatchObject({ attempts: 1, errorMessage: error.message });
+    expect(prepareRetry).not.toHaveBeenCalled();
   });
 
   it("keeps retry jitter within ten percent", () => {

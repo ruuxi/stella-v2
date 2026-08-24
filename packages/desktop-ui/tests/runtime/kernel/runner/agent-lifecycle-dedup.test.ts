@@ -1,11 +1,64 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildAgentEventPrompt } from "@stella/runtime/kernel/runner/shared";
+import { createAgentOrchestration } from "@stella/runtime/kernel/runner/agent-orchestration";
 import {
   AGENT_PAUSE_CANCEL_REASON,
   AGENT_SHUTDOWN_CANCEL_REASON,
 } from "@stella/runtime/kernel/agents/local-agent-manager";
 
 describe("task lifecycle deduping", () => {
+  it("reuses a pre-persisted lifecycle timestamp when crash delivery replays", () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const context = {
+      state: {
+        localAgentManager: null,
+        orchestratorSessions: new Map(),
+        runCallbacksByRunId: new Map(),
+      },
+      runtimeStore: {
+        loadRawThreadMessages: () => [
+          {
+            timestamp: 123,
+            role: "runtimeInternal",
+            content: "persisted lifecycle report",
+            customMessage: {
+              customType: "runtime.task_lifecycle",
+              eventId: "task-1:1:agent-completed",
+            },
+          },
+        ],
+      },
+      stellaDataDir: "/tmp/stella-test",
+    } as never;
+    createAgentOrchestration(context, {
+      buildAgentContext: vi.fn(),
+      sendMessage,
+    });
+
+    const manager = (context as { state: { localAgentManager: unknown } }).state
+      .localAgentManager as {
+      opts: { onAgentEvent: (event: Record<string, unknown>) => void };
+    };
+    manager.opts.onAgentEvent({
+      type: "agent-completed",
+      conversationId: "conversation-1",
+      rootRunId: "run-1",
+      eventId: "task-1:1:agent-completed",
+      agentId: "task-1",
+      agentType: "general",
+      description: "Finish the task",
+      result: "Done",
+      audience: "orchestrator-only",
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customType: "runtime.task_lifecycle",
+        timestamp: 123,
+      }),
+    );
+  });
+
   it("does not build hidden orchestrator prompts for agent-started", () => {
     const prompt = buildAgentEventPrompt({
       type: "agent-started",

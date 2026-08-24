@@ -94,6 +94,14 @@ export interface AfterToolCallContext {
 	context: AgentContext;
 }
 
+/** A quiescent point after an assistant response and all of its tool results. */
+export interface AgentTurnBoundaryContext {
+	context: AgentContext;
+	completedMessages: AgentMessage[];
+	/** Messages already dequeued for the next provider call but not emitted yet. */
+	pendingMessages: AgentMessage[];
+}
+
 /**
  * Configuration for the agent loop.
  */
@@ -211,6 +219,16 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * Default: 30 minutes.
 	 */
 	toolInactivityTimeoutMs?: number;
+
+	/**
+	 * Called only after a completed assistant/tool-result group and before the
+	 * loop issues another provider request. Returning messages atomically
+	 * replaces the loop context at that boundary.
+	 */
+	onTurnBoundary?: (
+		context: AgentTurnBoundaryContext,
+		signal?: AbortSignal,
+	) => Promise<AgentMessage[] | undefined>;
 
 	/**
 	 * Called before a tool is executed, after arguments have been validated.

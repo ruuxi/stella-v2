@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import vm from "node:vm";
+import v8 from "node:v8";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Streamdown } from "streamdown";
@@ -13,6 +15,7 @@ import {
 } from "@stella/runtime/kernel/storage/database-init";
 import { SessionStore } from "@stella/runtime/kernel/storage/session-store.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import { buildHistorySource } from "@stella/runtime/kernel/agent-runtime/thread-memory";
 import { streamRenderIntervalMs } from "../src/features/chat/streaming/use-stream-text-animation";
 import { shouldUseBoundedMarkdownPlaintext } from "../src/features/chat/streaming/markdown-chunks";
 
@@ -70,13 +73,23 @@ const timed = (run: () => unknown, iterations: number) => {
   };
 };
 
+const benchmarkGc = (() => {
+  const exposed = (globalThis as { gc?: () => void }).gc;
+  if (exposed) return exposed;
+  try {
+    v8.setFlagsFromString("--expose_gc");
+    return vm.runInNewContext("gc") as () => void;
+  } catch {
+    return undefined;
+  }
+})();
+
 const retainedHeap = (create: () => unknown, count: number) => {
-  const gc = (globalThis as { gc?: () => void }).gc;
-  if (!gc) return null;
-  gc();
+  if (!benchmarkGc) return null;
+  benchmarkGc();
   const before = process.memoryUsage().heapUsed;
   const retained = Array.from({ length: count }, create);
-  gc();
+  benchmarkGc();
   const bytes = Math.max(0, process.memoryUsage().heapUsed - before);
   if (retained.length !== count) throw new Error("retention benchmark failed");
   return bytes;
@@ -189,6 +202,20 @@ const legacyRuntimeHistory = () =>
   store.loadThreadSessionEntries(RUNTIME_THREAD_KEY);
 const currentRuntimeHistory = () =>
   store.loadThreadMessages(RUNTIME_THREAD_KEY);
+
+// Before active-turn page-in, a never-idle Pi loop can keep the original
+// pre-compaction mirror even after SQLite has a compacted overlay. The managed
+// case rebuilds exactly the same AgentMessage[] shape used by PiSessionCore:
+// durable checkpoint plus uncompacted tail.
+const legacyActiveTurnWorkingSet = () =>
+  legacyRuntimeHistory().map((entry) => entry.payload ?? entry);
+const currentActiveTurnWorkingSet = () =>
+  buildHistorySource({
+    systemPrompt: "",
+    dynamicContext: "",
+    maxAgentDepth: 1,
+    threadHistory: currentRuntimeHistory(),
+  });
 
 beforeAll(() => {
   rootPath = mkdtempSync(path.join(os.tmpdir(), "stella-long-chat-bench-"));
@@ -411,6 +438,13 @@ beforeAll(() => {
   const currentRuntimeTiming = timed(currentRuntimeHistory, 20);
   const legacyRuntimeHeapBytes = retainedHeap(legacyRuntimeHistory, 1);
   const currentRuntimeHeapBytes = retainedHeap(currentRuntimeHistory, 5);
+  const legacyActiveTurn = legacyActiveTurnWorkingSet();
+  const currentActiveTurn = currentActiveTurnWorkingSet();
+  const legacyActiveTurnHeapBytes = retainedHeap(legacyActiveTurnWorkingSet, 1);
+  const currentActiveTurnHeapBytes = retainedHeap(
+    currentActiveTurnWorkingSet,
+    5,
+  );
 
   console.log(
     "LONG_CHAT_PERF " +
@@ -472,6 +506,18 @@ beforeAll(() => {
           legacyOneSnapshotHeapBytes: legacyRuntimeHeapBytes,
           currentFiveSnapshotsHeapBytes: currentRuntimeHeapBytes,
         },
+        activeTurnWorkingSet: {
+          legacyResidentMessages: legacyActiveTurn.length,
+          currentResidentMessages: currentActiveTurn.length,
+          legacyResidentPayloadBytes: Buffer.byteLength(
+            JSON.stringify(legacyActiveTurn),
+          ),
+          currentResidentPayloadBytes: Buffer.byteLength(
+            JSON.stringify(currentActiveTurn),
+          ),
+          legacyOneResidentHeapBytes: legacyActiveTurnHeapBytes,
+          currentFiveResidentsHeapBytes: currentActiveTurnHeapBytes,
+        },
       }),
   );
 }, 120_000);
@@ -504,5 +550,9 @@ describe("pathological long chat", () => {
 
   bench("compaction-aware runtime history reconstruction", () => {
     currentRuntimeHistory();
+  });
+
+  bench("active Pi turn checkpoint working-set page-in", () => {
+    currentActiveTurnWorkingSet();
   });
 });

@@ -407,6 +407,8 @@ export type RuntimePromptMessage = {
   messageType?: "message" | "user";
   customType?: string;
   display?: boolean;
+  /** Durable timestamp reused when a pre-persisted runtime prompt is replayed. */
+  timestamp?: number;
 };
 
 export type RuntimeChatPayload = {

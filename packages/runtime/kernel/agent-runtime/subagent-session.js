@@ -306,6 +306,8 @@ export class SubagentSession extends PiSessionCore {
                 }),
                 prepareRetry: (failure) => this.prepareAgentRunRetry(agent, {
                     failure,
+                    store: opts.store,
+                    runId,
                     logContext: { threadId: this.threadId, runId },
                 }),
                 ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
@@ -333,6 +335,8 @@ export class SubagentSession extends PiSessionCore {
                 fableAttempts < SAFETY_ABORT_FABLE_ATTEMPTS) {
                 const retry = this.prepareSafetySameModelRetry(agent, {
                     errorMessage: execution.errorMessage,
+                    store: opts.store,
+                    runId,
                     logContext: {
                         threadId: this.threadId,
                         runId,
@@ -357,6 +361,8 @@ export class SubagentSession extends PiSessionCore {
                 hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS)) {
                 const swap = this.prepareSafetyModelSwap(agent, {
                     errorMessage: execution.errorMessage,
+                    store: opts.store,
+                    runId,
                     logContext: { threadId: this.threadId, runId },
                 });
                 if (swap) {

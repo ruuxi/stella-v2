@@ -160,6 +160,39 @@ describe("OrchestratorSession", () => {
     }
   });
 
+  it("never arms idle eviction while another orchestrator turn is active", async () => {
+    vi.useFakeTimers();
+    const session = new OrchestratorSession("conversation-1");
+    const completions: Array<() => void> = [];
+    const dispose = vi.spyOn(session, "dispose");
+
+    try {
+      executeRuntimeAgentPrompt.mockImplementation(
+        () =>
+          new Promise<{ finalText: string }>((resolve) => {
+            completions.push(() => resolve({ finalText: "done" }));
+          }),
+      );
+      const first = session.runTurn(createOptions({ runId: "queued-1" }));
+      await vi.waitFor(() => expect(completions).toHaveLength(1));
+      const second = session.runTurn(createOptions({ runId: "queued-2" }));
+      await vi.waitFor(() => expect(completions).toHaveLength(2));
+
+      completions[0]!();
+      await first;
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+      expect(dispose).not.toHaveBeenCalled();
+
+      completions[1]!();
+      await second;
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+      expect(dispose).toHaveBeenCalledOnce();
+    } finally {
+      session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it("forwards the image description service to prompt execution", async () => {
     const session = new OrchestratorSession("conversation-1");
     const describeImages = vi.fn(async () => "A terminal window.");

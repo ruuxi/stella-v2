@@ -781,9 +781,10 @@ export const createAgentOrchestration = (
         toolContext,
         signal,
         onUpdate,
-      ),
+    ),
     saveAgentRecord: (record) => {
-      context.runtimeStore.saveAgentRecord?.(record);
+      const recordRevision = context.runtimeStore.saveAgentRecord?.(record);
+      if (recordRevision === null) return;
       // Project the just-persisted row so consumers patch one keyed record
       // instead of refetching every thread in the conversation.
       const threadMetadata =
@@ -796,6 +797,9 @@ export const createAgentOrchestration = (
         description: record.description,
         status: record.status,
         attemptGeneration: record.attemptGeneration ?? 0,
+        ...(typeof recordRevision === "number"
+          ? { recordRevision }
+          : {}),
         ...(record.rootRunId ? { rootRunId: record.rootRunId } : {}),
         ...(record.parentAgentId
           ? { parentAgentId: record.parentAgentId }

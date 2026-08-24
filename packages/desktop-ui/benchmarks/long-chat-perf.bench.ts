@@ -14,7 +14,7 @@ import {
 import { SessionStore } from "@stella/runtime/kernel/storage/session-store.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import { streamRenderIntervalMs } from "../src/features/chat/streaming/use-stream-text-animation";
-import { splitLongMarkdown } from "../src/features/chat/streaming/markdown-chunks";
+import { shouldUseBoundedMarkdownPlaintext } from "../src/features/chat/streaming/markdown-chunks";
 
 const CONVERSATION_ID = "pathological-long-chat";
 const TURN_COUNT = 500;
@@ -62,22 +62,6 @@ const timed = (run: () => unknown, iterations: number) => {
     const started = performance.now();
     run();
     samples.push(performance.now() - started);
-  }
-  return {
-    p50Ms: percentile(samples, 0.5),
-    p95Ms: percentile(samples, 0.95),
-    maxMs: Math.max(...samples),
-  };
-};
-
-const timedRuns = (runs: Array<() => unknown>, iterations: number) => {
-  const samples: number[] = [];
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
-    for (const run of runs) {
-      const started = performance.now();
-      run();
-      samples.push(performance.now() - started);
-    }
   }
   return {
     p50Ms: percentile(samples, 0.5),
@@ -410,21 +394,13 @@ beforeAll(() => {
     () => renderGrowingPlainText(currentMarkdownCommits),
     5,
   );
-  const settledMarkdownChunks = splitLongMarkdown(markdown);
-  const settledMarkdownChunkTiming = timedRuns(
-    settledMarkdownChunks.map(
-      (chunk) => () =>
-        renderToStaticMarkup(
-          createElement(Streamdown, { mode: "static" }, chunk),
-        ),
-    ),
-    5,
-  );
-  const settledMarkdownTotalTiming = timed(
+  const settledMarkdownPlaintextTiming = timed(
     () =>
-      settledMarkdownChunks.forEach((chunk) =>
-        renderToStaticMarkup(
-          createElement(Streamdown, { mode: "static" }, chunk),
+      renderToStaticMarkup(
+        createElement(
+          "div",
+          { className: "markdown markdown--streaming-plaintext" },
+          markdown,
         ),
       ),
     5,
@@ -482,9 +458,10 @@ beforeAll(() => {
           currentCommitsPerSecond: currentMarkdownCommits,
           legacyOneSecondCommitWork: legacyMarkdownTiming,
           currentOneSecondCommitWork: currentMarkdownTiming,
-          progressiveSettledChunks: settledMarkdownChunks.length,
-          settledChunkMainThreadBlock: settledMarkdownChunkTiming,
-          settledTotalBackgroundWork: settledMarkdownTotalTiming,
+          boundedSettledPlaintext: shouldUseBoundedMarkdownPlaintext(
+            markdown.length,
+          ),
+          settledPlaintextMainThreadBlock: settledMarkdownPlaintextTiming,
         },
         runtimeHistory: {
           durableEntries: RUNTIME_HISTORY_ENTRIES + 1,

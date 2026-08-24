@@ -107,6 +107,7 @@ describe("LocalAgentManager lifecycle observability", () => {
   });
 
   it("evicts completed task payloads after SQLite persistence", async () => {
+    const executionRoots: Array<string | undefined> = [];
     let persisted:
       | Parameters<
           NonNullable<
@@ -121,10 +122,13 @@ describe("LocalAgentManager lifecycle observability", () => {
         dynamicContext: "",
         maxAgentDepth: 3,
       }),
-      runSubagent: async (args) => ({
-        runId: args.runId,
-        result: "x".repeat(50_000),
-      }),
+      runSubagent: async (args) => {
+        executionRoots.push(args.toolWorkspaceRoot);
+        return {
+          runId: args.runId,
+          result: "x".repeat(50_000),
+        };
+      },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
       createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
       completeCloudAgentRecord: async () => undefined,
@@ -143,15 +147,116 @@ describe("LocalAgentManager lifecycle observability", () => {
       prompt: "finish",
       agentType: AGENT_IDS.GENERAL,
       storageMode: "local",
+      toolWorkspaceRoot: "/tmp/stella-workspace",
     });
     await waitForAgentSettled(manager, created.threadId);
 
     expect((manager as unknown as { tasks: Map<string, unknown> }).tasks.size).toBe(
       0,
     );
-    expect(await manager.getAgent(created.threadId)).toMatchObject({
+    expect(persisted).toMatchObject({
       status: "completed",
       result: expect.stringMatching(/^x+$/),
+      toolWorkspaceRoot: "/tmp/stella-workspace",
+    });
+    await manager.sendAgentMessage(
+      created.threadId,
+      "continue in the same workspace",
+      "orchestrator",
+    );
+    await waitForAgentSettled(manager, created.threadId);
+    expect(executionRoots).toEqual([
+      "/tmp/stella-workspace",
+      "/tmp/stella-workspace",
+    ]);
+  });
+
+  it("takes over an abort-ignoring attempt after durable cancellation and rehydration", async () => {
+    type AgentRecord = Parameters<
+      NonNullable<
+        ConstructorParameters<typeof LocalAgentManager>[0]["saveAgentRecord"]
+      >
+    >[0];
+    const persisted = new Map<string, AgentRecord>();
+    let runCount = 0;
+    let firstRunStarted: (() => void) | null = null;
+    const firstRunStartedPromise = new Promise<void>((resolve) => {
+      firstRunStarted = resolve;
+    });
+    let settleFirstRun: (() => void) | null = null;
+    const settleFirstRunPromise = new Promise<void>((resolve) => {
+      settleFirstRun = resolve;
+    });
+
+    const manager = new LocalAgentManager({
+      maxConcurrent: 1,
+      attemptTeardownTimeoutMs: 10,
+      fetchAgentContext: async () => ({
+        systemPrompt: "",
+        dynamicContext: "",
+        maxAgentDepth: 3,
+      }),
+      runSubagent: async (args) => {
+        runCount += 1;
+        if (runCount === 1) {
+          firstRunStarted?.();
+          await settleFirstRunPromise;
+          return { runId: args.runId, result: "stale result" };
+        }
+        return { runId: args.runId, result: "resumed" };
+      },
+      toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
+      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
+      completeCloudAgentRecord: async () => undefined,
+      getCloudAgentRecord: async () => null,
+      cancelCloudAgentRecord: async () => ({ canceled: false }),
+      saveAgentRecord: (record) => {
+        persisted.set(record.threadId, record);
+      },
+      getAgentRecord: (threadId) => persisted.get(threadId) ?? null,
+    });
+
+    const created = await manager.createAgent({
+      conversationId: "abort-ignoring-eviction",
+      description: "hung task",
+      prompt: "wait forever",
+      agentType: AGENT_IDS.GENERAL,
+      storageMode: "local",
+    });
+    await firstRunStartedPromise;
+    await manager.cancelAgent(created.threadId, "Canceled for regression test");
+
+    expect((manager as unknown as { tasks: Map<string, unknown> }).tasks.size).toBe(
+      0,
+    );
+    const unrelated = await manager.createAgent({
+      conversationId: "abort-ignoring-eviction",
+      description: "unrelated task",
+      prompt: "must not remain blocked",
+      agentType: AGENT_IDS.GENERAL,
+      storageMode: "local",
+    });
+    await waitForAgentSettled(manager, unrelated.threadId);
+    expect(runCount).toBe(2);
+    await expect(
+      manager.sendAgentMessage(
+        created.threadId,
+        "continue after cancellation",
+        "orchestrator",
+      ),
+    ).resolves.toEqual({ delivered: true });
+
+    await waitForAgentSettled(manager, created.threadId);
+    expect(runCount).toBe(3);
+    await expect(manager.getAgent(created.threadId)).resolves.toMatchObject({
+      status: "completed",
+      result: "resumed",
+    });
+    settleFirstRun?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(persisted.get(created.threadId)).toMatchObject({
+      status: "completed",
+      result: "resumed",
     });
   });
 });

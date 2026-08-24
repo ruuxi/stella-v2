@@ -169,6 +169,122 @@ describe("thread activity tab cache", () => {
     unsubscribe();
   });
 
+  it("orders same-millisecond hydration by durable record revision", async () => {
+    let updateListener:
+      | ((payload: ThreadActivityUpdatedPayload) => void)
+      | null = null;
+    let resolveHydration: ((records: ThreadActivityRecord[]) => void) | null =
+      null;
+    const staleTerminal = {
+      ...record("revision-race"),
+      status: "completed" as const,
+      recordRevision: 4,
+      updatedAt: 5_000,
+      completedAt: 5_000,
+    };
+    const listThreadActivity = vi.fn(
+      () =>
+        new Promise<ThreadActivityRecord[]>((resolve) => {
+          resolveHydration = resolve;
+        }),
+    );
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        localChat: {
+          listThreadActivity,
+          onThreadActivityUpdated: vi.fn(
+            (listener: (payload: ThreadActivityUpdatedPayload) => void) => {
+              updateListener = listener;
+              return () => {
+                updateListener = null;
+              };
+            },
+          ),
+        },
+      },
+    });
+
+    const seen: Array<ThreadActivityRecord | null> = [];
+    const unsubscribe = subscribeToThreadActivityRecord(
+      "revision-race",
+      staleTerminal.threadId,
+      (value) => seen.push(value),
+    );
+    updateListener?.({
+      conversationId: "revision-race",
+      record: {
+        ...staleTerminal,
+        status: "running",
+        recordRevision: 5,
+        completedAt: undefined,
+      },
+    });
+    resolveHydration?.([staleTerminal]);
+
+    await vi.waitFor(() => expect(listThreadActivity).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(seen.at(-1)?.recordRevision).toBe(5);
+    expect(seen.at(-1)?.status).toBe("running");
+    unsubscribe();
+  });
+
+  it("preserves an equal-revision push and performs one conflict refetch", async () => {
+    let updateListener:
+      | ((payload: ThreadActivityUpdatedPayload) => void)
+      | null = null;
+    let resolveHydration: ((records: ThreadActivityRecord[]) => void) | null =
+      null;
+    const pushed = {
+      ...record("equal-revision"),
+      status: "running" as const,
+      recordRevision: 9,
+      description: "pushed description",
+      updatedAt: 9_000,
+    };
+    const stale = { ...pushed, description: "stale description" };
+    const listThreadActivity = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<ThreadActivityRecord[]>((resolve) => {
+            resolveHydration = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([pushed]);
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        localChat: {
+          listThreadActivity,
+          onThreadActivityUpdated: vi.fn(
+            (listener: (payload: ThreadActivityUpdatedPayload) => void) => {
+              updateListener = listener;
+              return () => {
+                updateListener = null;
+              };
+            },
+          ),
+        },
+      },
+    });
+
+    const seen: Array<ThreadActivityRecord | null> = [];
+    const unsubscribe = subscribeToThreadActivityRecord(
+      "equal-revision",
+      pushed.threadId,
+      (value) => seen.push(value),
+    );
+    updateListener?.({ conversationId: "equal-revision", record: pushed });
+    resolveHydration?.([stale]);
+
+    await vi.waitFor(() =>
+      expect(listThreadActivity).toHaveBeenCalledTimes(2),
+    );
+    expect(seen.at(-1)?.description).toBe("pushed description");
+    unsubscribe();
+  });
+
   it("ignores an out-of-order push from an older attempt", async () => {
     let updateListener:
       | ((payload: ThreadActivityUpdatedPayload) => void)

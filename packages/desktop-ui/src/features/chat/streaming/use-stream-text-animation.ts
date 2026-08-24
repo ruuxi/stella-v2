@@ -15,7 +15,10 @@ export const STREAM_COAST_AFTER_MS = 320
 export const STREAM_COAST_RESERVE_MS = 2600
 export const STREAM_COAST_MIN_CPS = 48
 export const STREAM_FINISH_MIN_CPS = 110
-export const STREAM_FINISH_MAX_CPS = 180
+// Terminal output is already durable and must not trail the completed turn for
+// tens of seconds after a provider burst. This ceiling still bounds each
+// coalesced commit, while allowing large buffers to meet the target drain time.
+export const STREAM_FINISH_MAX_CPS = 4_000
 export const STREAM_FINISH_TARGET_MS = 2400
 export const STREAM_FINISH_FALLBACK_MS = 30000
 export const STREAM_MAX_FRAME_MS = 50
@@ -68,6 +71,7 @@ type AnimationEntry = {
   carry: number
   trailingHighSurrogate: string
   finishing: boolean
+  finishRateCps: number
   finishTimer: number | null
   onDrained: Set<(slotId: string) => void>
   lastArrivalAtMs: number | null
@@ -119,19 +123,22 @@ export function stepStreamReveal(args: {
   carry: number
   elapsedMs: number
   finishing: boolean
+  finishRateCps?: number
   timeSinceArrivalMs?: number
 }): { count: number; carry: number } {
   if (args.backlog <= 0) return { count: 0, carry: args.carry }
 
   const elapsedMs = Math.min(Math.max(args.elapsedMs, 1), STREAM_MAX_FRAME_MS)
   const normalCps = streamRevealRate(args.backlog, args.timeSinceArrivalMs)
-  const finishCps = Math.min(
-    STREAM_FINISH_MAX_CPS,
-    Math.max(
-      STREAM_FINISH_MIN_CPS,
-      (args.backlog * 1000) / STREAM_FINISH_TARGET_MS,
-    ),
-  )
+  const finishCps =
+    args.finishRateCps ??
+    Math.min(
+      STREAM_FINISH_MAX_CPS,
+      Math.max(
+        STREAM_FINISH_MIN_CPS,
+        (args.backlog * 1000) / STREAM_FINISH_TARGET_MS,
+      ),
+    )
   const cps = args.finishing ? Math.max(normalCps, finishCps) : normalCps
   let carry = args.carry + (cps * elapsedMs) / 1000
   const count = Math.min(args.backlog, Math.floor(carry))
@@ -172,6 +179,7 @@ export class StreamTextAnimationController {
         carry: INITIAL_REVEAL_CREDIT,
         trailingHighSurrogate: '',
         finishing: false,
+        finishRateCps: 0,
         finishTimer: null,
         onDrained: new Set(),
         lastArrivalAtMs: null,
@@ -185,6 +193,7 @@ export class StreamTextAnimationController {
       this.clearFinishTimer(entry)
       entry.onDrained.clear()
       entry.finishing = false
+      entry.finishRateCps = 0
     }
 
     const nowMs = this.scheduler.now()
@@ -238,6 +247,13 @@ export class StreamTextAnimationController {
         else this.completeEntry(slotId, entry)
         continue
       }
+      entry.finishRateCps = Math.min(
+        STREAM_FINISH_MAX_CPS,
+        Math.max(
+          STREAM_FINISH_MIN_CPS,
+          (this.remaining(entry) * 1000) / STREAM_FINISH_TARGET_MS,
+        ),
+      )
       if (entry.finishTimer === null) {
         entry.finishTimer = this.scheduler.setTimer(() => {
           const current = this.entries.get(slotId)
@@ -287,6 +303,7 @@ export class StreamTextAnimationController {
           carry: entry.carry,
           elapsedMs: elapsedSinceStep,
           finishing: entry.finishing,
+          finishRateCps: entry.finishRateCps,
           timeSinceArrivalMs: Math.max(
             0,
             nowMs - (entry.lastArrivalAtMs ?? nowMs),
@@ -380,6 +397,7 @@ export class StreamTextAnimationController {
     entry.cursor = 0
     entry.carry = 0
     entry.finishing = false
+    entry.finishRateCps = 0
     entry.lastArrivalAtMs = null
     entry.lastStepAtMs = null
     entry.lastCommitAtMs = null

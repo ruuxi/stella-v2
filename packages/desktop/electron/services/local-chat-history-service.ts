@@ -608,6 +608,7 @@ export class LocalChatHistoryService {
           args.conversationId,
           cursor.timestamp,
           cursor.id,
+          cursor.sequence,
         )
       ) {
         return { messages: [], cursor: args.sinceCursor?.trim() || null };
@@ -617,6 +618,7 @@ export class LocalChatHistoryService {
         {
           afterTimestampMs: cursor.timestamp,
           afterId: cursor.id,
+          afterSequence: cursor.sequence,
           maxVisibleMessages: maxMessages,
           includeSourceEvents: true,
         },

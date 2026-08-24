@@ -18,6 +18,46 @@ afterEach(() => {
 });
 
 describe("incremental mobile task context", () => {
+  it("pages strictly by durable sequence when timestamps move backward", () => {
+    const service = createService();
+    const conversationId = "conversation-sequence-pages";
+    service.appendEvent({
+      conversationId,
+      eventId: "seed",
+      type: "user_message",
+      payload: { text: "seed" },
+      timestamp: 1_000,
+    });
+    let cursor = service.syncMessages({ conversationId }).cursor;
+    for (let index = 1; index <= 5; index += 1) {
+      service.appendEvent({
+        conversationId,
+        eventId: `m${index}`,
+        type: "user_message",
+        payload: { text: `message ${index}` },
+        timestamp: 1_000 - index,
+      });
+    }
+
+    const seen: string[] = [];
+    for (let pageIndex = 0; pageIndex < 3; pageIndex += 1) {
+      const page = service.syncMessages({
+        conversationId,
+        sinceCursor: cursor,
+        maxMessages: 2,
+      });
+      seen.push(...page.messages.map((message) => message.localMessageId));
+      expect(page.cursor).not.toBe(cursor);
+      expect(page.cursor).toMatch(/^v2:/);
+      cursor = page.cursor;
+    }
+
+    expect(seen).toEqual(["m1", "m2", "m3", "m4", "m5"]);
+    expect(
+      service.syncMessages({ conversationId, sinceCursor: cursor }),
+    ).toEqual({ messages: [], cursor });
+  });
+
   it("does not read the full transcript for an empty delta", () => {
     const service = createService();
     const conversationId = "conversation-empty";

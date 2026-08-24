@@ -2,6 +2,7 @@ import path from "path";
 import type { SqliteDatabase } from "./shared.js";
 import { ensurePrivateDirSync } from "../shared/private-fs.js";
 import { installChatOrderingSequence } from "./chat-ordering-sequence.js";
+import { ensureChatUiVisibilityIndex } from "./chat-ui-visibility.js";
 
 const DB_FILE = "stella.sqlite";
 
@@ -545,6 +546,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE INDEX IF NOT EXISTS idx_part_session_created
     ON part(session_id, created_at, id);
   `);
+  ensureChatUiVisibilityIndex(db);
 
   try {
     ensureTranscriptSearchIndex(db);
@@ -763,6 +765,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       max_agent_depth INTEGER,
       parent_agent_id TEXT,
       model_config_json TEXT,
+      tool_workspace_root TEXT,
       status TEXT NOT NULL,
       started_at INTEGER NOT NULL,
       completed_at INTEGER,
@@ -770,7 +773,8 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       error TEXT,
       updated_at INTEGER NOT NULL,
       root_run_id TEXT,
-      attempt_generation INTEGER NOT NULL DEFAULT 0
+      attempt_generation INTEGER NOT NULL DEFAULT 0,
+      record_revision INTEGER NOT NULL DEFAULT 0
     );
   `);
   try {
@@ -800,9 +804,31 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   } catch {
     // Column already exists.
   }
+  try {
+    db.exec("ALTER TABLE runtime_agents ADD COLUMN tool_workspace_root TEXT;");
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec(
+      "ALTER TABLE runtime_agents ADD COLUMN record_revision INTEGER NOT NULL DEFAULT 0;",
+    );
+  } catch {
+    // Column already exists.
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_runtime_agents_conversation_updated
     ON runtime_agents(conversation_id, updated_at, thread_id);
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_runtime_agents_active_updated
+    ON runtime_agents(conversation_id, updated_at DESC, thread_id)
+    WHERE status IN ('pending', 'running');
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_runtime_agents_terminal_updated
+    ON runtime_agents(conversation_id, updated_at DESC, thread_id)
+    WHERE status NOT IN ('pending', 'running');
   `);
   // Second half of the recall-index recency scan (see runtime_threads
   // counterpart above): a running turn bumps only the agent record, so

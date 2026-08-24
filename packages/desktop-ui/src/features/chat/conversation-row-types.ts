@@ -67,6 +67,8 @@ export type AssistantRowViewModel = {
     totalCountIsLowerBound?: boolean;
     detailLoaded?: boolean;
     detailCursor?: { timestamp: number; id: string; sequence?: number };
+    detailHasMore?: boolean;
+    livePinsPending?: boolean;
   };
   /**
    * Set when this row is sourced from a live `StreamingAssistantOverlay`

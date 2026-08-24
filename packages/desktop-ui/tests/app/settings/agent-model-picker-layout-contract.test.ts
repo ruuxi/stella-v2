@@ -80,6 +80,7 @@ describe("full-area agent model picker layout", () => {
     expect(picker).toContain(
       'handleNativeRuntimeChange("useNativeCodexRuntime"',
     );
+    expect(picker).toContain("Requires a separately installed Codex CLI");
     expect(picker).toContain(
       'handleNativeRuntimeChange("useNativeClaudeCodeRuntime"',
     );
@@ -122,7 +123,7 @@ describe("full-area agent model picker layout", () => {
     expect(styles).toContain("padding: 5px 10px;");
   });
 
-  it("keeps optional Codex discovery failures inline and out of the toast", () => {
+  it("keeps Codex discovery native-only, inline, and out of the toast", () => {
     const picker = readSource("global/settings/AgentModelPicker.tsx");
     const miniPicker = readSource("app/chat/MiniModelPicker.jsx");
     const toastEffectStart = picker.indexOf(

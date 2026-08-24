@@ -106,6 +106,8 @@ describe("stella-file chat rendering round-trip", () => {
               [STELLA_FILE_TAG]: [...STELLA_FILE_TAG_ATTRIBUTES],
             },
             linkSafety: { enabled: false },
+            codeBlockMaxHeight: Number.POSITIVE_INFINITY,
+            tableMaxHeight: Number.POSITIVE_INFINITY,
           },
           markdown,
         ),
@@ -146,5 +148,15 @@ describe("stella-file chat rendering round-trip", () => {
   it("keeps normal links untouched", () => {
     const html = render("See [docs](https://example.com/docs).");
     expect(html).toContain('href="https://example.com/docs"');
+  });
+
+  it("keeps code blocks and tables unbounded", () => {
+    const html = render(
+      "```ts\nconst answer = 42;\n```\n\n| Key | Value |\n| --- | --- |\n| answer | 42 |",
+    );
+
+    expect(html).toContain('data-streamdown="code-block-body"');
+    expect(html).toContain('data-streamdown="table-wrapper"');
+    expect(html).not.toContain("max-height:");
   });
 });

@@ -94,6 +94,10 @@ const ALLOWED_TAGS: Record<string, string[]> = {
  */
 const LINK_SAFETY = { enabled: false } as const;
 
+// Streamdown 2.6 bounds code blocks and tables by default. Keep Stella's
+// existing unbounded chat layout instead of introducing nested scrolling.
+const UNBOUNDED_STREAMDOWN_HEIGHT = Number.POSITIVE_INFINITY;
+
 const areMarkdownPropsEqual = (
   prev: MarkdownProps,
   next: MarkdownProps,
@@ -211,6 +215,8 @@ export const Markdown = memo(function Markdown({
         <Streamdown
           key={streamdownKey}
           mode={mode}
+          codeBlockMaxHeight={UNBOUNDED_STREAMDOWN_HEIGHT}
+          tableMaxHeight={UNBOUNDED_STREAMDOWN_HEIGHT}
           className={cn("markdown", className)}
           remarkPlugins={remarkPlugins}
           components={components}

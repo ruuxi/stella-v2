@@ -23,7 +23,10 @@ import {
   getToolResultPreview,
   now,
 } from "./shared.js";
-import { persistThreadPayloadMessage } from "./thread-memory.js";
+import {
+  persistThreadPayloadMessage,
+  persistThreadPayloadMessages,
+} from "./thread-memory.js";
 import { markImageOperationDelivered } from "../tools/image-operation-store.js";
 import type {
   RuntimeEndEvent,
@@ -487,6 +490,7 @@ export const subscribeRuntimeAgentEvents = ({
   conversationId,
   uiVisibility,
   attemptGeneration,
+  onThreadPersistenceError,
 }: {
   agent: RuntimeAgentLike;
   runId: string;
@@ -501,6 +505,7 @@ export const subscribeRuntimeAgentEvents = ({
   conversationId?: string;
   uiVisibility?: "visible" | "hidden";
   attemptGeneration?: number;
+  onThreadPersistenceError?: (error: unknown, retry: () => void) => void;
 }) => {
   // Stable run-level fields shared by every hook payload from this subscription.
   const hookContext = buildHookRuntimeContext({
@@ -540,7 +545,7 @@ export const subscribeRuntimeAgentEvents = ({
     }
 
     if (event.type === "message_end") {
-      if (threadStore && threadKey) {
+      if (threadStore && threadKey && agentType !== "orchestrator") {
         const payload = toPersistedThreadPayload(event.message);
         if (
           payload &&
@@ -719,6 +724,37 @@ export const subscribeRuntimeAgentEvents = ({
     }
 
     if (event.type === "turn_end") {
+      if (threadStore && threadKey && agentType === "orchestrator") {
+        const payloads = [event.message, ...event.toolResults]
+          .map(toPersistedThreadPayload)
+          .filter(
+            (payload): payload is PersistedRuntimeThreadPayload =>
+              payload !== null,
+          );
+        if (payloads.length > 0) {
+          const persistCompletedGroup = () =>
+            persistThreadPayloadMessages(threadStore, {
+              threadKey,
+              payloads,
+              runId,
+              ...(typeof attemptGeneration === "number"
+                ? { attemptGeneration }
+                : {}),
+              preservePayloadExactly: true,
+            });
+          try {
+            persistCompletedGroup();
+          } catch (error) {
+            logger.error("thread.turn-group-persistence-failed", {
+              threadKey,
+              runId,
+              messageCount: payloads.length,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            onThreadPersistenceError?.(error, persistCompletedGroup);
+          }
+        }
+      }
       const turnText =
         event.message?.role === "assistant"
           ? extractAssistantText(event.message)

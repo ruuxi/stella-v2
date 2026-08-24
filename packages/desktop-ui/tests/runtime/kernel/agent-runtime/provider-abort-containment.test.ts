@@ -294,6 +294,29 @@ describe("ProviderAbortContainment quarantine", () => {
     }
   });
 
+  it("reapplies known quarantine masks after page-in without advancing healing", () => {
+    const containment = new ProviderAbortContainment();
+    reachThreshold(containment);
+    containment.applyQuarantine(buildMessages());
+    const abortCount = containment.consecutiveInstantAbortCount;
+    const reloaded = buildMessages();
+
+    const reapplied = containment.reapplyQuarantine(reloaded);
+
+    expect(reapplied).toEqual(["30:call-b"]);
+    expect(containment.consecutiveInstantAbortCount).toBe(abortCount);
+    const older = reloaded[1];
+    const newest = reloaded[2];
+    if (older.role === "toolResult" && newest.role === "toolResult") {
+      expect((older.content[0] as { text: string }).text).toBe(
+        "older quoted content",
+      );
+      expect((newest.content[0] as { text: string }).text).toContain(
+        QUARANTINE_PLACEHOLDER,
+      );
+    }
+  });
+
   it("survives a restart via persisted records: serialize → parse → seed → re-mask", () => {
     const containment = new ProviderAbortContainment();
     reachThreshold(containment);

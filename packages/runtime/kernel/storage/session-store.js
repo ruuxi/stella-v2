@@ -521,10 +521,49 @@ const rowSizeTextEncoder = new TextEncoder();
 const THREAD_ROW_MAX_BYTES = 6_000_000;
 const THREAD_ROW_MAX_TEXT_CHARS = 1_000;
 const THREAD_ROW_PREVIEW_CHARS = 500;
+const THREAD_EXACT_PAYLOAD_CHUNK_CHARS = 1_000_000;
+const THREAD_EXACT_PAYLOAD_MARKER = "__stellaExactPayloadChunks";
+const isHighSurrogate = (codeUnit) => codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+const isLowSurrogate = (codeUnit) => codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
 const payloadByteLength = (payload) =>
   rowSizeTextEncoder.encode(JSON.stringify(payload)).byteLength;
 const customMessageByteLength = (message) =>
   rowSizeTextEncoder.encode(JSON.stringify(message)).byteLength;
+const jsonByteLength = (json) => rowSizeTextEncoder.encode(json).byteLength;
+const chunkExactThreadEntryData = (exactData, boundedData) => {
+  const exactDataJson = toJsonValueString(exactData);
+  if (jsonByteLength(exactDataJson) <= THREAD_ROW_MAX_BYTES) {
+    return { data: exactData };
+  }
+  const exactChunkEnds = [];
+  for (let cursor = 0; cursor < exactDataJson.length; ) {
+    let end = Math.min(
+      exactDataJson.length,
+      cursor + THREAD_EXACT_PAYLOAD_CHUNK_CHARS,
+    );
+    if (
+      end < exactDataJson.length &&
+      isHighSurrogate(exactDataJson.charCodeAt(end - 1)) &&
+      isLowSurrogate(exactDataJson.charCodeAt(end))
+    ) {
+      end -= 1;
+    }
+    exactChunkEnds.push(end);
+    cursor = end;
+  }
+  const data = {
+    ...boundedData,
+    [THREAD_EXACT_PAYLOAD_MARKER]: {
+      version: 1,
+      chunkCount: exactChunkEnds.length,
+      byteLength: jsonByteLength(exactDataJson),
+    },
+  };
+  if (jsonByteLength(toJsonValueString(data)) > THREAD_ROW_MAX_BYTES) {
+    throw new Error("Exact thread payload metadata exceeds the SQLite row limit.");
+  }
+  return { data, exactDataJson, exactChunkEnds };
+};
 const truncatePreview = (value, maxChars = THREAD_ROW_PREVIEW_CHARS) =>
   value.length <= maxChars ? value : `${value.slice(0, maxChars)}...`;
 const truncateTextBlockForStorage = (text, label = "Text") =>
@@ -942,10 +981,28 @@ const parsePinnedUserInstruction = (details) => {
   return text ? { text } : null;
 };
 
+const parseCheckpointQuarantineKeys = (details) => {
+  const keys =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? details.quarantinedToolResultKeys
+      : undefined;
+  if (!Array.isArray(keys)) return [];
+  return [
+    ...new Set(
+      keys.flatMap((key) =>
+        typeof key === "string" && key.trim() ? [key.trim()] : [],
+      ),
+    ),
+  ];
+};
+
 const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const timestamp = Date.parse(compaction.timestamp) || Date.now();
   const residentFold = parseResidentFold(compaction.details);
   const pinnedUserInstruction = parsePinnedUserInstruction(compaction.details);
+  const checkpointQuarantineKeys = parseCheckpointQuarantineKeys(
+    compaction.details,
+  );
   if (compaction.fromEntryId && compaction.toEntryId) {
     return {
       id: compaction.id,
@@ -955,6 +1012,9 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
       timestamp,
       ...(residentFold ? { residentFold } : {}),
       ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
+      ...(checkpointQuarantineKeys.length > 0
+        ? { checkpointQuarantineKeys }
+        : {}),
     };
   }
   if (!compaction.firstKeptEntryId) {
@@ -979,6 +1039,9 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
     timestamp,
     ...(residentFold ? { residentFold } : {}),
     ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
+    ...(checkpointQuarantineKeys.length > 0
+      ? { checkpointQuarantineKeys }
+      : {}),
   };
 };
 const buildThreadCompactionOverlays = (path, rawMessages) =>
@@ -1076,6 +1139,11 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
           timestamp: overlay.timestamp,
           role: "assistant",
           content: formatThreadCheckpointMessage(overlay.summary),
+          ...(overlay.checkpointQuarantineKeys
+            ? {
+                checkpointQuarantineKeys: overlay.checkpointQuarantineKeys,
+              }
+            : {}),
         });
         // Re-emit the pinned latest-user-instruction copy carried on the
         // overlay right after its checkpoint, so the current instruction
@@ -3767,7 +3835,120 @@ export class SessionStore {
         args.timestamp,
         toJsonValueString(args.data),
       );
+    if (args.exactDataJson && args.exactChunkEnds) {
+      const insertChunk = this.db.prepare(
+        `INSERT INTO runtime_thread_entry_payload_chunks (
+           entry_id,
+           thread_key,
+           chunk_index,
+           chunk_text
+         ) VALUES (?, ?, ?, ?)`,
+      );
+      let offset = 0;
+      for (let chunkIndex = 0; chunkIndex < args.exactChunkEnds.length; chunkIndex += 1) {
+        const end = args.exactChunkEnds[chunkIndex];
+        insertChunk.run(
+          entryId,
+          args.threadKey,
+          chunkIndex,
+          args.exactDataJson.slice(offset, end),
+        );
+        offset = end;
+      }
+    }
     return entryId;
+  }
+  loadExactThreadEntryData(threadKey, entryIds) {
+    if (entryIds && entryIds.length === 0) return new Map();
+    const rows = [];
+    const batches = entryIds
+      ? Array.from({ length: Math.ceil(entryIds.length / 250) }, (_, index) =>
+          entryIds.slice(index * 250, index * 250 + 250),
+        )
+      : [null];
+    for (const batch of batches) {
+      const entryFilter = batch
+        ? ` AND chunks.entry_id IN (${batch.map(() => "?").join(", ")})`
+        : "";
+      rows.push(
+        ...this.db
+          .prepare(
+            `SELECT chunks.entry_id AS entryId,
+                    chunks.chunk_index AS chunkIndex,
+                    chunks.chunk_text AS chunkText
+             FROM runtime_thread_entry_payload_chunks chunks
+             WHERE chunks.thread_key = ?${entryFilter}
+             ORDER BY chunks.entry_id ASC, chunks.chunk_index ASC`,
+          )
+          .all(threadKey, ...(batch ?? [])),
+      );
+    }
+    const chunksByEntryId = new Map();
+    for (const row of rows) {
+      if (
+        typeof row.entryId !== "string" ||
+        typeof row.chunkText !== "string" ||
+        typeof row.chunkIndex !== "number"
+      ) {
+        continue;
+      }
+      const record = chunksByEntryId.get(row.entryId) ?? {
+        chunks: [],
+        contiguous: true,
+      };
+      if (row.chunkIndex !== record.chunks.length) {
+        record.contiguous = false;
+      }
+      record.chunks.push(row.chunkText);
+      chunksByEntryId.set(row.entryId, record);
+    }
+    return new Map(
+      [...chunksByEntryId].map(([entryId, record]) => [
+        entryId,
+        {
+          dataJson: record.chunks.join(""),
+          chunkCount: record.chunks.length,
+          contiguous: record.contiguous,
+        },
+      ]),
+    );
+  }
+  parseThreadSessionEntryRows(threadKey, rows, exactDataByEntryId) {
+    const exactData =
+      exactDataByEntryId ??
+      this.loadExactThreadEntryData(
+        threadKey,
+        rows
+          .filter(
+            (row) =>
+              typeof row.dataJson === "string" &&
+              row.dataJson.includes(`"${THREAD_EXACT_PAYLOAD_MARKER}"`),
+          )
+          .map((row) => row.entryId),
+      );
+    return rows
+      .map((row) => {
+        const exact = exactData.get(row.entryId);
+        const bounded = exact ? parseJsonValue(row.dataJson) : null;
+        const marker = bounded?.[THREAD_EXACT_PAYLOAD_MARKER];
+        const expectedChunkCount =
+          marker && typeof marker === "object"
+            ? asFiniteNumber(marker.chunkCount)
+            : null;
+        const expectedByteLength =
+          marker && typeof marker === "object"
+            ? asFiniteNumber(marker.byteLength)
+            : null;
+        const hasCompleteExactData =
+          exact?.contiguous === true &&
+          expectedChunkCount === exact.chunkCount &&
+          expectedByteLength === jsonByteLength(exact.dataJson);
+        return parseThreadSessionEntry({
+          ...row,
+          dataJson: hasCompleteExactData ? exact.dataJson : row.dataJson,
+        });
+      })
+      .filter((entry) => entry !== null);
   }
   loadThreadSessionEntries(threadKey, limit) {
     const normalizedLimit =
@@ -3794,9 +3975,7 @@ export class SessionStore {
     const rows = normalizedLimit
       ? this.db.prepare(sql).all(threadKey, normalizedLimit)
       : this.db.prepare(sql).all(threadKey);
-    return rows
-      .map((row) => parseThreadSessionEntry(row))
-      .filter((entry) => entry !== null);
+    return this.parseThreadSessionEntryRows(threadKey, rows);
   }
   findLatestRangeCompaction(threadKey) {
     const row = this.db
@@ -3842,9 +4021,11 @@ export class SessionStore {
   }
   loadThreadMessagesAfterCompaction(threadKey, compaction) {
     const loadRange = (predicate, sequence) =>
-      this.db
-        .prepare(
-          `
+      this.parseThreadSessionEntryRows(
+        threadKey,
+        this.db
+          .prepare(
+            `
       SELECT
         entry_id AS entryId,
         parent_entry_id AS parentEntryId,
@@ -3857,10 +4038,9 @@ export class SessionStore {
         AND insertion_sequence ${predicate} ?
       ORDER BY insertion_sequence ASC, rowid ASC
     `,
-        )
-        .all(threadKey, sequence)
-        .map((row) => parseThreadSessionEntry(row))
-        .filter((entry) => entry !== null);
+          )
+          .all(threadKey, sequence),
+      );
     const headEntries = loadRange("<", compaction.coveredFromSequence);
     const tailEntries = loadRange(">", compaction.coveredThroughSequence);
     const rawHead = buildRawThreadMessages(buildThreadPathEntries(headEntries));
@@ -3875,6 +4055,9 @@ export class SessionStore {
         timestamp: overlay.timestamp,
         role: "assistant",
         content: formatThreadCheckpointMessage(overlay.summary),
+        ...(overlay.checkpointQuarantineKeys
+          ? { checkpointQuarantineKeys: overlay.checkpointQuarantineKeys }
+          : {}),
       },
       ...(overlay.pinnedUserInstruction
         ? [
@@ -3899,46 +4082,79 @@ export class SessionStore {
       : messages;
   }
   appendThreadMessage(message) {
-    const threadKey = normalizeRuntimeThreadId(message.threadKey);
+    this.appendThreadMessages([message]);
+  }
+  appendThreadMessages(messages) {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    const threadKey = normalizeRuntimeThreadId(messages[0].threadKey);
     if (!threadKey) {
       throw new Error("threadKey is required.");
     }
+    const prepared = messages.map((message) => {
+      if (normalizeRuntimeThreadId(message.threadKey) !== threadKey) {
+        throw new Error("All thread messages in a batch must use the same threadKey.");
+      }
+      const fallbackPayload = buildFallbackThreadPayload(message);
+      const boundedPayload = enforceThreadPayloadRowSizeLimit(fallbackPayload);
+      const storage =
+        message.preservePayloadExactly === true
+          ? chunkExactThreadEntryData(
+              { message: fallbackPayload },
+              { message: boundedPayload },
+            )
+          : { data: { message: boundedPayload } };
+      return {
+        message,
+        payload: fallbackPayload,
+        storage,
+      };
+    });
     const conversationId = this.getThreadConversationId(threadKey);
-    const payload = enforceThreadPayloadRowSizeLimit(
-      buildFallbackThreadPayload(message),
-    );
-    let entryId = "";
+    const appended = [];
     this.withImmediateTransaction(() => {
-      this.upsertSession(conversationId, message.timestamp);
-      const threadSession = this.ensureThreadSession(
-        threadKey,
-        conversationId,
-        message.timestamp,
-      );
-      entryId = this.appendThreadSessionEntry({
-        threadKey,
-        sessionId: threadSession.sessionId,
-        entryType: "message",
-        timestamp: message.timestamp,
-        data: {
-          message: payload,
-        },
-      });
+      for (const { message, payload, storage } of prepared) {
+        this.upsertSession(conversationId, message.timestamp);
+        const threadSession = this.ensureThreadSession(
+          threadKey,
+          conversationId,
+          message.timestamp,
+        );
+        const entryId = this.appendThreadSessionEntry({
+          threadKey,
+          sessionId: threadSession.sessionId,
+          entryType: "message",
+          timestamp: message.timestamp,
+          data: storage.data,
+          ...(storage.exactDataJson
+            ? {
+                exactDataJson: storage.exactDataJson,
+                exactChunkEnds: storage.exactChunkEnds,
+              }
+            : {}),
+        });
+        appended.push({ entryId, message, payload });
+      }
       this.touchThread(threadKey);
     });
-    if (entryId) {
-      this.options.onThreadTranscriptUpdate?.({
-        conversationId,
-        transcriptUpdate: {
-          source: "stella",
-          threadId: threadKey,
-          entryId,
-          atMs: message.timestamp,
-        },
-      });
-    }
-    if (payload.role === "assistant") {
-      this.emitThreadAssistantUpdate(threadKey, message.timestamp);
+    for (const { entryId, message, payload } of appended) {
+      if (!entryId) continue;
+      try {
+        this.options.onThreadTranscriptUpdate?.({
+          conversationId,
+          transcriptUpdate: {
+            source: "stella",
+            threadId: threadKey,
+            entryId,
+            atMs: message.timestamp,
+          },
+        });
+        if (payload.role === "assistant") {
+          this.emitThreadAssistantUpdate(threadKey, message.timestamp);
+        }
+      } catch {
+        // The transaction already committed. Notification failures must not
+        // make the caller retry and duplicate a durably appended turn group.
+      }
     }
   }
   appendThreadCustomMessage(message) {
@@ -3950,12 +4166,17 @@ export class SessionStore {
     if (!customType) {
       throw new Error("customType is required.");
     }
-    const boundedMessage = enforceCustomMessageRowSizeLimit({
+    const exactMessage = {
       customType,
       content: message.content,
       display: message.display,
       ...(message.eventId?.trim() ? { eventId: message.eventId.trim() } : {}),
-    });
+    };
+    const boundedMessage = enforceCustomMessageRowSizeLimit(exactMessage);
+    const storage =
+      message.preservePayloadExactly === true
+        ? chunkExactThreadEntryData(exactMessage, boundedMessage)
+        : { data: boundedMessage };
     const conversationId = this.getThreadConversationId(threadKey);
     this.withImmediateTransaction(() => {
       this.upsertSession(conversationId, message.timestamp);
@@ -3969,14 +4190,13 @@ export class SessionStore {
         sessionId: threadSession.sessionId,
         entryType: "custom_message",
         timestamp: message.timestamp,
-        data: {
-          customType: boundedMessage.customType,
-          content: boundedMessage.content,
-          display: boundedMessage.display,
-          ...(boundedMessage.eventId
-            ? { eventId: boundedMessage.eventId }
-            : {}),
-        },
+        data: storage.data,
+        ...(storage.exactDataJson
+          ? {
+              exactDataJson: storage.exactDataJson,
+              exactChunkEnds: storage.exactChunkEnds,
+            }
+          : {}),
       });
       this.touchThread(threadKey);
     });
@@ -4075,6 +4295,28 @@ export class SessionStore {
         this.loadThreadSessionEntries(threadKey, limit),
       )
     ).map((message) => ({
+      ...(message.entryId ? { entryId: message.entryId } : {}),
+      timestamp: message.timestamp,
+      role: message.role,
+      content: message.content,
+      ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
+      ...(message.payload ? { payload: message.payload } : {}),
+      ...(message.customMessage
+        ? { customMessage: message.customMessage }
+        : {}),
+      ...(message.checkpointQuarantineKeys
+        ? {
+            checkpointQuarantineKeys: message.checkpointQuarantineKeys,
+          }
+        : {}),
+    }));
+  }
+  loadRawThreadMessages(threadKeyInput) {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    if (!threadKey) {
+      throw new Error("threadKey is required.");
+    }
+    return buildRawThreadMessages(buildThreadPathEntries(this.loadThreadSessionEntries(threadKey))).map((message) => ({
       ...(message.entryId ? { entryId: message.entryId } : {}),
       timestamp: message.timestamp,
       role: message.role,

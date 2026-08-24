@@ -5,7 +5,10 @@ import {
   createRuntimePromptAgentMessage,
   prepareRuntimeAttachments,
 } from "../agent-runtime/run-preparation.js";
-import { persistThreadPayloadMessage } from "../agent-runtime/thread-memory.js";
+import {
+  persistThreadCustomMessage,
+  persistThreadPayloadMessage,
+} from "../agent-runtime/thread-memory.js";
 import { decorateUserTranscriptContent } from "../agent-runtime/transcript-decoration.js";
 import { buildRuntimeThreadKey } from "../thread-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
@@ -68,6 +71,22 @@ export const matchesSteerableOrchestratorSession = (args: {
   // context must stay in-order and the user steer joins that same live turn.
   return true;
 };
+
+export const buildRuntimeSendPromptMessage = (
+  input: Pick<
+    RuntimeSendMessageInput,
+    "customType" | "display" | "timestamp"
+  >,
+  text: string,
+): NonNullable<ChatPayload["promptMessages"]>[number] => ({
+  text,
+  messageType: "message",
+  customType: input.customType ?? "runtime.send_message",
+  ...(input.display !== undefined ? { display: input.display } : {}),
+  ...(typeof input.timestamp === "number" && Number.isFinite(input.timestamp)
+    ? { timestamp: input.timestamp }
+    : {}),
+});
 
 export const createOrchestratorController = (
   context: RunnerContext,
@@ -330,6 +349,7 @@ export const createOrchestratorController = (
       persistThreadPayloadMessage(context.runtimeStore, {
         threadKey: session.threadKey,
         payload,
+        preservePayloadExactly: true,
       });
     }
     return payload;
@@ -396,6 +416,7 @@ export const createOrchestratorController = (
         persistThreadPayloadMessage(context.runtimeStore, {
           threadKey: args.session.threadKey,
           payload: message,
+          preservePayloadExactly: true,
         });
       }
       // All live communication is steering. Native agents consume it at their
@@ -516,16 +537,28 @@ export const createOrchestratorController = (
       input.agentType,
     );
     if (liveSession) {
-      const timestamp = Date.now();
+      const promptMessage = buildRuntimeSendPromptMessage(input, text);
       const message = createRuntimePromptAgentMessage(
-        {
-          text,
-          messageType: "message",
-          customType: input.customType ?? "runtime.send_message",
-          ...(input.display !== undefined ? { display: input.display } : {}),
-        },
-        timestamp,
+        promptMessage,
+        promptMessage.timestamp ?? Date.now(),
       );
+      if (
+        message.role === "runtimeInternal" &&
+        message.customType &&
+        message.customType !== "runtime.task_lifecycle"
+      ) {
+        persistThreadCustomMessage(context.runtimeStore, {
+          threadKey: liveSession.threadKey,
+          customType: message.customType,
+          content: message.content,
+          display: message.display === true,
+          timestamp: message.timestamp,
+          preservePayloadExactly: true,
+        });
+        context.state.orchestratorSessions
+          .get(input.conversationId)
+          ?.notifyHistoryChanged();
+      }
       liveSession.queueMessage(message, delivery);
       return;
     }
@@ -535,12 +568,7 @@ export const createOrchestratorController = (
       queueOrchestratorTurn,
       execute: async () => {
         const promptMessages: NonNullable<ChatPayload["promptMessages"]> = [
-          {
-            text,
-            messageType: "message",
-            customType: input.customType ?? "runtime.send_message",
-            ...(input.display !== undefined ? { display: input.display } : {}),
-          },
+          buildRuntimeSendPromptMessage(input, text),
         ];
         await startStreamingOrchestratorTurn(
           {

@@ -318,6 +318,9 @@ export const createRuntimeAgent = (args) => {
       return transformed;
     },
     onProviderRetry: args.onProviderRetry,
+    onTurnBoundary: args.onTurnBoundary
+      ? async (context, signal) => await args.onTurnBoundary?.(context, signal)
+      : undefined,
     afterToolCall: args.afterToolCall
       ? async (context, signal) => await args.afterToolCall?.(context, signal)
       : undefined,

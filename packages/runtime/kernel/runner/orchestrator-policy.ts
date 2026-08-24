@@ -38,8 +38,8 @@ const normalizeAttachments = (
     ? attachments.filter((attachment): attachment is RuntimeAttachmentRef =>
         Boolean(
           attachment &&
-            typeof attachment.url === "string" &&
-            attachment.url.trim().length > 0,
+          typeof attachment.url === "string" &&
+          attachment.url.trim().length > 0,
         ),
       )
     : [];
@@ -102,8 +102,8 @@ export const normalizeChatRunInput = (
           ): message is NonNullable<ChatPayload["promptMessages"]>[number] =>
             Boolean(
               message &&
-                typeof message.text === "string" &&
-                message.text.trim().length > 0,
+              typeof message.text === "string" &&
+              message.text.trim().length > 0,
             ),
         )
         .map((message) => ({
@@ -112,6 +112,17 @@ export const normalizeChatRunInput = (
             ? { uiVisibility: message.uiVisibility }
             : {}),
           ...(message.messageType ? { messageType: message.messageType } : {}),
+          ...(typeof message.customType === "string" &&
+          message.customType.trim()
+            ? { customType: message.customType.trim() }
+            : {}),
+          ...(typeof message.display === "boolean"
+            ? { display: message.display }
+            : {}),
+          ...(typeof message.timestamp === "number" &&
+          Number.isFinite(message.timestamp)
+            ? { timestamp: message.timestamp }
+            : {}),
         }))
     : undefined,
   attachments: normalizeAttachments(payload.attachments),

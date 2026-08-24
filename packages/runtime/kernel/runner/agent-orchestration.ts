@@ -77,23 +77,31 @@ const collectProducedFiles = (
   }
 };
 
-const hasPersistedThreadCustomEvent = (
+const findPersistedThreadCustomEvent = (
   context: RunnerContext,
   threadKey: string,
   eventId: string | undefined,
-): boolean => {
-  if (!eventId) return false;
-  const loadThreadMessages = context.runtimeStore.loadThreadMessages;
-  if (typeof loadThreadMessages !== "function") return false;
+): { timestamp: number } | null => {
+  if (!eventId) return null;
+  const loadThreadMessages =
+    context.runtimeStore.loadRawThreadMessages ??
+    context.runtimeStore.loadThreadMessages;
+  if (typeof loadThreadMessages !== "function") return null;
   return loadThreadMessages
     .call(context.runtimeStore, threadKey)
-    .some((message) => {
+    .find((message) => {
       if (message.customMessage?.customType !== "runtime.task_lifecycle") {
         return false;
       }
       return message.customMessage.eventId === eventId;
-    });
+    }) ?? null;
 };
+
+const hasPersistedThreadCustomEvent = (
+  context: RunnerContext,
+  threadKey: string,
+  eventId: string | undefined,
+): boolean => findPersistedThreadCustomEvent(context, threadKey, eventId) !== null;
 
 const getShellExecutionState = (
   result: ToolResult,
@@ -308,6 +316,7 @@ export const createAgentOrchestration = (
       responseTarget?: import("@stella/contracts/protocol").RuntimeAgentEventPayload["responseTarget"];
       customType?: string;
       display?: boolean;
+      timestamp?: number;
     }) => Promise<void>;
     /** Test/embedding override; production uses the manager's bounded default. */
     attemptTeardownTimeoutMs?: number;
@@ -428,22 +437,28 @@ export const createAgentOrchestration = (
     const orchestratorThreadKey = resolveOrchestratorThreadKey(
       event.conversationId,
     );
-    if (
-      !hasPersistedThreadCustomEvent(
-        context,
-        orchestratorThreadKey,
-        event.eventId,
-      )
-    ) {
+    const persistedLifecycleMessage = findPersistedThreadCustomEvent(
+      context,
+      orchestratorThreadKey,
+      event.eventId,
+    );
+    // A replay after persistence but before delivery must reuse the durable
+    // row's timestamp so the live prompt can be reconciled with that exact row.
+    const lifecycleTimestamp = persistedLifecycleMessage?.timestamp ?? Date.now();
+    if (!persistedLifecycleMessage) {
       persistThreadCustomMessage(context.runtimeStore, {
         threadKey: orchestratorThreadKey,
         customType: "runtime.task_lifecycle",
         content: [{ type: "text", text: userPrompt }],
         display: false,
-        timestamp: Date.now(),
+        timestamp: lifecycleTimestamp,
         ...(event.eventId ? { eventId: event.eventId } : {}),
+        preservePayloadExactly: true,
       });
     }
+    context.state.orchestratorSessions
+      .get(event.conversationId)
+      ?.notifyHistoryChanged();
     // Two-phase Dream-inbox stamp, phase 2 (persist-time invariant): the
     // terminal report is now durably in this conversation's orchestrator
     // thread — the exact premise mechanical delta consumption relies on —
@@ -481,6 +496,7 @@ export const createAgentOrchestration = (
       callbackRunId: event.rootRunId,
       customType: "runtime.task_lifecycle",
       display: false,
+      timestamp: lifecycleTimestamp,
       responseTarget: createAgentLifecycleResponseTarget({
         agentId: event.agentId,
         eventType: event.type,

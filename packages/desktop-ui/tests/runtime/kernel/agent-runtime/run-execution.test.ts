@@ -1,5 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
-import { executeRuntimeAgentPrompt } from "@stella/runtime/kernel/agent-runtime/run-execution";
+import {
+  executeRuntimeAgentPrompt,
+  isDurablyPersistedRuntimePromptInput,
+} from "@stella/runtime/kernel/agent-runtime/run-execution";
+import { Agent } from "@stella/runtime/kernel/agent-core/agent";
+import type { AgentTool } from "@stella/runtime/kernel/agent-core/types";
+import type { Api, Model } from "@stella/runtime/ai/types";
+import { createAssistantMessageEventStream } from "@stella/runtime/ai/utils/event-stream";
+
+const model = {
+  id: "run-execution-test",
+  name: "Run execution test",
+  api: "openai-completions",
+  provider: "test",
+  baseUrl: "https://example.test",
+  reasoning: false,
+  input: ["text"],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 128_000,
+  maxTokens: 4_096,
+} as Model<Api>;
 
 const createAssistantMessage = (text: string) => ({
   role: "assistant" as const,
@@ -25,9 +45,226 @@ const createAssistantMessage = (text: string) => ({
   timestamp: 1,
 });
 
+const createTurnEndingAgent = (
+  assistant: ReturnType<typeof createAssistantMessage>,
+) => {
+  const listeners = new Set<(event: unknown) => void>();
+  const agent = {
+    state: { messages: [] as Array<ReturnType<typeof createAssistantMessage>> },
+    subscribe: (listener: (event: unknown) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    prompt: vi.fn(async () => {
+      agent.state.messages = [assistant];
+      for (const listener of listeners) {
+        listener({ type: "message_end", message: assistant });
+        listener({ type: "turn_end", message: assistant, toolResults: [] });
+      }
+    }),
+    followUp: vi.fn(),
+    continue: vi.fn(),
+    abort: vi.fn(),
+  };
+  return agent;
+};
+
 describe("executeRuntimeAgentPrompt", () => {
   const validPng =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+  it("recovers one transient atomic assistant/tool-group persistence error", async () => {
+    const onThreadPersistenceError = vi.fn();
+    const onThreadPersistenceRecovered = vi.fn();
+    const appendThreadMessages = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("injected SQLite failure");
+      });
+    const assistant = createAssistantMessage("done");
+    const agent = createTurnEndingAgent(assistant);
+
+    await expect(
+      executeRuntimeAgentPrompt({
+        agent,
+        promptMessages: [{ text: "transient", messageType: "message" }],
+        runId: "run-persistence-failure",
+        agentType: "orchestrator",
+        userMessageId: "msg-persistence-failure",
+        recorder: {
+          recordAssistantMessageEnd: vi.fn(() => undefined),
+        } as never,
+        threadStore: {
+          appendThreadMessages,
+        } as never,
+        threadKey: "thread-persistence-failure",
+        onThreadPersistenceError,
+        onThreadPersistenceRecovered,
+      }),
+    ).resolves.toMatchObject({ finalText: "done" });
+    expect(onThreadPersistenceError).toHaveBeenCalledOnce();
+    expect(onThreadPersistenceRecovered).toHaveBeenCalledOnce();
+    expect(appendThreadMessages).toHaveBeenCalledTimes(2);
+    expect(agent.abort).not.toHaveBeenCalled();
+  });
+
+  it("continues the provider tool loop after a transient persistence retry", async () => {
+    const toolAssistant = {
+      ...createAssistantMessage(""),
+      content: [
+        {
+          type: "toolCall" as const,
+          id: "tool-call-1",
+          name: "exec_command",
+          arguments: {},
+        },
+      ],
+      stopReason: "toolUse" as const,
+    };
+    const finalAssistant = createAssistantMessage("finished");
+    const responses = [toolAssistant, finalAssistant];
+    const streamFn = vi.fn(() => {
+      const stream = createAssistantMessageEventStream();
+      const message = responses[streamFn.mock.calls.length - 1]!;
+      stream.push({ type: "start", partial: message });
+      stream.push({ type: "done", message });
+      return stream;
+    });
+    const tool = {
+      name: "exec_command",
+      label: "Exec",
+      description: "test tool",
+      parameters: { type: "object", properties: {} } as never,
+      execute: vi.fn(async () => ({
+        content: [{ type: "text" as const, text: "ok" }],
+        details: {},
+      })),
+    } as AgentTool;
+    const agent = new Agent({
+      initialState: { model, tools: [tool] },
+      streamFn,
+    });
+    const abort = vi.spyOn(agent, "abort");
+    const appendThreadMessages = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("injected SQLite failure");
+      });
+    const recorder = {
+      recordQueuedUserMessageStart: vi.fn(() => null),
+      recordAssistantMessageEnd: vi.fn(() => null),
+      recordToolStart: vi.fn(() => ({})),
+      recordToolEnd: vi.fn(() => ({ resultPreview: "ok" })),
+      recordStatus: vi.fn(() => ({})),
+    };
+
+    await expect(
+      executeRuntimeAgentPrompt({
+        agent,
+        promptMessages: [{ text: "run", messageType: "message" }],
+        runId: "run-persistence-continuation",
+        agentType: "orchestrator",
+        userMessageId: "msg-persistence-continuation",
+        recorder: recorder as never,
+        threadStore: { appendThreadMessages } as never,
+        threadKey: "thread-persistence-continuation",
+      }),
+    ).resolves.toMatchObject({ finalText: "finished" });
+    expect(streamFn).toHaveBeenCalledTimes(2);
+    expect(tool.execute).toHaveBeenCalledOnce();
+    expect(appendThreadMessages).toHaveBeenCalledTimes(3);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when atomic assistant/tool-group persistence cannot recover", async () => {
+    const onThreadPersistenceError = vi.fn();
+    const onThreadPersistenceRecovered = vi.fn();
+    const appendThreadMessages = vi.fn(() => {
+      throw new Error("persistent SQLite failure");
+    });
+    const agent = createTurnEndingAgent(createAssistantMessage("done"));
+
+    await expect(
+      executeRuntimeAgentPrompt({
+        agent,
+        promptMessages: [{ text: "transient", messageType: "message" }],
+        runId: "run-persistent-failure",
+        agentType: "orchestrator",
+        userMessageId: "msg-persistent-failure",
+        recorder: {
+          recordAssistantMessageEnd: vi.fn(() => undefined),
+        } as never,
+        threadStore: { appendThreadMessages } as never,
+        threadKey: "thread-persistent-failure",
+        onThreadPersistenceError,
+        onThreadPersistenceRecovered,
+      }),
+    ).rejects.toThrow(
+      "Failed to persist complete assistant/tool group: persistent SQLite failure",
+    );
+    expect(onThreadPersistenceError).toHaveBeenCalledOnce();
+    expect(onThreadPersistenceRecovered).not.toHaveBeenCalled();
+    expect(appendThreadMessages).toHaveBeenCalledTimes(2);
+    expect(agent.abort).toHaveBeenCalledOnce();
+  });
+
+  it("classifies durable and one-shot internal prompts for page-in", () => {
+    expect(
+      isDurablyPersistedRuntimePromptInput({
+        text: "transient reminder",
+        messageType: "message",
+        customType: "runtime.orchestrator_reminder",
+      }),
+    ).toBe(true);
+    expect(
+      isDurablyPersistedRuntimePromptInput({
+        text: "durable context delta",
+        messageType: "message",
+        customType: "runtime.context_delta.tools",
+      }),
+    ).toBe(true);
+    expect(
+      isDurablyPersistedRuntimePromptInput({
+        text: "already persisted child report",
+        messageType: "message",
+        customType: "runtime.task_lifecycle",
+      }),
+    ).toBe(true);
+    expect(
+      isDurablyPersistedRuntimePromptInput({
+        text: "reply to the already-persisted follow-up",
+        messageType: "message",
+        customType: "runtime.queued_message_reply",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not dispatch a provider prompt for an already-aborted signal", async () => {
+    const abortController = new AbortController();
+    abortController.abort(new Error("Canceled before dispatch"));
+    const agent = {
+      state: { messages: [] },
+      subscribe: vi.fn(() => () => {}),
+      prompt: vi.fn(),
+      followUp: vi.fn(),
+      continue: vi.fn(),
+      abort: vi.fn(),
+    };
+
+    await expect(
+      executeRuntimeAgentPrompt({
+        agent,
+        promptText: "must not be sent",
+        runId: "run-pre-aborted",
+        agentType: "orchestrator",
+        userMessageId: "msg-pre-aborted",
+        recorder: {} as never,
+        abortSignal: abortController.signal,
+      }),
+    ).rejects.toThrow("Canceled before dispatch");
+    expect(agent.prompt).not.toHaveBeenCalled();
+    expect(agent.subscribe).not.toHaveBeenCalled();
+  });
 
   it("does not persist or emit internal message prompts", async () => {
     const appendThreadMessage = vi.fn();
@@ -76,6 +313,76 @@ describe("executeRuntimeAgentPrompt", () => {
     expect(appendThreadMessage).not.toHaveBeenCalled();
     expect(appendThreadCustomMessage).not.toHaveBeenCalled();
     expect(onUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not duplicate a pre-persisted task lifecycle prompt", async () => {
+    const appendThreadCustomMessage = vi.fn();
+    const priorAssistant = createAssistantMessage("previous turn");
+    const durableLifecycleMessage = {
+      role: "runtimeInternal" as const,
+      content: [{ type: "text" as const, text: "[Agent completed]" }],
+      timestamp: 123,
+      customType: "runtime.task_lifecycle",
+      display: false,
+    };
+    const olderMatchingLifecycleMessage = {
+      ...durableLifecycleMessage,
+      timestamp: 122,
+    };
+    const agent = {
+      state: {
+        messages: [
+          olderMatchingLifecycleMessage,
+          priorAssistant,
+          durableLifecycleMessage,
+        ] as Array<
+          ReturnType<typeof createAssistantMessage> | typeof durableLifecycleMessage
+        >,
+      },
+      subscribe: () => () => {},
+      prompt: vi.fn(async (messages: Array<typeof durableLifecycleMessage>) => {
+        expect(agent.state.messages).toEqual([
+          olderMatchingLifecycleMessage,
+          priorAssistant,
+        ]);
+        agent.state.messages = [
+          olderMatchingLifecycleMessage,
+          priorAssistant,
+          ...messages,
+          createAssistantMessage("done"),
+        ];
+      }),
+      followUp: vi.fn(),
+      continue: vi.fn(),
+      abort: vi.fn(),
+    };
+
+    await executeRuntimeAgentPrompt({
+      agent,
+      promptMessages: [{
+        text: "[Agent completed]",
+        uiVisibility: "hidden",
+        messageType: "message",
+        customType: "runtime.task_lifecycle",
+        display: false,
+        timestamp: 123,
+      }],
+      runId: "run-task-lifecycle",
+      agentType: "orchestrator",
+      userMessageId: "msg-task-lifecycle",
+      recorder: {} as never,
+      callbacks: {},
+      threadStore: { appendThreadCustomMessage } as never,
+      threadKey: "thread-task-lifecycle",
+    });
+
+    expect(appendThreadCustomMessage).not.toHaveBeenCalled();
+    expect(agent.prompt).toHaveBeenCalledWith([durableLifecycleMessage]);
+    expect(
+      agent.state.messages.filter(
+        (message) => message.role === "runtimeInternal",
+      ),
+    ).toEqual([olderMatchingLifecycleMessage, durableLifecycleMessage]);
   });
 
   it("keeps persisting and emitting user prompt messages", async () => {

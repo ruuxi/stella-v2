@@ -29,6 +29,7 @@ export const AGENT_RUN_RETRY_JITTER_RATIO = 0.1;
 
 export const EMPTY_AGENT_RUN_ERROR =
   "The model ended the turn without a user-visible reply.";
+export const THREAD_PERSISTENCE_ERROR_CODE = "STELLA_THREAD_PERSISTENCE";
 
 export type AgentRunFailureCategory =
   | "http_5xx"
@@ -194,6 +195,9 @@ export const classifyAgentRunFailure = (
 
   if (options?.signal?.aborted || isExplicitCancellation(message)) {
     return { category: "canceled", message, retryable: false };
+  }
+  if (code === THREAD_PERSISTENCE_ERROR_CODE) {
+    return { category: "non_retryable", message, retryable: false };
   }
   if (isAuthFailure(message, status)) {
     return { category: "auth", message, retryable: false };

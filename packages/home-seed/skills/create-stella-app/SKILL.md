@@ -81,6 +81,67 @@ Vite HMR; the built `dist/` directory is validation output, not the live
 discovery protocol. Do not start a second manual dev server unless you are
 explicitly debugging the project outside Stella.
 
+### Apps with multiple processes
+
+The metadata-only manifest remains the default and is fully backward
+compatible. When an app needs its own API, worker, or other cooperating local
+service, declare the complete process set in the optional `runtime` block:
+
+```json
+{
+  "schemaVersion": 1,
+  "slug": "local-dashboard",
+  "name": "Local Dashboard",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "runtime": {
+    "frontend": "web",
+    "processes": [
+      {
+        "id": "api",
+        "command": "bun",
+        "args": ["run", "api"],
+        "port": "auto",
+        "readiness": { "type": "http", "path": "/health" }
+      },
+      {
+        "id": "web",
+        "command": "bun",
+        "args": [
+          "x",
+          "vite",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "${PORT}",
+          "--strictPort"
+        ],
+        "port": "auto",
+        "readiness": { "type": "http", "path": "/" }
+      }
+    ]
+  }
+}
+```
+
+Processes start and become ready in declaration order. Stella opens only the
+declared frontend after every process is ready. A failed launch rolls back all
+processes, and app stop or Stella shutdown terminates every process tree.
+Repeated start and stop requests are idempotent.
+
+Commands are spawned directly without a shell. `"bun"` selects Stella's
+bundled Bun. A process with `"port": "auto"` receives `PORT` and
+`STELLA_APP_PORT`; arguments can reference `${PORT}`. Every process also
+receives stable sibling values such as `STELLA_APP_PORT_API` and
+`STELLA_APP_URL_API`. Process ids are lowercase slugs and become uppercase
+with hyphens changed to underscores in those environment names. Use HTTP
+readiness for a health endpoint, TCP readiness for a listening socket, or
+process readiness only for workers that have no port.
+
+A process that needs more than one socket can add named TCP or UDP ports, for
+example `"ports": [{ "id": "rtc-udp", "protocol": "udp" }]`. The process
+receives `STELLA_APP_PORT_RTC_UDP`, and siblings receive the fully qualified
+`STELLA_APP_PORT_<PROCESS>_RTC_UDP` name.
+
 ## Project boundaries
 
 - Work only inside the generated app directory.
